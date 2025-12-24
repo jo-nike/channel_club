@@ -1,0 +1,82 @@
+# generated: 2025-12-23
+# project: iptv_viewer2
+# project_key: iptv_viewer2
+# tracking_system: file-system
+# story_location: /home/jon/Code/iptv_viewer2/_bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - SM typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+
+generated: 2025-12-23
+project: iptv_viewer2
+project_key: iptv_viewer2
+tracking_system: file-system
+story_location: /home/jon/Code/iptv_viewer2/_bmad-output/implementation-artifacts
+
+development_status:
+  # Epic 1: Project Foundation & Authentication
+  epic-1: in-progress
+  1-1-project-scaffolding-development-environment: review
+  1-2-jwt-authentication-backend: review
+  1-3-login-ui-auth-state-management: review
+  1-4-protected-routes-role-based-access: review
+  epic-1-retrospective: optional
+
+  # Epic 2: Channel Browsing & Video Playback
+  epic-2: backlog
+  2-1-dispatcharr-channel-api-proxy: backlog
+  2-2-channel-list-ui-component: backlog
+  2-3-video-player-with-hls-support: backlog
+  2-4-stream-playback-error-recovery: backlog
+  epic-2-retrospective: optional
+
+  # Epic 3: Admin Channel Control & Real-Time Sync
+  epic-3: backlog
+  3-1-channel-state-management-backend: backlog
+  3-2-websocket-server-infrastructure: backlog
+  3-3-admin-channel-selection-ui: backlog
+  3-4-websocket-client-auto-sync: backlog
+  3-5-connection-status-auto-reconnect: backlog
+  epic-3-retrospective: optional
+
+  # Epic 4: Responsive & 10-Foot UI Experience
+  epic-4: backlog
+  4-1-responsive-layout-system: backlog
+  4-2-10-foot-tv-ui-adaptation: backlog
+  4-3-keyboard-d-pad-navigation: backlog
+  4-4-auto-hide-video-controls: backlog
+  4-5-loading-buffering-states: backlog
+  epic-4-retrospective: optional
+
+  # Epic 5: Production Deployment
+  epic-5: backlog
+  5-1-docker-container-build: backlog
+  5-2-docker-compose-environment-configuration: backlog
+  5-3-npm-proxy-configuration-ssl: backlog
+  epic-5-retrospective: optional

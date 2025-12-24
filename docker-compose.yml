@@ -1,0 +1,20 @@
+# Docker Compose for IPTV Viewer
+# Placeholder - to be implemented in Epic 5
+
+version: '3.8'
+
+services:
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://backend:8000/api
+      - VITE_WS_URL=ws://backend:8000/api/ws
+
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env

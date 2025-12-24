@@ -1,0 +1,64 @@
+import { useAuthStore } from '@/stores/authStore'
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
+
+export interface LoginRequest {
+  username: string
+  password: string
+}
+
+export interface TokenResponse {
+  accessToken: string
+  tokenType: string
+  role: 'admin' | 'viewer'
+}
+
+export async function login(credentials: LoginRequest): Promise<TokenResponse> {
+  const response = await fetch(`${API_URL}/auth/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(credentials),
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Login failed' }))
+    throw new Error(error.detail || 'Invalid credentials')
+  }
+
+  return response.json()
+}
+
+export async function fetchWithAuth(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<Response> {
+  const token = localStorage.getItem('token')
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...((options.headers as Record<string, string>) || {}),
+  }
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+
+  const response = await fetch(`${API_URL}${endpoint}`, {
+    ...options,
+    headers,
+  })
+
+  // Handle 401 - unauthorized
+  if (response.status === 401) {
+    // Clear auth state and redirect to login
+    useAuthStore.getState().logout()
+    throw new Error('Session expired')
+  }
+
+  return response
+}
+
+export async function healthCheck(): Promise<{ status: string }> {
+  const response = await fetch(`${API_URL}/health`)
+  return response.json()
+}
