@@ -122,6 +122,131 @@
   }
 }
 
+/* ============================
+   10-FOOT TV UI MODE STYLES
+   ============================ */
+
+/* TV Mode Variables and Base Styles */
+.tv-mode {
+  /* Typography - larger for viewing from couch (NFR13: 24px min body text) */
+  --tv-text-base: 24px;
+  --tv-text-lg: 28px;
+  --tv-text-xl: 32px;
+  --tv-text-2xl: 40px;
+  --tv-text-3xl: 48px;
+
+  /* Spacing - more generous for TV */
+  --tv-spacing-base: 1.5rem;
+
+  /* Focus ring - extra visible for 10-foot viewing (4px ring) */
+  --tv-focus-ring-width: 4px;
+  --tv-focus-ring-color: oklch(0.7 0.15 250);
+  --tv-focus-ring-offset: 4px;
+
+  /* Minimum touch/focus target (NFR12: 44px min, we use 48px for TV) */
+  --tv-min-target-size: 48px;
+}
+
+/* Apply TV mode typography to body */
+.tv-mode,
+.tv-mode body {
+  font-size: var(--tv-text-base, 24px);
+  line-height: 1.5;
+}
+
+/* Heading scales for TV mode */
+.tv-mode h1,
+.tv-mode .text-3xl {
+  font-size: var(--tv-text-3xl, 48px);
+}
+
+.tv-mode h2,
+.tv-mode .text-2xl {
+  font-size: var(--tv-text-2xl, 40px);
+}
+
+.tv-mode h3,
+.tv-mode .text-xl {
+  font-size: var(--tv-text-xl, 32px);
+}
+
+.tv-mode h4,
+.tv-mode .text-lg {
+  font-size: var(--tv-text-lg, 28px);
+}
+
+/* Ensure all text is at least 24px in TV mode */
+.tv-mode p,
+.tv-mode span,
+.tv-mode label,
+.tv-mode li {
+  font-size: max(var(--tv-text-base, 24px), inherit);
+}
+
+/* ============================
+   FOCUS INDICATORS (NFR14)
+   ============================ */
+
+/* Enhanced focus states for TV - visible from 10 feet */
+.tv-mode *:focus-visible {
+  outline: var(--tv-focus-ring-width, 4px) solid var(--tv-focus-ring-color, oklch(0.7 0.15 250));
+  outline-offset: var(--tv-focus-ring-offset, 4px);
+}
+
+/* Scale transform on focus for interactive elements */
+.tv-mode button:focus-visible,
+.tv-mode [role="button"]:focus-visible,
+.tv-mode a:focus-visible {
+  transform: scale(1.02);
+  z-index: 1;
+}
+
+/* ============================
+   BUTTON & INTERACTIVE SIZING (NFR12)
+   ============================ */
+
+/* Large buttons in TV mode - minimum 48px */
+.tv-mode button,
+.tv-mode [role="button"],
+.tv-mode input[type="submit"],
+.tv-mode input[type="button"] {
+  min-height: var(--tv-min-target-size, 48px);
+  min-width: var(--tv-min-target-size, 48px);
+  font-size: var(--tv-text-lg, 28px);
+  padding: 0.75rem 1.5rem;
+}
+
+/* Input fields in TV mode */
+.tv-mode input[type="text"],
+.tv-mode input[type="password"],
+.tv-mode input[type="email"],
+.tv-mode select,
+.tv-mode textarea {
+  min-height: var(--tv-min-target-size, 48px);
+  font-size: var(--tv-text-base, 24px);
+  padding: 0.75rem 1rem;
+}
+
+/* ============================
+   CHANNEL LIST TV OPTIMIZATION
+   ============================ */
+
+/* Channel list items - larger for TV */
+.tv-mode .channel-item {
+  min-height: 64px;
+  padding: 1rem 1.5rem;
+  font-size: var(--tv-text-base, 24px);
+}
+
+.tv-mode .channel-item:focus-visible {
+  transform: scale(1.02);
+  z-index: 1;
+}
+
+/* ============================
+   VIDSTACK VIDEO PLAYER
+   ============================ */
+
 /* Vidstack Video Player - 10-Foot UI Customization */
 .video-player-container {
   /* Larger button sizes for TV remotes/10-foot UI */

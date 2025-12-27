@@ -8,6 +8,7 @@ describe('authStore', () => {
       token: null,
       role: null,
       isAuthenticated: false,
+      isInitializing: true,
     })
     vi.clearAllMocks()
   })
@@ -26,6 +27,11 @@ describe('authStore', () => {
     it('should not be authenticated initially', () => {
       const state = useAuthStore.getState()
       expect(state.isAuthenticated).toBe(false)
+    })
+
+    it('should be initializing initially', () => {
+      const state = useAuthStore.getState()
+      expect(state.isInitializing).toBe(true)
     })
   })
 
@@ -86,6 +92,7 @@ describe('authStore', () => {
       expect(state.token).toBe('stored-token')
       expect(state.role).toBe('admin')
       expect(state.isAuthenticated).toBe(true)
+      expect(state.isInitializing).toBe(false)
     })
 
     it('should not set auth if localStorage has no token', () => {
@@ -95,6 +102,7 @@ describe('authStore', () => {
 
       const state = useAuthStore.getState()
       expect(state.isAuthenticated).toBe(false)
+      expect(state.isInitializing).toBe(false)
     })
   })
 })

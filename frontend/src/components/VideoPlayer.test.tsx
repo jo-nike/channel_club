@@ -2,45 +2,56 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { VideoPlayer, ErrorOverlay, BufferingOverlay } from './VideoPlayer'
 import { useChannelStore } from '@/stores/channelStore'
+import { useUIStore } from '@/stores/uiStore'
 
 // Mock the channelStore
 vi.mock('@/stores/channelStore', () => ({
   useChannelStore: vi.fn(),
 }))
 
-// Mock Vidstack web components
+// Mock the uiStore
+vi.mock('@/stores/uiStore', () => ({
+  useUIStore: vi.fn(),
+}))
+
+// Mock mpegts.js
+vi.mock('mpegts.js', () => ({
+  default: {
+    isSupported: () => true,
+    createPlayer: () => ({
+      attachMediaElement: vi.fn(),
+      load: vi.fn(),
+      on: vi.fn(),
+      destroy: vi.fn(),
+    }),
+    Events: {
+      ERROR: 'error',
+      LOADING_COMPLETE: 'loading_complete',
+    },
+  },
+}))
+
+// Mock HTMLVideoElement.play
 beforeEach(() => {
-  // Define custom elements if not already defined
-  if (!customElements.get('media-player')) {
-    customElements.define(
-      'media-player',
-      class extends HTMLElement {
-        // Mock the subscribe method that Vidstack provides
-        subscribe(callback: (state: Record<string, unknown>) => void) {
-          // Immediately call with default state
-          callback({
-            error: undefined,
-            waiting: false,
-            playing: false,
-            canPlay: false,
-          })
-          // Return unsubscribe function
-          return () => {}
-        }
-      }
-    )
-  }
-  if (!customElements.get('media-outlet')) {
-    customElements.define('media-outlet', class extends HTMLElement {})
-  }
-  if (!customElements.get('media-community-skin')) {
-    customElements.define('media-community-skin', class extends HTMLElement {})
-  }
+  // Mock video element play method
+  Object.defineProperty(HTMLVideoElement.prototype, 'play', {
+    configurable: true,
+    value: vi.fn().mockResolvedValue(undefined),
+  })
 })
 
 describe('VideoPlayer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Setup uiStore mock
+    vi.mocked(useUIStore).mockImplementation((selector) => {
+      const state = {
+        isTheaterMode: false,
+        setTheaterMode: vi.fn(),
+        toggleTheaterMode: vi.fn(),
+      }
+      return selector(state)
+    })
   })
 
   it('renders placeholder when no channel is selected', () => {
@@ -63,7 +74,7 @@ describe('VideoPlayer', () => {
     expect(screen.getByText('No channel selected')).toBeInTheDocument()
   })
 
-  it('renders video player when channel is selected', () => {
+  it('renders video element when channel is selected', () => {
     const mockChannel = {
       id: 'test-uuid',
       name: 'Test Channel',
@@ -86,12 +97,39 @@ describe('VideoPlayer', () => {
 
     const { container } = render(<VideoPlayer />)
 
-    // Check for the media-player element
-    const mediaPlayer = container.querySelector('media-player')
-    expect(mediaPlayer).toBeInTheDocument()
+    // Check for the video element
+    const video = container.querySelector('video')
+    expect(video).toBeInTheDocument()
   })
 
-  it('passes correct stream URL to video player', () => {
+  it('renders video controls', () => {
+    const mockChannel = {
+      id: 'test-uuid',
+      name: 'Test Channel',
+      streamUrl: 'https://streams.domain.com/proxy/ts/stream/test-uuid',
+    }
+
+    vi.mocked(useChannelStore).mockImplementation((selector) => {
+      const state = {
+        currentChannel: mockChannel,
+        channels: [mockChannel],
+        isLoading: false,
+        error: null,
+        setChannels: vi.fn(),
+        setCurrentChannel: vi.fn(),
+        setLoading: vi.fn(),
+        setError: vi.fn(),
+      }
+      return selector(state)
+    })
+
+    render(<VideoPlayer />)
+
+    // Check for custom controls toolbar
+    expect(screen.getByRole('toolbar', { name: /video controls/i })).toBeInTheDocument()
+  })
+
+  it('video element has no native controls attribute', () => {
     const mockChannel = {
       id: 'test-uuid',
       name: 'Test Channel',
@@ -114,63 +152,9 @@ describe('VideoPlayer', () => {
 
     const { container } = render(<VideoPlayer />)
 
-    const mediaPlayer = container.querySelector('media-player')
-    expect(mediaPlayer).toHaveAttribute('src', mockChannel.streamUrl)
-  })
-
-  it('re-renders with new stream when channel changes', () => {
-    const channel1 = {
-      id: 'channel-1',
-      name: 'Channel 1',
-      streamUrl: 'https://streams.domain.com/proxy/ts/stream/channel-1',
-    }
-
-    const channel2 = {
-      id: 'channel-2',
-      name: 'Channel 2',
-      streamUrl: 'https://streams.domain.com/proxy/ts/stream/channel-2',
-    }
-
-    // First render with channel 1
-    vi.mocked(useChannelStore).mockImplementation((selector) => {
-      const state = {
-        currentChannel: channel1,
-        channels: [channel1, channel2],
-        isLoading: false,
-        error: null,
-        setChannels: vi.fn(),
-        setCurrentChannel: vi.fn(),
-        setLoading: vi.fn(),
-        setError: vi.fn(),
-      }
-      return selector(state)
-    })
-
-    const { container, rerender } = render(<VideoPlayer />)
-
-    let mediaPlayer = container.querySelector('media-player')
-    expect(mediaPlayer).toHaveAttribute('src', channel1.streamUrl)
-
-    // Update mock to channel 2
-    vi.mocked(useChannelStore).mockImplementation((selector) => {
-      const state = {
-        currentChannel: channel2,
-        channels: [channel1, channel2],
-        isLoading: false,
-        error: null,
-        setChannels: vi.fn(),
-        setCurrentChannel: vi.fn(),
-        setLoading: vi.fn(),
-        setError: vi.fn(),
-      }
-      return selector(state)
-    })
-
-    // Re-render
-    rerender(<VideoPlayer />)
-
-    mediaPlayer = container.querySelector('media-player')
-    expect(mediaPlayer).toHaveAttribute('src', channel2.streamUrl)
+    // Video should NOT have native controls
+    const video = container.querySelector('video')
+    expect(video).not.toHaveAttribute('controls')
   })
 })
 
@@ -218,6 +202,15 @@ describe('BufferingOverlay', () => {
 describe('VideoPlayer error recovery', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Setup uiStore mock
+    vi.mocked(useUIStore).mockImplementation((selector) => {
+      const state = {
+        isTheaterMode: false,
+        setTheaterMode: vi.fn(),
+        toggleTheaterMode: vi.fn(),
+      }
+      return selector(state)
+    })
   })
 
   it('shows no channel selected placeholder when currentChannel is null', () => {

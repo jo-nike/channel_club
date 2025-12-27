@@ -1,6 +1,15 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import mpegts from 'mpegts.js'
 import { useChannelStore } from '@/stores/channelStore'
+import { useUIStore } from '@/stores/uiStore'
+import { VideoControls } from '@/components/VideoControls'
+import { useAutoHide } from '@/hooks/useAutoHide'
+import { useVideoKeyboardShortcuts } from '@/hooks/useVideoKeyboardShortcuts'
+import { ChannelSwitchOverlay } from '@/components/ChannelSwitchOverlay'
+
+// Constants
+const VOLUME_STORAGE_KEY = 'iptv-volume'
+const DEFAULT_VOLUME = 1
 
 export function VideoPlayer() {
   const currentChannel = useChannelStore((s) => s.currentChannel)
@@ -15,19 +24,150 @@ export function VideoPlayer() {
     <VideoPlayerInner
       key={currentChannel.id}
       streamUrl={currentChannel.streamUrl}
+      channelName={currentChannel.name}
     />
   )
 }
 
-function VideoPlayerInner({ streamUrl }: { streamUrl: string }) {
+interface VideoPlayerInnerProps {
+  streamUrl: string
+  channelName: string
+}
+
+function VideoPlayerInner({ streamUrl, channelName }: VideoPlayerInnerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   const playerRef = useRef<mpegts.Player | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isBuffering, setIsBuffering] = useState(false)
+  const [isChangingChannel, setIsChangingChannel] = useState(true)
 
+  // Video state
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [volume, setVolume] = useState(() => {
+    const stored = localStorage.getItem(VOLUME_STORAGE_KEY)
+    return stored ? parseFloat(stored) : DEFAULT_VOLUME
+  })
+  const [isMuted, setIsMuted] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+
+  // Hover state for controls - prevents auto-hide when hovering over controls
+  const [isHoveringControls, setIsHoveringControls] = useState(false)
+
+  // Theater mode from UI store
+  const isTheaterMode = useUIStore((s) => s.isTheaterMode)
+  const toggleTheaterMode = useUIStore((s) => s.toggleTheaterMode)
+
+  // Auto-hide controls with hover override
+  const { isVisible, toggleControls } = useAutoHide({
+    isPlaying,
+    containerRef,
+    isHoveringControls,
+  })
+
+  // Detect touch device
+  const isTouchDevice = useCallback(() => {
+    return window.matchMedia('(pointer: coarse)').matches
+  }, [])
+
+  // Handle video area tap/click for touch devices
+  const handleVideoAreaClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    // Only handle clicks directly on the video container or video element
+    // Ignore clicks on controls or other interactive elements
+    const target = e.target as HTMLElement
+    if (target.closest('.video-controls')) {
+      return
+    }
+
+    // On touch devices, toggle controls visibility
+    if (isTouchDevice()) {
+      toggleControls()
+    }
+  }, [isTouchDevice, toggleControls])
+
+  // Play/Pause toggle
+  const handlePlayPause = useCallback(() => {
+    const video = videoRef.current
+    if (!video) return
+
+    if (video.paused) {
+      video.play().catch(() => {
+        // Autoplay blocked
+      })
+    } else {
+      video.pause()
+    }
+  }, [])
+
+  // Volume change
+  const handleVolumeChange = useCallback((newVolume: number) => {
+    const video = videoRef.current
+    if (!video) return
+
+    const clampedVolume = Math.max(0, Math.min(1, newVolume))
+    video.volume = clampedVolume
+    setVolume(clampedVolume)
+    localStorage.setItem(VOLUME_STORAGE_KEY, clampedVolume.toString())
+
+    // Unmute if volume is changed while muted
+    if (video.muted && clampedVolume > 0) {
+      video.muted = false
+      setIsMuted(false)
+    }
+  }, [])
+
+  // Mute toggle
+  const handleMuteToggle = useCallback(() => {
+    const video = videoRef.current
+    if (!video) return
+
+    video.muted = !video.muted
+    setIsMuted(video.muted)
+  }, [])
+
+  // Fullscreen toggle
+  const handleFullscreenToggle = useCallback(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {})
+    } else {
+      container.requestFullscreen().catch(() => {})
+    }
+  }, [])
+
+  // Keyboard shortcuts
+  useVideoKeyboardShortcuts({
+    containerRef,
+    onPlayPause: handlePlayPause,
+    onMuteToggle: handleMuteToggle,
+    onFullscreenToggle: handleFullscreenToggle,
+    onTheaterModeToggle: toggleTheaterMode,
+    onVolumeChange: handleVolumeChange,
+    volume,
+  })
+
+  // Track fullscreen changes
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement)
+    }
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange)
+    }
+  }, [])
+
+  // mpegts.js player setup
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
+
+    // Set initial volume
+    video.volume = volume
+    video.muted = isMuted
 
     // Check mpegts.js support
     if (!mpegts.isSupported()) {
@@ -65,37 +205,80 @@ function VideoPlayerInner({ streamUrl }: { streamUrl: string }) {
     const handleWaiting = () => setIsBuffering(true)
     const handlePlaying = () => {
       setIsBuffering(false)
+      setIsChangingChannel(false)
       setError(null)
+      setIsPlaying(true)
     }
+    const handlePause = () => setIsPlaying(false)
+    const handlePlay = () => setIsPlaying(true)
     const handleError = () => setError('Stream unavailable')
+    const handleVolumeChangeEvent = () => {
+      setVolume(video.volume)
+      setIsMuted(video.muted)
+    }
 
     video.addEventListener('waiting', handleWaiting)
     video.addEventListener('playing', handlePlaying)
+    video.addEventListener('pause', handlePause)
+    video.addEventListener('play', handlePlay)
     video.addEventListener('error', handleError)
+    video.addEventListener('volumechange', handleVolumeChangeEvent)
 
     return () => {
       video.removeEventListener('waiting', handleWaiting)
       video.removeEventListener('playing', handlePlaying)
+      video.removeEventListener('pause', handlePause)
+      video.removeEventListener('play', handlePlay)
       video.removeEventListener('error', handleError)
+      video.removeEventListener('volumechange', handleVolumeChangeEvent)
 
       if (playerRef.current) {
         playerRef.current.destroy()
         playerRef.current = null
       }
     }
-  }, [streamUrl])
+  }, [streamUrl]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="video-player-container relative aspect-video w-full bg-black">
+    <div
+      ref={containerRef}
+      onClick={handleVideoAreaClick}
+      className={`video-player-container relative bg-black ${
+        isTheaterMode ? 'h-full w-full' : 'aspect-video w-full'
+      } ${!isVisible && isPlaying ? 'cursor-none' : ''}`}
+    >
       <video
         ref={videoRef}
-        controls
         autoPlay
-        className="h-full w-full"
+        className="h-full w-full object-contain"
       />
 
-      {/* Buffering overlay */}
-      <BufferingOverlay isVisible={isBuffering} />
+      {/* Custom video controls */}
+      <VideoControls
+        videoRef={videoRef}
+        isPlaying={isPlaying}
+        volume={volume}
+        isMuted={isMuted}
+        isTheaterMode={isTheaterMode}
+        isFullscreen={isFullscreen}
+        isVisible={isVisible}
+        onPlayPause={handlePlayPause}
+        onVolumeChange={handleVolumeChange}
+        onMuteToggle={handleMuteToggle}
+        onFullscreenToggle={handleFullscreenToggle}
+        onTheaterModeToggle={toggleTheaterMode}
+        onMouseEnter={() => setIsHoveringControls(true)}
+        onMouseLeave={() => setIsHoveringControls(false)}
+      />
+
+      {/* Channel switch overlay - during initial load */}
+      <ChannelSwitchOverlay
+        channelName={channelName}
+        isVisible={isChangingChannel}
+      />
+
+      {/* Buffering overlay - during playback (only show when not changing channel) */}
+      <BufferingOverlay isVisible={isBuffering && !isChangingChannel} />
 
       {/* Error overlay on top of player */}
       {error && <ErrorOverlay message={error} />}

@@ -66,13 +66,13 @@ development_status:
   epic-3-retrospective: optional
 
   # Epic 4: Responsive & 10-Foot UI Experience
-  epic-4: backlog
-  4-1-responsive-layout-system: backlog
-  4-2-10-foot-tv-ui-adaptation: backlog
-  4-3-keyboard-d-pad-navigation: backlog
-  4-4-auto-hide-video-controls: backlog
-  4-5-loading-buffering-states: backlog
-  4-6-custom-video-controls-theater-mode: ready-for-dev
+  epic-4: in-progress
+  4-1-responsive-layout-system: review
+  4-2-10-foot-tv-ui-adaptation: done
+  4-3-keyboard-d-pad-navigation: review
+  4-4-auto-hide-video-controls: review
+  4-5-loading-buffering-states: review
+  4-6-custom-video-controls-theater-mode: review
   epic-4-retrospective: optional
 
   # Epic 5: Production Deployment

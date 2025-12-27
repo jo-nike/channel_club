@@ -1,15 +1,26 @@
 import { useAuth } from '@/hooks/useAuth'
 import { LoginForm } from '@/components/LoginForm'
 import { MainView } from '@/components/MainView'
+import { AppLoadingScreen } from '@/components/AppLoadingScreen'
 import { Toaster } from '@/components/ui/sonner'
 
 export function App() {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, isInitializing } = useAuth()
+
+  // Show loading screen while checking auth state
+  if (isInitializing) {
+    return (
+      <>
+        <AppLoadingScreen />
+        <Toaster />
+      </>
+    )
+  }
 
   if (!isAuthenticated) {
     return (
       <>
-        <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="flex min-h-screen items-center justify-center bg-background">
           <LoginForm />
         </div>
         <Toaster />

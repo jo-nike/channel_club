@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback, forwardRef } from 'react'
 import { toast } from 'sonner'
 import { useChannelStore } from '@/stores/channelStore'
 import { useAuthStore } from '@/stores/authStore'
+import { useRovingTabIndex } from '@/hooks/useRovingTabIndex'
 import { fetchChannels, setCurrentChannel as setCurrentChannelApi } from '@/services/api'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -13,6 +14,30 @@ export function ChannelList() {
   const { channels, currentChannel, isLoading, error, setChannels, setCurrentChannel, setLoading, setError } = useChannelStore()
   const { role } = useAuthStore()
   const isAdmin = role === 'admin'
+
+  const handleSelectChannel = useCallback(async (channel: Channel) => {
+    if (!isAdmin) return
+
+    // Optimistic update
+    const previousChannel = currentChannel
+    setCurrentChannel(channel)
+
+    try {
+      await setCurrentChannelApi(channel)
+    } catch (e) {
+      // Revert on failure
+      setCurrentChannel(previousChannel)
+      toast.error('Failed to change channel', {
+        description: e instanceof Error ? e.message : 'Please try again',
+      })
+    }
+  }, [isAdmin, currentChannel, setCurrentChannel])
+
+  const { focusedIndex, handleKeyDown, getTabIndex, itemRefs } = useRovingTabIndex({
+    items: channels,
+    onSelect: isAdmin ? handleSelectChannel : undefined,
+    getItemId: (channel) => channel.id,
+  })
 
   useEffect(() => {
     loadChannels()
@@ -29,24 +54,6 @@ export function ChannelList() {
       setError(e instanceof Error ? e.message : 'Unable to load channels')
     } finally {
       setLoading(false)
-    }
-  }
-
-  async function handleSelectChannel(channel: Channel) {
-    if (!isAdmin) return
-
-    // Optimistic update
-    const previousChannel = currentChannel
-    setCurrentChannel(channel)
-
-    try {
-      await setCurrentChannelApi(channel)
-    } catch (e) {
-      // Revert on failure
-      setCurrentChannel(previousChannel)
-      toast.error('Failed to change channel', {
-        description: e instanceof Error ? e.message : 'Please try again',
-      })
     }
   }
 
@@ -73,13 +80,23 @@ export function ChannelList() {
 
   return (
     <ScrollArea className="h-full">
-      <div className="flex flex-col gap-2 p-4">
-        {channels.map((channel) => (
+      <div
+        role="listbox"
+        aria-label="Channel list"
+        onKeyDown={handleKeyDown}
+        className="flex flex-col gap-2 p-4"
+      >
+        {channels.map((channel, index) => (
           <ChannelItem
             key={channel.id}
+            ref={(el) => {
+              itemRefs.current[index] = el
+            }}
             channel={channel}
             isSelected={currentChannel?.id === channel.id}
+            isFocused={index === focusedIndex}
             isAdmin={isAdmin}
+            tabIndex={getTabIndex(index)}
             onSelect={() => handleSelectChannel(channel)}
           />
         ))}
@@ -91,16 +108,16 @@ export function ChannelList() {
 interface ChannelItemProps {
   channel: Channel
   isSelected: boolean
+  isFocused: boolean
   isAdmin: boolean
+  tabIndex: 0 | -1
   onSelect: () => void
 }
 
-function ChannelItem({
-  channel,
-  isSelected,
-  isAdmin,
-  onSelect,
-}: ChannelItemProps) {
+const ChannelItem = forwardRef<HTMLDivElement, ChannelItemProps>(function ChannelItem(
+  { channel, isSelected, isFocused, isAdmin, tabIndex, onSelect },
+  ref
+) {
   const [isSelecting, setIsSelecting] = useState(false)
 
   async function handleClick() {
@@ -113,27 +130,22 @@ function ChannelItem({
     }
   }
 
-  function handleKeyDown(e: React.KeyboardEvent) {
-    if (isAdmin && (e.key === 'Enter' || e.key === ' ')) {
-      e.preventDefault()
-      handleClick()
-    }
-  }
-
   return (
     <div
-      role={isAdmin ? 'button' : undefined}
-      tabIndex={isAdmin ? 0 : undefined}
+      ref={ref}
+      role="option"
+      tabIndex={tabIndex}
       onClick={isAdmin ? handleClick : undefined}
-      onKeyDown={isAdmin ? handleKeyDown : undefined}
-      aria-pressed={isAdmin ? isSelected : undefined}
+      aria-selected={isSelected}
       aria-disabled={isSelecting}
       className={cn(
+        'channel-item',
         'flex items-center gap-3 rounded-lg border p-4 transition-colors',
         'text-lg',
         'min-h-[56px]',
         isSelected && 'border-primary bg-primary/10',
-        isAdmin && !isSelecting && 'cursor-pointer hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring',
+        isFocused && 'ring-2 ring-ring ring-offset-2',
+        isAdmin && !isSelecting && 'cursor-pointer hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         isAdmin && isSelecting && 'cursor-wait opacity-70',
         !isAdmin && 'cursor-default'
       )}
@@ -144,7 +156,7 @@ function ChannelItem({
       )}
     </div>
   )
-}
+})
 
 function ChannelListSkeleton() {
   return (

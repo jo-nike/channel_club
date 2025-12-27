@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { useAuthStore } from '@/stores/authStore'
 
 export function useAuth() {
-  const { token, role, isAuthenticated, logout, initialize } = useAuthStore()
+  const { token, role, isAuthenticated, isInitializing, logout, initialize } = useAuthStore()
 
   useEffect(() => {
     initialize()
@@ -27,6 +27,7 @@ export function useAuth() {
     token,
     role,
     isAuthenticated,
+    isInitializing,
     isAdmin: role === 'admin',
     isViewer: role === 'viewer',
     logout,
