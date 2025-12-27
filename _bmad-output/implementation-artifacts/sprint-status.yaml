@@ -72,6 +72,7 @@ development_status:
   4-3-keyboard-d-pad-navigation: backlog
   4-4-auto-hide-video-controls: backlog
   4-5-loading-buffering-states: backlog
+  4-6-custom-video-controls-theater-mode: ready-for-dev
   epic-4-retrospective: optional
 
   # Epic 5: Production Deployment
