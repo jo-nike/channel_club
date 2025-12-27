@@ -265,3 +265,21 @@ Jon selects a channel but it won't load. He checks Dispatcharr directly (via VPN
 - NFR14: High contrast between text and background
 - NFR15: Full keyboard/D-pad navigation without mouse required
 
+---
+
+## Post-Implementation Updates
+
+### 2025-12-26: Stream Format Clarification
+
+**Original Assumption (FR14):** "System can play HLS streams via Dispatcharr proxy"
+
+**Actual Implementation:** Dispatcharr provides raw MPEG-TS streams, not HLS.
+
+**Technical Details:**
+- Stream URL format: `https://streams.domain.com/proxy/ts/stream/{uuid}`
+- Stream type: Raw MPEG Transport Stream (MPEG-TS)
+- Player: mpegts.js v1.8.0 (JavaScript MPEG-TS decoder)
+- Vidstack was replaced with mpegts.js as browsers cannot natively decode raw MPEG-TS
+
+**Updated FR14:** System can play MPEG-TS streams via Dispatcharr proxy using mpegts.js decoder
+

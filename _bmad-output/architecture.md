@@ -886,3 +886,34 @@ mkdir backend && cd backend && uv init
 
 **Next Phase:** Begin implementation using the architectural decisions and patterns documented herein.
 
+---
+
+## Post-Implementation Updates
+
+### 2025-12-26: Video Player Technology Change
+
+**Original Design:** Vidstack with HLS support
+**Actual Implementation:** mpegts.js v1.8.0 with MPEG-TS streams
+
+**Reason for Change:**
+1. Dispatcharr provides raw MPEG-TS streams at `/proxy/ts/stream/{uuid}`, NOT HLS
+2. The `/proxy/hls/` endpoint does not exist in Dispatcharr
+3. Browsers cannot play raw MPEG-TS natively - requires JavaScript decoder
+4. Vidstack cannot decode raw MPEG-TS streams (only HLS which wraps TS segments)
+
+**Solution:**
+- Replaced Vidstack web components with mpegts.js player
+- mpegts.js decodes MPEG-TS in JavaScript and feeds to native `<video>` element
+- Native browser controls used instead of Vidstack skin
+
+**Files Changed:**
+- `frontend/src/components/VideoPlayer.tsx` - Complete rewrite using mpegts.js
+- `backend/app/services/dispatcharr.py` - Fixed URL from `/proxy/hls/{uuid}/playlist.m3u8` to `/proxy/ts/stream/{uuid}`
+
+**Stream URL Format (Corrected):**
+```
+https://streams.domain.com/proxy/ts/stream/{uuid}
+```
+
+**Note:** The `vidstack` package remains in package.json but is no longer used. Can be removed in future cleanup.
+

@@ -171,4 +171,81 @@ describe('api service', () => {
       )
     })
   })
+
+  describe('fetchChannels', () => {
+    it('should fetch channels with authentication', async () => {
+      vi.mocked(localStorage.getItem).mockReturnValue('test-token')
+
+      const mockChannels = [
+        { id: '1', name: 'Channel 1', streamUrl: 'http://stream1.m3u8' },
+        { id: '2', name: 'Channel 2', streamUrl: 'http://stream2.m3u8' },
+      ]
+
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(mockChannels),
+      } as Response)
+
+      const { fetchChannels } = await import('./api')
+      const result = await fetchChannels()
+
+      expect(fetch).toHaveBeenCalledWith(
+        'http://localhost:8000/api/channels',
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: 'Bearer test-token',
+          }),
+        })
+      )
+      expect(result).toEqual(mockChannels)
+    })
+
+    it('should throw error when fetch fails', async () => {
+      vi.mocked(localStorage.getItem).mockReturnValue('test-token')
+
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        json: () => Promise.resolve({ detail: 'Server error' }),
+      } as Response)
+
+      const { fetchChannels } = await import('./api')
+      await expect(fetchChannels()).rejects.toThrow('Failed to fetch channels')
+    })
+
+    it('should throw specific error when service unavailable', async () => {
+      vi.mocked(localStorage.getItem).mockReturnValue('test-token')
+
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        json: () => Promise.resolve({ detail: 'Service unavailable' }),
+      } as Response)
+
+      const { fetchChannels } = await import('./api')
+      await expect(fetchChannels()).rejects.toThrow('Channel service unavailable')
+    })
+
+    it('should return typed Channel array', async () => {
+      vi.mocked(localStorage.getItem).mockReturnValue('test-token')
+
+      const mockChannels = [
+        { id: 'abc', name: 'Test Channel', streamUrl: 'http://test.m3u8' },
+      ]
+
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(mockChannels),
+      } as Response)
+
+      const { fetchChannels } = await import('./api')
+      const result = await fetchChannels()
+
+      expect(result[0]).toHaveProperty('id')
+      expect(result[0]).toHaveProperty('name')
+      expect(result[0]).toHaveProperty('streamUrl')
+    })
+  })
 })

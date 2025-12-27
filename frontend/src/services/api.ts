@@ -1,4 +1,5 @@
 import { useAuthStore } from '@/stores/authStore'
+import type { Channel } from '@/types'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
 
@@ -60,5 +61,18 @@ export async function fetchWithAuth(
 
 export async function healthCheck(): Promise<{ status: string }> {
   const response = await fetch(`${API_URL}/health`)
+  return response.json()
+}
+
+export async function fetchChannels(): Promise<Channel[]> {
+  const response = await fetchWithAuth('/channels')
+
+  if (!response.ok) {
+    if (response.status === 503) {
+      throw new Error('Channel service unavailable')
+    }
+    throw new Error('Failed to fetch channels')
+  }
+
   return response.json()
 }

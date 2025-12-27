@@ -1,5 +1,6 @@
 import { useAuth } from '@/hooks/useAuth'
-import { AdminControls } from '@/components/AdminControls'
+import { ChannelList } from '@/components/ChannelList'
+import { VideoPlayer } from '@/components/VideoPlayer'
 
 export function MainView() {
   const { isAdmin, logout } = useAuth()
@@ -21,15 +22,18 @@ export function MainView() {
       <main className="flex-1 flex">
         {/* Video Player Area */}
         <div className="flex-1 bg-black flex items-center justify-center">
-          <p className="text-white text-xl">Video Player (Coming in Epic 2)</p>
+          <VideoPlayer />
         </div>
 
-        {/* Admin Controls - Only visible to admins */}
-        {isAdmin && (
-          <aside className="w-80 border-l bg-background">
-            <AdminControls />
-          </aside>
-        )}
+        {/* Channel List Sidebar - Visible to all authenticated users */}
+        <aside className="w-80 border-l bg-background">
+          <div className="p-4 border-b">
+            <h2 className="text-xl font-semibold">
+              {isAdmin ? 'Channel Selection' : 'Channels'}
+            </h2>
+          </div>
+          <ChannelList />
+        </aside>
       </main>
     </div>
   )

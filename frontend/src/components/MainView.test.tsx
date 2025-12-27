@@ -2,6 +2,39 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { MainView } from './MainView'
 import { useAuthStore } from '@/stores/authStore'
+import { useChannelStore } from '@/stores/channelStore'
+import * as api from '@/services/api'
+
+vi.mock('@/services/api', () => ({
+  fetchChannels: vi.fn(),
+}))
+
+// Mock Vidstack web components for MainView tests
+beforeEach(() => {
+  // Define custom elements if not already defined
+  if (!customElements.get('media-player')) {
+    customElements.define(
+      'media-player',
+      class extends HTMLElement {
+        subscribe(callback: (state: Record<string, unknown>) => void) {
+          callback({
+            error: undefined,
+            waiting: false,
+            playing: false,
+            canPlay: false,
+          })
+          return () => {}
+        }
+      }
+    )
+  }
+  if (!customElements.get('media-outlet')) {
+    customElements.define('media-outlet', class extends HTMLElement {})
+  }
+  if (!customElements.get('media-community-skin')) {
+    customElements.define('media-community-skin', class extends HTMLElement {})
+  }
+})
 
 describe('MainView', () => {
   beforeEach(() => {
@@ -15,6 +48,16 @@ describe('MainView', () => {
       role: 'admin',
       isAuthenticated: true,
     })
+
+    useChannelStore.setState({
+      channels: [],
+      currentChannel: null,
+      isLoading: false,
+      error: null,
+    })
+
+    // Mock fetchChannels to return empty array by default
+    vi.mocked(api.fetchChannels).mockResolvedValue([])
   })
 
   describe('layout', () => {
@@ -30,10 +73,11 @@ describe('MainView', () => {
       expect(screen.getByRole('button', { name: /logout/i })).toBeInTheDocument()
     })
 
-    it('should render video player placeholder', () => {
+    it('should render video player area', () => {
       render(<MainView />)
 
-      expect(screen.getByText(/video player/i)).toBeInTheDocument()
+      // VideoPlayer shows placeholder when no channel selected
+      expect(screen.getByText(/no channel selected/i)).toBeInTheDocument()
     })
   })
 
@@ -68,16 +112,26 @@ describe('MainView', () => {
       })
     })
 
-    it('should NOT show AdminControls for viewer users', () => {
+    it('should show Channels heading (not Channel Selection) for viewer users', () => {
       render(<MainView />)
 
+      // Viewer sees "Channels" heading, not "Channel Selection"
+      expect(screen.getByText('Channels')).toBeInTheDocument()
       expect(screen.queryByText(/channel selection/i)).not.toBeInTheDocument()
     })
 
     it('should still show video player area for viewers', () => {
       render(<MainView />)
 
-      expect(screen.getByText(/video player/i)).toBeInTheDocument()
+      // VideoPlayer shows placeholder when no channel selected
+      expect(screen.getByText(/no channel selected/i)).toBeInTheDocument()
+    })
+
+    it('should show channel list for viewers', () => {
+      render(<MainView />)
+
+      // ChannelList is rendered (showing empty state since we mock empty channels)
+      expect(screen.getByText(/no channels available/i)).toBeInTheDocument()
     })
   })
 

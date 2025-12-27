@@ -49,11 +49,11 @@ development_status:
   epic-1-retrospective: optional
 
   # Epic 2: Channel Browsing & Video Playback
-  epic-2: backlog
-  2-1-dispatcharr-channel-api-proxy: backlog
-  2-2-channel-list-ui-component: backlog
-  2-3-video-player-with-hls-support: backlog
-  2-4-stream-playback-error-recovery: backlog
+  epic-2: in-progress
+  2-1-dispatcharr-channel-api-proxy: review
+  2-2-channel-list-ui-component: review
+  2-3-video-player-with-hls-support: review
+  2-4-stream-playback-error-recovery: review
   epic-2-retrospective: optional
 
   # Epic 3: Admin Channel Control & Real-Time Sync

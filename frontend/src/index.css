@@ -121,3 +121,27 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Vidstack Video Player - 10-Foot UI Customization */
+.video-player-container {
+  /* Larger button sizes for TV remotes/10-foot UI */
+  --media-button-size: 48px;
+  --media-fullscreen-button-size: 52px;
+  --media-button-icon-size: 85%;
+
+  /* Larger slider for easier interaction */
+  --media-slider-track-height: 8px;
+  --media-slider-thumb-size: 20px;
+
+  /* Better visibility on large screens */
+  --media-font-size: 16px;
+
+  /* Focus visibility for keyboard/d-pad navigation */
+  --media-focus-ring: 0 0 0 4px rgb(78 156 246 / 0.8);
+}
+
+/* Ensure visible focus states for keyboard navigation */
+.video-player-container [data-media-button]:focus-visible {
+  outline: 2px solid rgb(78 156 246);
+  outline-offset: 2px;
+}
