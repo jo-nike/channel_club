@@ -100,3 +100,91 @@ class TestChannel:
 
         with pytest.raises(ValidationError):
             Channel(**data)
+
+
+class TestSetChannelRequest:
+    """Tests for SetChannelRequest model."""
+
+    def test_create_from_camel_case_input(self) -> None:
+        """Parse request with camelCase field names."""
+        from app.models.channel import SetChannelRequest
+
+        data = {
+            "id": "uuid-123",
+            "name": "TSN",
+            "streamUrl": "https://streams.example.com/stream/uuid-123",
+        }
+
+        request = SetChannelRequest(**data)
+
+        assert request.id == "uuid-123"
+        assert request.name == "TSN"
+        assert request.stream_url == "https://streams.example.com/stream/uuid-123"
+
+    def test_missing_required_field_raises_error(self) -> None:
+        """Missing required field should raise ValidationError."""
+        from app.models.channel import SetChannelRequest
+
+        data = {
+            "id": "uuid-123",
+            "name": "TSN",
+            # Missing streamUrl
+        }
+
+        with pytest.raises(ValidationError):
+            SetChannelRequest(**data)
+
+
+class TestCurrentChannelResponse:
+    """Tests for CurrentChannelResponse model."""
+
+    def test_with_channel(self) -> None:
+        """Response with a channel."""
+        from app.models.channel import CurrentChannelResponse
+
+        channel = Channel(
+            id="uuid-123",
+            name="TSN",
+            stream_url="https://streams.example.com/stream/uuid-123",
+        )
+        response = CurrentChannelResponse(current_channel=channel)
+
+        assert response.current_channel is not None
+        assert response.current_channel.id == "uuid-123"
+
+    def test_with_null_channel(self) -> None:
+        """Response with null channel."""
+        from app.models.channel import CurrentChannelResponse
+
+        response = CurrentChannelResponse(current_channel=None)
+
+        assert response.current_channel is None
+
+    def test_json_serialization_uses_camel_case(self) -> None:
+        """JSON output should use camelCase field names."""
+        from app.models.channel import CurrentChannelResponse
+
+        channel = Channel(
+            id="uuid-123",
+            name="TSN",
+            stream_url="https://streams.example.com/stream/uuid-123",
+        )
+        response = CurrentChannelResponse(current_channel=channel)
+
+        json_data = response.model_dump(by_alias=True)
+
+        assert "currentChannel" in json_data
+        assert "current_channel" not in json_data
+        assert "streamUrl" in json_data["currentChannel"]
+        assert "stream_url" not in json_data["currentChannel"]
+
+    def test_json_serialization_null_channel(self) -> None:
+        """JSON output with null channel uses camelCase."""
+        from app.models.channel import CurrentChannelResponse
+
+        response = CurrentChannelResponse(current_channel=None)
+
+        json_data = response.model_dump(by_alias=True)
+
+        assert "currentChannel" in json_data
+        assert json_data["currentChannel"] is None

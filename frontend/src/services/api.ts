@@ -76,3 +76,30 @@ export async function fetchChannels(): Promise<Channel[]> {
 
   return response.json()
 }
+
+export async function setCurrentChannel(channel: Channel): Promise<Channel> {
+  const response = await fetchWithAuth('/channels/current', {
+    method: 'PUT',
+    body: JSON.stringify(channel),
+  })
+
+  if (!response.ok) {
+    if (response.status === 403) {
+      throw new Error('Only admins can change the channel')
+    }
+    throw new Error('Failed to set channel')
+  }
+
+  return response.json()
+}
+
+export async function fetchCurrentChannel(): Promise<Channel | null> {
+  const response = await fetchWithAuth('/channels/current')
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch current channel')
+  }
+
+  const data = await response.json()
+  return data.currentChannel
+}

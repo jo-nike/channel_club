@@ -1,7 +1,8 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import { toast } from 'sonner'
 import { useChannelStore } from '@/stores/channelStore'
 import { useAuthStore } from '@/stores/authStore'
-import { fetchChannels } from '@/services/api'
+import { fetchChannels, setCurrentChannel as setCurrentChannelApi } from '@/services/api'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
@@ -9,7 +10,7 @@ import { cn } from '@/lib/utils'
 import type { Channel } from '@/types'
 
 export function ChannelList() {
-  const { channels, currentChannel, isLoading, error, setChannels, setLoading, setError } = useChannelStore()
+  const { channels, currentChannel, isLoading, error, setChannels, setCurrentChannel, setLoading, setError } = useChannelStore()
   const { role } = useAuthStore()
   const isAdmin = role === 'admin'
 
@@ -28,6 +29,24 @@ export function ChannelList() {
       setError(e instanceof Error ? e.message : 'Unable to load channels')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleSelectChannel(channel: Channel) {
+    if (!isAdmin) return
+
+    // Optimistic update
+    const previousChannel = currentChannel
+    setCurrentChannel(channel)
+
+    try {
+      await setCurrentChannelApi(channel)
+    } catch (e) {
+      // Revert on failure
+      setCurrentChannel(previousChannel)
+      toast.error('Failed to change channel', {
+        description: e instanceof Error ? e.message : 'Please try again',
+      })
     }
   }
 
@@ -61,6 +80,7 @@ export function ChannelList() {
             channel={channel}
             isSelected={currentChannel?.id === channel.id}
             isAdmin={isAdmin}
+            onSelect={() => handleSelectChannel(channel)}
           />
         ))}
       </div>
@@ -68,20 +88,35 @@ export function ChannelList() {
   )
 }
 
-function ChannelItem({
-  channel,
-  isSelected,
-  isAdmin
-}: {
+interface ChannelItemProps {
   channel: Channel
   isSelected: boolean
   isAdmin: boolean
-}) {
-  const setCurrentChannel = useChannelStore((s) => s.setCurrentChannel)
+  onSelect: () => void
+}
 
-  function handleSelect() {
-    if (isAdmin) {
-      setCurrentChannel(channel)
+function ChannelItem({
+  channel,
+  isSelected,
+  isAdmin,
+  onSelect,
+}: ChannelItemProps) {
+  const [isSelecting, setIsSelecting] = useState(false)
+
+  async function handleClick() {
+    if (!isAdmin || isSelecting) return
+    setIsSelecting(true)
+    try {
+      await onSelect()
+    } finally {
+      setIsSelecting(false)
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (isAdmin && (e.key === 'Enter' || e.key === ' ')) {
+      e.preventDefault()
+      handleClick()
     }
   }
 
@@ -89,14 +124,17 @@ function ChannelItem({
     <div
       role={isAdmin ? 'button' : undefined}
       tabIndex={isAdmin ? 0 : undefined}
-      onClick={isAdmin ? handleSelect : undefined}
-      onKeyDown={isAdmin ? (e) => e.key === 'Enter' && handleSelect() : undefined}
+      onClick={isAdmin ? handleClick : undefined}
+      onKeyDown={isAdmin ? handleKeyDown : undefined}
+      aria-pressed={isAdmin ? isSelected : undefined}
+      aria-disabled={isSelecting}
       className={cn(
         'flex items-center gap-3 rounded-lg border p-4 transition-colors',
         'text-lg',
         'min-h-[56px]',
         isSelected && 'border-primary bg-primary/10',
-        isAdmin && 'cursor-pointer hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring',
+        isAdmin && !isSelecting && 'cursor-pointer hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring',
+        isAdmin && isSelecting && 'cursor-wait opacity-70',
         !isAdmin && 'cursor-default'
       )}
     >

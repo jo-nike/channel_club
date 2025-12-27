@@ -7,6 +7,7 @@ import * as api from '@/services/api'
 
 vi.mock('@/services/api', () => ({
   fetchChannels: vi.fn(),
+  setCurrentChannel: vi.fn(),
 }))
 
 const mockChannels = [
@@ -131,6 +132,7 @@ describe('ChannelList', () => {
   describe('Admin user', () => {
     beforeEach(() => {
       useAuthStore.setState({ role: 'admin' })
+      vi.mocked(api.setCurrentChannel).mockResolvedValue(mockChannels[0])
     })
 
     it('should render clickable items for admin', async () => {
@@ -155,8 +157,26 @@ describe('ChannelList', () => {
 
       fireEvent.click(screen.getByText('Channel 1'))
 
-      const state = useChannelStore.getState()
-      expect(state.currentChannel).toEqual(mockChannels[0])
+      await waitFor(() => {
+        const state = useChannelStore.getState()
+        expect(state.currentChannel).toEqual(mockChannels[0])
+      })
+    })
+
+    it('should call setCurrentChannel API when admin selects channel', async () => {
+      vi.mocked(api.fetchChannels).mockResolvedValueOnce(mockChannels)
+
+      render(<ChannelList />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Channel 1')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByText('Channel 1'))
+
+      await waitFor(() => {
+        expect(api.setCurrentChannel).toHaveBeenCalledWith(mockChannels[0])
+      })
     })
 
     it('should support keyboard navigation for admin', async () => {
@@ -171,8 +191,30 @@ describe('ChannelList', () => {
       const channelItem = screen.getByText('Channel 1').closest('[role="button"]')!
       fireEvent.keyDown(channelItem, { key: 'Enter' })
 
-      const state = useChannelStore.getState()
-      expect(state.currentChannel).toEqual(mockChannels[0])
+      await waitFor(() => {
+        const state = useChannelStore.getState()
+        expect(state.currentChannel).toEqual(mockChannels[0])
+      })
+    })
+
+    it('should revert selection on API failure', async () => {
+      vi.mocked(api.fetchChannels).mockResolvedValueOnce(mockChannels)
+      vi.mocked(api.setCurrentChannel).mockRejectedValueOnce(new Error('API error'))
+      useChannelStore.setState({ currentChannel: mockChannels[1] })
+
+      render(<ChannelList />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Channel 1')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByText('Channel 1'))
+
+      // Wait for the optimistic update to revert
+      await waitFor(() => {
+        const state = useChannelStore.getState()
+        expect(state.currentChannel).toEqual(mockChannels[1])
+      })
     })
   })
 

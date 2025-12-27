@@ -11,6 +11,15 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8001',
+        changeOrigin: true,
+        ws: true, // Enable WebSocket proxying
+      },
+    },
+  },
   test: {
     globals: true,
     environment: 'jsdom',

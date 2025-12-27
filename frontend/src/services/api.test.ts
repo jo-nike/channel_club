@@ -248,4 +248,115 @@ describe('api service', () => {
       expect(result[0]).toHaveProperty('streamUrl')
     })
   })
+
+  describe('setCurrentChannel', () => {
+    const mockChannel = { id: '1', name: 'Channel 1', streamUrl: 'http://stream1.m3u8' }
+
+    it('should PUT to /channels/current with channel data', async () => {
+      vi.mocked(localStorage.getItem).mockReturnValue('test-token')
+
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(mockChannel),
+      } as Response)
+
+      const { setCurrentChannel } = await import('./api')
+      const result = await setCurrentChannel(mockChannel)
+
+      expect(fetch).toHaveBeenCalledWith(
+        'http://localhost:8000/api/channels/current',
+        expect.objectContaining({
+          method: 'PUT',
+          body: JSON.stringify(mockChannel),
+          headers: expect.objectContaining({
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer test-token',
+          }),
+        })
+      )
+      expect(result).toEqual(mockChannel)
+    })
+
+    it('should throw error on 403 forbidden', async () => {
+      vi.mocked(localStorage.getItem).mockReturnValue('test-token')
+
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        json: () => Promise.resolve({ detail: 'Forbidden' }),
+      } as Response)
+
+      const { setCurrentChannel } = await import('./api')
+      await expect(setCurrentChannel(mockChannel)).rejects.toThrow('Only admins can change the channel')
+    })
+
+    it('should throw generic error on other failures', async () => {
+      vi.mocked(localStorage.getItem).mockReturnValue('test-token')
+
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        json: () => Promise.resolve({ detail: 'Server error' }),
+      } as Response)
+
+      const { setCurrentChannel } = await import('./api')
+      await expect(setCurrentChannel(mockChannel)).rejects.toThrow('Failed to set channel')
+    })
+  })
+
+  describe('fetchCurrentChannel', () => {
+    it('should GET /channels/current and return channel', async () => {
+      vi.mocked(localStorage.getItem).mockReturnValue('test-token')
+
+      const mockChannel = { id: '1', name: 'Channel 1', streamUrl: 'http://stream1.m3u8' }
+
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ currentChannel: mockChannel }),
+      } as Response)
+
+      const { fetchCurrentChannel } = await import('./api')
+      const result = await fetchCurrentChannel()
+
+      expect(fetch).toHaveBeenCalledWith(
+        'http://localhost:8000/api/channels/current',
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: 'Bearer test-token',
+          }),
+        })
+      )
+      expect(result).toEqual(mockChannel)
+    })
+
+    it('should return null when no channel is set', async () => {
+      vi.mocked(localStorage.getItem).mockReturnValue('test-token')
+
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ currentChannel: null }),
+      } as Response)
+
+      const { fetchCurrentChannel } = await import('./api')
+      const result = await fetchCurrentChannel()
+
+      expect(result).toBeNull()
+    })
+
+    it('should throw error on failure', async () => {
+      vi.mocked(localStorage.getItem).mockReturnValue('test-token')
+
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        json: () => Promise.resolve({ detail: 'Server error' }),
+      } as Response)
+
+      const { fetchCurrentChannel } = await import('./api')
+      await expect(fetchCurrentChannel()).rejects.toThrow('Failed to fetch current channel')
+    })
+  })
 })

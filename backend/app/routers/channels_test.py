@@ -7,6 +7,7 @@ from unittest.mock import patch, AsyncMock
 from app.main import app
 from app.models.channel import Channel
 from app.services.auth import create_access_token
+from app.services import channel_state
 from app.services.dispatcharr import DispatchrrUnavailableError
 
 
@@ -28,6 +29,14 @@ def admin_auth_header() -> dict[str, str]:
     """Create valid auth header with admin JWT token."""
     token = create_access_token({"sub": "admin", "role": "admin"})
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture(autouse=True)
+def reset_channel_state():
+    """Reset channel state before and after each test."""
+    channel_state.clear_current_channel()
+    yield
+    channel_state.clear_current_channel()
 
 
 class TestListChannels:
@@ -129,3 +138,197 @@ class TestListChannels:
         assert "streamUrl" in data[0]
         # Check snake_case is NOT used
         assert "stream_url" not in data[0]
+
+
+class TestGetCurrentChannel:
+    """Tests for GET /api/channels/current endpoint."""
+
+    def test_requires_authentication(self, client: TestClient) -> None:
+        """Unauthenticated request returns 401."""
+        response = client.get("/api/channels/current")
+        assert response.status_code == 401
+
+    def test_returns_null_when_no_channel_set(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """No channel selected returns null."""
+        response = client.get("/api/channels/current", headers=auth_header)
+
+        assert response.status_code == 200
+        assert response.json() == {"currentChannel": None}
+
+    def test_returns_channel_when_set(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Returns channel when one is set."""
+        test_channel = Channel(
+            id="uuid-123",
+            name="TSN",
+            stream_url="https://streams.example.com/stream/uuid-123",
+        )
+        # Set channel directly for test setup (without async broadcast)
+        channel_state._current_channel = test_channel
+
+        response = client.get("/api/channels/current", headers=auth_header)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["currentChannel"]["id"] == "uuid-123"
+        assert data["currentChannel"]["name"] == "TSN"
+        assert data["currentChannel"]["streamUrl"] == "https://streams.example.com/stream/uuid-123"
+
+    def test_admin_can_access(
+        self, client: TestClient, admin_auth_header: dict[str, str]
+    ) -> None:
+        """Admin can also access current channel."""
+        response = client.get("/api/channels/current", headers=admin_auth_header)
+
+        assert response.status_code == 200
+        assert response.json() == {"currentChannel": None}
+
+    def test_response_uses_camel_case(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Response uses camelCase field names."""
+        test_channel = Channel(
+            id="uuid-123",
+            name="TSN",
+            stream_url="https://streams.example.com/stream/uuid-123",
+        )
+        # Set channel directly for test setup (without async broadcast)
+        channel_state._current_channel = test_channel
+
+        response = client.get("/api/channels/current", headers=auth_header)
+
+        data = response.json()
+        # Check camelCase is used
+        assert "currentChannel" in data
+        assert "streamUrl" in data["currentChannel"]
+        # Check snake_case is NOT used
+        assert "current_channel" not in data
+        assert "stream_url" not in data["currentChannel"]
+
+
+class TestSetCurrentChannel:
+    """Tests for PUT /api/channels/current endpoint."""
+
+    def test_requires_authentication(self, client: TestClient) -> None:
+        """Unauthenticated request returns 401."""
+        channel_data = {"id": "uuid", "name": "TSN", "streamUrl": "https://example.com/stream"}
+        response = client.put("/api/channels/current", json=channel_data)
+        assert response.status_code == 401
+
+    def test_viewer_gets_403_forbidden(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Viewer role returns 403 Forbidden."""
+        channel_data = {"id": "uuid", "name": "TSN", "streamUrl": "https://example.com/stream"}
+
+        response = client.put("/api/channels/current", json=channel_data, headers=auth_header)
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Admin access required"
+
+    def test_admin_can_set_channel(
+        self, client: TestClient, admin_auth_header: dict[str, str]
+    ) -> None:
+        """Admin can set current channel."""
+        channel_data = {
+            "id": "uuid-456",
+            "name": "Sportsnet",
+            "streamUrl": "https://streams.example.com/stream/uuid-456",
+        }
+
+        response = client.put(
+            "/api/channels/current",
+            json=channel_data,
+            headers=admin_auth_header,
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == "uuid-456"
+        assert data["name"] == "Sportsnet"
+        assert data["streamUrl"] == "https://streams.example.com/stream/uuid-456"
+
+    def test_set_channel_updates_state(
+        self, client: TestClient, admin_auth_header: dict[str, str], auth_header: dict[str, str]
+    ) -> None:
+        """Setting channel updates the state that GET returns."""
+        channel_data = {
+            "id": "uuid-789",
+            "name": "CBC",
+            "streamUrl": "https://streams.example.com/stream/uuid-789",
+        }
+
+        # Set the channel as admin
+        client.put(
+            "/api/channels/current",
+            json=channel_data,
+            headers=admin_auth_header,
+        )
+
+        # Verify it's returned by GET (as viewer)
+        response = client.get("/api/channels/current", headers=auth_header)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["currentChannel"]["id"] == "uuid-789"
+        assert data["currentChannel"]["name"] == "CBC"
+
+    def test_set_channel_overwrites_previous(
+        self, client: TestClient, admin_auth_header: dict[str, str]
+    ) -> None:
+        """Setting a new channel overwrites the previous one."""
+        channel1 = {"id": "uuid-1", "name": "TSN", "streamUrl": "https://example.com/1"}
+        channel2 = {"id": "uuid-2", "name": "Sportsnet", "streamUrl": "https://example.com/2"}
+
+        # Set first channel
+        client.put("/api/channels/current", json=channel1, headers=admin_auth_header)
+
+        # Set second channel
+        client.put("/api/channels/current", json=channel2, headers=admin_auth_header)
+
+        # Verify second channel is current
+        response = client.get("/api/channels/current", headers=admin_auth_header)
+
+        data = response.json()
+        assert data["currentChannel"]["id"] == "uuid-2"
+        assert data["currentChannel"]["name"] == "Sportsnet"
+
+    def test_validates_request_body(
+        self, client: TestClient, admin_auth_header: dict[str, str]
+    ) -> None:
+        """Invalid request body returns 422."""
+        # Missing required fields
+        invalid_data = {"name": "TSN"}
+
+        response = client.put(
+            "/api/channels/current",
+            json=invalid_data,
+            headers=admin_auth_header,
+        )
+
+        assert response.status_code == 422
+
+    def test_response_uses_camel_case(
+        self, client: TestClient, admin_auth_header: dict[str, str]
+    ) -> None:
+        """Response uses camelCase field names."""
+        channel_data = {
+            "id": "uuid-123",
+            "name": "TSN",
+            "streamUrl": "https://streams.example.com/stream/uuid-123",
+        }
+
+        response = client.put(
+            "/api/channels/current",
+            json=channel_data,
+            headers=admin_auth_header,
+        )
+
+        data = response.json()
+        # Check camelCase is used
+        assert "streamUrl" in data
+        # Check snake_case is NOT used
+        assert "stream_url" not in data

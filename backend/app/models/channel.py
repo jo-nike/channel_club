@@ -1,5 +1,7 @@
 """Channel models for IPTV Viewer API."""
 
+from typing import Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -19,5 +21,23 @@ class Channel(BaseModel):
     id: str
     name: str
     stream_url: str = Field(alias="streamUrl")
+
+    model_config = {"populate_by_name": True}
+
+
+class SetChannelRequest(BaseModel):
+    """Request body for PUT /api/channels/current."""
+
+    id: str
+    name: str
+    stream_url: str = Field(alias="streamUrl")
+
+    model_config = {"populate_by_name": True}
+
+
+class CurrentChannelResponse(BaseModel):
+    """Response for GET /api/channels/current."""
+
+    current_channel: Optional[Channel] = Field(None, alias="currentChannel")
 
     model_config = {"populate_by_name": True}

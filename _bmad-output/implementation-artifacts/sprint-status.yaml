@@ -57,12 +57,12 @@ development_status:
   epic-2-retrospective: optional
 
   # Epic 3: Admin Channel Control & Real-Time Sync
-  epic-3: backlog
-  3-1-channel-state-management-backend: backlog
-  3-2-websocket-server-infrastructure: backlog
-  3-3-admin-channel-selection-ui: backlog
-  3-4-websocket-client-auto-sync: backlog
-  3-5-connection-status-auto-reconnect: backlog
+  epic-3: in-progress
+  3-1-channel-state-management-backend: review
+  3-2-websocket-server-infrastructure: review
+  3-3-admin-channel-selection-ui: review
+  3-4-websocket-client-auto-sync: review
+  3-5-connection-status-auto-reconnect: review
   epic-3-retrospective: optional
 
   # Epic 4: Responsive & 10-Foot UI Experience
