@@ -9,7 +9,7 @@ services:
         - VITE_STREAM_BASE_URL=${VITE_STREAM_BASE_URL}
     container_name: iptv-viewer
     ports:
-      - "8080:8080"
+      - "8334:8080"
     env_file:
       - .env
     restart: unless-stopped
