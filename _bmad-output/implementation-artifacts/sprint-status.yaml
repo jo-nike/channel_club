@@ -76,8 +76,8 @@ development_status:
   epic-4-retrospective: optional
 
   # Epic 5: Production Deployment
-  epic-5: backlog
-  5-1-docker-container-build: backlog
-  5-2-docker-compose-environment-configuration: backlog
-  5-3-npm-proxy-configuration-ssl: backlog
+  epic-5: in-progress
+  5-1-docker-container-build: review
+  5-2-docker-compose-environment-configuration: review
+  5-3-npm-proxy-configuration-ssl: review
   epic-5-retrospective: optional

@@ -9,6 +9,9 @@ __pycache__/
 .env.local
 .env.*.local
 
+# Keep the example file (explicit unignore)
+!.env.example
+
 # Build outputs
 dist/
 build/
