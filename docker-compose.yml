@@ -3,6 +3,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=${VITE_API_URL:-/api}
+        - VITE_WS_URL=${VITE_WS_URL}
+        - VITE_STREAM_BASE_URL=${VITE_STREAM_BASE_URL}
     container_name: iptv-viewer
     ports:
       - "8080:8080"

@@ -1,6 +1,16 @@
 # Stage 1: Build frontend
 FROM node:22-slim AS frontend-build
 
+# Build args for Vite env vars (must be present at build time)
+ARG VITE_API_URL=/api
+ARG VITE_WS_URL
+ARG VITE_STREAM_BASE_URL
+
+# Set as env vars so Vite can access them during build
+ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_WS_URL=$VITE_WS_URL
+ENV VITE_STREAM_BASE_URL=$VITE_STREAM_BASE_URL
+
 WORKDIR /app/frontend
 
 # Copy package files first for better layer caching
