@@ -321,7 +321,12 @@ class TestSetCurrentChannel:
         self, client: TestClient, admin_auth_header: dict[str, str]
     ) -> None:
         """Setting a new channel overwrites the previous one."""
-        channel1 = {"id": "uuid-1", "name": "TSN", "streamUrl": "https://example.com/1", "guideId": "1"}
+        channel1 = {
+            "id": "uuid-1",
+            "name": "TSN",
+            "streamUrl": "https://example.com/1",
+            "guideId": "1",
+        }
         channel2 = {
             "id": "uuid-2",
             "name": "Sportsnet",

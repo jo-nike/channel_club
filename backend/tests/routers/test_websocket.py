@@ -102,7 +102,9 @@ class TestConnectionAck:
         """Connection ack includes current channel when set."""
         from app.models.channel import Channel
 
-        test_channel = Channel(id="123", name="Test Channel", stream_url="http://test")
+        test_channel = Channel(
+            id="123", name="Test Channel", stream_url="http://test", guide_id="guide-123"
+        )
         # Set channel directly without broadcast (sync version for tests)
         channel_state._current_channel = test_channel
 
@@ -188,6 +190,7 @@ class TestChannelBroadcast:
                     "id": "test-123",
                     "name": "Test Channel",
                     "streamUrl": "http://test",
+                    "guideId": "guide-123",
                 },
                 headers={"Authorization": f"Bearer {admin_token}"},
             )
@@ -199,6 +202,7 @@ class TestChannelBroadcast:
             assert data["channel"]["id"] == "test-123"
             assert data["channel"]["name"] == "Test Channel"
             assert data["channel"]["streamUrl"] == "http://test"
+            assert data["channel"]["guideId"] == "guide-123"
 
     def test_multiple_clients_receive_broadcast(
         self, client: TestClient, valid_token: str, admin_token: str
@@ -211,15 +215,17 @@ class TestChannelBroadcast:
                 ws2.receive_json()  # Consume ack
 
                 # Admin sets channel
-                client.put(
+                response = client.put(
                     "/api/channels/current",
                     json={
                         "id": "multi-123",
                         "name": "Multi Test",
                         "streamUrl": "http://multi",
+                        "guideId": "guide-multi",
                     },
                     headers={"Authorization": f"Bearer {admin_token}"},
                 )
+                assert response.status_code == 200
 
                 # Both clients should receive
                 data1 = ws1.receive_json()

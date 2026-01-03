@@ -202,4 +202,196 @@ So that I get an immersive viewing experience without manual interaction.
 
 ---
 
+## Amendment 2: Epic 7 - ErsatzTV Multi-Channel Movie View
+
+**Date:** 2026-01-03
+**Amendment Status:** APPROVED
+**Change Type:** New Epic (Post-MVP Feature)
+**Scope Classification:** Moderate
+
+---
+
+### Issue Summary
+
+**Problem Statement:**
+The current iptv_viewer2 application successfully implements live TV viewing via Dispatcharr, but lacks the multi-channel movie view feature that existed in the prototype (`/home/jon/Code/iptv_viewer`). This feature allows users to browse and watch continuous movie channels served via ErsatzTV, with a full EPG grid showing what's playing now and next across all channels.
+
+**Context:**
+- MVP (Epics 1-6) is complete and working well
+- User wants to reimplement the ErsatzTV feature from the prototype
+- This is a post-MVP enhancement, not a bug fix or scope change
+- ErsatzTV server running at `http://192.168.50.108:8409`
+
+---
+
+### Impact Analysis
+
+**Epic Impact:**
+| Epic | Impact | Description |
+|------|--------|-------------|
+| Epics 1-6 | None | Existing functionality unaffected |
+| **Epic 7 (NEW)** | Addition | New epic for ErsatzTV integration |
+
+**Artifact Changes:**
+| Artifact | Impact | Changes Needed |
+|----------|--------|----------------|
+| `epics.md` | Addition | Add Epic 7 with 13 stories |
+| Config | Addition | Add ErsatzTV environment variables |
+| PRD | None | Post-MVP feature |
+| Architecture | Minor | Document ErsatzTV integration (optional) |
+
+**Technical Impact:**
+- **Backend:** New services (M3U parser, XMLTV parser, HLS proxy, API endpoints)
+- **Frontend:** React Router, vidstack HLS player, new UI components
+- **Dependencies:** Add `react-router-dom` to frontend
+
+---
+
+### Key Technical Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Streaming Format | HLS Segmenter | Best program boundary handling |
+| Player Library | vidstack | Already installed, supports HLS |
+| Channel Parsing | M3U format | More metadata (logo, group, etc.) |
+| Sync Mode | Independent | Simpler MVP, "movie night" mode deferred |
+| Route | `/ersatztv` | Separate from live TV |
+
+---
+
+### Epic 7: Story Breakdown (13 Stories)
+
+**Phase 1 - Backend Foundation (6 stories):**
+
+**Story 7.1: ErsatzTV Configuration & Models**
+- Add `ERSATZTV_M3U_URL`, `ERSATZTV_XMLTV_URL`, `ERSATZTV_BASE_URL` to config
+- Create `backend/app/models/ersatztv.py` with EPGChannel, Programme models
+
+**Story 7.2: M3U Parser Service**
+- Port from `/home/jon/Code/iptv_viewer/app/epg/parser.py`
+- Parse ErsatzTV M3U playlist
+- Extract: channel_id, name, stream_url, logo_url, number, group
+- 1-hour TTL caching
+
+**Story 7.3: XMLTV Parser Service**
+- Port from `/home/jon/Code/iptv_viewer/app/epg/xmltv_parser.py`
+- Parse ErsatzTV XMLTV EPG data
+- Extract: id, channel_id, title, description, start, stop, category
+- 5-minute TTL caching
+
+**Story 7.4: EPG Service Layer**
+- Port from `/home/jon/Code/iptv_viewer/app/epg/service.py`
+- Combine M3U and XMLTV data
+- Provide: `get_channels()`, `get_current_programme()`, `get_programmes_by_channel()`
+
+**Story 7.5: HLS Proxy Service**
+- Port from `/home/jon/Code/iptv_viewer/app/streaming/hls_rewriter.py`
+- Rewrite HLS manifest URLs to proxy through backend
+- Base64 URL encoding for segment paths
+
+**Story 7.6: ErsatzTV API Endpoints**
+- Create `backend/app/routers/ersatztv.py`
+- Endpoints: channels, programmes, current, stream, segments, logos
+
+**Phase 2 - Frontend Foundation (3 stories):**
+
+**Story 7.7: React Router Setup**
+- Add `react-router-dom` dependency
+- Configure `/` (live TV) and `/ersatztv` routes
+- Auth protection on both routes
+
+**Story 7.8: Vidstack HLS Player Component**
+- Create `frontend/src/components/ersatztv/HLSVideoPlayer.tsx`
+- Use vidstack for HLS playback
+- Controls, buffering states, error handling
+
+**Story 7.9: ErsatzTV Store & API Service**
+- Create Zustand store for ErsatzTV state
+- Create API service for ErsatzTV endpoints
+- TypeScript interfaces
+
+**Phase 3 - UI Components (4 stories):**
+
+**Story 7.10: EPG Channel Sidebar**
+- List channels with logo, name, number
+- Show current programme per channel
+- Click to select and play
+
+**Story 7.11: EPG Grid Component**
+- Time slots header (30-min intervals)
+- Channel rows with programmes positioned by time
+- "Now" marker line
+
+**Story 7.12: Programme Details Modal**
+- Title, time range, description, category
+- "Watch" button to switch channel
+
+**Story 7.13: ErsatzTV Main View**
+- Header with back navigation
+- HLS video player (vidstack)
+- EPG grid below video
+- Responsive design
+
+---
+
+### Environment Variables to Add
+
+```bash
+ERSATZTV_M3U_URL=http://192.168.50.108:8409/iptv/channels.m3u8
+ERSATZTV_XMLTV_URL=http://192.168.50.108:8409/iptv/xmltv.xml
+ERSATZTV_BASE_URL=http://192.168.50.108:8409
+```
+
+---
+
+### Pre-Implementation Requirements
+
+- [ ] Configure ErsatzTV to use **HLS Segmenter** streaming mode
+- [ ] Verify ErsatzTV endpoints accessible from dev environment
+- [ ] Add environment variables to `.env` file
+
+---
+
+### Implementation Order
+
+```
+Phase 1 (Backend - 6 stories):
+  7.1 → 7.2 + 7.3 (parallel) → 7.4 → 7.5 → 7.6
+
+Phase 2 (Frontend Foundation - 3 stories):
+  7.7 → 7.8 + 7.9 (parallel)
+
+Phase 3 (UI - 4 stories):
+  7.10 + 7.11 + 7.12 (parallel) → 7.13
+```
+
+---
+
+### Success Criteria
+
+- [ ] Users can access `/ersatztv` route
+- [ ] EPG grid displays all ErsatzTV channels with current/next programmes
+- [ ] Clicking a channel starts HLS playback via vidstack
+- [ ] Programme details modal shows full information
+- [ ] Responsive design works on desktop and mobile
+
+---
+
+### Post-MVP Considerations (Deferred)
+
+- Synced "movie night" mode (WebSocket coordination)
+- Picture-in-picture mode
+- Favorites/recently watched
+- Quality selector for HLS streams
+
+---
+
+### Amendment 2 Approval
+
+- [x] User approves Epic 7 addition
+- [x] Epics file updated with Epic 7 (13 stories added)
+- [x] Sprint status: Not required (post-MVP epic)
+
+---
+
 *Generated by Correct Course Workflow*

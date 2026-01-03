@@ -31,6 +31,7 @@ class TestGetCurrentChannel:
             id="uuid-123",
             name="TSN",
             stream_url="https://streams.example.com/stream/uuid-123",
+            guide_id="guide-123",
         )
         await channel_state.set_current_channel(test_channel)
 
@@ -52,6 +53,7 @@ class TestSetCurrentChannel:
             id="uuid-456",
             name="Sportsnet",
             stream_url="https://streams.example.com/stream/uuid-456",
+            guide_id="guide-456",
         )
 
         result = await channel_state.set_current_channel(test_channel)
@@ -66,11 +68,13 @@ class TestSetCurrentChannel:
             id="uuid-1",
             name="TSN",
             stream_url="https://streams.example.com/stream/uuid-1",
+            guide_id="guide-1",
         )
         channel2 = Channel(
             id="uuid-2",
             name="Sportsnet",
             stream_url="https://streams.example.com/stream/uuid-2",
+            guide_id="guide-2",
         )
 
         await channel_state.set_current_channel(channel1)
@@ -92,6 +96,7 @@ class TestClearCurrentChannel:
             id="uuid-789",
             name="CBC",
             stream_url="https://streams.example.com/stream/uuid-789",
+            guide_id="guide-789",
         )
         await channel_state.set_current_channel(test_channel)
 

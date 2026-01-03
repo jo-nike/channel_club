@@ -249,7 +249,7 @@ class TestRefreshCache:
 
     @pytest.mark.asyncio
     async def test_refresh_cache_calls_correct_endpoint(self) -> None:
-        """Refresh calls /xmltv.php endpoint."""
+        """Refresh calls /output/epg endpoint."""
         service = EPGService("http://dispatcharr:9191")
 
         mock_response = MagicMock()
@@ -265,7 +265,7 @@ class TestRefreshCache:
 
             await service.refresh_cache()
 
-        mock_client.get.assert_called_once_with("http://dispatcharr:9191/xmltv.php")
+        mock_client.get.assert_called_once_with("http://dispatcharr:9191/output/epg")
 
 
 class TestGetNowPlaying:

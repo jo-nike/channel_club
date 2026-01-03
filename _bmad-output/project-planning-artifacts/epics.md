@@ -810,3 +810,353 @@ So that I get an immersive viewing experience without manual interaction.
 **When** entering fullscreen
 **Then** video controls remain accessible
 **And** I can manually exit fullscreen if desired (tap or swipe)
+
+---
+
+## Epic 7: ErsatzTV Multi-Channel Movie View
+
+Users can browse and watch continuous movie channels from ErsatzTV with a full EPG grid interface, independent from the live TV feature.
+
+**Key Features:**
+- Separate `/ersatztv` route (independent from live TV)
+- Full EPG grid showing all channels with current/next programmes
+- Independent browsing (no multi-client sync)
+- HLS streaming via vidstack player
+- M3U channel parsing and XMLTV programme data
+
+**Technical Decisions:**
+- Streaming Format: HLS Segmenter (best program boundary handling)
+- Player: vidstack (already installed)
+- Channel Data: M3U parsing (more metadata than HDHomeRun JSON)
+- Sync Mode: Independent browsing (movie night sync deferred to post-MVP)
+
+**Environment Variables:**
+- `ERSATZTV_M3U_URL` - M3U playlist URL
+- `ERSATZTV_XMLTV_URL` - XMLTV EPG URL
+- `ERSATZTV_BASE_URL` - Base URL for ErsatzTV server
+
+---
+
+### Story 7.1: ErsatzTV Configuration & Models
+
+As a developer,
+I want ErsatzTV configuration and data models in place,
+So that I can build services that interact with ErsatzTV.
+
+**Acceptance Criteria:**
+
+**Given** the backend configuration
+**When** ErsatzTV environment variables are set
+**Then** `settings.ersatztv_m3u_url`, `settings.ersatztv_xmltv_url`, and `settings.ersatztv_base_url` are accessible
+
+**Given** the models module
+**When** I import from `app.models.ersatztv`
+**Then** I have access to `EPGChannel` and `Programme` Pydantic models
+**And** models support JSON serialization with camelCase field names
+
+---
+
+### Story 7.2: M3U Parser Service
+
+As the system,
+I want to parse ErsatzTV's M3U playlist,
+So that I can display available movie channels.
+
+**Acceptance Criteria:**
+
+**Given** the M3U parser service
+**When** I call `parse_m3u_playlist()`
+**Then** it fetches the M3U from `ERSATZTV_M3U_URL`
+**And** extracts channel_id, name, stream_url, logo_url, number, group for each channel
+
+**Given** M3U data was fetched within the last hour
+**When** I call `parse_m3u_playlist()` again
+**Then** it returns cached data without re-fetching
+
+**Given** ErsatzTV is unreachable
+**When** I call `parse_m3u_playlist()` and cache exists
+**Then** it returns stale cached data gracefully
+
+---
+
+### Story 7.3: XMLTV Parser Service
+
+As the system,
+I want to parse ErsatzTV's XMLTV EPG data,
+So that I can display programme schedules.
+
+**Acceptance Criteria:**
+
+**Given** the XMLTV parser service
+**When** I call `parse_xmltv()`
+**Then** it fetches the XMLTV from `ERSATZTV_XMLTV_URL`
+**And** extracts id, channel_id, title, description, start, stop, category for each programme
+**And** converts all times to UTC
+
+**Given** XMLTV data was fetched within the last 5 minutes
+**When** I call `parse_xmltv()` again
+**Then** it returns cached data without re-fetching
+
+---
+
+### Story 7.4: EPG Service Layer
+
+As the system,
+I want a unified EPG service layer,
+So that I can easily query channels and programmes.
+
+**Acceptance Criteria:**
+
+**Given** the EPG service
+**When** I call `get_channels()`
+**Then** it returns all ErsatzTV channels from M3U data
+
+**Given** the EPG service
+**When** I call `get_current_programme(channel_id)`
+**Then** it returns the currently airing programme and next upcoming programme
+
+**Given** the EPG service
+**When** I call `get_programmes_by_channel(channel_id, hours=6)`
+**Then** it returns programmes for the specified time window
+
+---
+
+### Story 7.5: HLS Proxy Service
+
+As the system,
+I want to proxy HLS streams through the backend,
+So that ErsatzTV URLs are not exposed to clients.
+
+**Acceptance Criteria:**
+
+**Given** an HLS manifest URL from ErsatzTV
+**When** I call `rewrite_manifest(manifest_content)`
+**Then** segment URLs are rewritten to use `/api/ersatztv/segments/{encoded_url}`
+
+**Given** a base64-encoded segment URL
+**When** I call `decode_url(encoded_url)`
+**Then** it returns the original ErsatzTV segment URL
+
+**Given** HLS streams use nested variant playlists
+**When** the manifest is rewritten
+**Then** nested m3u8 URLs are also proxied correctly
+
+---
+
+### Story 7.6: ErsatzTV API Endpoints
+
+As a frontend developer,
+I want REST API endpoints for ErsatzTV data,
+So that the React app can fetch channels and programmes.
+
+**Acceptance Criteria:**
+
+**Given** an authenticated user
+**When** I call `GET /api/ersatztv/channels`
+**Then** I receive a list of all ErsatzTV channels
+
+**Given** an authenticated user
+**When** I call `GET /api/ersatztv/programmes/{channel_id}?hours=6`
+**Then** I receive programmes for that channel within the time window
+
+**Given** an authenticated user
+**When** I call `GET /api/ersatztv/current/{channel_id}`
+**Then** I receive current and next programme for that channel
+
+**Given** an authenticated user
+**When** I call `GET /api/ersatztv/stream/{channel_id}`
+**Then** I receive the proxied HLS manifest with rewritten URLs
+
+**Given** a valid encoded segment URL
+**When** I call `GET /api/ersatztv/segments/{encoded_url}`
+**Then** the segment is fetched from ErsatzTV and streamed to client
+
+**Given** a channel_id
+**When** I call `GET /api/ersatztv/logos/{channel_id}`
+**Then** the channel logo is fetched from ErsatzTV and returned
+
+---
+
+### Story 7.7: React Router Setup
+
+As a user,
+I want to navigate between live TV and ErsatzTV views,
+So that I can access both features from the same app.
+
+**Acceptance Criteria:**
+
+**Given** I am authenticated
+**When** I navigate to `/`
+**Then** I see the existing live TV MainView
+
+**Given** I am authenticated
+**When** I navigate to `/ersatztv`
+**Then** I see the ErsatzTV view
+
+**Given** I am not authenticated
+**When** I navigate to either route
+**Then** I am redirected to the login page
+
+**Given** I am on the live TV view
+**When** I click the ErsatzTV navigation link
+**Then** I navigate to `/ersatztv`
+
+---
+
+### Story 7.8: Vidstack HLS Player Component
+
+As a user,
+I want to watch ErsatzTV HLS streams,
+So that I can enjoy movie channels.
+
+**Acceptance Criteria:**
+
+**Given** the HLSVideoPlayer component with a stream URL
+**When** the component mounts
+**Then** vidstack loads and plays the HLS stream
+
+**Given** I am watching a stream
+**When** I use the video controls
+**Then** I can play/pause, adjust volume, mute, and toggle fullscreen
+
+**Given** the stream is buffering
+**When** playback is paused for buffering
+**Then** I see a loading indicator
+
+**Given** the stream fails to load
+**When** an error occurs
+**Then** I see an error message
+
+---
+
+### Story 7.9: ErsatzTV Store & API Service
+
+As a frontend developer,
+I want Zustand store and API service for ErsatzTV,
+So that components can access ErsatzTV data.
+
+**Acceptance Criteria:**
+
+**Given** the ersatztvStore
+**When** I access state
+**Then** I have: channels, selectedChannel, programmes, loading, error
+
+**Given** the ersatztvApi service
+**When** I call `fetchChannels()`
+**Then** it fetches from `/api/ersatztv/channels` with auth token
+
+**Given** the ersatztvApi service
+**When** I call `getStreamUrl(channelId)`
+**Then** it returns the proxied HLS manifest URL
+
+---
+
+### Story 7.10: EPG Channel Sidebar
+
+As a user,
+I want to see a list of ErsatzTV channels,
+So that I can browse and select what to watch.
+
+**Acceptance Criteria:**
+
+**Given** the EPG channel sidebar
+**When** it renders
+**Then** I see all channels with logo, name, and number
+
+**Given** each channel in the list
+**When** it renders
+**Then** I see the current programme title
+
+**Given** I click on a channel
+**When** the click is processed
+**Then** that channel is selected and starts playing
+
+**Given** a channel is currently playing
+**When** the sidebar renders
+**Then** the playing channel is visually highlighted
+
+---
+
+### Story 7.11: EPG Grid Component
+
+As a user,
+I want to see an EPG grid of all programmes,
+So that I can see what's on now and coming up.
+
+**Acceptance Criteria:**
+
+**Given** the EPG grid
+**When** it renders
+**Then** I see time slots in 30-minute intervals across the header
+
+**Given** the EPG grid
+**When** it renders
+**Then** I see channel rows with programmes positioned by time
+
+**Given** the current time
+**When** viewing the grid
+**Then** I see a "now" marker line at the current time position
+
+**Given** the grid has more content than visible
+**When** I scroll horizontally
+**Then** I can see future programmes
+
+**Given** I click on a programme box
+**When** the click is processed
+**Then** the programme details modal opens
+
+---
+
+### Story 7.12: Programme Details Modal
+
+As a user,
+I want to see full programme details,
+So that I can decide if I want to watch it.
+
+**Acceptance Criteria:**
+
+**Given** I click on a programme in the grid
+**When** the modal opens
+**Then** I see title, time range, description, and category
+
+**Given** the modal is open
+**When** I click the "Watch" button
+**Then** the modal closes and that channel starts playing
+
+**Given** the modal is open
+**When** I click outside the modal or press Escape
+**Then** the modal closes
+
+---
+
+### Story 7.13: ErsatzTV Main View
+
+As a user,
+I want a complete ErsatzTV viewing experience,
+So that I can browse and watch movie channels.
+
+**Acceptance Criteria:**
+
+**Given** I navigate to `/ersatztv`
+**When** the view renders
+**Then** I see a header with navigation back to live TV
+
+**Given** the main view
+**When** it renders
+**Then** I see the HLS video player
+
+**Given** the main view
+**When** it renders
+**Then** I see the EPG grid below the video
+
+**Given** programmes are older than 5 minutes
+**When** the refresh interval triggers
+**Then** programme data is automatically refreshed
+
+**Given** I am on desktop
+**When** viewing the layout
+**Then** I see the EPG grid in full-width format
+
+**Given** I am on mobile
+**When** viewing the layout
+**Then** I see a mobile-optimized card layout
