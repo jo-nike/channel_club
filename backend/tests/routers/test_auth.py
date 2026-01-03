@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 def client():
     """Create test client with auth router."""
     from fastapi import FastAPI
+
     from app.routers.auth import router
 
     app = FastAPI()

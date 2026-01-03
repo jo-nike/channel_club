@@ -1,12 +1,12 @@
 """Tests for EPG service."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 
-from app.models.epg import EPGResponse, Program
+from app.models.epg import Program
 from app.services.epg_service import EPGService, EPGServiceError
 
 
@@ -207,9 +207,9 @@ class TestRefreshCache:
             mock_client.__aexit__.return_value = None
             mock_client_class.return_value = mock_client
 
-            before = datetime.now(timezone.utc)
+            before = datetime.now(UTC)
             await service.refresh_cache()
-            after = datetime.now(timezone.utc)
+            after = datetime.now(UTC)
 
         expected_min = before + timedelta(hours=24)
         expected_max = after + timedelta(hours=24)
@@ -276,7 +276,7 @@ class TestGetNowPlaying:
         """Returns current program when one is airing."""
         service = EPGService("http://test:9191")
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         programs = [
             Program(
                 title="Current Show",
@@ -307,7 +307,7 @@ class TestGetNowPlaying:
         """Returns next program when nothing is currently airing."""
         service = EPGService("http://test:9191")
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         programs = [
             Program(
                 title="Upcoming Show",
@@ -330,7 +330,7 @@ class TestGetNowPlaying:
         """Returns null programs for unknown channel."""
         service = EPGService("http://test:9191")
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         service._cache = {}
         service._cache_expires = now + timedelta(hours=1)
 
@@ -345,15 +345,15 @@ class TestGetNowPlaying:
         """Refreshes cache when expired before returning data."""
         service = EPGService("http://test:9191")
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         # Set cache as expired
         service._cache = {}
         service._cache_expires = now - timedelta(hours=1)
 
         xml_response = f"""<?xml version="1.0" encoding="UTF-8"?>
         <tv>
-          <programme start="{(now - timedelta(minutes=30)).strftime('%Y%m%d%H%M%S')} +0000"
-                     stop="{(now + timedelta(minutes=30)).strftime('%Y%m%d%H%M%S')} +0000"
+          <programme start="{(now - timedelta(minutes=30)).strftime("%Y%m%d%H%M%S")} +0000"
+                     stop="{(now + timedelta(minutes=30)).strftime("%Y%m%d%H%M%S")} +0000"
                      channel="channel-1">
             <title>Fresh Program</title>
           </programme>
@@ -381,7 +381,7 @@ class TestGetNowPlaying:
         """Uses stale cache when refresh fails."""
         service = EPGService("http://test:9191")
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         stale_programs = [
             Program(
                 title="Stale Program",
@@ -432,14 +432,14 @@ class TestCacheValidity:
     def test_cache_valid_when_not_expired(self) -> None:
         """Cache is valid when expiry is in the future."""
         service = EPGService("http://test:9191")
-        service._cache_expires = datetime.now(timezone.utc) + timedelta(hours=1)
+        service._cache_expires = datetime.now(UTC) + timedelta(hours=1)
 
         assert service._is_cache_valid() is True
 
     def test_cache_invalid_when_expired(self) -> None:
         """Cache is invalid when expiry is in the past."""
         service = EPGService("http://test:9191")
-        service._cache_expires = datetime.now(timezone.utc) - timedelta(hours=1)
+        service._cache_expires = datetime.now(UTC) - timedelta(hours=1)
 
         assert service._is_cache_valid() is False
 

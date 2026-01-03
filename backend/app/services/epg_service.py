@@ -1,8 +1,7 @@
 """EPG service for fetching and caching XMLTV data from Dispatcharr."""
 
 import logging
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime, timedelta, timezone
 
 import httpx
 from defusedxml import ElementTree
@@ -25,14 +24,14 @@ class EPGService:
     def __init__(self, dispatcharr_url: str):
         self.dispatcharr_url = dispatcharr_url
         self._cache: dict[str, list[Program]] = {}  # channel_id -> list of programs
-        self._cache_expires: Optional[datetime] = None
+        self._cache_expires: datetime | None = None
         self._cache_ttl = timedelta(hours=24)
 
     def _is_cache_valid(self) -> bool:
         """Check if cache is still valid."""
         if self._cache_expires is None:
             return False
-        return datetime.now(timezone.utc) < self._cache_expires
+        return datetime.now(UTC) < self._cache_expires
 
     def _parse_xmltv_datetime(self, dt_str: str) -> datetime:
         """Parse XMLTV datetime format (YYYYMMDDHHmmss +ZZZZ).
@@ -62,9 +61,7 @@ class EPGService:
         tz_minutes = int(tz_part[3:5])
         tz_offset = timedelta(hours=tz_sign * tz_hours, minutes=tz_sign * tz_minutes)
 
-        return datetime(
-            year, month, day, hour, minute, second, tzinfo=timezone(tz_offset)
-        )
+        return datetime(year, month, day, hour, minute, second, tzinfo=timezone(tz_offset))
 
     def _parse_xmltv(self, xml_content: str) -> dict[str, list[Program]]:
         """Parse XMLTV XML content into channel->programs mapping.
@@ -115,7 +112,7 @@ class EPGService:
 
         except ElementTree.ParseError as e:
             logger.error(f"Failed to parse XMLTV: {e}")
-            raise EPGServiceError(f"Failed to parse XMLTV data: {e}")
+            raise EPGServiceError(f"Failed to parse XMLTV data: {e}") from e
 
         return programs_by_channel
 
@@ -131,7 +128,7 @@ class EPGService:
                 response.raise_for_status()
 
                 self._cache = self._parse_xmltv(response.text)
-                self._cache_expires = datetime.now(timezone.utc) + self._cache_ttl
+                self._cache_expires = datetime.now(UTC) + self._cache_ttl
 
                 logger.info(
                     f"EPG cache refreshed: {len(self._cache)} channels, "
@@ -178,18 +175,18 @@ class EPGService:
                 next_program=None,
             )
 
-        now = datetime.now(timezone.utc)
-        current_program: Optional[Program] = None
-        next_program: Optional[Program] = None
+        now = datetime.now(UTC)
+        current_program: Program | None = None
+        next_program: Program | None = None
 
         for i, program in enumerate(programs):
             # Convert to UTC for comparison if needed
             start = program.start_time
             end = program.end_time
-            if start.tzinfo != timezone.utc:
-                start = start.astimezone(timezone.utc)
-            if end.tzinfo != timezone.utc:
-                end = end.astimezone(timezone.utc)
+            if start.tzinfo != UTC:
+                start = start.astimezone(UTC)
+            if end.tzinfo != UTC:
+                end = end.astimezone(UTC)
 
             if start <= now < end:
                 current_program = program
@@ -210,7 +207,7 @@ class EPGService:
 
 
 # Global singleton instance
-_epg_service: Optional[EPGService] = None
+_epg_service: EPGService | None = None
 
 
 def get_epg_service() -> EPGService:

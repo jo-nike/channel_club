@@ -1,7 +1,5 @@
 """Channel models for IPTV Viewer API."""
 
-from typing import Optional
-
 from pydantic import BaseModel, Field
 
 
@@ -38,6 +36,6 @@ class SetChannelRequest(BaseModel):
 class CurrentChannelResponse(BaseModel):
     """Response for GET /api/channels/current."""
 
-    current_channel: Optional[Channel] = Field(None, alias="currentChannel")
+    current_channel: Channel | None = Field(None, alias="currentChannel")
 
     model_config = {"populate_by_name": True}

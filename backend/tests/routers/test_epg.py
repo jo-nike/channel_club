@@ -1,6 +1,6 @@
 """Tests for EPG router."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -49,11 +49,9 @@ class TestGetNowPlaying:
 
         assert response.status_code == 422
 
-    def test_returns_current_program(
-        self, client: TestClient, auth_header: dict[str, str]
-    ) -> None:
+    def test_returns_current_program(self, client: TestClient, auth_header: dict[str, str]) -> None:
         """Returns current program when one exists."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         mock_response = EPGResponse(
             channel_id="uuid-123",
             current_program=Program(
@@ -118,9 +116,7 @@ class TestGetNowPlaying:
         """Returns 503 when EPG service is unavailable."""
         with patch("app.routers.epg.get_epg_service") as mock_get_service:
             mock_service = AsyncMock()
-            mock_service.get_now_playing.side_effect = EPGServiceError(
-                "EPG service unavailable"
-            )
+            mock_service.get_now_playing.side_effect = EPGServiceError("EPG service unavailable")
             mock_get_service.return_value = mock_service
 
             response = client.get(
@@ -131,9 +127,7 @@ class TestGetNowPlaying:
         assert response.status_code == 503
         assert response.json() == {"detail": "EPG service unavailable"}
 
-    def test_admin_can_access(
-        self, client: TestClient, admin_auth_header: dict[str, str]
-    ) -> None:
+    def test_admin_can_access(self, client: TestClient, admin_auth_header: dict[str, str]) -> None:
         """Admin users can access EPG endpoint."""
         mock_response = EPGResponse(
             channel_id="uuid-123",
@@ -156,7 +150,7 @@ class TestGetNowPlaying:
         self, client: TestClient, auth_header: dict[str, str]
     ) -> None:
         """Response uses camelCase field names."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         mock_response = EPGResponse(
             channel_id="uuid-123",
             current_program=Program(

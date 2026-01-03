@@ -1,8 +1,8 @@
 """JWT token service for authentication."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
-from jose import JWTError, jwt
+from jose import jwt
 
 from app.config import settings
 from app.models.auth import TokenPayload
@@ -21,7 +21,7 @@ def create_access_token(data: dict) -> str:
         Encoded JWT token string.
     """
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + timedelta(days=JWT_EXPIRATION_DAYS)
+    expire = datetime.now(UTC) + timedelta(days=JWT_EXPIRATION_DAYS)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, settings.jwt_secret, algorithm=JWT_ALGORITHM)
 

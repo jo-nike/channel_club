@@ -23,10 +23,7 @@ async def login(request: LoginRequest) -> TokenResponse:
         HTTPException: 401 if credentials are invalid.
     """
     # Check admin credentials
-    if (
-        request.username == settings.admin_username
-        and request.password == settings.admin_password
-    ):
+    if request.username == settings.admin_username and request.password == settings.admin_password:
         role = "admin"
     # Check viewer credentials
     elif (

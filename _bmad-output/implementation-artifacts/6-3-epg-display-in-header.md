@@ -1,6 +1,6 @@
 # Story 6.3: EPG Display in Header
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -17,21 +17,21 @@ so that I know what program is on without checking a guide.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create EPG types (AC: #1)
-  - [ ] Add EPG types to `frontend/src/types/index.ts`
-- [ ] Task 2: Create EPG API function (AC: #1, #3)
-  - [ ] Add `fetchNowPlaying(channelId)` to `frontend/src/services/api.ts`
-- [ ] Task 3: Create useEPG hook (AC: #1, #2, #3, #4)
-  - [ ] Create `frontend/src/hooks/useEPG.ts`
-  - [ ] Implement EPG fetching with channel dependency
-  - [ ] Handle loading/error states
-  - [ ] Re-fetch when channel changes
-- [ ] Task 4: Display EPG in header (AC: #1, #2)
-  - [ ] Modify MainView.tsx header to show EPG
-  - [ ] Format as "Channel Name - Program Title" or just channel name
-- [ ] Task 5: Write tests
-  - [ ] Create `frontend/src/hooks/useEPG.test.ts`
-  - [ ] Update MainView.test.tsx for EPG display
+- [x] Task 1: Create EPG types (AC: #1)
+  - [x] Add EPG types to `frontend/src/types/index.ts`
+- [x] Task 2: Create EPG API function (AC: #1, #3)
+  - [x] Add `fetchNowPlaying(channelId)` to `frontend/src/services/api.ts`
+- [x] Task 3: Create useEPG hook (AC: #1, #2, #3, #4)
+  - [x] Create `frontend/src/hooks/useEPG.ts`
+  - [x] Implement EPG fetching with channel dependency
+  - [x] Handle loading/error states
+  - [x] Re-fetch when channel changes
+- [x] Task 4: Display EPG in header (AC: #1, #2)
+  - [x] Modify MainView.tsx header to show EPG
+  - [x] Format as "Channel Name - Program Title" or just channel name
+- [x] Task 5: Write tests
+  - [x] Create `frontend/src/hooks/useEPG.test.ts`
+  - [x] Update MainView.test.tsx for EPG display
 
 ## Dev Notes
 
@@ -180,8 +180,41 @@ Modified files:
 
 ### Agent Model Used
 
+Claude Opus 4.5 (claude-opus-4-5-20251101)
+
 ### Debug Log References
+
+None - implementation completed without issues.
 
 ### Completion Notes List
 
+- Implemented EPG types (Program, EPGResponse) following project TypeScript patterns
+- Added fetchNowPlaying API function using existing fetchWithAuth pattern for authenticated requests
+- Created useEPG hook with proper cancellation pattern for race condition handling
+- Hook silently fails on API errors (returns null EPG, no toast) as specified
+- Header displays "Channel Name - Program Title" when EPG data available, falls back to channel name only
+- Increased max-width from 200px to 300px to accommodate longer EPG titles with truncation
+- Created comprehensive test suite for useEPG hook (10 tests) covering:
+  - No channel selected behavior
+  - Successful EPG fetch
+  - Loading state management
+  - Error handling (silent fail)
+  - Channel change re-fetch
+  - Request cancellation on rapid channel changes
+- Updated MainView tests (4 new tests) for EPG display scenarios
+
 ### File List
+
+**New files:**
+- frontend/src/hooks/useEPG.ts
+- frontend/src/hooks/useEPG.test.ts
+
+**Modified files:**
+- frontend/src/types/index.ts (added Program and EPGResponse interfaces)
+- frontend/src/services/api.ts (added fetchNowPlaying function and EPGResponse import)
+- frontend/src/components/MainView.tsx (added useEPG hook usage and EPG display in header)
+- frontend/src/components/MainView.test.tsx (added EPG display tests and fetchNowPlaying mock)
+
+## Change Log
+
+- 2026-01-03: Implemented EPG display in header - Story 6.3 complete

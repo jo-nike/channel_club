@@ -30,6 +30,7 @@ export function useWebSocket(): UseWebSocketReturn {
   const reconnectTimeoutRef = useRef<number | null>(null)
   const retryCountRef = useRef(0)
   const intentionalCloseRef = useRef(false)
+  const connectRef = useRef<((isReconnect?: boolean) => void) | null>(null)
 
   const [status, setStatus] = useState<ConnectionStatus>('disconnected')
 
@@ -145,7 +146,7 @@ export function useWebSocket(): UseWebSocketReturn {
 
           reconnectTimeoutRef.current = window.setTimeout(() => {
             retryCountRef.current++
-            connect(true)
+            connectRef.current?.(true)
           }, delay)
         } else {
           console.log('Max reconnection attempts reached')
@@ -155,6 +156,11 @@ export function useWebSocket(): UseWebSocketReturn {
     },
     [token, handleMessage, clearTimers, getBackoffDelay]
   )
+
+  // Keep connectRef in sync with connect function
+  useEffect(() => {
+    connectRef.current = connect
+  }, [connect])
 
   const disconnect = useCallback(() => {
     intentionalCloseRef.current = true
@@ -173,8 +179,10 @@ export function useWebSocket(): UseWebSocketReturn {
   }, [connect])
 
   // Connect on mount when token is available
+  // Intentionally calls connect (which sets state) in effect - this is the standard WebSocket pattern
   useEffect(() => {
     if (token) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       connect()
     }
     return () => disconnect()

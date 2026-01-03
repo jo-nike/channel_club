@@ -160,6 +160,9 @@ function VideoPlayerInner({ streamUrl, channelName }: VideoPlayerInnerProps) {
     }
   }, [])
 
+  // Check mpegts.js support (at component level, not in effect)
+  const isMpegtsSupported = mpegts.isSupported()
+
   // mpegts.js player setup
   useEffect(() => {
     const video = videoRef.current
@@ -169,9 +172,8 @@ function VideoPlayerInner({ streamUrl, channelName }: VideoPlayerInnerProps) {
     video.volume = volume
     video.muted = isMuted
 
-    // Check mpegts.js support
-    if (!mpegts.isSupported()) {
-      setError('MPEG-TS playback not supported in this browser')
+    // Early return if mpegts not supported (error shown below in render)
+    if (!isMpegtsSupported) {
       return
     }
 
@@ -281,7 +283,8 @@ function VideoPlayerInner({ streamUrl, channelName }: VideoPlayerInnerProps) {
       <BufferingOverlay isVisible={isBuffering && !isChangingChannel} />
 
       {/* Error overlay on top of player */}
-      {error && <ErrorOverlay message={error} />}
+      {!isMpegtsSupported && <ErrorOverlay message="MPEG-TS playback not supported in this browser" />}
+      {error && isMpegtsSupported && <ErrorOverlay message={error} />}
     </div>
   )
 }

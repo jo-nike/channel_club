@@ -85,16 +85,20 @@ export function useAutoHide({ isPlaying, containerRef, isHoveringControls = fals
   // Show controls when paused, auto-hide when playing resumes
   useEffect(() => {
     if (!isPlaying) {
-      // When paused, always show controls
-      setIsVisible(true)
+      // When paused, always show controls (only update if not already visible to avoid setState in effect)
+      if (!isVisible) {
+        setIsVisible(true)
+      }
       if (timeoutRef.current) {
         window.clearTimeout(timeoutRef.current)
+        timeoutRef.current = undefined
       }
     } else {
       // When playing, start the hide timer
       showControls()
     }
-  }, [isPlaying, showControls])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPlaying])
 
   // Handle hover state changes - restart timer when leaving controls area
   useEffect(() => {

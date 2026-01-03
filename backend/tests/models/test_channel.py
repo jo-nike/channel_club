@@ -61,7 +61,11 @@ class TestChannel:
 
     def test_create_channel_with_camel_case_aliases(self) -> None:
         """Channel should use camelCase for JSON serialization."""
-        channel = Channel(id="uuid-abc123", name="TSN", stream_url="https://streams.domain.com/proxy/ts/stream/uuid-abc123")
+        channel = Channel(
+            id="uuid-abc123",
+            name="TSN",
+            stream_url="https://streams.domain.com/proxy/ts/stream/uuid-abc123",
+        )
 
         # Internal access uses snake_case
         assert channel.id == "uuid-abc123"
@@ -70,7 +74,11 @@ class TestChannel:
 
     def test_channel_json_serialization_uses_camel_case(self) -> None:
         """Channel JSON output should use camelCase field names."""
-        channel = Channel(id="uuid-abc123", name="TSN", stream_url="https://streams.domain.com/proxy/ts/stream/uuid-abc123")
+        channel = Channel(
+            id="uuid-abc123",
+            name="TSN",
+            stream_url="https://streams.domain.com/proxy/ts/stream/uuid-abc123",
+        )
 
         json_data = channel.model_dump(by_alias=True)
 

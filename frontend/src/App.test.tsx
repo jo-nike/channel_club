@@ -45,7 +45,7 @@ describe('App', () => {
       render(<App />)
 
       expect(screen.getByRole('button', { name: /logout/i })).toBeInTheDocument()
-      expect(screen.getByText(/iptv viewer/i)).toBeInTheDocument()
+      expect(screen.getByText(/jon's place/i)).toBeInTheDocument()
     })
 
     it('should not show LoginForm when authenticated', () => {

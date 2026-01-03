@@ -7,18 +7,17 @@ The state resets on server restart (acceptable for MVP).
 
 import asyncio
 import json
-from typing import Optional, Set
 
 from fastapi import WebSocket
 
 from app.models.channel import Channel
 
 # In-memory state - resets on restart (acceptable for MVP)
-_current_channel: Optional[Channel] = None
-_active_connections: Set[WebSocket] = set()
+_current_channel: Channel | None = None
+_active_connections: set[WebSocket] = set()
 
 
-def get_current_channel() -> Optional[Channel]:
+def get_current_channel() -> Channel | None:
     """Get the currently selected channel.
 
     Returns:

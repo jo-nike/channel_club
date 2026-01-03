@@ -49,4 +49,4 @@ async def get_lineup() -> list[Channel]:
                 for ch in raw_channels
             ]
     except httpx.HTTPError as e:
-        raise DispatchrrUnavailableError(f"Failed to fetch channels: {e}")
+        raise DispatchrrUnavailableError(f"Failed to fetch channels: {e}") from e

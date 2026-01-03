@@ -1,12 +1,13 @@
 """Tests for WebSocket router."""
 
+from datetime import UTC
+
 import pytest
 from fastapi.testclient import TestClient
-from starlette.websockets import WebSocketDisconnect
 
 from app.main import app
-from app.services.auth import create_access_token
 from app.services import channel_state
+from app.services.auth import create_access_token
 
 
 @pytest.fixture
@@ -40,9 +41,7 @@ def reset_channel_state():
 class TestWebSocketConnection:
     """Tests for WebSocket connection handling."""
 
-    def test_websocket_valid_token_accepts_connection(
-        self, client: TestClient, valid_token: str
-    ):
+    def test_websocket_valid_token_accepts_connection(self, client: TestClient, valid_token: str):
         """Valid token accepts connection and sends ack."""
         with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
             data = ws.receive_json()
@@ -51,54 +50,55 @@ class TestWebSocketConnection:
 
     def test_websocket_invalid_token_rejects_connection(self, client: TestClient):
         """Invalid token rejects connection with code 4001."""
-        with pytest.raises(Exception) as exc_info:
-            with client.websocket_connect("/api/ws?token=invalid_token"):
-                pass
-        # Connection should be rejected
-        assert exc_info.value is not None
+        # WebSocket connections with invalid tokens raise an exception
+        with (
+            pytest.raises((Exception,)),  # noqa: B017
+            client.websocket_connect("/api/ws?token=invalid_token"),
+        ):
+            pass
 
     def test_websocket_missing_token_rejects_connection(self, client: TestClient):
         """Missing token rejects connection."""
-        with pytest.raises(Exception):
-            with client.websocket_connect("/api/ws"):
-                pass
+        with (
+            pytest.raises((Exception,)),  # noqa: B017
+            client.websocket_connect("/api/ws"),
+        ):
+            pass
 
     def test_websocket_expired_token_rejects_connection(self, client: TestClient):
         """Expired token rejects connection."""
         # Create an expired token manually
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
+
         from jose import jwt
+
         from app.config import settings
 
         expired_payload = {
             "sub": "testuser",
             "role": "viewer",
-            "exp": datetime.now(timezone.utc) - timedelta(hours=1),
+            "exp": datetime.now(UTC) - timedelta(hours=1),
         }
-        expired_token = jwt.encode(
-            expired_payload, settings.jwt_secret, algorithm="HS256"
-        )
+        expired_token = jwt.encode(expired_payload, settings.jwt_secret, algorithm="HS256")
 
-        with pytest.raises(Exception):
-            with client.websocket_connect(f"/api/ws?token={expired_token}"):
-                pass
+        with (
+            pytest.raises((Exception,)),  # noqa: B017
+            client.websocket_connect(f"/api/ws?token={expired_token}"),
+        ):
+            pass
 
 
 class TestConnectionAck:
     """Tests for connection acknowledgment message."""
 
-    def test_connection_ack_with_no_current_channel(
-        self, client: TestClient, valid_token: str
-    ):
+    def test_connection_ack_with_no_current_channel(self, client: TestClient, valid_token: str):
         """Connection ack includes null currentChannel when none set."""
         with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
             data = ws.receive_json()
             assert data["type"] == "connection_ack"
             assert data["currentChannel"] is None
 
-    def test_connection_ack_with_current_channel(
-        self, client: TestClient, valid_token: str
-    ):
+    def test_connection_ack_with_current_channel(self, client: TestClient, valid_token: str):
         """Connection ack includes current channel when set."""
         from app.models.channel import Channel
 
@@ -127,9 +127,7 @@ class TestPingPong:
             data = ws.receive_json()
             assert data["type"] == "pong"
 
-    def test_unknown_message_type_handled_gracefully(
-        self, client: TestClient, valid_token: str
-    ):
+    def test_unknown_message_type_handled_gracefully(self, client: TestClient, valid_token: str):
         """Unknown message types are handled without error."""
         with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
             ws.receive_json()  # Consume connection_ack
@@ -143,9 +141,7 @@ class TestPingPong:
 class TestConnectionTracking:
     """Tests for connection tracking."""
 
-    def test_connection_added_to_active_connections(
-        self, client: TestClient, valid_token: str
-    ):
+    def test_connection_added_to_active_connections(self, client: TestClient, valid_token: str):
         """Connection is tracked in active connections."""
         assert channel_state.get_connection_count() == 0
 
@@ -181,7 +177,6 @@ class TestChannelBroadcast:
         self, client: TestClient, valid_token: str, admin_token: str
     ):
         """Broadcast channel_update when admin sets channel via API."""
-        from app.models.channel import SetChannelRequest
 
         with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
             ws.receive_json()  # Consume connection_ack
@@ -189,7 +184,11 @@ class TestChannelBroadcast:
             # Admin sets channel via API
             response = client.put(
                 "/api/channels/current",
-                json={"id": "test-123", "name": "Test Channel", "streamUrl": "http://test"},
+                json={
+                    "id": "test-123",
+                    "name": "Test Channel",
+                    "streamUrl": "http://test",
+                },
                 headers={"Authorization": f"Bearer {admin_token}"},
             )
             assert response.status_code == 200
@@ -214,7 +213,11 @@ class TestChannelBroadcast:
                 # Admin sets channel
                 client.put(
                     "/api/channels/current",
-                    json={"id": "multi-123", "name": "Multi Test", "streamUrl": "http://multi"},
+                    json={
+                        "id": "multi-123",
+                        "name": "Multi Test",
+                        "streamUrl": "http://multi",
+                    },
                     headers={"Authorization": f"Bearer {admin_token}"},
                 )
 

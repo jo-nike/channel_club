@@ -25,3 +25,16 @@ export interface User {
   username: string
   role: 'admin' | 'viewer'
 }
+
+export interface Program {
+  title: string
+  startTime: string // ISO 8601
+  endTime: string // ISO 8601
+  description?: string
+}
+
+export interface EPGResponse {
+  channelId: string
+  currentProgram: Program | null
+  nextProgram?: Program | null
+}

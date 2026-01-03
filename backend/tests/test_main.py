@@ -1,5 +1,7 @@
 """Integration tests for the main FastAPI app."""
 
+from datetime import UTC
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -58,7 +60,8 @@ def test_token_verifies_correctly(client):
 
 def test_token_expiration_is_7_days(client):
     """Test token expiration is approximately 7 days."""
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timedelta
+
     from app.services.auth import verify_token
 
     response = client.post(
@@ -69,7 +72,7 @@ def test_token_expiration_is_7_days(client):
     payload = verify_token(token)
 
     # Expiration should be approximately 7 days from now
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     expected = now + timedelta(days=7)
     # Allow 1 minute tolerance
     assert abs((payload.exp - expected).total_seconds()) < 60

@@ -6,6 +6,7 @@ import { useBreakpoint } from '@/hooks/useBreakpoint'
 import { useTVMode } from '@/hooks/useTVMode'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
 import { useFocusTrap } from '@/hooks/useFocusTrap'
+import { useEPG } from '@/hooks/useEPG'
 import { ChannelList } from '@/components/ChannelList'
 import { VideoPlayer } from '@/components/VideoPlayer'
 import { ConnectionStatus } from '@/components/ConnectionStatus'
@@ -23,6 +24,7 @@ export function MainView() {
   const isSidebarOpen = useUIStore((s) => s.isSidebarOpen)
   const setSidebarOpen = useUIStore((s) => s.setSidebarOpen)
   const currentChannel = useChannelStore((s) => s.currentChannel)
+  const { epg } = useEPG()
 
   const isDesktop = breakpoint === 'desktop'
   const isMobile = breakpoint === 'mobile'
@@ -85,16 +87,20 @@ export function MainView() {
             <span className="md:hidden text-xl" role="img" aria-hidden="true">
               📺
             </span>
-            {/* Current channel name display */}
-            <span className="text-muted-foreground text-sm truncate max-w-[200px]">
-              {currentChannel?.name || 'No channel selected'}
+            {/* Current channel name with EPG display */}
+            <span className="text-muted-foreground text-sm truncate max-w-[300px]">
+              {currentChannel?.name
+                ? epg?.currentProgram?.title
+                  ? `${currentChannel.name} - ${epg.currentProgram.title}`
+                  : currentChannel.name
+                : 'No channel selected'}
             </span>
             <ConnectionStatus status={status} onReconnect={reconnect} />
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Menu button - visible on tablet and mobile only */}
-            {!isDesktop && (
+            {/* Menu button - visible on tablet and mobile for admin only */}
+            {!isDesktop && isAdmin && (
               <button
                 ref={sidebarTriggerRef}
                 onClick={(e) => {
@@ -135,13 +141,11 @@ export function MainView() {
           </div>
         </div>
 
-        {/* Desktop Sidebar - always visible on desktop, hidden on smaller screens */}
-        {!isTheaterMode && isDesktop && (
+        {/* Desktop Sidebar - only for admin */}
+        {!isTheaterMode && isDesktop && isAdmin && (
           <aside className="w-80 border-l bg-background flex flex-col shrink-0">
             <div className="p-4 border-b">
-              <h2 className="text-xl font-semibold">
-                {isAdmin ? 'Channel Selection' : 'Channels'}
-              </h2>
+              <h2 className="text-xl font-semibold">Channel Selection</h2>
             </div>
             <div className="flex-1 overflow-hidden min-h-0">
               <ChannelList />
@@ -150,8 +154,8 @@ export function MainView() {
         )}
       </main>
 
-      {/* Mobile/Tablet Sidebar Overlay */}
-      {!isTheaterMode && !isDesktop && (
+      {/* Mobile/Tablet Sidebar Overlay - admin only */}
+      {!isTheaterMode && !isDesktop && isAdmin && (
         <>
           {/* Backdrop */}
           <div
@@ -176,9 +180,7 @@ export function MainView() {
             aria-label="Channel list"
           >
             <div className="p-4 border-b flex justify-between items-center">
-              <h2 className="text-xl font-semibold">
-                {isAdmin ? 'Channel Selection' : 'Channels'}
-              </h2>
+              <h2 className="text-xl font-semibold">Channel Selection</h2>
               <button
                 onClick={() => setSidebarOpen(false)}
                 className="h-12 w-12 flex items-center justify-center bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
@@ -194,8 +196,8 @@ export function MainView() {
         </>
       )}
 
-      {/* Mobile FAB - floating action button to open channels (visible when sidebar closed on mobile) */}
-      {!isTheaterMode && isMobile && !isSidebarOpen && (
+      {/* Mobile FAB - admin only */}
+      {!isTheaterMode && isMobile && !isSidebarOpen && isAdmin && (
         <button
           onClick={(e) => {
             sidebarTriggerRef.current = e.currentTarget

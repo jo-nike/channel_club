@@ -1,7 +1,9 @@
 """Tests for auth dependency functions."""
 
+from datetime import UTC
+
 import pytest
-from fastapi import FastAPI, Depends
+from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from app.services.auth import create_access_token
@@ -10,9 +12,9 @@ from app.services.auth import create_access_token
 @pytest.fixture
 def app_with_protected_routes():
     """Create app with protected routes for testing dependencies."""
+    from app.models.auth import TokenPayload
     from app.routers.auth import router as auth_router
     from app.routers.auth_deps import get_current_user, require_admin
-    from app.models.auth import TokenPayload
 
     app = FastAPI()
     app.include_router(auth_router, prefix="/api/auth")
@@ -65,12 +67,14 @@ def test_get_current_user_missing_token(app_with_protected_routes):
 
 def test_get_current_user_expired_token(app_with_protected_routes):
     """Test get_current_user rejects expired token."""
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timedelta
+
     from jose import jwt
+
     from app.config import settings
 
     client = app_with_protected_routes
-    expired_time = datetime.now(timezone.utc) - timedelta(hours=1)
+    expired_time = datetime.now(UTC) - timedelta(hours=1)
     expired_token = jwt.encode(
         {"sub": "admin", "role": "admin", "exp": expired_time},
         settings.jwt_secret,

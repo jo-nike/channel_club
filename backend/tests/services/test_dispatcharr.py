@@ -1,15 +1,16 @@
 """Tests for Dispatcharr service."""
 
-import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
-import httpx
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.services.dispatcharr import (
-    get_lineup,
-    extract_uuid,
-    DispatchrrUnavailableError,
-)
+import httpx
+import pytest
+
 from app.models.channel import Channel
+from app.services.dispatcharr import (
+    DispatchrrUnavailableError,
+    extract_uuid,
+    get_lineup,
+)
 
 
 class TestExtractUuid:

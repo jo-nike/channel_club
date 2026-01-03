@@ -1,4 +1,4 @@
-import { renderHook, act, waitFor } from '@testing-library/react'
+import { renderHook, act } from '@testing-library/react'
 import { vi, describe, test, expect, beforeEach, afterEach } from 'vitest'
 import { useWebSocket } from './useWebSocket'
 import { useChannelStore } from '@/stores/channelStore'

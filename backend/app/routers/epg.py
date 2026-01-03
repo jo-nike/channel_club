@@ -38,4 +38,4 @@ async def get_now_playing(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="EPG service unavailable",
-        )
+        ) from None

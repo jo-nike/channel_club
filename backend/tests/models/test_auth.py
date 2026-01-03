@@ -1,7 +1,8 @@
 """Tests for auth models."""
 
+from datetime import UTC, datetime
+
 import pytest
-from datetime import datetime, timezone
 from pydantic import ValidationError
 
 
@@ -51,7 +52,7 @@ def test_token_payload_valid():
     """Test TokenPayload with valid data."""
     from app.models.auth import TokenPayload
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     payload = TokenPayload(sub="admin", role="admin", exp=now)
     assert payload.sub == "admin"
     assert payload.role == "admin"
@@ -62,7 +63,7 @@ def test_token_payload_role_values():
     """Test TokenPayload accepts admin and viewer roles."""
     from app.models.auth import TokenPayload
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     admin = TokenPayload(sub="admin", role="admin", exp=now)
     assert admin.role == "admin"

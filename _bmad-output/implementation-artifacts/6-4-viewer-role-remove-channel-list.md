@@ -1,6 +1,6 @@
 # Story 6.4: Viewer Role - Remove Channel List
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -18,17 +18,17 @@ so that I can focus on the video content.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Hide desktop sidebar for viewers (AC: #1, #2, #4)
-  - [ ] Wrap desktop sidebar (`isDesktop && ...`) with `isAdmin` check
-- [ ] Task 2: Hide mobile/tablet sidebar for viewers (AC: #1, #3, #4)
-  - [ ] Wrap mobile/tablet sidebar overlay with `isAdmin` check
-  - [ ] Hide hamburger menu button for viewers
-  - [ ] Hide mobile FAB button for viewers
-- [ ] Task 3: Verify video full-width (AC: #2)
-  - [ ] Ensure video player container takes full width when sidebar hidden
-- [ ] Task 4: Update tests (AC: #1-5)
-  - [ ] Add tests for viewer role seeing no channel list
-  - [ ] Add tests for admin role still having access
+- [x] Task 1: Hide desktop sidebar for viewers (AC: #1, #2, #4)
+  - [x] Wrap desktop sidebar (`isDesktop && ...`) with `isAdmin` check
+- [x] Task 2: Hide mobile/tablet sidebar for viewers (AC: #1, #3, #4)
+  - [x] Wrap mobile/tablet sidebar overlay with `isAdmin` check
+  - [x] Hide hamburger menu button for viewers
+  - [x] Hide mobile FAB button for viewers
+- [x] Task 3: Verify video full-width (AC: #2)
+  - [x] Ensure video player container takes full width when sidebar hidden
+- [x] Task 4: Update tests (AC: #1-5)
+  - [x] Add tests for viewer role seeing no channel list
+  - [x] Add tests for admin role still having access
 
 ## Dev Notes
 
@@ -147,9 +147,24 @@ vi.mocked(useAuth).mockReturnValue({
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.5 (claude-opus-4-5-20251101)
 
 ### Debug Log References
+None - implementation was straightforward
 
 ### Completion Notes List
+- Added `isAdmin` conditional checks to 4 elements in MainView.tsx:
+  1. Desktop sidebar: `{!isTheaterMode && isDesktop && isAdmin && ...}`
+  2. Menu button (tablet/mobile): `{!isDesktop && isAdmin && ...}`
+  3. Mobile/tablet sidebar overlay: `{!isTheaterMode && !isDesktop && isAdmin && ...}`
+  4. Mobile FAB: `{!isTheaterMode && isMobile && !isSidebarOpen && isAdmin && ...}`
+- Simplified sidebar heading to always show "Channel Selection" (only visible to admins now)
+- Video automatically takes full width when sidebar is hidden (flex-1 container expands)
+- Added 7 new tests for viewer role channel list hidden behavior
 
 ### File List
+- frontend/src/components/MainView.tsx (modified)
+- frontend/src/components/MainView.test.tsx (modified)
+
+## Change Log
+- 2026-01-03: Implemented viewer role channel list hiding (Story 6-4)

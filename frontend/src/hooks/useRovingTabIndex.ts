@@ -24,13 +24,17 @@ export function useRovingTabIndex<T>({
   const itemRefs = useRef<(HTMLElement | null)[]>([])
 
   // Keep focusedIndex in bounds when items change
+  // This intentionally updates state in effect to correct invalid focus index when items shrink
+  const clampedFocusedIndex = items.length === 0
+    ? 0
+    : Math.min(focusedIndex, items.length - 1)
+
   useEffect(() => {
-    if (items.length === 0) {
-      setFocusedIndex(0)
-    } else if (focusedIndex >= items.length) {
-      setFocusedIndex(items.length - 1)
+    if (clampedFocusedIndex !== focusedIndex) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setFocusedIndex(clampedFocusedIndex)
     }
-  }, [items.length, focusedIndex])
+  }, [clampedFocusedIndex, focusedIndex])
 
   // Try to maintain focus on the same item when list updates
   const prevItemsRef = useRef<T[]>(items)

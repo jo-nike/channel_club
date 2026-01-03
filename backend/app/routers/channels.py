@@ -6,7 +6,7 @@ from app.models.auth import TokenPayload
 from app.models.channel import Channel, CurrentChannelResponse, SetChannelRequest
 from app.routers.auth_deps import get_current_user, require_admin
 from app.services import channel_state
-from app.services.dispatcharr import get_lineup, DispatchrrUnavailableError
+from app.services.dispatcharr import DispatchrrUnavailableError, get_lineup
 
 router = APIRouter(tags=["channels"])
 
@@ -35,7 +35,7 @@ async def list_channels(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Channel service unavailable",
-        )
+        ) from None
 
 
 @router.get("/channels/current", response_model=CurrentChannelResponse)

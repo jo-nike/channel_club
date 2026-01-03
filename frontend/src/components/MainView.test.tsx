@@ -8,6 +8,7 @@ import * as api from '@/services/api'
 
 vi.mock('@/services/api', () => ({
   fetchChannels: vi.fn(),
+  fetchNowPlaying: vi.fn(),
 }))
 
 // Helper to mock window width for responsive tests
@@ -123,12 +124,56 @@ describe('MainView', () => {
     })
 
     it('should display current channel name in header when channel is selected', () => {
+      vi.mocked(api.fetchNowPlaying).mockResolvedValue({ channelId: '1', currentProgram: null })
       useChannelStore.setState({
-        currentChannel: { id: '1', name: 'Test Channel', url: 'http://test.com/stream.m3u8' },
+        currentChannel: { id: '1', name: 'Test Channel', streamUrl: 'http://test.com/stream.m3u8' },
       })
       render(<MainView />)
 
       expect(screen.getByText('Test Channel')).toBeInTheDocument()
+    })
+
+    it('should display channel name with EPG program title when available', async () => {
+      vi.mocked(api.fetchNowPlaying).mockResolvedValue({
+        channelId: '1',
+        currentProgram: {
+          title: 'Morning News',
+          startTime: '2025-01-01T08:00:00Z',
+          endTime: '2025-01-01T09:00:00Z',
+        },
+      })
+      useChannelStore.setState({
+        currentChannel: { id: '1', name: 'CNN', streamUrl: 'http://test.com/stream.m3u8' },
+      })
+      render(<MainView />)
+
+      // Wait for EPG data to load and display
+      await screen.findByText('CNN - Morning News')
+    })
+
+    it('should display only channel name when EPG returns no current program', async () => {
+      vi.mocked(api.fetchNowPlaying).mockResolvedValue({
+        channelId: '1',
+        currentProgram: null,
+      })
+      useChannelStore.setState({
+        currentChannel: { id: '1', name: 'ESPN', streamUrl: 'http://test.com/stream.m3u8' },
+      })
+      render(<MainView />)
+
+      // Should show only channel name when no program data
+      expect(screen.getByText('ESPN')).toBeInTheDocument()
+    })
+
+    it('should display only channel name when EPG fetch fails', async () => {
+      vi.mocked(api.fetchNowPlaying).mockRejectedValue(new Error('Failed to fetch'))
+      useChannelStore.setState({
+        currentChannel: { id: '1', name: 'BBC', streamUrl: 'http://test.com/stream.m3u8' },
+      })
+      render(<MainView />)
+
+      // Should gracefully show only channel name on error (no error displayed)
+      expect(screen.getByText('BBC')).toBeInTheDocument()
     })
 
     it('should have reduced header padding (p-2)', () => {
@@ -171,26 +216,79 @@ describe('MainView', () => {
       })
     })
 
-    it('should show Channels heading (not Channel Selection) for viewer users', () => {
-      render(<MainView />)
-
-      // Viewer sees "Channels" heading, not "Channel Selection"
-      expect(screen.getByText('Channels')).toBeInTheDocument()
-      expect(screen.queryByText(/channel selection/i)).not.toBeInTheDocument()
-    })
-
     it('should still show video player area for viewers', () => {
       render(<MainView />)
 
       // VideoPlayer shows placeholder when no channel selected
-      expect(screen.getByText(/no channel selected/i)).toBeInTheDocument()
+      // Note: "No channel selected" appears in both header and video player area
+      expect(screen.getAllByText(/no channel selected/i).length).toBeGreaterThanOrEqual(1)
     })
 
-    it('should show channel list for viewers', () => {
-      render(<MainView />)
+    describe('channel list hidden for viewers (AC: #1, #3)', () => {
+      it('should NOT show channel list sidebar on desktop for viewers', () => {
+        mockWindowWidth(1200)
+        render(<MainView />)
 
-      // ChannelList is rendered (showing empty state since we mock empty channels)
-      expect(screen.getByText(/no channels available/i)).toBeInTheDocument()
+        // Viewer should NOT see any sidebar content
+        expect(screen.queryByText(/channels/i)).not.toBeInTheDocument()
+        expect(screen.queryByText(/channel selection/i)).not.toBeInTheDocument()
+        expect(screen.queryByText(/no channels available/i)).not.toBeInTheDocument()
+      })
+
+      it('should NOT show hamburger menu button for viewers on tablet', () => {
+        mockWindowWidth(900)
+        render(<MainView />)
+
+        // Viewer should NOT see the menu button
+        expect(screen.queryByRole('button', { name: /open channel list/i })).not.toBeInTheDocument()
+      })
+
+      it('should NOT show hamburger menu button for viewers on mobile', () => {
+        mockWindowWidth(500)
+        render(<MainView />)
+
+        // Viewer should NOT see any menu buttons (header or FAB)
+        expect(screen.queryByRole('button', { name: /open channel list/i })).not.toBeInTheDocument()
+      })
+
+      it('should NOT show mobile FAB for viewers', () => {
+        mockWindowWidth(500)
+        render(<MainView />)
+
+        // Viewer should NOT see the FAB
+        expect(screen.queryByRole('button', { name: /open channel list/i })).not.toBeInTheDocument()
+      })
+
+      it('should NOT render sidebar overlay for viewers on tablet', () => {
+        mockWindowWidth(900)
+        render(<MainView />)
+
+        // No sidebar drawer should exist for viewers
+        expect(document.querySelector('aside[aria-label="Channel list"]')).toBeNull()
+      })
+
+      it('should NOT render sidebar overlay for viewers on mobile', () => {
+        mockWindowWidth(500)
+        render(<MainView />)
+
+        // No sidebar drawer should exist for viewers
+        expect(document.querySelector('aside[aria-label="Channel list"]')).toBeNull()
+      })
+    })
+
+    describe('full-width video for viewers (AC: #2)', () => {
+      it('should have video take full width on desktop when sidebar hidden', () => {
+        mockWindowWidth(1200)
+        render(<MainView />)
+
+        // Video container should have flex-1 and no sidebar reducing its width
+        const mainContent = document.querySelector('main')
+        expect(mainContent).not.toBeNull()
+
+        // No sidebar should exist
+        const desktopSidebar = mainContent!.querySelector('aside')
+        expect(desktopSidebar).toBeNull()
+      })
     })
   })
 

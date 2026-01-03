@@ -1,5 +1,5 @@
 import { useAuthStore } from '@/stores/authStore'
-import type { Channel } from '@/types'
+import type { Channel, EPGResponse } from '@/types'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
 
@@ -102,4 +102,14 @@ export async function fetchCurrentChannel(): Promise<Channel | null> {
 
   const data = await response.json()
   return data.currentChannel
+}
+
+export async function fetchNowPlaying(channelId: string): Promise<EPGResponse> {
+  const response = await fetchWithAuth(`/epg/now-playing?channel_id=${channelId}`)
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch EPG')
+  }
+
+  return response.json()
 }

@@ -1,13 +1,14 @@
 """Tests for channels router."""
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import patch, AsyncMock
 
 from app.main import app
 from app.models.channel import Channel
-from app.services.auth import create_access_token
 from app.services import channel_state
+from app.services.auth import create_access_token
 from app.services.dispatcharr import DispatchrrUnavailableError
 
 
@@ -57,13 +58,19 @@ class TestListChannels:
 
         assert response.status_code == 401
 
-    def test_get_channels_success(
-        self, client: TestClient, auth_header: dict[str, str]
-    ) -> None:
+    def test_get_channels_success(self, client: TestClient, auth_header: dict[str, str]) -> None:
         """Authenticated request returns channel list."""
         mock_channels = [
-            Channel(id="uuid-1", name="TSN", stream_url="https://streams.example.com/proxy/ts/stream/uuid-1"),
-            Channel(id="uuid-2", name="Sportsnet", stream_url="https://streams.example.com/proxy/ts/stream/uuid-2"),
+            Channel(
+                id="uuid-1",
+                name="TSN",
+                stream_url="https://streams.example.com/proxy/ts/stream/uuid-1",
+            ),
+            Channel(
+                id="uuid-2",
+                name="Sportsnet",
+                stream_url="https://streams.example.com/proxy/ts/stream/uuid-2",
+            ),
         ]
 
         with patch("app.routers.channels.get_lineup", new_callable=AsyncMock) as mock_get_lineup:
@@ -80,9 +87,7 @@ class TestListChannels:
         assert data[1]["id"] == "uuid-2"
         assert data[1]["name"] == "Sportsnet"
 
-    def test_get_channels_empty_list(
-        self, client: TestClient, auth_header: dict[str, str]
-    ) -> None:
+    def test_get_channels_empty_list(self, client: TestClient, auth_header: dict[str, str]) -> None:
         """Empty channel list returns empty array."""
         with patch("app.routers.channels.get_lineup", new_callable=AsyncMock) as mock_get_lineup:
             mock_get_lineup.return_value = []
@@ -109,7 +114,11 @@ class TestListChannels:
     ) -> None:
         """Admin users can also access channels endpoint."""
         mock_channels = [
-            Channel(id="uuid-1", name="TSN", stream_url="https://streams.example.com/proxy/ts/stream/uuid-1"),
+            Channel(
+                id="uuid-1",
+                name="TSN",
+                stream_url="https://streams.example.com/proxy/ts/stream/uuid-1",
+            ),
         ]
 
         with patch("app.routers.channels.get_lineup", new_callable=AsyncMock) as mock_get_lineup:
@@ -125,7 +134,11 @@ class TestListChannels:
     ) -> None:
         """Response uses camelCase field names."""
         mock_channels = [
-            Channel(id="uuid-1", name="TSN", stream_url="https://streams.example.com/proxy/ts/stream/uuid-1"),
+            Channel(
+                id="uuid-1",
+                name="TSN",
+                stream_url="https://streams.example.com/proxy/ts/stream/uuid-1",
+            ),
         ]
 
         with patch("app.routers.channels.get_lineup", new_callable=AsyncMock) as mock_get_lineup:
@@ -177,9 +190,7 @@ class TestGetCurrentChannel:
         assert data["currentChannel"]["name"] == "TSN"
         assert data["currentChannel"]["streamUrl"] == "https://streams.example.com/stream/uuid-123"
 
-    def test_admin_can_access(
-        self, client: TestClient, admin_auth_header: dict[str, str]
-    ) -> None:
+    def test_admin_can_access(self, client: TestClient, admin_auth_header: dict[str, str]) -> None:
         """Admin can also access current channel."""
         response = client.get("/api/channels/current", headers=admin_auth_header)
 
@@ -214,7 +225,11 @@ class TestSetCurrentChannel:
 
     def test_requires_authentication(self, client: TestClient) -> None:
         """Unauthenticated request returns 401."""
-        channel_data = {"id": "uuid", "name": "TSN", "streamUrl": "https://example.com/stream"}
+        channel_data = {
+            "id": "uuid",
+            "name": "TSN",
+            "streamUrl": "https://example.com/stream",
+        }
         response = client.put("/api/channels/current", json=channel_data)
         assert response.status_code == 401
 
@@ -222,7 +237,11 @@ class TestSetCurrentChannel:
         self, client: TestClient, auth_header: dict[str, str]
     ) -> None:
         """Viewer role returns 403 Forbidden."""
-        channel_data = {"id": "uuid", "name": "TSN", "streamUrl": "https://example.com/stream"}
+        channel_data = {
+            "id": "uuid",
+            "name": "TSN",
+            "streamUrl": "https://example.com/stream",
+        }
 
         response = client.put("/api/channels/current", json=channel_data, headers=auth_header)
 
@@ -252,7 +271,10 @@ class TestSetCurrentChannel:
         assert data["streamUrl"] == "https://streams.example.com/stream/uuid-456"
 
     def test_set_channel_updates_state(
-        self, client: TestClient, admin_auth_header: dict[str, str], auth_header: dict[str, str]
+        self,
+        client: TestClient,
+        admin_auth_header: dict[str, str],
+        auth_header: dict[str, str],
     ) -> None:
         """Setting channel updates the state that GET returns."""
         channel_data = {
@@ -281,7 +303,11 @@ class TestSetCurrentChannel:
     ) -> None:
         """Setting a new channel overwrites the previous one."""
         channel1 = {"id": "uuid-1", "name": "TSN", "streamUrl": "https://example.com/1"}
-        channel2 = {"id": "uuid-2", "name": "Sportsnet", "streamUrl": "https://example.com/2"}
+        channel2 = {
+            "id": "uuid-2",
+            "name": "Sportsnet",
+            "streamUrl": "https://example.com/2",
+        }
 
         # Set first channel
         client.put("/api/channels/current", json=channel1, headers=admin_auth_header)
