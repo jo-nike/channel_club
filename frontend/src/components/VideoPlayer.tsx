@@ -5,6 +5,7 @@ import { useUIStore } from '@/stores/uiStore'
 import { VideoControls } from '@/components/VideoControls'
 import { useAutoHide } from '@/hooks/useAutoHide'
 import { useVideoKeyboardShortcuts } from '@/hooks/useVideoKeyboardShortcuts'
+import { useOrientationFullscreen } from '@/hooks/useOrientationFullscreen'
 import { ChannelSwitchOverlay } from '@/components/ChannelSwitchOverlay'
 
 // Constants
@@ -146,6 +147,12 @@ function VideoPlayerInner({ streamUrl, channelName }: VideoPlayerInnerProps) {
     onTheaterModeToggle: toggleTheaterMode,
     onVolumeChange: handleVolumeChange,
     volume,
+  })
+
+  // Auto-fullscreen on mobile landscape rotation
+  useOrientationFullscreen({
+    containerRef,
+    enabled: true,
   })
 
   // Track fullscreen changes

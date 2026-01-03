@@ -88,6 +88,7 @@ development_status:
   6-2-epg-backend-service: review
   6-3-epg-display-in-header: review
   6-4-viewer-role-remove-channel-list: review
-  6-5-admin-role-hamburger-menu: ready-for-dev
-  6-6-logout-button-fix: ready-for-dev
+  6-5-admin-role-hamburger-menu: review
+  6-6-logout-button-fix: review
+  6-7-mobile-landscape-auto-fullscreen: review
   epic-6-retrospective: optional

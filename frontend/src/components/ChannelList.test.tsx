@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { ChannelList } from './ChannelList'
 import { useChannelStore } from '@/stores/channelStore'
 import { useAuthStore } from '@/stores/authStore'
+import { useUIStore } from '@/stores/uiStore'
 import * as api from '@/services/api'
 
 vi.mock('@/services/api', () => ({
@@ -215,6 +216,27 @@ describe('ChannelList', () => {
       await waitFor(() => {
         const state = useChannelStore.getState()
         expect(state.currentChannel).toEqual(mockChannels[1])
+      })
+    })
+
+    it('should close sidebar drawer when channel is selected (AC: #4)', async () => {
+      vi.mocked(api.fetchChannels).mockResolvedValueOnce(mockChannels)
+      useUIStore.setState({ isSidebarOpen: true })
+
+      render(<ChannelList />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Channel 1')).toBeInTheDocument()
+      })
+
+      // Verify sidebar is open before clicking
+      expect(useUIStore.getState().isSidebarOpen).toBe(true)
+
+      fireEvent.click(screen.getByText('Channel 1'))
+
+      // Sidebar should auto-close after channel selection
+      await waitFor(() => {
+        expect(useUIStore.getState().isSidebarOpen).toBe(false)
       })
     })
   })

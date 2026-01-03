@@ -26,7 +26,6 @@ export function MainView() {
   const currentChannel = useChannelStore((s) => s.currentChannel)
   const { epg } = useEPG()
 
-  const isDesktop = breakpoint === 'desktop'
   const isMobile = breakpoint === 'mobile'
 
   // Track the element that triggered the sidebar open for focus restoration
@@ -35,9 +34,9 @@ export function MainView() {
   // Ref for the sidebar drawer to enable focus trapping
   const sidebarDrawerRef = useRef<HTMLElement>(null)
 
-  // Focus trap for sidebar overlay (mobile/tablet only)
+  // Focus trap for sidebar overlay (all breakpoints for admin)
   useFocusTrap(sidebarDrawerRef, {
-    enabled: isSidebarOpen && !isDesktop,
+    enabled: isSidebarOpen,
     restoreFocus: false, // We handle this manually in handleEscape
   })
 
@@ -69,12 +68,7 @@ export function MainView() {
 
   useEscapeKey({ onEscape: handleEscape })
 
-  // Close sidebar when switching to desktop breakpoint
-  useEffect(() => {
-    if (isDesktop && isSidebarOpen) {
-      setSidebarOpen(false)
-    }
-  }, [isDesktop, isSidebarOpen, setSidebarOpen])
+  // Note: We no longer auto-close sidebar on desktop since admin uses hamburger menu on all breakpoints
 
   return (
     <div className="h-screen flex flex-col overflow-hidden">
@@ -99,8 +93,8 @@ export function MainView() {
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Menu button - visible on tablet and mobile for admin only */}
-            {!isDesktop && isAdmin && (
+            {/* Menu button - visible on all breakpoints for admin */}
+            {isAdmin && (
               <button
                 ref={sidebarTriggerRef}
                 onClick={(e) => {
@@ -115,7 +109,7 @@ export function MainView() {
             )}
             <button
               onClick={logout}
-              className="h-12 px-6 text-lg bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              className="h-12 px-4 md:px-6 text-base md:text-lg whitespace-nowrap shrink-0 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
             >
               Logout
             </button>
@@ -140,22 +134,10 @@ export function MainView() {
             </div>
           </div>
         </div>
-
-        {/* Desktop Sidebar - only for admin */}
-        {!isTheaterMode && isDesktop && isAdmin && (
-          <aside className="w-80 border-l bg-background flex flex-col shrink-0">
-            <div className="p-4 border-b">
-              <h2 className="text-xl font-semibold">Channel Selection</h2>
-            </div>
-            <div className="flex-1 overflow-hidden min-h-0">
-              <ChannelList />
-            </div>
-          </aside>
-        )}
       </main>
 
-      {/* Mobile/Tablet Sidebar Overlay - admin only */}
-      {!isTheaterMode && !isDesktop && isAdmin && (
+      {/* Sidebar Overlay - admin only, all breakpoints */}
+      {!isTheaterMode && isAdmin && (
         <>
           {/* Backdrop */}
           <div
@@ -173,7 +155,7 @@ export function MainView() {
             className={cn(
               'fixed inset-y-0 right-0 z-50 bg-background border-l flex flex-col',
               'transform transition-transform duration-300 ease-in-out',
-              // Full width on mobile, fixed width on tablet
+              // Full width on mobile, fixed width on tablet and desktop
               isMobile ? 'w-full' : 'w-80',
               isSidebarOpen ? 'translate-x-0' : 'translate-x-full'
             )}

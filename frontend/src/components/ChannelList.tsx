@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, forwardRef } from 'react'
 import { toast } from 'sonner'
 import { useChannelStore } from '@/stores/channelStore'
 import { useAuthStore } from '@/stores/authStore'
+import { useUIStore } from '@/stores/uiStore'
 import { useRovingTabIndex } from '@/hooks/useRovingTabIndex'
 import { fetchChannels, setCurrentChannel as setCurrentChannelApi } from '@/services/api'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -13,6 +14,7 @@ import type { Channel } from '@/types'
 export function ChannelList() {
   const { channels, currentChannel, isLoading, error, setChannels, setCurrentChannel, setLoading, setError } = useChannelStore()
   const { role } = useAuthStore()
+  const setSidebarOpen = useUIStore((s) => s.setSidebarOpen)
   const isAdmin = role === 'admin'
 
   const handleSelectChannel = useCallback(async (channel: Channel) => {
@@ -21,6 +23,9 @@ export function ChannelList() {
     // Optimistic update
     const previousChannel = currentChannel
     setCurrentChannel(channel)
+
+    // Auto-close drawer after channel selection
+    setSidebarOpen(false)
 
     try {
       await setCurrentChannelApi(channel)
@@ -31,7 +36,7 @@ export function ChannelList() {
         description: e instanceof Error ? e.message : 'Please try again',
       })
     }
-  }, [isAdmin, currentChannel, setCurrentChannel])
+  }, [isAdmin, currentChannel, setCurrentChannel, setSidebarOpen])
 
   const { focusedIndex, handleKeyDown, getTabIndex, itemRefs } = useRovingTabIndex({
     items: channels,

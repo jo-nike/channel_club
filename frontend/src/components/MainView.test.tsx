@@ -330,6 +330,50 @@ describe('MainView', () => {
       expect(logoutButton.className).toContain('focus')
     })
 
+    describe('logout button text overflow fix (Story 6-6)', () => {
+      it('should have whitespace-nowrap to prevent text wrapping (AC: #1, #2)', () => {
+        render(<MainView />)
+
+        const logoutButton = screen.getByRole('button', { name: /logout/i })
+        expect(logoutButton.className).toContain('whitespace-nowrap')
+      })
+
+      it('should have shrink-0 to prevent flex shrinking (AC: #1, #2)', () => {
+        render(<MainView />)
+
+        const logoutButton = screen.getByRole('button', { name: /logout/i })
+        expect(logoutButton.className).toContain('shrink-0')
+      })
+
+      it('should maintain 44px minimum height requirement (AC: #3)', () => {
+        render(<MainView />)
+
+        const logoutButton = screen.getByRole('button', { name: /logout/i })
+        // h-12 = 48px which exceeds 44px minimum
+        expect(logoutButton.className).toContain('h-12')
+      })
+
+      it('should have responsive padding for narrow viewports (AC: #4)', () => {
+        mockWindowWidth(500) // Mobile viewport
+        render(<MainView />)
+
+        const logoutButton = screen.getByRole('button', { name: /logout/i })
+        // Should have mobile-first padding with larger padding on md+
+        expect(logoutButton.className).toContain('px-4')
+        expect(logoutButton.className).toContain('md:px-6')
+      })
+
+      it('should have responsive text size for narrow viewports (AC: #4)', () => {
+        mockWindowWidth(500) // Mobile viewport
+        render(<MainView />)
+
+        const logoutButton = screen.getByRole('button', { name: /logout/i })
+        // Should have smaller text on mobile, larger on md+
+        expect(logoutButton.className).toContain('text-base')
+        expect(logoutButton.className).toContain('md:text-lg')
+      })
+    })
+
     it('should apply tv-mode class to body on large screens', () => {
       mockWindowWidth(1400) // Large screen triggers TV mode
       render(<MainView />)
@@ -364,14 +408,46 @@ describe('MainView', () => {
         mockWindowWidth(1200)
       })
 
-      it('should show sidebar on desktop without menu button', () => {
+      it('should show hamburger menu button on desktop for admin (AC: #1)', () => {
         render(<MainView />)
 
-        // Sidebar should be visible
-        expect(screen.getByRole('heading', { name: /channel selection/i })).toBeInTheDocument()
+        // Menu button should be visible on desktop for admin
+        expect(screen.getByRole('button', { name: /open channel list/i })).toBeInTheDocument()
+      })
 
-        // Menu button should NOT be visible on desktop
-        expect(screen.queryByRole('button', { name: /open channel list/i })).not.toBeInTheDocument()
+      it('should NOT show pinned sidebar on desktop (AC: #2)', () => {
+        render(<MainView />)
+
+        // No pinned sidebar in main content area - video takes full width
+        const mainContent = document.querySelector('main')
+        expect(mainContent).not.toBeNull()
+
+        // No inline aside in main (sidebar is now only rendered as overlay)
+        const inlineSidebar = mainContent!.querySelector('aside')
+        expect(inlineSidebar).toBeNull()
+      })
+
+      it('should show drawer when hamburger menu clicked on desktop (AC: #3)', () => {
+        render(<MainView />)
+
+        const menuButton = screen.getByRole('button', { name: /open channel list/i })
+        fireEvent.click(menuButton)
+
+        // Sidebar drawer should be visible (translated to 0)
+        const sidebar = document.querySelector('aside[aria-label="Channel list"]')
+        expect(sidebar).not.toBeNull()
+        expect(sidebar!.className).toContain('translate-x-0')
+      })
+
+      it('should show drawer with fixed width on desktop', () => {
+        useUIStore.setState({ isSidebarOpen: true })
+        render(<MainView />)
+
+        const sidebar = document.querySelector('aside[aria-label="Channel list"]')
+        expect(sidebar).not.toBeNull()
+        // Desktop uses w-80 (not full width like mobile)
+        expect(sidebar!.className).toContain('w-80')
+        expect(sidebar!.className).not.toContain('w-full')
       })
 
       it('should show full Jon\'s place heading text on desktop', () => {

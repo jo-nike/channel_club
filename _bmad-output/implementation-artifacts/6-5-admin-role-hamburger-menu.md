@@ -1,6 +1,6 @@
 # Story 6.5: Admin Role - Hamburger Menu
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -18,23 +18,23 @@ so that the video has more screen space when not selecting channels.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Show hamburger on desktop for admin (AC: #1)
-  - [ ] Remove `!isDesktop &&` condition from menu button in header
-  - [ ] Menu button visible for admin on all breakpoints
-- [ ] Task 2: Remove desktop pinned sidebar (AC: #2)
-  - [ ] Remove the desktop sidebar section entirely (it's replaced by hamburger menu)
-  - [ ] Video player now takes full width on desktop too
-- [ ] Task 3: Update drawer for all breakpoints (AC: #3)
-  - [ ] Remove `!isDesktop &&` condition from mobile/tablet sidebar overlay
-  - [ ] Drawer now works on all breakpoints
-  - [ ] Adjust drawer width: full on mobile, 80-width (320px) on tablet/desktop
-- [ ] Task 4: Auto-close on channel selection (AC: #4)
-  - [ ] Modify ChannelList to close sidebar after channel selection
-  - [ ] Use uiStore.setSidebarOpen(false) in channel click handler
-- [ ] Task 5: Verify close mechanisms (AC: #5)
-  - [ ] Backdrop click already closes (existing)
-  - [ ] Escape key already closes (existing useEscapeKey)
-- [ ] Task 6: Update tests
+- [x] Task 1: Show hamburger on desktop for admin (AC: #1)
+  - [x] Remove `!isDesktop &&` condition from menu button in header
+  - [x] Menu button visible for admin on all breakpoints
+- [x] Task 2: Remove desktop pinned sidebar (AC: #2)
+  - [x] Remove the desktop sidebar section entirely (it's replaced by hamburger menu)
+  - [x] Video player now takes full width on desktop too
+- [x] Task 3: Update drawer for all breakpoints (AC: #3)
+  - [x] Remove `!isDesktop &&` condition from mobile/tablet sidebar overlay
+  - [x] Drawer now works on all breakpoints
+  - [x] Adjust drawer width: full on mobile, 80-width (320px) on tablet/desktop
+- [x] Task 4: Auto-close on channel selection (AC: #4)
+  - [x] Modify ChannelList to close sidebar after channel selection
+  - [x] Use uiStore.setSidebarOpen(false) in channel click handler
+- [x] Task 5: Verify close mechanisms (AC: #5)
+  - [x] Backdrop click already closes (existing)
+  - [x] Escape key already closes (existing useEscapeKey)
+- [x] Task 6: Update tests
 
 ## Dev Notes
 
@@ -160,9 +160,25 @@ Modified files:
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.5
 
 ### Debug Log References
+N/A - Implementation proceeded without issues
 
 ### Completion Notes List
+- ✅ Task 1: Removed `!isDesktop &&` condition from menu button, updated focus trap to work on all breakpoints
+- ✅ Task 2: Removed desktop pinned sidebar (`<aside>` in `<main>`), video now takes full width
+- ✅ Task 3: Extended drawer overlay to all breakpoints by removing `!isDesktop &&` condition, updated comment
+- ✅ Task 4: Added `useUIStore` import to ChannelList and call `setSidebarOpen(false)` after channel selection
+- ✅ Task 5: Verified existing close mechanisms work (backdrop click line 149, Escape key handler lines 57-68)
+- ✅ Task 6: Updated MainView.test.tsx with 4 new desktop tests, added auto-close test to ChannelList.test.tsx, removed outdated `isDesktop` variable causing lint error
+- All 315 tests pass, linting passes, build succeeds
+
+### Change Log
+- 2026-01-03: Implemented unified hamburger menu for admin on all breakpoints. Removed pinned desktop sidebar. Added auto-close on channel selection.
 
 ### File List
+- frontend/src/components/MainView.tsx (modified)
+- frontend/src/components/ChannelList.tsx (modified)
+- frontend/src/components/MainView.test.tsx (modified)
+- frontend/src/components/ChannelList.test.tsx (modified)

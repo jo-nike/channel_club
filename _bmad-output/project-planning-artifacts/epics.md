@@ -783,3 +783,30 @@ So that text doesn't overflow the button boundaries.
 **Given** I am on a narrow viewport
 **When** header space is constrained
 **Then** logout button adjusts appropriately (icon-only or wrapped)
+
+### Story 6.7: Mobile Landscape Auto-Fullscreen
+
+As a mobile user,
+I want the video to automatically enter fullscreen when I rotate my device to landscape,
+So that I get an immersive viewing experience without manual interaction.
+
+**Acceptance Criteria:**
+
+**Given** I am viewing video on a mobile device in portrait mode
+**When** I rotate my device to landscape orientation
+**Then** the video player automatically enters fullscreen mode
+**And** the transition is smooth without jarring layout shifts
+
+**Given** I am in auto-fullscreen mode (landscape)
+**When** I rotate my device back to portrait orientation
+**Then** the video exits fullscreen automatically
+**And** the normal app layout is restored
+
+**Given** I am on a desktop or tablet (>768px)
+**When** I would trigger orientation change
+**Then** auto-fullscreen behavior is disabled (desktop/tablet excluded)
+
+**Given** auto-fullscreen is triggered
+**When** entering fullscreen
+**Then** video controls remain accessible
+**And** I can manually exit fullscreen if desired (tap or swipe)
