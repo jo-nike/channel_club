@@ -45,6 +45,7 @@ async def get_lineup() -> list[Channel]:
                     id=extract_uuid(ch.url),
                     name=ch.guide_name,
                     stream_url=f"{settings.stream_base_url}/proxy/ts/stream/{extract_uuid(ch.url)}",
+                    guide_id=ch.guide_id,
                 )
                 for ch in raw_channels
             ]

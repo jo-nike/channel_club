@@ -253,7 +253,7 @@ function VideoPlayerInner({ streamUrl, channelName }: VideoPlayerInnerProps) {
       ref={containerRef}
       onClick={handleVideoAreaClick}
       className={`video-player-container relative bg-black ${
-        isTheaterMode ? 'h-full w-full' : 'aspect-video w-full'
+        isTheaterMode ? 'h-full w-full' : 'h-full w-full max-w-full'
       } ${!isVisible && isPlaying ? 'cursor-none' : ''}`}
     >
       <video

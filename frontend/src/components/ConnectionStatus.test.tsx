@@ -6,7 +6,8 @@ describe('ConnectionStatus', () => {
   test('shows Connected with green indicator', () => {
     render(<ConnectionStatus status="connected" />)
 
-    expect(screen.getByText('Connected')).toBeInTheDocument()
+    // Status is shown via aria-label on the indicator
+    expect(screen.getByRole('status', { name: 'Connected' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /reconnect/i })).not.toBeInTheDocument()
 
     // Check for green indicator (bg-green-500)
@@ -17,7 +18,8 @@ describe('ConnectionStatus', () => {
   test('shows Connecting with yellow pulsing indicator', () => {
     render(<ConnectionStatus status="connecting" />)
 
-    expect(screen.getByText('Connecting...')).toBeInTheDocument()
+    // Status is shown via aria-label on the indicator
+    expect(screen.getByRole('status', { name: 'Connecting...' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /reconnect/i })).not.toBeInTheDocument()
 
     // Check for yellow indicator
@@ -29,7 +31,8 @@ describe('ConnectionStatus', () => {
   test('shows Reconnecting with yellow pulsing indicator', () => {
     render(<ConnectionStatus status="reconnecting" />)
 
-    expect(screen.getByText('Reconnecting...')).toBeInTheDocument()
+    // Status is shown via aria-label on the indicator
+    expect(screen.getByRole('status', { name: 'Reconnecting...' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /reconnect/i })).not.toBeInTheDocument()
 
     // Check for yellow indicator with pulse
@@ -42,7 +45,8 @@ describe('ConnectionStatus', () => {
     const onReconnect = vi.fn()
     render(<ConnectionStatus status="disconnected" onReconnect={onReconnect} />)
 
-    expect(screen.getByText('Disconnected')).toBeInTheDocument()
+    // Status is shown via aria-label on the indicator
+    expect(screen.getByRole('status', { name: 'Disconnected' })).toBeInTheDocument()
 
     // Check for red indicator (no pulse)
     const indicator = document.querySelector('.bg-red-500')
@@ -67,7 +71,8 @@ describe('ConnectionStatus', () => {
   test('does not show reconnect button when no onReconnect provided', () => {
     render(<ConnectionStatus status="disconnected" />)
 
-    expect(screen.getByText('Disconnected')).toBeInTheDocument()
+    // Status is shown via aria-label on the indicator
+    expect(screen.getByRole('status', { name: 'Disconnected' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /reconnect/i })).not.toBeInTheDocument()
   })
 

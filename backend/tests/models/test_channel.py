@@ -15,6 +15,7 @@ class TestDispatchrrChannel:
             "GuideNumber": "1.1",
             "GuideName": "TSN",
             "URL": "http://10.8.0.2:9191/proxy/ts/stream/uuid-abc123",
+            "Guide_ID": "1",
         }
 
         channel = DispatchrrChannel(**raw_data)
@@ -22,6 +23,7 @@ class TestDispatchrrChannel:
         assert channel.guide_number == "1.1"
         assert channel.guide_name == "TSN"
         assert channel.url == "http://10.8.0.2:9191/proxy/ts/stream/uuid-abc123"
+        assert channel.guide_id == "1"
 
     def test_parse_multiple_channels(self) -> None:
         """Parse multiple channels from Dispatcharr response."""
@@ -30,11 +32,13 @@ class TestDispatchrrChannel:
                 "GuideNumber": "1.1",
                 "GuideName": "TSN",
                 "URL": "http://10.8.0.2:9191/proxy/ts/stream/uuid-1",
+                "Guide_ID": "1",
             },
             {
                 "GuideNumber": "2.1",
                 "GuideName": "Sportsnet",
                 "URL": "http://10.8.0.2:9191/proxy/ts/stream/uuid-2",
+                "Guide_ID": "2",
             },
         ]
 
@@ -43,6 +47,8 @@ class TestDispatchrrChannel:
         assert len(channels) == 2
         assert channels[0].guide_name == "TSN"
         assert channels[1].guide_name == "Sportsnet"
+        assert channels[0].guide_id == "1"
+        assert channels[1].guide_id == "2"
 
     def test_missing_required_field_raises_error(self) -> None:
         """Missing required field should raise ValidationError."""
@@ -65,12 +71,14 @@ class TestChannel:
             id="uuid-abc123",
             name="TSN",
             stream_url="https://streams.domain.com/proxy/ts/stream/uuid-abc123",
+            guide_id="1",
         )
 
         # Internal access uses snake_case
         assert channel.id == "uuid-abc123"
         assert channel.name == "TSN"
         assert channel.stream_url == "https://streams.domain.com/proxy/ts/stream/uuid-abc123"
+        assert channel.guide_id == "1"
 
     def test_channel_json_serialization_uses_camel_case(self) -> None:
         """Channel JSON output should use camelCase field names."""
@@ -78,6 +86,7 @@ class TestChannel:
             id="uuid-abc123",
             name="TSN",
             stream_url="https://streams.domain.com/proxy/ts/stream/uuid-abc123",
+            guide_id="1",
         )
 
         json_data = channel.model_dump(by_alias=True)
@@ -85,6 +94,9 @@ class TestChannel:
         assert "streamUrl" in json_data
         assert "stream_url" not in json_data
         assert json_data["streamUrl"] == "https://streams.domain.com/proxy/ts/stream/uuid-abc123"
+        assert "guideId" in json_data
+        assert "guide_id" not in json_data
+        assert json_data["guideId"] == "1"
 
     def test_channel_from_dict_with_camel_case(self) -> None:
         """Channel should parse camelCase input."""
@@ -92,11 +104,13 @@ class TestChannel:
             "id": "uuid-abc123",
             "name": "TSN",
             "streamUrl": "https://streams.domain.com/proxy/ts/stream/uuid-abc123",
+            "guideId": "1",
         }
 
         channel = Channel(**data)
 
         assert channel.stream_url == "https://streams.domain.com/proxy/ts/stream/uuid-abc123"
+        assert channel.guide_id == "1"
 
     def test_missing_required_field_raises_error(self) -> None:
         """Missing required field should raise ValidationError."""
@@ -121,6 +135,7 @@ class TestSetChannelRequest:
             "id": "uuid-123",
             "name": "TSN",
             "streamUrl": "https://streams.example.com/stream/uuid-123",
+            "guideId": "1",
         }
 
         request = SetChannelRequest(**data)
@@ -128,6 +143,7 @@ class TestSetChannelRequest:
         assert request.id == "uuid-123"
         assert request.name == "TSN"
         assert request.stream_url == "https://streams.example.com/stream/uuid-123"
+        assert request.guide_id == "1"
 
     def test_missing_required_field_raises_error(self) -> None:
         """Missing required field should raise ValidationError."""
@@ -154,11 +170,13 @@ class TestCurrentChannelResponse:
             id="uuid-123",
             name="TSN",
             stream_url="https://streams.example.com/stream/uuid-123",
+            guide_id="1",
         )
         response = CurrentChannelResponse(current_channel=channel)
 
         assert response.current_channel is not None
         assert response.current_channel.id == "uuid-123"
+        assert response.current_channel.guide_id == "1"
 
     def test_with_null_channel(self) -> None:
         """Response with null channel."""
@@ -176,6 +194,7 @@ class TestCurrentChannelResponse:
             id="uuid-123",
             name="TSN",
             stream_url="https://streams.example.com/stream/uuid-123",
+            guide_id="1",
         )
         response = CurrentChannelResponse(current_channel=channel)
 
@@ -185,6 +204,8 @@ class TestCurrentChannelResponse:
         assert "current_channel" not in json_data
         assert "streamUrl" in json_data["currentChannel"]
         assert "stream_url" not in json_data["currentChannel"]
+        assert "guideId" in json_data["currentChannel"]
+        assert "guide_id" not in json_data["currentChannel"]
 
     def test_json_serialization_null_channel(self) -> None:
         """JSON output with null channel uses camelCase."""

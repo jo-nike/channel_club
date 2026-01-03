@@ -19,6 +19,7 @@ export interface Channel {
   id: string
   name: string
   streamUrl: string
+  guideId: string
 }
 
 export interface User {

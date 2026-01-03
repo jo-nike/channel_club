@@ -65,11 +65,13 @@ class TestListChannels:
                 id="uuid-1",
                 name="TSN",
                 stream_url="https://streams.example.com/proxy/ts/stream/uuid-1",
+                guide_id="1",
             ),
             Channel(
                 id="uuid-2",
                 name="Sportsnet",
                 stream_url="https://streams.example.com/proxy/ts/stream/uuid-2",
+                guide_id="2",
             ),
         ]
 
@@ -84,8 +86,10 @@ class TestListChannels:
         assert data[0]["id"] == "uuid-1"
         assert data[0]["name"] == "TSN"
         assert data[0]["streamUrl"] == "https://streams.example.com/proxy/ts/stream/uuid-1"
+        assert data[0]["guideId"] == "1"
         assert data[1]["id"] == "uuid-2"
         assert data[1]["name"] == "Sportsnet"
+        assert data[1]["guideId"] == "2"
 
     def test_get_channels_empty_list(self, client: TestClient, auth_header: dict[str, str]) -> None:
         """Empty channel list returns empty array."""
@@ -118,6 +122,7 @@ class TestListChannels:
                 id="uuid-1",
                 name="TSN",
                 stream_url="https://streams.example.com/proxy/ts/stream/uuid-1",
+                guide_id="1",
             ),
         ]
 
@@ -138,6 +143,7 @@ class TestListChannels:
                 id="uuid-1",
                 name="TSN",
                 stream_url="https://streams.example.com/proxy/ts/stream/uuid-1",
+                guide_id="1",
             ),
         ]
 
@@ -149,8 +155,10 @@ class TestListChannels:
         data = response.json()
         # Check camelCase is used
         assert "streamUrl" in data[0]
+        assert "guideId" in data[0]
         # Check snake_case is NOT used
         assert "stream_url" not in data[0]
+        assert "guide_id" not in data[0]
 
 
 class TestGetCurrentChannel:
@@ -178,6 +186,7 @@ class TestGetCurrentChannel:
             id="uuid-123",
             name="TSN",
             stream_url="https://streams.example.com/stream/uuid-123",
+            guide_id="1",
         )
         # Set channel directly for test setup (without async broadcast)
         channel_state._current_channel = test_channel
@@ -189,6 +198,7 @@ class TestGetCurrentChannel:
         assert data["currentChannel"]["id"] == "uuid-123"
         assert data["currentChannel"]["name"] == "TSN"
         assert data["currentChannel"]["streamUrl"] == "https://streams.example.com/stream/uuid-123"
+        assert data["currentChannel"]["guideId"] == "1"
 
     def test_admin_can_access(self, client: TestClient, admin_auth_header: dict[str, str]) -> None:
         """Admin can also access current channel."""
@@ -205,6 +215,7 @@ class TestGetCurrentChannel:
             id="uuid-123",
             name="TSN",
             stream_url="https://streams.example.com/stream/uuid-123",
+            guide_id="1",
         )
         # Set channel directly for test setup (without async broadcast)
         channel_state._current_channel = test_channel
@@ -215,9 +226,11 @@ class TestGetCurrentChannel:
         # Check camelCase is used
         assert "currentChannel" in data
         assert "streamUrl" in data["currentChannel"]
+        assert "guideId" in data["currentChannel"]
         # Check snake_case is NOT used
         assert "current_channel" not in data
         assert "stream_url" not in data["currentChannel"]
+        assert "guide_id" not in data["currentChannel"]
 
 
 class TestSetCurrentChannel:
@@ -229,6 +242,7 @@ class TestSetCurrentChannel:
             "id": "uuid",
             "name": "TSN",
             "streamUrl": "https://example.com/stream",
+            "guideId": "1",
         }
         response = client.put("/api/channels/current", json=channel_data)
         assert response.status_code == 401
@@ -241,6 +255,7 @@ class TestSetCurrentChannel:
             "id": "uuid",
             "name": "TSN",
             "streamUrl": "https://example.com/stream",
+            "guideId": "1",
         }
 
         response = client.put("/api/channels/current", json=channel_data, headers=auth_header)
@@ -256,6 +271,7 @@ class TestSetCurrentChannel:
             "id": "uuid-456",
             "name": "Sportsnet",
             "streamUrl": "https://streams.example.com/stream/uuid-456",
+            "guideId": "2",
         }
 
         response = client.put(
@@ -269,6 +285,7 @@ class TestSetCurrentChannel:
         assert data["id"] == "uuid-456"
         assert data["name"] == "Sportsnet"
         assert data["streamUrl"] == "https://streams.example.com/stream/uuid-456"
+        assert data["guideId"] == "2"
 
     def test_set_channel_updates_state(
         self,
@@ -281,6 +298,7 @@ class TestSetCurrentChannel:
             "id": "uuid-789",
             "name": "CBC",
             "streamUrl": "https://streams.example.com/stream/uuid-789",
+            "guideId": "3",
         }
 
         # Set the channel as admin
@@ -297,16 +315,18 @@ class TestSetCurrentChannel:
         data = response.json()
         assert data["currentChannel"]["id"] == "uuid-789"
         assert data["currentChannel"]["name"] == "CBC"
+        assert data["currentChannel"]["guideId"] == "3"
 
     def test_set_channel_overwrites_previous(
         self, client: TestClient, admin_auth_header: dict[str, str]
     ) -> None:
         """Setting a new channel overwrites the previous one."""
-        channel1 = {"id": "uuid-1", "name": "TSN", "streamUrl": "https://example.com/1"}
+        channel1 = {"id": "uuid-1", "name": "TSN", "streamUrl": "https://example.com/1", "guideId": "1"}
         channel2 = {
             "id": "uuid-2",
             "name": "Sportsnet",
             "streamUrl": "https://example.com/2",
+            "guideId": "2",
         }
 
         # Set first channel
@@ -321,6 +341,7 @@ class TestSetCurrentChannel:
         data = response.json()
         assert data["currentChannel"]["id"] == "uuid-2"
         assert data["currentChannel"]["name"] == "Sportsnet"
+        assert data["currentChannel"]["guideId"] == "2"
 
     def test_validates_request_body(
         self, client: TestClient, admin_auth_header: dict[str, str]
@@ -345,6 +366,7 @@ class TestSetCurrentChannel:
             "id": "uuid-123",
             "name": "TSN",
             "streamUrl": "https://streams.example.com/stream/uuid-123",
+            "guideId": "1",
         }
 
         response = client.put(
@@ -356,5 +378,7 @@ class TestSetCurrentChannel:
         data = response.json()
         # Check camelCase is used
         assert "streamUrl" in data
+        assert "guideId" in data
         # Check snake_case is NOT used
         assert "stream_url" not in data
+        assert "guide_id" not in data

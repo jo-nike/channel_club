@@ -38,12 +38,12 @@ export function ConnectionStatus({ status, onReconnect }: ConnectionStatusProps)
     <div className="flex items-center gap-2">
       <span
         className={cn('h-3 w-3 rounded-full', config.color, config.pulse && 'animate-pulse')}
-        aria-hidden="true"
+        role="status"
+        aria-label={config.text}
       />
-      <span className="text-sm font-medium">{config.text}</span>
 
       {status === 'disconnected' && onReconnect && (
-        <Button variant="outline" size="sm" onClick={onReconnect} className="ml-2">
+        <Button variant="outline" size="sm" onClick={onReconnect}>
           Reconnect
         </Button>
       )}

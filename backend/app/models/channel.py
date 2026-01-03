@@ -9,6 +9,7 @@ class DispatchrrChannel(BaseModel):
     guide_number: str = Field(alias="GuideNumber")
     guide_name: str = Field(alias="GuideName")
     url: str = Field(alias="URL")
+    guide_id: str = Field(alias="Guide_ID")
 
     model_config = {"populate_by_name": True}
 
@@ -19,6 +20,7 @@ class Channel(BaseModel):
     id: str
     name: str
     stream_url: str = Field(alias="streamUrl")
+    guide_id: str = Field(alias="guideId")
 
     model_config = {"populate_by_name": True}
 
@@ -29,6 +31,7 @@ class SetChannelRequest(BaseModel):
     id: str
     name: str
     stream_url: str = Field(alias="streamUrl")
+    guide_id: str = Field(alias="guideId")
 
     model_config = {"populate_by_name": True}
 

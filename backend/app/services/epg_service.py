@@ -122,9 +122,12 @@ class EPGService:
         Returns:
             True if cache was successfully refreshed, False otherwise.
         """
+        url = f"{self.dispatcharr_url}/output/epg"
         try:
+            logger.info(f"Attempting to fetch XMLTV from: {url}")
             async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.get(f"{self.dispatcharr_url}/xmltv.php")
+                response = await client.get(url)
+                logger.info(f"XMLTV response status: {response.status_code}")
                 response.raise_for_status()
 
                 self._cache = self._parse_xmltv(response.text)
@@ -136,10 +139,20 @@ class EPGService:
                 )
                 return True
 
-        except httpx.HTTPError as e:
-            logger.error(f"Failed to fetch XMLTV from Dispatcharr: {e}")
+        except httpx.HTTPStatusError as e:
+            logger.error(f"XMLTV HTTP error from {url}: {e.response.status_code} - {e}")
             return False
-        except EPGServiceError:
+        except httpx.ConnectError as e:
+            logger.error(f"Failed to connect to Dispatcharr at {url}: {e}")
+            return False
+        except httpx.TimeoutException as e:
+            logger.error(f"Timeout fetching XMLTV from {url}: {e}")
+            return False
+        except httpx.HTTPError as e:
+            logger.error(f"Failed to fetch XMLTV from {url}: {e}")
+            return False
+        except EPGServiceError as e:
+            logger.error(f"Failed to parse XMLTV data: {e}")
             return False
 
     async def get_now_playing(self, channel_id: str) -> EPGResponse:

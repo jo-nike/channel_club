@@ -76,20 +76,15 @@ export function MainView() {
       {!isTheaterMode && (
         <header className="flex justify-between items-center p-2 bg-background border-b">
           <div className="flex items-center gap-4">
-            {/* Hide text on mobile, show only icon */}
-            <h1 className="text-xl font-bold hidden md:block">Jon's place</h1>
-            <span className="md:hidden text-xl" role="img" aria-hidden="true">
-              📺
-            </span>
+            <ConnectionStatus status={status} onReconnect={reconnect} />
             {/* Current channel name with EPG display */}
-            <span className="text-muted-foreground text-sm truncate max-w-[300px]">
+            <span className="text-muted-foreground text-sm">
               {currentChannel?.name
                 ? epg?.currentProgram?.title
                   ? `${currentChannel.name} - ${epg.currentProgram.title}`
                   : currentChannel.name
                 : 'No channel selected'}
             </span>
-            <ConnectionStatus status={status} onReconnect={reconnect} />
           </div>
 
           <div className="flex items-center gap-2">
@@ -104,7 +99,7 @@ export function MainView() {
                 className="h-12 w-12 flex items-center justify-center bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                 aria-label="Open channel list"
               >
-                <Menu className="h-6 w-6" />
+                <Menu className="h-6 w-6 shrink-0" />
               </button>
             )}
             <button
@@ -129,7 +124,7 @@ export function MainView() {
           )}
         >
           <div className="w-full h-full flex items-center justify-center">
-            <div className="w-full aspect-video max-h-full">
+            <div className="w-full h-full max-h-full">
               <VideoPlayer />
             </div>
           </div>
@@ -168,7 +163,7 @@ export function MainView() {
                 className="h-12 w-12 flex items-center justify-center bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                 aria-label="Close channel list"
               >
-                <X className="h-6 w-6" />
+                <X className="h-6 w-6 shrink-0" />
               </button>
             </div>
             <div className="flex-1 overflow-hidden min-h-0">
@@ -188,7 +183,7 @@ export function MainView() {
           className="fixed bottom-6 right-6 z-30 h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
           aria-label="Open channel list"
         >
-          <Menu className="h-6 w-6" />
+          <Menu className="h-6 w-6 shrink-0" />
         </button>
       )}
     </div>

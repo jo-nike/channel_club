@@ -94,10 +94,12 @@ describe('MainView', () => {
   })
 
   describe('layout', () => {
-    it('should render Jon\'s place heading', () => {
+    it('should render header with connection status and logout button', () => {
       render(<MainView />)
 
-      expect(screen.getByRole('heading', { name: /jon's place/i })).toBeInTheDocument()
+      // Header contains connection status and logout button
+      expect(screen.getByRole('status')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /logout/i })).toBeInTheDocument()
     })
 
     it('should render logout button', () => {
@@ -126,7 +128,7 @@ describe('MainView', () => {
     it('should display current channel name in header when channel is selected', () => {
       vi.mocked(api.fetchNowPlaying).mockResolvedValue({ channelId: '1', currentProgram: null })
       useChannelStore.setState({
-        currentChannel: { id: '1', name: 'Test Channel', streamUrl: 'http://test.com/stream.m3u8' },
+        currentChannel: { id: '1', name: 'Test Channel', streamUrl: 'http://test.com/stream.m3u8', guideId: '1' },
       })
       render(<MainView />)
 
@@ -143,7 +145,7 @@ describe('MainView', () => {
         },
       })
       useChannelStore.setState({
-        currentChannel: { id: '1', name: 'CNN', streamUrl: 'http://test.com/stream.m3u8' },
+        currentChannel: { id: '1', name: 'CNN', streamUrl: 'http://test.com/stream.m3u8', guideId: '1' },
       })
       render(<MainView />)
 
@@ -157,7 +159,7 @@ describe('MainView', () => {
         currentProgram: null,
       })
       useChannelStore.setState({
-        currentChannel: { id: '1', name: 'ESPN', streamUrl: 'http://test.com/stream.m3u8' },
+        currentChannel: { id: '1', name: 'ESPN', streamUrl: 'http://test.com/stream.m3u8', guideId: '1' },
       })
       render(<MainView />)
 
@@ -168,7 +170,7 @@ describe('MainView', () => {
     it('should display only channel name when EPG fetch fails', async () => {
       vi.mocked(api.fetchNowPlaying).mockRejectedValue(new Error('Failed to fetch'))
       useChannelStore.setState({
-        currentChannel: { id: '1', name: 'BBC', streamUrl: 'http://test.com/stream.m3u8' },
+        currentChannel: { id: '1', name: 'BBC', streamUrl: 'http://test.com/stream.m3u8', guideId: '1' },
       })
       render(<MainView />)
 
@@ -450,10 +452,11 @@ describe('MainView', () => {
         expect(sidebar!.className).not.toContain('w-full')
       })
 
-      it('should show full Jon\'s place heading text on desktop', () => {
+      it('should show Channel Selection heading in sidebar drawer', () => {
+        useUIStore.setState({ isSidebarOpen: true })
         render(<MainView />)
 
-        expect(screen.getByRole('heading', { name: /jon's place/i })).toBeInTheDocument()
+        expect(screen.getByRole('heading', { name: /channel selection/i })).toBeInTheDocument()
       })
     })
 
@@ -544,13 +547,13 @@ describe('MainView', () => {
         expect(sidebar!.className).toContain('w-full')
       })
 
-      it('should have visually hidden heading text with md:block class on mobile', () => {
+      it('should show Channel Selection heading in full-width drawer on mobile', () => {
+        useUIStore.setState({ isSidebarOpen: true })
         render(<MainView />)
 
-        // The h1 heading exists but should have hidden class on mobile (md:block means visible from md up)
-        const heading = screen.getByRole('heading', { name: /jon's place/i })
-        expect(heading.className).toContain('hidden')
-        expect(heading.className).toContain('md:block')
+        // The sidebar drawer heading should be visible when drawer is open
+        const heading = screen.getByRole('heading', { name: /channel selection/i })
+        expect(heading).toBeInTheDocument()
       })
     })
 

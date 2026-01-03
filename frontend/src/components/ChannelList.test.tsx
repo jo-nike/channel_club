@@ -12,8 +12,8 @@ vi.mock('@/services/api', () => ({
 }))
 
 const mockChannels = [
-  { id: '1', name: 'Channel 1', streamUrl: 'http://stream1.m3u8' },
-  { id: '2', name: 'Channel 2', streamUrl: 'http://stream2.m3u8' },
+  { id: '1', name: 'Channel 1', streamUrl: 'http://stream1.m3u8', guideId: '1' },
+  { id: '2', name: 'Channel 2', streamUrl: 'http://stream2.m3u8', guideId: '2' },
 ]
 
 describe('ChannelList', () => {

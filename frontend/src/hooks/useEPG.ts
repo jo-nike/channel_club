@@ -9,7 +9,7 @@ export function useEPG() {
   const [isLoading, setIsLoading] = useState(false)
 
   useEffect(() => {
-    if (!currentChannel?.id) {
+    if (!currentChannel?.guideId) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- Intentional: resetting EPG when channel is deselected
       setEPG(null)
       return
@@ -18,7 +18,7 @@ export function useEPG() {
     let cancelled = false
     setIsLoading(true)
 
-    fetchNowPlaying(currentChannel.id)
+    fetchNowPlaying(currentChannel.guideId)
       .then((data) => {
         if (!cancelled) {
           setEPG(data)
@@ -35,7 +35,7 @@ export function useEPG() {
     return () => {
       cancelled = true
     }
-  }, [currentChannel?.id])
+  }, [currentChannel?.guideId])
 
   return { epg, isLoading }
 }

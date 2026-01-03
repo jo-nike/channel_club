@@ -77,5 +77,6 @@ async def set_current_channel(
         id=request.id,
         name=request.name,
         stream_url=request.stream_url,
+        guide_id=request.guide_id,
     )
     return await channel_state.set_current_channel(channel)

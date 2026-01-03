@@ -20,6 +20,9 @@ export const useUIStore = create<UIState>()(
       setSidebarOpen: (value) => set({ isSidebarOpen: value }),
       toggleSidebar: () => set((s) => ({ isSidebarOpen: !s.isSidebarOpen })),
     }),
-    { name: 'ui-storage' }
+{
+      name: 'ui-storage',
+      partialize: (state) => ({ isSidebarOpen: state.isSidebarOpen }),
+    }
   )
 )

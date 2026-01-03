@@ -39,7 +39,7 @@ export function VideoControls({
       aria-label="Video controls"
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
-      className={`video-controls absolute left-4 right-4 flex items-center gap-4 rounded-lg bg-black/70 p-4 transition-opacity duration-300 ${
+      className={`video-controls absolute left-4 right-4 z-10 flex items-center gap-4 rounded-lg bg-black/70 p-4 transition-opacity duration-300 ${
         isTheaterMode ? 'bottom-24' : 'bottom-12'
       } ${isVisible ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
     >

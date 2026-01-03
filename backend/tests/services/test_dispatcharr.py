@@ -43,11 +43,13 @@ class TestGetLineup:
                 "GuideNumber": "1.1",
                 "GuideName": "TSN",
                 "URL": "http://10.8.0.2:9191/proxy/ts/stream/uuid-abc123",
+                "Guide_ID": "1",
             },
             {
                 "GuideNumber": "2.1",
                 "GuideName": "Sportsnet",
                 "URL": "http://10.8.0.2:9191/proxy/ts/stream/uuid-def456",
+                "Guide_ID": "2",
             },
         ]
 
@@ -68,9 +70,11 @@ class TestGetLineup:
         assert all(isinstance(c, Channel) for c in channels)
         assert channels[0].id == "uuid-abc123"
         assert channels[0].name == "TSN"
+        assert channels[0].guide_id == "1"
         assert "uuid-abc123" in channels[0].stream_url
         assert channels[1].id == "uuid-def456"
         assert channels[1].name == "Sportsnet"
+        assert channels[1].guide_id == "2"
 
     @pytest.mark.asyncio
     async def test_get_lineup_uses_stream_base_url(self) -> None:
@@ -80,6 +84,7 @@ class TestGetLineup:
                 "GuideNumber": "1.1",
                 "GuideName": "TSN",
                 "URL": "http://10.8.0.2:9191/proxy/ts/stream/uuid-abc123",
+                "Guide_ID": "1",
             },
         ]
 
@@ -103,6 +108,7 @@ class TestGetLineup:
         # Stream URL should use the public STREAM_BASE_URL, not internal Dispatcharr URL
         assert channels[0].stream_url == "https://streams.example.com/proxy/ts/stream/uuid-abc123"
         assert "10.8.0.2" not in channels[0].stream_url
+        assert channels[0].guide_id == "1"
 
     @pytest.mark.asyncio
     async def test_get_lineup_handles_empty_response(self) -> None:

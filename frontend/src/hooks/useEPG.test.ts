@@ -41,7 +41,7 @@ describe('useEPG', () => {
   describe('when channel is selected', () => {
     beforeEach(() => {
       useChannelStore.setState({
-        currentChannel: { id: '123', name: 'Test Channel', streamUrl: 'http://test.com/stream' },
+        currentChannel: { id: '123', name: 'Test Channel', streamUrl: 'http://test.com/stream', guideId: '1' },
       })
     })
 
@@ -64,7 +64,7 @@ describe('useEPG', () => {
         expect(result.current.isLoading).toBe(false)
       })
 
-      expect(api.fetchNowPlaying).toHaveBeenCalledWith('123')
+      expect(api.fetchNowPlaying).toHaveBeenCalledWith('1')
       expect(result.current.epg).toEqual(mockEPG)
     })
 
@@ -124,7 +124,7 @@ describe('useEPG', () => {
       vi.mocked(api.fetchNowPlaying).mockResolvedValueOnce(mockEPG1).mockResolvedValueOnce(mockEPG2)
 
       useChannelStore.setState({
-        currentChannel: { id: '123', name: 'Channel 1', streamUrl: 'http://test.com/1' },
+        currentChannel: { id: '123', name: 'Channel 1', streamUrl: 'http://test.com/1', guideId: '1' },
       })
 
       const { result, rerender } = renderHook(() => useEPG())
@@ -135,7 +135,7 @@ describe('useEPG', () => {
 
       // Change channel
       useChannelStore.setState({
-        currentChannel: { id: '456', name: 'Channel 2', streamUrl: 'http://test.com/2' },
+        currentChannel: { id: '456', name: 'Channel 2', streamUrl: 'http://test.com/2', guideId: '2' },
       })
 
       rerender()
@@ -145,8 +145,8 @@ describe('useEPG', () => {
       })
 
       expect(api.fetchNowPlaying).toHaveBeenCalledTimes(2)
-      expect(api.fetchNowPlaying).toHaveBeenNthCalledWith(1, '123')
-      expect(api.fetchNowPlaying).toHaveBeenNthCalledWith(2, '456')
+      expect(api.fetchNowPlaying).toHaveBeenNthCalledWith(1, '1')
+      expect(api.fetchNowPlaying).toHaveBeenNthCalledWith(2, '2')
     })
 
     test('clears EPG when channel is deselected', async () => {
@@ -157,7 +157,7 @@ describe('useEPG', () => {
       vi.mocked(api.fetchNowPlaying).mockResolvedValue(mockEPG)
 
       useChannelStore.setState({
-        currentChannel: { id: '123', name: 'Test Channel', streamUrl: 'http://test.com/stream' },
+        currentChannel: { id: '123', name: 'Test Channel', streamUrl: 'http://test.com/stream', guideId: '1' },
       })
 
       const { result, rerender } = renderHook(() => useEPG())
@@ -185,7 +185,7 @@ describe('useEPG', () => {
       vi.mocked(api.fetchNowPlaying).mockResolvedValue(mockEPG)
 
       useChannelStore.setState({
-        currentChannel: { id: '123', name: 'Test Channel', streamUrl: 'http://test.com/stream' },
+        currentChannel: { id: '123', name: 'Test Channel', streamUrl: 'http://test.com/stream', guideId: '1' },
       })
 
       const { result } = renderHook(() => useEPG())
@@ -216,14 +216,14 @@ describe('useEPG', () => {
         .mockResolvedValueOnce(mockEPG2)
 
       useChannelStore.setState({
-        currentChannel: { id: '123', name: 'Channel 1', streamUrl: 'http://test.com/1' },
+        currentChannel: { id: '123', name: 'Channel 1', streamUrl: 'http://test.com/1', guideId: '1' },
       })
 
       const { result, rerender } = renderHook(() => useEPG())
 
       // Change channel before first request resolves
       useChannelStore.setState({
-        currentChannel: { id: '456', name: 'Channel 2', streamUrl: 'http://test.com/2' },
+        currentChannel: { id: '456', name: 'Channel 2', streamUrl: 'http://test.com/2', guideId: '2' },
       })
       rerender()
 
