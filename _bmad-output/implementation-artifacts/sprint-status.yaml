@@ -81,3 +81,13 @@ development_status:
   5-2-docker-compose-environment-configuration: review
   5-3-npm-proxy-configuration-ssl: review
   epic-5-retrospective: optional
+
+  # Epic 6: UI Polish & EPG Integration
+  epic-6: in-progress
+  6-1-header-redesign-branding: review
+  6-2-epg-backend-service: review
+  6-3-epg-display-in-header: ready-for-dev
+  6-4-viewer-role-remove-channel-list: ready-for-dev
+  6-5-admin-role-hamburger-menu: ready-for-dev
+  6-6-logout-button-fix: ready-for-dev
+  epic-6-retrospective: optional

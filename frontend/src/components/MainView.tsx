@@ -10,6 +10,7 @@ import { ChannelList } from '@/components/ChannelList'
 import { VideoPlayer } from '@/components/VideoPlayer'
 import { ConnectionStatus } from '@/components/ConnectionStatus'
 import { useUIStore } from '@/stores/uiStore'
+import { useChannelStore } from '@/stores/channelStore'
 import { cn } from '@/lib/utils'
 
 export function MainView() {
@@ -21,6 +22,7 @@ export function MainView() {
   const setTheaterMode = useUIStore((s) => s.setTheaterMode)
   const isSidebarOpen = useUIStore((s) => s.isSidebarOpen)
   const setSidebarOpen = useUIStore((s) => s.setSidebarOpen)
+  const currentChannel = useChannelStore((s) => s.currentChannel)
 
   const isDesktop = breakpoint === 'desktop'
   const isMobile = breakpoint === 'mobile'
@@ -76,12 +78,16 @@ export function MainView() {
     <div className="h-screen flex flex-col overflow-hidden">
       {/* Header - hidden in theater mode */}
       {!isTheaterMode && (
-        <header className="flex justify-between items-center p-4 bg-background border-b">
+        <header className="flex justify-between items-center p-2 bg-background border-b">
           <div className="flex items-center gap-4">
             {/* Hide text on mobile, show only icon */}
-            <h1 className="text-2xl font-bold hidden md:block">IPTV Viewer</h1>
-            <span className="md:hidden text-2xl" role="img" aria-hidden="true">
+            <h1 className="text-xl font-bold hidden md:block">Jon's place</h1>
+            <span className="md:hidden text-xl" role="img" aria-hidden="true">
               📺
+            </span>
+            {/* Current channel name display */}
+            <span className="text-muted-foreground text-sm truncate max-w-[200px]">
+              {currentChannel?.name || 'No channel selected'}
             </span>
             <ConnectionStatus status={status} onReconnect={reconnect} />
           </div>

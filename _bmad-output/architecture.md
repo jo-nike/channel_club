@@ -917,3 +917,61 @@ https://streams.domain.com/proxy/ts/stream/{uuid}
 
 **Note:** The `vidstack` package remains in package.json but is no longer used. Can be removed in future cleanup.
 
+### 2026-01-03: Epic 6 - UI Polish & EPG Integration
+
+**New Components Added:**
+
+**Backend - EPG Service:**
+- `backend/app/services/epg_service.py` - XMLTV parser with 24h caching
+- Fetches from Dispatcharr `/xmltv.php`
+- Parses XML, extracts current/next programs by channel
+- In-memory cache with 24h TTL
+- Dependency: `defusedxml` for safe XML parsing
+
+**New API Endpoint:**
+
+| Endpoint | Method | Auth | Purpose |
+|----------|--------|------|---------|
+| `/api/epg/now-playing` | GET | JWT | Get current program for channel |
+
+**Query Parameters:**
+- `channel_id` (required): The channel UUID to get EPG for
+
+**Response Format:**
+```json
+{
+  "channelId": "uuid",
+  "currentProgram": {
+    "title": "Program Name",
+    "startTime": "2026-01-03T20:00:00Z",
+    "endTime": "2026-01-03T21:00:00Z",
+    "description": "Optional description"
+  },
+  "nextProgram": {
+    "title": "Next Program",
+    "startTime": "2026-01-03T21:00:00Z",
+    "endTime": "2026-01-03T22:00:00Z"
+  }
+}
+```
+
+**Frontend UI Changes:**
+- Header height reduced 50% (p-4 → p-2)
+- Title changed: "IPTV Viewer" → "Jon's place"
+- Current channel name displayed in header
+- Now playing info displayed next to channel name
+- Viewer role: No channel list access (video only)
+- Admin role: Hamburger menu replaces pinned sidebar on all breakpoints
+- Logout button: Fixed text overflow issue
+
+**Data Flow - EPG:**
+```
+1. Frontend mounts with current channel
+2. Call GET /api/epg/now-playing?channel_id=X
+3. Backend checks cache (24h TTL)
+4. If miss: fetch /xmltv.php from Dispatcharr, parse, cache
+5. Return current program for channel
+6. Frontend displays in header
+7. Re-fetch on channel change
+```
+

@@ -646,3 +646,140 @@ So that friends can access it securely.
 **When** video player requests /proxy/ts/stream/{uuid}
 **Then** NPM proxies to Dispatcharr at 10.8.0.2:9191
 **And** HLS streams play correctly in the browser
+
+---
+
+## Epic 6: UI Polish & EPG Integration
+
+Users enjoy a refined viewing experience with a slimmer header showing current channel and program info, role-appropriate channel access, and visual polish.
+
+**FRs covered:** None (enhancement work)
+**New capabilities:** EPG now-playing display, role-based UI, header redesign
+
+### Story 6.1: Header Redesign & Branding
+
+As a user,
+I want a slimmer, cleaner header with the current channel displayed,
+So that more screen space is dedicated to video content.
+
+**Acceptance Criteria:**
+
+**Given** I am viewing the app
+**When** the header renders
+**Then** header height is reduced by 50% (p-2 padding instead of p-4)
+**And** title displays "Jon's place" instead of "IPTV Viewer"
+**And** current channel name is displayed in the header
+**And** the layout remains responsive across breakpoints
+
+**Given** no channel is selected
+**When** viewing the header
+**Then** channel name area shows "No channel selected" or is empty
+
+### Story 6.2: EPG Backend Service
+
+As the system,
+I want to fetch and cache EPG data from Dispatcharr,
+So that current program information can be displayed to users.
+
+**Acceptance Criteria:**
+
+**Given** the backend is running with DISPATCHARR_URL configured
+**When** GET `/api/epg/now-playing?channel_id=<uuid>` is called
+**Then** return current program info for that channel
+**And** response includes title, startTime, endTime
+**And** optionally includes nextProgram info
+
+**Given** EPG data is not cached or cache is stale (>24h)
+**When** the endpoint is called
+**Then** fetch fresh XMLTV from Dispatcharr `/xmltv.php`
+**And** parse and cache the data for 24 hours
+
+**Given** Dispatcharr is unreachable
+**When** the endpoint is called
+**Then** return cached data if available, or 503 with graceful error
+
+**Given** no EPG data exists for the channel
+**When** the endpoint is called
+**Then** return `{"channelId": "...", "currentProgram": null}`
+
+### Story 6.3: EPG Display in Header
+
+As a user,
+I want to see what's currently playing in the header,
+So that I know what program is on without checking a guide.
+
+**Acceptance Criteria:**
+
+**Given** a channel is selected and EPG data is available
+**When** viewing the header
+**Then** current program title displays next to channel name
+**And** format is: "Channel Name - Program Title"
+
+**Given** a channel is selected but no EPG data exists
+**When** viewing the header
+**Then** only channel name displays (no error shown)
+
+**Given** the admin changes the channel
+**When** the channel switches
+**Then** EPG info updates to show new channel's current program
+
+### Story 6.4: Viewer Role - Remove Channel List
+
+As a viewer,
+I want a distraction-free viewing experience,
+So that I can focus on the video content.
+
+**Acceptance Criteria:**
+
+**Given** I am logged in as viewer
+**When** the main view renders
+**Then** I do NOT see a channel list or hamburger menu
+**And** video player takes full width (minus header)
+**And** I cannot access channel selection
+
+**Given** I am logged in as viewer on any breakpoint (mobile/tablet/desktop)
+**When** the main view renders
+**Then** channel list is hidden on ALL screen sizes
+
+### Story 6.5: Admin Role - Hamburger Menu
+
+As an admin,
+I want channel selection via a hamburger menu,
+So that the video has more screen space when not selecting channels.
+
+**Acceptance Criteria:**
+
+**Given** I am logged in as admin on ANY breakpoint (including desktop)
+**When** the main view renders
+**Then** I see a hamburger menu button in the header
+**And** video player takes full width (minus header)
+**And** channel list is NOT pinned to the side
+
+**Given** I click the hamburger menu
+**When** the menu opens
+**Then** channel list appears as a slide-out drawer from the right
+**And** I can select a channel
+**And** clicking outside or pressing Escape closes the drawer
+
+**Given** I select a channel from the drawer
+**When** selection completes
+**Then** drawer closes automatically
+**And** video switches to selected channel
+
+### Story 6.6: Logout Button Fix
+
+As a user,
+I want the logout button to display correctly,
+So that text doesn't overflow the button boundaries.
+
+**Acceptance Criteria:**
+
+**Given** I am viewing the header on any screen size
+**When** the logout button renders
+**Then** text "Logout" fits within button boundaries
+**And** no text overflow or clipping occurs
+**And** button maintains minimum touch target (44px height)
+
+**Given** I am on a narrow viewport
+**When** header space is constrained
+**Then** logout button adjusts appropriately (icon-only or wrapped)

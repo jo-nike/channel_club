@@ -236,7 +236,7 @@ N/A - This is a focused personal project with two clear roles (host/viewer). No 
 
 | Feature | Rationale | Target Version |
 |---------|-----------|----------------|
-| EPG/Program Guide | Dispatcharr has this; focus on viewing first | v2 |
+| ~~EPG/Program Guide~~ | ~~Dispatcharr has this; focus on viewing first~~ | **Moved to Epic 6** |
 | Multi-channel viewer selection | Contradicts "admin controls channel" model | v2 (optional) |
 | Chat functionality | Nice-to-have, not core to viewing | v2 |
 | Recording/DVR | Dispatcharr + Plex handle this | Never (out of scope) |
@@ -258,9 +258,12 @@ N/A - This is a focused personal project with two clear roles (host/viewer). No 
 
 ### Future Vision
 
-#### v2 Enhancements
-- EPG overlay showing current/next program
-- Optional viewer channel browsing (admin can enable/disable)
+#### v2 Enhancements (Epic 6 - In Progress)
+- ~~EPG overlay showing current/next program~~ → **Now Playing in header** (Epic 6)
+- **Viewer channel list removed** - viewers see video only (Epic 6)
+- **Admin hamburger menu** - collapsible channel list on all breakpoints (Epic 6)
+- **Slimmer header** with branding update "Jon's place" (Epic 6)
+- Optional viewer channel browsing (admin can enable/disable) - deferred
 - Simple chat sidebar for viewing parties
 - Viewer count display for admin
 

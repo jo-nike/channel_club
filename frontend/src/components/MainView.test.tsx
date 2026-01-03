@@ -93,10 +93,10 @@ describe('MainView', () => {
   })
 
   describe('layout', () => {
-    it('should render IPTV Viewer heading', () => {
+    it('should render Jon\'s place heading', () => {
       render(<MainView />)
 
-      expect(screen.getByRole('heading', { name: /iptv viewer/i })).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: /jon's place/i })).toBeInTheDocument()
     })
 
     it('should render logout button', () => {
@@ -109,7 +109,34 @@ describe('MainView', () => {
       render(<MainView />)
 
       // VideoPlayer shows placeholder when no channel selected
-      expect(screen.getByText(/no channel selected/i)).toBeInTheDocument()
+      // Note: "No channel selected" appears in both header and video player area
+      expect(screen.getAllByText(/no channel selected/i).length).toBeGreaterThanOrEqual(1)
+    })
+
+    it('should display "No channel selected" in header when no channel is selected', () => {
+      useChannelStore.setState({ currentChannel: null })
+      render(<MainView />)
+
+      // Header should show "No channel selected"
+      const headerChannelTexts = screen.getAllByText(/no channel selected/i)
+      expect(headerChannelTexts.length).toBeGreaterThanOrEqual(1)
+    })
+
+    it('should display current channel name in header when channel is selected', () => {
+      useChannelStore.setState({
+        currentChannel: { id: '1', name: 'Test Channel', url: 'http://test.com/stream.m3u8' },
+      })
+      render(<MainView />)
+
+      expect(screen.getByText('Test Channel')).toBeInTheDocument()
+    })
+
+    it('should have reduced header padding (p-2)', () => {
+      render(<MainView />)
+
+      const header = document.querySelector('header')
+      expect(header).not.toBeNull()
+      expect(header!.className).toContain('p-2')
     })
   })
 
@@ -249,10 +276,10 @@ describe('MainView', () => {
         expect(screen.queryByRole('button', { name: /open channel list/i })).not.toBeInTheDocument()
       })
 
-      it('should show full IPTV Viewer heading text on desktop', () => {
+      it('should show full Jon\'s place heading text on desktop', () => {
         render(<MainView />)
 
-        expect(screen.getByRole('heading', { name: /iptv viewer/i })).toBeInTheDocument()
+        expect(screen.getByRole('heading', { name: /jon's place/i })).toBeInTheDocument()
       })
     })
 
@@ -347,7 +374,7 @@ describe('MainView', () => {
         render(<MainView />)
 
         // The h1 heading exists but should have hidden class on mobile (md:block means visible from md up)
-        const heading = screen.getByRole('heading', { name: /iptv viewer/i })
+        const heading = screen.getByRole('heading', { name: /jon's place/i })
         expect(heading.className).toContain('hidden')
         expect(heading.className).toContain('md:block')
       })

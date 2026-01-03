@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.routers.auth import router as auth_router
 from app.routers.channels import router as channels_router
+from app.routers.epg import router as epg_router
 from app.routers.websocket import router as websocket_router
 
 app = FastAPI(title="IPTV Viewer API")
@@ -22,6 +23,7 @@ app.add_middleware(
 # Register API routers FIRST (they take precedence over static files)
 app.include_router(auth_router, prefix="/api/auth")
 app.include_router(channels_router, prefix="/api")
+app.include_router(epg_router, prefix="/api")
 app.include_router(websocket_router)
 
 
