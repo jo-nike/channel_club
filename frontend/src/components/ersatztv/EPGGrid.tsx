@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
+import { getErsatzTVLogoUrl } from '@/services/ersatztvApi'
 import type { ErsatzTVChannel, ErsatzTVProgramme } from '@/types'
 
 // Grid constants
@@ -13,6 +14,7 @@ interface EPGGridProps {
   programmesByChannel: Record<string, ErsatzTVProgramme[]> // Passed from parent
   loading?: boolean // Loading state from parent
   onProgrammeClick?: (programme: ErsatzTVProgramme, channel: ErsatzTVChannel) => void
+  onChannelClick?: (channel: ErsatzTVChannel) => void
 }
 
 export function EPGGrid({
@@ -20,6 +22,7 @@ export function EPGGrid({
   programmesByChannel,
   loading = false,
   onProgrammeClick,
+  onChannelClick,
 }: EPGGridProps) {
   const { channels } = useErsatztvStore()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -128,6 +131,7 @@ export function EPGGrid({
             gridWidth={gridWidth}
             rowIndex={rowIndex}
             onProgrammeClick={onProgrammeClick}
+            onChannelClick={onChannelClick}
           />
         ))}
       </div>
@@ -142,6 +146,7 @@ interface ChannelRowProps {
   gridWidth: number
   rowIndex: number
   onProgrammeClick?: (programme: ErsatzTVProgramme, channel: ErsatzTVChannel) => void
+  onChannelClick?: (channel: ErsatzTVChannel) => void
 }
 
 function ChannelRow({
@@ -151,6 +156,7 @@ function ChannelRow({
   gridWidth,
   rowIndex,
   onProgrammeClick,
+  onChannelClick,
 }: ChannelRowProps) {
   return (
     <div
@@ -158,13 +164,23 @@ function ChannelRow({
       style={{ top: rowIndex * ROW_HEIGHT, height: ROW_HEIGHT }}
       data-testid="channel-row"
     >
-      {/* Channel label */}
-      <div
-        className="sticky left-0 z-10 flex flex-shrink-0 items-center bg-card px-2 text-sm font-medium border-r"
+      {/* Channel label with logo - clickable */}
+      <button
+        onClick={() => onChannelClick?.(channel)}
+        className="sticky left-0 z-10 flex flex-shrink-0 items-center gap-1.5 bg-card px-2 text-sm font-medium border-r hover:bg-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
         style={{ width: CHANNEL_LABEL_WIDTH }}
+        title={`Switch to ${channel.name}`}
       >
-        {channel.number}
-      </div>
+        <img
+          src={getErsatzTVLogoUrl(channel.id)}
+          alt=""
+          className="h-8 w-8 flex-shrink-0 rounded object-contain"
+          onError={(e) => {
+            ;(e.target as HTMLImageElement).style.display = 'none'
+          }}
+        />
+        <span className="truncate">{channel.number}</span>
+      </button>
 
       {/* Programme boxes */}
       <div className="relative" style={{ width: gridWidth }}>

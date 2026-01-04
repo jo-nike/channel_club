@@ -1,6 +1,6 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Menu, X, Film } from 'lucide-react'
+import { Menu, X, Film, RefreshCw } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useBreakpoint } from '@/hooks/useBreakpoint'
@@ -32,6 +32,7 @@ export function MainView() {
   const setLastRoute = useUIStore((s) => s.setLastRoute)
   const currentChannel = useChannelStore((s) => s.currentChannel)
   const { epg } = useEPG()
+  const [videoRefreshKey, setVideoRefreshKey] = useState(0)
 
   const isMobile = breakpoint === 'mobile'
 
@@ -125,6 +126,14 @@ export function MainView() {
               <span className="hidden md:inline">Movies</span>
             </Link>
             <button
+              onClick={() => setVideoRefreshKey((k) => k + 1)}
+              className="h-8 w-8 flex items-center justify-center bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              aria-label="Refresh video"
+              title="Refresh video"
+            >
+              <RefreshCw className="h-4 w-4 shrink-0" />
+            </button>
+            <button
               onClick={logout}
               className="h-8 px-3 text-sm whitespace-nowrap shrink-0 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
             >
@@ -146,7 +155,7 @@ export function MainView() {
           )}
         >
           <div className="w-full h-full flex items-center justify-center">
-            <div className="w-full h-full max-h-full">
+            <div className="w-full h-full max-h-full" key={videoRefreshKey}>
               <VideoPlayer />
             </div>
           </div>

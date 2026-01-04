@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { Tv, LayoutList } from 'lucide-react'
+import { Tv, LayoutList, RefreshCw } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useTheme } from '@/hooks/useTheme'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
@@ -68,6 +68,9 @@ export function ErsatzTVView() {
   const [selectedProgramme, setSelectedProgramme] =
     useState<ErsatzTVProgramme | null>(null)
   const [modalChannel, setModalChannel] = useState<ErsatzTVChannel | null>(null)
+
+  // Video refresh key
+  const [videoRefreshKey, setVideoRefreshKey] = useState(0)
 
   // Responsive
   const isMobile = useMediaQuery('(max-width: 768px)')
@@ -181,6 +184,14 @@ export function ErsatzTVView() {
             <span className="hidden md:inline">Live TV</span>
           </Link>
           <button
+            onClick={() => setVideoRefreshKey((k) => k + 1)}
+            className="h-8 w-8 flex items-center justify-center bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            aria-label="Refresh video"
+            title="Refresh video"
+          >
+            <RefreshCw className="h-4 w-4 shrink-0" />
+          </button>
+          <button
             onClick={logout}
             className="h-8 px-3 text-sm whitespace-nowrap shrink-0 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
           >
@@ -208,10 +219,12 @@ export function ErsatzTVView() {
             style={{ flex: isEPGVisible && !isMobile ? `1 1 ${100 - epgHeightPercent}%` : '1 1 100%' }}
           >
             {streamUrl ? (
-              <HLSVideoPlayer
-                streamUrl={streamUrl}
-                title={selectedChannel?.name}
-              />
+              <div key={videoRefreshKey} className="h-full w-full">
+                <HLSVideoPlayer
+                  streamUrl={streamUrl}
+                  title={selectedChannel?.name}
+                />
+              </div>
             ) : (
               <div className="flex h-full items-center justify-center">
                 <p className="text-muted-foreground">
@@ -249,6 +262,7 @@ export function ErsatzTVView() {
                   programmesByChannel={programmesByChannel}
                   loading={programmesLoading}
                   onProgrammeClick={handleProgrammeClick}
+                  onChannelClick={handleChannelSelect}
                 />
               )}
             </div>
