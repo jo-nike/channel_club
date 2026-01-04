@@ -1,6 +1,6 @@
 # Story 7.6: ErsatzTV API Endpoints
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -19,25 +19,25 @@ so that the React app can fetch channels and programmes.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create ErsatzTV router (AC: #1, #2, #3)
-  - [ ] Create `backend/app/routers/ersatztv.py`
-  - [ ] Implement GET `/api/ersatztv/channels` endpoint
-  - [ ] Implement GET `/api/ersatztv/programmes/{channel_id}` endpoint with `hours` query param
-  - [ ] Implement GET `/api/ersatztv/current/{channel_id}` endpoint
-- [ ] Task 2: Implement streaming endpoints (AC: #4, #5)
-  - [ ] Implement GET `/api/ersatztv/stream/{channel_id}` for HLS manifest
-  - [ ] Implement GET `/api/ersatztv/segments/{encoded_url}` for segment proxy
-  - [ ] Use StreamingResponse for efficient segment delivery
-- [ ] Task 3: Implement logo proxy (AC: #6)
-  - [ ] Implement GET `/api/ersatztv/logos/{channel_id}`
-  - [ ] Fetch logo from original_logo_url stored in channel
-  - [ ] Return with correct content-type header
-- [ ] Task 4: Register router in main.py
-  - [ ] Import and include ersatztv router
-- [ ] Task 5: Write tests
-  - [ ] Test all endpoints with mocked services
-  - [ ] Test authentication requirement
-  - [ ] Test error handling
+- [x] Task 1: Create ErsatzTV router (AC: #1, #2, #3)
+  - [x] Create `backend/app/routers/ersatztv.py`
+  - [x] Implement GET `/api/ersatztv/channels` endpoint
+  - [x] Implement GET `/api/ersatztv/programmes/{channel_id}` endpoint with `hours` query param
+  - [x] Implement GET `/api/ersatztv/current/{channel_id}` endpoint
+- [x] Task 2: Implement streaming endpoints (AC: #4, #5)
+  - [x] Implement GET `/api/ersatztv/stream/{channel_id}` for HLS manifest
+  - [x] Implement GET `/api/ersatztv/segments/{encoded_url}` for segment proxy
+  - [x] Use StreamingResponse for efficient segment delivery
+- [x] Task 3: Implement logo proxy (AC: #6)
+  - [x] Implement GET `/api/ersatztv/logos/{channel_id}`
+  - [x] Fetch logo from original_logo_url stored in channel
+  - [x] Return with correct content-type header
+- [x] Task 4: Register router in main.py
+  - [x] Import and include ersatztv router
+- [x] Task 5: Write tests
+  - [x] Test all endpoints with mocked services
+  - [x] Test authentication requirement
+  - [x] Test error handling
 
 ## Dev Notes
 
@@ -343,10 +343,30 @@ def test_get_stream_rejects_non_ersatztv_url(client: TestClient, auth_headers: d
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.5 (claude-opus-4-5-20251101)
 
 ### Debug Log References
 
+- No debug issues encountered
+
 ### Completion Notes List
 
+- Implemented all 6 ErsatzTV API endpoints with full authentication requirement
+- Created comprehensive test suite with 24 tests covering all endpoints
+- All tests pass (249 total project tests)
+- Linting passes with no issues
+- Used standard library logging instead of loguru (not in dependencies)
+- Added proper error handling with `from None` pattern for exception chaining
+- Security: URL validation ensures all proxied URLs are from ErsatzTV
+
 ### File List
+
+- `backend/app/routers/ersatztv.py` (new)
+- `backend/app/main.py` (modified - added ersatztv router import and include)
+- `backend/tests/routers/test_ersatztv.py` (new)
+
+## Change Log
+
+| Date | Change |
+|------|--------|
+| 2026-01-03 | Story implementation complete - all 6 API endpoints created with tests |

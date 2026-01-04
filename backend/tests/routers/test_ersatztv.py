@@ -1,0 +1,470 @@
+"""Tests for ErsatzTV router endpoints.
+
+Story: 7.6 - ErsatzTV API Endpoints
+"""
+
+from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.main import app
+from app.models.ersatztv import EPGChannel, Programme
+from app.services.auth import create_access_token
+
+
+@pytest.fixture
+def client() -> TestClient:
+    """Create test client."""
+    return TestClient(app)
+
+
+@pytest.fixture
+def auth_header() -> dict[str, str]:
+    """Create valid auth header with JWT token."""
+    token = create_access_token({"sub": "testuser", "role": "viewer"})
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+def mock_channel() -> EPGChannel:
+    """Create a mock EPGChannel for testing."""
+    return EPGChannel(
+        id="comedy-classics",
+        name="Comedy Classics",
+        stream_url="http://192.168.50.108:8409/iptv/channel/1.m3u8",
+        logo_url="/api/ersatztv/logos/comedy-classics",
+        original_logo_url="http://192.168.50.108:8409/logos/comedy.png",
+        number=1,
+        group="Movies",
+    )
+
+
+@pytest.fixture
+def mock_programme() -> Programme:
+    """Create a mock Programme for testing."""
+    now = datetime.now(UTC)
+    return Programme(
+        id="comedy-classics_1735927200",
+        channel_id="comedy-classics",
+        title="Airplane!",
+        description="Classic comedy film",
+        start=now - timedelta(minutes=30),
+        stop=now + timedelta(minutes=60),
+        category=["Comedy", "Movie"],
+    )
+
+
+class TestListChannels:
+    """Tests for GET /api/ersatztv/channels endpoint."""
+
+    def test_requires_authentication(self, client: TestClient) -> None:
+        """Unauthenticated request returns 401."""
+        response = client.get("/api/ersatztv/channels")
+        assert response.status_code == 401
+
+    def test_returns_503_when_ersatztv_unavailable(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Returns 503 when ErsatzTV is unavailable."""
+        with patch(
+            "app.routers.ersatztv.get_channels",
+            side_effect=Exception("Failed to load channels from ErsatzTV"),
+        ):
+            response = client.get("/api/ersatztv/channels", headers=auth_header)
+
+        assert response.status_code == 503
+        assert response.json()["detail"] == "ErsatzTV service unavailable"
+
+    def test_returns_channels(
+        self, client: TestClient, auth_header: dict[str, str], mock_channel: EPGChannel
+    ) -> None:
+        """Returns list of channels when authenticated."""
+        with patch("app.routers.ersatztv.get_channels", return_value=[mock_channel]):
+            response = client.get("/api/ersatztv/channels", headers=auth_header)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "channels" in data
+        assert len(data["channels"]) == 1
+        assert data["channels"][0]["id"] == "comedy-classics"
+        assert data["channels"][0]["name"] == "Comedy Classics"
+
+    def test_returns_empty_list_when_no_channels(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Returns empty list when no channels exist."""
+        with patch("app.routers.ersatztv.get_channels", return_value=[]):
+            response = client.get("/api/ersatztv/channels", headers=auth_header)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["channels"] == []
+
+    def test_response_uses_camel_case(
+        self, client: TestClient, auth_header: dict[str, str], mock_channel: EPGChannel
+    ) -> None:
+        """Response uses camelCase field names."""
+        with patch("app.routers.ersatztv.get_channels", return_value=[mock_channel]):
+            response = client.get("/api/ersatztv/channels", headers=auth_header)
+
+        data = response.json()
+        channel = data["channels"][0]
+        # Check camelCase is used
+        assert "streamUrl" in channel
+        assert "logoUrl" in channel
+        # Check snake_case is NOT used
+        assert "stream_url" not in channel
+        assert "logo_url" not in channel
+
+
+class TestListProgrammes:
+    """Tests for GET /api/ersatztv/programmes/{channel_id} endpoint."""
+
+    def test_requires_authentication(self, client: TestClient) -> None:
+        """Unauthenticated request returns 401."""
+        response = client.get("/api/ersatztv/programmes/comedy-classics")
+        assert response.status_code == 401
+
+    def test_returns_503_when_ersatztv_unavailable(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Returns 503 when ErsatzTV is unavailable."""
+        with patch(
+            "app.routers.ersatztv.get_programmes_by_channel",
+            side_effect=Exception("Failed to load XMLTV"),
+        ):
+            response = client.get(
+                "/api/ersatztv/programmes/comedy-classics", headers=auth_header
+            )
+
+        assert response.status_code == 503
+        assert response.json()["detail"] == "ErsatzTV service unavailable"
+
+    def test_returns_programmes(
+        self,
+        client: TestClient,
+        auth_header: dict[str, str],
+        mock_programme: Programme,
+    ) -> None:
+        """Returns list of programmes for channel."""
+        with patch(
+            "app.routers.ersatztv.get_programmes_by_channel",
+            return_value=[mock_programme],
+        ):
+            response = client.get(
+                "/api/ersatztv/programmes/comedy-classics", headers=auth_header
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["channelId"] == "comedy-classics"
+        assert len(data["programmes"]) == 1
+        assert data["programmes"][0]["title"] == "Airplane!"
+
+    def test_respects_hours_param(
+        self, client: TestClient, auth_header: dict[str, str], mock_programme: Programme
+    ) -> None:
+        """Hours query param is passed to service."""
+        with patch(
+            "app.routers.ersatztv.get_programmes_by_channel",
+            return_value=[mock_programme],
+        ) as mock_get:
+            response = client.get(
+                "/api/ersatztv/programmes/comedy-classics?hours=12",
+                headers=auth_header,
+            )
+
+        assert response.status_code == 200
+        mock_get.assert_called_once_with("comedy-classics", hours=12)
+
+    def test_hours_default_is_6(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Default hours param is 6."""
+        with patch(
+            "app.routers.ersatztv.get_programmes_by_channel", return_value=[]
+        ) as mock_get:
+            client.get("/api/ersatztv/programmes/comedy-classics", headers=auth_header)
+
+        mock_get.assert_called_once_with("comedy-classics", hours=6)
+
+    def test_hours_validation_min(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Hours param must be at least 1."""
+        response = client.get(
+            "/api/ersatztv/programmes/comedy-classics?hours=0", headers=auth_header
+        )
+        assert response.status_code == 422
+
+    def test_hours_validation_max(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Hours param must be at most 24."""
+        response = client.get(
+            "/api/ersatztv/programmes/comedy-classics?hours=25", headers=auth_header
+        )
+        assert response.status_code == 422
+
+
+class TestGetCurrentProgramme:
+    """Tests for GET /api/ersatztv/current/{channel_id} endpoint."""
+
+    def test_requires_authentication(self, client: TestClient) -> None:
+        """Unauthenticated request returns 401."""
+        response = client.get("/api/ersatztv/current/comedy-classics")
+        assert response.status_code == 401
+
+    def test_returns_503_when_ersatztv_unavailable(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Returns 503 when ErsatzTV is unavailable."""
+        with patch(
+            "app.routers.ersatztv.get_current_programme",
+            side_effect=Exception("Failed to load XMLTV"),
+        ):
+            response = client.get(
+                "/api/ersatztv/current/comedy-classics", headers=auth_header
+            )
+
+        assert response.status_code == 503
+        assert response.json()["detail"] == "ErsatzTV service unavailable"
+
+    def test_returns_current_and_next(
+        self, client: TestClient, auth_header: dict[str, str], mock_programme: Programme
+    ) -> None:
+        """Returns current and next programme."""
+        now = datetime.now(UTC)
+        next_prog = Programme(
+            id="comedy-classics_next",
+            channel_id="comedy-classics",
+            title="Naked Gun",
+            start=now + timedelta(hours=1),
+            stop=now + timedelta(hours=2, minutes=30),
+        )
+
+        with patch(
+            "app.routers.ersatztv.get_current_programme",
+            return_value=(mock_programme, next_prog),
+        ):
+            response = client.get(
+                "/api/ersatztv/current/comedy-classics", headers=auth_header
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["channelId"] == "comedy-classics"
+        assert data["current"]["title"] == "Airplane!"
+        assert data["nextUp"]["title"] == "Naked Gun"
+
+    def test_handles_no_current_programme(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Handles case when no current programme exists."""
+        with patch(
+            "app.routers.ersatztv.get_current_programme",
+            return_value=(None, None),
+        ):
+            response = client.get(
+                "/api/ersatztv/current/comedy-classics", headers=auth_header
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["channelId"] == "comedy-classics"
+        assert data["current"] is None
+        assert data["nextUp"] is None
+
+
+class TestGetStream:
+    """Tests for GET /api/ersatztv/stream/{channel_id} endpoint."""
+
+    def test_requires_authentication(self, client: TestClient) -> None:
+        """Unauthenticated request returns 401."""
+        response = client.get("/api/ersatztv/stream/comedy-classics")
+        assert response.status_code == 401
+
+    def test_returns_rewritten_manifest(
+        self, client: TestClient, auth_header: dict[str, str], mock_channel: EPGChannel
+    ) -> None:
+        """Returns rewritten HLS manifest."""
+        manifest = "#EXTM3U\nsegment1.ts\nsegment2.ts"
+        rewritten = "#EXTM3U\n/api/ersatztv/segments/encoded1\n/api/ersatztv/segments/encoded2"
+
+        with (
+            patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel),
+            patch("app.routers.ersatztv.httpx.AsyncClient") as mock_client_cls,
+            patch("app.routers.ersatztv.rewrite_manifest", return_value=rewritten),
+        ):
+            mock_response = MagicMock()
+            mock_response.text = manifest
+            mock_response.raise_for_status = MagicMock()
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_cls.return_value = mock_client
+
+            response = client.get(
+                "/api/ersatztv/stream/comedy-classics", headers=auth_header
+            )
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "application/vnd.apple.mpegurl"
+
+    def test_rejects_channel_not_found(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Returns 404 when channel not found."""
+        with patch("app.routers.ersatztv.get_channel_by_id", return_value=None):
+            response = client.get(
+                "/api/ersatztv/stream/nonexistent", headers=auth_header
+            )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Channel not found"
+
+    def test_rejects_non_ersatztv_url(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Returns 400 when stream URL is not from ErsatzTV."""
+        bad_channel = EPGChannel(
+            id="bad-channel",
+            name="Bad Channel",
+            stream_url="http://malicious.com/stream.m3u8",
+        )
+
+        with patch("app.routers.ersatztv.get_channel_by_id", return_value=bad_channel):
+            response = client.get(
+                "/api/ersatztv/stream/bad-channel", headers=auth_header
+            )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Invalid stream URL"
+
+
+class TestGetSegment:
+    """Tests for GET /api/ersatztv/segments/{encoded_url} endpoint."""
+
+    def test_requires_authentication(self, client: TestClient) -> None:
+        """Unauthenticated request returns 401."""
+        response = client.get("/api/ersatztv/segments/some-encoded-url")
+        assert response.status_code == 401
+
+    def test_returns_segment_content(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Returns segment content from ErsatzTV."""
+        segment_content = b"segment binary data"
+        # Encode: http://192.168.50.108:8409/segment.ts
+        encoded_url = "aHR0cDovLzE5Mi4xNjguNTAuMTA4Ojg0MDkvc2VnbWVudC50cw"
+
+        with (
+            patch(
+                "app.routers.ersatztv.decode_url",
+                return_value="http://192.168.50.108:8409/segment.ts",
+            ),
+            patch("app.routers.ersatztv.httpx.AsyncClient") as mock_client_cls,
+        ):
+            mock_response = MagicMock()
+            mock_response.content = segment_content
+            mock_response.headers = {"content-type": "video/mp2t"}
+            mock_response.raise_for_status = MagicMock()
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_cls.return_value = mock_client
+
+            response = client.get(
+                f"/api/ersatztv/segments/{encoded_url}", headers=auth_header
+            )
+
+        assert response.status_code == 200
+        assert response.content == segment_content
+
+    def test_rejects_non_ersatztv_url(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Returns 400 when segment URL is not from ErsatzTV."""
+        with patch(
+            "app.routers.ersatztv.decode_url",
+            return_value="http://malicious.com/segment.ts",
+        ):
+            response = client.get(
+                "/api/ersatztv/segments/malicious-encoded", headers=auth_header
+            )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Invalid segment URL"
+
+
+class TestGetLogo:
+    """Tests for GET /api/ersatztv/logos/{channel_id} endpoint."""
+
+    def test_requires_authentication(self, client: TestClient) -> None:
+        """Unauthenticated request returns 401."""
+        response = client.get("/api/ersatztv/logos/comedy-classics")
+        assert response.status_code == 401
+
+    def test_returns_logo_image(
+        self, client: TestClient, auth_header: dict[str, str], mock_channel: EPGChannel
+    ) -> None:
+        """Returns logo image from ErsatzTV."""
+        logo_content = b"PNG image data"
+
+        with (
+            patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel),
+            patch("app.routers.ersatztv.httpx.AsyncClient") as mock_client_cls,
+        ):
+            mock_response = MagicMock()
+            mock_response.content = logo_content
+            mock_response.headers = {"content-type": "image/png"}
+            mock_response.raise_for_status = MagicMock()
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_cls.return_value = mock_client
+
+            response = client.get(
+                "/api/ersatztv/logos/comedy-classics", headers=auth_header
+            )
+
+        assert response.status_code == 200
+        assert response.content == logo_content
+        assert response.headers["content-type"] == "image/png"
+
+    def test_returns_404_when_channel_not_found(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Returns 404 when channel not found."""
+        with patch("app.routers.ersatztv.get_channel_by_id", return_value=None):
+            response = client.get(
+                "/api/ersatztv/logos/nonexistent", headers=auth_header
+            )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Channel not found"
+
+    def test_returns_404_when_no_logo(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Returns 404 when channel has no logo."""
+        channel_no_logo = EPGChannel(
+            id="no-logo",
+            name="No Logo Channel",
+            stream_url="http://192.168.50.108:8409/stream.m3u8",
+            logo_url=None,
+            original_logo_url=None,
+        )
+
+        with patch("app.routers.ersatztv.get_channel_by_id", return_value=channel_no_logo):
+            response = client.get(
+                "/api/ersatztv/logos/no-logo", headers=auth_header
+            )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "No logo available"

@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     viewer_password: str = "viewer"
 
     # ErsatzTV Configuration
-    ersatztv_m3u_url: str = "http://192.168.50.108:8409/iptv/channels.m3u8"
+    ersatztv_m3u_url: str = "http://192.168.50.108:8409/iptv/channels.m3u"
     ersatztv_xmltv_url: str = "http://192.168.50.108:8409/iptv/xmltv.xml"
     ersatztv_base_url: str = "http://192.168.50.108:8409"
 

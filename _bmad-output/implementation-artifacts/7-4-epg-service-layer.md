@@ -1,6 +1,6 @@
 # Story 7.4: EPG Service Layer
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -16,22 +16,22 @@ so that I can easily query channels and programmes.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create EPG service module (AC: #1, #2, #3)
-  - [ ] Create `backend/app/services/ersatztv/epg_service.py`
-  - [ ] Implement `get_channels()` using m3u_parser
-  - [ ] Implement `get_current_programme(channel_id)` using xmltv_parser
-  - [ ] Implement `get_programmes_by_channel(channel_id, hours)` with time window filtering
-- [ ] Task 2: Add helper functions
-  - [ ] Implement `get_channel_by_id(channel_id)` for single channel lookup
-  - [ ] Implement `get_upcoming_programmes(channel_id, hours, limit)` for future programmes only
-  - [ ] Implement `refresh_all()` to force refresh both caches
-- [ ] Task 3: Add logo URL rewriting
-  - [ ] Rewrite ErsatzTV logo URLs to proxy endpoint `/api/ersatztv/logos/{channel_id}`
-  - [ ] Preserve original_logo_url for backend fetching
-- [ ] Task 4: Write tests
-  - [ ] Test get_channels returns channel list
-  - [ ] Test get_current_programme finds correct programme by time
-  - [ ] Test get_programmes_by_channel respects time window
+- [x] Task 1: Create EPG service module (AC: #1, #2, #3)
+  - [x] Create `backend/app/services/ersatztv/epg_service.py`
+  - [x] Implement `get_channels()` using m3u_parser
+  - [x] Implement `get_current_programme(channel_id)` using xmltv_parser
+  - [x] Implement `get_programmes_by_channel(channel_id, hours)` with time window filtering
+- [x] Task 2: Add helper functions
+  - [x] Implement `get_channel_by_id(channel_id)` for single channel lookup
+  - [x] Implement `get_upcoming_programmes(channel_id, hours, limit)` for future programmes only
+  - [x] Implement `refresh_all()` to force refresh both caches
+- [x] Task 3: Add logo URL rewriting
+  - [x] Rewrite ErsatzTV logo URLs to proxy endpoint `/api/ersatztv/logos/{channel_id}`
+  - [x] Preserve original_logo_url for backend fetching
+- [x] Task 4: Write tests
+  - [x] Test get_channels returns channel list
+  - [x] Test get_current_programme finds correct programme by time
+  - [x] Test get_programmes_by_channel respects time window
 
 ## Dev Notes
 
@@ -314,10 +314,30 @@ def test_get_programmes_by_channel_respects_window(mocker):
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.5 (claude-opus-4-5-20251101)
 
 ### Debug Log References
 
+None
+
 ### Completion Notes List
 
+- Created `backend/app/services/ersatztv/epg_service.py` with unified EPG service layer combining M3U and XMLTV data
+- Implemented all core functions: `get_channels()`, `get_current_programme()`, `get_programmes_by_channel()` satisfying all acceptance criteria
+- Implemented helper functions: `get_channel_by_id()`, `get_upcoming_programmes()`, `refresh_all()`
+- Added logo URL rewriting in `get_channels()` to proxy ErsatzTV logo URLs via `/api/ersatztv/logos/{channel_id}`
+- Added `original_logo_url` field to `EPGChannel` model for backend fetching of original logos
+- Updated `backend/app/services/ersatztv/__init__.py` to export all new service functions
+- Created comprehensive test suite with 15 tests covering all functions and edge cases
+- All 200 backend tests pass with no regressions
+
 ### File List
+
+- `backend/app/services/ersatztv/epg_service.py` (new)
+- `backend/app/services/ersatztv/__init__.py` (modified)
+- `backend/app/models/ersatztv.py` (modified - added original_logo_url field)
+- `backend/tests/services/ersatztv/test_epg_service.py` (new)
+
+## Change Log
+
+- 2026-01-03: Implemented EPG service layer with unified channel/programme access and logo URL rewriting

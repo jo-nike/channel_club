@@ -1,6 +1,6 @@
 # Story 7.5: HLS Proxy Service
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -16,23 +16,23 @@ so that ErsatzTV URLs are not exposed to clients.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create HLS rewriter service (AC: #1, #2)
-  - [ ] Create `backend/app/services/ersatztv/hls_rewriter.py`
-  - [ ] Implement `HLSManifestRewriter` class
-  - [ ] Implement `rewrite_manifest(content, base_url)` method
-  - [ ] Implement `encode_url(url)` using URL-safe base64
-  - [ ] Implement `decode_url(encoded_url)` with padding restoration
-- [ ] Task 2: Handle nested playlists (AC: #3)
-  - [ ] Detect `.m3u8` URLs in manifest (variant playlists)
-  - [ ] Rewrite nested m3u8 URLs to use stream proxy endpoint
-  - [ ] Preserve HLS tags and metadata lines
-- [ ] Task 3: Add helper functions
-  - [ ] Implement `get_stream_manifest(channel_id)` to fetch and rewrite manifest
-  - [ ] Implement `get_segment(encoded_url)` to fetch actual segment
-- [ ] Task 4: Write tests
-  - [ ] Test manifest rewriting preserves HLS structure
-  - [ ] Test URL encoding/decoding roundtrip
-  - [ ] Test nested playlist handling
+- [x] Task 1: Create HLS rewriter service (AC: #1, #2)
+  - [x] Create `backend/app/services/ersatztv/hls_rewriter.py`
+  - [x] Implement `HLSManifestRewriter` class
+  - [x] Implement `rewrite_manifest(content, base_url)` method
+  - [x] Implement `encode_url(url)` using URL-safe base64
+  - [x] Implement `decode_url(encoded_url)` with padding restoration
+- [x] Task 2: Handle nested playlists (AC: #3)
+  - [x] Detect `.m3u8` URLs in manifest (variant playlists)
+  - [x] Rewrite nested m3u8 URLs to use stream proxy endpoint
+  - [x] Preserve HLS tags and metadata lines
+- [x] Task 3: Add helper functions
+  - [x] Implement `get_stream_manifest(channel_id)` to fetch and rewrite manifest
+  - [x] Implement `get_segment(encoded_url)` to fetch actual segment
+- [x] Task 4: Write tests
+  - [x] Test manifest rewriting preserves HLS structure
+  - [x] Test URL encoding/decoding roundtrip
+  - [x] Test nested playlist handling
 
 ## Dev Notes
 
@@ -259,10 +259,27 @@ def test_decode_url_handles_special_chars():
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.5 (claude-opus-4-5-20251101)
 
 ### Debug Log References
 
+- Used standard `logging` module instead of `loguru` to match existing codebase patterns
+
 ### Completion Notes List
 
+- Implemented `HLSManifestRewriter` class with manifest rewriting and URL encoding/decoding
+- Added security validation to only accept URLs from configured ErsatzTV base URL
+- Implemented async helper functions `get_stream_manifest()` and `get_segment()` for API use
+- All 25 unit tests pass covering manifest rewriting, URL encoding/decoding, nested playlists, and security validation
+- Full test suite (225 tests) passes with no regressions
+- Exported all public functions via `__init__.py`
+
 ### File List
+
+- `backend/app/services/ersatztv/hls_rewriter.py` (new)
+- `backend/app/services/ersatztv/__init__.py` (modified - added exports)
+- `backend/tests/services/ersatztv/test_hls_rewriter.py` (new)
+
+### Change Log
+
+- 2026-01-03: Initial implementation of HLS Proxy Service (Story 7.5)
