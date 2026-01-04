@@ -6,16 +6,17 @@ Implements 5-minute TTL caching with timezone-aware UTC conversion.
 Story: 7.3 - XMLTV Parser Service
 """
 
-import logging
 from datetime import UTC, datetime, timedelta, timezone
 
 import httpx
 from defusedxml import ElementTree
+from loguru import logger
 
 from app.config import settings
 from app.models.ersatztv import Programme
 
-logger = logging.getLogger(__name__)
+# Module-level logger with service context
+log = logger.bind(service="ersatztv")
 
 # Module-level cache
 _cache: dict = {
@@ -94,11 +95,12 @@ def parse_xmltv() -> list[Programme]:
         Exception: If fetch fails and no cached data available
     """
     if not _is_cache_expired():
-        logger.debug("Returning cached XMLTV data")
+        log.debug("Cache hit for XMLTV data")
         return _cache["programmes"]
 
+    log.debug("Cache miss for XMLTV data, fetching from {}", settings.ersatztv_xmltv_url)
+
     try:
-        logger.info("Fetching XMLTV from ErsatzTV")
         response = httpx.get(settings.ersatztv_xmltv_url, timeout=30)
         response.raise_for_status()
 
@@ -108,13 +110,13 @@ def parse_xmltv() -> list[Programme]:
         _cache["timestamp"] = datetime.now()
         _cache["last_successful_fetch"] = datetime.now()
 
-        logger.info(f"Parsed {len(programmes)} programmes from XMLTV")
+        log.info("Refreshed XMLTV cache: {} programmes parsed", len(programmes))
         return programmes
 
     except Exception as e:
-        logger.warning(f"Failed to fetch XMLTV: {e}")
+        log.error("Failed to fetch XMLTV: {}", e)
         if _cache["last_successful_fetch"] is not None:
-            logger.info("Returning stale cached data")
+            log.warning("Returning stale XMLTV cached data after fetch failure")
             return _cache["programmes"]
         raise Exception("Failed to load EPG from ErsatzTV") from e
 
@@ -161,7 +163,7 @@ def _parse_xmltv_content(content: str) -> list[Programme]:
             programmes.append(programme)
 
         except (ValueError, AttributeError) as e:
-            logger.warning(f"Skipping programme: {e}")
+            log.warning("Skipping programme due to parse error: {}", e)
             continue
 
     return programmes
@@ -170,4 +172,4 @@ def _parse_xmltv_content(content: str) -> list[Programme]:
 def clear_cache() -> None:
     """Clear XMLTV cache, forcing re-fetch on next request."""
     _cache["timestamp"] = None
-    logger.info("XMLTV cache cleared")
+    log.info("XMLTV cache cleared")

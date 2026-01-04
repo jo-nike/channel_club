@@ -1318,3 +1318,241 @@ So that I can disable it when using Plex-only authentication.
 **When** the login page renders
 **Then** only "Sign in with Plex" button is shown
 **And** no credential form is visible
+
+---
+
+## Epic 9: Comprehensive Logging & Observability
+
+Users and operators benefit from comprehensive logging across the application for debugging, monitoring, and operational visibility.
+
+**Key Features:**
+- Backend logging with loguru (structured JSON output)
+- Frontend logging utility with configurable levels
+- Request/response logging for API calls
+- WebSocket connection lifecycle logging
+- Error tracking with full context
+
+**Environment Variables:**
+- `LOG_LEVEL` - Backend log level (DEBUG, INFO, WARNING, ERROR)
+- `LOG_FORMAT` - Backend format (json or pretty)
+- `VITE_LOG_LEVEL` - Frontend log level (debug, info, warn, error)
+
+---
+
+### Story 9.1: Backend Logging Infrastructure
+
+As an operator,
+I want structured logging throughout the backend,
+So that I can monitor application health and debug issues.
+
+**Acceptance Criteria:**
+
+**Given** the backend starts
+**When** logging is initialized
+**Then** loguru is configured with level from `LOG_LEVEL` env var
+**And** output format respects `LOG_FORMAT` (json or pretty)
+**And** startup message is logged
+
+**Given** `LOG_FORMAT=json`
+**When** any log message is written
+**Then** output is valid JSON with timestamp, level, message, and context
+
+**Given** `LOG_FORMAT=pretty`
+**When** any log message is written
+**Then** output is human-readable with colors and formatting
+
+---
+
+### Story 9.2: Backend Service Logging
+
+As an operator,
+I want all backend services to log their operations,
+So that I can trace requests and diagnose issues.
+
+**Acceptance Criteria:**
+
+**Given** any external API call (Dispatcharr, Plex, ErsatzTV)
+**When** the call is made
+**Then** log the target URL at DEBUG level
+**And** log success with result count at INFO level
+**And** log failures with error details at ERROR level
+
+**Given** any cache operation (EPG, M3U, XMLTV)
+**When** cache is accessed
+**Then** log cache hits/misses at DEBUG level
+**And** log cache refreshes at INFO level
+
+**Given** channel state changes
+**When** admin sets a new channel
+**Then** log the change with channel name and user at INFO level
+
+---
+
+### Story 9.3: Backend Router Logging
+
+As an operator,
+I want all API endpoints to log requests,
+So that I can monitor traffic and errors.
+
+**Acceptance Criteria:**
+
+**Given** any authenticated endpoint
+**When** request is processed
+**Then** log request method and path at DEBUG level
+**And** log user identity for admin operations at DEBUG level
+
+**Given** authentication endpoints
+**When** login is attempted
+**Then** log username (not password) at DEBUG level
+**And** log success with role at INFO level
+**And** log failure at WARNING level
+
+**Given** WebSocket connections
+**When** client connects or disconnects
+**Then** log connection state at INFO level
+**And** log authentication failures at WARNING level
+
+---
+
+### Story 9.4: Frontend Logger Utility
+
+As a developer,
+I want a structured logging utility for the frontend,
+So that I can debug issues consistently.
+
+**Acceptance Criteria:**
+
+**Given** the logger utility is imported
+**When** I call `logger.info('context', 'message')`
+**Then** output includes timestamp, level, context, and message
+
+**Given** `VITE_LOG_LEVEL=debug`
+**When** any log call is made
+**Then** all levels (debug, info, warn, error) are output
+
+**Given** `VITE_LOG_LEVEL=error`
+**When** debug/info/warn calls are made
+**Then** they are suppressed (only errors shown)
+
+**Given** the production build
+**When** logger is used
+**Then** no performance impact from suppressed log calls
+
+---
+
+### Story 9.5: Frontend API & WebSocket Logging
+
+As a developer,
+I want API calls and WebSocket events logged,
+So that I can trace communication issues.
+
+**Acceptance Criteria:**
+
+**Given** any API call via `fetchWithAuth`
+**When** the call is made
+**Then** log endpoint at DEBUG level
+**And** log errors at ERROR level with response details
+
+**Given** WebSocket connection
+**When** connection state changes
+**Then** log connecting/connected/reconnecting/disconnected at INFO level
+
+**Given** WebSocket messages
+**When** channel_update is received
+**Then** log channel change at DEBUG level
+
+**Given** any unhandled error
+**When** error is caught
+**Then** log with full error object at ERROR level
+
+---
+
+## Epic 10: Progressive Web App (PWA)
+
+Users can install the app on their devices for a native-like experience with offline-capable shell and enhanced TV integration.
+
+**Key Features:**
+- Web App Manifest for installability
+- Service Worker for app shell caching
+- Standalone display mode (no browser chrome)
+- Install prompt UX
+- Optimized icons for various platforms
+
+**Technical Approach:**
+- Use vite-plugin-pwa for generation
+- NetworkFirst strategy for API, CacheFirst for static assets
+- Minimal offline support (login state, UI shell)
+
+---
+
+### Story 10.1: PWA Manifest & Icons
+
+As a user,
+I want the app to be installable on my device,
+So that I can launch it like a native app without browser chrome.
+
+**Acceptance Criteria:**
+
+**Given** I visit the app on mobile or desktop
+**When** the browser detects the PWA manifest
+**Then** browser shows "Add to Home Screen" option
+
+**Given** the manifest.json file
+**When** inspected
+**Then** it includes: name, short_name, icons (192x192, 512x512), start_url, display: standalone, theme_color, background_color
+
+**Given** I install the PWA
+**When** I launch from home screen
+**Then** app opens in standalone mode without browser UI
+
+---
+
+### Story 10.2: Service Worker & Caching
+
+As a user,
+I want the app shell to load quickly,
+So that I see UI immediately even on slow connections.
+
+**Acceptance Criteria:**
+
+**Given** vite-plugin-pwa is configured
+**When** the app builds
+**Then** a service worker is generated with precaching for app shell assets
+
+**Given** static assets (JS, CSS, images)
+**When** requested after first load
+**Then** they are served from cache (CacheFirst strategy)
+
+**Given** API requests
+**When** fetching channels or streams
+**Then** network is preferred with optional fallback (NetworkFirst)
+
+**Given** the user is offline
+**When** they launch the installed PWA
+**Then** they see the app shell with "Network unavailable" message
+
+---
+
+### Story 10.3: Install Prompt UX
+
+As a user,
+I want to be prompted to install the app,
+So that I know the install option exists.
+
+**Acceptance Criteria:**
+
+**Given** I am on a supported browser and haven't installed the PWA
+**When** I visit the app
+**Then** an unobtrusive install prompt appears (banner or button)
+
+**Given** I click "Install" on the prompt
+**When** the browser install flow triggers
+**Then** the app is added to my device
+
+**Given** I have already installed or dismissed
+**When** I visit again
+**Then** the install prompt does not reappear
+
+**Given** I am on a TV browser
+**When** viewing the app
+**Then** install prompt is keyboard/d-pad accessible

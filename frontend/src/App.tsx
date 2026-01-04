@@ -2,6 +2,8 @@ import { Outlet } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { LoginForm } from '@/components/LoginForm'
 import { AppLoadingScreen } from '@/components/AppLoadingScreen'
+import { OfflineFallback } from '@/components/OfflineFallback'
+import { InstallPrompt } from '@/components/InstallPrompt'
 import { Toaster } from '@/components/ui/sonner'
 
 export function App() {
@@ -11,6 +13,7 @@ export function App() {
   if (isInitializing) {
     return (
       <>
+        <OfflineFallback />
         <AppLoadingScreen />
         <Toaster />
       </>
@@ -20,6 +23,7 @@ export function App() {
   if (!isAuthenticated) {
     return (
       <>
+        <OfflineFallback />
         <div className="flex min-h-screen items-center justify-center bg-background">
           <LoginForm />
         </div>
@@ -30,7 +34,9 @@ export function App() {
 
   return (
     <>
+      <OfflineFallback />
       <Outlet />
+      <InstallPrompt />
       <Toaster />
     </>
   )

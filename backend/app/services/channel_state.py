@@ -9,8 +9,12 @@ import asyncio
 import json
 
 from fastapi import WebSocket
+from loguru import logger
 
 from app.models.channel import Channel
+
+# Module-level logger with service context
+log = logger.bind(service="channel")
 
 # In-memory state - resets on restart (acceptable for MVP)
 _current_channel: Channel | None = None
@@ -23,20 +27,27 @@ def get_current_channel() -> Channel | None:
     Returns:
         The currently selected Channel, or None if no channel is selected.
     """
+    log.debug("Getting current channel: {}", _current_channel.name if _current_channel else None)
     return _current_channel
 
 
-async def set_current_channel(channel: Channel) -> Channel:
+async def set_current_channel(channel: Channel, user: str | None = None) -> Channel:
     """Set the current channel and broadcast to all connected clients.
 
     Args:
         channel: The channel to set as current.
+        user: Optional username of the user making the change.
 
     Returns:
         The set channel.
     """
     global _current_channel
     _current_channel = channel
+
+    if user:
+        log.info("Channel changed to '{}' by user '{}'", channel.name, user)
+    else:
+        log.info("Channel changed to '{}'", channel.name)
 
     # Broadcast to all connected clients
     await broadcast_channel_update(channel)
@@ -47,6 +58,7 @@ async def set_current_channel(channel: Channel) -> Channel:
 def clear_current_channel() -> None:
     """Clear the current channel selection."""
     global _current_channel
+    log.debug("Clearing current channel selection")
     _current_channel = None
 
 
@@ -58,6 +70,7 @@ async def connect(websocket: WebSocket) -> None:
     """
     await websocket.accept()
     _active_connections.add(websocket)
+    log.debug("WebSocket connected, total connections: {}", len(_active_connections))
 
 
 def disconnect(websocket: WebSocket) -> None:
@@ -67,6 +80,7 @@ def disconnect(websocket: WebSocket) -> None:
         websocket: The WebSocket connection to remove.
     """
     _active_connections.discard(websocket)
+    log.debug("WebSocket disconnected, remaining connections: {}", len(_active_connections))
 
 
 async def broadcast_channel_update(channel: Channel) -> None:
@@ -79,6 +93,7 @@ async def broadcast_channel_update(channel: Channel) -> None:
         "type": "channel_update",
         "channel": channel.model_dump(by_alias=True),
     }
+    log.debug("Broadcasting channel update to {} clients", len(_active_connections))
     await broadcast(message)
 
 

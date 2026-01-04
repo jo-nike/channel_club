@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, type RefObject } from 'react'
+import { logger } from '@/lib/logger'
 
 const DEBOUNCE_MS = 100
 
@@ -41,7 +42,9 @@ export function useOrientationFullscreen({
     if (typeof window === 'undefined') return false
     const isSmallScreen = window.matchMedia('(max-width: 768px)').matches
     const isTouchDevice = window.matchMedia('(pointer: coarse)').matches
-    return isSmallScreen && isTouchDevice
+    const result = isSmallScreen && isTouchDevice
+    logger.debug('Player', `isMobile check: isSmallScreen=${isSmallScreen}, isTouchDevice=${isTouchDevice}, result=${result}`)
+    return result
   }, [])
 
   // Check if currently in landscape orientation
@@ -50,17 +53,26 @@ export function useOrientationFullscreen({
 
     // Try Screen Orientation API first
     if ('orientation' in screen && screen.orientation) {
-      return screen.orientation.type.startsWith('landscape')
+      const result = screen.orientation.type.startsWith('landscape')
+      logger.debug('Player', `isLandscape (Screen Orientation API): ${screen.orientation.type}, result=${result}`)
+      return result
     }
 
     // Fallback to matchMedia
-    return window.matchMedia('(orientation: landscape)').matches
+    const result = window.matchMedia('(orientation: landscape)').matches
+    logger.debug('Player', `isLandscape (matchMedia fallback): ${result}`)
+    return result
   }, [])
 
   // Request fullscreen on the container with webkit fallback
   const enterFullscreen = useCallback(async () => {
     const container = containerRef.current
-    if (!container) return
+    if (!container) {
+      logger.debug('Player', 'enterFullscreen: No container ref')
+      return
+    }
+
+    logger.debug('Player', `enterFullscreen: Attempting fullscreen on container ${container.tagName}`)
 
     try {
       // Check if we're already in fullscreen (standard or webkit)
@@ -68,22 +80,29 @@ export function useOrientationFullscreen({
         document.fullscreenElement ||
         (document as Document & { webkitFullscreenElement?: Element }).webkitFullscreenElement
 
-      if (isAlreadyFullscreen) return
-
-      // Try standard API first, then webkit fallback
-      if (container.requestFullscreen) {
-        await container.requestFullscreen()
-      } else if ((container as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> }).webkitRequestFullscreen) {
-        await (container as HTMLElement & { webkitRequestFullscreen: () => Promise<void> }).webkitRequestFullscreen()
-      } else {
-        // Fullscreen not supported
+      if (isAlreadyFullscreen) {
+        logger.debug('Player', 'enterFullscreen: Already in fullscreen')
         return
       }
 
+      // Try standard API first, then webkit fallback
+      if (container.requestFullscreen) {
+        logger.debug('Player', 'enterFullscreen: Using standard requestFullscreen')
+        await container.requestFullscreen()
+      } else if ((container as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> }).webkitRequestFullscreen) {
+        logger.debug('Player', 'enterFullscreen: Using webkitRequestFullscreen')
+        await (container as HTMLElement & { webkitRequestFullscreen: () => Promise<void> }).webkitRequestFullscreen()
+      } else {
+        logger.debug('Player', 'enterFullscreen: Fullscreen not supported')
+        return
+      }
+
+      logger.debug('Player', 'enterFullscreen: SUCCESS')
       wasTriggeredByOrientationRef.current = true
       setIsOrientationFullscreen(true)
-    } catch {
-      // Fullscreen request denied (browser policy) - silently fail
+    } catch (error) {
+      // Fullscreen request denied (browser policy)
+      logger.warn('Player', 'enterFullscreen: FAILED', error)
     }
   }, [containerRef])
 
@@ -110,7 +129,17 @@ export function useOrientationFullscreen({
 
   // Handle orientation change (debounced)
   const handleOrientationChange = useCallback(() => {
-    if (!enabled || !isMobile()) return
+    logger.debug('Player', 'handleOrientationChange called')
+
+    if (!enabled) {
+      logger.debug('Player', 'handleOrientationChange: Hook disabled')
+      return
+    }
+
+    if (!isMobile()) {
+      logger.debug('Player', 'handleOrientationChange: Not mobile, ignoring')
+      return
+    }
 
     // Clear existing debounce timeout
     if (debounceTimeoutRef.current) {
@@ -120,11 +149,15 @@ export function useOrientationFullscreen({
     // Debounce the orientation change
     debounceTimeoutRef.current = window.setTimeout(() => {
       const landscape = isLandscape()
+      logger.debug('Player', `After debounce: landscape=${landscape}, manualExit=${manualExitInLandscapeRef.current}`)
 
       if (landscape) {
         // Entering landscape
         if (!manualExitInLandscapeRef.current) {
+          logger.debug('Player', 'Entering landscape - requesting fullscreen')
           enterFullscreen()
+        } else {
+          logger.debug('Player', 'Entering landscape - skipping due to manual exit')
         }
       } else {
         // Entering portrait
@@ -133,6 +166,7 @@ export function useOrientationFullscreen({
 
         // Exit fullscreen if we're currently in orientation-triggered fullscreen
         if (wasTriggeredByOrientationRef.current) {
+          logger.debug('Player', 'Entering portrait - exiting fullscreen')
           exitFullscreen()
         }
       }
@@ -171,23 +205,35 @@ export function useOrientationFullscreen({
 
   // Set up orientation change listeners
   useEffect(() => {
-    if (!enabled || !isMobile()) return
+    const mobile = isMobile()
+    logger.debug('Player', `Setup effect: enabled=${enabled}, isMobile=${mobile}`)
+
+    if (!enabled || !mobile) {
+      logger.debug('Player', 'Setup effect: Skipping listener setup')
+      return
+    }
+
+    logger.debug('Player', 'Setup effect: Attaching orientation listeners')
 
     // Use Screen Orientation API if available
     if ('orientation' in screen && screen.orientation) {
+      logger.debug('Player', 'Using Screen Orientation API')
       screen.orientation.addEventListener('change', handleOrientationChange)
     }
 
     // Also use matchMedia for broader support
     const landscapeQuery = window.matchMedia('(orientation: landscape)')
+    logger.debug('Player', 'Using matchMedia listener')
     landscapeQuery.addEventListener('change', handleOrientationChange)
 
     // Initial check - if we're already in landscape on mount
     if (isLandscape()) {
+      logger.debug('Player', 'Already in landscape on mount, triggering handler')
       handleOrientationChange()
     }
 
     return () => {
+      logger.debug('Player', 'Cleanup: Removing listeners')
       if ('orientation' in screen && screen.orientation) {
         screen.orientation.removeEventListener('change', handleOrientationChange)
       }

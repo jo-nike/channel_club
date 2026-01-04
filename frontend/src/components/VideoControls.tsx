@@ -1,5 +1,6 @@
 import type { RefObject } from 'react'
 import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Expand, Shrink } from 'lucide-react'
+import { useMediaQuery } from '@/hooks/useMediaQuery'
 
 export interface VideoControlsProps {
   videoRef: RefObject<HTMLVideoElement | null>
@@ -26,7 +27,7 @@ export function VideoControls({
   isTheaterMode,
   isFullscreen,
   isVisible,
-  isMobile = false,
+  isMobile: isMobileProp = false,
   onPlayPause,
   onVolumeChange,
   onMuteToggle,
@@ -35,6 +36,12 @@ export function VideoControls({
   onMouseEnter,
   onMouseLeave,
 }: VideoControlsProps) {
+  // Use local media query for reliable mobile/touch detection
+  // Check for touch device (pointer: coarse) to hide theater button on all phones/tablets
+  const isTouchDevice = useMediaQuery('(pointer: coarse)')
+  const isMobileQuery = useMediaQuery('(max-width: 768px)')
+  const isMobile = isMobileProp || isMobileQuery || isTouchDevice
+
   return (
     <div
       role="toolbar"

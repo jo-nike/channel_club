@@ -1,9 +1,13 @@
 """Dispatcharr API client service."""
 
 import httpx
+from loguru import logger
 
 from app.config import settings
 from app.models.channel import Channel, DispatchrrChannel
+
+# Module-level logger with service context
+log = logger.bind(service="dispatcharr")
 
 
 class DispatchrrUnavailableError(Exception):
@@ -33,14 +37,17 @@ async def get_lineup() -> list[Channel]:
     Raises:
         DispatchrrUnavailableError: If Dispatcharr is unreachable or returns error.
     """
+    url = f"{settings.dispatcharr_url}/hdhr/lineup.json"
+    log.debug("Fetching channel lineup from {}", url)
+
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(f"{settings.dispatcharr_url}/hdhr/lineup.json")
+            response = await client.get(url)
             response.raise_for_status()
 
             raw_channels = [DispatchrrChannel(**c) for c in response.json()]
 
-            return [
+            channels = [
                 Channel(
                     id=extract_uuid(ch.url),
                     name=ch.guide_name,
@@ -49,5 +56,9 @@ async def get_lineup() -> list[Channel]:
                 )
                 for ch in raw_channels
             ]
+
+            log.info("Fetched {} channels successfully", len(channels))
+            return channels
     except httpx.HTTPError as e:
+        log.error("Failed to fetch channels: {}", str(e))
         raise DispatchrrUnavailableError(f"Failed to fetch channels: {e}") from e

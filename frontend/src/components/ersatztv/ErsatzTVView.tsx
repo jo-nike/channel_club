@@ -14,6 +14,7 @@ import { ProgrammeDetailsModal } from '@/components/ersatztv/ProgrammeDetailsMod
 import { ResizeDragHandle } from '@/components/ui/ResizeDragHandle'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useResizable } from '@/hooks/useResizable'
+import { useMobileLandscape } from '@/hooks/useMobileLandscape'
 import { ThemePicker } from '@/components/ThemePicker'
 import { cn } from '@/lib/utils'
 import type { ErsatzTVProgramme, ErsatzTVChannel } from '@/types'
@@ -90,6 +91,9 @@ export function ErsatzTVView() {
 
   // Responsive
   const isMobile = useMediaQuery('(max-width: 768px)')
+
+  // Detect mobile landscape for CSS-based pseudo-fullscreen
+  const isMobileLandscape = useMobileLandscape()
 
   // Stream URL for current channel
   const streamUrl = selectedChannel
@@ -168,8 +172,8 @@ export function ErsatzTVView() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
-      {/* Header - hidden in theater mode */}
-      {!isTheaterMode && (
+      {/* Header - hidden in theater mode or mobile landscape */}
+      {!isTheaterMode && !isMobileLandscape && (
       <header className="flex justify-between items-center px-4 py-2 bg-background border-b">
         <div className="flex items-center gap-4">
           {/* Theme picker - consistent with MainView placement */}
@@ -228,8 +232,8 @@ export function ErsatzTVView() {
 
       {/* Main content */}
       <div ref={containerRef} className="flex flex-1 min-h-0 overflow-hidden">
-        {/* Desktop: Collapsible Sidebar - hidden in theater mode */}
-        {!isMobile && !isTheaterMode && (
+        {/* Desktop: Collapsible Sidebar - hidden in theater mode/landscape */}
+        {!isMobile && !isTheaterMode && !isMobileLandscape && (
           <EPGChannelSidebar
             onChannelSelect={handleChannelSelect}
             isCollapsed={isChannelSidebarCollapsed}
@@ -239,13 +243,13 @@ export function ErsatzTVView() {
 
         {/* Content area */}
         <main className="flex flex-1 flex-col min-h-0 overflow-hidden">
-          {/* Video player - fixed full viewport in theater mode, dynamic height otherwise */}
+          {/* Video player - fixed full viewport in theater mode or mobile landscape */}
           <div
             className={cn(
               'relative w-full min-h-0 overflow-hidden bg-black',
-              isTheaterMode && 'fixed inset-0 z-50'
+              (isTheaterMode || isMobileLandscape) && 'fixed inset-0 z-50'
             )}
-            style={!isTheaterMode && isEPGVisible && !isMobile ? { flex: `1 1 ${100 - epgHeightPercent}%` } : !isTheaterMode ? { flex: '1 1 100%' } : undefined}
+            style={!isTheaterMode && !isMobileLandscape && isEPGVisible && !isMobile ? { flex: `1 1 ${100 - epgHeightPercent}%` } : !isTheaterMode && !isMobileLandscape ? { flex: '1 1 100%' } : undefined}
           >
             {streamUrl ? (
               <div key={videoRefreshKey} className="h-full w-full">
@@ -268,16 +272,16 @@ export function ErsatzTVView() {
             )}
           </div>
 
-          {/* Resize handle - only on desktop when EPG visible, hidden in theater mode */}
-          {!isMobile && isEPGVisible && !isTheaterMode && (
+          {/* Resize handle - only on desktop when EPG visible, hidden in theater/landscape */}
+          {!isMobile && isEPGVisible && !isTheaterMode && !isMobileLandscape && (
             <ResizeDragHandle
               onMouseDown={handleMouseDown}
               isDragging={isDragging}
             />
           )}
 
-          {/* EPG section - hidden in theater mode */}
-          {!isTheaterMode && (isMobile || isEPGVisible) && (
+          {/* EPG section - hidden in theater mode or mobile landscape */}
+          {!isTheaterMode && !isMobileLandscape && (isMobile || isEPGVisible) && (
             <div
               className="epg-scroll min-h-0 overflow-y-auto"
               style={!isMobile && isEPGVisible ? { flex: `0 0 ${epgHeightPercent}%` } : { flex: '1 1 auto' }}
@@ -286,6 +290,7 @@ export function ErsatzTVView() {
                 <MobileChannelList
                   channels={channels}
                   selectedChannel={selectedChannel}
+                  programmesByChannel={programmesByChannel}
                   onChannelSelect={handleChannelSelect}
                 />
               ) : (
@@ -325,47 +330,62 @@ export function ErsatzTVView() {
 interface MobileChannelListProps {
   channels: ErsatzTVChannel[]
   selectedChannel: ErsatzTVChannel | null
+  programmesByChannel: Record<string, ErsatzTVProgramme[]>
   onChannelSelect: (channel: ErsatzTVChannel) => void
 }
 
 function MobileChannelList({
   channels,
   selectedChannel,
+  programmesByChannel,
   onChannelSelect,
 }: MobileChannelListProps) {
+  // Helper to get current programme for a channel
+  const getCurrentProgramme = (channelId: string): ErsatzTVProgramme | undefined => {
+    const programmes = programmesByChannel[channelId]
+    if (!programmes) return undefined
+    const now = new Date()
+    return programmes.find((p) => new Date(p.start) <= now && new Date(p.stop) > now)
+  }
+
   return (
     <div className="space-y-2 p-4">
       <h2 className="text-lg font-semibold">Channels</h2>
       <div className="grid grid-cols-1 gap-2">
-        {channels.map((channel) => (
-          <button
-            key={channel.id}
-            onClick={() => onChannelSelect(channel)}
-            className={`
-              flex items-center gap-3 rounded-lg border p-3 text-left
-              transition-colors hover:bg-accent
-              ${selectedChannel?.id === channel.id ? 'border-primary bg-primary/10' : ''}
-            `}
-          >
-            <div className="h-12 w-12 flex-shrink-0 overflow-hidden rounded bg-muted">
-              <img
-                src={getErsatzTVLogoUrl(channel.id)}
-                alt=""
-                className="h-full w-full object-contain"
-                onError={(e) => {
-                  ;(e.target as HTMLImageElement).style.display = 'none'
-                }}
-              />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="font-medium">{channel.name}</p>
-              <p className="text-sm text-muted-foreground">{channel.group}</p>
-            </div>
-            {selectedChannel?.id === channel.id && (
-              <span className="h-3 w-3 animate-pulse rounded-full bg-primary" />
-            )}
-          </button>
-        ))}
+        {channels.map((channel) => {
+          const currentProgramme = getCurrentProgramme(channel.id)
+          return (
+            <button
+              key={channel.id}
+              onClick={() => onChannelSelect(channel)}
+              className={`
+                flex items-center gap-3 rounded-lg border p-3 text-left
+                transition-colors hover:bg-accent
+                ${selectedChannel?.id === channel.id ? 'border-primary bg-primary/10' : ''}
+              `}
+            >
+              <div className="h-12 w-12 flex-shrink-0 overflow-hidden rounded bg-muted">
+                <img
+                  src={getErsatzTVLogoUrl(channel.id)}
+                  alt=""
+                  className="h-full w-full object-contain"
+                  onError={(e) => {
+                    ;(e.target as HTMLImageElement).style.display = 'none'
+                  }}
+                />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="font-medium">{channel.name}</p>
+                <p className="truncate text-sm text-muted-foreground">
+                  {currentProgramme?.title || channel.group}
+                </p>
+              </div>
+              {selectedChannel?.id === channel.id && (
+                <span className="h-3 w-3 animate-pulse rounded-full bg-primary" />
+              )}
+            </button>
+          )
+        })}
       </div>
     </div>
   )

@@ -6,16 +6,17 @@ Implements 1-hour TTL caching with graceful fallback.
 Story: 7.2 - M3U Parser Service
 """
 
-import logging
 import re
 from datetime import datetime
 
 import httpx
+from loguru import logger
 
 from app.config import settings
 from app.models.ersatztv import EPGChannel
 
-logger = logging.getLogger(__name__)
+# Module-level logger with service context
+log = logger.bind(service="ersatztv")
 
 
 # Module-level cache
@@ -50,11 +51,12 @@ def parse_m3u_playlist() -> list[EPGChannel]:
     """
     # Check cache
     if not _is_cache_expired():
-        logger.debug("Returning cached M3U data")
+        log.debug("Cache hit for M3U data")
         return _cache["channels"]
 
+    log.debug("Cache miss for M3U data, fetching from {}", settings.ersatztv_m3u_url)
+
     try:
-        logger.info("Fetching M3U playlist from ErsatzTV")
         response = httpx.get(settings.ersatztv_m3u_url, timeout=30)
         response.raise_for_status()
 
@@ -65,13 +67,13 @@ def parse_m3u_playlist() -> list[EPGChannel]:
         _cache["timestamp"] = datetime.now()
         _cache["last_successful_fetch"] = datetime.now()
 
-        logger.info(f"Parsed {len(channels)} channels from M3U")
+        log.info("Refreshed M3U cache: {} channels parsed", len(channels))
         return channels
 
     except Exception as e:
-        logger.warning(f"Failed to fetch M3U: {e}")
+        log.error("Failed to fetch M3U: {}", e)
         if _cache["last_successful_fetch"] is not None:
-            logger.info("Returning stale cached data")
+            log.warning("Returning stale M3U cached data after fetch failure")
             return _cache["channels"]
         raise Exception("Failed to load channels from ErsatzTV") from e
 
@@ -155,4 +157,4 @@ def _extract_attr(line: str, attr_name: str) -> str | None:
 def clear_cache() -> None:
     """Clear M3U cache, forcing re-fetch on next request."""
     _cache["timestamp"] = None
-    logger.info("M3U cache cleared")
+    log.info("M3U cache cleared")

@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { logger } from '@/lib/logger'
 import type { Channel } from '@/types'
 
 interface ChannelState {
@@ -17,8 +18,19 @@ export const useChannelStore = create<ChannelState>((set) => ({
   currentChannel: null,
   isLoading: false,
   error: null,
-  setChannels: (channels) => set({ channels, error: null }),
-  setCurrentChannel: (currentChannel) => set({ currentChannel }),
+  setChannels: (channels) => {
+    logger.debug('Store', `Setting ${channels.length} channels`)
+    set({ channels, error: null })
+  },
+  setCurrentChannel: (currentChannel) => {
+    logger.debug('Store', `Current channel: ${currentChannel?.name || 'null'}`)
+    set({ currentChannel })
+  },
   setLoading: (isLoading) => set({ isLoading }),
-  setError: (error) => set({ error, isLoading: false }),
+  setError: (error) => {
+    if (error) {
+      logger.debug('Store', `Channel error: ${error}`)
+    }
+    set({ error, isLoading: false })
+  },
 }))

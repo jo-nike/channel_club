@@ -1,5 +1,6 @@
 import { useMediaState, useMediaRemote } from '@vidstack/react'
 import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Expand, Shrink } from 'lucide-react'
+import { useMediaQuery } from '@/hooks/useMediaQuery'
 
 export interface ErsatzTVVideoControlsProps {
   isTheaterMode: boolean
@@ -13,11 +14,17 @@ export interface ErsatzTVVideoControlsProps {
 export function ErsatzTVVideoControls({
   isTheaterMode,
   isVisible,
-  isMobile = false,
+  isMobile: isMobileProp = false,
   onTheaterModeToggle,
   onMouseEnter,
   onMouseLeave,
 }: ErsatzTVVideoControlsProps) {
+  // Use local media query for reliable mobile/touch detection
+  // Check for touch device (pointer: coarse) to hide theater button on all phones/tablets
+  const isTouchDevice = useMediaQuery('(pointer: coarse)')
+  const isMobileQuery = useMediaQuery('(max-width: 768px)')
+  const isMobile = isMobileProp || isMobileQuery || isTouchDevice
+
   // Get media state from Vidstack context
   const paused = useMediaState('paused')
   const volume = useMediaState('volume')

@@ -1,6 +1,7 @@
 """Channels router for IPTV Viewer API."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from loguru import logger
 
 from app.models.auth import TokenPayload
 from app.models.channel import Channel, CurrentChannelResponse, SetChannelRequest
@@ -9,6 +10,7 @@ from app.services import channel_state
 from app.services.dispatcharr import DispatchrrUnavailableError, get_lineup
 
 router = APIRouter(tags=["channels"])
+log = logger.bind(router="channels")
 
 
 @router.get("/channels", response_model=list[Channel])
@@ -29,9 +31,13 @@ async def list_channels(
     Raises:
         HTTPException: 503 if Dispatcharr is unavailable.
     """
+    log.debug("GET /channels request")
     try:
-        return await get_lineup()
+        channels = await get_lineup()
+        log.debug("Returning {} channels", len(channels))
+        return channels
     except DispatchrrUnavailableError:
+        log.warning("Channel service unavailable")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Channel service unavailable",
@@ -52,6 +58,7 @@ async def get_current_channel(
     Returns:
         CurrentChannelResponse with current channel or null.
     """
+    log.debug("GET /channels/current request")
     channel = channel_state.get_current_channel()
     return CurrentChannelResponse(current_channel=channel)
 
@@ -73,10 +80,11 @@ async def set_current_channel(
     Returns:
         The updated channel.
     """
+    log.info("Admin {} changing channel to '{}'", current_user.sub, request.name)
     channel = Channel(
         id=request.id,
         name=request.name,
         stream_url=request.stream_url,
         guide_id=request.guide_id,
     )
-    return await channel_state.set_current_channel(channel)
+    return await channel_state.set_current_channel(channel, user=current_user.sub)

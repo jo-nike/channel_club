@@ -6,8 +6,9 @@ Provides high-level API for querying channels and programmes.
 Story: 7.4 - EPG Service Layer
 """
 
-import logging
 from datetime import UTC, datetime, timedelta
+
+from loguru import logger
 
 from app.config import settings
 from app.models.ersatztv import EPGChannel, Programme
@@ -16,7 +17,8 @@ from app.services.ersatztv.m3u_parser import parse_m3u_playlist
 from app.services.ersatztv.xmltv_parser import clear_cache as clear_xmltv_cache
 from app.services.ersatztv.xmltv_parser import parse_xmltv
 
-logger = logging.getLogger(__name__)
+# Module-level logger with service context
+log = logger.bind(service="ersatztv")
 
 
 def get_channels() -> list[EPGChannel]:
@@ -54,10 +56,13 @@ def get_channel_by_id(channel_id: str) -> EPGChannel | None:
     Returns:
         EPGChannel if found, None otherwise
     """
+    log.debug("Looking up channel by ID: {}", channel_id)
     channels = get_channels()
     for channel in channels:
         if channel.id == channel_id:
+            log.debug("Found channel: {}", channel.name)
             return channel
+    log.debug("Channel not found: {}", channel_id)
     return None
 
 
@@ -165,4 +170,4 @@ def refresh_all() -> None:
     """Force refresh both M3U and XMLTV caches."""
     clear_m3u_cache()
     clear_xmltv_cache()
-    logger.info("ErsatzTV EPG caches cleared")
+    log.info("ErsatzTV EPG caches cleared, data will refresh on next request")

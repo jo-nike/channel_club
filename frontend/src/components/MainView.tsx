@@ -9,6 +9,7 @@ import { useEscapeKey } from '@/hooks/useEscapeKey'
 import { useFocusTrap } from '@/hooks/useFocusTrap'
 import { useEPG } from '@/hooks/useEPG'
 import { useTheme } from '@/hooks/useTheme'
+import { useMobileLandscape } from '@/hooks/useMobileLandscape'
 import { ChannelList } from '@/components/ChannelList'
 import { VideoPlayer } from '@/components/VideoPlayer'
 import { ConnectionStatus } from '@/components/ConnectionStatus'
@@ -36,6 +37,9 @@ export function MainView() {
   const [isFullscreen, setIsFullscreen] = useState(false)
 
   const isMobile = breakpoint === 'mobile'
+
+  // Detect mobile landscape for CSS-based pseudo-fullscreen
+  const isMobileLandscape = useMobileLandscape()
 
   // Track fullscreen changes (for hiding header during autorotate fullscreen)
   useEffect(() => {
@@ -100,8 +104,8 @@ export function MainView() {
 
   return (
     <div className="h-screen flex flex-col overflow-hidden">
-      {/* Header - hidden in theater mode or fullscreen */}
-      {!isTheaterMode && !isFullscreen && (
+      {/* Header - hidden in theater mode, fullscreen, or mobile landscape */}
+      {!isTheaterMode && !isFullscreen && !isMobileLandscape && (
         <header className="flex justify-between items-center px-4 py-2 bg-background border-b">
           <div className="flex items-center gap-4">
             {/* Menu button - left side for admin */}
@@ -160,11 +164,11 @@ export function MainView() {
 
       {/* Main Content */}
       <main className="flex-1 flex overflow-hidden min-h-0">
-        {/* Video Player Area - full viewport in theater mode */}
+        {/* Video Player Area - full viewport in theater mode or mobile landscape */}
         <div
           className={cn(
             'flex items-center justify-center',
-            isTheaterMode
+            isTheaterMode || isMobileLandscape
               ? 'fixed inset-0 z-50 bg-black'
               : 'flex-1 bg-black w-full'
           )}
@@ -177,8 +181,8 @@ export function MainView() {
         </div>
       </main>
 
-      {/* Sidebar Overlay - admin only, all breakpoints, hidden in fullscreen */}
-      {!isTheaterMode && !isFullscreen && isAdmin && (
+      {/* Sidebar Overlay - admin only, all breakpoints, hidden in fullscreen/landscape */}
+      {!isTheaterMode && !isFullscreen && !isMobileLandscape && isAdmin && (
         <>
           {/* Backdrop */}
           <div
@@ -219,8 +223,8 @@ export function MainView() {
         </>
       )}
 
-      {/* Mobile FAB - admin only, hidden in fullscreen */}
-      {!isTheaterMode && !isFullscreen && isMobile && !isSidebarOpen && isAdmin && (
+      {/* Mobile FAB - admin only, hidden in fullscreen/landscape */}
+      {!isTheaterMode && !isFullscreen && !isMobileLandscape && isMobile && !isSidebarOpen && isAdmin && (
         <button
           onClick={(e) => {
             sidebarTriggerRef.current = e.currentTarget

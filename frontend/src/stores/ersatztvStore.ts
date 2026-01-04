@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { logger } from '@/lib/logger'
 import type { ErsatzTVChannel, ErsatzTVProgramme } from '@/types'
 import {
   fetchErsatzTVChannels,
@@ -61,11 +62,14 @@ export const useErsatztvStore = create<ErsatztvState>((set, get) => ({
     if (state.channelsLoading) return
     if (state.channels.length > 0) return // Already loaded
 
+    logger.debug('Store', 'Loading ErsatzTV channels')
     set({ channelsLoading: true, error: null })
     try {
       const channels = await fetchErsatzTVChannels()
+      logger.debug('Store', `Loaded ${channels.length} ErsatzTV channels`)
       set({ channels, channelsLoading: false })
     } catch (error) {
+      logger.debug('Store', `Failed to load ErsatzTV channels: ${error}`)
       set({
         error:
           error instanceof Error ? error.message : 'Failed to load channels',
@@ -75,17 +79,21 @@ export const useErsatztvStore = create<ErsatztvState>((set, get) => ({
   },
 
   selectChannel: (channel: ErsatzTVChannel) => {
+    logger.debug('Store', `Selected ErsatzTV channel: ${channel.name}`)
     set({ selectedChannel: channel })
     // Optionally auto-load current programme
     get().loadCurrentProgramme(channel.id)
   },
 
   loadProgrammes: async (channelId: string, hours: number = 6) => {
+    logger.debug('Store', `Loading programmes for channel: ${channelId}`)
     set({ programmesLoading: true, error: null })
     try {
       const data = await fetchErsatzTVProgrammes(channelId, hours)
+      logger.debug('Store', `Loaded ${data.programmes.length} programmes`)
       set({ programmes: data.programmes, programmesLoading: false })
     } catch (error) {
+      logger.debug('Store', `Failed to load programmes: ${error}`)
       set({
         error:
           error instanceof Error ? error.message : 'Failed to load programmes',
@@ -97,6 +105,7 @@ export const useErsatztvStore = create<ErsatztvState>((set, get) => ({
   loadCurrentProgramme: async (channelId: string) => {
     try {
       const data = await fetchErsatzTVCurrentProgramme(channelId)
+      logger.debug('Store', `Current programme: ${data.current?.title || 'none'}`)
       set({
         currentProgramme: data.current,
         nextProgramme: data.nextUp,
@@ -113,6 +122,7 @@ export const useErsatztvStore = create<ErsatztvState>((set, get) => ({
     if (state.programmesLoading) return
     if (state.channels.length === 0) return
 
+    logger.debug('Store', `Loading all programmes for ${state.channels.length} channels`)
     set({ programmesLoading: true })
 
     try {
@@ -127,6 +137,7 @@ export const useErsatztvStore = create<ErsatztvState>((set, get) => ({
           }
         })
       )
+      logger.debug('Store', 'All programmes loaded')
       set({ programmesByChannel: programmeData, programmesLoading: false })
     } catch {
       set({ programmesLoading: false })

@@ -10,6 +10,7 @@ import '@vidstack/react/player/styles/default/theme.css'
 import { ProjectorBeamLoader } from '@/components/ProjectorBeamLoader'
 import { ErsatzTVVideoControls } from './ErsatzTVVideoControls'
 import { useAutoHide } from '@/hooks/useAutoHide'
+import { useOrientationFullscreen } from '@/hooks/useOrientationFullscreen'
 
 interface HLSVideoPlayerProps {
   streamUrl: string
@@ -133,6 +134,12 @@ function HLSVideoPlayerInner({
   const containerRef = useRef<HTMLDivElement>(null)
   const [isBuffering, setIsBuffering] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  // Auto-fullscreen on mobile landscape rotation
+  useOrientationFullscreen({
+    containerRef,
+    enabled: true,
+  })
 
   const handleError = useCallback(
     (e: { message?: string }) => {

@@ -1,9 +1,13 @@
 """Plex authentication service for validating Plex tokens and server access."""
 
 import httpx
+from loguru import logger
 
 from app.config import settings
 from app.models.plex import PlexUser
+
+# Module-level logger with service context
+log = logger.bind(service="plex")
 
 PLEX_API_HEADERS = {
     "Accept": "application/json",
@@ -42,27 +46,35 @@ async def validate_plex_token(auth_token: str) -> PlexUser:
     Raises:
         InvalidPlexTokenError: If token is invalid or expired.
     """
+    # Log only first 8 characters of token for debugging (never full token!)
+    log.debug("Validating Plex token: {}...", auth_token[:8] if auth_token else "empty")
+
     async with httpx.AsyncClient() as client:
         response = await client.get(
             "https://plex.tv/api/v2/user",
             headers={**PLEX_API_HEADERS, "X-Plex-Token": auth_token},
         )
         if response.status_code != 200:
+            log.warning("Plex token validation failed with status {}", response.status_code)
             raise InvalidPlexTokenError("Invalid or expired Plex token")
 
         try:
             data = response.json()
         except Exception as e:
+            log.error("Invalid response from Plex API: {}", e)
             raise InvalidPlexTokenError(f"Invalid response from Plex API: {e}") from e
 
         try:
-            return PlexUser(
+            user = PlexUser(
                 id=str(data["id"]),
                 username=data["username"],
                 email=data.get("email", ""),
                 thumb=data.get("thumb"),
             )
+            log.info("Plex user validated: {}", user.username)
+            return user
         except KeyError as e:
+            log.error("Missing field in Plex response: {}", e)
             raise InvalidPlexTokenError(f"Missing field in Plex response: {e}") from e
 
 
@@ -79,19 +91,23 @@ async def get_server_owner_id() -> str | None:
         Result is cached to avoid repeated API calls.
     """
     if not settings.plex_server_token:
+        log.debug("No Plex server token configured")
         return None
 
     # Check cache
     cache_key = "owner_id"
     if cache_key in _server_owner_id_cache:
+        log.debug("Using cached server owner ID")
         return _server_owner_id_cache[cache_key]
 
+    log.debug("Fetching server owner ID from Plex API")
     async with httpx.AsyncClient() as client:
         response = await client.get(
             "https://plex.tv/api/v2/user",
             headers={**PLEX_API_HEADERS, "X-Plex-Token": settings.plex_server_token},
         )
         if response.status_code != 200:
+            log.warning("Failed to fetch server owner ID, status: {}", response.status_code)
             _server_owner_id_cache[cache_key] = None
             return None
 
@@ -99,8 +115,10 @@ async def get_server_owner_id() -> str | None:
             data = response.json()
             owner_id = str(data.get("id"))
             _server_owner_id_cache[cache_key] = owner_id
+            log.debug("Cached server owner ID")
             return owner_id
-        except Exception:
+        except Exception as e:
+            log.error("Error parsing server owner response: {}", e)
             _server_owner_id_cache[cache_key] = None
             return None
 
@@ -148,8 +166,10 @@ async def check_server_access(auth_token: str) -> bool:
         returns True to allow all Plex users.
     """
     if not settings.plex_server_machine_id:
+        log.debug("No Plex server machine ID configured, allowing access")
         return True  # No server configured, allow all Plex users
 
+    log.debug("Checking user access to Plex server")
     async with httpx.AsyncClient() as client:
         response = await client.get(
             "https://plex.tv/api/v2/resources",
@@ -157,10 +177,14 @@ async def check_server_access(auth_token: str) -> bool:
             params={"includeHttps": 1},
         )
         if response.status_code != 200:
+            log.warning("Failed to check server access, status: {}", response.status_code)
             return False
 
         resources = response.json()
         for resource in resources:
             if resource.get("clientIdentifier") == settings.plex_server_machine_id:
+                log.debug("User has access to configured Plex server")
                 return True
+
+        log.warning("User does not have access to configured Plex server")
         return False

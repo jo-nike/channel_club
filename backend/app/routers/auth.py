@@ -1,6 +1,7 @@
 """Auth router for JWT token authentication."""
 
 from fastapi import APIRouter, HTTPException, status
+from loguru import logger
 
 from app.config import settings
 from app.models.auth import AuthConfigResponse, LoginRequest, TokenResponse
@@ -14,11 +15,13 @@ from app.services.plex import (
 )
 
 router = APIRouter(tags=["auth"])
+log = logger.bind(router="auth")
 
 
 @router.get("/config", response_model=AuthConfigResponse)
 async def get_auth_config() -> AuthConfigResponse:
     """Return available authentication methods."""
+    log.debug("Auth config requested")
     return AuthConfigResponse(
         local_auth_enabled=settings.local_auth_enabled,
         plex_auth_enabled=settings.plex_auth_enabled,
@@ -39,6 +42,8 @@ async def login(request: LoginRequest) -> TokenResponse:
         HTTPException: 404 if local auth is disabled.
         HTTPException: 401 if credentials are invalid.
     """
+    log.debug("Login attempt for user: {}", request.username)
+
     # Check if local auth is enabled
     if not settings.local_auth_enabled:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
@@ -53,11 +58,13 @@ async def login(request: LoginRequest) -> TokenResponse:
     ):
         role = "viewer"
     else:
+        log.warning("Failed login attempt for user: {}", request.username)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
         )
 
+    log.info("User {} logged in successfully with role {}", request.username, role)
     token = create_access_token({"sub": request.username, "role": role})
     return TokenResponse(access_token=token, role=role)
 
@@ -77,6 +84,8 @@ async def login_with_plex(request: PlexAuthRequest) -> TokenResponse:
         HTTPException: 401 if Plex token is invalid.
         HTTPException: 403 if user lacks access to configured server.
     """
+    log.debug("Plex auth attempt")
+
     # Check if Plex auth is enabled
     if not settings.plex_auth_enabled:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
@@ -85,6 +94,7 @@ async def login_with_plex(request: PlexAuthRequest) -> TokenResponse:
     try:
         plex_user = await validate_plex_token(request.auth_token)
     except InvalidPlexTokenError as err:
+        log.warning("Plex auth failed: invalid or expired token")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired Plex token",
@@ -93,6 +103,7 @@ async def login_with_plex(request: PlexAuthRequest) -> TokenResponse:
     # Check server access
     has_access = await check_server_access(request.auth_token)
     if not has_access:
+        log.warning("Plex auth failed for user {}: no server access", plex_user.username)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="No access to Plex server",
@@ -101,5 +112,6 @@ async def login_with_plex(request: PlexAuthRequest) -> TokenResponse:
     # Determine role based on configuration and ownership
     role = await determine_role(plex_user)
 
+    log.info("Plex user {} logged in successfully with role {}", plex_user.username, role)
     token = create_access_token({"sub": plex_user.username, "role": role, "plex_id": plex_user.id})
     return TokenResponse(access_token=token, role=role)

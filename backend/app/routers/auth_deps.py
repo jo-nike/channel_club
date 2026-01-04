@@ -3,10 +3,12 @@
 from fastapi import Depends, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError
+from loguru import logger
 
 from app.models.auth import TokenPayload
 from app.services.auth import verify_token
 
+log = logger.bind(router="auth_deps")
 security = HTTPBearer()
 security_optional = HTTPBearer(auto_error=False)
 
@@ -90,6 +92,7 @@ async def require_admin(
         HTTPException: 403 if user is not admin.
     """
     if current_user.role != "admin":
+        log.warning("Unauthorized admin access attempt by user: {}", current_user.sub)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required",

@@ -1,16 +1,17 @@
 """WebSocket router for real-time channel updates."""
 
 import json
-import logging
+from uuid import uuid4
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from jose import JWTError
+from loguru import logger
 
 from app.services import channel_state
 from app.services.auth import verify_token
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
+log = logger.bind(router="websocket")
 
 
 async def verify_websocket_token(token: str) -> dict | None:
@@ -40,11 +41,17 @@ async def websocket_endpoint(
         websocket: The WebSocket connection.
         token: JWT token passed as query parameter.
     """
+    # Generate a unique client ID for logging
+    client_id = str(uuid4())[:8]
+
     # Validate token before accepting connection
     payload = await verify_websocket_token(token)
     if not payload:
+        log.warning("WebSocket auth failed for client {}", client_id)
         await websocket.close(code=4001, reason="Invalid token")
         return
+
+    log.info("WebSocket connected: client {} (user={})", client_id, payload.get("sub"))
 
     # Accept connection and track it
     await channel_state.connect(websocket)
@@ -63,27 +70,31 @@ async def websocket_endpoint(
             data = await websocket.receive_text()
             try:
                 message = json.loads(data)
-                await handle_client_message(websocket, message)
+                await handle_client_message(websocket, message, client_id)
             except json.JSONDecodeError:
-                pass  # Ignore malformed messages
+                log.debug("Malformed JSON from client {}", client_id)
 
     except WebSocketDisconnect:
+        log.info("WebSocket disconnected: client {}", client_id)
         channel_state.disconnect(websocket)
-    except Exception:
+    except Exception as e:
+        log.error("WebSocket error for client {}: {}", client_id, e)
         channel_state.disconnect(websocket)
 
 
-async def handle_client_message(websocket: WebSocket, message: dict) -> None:
+async def handle_client_message(websocket: WebSocket, message: dict, client_id: str) -> None:
     """Handle incoming client messages.
 
     Args:
         websocket: The WebSocket connection.
         message: Parsed JSON message from client.
+        client_id: Unique client identifier for logging.
     """
     msg_type = message.get("type")
 
     if msg_type == "ping":
+        log.debug("Ping from client {}, sending pong", client_id)
         await websocket.send_json({"type": "pong"})
     else:
         # Log unknown message types for debugging
-        logger.debug(f"Unknown WebSocket message type: {msg_type}")
+        log.debug("Unknown WebSocket message type from client {}: {}", client_id, msg_type)

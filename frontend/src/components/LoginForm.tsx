@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { PlexLoginButton } from '@/components/PlexLoginButton'
 import { useAuthStore } from '@/stores/authStore'
+import { logger } from '@/lib/logger'
 import { login, getAuthConfig, loginWithPlex, type AuthConfig } from '@/services/api'
 import { authenticateWithPlex } from '@/services/plexAuth'
 
@@ -20,7 +21,7 @@ export function LoginForm() {
     getAuthConfig()
       .then(setAuthConfig)
       .catch((err) => {
-        console.error('Failed to load auth config:', err)
+        logger.error('Auth', 'Failed to load auth config', err)
         setError('Failed to load authentication configuration')
       })
       .finally(() => setConfigLoading(false))

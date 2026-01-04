@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { useAuthStore } from '@/stores/authStore'
 import { useChannelStore } from '@/stores/channelStore'
+import { logger } from '@/lib/logger'
 import type { Channel } from '@/types'
 
 interface WebSocketMessage {
@@ -53,10 +54,12 @@ export function useWebSocket(): UseWebSocketReturn {
     (message: WebSocketMessage) => {
       switch (message.type) {
         case 'connection_ack':
+          logger.debug('WebSocket', 'Received connection_ack', message)
           setCurrentChannel(message.currentChannel ?? null)
           break
 
         case 'channel_update':
+          logger.debug('WebSocket', `Channel update: ${message.channel?.name || 'null'}`)
           if (message.channel) {
             setCurrentChannel(message.channel)
           }
@@ -64,11 +67,12 @@ export function useWebSocket(): UseWebSocketReturn {
 
         case 'pong':
           // Ping acknowledged, connection healthy
+          logger.debug('WebSocket', 'Received pong')
           break
 
         default:
           // Unknown message type - log but don't crash
-          console.log('Unknown message type:', message.type)
+          logger.warn('WebSocket', `Unknown message type: ${message.type}`, message)
       }
     },
     [setCurrentChannel]
@@ -84,6 +88,7 @@ export function useWebSocket(): UseWebSocketReturn {
         wsRef.current.close()
       }
 
+      logger.info('WebSocket', isReconnect ? 'Reconnecting...' : 'Connecting...')
       setStatus(isReconnect ? 'reconnecting' : 'connecting')
 
       // Construct WebSocket URL
@@ -95,6 +100,7 @@ export function useWebSocket(): UseWebSocketReturn {
       intentionalCloseRef.current = false
 
       ws.onopen = () => {
+        logger.info('WebSocket', 'Connected successfully')
         setStatus('connected')
         retryCountRef.current = 0
 
@@ -110,14 +116,17 @@ export function useWebSocket(): UseWebSocketReturn {
         try {
           const message: WebSocketMessage = JSON.parse(event.data)
           handleMessage(message)
-        } catch {
+        } catch (e) {
           // Log but don't crash on invalid JSON
-          console.error('Failed to parse WebSocket message:', event.data)
+          logger.error('WebSocket', 'Failed to parse message', {
+            data: event.data,
+            error: e,
+          })
         }
       }
 
       ws.onerror = (error) => {
-        console.error('WebSocket error:', error)
+        logger.error('WebSocket', 'Connection error', error)
       }
 
       ws.onclose = (event) => {
@@ -126,21 +135,26 @@ export function useWebSocket(): UseWebSocketReturn {
 
         // Don't reconnect if intentionally closed (logout)
         if (intentionalCloseRef.current) {
+          logger.info('WebSocket', 'Disconnected (intentional)')
           setStatus('disconnected')
           return
         }
 
         // Token expired - don't reconnect, redirect to login
         if (event.code === 4001) {
+          logger.info('WebSocket', 'Disconnected (token expired)')
           setStatus('disconnected')
           return
         }
 
+        logger.info('WebSocket', `Disconnected (code: ${event.code})`)
+
         // Attempt reconnection if we haven't exceeded retries
         if (retryCountRef.current < MAX_RETRIES) {
           const delay = getBackoffDelay()
-          console.log(
-            `Reconnecting in ${delay}ms (attempt ${retryCountRef.current + 1}/${MAX_RETRIES})`
+          logger.debug(
+            'WebSocket',
+            `Scheduling reconnect in ${delay}ms (attempt ${retryCountRef.current + 1}/${MAX_RETRIES})`
           )
           setStatus('reconnecting')
 
@@ -149,7 +163,7 @@ export function useWebSocket(): UseWebSocketReturn {
             connectRef.current?.(true)
           }, delay)
         } else {
-          console.log('Max reconnection attempts reached')
+          logger.warn('WebSocket', 'Max reconnection attempts reached')
           setStatus('disconnected')
         }
       }

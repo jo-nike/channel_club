@@ -8,6 +8,7 @@ const SLOT_WIDTH = 150 // pixels per 30 minutes
 const HOUR_WIDTH = SLOT_WIDTH * 2
 const ROW_HEIGHT = 64 // pixels per channel row
 const CHANNEL_LABEL_WIDTH = 80
+const PROGRAMME_GAP = 3 // pixels between programme boxes
 
 interface EPGGridProps {
   hours?: number // Time window to display (default 6)
@@ -225,7 +226,7 @@ function ProgrammeBox({ programme, channel, startTime, onClick }: ProgrammeBoxPr
       `}
       style={{
         left: Math.max(0, left),
-        width: Math.max(60, width - (left < 0 ? -left : 0)),
+        width: Math.max(60, width - (left < 0 ? -left : 0) - PROGRAMME_GAP),
       }}
       onClick={() => onClick?.(programme, channel)}
       data-testid="programme-box"

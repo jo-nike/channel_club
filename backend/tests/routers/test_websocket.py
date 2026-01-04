@@ -1,9 +1,11 @@
 """Tests for WebSocket router."""
 
 from datetime import UTC
+from io import StringIO
 
 import pytest
 from fastapi.testclient import TestClient
+from loguru import logger
 
 from app.main import app
 from app.services import channel_state
@@ -235,3 +237,86 @@ class TestChannelBroadcast:
                 assert data2["type"] == "channel_update"
                 assert data1["channel"]["id"] == "multi-123"
                 assert data2["channel"]["id"] == "multi-123"
+
+
+class TestWebSocketLogging:
+    """Tests for WebSocket router logging."""
+
+    def test_connection_logs_info(self, client: TestClient, valid_token: str):
+        """WebSocket connection logs INFO with client ID."""
+        output = StringIO()
+        handler_id = logger.add(output, format="{level} | {message}", level="INFO")
+
+        try:
+            with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+                ws.receive_json()  # Consume connection_ack
+
+            log_output = output.getvalue()
+            assert "INFO" in log_output
+            assert "connect" in log_output.lower()
+        finally:
+            logger.remove(handler_id)
+
+    def test_disconnection_logs_info(self, client: TestClient, valid_token: str):
+        """WebSocket disconnection logs INFO with client ID."""
+        output = StringIO()
+        handler_id = logger.add(output, format="{level} | {message}", level="INFO")
+
+        try:
+            with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+                ws.receive_json()  # Consume connection_ack
+            # Connection closed
+
+            log_output = output.getvalue()
+            assert "disconnect" in log_output.lower()
+        finally:
+            logger.remove(handler_id)
+
+    def test_auth_failure_logs_warning(self, client: TestClient):
+        """Failed WebSocket authentication logs WARNING."""
+        output = StringIO()
+        handler_id = logger.add(output, format="{level} | {message}", level="WARNING")
+
+        try:
+            with (
+                pytest.raises((Exception,)),  # noqa: B017
+                client.websocket_connect("/api/ws?token=invalid_token"),
+            ):
+                pass
+
+            log_output = output.getvalue()
+            assert "WARNING" in log_output
+        finally:
+            logger.remove(handler_id)
+
+    def test_ping_logs_debug(self, client: TestClient, valid_token: str):
+        """Ping/pong messages log DEBUG."""
+        output = StringIO()
+        handler_id = logger.add(output, format="{level} | {message}", level="DEBUG")
+
+        try:
+            with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+                ws.receive_json()  # Consume connection_ack
+                ws.send_json({"type": "ping"})
+                ws.receive_json()  # Consume pong
+
+            log_output = output.getvalue()
+            assert "DEBUG" in log_output
+            assert "ping" in log_output.lower() or "pong" in log_output.lower()
+        finally:
+            logger.remove(handler_id)
+
+    def test_websocket_logging_uses_router_context(self, client: TestClient, valid_token: str):
+        """WebSocket logging uses logger.bind(router='websocket') context."""
+        output = StringIO()
+        handler_id = logger.add(output, format="{extra} | {message}", level="INFO")
+
+        try:
+            with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+                ws.receive_json()  # Consume connection_ack
+
+            log_output = output.getvalue()
+            assert "router" in log_output
+            assert "websocket" in log_output
+        finally:
+            logger.remove(handler_id)

@@ -1,9 +1,11 @@
 """Tests for channels router."""
 
+from io import StringIO
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+from loguru import logger
 
 from app.main import app
 from app.models.channel import Channel
@@ -387,3 +389,103 @@ class TestSetCurrentChannel:
         # Check snake_case is NOT used
         assert "stream_url" not in data
         assert "guide_id" not in data
+
+
+class TestChannelsLogging:
+    """Tests for channels router logging."""
+
+    def test_get_channels_logs_debug(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """GET /channels logs DEBUG level."""
+        output = StringIO()
+        handler_id = logger.add(output, format="{level} | {message}", level="DEBUG")
+
+        try:
+            with patch("app.routers.channels.get_lineup", new_callable=AsyncMock) as mock:
+                mock.return_value = []
+                client.get("/api/channels", headers=auth_header)
+
+            log_output = output.getvalue()
+            assert "DEBUG" in log_output
+            assert "channels" in log_output.lower()
+        finally:
+            logger.remove(handler_id)
+
+    def test_get_current_channel_logs_debug(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """GET /channels/current logs DEBUG level."""
+        output = StringIO()
+        handler_id = logger.add(output, format="{level} | {message}", level="DEBUG")
+
+        try:
+            client.get("/api/channels/current", headers=auth_header)
+
+            log_output = output.getvalue()
+            assert "DEBUG" in log_output
+            assert "current" in log_output.lower()
+        finally:
+            logger.remove(handler_id)
+
+    def test_set_channel_logs_info_with_admin_and_channel(
+        self, client: TestClient, admin_auth_header: dict[str, str]
+    ) -> None:
+        """PUT /channels/current logs INFO with channel name and admin user."""
+        output = StringIO()
+        handler_id = logger.add(output, format="{level} | {message}", level="INFO")
+
+        try:
+            channel_data = {
+                "id": "uuid-123",
+                "name": "TestChannel",
+                "streamUrl": "https://example.com/stream",
+                "guideId": "1",
+            }
+            client.put("/api/channels/current", json=channel_data, headers=admin_auth_header)
+
+            log_output = output.getvalue()
+            assert "INFO" in log_output
+            assert "TestChannel" in log_output
+            assert "admin" in log_output.lower()
+        finally:
+            logger.remove(handler_id)
+
+    def test_unauthorized_channel_change_logs_warning(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Unauthorized channel change attempts log WARNING."""
+        output = StringIO()
+        handler_id = logger.add(output, format="{level} | {message}", level="WARNING")
+
+        try:
+            channel_data = {
+                "id": "uuid-123",
+                "name": "TestChannel",
+                "streamUrl": "https://example.com/stream",
+                "guideId": "1",
+            }
+            client.put("/api/channels/current", json=channel_data, headers=auth_header)
+
+            log_output = output.getvalue()
+            assert "WARNING" in log_output
+        finally:
+            logger.remove(handler_id)
+
+    def test_channels_logging_uses_router_context(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Channels logging uses logger.bind(router='channels') context."""
+        output = StringIO()
+        handler_id = logger.add(output, format="{extra} | {message}", level="DEBUG")
+
+        try:
+            with patch("app.routers.channels.get_lineup", new_callable=AsyncMock) as mock:
+                mock.return_value = []
+                client.get("/api/channels", headers=auth_header)
+
+            log_output = output.getvalue()
+            assert "router" in log_output
+            assert "channels" in log_output
+        finally:
+            logger.remove(handler_id)

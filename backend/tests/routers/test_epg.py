@@ -1,10 +1,12 @@
 """Tests for EPG router."""
 
 from datetime import UTC, datetime, timedelta
+from io import StringIO
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+from loguru import logger
 
 from app.main import app
 from app.models.epg import EPGResponse, Program
@@ -207,3 +209,57 @@ class TestGetNowPlaying:
         )
 
         assert response.status_code == 401
+
+
+class TestEPGLogging:
+    """Tests for EPG router logging."""
+
+    def test_now_playing_logs_debug_with_channel_id(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """GET /epg/now-playing logs DEBUG with channel_id."""
+        output = StringIO()
+        handler_id = logger.add(output, format="{level} | {message}", level="DEBUG")
+
+        try:
+            mock_response = EPGResponse(channel_id="test-uuid", current_program=None)
+            with patch("app.routers.epg.get_epg_service") as mock_get_service:
+                mock_service = AsyncMock()
+                mock_service.get_now_playing.return_value = mock_response
+                mock_get_service.return_value = mock_service
+
+                client.get(
+                    "/api/epg/now-playing?channel_id=test-uuid",
+                    headers=auth_header,
+                )
+
+            log_output = output.getvalue()
+            assert "DEBUG" in log_output
+            assert "test-uuid" in log_output
+        finally:
+            logger.remove(handler_id)
+
+    def test_epg_logging_uses_router_context(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """EPG logging uses logger.bind(router='epg') context."""
+        output = StringIO()
+        handler_id = logger.add(output, format="{extra} | {message}", level="DEBUG")
+
+        try:
+            mock_response = EPGResponse(channel_id="test-uuid", current_program=None)
+            with patch("app.routers.epg.get_epg_service") as mock_get_service:
+                mock_service = AsyncMock()
+                mock_service.get_now_playing.return_value = mock_response
+                mock_get_service.return_value = mock_service
+
+                client.get(
+                    "/api/epg/now-playing?channel_id=test-uuid",
+                    headers=auth_header,
+                )
+
+            log_output = output.getvalue()
+            assert "router" in log_output
+            assert "epg" in log_output
+        finally:
+            logger.remove(handler_id)

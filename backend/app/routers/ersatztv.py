@@ -6,11 +6,10 @@ plus HLS stream proxying and logo serving.
 Story: 7.6 - ErsatzTV API Endpoints
 """
 
-import logging
-
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from fastapi.responses import StreamingResponse
+from loguru import logger
 
 from app.config import settings
 from app.models.ersatztv import (
@@ -27,19 +26,20 @@ from app.services.ersatztv import (
 )
 from app.services.ersatztv.hls_rewriter import decode_url, rewrite_manifest
 
-logger = logging.getLogger(__name__)
-
 router = APIRouter(prefix="/api/ersatztv", tags=["ersatztv"])
+log = logger.bind(router="ersatztv")
 
 
 @router.get("/channels", response_model=EPGChannelResponse)
 async def list_channels(user=Depends(get_current_user)) -> EPGChannelResponse:
     """Get all ErsatzTV channels."""
+    log.debug("GET /channels request")
     try:
         channels = get_channels()
+        log.debug("Returning {} channels", len(channels))
         return EPGChannelResponse(channels=channels)
     except Exception as e:
-        logger.error(f"Failed to get channels: {e}")
+        log.error("Failed to get channels: {}", e)
         raise HTTPException(status_code=503, detail="ErsatzTV service unavailable") from None
 
 
@@ -50,11 +50,13 @@ async def list_programmes(
     user=Depends(get_current_user),
 ) -> ProgrammeListResponse:
     """Get programmes for channel within time window."""
+    log.debug("GET /programmes request for channel: {}", channel_id)
     try:
         programmes = get_programmes_by_channel(channel_id, hours=hours)
+        log.debug("Returning {} programmes for channel {}", len(programmes), channel_id)
         return ProgrammeListResponse(channel_id=channel_id, programmes=programmes)
     except Exception as e:
-        logger.error(f"Failed to get programmes: {e}")
+        log.error("Failed to get programmes for channel {}: {}", channel_id, e)
         raise HTTPException(status_code=503, detail="ErsatzTV service unavailable") from None
 
 
@@ -64,6 +66,7 @@ async def get_current(
     user=Depends(get_current_user),
 ) -> CurrentProgrammeResponse:
     """Get current and next programme for channel."""
+    log.debug("GET /current request for channel: {}", channel_id)
     try:
         current, next_up = get_current_programme(channel_id)
         return CurrentProgrammeResponse(
@@ -72,7 +75,7 @@ async def get_current(
             next_up=next_up,
         )
     except Exception as e:
-        logger.error(f"Failed to get current programme: {e}")
+        log.error("Failed to get current programme for channel {}: {}", channel_id, e)
         raise HTTPException(status_code=503, detail="ErsatzTV service unavailable") from None
 
 
@@ -84,6 +87,7 @@ async def head_stream(
     user=Depends(get_current_user_or_token),
 ):
     """HEAD request for stream - returns headers only (for video.js preflight)."""
+    log.debug("HEAD /stream request for channel: {}", channel_id)
     try:
         if url:
             manifest_url = decode_url(url)
@@ -103,7 +107,7 @@ async def head_stream(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Stream HEAD error: {e}")
+        log.error("Stream HEAD error for channel {}: {}", channel_id, e)
         raise HTTPException(status_code=503, detail="Stream unavailable") from None
 
 
@@ -120,6 +124,7 @@ async def get_stream(
     Otherwise fetches the channel's stream_url from M3U data.
     Token is passed through to rewritten segment URLs for HLS auth.
     """
+    log.debug("GET /stream request for channel: {}", channel_id)
     try:
         if url:
             # Nested playlist - decode URL
@@ -152,7 +157,7 @@ async def get_stream(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Stream error: {e}")
+        log.error("Stream error for channel {}: {}", channel_id, e)
         raise HTTPException(status_code=503, detail="Stream unavailable") from None
 
 
@@ -163,6 +168,7 @@ async def head_segment(
     user=Depends(get_current_user_or_token),
 ):
     """HEAD request for segment - returns headers only."""
+    log.debug("HEAD /segments request")
     try:
         segment_url = decode_url(encoded_url)
 
@@ -176,7 +182,7 @@ async def head_segment(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Segment HEAD error: {e}")
+        log.error("Segment HEAD error: {}", e)
         raise HTTPException(status_code=503, detail="Segment unavailable") from None
 
 
@@ -187,6 +193,7 @@ async def get_segment(
     user=Depends(get_current_user_or_token),
 ):
     """Proxy HLS segment from ErsatzTV."""
+    log.debug("GET /segments request")
     try:
         segment_url = decode_url(encoded_url)
 
@@ -209,7 +216,7 @@ async def get_segment(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Segment error: {e}")
+        log.error("Segment error: {}", e)
         raise HTTPException(status_code=503, detail="Segment unavailable") from None
 
 
@@ -220,6 +227,7 @@ async def get_logo(
     # Browser img tags cannot send Authorization headers
 ):
     """Proxy channel logo from ErsatzTV."""
+    log.debug("GET /logos request for channel: {}", channel_id)
     try:
         channel = get_channel_by_id(channel_id)
         if not channel:
@@ -243,5 +251,5 @@ async def get_logo(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Logo error: {e}")
+        log.error("Logo error for channel {}: {}", channel_id, e)
         raise HTTPException(status_code=503, detail="Logo unavailable") from None

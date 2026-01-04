@@ -4,10 +4,12 @@ Story: 7.6 - ErsatzTV API Endpoints
 """
 
 from datetime import UTC, datetime, timedelta
+from io import StringIO
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+from loguru import logger
 
 from app.main import app
 from app.models.ersatztv import EPGChannel, Programme
@@ -616,3 +618,91 @@ class TestGetLogo:
 
         assert response.status_code == 404
         assert response.json()["detail"] == "No logo available"
+
+
+class TestErsatzTVLogging:
+    """Tests for ErsatzTV router logging."""
+
+    def test_channels_logs_debug(
+        self, client: TestClient, auth_header: dict[str, str], mock_channel: EPGChannel
+    ) -> None:
+        """GET /channels logs DEBUG level."""
+        output = StringIO()
+        handler_id = logger.add(output, format="{level} | {message}", level="DEBUG")
+
+        try:
+            with patch("app.routers.ersatztv.get_channels", return_value=[mock_channel]):
+                client.get("/api/ersatztv/channels", headers=auth_header)
+
+            log_output = output.getvalue()
+            assert "DEBUG" in log_output
+            assert "channel" in log_output.lower()
+        finally:
+            logger.remove(handler_id)
+
+    def test_programmes_logs_debug_with_channel_id(
+        self, client: TestClient, auth_header: dict[str, str], mock_programme: Programme
+    ) -> None:
+        """GET /programmes/{channel_id} logs DEBUG with channel_id."""
+        output = StringIO()
+        handler_id = logger.add(output, format="{level} | {message}", level="DEBUG")
+
+        try:
+            with patch(
+                "app.routers.ersatztv.get_programmes_by_channel",
+                return_value=[mock_programme],
+            ):
+                client.get("/api/ersatztv/programmes/comedy-classics", headers=auth_header)
+
+            log_output = output.getvalue()
+            assert "DEBUG" in log_output
+            assert "comedy-classics" in log_output
+        finally:
+            logger.remove(handler_id)
+
+    def test_stream_logs_debug(
+        self, client: TestClient, auth_header: dict[str, str], mock_channel: EPGChannel
+    ) -> None:
+        """GET /stream/{channel_id} logs DEBUG level."""
+        output = StringIO()
+        handler_id = logger.add(output, format="{level} | {message}", level="DEBUG")
+
+        try:
+            with (
+                patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel),
+                patch("app.routers.ersatztv.httpx.AsyncClient") as mock_client_cls,
+                patch("app.routers.ersatztv.rewrite_manifest", return_value="#EXTM3U"),
+            ):
+                mock_response = MagicMock()
+                mock_response.text = "#EXTM3U"
+                mock_response.raise_for_status = MagicMock()
+                mock_client = AsyncMock()
+                mock_client.get.return_value = mock_response
+                mock_client.__aenter__.return_value = mock_client
+                mock_client.__aexit__.return_value = None
+                mock_client_cls.return_value = mock_client
+
+                client.get("/api/ersatztv/stream/comedy-classics", headers=auth_header)
+
+            log_output = output.getvalue()
+            assert "DEBUG" in log_output
+            assert "stream" in log_output.lower()
+        finally:
+            logger.remove(handler_id)
+
+    def test_ersatztv_logging_uses_router_context(
+        self, client: TestClient, auth_header: dict[str, str], mock_channel: EPGChannel
+    ) -> None:
+        """ErsatzTV logging uses logger.bind(router='ersatztv') context."""
+        output = StringIO()
+        handler_id = logger.add(output, format="{extra} | {message}", level="DEBUG")
+
+        try:
+            with patch("app.routers.ersatztv.get_channels", return_value=[mock_channel]):
+                client.get("/api/ersatztv/channels", headers=auth_header)
+
+            log_output = output.getvalue()
+            assert "router" in log_output
+            assert "ersatztv" in log_output
+        finally:
+            logger.remove(handler_id)

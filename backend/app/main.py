@@ -1,4 +1,3 @@
-import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -6,15 +5,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from loguru import logger
 
 from app.config import settings
+from app.logging_config import configure_logging
 from app.routers.auth import router as auth_router
 from app.routers.channels import router as channels_router
 from app.routers.epg import router as epg_router
 from app.routers.ersatztv import router as ersatztv_router
 from app.routers.websocket import router as websocket_router
-
-logger = logging.getLogger(__name__)
 
 
 def validate_auth_configuration() -> None:
@@ -30,9 +29,17 @@ def validate_auth_configuration() -> None:
 async def lifespan(app: FastAPI):
     """Application lifespan handler for startup/shutdown events."""
     # Startup
+    configure_logging()
+    logger.info(
+        "IPTV Viewer API starting",
+        version="0.1.0",
+        log_level=settings.log_level,
+        log_format=settings.log_format,
+    )
     validate_auth_configuration()
     yield
     # Shutdown
+    logger.info("IPTV Viewer API shutting down")
 
 
 app = FastAPI(title="IPTV Viewer API", lifespan=lifespan)

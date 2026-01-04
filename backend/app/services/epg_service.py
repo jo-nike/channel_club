@@ -1,15 +1,16 @@
 """EPG service for fetching and caching XMLTV data from Dispatcharr."""
 
-import logging
 from datetime import UTC, datetime, timedelta, timezone
 
 import httpx
 from defusedxml import ElementTree
+from loguru import logger
 
 from app.config import settings
 from app.models.epg import EPGResponse, Program
 
-logger = logging.getLogger(__name__)
+# Module-level logger with service context
+log = logger.bind(service="epg")
 
 
 class EPGServiceError(Exception):
@@ -30,8 +31,15 @@ class EPGService:
     def _is_cache_valid(self) -> bool:
         """Check if cache is still valid."""
         if self._cache_expires is None:
+            log.debug("Cache miss: no expiry set")
             return False
-        return datetime.now(UTC) < self._cache_expires
+        is_valid = datetime.now(UTC) < self._cache_expires
+        if is_valid:
+            age = (self._cache_expires - datetime.now(UTC)).total_seconds()
+            log.debug("Cache hit for EPG data (expires in {}s)", int(age))
+        else:
+            log.debug("Cache miss: expired")
+        return is_valid
 
     def _parse_xmltv_datetime(self, dt_str: str) -> datetime:
         """Parse XMLTV datetime format (YYYYMMDDHHmmss +ZZZZ).
@@ -103,7 +111,7 @@ class EPGService:
                         programs_by_channel[channel_id] = []
                     programs_by_channel[channel_id].append(program)
                 except (ValueError, IndexError) as e:
-                    logger.warning(f"Failed to parse programme: {e}")
+                    log.warning("Failed to parse programme: {}", e)
                     continue
 
             # Sort programs by start time for each channel
@@ -111,7 +119,7 @@ class EPGService:
                 programs_by_channel[channel_id].sort(key=lambda p: p.start_time)
 
         except ElementTree.ParseError as e:
-            logger.error(f"Failed to parse XMLTV: {e}")
+            log.error("Failed to parse XMLTV: {}", e)
             raise EPGServiceError(f"Failed to parse XMLTV data: {e}") from e
 
         return programs_by_channel
@@ -123,36 +131,37 @@ class EPGService:
             True if cache was successfully refreshed, False otherwise.
         """
         url = f"{self.dispatcharr_url}/output/epg"
+        log.debug("Fetching EPG data from {}", url)
         try:
-            logger.info(f"Attempting to fetch XMLTV from: {url}")
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.get(url)
-                logger.info(f"XMLTV response status: {response.status_code}")
                 response.raise_for_status()
 
                 self._cache = self._parse_xmltv(response.text)
                 self._cache_expires = datetime.now(UTC) + self._cache_ttl
 
-                logger.info(
-                    f"EPG cache refreshed: {len(self._cache)} channels, "
-                    f"expires {self._cache_expires.isoformat()}"
+                total_programmes = sum(len(progs) for progs in self._cache.values())
+                log.info(
+                    "Refreshed EPG cache: {} channels, {} programmes",
+                    len(self._cache),
+                    total_programmes,
                 )
                 return True
 
         except httpx.HTTPStatusError as e:
-            logger.error(f"XMLTV HTTP error from {url}: {e.response.status_code} - {e}")
+            log.error("XMLTV HTTP error from {}: {} - {}", url, e.response.status_code, e)
             return False
         except httpx.ConnectError as e:
-            logger.error(f"Failed to connect to Dispatcharr at {url}: {e}")
+            log.error("Failed to connect to Dispatcharr at {}: {}", url, e)
             return False
         except httpx.TimeoutException as e:
-            logger.error(f"Timeout fetching XMLTV from {url}: {e}")
+            log.error("Timeout fetching XMLTV from {}: {}", url, e)
             return False
         except httpx.HTTPError as e:
-            logger.error(f"Failed to fetch XMLTV from {url}: {e}")
+            log.error("Failed to fetch XMLTV from {}: {}", url, e)
             return False
         except EPGServiceError as e:
-            logger.error(f"Failed to parse XMLTV data: {e}")
+            log.error("Failed to parse XMLTV data: {}", e)
             return False
 
     async def get_now_playing(self, channel_id: str) -> EPGResponse:
@@ -174,7 +183,7 @@ class EPGService:
             if not refresh_success:
                 # If refresh failed but we have stale cache, use it
                 if self._cache:
-                    logger.warning("Using stale EPG cache after refresh failure")
+                    log.warning("Using stale EPG cache after refresh failure")
                 else:
                     raise EPGServiceError("EPG service unavailable")
 

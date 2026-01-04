@@ -7,15 +7,16 @@ Story: 7.5 - HLS Proxy Service
 """
 
 import base64
-import logging
 from urllib.parse import urljoin
 
 import httpx
+from loguru import logger
 
 from app.config import settings
 from app.services.ersatztv.epg_service import get_channel_by_id
 
-logger = logging.getLogger(__name__)
+# Module-level logger with service context
+log = logger.bind(service="ersatztv")
 
 
 class HLSManifestRewriter:
@@ -87,7 +88,7 @@ class HLSManifestRewriter:
                 encoded = self._encode_url(absolute_url)
                 proxied = f"{self.proxy_base_url}/{encoded}{token_qs}"
 
-            logger.debug(f"Rewriting: {stripped[:40]}... -> {proxied[:50]}...")
+            log.debug("Manifest rewrite: {}... -> {}...", stripped[:40], proxied[:50])
             rewritten.append(proxied)
 
         return "\n".join(rewritten)
@@ -125,7 +126,7 @@ class HLSManifestRewriter:
         try:
             return base64.urlsafe_b64decode(encoded_url).decode("utf-8")
         except Exception as e:
-            logger.error(f"Failed to decode URL: {e}")
+            log.error("Failed to decode segment URL: {}", e)
             raise ValueError(f"Invalid encoded URL: {e}") from e
 
 

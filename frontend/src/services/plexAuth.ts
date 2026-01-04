@@ -8,6 +8,8 @@
  * 4. Return auth token for use with our backend
  */
 
+import { logger } from '@/lib/logger'
+
 export const PLEX_CLIENT_ID = 'iptv-viewer-2'
 export const PLEX_PRODUCT = 'IPTV Viewer'
 
@@ -27,6 +29,8 @@ export interface PlexPin {
  * Request a new PIN from Plex API.
  */
 export async function createPlexPin(): Promise<PlexPin> {
+  logger.debug('Plex', 'Creating Plex PIN')
+
   const response = await fetch('https://plex.tv/api/v2/pins', {
     method: 'POST',
     headers: PLEX_API_HEADERS,
@@ -34,10 +38,13 @@ export async function createPlexPin(): Promise<PlexPin> {
   })
 
   if (!response.ok) {
+    logger.error('Plex', `Failed to create Plex PIN: ${response.status}`)
     throw new Error('Failed to create Plex PIN')
   }
 
-  return response.json()
+  const pin = await response.json()
+  logger.debug('Plex', `PIN created: ${pin.id}`)
+  return pin
 }
 
 /**
@@ -57,6 +64,8 @@ export function getPlexAuthUrl(pin: PlexPin): string {
  * @returns authToken if authenticated, null otherwise
  */
 export async function checkPlexPin(pinId: number): Promise<string | null> {
+  logger.debug('Plex', `Checking PIN status: ${pinId}`)
+
   const response = await fetch(`https://plex.tv/api/v2/pins/${pinId}`, {
     headers: {
       Accept: 'application/json',
@@ -65,10 +74,14 @@ export async function checkPlexPin(pinId: number): Promise<string | null> {
   })
 
   if (!response.ok) {
+    logger.error('Plex', `Failed to check Plex PIN: ${response.status}`)
     throw new Error('Failed to check Plex PIN')
   }
 
   const data = await response.json()
+  if (data.authToken) {
+    logger.debug('Plex', 'PIN authenticated')
+  }
   return data.authToken || null
 }
 
@@ -81,14 +94,18 @@ export async function checkPlexPin(pinId: number): Promise<string | null> {
  * @throws Error if popup blocked, user cancels, or timeout
  */
 export async function authenticateWithPlex(): Promise<string> {
+  logger.debug('Plex', 'Starting Plex OAuth flow')
+
   // 1. Create PIN
   const pin = await createPlexPin()
 
   // 2. Open popup with auth URL
   const authUrl = getPlexAuthUrl(pin)
+  logger.debug('Plex', 'Opening auth popup')
   const popup = window.open(authUrl, 'PlexAuth', 'width=600,height=700')
 
   if (!popup) {
+    logger.error('Plex', 'Failed to open Plex authentication popup')
     throw new Error('Failed to open Plex authentication popup')
   }
 
@@ -98,6 +115,7 @@ export async function authenticateWithPlex(): Promise<string> {
       // Check if popup was closed
       if (popup.closed) {
         clearInterval(pollInterval)
+        logger.info('Plex', 'Authentication cancelled by user')
         reject(new Error('Authentication cancelled'))
         return
       }
@@ -107,6 +125,7 @@ export async function authenticateWithPlex(): Promise<string> {
         if (authToken) {
           clearInterval(pollInterval)
           popup.close()
+          logger.info('Plex', 'OAuth token acquired successfully')
           resolve(authToken)
         }
       } catch {
@@ -118,6 +137,7 @@ export async function authenticateWithPlex(): Promise<string> {
     setTimeout(() => {
       clearInterval(pollInterval)
       popup.close()
+      logger.error('Plex', 'Authentication timed out after 5 minutes')
       reject(new Error('Authentication timed out'))
     }, 5 * 60 * 1000)
   })

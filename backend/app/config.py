@@ -9,6 +9,10 @@ class Settings(BaseSettings):
     stream_base_url: str = "https://streams.domain.com"
     jwt_secret: str = "dev-secret-change-in-production"
 
+    # Logging Configuration
+    log_level: str = "INFO"  # DEBUG, INFO, WARNING, ERROR
+    log_format: str = "pretty"  # json or pretty
+
     # Authentication Feature Flags
     local_auth_enabled: bool = False  # Enable username/password auth
     plex_auth_enabled: bool = False  # Enable Plex OAuth

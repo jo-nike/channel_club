@@ -1,11 +1,12 @@
 """Tests for auth router endpoints."""
 
-import logging
+from io import StringIO
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from loguru import logger
 
 from app.models.plex import PlexUser
 from app.routers.auth import router
@@ -159,44 +160,63 @@ class TestAuthConfigEndpoint:
 class TestStartupValidation:
     """Tests for startup authentication validation."""
 
-    def test_startup_logs_warning_when_no_auth_enabled(self, caplog):
+    def test_startup_logs_warning_when_no_auth_enabled(self):
         """Startup logs warning when no auth methods enabled."""
-        with patch("app.main.settings") as mock_settings:
-            mock_settings.local_auth_enabled = False
-            mock_settings.plex_auth_enabled = False
+        output = StringIO()
 
-            from app.main import validate_auth_configuration
+        # Add a test handler to capture loguru output
+        handler_id = logger.add(output, format="{message}", level="WARNING")
 
-            with caplog.at_level(logging.WARNING):
+        try:
+            with patch("app.main.settings") as mock_settings:
+                mock_settings.local_auth_enabled = False
+                mock_settings.plex_auth_enabled = False
+
+                from app.main import validate_auth_configuration
+
                 validate_auth_configuration()
 
-            assert "No authentication methods enabled" in caplog.text
+            assert "No authentication methods enabled" in output.getvalue()
+        finally:
+            logger.remove(handler_id)
 
-    def test_startup_no_warning_when_local_auth_enabled(self, caplog):
+    def test_startup_no_warning_when_local_auth_enabled(self):
         """Startup does not warn when local auth is enabled."""
-        with patch("app.main.settings") as mock_settings:
-            mock_settings.local_auth_enabled = True
-            mock_settings.plex_auth_enabled = False
+        output = StringIO()
 
-            from app.main import validate_auth_configuration
+        handler_id = logger.add(output, format="{message}", level="WARNING")
 
-            with caplog.at_level(logging.WARNING):
+        try:
+            with patch("app.main.settings") as mock_settings:
+                mock_settings.local_auth_enabled = True
+                mock_settings.plex_auth_enabled = False
+
+                from app.main import validate_auth_configuration
+
                 validate_auth_configuration()
 
-            assert "No authentication methods enabled" not in caplog.text
+            assert "No authentication methods enabled" not in output.getvalue()
+        finally:
+            logger.remove(handler_id)
 
-    def test_startup_no_warning_when_plex_auth_enabled(self, caplog):
+    def test_startup_no_warning_when_plex_auth_enabled(self):
         """Startup does not warn when plex auth is enabled."""
-        with patch("app.main.settings") as mock_settings:
-            mock_settings.local_auth_enabled = False
-            mock_settings.plex_auth_enabled = True
+        output = StringIO()
 
-            from app.main import validate_auth_configuration
+        handler_id = logger.add(output, format="{message}", level="WARNING")
 
-            with caplog.at_level(logging.WARNING):
+        try:
+            with patch("app.main.settings") as mock_settings:
+                mock_settings.local_auth_enabled = False
+                mock_settings.plex_auth_enabled = True
+
+                from app.main import validate_auth_configuration
+
                 validate_auth_configuration()
 
-            assert "No authentication methods enabled" not in caplog.text
+            assert "No authentication methods enabled" not in output.getvalue()
+        finally:
+            logger.remove(handler_id)
 
 
 class TestLoginEndpoint:
@@ -395,3 +415,143 @@ class TestPlexAuthEndpoint:
                 json={"authToken": "valid-token"},
             )
             assert response.status_code == 200
+
+
+class TestAuthLogging:
+    """Tests for auth router logging."""
+
+    def test_login_attempt_logs_debug_with_username(self, client):
+        """Login attempt logs DEBUG with username (never password)."""
+        output = StringIO()
+        handler_id = logger.add(output, format="{level} | {message}", level="DEBUG")
+
+        try:
+            client.post(
+                "/api/auth/token",
+                json={"username": "admin", "password": "admin"},
+            )
+
+            log_output = output.getvalue()
+            assert "Login attempt" in log_output
+            assert "admin" in log_output
+            # Password should NEVER appear in logs
+            assert "password" not in log_output.lower()
+        finally:
+            logger.remove(handler_id)
+
+    def test_successful_login_logs_info_with_role(self, client):
+        """Successful login logs INFO with username and role."""
+        output = StringIO()
+        handler_id = logger.add(output, format="{level} | {message}", level="INFO")
+
+        try:
+            client.post(
+                "/api/auth/token",
+                json={"username": "admin", "password": "admin"},
+            )
+
+            log_output = output.getvalue()
+            assert "INFO" in log_output
+            assert "admin" in log_output
+            # Should log the role
+            assert "admin" in log_output.lower()
+        finally:
+            logger.remove(handler_id)
+
+    def test_failed_login_logs_warning(self, client):
+        """Failed login logs WARNING with username."""
+        output = StringIO()
+        handler_id = logger.add(output, format="{level} | {message}", level="WARNING")
+
+        try:
+            client.post(
+                "/api/auth/token",
+                json={"username": "baduser", "password": "wrongpass"},
+            )
+
+            log_output = output.getvalue()
+            assert "WARNING" in log_output
+            assert "baduser" in log_output
+        finally:
+            logger.remove(handler_id)
+
+    def test_auth_config_logs_debug(self, client):
+        """Auth config endpoint logs DEBUG."""
+        output = StringIO()
+        handler_id = logger.add(output, format="{level} | {message}", level="DEBUG")
+
+        try:
+            client.get("/api/auth/config")
+
+            log_output = output.getvalue()
+            assert "DEBUG" in log_output
+            assert "config" in log_output.lower()
+        finally:
+            logger.remove(handler_id)
+
+    def test_plex_auth_success_logs_info(self, client_plex_enabled):
+        """Successful Plex auth logs INFO with username."""
+        output = StringIO()
+        handler_id = logger.add(output, format="{level} | {message}", level="INFO")
+
+        mock_user = PlexUser(id="12345", username="plexuser", email="test@test.com")
+        try:
+            with (
+                patch(
+                    "app.routers.auth.validate_plex_token",
+                    AsyncMock(return_value=mock_user),
+                ),
+                patch(
+                    "app.routers.auth.check_server_access",
+                    AsyncMock(return_value=True),
+                ),
+            ):
+                client_plex_enabled.post(
+                    "/api/auth/plex",
+                    json={"authToken": "valid-token"},
+                )
+
+            log_output = output.getvalue()
+            assert "INFO" in log_output
+            assert "plexuser" in log_output
+        finally:
+            logger.remove(handler_id)
+
+    def test_plex_auth_failure_logs_warning(self, client_plex_enabled):
+        """Failed Plex auth logs WARNING."""
+        output = StringIO()
+        handler_id = logger.add(output, format="{level} | {message}", level="WARNING")
+
+        try:
+            with patch(
+                "app.routers.auth.validate_plex_token",
+                AsyncMock(side_effect=InvalidPlexTokenError("Invalid token")),
+            ):
+                client_plex_enabled.post(
+                    "/api/auth/plex",
+                    json={"authToken": "invalid-token"},
+                )
+
+            log_output = output.getvalue()
+            assert "WARNING" in log_output
+        finally:
+            logger.remove(handler_id)
+
+    def test_auth_logging_uses_router_context(self, client):
+        """Auth logging uses logger.bind(router='auth') context."""
+        output = StringIO()
+        handler_id = logger.add(
+            output, format="{extra} | {message}", level="DEBUG"
+        )
+
+        try:
+            client.post(
+                "/api/auth/token",
+                json={"username": "admin", "password": "admin"},
+            )
+
+            log_output = output.getvalue()
+            assert "router" in log_output
+            assert "auth" in log_output
+        finally:
+            logger.remove(handler_id)
