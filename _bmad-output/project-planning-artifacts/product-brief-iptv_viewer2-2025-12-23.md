@@ -19,6 +19,8 @@ iptv_viewer2 is a modern React-based IPTV viewing application designed for synch
 
 The application enables an admin to select a channel that all viewers watch simultaneously, with real-time synchronization via WebSocket. Designed with a 10-foot UI philosophy, it works seamlessly on desktop, mobile, and TV browsers (WebOS/Tizen).
 
+**Post-MVP Enhancements (Delivered):** The application now includes ErsatzTV movie channel browsing with full EPG grid, Plex OAuth authentication, comprehensive logging infrastructure, PWA installability, and real-time admin dashboard with user presence monitoring.
+
 ---
 
 ## Core Vision
@@ -51,6 +53,8 @@ A lightweight, modern IPTV viewer built with:
 - **shadcn/ui + Tailwind CSS v4** for beautiful, accessible UI components
 - **Minimal FastAPI backend** for auth, channel state, and WebSocket broadcast
 - **Zustand** for lightweight state management
+- **loguru** for structured backend logging (JSON/pretty formats)
+- **vite-plugin-pwa** for Progressive Web App support with Workbox
 
 Architecture: React app on plex-stack VM connects to Dispatcharr on VPS via Wireguard. Viewers access streams directly from `streams.domain.com` (Dispatcharr proxy endpoint exposed via Nginx Proxy Manager).
 
@@ -61,6 +65,10 @@ Architecture: React app on plex-stack VM connects to Dispatcharr on VPS via Wire
 3. **10-Foot UI First**: Large text, D-pad navigation, auto-hide controls - designed for TV browsers
 4. **Minimal Stack**: No FFmpeg, no VPN routing, no complex stream management
 5. **Leverages Existing Infrastructure**: Dispatcharr (VPS), Nginx Proxy Manager (SSL), Wireguard (internal comms)
+6. **PWA Installable**: Friends can install to home screen for native app-like experience
+7. **ErsatzTV Integration**: Browse movie channels independently with full EPG grid
+8. **Plex Auth**: Friends with Plex server access can sign in without sharing credentials
+9. **Admin Dashboard**: Real-time visibility into active users and bandwidth consumption
 
 ---
 
@@ -109,7 +117,7 @@ N/A - This is a focused personal project with two clear roles (host/viewer). No 
 3. **Core Usage**:
    - Log in as admin → See channel list from Dispatcharr
    - Click channel → All viewers instantly switch
-   - Monitor active viewers (optional future feature)
+   - Monitor active viewers via Admin Modal (Epic 11)
 4. **Success Moment**: First successful viewing party with friends watching simultaneously
 5. **Long-term**: Becomes the default way to share live sports/events
 
@@ -232,19 +240,19 @@ N/A - This is a focused personal project with two clear roles (host/viewer). No 
 - Nginx reverse proxy compatible
 - HTTPS via existing Nginx Proxy Manager
 
-### Out of Scope for MVP
+### Out of Scope for MVP (Updated)
 
-| Feature | Rationale | Target Version |
-|---------|-----------|----------------|
-| ~~EPG/Program Guide~~ | ~~Dispatcharr has this; focus on viewing first~~ | **Moved to Epic 6** |
-| Multi-channel viewer selection | Contradicts "admin controls channel" model | v2 (optional) |
-| Chat functionality | Nice-to-have, not core to viewing | v2 |
-| Recording/DVR | Dispatcharr + Plex handle this | Never (out of scope) |
-| User preferences | No persistent user state needed for MVP | v2 |
-| FFmpeg transcoding | Dispatcharr handles stream conversion | Never |
-| VPN management | Not needed with Dispatcharr proxy | Never |
-| M3U/EPG source management | Done in Dispatcharr admin | Never |
-| User registration | Hardcoded credentials sufficient; Plex auth added in Epic 8 | v2 (Epic 8) |
+| Feature | Status | Notes |
+|---------|--------|-------|
+| ~~EPG/Program Guide~~ | **Delivered** | Epic 6 (Live TV header) + Epic 7 (ErsatzTV grid) |
+| ~~User registration~~ | **Delivered** | Plex OAuth in Epic 8 |
+| ~~Viewer count display~~ | **Delivered** | Epic 11 Active Users tab |
+| Multi-channel viewer selection | Deferred | Contradicts admin-controls model |
+| Chat functionality | Deferred | v2 consideration |
+| Recording/DVR | Never | Handled by Dispatcharr + Plex |
+| FFmpeg transcoding | Never | Dispatcharr handles streams |
+| VPN management | Never | Not needed with proxy architecture |
+| M3U/EPG source management | Never | Done in Dispatcharr/ErsatzTV admin |
 
 ### MVP Success Criteria
 
@@ -258,30 +266,59 @@ N/A - This is a focused personal project with two clear roles (host/viewer). No 
 
 ### Future Vision
 
-#### v2 Enhancements (Epic 6 - In Progress)
-- ~~EPG overlay showing current/next program~~ → **Now Playing in header** (Epic 6)
+#### Delivered (Epics 6-11) ✅
 
-#### v2 Enhancements (Epic 8 - Planned)
-- **Optional Plex Authentication** - Feature-flagged Plex OAuth for server members
-- **Feature-flagged Local Auth** - Credential-based auth now opt-in (disabled by default)
-- Eliminates need to share credentials with friends
-- Automatic role assignment based on Plex server access
-- **Viewer channel list removed** - viewers see video only (Epic 6)
-- **Admin hamburger menu** - collapsible channel list on all breakpoints (Epic 6)
-- **Slimmer header** with branding update "Jon's place" (Epic 6)
-- Optional viewer channel browsing (admin can enable/disable) - deferred
+**Epic 6: UI Polish & EPG Integration**
+- EPG now-playing in header
+- Role-based UI (viewers see video only, no channel list)
+- Admin hamburger menu with collapsible drawer
+- Slimmer header with branding
+- Mobile landscape auto-fullscreen
+- Theme picker (light/dark/system)
+
+**Epic 7: ErsatzTV Multi-Channel Movie View**
+- Separate `/tv` route for movie channels
+- Full EPG grid with current/next programmes
+- M3U playlist and XMLTV parsing with caching
+- HLS proxy with URL rewriting
+- Theatre mode with resizable EPG section
+- Programme details modal
+
+**Epic 8: Plex Authentication**
+- Feature-flagged authentication methods
+- Plex OAuth popup flow
+- QR code login for TV mode
+- Server access validation
+- Role assignment (server owner = admin)
+
+**Epic 9: Comprehensive Logging**
+- Backend loguru with JSON/pretty output
+- Frontend structured logging utility
+- Configurable log levels
+- Per-service context binding
+
+**Epic 10: Progressive Web App**
+- Web App Manifest for installability
+- Service Worker with Workbox caching
+- Standalone display mode
+- Install prompt with dismiss cooldown
+
+**Epic 11: Admin Modal & User Presence**
+- Unified admin modal from both views
+- Real-time active user monitoring
+- Stream bitrate tracking per user
+- Separated Live/ErsatzTV user sections
+- Session-based presence tracking
+
+#### v2 Possibilities
 - Simple chat sidebar for viewing parties
-- Viewer count display for admin
-
-#### v3+ Possibilities
-- Mobile app wrapper (if TV browser proves insufficient)
+- ErsatzTV synchronized movie night mode
 - Multiple concurrent viewing rooms
 - Integration with Discord for event coordination
-- Stream recording triggers (via Dispatcharr API)
 
 #### Explicitly Not Planned
-- Replacing Dispatcharr functionality
-- Complex user management
+- Replacing Dispatcharr/ErsatzTV functionality
+- Complex user management (beyond Plex)
 - Payment/subscription features
 - Public access (always invite-only)
 

@@ -41,108 +41,108 @@ story_location: /home/jon/Code/iptv_viewer2/_bmad-output/implementation-artifact
 
 development_status:
   # Epic 1: Project Foundation & Authentication
-  epic-1: in-progress
-  1-1-project-scaffolding-development-environment: review
-  1-2-jwt-authentication-backend: review
-  1-3-login-ui-auth-state-management: review
-  1-4-protected-routes-role-based-access: review
-  epic-1-retrospective: optional
+  epic-1: done
+  1-1-project-scaffolding-development-environment: done
+  1-2-jwt-authentication-backend: done
+  1-3-login-ui-auth-state-management: done
+  1-4-protected-routes-role-based-access: done
+  epic-1-retrospective: done
 
   # Epic 2: Channel Browsing & Video Playback
-  epic-2: in-progress
-  2-1-dispatcharr-channel-api-proxy: review
-  2-2-channel-list-ui-component: review
-  2-3-video-player-with-hls-support: review
-  2-4-stream-playback-error-recovery: review
-  epic-2-retrospective: optional
+  epic-2: done
+  2-1-dispatcharr-channel-api-proxy: done
+  2-2-channel-list-ui-component: done
+  2-3-video-player-with-hls-support: done
+  2-4-stream-playback-error-recovery: done
+  epic-2-retrospective: done
 
   # Epic 3: Admin Channel Control & Real-Time Sync
-  epic-3: in-progress
-  3-1-channel-state-management-backend: review
-  3-2-websocket-server-infrastructure: review
-  3-3-admin-channel-selection-ui: review
-  3-4-websocket-client-auto-sync: review
-  3-5-connection-status-auto-reconnect: review
-  epic-3-retrospective: optional
+  epic-3: done
+  3-1-channel-state-management-backend: done
+  3-2-websocket-server-infrastructure: done
+  3-3-admin-channel-selection-ui: done
+  3-4-websocket-client-auto-sync: done
+  3-5-connection-status-auto-reconnect: done
+  epic-3-retrospective: done
 
   # Epic 4: Responsive & 10-Foot UI Experience
-  epic-4: in-progress
-  4-1-responsive-layout-system: review
+  epic-4: done
+  4-1-responsive-layout-system: done
   4-2-10-foot-tv-ui-adaptation: done
-  4-3-keyboard-d-pad-navigation: review
-  4-4-auto-hide-video-controls: review
-  4-5-loading-buffering-states: review
-  4-6-custom-video-controls-theater-mode: review
-  epic-4-retrospective: optional
+  4-3-keyboard-d-pad-navigation: done
+  4-4-auto-hide-video-controls: done
+  4-5-loading-buffering-states: done
+  4-6-custom-video-controls-theater-mode: done
+  epic-4-retrospective: done
 
   # Epic 5: Production Deployment
-  epic-5: in-progress
-  5-1-docker-container-build: review
-  5-2-docker-compose-environment-configuration: review
-  5-3-npm-proxy-configuration-ssl: review
-  epic-5-retrospective: optional
+  epic-5: done
+  5-1-docker-container-build: done
+  5-2-docker-compose-environment-configuration: done
+  5-3-npm-proxy-configuration-ssl: done
+  epic-5-retrospective: done
 
   # Epic 6: UI Polish & EPG Integration
-  epic-6: in-progress
-  6-1-header-redesign-branding: review
-  6-2-epg-backend-service: review
-  6-3-epg-display-in-header: review
-  6-4-viewer-role-remove-channel-list: review
-  6-5-admin-role-hamburger-menu: review
-  6-6-logout-button-fix: review
-  6-7-mobile-landscape-auto-fullscreen: review
-  6-8-theme-picker: review
-  epic-6-retrospective: optional
+  epic-6: done
+  6-1-header-redesign-branding: done
+  6-2-epg-backend-service: done
+  6-3-epg-display-in-header: done
+  6-4-viewer-role-remove-channel-list: done
+  6-5-admin-role-hamburger-menu: done
+  6-6-logout-button-fix: done
+  6-7-mobile-landscape-auto-fullscreen: done
+  6-8-theme-picker: done
+  epic-6-retrospective: done
 
   # Epic 7: ErsatzTV Multi-Channel Movie View
-  epic-7: in-progress
-  7-1-ersatztv-configuration-models: review
-  7-2-m3u-parser-service: review
-  7-3-xmltv-parser-service: review
-  7-4-epg-service-layer: review
-  7-5-hls-proxy-service: review
-  7-6-ersatztv-api-endpoints: review
-  7-7-react-router-setup: review
-  7-8-vidstack-hls-player-component: review
-  7-9-ersatztv-store-api-service: review
-  7-10-epg-channel-sidebar: review
-  7-11-epg-grid-component: review
-  7-12-programme-details-modal: review
-  7-13-ersatztv-main-view: review
-  epic-7-retrospective: optional
+  epic-7: done
+  7-1-ersatztv-configuration-models: done
+  7-2-m3u-parser-service: done
+  7-3-xmltv-parser-service: done
+  7-4-epg-service-layer: done
+  7-5-hls-proxy-service: done
+  7-6-ersatztv-api-endpoints: done
+  7-7-react-router-setup: done
+  7-8-vidstack-hls-player-component: done
+  7-9-ersatztv-store-api-service: done
+  7-10-epg-channel-sidebar: done
+  7-11-epg-grid-component: done
+  7-12-programme-details-modal: done
+  7-13-ersatztv-main-view: done
+  epic-7-retrospective: done
 
   # Epic 8: Optional Plex Authentication
-  epic-8: in-progress
-  8-1-plex-authentication-backend-service: review
-  8-2-plex-oauth-token-acquisition: review
-  8-3-plex-user-role-assignment: review
-  8-4-conditional-login-ui: review
-  8-5-feature-flagged-local-authentication: review
-  epic-8-retrospective: optional
+  epic-8: done
+  8-1-plex-authentication-backend-service: done
+  8-2-plex-oauth-token-acquisition: done
+  8-3-plex-user-role-assignment: done
+  8-4-conditional-login-ui: done
+  8-5-feature-flagged-local-authentication: done
+  epic-8-retrospective: done
 
   # Epic 9: Comprehensive Logging & Observability
-  epic-9: in-progress
-  9-1-backend-logging-infrastructure: review
-  9-2-backend-service-logging: review
-  9-3-backend-router-logging: review
-  9-4-frontend-logger-utility: review
-  9-5-frontend-api-websocket-logging: review
-  epic-9-retrospective: optional
+  epic-9: done
+  9-1-backend-logging-infrastructure: done
+  9-2-backend-service-logging: done
+  9-3-backend-router-logging: done
+  9-4-frontend-logger-utility: done
+  9-5-frontend-api-websocket-logging: done
+  epic-9-retrospective: done
 
   # Epic 10: Progressive Web App (PWA)
-  epic-10: in-progress
-  10-1-pwa-manifest-icons: review
-  10-2-service-worker-caching: review
-  10-3-install-prompt-ux: review
-  epic-10-retrospective: optional
+  epic-10: done
+  10-1-pwa-manifest-icons: done
+  10-2-service-worker-caching: done
+  10-3-install-prompt-ux: done
+  epic-10-retrospective: done
 
   # Epic 11: Admin Modal & User Presence
-  epic-11: in-progress
-  11-1-admin-modal-component-tab-structure: review
-  11-2-channel-selection-tab-live-tv: review
-  11-3-admin-button-mainview-header: review
-  11-4-admin-button-ersatztvview-header: review
-  11-5-active-users-bitrate-backend: review
-  11-6-active-users-tab-ui: review
-  11-7-placeholder-tabs-user-access-plugins: review
-  epic-11-retrospective: optional
+  epic-11: done
+  11-1-admin-modal-component-tab-structure: done
+  11-2-channel-selection-tab-live-tv: done
+  11-3-admin-button-mainview-header: done
+  11-4-admin-button-ersatztvview-header: done
+  11-5-active-users-bitrate-backend: done
+  11-6-active-users-tab-ui: done
+  11-7-placeholder-tabs-user-access-plugins: done
+  epic-11-retrospective: done

@@ -81,6 +81,54 @@ This document provides the complete epic and story breakdown for iptv_viewer2, d
 - NFR14: High contrast between text and background
 - NFR15: Full keyboard/D-pad navigation without mouse required
 
+**UI Polish & Branding (FR27-32):**
+- FR27: Header displays current channel name and programme
+- FR28: Admin can access channel selection via modal
+- FR29: Viewers see video-only UI without channel list
+- FR30: Mobile devices auto-fullscreen on landscape rotation
+- FR31: Users can switch between light/dark/system themes
+- FR32: EPG data fetched and cached from Dispatcharr XMLTV
+
+**ErsatzTV Integration (FR33-42):**
+- FR33: Users can navigate to ErsatzTV view at /tv route
+- FR34: System parses M3U playlists from ErsatzTV
+- FR35: System parses XMLTV EPG data from ErsatzTV
+- FR36: Users can browse EPG grid with all channels
+- FR37: Users can view programme details in modal
+- FR38: Users can select channel from sidebar or grid
+- FR39: System proxies HLS streams with URL rewriting
+- FR40: EPG data auto-refreshes every 5 minutes
+- FR41: Users can resize EPG section with drag handle
+- FR42: Channel logos proxied through backend
+
+**Plex Authentication (FR43-48):**
+- FR43: Users can authenticate via Plex OAuth popup
+- FR44: System validates Plex tokens against Plex API
+- FR45: System verifies user has access to configured Plex server
+- FR46: Server owner automatically receives admin role
+- FR47: Auth methods can be independently enabled/disabled
+- FR48: Login UI adapts based on enabled auth methods
+
+**Logging & Observability (FR49-52):**
+- FR49: Backend logs all operations with structured format
+- FR50: Frontend logs API calls and WebSocket events
+- FR51: Log level configurable via environment variables
+- FR52: Logs output in JSON (production) or pretty (development) format
+
+**Progressive Web App (FR53-56):**
+- FR53: App installable via browser Add to Home Screen
+- FR54: Installed app runs in standalone mode without browser chrome
+- FR55: App shell cached for fast subsequent loads
+- FR56: Install prompt shown to new users
+
+**Admin Dashboard (FR57-62):**
+- FR57: Admin can access modal from any view
+- FR58: Admin can see active users separated by view type
+- FR59: Admin can see estimated bitrate per user
+- FR60: Admin can see total bandwidth usage
+- FR61: User presence tracked via WebSocket connection
+- FR62: Stale users automatically cleaned up after timeout
+
 ### Additional Requirements
 
 **From Architecture - Starter Template & Project Initialization:**
@@ -108,6 +156,20 @@ This document provides the complete epic and story breakdown for iptv_viewer2, d
 - Frontend: VITE_API_URL, VITE_WS_URL, VITE_STREAM_BASE_URL
 - Backend: DISPATCHARR_URL, JWT_SECRET, ADMIN_USERNAME, ADMIN_PASSWORD, VIEWER_USERNAME, VIEWER_PASSWORD
 
+**Post-MVP Environment Variables (Epics 6-11):**
+- LOG_LEVEL - Backend log level (DEBUG, INFO, WARNING, ERROR)
+- LOG_FORMAT - Backend format (json, pretty)
+- VITE_LOG_LEVEL - Frontend log level (debug, info, warn, error)
+- LOCAL_AUTH_ENABLED - Enable local credential auth (true/false)
+- PLEX_AUTH_ENABLED - Enable Plex OAuth auth (true/false)
+- PLEX_SERVER_TOKEN - Admin's Plex server token
+- PLEX_SERVER_MACHINE_ID - Plex server machine identifier
+- PLEX_DEFAULT_ROLE - Default role for Plex users (viewer/admin)
+- PLEX_ADMIN_USERS_STR - Comma-separated admin usernames
+- ERSATZTV_M3U_URL - ErsatzTV M3U playlist URL
+- ERSATZTV_XMLTV_URL - ErsatzTV XMLTV EPG URL
+- ERSATZTV_BASE_URL - ErsatzTV server base URL
+
 **From Architecture - API Boundaries:**
 - POST /api/auth/token - Login, returns JWT (no auth required)
 - GET /api/channels - Fetch channel list from Dispatcharr (JWT required)
@@ -115,10 +177,23 @@ This document provides the complete epic and story breakdown for iptv_viewer2, d
 - PUT /api/channels/current - Set current channel, broadcasts to WS (Admin JWT required)
 - WS /api/ws - Real-time channel updates (JWT via query param)
 
+**Post-MVP API Endpoints (Epics 6-11):**
+- GET /api/epg/now-playing?channel_id=<uuid> - Get current programme (Epic 6)
+- POST /api/auth/plex - Authenticate via Plex token (Epic 8)
+- GET /api/auth/config - Get enabled auth methods (Epic 8)
+- GET /api/ersatztv/channels - List all ErsatzTV channels (Epic 7)
+- GET /api/ersatztv/programmes/{channel_id}?hours=6 - Get programmes (Epic 7)
+- GET /api/ersatztv/current/{channel_id} - Get current/next programme (Epic 7)
+- GET /api/ersatztv/stream/{channel_id} - Get HLS manifest proxied (Epic 7)
+- GET /api/ersatztv/segments/{encoded_url} - Proxy HLS segments (Epic 7)
+- GET /api/ersatztv/logos/{channel_id} - Proxy channel logos (Epic 7)
+- GET /api/admin/active-users - Get active user presence data (Epic 11)
+
 **From Architecture - WebSocket Message Types:**
 - Server → Client: {"type": "channel_update", "channel": {...}}
 - Server → Client: {"type": "connection_ack", "currentChannel": {...} | null}
 - Client → Server: {"type": "ping"}
+- Client → Server: {"type": "view_change", "view": "live"|"ersatztv"} (Epic 11)
 
 ### FR Coverage Map
 
@@ -150,8 +225,14 @@ This document provides the complete epic and story breakdown for iptv_viewer2, d
 | FR24 | Epic 4 | Keyboard/remote navigation |
 | FR25 | Epic 4 | Auto-hide video controls |
 | FR26 | Epic 4 | Loading/buffering indicators |
+| FR27-32 | Epic 6 | UI Polish & EPG header display |
+| FR33-42 | Epic 7 | ErsatzTV integration |
+| FR43-48 | Epic 8 | Plex authentication |
+| FR49-52 | Epic 9 | Logging infrastructure |
+| FR53-56 | Epic 10 | PWA support |
+| FR57-62 | Epic 11 | Admin dashboard & presence |
 
-**Coverage:** 26/26 FRs mapped (100%)
+**Coverage:** 62/62 FRs mapped (100%)
 
 ## Epic List
 
