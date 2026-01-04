@@ -270,3 +270,98 @@
   outline: 2px solid rgb(78 156 246);
   outline-offset: 2px;
 }
+
+/* ============================
+   PROJECTOR BEAM LOADER
+   ============================ */
+
+@keyframes projector-flicker {
+  0%, 100% { opacity: 1; }
+  10% { opacity: 0.95; }
+  20% { opacity: 1; }
+  30% { opacity: 0.92; }
+  40% { opacity: 1; }
+  50% { opacity: 0.97; }
+  60% { opacity: 1; }
+  70% { opacity: 0.93; }
+  80% { opacity: 1; }
+  90% { opacity: 0.96; }
+}
+
+@keyframes projector-flicker-slow {
+  0%, 100% { opacity: 1; }
+  25% { opacity: 0.9; }
+  50% { opacity: 1; }
+  75% { opacity: 0.85; }
+}
+
+@keyframes dust-float {
+  0% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-20px, 30px) scale(0.5);
+    opacity: 0;
+  }
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-projector-flicker {
+  animation: projector-flicker 0.15s ease-in-out infinite;
+}
+
+.animate-projector-flicker-slow {
+  animation: projector-flicker-slow 2s ease-in-out infinite;
+}
+
+.animate-dust-float {
+  animation: dust-float 3s ease-in-out infinite;
+}
+
+.animate-spin-slow {
+  animation: spin-slow 3s linear infinite;
+}
+
+/* ============================
+   EPG MODERN SCROLLBAR
+   ============================ */
+
+.epg-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
+}
+
+.epg-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.epg-scroll::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 4px;
+}
+
+.epg-scroll::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.3);
+  border-radius: 4px;
+  transition: background 0.2s ease;
+}
+
+.epg-scroll::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.5);
+}
+
+.epg-scroll::-webkit-scrollbar-corner {
+  background: transparent;
+}

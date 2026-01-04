@@ -7,6 +7,7 @@ import { useAutoHide } from '@/hooks/useAutoHide'
 import { useVideoKeyboardShortcuts } from '@/hooks/useVideoKeyboardShortcuts'
 import { useOrientationFullscreen } from '@/hooks/useOrientationFullscreen'
 import { ChannelSwitchOverlay } from '@/components/ChannelSwitchOverlay'
+import { ProjectorBeamLoader } from '@/components/ProjectorBeamLoader'
 
 // Constants
 const VOLUME_STORAGE_KEY = 'iptv-volume'
@@ -299,11 +300,7 @@ function VideoPlayerInner({ streamUrl, channelName }: VideoPlayerInnerProps) {
 export function BufferingOverlay({ isVisible }: { isVisible: boolean }) {
   if (!isVisible) return null
 
-  return (
-    <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/50">
-      <div className="h-12 w-12 animate-spin rounded-full border-4 border-white border-t-transparent" />
-    </div>
-  )
+  return <ProjectorBeamLoader />
 }
 
 export function ErrorOverlay({ message }: { message: string }) {

@@ -116,7 +116,7 @@ export function EPGChannelSidebar({
 
   // Expanded state
   return (
-    <aside className="h-full w-72 overflow-y-auto border-r bg-card">
+    <aside className="epg-scroll h-full w-72 overflow-y-auto border-r bg-card">
       <div className="sticky top-0 flex items-center justify-between border-b bg-card/95 p-4 backdrop-blur">
         <h2 className="text-lg font-semibold">Channels</h2>
         <button

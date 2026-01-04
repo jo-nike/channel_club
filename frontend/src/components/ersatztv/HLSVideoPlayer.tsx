@@ -10,6 +10,7 @@ import {
 } from '@vidstack/react/player/layouts/default'
 import '@vidstack/react/player/styles/default/theme.css'
 import '@vidstack/react/player/styles/default/layouts/video.css'
+import { ProjectorBeamLoader } from '@/components/ProjectorBeamLoader'
 
 interface HLSVideoPlayerProps {
   streamUrl: string
@@ -71,14 +72,7 @@ function HLSVideoPlayerInner({ streamUrl, title, onError, onReady }: HLSVideoPla
       </MediaPlayer>
 
       {/* Buffering overlay */}
-      {isBuffering && (
-        <div
-          className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/50"
-          data-testid="buffering-spinner"
-        >
-          <div className="h-12 w-12 animate-spin rounded-full border-4 border-white border-t-transparent" />
-        </div>
-      )}
+      {isBuffering && <ProjectorBeamLoader />}
     </div>
   )
 }

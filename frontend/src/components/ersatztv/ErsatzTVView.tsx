@@ -214,7 +214,7 @@ export function ErsatzTVView() {
           {/* EPG section - height based on state */}
           {(isMobile || isEPGVisible) && (
             <div
-              className="min-h-0 overflow-y-auto"
+              className="epg-scroll min-h-0 overflow-y-auto"
               style={!isMobile && isEPGVisible ? { flex: `0 0 ${epgHeightPercent}%` } : { flex: '1 1 auto' }}
             >
               {isMobile ? (

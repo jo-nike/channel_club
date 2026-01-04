@@ -100,10 +100,10 @@ export function EPGGrid({
         </div>
       </div>
 
-      {/* Grid container with horizontal scroll */}
+      {/* Grid container - no horizontal scroll */}
       <div
         ref={containerRef}
-        className="relative overflow-x-auto overflow-y-hidden"
+        className="relative overflow-x-hidden overflow-y-hidden"
         style={{ height: channels.length * ROW_HEIGHT }}
         data-testid="grid-container"
       >
