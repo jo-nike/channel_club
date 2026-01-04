@@ -25,6 +25,11 @@ async def get_active_users(
     """
     log.debug("Admin {} requesting active users", current_user.sub)
 
+    # Clean up stale users before returning the list
+    removed = presence.cleanup_stale_users()
+    if removed > 0:
+        log.info("Cleaned up {} stale users", removed)
+
     live_users = presence.get_users_by_view("live")
     ersatztv_users = presence.get_users_by_view("ersatztv")
 

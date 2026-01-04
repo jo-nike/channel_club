@@ -351,9 +351,7 @@ class TestPresenceTracking:
 
     def test_view_parameter_parsed_from_query(self, client: TestClient, valid_token: str):
         """View parameter should be parsed from query string."""
-        with client.websocket_connect(
-            f"/api/ws?token={valid_token}&view=ersatztv"
-        ) as ws:
+        with client.websocket_connect(f"/api/ws?token={valid_token}&view=ersatztv") as ws:
             ws.receive_json()  # Consume connection_ack
 
             users = list(presence._active_users.values())
@@ -375,9 +373,7 @@ class TestPresenceTracking:
             ws1.receive_json()
             assert len(presence._active_users) == 1
 
-            with client.websocket_connect(
-                f"/api/ws?token={admin_token}&view=ersatztv"
-            ) as ws2:
+            with client.websocket_connect(f"/api/ws?token={admin_token}&view=ersatztv") as ws2:
                 ws2.receive_json()
                 assert len(presence._active_users) == 2
 

@@ -422,32 +422,6 @@ describe('MainView', () => {
       })
     })
 
-    it('should apply tv-mode class to body on large screens', () => {
-      mockWindowWidth(1400) // Large screen triggers TV mode
-      renderWithRouter()
-
-      expect(document.body.classList.contains('tv-mode')).toBe(true)
-    })
-
-    it('should not apply tv-mode class to body on small screens', () => {
-      mockWindowWidth(1000) // Small screen
-      renderWithRouter()
-
-      expect(document.body.classList.contains('tv-mode')).toBe(false)
-    })
-
-    it('should remove tv-mode class from body on component unmount', () => {
-      mockWindowWidth(1400) // Large screen triggers TV mode
-      const { unmount } = renderWithRouter()
-
-      expect(document.body.classList.contains('tv-mode')).toBe(true)
-
-      // Unmount the component
-      unmount()
-
-      // TV mode class should be removed on cleanup
-      expect(document.body.classList.contains('tv-mode')).toBe(false)
-    })
   })
 
   describe('responsive layout', () => {

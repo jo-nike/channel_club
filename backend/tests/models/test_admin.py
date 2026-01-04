@@ -1,8 +1,6 @@
 """Tests for admin models."""
 
-from datetime import datetime, timezone
-
-import pytest
+from datetime import UTC, datetime
 
 from app.models.admin import ActiveUser, ActiveUsersResponse, ActiveUsersTotals
 
@@ -12,7 +10,7 @@ class TestActiveUser:
 
     def test_creates_with_all_fields(self) -> None:
         """Should create model with all required fields."""
-        connected_since = datetime(2026, 1, 4, 10, 30, 0, tzinfo=timezone.utc)
+        connected_since = datetime(2026, 1, 4, 10, 30, 0, tzinfo=UTC)
         user = ActiveUser(
             username="viewer1",
             channel="BBC One",
@@ -29,7 +27,7 @@ class TestActiveUser:
         """Should allow None for channel."""
         user = ActiveUser(
             username="viewer1",
-            connected_since=datetime.now(timezone.utc),
+            connected_since=datetime.now(UTC),
             bitrate_mbps=8.5,
         )
 
@@ -37,7 +35,7 @@ class TestActiveUser:
 
     def test_serializes_with_camel_case(self) -> None:
         """Should serialize to camelCase JSON."""
-        connected_since = datetime(2026, 1, 4, 10, 30, 0, tzinfo=timezone.utc)
+        connected_since = datetime(2026, 1, 4, 10, 30, 0, tzinfo=UTC)
         user = ActiveUser(
             username="viewer1",
             channel="BBC One",
@@ -96,7 +94,7 @@ class TestActiveUsersResponse:
 
     def test_creates_with_all_fields(self) -> None:
         """Should create model with all fields."""
-        connected_since = datetime.now(timezone.utc)
+        connected_since = datetime.now(UTC)
         live_user = ActiveUser(
             username="live_viewer",
             channel="BBC One",

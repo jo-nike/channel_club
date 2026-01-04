@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom'
 import { Settings, Film, RefreshCw } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useWebSocket } from '@/hooks/useWebSocket'
-import { useTVMode } from '@/hooks/useTVMode'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
 import { useEPG } from '@/hooks/useEPG'
 import { useTheme } from '@/hooks/useTheme'
@@ -18,8 +17,7 @@ import { cn } from '@/lib/utils'
 
 export function MainView() {
   const { isAdmin, logout } = useAuth()
-  const { status, reconnect } = useWebSocket({ view: 'live' })
-  const isTVMode = useTVMode()
+  const { status, reconnect, sendChannelUpdate } = useWebSocket({ view: 'live' })
 
   // Initialize theme on app mount - this applies CSS variables and dark/light mode class
   useTheme()
@@ -54,17 +52,10 @@ export function MainView() {
     setLastRoute('/')
   }, [setLastRoute])
 
-  // Apply TV mode class to body for global CSS styling
+  // Send channel updates to backend for presence tracking
   useEffect(() => {
-    if (isTVMode) {
-      document.body.classList.add('tv-mode')
-    } else {
-      document.body.classList.remove('tv-mode')
-    }
-    return () => {
-      document.body.classList.remove('tv-mode')
-    }
-  }, [isTVMode])
+    sendChannelUpdate(currentChannel?.name ?? null)
+  }, [currentChannel, sendChannelUpdate])
 
   // Handle Escape key to exit fullscreen or theater mode
   const handleEscape = useCallback(() => {

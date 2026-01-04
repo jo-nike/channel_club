@@ -24,6 +24,7 @@ interface UseWebSocketOptions {
 interface UseWebSocketReturn {
   status: ConnectionStatus
   reconnect: () => void
+  sendChannelUpdate: (channelName: string | null) => void
 }
 
 export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketReturn {
@@ -197,6 +198,18 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     connect(true)
   }, [connect])
 
+  const sendChannelUpdate = useCallback((channelName: string | null) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: 'channel_update',
+          channel: channelName,
+        })
+      )
+      logger.debug('WebSocket', `Sent channel update: ${channelName || 'null'}`)
+    }
+  }, [])
+
   // Connect on mount when token is available
   // Intentionally calls connect (which sets state) in effect - this is the standard WebSocket pattern
   useEffect(() => {
@@ -207,5 +220,5 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     return () => disconnect()
   }, [token, connect, disconnect])
 
-  return { status, reconnect }
+  return { status, reconnect, sendChannelUpdate }
 }

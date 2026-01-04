@@ -1,6 +1,6 @@
 """Tests for presence service."""
 
-from datetime import datetime, timezone
+from datetime import datetime
 from unittest.mock import MagicMock
 
 import pytest

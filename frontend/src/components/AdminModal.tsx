@@ -42,13 +42,13 @@ export function AdminModal({ open, onOpenChange }: AdminModalProps) {
     switch (activeTab) {
       case 'channels':
         return (
-          <div className="max-h-[60vh] overflow-hidden">
+          <div className="epg-scroll max-h-[70vh] overflow-y-auto">
             <ChannelList onChannelSelected={() => onOpenChange(false)} />
           </div>
         )
       case 'active-users':
         return (
-          <div className="max-h-[60vh] overflow-y-auto">
+          <div className="epg-scroll max-h-[70vh] overflow-y-auto">
             <ActiveUsersTab />
           </div>
         )
@@ -75,7 +75,7 @@ export function AdminModal({ open, onOpenChange }: AdminModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl" aria-describedby={undefined}>
+      <DialogContent className="w-[95vw] sm:w-[85vw] md:w-[75vw] max-w-5xl" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>Admin Panel</DialogTitle>
         </DialogHeader>

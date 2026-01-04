@@ -6,7 +6,7 @@ The state resets on server restart (acceptable for this use case).
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import WebSocket
@@ -28,7 +28,8 @@ class UserPresence:
     username: str
     view: Literal["live", "ersatztv"]
     current_channel: str | None = None
-    connected_since: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    connected_since: datetime = field(default_factory=lambda: datetime.now(UTC))
+    last_activity: datetime = field(default_factory=lambda: datetime.now(UTC))
     estimated_bitrate: float = 0.0
     websocket: WebSocket | None = None  # For potential future use
 
@@ -113,3 +114,46 @@ def get_users_by_view(view: Literal["live", "ersatztv"]) -> list[UserPresence]:
         List of UserPresence objects matching the view type.
     """
     return [u for u in _active_users.values() if u.view == view]
+
+
+def update_last_activity(connection_id: str) -> None:
+    """Update the last activity timestamp for a user.
+
+    Called when the server receives a ping from the client to indicate
+    the connection is still active.
+
+    Args:
+        connection_id: The connection ID to update.
+    """
+    if connection_id in _active_users:
+        _active_users[connection_id].last_activity = datetime.now(UTC)
+
+
+# Default timeout for stale user cleanup (60 seconds)
+# Must be longer than client ping interval (30s) to avoid false positives
+STALE_USER_TIMEOUT_SECONDS = 60
+
+
+def cleanup_stale_users(timeout_seconds: int = STALE_USER_TIMEOUT_SECONDS) -> int:
+    """Remove users who haven't sent a ping within the timeout period.
+
+    This handles cases where a browser crashes or network fails without
+    proper WebSocket disconnect.
+
+    Args:
+        timeout_seconds: Seconds of inactivity before a user is considered stale.
+
+    Returns:
+        The number of stale users removed.
+    """
+    now = datetime.now(UTC)
+    stale = [
+        cid
+        for cid, user in _active_users.items()
+        if (now - user.last_activity).total_seconds() > timeout_seconds
+    ]
+    for cid in stale:
+        user = _active_users.pop(cid, None)
+        if user:
+            log.info("Removed stale user {} from {} view", user.username, user.view)
+    return len(stale)

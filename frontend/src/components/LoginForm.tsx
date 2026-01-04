@@ -2,10 +2,14 @@ import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { PlexLoginButton } from '@/components/PlexLoginButton'
+import { QRPlexLogin } from '@/components/QRPlexLogin'
 import { useAuthStore } from '@/stores/authStore'
+import { useTVMode } from '@/hooks/useTVMode'
 import { logger } from '@/lib/logger'
 import { login, getAuthConfig, loginWithPlex, type AuthConfig } from '@/services/api'
 import { authenticateWithPlex } from '@/services/plexAuth'
+
+type PlexAuthMode = 'select' | 'popup' | 'qr'
 
 export function LoginForm() {
   const [username, setUsername] = useState('')
@@ -15,7 +19,9 @@ export function LoginForm() {
   const [plexLoading, setPlexLoading] = useState(false)
   const [authConfig, setAuthConfig] = useState<AuthConfig | null>(null)
   const [configLoading, setConfigLoading] = useState(true)
+  const [plexAuthMode, setPlexAuthMode] = useState<PlexAuthMode>('select')
   const setAuth = useAuthStore((state) => state.setAuth)
+  const isTVMode = useTVMode()
 
   useEffect(() => {
     getAuthConfig()
@@ -43,6 +49,12 @@ export function LoginForm() {
   }
 
   const handlePlexLogin = async () => {
+    // On TV, default to QR mode
+    if (isTVMode) {
+      setPlexAuthMode('qr')
+      return
+    }
+    // On desktop, use popup mode
     setPlexLoading(true)
     setError('')
     try {
@@ -56,6 +68,28 @@ export function LoginForm() {
     } finally {
       setPlexLoading(false)
     }
+  }
+
+  const handleQRPlexSuccess = async (authToken: string) => {
+    setPlexLoading(true)
+    setError('')
+    try {
+      const response = await loginWithPlex(authToken)
+      setAuth(response.accessToken, response.role)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to complete Plex login')
+    } finally {
+      setPlexLoading(false)
+      setPlexAuthMode('select')
+    }
+  }
+
+  const handleQRPlexCancel = () => {
+    setPlexAuthMode('select')
+  }
+
+  const handleQRPlexError = (err: Error) => {
+    setError(err.message)
   }
 
   // Loading state while fetching config
@@ -174,9 +208,30 @@ export function LoginForm() {
           </div>
         )}
 
-        {/* Plex Auth Button */}
-        {showPlexAuth && (
-          <PlexLoginButton onClick={handlePlexLogin} isLoading={plexLoading || isLoading} />
+        {/* Plex Auth Section */}
+        {showPlexAuth && plexAuthMode === 'select' && (
+          <div className="space-y-3">
+            <PlexLoginButton onClick={handlePlexLogin} isLoading={plexLoading || isLoading} />
+            {/* Show QR option link for desktop users */}
+            {!isTVMode && (
+              <button
+                type="button"
+                onClick={() => setPlexAuthMode('qr')}
+                className="w-full text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Use QR code instead (for TV)
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* QR Plex Login */}
+        {showPlexAuth && plexAuthMode === 'qr' && (
+          <QRPlexLogin
+            onSuccess={handleQRPlexSuccess}
+            onCancel={handleQRPlexCancel}
+            onError={handleQRPlexError}
+          />
         )}
       </div>
     </div>

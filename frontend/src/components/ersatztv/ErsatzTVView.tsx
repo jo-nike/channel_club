@@ -4,6 +4,7 @@ import { Settings, Tv, LayoutList, RefreshCw } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useTheme } from '@/hooks/useTheme'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
+import { useWebSocket } from '@/hooks/useWebSocket'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useUIStore } from '@/stores/uiStore'
 import { getErsatzTVStreamUrl, getErsatzTVLogoUrl } from '@/services/ersatztvApi'
@@ -26,6 +27,9 @@ const REFRESH_INTERVAL = 5 * 60 * 1000
 export function ErsatzTVView() {
   const { logout, isAdmin } = useAuth()
   const navigate = useNavigate()
+
+  // WebSocket for presence tracking
+  const { sendChannelUpdate } = useWebSocket({ view: 'ersatztv' })
 
   // Initialize theme - ensures theme syncs across views
   useTheme()
@@ -69,6 +73,11 @@ export function ErsatzTVView() {
   useEffect(() => {
     setLastRoute('/ersatztv')
   }, [setLastRoute])
+
+  // Send channel updates to backend for presence tracking
+  useEffect(() => {
+    sendChannelUpdate(selectedChannel?.name ?? null)
+  }, [selectedChannel, sendChannelUpdate])
 
   // Container ref for measuring height
   const containerRef = useRef<HTMLDivElement>(null)

@@ -1,6 +1,6 @@
 """Tests for admin router."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
@@ -17,7 +17,7 @@ def admin_token_payload() -> TokenPayload:
     return TokenPayload(
         sub="admin",
         role="admin",
-        exp=datetime(2030, 1, 1, tzinfo=timezone.utc),
+        exp=datetime(2030, 1, 1, tzinfo=UTC),
     )
 
 
@@ -27,7 +27,7 @@ def viewer_token_payload() -> TokenPayload:
     return TokenPayload(
         sub="viewer",
         role="viewer",
-        exp=datetime(2030, 1, 1, tzinfo=timezone.utc),
+        exp=datetime(2030, 1, 1, tzinfo=UTC),
     )
 
 

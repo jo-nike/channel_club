@@ -9,11 +9,11 @@ from loguru import logger
 
 from app.config import settings
 from app.logging_config import configure_logging
+from app.routers.admin import router as admin_router
 from app.routers.auth import router as auth_router
 from app.routers.channels import router as channels_router
 from app.routers.epg import router as epg_router
 from app.routers.ersatztv import router as ersatztv_router
-from app.routers.admin import router as admin_router
 from app.routers.websocket import router as websocket_router
 
 

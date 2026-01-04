@@ -107,7 +107,12 @@ async def handle_client_message(websocket: WebSocket, message: dict, client_id: 
 
     if msg_type == "ping":
         log.debug("Ping from client {}, sending pong", client_id)
+        presence.update_last_activity(client_id)
         await websocket.send_json({"type": "pong"})
+    elif msg_type == "channel_update":
+        channel = message.get("channel")
+        presence.update_user_channel(client_id, channel)
+        log.debug("Channel update from client {}: {}", client_id, channel)
     else:
         # Log unknown message types for debugging
         log.debug("Unknown WebSocket message type from client {}: {}", client_id, msg_type)
