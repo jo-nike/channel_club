@@ -33,16 +33,19 @@ async def get_active_users(
     live_users = presence.get_users_by_view("live")
     ersatztv_users = presence.get_users_by_view("ersatztv")
 
-    live_bitrate = sum(u.estimated_bitrate for u in live_users)
-    ersatztv_bitrate = sum(u.estimated_bitrate for u in ersatztv_users)
+    # Only count bitrate for users actively watching a channel
+    live_bitrate = sum(u.estimated_bitrate for u in live_users if u.current_channel)
+    ersatztv_bitrate = sum(u.estimated_bitrate for u in ersatztv_users if u.current_channel)
 
     return ActiveUsersResponse(
         live_users=[
             ActiveUser(
                 username=u.username,
                 channel=u.current_channel,
+                programme=u.current_programme,
                 connected_since=u.connected_since,
-                bitrate_mbps=u.estimated_bitrate,
+                # Only show bitrate when actively watching a channel
+                bitrate_mbps=u.estimated_bitrate if u.current_channel else 0.0,
             )
             for u in live_users
         ],
@@ -50,8 +53,10 @@ async def get_active_users(
             ActiveUser(
                 username=u.username,
                 channel=u.current_channel,
+                programme=u.current_programme,
                 connected_since=u.connected_since,
-                bitrate_mbps=u.estimated_bitrate,
+                # Only show bitrate when actively watching a channel
+                bitrate_mbps=u.estimated_bitrate if u.current_channel else 0.0,
             )
             for u in ersatztv_users
         ],

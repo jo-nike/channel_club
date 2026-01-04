@@ -28,6 +28,7 @@ class UserPresence:
     username: str
     view: Literal["live", "ersatztv"]
     current_channel: str | None = None
+    current_programme: str | None = None
     connected_since: datetime = field(default_factory=lambda: datetime.now(UTC))
     last_activity: datetime = field(default_factory=lambda: datetime.now(UTC))
     estimated_bitrate: float = 0.0
@@ -47,7 +48,7 @@ def track_user(
     """Track a new user connection.
 
     Args:
-        connection_id: Unique identifier for this connection.
+        connection_id: Unique identifier for this connection (session_id from client).
         username: The authenticated username.
         view: The view type ("live" or "ersatztv").
         websocket: Optional WebSocket reference for future use.
@@ -55,6 +56,17 @@ def track_user(
     Returns:
         The created UserPresence object.
     """
+    # Check if this session was already tracked (view switch in same tab)
+    if connection_id in _active_users:
+        old_user = _active_users[connection_id]
+        log.info(
+            "Session {} ({}) switching from {} to {} view",
+            connection_id,
+            username,
+            old_user.view,
+            view,
+        )
+
     bitrate = LIVE_BITRATE if view == "live" else ERSATZTV_BITRATE
     presence = UserPresence(
         connection_id=connection_id,
@@ -64,34 +76,52 @@ def track_user(
         websocket=websocket,
     )
     _active_users[connection_id] = presence
-    log.info("User {} connected to {} view", username, view)
+    log.info("User {} connected to {} view (session: {})", username, view, connection_id)
     return presence
 
 
-def remove_user(connection_id: str) -> None:
+def remove_user(connection_id: str, websocket: WebSocket | None = None) -> None:
     """Remove user from tracking on disconnect.
 
     Args:
         connection_id: The connection ID to remove.
+        websocket: The WebSocket that is disconnecting. If provided, only removes
+            if it matches the stored WebSocket (prevents race conditions on view switch).
     """
     if connection_id in _active_users:
-        user = _active_users.pop(connection_id)
+        user = _active_users[connection_id]
+        # If websocket is provided, only remove if it matches
+        # This prevents removing a new connection when an old one disconnects
+        if websocket is not None and user.websocket is not None and user.websocket is not websocket:
+            log.debug(
+                "Ignoring disconnect for session {} - WebSocket mismatch (view switch)",
+                connection_id,
+            )
+            return
+        _active_users.pop(connection_id)
         log.info("User {} disconnected from {} view", user.username, user.view)
 
 
-def update_user_channel(connection_id: str, channel_name: str | None) -> None:
-    """Update user's current channel.
+def update_user_channel(
+    connection_id: str,
+    channel_name: str | None,
+    programme_title: str | None = None,
+) -> None:
+    """Update user's current channel and programme.
 
     Args:
         connection_id: The connection ID to update.
         channel_name: The new channel name, or None if not watching.
+        programme_title: The current programme title, or None.
     """
     if connection_id in _active_users:
         _active_users[connection_id].current_channel = channel_name
+        _active_users[connection_id].current_programme = programme_title
         log.debug(
-            "User {} now watching: {}",
+            "User {} now watching: {} - {}",
             _active_users[connection_id].username,
             channel_name,
+            programme_title,
         )
 
 

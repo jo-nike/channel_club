@@ -153,23 +153,26 @@ class TestGetActiveUsers:
         client: TestClient,
         admin_token_payload: TokenPayload,
     ) -> None:
-        """Should calculate total bitrate from all users."""
-        # Add users of both types
+        """Should calculate total bitrate from users actively watching channels."""
+        # Add users of both types with channels selected
         presence.track_user(
             connection_id="conn1",
             username="viewer1",
             view="live",
         )
+        presence.update_user_channel("conn1", "BBC One")
         presence.track_user(
             connection_id="conn2",
             username="viewer2",
             view="live",
         )
+        presence.update_user_channel("conn2", "ITV")
         presence.track_user(
             connection_id="conn3",
             username="moviefan",
             view="ersatztv",
         )
+        presence.update_user_channel("conn3", "Action Movies")
 
         with patch("app.routers.auth_deps.verify_token") as mock_verify:
             mock_verify.return_value = admin_token_payload
@@ -185,6 +188,32 @@ class TestGetActiveUsers:
         assert data["totals"]["liveBitrateMbps"] == 17.0  # 8.5 * 2
         assert data["totals"]["ersatztvBitrateMbps"] == 12.0
         assert data["totals"]["totalBitrateMbps"] == 29.0  # 17.0 + 12.0
+
+    def test_bitrate_zero_when_no_channel_selected(
+        self,
+        client: TestClient,
+        admin_token_payload: TokenPayload,
+    ) -> None:
+        """Should report zero bitrate for users without a channel selected."""
+        # Add user without channel
+        presence.track_user(
+            connection_id="conn1",
+            username="viewer1",
+            view="live",
+        )
+
+        with patch("app.routers.auth_deps.verify_token") as mock_verify:
+            mock_verify.return_value = admin_token_payload
+            response = client.get(
+                "/api/admin/active-users",
+                headers={"Authorization": "Bearer fake_token"},
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["totals"]["liveCount"] == 1
+        assert data["liveUsers"][0]["bitrateMbps"] == 0.0
+        assert data["totals"]["liveBitrateMbps"] == 0.0
 
     def test_response_includes_connected_since(
         self,

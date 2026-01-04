@@ -29,7 +29,7 @@ export function ErsatzTVView() {
   const navigate = useNavigate()
 
   // WebSocket for presence tracking
-  const { sendChannelUpdate } = useWebSocket({ view: 'ersatztv' })
+  const { status, sendChannelUpdate } = useWebSocket({ view: 'ersatztv' })
 
   // Initialize theme - ensures theme syncs across views
   useTheme()
@@ -69,15 +69,26 @@ export function ErsatzTVView() {
 
   useEscapeKey({ onEscape: handleEscape })
 
+  // Get currently playing programme for header display and presence tracking
+  const currentProgramme = selectedChannel
+    ? programmesByChannel[selectedChannel.id]?.find((p) => {
+        const now = new Date()
+        return new Date(p.start) <= now && new Date(p.stop) > now
+      })
+    : null
+
   // Track that user visited this route
   useEffect(() => {
     setLastRoute('/ersatztv')
   }, [setLastRoute])
 
   // Send channel updates to backend for presence tracking
+  // Also re-send when WebSocket connects (in case channel was set before connection)
   useEffect(() => {
-    sendChannelUpdate(selectedChannel?.name ?? null)
-  }, [selectedChannel, sendChannelUpdate])
+    if (status === 'connected') {
+      sendChannelUpdate(selectedChannel?.name ?? null, currentProgramme?.title ?? null)
+    }
+  }, [selectedChannel, currentProgramme, sendChannelUpdate, status])
 
   // Container ref for measuring height
   const containerRef = useRef<HTMLDivElement>(null)
@@ -112,14 +123,6 @@ export function ErsatzTVView() {
   // Stream URL for current channel
   const streamUrl = selectedChannel
     ? getErsatzTVStreamUrl(selectedChannel.id)
-    : null
-
-  // Get currently playing programme for header display
-  const currentProgramme = selectedChannel
-    ? programmesByChannel[selectedChannel.id]?.find((p) => {
-        const now = new Date()
-        return new Date(p.start) <= now && new Date(p.stop) > now
-      })
     : null
 
   // Load channels on mount

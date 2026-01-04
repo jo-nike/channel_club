@@ -35,6 +35,7 @@ async def websocket_endpoint(
     websocket: WebSocket,
     token: str = Query(...),
     view: str = Query(default="live"),
+    session_id: str = Query(default=""),
 ) -> None:
     """WebSocket endpoint for real-time channel updates.
 
@@ -42,9 +43,11 @@ async def websocket_endpoint(
         websocket: The WebSocket connection.
         token: JWT token passed as query parameter.
         view: View type ("live" or "ersatztv"), defaults to "live".
+        session_id: Client session ID for presence tracking (prevents duplicates on view switch).
     """
-    # Generate a unique client ID for logging
-    client_id = str(uuid4())[:8]
+    # Use session_id if provided, otherwise generate a unique client ID
+    # Session ID allows same-tab view switches to replace old presence entry
+    client_id = session_id if session_id else str(uuid4())[:8]
 
     # Validate token before accepting connection
     payload = await verify_websocket_token(token)
@@ -91,7 +94,8 @@ async def websocket_endpoint(
         log.error("WebSocket error for client {}: {}", client_id, e)
     finally:
         # Always clean up on disconnect
-        presence.remove_user(client_id)
+        # Pass websocket to avoid race condition on view switch
+        presence.remove_user(client_id, websocket)
         channel_state.disconnect(websocket)
 
 
@@ -111,8 +115,9 @@ async def handle_client_message(websocket: WebSocket, message: dict, client_id: 
         await websocket.send_json({"type": "pong"})
     elif msg_type == "channel_update":
         channel = message.get("channel")
-        presence.update_user_channel(client_id, channel)
-        log.debug("Channel update from client {}: {}", client_id, channel)
+        programme = message.get("programme")
+        presence.update_user_channel(client_id, channel, programme)
+        log.debug("Channel update from client {}: {} - {}", client_id, channel, programme)
     else:
         # Log unknown message types for debugging
         log.debug("Unknown WebSocket message type from client {}: {}", client_id, msg_type)

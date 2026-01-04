@@ -10,6 +10,7 @@ class ActiveUser(BaseModel):
 
     username: str
     channel: str | None = None
+    programme: str | None = None
     connected_since: datetime = Field(alias="connectedSince")
     bitrate_mbps: float = Field(alias="bitrateMbps")
 

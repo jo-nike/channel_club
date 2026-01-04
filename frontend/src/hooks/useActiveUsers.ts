@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 
 interface ActiveUser {
   username: string
   channel: string | null
+  programme: string | null
   connectedSince: string
   bitrateMbps: number
 }
@@ -28,10 +29,17 @@ export function useActiveUsers() {
   const [data, setData] = useState<ActiveUsersData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const { token } = useAuth()
+  const isMounted = useRef(true)
 
-  const fetchUsers = useCallback(async () => {
+  const fetchUsers = useCallback(async (isManual = false) => {
     if (!token) return
+
+    if (isManual) {
+      setIsRefreshing(true)
+    }
 
     try {
       const response = await fetch('/api/admin/active-users', {
@@ -43,20 +51,34 @@ export function useActiveUsers() {
       }
 
       const responseData = await response.json()
-      setData(responseData)
-      setError(null)
+      if (isMounted.current) {
+        setData(responseData)
+        setLastUpdated(new Date())
+        setError(null)
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error')
+      if (isMounted.current) {
+        setError(err instanceof Error ? err.message : 'Unknown error')
+      }
     } finally {
-      setLoading(false)
+      if (isMounted.current) {
+        setLoading(false)
+        setIsRefreshing(false)
+      }
     }
   }, [token])
 
   useEffect(() => {
+    isMounted.current = true
     fetchUsers()
-    const interval = setInterval(fetchUsers, POLL_INTERVAL)
-    return () => clearInterval(interval)
+    const interval = setInterval(() => fetchUsers(false), POLL_INTERVAL)
+    return () => {
+      isMounted.current = false
+      clearInterval(interval)
+    }
   }, [fetchUsers])
 
-  return { data, loading, error, refetch: fetchUsers }
+  const refetch = useCallback(() => fetchUsers(true), [fetchUsers])
+
+  return { data, loading, error, lastUpdated, isRefreshing, refetch }
 }

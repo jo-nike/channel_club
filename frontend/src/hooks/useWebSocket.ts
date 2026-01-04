@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 import { useAuthStore } from '@/stores/authStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { logger } from '@/lib/logger'
+import { getSessionId } from '@/lib/sessionId'
 import type { Channel } from '@/types'
 
 interface WebSocketMessage {
@@ -97,9 +98,10 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       logger.info('WebSocket', isReconnect ? 'Reconnecting...' : 'Connecting...')
       setStatus(isReconnect ? 'reconnecting' : 'connecting')
 
-      // Construct WebSocket URL with view parameter
+      // Construct WebSocket URL with view and session parameters
       const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      const wsUrl = `${wsProtocol}//${window.location.host}/api/ws?token=${token}&view=${view}`
+      const sessionId = getSessionId()
+      const wsUrl = `${wsProtocol}//${window.location.host}/api/ws?token=${token}&view=${view}&session_id=${sessionId}`
 
       const ws = new WebSocket(wsUrl)
       wsRef.current = ws
@@ -198,17 +200,21 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     connect(true)
   }, [connect])
 
-  const sendChannelUpdate = useCallback((channelName: string | null) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(
-        JSON.stringify({
-          type: 'channel_update',
-          channel: channelName,
-        })
-      )
-      logger.debug('WebSocket', `Sent channel update: ${channelName || 'null'}`)
-    }
-  }, [])
+  const sendChannelUpdate = useCallback(
+    (channelName: string | null, programmeTitle?: string | null) => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({
+            type: 'channel_update',
+            channel: channelName,
+            programme: programmeTitle ?? null,
+          })
+        )
+        logger.debug('WebSocket', `Sent channel update: ${channelName || 'null'} - ${programmeTitle || 'null'}`)
+      }
+    },
+    []
+  )
 
   // Connect on mount when token is available
   // Intentionally calls connect (which sets state) in effect - this is the standard WebSocket pattern

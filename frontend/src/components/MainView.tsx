@@ -53,9 +53,12 @@ export function MainView() {
   }, [setLastRoute])
 
   // Send channel updates to backend for presence tracking
+  // Also re-send when WebSocket connects (in case channel was set before connection)
   useEffect(() => {
-    sendChannelUpdate(currentChannel?.name ?? null)
-  }, [currentChannel, sendChannelUpdate])
+    if (status === 'connected') {
+      sendChannelUpdate(currentChannel?.name ?? null, epg?.currentProgram?.title ?? null)
+    }
+  }, [currentChannel, epg?.currentProgram?.title, sendChannelUpdate, status])
 
   // Handle Escape key to exit fullscreen or theater mode
   const handleEscape = useCallback(() => {
