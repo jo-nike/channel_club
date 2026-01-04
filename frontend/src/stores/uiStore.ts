@@ -34,7 +34,7 @@ export const useUIStore = create<UIState>()(
       isSidebarOpen: false,
       setSidebarOpen: (value) => set({ isSidebarOpen: value }),
       toggleSidebar: () => set((s) => ({ isSidebarOpen: !s.isSidebarOpen })),
-      lastRoute: '/',
+      lastRoute: '/ersatztv',
       setLastRoute: (route) => set({ lastRoute: route }),
       // EPG visibility and sizing
       isEPGVisible: true,

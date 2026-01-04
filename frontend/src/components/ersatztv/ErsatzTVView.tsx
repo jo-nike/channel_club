@@ -200,18 +200,14 @@ export function ErsatzTVView() {
       {!isTheaterMode && !isMobileLandscape && (
       <header className="flex justify-between items-center px-4 py-2 bg-background border-b">
         <div className="flex items-center gap-4">
-          {/* Admin button - same position as MainView (left side) */}
-          {isAdmin && (
-            <button
-              onClick={() => setAdminModalOpen(true)}
-              className="h-8 w-8 flex items-center justify-center bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-              aria-label="Open admin panel"
-            >
-              <Settings className="h-4 w-4 shrink-0" />
-            </button>
-          )}
-          {/* Theme picker - consistent with MainView placement */}
-          <ThemePicker />
+          {/* Mode toggle - Live TV */}
+          <button
+            onClick={handleLiveTVClick}
+            className="h-8 px-3 md:w-[130px] flex items-center justify-center gap-2 bg-secondary text-secondary-foreground rounded-md text-sm hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+          >
+            <Tv className="h-4 w-4 shrink-0" />
+            <span className="hidden md:inline">Live TV</span>
+          </button>
           {/* Current programme info */}
           <span className="text-muted-foreground text-sm">
             {selectedChannel?.name && currentProgramme
@@ -237,15 +233,17 @@ export function ErsatzTVView() {
               <span className="hidden md:inline">EPG</span>
             </button>
           )}
-
-          {/* Live TV button - uses callback to ensure state sync before navigation */}
-          <button
-            onClick={handleLiveTVClick}
-            className="h-8 px-3 md:w-[130px] flex items-center justify-center gap-2 bg-secondary text-secondary-foreground rounded-md text-sm hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-          >
-            <Tv className="h-4 w-4 shrink-0" />
-            <span className="hidden md:inline">Live TV</span>
-          </button>
+          {/* Admin button */}
+          {isAdmin && (
+            <button
+              onClick={() => setAdminModalOpen(true)}
+              className="h-8 w-8 flex items-center justify-center bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              aria-label="Open admin panel"
+            >
+              <Settings className="h-4 w-4 shrink-0" />
+            </button>
+          )}
+          {/* Refresh video button */}
           <button
             onClick={() => setVideoRefreshKey((k) => k + 1)}
             className="h-8 w-8 flex items-center justify-center bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
@@ -254,6 +252,9 @@ export function ErsatzTVView() {
           >
             <RefreshCw className="h-4 w-4 shrink-0" />
           </button>
+          {/* Theme picker */}
+          <ThemePicker />
+          {/* Logout button */}
           <button
             onClick={logout}
             className="h-8 px-3 text-sm whitespace-nowrap shrink-0 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"

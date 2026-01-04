@@ -8,7 +8,6 @@ import { useEPG } from '@/hooks/useEPG'
 import { useTheme } from '@/hooks/useTheme'
 import { useMobileLandscape } from '@/hooks/useMobileLandscape'
 import { VideoPlayer } from '@/components/VideoPlayer'
-import { ConnectionStatus } from '@/components/ConnectionStatus'
 import { ThemePicker } from '@/components/ThemePicker'
 import { AdminModal } from '@/components/AdminModal'
 import { useUIStore } from '@/stores/uiStore'
@@ -17,7 +16,7 @@ import { cn } from '@/lib/utils'
 
 export function MainView() {
   const { isAdmin, logout } = useAuth()
-  const { status, reconnect, sendChannelUpdate } = useWebSocket({ view: 'live' })
+  const { status, sendChannelUpdate } = useWebSocket({ view: 'live' })
 
   // Initialize theme on app mount - this applies CSS variables and dark/light mode class
   useTheme()
@@ -77,19 +76,14 @@ export function MainView() {
       {!isTheaterMode && !isFullscreen && !isMobileLandscape && (
         <header className="flex justify-between items-center px-4 py-2 bg-background border-b">
           <div className="flex items-center gap-4">
-            {/* Admin button - left side for admin */}
-            {isAdmin && (
-              <button
-                onClick={() => setAdminModalOpen(true)}
-                className="h-8 w-8 flex items-center justify-center bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                aria-label="Open admin panel"
-              >
-                <Settings className="h-4 w-4 shrink-0" />
-              </button>
-            )}
-            <ConnectionStatus status={status} onReconnect={reconnect} />
-            {/* Theme picker */}
-            <ThemePicker />
+            {/* Mode toggle - Movies/ErsatzTV */}
+            <Link
+              to="/ersatztv"
+              className="h-8 px-3 md:w-[130px] flex items-center justify-center gap-2 bg-secondary text-secondary-foreground rounded-md text-sm hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            >
+              <Film className="h-4 w-4 shrink-0" />
+              <span className="hidden md:inline">Movies</span>
+            </Link>
             {/* Current channel name with EPG display */}
             <span className="text-muted-foreground text-sm">
               {currentChannel?.name
@@ -101,14 +95,17 @@ export function MainView() {
           </div>
 
           <div className="flex items-center gap-2">
-            {/* ErsatzTV (Movie Channels) link */}
-            <Link
-              to="/ersatztv"
-              className="h-8 px-3 md:w-[130px] flex items-center justify-center gap-2 bg-secondary text-secondary-foreground rounded-md text-sm hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-            >
-              <Film className="h-4 w-4 shrink-0" />
-              <span className="hidden md:inline">Movies</span>
-            </Link>
+            {/* Admin button */}
+            {isAdmin && (
+              <button
+                onClick={() => setAdminModalOpen(true)}
+                className="h-8 w-8 flex items-center justify-center bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                aria-label="Open admin panel"
+              >
+                <Settings className="h-4 w-4 shrink-0" />
+              </button>
+            )}
+            {/* Refresh video button */}
             <button
               onClick={() => setVideoRefreshKey((k) => k + 1)}
               className="h-8 w-8 flex items-center justify-center bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
@@ -117,6 +114,9 @@ export function MainView() {
             >
               <RefreshCw className="h-4 w-4 shrink-0" />
             </button>
+            {/* Theme picker */}
+            <ThemePicker />
+            {/* Logout button */}
             <button
               onClick={logout}
               className="h-8 px-3 text-sm whitespace-nowrap shrink-0 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
@@ -151,7 +151,6 @@ export function MainView() {
         <AdminModal
           open={adminModalOpen}
           onOpenChange={setAdminModalOpen}
-          view="live"
         />
       )}
     </div>

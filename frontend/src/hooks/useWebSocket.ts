@@ -25,7 +25,7 @@ interface UseWebSocketOptions {
 interface UseWebSocketReturn {
   status: ConnectionStatus
   reconnect: () => void
-  sendChannelUpdate: (channelName: string | null) => void
+  sendChannelUpdate: (channelName: string | null, programmeTitle?: string | null) => void
 }
 
 export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketReturn {
