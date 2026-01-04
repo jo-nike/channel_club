@@ -11,7 +11,9 @@ class EPGChannel(BaseModel):
     id: str = Field(..., description="Unique channel identifier (tvg-id)")
     name: str = Field(..., description="Channel display name")
     stream_url: str = Field(alias="streamUrl", description="HLS stream URL")
-    logo_url: str | None = Field(default=None, alias="logoUrl", description="Channel logo URL (proxied)")
+    logo_url: str | None = Field(
+        default=None, alias="logoUrl", description="Channel logo URL (proxied)"
+    )
     original_logo_url: str | None = Field(
         default=None, alias="originalLogoUrl", description="Original logo URL for backend fetching"
     )

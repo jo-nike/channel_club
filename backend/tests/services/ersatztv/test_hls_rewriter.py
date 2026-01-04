@@ -82,9 +82,7 @@ class TestRewriteManifest:
 
     def test_rewrite_manifest_handles_multiple_variants(self):
         """Rewriter handles multiple variant playlists."""
-        result = rewrite_manifest(
-            SAMPLE_MASTER_MULTIPLE_VARIANTS, "http://example.com/"
-        )
+        result = rewrite_manifest(SAMPLE_MASTER_MULTIPLE_VARIANTS, "http://example.com/")
         lines = result.strip().split("\n")
         stream_urls = [line for line in lines if "/api/ersatztv/stream?url=" in line]
         assert len(stream_urls) == 2
@@ -126,6 +124,29 @@ segment-001.ts
 """
         result = rewrite_manifest(manifest, "http://example.com/")
         assert "\n\n" in result
+
+    def test_rewrite_manifest_includes_token_in_segment_urls(self):
+        """Rewriter includes token in segment URLs when provided."""
+        result = rewrite_manifest(SAMPLE_MANIFEST, "http://example.com/", token="my-jwt-token")
+        # Check that segment URLs include the token as query param
+        for line in result.split("\n"):
+            if line.startswith("/api/ersatztv/segments/"):
+                assert "?token=my-jwt-token" in line
+
+    def test_rewrite_manifest_includes_token_in_nested_m3u8_urls(self):
+        """Rewriter includes token in nested m3u8 URLs when provided."""
+        result = rewrite_manifest(SAMPLE_MASTER, "http://example.com/", token="my-jwt-token")
+        # Check that nested m3u8 URLs include the token
+        for line in result.split("\n"):
+            if "/api/ersatztv/stream?url=" in line:
+                assert "&token=my-jwt-token" in line
+
+    def test_rewrite_manifest_no_token_when_not_provided(self):
+        """Rewriter does not add token query params when token is None."""
+        result = rewrite_manifest(SAMPLE_MANIFEST, "http://example.com/")
+        # Check that no token query params are present
+        assert "?token=" not in result
+        assert "&token=" not in result
 
 
 class TestUrlEncodingDecoding:
@@ -241,12 +262,8 @@ class TestGetStreamManifest:
                 "app.services.ersatztv.hls_rewriter.get_channel_by_id",
                 return_value=mock_channel,
             ),
-            patch(
-                "app.services.ersatztv.hls_rewriter.settings"
-            ) as mock_settings,
-            patch(
-                "app.services.ersatztv.hls_rewriter.httpx.AsyncClient"
-            ) as mock_client_class,
+            patch("app.services.ersatztv.hls_rewriter.settings") as mock_settings,
+            patch("app.services.ersatztv.hls_rewriter.httpx.AsyncClient") as mock_client_class,
         ):
             mock_settings.ersatztv_base_url = "http://192.168.50.108:8409"
             mock_client = AsyncMock()
@@ -283,9 +300,7 @@ class TestGetStreamManifest:
                 "app.services.ersatztv.hls_rewriter.get_channel_by_id",
                 return_value=mock_channel,
             ),
-            patch(
-                "app.services.ersatztv.hls_rewriter.settings"
-            ) as mock_settings,
+            patch("app.services.ersatztv.hls_rewriter.settings") as mock_settings,
         ):
             mock_settings.ersatztv_base_url = "http://192.168.50.108:8409"
             with pytest.raises(ValueError, match="not from ErsatzTV"):
@@ -308,12 +323,8 @@ class TestGetSegment:
         mock_response.raise_for_status = MagicMock()
 
         with (
-            patch(
-                "app.services.ersatztv.hls_rewriter.settings"
-            ) as mock_settings,
-            patch(
-                "app.services.ersatztv.hls_rewriter.httpx.AsyncClient"
-            ) as mock_client_class,
+            patch("app.services.ersatztv.hls_rewriter.settings") as mock_settings,
+            patch("app.services.ersatztv.hls_rewriter.httpx.AsyncClient") as mock_client_class,
         ):
             mock_settings.ersatztv_base_url = "http://192.168.50.108:8409"
             mock_client = AsyncMock()
@@ -334,9 +345,7 @@ class TestGetSegment:
         malicious_url = "http://evil.com/segment.ts"
         encoded = rewriter._encode_url(malicious_url)
 
-        with patch(
-            "app.services.ersatztv.hls_rewriter.settings"
-        ) as mock_settings:
+        with patch("app.services.ersatztv.hls_rewriter.settings") as mock_settings:
             mock_settings.ersatztv_base_url = "http://192.168.50.108:8409"
 
             with pytest.raises(ValueError, match="not from ErsatzTV"):

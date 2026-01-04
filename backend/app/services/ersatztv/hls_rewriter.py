@@ -30,18 +30,24 @@ class HLSManifestRewriter:
         self.proxy_base_url = proxy_base_url
         self.stream_proxy_url = "/api/ersatztv/stream"
 
-    def rewrite_manifest(self, manifest_content: str, base_url: str) -> str:
+    def rewrite_manifest(
+        self, manifest_content: str, base_url: str, token: str | None = None
+    ) -> str:
         """Rewrite HLS manifest to proxy all segment and variant URLs.
 
         Args:
             manifest_content: Raw .m3u8 manifest content
             base_url: Base URL for resolving relative paths
+            token: Optional JWT token to include in rewritten URLs for auth
 
         Returns:
             Rewritten manifest with proxied URLs
         """
         lines = manifest_content.split("\n")
         rewritten = []
+
+        # Build query string with token if provided
+        token_qs = f"?token={token}" if token else ""
 
         for line in lines:
             stripped = line.strip()
@@ -67,10 +73,12 @@ class HLSManifestRewriter:
                 # Rewrite to stream proxy endpoint
                 encoded = self._encode_url(absolute_url)
                 proxied = f"{self.stream_proxy_url}?url={encoded}"
+                if token:
+                    proxied += f"&token={token}"
             else:
                 # Segment URL - encode for segment proxy
                 encoded = self._encode_url(absolute_url)
-                proxied = f"{self.proxy_base_url}/{encoded}"
+                proxied = f"{self.proxy_base_url}/{encoded}{token_qs}"
 
             logger.debug(f"Rewriting: {stripped[:40]}... -> {proxied[:50]}...")
             rewritten.append(proxied)
@@ -118,17 +126,18 @@ class HLSManifestRewriter:
 _rewriter = HLSManifestRewriter()
 
 
-def rewrite_manifest(content: str, base_url: str) -> str:
+def rewrite_manifest(content: str, base_url: str, token: str | None = None) -> str:
     """Convenience function to rewrite manifest.
 
     Args:
         content: Raw manifest content
         base_url: Base URL for resolving relative paths
+        token: Optional JWT token to include in rewritten URLs for auth
 
     Returns:
         Rewritten manifest with proxied URLs
     """
-    return _rewriter.rewrite_manifest(content, base_url)
+    return _rewriter.rewrite_manifest(content, base_url, token=token)
 
 
 def decode_url(encoded_url: str) -> str:

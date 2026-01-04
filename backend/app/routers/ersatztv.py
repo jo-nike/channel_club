@@ -18,7 +18,7 @@ from app.models.ersatztv import (
     EPGChannelResponse,
     ProgrammeListResponse,
 )
-from app.routers.auth_deps import get_current_user
+from app.routers.auth_deps import get_current_user, get_current_user_or_token
 from app.services.ersatztv import (
     get_channel_by_id,
     get_channels,
@@ -40,9 +40,7 @@ async def list_channels(user=Depends(get_current_user)) -> EPGChannelResponse:
         return EPGChannelResponse(channels=channels)
     except Exception as e:
         logger.error(f"Failed to get channels: {e}")
-        raise HTTPException(
-            status_code=503, detail="ErsatzTV service unavailable"
-        ) from None
+        raise HTTPException(status_code=503, detail="ErsatzTV service unavailable") from None
 
 
 @router.get("/programmes/{channel_id}", response_model=ProgrammeListResponse)
@@ -57,9 +55,7 @@ async def list_programmes(
         return ProgrammeListResponse(channel_id=channel_id, programmes=programmes)
     except Exception as e:
         logger.error(f"Failed to get programmes: {e}")
-        raise HTTPException(
-            status_code=503, detail="ErsatzTV service unavailable"
-        ) from None
+        raise HTTPException(status_code=503, detail="ErsatzTV service unavailable") from None
 
 
 @router.get("/current/{channel_id}", response_model=CurrentProgrammeResponse)
@@ -77,21 +73,21 @@ async def get_current(
         )
     except Exception as e:
         logger.error(f"Failed to get current programme: {e}")
-        raise HTTPException(
-            status_code=503, detail="ErsatzTV service unavailable"
-        ) from None
+        raise HTTPException(status_code=503, detail="ErsatzTV service unavailable") from None
 
 
 @router.get("/stream/{channel_id}")
 async def get_stream(
     channel_id: str = Path(...),
     url: str = Query(default=None),
-    user=Depends(get_current_user),
+    token: str = Query(default=None),
+    user=Depends(get_current_user_or_token),
 ):
     """Get proxied HLS manifest for channel.
 
     If `url` query param is provided, fetches that URL (for nested playlists).
     Otherwise fetches the channel's stream_url from M3U data.
+    Token is passed through to rewritten segment URLs for HLS auth.
     """
     try:
         if url:
@@ -113,9 +109,9 @@ async def get_stream(
             response = await client.get(manifest_url, timeout=10)
             response.raise_for_status()
 
-        # Rewrite manifest
+        # Rewrite manifest with token for segment auth
         base_url = manifest_url.rsplit("/", 1)[0] + "/"
-        rewritten = rewrite_manifest(response.text, base_url)
+        rewritten = rewrite_manifest(response.text, base_url, token=token)
 
         return StreamingResponse(
             iter([rewritten.encode()]),
@@ -132,7 +128,8 @@ async def get_stream(
 @router.get("/segments/{encoded_url:path}")
 async def get_segment(
     encoded_url: str = Path(...),
-    user=Depends(get_current_user),
+    token: str = Query(default=None),
+    user=Depends(get_current_user_or_token),
 ):
     """Proxy HLS segment from ErsatzTV."""
     try:
@@ -164,7 +161,8 @@ async def get_segment(
 @router.get("/logos/{channel_id}")
 async def get_logo(
     channel_id: str = Path(...),
-    user=Depends(get_current_user),
+    # No auth required - logos are public images proxied from ErsatzTV
+    # Browser img tags cannot send Authorization headers
 ):
     """Proxy channel logo from ErsatzTV."""
     try:

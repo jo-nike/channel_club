@@ -6,8 +6,6 @@ Story: 7.4 - EPG Service Layer
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from app.models.ersatztv import EPGChannel, Programme
 
 
@@ -31,9 +29,7 @@ class TestGetChannels:
 
     @patch("app.services.ersatztv.epg_service.settings")
     @patch("app.services.ersatztv.epg_service.parse_m3u_playlist")
-    def test_get_channels_rewrites_logo_urls(
-        self, mock_parse: MagicMock, mock_settings: MagicMock
-    ):
+    def test_get_channels_rewrites_logo_urls(self, mock_parse: MagicMock, mock_settings: MagicMock):
         """get_channels rewrites ErsatzTV logo URLs to proxy endpoint."""
         mock_settings.ersatztv_base_url = "http://192.168.50.108:8409"
         mock_parse.return_value = [
