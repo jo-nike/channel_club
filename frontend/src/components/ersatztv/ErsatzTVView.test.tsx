@@ -210,15 +210,16 @@ describe('ErsatzTVView', () => {
     expect(screen.getByText('Test Channel')).toBeInTheDocument()
   })
 
-  it('renders navigation link back to live TV', () => {
+  it('renders navigation button back to live TV', () => {
     render(
       <MemoryRouter>
         <ErsatzTVView />
       </MemoryRouter>
     )
 
-    const link = screen.getByRole('link')
-    expect(link).toHaveAttribute('href', '/')
+    // Live TV navigation is now a button, not a link
+    const liveTVButton = screen.getByRole('button', { name: /live tv/i })
+    expect(liveTVButton).toBeInTheDocument()
   })
 
   it('renders video player when channel is selected', () => {

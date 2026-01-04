@@ -594,14 +594,14 @@ describe('MainView', () => {
       })
     })
 
-    describe('video aspect ratio', () => {
-      it('should maintain aspect-video class for proper 16:9 ratio', () => {
+    describe('video container', () => {
+      it('should render video player container in main area', () => {
         mockWindowWidth(1200)
         renderWithRouter()
 
-        // Find the aspect-video container
-        const aspectContainer = document.querySelector('.aspect-video')
-        expect(aspectContainer).not.toBeNull()
+        // Find the video player container (bg-black class in main area)
+        const videoContainer = document.querySelector('main .bg-black')
+        expect(videoContainer).not.toBeNull()
       })
     })
   })

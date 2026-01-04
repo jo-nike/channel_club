@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 
 /**
  * Hook that detects when a mobile device is in landscape orientation.
@@ -9,31 +9,30 @@ import { useState, useEffect, useCallback } from 'react'
  * - Device has touch capability (pointer: coarse)
  * - Orientation is landscape
  */
+// Helper function to check mobile landscape - defined outside component to avoid recreating
+function checkMobileLandscape(): boolean {
+  if (typeof window === 'undefined') return false
+
+  // Check for mobile device (touch capable)
+  const isTouchDevice = window.matchMedia('(pointer: coarse)').matches
+  if (!isTouchDevice) return false
+
+  // Check for landscape orientation
+  const isLandscape = window.matchMedia('(orientation: landscape)').matches
+  if (!isLandscape) return false
+
+  // Check screen width - phones in landscape are typically <= 926px wide
+  // (iPhone 14 Pro Max landscape = 926px)
+  const isPhoneSize = window.matchMedia('(max-width: 926px)').matches
+
+  return isPhoneSize
+}
+
 export function useMobileLandscape(): boolean {
-  const [isMobileLandscape, setIsMobileLandscape] = useState(false)
-
-  const checkMobileLandscape = useCallback(() => {
-    if (typeof window === 'undefined') return false
-
-    // Check for mobile device (touch capable)
-    const isTouchDevice = window.matchMedia('(pointer: coarse)').matches
-    if (!isTouchDevice) return false
-
-    // Check for landscape orientation
-    const isLandscape = window.matchMedia('(orientation: landscape)').matches
-    if (!isLandscape) return false
-
-    // Check screen width - phones in landscape are typically <= 926px wide
-    // (iPhone 14 Pro Max landscape = 926px)
-    const isPhoneSize = window.matchMedia('(max-width: 926px)').matches
-
-    return isPhoneSize
-  }, [])
+  // Initialize state with a function to avoid calling setState in useEffect
+  const [isMobileLandscape, setIsMobileLandscape] = useState(checkMobileLandscape)
 
   useEffect(() => {
-    // Initial check
-    setIsMobileLandscape(checkMobileLandscape())
-
     // Listen for orientation changes
     const handleChange = () => {
       setIsMobileLandscape(checkMobileLandscape())
@@ -58,7 +57,7 @@ export function useMobileLandscape(): boolean {
         screen.orientation.removeEventListener('change', handleChange)
       }
     }
-  }, [checkMobileLandscape])
+  }, [])
 
   return isMobileLandscape
 }

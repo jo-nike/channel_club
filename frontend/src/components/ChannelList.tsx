@@ -1,17 +1,22 @@
 import { useEffect, useState, useCallback, forwardRef } from 'react'
 import { toast } from 'sonner'
+import { X } from 'lucide-react'
 import { useChannelStore } from '@/stores/channelStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useRovingTabIndex } from '@/hooks/useRovingTabIndex'
-import { fetchChannels, setCurrentChannel as setCurrentChannelApi } from '@/services/api'
+import { fetchChannels, setCurrentChannel as setCurrentChannelApi, clearCurrentChannel as clearCurrentChannelApi } from '@/services/api'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { Channel } from '@/types'
 
-export function ChannelList() {
+interface ChannelListProps {
+  onChannelSelected?: () => void
+}
+
+export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
   const { channels, currentChannel, isLoading, error, setChannels, setCurrentChannel, setLoading, setError } = useChannelStore()
   const { role } = useAuthStore()
   const setSidebarOpen = useUIStore((s) => s.setSidebarOpen)
@@ -24,8 +29,13 @@ export function ChannelList() {
     const previousChannel = currentChannel
     setCurrentChannel(channel)
 
-    // Auto-close drawer after channel selection
-    setSidebarOpen(false)
+    // If callback provided (modal context), call it
+    // Otherwise use existing sidebar close behavior
+    if (onChannelSelected) {
+      onChannelSelected()
+    } else {
+      setSidebarOpen(false)
+    }
 
     try {
       await setCurrentChannelApi(channel)
@@ -36,7 +46,32 @@ export function ChannelList() {
         description: e instanceof Error ? e.message : 'Please try again',
       })
     }
-  }, [isAdmin, currentChannel, setCurrentChannel, setSidebarOpen])
+  }, [isAdmin, currentChannel, setCurrentChannel, setSidebarOpen, onChannelSelected])
+
+  const handleClearChannel = useCallback(async () => {
+    if (!isAdmin) return
+
+    const previousChannel = currentChannel
+    setCurrentChannel(null)
+
+    // If callback provided (modal context), call it
+    // Otherwise use existing sidebar close behavior
+    if (onChannelSelected) {
+      onChannelSelected()
+    } else {
+      setSidebarOpen(false)
+    }
+
+    try {
+      await clearCurrentChannelApi()
+    } catch (e) {
+      // Revert on failure
+      setCurrentChannel(previousChannel)
+      toast.error('Failed to clear channel', {
+        description: e instanceof Error ? e.message : 'Please try again',
+      })
+    }
+  }, [isAdmin, currentChannel, setCurrentChannel, setSidebarOpen, onChannelSelected])
 
   const { focusedIndex, handleKeyDown, getTabIndex, itemRefs } = useRovingTabIndex({
     items: channels,
@@ -91,6 +126,22 @@ export function ChannelList() {
         onKeyDown={handleKeyDown}
         className="flex flex-col gap-2 p-4"
       >
+        {/* Clear Channel button - only show when a channel is selected */}
+        {currentChannel && isAdmin && (
+          <button
+            type="button"
+            onClick={handleClearChannel}
+            className={cn(
+              'flex items-center gap-3 rounded-lg border border-destructive/50 p-4 transition-colors',
+              'text-lg text-destructive',
+              'min-h-[56px] w-full mb-2',
+              'cursor-pointer hover:bg-destructive/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+            )}
+          >
+            <X className="h-5 w-5" />
+            <span className="font-medium">Clear Channel</span>
+          </button>
+        )}
         {channels.map((channel, index) => (
           <ChannelItem
             key={channel.id}

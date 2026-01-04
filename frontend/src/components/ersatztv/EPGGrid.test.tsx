@@ -121,7 +121,7 @@ describe('EPGGrid', () => {
     // Now marker should exist
     const nowMarker = screen.getByTestId('now-marker')
     expect(nowMarker).toBeInTheDocument()
-    expect(nowMarker).toHaveClass('bg-primary')
+    expect(nowMarker).toHaveClass('bg-destructive')
   })
 
   it('calls onProgrammeClick when programme is clicked', async () => {

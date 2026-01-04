@@ -1556,3 +1556,175 @@ So that I know the install option exists.
 **Given** I am on a TV browser
 **When** viewing the app
 **Then** install prompt is keyboard/d-pad accessible
+
+---
+
+## Epic 11: Admin Modal & User Presence
+
+Admins can access a centralized admin modal from both Live TV and ErsatzTV views, providing channel control, real-time user presence monitoring with stream bitrate usage, and placeholders for future admin features.
+
+**Key Features:**
+- Unified admin modal accessible from both views with identical functionality
+- Channel selection available from any view (control Live TV from ErsatzTV)
+- Real-time active user monitoring with separated Live/ErsatzTV sections
+- Stream bitrate usage per user and totals
+- Placeholder tabs for User Access and Plugins (accessible from any view)
+- Admin-only visibility (existing env variable auth)
+
+**Environment Variables:**
+- Uses existing `ADMIN_USERNAME`, `ADMIN_PASSWORD` for admin detection
+
+---
+
+### Story 11.1: Admin Modal Component & Tab Structure
+
+As an admin,
+I want a modal dialog with multiple tabs,
+So that I can access all admin functions from one place.
+
+**Acceptance Criteria:**
+
+**Given** I am logged in as admin
+**When** I click the admin button in the header
+**Then** a modal opens with tabs: "Channels", "Active Users", "User Access", "Plugins"
+
+**Given** the admin modal is open
+**When** I click outside the modal or press Escape
+**Then** the modal closes
+
+**Given** I am on the ErsatzTV view
+**When** I open the admin modal
+**Then** the "Channels" and "Plugins" tabs are hidden (Live TV only)
+
+---
+
+### Story 11.2: Channel Selection Tab (Live TV)
+
+As an admin,
+I want to select channels from within the admin modal,
+So that channel control is consolidated with other admin functions.
+
+**Acceptance Criteria:**
+
+**Given** I am on Live TV view and open the admin modal
+**When** I navigate to the "Channels" tab
+**Then** I see the existing channel list component
+
+**Given** I select a channel from the modal
+**When** selection completes
+**Then** the channel changes for all viewers
+**And** the modal closes automatically
+
+---
+
+### Story 11.3: Admin Button in MainView Header
+
+As an admin on Live TV,
+I want an admin button replacing the hamburger menu,
+So that I can access the admin modal.
+
+**Acceptance Criteria:**
+
+**Given** I am logged in as admin on Live TV
+**When** the header renders
+**Then** I see an admin icon button (replacing the hamburger menu)
+**And** clicking it opens the admin modal
+
+**Given** I am logged in as viewer
+**When** the header renders
+**Then** I do NOT see the admin button
+
+---
+
+### Story 11.4: Admin Button in ErsatzTVView Header
+
+As an admin on ErsatzTV,
+I want the same admin button in the header,
+So that I have consistent access to admin functions.
+
+**Acceptance Criteria:**
+
+**Given** I am logged in as admin on ErsatzTV
+**When** the header renders
+**Then** I see the admin icon button at the same position as Live TV (left side)
+
+**Given** I click the admin button
+**When** the modal opens
+**Then** only "Active Users" and "User Access" tabs are visible (no Channels/Plugins)
+
+---
+
+### Story 11.5: Active Users & Bitrate Backend
+
+As the system,
+I want to track connected users, their activity, and stream bitrate usage,
+So that admins can monitor who is watching and bandwidth consumption.
+
+**Acceptance Criteria:**
+
+**Given** a user connects via WebSocket
+**When** they are authenticated
+**Then** their presence is tracked: userId, username, view (live/ersatztv), currentChannel, connectedSince, estimatedBitrate
+
+**Given** an admin requests active users
+**When** GET `/api/admin/active-users` is called
+**Then** return structured response with liveUsers, ersatztvUsers, and totals including bitrate
+
+**Given** a user disconnects
+**When** their WebSocket closes
+**Then** they are removed from the active users list
+
+**Given** a user changes channels
+**When** the channel updates
+**Then** their tracked currentChannel and estimatedBitrate update
+
+---
+
+### Story 11.6: Active Users Tab UI
+
+As an admin,
+I want to see who is currently watching and their bandwidth usage,
+So that I can monitor usage and resource consumption.
+
+**Acceptance Criteria:**
+
+**Given** I open the "Active Users" tab
+**When** the tab renders
+**Then** I see two sections: "Live TV" and "ErsatzTV"
+**And** I see total bandwidth summary at the top
+
+**Given** users are connected to Live TV
+**When** viewing the Live TV section
+**Then** I see each user with: username, current channel, duration, bitrate (e.g., "8.5 Mbps")
+**And** I see section subtotal: "2 users • 17.0 Mbps"
+
+**Given** users are connected to ErsatzTV
+**When** viewing the ErsatzTV section
+**Then** I see each user with: username, current channel, duration, bitrate
+**And** I see section subtotal
+
+**Given** no users are connected to a view
+**When** viewing that section
+**Then** I see "No active users" message
+
+---
+
+### Story 11.7: Placeholder Tabs (User Access & Plugins)
+
+As an admin,
+I want placeholder tabs for future features,
+So that the UI structure is ready for expansion.
+
+**Acceptance Criteria:**
+
+**Given** I open the "User Access" tab
+**When** the tab renders
+**Then** I see a placeholder message: "User access management coming soon"
+
+**Given** I am on Live TV and open the admin modal
+**When** I navigate to the "Plugins" tab
+**Then** I see a placeholder message: "Plugins management coming soon"
+
+**Given** I am on ErsatzTV
+**When** I open the admin modal
+**Then** the "Plugins" tab is NOT visible

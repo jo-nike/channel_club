@@ -139,6 +139,27 @@ export async function fetchCurrentChannel(): Promise<Channel | null> {
   return data.currentChannel
 }
 
+export async function clearCurrentChannel(): Promise<void> {
+  logger.debug('API', 'Clearing current channel')
+
+  const response = await fetchWithAuth('/channels/current', {
+    method: 'DELETE',
+  })
+
+  if (!response.ok) {
+    logger.error('API', `Failed to clear channel: ${response.status}`, {
+      status: response.status,
+      statusText: response.statusText,
+    })
+    if (response.status === 403) {
+      throw new Error('Only admins can clear the channel')
+    }
+    throw new Error('Failed to clear channel')
+  }
+
+  logger.info('API', 'Channel cleared')
+}
+
 export async function fetchNowPlaying(channelId: string): Promise<EPGResponse> {
   logger.debug('API', `Fetching now playing for channel: ${channelId}`)
 

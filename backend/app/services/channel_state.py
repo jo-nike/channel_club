@@ -56,10 +56,28 @@ async def set_current_channel(channel: Channel, user: str | None = None) -> Chan
 
 
 def clear_current_channel() -> None:
-    """Clear the current channel selection."""
+    """Clear the current channel selection (synchronous, no broadcast)."""
     global _current_channel
     log.debug("Clearing current channel selection")
     _current_channel = None
+
+
+async def clear_current_channel_async(user: str | None = None) -> None:
+    """Clear the current channel and broadcast to all clients.
+
+    Args:
+        user: Optional username of the user making the change.
+    """
+    global _current_channel
+    _current_channel = None
+
+    if user:
+        log.info("Current channel cleared by user '{}'", user)
+    else:
+        log.info("Current channel cleared")
+
+    # Broadcast to all connected clients
+    await broadcast({"type": "channel_update", "channel": None})
 
 
 async def connect(websocket: WebSocket) -> None:

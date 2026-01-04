@@ -114,11 +114,11 @@ export function EPGGrid({
         {/* Now marker */}
         {nowMarkerOffset > 0 && nowMarkerOffset < gridWidth && (
           <div
-            className="absolute top-0 bottom-0 z-30 w-0.5 bg-primary"
+            className="absolute top-0 bottom-0 z-30 w-0.5 bg-destructive"
             style={{ left: CHANNEL_LABEL_WIDTH + nowMarkerOffset }}
             data-testid="now-marker"
           >
-            <div className="absolute -top-1 -left-1.5 h-3 w-3 rounded-full bg-primary" />
+            <div className="absolute -top-1 -left-1.5 h-3 w-3 rounded-full bg-destructive" />
           </div>
         )}
 

@@ -71,7 +71,7 @@ describe('VideoPlayer', () => {
 
     render(<VideoPlayer />)
 
-    expect(screen.getByText('No channel selected')).toBeInTheDocument()
+    expect(screen.getByText('No live TV channel currently selected')).toBeInTheDocument()
   })
 
   it('renders video element when channel is selected', () => {
@@ -230,7 +230,7 @@ describe('VideoPlayer error recovery', () => {
 
     render(<VideoPlayer />)
 
-    expect(screen.getByText('No channel selected')).toBeInTheDocument()
+    expect(screen.getByText('No live TV channel currently selected')).toBeInTheDocument()
   })
 
   it('renders both error overlay and channel list area accessible during error', () => {

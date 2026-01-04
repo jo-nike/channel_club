@@ -391,6 +391,80 @@ class TestSetCurrentChannel:
         assert "guide_id" not in data
 
 
+class TestClearCurrentChannel:
+    """Tests for DELETE /api/channels/current endpoint."""
+
+    def test_requires_authentication(self, client: TestClient) -> None:
+        """Unauthenticated request returns 401."""
+        response = client.delete("/api/channels/current")
+        assert response.status_code == 401
+
+    def test_viewer_gets_403_forbidden(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Viewer role returns 403 Forbidden."""
+        response = client.delete("/api/channels/current", headers=auth_header)
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Admin access required"
+
+    def test_admin_can_clear_channel(
+        self, client: TestClient, admin_auth_header: dict[str, str]
+    ) -> None:
+        """Admin can clear current channel."""
+        # First set a channel
+        test_channel = Channel(
+            id="uuid-123",
+            name="TSN",
+            stream_url="https://streams.example.com/stream/uuid-123",
+            guide_id="1",
+        )
+        channel_state._current_channel = test_channel
+
+        response = client.delete("/api/channels/current", headers=admin_auth_header)
+
+        assert response.status_code == 200
+        assert response.json() == {"status": "cleared"}
+
+    def test_clear_channel_updates_state(
+        self,
+        client: TestClient,
+        admin_auth_header: dict[str, str],
+        auth_header: dict[str, str],
+    ) -> None:
+        """Clearing channel updates the state that GET returns."""
+        # Set a channel
+        test_channel = Channel(
+            id="uuid-789",
+            name="CBC",
+            stream_url="https://streams.example.com/stream/uuid-789",
+            guide_id="3",
+        )
+        channel_state._current_channel = test_channel
+
+        # Clear the channel as admin
+        client.delete("/api/channels/current", headers=admin_auth_header)
+
+        # Verify it's cleared by GET (as viewer)
+        response = client.get("/api/channels/current", headers=auth_header)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["currentChannel"] is None
+
+    def test_clear_when_no_channel_set(
+        self, client: TestClient, admin_auth_header: dict[str, str]
+    ) -> None:
+        """Clearing when no channel is set still succeeds."""
+        # Ensure no channel is set
+        channel_state.clear_current_channel()
+
+        response = client.delete("/api/channels/current", headers=admin_auth_header)
+
+        assert response.status_code == 200
+        assert response.json() == {"status": "cleared"}
+
+
 class TestChannelsLogging:
     """Tests for channels router logging."""
 

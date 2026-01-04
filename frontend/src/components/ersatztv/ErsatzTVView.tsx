@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { Tv, LayoutList, RefreshCw } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useTheme } from '@/hooks/useTheme'
@@ -24,6 +24,7 @@ const REFRESH_INTERVAL = 5 * 60 * 1000
 
 export function ErsatzTVView() {
   const { logout } = useAuth()
+  const navigate = useNavigate()
 
   // Initialize theme - ensures theme syncs across views
   useTheme()
@@ -170,6 +171,13 @@ export function ErsatzTVView() {
     [selectChannel, setLastErsatzTVChannelId]
   )
 
+  // Handle Live TV navigation - update state synchronously before navigating
+  // to avoid race condition with async effects
+  const handleLiveTVClick = useCallback(() => {
+    setLastRoute('/')
+    navigate('/')
+  }, [setLastRoute, navigate])
+
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
       {/* Header - hidden in theater mode or mobile landscape */}
@@ -204,14 +212,14 @@ export function ErsatzTVView() {
             </button>
           )}
 
-          {/* Live TV link - matches MainView Movie Channels button */}
-          <Link
-            to="/"
+          {/* Live TV button - uses callback to ensure state sync before navigation */}
+          <button
+            onClick={handleLiveTVClick}
             className="h-8 px-3 md:w-[130px] flex items-center justify-center gap-2 bg-secondary text-secondary-foreground rounded-md text-sm hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
           >
             <Tv className="h-4 w-4 shrink-0" />
             <span className="hidden md:inline">Live TV</span>
-          </Link>
+          </button>
           <button
             onClick={() => setVideoRefreshKey((k) => k + 1)}
             className="h-8 w-8 flex items-center justify-center bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"

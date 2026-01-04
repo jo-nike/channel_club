@@ -88,3 +88,23 @@ async def set_current_channel(
         guide_id=request.guide_id,
     )
     return await channel_state.set_current_channel(channel, user=current_user.sub)
+
+
+@router.delete("/channels/current")
+async def clear_current_channel(
+    current_user: TokenPayload = Depends(require_admin),
+) -> dict:
+    """Clear the current channel selection (admin only).
+
+    Requires admin role. Clears the current channel state and broadcasts
+    to all WebSocket clients.
+
+    Args:
+        current_user: Authenticated admin user from JWT token.
+
+    Returns:
+        Status confirmation dict.
+    """
+    log.info("Admin {} clearing current channel", current_user.sub)
+    await channel_state.clear_current_channel_async()
+    return {"status": "cleared"}

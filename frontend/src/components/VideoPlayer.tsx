@@ -328,8 +328,10 @@ export function ErrorOverlay({ message }: { message: string }) {
 
 function VideoPlayerPlaceholder() {
   return (
-    <div className="flex aspect-video w-full items-center justify-center bg-black">
-      <p className="text-lg text-muted-foreground">No channel selected</p>
+    <div className="flex h-full w-full items-center justify-center bg-black">
+      <p className="text-lg text-muted-foreground">
+        No live TV channel currently selected
+      </p>
     </div>
   )
 }
