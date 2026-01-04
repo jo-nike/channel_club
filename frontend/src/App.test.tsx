@@ -1,7 +1,63 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
+import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { App } from './App'
+import { MainView } from '@/components/MainView'
 import { useAuthStore } from '@/stores/authStore'
+import { useChannelStore } from '@/stores/channelStore'
+import { useUIStore } from '@/stores/uiStore'
+import * as api from '@/services/api'
+
+vi.mock('@/services/api', () => ({
+  fetchChannels: vi.fn(),
+  fetchNowPlaying: vi.fn(),
+}))
+
+// Mock Vidstack web components
+beforeEach(() => {
+  if (!customElements.get('media-player')) {
+    customElements.define(
+      'media-player',
+      class extends HTMLElement {
+        subscribe(callback: (state: Record<string, unknown>) => void) {
+          callback({
+            error: undefined,
+            waiting: false,
+            playing: false,
+            canPlay: false,
+          })
+          return () => {}
+        }
+      }
+    )
+  }
+  if (!customElements.get('media-outlet')) {
+    customElements.define('media-outlet', class extends HTMLElement {})
+  }
+  if (!customElements.get('media-community-skin')) {
+    customElements.define('media-community-skin', class extends HTMLElement {})
+  }
+})
+
+// Helper to render App with routing context
+const renderWithRouter = () => {
+  const router = createMemoryRouter(
+    [
+      {
+        path: '/',
+        element: <App />,
+        children: [
+          {
+            index: true,
+            element: <MainView />,
+          },
+        ],
+      },
+    ],
+    { initialEntries: ['/'] }
+  )
+  return render(<RouterProvider router={router} />)
+}
 
 describe('App', () => {
   beforeEach(() => {
@@ -10,19 +66,31 @@ describe('App', () => {
       token: null,
       role: null,
       isAuthenticated: false,
+      isInitializing: false,
     })
+    useChannelStore.setState({
+      channels: [],
+      currentChannel: null,
+      isLoading: false,
+      error: null,
+    })
+    useUIStore.setState({
+      isTheaterMode: false,
+      isSidebarOpen: false,
+    })
+    vi.mocked(api.fetchChannels).mockResolvedValue([])
   })
 
   describe('unauthenticated state', () => {
     it('should show LoginForm when not authenticated', () => {
-      render(<App />)
+      renderWithRouter()
 
       expect(screen.getByLabelText(/username/i)).toBeInTheDocument()
       expect(screen.getByLabelText(/password/i)).toBeInTheDocument()
     })
 
     it('should not show MainView when not authenticated', () => {
-      render(<App />)
+      renderWithRouter()
 
       expect(screen.queryByRole('button', { name: /logout/i })).not.toBeInTheDocument()
     })
@@ -38,11 +106,12 @@ describe('App', () => {
         token,
         role: 'admin',
         isAuthenticated: true,
+        isInitializing: false,
       })
     })
 
     it('should show MainView when authenticated with valid token', () => {
-      render(<App />)
+      renderWithRouter()
 
       expect(screen.getByRole('button', { name: /logout/i })).toBeInTheDocument()
       // MainView is rendered - check for connection status indicator
@@ -50,7 +119,7 @@ describe('App', () => {
     })
 
     it('should not show LoginForm when authenticated', () => {
-      render(<App />)
+      renderWithRouter()
 
       expect(screen.queryByLabelText(/username/i)).not.toBeInTheDocument()
     })
@@ -67,10 +136,11 @@ describe('App', () => {
         token,
         role: 'admin',
         isAuthenticated: true,
+        isInitializing: false,
         logout: logoutSpy,
       })
 
-      render(<App />)
+      renderWithRouter()
 
       await waitFor(() => {
         expect(logoutSpy).toHaveBeenCalled()
@@ -84,10 +154,11 @@ describe('App', () => {
         token: 'invalid-malformed-token',
         role: 'admin',
         isAuthenticated: true,
+        isInitializing: false,
         logout: logoutSpy,
       })
 
-      render(<App />)
+      renderWithRouter()
 
       await waitFor(() => {
         expect(logoutSpy).toHaveBeenCalled()
@@ -104,9 +175,10 @@ describe('App', () => {
         token,
         role: 'admin',
         isAuthenticated: true,
+        isInitializing: false,
       })
 
-      render(<App />)
+      renderWithRouter()
 
       expect(screen.getByText(/channel selection/i)).toBeInTheDocument()
     })
@@ -119,9 +191,10 @@ describe('App', () => {
         token,
         role: 'viewer',
         isAuthenticated: true,
+        isInitializing: false,
       })
 
-      render(<App />)
+      renderWithRouter()
 
       expect(screen.queryByText(/channel selection/i)).not.toBeInTheDocument()
     })

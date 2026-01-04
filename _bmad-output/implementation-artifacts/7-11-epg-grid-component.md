@@ -1,6 +1,6 @@
 # Story 7.11: EPG Grid Component
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -18,32 +18,32 @@ so that I can see what's on now and coming up.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create EPGGrid container component (AC: #1, #2)
-  - [ ] Create `src/components/ersatztv/EPGGrid.tsx`
-  - [ ] Implement time header with 30-minute slots
-  - [ ] Render channel rows from ersatztvStore
-  - [ ] Calculate programme box widths based on duration
-- [ ] Task 2: Implement now marker (AC: #3)
-  - [ ] Calculate current time position in grid
-  - [ ] Render vertical line at current time
-  - [ ] Update marker position every minute
-- [ ] Task 3: Enable horizontal scrolling (AC: #4)
-  - [ ] Add overflow-x-auto to grid container
-  - [ ] Set appropriate grid width based on time range
-  - [ ] Auto-scroll to current time on load
-- [ ] Task 4: Implement programme click handler (AC: #5)
-  - [ ] Add onClick to programme boxes
-  - [ ] Pass selected programme to parent via callback
-  - [ ] Parent will open modal (story 7-12)
-- [ ] Task 5: Fetch programme data for grid
-  - [ ] Load programmes for all channels on mount
-  - [ ] Set time window (default 6 hours)
-  - [ ] Handle loading and error states
-- [ ] Task 6: Write tests
-  - [ ] Test time header rendering
-  - [ ] Test programme box positioning
-  - [ ] Test now marker updates
-  - [ ] Test programme click callback
+- [x] Task 1: Create EPGGrid container component (AC: #1, #2)
+  - [x] Create `src/components/ersatztv/EPGGrid.tsx`
+  - [x] Implement time header with 30-minute slots
+  - [x] Render channel rows from ersatztvStore
+  - [x] Calculate programme box widths based on duration
+- [x] Task 2: Implement now marker (AC: #3)
+  - [x] Calculate current time position in grid
+  - [x] Render vertical line at current time
+  - [x] Update marker position every minute
+- [x] Task 3: Enable horizontal scrolling (AC: #4)
+  - [x] Add overflow-x-auto to grid container
+  - [x] Set appropriate grid width based on time range
+  - [x] Auto-scroll to current time on load
+- [x] Task 4: Implement programme click handler (AC: #5)
+  - [x] Add onClick to programme boxes
+  - [x] Pass selected programme to parent via callback
+  - [x] Parent will open modal (story 7-12)
+- [x] Task 5: Fetch programme data for grid
+  - [x] Load programmes for all channels on mount
+  - [x] Set time window (default 6 hours)
+  - [x] Handle loading and error states
+- [x] Task 6: Write tests
+  - [x] Test time header rendering
+  - [x] Test programme box positioning
+  - [x] Test now marker updates
+  - [x] Test programme click callback
 
 ## Dev Notes
 
@@ -454,11 +454,31 @@ describe('EPGGrid', () => {
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.5 (claude-opus-4-5-20251101)
 
 ### Debug Log References
 
+None - implementation completed without issues.
+
 ### Completion Notes List
 
+- Implemented EPGGrid component with all required functionality:
+  - Time header showing 30-minute interval slots
+  - Channel rows with programme boxes positioned by time
+  - Now marker line updated every minute
+  - Horizontal scrolling with auto-scroll to current time on load
+  - Programme click callback for opening details modal
+- Used TDD approach - wrote failing tests first, then implemented code
+- All 13 tests pass covering: skeleton loading, time slots, channel rows, programme boxes, now marker, click handlers, scrolling, data fetching, error handling
+- Component follows project patterns: named exports, Tailwind CSS, Zustand store integration
+- Helper functions for time calculations ensure maintainability
+
+### Change Log
+
+- 2026-01-03: Initial implementation of EPGGrid component with full test coverage
+
 ### File List
+
+- frontend/src/components/ersatztv/EPGGrid.tsx (new)
+- frontend/src/components/ersatztv/EPGGrid.test.tsx (new)
 

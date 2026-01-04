@@ -1,6 +1,6 @@
 # Story 7.10: EPG Channel Sidebar
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -17,28 +17,28 @@ so that I can browse and select what to watch.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create EPGChannelSidebar component (AC: #1)
-  - [ ] Create `src/components/ersatztv/EPGChannelSidebar.tsx`
-  - [ ] Render channel list from ersatztvStore
-  - [ ] Display channel logo, number, and name
-  - [ ] Handle loading and error states
-- [ ] Task 2: Display current programme (AC: #2)
-  - [ ] Fetch current programme for each visible channel
-  - [ ] Display programme title below channel name
-  - [ ] Handle missing programme data gracefully
-- [ ] Task 3: Implement channel selection (AC: #3)
-  - [ ] Handle click events on channel items
-  - [ ] Call selectChannel action from store
-  - [ ] Update video player with new stream
-- [ ] Task 4: Add currently playing highlight (AC: #4)
-  - [ ] Compare channel.id with selectedChannel.id
-  - [ ] Apply distinct visual styling (border, background)
-  - [ ] Ensure 10-foot UI visibility
-- [ ] Task 5: Write tests
-  - [ ] Test channel list rendering
-  - [ ] Test channel selection callback
-  - [ ] Test currently playing highlight
-  - [ ] Test loading/error states
+- [x] Task 1: Create EPGChannelSidebar component (AC: #1)
+  - [x] Create `src/components/ersatztv/EPGChannelSidebar.tsx`
+  - [x] Render channel list from ersatztvStore
+  - [x] Display channel logo, number, and name
+  - [x] Handle loading and error states
+- [x] Task 2: Display current programme (AC: #2)
+  - [x] Fetch current programme for each visible channel
+  - [x] Display programme title below channel name
+  - [x] Handle missing programme data gracefully
+- [x] Task 3: Implement channel selection (AC: #3)
+  - [x] Handle click events on channel items
+  - [x] Call selectChannel action from store
+  - [x] Update video player with new stream
+- [x] Task 4: Add currently playing highlight (AC: #4)
+  - [x] Compare channel.id with selectedChannel.id
+  - [x] Apply distinct visual styling (border, background)
+  - [x] Ensure 10-foot UI visibility
+- [x] Task 5: Write tests
+  - [x] Test channel list rendering
+  - [x] Test channel selection callback
+  - [x] Test currently playing highlight
+  - [x] Test loading/error states
 
 ## Dev Notes
 
@@ -373,11 +373,31 @@ describe('EPGChannelSidebar', () => {
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.5 (claude-opus-4-5-20251101)
 
 ### Debug Log References
 
+None required - implementation proceeded without issues.
+
 ### Completion Notes List
 
+- Created EPGChannelSidebar component with full channel list display functionality
+- Implemented per-channel current programme fetching with batch requests and 5-minute refresh interval
+- Channel selection updates store and triggers optional callback for parent components
+- Currently playing channel highlighted with primary color border, background tint, and animated pulse indicator
+- Loading skeleton provides smooth UX during initial load
+- Error state with retry button for failed channel fetches
+- 17 comprehensive tests covering all acceptance criteria
+- All tests pass (386 total tests, no regressions)
+- Linting passes with no errors
+- 10-foot UI compliant with proper touch targets, focus states, and accessibility attributes
+
 ### File List
+
+- frontend/src/components/ersatztv/EPGChannelSidebar.tsx (new)
+- frontend/src/components/ersatztv/EPGChannelSidebar.test.tsx (new)
+
+## Change Log
+
+- 2026-01-03: Implemented EPGChannelSidebar component with channel list, programme display, selection, and highlight functionality. Added 17 tests.
 

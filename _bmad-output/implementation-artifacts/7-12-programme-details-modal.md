@@ -1,6 +1,6 @@
 # Story 7.12: Programme Details Modal
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -16,28 +16,28 @@ so that I can decide if I want to watch it.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create ProgrammeDetailsModal component (AC: #1)
-  - [ ] Create `src/components/ersatztv/ProgrammeDetailsModal.tsx`
-  - [ ] Display programme title prominently
-  - [ ] Show formatted time range (start - end)
-  - [ ] Display description text
-  - [ ] Show category/genre badges if available
-- [ ] Task 2: Implement Watch button (AC: #2)
-  - [ ] Add "Watch" button with primary styling
-  - [ ] Call onWatch callback with channel info
-  - [ ] Close modal after watch is triggered
-- [ ] Task 3: Implement modal closing (AC: #3)
-  - [ ] Close on backdrop click
-  - [ ] Close on Escape key press
-  - [ ] Add explicit close button (X)
-- [ ] Task 4: Add accessibility features
-  - [ ] Focus trap within modal
-  - [ ] Restore focus on close
-  - [ ] ARIA labels and roles
-- [ ] Task 5: Write tests
-  - [ ] Test programme details display
-  - [ ] Test Watch button callback
-  - [ ] Test close interactions
+- [x] Task 1: Create ProgrammeDetailsModal component (AC: #1)
+  - [x] Create `src/components/ersatztv/ProgrammeDetailsModal.tsx`
+  - [x] Display programme title prominently
+  - [x] Show formatted time range (start - end)
+  - [x] Display description text
+  - [x] Show category/genre badges if available
+- [x] Task 2: Implement Watch button (AC: #2)
+  - [x] Add "Watch" button with primary styling
+  - [x] Call onWatch callback with channel info
+  - [x] Close modal after watch is triggered
+- [x] Task 3: Implement modal closing (AC: #3)
+  - [x] Close on backdrop click
+  - [x] Close on Escape key press
+  - [x] Add explicit close button (X)
+- [x] Task 4: Add accessibility features
+  - [x] Focus trap within modal
+  - [x] Restore focus on close
+  - [x] ARIA labels and roles
+- [x] Task 5: Write tests
+  - [x] Test programme details display
+  - [x] Test Watch button callback
+  - [x] Test close interactions
 
 ## Dev Notes
 
@@ -406,11 +406,37 @@ describe('ProgrammeDetailsModal', () => {
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.5 (claude-opus-4-5-20251101)
 
 ### Debug Log References
 
+None - implementation completed without issues.
+
 ### Completion Notes List
 
+- Implemented ProgrammeDetailsModal component using shadcn/ui Dialog, Button, and Badge
+- Added Dialog and Badge shadcn/ui components (dialog.tsx, badge.tsx)
+- Component displays programme title, formatted time range with duration, channel name, description, and category badges
+- Watch Now button triggers onWatch callback with channel info and closes modal
+- Modal closes on backdrop click (via Radix Dialog), Escape key (via Radix Dialog), explicit Close button, and X icon
+- Accessibility features provided by Radix Dialog: focus trap, focus restoration, ARIA roles
+- All 15 unit tests pass covering details display, callbacks, close interactions, and null handling
+- Full regression suite passes (414 tests)
+- Linting passes
+
 ### File List
+
+**New files:**
+- frontend/src/components/ersatztv/ProgrammeDetailsModal.tsx
+- frontend/src/components/ersatztv/ProgrammeDetailsModal.test.tsx
+- frontend/src/components/ui/dialog.tsx (shadcn/ui)
+- frontend/src/components/ui/badge.tsx (shadcn/ui)
+
+**Modified files:**
+- frontend/package.json (added @radix-ui/react-dialog dependency)
+- frontend/package-lock.json
+
+## Change Log
+
+- 2026-01-03: Implemented ProgrammeDetailsModal component with shadcn/ui Dialog, full test coverage, and accessibility support
 

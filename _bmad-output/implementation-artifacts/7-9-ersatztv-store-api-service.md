@@ -1,6 +1,6 @@
 # Story 7.9: ErsatzTV Store & API Service
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -16,27 +16,27 @@ so that components can access ErsatzTV data.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create ErsatzTV types (AC: #1, #2, #3)
-  - [ ] Add `ErsatzTVChannel` interface to `src/types/index.ts`
-  - [ ] Add `ErsatzTVProgramme` interface
-  - [ ] Add `ErsatzTVCurrentResponse` interface
-- [ ] Task 2: Create ersatztvApi service (AC: #2, #3)
-  - [ ] Create `src/services/ersatztvApi.ts`
-  - [ ] Implement `fetchChannels()` function
-  - [ ] Implement `fetchProgrammes(channelId, hours)` function
-  - [ ] Implement `fetchCurrentProgramme(channelId)` function
-  - [ ] Implement `getStreamUrl(channelId)` helper function
-  - [ ] Implement `getLogoUrl(channelId)` helper function
-- [ ] Task 3: Create ersatztvStore (AC: #1)
-  - [ ] Create `src/stores/ersatztvStore.ts`
-  - [ ] Define state: channels, selectedChannel, programmes, loading, error
-  - [ ] Implement loadChannels action
-  - [ ] Implement selectChannel action
-  - [ ] Implement loadProgrammes action
-- [ ] Task 4: Write tests
-  - [ ] Test API service functions with mocked fetch
-  - [ ] Test store state changes
-  - [ ] Test error handling
+- [x] Task 1: Create ErsatzTV types (AC: #1, #2, #3)
+  - [x] Add `ErsatzTVChannel` interface to `src/types/index.ts`
+  - [x] Add `ErsatzTVProgramme` interface
+  - [x] Add `ErsatzTVCurrentResponse` interface
+- [x] Task 2: Create ersatztvApi service (AC: #2, #3)
+  - [x] Create `src/services/ersatztvApi.ts`
+  - [x] Implement `fetchChannels()` function
+  - [x] Implement `fetchProgrammes(channelId, hours)` function
+  - [x] Implement `fetchCurrentProgramme(channelId)` function
+  - [x] Implement `getStreamUrl(channelId)` helper function
+  - [x] Implement `getLogoUrl(channelId)` helper function
+- [x] Task 3: Create ersatztvStore (AC: #1)
+  - [x] Create `src/stores/ersatztvStore.ts`
+  - [x] Define state: channels, selectedChannel, programmes, loading, error
+  - [x] Implement loadChannels action
+  - [x] Implement selectChannel action
+  - [x] Implement loadProgrammes action
+- [x] Task 4: Write tests
+  - [x] Test API service functions with mocked fetch
+  - [x] Test store state changes
+  - [x] Test error handling
 
 ## Dev Notes
 
@@ -403,11 +403,41 @@ describe('ersatztvStore', () => {
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+claude-opus-4-5-20251101
 
 ### Debug Log References
 
+None
+
 ### Completion Notes List
 
+- Implemented ErsatzTV types in `src/types/index.ts`: ErsatzTVChannel, ErsatzTVProgramme, ErsatzTVChannelsResponse, ErsatzTVCurrentResponse, ErsatzTVProgrammesResponse
+- Created `ersatztvApi.ts` service with:
+  - `fetchErsatzTVChannels()` - fetches channels from `/api/ersatztv/channels` with auth
+  - `fetchErsatzTVProgrammes(channelId, hours)` - fetches programmes for a channel
+  - `fetchErsatzTVCurrentProgramme(channelId)` - fetches current/next programme
+  - `getErsatzTVStreamUrl(channelId)` - returns proxied HLS stream URL with token
+  - `getErsatzTVLogoUrl(channelId)` - returns logo URL
+- Created `useErsatztvStore` Zustand store with:
+  - State: channels, selectedChannel, programmes, currentProgramme, nextProgramme, loading, error
+  - Actions: loadChannels, selectChannel, loadProgrammes, loadCurrentProgramme, clearError
+- Comprehensive test coverage: 24 tests (13 store tests, 11 API tests) all passing
+- All 96 frontend tests pass (no regressions)
+- TypeScript type checking passes
+- ESLint passes with no errors
+
+### Change Log
+
+- 2026-01-03: Implemented ErsatzTV store and API service (Story 7.9)
+
 ### File List
+
+**New files:**
+- frontend/src/services/ersatztvApi.ts
+- frontend/src/services/ersatztvApi.test.ts
+- frontend/src/stores/ersatztvStore.ts
+- frontend/src/stores/ersatztvStore.test.ts
+
+**Modified files:**
+- frontend/src/types/index.ts
 

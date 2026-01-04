@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react'
-import { Menu, X } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Menu, X, Film } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useBreakpoint } from '@/hooks/useBreakpoint'
@@ -88,6 +89,14 @@ export function MainView() {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* ErsatzTV (Movie Channels) link */}
+            <Link
+              to="/ersatztv"
+              className="h-12 px-4 flex items-center gap-2 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            >
+              <Film className="h-5 w-5 shrink-0" />
+              <span className="hidden md:inline">Movie Channels</span>
+            </Link>
             {/* Menu button - visible on all breakpoints for admin */}
             {isAdmin && (
               <button

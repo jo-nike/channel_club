@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { MainView } from './MainView'
 import { useAuthStore } from '@/stores/authStore'
 import { useChannelStore } from '@/stores/channelStore'
@@ -10,6 +11,11 @@ vi.mock('@/services/api', () => ({
   fetchChannels: vi.fn(),
   fetchNowPlaying: vi.fn(),
 }))
+
+// Helper to render MainView with router context
+const renderWithRouter = (ui: React.ReactElement = <MainView />) => {
+  return render(<MemoryRouter>{ui}</MemoryRouter>)
+}
 
 // Helper to mock window width for responsive tests
 const mockWindowWidth = (width: number) => {
@@ -95,7 +101,7 @@ describe('MainView', () => {
 
   describe('layout', () => {
     it('should render header with connection status and logout button', () => {
-      render(<MainView />)
+      renderWithRouter()
 
       // Header contains connection status and logout button
       expect(screen.getByRole('status')).toBeInTheDocument()
@@ -103,13 +109,13 @@ describe('MainView', () => {
     })
 
     it('should render logout button', () => {
-      render(<MainView />)
+      renderWithRouter()
 
       expect(screen.getByRole('button', { name: /logout/i })).toBeInTheDocument()
     })
 
     it('should render video player area', () => {
-      render(<MainView />)
+      renderWithRouter()
 
       // VideoPlayer shows placeholder when no channel selected
       // Note: "No channel selected" appears in both header and video player area
@@ -118,7 +124,7 @@ describe('MainView', () => {
 
     it('should display "No channel selected" in header when no channel is selected', () => {
       useChannelStore.setState({ currentChannel: null })
-      render(<MainView />)
+      renderWithRouter()
 
       // Header should show "No channel selected"
       const headerChannelTexts = screen.getAllByText(/no channel selected/i)
@@ -130,7 +136,7 @@ describe('MainView', () => {
       useChannelStore.setState({
         currentChannel: { id: '1', name: 'Test Channel', streamUrl: 'http://test.com/stream.m3u8', guideId: '1' },
       })
-      render(<MainView />)
+      renderWithRouter()
 
       expect(screen.getByText('Test Channel')).toBeInTheDocument()
     })
@@ -147,7 +153,7 @@ describe('MainView', () => {
       useChannelStore.setState({
         currentChannel: { id: '1', name: 'CNN', streamUrl: 'http://test.com/stream.m3u8', guideId: '1' },
       })
-      render(<MainView />)
+      renderWithRouter()
 
       // Wait for EPG data to load and display
       await screen.findByText('CNN - Morning News')
@@ -161,7 +167,7 @@ describe('MainView', () => {
       useChannelStore.setState({
         currentChannel: { id: '1', name: 'ESPN', streamUrl: 'http://test.com/stream.m3u8', guideId: '1' },
       })
-      render(<MainView />)
+      renderWithRouter()
 
       // Should show only channel name when no program data
       expect(screen.getByText('ESPN')).toBeInTheDocument()
@@ -172,14 +178,14 @@ describe('MainView', () => {
       useChannelStore.setState({
         currentChannel: { id: '1', name: 'BBC', streamUrl: 'http://test.com/stream.m3u8', guideId: '1' },
       })
-      render(<MainView />)
+      renderWithRouter()
 
       // Should gracefully show only channel name on error (no error displayed)
       expect(screen.getByText('BBC')).toBeInTheDocument()
     })
 
     it('should have reduced header padding (p-2)', () => {
-      render(<MainView />)
+      renderWithRouter()
 
       const header = document.querySelector('header')
       expect(header).not.toBeNull()
@@ -200,7 +206,7 @@ describe('MainView', () => {
     })
 
     it('should show AdminControls for admin users', () => {
-      render(<MainView />)
+      renderWithRouter()
 
       expect(screen.getByText(/channel selection/i)).toBeInTheDocument()
     })
@@ -219,7 +225,7 @@ describe('MainView', () => {
     })
 
     it('should still show video player area for viewers', () => {
-      render(<MainView />)
+      renderWithRouter()
 
       // VideoPlayer shows placeholder when no channel selected
       // Note: "No channel selected" appears in both header and video player area
@@ -229,17 +235,17 @@ describe('MainView', () => {
     describe('channel list hidden for viewers (AC: #1, #3)', () => {
       it('should NOT show channel list sidebar on desktop for viewers', () => {
         mockWindowWidth(1200)
-        render(<MainView />)
+        renderWithRouter()
 
-        // Viewer should NOT see any sidebar content
-        expect(screen.queryByText(/channels/i)).not.toBeInTheDocument()
+        // Viewer should NOT see the channel selection sidebar content
+        // Note: "Movie Channels" link is visible for navigation, but channel list is hidden
         expect(screen.queryByText(/channel selection/i)).not.toBeInTheDocument()
         expect(screen.queryByText(/no channels available/i)).not.toBeInTheDocument()
       })
 
       it('should NOT show hamburger menu button for viewers on tablet', () => {
         mockWindowWidth(900)
-        render(<MainView />)
+        renderWithRouter()
 
         // Viewer should NOT see the menu button
         expect(screen.queryByRole('button', { name: /open channel list/i })).not.toBeInTheDocument()
@@ -247,7 +253,7 @@ describe('MainView', () => {
 
       it('should NOT show hamburger menu button for viewers on mobile', () => {
         mockWindowWidth(500)
-        render(<MainView />)
+        renderWithRouter()
 
         // Viewer should NOT see any menu buttons (header or FAB)
         expect(screen.queryByRole('button', { name: /open channel list/i })).not.toBeInTheDocument()
@@ -255,7 +261,7 @@ describe('MainView', () => {
 
       it('should NOT show mobile FAB for viewers', () => {
         mockWindowWidth(500)
-        render(<MainView />)
+        renderWithRouter()
 
         // Viewer should NOT see the FAB
         expect(screen.queryByRole('button', { name: /open channel list/i })).not.toBeInTheDocument()
@@ -263,7 +269,7 @@ describe('MainView', () => {
 
       it('should NOT render sidebar overlay for viewers on tablet', () => {
         mockWindowWidth(900)
-        render(<MainView />)
+        renderWithRouter()
 
         // No sidebar drawer should exist for viewers
         expect(document.querySelector('aside[aria-label="Channel list"]')).toBeNull()
@@ -271,7 +277,7 @@ describe('MainView', () => {
 
       it('should NOT render sidebar overlay for viewers on mobile', () => {
         mockWindowWidth(500)
-        render(<MainView />)
+        renderWithRouter()
 
         // No sidebar drawer should exist for viewers
         expect(document.querySelector('aside[aria-label="Channel list"]')).toBeNull()
@@ -281,7 +287,7 @@ describe('MainView', () => {
     describe('full-width video for viewers (AC: #2)', () => {
       it('should have video take full width on desktop when sidebar hidden', () => {
         mockWindowWidth(1200)
-        render(<MainView />)
+        renderWithRouter()
 
         // Video container should have flex-1 and no sidebar reducing its width
         const mainContent = document.querySelector('main')
@@ -307,7 +313,7 @@ describe('MainView', () => {
         logout: logoutSpy,
       })
 
-      render(<MainView />)
+      renderWithRouter()
 
       fireEvent.click(screen.getByRole('button', { name: /logout/i }))
 
@@ -317,7 +323,7 @@ describe('MainView', () => {
 
   describe('10-foot UI compliance', () => {
     it('should have minimum height logout button for touch targets', () => {
-      render(<MainView />)
+      renderWithRouter()
 
       const logoutButton = screen.getByRole('button', { name: /logout/i })
       // Button should have h-12 class (48px height for 10-foot UI)
@@ -325,7 +331,7 @@ describe('MainView', () => {
     })
 
     it('should have visible focus state on logout button', () => {
-      render(<MainView />)
+      renderWithRouter()
 
       const logoutButton = screen.getByRole('button', { name: /logout/i })
       // Button should have focus-visible styling
@@ -334,21 +340,21 @@ describe('MainView', () => {
 
     describe('logout button text overflow fix (Story 6-6)', () => {
       it('should have whitespace-nowrap to prevent text wrapping (AC: #1, #2)', () => {
-        render(<MainView />)
+        renderWithRouter()
 
         const logoutButton = screen.getByRole('button', { name: /logout/i })
         expect(logoutButton.className).toContain('whitespace-nowrap')
       })
 
       it('should have shrink-0 to prevent flex shrinking (AC: #1, #2)', () => {
-        render(<MainView />)
+        renderWithRouter()
 
         const logoutButton = screen.getByRole('button', { name: /logout/i })
         expect(logoutButton.className).toContain('shrink-0')
       })
 
       it('should maintain 44px minimum height requirement (AC: #3)', () => {
-        render(<MainView />)
+        renderWithRouter()
 
         const logoutButton = screen.getByRole('button', { name: /logout/i })
         // h-12 = 48px which exceeds 44px minimum
@@ -357,7 +363,7 @@ describe('MainView', () => {
 
       it('should have responsive padding for narrow viewports (AC: #4)', () => {
         mockWindowWidth(500) // Mobile viewport
-        render(<MainView />)
+        renderWithRouter()
 
         const logoutButton = screen.getByRole('button', { name: /logout/i })
         // Should have mobile-first padding with larger padding on md+
@@ -367,7 +373,7 @@ describe('MainView', () => {
 
       it('should have responsive text size for narrow viewports (AC: #4)', () => {
         mockWindowWidth(500) // Mobile viewport
-        render(<MainView />)
+        renderWithRouter()
 
         const logoutButton = screen.getByRole('button', { name: /logout/i })
         // Should have smaller text on mobile, larger on md+
@@ -378,21 +384,21 @@ describe('MainView', () => {
 
     it('should apply tv-mode class to body on large screens', () => {
       mockWindowWidth(1400) // Large screen triggers TV mode
-      render(<MainView />)
+      renderWithRouter()
 
       expect(document.body.classList.contains('tv-mode')).toBe(true)
     })
 
     it('should not apply tv-mode class to body on small screens', () => {
       mockWindowWidth(1000) // Small screen
-      render(<MainView />)
+      renderWithRouter()
 
       expect(document.body.classList.contains('tv-mode')).toBe(false)
     })
 
     it('should remove tv-mode class from body on component unmount', () => {
       mockWindowWidth(1400) // Large screen triggers TV mode
-      const { unmount } = render(<MainView />)
+      const { unmount } = renderWithRouter()
 
       expect(document.body.classList.contains('tv-mode')).toBe(true)
 
@@ -411,14 +417,14 @@ describe('MainView', () => {
       })
 
       it('should show hamburger menu button on desktop for admin (AC: #1)', () => {
-        render(<MainView />)
+        renderWithRouter()
 
         // Menu button should be visible on desktop for admin
         expect(screen.getByRole('button', { name: /open channel list/i })).toBeInTheDocument()
       })
 
       it('should NOT show pinned sidebar on desktop (AC: #2)', () => {
-        render(<MainView />)
+        renderWithRouter()
 
         // No pinned sidebar in main content area - video takes full width
         const mainContent = document.querySelector('main')
@@ -430,7 +436,7 @@ describe('MainView', () => {
       })
 
       it('should show drawer when hamburger menu clicked on desktop (AC: #3)', () => {
-        render(<MainView />)
+        renderWithRouter()
 
         const menuButton = screen.getByRole('button', { name: /open channel list/i })
         fireEvent.click(menuButton)
@@ -443,7 +449,7 @@ describe('MainView', () => {
 
       it('should show drawer with fixed width on desktop', () => {
         useUIStore.setState({ isSidebarOpen: true })
-        render(<MainView />)
+        renderWithRouter()
 
         const sidebar = document.querySelector('aside[aria-label="Channel list"]')
         expect(sidebar).not.toBeNull()
@@ -454,7 +460,7 @@ describe('MainView', () => {
 
       it('should show Channel Selection heading in sidebar drawer', () => {
         useUIStore.setState({ isSidebarOpen: true })
-        render(<MainView />)
+        renderWithRouter()
 
         expect(screen.getByRole('heading', { name: /channel selection/i })).toBeInTheDocument()
       })
@@ -466,13 +472,13 @@ describe('MainView', () => {
       })
 
       it('should show menu button on tablet', () => {
-        render(<MainView />)
+        renderWithRouter()
 
         expect(screen.getByRole('button', { name: /open channel list/i })).toBeInTheDocument()
       })
 
       it('should hide inline sidebar on tablet', () => {
-        render(<MainView />)
+        renderWithRouter()
 
         // The inline sidebar should not be visible (drawer is hidden by default)
         // The sidebar drawer exists but is translated off-screen
@@ -482,7 +488,7 @@ describe('MainView', () => {
       })
 
       it('should open sidebar drawer when menu button clicked', () => {
-        render(<MainView />)
+        renderWithRouter()
 
         const menuButton = screen.getByRole('button', { name: /open channel list/i })
         fireEvent.click(menuButton)
@@ -495,7 +501,7 @@ describe('MainView', () => {
 
       it('should close sidebar when close button clicked', () => {
         useUIStore.setState({ isSidebarOpen: true })
-        render(<MainView />)
+        renderWithRouter()
 
         const closeButton = screen.getByRole('button', { name: /close channel list/i })
         fireEvent.click(closeButton)
@@ -512,7 +518,7 @@ describe('MainView', () => {
       })
 
       it('should show menu button on mobile', () => {
-        render(<MainView />)
+        renderWithRouter()
 
         // On mobile, there should be at least one menu button (header or FAB)
         const menuButtons = screen.getAllByRole('button', { name: /open channel list/i })
@@ -520,7 +526,7 @@ describe('MainView', () => {
       })
 
       it('should show FAB (floating action button) on mobile when sidebar closed', () => {
-        render(<MainView />)
+        renderWithRouter()
 
         // FAB should be visible - it's a different button than the header menu button
         const fabButtons = screen.getAllByRole('button', { name: /open channel list/i })
@@ -529,7 +535,7 @@ describe('MainView', () => {
 
       it('should hide FAB when sidebar is open', () => {
         useUIStore.setState({ isSidebarOpen: true })
-        render(<MainView />)
+        renderWithRouter()
 
         // FAB should be hidden when sidebar is open, but header menu button remains
         // Header has menu button, but FAB should not render
@@ -540,7 +546,7 @@ describe('MainView', () => {
 
       it('should show full-width sidebar drawer on mobile', () => {
         useUIStore.setState({ isSidebarOpen: true })
-        render(<MainView />)
+        renderWithRouter()
 
         const sidebar = document.querySelector('aside[aria-label="Channel list"]')
         expect(sidebar).not.toBeNull()
@@ -549,7 +555,7 @@ describe('MainView', () => {
 
       it('should show Channel Selection heading in full-width drawer on mobile', () => {
         useUIStore.setState({ isSidebarOpen: true })
-        render(<MainView />)
+        renderWithRouter()
 
         // The sidebar drawer heading should be visible when drawer is open
         const heading = screen.getByRole('heading', { name: /channel selection/i })
@@ -564,7 +570,7 @@ describe('MainView', () => {
 
       it('should close sidebar when Escape key is pressed', () => {
         useUIStore.setState({ isSidebarOpen: true })
-        render(<MainView />)
+        renderWithRouter()
 
         fireEvent.keyDown(window, { key: 'Escape' })
 
@@ -575,7 +581,7 @@ describe('MainView', () => {
 
       it('should close sidebar when backdrop is clicked', () => {
         useUIStore.setState({ isSidebarOpen: true })
-        render(<MainView />)
+        renderWithRouter()
 
         // Click the backdrop (the div with bg-black/50 class that's not the emoji)
         const backdrop = document.querySelector('.bg-black\\/50')
@@ -591,7 +597,7 @@ describe('MainView', () => {
     describe('video aspect ratio', () => {
       it('should maintain aspect-video class for proper 16:9 ratio', () => {
         mockWindowWidth(1200)
-        render(<MainView />)
+        renderWithRouter()
 
         // Find the aspect-video container
         const aspectContainer = document.querySelector('.aspect-video')

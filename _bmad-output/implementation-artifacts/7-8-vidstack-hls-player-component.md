@@ -1,6 +1,6 @@
 # Story 7.8: Vidstack HLS Player Component
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -24,29 +24,29 @@ so that I can enjoy movie channels.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create HLSVideoPlayer component (AC: #1)
-  - [ ] Create `src/components/ersatztv/HLSVideoPlayer.tsx`
-  - [ ] Import vidstack player and providers
-  - [ ] Configure HLS source with proxied stream URL
-  - [ ] Handle autoplay with muted fallback
-- [ ] Task 2: Implement video controls (AC: #2)
-  - [ ] Add play/pause button using vidstack controls
-  - [ ] Add volume slider with mute toggle
-  - [ ] Add fullscreen button
-  - [ ] Style controls with Tailwind for 10-foot UI
-- [ ] Task 3: Add buffering state handling (AC: #3)
-  - [ ] Listen to vidstack buffering events
-  - [ ] Display loading spinner overlay during buffering
-  - [ ] Hide spinner when playback resumes
-- [ ] Task 4: Implement error handling (AC: #4)
-  - [ ] Listen to vidstack error events
-  - [ ] Display error message overlay
-  - [ ] Provide retry or channel selection guidance
-- [ ] Task 5: Write tests
-  - [ ] Test component renders with stream URL
-  - [ ] Test controls visibility and functionality
-  - [ ] Test buffering state display
-  - [ ] Test error state display
+- [x] Task 1: Create HLSVideoPlayer component (AC: #1)
+  - [x] Create `src/components/ersatztv/HLSVideoPlayer.tsx`
+  - [x] Import vidstack player and providers
+  - [x] Configure HLS source with proxied stream URL
+  - [x] Handle autoplay with muted fallback
+- [x] Task 2: Implement video controls (AC: #2)
+  - [x] Add play/pause button using vidstack controls
+  - [x] Add volume slider with mute toggle
+  - [x] Add fullscreen button
+  - [x] Style controls with Tailwind for 10-foot UI
+- [x] Task 3: Add buffering state handling (AC: #3)
+  - [x] Listen to vidstack buffering events
+  - [x] Display loading spinner overlay during buffering
+  - [x] Hide spinner when playback resumes
+- [x] Task 4: Implement error handling (AC: #4)
+  - [x] Listen to vidstack error events
+  - [x] Display error message overlay
+  - [x] Provide retry or channel selection guidance
+- [x] Task 5: Write tests
+  - [x] Test component renders with stream URL
+  - [x] Test controls visibility and functionality
+  - [x] Test buffering state display
+  - [x] Test error state display
 
 ## Dev Notes
 
@@ -275,11 +275,34 @@ describe('HLSVideoPlayer', () => {
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.5 (claude-opus-4-5-20251101)
 
 ### Debug Log References
 
+- Upgraded vidstack from 0.6.15 to 1.12.13 (old package structure to new @vidstack/react)
+- Added @vidstack/react@1.12.13 package for React bindings
+- Fixed lint error about setState in useEffect by refactoring to key-based remounting pattern
+
 ### Completion Notes List
 
+- Created HLSVideoPlayer component with vidstack 1.12.13 MediaPlayer
+- Uses DefaultVideoLayout for built-in controls (play/pause, volume, mute, fullscreen)
+- Buffering overlay with spinner shown during stream loading/buffering
+- Error state displays user-friendly message with guidance to select another channel
+- Component uses key-based remounting pattern to cleanly reset state when streamUrl changes
+- All tests pass (7 unit tests for component)
+- Full test suite passes (345 tests, 0 failures)
+- Build succeeds with no TypeScript errors
+- Lint passes with no errors
+
 ### File List
+
+- frontend/src/components/ersatztv/HLSVideoPlayer.tsx (new)
+- frontend/src/components/ersatztv/HLSVideoPlayer.test.tsx (new)
+- frontend/package.json (modified - vidstack version updated, @vidstack/react added)
+- frontend/package-lock.json (modified)
+
+### Change Log
+
+- 2026-01-03: Implemented HLSVideoPlayer component with vidstack for ErsatzTV HLS streams
 

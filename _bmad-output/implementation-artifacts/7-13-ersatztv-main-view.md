@@ -1,6 +1,6 @@
 # Story 7.13: ErsatzTV Main View
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -19,33 +19,33 @@ so that I can browse and watch movie channels.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create ErsatzTVView main component (AC: #1, #2, #3)
-  - [ ] Replace placeholder from story 7-7 with full implementation
-  - [ ] Create `src/components/ersatztv/ErsatzTVView.tsx`
-  - [ ] Add header with "Back to Live TV" navigation link
-  - [ ] Integrate HLSVideoPlayer component
-  - [ ] Integrate EPGGrid component
-- [ ] Task 2: Wire up state management
-  - [ ] Load channels on mount via ersatztvStore
-  - [ ] Handle channel selection from grid/sidebar
-  - [ ] Pass selected channel's stream URL to player
-- [ ] Task 3: Implement auto-refresh (AC: #4)
-  - [ ] Set up 5-minute interval for programme data refresh
-  - [ ] Clear interval on component unmount
-  - [ ] Handle refresh errors gracefully
-- [ ] Task 4: Implement responsive layouts (AC: #5, #6)
-  - [ ] Desktop: EPG grid below video
-  - [ ] Mobile: Card-based channel list with current programme
-  - [ ] Use media query or CSS breakpoints
-- [ ] Task 5: Integrate programme modal
-  - [ ] Handle programme clicks from EPGGrid
-  - [ ] Open ProgrammeDetailsModal with selected programme
-  - [ ] Handle "Watch" action to switch channel
-- [ ] Task 6: Write tests
-  - [ ] Test component renders with all sub-components
-  - [ ] Test channel selection updates player
-  - [ ] Test navigation link works
-  - [ ] Test responsive layout switching
+- [x] Task 1: Create ErsatzTVView main component (AC: #1, #2, #3)
+  - [x] Replace placeholder from story 7-7 with full implementation
+  - [x] Create `src/components/ersatztv/ErsatzTVView.tsx`
+  - [x] Add header with "Back to Live TV" navigation link
+  - [x] Integrate HLSVideoPlayer component
+  - [x] Integrate EPGGrid component
+- [x] Task 2: Wire up state management
+  - [x] Load channels on mount via ersatztvStore
+  - [x] Handle channel selection from grid/sidebar
+  - [x] Pass selected channel's stream URL to player
+- [x] Task 3: Implement auto-refresh (AC: #4)
+  - [x] Set up 5-minute interval for programme data refresh
+  - [x] Clear interval on component unmount
+  - [x] Handle refresh errors gracefully
+- [x] Task 4: Implement responsive layouts (AC: #5, #6)
+  - [x] Desktop: EPG grid below video
+  - [x] Mobile: Card-based channel list with current programme
+  - [x] Use media query or CSS breakpoints
+- [x] Task 5: Integrate programme modal
+  - [x] Handle programme clicks from EPGGrid
+  - [x] Open ProgrammeDetailsModal with selected programme
+  - [x] Handle "Watch" action to switch channel
+- [x] Task 6: Write tests
+  - [x] Test component renders with all sub-components
+  - [x] Test channel selection updates player
+  - [x] Test navigation link works
+  - [x] Test responsive layout switching
 
 ## Dev Notes
 
@@ -502,11 +502,43 @@ describe('ErsatzTVView', () => {
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.5 (claude-opus-4-5-20251101)
 
 ### Debug Log References
 
+N/A - No debug issues encountered.
+
 ### Completion Notes List
+
+- ✅ Implemented full ErsatzTVView component replacing placeholder from story 7-7
+- ✅ Created useMediaQuery hook using useSyncExternalStore for proper SSR support
+- ✅ Header with "← Live TV" navigation link to root route
+- ✅ Integrated HLSVideoPlayer component with dynamic stream URL based on selected channel
+- ✅ Integrated EPGGrid component for desktop layout with programme click handling
+- ✅ Integrated EPGChannelSidebar for desktop channel navigation
+- ✅ Integrated ProgrammeDetailsModal for programme details and "Watch Now" action
+- ✅ Implemented 5-minute auto-refresh interval with proper cleanup on unmount
+- ✅ Desktop layout: sidebar + video player + EPG grid
+- ✅ Mobile layout: video player + card-based channel list (no EPG grid/sidebar)
+- ✅ Used ersatztvStore as single source of truth for state management
+- ✅ Auto-selects first channel when channels are loaded
+- ✅ Error toast displayed when errors occur
+- ✅ All 436 tests pass including 19 new ErsatzTVView tests and 5 useMediaQuery tests
+- ✅ Updated router tests to expect new component content instead of placeholder
 
 ### File List
 
+**New files:**
+- frontend/src/hooks/useMediaQuery.ts
+- frontend/src/hooks/useMediaQuery.test.ts
+
+**Modified files:**
+- frontend/src/components/ersatztv/ErsatzTVView.tsx (replaced placeholder with full implementation)
+- frontend/src/components/ersatztv/ErsatzTVView.test.tsx (updated with comprehensive tests)
+- frontend/src/router.test.tsx (updated expectations for new ErsatzTVView content)
+
+## Change Log
+
+| Date | Change |
+|------|--------|
+| 2026-01-03 | Story implementation complete - all tasks/subtasks finished, 436 tests pass |

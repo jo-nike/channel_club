@@ -1,0 +1,178 @@
+import { useEffect, useState } from 'react'
+import { useErsatztvStore } from '@/stores/ersatztvStore'
+import { getErsatzTVLogoUrl, fetchErsatzTVCurrentProgramme } from '@/services/ersatztvApi'
+import type { ErsatzTVChannel } from '@/types'
+
+interface EPGChannelSidebarProps {
+  onChannelSelect?: (channel: ErsatzTVChannel) => void
+}
+
+export function EPGChannelSidebar({ onChannelSelect }: EPGChannelSidebarProps) {
+  const {
+    channels,
+    selectedChannel,
+    loading,
+    error,
+    loadChannels,
+    selectChannel,
+  } = useErsatztvStore()
+
+  const [channelProgrammes, setChannelProgrammes] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    if (channels.length === 0) {
+      loadChannels()
+    }
+  }, [channels.length, loadChannels])
+
+  // Fetch current programmes for all channels
+  useEffect(() => {
+    const fetchAllCurrentProgrammes = async () => {
+      const results: Record<string, string> = {}
+      await Promise.all(
+        channels.map(async (channel) => {
+          try {
+            const data = await fetchErsatzTVCurrentProgramme(channel.id)
+            if (data.current) {
+              results[channel.id] = data.current.title
+            }
+          } catch {
+            // Ignore individual failures
+          }
+        })
+      )
+      setChannelProgrammes(results)
+    }
+
+    if (channels.length > 0) {
+      fetchAllCurrentProgrammes()
+      // Refresh every 5 minutes
+      const interval = setInterval(fetchAllCurrentProgrammes, 5 * 60 * 1000)
+      return () => clearInterval(interval)
+    }
+  }, [channels])
+
+  const handleChannelClick = (channel: ErsatzTVChannel) => {
+    selectChannel(channel)
+    onChannelSelect?.(channel)
+  }
+
+  if (loading && channels.length === 0) {
+    return <ChannelSidebarSkeleton />
+  }
+
+  if (error && channels.length === 0) {
+    return (
+      <aside className="flex h-full w-72 items-center justify-center border-r bg-card p-4">
+        <div className="text-center">
+          <p className="text-destructive">{error}</p>
+          <button
+            onClick={() => loadChannels()}
+            className="mt-2 rounded bg-primary px-4 py-2 text-primary-foreground hover:bg-primary/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            Retry
+          </button>
+        </div>
+      </aside>
+    )
+  }
+
+  return (
+    <aside className="h-full w-72 overflow-y-auto border-r bg-card">
+      <div className="sticky top-0 border-b bg-card/95 p-4 backdrop-blur">
+        <h2 className="text-lg font-semibold">Channels</h2>
+      </div>
+
+      <ul className="divide-y" role="list">
+        {channels.map((channel) => (
+          <ChannelItem
+            key={channel.id}
+            channel={channel}
+            isSelected={selectedChannel?.id === channel.id}
+            onSelect={handleChannelClick}
+            currentProgramme={channelProgrammes[channel.id]}
+          />
+        ))}
+      </ul>
+    </aside>
+  )
+}
+
+interface ChannelItemProps {
+  channel: ErsatzTVChannel
+  isSelected: boolean
+  onSelect: (channel: ErsatzTVChannel) => void
+  currentProgramme?: string
+}
+
+function ChannelItem({ channel, isSelected, onSelect, currentProgramme }: ChannelItemProps) {
+  return (
+    <li>
+      <button
+        onClick={() => onSelect(channel)}
+        className={`
+          flex w-full items-center gap-3 p-3 text-left transition-colors
+          hover:bg-accent focus:bg-accent focus:outline-none
+          focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring
+          ${isSelected ? 'bg-primary/10 border-l-4 border-primary' : ''}
+        `}
+        aria-pressed={isSelected}
+        aria-label={`${channel.number} ${channel.name}`}
+      >
+        {/* Channel logo */}
+        <div className="h-12 w-12 flex-shrink-0 overflow-hidden rounded bg-muted">
+          <img
+            src={getErsatzTVLogoUrl(channel.id)}
+            alt={`${channel.name} logo`}
+            className="h-full w-full object-contain"
+            onError={(e) => {
+              // Hide broken image
+              ;(e.target as HTMLImageElement).style.display = 'none'
+            }}
+          />
+        </div>
+
+        {/* Channel info */}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-2">
+            <span className="text-sm font-medium text-muted-foreground">
+              {channel.number}
+            </span>
+            <span className="truncate font-medium">{channel.name}</span>
+          </div>
+          <p className="truncate text-sm text-muted-foreground">
+            {currentProgramme || 'Now playing...'}
+          </p>
+        </div>
+
+        {/* Playing indicator */}
+        {isSelected && (
+          <div className="flex-shrink-0">
+            <span className="inline-flex h-3 w-3 animate-pulse rounded-full bg-primary" />
+          </div>
+        )}
+      </button>
+    </li>
+  )
+}
+
+function ChannelSidebarSkeleton() {
+  return (
+    <aside className="h-full w-72 border-r bg-card" role="status" aria-label="Loading channels">
+      <div className="border-b p-4">
+        <div className="h-6 w-24 animate-pulse rounded bg-muted" />
+      </div>
+      <div className="divide-y">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <div key={i} className="flex items-center gap-3 p-3">
+            <div className="h-12 w-12 animate-pulse rounded bg-muted" />
+            <div className="flex-1 space-y-2">
+              <div className="h-4 w-3/4 animate-pulse rounded bg-muted" />
+              <div className="h-3 w-1/2 animate-pulse rounded bg-muted" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </aside>
+  )
+}

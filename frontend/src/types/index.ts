@@ -39,3 +39,38 @@ export interface EPGResponse {
   currentProgram: Program | null
   nextProgram?: Program | null
 }
+
+// ErsatzTV types
+export interface ErsatzTVChannel {
+  id: string
+  name: string
+  streamUrl: string // Original stream URL (not used directly)
+  logoUrl: string // Proxied logo URL
+  number: number
+  group: string
+}
+
+export interface ErsatzTVProgramme {
+  id: string
+  channelId: string
+  title: string
+  description?: string
+  start: string // ISO 8601
+  stop: string // ISO 8601
+  category?: string[]
+}
+
+export interface ErsatzTVChannelsResponse {
+  channels: ErsatzTVChannel[]
+}
+
+export interface ErsatzTVCurrentResponse {
+  channelId: string
+  current: ErsatzTVProgramme | null
+  nextUp: ErsatzTVProgramme | null
+}
+
+export interface ErsatzTVProgrammesResponse {
+  channelId: string
+  programmes: ErsatzTVProgramme[]
+}

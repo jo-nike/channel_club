@@ -101,11 +101,11 @@ development_status:
   7-4-epg-service-layer: review
   7-5-hls-proxy-service: review
   7-6-ersatztv-api-endpoints: review
-  7-7-react-router-setup: ready-for-dev
-  7-8-vidstack-hls-player-component: ready-for-dev
-  7-9-ersatztv-store-api-service: ready-for-dev
-  7-10-epg-channel-sidebar: ready-for-dev
-  7-11-epg-grid-component: ready-for-dev
-  7-12-programme-details-modal: ready-for-dev
-  7-13-ersatztv-main-view: ready-for-dev
+  7-7-react-router-setup: review
+  7-8-vidstack-hls-player-component: review
+  7-9-ersatztv-store-api-service: review
+  7-10-epg-channel-sidebar: review
+  7-11-epg-grid-component: review
+  7-12-programme-details-modal: review
+  7-13-ersatztv-main-view: review
   epic-7-retrospective: optional

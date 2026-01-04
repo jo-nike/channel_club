@@ -1,6 +1,6 @@
+import { Outlet } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { LoginForm } from '@/components/LoginForm'
-import { MainView } from '@/components/MainView'
 import { AppLoadingScreen } from '@/components/AppLoadingScreen'
 import { Toaster } from '@/components/ui/sonner'
 
@@ -30,7 +30,7 @@ export function App() {
 
   return (
     <>
-      <MainView />
+      <Outlet />
       <Toaster />
     </>
   )
