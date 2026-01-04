@@ -11,6 +11,35 @@ vi.mock('@/services/api', () => ({
   clearCurrentChannel: vi.fn(),
 }))
 
+// Mock useActiveUsers for Active Users tab
+const mockActiveUsersData = {
+  liveUsers: [
+    {
+      username: 'testUser',
+      channel: 'Channel 1',
+      connectedSince: '2026-01-04T10:00:00Z',
+      bitrateMbps: 8.5,
+    },
+  ],
+  ersatztvUsers: [],
+  totals: {
+    liveCount: 1,
+    ersatztvCount: 0,
+    liveBitrateMbps: 8.5,
+    ersatztvBitrateMbps: 0,
+    totalBitrateMbps: 8.5,
+  },
+}
+
+vi.mock('@/hooks/useActiveUsers', () => ({
+  useActiveUsers: () => ({
+    data: mockActiveUsersData,
+    loading: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
+}))
+
 const mockChannels = [
   { id: '1', name: 'Channel 1', streamUrl: 'http://stream1.m3u8', guideId: '1' },
   { id: '2', name: 'Channel 2', streamUrl: 'http://stream2.m3u8', guideId: '2' },
@@ -262,26 +291,63 @@ describe('AdminModal', () => {
     })
   })
 
-  describe('Placeholder content', () => {
-    it('shows placeholder content for Active Users tab', () => {
+  describe('Active Users tab (Story 11.6)', () => {
+    it('shows ActiveUsersTab component content', async () => {
       render(<AdminModal {...defaultProps} />)
 
       fireEvent.click(screen.getByRole('tab', { name: /active users/i }))
-      expect(screen.getByText(/active users will appear here/i)).toBeInTheDocument()
+
+      // Should show the total bandwidth summary
+      await waitFor(() => {
+        expect(screen.getByText(/Total Bandwidth:/)).toBeInTheDocument()
+      })
+
+      // Should show Live TV section
+      expect(screen.getByText('Live TV')).toBeInTheDocument()
+
+      // Should show ErsatzTV section
+      expect(screen.getByText('ErsatzTV')).toBeInTheDocument()
     })
 
-    it('shows placeholder content for User Access tab', () => {
+    it('shows user information in Active Users tab', async () => {
+      render(<AdminModal {...defaultProps} />)
+
+      fireEvent.click(screen.getByRole('tab', { name: /active users/i }))
+
+      await waitFor(() => {
+        expect(screen.getByText('testUser')).toBeInTheDocument()
+      })
+    })
+  })
+
+  describe('Placeholder content (Story 11.7)', () => {
+    it('shows placeholder content for User Access tab (AC #1)', () => {
       render(<AdminModal {...defaultProps} />)
 
       fireEvent.click(screen.getByRole('tab', { name: /user access/i }))
-      expect(screen.getByText(/user access controls will appear here/i)).toBeInTheDocument()
+      // Check for the placeholder message which is unique
+      expect(screen.getByText('User access management coming soon')).toBeInTheDocument()
+      // Check for the description text
+      expect(screen.getByText(/Manage user permissions/)).toBeInTheDocument()
     })
 
-    it('shows placeholder content for Plugins tab', () => {
+    it('shows placeholder content for Plugins tab (AC #2)', () => {
       render(<AdminModal {...defaultProps} />)
 
       fireEvent.click(screen.getByRole('tab', { name: /plugins/i }))
-      expect(screen.getByText(/plugins configuration will appear here/i)).toBeInTheDocument()
+      // Check for the placeholder message which is unique
+      expect(screen.getByText('Plugins management coming soon')).toBeInTheDocument()
+      // Check for the description text
+      expect(screen.getByText(/Extend functionality/)).toBeInTheDocument()
+    })
+
+    it('shows icon in placeholder tabs', () => {
+      render(<AdminModal {...defaultProps} />)
+
+      fireEvent.click(screen.getByRole('tab', { name: /user access/i }))
+      // Look for the SVG icon inside tabpanel
+      const tabpanel = screen.getByRole('tabpanel')
+      expect(tabpanel.querySelector('svg')).toBeInTheDocument()
     })
   })
 })

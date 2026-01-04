@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from loguru import logger
 
 from app.main import app
-from app.services import channel_state
+from app.services import channel_state, presence
 from app.services.auth import create_access_token
 
 
@@ -35,9 +35,11 @@ def reset_channel_state():
     """Reset channel state before each test."""
     channel_state.clear_current_channel()
     channel_state._active_connections.clear()
+    presence._active_users.clear()
     yield
     channel_state.clear_current_channel()
     channel_state._active_connections.clear()
+    presence._active_users.clear()
 
 
 class TestWebSocketConnection:
@@ -320,3 +322,73 @@ class TestWebSocketLogging:
             assert "websocket" in log_output
         finally:
             logger.remove(handler_id)
+
+
+class TestPresenceTracking:
+    """Tests for user presence tracking in WebSocket."""
+
+    def test_user_tracked_on_connect(self, client: TestClient, valid_token: str):
+        """User should be tracked in presence service on connect."""
+        assert len(presence._active_users) == 0
+
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            ws.receive_json()  # Consume connection_ack
+            assert len(presence._active_users) == 1
+
+            # Check user details
+            users = list(presence._active_users.values())
+            assert users[0].username == "testuser"
+            assert users[0].view == "live"  # default view
+
+    def test_user_removed_on_disconnect(self, client: TestClient, valid_token: str):
+        """User should be removed from presence on disconnect."""
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            ws.receive_json()  # Consume connection_ack
+            assert len(presence._active_users) == 1
+
+        # After disconnect
+        assert len(presence._active_users) == 0
+
+    def test_view_parameter_parsed_from_query(self, client: TestClient, valid_token: str):
+        """View parameter should be parsed from query string."""
+        with client.websocket_connect(
+            f"/api/ws?token={valid_token}&view=ersatztv"
+        ) as ws:
+            ws.receive_json()  # Consume connection_ack
+
+            users = list(presence._active_users.values())
+            assert users[0].view == "ersatztv"
+            assert users[0].estimated_bitrate == presence.ERSATZTV_BITRATE
+
+    def test_default_view_is_live(self, client: TestClient, valid_token: str):
+        """Default view should be 'live' when not specified."""
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            ws.receive_json()  # Consume connection_ack
+
+            users = list(presence._active_users.values())
+            assert users[0].view == "live"
+            assert users[0].estimated_bitrate == presence.LIVE_BITRATE
+
+    def test_multiple_users_tracked(self, client: TestClient, valid_token: str, admin_token: str):
+        """Multiple users should be tracked separately."""
+        with client.websocket_connect(f"/api/ws?token={valid_token}&view=live") as ws1:
+            ws1.receive_json()
+            assert len(presence._active_users) == 1
+
+            with client.websocket_connect(
+                f"/api/ws?token={admin_token}&view=ersatztv"
+            ) as ws2:
+                ws2.receive_json()
+                assert len(presence._active_users) == 2
+
+                # Check views
+                live_users = presence.get_users_by_view("live")
+                ersatztv_users = presence.get_users_by_view("ersatztv")
+                assert len(live_users) == 1
+                assert len(ersatztv_users) == 1
+
+            # ws2 closed
+            assert len(presence._active_users) == 1
+
+        # ws1 closed
+        assert len(presence._active_users) == 0

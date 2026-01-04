@@ -13,6 +13,7 @@ from app.routers.auth import router as auth_router
 from app.routers.channels import router as channels_router
 from app.routers.epg import router as epg_router
 from app.routers.ersatztv import router as ersatztv_router
+from app.routers.admin import router as admin_router
 from app.routers.websocket import router as websocket_router
 
 
@@ -57,6 +58,7 @@ app.include_router(auth_router, prefix="/api/auth")
 app.include_router(channels_router, prefix="/api")
 app.include_router(epg_router, prefix="/api")
 app.include_router(ersatztv_router)
+app.include_router(admin_router, prefix="/api/admin")
 app.include_router(websocket_router)
 
 

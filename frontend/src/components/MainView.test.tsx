@@ -207,10 +207,40 @@ describe('MainView', () => {
       })
     })
 
-    it('should show AdminControls for admin users', () => {
-      renderWithRouter()
+    describe('admin button and modal (Story 11-3)', () => {
+      it('should show admin button with Settings icon for admin users (AC: #1)', () => {
+        renderWithRouter()
 
-      expect(screen.getByText(/channel selection/i)).toBeInTheDocument()
+        // Admin should see a button to open admin panel
+        expect(screen.getByRole('button', { name: /open admin panel/i })).toBeInTheDocument()
+      })
+
+      it('should open AdminModal when admin button is clicked (AC: #1)', () => {
+        renderWithRouter()
+
+        const adminButton = screen.getByRole('button', { name: /open admin panel/i })
+        fireEvent.click(adminButton)
+
+        // AdminModal should be visible with its dialog role
+        expect(screen.getByRole('dialog', { name: /admin/i })).toBeInTheDocument()
+      })
+
+      it('should NOT show sidebar drawer or hamburger menu (AC: #1)', () => {
+        renderWithRouter()
+
+        // Old sidebar drawer elements should not exist
+        expect(screen.queryByRole('button', { name: /open channel list/i })).not.toBeInTheDocument()
+        expect(document.querySelector('aside[aria-label="Channel list"]')).toBeNull()
+      })
+
+      it('should NOT show mobile FAB button', () => {
+        mockWindowWidth(500) // Mobile viewport
+        renderWithRouter()
+
+        // No FAB for channel list should exist
+        const fabButton = document.querySelector('.fixed.bottom-6.right-6')
+        expect(fabButton).toBeNull()
+      })
     })
   })
 
@@ -232,6 +262,16 @@ describe('MainView', () => {
       // VideoPlayer shows placeholder when no channel selected
       // Note: "No channel selected" appears in both header and video player area
       expect(screen.getAllByText(/no channel selected/i).length).toBeGreaterThanOrEqual(1)
+    })
+
+    describe('admin button hidden for viewers (Story 11-3 AC: #2)', () => {
+      it('should NOT show admin button for viewers', () => {
+        mockWindowWidth(1200)
+        renderWithRouter()
+
+        // Viewer should NOT see the admin button
+        expect(screen.queryByRole('button', { name: /open admin panel/i })).not.toBeInTheDocument()
+      })
     })
 
     describe('channel list hidden for viewers (AC: #1, #3)', () => {
@@ -416,53 +456,19 @@ describe('MainView', () => {
         mockWindowWidth(1200)
       })
 
-      it('should show hamburger menu button on desktop for admin (AC: #1)', () => {
+      it('should show admin button on desktop for admin', () => {
         renderWithRouter()
 
-        // Menu button should be visible on desktop for admin
-        expect(screen.getByRole('button', { name: /open channel list/i })).toBeInTheDocument()
+        // Admin button should be visible on desktop for admin
+        expect(screen.getByRole('button', { name: /open admin panel/i })).toBeInTheDocument()
       })
 
-      it('should NOT show pinned sidebar on desktop (AC: #2)', () => {
+      it('should NOT show sidebar - uses modal instead', () => {
         renderWithRouter()
 
-        // No pinned sidebar in main content area - video takes full width
-        const mainContent = document.querySelector('main')
-        expect(mainContent).not.toBeNull()
-
-        // No inline aside in main (sidebar is now only rendered as overlay)
-        const inlineSidebar = mainContent!.querySelector('aside')
-        expect(inlineSidebar).toBeNull()
-      })
-
-      it('should show drawer when hamburger menu clicked on desktop (AC: #3)', () => {
-        renderWithRouter()
-
-        const menuButton = screen.getByRole('button', { name: /open channel list/i })
-        fireEvent.click(menuButton)
-
-        // Sidebar drawer should be visible (translated to 0)
+        // No sidebar drawer should exist - admin functionality is in modal
         const sidebar = document.querySelector('aside[aria-label="Channel list"]')
-        expect(sidebar).not.toBeNull()
-        expect(sidebar!.className).toContain('translate-x-0')
-      })
-
-      it('should show drawer with fixed width on desktop', () => {
-        useUIStore.setState({ isSidebarOpen: true })
-        renderWithRouter()
-
-        const sidebar = document.querySelector('aside[aria-label="Channel list"]')
-        expect(sidebar).not.toBeNull()
-        // Desktop uses w-80 (not full width like mobile)
-        expect(sidebar!.className).toContain('w-80')
-        expect(sidebar!.className).not.toContain('w-full')
-      })
-
-      it('should show Channel Selection heading in sidebar drawer', () => {
-        useUIStore.setState({ isSidebarOpen: true })
-        renderWithRouter()
-
-        expect(screen.getByRole('heading', { name: /channel selection/i })).toBeInTheDocument()
+        expect(sidebar).toBeNull()
       })
     })
 
@@ -471,44 +477,18 @@ describe('MainView', () => {
         mockWindowWidth(900)
       })
 
-      it('should show menu button on tablet', () => {
+      it('should show admin button on tablet', () => {
         renderWithRouter()
 
-        expect(screen.getByRole('button', { name: /open channel list/i })).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: /open admin panel/i })).toBeInTheDocument()
       })
 
-      it('should hide inline sidebar on tablet', () => {
+      it('should NOT have sidebar drawer on tablet', () => {
         renderWithRouter()
 
-        // The inline sidebar should not be visible (drawer is hidden by default)
-        // The sidebar drawer exists but is translated off-screen
+        // No sidebar drawer - modal is used instead
         const sidebar = document.querySelector('aside[aria-label="Channel list"]')
-        expect(sidebar).not.toBeNull()
-        expect(sidebar!.className).toContain('translate-x-full')
-      })
-
-      it('should open sidebar drawer when menu button clicked', () => {
-        renderWithRouter()
-
-        const menuButton = screen.getByRole('button', { name: /open channel list/i })
-        fireEvent.click(menuButton)
-
-        // Sidebar should now be visible (translated to 0)
-        const sidebar = document.querySelector('aside[aria-label="Channel list"]')
-        expect(sidebar).not.toBeNull()
-        expect(sidebar!.className).toContain('translate-x-0')
-      })
-
-      it('should close sidebar when close button clicked', () => {
-        useUIStore.setState({ isSidebarOpen: true })
-        renderWithRouter()
-
-        const closeButton = screen.getByRole('button', { name: /close channel list/i })
-        fireEvent.click(closeButton)
-
-        const sidebar = document.querySelector('aside[aria-label="Channel list"]')
-        expect(sidebar).not.toBeNull()
-        expect(sidebar!.className).toContain('translate-x-full')
+        expect(sidebar).toBeNull()
       })
     })
 
@@ -517,80 +497,19 @@ describe('MainView', () => {
         mockWindowWidth(500)
       })
 
-      it('should show menu button on mobile', () => {
+      it('should show admin button on mobile for admin', () => {
         renderWithRouter()
 
-        // On mobile, there should be at least one menu button (header or FAB)
-        const menuButtons = screen.getAllByRole('button', { name: /open channel list/i })
-        expect(menuButtons.length).toBeGreaterThanOrEqual(1)
+        // Admin button in header
+        expect(screen.getByRole('button', { name: /open admin panel/i })).toBeInTheDocument()
       })
 
-      it('should show FAB (floating action button) on mobile when sidebar closed', () => {
+      it('should NOT show FAB - uses admin button in header instead', () => {
         renderWithRouter()
 
-        // FAB should be visible - it's a different button than the header menu button
-        const fabButtons = screen.getAllByRole('button', { name: /open channel list/i })
-        expect(fabButtons.length).toBe(2) // Header menu button + FAB
-      })
-
-      it('should hide FAB when sidebar is open', () => {
-        useUIStore.setState({ isSidebarOpen: true })
-        renderWithRouter()
-
-        // FAB should be hidden when sidebar is open, but header menu button remains
-        // Header has menu button, but FAB should not render
-        const openButtons = screen.queryAllByRole('button', { name: /open channel list/i })
-        // Only header menu button should remain, not the FAB (FAB is hidden when sidebar open)
-        expect(openButtons.length).toBe(1)
-      })
-
-      it('should show full-width sidebar drawer on mobile', () => {
-        useUIStore.setState({ isSidebarOpen: true })
-        renderWithRouter()
-
-        const sidebar = document.querySelector('aside[aria-label="Channel list"]')
-        expect(sidebar).not.toBeNull()
-        expect(sidebar!.className).toContain('w-full')
-      })
-
-      it('should show Channel Selection heading in full-width drawer on mobile', () => {
-        useUIStore.setState({ isSidebarOpen: true })
-        renderWithRouter()
-
-        // The sidebar drawer heading should be visible when drawer is open
-        const heading = screen.getByRole('heading', { name: /channel selection/i })
-        expect(heading).toBeInTheDocument()
-      })
-    })
-
-    describe('sidebar interactions', () => {
-      beforeEach(() => {
-        mockWindowWidth(900) // Tablet
-      })
-
-      it('should close sidebar when Escape key is pressed', () => {
-        useUIStore.setState({ isSidebarOpen: true })
-        renderWithRouter()
-
-        fireEvent.keyDown(window, { key: 'Escape' })
-
-        const sidebar = document.querySelector('aside[aria-label="Channel list"]')
-        expect(sidebar).not.toBeNull()
-        expect(sidebar!.className).toContain('translate-x-full')
-      })
-
-      it('should close sidebar when backdrop is clicked', () => {
-        useUIStore.setState({ isSidebarOpen: true })
-        renderWithRouter()
-
-        // Click the backdrop (the div with bg-black/50 class that's not the emoji)
-        const backdrop = document.querySelector('.bg-black\\/50')
-        expect(backdrop).not.toBeNull()
-        fireEvent.click(backdrop!)
-
-        const sidebar = document.querySelector('aside[aria-label="Channel list"]')
-        expect(sidebar).not.toBeNull()
-        expect(sidebar!.className).toContain('translate-x-full')
+        // No FAB for channel list should exist
+        const fabButton = document.querySelector('.fixed.bottom-6.right-6')
+        expect(fabButton).toBeNull()
       })
     })
 

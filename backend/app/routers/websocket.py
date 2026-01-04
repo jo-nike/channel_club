@@ -7,7 +7,7 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from jose import JWTError
 from loguru import logger
 
-from app.services import channel_state
+from app.services import channel_state, presence
 from app.services.auth import verify_token
 
 router = APIRouter()
@@ -34,12 +34,14 @@ async def verify_websocket_token(token: str) -> dict | None:
 async def websocket_endpoint(
     websocket: WebSocket,
     token: str = Query(...),
+    view: str = Query(default="live"),
 ) -> None:
     """WebSocket endpoint for real-time channel updates.
 
     Args:
         websocket: The WebSocket connection.
         token: JWT token passed as query parameter.
+        view: View type ("live" or "ersatztv"), defaults to "live".
     """
     # Generate a unique client ID for logging
     client_id = str(uuid4())[:8]
@@ -55,6 +57,15 @@ async def websocket_endpoint(
 
     # Accept connection and track it
     await channel_state.connect(websocket)
+
+    # Track user presence
+    view_type = "ersatztv" if view == "ersatztv" else "live"
+    presence.track_user(
+        connection_id=client_id,
+        username=payload.get("sub"),
+        view=view_type,
+        websocket=websocket,
+    )
 
     try:
         # Send connection acknowledgment with current channel
@@ -76,9 +87,11 @@ async def websocket_endpoint(
 
     except WebSocketDisconnect:
         log.info("WebSocket disconnected: client {}", client_id)
-        channel_state.disconnect(websocket)
     except Exception as e:
         log.error("WebSocket error for client {}: {}", client_id, e)
+    finally:
+        # Always clean up on disconnect
+        presence.remove_user(client_id)
         channel_state.disconnect(websocket)
 
 

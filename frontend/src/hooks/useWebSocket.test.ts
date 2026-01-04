@@ -647,4 +647,33 @@ describe('useWebSocket', () => {
       expect(result.current.status).toBe('reconnecting')
     })
   })
+
+  describe('view parameter', () => {
+    test('includes view=live by default when no options passed', () => {
+      renderHook(() => useWebSocket())
+
+      expect(MockWebSocket.instances[0].url).toContain('view=live')
+    })
+
+    test('includes view=live when view option is live', () => {
+      renderHook(() => useWebSocket({ view: 'live' }))
+
+      expect(MockWebSocket.instances[0].url).toContain('view=live')
+    })
+
+    test('includes view=ersatztv when view option is ersatztv', () => {
+      renderHook(() => useWebSocket({ view: 'ersatztv' }))
+
+      expect(MockWebSocket.instances[0].url).toContain('view=ersatztv')
+    })
+
+    test('constructs correct URL with token and view parameters', () => {
+      renderHook(() => useWebSocket({ view: 'ersatztv' }))
+
+      const url = MockWebSocket.instances[0].url
+      expect(url).toContain('token=test-jwt-token')
+      expect(url).toContain('view=ersatztv')
+      expect(url).toContain('/api/ws')
+    })
+  })
 })

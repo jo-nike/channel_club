@@ -6,6 +6,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { ChannelList } from '@/components/ChannelList'
+import { ActiveUsersTab } from '@/components/admin/ActiveUsersTab'
+import { PlaceholderTab } from '@/components/admin/PlaceholderTab'
 import { cn } from '@/lib/utils'
 
 type TabType = 'channels' | 'active-users' | 'user-access' | 'plugins'
@@ -46,24 +48,25 @@ export function AdminModal({ open, onOpenChange }: AdminModalProps) {
         )
       case 'active-users':
         return (
-          <div className="p-4 text-muted-foreground">
-            {/* Story 11.6 */}
-            Active users will appear here
+          <div className="max-h-[60vh] overflow-y-auto">
+            <ActiveUsersTab />
           </div>
         )
       case 'user-access':
         return (
-          <div className="p-4 text-muted-foreground">
-            {/* Story 11.7 */}
-            User access controls will appear here
-          </div>
+          <PlaceholderTab
+            title="User Access"
+            message="User access management coming soon"
+            description="Manage user permissions, invite new users, and control access levels."
+          />
         )
       case 'plugins':
         return (
-          <div className="p-4 text-muted-foreground">
-            {/* Story 11.7 */}
-            Plugins configuration will appear here
-          </div>
+          <PlaceholderTab
+            title="Plugins"
+            message="Plugins management coming soon"
+            description="Extend functionality with third-party integrations and custom features."
+          />
         )
       default:
         return null

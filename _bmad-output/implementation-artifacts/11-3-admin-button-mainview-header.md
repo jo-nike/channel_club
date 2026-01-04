@@ -1,6 +1,6 @@
 # Story 11.3: Admin Button in MainView Header
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -15,33 +15,33 @@ So that I can access the admin modal.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Replace Menu icon with Settings icon (AC: #1, #2)
-  - [ ] Import `Settings` from `lucide-react`
-  - [ ] Replace `<Menu>` with `<Settings>` in header button
-  - [ ] Update aria-label to "Open admin panel"
-  - [ ] Keep existing `isAdmin &&` conditional
+- [x] Task 1: Replace Menu icon with Settings icon (AC: #1, #2)
+  - [x] Import `Settings` from `lucide-react`
+  - [x] Replace `<Menu>` with `<Settings>` in header button
+  - [x] Update aria-label to "Open admin panel"
+  - [x] Keep existing `isAdmin &&` conditional
 
-- [ ] Task 2: Add admin modal state and component (AC: #1)
-  - [ ] Add state: `const [adminModalOpen, setAdminModalOpen] = useState(false)`
-  - [ ] Import AdminModal component
-  - [ ] Render `<AdminModal open={adminModalOpen} onOpenChange={setAdminModalOpen} view="live" />`
+- [x] Task 2: Add admin modal state and component (AC: #1)
+  - [x] Add state: `const [adminModalOpen, setAdminModalOpen] = useState(false)`
+  - [x] Import AdminModal component
+  - [x] Render `<AdminModal open={adminModalOpen} onOpenChange={setAdminModalOpen} view="live" />`
 
-- [ ] Task 3: Remove sidebar drawer code (AC: #1)
-  - [ ] Remove sidebar trigger ref: `sidebarTriggerRef`
-  - [ ] Remove `sidebarDrawerRef` and related focus trap
-  - [ ] Remove backdrop div (lines ~188-195)
-  - [ ] Remove drawer aside element (lines ~197-222)
-  - [ ] Remove mobile FAB button (lines ~226-238)
-  - [ ] Remove `useFocusTrap` import if no longer used
+- [x] Task 3: Remove sidebar drawer code (AC: #1)
+  - [x] Remove sidebar trigger ref: `sidebarTriggerRef`
+  - [x] Remove `sidebarDrawerRef` and related focus trap
+  - [x] Remove backdrop div (lines ~188-195)
+  - [x] Remove drawer aside element (lines ~197-222)
+  - [x] Remove mobile FAB button (lines ~226-238)
+  - [x] Remove `useFocusTrap` import if no longer used
 
-- [ ] Task 4: Update button onClick handler (AC: #1)
-  - [ ] Change from `setSidebarOpen(true)` to `setAdminModalOpen(true)`
-  - [ ] Remove ref assignment in onClick
+- [x] Task 4: Update button onClick handler (AC: #1)
+  - [x] Change from `setSidebarOpen(true)` to `setAdminModalOpen(true)`
+  - [x] Remove ref assignment in onClick
 
-- [ ] Task 5: Clean up unused imports (AC: #1)
-  - [ ] Remove `Menu` and `X` icons from lucide-react import
-  - [ ] Remove `useFocusTrap` hook if no longer used
-  - [ ] Remove unused UIStore references for sidebar
+- [x] Task 5: Clean up unused imports (AC: #1)
+  - [x] Remove `Menu` and `X` icons from lucide-react import
+  - [x] Remove `useFocusTrap` hook if no longer used
+  - [x] Remove unused UIStore references for sidebar
 
 ## Dev Notes
 
@@ -207,10 +207,36 @@ For viewers (non-admin), the header will look cleaner:
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.5 (claude-opus-4-5-20251101)
 
 ### Debug Log References
 
+- None required - straightforward implementation
+
 ### Completion Notes List
 
+- ✅ Replaced Menu icon with Settings icon from lucide-react
+- ✅ Updated aria-label from "Open channel list" to "Open admin panel"
+- ✅ Added adminModalOpen state to manage modal visibility
+- ✅ Imported and integrated AdminModal component with view="live" prop
+- ✅ Removed sidebar drawer code (backdrop, aside element, refs, focus trap)
+- ✅ Removed mobile FAB button for channel list
+- ✅ Removed unused imports: Menu, X icons, useFocusTrap, useBreakpoint, ChannelList
+- ✅ Removed unused UIStore references: isSidebarOpen, setSidebarOpen
+- ✅ Updated escape key handler to only handle fullscreen and theater mode (removed sidebar handling)
+- ✅ Updated tests in MainView.test.tsx to reflect new admin button behavior
+- ✅ Updated tests in App.test.tsx for role-based rendering
+
 ### File List
+
+- `frontend/src/components/MainView.tsx` - Modified: Replaced sidebar with admin modal
+- `frontend/src/components/MainView.test.tsx` - Modified: Updated tests for admin button/modal
+- `frontend/src/App.test.tsx` - Modified: Updated role-based rendering tests
+
+### Change Log
+
+- 2026-01-04: Implemented Story 11-3 - Admin button in MainView header
+  - Replaced hamburger menu with Settings icon button
+  - Integrated AdminModal component for admin functionality
+  - Removed legacy sidebar drawer code
+  - All 648 tests pass, lint passes

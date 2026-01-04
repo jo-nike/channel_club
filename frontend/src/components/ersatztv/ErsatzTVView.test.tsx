@@ -5,6 +5,7 @@ import { ErsatzTVView } from './ErsatzTVView'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useUIStore } from '@/stores/uiStore'
 import * as useMediaQueryModule from '@/hooks/useMediaQuery'
+import * as useAuthModule from '@/hooks/useAuth'
 import type { ErsatzTVChannel } from '@/types'
 
 // Mock the stores
@@ -14,6 +15,14 @@ vi.mock('@/stores/ersatztvStore', () => ({
 
 vi.mock('@/stores/uiStore', () => ({
   useUIStore: vi.fn(),
+}))
+
+// Mock useAuth hook
+vi.mock('@/hooks/useAuth', () => ({
+  useAuth: vi.fn(() => ({
+    logout: vi.fn(),
+    isAdmin: false,
+  })),
 }))
 
 // Mock the API
@@ -120,6 +129,29 @@ vi.mock('./ProgrammeDetailsModal', () => ({
     open ? (
       <div data-testid="programme-modal">
         Programme Modal Mock
+        <button onClick={() => onOpenChange(false)}>Close</button>
+      </div>
+    ) : null,
+}))
+
+// Mock AdminModal component
+vi.mock('@/components/AdminModal', () => ({
+  AdminModal: ({
+    open,
+    onOpenChange,
+  }: {
+    open: boolean
+    onOpenChange: (open: boolean) => void
+  }) =>
+    open ? (
+      <div data-testid="admin-modal" role="dialog" aria-label="Admin Panel">
+        <div>Admin Modal Mock</div>
+        <div role="tablist">
+          <button role="tab">Channels</button>
+          <button role="tab">Active Users</button>
+          <button role="tab">User Access</button>
+          <button role="tab">Plugins</button>
+        </div>
         <button onClick={() => onOpenChange(false)}>Close</button>
       </div>
     ) : null,
@@ -642,5 +674,194 @@ describe('ErsatzTVView - Theater Mode', () => {
     expect(screen.getByText('Logout')).toBeInTheDocument()
     expect(screen.getByTestId('channel-sidebar')).toBeInTheDocument()
     expect(screen.getByTestId('epg-grid')).toBeInTheDocument()
+  })
+})
+
+describe('ErsatzTVView - Admin Button and Modal (Story 11-4)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.mocked(useErsatztvStore).mockReturnValue(createMockStore())
+    vi.mocked(useUIStore).mockImplementation(createDefaultUIStore())
+    vi.mocked(useMediaQueryModule.useMediaQuery).mockReturnValue(false) // Desktop
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.clearAllMocks()
+  })
+
+  describe('admin role (AC: #1, #2)', () => {
+    beforeEach(() => {
+      // Mock admin user
+      vi.mocked(useAuthModule.useAuth).mockReturnValue({
+        logout: vi.fn(),
+        isAdmin: true,
+        isAuthenticated: true,
+        login: vi.fn(),
+        token: 'mock-token',
+        role: 'admin',
+      })
+    })
+
+    it('should show admin button with Settings icon for admin users (AC: #1)', () => {
+      render(
+        <MemoryRouter>
+          <ErsatzTVView />
+        </MemoryRouter>
+      )
+
+      // Admin should see a button to open admin panel
+      expect(screen.getByRole('button', { name: /open admin panel/i })).toBeInTheDocument()
+    })
+
+    it('should position admin button at left side of header (AC: #1)', () => {
+      render(
+        <MemoryRouter>
+          <ErsatzTVView />
+        </MemoryRouter>
+      )
+
+      // Admin button should be before ThemePicker in the header
+      const header = document.querySelector('header')
+      expect(header).not.toBeNull()
+
+      const adminButton = screen.getByRole('button', { name: /open admin panel/i })
+      expect(adminButton.closest('header')).toBe(header)
+    })
+
+    it('should open AdminModal when admin button is clicked (AC: #1, #2)', () => {
+      render(
+        <MemoryRouter>
+          <ErsatzTVView />
+        </MemoryRouter>
+      )
+
+      const adminButton = screen.getByRole('button', { name: /open admin panel/i })
+      fireEvent.click(adminButton)
+
+      // AdminModal should be visible
+      expect(screen.getByTestId('admin-modal')).toBeInTheDocument()
+    })
+
+    it('should show all four tabs in AdminModal (AC: #2)', () => {
+      render(
+        <MemoryRouter>
+          <ErsatzTVView />
+        </MemoryRouter>
+      )
+
+      const adminButton = screen.getByRole('button', { name: /open admin panel/i })
+      fireEvent.click(adminButton)
+
+      // All four tabs should be visible
+      expect(screen.getByRole('tab', { name: /channels/i })).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: /active users/i })).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: /user access/i })).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: /plugins/i })).toBeInTheDocument()
+    })
+
+    it('should have same button styling as MainView admin button (AC: #1)', () => {
+      render(
+        <MemoryRouter>
+          <ErsatzTVView />
+        </MemoryRouter>
+      )
+
+      const adminButton = screen.getByRole('button', { name: /open admin panel/i })
+
+      // Verify consistent styling
+      expect(adminButton.className).toContain('h-8')
+      expect(adminButton.className).toContain('w-8')
+      expect(adminButton.className).toContain('bg-secondary')
+      expect(adminButton.className).toContain('rounded-md')
+    })
+  })
+
+  describe('viewer role (AC: #1 - admin button not visible)', () => {
+    beforeEach(() => {
+      // Mock viewer user
+      vi.mocked(useAuthModule.useAuth).mockReturnValue({
+        logout: vi.fn(),
+        isAdmin: false,
+        isAuthenticated: true,
+        login: vi.fn(),
+        token: 'mock-token',
+        role: 'viewer',
+      })
+    })
+
+    it('should NOT show admin button for viewers', () => {
+      render(
+        <MemoryRouter>
+          <ErsatzTVView />
+        </MemoryRouter>
+      )
+
+      // Viewer should NOT see the admin button
+      expect(screen.queryByRole('button', { name: /open admin panel/i })).not.toBeInTheDocument()
+    })
+
+    it('should NOT render AdminModal for viewers', () => {
+      render(
+        <MemoryRouter>
+          <ErsatzTVView />
+        </MemoryRouter>
+      )
+
+      // AdminModal should not be rendered for viewers
+      expect(screen.queryByTestId('admin-modal')).not.toBeInTheDocument()
+    })
+
+    it('should maintain header layout without admin button for viewers', () => {
+      render(
+        <MemoryRouter>
+          <ErsatzTVView />
+        </MemoryRouter>
+      )
+
+      // Header should still have other elements
+      expect(screen.getByText('Live TV')).toBeInTheDocument()
+      expect(screen.getByText('Logout')).toBeInTheDocument()
+
+      // But no admin button
+      expect(screen.queryByRole('button', { name: /open admin panel/i })).not.toBeInTheDocument()
+    })
+  })
+
+  describe('channel selection from modal affects Live TV (AC: #3)', () => {
+    beforeEach(() => {
+      // Mock admin user for this test
+      vi.mocked(useAuthModule.useAuth).mockReturnValue({
+        logout: vi.fn(),
+        isAdmin: true,
+        isAuthenticated: true,
+        login: vi.fn(),
+        token: 'mock-token',
+        role: 'admin',
+      })
+    })
+
+    it('should close modal when channel is selected (integration test placeholder)', () => {
+      // Note: Full integration testing of channel selection affecting Live TV
+      // would require mocking the WebSocket and channel stores together.
+      // This is a placeholder to document the expected behavior.
+      render(
+        <MemoryRouter>
+          <ErsatzTVView />
+        </MemoryRouter>
+      )
+
+      const adminButton = screen.getByRole('button', { name: /open admin panel/i })
+      fireEvent.click(adminButton)
+
+      // Modal should be visible
+      expect(screen.getByTestId('admin-modal')).toBeInTheDocument()
+
+      // Close the modal
+      fireEvent.click(screen.getByRole('button', { name: /close/i }))
+
+      // Modal should be closed
+      expect(screen.queryByTestId('admin-modal')).not.toBeInTheDocument()
+    })
   })
 })

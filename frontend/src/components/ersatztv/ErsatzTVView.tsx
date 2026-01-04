@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Tv, LayoutList, RefreshCw } from 'lucide-react'
+import { Settings, Tv, LayoutList, RefreshCw } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useTheme } from '@/hooks/useTheme'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
@@ -16,6 +16,7 @@ import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useResizable } from '@/hooks/useResizable'
 import { useMobileLandscape } from '@/hooks/useMobileLandscape'
 import { ThemePicker } from '@/components/ThemePicker'
+import { AdminModal } from '@/components/AdminModal'
 import { cn } from '@/lib/utils'
 import type { ErsatzTVProgramme, ErsatzTVChannel } from '@/types'
 
@@ -23,7 +24,7 @@ import type { ErsatzTVProgramme, ErsatzTVChannel } from '@/types'
 const REFRESH_INTERVAL = 5 * 60 * 1000
 
 export function ErsatzTVView() {
-  const { logout } = useAuth()
+  const { logout, isAdmin } = useAuth()
   const navigate = useNavigate()
 
   // Initialize theme - ensures theme syncs across views
@@ -86,6 +87,9 @@ export function ErsatzTVView() {
   const [selectedProgramme, setSelectedProgramme] =
     useState<ErsatzTVProgramme | null>(null)
   const [modalChannel, setModalChannel] = useState<ErsatzTVChannel | null>(null)
+
+  // Admin modal state
+  const [adminModalOpen, setAdminModalOpen] = useState(false)
 
   // Video refresh key
   const [videoRefreshKey, setVideoRefreshKey] = useState(0)
@@ -184,6 +188,16 @@ export function ErsatzTVView() {
       {!isTheaterMode && !isMobileLandscape && (
       <header className="flex justify-between items-center px-4 py-2 bg-background border-b">
         <div className="flex items-center gap-4">
+          {/* Admin button - same position as MainView (left side) */}
+          {isAdmin && (
+            <button
+              onClick={() => setAdminModalOpen(true)}
+              className="h-8 w-8 flex items-center justify-center bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              aria-label="Open admin panel"
+            >
+              <Settings className="h-4 w-4 shrink-0" />
+            </button>
+          )}
           {/* Theme picker - consistent with MainView placement */}
           <ThemePicker />
           {/* Current programme info */}
@@ -323,6 +337,14 @@ export function ErsatzTVView() {
         onOpenChange={setModalOpen}
         onWatch={handleWatch}
       />
+
+      {/* Admin Modal - all tabs visible (context-agnostic) */}
+      {isAdmin && (
+        <AdminModal
+          open={adminModalOpen}
+          onOpenChange={setAdminModalOpen}
+        />
+      )}
 
       {/* Error toast */}
       {error && (

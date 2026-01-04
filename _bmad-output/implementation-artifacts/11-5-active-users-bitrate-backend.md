@@ -1,6 +1,6 @@
 # Story 11.5: Active Users & Bitrate Backend
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -17,39 +17,39 @@ So that admins can monitor who is watching and bandwidth consumption.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create presence service module (AC: #1, #3)
-  - [ ] Create new file `backend/app/services/presence.py`
-  - [ ] Define `UserPresence` dataclass with required fields
-  - [ ] Implement in-memory presence store (dict keyed by connection ID)
-  - [ ] Implement `track_user()` function for new connections
-  - [ ] Implement `remove_user()` function for disconnections
-  - [ ] Add logging for presence changes
+- [x] Task 1: Create presence service module (AC: #1, #3)
+  - [x] Create new file `backend/app/services/presence.py`
+  - [x] Define `UserPresence` dataclass with required fields
+  - [x] Implement in-memory presence store (dict keyed by connection ID)
+  - [x] Implement `track_user()` function for new connections
+  - [x] Implement `remove_user()` function for disconnections
+  - [x] Add logging for presence changes
 
-- [ ] Task 2: Create Pydantic models for API response (AC: #2)
-  - [ ] Create `ActiveUser` model with camelCase aliases
-  - [ ] Create `ActiveUsersTotals` model
-  - [ ] Create `ActiveUsersResponse` model with liveUsers, ersatztvUsers, totals
+- [x] Task 2: Create Pydantic models for API response (AC: #2)
+  - [x] Create `ActiveUser` model with camelCase aliases
+  - [x] Create `ActiveUsersTotals` model
+  - [x] Create `ActiveUsersResponse` model with liveUsers, ersatztvUsers, totals
 
-- [ ] Task 3: Implement channel update tracking (AC: #4)
-  - [ ] Add `update_user_channel()` function in presence service
-  - [ ] Update estimatedBitrate when channel changes
-  - [ ] Define bitrate constants (e.g., 8.5 Mbps for Live, 12.0 for ErsatzTV)
+- [x] Task 3: Implement channel update tracking (AC: #4)
+  - [x] Add `update_user_channel()` function in presence service
+  - [x] Update estimatedBitrate when channel changes
+  - [x] Define bitrate constants (e.g., 8.5 Mbps for Live, 12.0 for ErsatzTV)
 
-- [ ] Task 4: Create admin router with active-users endpoint (AC: #2)
-  - [ ] Create new file `backend/app/routers/admin.py`
-  - [ ] Add `GET /api/admin/active-users` endpoint
-  - [ ] Use `require_admin` dependency for auth
-  - [ ] Return ActiveUsersResponse with computed totals
+- [x] Task 4: Create admin router with active-users endpoint (AC: #2)
+  - [x] Create new file `backend/app/routers/admin.py`
+  - [x] Add `GET /api/admin/active-users` endpoint
+  - [x] Use `require_admin` dependency for auth
+  - [x] Return ActiveUsersResponse with computed totals
 
-- [ ] Task 5: Integrate presence tracking into WebSocket handler (AC: #1, #3)
-  - [ ] Modify `backend/app/routers/websocket.py`
-  - [ ] Call `presence.track_user()` after successful auth
-  - [ ] Call `presence.remove_user()` on disconnect
-  - [ ] Pass view type from query parameter (default: 'live')
+- [x] Task 5: Integrate presence tracking into WebSocket handler (AC: #1, #3)
+  - [x] Modify `backend/app/routers/websocket.py`
+  - [x] Call `presence.track_user()` after successful auth
+  - [x] Call `presence.remove_user()` on disconnect
+  - [x] Pass view type from query parameter (default: 'live')
 
-- [ ] Task 6: Register admin router in main.py (AC: #2)
-  - [ ] Import admin_router
-  - [ ] Add `app.include_router(admin_router, prefix="/api/admin")`
+- [x] Task 6: Register admin router in main.py (AC: #2)
+  - [x] Import admin_router
+  - [x] Add `app.include_router(admin_router, prefix="/api/admin")`
 
 ## Dev Notes
 
@@ -321,10 +321,36 @@ This is handled in Story 11.6 (frontend) or can be added to existing WebSocket h
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.5 (claude-opus-4-5-20251101)
 
 ### Debug Log References
 
+N/A - No debug issues encountered
+
 ### Completion Notes List
 
+- Implemented presence service (`backend/app/services/presence.py`) with UserPresence dataclass and tracking functions
+- Created Pydantic models (`backend/app/models/admin.py`) with camelCase aliases for JSON serialization
+- Implemented admin router (`backend/app/routers/admin.py`) with GET `/api/admin/active-users` endpoint requiring admin role
+- Integrated presence tracking into WebSocket handler with `view` query parameter support (default: "live")
+- Added comprehensive test coverage: 17 tests for presence service, 7 tests for admin models, 7 tests for admin router, 5 tests for presence tracking in WebSocket
+- All 397 backend tests pass with no regressions
+
 ### File List
+
+**New Files:**
+- backend/app/services/presence.py
+- backend/app/models/admin.py
+- backend/app/routers/admin.py
+- backend/tests/services/test_presence.py
+- backend/tests/models/test_admin.py
+- backend/tests/routers/test_admin.py
+
+**Modified Files:**
+- backend/app/main.py (added admin router import and registration)
+- backend/app/routers/websocket.py (added presence import, view parameter, tracking calls)
+- backend/tests/routers/test_websocket.py (added presence tracking tests)
+
+## Change Log
+
+- 2026-01-04: Implemented active users and bitrate backend tracking (Story 11.5)

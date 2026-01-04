@@ -17,12 +17,17 @@ const MAX_RETRIES = 5
 const INITIAL_BACKOFF = 1000 // 1 second
 const MAX_BACKOFF = 10000 // 10 seconds
 
+interface UseWebSocketOptions {
+  view?: 'live' | 'ersatztv'
+}
+
 interface UseWebSocketReturn {
   status: ConnectionStatus
   reconnect: () => void
 }
 
-export function useWebSocket(): UseWebSocketReturn {
+export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketReturn {
+  const { view = 'live' } = options
   const token = useAuthStore((s) => s.token)
   const setCurrentChannel = useChannelStore((s) => s.setCurrentChannel)
 
@@ -91,9 +96,9 @@ export function useWebSocket(): UseWebSocketReturn {
       logger.info('WebSocket', isReconnect ? 'Reconnecting...' : 'Connecting...')
       setStatus(isReconnect ? 'reconnecting' : 'connecting')
 
-      // Construct WebSocket URL
+      // Construct WebSocket URL with view parameter
       const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      const wsUrl = `${wsProtocol}//${window.location.host}/api/ws?token=${token}`
+      const wsUrl = `${wsProtocol}//${window.location.host}/api/ws?token=${token}&view=${view}`
 
       const ws = new WebSocket(wsUrl)
       wsRef.current = ws
@@ -168,7 +173,7 @@ export function useWebSocket(): UseWebSocketReturn {
         }
       }
     },
-    [token, handleMessage, clearTimers, getBackoffDelay]
+    [token, view, handleMessage, clearTimers, getBackoffDelay]
   )
 
   // Keep connectRef in sync with connect function

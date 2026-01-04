@@ -187,7 +187,8 @@ describe('App', () => {
 
       renderWithRouter()
 
-      expect(screen.getByText(/channel selection/i)).toBeInTheDocument()
+      // Admin should see the admin button to open admin panel
+      expect(screen.getByRole('button', { name: /open admin panel/i })).toBeInTheDocument()
     })
 
     it('should NOT show admin controls for viewer role', () => {
@@ -203,7 +204,8 @@ describe('App', () => {
 
       renderWithRouter()
 
-      expect(screen.queryByText(/channel selection/i)).not.toBeInTheDocument()
+      // Viewer should NOT see the admin button
+      expect(screen.queryByRole('button', { name: /open admin panel/i })).not.toBeInTheDocument()
     })
   })
 })

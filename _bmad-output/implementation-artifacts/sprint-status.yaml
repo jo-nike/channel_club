@@ -140,9 +140,9 @@ development_status:
   epic-11: in-progress
   11-1-admin-modal-component-tab-structure: review
   11-2-channel-selection-tab-live-tv: review
-  11-3-admin-button-mainview-header: ready-for-dev
-  11-4-admin-button-ersatztvview-header: ready-for-dev
-  11-5-active-users-bitrate-backend: ready-for-dev
-  11-6-active-users-tab-ui: ready-for-dev
-  11-7-placeholder-tabs-user-access-plugins: ready-for-dev
+  11-3-admin-button-mainview-header: review
+  11-4-admin-button-ersatztvview-header: review
+  11-5-active-users-bitrate-backend: review
+  11-6-active-users-tab-ui: review
+  11-7-placeholder-tabs-user-access-plugins: review
   epic-11-retrospective: optional

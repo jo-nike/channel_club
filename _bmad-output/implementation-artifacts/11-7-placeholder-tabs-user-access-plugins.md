@@ -1,6 +1,6 @@
 # Story 11.7: Placeholder Tabs (User Access & Plugins)
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -15,25 +15,25 @@ So that the UI structure is ready for expansion.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create PlaceholderTab component (AC: #1, #2)
-  - [ ] Create reusable placeholder component
-  - [ ] Accept `title` and `message` props
-  - [ ] Use consistent styling with other modal content
-  - [ ] Add icon for visual interest (optional)
+- [x] Task 1: Create PlaceholderTab component (AC: #1, #2)
+  - [x] Create reusable placeholder component
+  - [x] Accept `title` and `message` props
+  - [x] Use consistent styling with other modal content
+  - [x] Add icon for visual interest (optional)
 
-- [ ] Task 2: Implement User Access tab content (AC: #1)
-  - [ ] Render PlaceholderTab when "user-access" tab is active
-  - [ ] Message: "User access management coming soon"
-  - [ ] Consider adding brief description of planned functionality
+- [x] Task 2: Implement User Access tab content (AC: #1)
+  - [x] Render PlaceholderTab when "user-access" tab is active
+  - [x] Message: "User access management coming soon"
+  - [x] Consider adding brief description of planned functionality
 
-- [ ] Task 3: Implement Plugins tab content (AC: #2)
-  - [ ] Render PlaceholderTab when "plugins" tab is active
-  - [ ] Message: "Plugins management coming soon"
-  - [ ] Visible from any view (context-agnostic admin modal)
+- [x] Task 3: Implement Plugins tab content (AC: #2)
+  - [x] Render PlaceholderTab when "plugins" tab is active
+  - [x] Message: "Plugins management coming soon"
+  - [x] Visible from any view (context-agnostic admin modal)
 
-- [ ] Task 4: Verify tabs work from any view
-  - [ ] Confirm all tabs visible regardless of which view opens modal
-  - [ ] Test navigation between all 4 tabs
+- [x] Task 4: Verify tabs work from any view
+  - [x] Confirm all tabs visible regardless of which view opens modal
+  - [x] Test navigation between all 4 tabs
 
 ## Dev Notes
 
@@ -206,10 +206,32 @@ frontend/src/components/
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.5 (claude-opus-4-5-20251101)
 
 ### Debug Log References
 
+None
+
 ### Completion Notes List
 
+- Created reusable PlaceholderTab component with Construction icon from lucide-react
+- Component accepts title, message, and optional description props
+- Centered layout with muted foreground styling consistent with modal design
+- Integrated PlaceholderTab into AdminModal for both User Access and Plugins tabs
+- User Access tab shows: "User access management coming soon" with description about managing permissions
+- Plugins tab shows: "Plugins management coming soon" with description about third-party integrations
+- All 4 tabs visible from any view (context-agnostic admin modal)
+- Added comprehensive tests for PlaceholderTab component (5 tests)
+- Updated AdminModal tests for Story 11.7 acceptance criteria (3 tests)
+- All 690 frontend tests pass with no regressions
+
 ### File List
+
+- frontend/src/components/admin/PlaceholderTab.tsx (NEW)
+- frontend/src/components/admin/PlaceholderTab.test.tsx (NEW)
+- frontend/src/components/AdminModal.tsx (MODIFIED)
+- frontend/src/components/AdminModal.test.tsx (MODIFIED)
+
+### Change Log
+
+- 2026-01-04: Story 11.7 implementation complete - added PlaceholderTab component and integrated into AdminModal for User Access and Plugins tabs

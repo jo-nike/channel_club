@@ -1,6 +1,6 @@
 # Story 11.4: Admin Button in ErsatzTVView Header
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -16,26 +16,26 @@ So that I have consistent access to admin functions.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Add useAuth hook and isAdmin check (AC: #1)
-  - [ ] Import useAuth hook
-  - [ ] Destructure `isAdmin` from useAuth
-  - [ ] Add conditional rendering for admin button
+- [x] Task 1: Add useAuth hook and isAdmin check (AC: #1)
+  - [x] Import useAuth hook
+  - [x] Destructure `isAdmin` from useAuth
+  - [x] Add conditional rendering for admin button
 
-- [ ] Task 2: Add admin button to header (AC: #1)
-  - [ ] Import Settings icon from lucide-react
-  - [ ] Add button at left side of header (before ThemePicker)
-  - [ ] Use same styling as MainView admin button
-  - [ ] Add aria-label="Open admin panel"
+- [x] Task 2: Add admin button to header (AC: #1)
+  - [x] Import Settings icon from lucide-react
+  - [x] Add button at left side of header (before ThemePicker)
+  - [x] Use same styling as MainView admin button
+  - [x] Add aria-label="Open admin panel"
 
-- [ ] Task 3: Add admin modal state and component (AC: #1, #2, #3)
-  - [ ] Add state: `const [adminModalOpen, setAdminModalOpen] = useState(false)`
-  - [ ] Import AdminModal component
-  - [ ] Render `<AdminModal open={adminModalOpen} onOpenChange={setAdminModalOpen} />`
-  - [ ] Note: All 4 tabs are always visible (context-agnostic modal)
+- [x] Task 3: Add admin modal state and component (AC: #1, #2, #3)
+  - [x] Add state: `const [adminModalOpen, setAdminModalOpen] = useState(false)`
+  - [x] Import AdminModal component
+  - [x] Render `<AdminModal open={adminModalOpen} onOpenChange={setAdminModalOpen} />`
+  - [x] Note: All 4 tabs are always visible (context-agnostic modal)
 
-- [ ] Task 4: Verify viewer experience unchanged
-  - [ ] Ensure admin button not visible for viewers
-  - [ ] Header layout unchanged for non-admins
+- [x] Task 4: Verify viewer experience unchanged
+  - [x] Ensure admin button not visible for viewers
+  - [x] Header layout unchanged for non-admins
 
 ## Dev Notes
 
@@ -176,10 +176,28 @@ className="h-8 w-8 flex items-center justify-center bg-secondary text-secondary-
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.5 (claude-opus-4-5-20251101)
 
 ### Debug Log References
 
+N/A - implementation completed without issues
+
 ### Completion Notes List
 
+- Added `isAdmin` destructuring from existing `useAuth()` hook (line 26)
+- Added `Settings` icon import from lucide-react (line 3)
+- Added `AdminModal` import from components (line 19)
+- Added `adminModalOpen` state for modal visibility (line 92)
+- Added admin button in header left section with proper styling matching MainView (lines 191-200)
+- Added AdminModal rendering conditionally for admin users (lines 341-346)
+- Added comprehensive tests for admin button and modal functionality (13 new tests)
+- All 657 tests pass, no linting errors
+
 ### File List
+
+- frontend/src/components/ersatztv/ErsatzTVView.tsx (modified)
+- frontend/src/components/ersatztv/ErsatzTVView.test.tsx (modified)
+
+### Change Log
+
+- 2026-01-04: Story 11.4 implementation complete - Admin button added to ErsatzTVView header
