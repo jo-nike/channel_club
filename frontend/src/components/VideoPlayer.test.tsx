@@ -179,8 +179,8 @@ describe('BufferingOverlay', () => {
   it('renders loading spinner when visible', () => {
     const { container } = render(<BufferingOverlay isVisible={true} />)
 
-    // Check for the spinner element with animate-spin class
-    const spinner = container.querySelector('.animate-spin')
+    // Check for the film reel spinner element (animate-spin-slow from ProjectorBeamLoader)
+    const spinner = container.querySelector('.animate-spin-slow')
     expect(spinner).toBeInTheDocument()
   })
 

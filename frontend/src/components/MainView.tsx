@@ -81,8 +81,22 @@ export function MainView() {
     <div className="h-screen flex flex-col overflow-hidden">
       {/* Header - hidden in theater mode */}
       {!isTheaterMode && (
-        <header className="flex justify-between items-center p-2 bg-background border-b">
+        <header className="flex justify-between items-center px-4 py-2 bg-background border-b">
           <div className="flex items-center gap-4">
+            {/* Menu button - left side for admin */}
+            {isAdmin && (
+              <button
+                ref={sidebarTriggerRef}
+                onClick={(e) => {
+                  sidebarTriggerRef.current = e.currentTarget
+                  setSidebarOpen(true)
+                }}
+                className="h-8 w-8 flex items-center justify-center bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                aria-label="Open channel list"
+              >
+                <Menu className="h-4 w-4 shrink-0" />
+              </button>
+            )}
             <ConnectionStatus status={status} onReconnect={reconnect} />
             {/* Current channel name with EPG display */}
             <span className="text-muted-foreground text-sm">
@@ -98,28 +112,14 @@ export function MainView() {
             {/* ErsatzTV (Movie Channels) link */}
             <Link
               to="/ersatztv"
-              className="h-12 px-4 flex items-center gap-2 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              className="h-8 px-3 md:w-[130px] flex items-center justify-center gap-2 bg-secondary text-secondary-foreground rounded-md text-sm hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
             >
-              <Film className="h-5 w-5 shrink-0" />
-              <span className="hidden md:inline">Movie Channels</span>
+              <Film className="h-4 w-4 shrink-0" />
+              <span className="hidden md:inline">Movies</span>
             </Link>
-            {/* Menu button - visible on all breakpoints for admin */}
-            {isAdmin && (
-              <button
-                ref={sidebarTriggerRef}
-                onClick={(e) => {
-                  sidebarTriggerRef.current = e.currentTarget
-                  setSidebarOpen(true)
-                }}
-                className="h-12 w-12 flex items-center justify-center bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                aria-label="Open channel list"
-              >
-                <Menu className="h-6 w-6 shrink-0" />
-              </button>
-            )}
             <button
               onClick={logout}
-              className="h-12 px-4 md:px-6 text-base md:text-lg whitespace-nowrap shrink-0 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              className="h-8 px-3 text-sm whitespace-nowrap shrink-0 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
             >
               Logout
             </button>
@@ -175,10 +175,10 @@ export function MainView() {
               <h2 className="text-xl font-semibold">Channel Selection</h2>
               <button
                 onClick={() => setSidebarOpen(false)}
-                className="h-12 w-12 flex items-center justify-center bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                className="h-8 w-8 flex items-center justify-center bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                 aria-label="Close channel list"
               >
-                <X className="h-6 w-6 shrink-0" />
+                <X className="h-4 w-4 shrink-0" />
               </button>
             </div>
             <div className="flex-1 overflow-hidden min-h-0">

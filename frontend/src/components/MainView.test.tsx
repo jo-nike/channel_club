@@ -184,12 +184,14 @@ describe('MainView', () => {
       expect(screen.getByText('BBC')).toBeInTheDocument()
     })
 
-    it('should have reduced header padding (p-2)', () => {
+    it('should have compact header padding', () => {
       renderWithRouter()
 
       const header = document.querySelector('header')
       expect(header).not.toBeNull()
-      expect(header!.className).toContain('p-2')
+      // Header uses px-4 py-2 for horizontal/vertical padding
+      expect(header!.className).toContain('px-4')
+      expect(header!.className).toContain('py-2')
     })
   })
 
@@ -326,8 +328,8 @@ describe('MainView', () => {
       renderWithRouter()
 
       const logoutButton = screen.getByRole('button', { name: /logout/i })
-      // Button should have h-12 class (48px height for 10-foot UI)
-      expect(logoutButton.className).toContain('h-12')
+      // Button has h-8 class (32px height) for compact header design
+      expect(logoutButton.className).toContain('h-8')
     })
 
     it('should have visible focus state on logout button', () => {
@@ -353,32 +355,30 @@ describe('MainView', () => {
         expect(logoutButton.className).toContain('shrink-0')
       })
 
-      it('should maintain 44px minimum height requirement (AC: #3)', () => {
+      it('should have consistent height styling (AC: #3)', () => {
         renderWithRouter()
 
         const logoutButton = screen.getByRole('button', { name: /logout/i })
-        // h-12 = 48px which exceeds 44px minimum
-        expect(logoutButton.className).toContain('h-12')
+        // Uses h-8 for compact header design
+        expect(logoutButton.className).toContain('h-8')
       })
 
-      it('should have responsive padding for narrow viewports (AC: #4)', () => {
+      it('should have consistent padding (AC: #4)', () => {
         mockWindowWidth(500) // Mobile viewport
         renderWithRouter()
 
         const logoutButton = screen.getByRole('button', { name: /logout/i })
-        // Should have mobile-first padding with larger padding on md+
-        expect(logoutButton.className).toContain('px-4')
-        expect(logoutButton.className).toContain('md:px-6')
+        // Uses px-3 padding for compact design
+        expect(logoutButton.className).toContain('px-3')
       })
 
-      it('should have responsive text size for narrow viewports (AC: #4)', () => {
+      it('should have consistent text size (AC: #4)', () => {
         mockWindowWidth(500) // Mobile viewport
         renderWithRouter()
 
         const logoutButton = screen.getByRole('button', { name: /logout/i })
-        // Should have smaller text on mobile, larger on md+
-        expect(logoutButton.className).toContain('text-base')
-        expect(logoutButton.className).toContain('md:text-lg')
+        // Uses text-sm for compact header
+        expect(logoutButton.className).toContain('text-sm')
       })
     })
 

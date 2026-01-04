@@ -20,6 +20,9 @@ interface UIState {
   isChannelSidebarCollapsed: boolean
   setChannelSidebarCollapsed: (value: boolean) => void
   toggleChannelSidebar: () => void
+  // Last ErsatzTV channel
+  lastErsatzTVChannelId: string | null
+  setLastErsatzTVChannelId: (id: string | null) => void
 }
 
 export const useUIStore = create<UIState>()(
@@ -43,6 +46,9 @@ export const useUIStore = create<UIState>()(
       isChannelSidebarCollapsed: false,
       setChannelSidebarCollapsed: (value) => set({ isChannelSidebarCollapsed: value }),
       toggleChannelSidebar: () => set((s) => ({ isChannelSidebarCollapsed: !s.isChannelSidebarCollapsed })),
+      // Last ErsatzTV channel
+      lastErsatzTVChannelId: null,
+      setLastErsatzTVChannelId: (id) => set({ lastErsatzTVChannelId: id }),
     }),
     {
       name: 'ui-storage',
@@ -52,6 +58,7 @@ export const useUIStore = create<UIState>()(
         isEPGVisible: state.isEPGVisible,
         epgHeightPercent: state.epgHeightPercent,
         isChannelSidebarCollapsed: state.isChannelSidebarCollapsed,
+        lastErsatzTVChannelId: state.lastErsatzTVChannelId,
       }),
     }
   )

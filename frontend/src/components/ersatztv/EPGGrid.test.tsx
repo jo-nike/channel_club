@@ -149,15 +149,16 @@ describe('EPGGrid', () => {
     )
   })
 
-  it('supports horizontal scrolling', async () => {
+  it('has fixed horizontal layout for proper time alignment', async () => {
     await act(async () => {
       render(<EPGGrid hours={12} programmesByChannel={mockProgrammesByChannel} loading={false} />)
     })
 
     expect(screen.getByTestId('epg-grid')).toBeInTheDocument()
 
+    // Grid container uses overflow-hidden for fixed layout with now marker
     const scrollContainer = screen.getByTestId('grid-container')
-    expect(scrollContainer).toHaveClass('overflow-x-auto')
+    expect(scrollContainer).toHaveClass('overflow-x-hidden')
   })
 
   it('uses channels from store', async () => {

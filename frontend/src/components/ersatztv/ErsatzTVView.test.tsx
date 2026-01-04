@@ -159,7 +159,8 @@ describe('ErsatzTVView', () => {
     )
 
     expect(screen.getByText('Live TV')).toBeInTheDocument()
-    expect(screen.getByText('Movie Channels')).toBeInTheDocument()
+    // Header shows "Movie Channels - {channelName}" when channel is selected
+    expect(screen.getByText(/Movie Channels/)).toBeInTheDocument()
   })
 
   it('renders navigation link back to live TV', () => {
@@ -267,8 +268,8 @@ describe('ErsatzTVView', () => {
       </MemoryRouter>
     )
 
-    expect(screen.getByText(/Now watching:/)).toBeInTheDocument()
-    expect(screen.getByText('Test Channel')).toBeInTheDocument()
+    // Header shows "Movie Channels - {channelName}" format
+    expect(screen.getByText('Movie Channels - Test Channel')).toBeInTheDocument()
   })
 
   it('shows error message when error exists', () => {

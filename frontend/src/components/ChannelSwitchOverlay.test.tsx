@@ -10,8 +10,8 @@ describe('ChannelSwitchOverlay', () => {
 
     expect(screen.getByText('Loading ESPN...')).toBeInTheDocument()
 
-    // Check for spinner element
-    const spinner = container.querySelector('.animate-spin')
+    // Check for film reel spinner element (animate-spin-slow from ProjectorBeamLoader)
+    const spinner = container.querySelector('.animate-spin-slow')
     expect(spinner).toBeInTheDocument()
   })
 
@@ -32,13 +32,14 @@ describe('ChannelSwitchOverlay', () => {
     expect(overlay.className).toContain('pointer-events-none')
   })
 
-  it('has backdrop blur for visual effect', () => {
+  it('has dark overlay for visual effect', () => {
     const { container } = render(
       <ChannelSwitchOverlay channelName="ESPN" isVisible={true} />
     )
 
-    const overlay = container.firstChild as HTMLElement
-    expect(overlay.className).toContain('backdrop-blur-sm')
+    // ProjectorBeamLoader uses a dark overlay with bg-black/70
+    const darkOverlay = container.querySelector('.bg-black\\/70')
+    expect(darkOverlay).toBeInTheDocument()
   })
 
   it('displays different channel names correctly', () => {

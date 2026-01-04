@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useState } from 'react'
 
 interface ProjectorBeamLoaderProps {
   /** Optional text to display below the loader */
@@ -15,19 +15,22 @@ interface Particle {
   opacity: number
 }
 
+// Generate particles outside of render to ensure purity
+function generateParticles(): Particle[] {
+  return Array.from({ length: 20 }, (_, i) => ({
+    id: i,
+    left: `${Math.random() * 100}%`,
+    top: `${Math.random() * 100}%`,
+    size: Math.random() * 3 + 1,
+    duration: `${Math.random() * 3 + 2}s`,
+    delay: `${Math.random() * 2}s`,
+    opacity: Math.random() * 0.6 + 0.2,
+  }))
+}
+
 export function ProjectorBeamLoader({ text }: ProjectorBeamLoaderProps) {
-  // Generate random dust particles
-  const particles = useMemo<Particle[]>(() => {
-    return Array.from({ length: 20 }, (_, i) => ({
-      id: i,
-      left: `${Math.random() * 100}%`,
-      top: `${Math.random() * 100}%`,
-      size: Math.random() * 3 + 1,
-      duration: `${Math.random() * 3 + 2}s`,
-      delay: `${Math.random() * 2}s`,
-      opacity: Math.random() * 0.6 + 0.2,
-    }))
-  }, [])
+  // useState with lazy initializer only runs once on mount
+  const [particles] = useState<Particle[]>(generateParticles)
 
   return (
     <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center overflow-hidden">

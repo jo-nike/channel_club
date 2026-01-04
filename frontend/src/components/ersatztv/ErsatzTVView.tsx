@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { Tv, LayoutList } from 'lucide-react'
+import { useAuth } from '@/hooks/useAuth'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useUIStore } from '@/stores/uiStore'
 import { getErsatzTVStreamUrl, getErsatzTVLogoUrl } from '@/services/ersatztvApi'
@@ -17,6 +18,7 @@ import type { ErsatzTVProgramme, ErsatzTVChannel } from '@/types'
 const REFRESH_INTERVAL = 5 * 60 * 1000
 
 export function ErsatzTVView() {
+  const { logout } = useAuth()
   const {
     channels,
     selectedChannel,
@@ -36,6 +38,8 @@ export function ErsatzTVView() {
   const setEPGHeightPercent = useUIStore((s) => s.setEPGHeightPercent)
   const isChannelSidebarCollapsed = useUIStore((s) => s.isChannelSidebarCollapsed)
   const toggleChannelSidebar = useUIStore((s) => s.toggleChannelSidebar)
+  const lastErsatzTVChannelId = useUIStore((s) => s.lastErsatzTVChannelId)
+  const setLastErsatzTVChannelId = useUIStore((s) => s.setLastErsatzTVChannelId)
 
   // Track that user visited this route
   useEffect(() => {
@@ -80,12 +84,15 @@ export function ErsatzTVView() {
     }
   }, [channels.length, loadAllProgrammes])
 
-  // Auto-select first channel when loaded
+  // Auto-select last used channel (or first) when loaded
   useEffect(() => {
     if (channels.length > 0 && !selectedChannel) {
-      selectChannel(channels[0])
+      const savedChannel = lastErsatzTVChannelId
+        ? channels.find((c) => c.id === lastErsatzTVChannelId)
+        : null
+      selectChannel(savedChannel ?? channels[0])
     }
-  }, [channels, selectedChannel, selectChannel])
+  }, [channels, selectedChannel, selectChannel, lastErsatzTVChannelId])
 
   // Auto-refresh programme data
   useEffect(() => {
@@ -112,32 +119,32 @@ export function ErsatzTVView() {
   const handleWatch = useCallback(
     (channel: ErsatzTVChannel) => {
       selectChannel(channel)
+      setLastErsatzTVChannelId(channel.id)
       setModalOpen(false)
     },
-    [selectChannel]
+    [selectChannel, setLastErsatzTVChannelId]
   )
 
   // Handle channel selection from sidebar
   const handleChannelSelect = useCallback(
     (channel: ErsatzTVChannel) => {
       selectChannel(channel)
+      setLastErsatzTVChannelId(channel.id)
     },
-    [selectChannel]
+    [selectChannel, setLastErsatzTVChannelId]
   )
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
-      {/* Header */}
-      <header className="flex items-center justify-between border-b bg-card px-4 py-2">
+      {/* Header - matches MainView exactly */}
+      <header className="flex justify-between items-center px-4 py-2 bg-background border-b">
         <div className="flex items-center gap-4">
-          <h1 className="text-lg font-semibold">Movie Channels</h1>
-          {/* Current channel indicator */}
-          {selectedChannel && (
-            <span className="hidden md:inline text-sm text-muted-foreground">
-              Now watching:{' '}
-              <span className="font-medium">{selectedChannel.name}</span>
-            </span>
-          )}
+          {/* Current channel name */}
+          <span className="text-muted-foreground text-sm">
+            {selectedChannel?.name
+              ? `Movie Channels - ${selectedChannel.name}`
+              : 'Movie Channels'}
+          </span>
         </div>
 
         <div className="flex items-center gap-2">
@@ -146,26 +153,32 @@ export function ErsatzTVView() {
             <button
               onClick={toggleEPG}
               className={`
-                h-12 px-3 flex items-center gap-2 rounded-md
+                h-8 px-3 flex items-center gap-2 rounded-md text-sm
                 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2
                 ${isEPGVisible ? 'bg-secondary text-secondary-foreground hover:bg-secondary/80' : 'bg-muted text-muted-foreground hover:bg-muted/80'}
               `}
               aria-pressed={isEPGVisible}
               aria-label={isEPGVisible ? 'Hide EPG guide' : 'Show EPG guide'}
             >
-              <LayoutList className="h-5 w-5 shrink-0" />
+              <LayoutList className="h-4 w-4 shrink-0" />
               <span className="hidden md:inline">EPG</span>
             </button>
           )}
 
-          {/* Live TV link - matches MainView styling */}
+          {/* Live TV link - matches MainView Movie Channels button */}
           <Link
             to="/"
-            className="h-12 px-4 flex items-center gap-2 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            className="h-8 px-3 md:w-[130px] flex items-center justify-center gap-2 bg-secondary text-secondary-foreground rounded-md text-sm hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
           >
-            <Tv className="h-5 w-5 shrink-0" />
+            <Tv className="h-4 w-4 shrink-0" />
             <span className="hidden md:inline">Live TV</span>
           </Link>
+          <button
+            onClick={logout}
+            className="h-8 px-3 text-sm whitespace-nowrap shrink-0 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+          >
+            Logout
+          </button>
         </div>
       </header>
 

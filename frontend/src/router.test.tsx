@@ -169,13 +169,13 @@ describe('Router', () => {
     expect(screen.queryByText('Movie Channels')).not.toBeInTheDocument()
   })
 
-  it('renders Movie Channels link in MainView header', async () => {
+  it('renders Movies link in MainView header', async () => {
     const router = await createRouter(['/'])
 
     render(<RouterProvider router={router} />)
 
-    // Check for the navigation link
-    const link = screen.getByRole('link', { name: /movie channels/i })
+    // Check for the navigation link - button text is "Movies" (short form)
+    const link = screen.getByRole('link', { name: /movies/i })
     expect(link).toBeInTheDocument()
     expect(link).toHaveAttribute('href', '/ersatztv')
   })

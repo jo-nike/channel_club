@@ -216,6 +216,15 @@
   padding: 0.75rem 1.5rem;
 }
 
+/* Header buttons should stay compact even in TV mode */
+.tv-mode header button,
+.tv-mode header a {
+  min-height: auto;
+  min-width: auto;
+  font-size: 0.875rem; /* text-sm = 14px */
+  padding: 0 0.75rem; /* px-3 = 12px */
+}
+
 /* Input fields in TV mode */
 .tv-mode input[type="text"],
 .tv-mode input[type="password"],

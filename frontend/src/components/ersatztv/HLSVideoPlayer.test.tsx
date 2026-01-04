@@ -55,9 +55,11 @@ describe('HLSVideoPlayer', () => {
 
   describe('Task 3: Buffering State', () => {
     it('shows buffering overlay initially', () => {
-      render(<HLSVideoPlayer streamUrl="http://test/stream.m3u8" />)
-      // Buffering spinner should be visible initially
-      expect(screen.getByTestId('buffering-spinner')).toBeInTheDocument()
+      const { container } = render(<HLSVideoPlayer streamUrl="http://test/stream.m3u8" />)
+      // Buffering overlay (ProjectorBeamLoader) should be visible initially
+      // It shows the film reel spinner with animate-spin-slow
+      const spinner = container.querySelector('.animate-spin-slow')
+      expect(spinner).toBeInTheDocument()
     })
 
     it('has event handlers for buffering state', () => {
