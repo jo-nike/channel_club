@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { Tv, LayoutList } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
+import { useTheme } from '@/hooks/useTheme'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useUIStore } from '@/stores/uiStore'
 import { getErsatzTVStreamUrl, getErsatzTVLogoUrl } from '@/services/ersatztvApi'
@@ -12,6 +13,7 @@ import { ProgrammeDetailsModal } from '@/components/ersatztv/ProgrammeDetailsMod
 import { ResizeDragHandle } from '@/components/ui/ResizeDragHandle'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useResizable } from '@/hooks/useResizable'
+import { ThemePicker } from '@/components/ThemePicker'
 import type { ErsatzTVProgramme, ErsatzTVChannel } from '@/types'
 
 // Refresh interval for programme data (5 minutes)
@@ -19,6 +21,9 @@ const REFRESH_INTERVAL = 5 * 60 * 1000
 
 export function ErsatzTVView() {
   const { logout } = useAuth()
+
+  // Initialize theme - ensures theme syncs across views
+  useTheme()
   const {
     channels,
     selectedChannel,
@@ -139,6 +144,8 @@ export function ErsatzTVView() {
       {/* Header - matches MainView exactly */}
       <header className="flex justify-between items-center px-4 py-2 bg-background border-b">
         <div className="flex items-center gap-4">
+          {/* Theme picker - consistent with MainView placement */}
+          <ThemePicker />
           {/* Current channel name */}
           <span className="text-muted-foreground text-sm">
             {selectedChannel?.name

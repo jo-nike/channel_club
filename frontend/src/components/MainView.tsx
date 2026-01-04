@@ -8,9 +8,11 @@ import { useTVMode } from '@/hooks/useTVMode'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
 import { useFocusTrap } from '@/hooks/useFocusTrap'
 import { useEPG } from '@/hooks/useEPG'
+import { useTheme } from '@/hooks/useTheme'
 import { ChannelList } from '@/components/ChannelList'
 import { VideoPlayer } from '@/components/VideoPlayer'
 import { ConnectionStatus } from '@/components/ConnectionStatus'
+import { ThemePicker } from '@/components/ThemePicker'
 import { useUIStore } from '@/stores/uiStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { cn } from '@/lib/utils'
@@ -20,6 +22,9 @@ export function MainView() {
   const { status, reconnect } = useWebSocket()
   const breakpoint = useBreakpoint()
   const isTVMode = useTVMode()
+
+  // Initialize theme on app mount - this applies CSS variables and dark/light mode class
+  useTheme()
   const isTheaterMode = useUIStore((s) => s.isTheaterMode)
   const setTheaterMode = useUIStore((s) => s.setTheaterMode)
   const isSidebarOpen = useUIStore((s) => s.isSidebarOpen)
@@ -98,6 +103,8 @@ export function MainView() {
               </button>
             )}
             <ConnectionStatus status={status} onReconnect={reconnect} />
+            {/* Theme picker */}
+            <ThemePicker />
             {/* Current channel name with EPG display */}
             <span className="text-muted-foreground text-sm">
               {currentChannel?.name

@@ -203,7 +203,7 @@ function ProgrammeBox({ programme, channel, startTime, onClick }: ProgrammeBoxPr
     <button
       className={`
         absolute top-1 bottom-1 overflow-hidden rounded border
-        bg-accent px-2 py-1 text-left text-sm
+        bg-accent text-accent-foreground px-2 py-1 text-left text-sm
         hover:bg-accent/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring
         transition-colors
       `}
@@ -215,7 +215,7 @@ function ProgrammeBox({ programme, channel, startTime, onClick }: ProgrammeBoxPr
       data-testid="programme-box"
     >
       <p className="truncate font-medium">{programme.title}</p>
-      <p className="truncate text-xs text-muted-foreground">
+      <p className="truncate text-xs opacity-75">
         {formatTime(progStart)} - {formatTime(progEnd)}
       </p>
     </button>
