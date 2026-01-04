@@ -32,7 +32,7 @@ interface ErsatztvState {
   selectChannel: (channel: ErsatzTVChannel) => void
   loadProgrammes: (channelId: string, hours?: number) => Promise<void>
   loadCurrentProgramme: (channelId: string) => Promise<void>
-  loadAllProgrammes: (hours?: number) => Promise<void>
+  loadAllProgrammes: (hours?: number, silent?: boolean) => Promise<void>
   clearError: () => void
 }
 
@@ -116,14 +116,17 @@ export const useErsatztvStore = create<ErsatztvState>((set, get) => ({
     }
   },
 
-  loadAllProgrammes: async (hours: number = 6) => {
+  loadAllProgrammes: async (hours: number = 6, silent: boolean = false) => {
     const state = get()
     // Prevent duplicate loads
     if (state.programmesLoading) return
     if (state.channels.length === 0) return
 
-    logger.debug('Store', `Loading all programmes for ${state.channels.length} channels`)
-    set({ programmesLoading: true })
+    logger.debug('Store', `Loading all programmes for ${state.channels.length} channels${silent ? ' (silent)' : ''}`)
+    // Only show loading state on initial load, not silent refreshes
+    if (!silent) {
+      set({ programmesLoading: true })
+    }
 
     try {
       const programmeData: Record<string, ErsatzTVProgramme[]> = {}

@@ -83,35 +83,20 @@ export function TVEPGGrid({
     return calculateTimeOffset(currentTime, startTime)
   }, [currentTime, startTime])
 
-  // Convert live EPG to programme format for display
+  // Convert live EPG to programme format for display (current only, no next)
   const liveProgrammes = useMemo(() => {
     if (!liveEPG?.currentProgram) return []
 
-    const programmes: ErsatzTVProgramme[] = []
-
-    if (liveEPG.currentProgram) {
-      programmes.push({
+    return [
+      {
         id: 'live-current',
         channelId: LIVE_CHANNEL_ID,
         title: liveEPG.currentProgram.title,
         description: liveEPG.currentProgram.description,
         start: liveEPG.currentProgram.startTime,
         stop: liveEPG.currentProgram.endTime,
-      })
-    }
-
-    if (liveEPG.nextProgram) {
-      programmes.push({
-        id: 'live-next',
-        channelId: LIVE_CHANNEL_ID,
-        title: liveEPG.nextProgram.title,
-        description: liveEPG.nextProgram.description,
-        start: liveEPG.nextProgram.startTime,
-        stop: liveEPG.nextProgram.endTime,
-      })
-    }
-
-    return programmes
+      },
+    ]
   }, [liveEPG])
 
   if (loading) {
@@ -200,17 +185,20 @@ function ChannelRow({
 }: ChannelRowProps) {
   const isLive = channel.type === 'live'
 
+  // Only show red background when live channel has active broadcast
+  const showLiveHighlight = isLive && hasLiveChannel
+
   return (
     <div
-      className={`absolute left-0 flex ${isLive ? 'bg-destructive/5' : ''}`}
+      className={`absolute left-0 flex ${showLiveHighlight ? 'bg-destructive/5' : ''}`}
       style={{ top: rowIndex * ROW_HEIGHT, height: ROW_HEIGHT }}
       data-testid="channel-row"
     >
       {/* Channel label with logo - clickable */}
       <button
         onClick={() => onChannelClick?.(channel)}
-        className={`sticky left-0 z-10 flex flex-shrink-0 items-center gap-1.5 px-2 text-sm font-medium border-r hover:bg-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${
-          isLive ? 'bg-destructive/5' : 'bg-card'
+        className={`sticky left-0 z-20 flex flex-shrink-0 items-center gap-1.5 px-2 text-sm font-medium border-r hover:bg-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${
+          showLiveHighlight ? 'bg-rose-50 dark:bg-rose-950' : 'bg-card'
         }`}
         style={{ width: CHANNEL_LABEL_WIDTH }}
         title={`Switch to ${channel.name}`}
@@ -237,9 +225,12 @@ function ChannelRow({
       {/* Programme boxes */}
       <div className="relative" style={{ width: gridWidth }}>
         {isLive && !hasLiveChannel ? (
-          // Placeholder for live channel when no broadcast
-          <div className="absolute top-1 bottom-1 left-0 right-0 flex items-center px-4">
-            <div className="rounded border border-dashed border-muted-foreground/30 bg-muted/30 px-4 py-2 text-sm text-muted-foreground">
+          // Placeholder for live channel when no broadcast - position at ~1 hour mark
+          <div
+            className="absolute top-1 bottom-1 flex items-center z-0"
+            style={{ left: SLOT_WIDTH * 2 }}
+          >
+            <div className="rounded border border-dashed border-muted-foreground/30 bg-card px-4 py-2 text-sm text-muted-foreground whitespace-nowrap">
               No broadcast scheduled
             </div>
           </div>
@@ -284,11 +275,16 @@ function ProgrammeBox({
   // Skip if programme ends before grid starts
   if (left + width < 0) return null
 
+  // Calculate if the programme is clipped (started before grid start)
+  const isClipped = left < 0
+  const visualLeft = Math.max(0, left)
+  const visualWidth = Math.max(60, width - (isClipped ? -left : 0) - PROGRAMME_GAP)
+
   return (
     <button
       className={`
-        absolute top-1 bottom-1 overflow-hidden rounded border
-        px-2 py-1 text-left text-sm
+        absolute top-1 bottom-1 z-0 overflow-hidden rounded border
+        px-2 py-1 text-sm flex flex-col justify-center
         hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring
         transition-colors
         ${
@@ -296,10 +292,11 @@ function ProgrammeBox({
             ? 'bg-destructive/20 text-destructive-foreground border-destructive/30'
             : 'bg-accent text-accent-foreground'
         }
+        ${isClipped ? 'text-right' : 'text-left'}
       `}
       style={{
-        left: Math.max(0, left),
-        width: Math.max(60, width - (left < 0 ? -left : 0) - PROGRAMME_GAP),
+        left: visualLeft,
+        width: visualWidth,
       }}
       onClick={() => onClick?.(programme, channel)}
     >

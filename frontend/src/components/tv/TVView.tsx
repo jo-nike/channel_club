@@ -160,12 +160,12 @@ export function TVView() {
     }
   }, [liveChannel, loadLiveEPG])
 
-  // Auto-refresh programme data
+  // Auto-refresh programme data (silent to avoid flash)
   useEffect(() => {
     if (ersatzTVChannels.length === 0) return
 
     const interval = setInterval(() => {
-      loadAllProgrammes(6)
+      loadAllProgrammes(6, true) // silent refresh to avoid skeleton flash
       if (selectedChannel?.type === 'live') {
         loadLiveEPG()
       }

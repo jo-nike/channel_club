@@ -216,17 +216,23 @@ function ProgrammeBox({ programme, channel, startTime, onClick }: ProgrammeBoxPr
   // Skip if programme ends before grid starts
   if (left + width < 0) return null
 
+  // Calculate if the programme is clipped (started before grid start)
+  const isClipped = left < 0
+  const visualLeft = Math.max(0, left)
+  const visualWidth = Math.max(60, width - (isClipped ? -left : 0) - PROGRAMME_GAP)
+
   return (
     <button
       className={`
-        absolute top-1 bottom-1 overflow-hidden rounded border
-        bg-accent text-accent-foreground px-2 py-1 text-left text-sm
+        absolute top-1 bottom-1 z-0 overflow-hidden rounded border
+        bg-accent text-accent-foreground px-2 py-1 text-sm flex flex-col justify-center
         hover:bg-accent/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring
         transition-colors
+        ${isClipped ? 'text-right' : 'text-left'}
       `}
       style={{
-        left: Math.max(0, left),
-        width: Math.max(60, width - (left < 0 ? -left : 0) - PROGRAMME_GAP),
+        left: visualLeft,
+        width: visualWidth,
       }}
       onClick={() => onClick?.(programme, channel)}
       data-testid="programme-box"
