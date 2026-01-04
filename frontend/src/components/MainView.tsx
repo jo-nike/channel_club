@@ -24,10 +24,16 @@ export function MainView() {
   const setTheaterMode = useUIStore((s) => s.setTheaterMode)
   const isSidebarOpen = useUIStore((s) => s.isSidebarOpen)
   const setSidebarOpen = useUIStore((s) => s.setSidebarOpen)
+  const setLastRoute = useUIStore((s) => s.setLastRoute)
   const currentChannel = useChannelStore((s) => s.currentChannel)
   const { epg } = useEPG()
 
   const isMobile = breakpoint === 'mobile'
+
+  // Track that user visited this route
+  useEffect(() => {
+    setLastRoute('/')
+  }, [setLastRoute])
 
   // Track the element that triggered the sidebar open for focus restoration
   const sidebarTriggerRef = useRef<HTMLButtonElement | null>(null)

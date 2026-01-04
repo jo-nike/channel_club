@@ -1,12 +1,10 @@
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { EPGGrid } from './EPGGrid'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
-import { fetchErsatzTVProgrammes } from '@/services/ersatztvApi'
 
-// Mock the store and API
+// Mock the store
 vi.mock('@/stores/ersatztvStore')
-vi.mock('@/services/ersatztvApi')
 
 const mockChannels = [
   { id: 'ch1', name: 'Channel 1', number: 1, streamUrl: '', logoUrl: '', group: 'Movies' },
@@ -32,30 +30,34 @@ const mockProgrammes = [
   },
 ]
 
+const mockProgrammesByChannel = {
+  ch1: mockProgrammes,
+  ch2: mockProgrammes,
+}
+
 describe('EPGGrid', () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     vi.setSystemTime(new Date('2026-01-03T12:00:00Z'))
 
-    // Setup default mocks
+    // Setup default mock - EPGGrid only reads channels from store
     vi.mocked(useErsatztvStore).mockReturnValue({
       channels: mockChannels,
       selectedChannel: null,
       programmes: [],
+      programmesByChannel: {},
       currentProgramme: null,
       nextProgramme: null,
+      channelsLoading: false,
+      programmesLoading: false,
       loading: false,
       error: null,
-      loadChannels: vi.fn().mockResolvedValue(undefined),
+      loadChannels: vi.fn(),
       selectChannel: vi.fn(),
       loadProgrammes: vi.fn(),
       loadCurrentProgramme: vi.fn(),
+      loadAllProgrammes: vi.fn(),
       clearError: vi.fn(),
-    })
-
-    vi.mocked(fetchErsatzTVProgrammes).mockResolvedValue({
-      channelId: 'ch1',
-      programmes: mockProgrammes,
     })
   })
 
@@ -64,24 +66,9 @@ describe('EPGGrid', () => {
     vi.clearAllMocks()
   })
 
-  it('renders loading skeleton initially', async () => {
-    vi.mocked(useErsatztvStore).mockReturnValue({
-      channels: [],
-      selectedChannel: null,
-      programmes: [],
-      currentProgramme: null,
-      nextProgramme: null,
-      loading: false,
-      error: null,
-      loadChannels: vi.fn().mockResolvedValue(undefined),
-      selectChannel: vi.fn(),
-      loadProgrammes: vi.fn(),
-      loadCurrentProgramme: vi.fn(),
-      clearError: vi.fn(),
-    })
-
+  it('renders loading skeleton when loading prop is true', async () => {
     await act(async () => {
-      render(<EPGGrid />)
+      render(<EPGGrid programmesByChannel={{}} loading={true} />)
     })
 
     expect(screen.getByTestId('epg-grid-skeleton')).toBeInTheDocument()
@@ -89,12 +76,10 @@ describe('EPGGrid', () => {
 
   it('renders time slots in 30-minute intervals', async () => {
     await act(async () => {
-      render(<EPGGrid />)
+      render(<EPGGrid programmesByChannel={mockProgrammesByChannel} loading={false} />)
     })
 
-    await waitFor(() => {
-      expect(screen.getByTestId('epg-grid')).toBeInTheDocument()
-    })
+    expect(screen.getByTestId('epg-grid')).toBeInTheDocument()
 
     // Should show multiple time slots (30-minute intervals)
     const timeSlots = screen.getAllByTestId('time-slot')
@@ -103,12 +88,10 @@ describe('EPGGrid', () => {
 
   it('renders channel rows with channel numbers', async () => {
     await act(async () => {
-      render(<EPGGrid />)
+      render(<EPGGrid programmesByChannel={mockProgrammesByChannel} loading={false} />)
     })
 
-    await waitFor(() => {
-      expect(screen.getByTestId('epg-grid')).toBeInTheDocument()
-    })
+    expect(screen.getByTestId('epg-grid')).toBeInTheDocument()
 
     const channelRows = screen.getAllByTestId('channel-row')
     expect(channelRows).toHaveLength(2) // Two mock channels
@@ -120,25 +103,20 @@ describe('EPGGrid', () => {
 
   it('renders programme boxes with titles', async () => {
     await act(async () => {
-      render(<EPGGrid />)
+      render(<EPGGrid programmesByChannel={mockProgrammesByChannel} loading={false} />)
     })
 
-    await waitFor(() => {
-      // Multiple channels show the same programmes (from mock), so use getAllByText
-      expect(screen.getAllByText('Test Movie 1').length).toBeGreaterThan(0)
-    })
-
+    // Multiple channels show the same programmes
+    expect(screen.getAllByText('Test Movie 1').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Test Movie 2').length).toBeGreaterThan(0)
   })
 
   it('shows now marker at current time', async () => {
     await act(async () => {
-      render(<EPGGrid />)
+      render(<EPGGrid programmesByChannel={mockProgrammesByChannel} loading={false} />)
     })
 
-    await waitFor(() => {
-      expect(screen.getByTestId('epg-grid')).toBeInTheDocument()
-    })
+    expect(screen.getByTestId('epg-grid')).toBeInTheDocument()
 
     // Now marker should exist
     const nowMarker = screen.getByTestId('now-marker')
@@ -150,12 +128,16 @@ describe('EPGGrid', () => {
     const onProgrammeClick = vi.fn()
 
     await act(async () => {
-      render(<EPGGrid onProgrammeClick={onProgrammeClick} />)
+      render(
+        <EPGGrid
+          programmesByChannel={mockProgrammesByChannel}
+          loading={false}
+          onProgrammeClick={onProgrammeClick}
+        />
+      )
     })
 
-    await waitFor(() => {
-      expect(screen.getAllByText('Test Movie 1').length).toBeGreaterThan(0)
-    })
+    expect(screen.getAllByText('Test Movie 1').length).toBeGreaterThan(0)
 
     // Click the first programme box
     const programmeBoxes = screen.getAllByTestId('programme-box')
@@ -169,61 +151,43 @@ describe('EPGGrid', () => {
 
   it('supports horizontal scrolling', async () => {
     await act(async () => {
-      render(<EPGGrid hours={12} />)
+      render(<EPGGrid hours={12} programmesByChannel={mockProgrammesByChannel} loading={false} />)
     })
 
-    await waitFor(() => {
-      expect(screen.getByTestId('epg-grid')).toBeInTheDocument()
-    })
+    expect(screen.getByTestId('epg-grid')).toBeInTheDocument()
 
     const scrollContainer = screen.getByTestId('grid-container')
     expect(scrollContainer).toHaveClass('overflow-x-auto')
   })
 
-  it('loads channels if not already loaded', async () => {
-    const loadChannels = vi.fn().mockResolvedValue(undefined)
-
-    vi.mocked(useErsatztvStore).mockReturnValue({
-      channels: [],
-      selectedChannel: null,
-      programmes: [],
-      currentProgramme: null,
-      nextProgramme: null,
-      loading: false,
-      error: null,
-      loadChannels,
-      selectChannel: vi.fn(),
-      loadProgrammes: vi.fn(),
-      loadCurrentProgramme: vi.fn(),
-      clearError: vi.fn(),
-    })
-
+  it('uses channels from store', async () => {
     await act(async () => {
-      render(<EPGGrid />)
+      render(<EPGGrid programmesByChannel={mockProgrammesByChannel} loading={false} />)
     })
 
-    expect(loadChannels).toHaveBeenCalled()
+    // Verify store was accessed
+    expect(useErsatztvStore).toHaveBeenCalled()
+
+    // Two channel rows should be rendered
+    const channelRows = screen.getAllByTestId('channel-row')
+    expect(channelRows).toHaveLength(2)
   })
 
-  it('fetches programmes for all channels', async () => {
+  it('uses programmesByChannel prop for displaying programmes', async () => {
     await act(async () => {
-      render(<EPGGrid hours={6} />)
+      render(<EPGGrid programmesByChannel={mockProgrammesByChannel} loading={false} />)
     })
 
-    await waitFor(() => {
-      expect(fetchErsatzTVProgrammes).toHaveBeenCalledWith('ch1', 6)
-      expect(fetchErsatzTVProgrammes).toHaveBeenCalledWith('ch2', 6)
-    })
+    // Should show programmes from prop
+    expect(screen.getAllByText('Test Movie 1').length).toBeGreaterThan(0)
   })
 
   it('updates now marker every minute', async () => {
     await act(async () => {
-      render(<EPGGrid />)
+      render(<EPGGrid programmesByChannel={mockProgrammesByChannel} loading={false} />)
     })
 
-    await waitFor(() => {
-      expect(screen.getByTestId('epg-grid')).toBeInTheDocument()
-    })
+    expect(screen.getByTestId('epg-grid')).toBeInTheDocument()
 
     // Initial marker should exist
     expect(screen.getByTestId('now-marker')).toBeInTheDocument()
@@ -238,47 +202,41 @@ describe('EPGGrid', () => {
   })
 
   it('handles empty programmes gracefully', async () => {
-    vi.mocked(fetchErsatzTVProgrammes).mockResolvedValue({
-      channelId: 'ch1',
-      programmes: [],
-    })
-
     await act(async () => {
-      render(<EPGGrid />)
+      render(<EPGGrid programmesByChannel={{}} loading={false} />)
     })
 
-    await waitFor(() => {
-      expect(screen.getByTestId('epg-grid')).toBeInTheDocument()
-    })
+    expect(screen.getByTestId('epg-grid')).toBeInTheDocument()
 
     // Should still render channel rows even without programmes
     const channelRows = screen.getAllByTestId('channel-row')
     expect(channelRows).toHaveLength(2)
   })
 
-  it('handles API errors gracefully', async () => {
-    vi.mocked(fetchErsatzTVProgrammes).mockRejectedValue(new Error('API error'))
+  it('handles missing channel programmes gracefully', async () => {
+    const partialProgrammes = {
+      ch1: mockProgrammes,
+      // ch2 is missing
+    }
 
     await act(async () => {
-      render(<EPGGrid />)
+      render(<EPGGrid programmesByChannel={partialProgrammes} loading={false} />)
     })
 
-    await waitFor(() => {
-      expect(screen.getByTestId('epg-grid')).toBeInTheDocument()
-    })
+    expect(screen.getByTestId('epg-grid')).toBeInTheDocument()
 
-    // Should still render the grid even if API fails
+    // Should still render both channel rows
     const channelRows = screen.getAllByTestId('channel-row')
     expect(channelRows).toHaveLength(2)
   })
 
   it('configures hours prop correctly', async () => {
     await act(async () => {
-      render(<EPGGrid hours={12} />)
+      render(<EPGGrid hours={12} programmesByChannel={mockProgrammesByChannel} loading={false} />)
     })
 
-    await waitFor(() => {
-      expect(fetchErsatzTVProgrammes).toHaveBeenCalledWith('ch1', 12)
-    })
+    // With 12 hours and 30-minute intervals, should have 24 time slots
+    const timeSlots = screen.getAllByTestId('time-slot')
+    expect(timeSlots.length).toBe(24)
   })
 })

@@ -260,6 +260,44 @@ class TestGetCurrentProgramme:
         assert data["nextUp"] is None
 
 
+class TestHeadStream:
+    """Tests for HEAD /api/ersatztv/stream/{channel_id} endpoint."""
+
+    def test_requires_authentication(self, client: TestClient) -> None:
+        """Unauthenticated HEAD request returns 401."""
+        response = client.head("/api/ersatztv/stream/comedy-classics")
+        assert response.status_code == 401
+
+    def test_returns_200_with_headers_only(
+        self, client: TestClient, auth_header: dict[str, str], mock_channel: EPGChannel
+    ) -> None:
+        """HEAD request returns 200 with correct headers but no body."""
+        with patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel):
+            response = client.head("/api/ersatztv/stream/comedy-classics", headers=auth_header)
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "application/vnd.apple.mpegurl"
+        assert response.content == b""  # No body for HEAD
+
+    def test_returns_404_for_nonexistent_channel(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """HEAD request returns 404 when channel not found."""
+        with patch("app.routers.ersatztv.get_channel_by_id", return_value=None):
+            response = client.head("/api/ersatztv/stream/nonexistent", headers=auth_header)
+
+        assert response.status_code == 404
+
+    def test_accepts_token_query_param(self, client: TestClient, mock_channel: EPGChannel) -> None:
+        """HEAD stream endpoint accepts token via query parameter."""
+        token = create_access_token({"sub": "testuser", "role": "viewer"})
+
+        with patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel):
+            response = client.head(f"/api/ersatztv/stream/comedy-classics?token={token}")
+
+        assert response.status_code == 200
+
+
 class TestGetStream:
     """Tests for GET /api/ersatztv/stream/{channel_id} endpoint."""
 
@@ -374,6 +412,56 @@ class TestGetStream:
         mock_rewrite.assert_called_once()
         call_kwargs = mock_rewrite.call_args
         assert call_kwargs.kwargs.get("token") == token
+
+
+class TestHeadSegment:
+    """Tests for HEAD /api/ersatztv/segments/{encoded_url} endpoint."""
+
+    def test_requires_authentication(self, client: TestClient) -> None:
+        """Unauthenticated HEAD request returns 401."""
+        response = client.head("/api/ersatztv/segments/some-encoded-url")
+        assert response.status_code == 401
+
+    def test_returns_200_with_headers_only(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """HEAD request returns 200 with correct headers but no body."""
+        encoded_url = "aHR0cDovLzE5Mi4xNjguNTAuMTA4Ojg0MDkvc2VnbWVudC50cw"
+
+        with patch(
+            "app.routers.ersatztv.decode_url",
+            return_value="http://192.168.50.108:8409/segment.ts",
+        ):
+            response = client.head(f"/api/ersatztv/segments/{encoded_url}", headers=auth_header)
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "video/mp2t"
+        assert response.content == b""  # No body for HEAD
+
+    def test_rejects_non_ersatztv_url(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """HEAD request returns 400 when segment URL is not from ErsatzTV."""
+        with patch(
+            "app.routers.ersatztv.decode_url",
+            return_value="http://malicious.com/segment.ts",
+        ):
+            response = client.head("/api/ersatztv/segments/malicious-encoded", headers=auth_header)
+
+        assert response.status_code == 400
+
+    def test_accepts_token_query_param(self, client: TestClient) -> None:
+        """HEAD segment endpoint accepts token via query parameter."""
+        token = create_access_token({"sub": "testuser", "role": "viewer"})
+        encoded_url = "aHR0cDovLzE5Mi4xNjguNTAuMTA4Ojg0MDkvc2VnbWVudC50cw"
+
+        with patch(
+            "app.routers.ersatztv.decode_url",
+            return_value="http://192.168.50.108:8409/segment.ts",
+        ):
+            response = client.head(f"/api/ersatztv/segments/{encoded_url}?token={token}")
+
+        assert response.status_code == 200
 
 
 class TestGetSegment:

@@ -1,29 +1,30 @@
 import { useEffect, useState } from 'react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { getErsatzTVLogoUrl, fetchErsatzTVCurrentProgramme } from '@/services/ersatztvApi'
 import type { ErsatzTVChannel } from '@/types'
 
 interface EPGChannelSidebarProps {
   onChannelSelect?: (channel: ErsatzTVChannel) => void
+  isCollapsed?: boolean
+  onToggleCollapse?: () => void
 }
 
-export function EPGChannelSidebar({ onChannelSelect }: EPGChannelSidebarProps) {
+export function EPGChannelSidebar({
+  onChannelSelect,
+  isCollapsed = false,
+  onToggleCollapse,
+}: EPGChannelSidebarProps) {
   const {
     channels,
     selectedChannel,
-    loading,
+    channelsLoading,
     error,
     loadChannels,
     selectChannel,
   } = useErsatztvStore()
 
   const [channelProgrammes, setChannelProgrammes] = useState<Record<string, string>>({})
-
-  useEffect(() => {
-    if (channels.length === 0) {
-      loadChannels()
-    }
-  }, [channels.length, loadChannels])
 
   // Fetch current programmes for all channels
   useEffect(() => {
@@ -57,8 +58,8 @@ export function EPGChannelSidebar({ onChannelSelect }: EPGChannelSidebarProps) {
     onChannelSelect?.(channel)
   }
 
-  if (loading && channels.length === 0) {
-    return <ChannelSidebarSkeleton />
+  if (channelsLoading && channels.length === 0) {
+    return <ChannelSidebarSkeleton isCollapsed={isCollapsed} />
   }
 
   if (error && channels.length === 0) {
@@ -77,10 +78,54 @@ export function EPGChannelSidebar({ onChannelSelect }: EPGChannelSidebarProps) {
     )
   }
 
+  // Collapsed state - narrow strip with channel numbers
+  if (isCollapsed) {
+    return (
+      <aside className="flex h-full w-12 flex-col items-center border-r bg-card py-2">
+        <button
+          onClick={onToggleCollapse}
+          className="flex h-10 w-10 items-center justify-center rounded-md hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label="Expand channel sidebar"
+        >
+          <ChevronRight className="h-5 w-5" />
+        </button>
+        <div className="mt-2 flex flex-1 flex-col items-center gap-1 overflow-y-auto">
+          {channels.map((channel) => (
+            <button
+              key={channel.id}
+              onClick={() => {
+                selectChannel(channel)
+                onChannelSelect?.(channel)
+              }}
+              className={`
+                flex h-8 w-8 items-center justify-center rounded bg-muted text-xs font-medium
+                hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring
+                ${selectedChannel?.id === channel.id ? 'ring-2 ring-primary bg-primary/10' : ''}
+              `}
+              title={channel.name}
+              aria-label={`${channel.number} ${channel.name}`}
+              aria-pressed={selectedChannel?.id === channel.id}
+            >
+              {channel.number}
+            </button>
+          ))}
+        </div>
+      </aside>
+    )
+  }
+
+  // Expanded state
   return (
     <aside className="h-full w-72 overflow-y-auto border-r bg-card">
-      <div className="sticky top-0 border-b bg-card/95 p-4 backdrop-blur">
+      <div className="sticky top-0 flex items-center justify-between border-b bg-card/95 p-4 backdrop-blur">
         <h2 className="text-lg font-semibold">Channels</h2>
+        <button
+          onClick={onToggleCollapse}
+          className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label="Collapse channel sidebar"
+        >
+          <ChevronLeft className="h-5 w-5" />
+        </button>
       </div>
 
       <ul className="divide-y" role="list">
@@ -156,7 +201,20 @@ function ChannelItem({ channel, isSelected, onSelect, currentProgramme }: Channe
   )
 }
 
-function ChannelSidebarSkeleton() {
+function ChannelSidebarSkeleton({ isCollapsed = false }: { isCollapsed?: boolean }) {
+  if (isCollapsed) {
+    return (
+      <aside className="flex h-full w-12 flex-col items-center border-r bg-card py-2" role="status" aria-label="Loading channels">
+        <div className="h-10 w-10 animate-pulse rounded bg-muted" />
+        <div className="mt-2 flex flex-1 flex-col items-center gap-1">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="h-8 w-8 animate-pulse rounded bg-muted" />
+          ))}
+        </div>
+      </aside>
+    )
+  }
+
   return (
     <aside className="h-full w-72 border-r bg-card" role="status" aria-label="Loading channels">
       <div className="border-b p-4">

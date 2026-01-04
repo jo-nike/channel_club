@@ -31,7 +31,11 @@ class HLSManifestRewriter:
         self.stream_proxy_url = "/api/ersatztv/stream"
 
     def rewrite_manifest(
-        self, manifest_content: str, base_url: str, token: str | None = None
+        self,
+        manifest_content: str,
+        base_url: str,
+        token: str | None = None,
+        channel_id: str | None = None,
     ) -> str:
         """Rewrite HLS manifest to proxy all segment and variant URLs.
 
@@ -39,6 +43,7 @@ class HLSManifestRewriter:
             manifest_content: Raw .m3u8 manifest content
             base_url: Base URL for resolving relative paths
             token: Optional JWT token to include in rewritten URLs for auth
+            channel_id: Channel ID to include in nested playlist URLs
 
         Returns:
             Rewritten manifest with proxied URLs
@@ -70,9 +75,11 @@ class HLSManifestRewriter:
 
             # Check if this is a nested m3u8 (variant playlist)
             if stripped.endswith(".m3u8"):
-                # Rewrite to stream proxy endpoint
+                # Rewrite to stream proxy endpoint with channel_id
                 encoded = self._encode_url(absolute_url)
-                proxied = f"{self.stream_proxy_url}?url={encoded}"
+                # Use channel_id or placeholder for nested playlists
+                cid = channel_id or "_nested"
+                proxied = f"{self.stream_proxy_url}/{cid}?url={encoded}"
                 if token:
                     proxied += f"&token={token}"
             else:
@@ -126,18 +133,24 @@ class HLSManifestRewriter:
 _rewriter = HLSManifestRewriter()
 
 
-def rewrite_manifest(content: str, base_url: str, token: str | None = None) -> str:
+def rewrite_manifest(
+    content: str,
+    base_url: str,
+    token: str | None = None,
+    channel_id: str | None = None,
+) -> str:
     """Convenience function to rewrite manifest.
 
     Args:
         content: Raw manifest content
         base_url: Base URL for resolving relative paths
         token: Optional JWT token to include in rewritten URLs for auth
+        channel_id: Channel ID to include in nested playlist URLs
 
     Returns:
         Rewritten manifest with proxied URLs
     """
-    return _rewriter.rewrite_manifest(content, base_url, token=token)
+    return _rewriter.rewrite_manifest(content, base_url, token=token, channel_id=channel_id)
 
 
 def decode_url(encoded_url: str) -> str:

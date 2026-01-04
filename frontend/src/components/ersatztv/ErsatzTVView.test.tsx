@@ -3,12 +3,17 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { ErsatzTVView } from './ErsatzTVView'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
+import { useUIStore } from '@/stores/uiStore'
 import * as useMediaQueryModule from '@/hooks/useMediaQuery'
 import type { ErsatzTVChannel } from '@/types'
 
-// Mock the store
+// Mock the stores
 vi.mock('@/stores/ersatztvStore', () => ({
   useErsatztvStore: vi.fn(),
+}))
+
+vi.mock('@/stores/uiStore', () => ({
+  useUIStore: vi.fn(),
 }))
 
 // Mock the API
@@ -35,6 +40,8 @@ vi.mock('./EPGGrid', () => ({
   EPGGrid: ({
     onProgrammeClick,
   }: {
+    programmesByChannel: Record<string, unknown[]>
+    loading: boolean
     onProgrammeClick?: (programme: unknown, channel: unknown) => void
   }) => (
     <div
@@ -113,12 +120,16 @@ const mockChannel2: ErsatzTVChannel = {
 const createMockStore = (overrides = {}) => ({
   channels: [mockChannel],
   selectedChannel: mockChannel,
+  channelsLoading: false,
+  programmesLoading: false,
+  programmesByChannel: {},
   loading: false,
   error: null,
   loadChannels: vi.fn(),
   selectChannel: vi.fn(),
   loadProgrammes: vi.fn(),
   loadCurrentProgramme: vi.fn(),
+  loadAllProgrammes: vi.fn(),
   currentProgramme: null,
   nextProgramme: null,
   programmes: [],
@@ -130,6 +141,7 @@ describe('ErsatzTVView', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.mocked(useErsatztvStore).mockReturnValue(createMockStore())
+    vi.mocked(useUIStore).mockReturnValue(vi.fn())
     // Desktop by default
     vi.mocked(useMediaQueryModule.useMediaQuery).mockReturnValue(false)
   })
@@ -146,7 +158,7 @@ describe('ErsatzTVView', () => {
       </MemoryRouter>
     )
 
-    expect(screen.getByText('← Live TV')).toBeInTheDocument()
+    expect(screen.getByText('Live TV')).toBeInTheDocument()
     expect(screen.getByText('Movie Channels')).toBeInTheDocument()
   })
 
@@ -177,7 +189,7 @@ describe('ErsatzTVView', () => {
     vi.mocked(useErsatztvStore).mockReturnValue(
       createMockStore({
         selectedChannel: null,
-        loading: true,
+        channelsLoading: true,
       })
     )
 
@@ -194,7 +206,7 @@ describe('ErsatzTVView', () => {
     vi.mocked(useErsatztvStore).mockReturnValue(
       createMockStore({
         selectedChannel: null,
-        loading: false,
+        channelsLoading: false,
       })
     )
 
@@ -327,9 +339,9 @@ describe('ErsatzTVView', () => {
   })
 
   it('sets up auto-refresh interval for programme data', () => {
-    const loadProgrammes = vi.fn()
+    const loadAllProgrammes = vi.fn()
     vi.mocked(useErsatztvStore).mockReturnValue(
-      createMockStore({ loadProgrammes })
+      createMockStore({ loadAllProgrammes })
     )
 
     render(
@@ -341,13 +353,13 @@ describe('ErsatzTVView', () => {
     // Fast-forward 5 minutes
     vi.advanceTimersByTime(5 * 60 * 1000)
 
-    expect(loadProgrammes).toHaveBeenCalledWith('ch1')
+    expect(loadAllProgrammes).toHaveBeenCalledWith(6)
   })
 
   it('cleans up interval on unmount', () => {
-    const loadProgrammes = vi.fn()
+    const loadAllProgrammes = vi.fn()
     vi.mocked(useErsatztvStore).mockReturnValue(
-      createMockStore({ loadProgrammes })
+      createMockStore({ loadAllProgrammes, channels: [] }) // Empty channels so interval doesn't trigger
     )
 
     const { unmount } = render(
@@ -361,8 +373,8 @@ describe('ErsatzTVView', () => {
     // Fast-forward 5 minutes after unmount
     vi.advanceTimersByTime(5 * 60 * 1000)
 
-    // loadProgrammes should not be called again after unmount
-    expect(loadProgrammes).not.toHaveBeenCalled()
+    // loadAllProgrammes should not be called after unmount (only initial call if any)
+    expect(loadAllProgrammes).not.toHaveBeenCalled()
   })
 })
 
@@ -370,6 +382,7 @@ describe('ErsatzTVView - Mobile Layout', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.mocked(useErsatztvStore).mockReturnValue(createMockStore())
+    vi.mocked(useUIStore).mockReturnValue(vi.fn())
     // Mobile viewport
     vi.mocked(useMediaQueryModule.useMediaQuery).mockReturnValue(true)
   })

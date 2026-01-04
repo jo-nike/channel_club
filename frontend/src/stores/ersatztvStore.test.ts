@@ -41,14 +41,16 @@ describe('ersatztvStore', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    // Reset store state
+    // Reset store state - use all new property names
     useErsatztvStore.setState({
       channels: [],
       selectedChannel: null,
       programmes: [],
       currentProgramme: null,
       nextProgramme: null,
-      loading: false,
+      programmesByChannel: {},
+      channelsLoading: false,
+      programmesLoading: false,
       error: null,
     })
   })
@@ -61,7 +63,8 @@ describe('ersatztvStore', () => {
       expect(state.programmes).toEqual([])
       expect(state.currentProgramme).toBeNull()
       expect(state.nextProgramme).toBeNull()
-      expect(state.loading).toBe(false)
+      expect(state.channelsLoading).toBe(false)
+      expect(state.programmesLoading).toBe(false)
       expect(state.error).toBeNull()
     })
   })
@@ -76,7 +79,7 @@ describe('ersatztvStore', () => {
 
       const state = useErsatztvStore.getState()
       expect(state.channels).toEqual(mockChannels)
-      expect(state.loading).toBe(false)
+      expect(state.channelsLoading).toBe(false)
       expect(state.error).toBeNull()
     })
 
@@ -90,14 +93,14 @@ describe('ersatztvStore', () => {
       const loadPromise = useErsatztvStore.getState().loadChannels()
 
       // Check loading is true while fetching
-      expect(useErsatztvStore.getState().loading).toBe(true)
+      expect(useErsatztvStore.getState().channelsLoading).toBe(true)
 
       await act(async () => {
         resolvePromise!(mockChannels)
         await loadPromise
       })
 
-      expect(useErsatztvStore.getState().loading).toBe(false)
+      expect(useErsatztvStore.getState().channelsLoading).toBe(false)
     })
 
     it('sets error on channel load failure', async () => {
@@ -111,7 +114,7 @@ describe('ersatztvStore', () => {
 
       const state = useErsatztvStore.getState()
       expect(state.error).toBe('Network error')
-      expect(state.loading).toBe(false)
+      expect(state.channelsLoading).toBe(false)
       expect(state.channels).toEqual([])
     })
 
@@ -205,7 +208,7 @@ describe('ersatztvStore', () => {
 
       const state = useErsatztvStore.getState()
       expect(state.programmes).toEqual(mockProgrammes)
-      expect(state.loading).toBe(false)
+      expect(state.programmesLoading).toBe(false)
       expect(fetchErsatzTVProgrammes).toHaveBeenCalledWith('ch1', 6)
     })
 

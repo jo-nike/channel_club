@@ -9,7 +9,7 @@ Story: 7.6 - ErsatzTV API Endpoints
 import logging
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from fastapi.responses import StreamingResponse
 
 from app.config import settings
@@ -76,6 +76,37 @@ async def get_current(
         raise HTTPException(status_code=503, detail="ErsatzTV service unavailable") from None
 
 
+@router.head("/stream/{channel_id}")
+async def head_stream(
+    channel_id: str = Path(...),
+    url: str = Query(default=None),
+    token: str = Query(default=None),
+    user=Depends(get_current_user_or_token),
+):
+    """HEAD request for stream - returns headers only (for video.js preflight)."""
+    try:
+        if url:
+            manifest_url = decode_url(url)
+        else:
+            channel = get_channel_by_id(channel_id)
+            if not channel:
+                raise HTTPException(status_code=404, detail="Channel not found")
+            manifest_url = channel.stream_url
+
+        if not manifest_url.startswith(settings.ersatztv_base_url):
+            raise HTTPException(status_code=400, detail="Invalid stream URL")
+
+        return Response(
+            status_code=200,
+            media_type="application/vnd.apple.mpegurl",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Stream HEAD error: {e}")
+        raise HTTPException(status_code=503, detail="Stream unavailable") from None
+
+
 @router.get("/stream/{channel_id}")
 async def get_stream(
     channel_id: str = Path(...),
@@ -111,7 +142,7 @@ async def get_stream(
 
         # Rewrite manifest with token for segment auth
         base_url = manifest_url.rsplit("/", 1)[0] + "/"
-        rewritten = rewrite_manifest(response.text, base_url, token=token)
+        rewritten = rewrite_manifest(response.text, base_url, token=token, channel_id=channel_id)
 
         return StreamingResponse(
             iter([rewritten.encode()]),
@@ -123,6 +154,30 @@ async def get_stream(
     except Exception as e:
         logger.error(f"Stream error: {e}")
         raise HTTPException(status_code=503, detail="Stream unavailable") from None
+
+
+@router.head("/segments/{encoded_url:path}")
+async def head_segment(
+    encoded_url: str = Path(...),
+    token: str = Query(default=None),
+    user=Depends(get_current_user_or_token),
+):
+    """HEAD request for segment - returns headers only."""
+    try:
+        segment_url = decode_url(encoded_url)
+
+        if not segment_url.startswith(settings.ersatztv_base_url):
+            raise HTTPException(status_code=400, detail="Invalid segment URL")
+
+        return Response(
+            status_code=200,
+            media_type="video/mp2t",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Segment HEAD error: {e}")
+        raise HTTPException(status_code=503, detail="Segment unavailable") from None
 
 
 @router.get("/segments/{encoded_url:path}")

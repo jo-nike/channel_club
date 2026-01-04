@@ -133,7 +133,7 @@ describe('Router', () => {
 
     // The ErsatzTVView should show the Movie Channels header and Live TV nav link
     expect(screen.getByText('Movie Channels')).toBeInTheDocument()
-    expect(screen.getByText('← Live TV')).toBeInTheDocument()
+    expect(screen.getByText('Live TV')).toBeInTheDocument()
   })
 
   it('shows login form when not authenticated', async () => {

@@ -41,13 +41,16 @@ describe('EPGChannelSidebar', () => {
   const defaultMockState = {
     channels: mockChannels,
     selectedChannel: null,
-    loading: false,
+    channelsLoading: false,
+    programmesLoading: false,
+    programmesByChannel: {},
     error: null,
     currentProgramme: null,
     nextProgramme: null,
     loadChannels: mockLoadChannels,
     selectChannel: mockSelectChannel,
     loadCurrentProgramme: mockLoadCurrentProgramme,
+    loadAllProgrammes: vi.fn(),
     programmes: [],
     loadProgrammes: vi.fn(),
     clearError: vi.fn(),
@@ -92,7 +95,7 @@ describe('EPGChannelSidebar', () => {
       ;(useErsatztvStore as unknown as Mock).mockReturnValue({
         ...defaultMockState,
         channels: [],
-        loading: true,
+        channelsLoading: true,
       })
 
       render(<EPGChannelSidebar />)
@@ -125,8 +128,6 @@ describe('EPGChannelSidebar', () => {
 
       render(<EPGChannelSidebar />)
 
-      // loadChannels is called once on mount (useEffect), clear and click retry
-      mockLoadChannels.mockClear()
       fireEvent.click(screen.getByRole('button', { name: /retry/i }))
       expect(mockLoadChannels).toHaveBeenCalledTimes(1)
     })
@@ -213,25 +214,6 @@ describe('EPGChannelSidebar', () => {
     })
   })
 
-  describe('Auto-loading channels', () => {
-    it('calls loadChannels on mount when no channels exist', () => {
-      ;(useErsatztvStore as unknown as Mock).mockReturnValue({
-        ...defaultMockState,
-        channels: [],
-      })
-
-      render(<EPGChannelSidebar />)
-
-      expect(mockLoadChannels).toHaveBeenCalledTimes(1)
-    })
-
-    it('does not call loadChannels if channels already exist', () => {
-      render(<EPGChannelSidebar />)
-
-      expect(mockLoadChannels).not.toHaveBeenCalled()
-    })
-  })
-
   describe('Accessibility', () => {
     it('channel buttons are focusable for keyboard navigation', () => {
       render(<EPGChannelSidebar />)
@@ -247,6 +229,73 @@ describe('EPGChannelSidebar', () => {
 
       expect(screen.getByRole('list')).toBeInTheDocument()
       expect(screen.getAllByRole('listitem')).toHaveLength(3)
+    })
+  })
+
+  describe('Collapsed state', () => {
+    it('renders collapsed sidebar with expand button', () => {
+      render(<EPGChannelSidebar isCollapsed={true} />)
+
+      expect(
+        screen.getByRole('button', { name: /expand channel sidebar/i })
+      ).toBeInTheDocument()
+    })
+
+    it('shows channel number badges in collapsed state', () => {
+      render(<EPGChannelSidebar isCollapsed={true} />)
+
+      // Channel numbers should be visible
+      expect(screen.getByText('1')).toBeInTheDocument()
+      expect(screen.getByText('2')).toBeInTheDocument()
+      expect(screen.getByText('3')).toBeInTheDocument()
+    })
+
+    it('calls onToggleCollapse when expand button is clicked', () => {
+      const onToggleCollapse = vi.fn()
+      render(<EPGChannelSidebar isCollapsed={true} onToggleCollapse={onToggleCollapse} />)
+
+      fireEvent.click(screen.getByRole('button', { name: /expand channel sidebar/i }))
+
+      expect(onToggleCollapse).toHaveBeenCalledTimes(1)
+    })
+
+    it('renders collapse button in expanded state', () => {
+      render(<EPGChannelSidebar isCollapsed={false} />)
+
+      expect(
+        screen.getByRole('button', { name: /collapse channel sidebar/i })
+      ).toBeInTheDocument()
+    })
+
+    it('calls onToggleCollapse when collapse button is clicked', () => {
+      const onToggleCollapse = vi.fn()
+      render(<EPGChannelSidebar isCollapsed={false} onToggleCollapse={onToggleCollapse} />)
+
+      fireEvent.click(screen.getByRole('button', { name: /collapse channel sidebar/i }))
+
+      expect(onToggleCollapse).toHaveBeenCalledTimes(1)
+    })
+
+    it('selects channel when clicking channel badge in collapsed state', () => {
+      render(<EPGChannelSidebar isCollapsed={true} />)
+
+      // Click on channel 1 badge
+      const channel1Button = screen.getByRole('button', { name: /1 comedy movies/i })
+      fireEvent.click(channel1Button)
+
+      expect(mockSelectChannel).toHaveBeenCalledWith(mockChannels[0])
+    })
+
+    it('shows selected channel indicator in collapsed state', () => {
+      ;(useErsatztvStore as unknown as Mock).mockReturnValue({
+        ...defaultMockState,
+        selectedChannel: mockChannels[0],
+      })
+
+      render(<EPGChannelSidebar isCollapsed={true} />)
+
+      const channel1Button = screen.getByRole('button', { name: /1 comedy movies/i })
+      expect(channel1Button).toHaveAttribute('aria-pressed', 'true')
     })
   })
 })

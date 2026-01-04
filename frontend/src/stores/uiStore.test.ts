@@ -4,7 +4,13 @@ import { useUIStore } from './uiStore'
 describe('uiStore', () => {
   beforeEach(() => {
     // Reset the store between tests
-    useUIStore.setState({ isTheaterMode: false, isSidebarOpen: false })
+    useUIStore.setState({
+      isTheaterMode: false,
+      isSidebarOpen: false,
+      isEPGVisible: true,
+      epgHeightPercent: 25,
+      isChannelSidebarCollapsed: false,
+    })
     localStorage.clear()
   })
 
@@ -76,6 +82,74 @@ describe('uiStore', () => {
       useUIStore.getState().setSidebarOpen(true)
       useUIStore.getState().toggleSidebar()
       expect(useUIStore.getState().isSidebarOpen).toBe(false)
+    })
+  })
+
+  describe('isEPGVisible', () => {
+    it('defaults to true', () => {
+      const state = useUIStore.getState()
+      expect(state.isEPGVisible).toBe(true)
+    })
+
+    it('can be set to false', () => {
+      useUIStore.getState().setEPGVisible(false)
+      expect(useUIStore.getState().isEPGVisible).toBe(false)
+    })
+
+    it('toggles from true to false', () => {
+      useUIStore.getState().toggleEPG()
+      expect(useUIStore.getState().isEPGVisible).toBe(false)
+    })
+
+    it('toggles from false to true', () => {
+      useUIStore.getState().setEPGVisible(false)
+      useUIStore.getState().toggleEPG()
+      expect(useUIStore.getState().isEPGVisible).toBe(true)
+    })
+  })
+
+  describe('epgHeightPercent', () => {
+    it('defaults to 25', () => {
+      const state = useUIStore.getState()
+      expect(state.epgHeightPercent).toBe(25)
+    })
+
+    it('can be set to a valid value', () => {
+      useUIStore.getState().setEPGHeightPercent(30)
+      expect(useUIStore.getState().epgHeightPercent).toBe(30)
+    })
+
+    it('clamps to minimum of 15', () => {
+      useUIStore.getState().setEPGHeightPercent(10)
+      expect(useUIStore.getState().epgHeightPercent).toBe(15)
+    })
+
+    it('clamps to maximum of 50', () => {
+      useUIStore.getState().setEPGHeightPercent(60)
+      expect(useUIStore.getState().epgHeightPercent).toBe(50)
+    })
+  })
+
+  describe('isChannelSidebarCollapsed', () => {
+    it('defaults to false', () => {
+      const state = useUIStore.getState()
+      expect(state.isChannelSidebarCollapsed).toBe(false)
+    })
+
+    it('can be set to true', () => {
+      useUIStore.getState().setChannelSidebarCollapsed(true)
+      expect(useUIStore.getState().isChannelSidebarCollapsed).toBe(true)
+    })
+
+    it('toggles from false to true', () => {
+      useUIStore.getState().toggleChannelSidebar()
+      expect(useUIStore.getState().isChannelSidebarCollapsed).toBe(true)
+    })
+
+    it('toggles from true to false', () => {
+      useUIStore.getState().setChannelSidebarCollapsed(true)
+      useUIStore.getState().toggleChannelSidebar()
+      expect(useUIStore.getState().isChannelSidebarCollapsed).toBe(false)
     })
   })
 })

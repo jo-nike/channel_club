@@ -76,15 +76,21 @@ class TestRewriteManifest:
     def test_rewrite_manifest_handles_nested_m3u8(self):
         """Rewriter proxies nested variant playlists."""
         result = rewrite_manifest(SAMPLE_MASTER, "http://example.com/")
-        assert "/api/ersatztv/stream?url=" in result
+        # Without channel_id, uses _nested placeholder
+        assert "/api/ersatztv/stream/_nested?url=" in result
         # Original m3u8 reference should NOT appear in output
         assert "video/1080p.m3u8\n" not in result
+
+    def test_rewrite_manifest_handles_nested_m3u8_with_channel_id(self):
+        """Rewriter includes channel_id in nested playlist URLs when provided."""
+        result = rewrite_manifest(SAMPLE_MASTER, "http://example.com/", channel_id="test-channel")
+        assert "/api/ersatztv/stream/test-channel?url=" in result
 
     def test_rewrite_manifest_handles_multiple_variants(self):
         """Rewriter handles multiple variant playlists."""
         result = rewrite_manifest(SAMPLE_MASTER_MULTIPLE_VARIANTS, "http://example.com/")
         lines = result.strip().split("\n")
-        stream_urls = [line for line in lines if "/api/ersatztv/stream?url=" in line]
+        stream_urls = [line for line in lines if "/api/ersatztv/stream/_nested?url=" in line]
         assert len(stream_urls) == 2
 
     def test_rewrite_manifest_resolves_relative_urls(self):
@@ -216,7 +222,7 @@ class TestNestedPlaylistHandling:
         for line in result.split("\n"):
             if "m3u8" in line.lower() or ".m3u8" in line:
                 # This should NOT be a raw m3u8 reference
-                assert line.startswith("/api/ersatztv/stream?url=")
+                assert line.startswith("/api/ersatztv/stream/_nested?url=")
 
     def test_ts_segments_use_segment_proxy(self):
         """TS segment URLs are rewritten to use segment proxy endpoint."""
@@ -239,8 +245,8 @@ streams/720p/playlist.m3u8
 iframes/iframe.m3u8
 """
         result = rewrite_manifest(complex_manifest, "http://example.com/")
-        # All m3u8 references should use stream proxy
-        stream_proxy_count = result.count("/api/ersatztv/stream?url=")
+        # All m3u8 references should use stream proxy (with _nested placeholder)
+        stream_proxy_count = result.count("/api/ersatztv/stream/_nested?url=")
         assert stream_proxy_count == 3
 
 

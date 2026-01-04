@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
-import { fetchErsatzTVProgrammes } from '@/services/ersatztvApi'
 import type { ErsatzTVChannel, ErsatzTVProgramme } from '@/types'
 
 // Grid constants
@@ -11,15 +10,18 @@ const CHANNEL_LABEL_WIDTH = 80
 
 interface EPGGridProps {
   hours?: number // Time window to display (default 6)
+  programmesByChannel: Record<string, ErsatzTVProgramme[]> // Passed from parent
+  loading?: boolean // Loading state from parent
   onProgrammeClick?: (programme: ErsatzTVProgramme, channel: ErsatzTVChannel) => void
 }
 
-export function EPGGrid({ hours = 6, onProgrammeClick }: EPGGridProps) {
-  const { channels, loadChannels } = useErsatztvStore()
-  const [programmesByChannel, setProgrammesByChannel] = useState<
-    Record<string, ErsatzTVProgramme[]>
-  >({})
-  const [loading, setLoading] = useState(true)
+export function EPGGrid({
+  hours = 6,
+  programmesByChannel,
+  loading = false,
+  onProgrammeClick,
+}: EPGGridProps) {
+  const { channels } = useErsatztvStore()
   const containerRef = useRef<HTMLDivElement>(null)
   const [currentTime, setCurrentTime] = useState(new Date())
 
@@ -52,42 +54,6 @@ export function EPGGrid({ hours = 6, onProgrammeClick }: EPGGridProps) {
     return slots
   }, [startTime, endTime])
 
-  // Load channels and programmes
-  useEffect(() => {
-    const loadData = async () => {
-      setLoading(true)
-
-      if (channels.length === 0) {
-        await loadChannels()
-      }
-    }
-
-    loadData()
-  }, [channels.length, loadChannels])
-
-  // Fetch programmes when channels are available
-  useEffect(() => {
-    const fetchProgrammes = async () => {
-      if (channels.length === 0) return
-
-      const programmeData: Record<string, ErsatzTVProgramme[]> = {}
-      await Promise.all(
-        channels.map(async (channel) => {
-          try {
-            const data = await fetchErsatzTVProgrammes(channel.id, hours)
-            programmeData[channel.id] = data.programmes
-          } catch {
-            programmeData[channel.id] = []
-          }
-        })
-      )
-      setProgrammesByChannel(programmeData)
-      setLoading(false)
-    }
-
-    fetchProgrammes()
-  }, [channels, hours])
-
   // Update current time every minute for now marker
   useEffect(() => {
     const interval = setInterval(() => {
@@ -98,11 +64,11 @@ export function EPGGrid({ hours = 6, onProgrammeClick }: EPGGridProps) {
 
   // Auto-scroll to current time on load
   useEffect(() => {
-    if (containerRef.current && !loading) {
+    if (containerRef.current && !loading && Object.keys(programmesByChannel).length > 0) {
       const nowOffset = calculateTimeOffset(new Date(), startTime)
       containerRef.current.scrollLeft = Math.max(0, nowOffset - 100)
     }
-  }, [loading, startTime])
+  }, [loading, startTime, programmesByChannel])
 
   // Calculate now marker position
   const nowMarkerOffset = useMemo(() => {
