@@ -11,6 +11,10 @@ import * as api from '@/services/api'
 vi.mock('@/services/api', () => ({
   fetchChannels: vi.fn(),
   fetchNowPlaying: vi.fn(),
+  getAuthConfig: vi.fn().mockResolvedValue({
+    localAuthEnabled: true,
+    plexAuthEnabled: false,
+  }),
 }))
 
 // Mock Vidstack web components
@@ -82,10 +86,13 @@ describe('App', () => {
   })
 
   describe('unauthenticated state', () => {
-    it('should show LoginForm when not authenticated', () => {
+    it('should show LoginForm when not authenticated', async () => {
       renderWithRouter()
 
-      expect(screen.getByLabelText(/username/i)).toBeInTheDocument()
+      // Wait for auth config to load before checking for form fields
+      await waitFor(() => {
+        expect(screen.getByLabelText(/username/i)).toBeInTheDocument()
+      })
       expect(screen.getByLabelText(/password/i)).toBeInTheDocument()
     })
 

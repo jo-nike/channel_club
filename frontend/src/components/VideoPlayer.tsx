@@ -145,6 +145,7 @@ function VideoPlayerInner({ streamUrl, channelName }: VideoPlayerInnerProps) {
     }
   }, [])
 
+
   // Keyboard shortcuts
   useVideoKeyboardShortcuts({
     containerRef,

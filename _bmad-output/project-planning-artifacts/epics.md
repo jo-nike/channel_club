@@ -1160,3 +1160,161 @@ So that I can browse and watch movie channels.
 **Given** I am on mobile
 **When** viewing the layout
 **Then** I see a mobile-optimized card layout
+
+---
+
+## Epic 8: Optional Plex Authentication
+
+Users can optionally authenticate using their Plex account if they have access to the host's Plex Media Server. This provides a seamless login experience for friends who are already Plex users.
+
+**Key Features:**
+- Environment variable feature flags for both auth methods
+- Plex OAuth popup flow for token acquisition
+- Backend validation against Plex Media Server
+- Automatic role assignment based on configuration
+- Coexists with existing credential-based auth (when enabled)
+
+**Environment Variables:**
+- `LOCAL_AUTH_ENABLED` - Enable/disable local auth (default: false)
+- `PLEX_AUTH_ENABLED` - Enable/disable Plex auth (default: false)
+- `PLEX_SERVER_TOKEN` - Admin's Plex server token for user validation
+- `PLEX_SERVER_MACHINE_ID` - Plex server machine identifier
+- `PLEX_DEFAULT_ROLE` - Default role for Plex users (viewer/admin)
+
+---
+
+### Story 8.1: Plex Authentication Backend Service
+
+As a developer,
+I want a Plex authentication service in the backend,
+So that users can authenticate via their Plex accounts.
+
+**Acceptance Criteria:**
+
+**Given** `PLEX_AUTH_ENABLED=true` in environment
+**When** POST `/api/auth/plex` is called with `{authToken: "..."}`
+**Then** backend validates token via Plex API `https://plex.tv/users/account`
+**And** checks user has access to configured Plex server
+**And** returns JWT with role claim on success
+
+**Given** `PLEX_AUTH_ENABLED=false` or not set
+**When** POST `/api/auth/plex` is called
+**Then** return 404 Not Found
+
+**Given** valid Plex token but user has no server access
+**When** authentication is attempted
+**Then** return 403 Forbidden with "No access to Plex server"
+
+**Given** invalid or expired Plex token
+**When** authentication is attempted
+**Then** return 401 Unauthorized
+
+---
+
+### Story 8.2: Plex OAuth Token Acquisition
+
+As a user,
+I want to click "Sign in with Plex" and authenticate via Plex popup,
+So that I don't need to remember separate credentials.
+
+**Acceptance Criteria:**
+
+**Given** `PLEX_AUTH_ENABLED=true`
+**When** the login page renders
+**Then** I see a "Sign in with Plex" button below the credential form
+
+**Given** I click "Sign in with Plex"
+**When** the popup opens
+**Then** I see Plex's official authentication page
+**And** I can enter my Plex credentials
+
+**Given** I successfully authenticate with Plex
+**When** the popup closes
+**Then** the auth token is sent to `/api/auth/plex`
+**And** on success, I am logged in with appropriate role
+
+**Given** I cancel the Plex popup
+**When** the popup closes without auth
+**Then** I remain on the login page with no error
+
+---
+
+### Story 8.3: Plex User Role Assignment
+
+As an admin,
+I want to configure how Plex users are assigned roles,
+So that I can control access levels automatically.
+
+**Acceptance Criteria:**
+
+**Given** `PLEX_DEFAULT_ROLE=viewer` (or not set)
+**When** a new Plex user authenticates
+**Then** they are assigned the "viewer" role
+
+**Given** `PLEX_DEFAULT_ROLE=admin`
+**When** a new Plex user authenticates
+**Then** they are assigned the "admin" role
+
+**Given** the Plex user is the server owner (matching `PLEX_SERVER_TOKEN` owner)
+**When** they authenticate
+**Then** they are always assigned "admin" role regardless of default
+
+---
+
+### Story 8.4: Conditional Login UI
+
+As a user,
+I want the login page to show appropriate options based on configuration,
+So that I see only relevant authentication methods.
+
+**Acceptance Criteria:**
+
+**Given** `LOCAL_AUTH_ENABLED=false` and `PLEX_AUTH_ENABLED=false`
+**When** the login page renders
+**Then** I see an error message "No authentication methods configured"
+
+**Given** `LOCAL_AUTH_ENABLED=true` and `PLEX_AUTH_ENABLED=false`
+**When** the login page renders
+**Then** I see only the username/password form
+**And** no Plex sign-in option is visible
+
+**Given** `LOCAL_AUTH_ENABLED=false` and `PLEX_AUTH_ENABLED=true`
+**When** the login page renders
+**Then** I see only the "Sign in with Plex" button
+**And** no credential form is visible
+
+**Given** `LOCAL_AUTH_ENABLED=true` and `PLEX_AUTH_ENABLED=true`
+**When** the login page renders
+**Then** I see both the credential form and "Sign in with Plex" button
+**And** a visual separator ("or") between the options
+
+**Given** either auth method succeeds
+**When** I complete authentication
+**Then** I am redirected to the main app experience
+
+---
+
+### Story 8.5: Feature-Flagged Local Authentication
+
+As a deployer,
+I want local (credential-based) authentication to be feature-flagged,
+So that I can disable it when using Plex-only authentication.
+
+**Acceptance Criteria:**
+
+**Given** `LOCAL_AUTH_ENABLED=false` or not set (default)
+**When** POST `/api/auth/token` is called with credentials
+**Then** return 404 Not Found
+
+**Given** `LOCAL_AUTH_ENABLED=true`
+**When** POST `/api/auth/token` is called with valid credentials
+**Then** authentication proceeds as normal (existing behavior)
+
+**Given** both `LOCAL_AUTH_ENABLED=false` and `PLEX_AUTH_ENABLED=false`
+**When** the backend starts
+**Then** log a warning: "No authentication methods enabled"
+
+**Given** `LOCAL_AUTH_ENABLED=false` and `PLEX_AUTH_ENABLED=true`
+**When** the login page renders
+**Then** only "Sign in with Plex" button is shown
+**And** no credential form is visible

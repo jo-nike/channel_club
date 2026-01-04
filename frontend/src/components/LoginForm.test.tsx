@@ -3,9 +3,16 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { LoginForm } from './LoginForm'
 import { useAuthStore } from '@/stores/authStore'
 import * as api from '@/services/api'
+import * as plexAuth from '@/services/plexAuth'
 
 vi.mock('@/services/api', () => ({
   login: vi.fn(),
+  getAuthConfig: vi.fn(),
+  loginWithPlex: vi.fn(),
+}))
+
+vi.mock('@/services/plexAuth', () => ({
+  authenticateWithPlex: vi.fn(),
 }))
 
 describe('LoginForm', () => {
@@ -16,24 +23,37 @@ describe('LoginForm', () => {
       role: null,
       isAuthenticated: false,
     })
+    // Default mock: local auth enabled, plex disabled
+    vi.mocked(api.getAuthConfig).mockResolvedValue({
+      localAuthEnabled: true,
+      plexAuthEnabled: false,
+    })
   })
 
-  it('should render login form with username and password fields', () => {
+  it('should render login form with username and password fields', async () => {
     render(<LoginForm />)
 
-    expect(screen.getByLabelText(/username/i)).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByLabelText(/username/i)).toBeInTheDocument()
+    })
     expect(screen.getByLabelText(/password/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument()
   })
 
-  it('should render with 10-foot UI title', () => {
+  it('should render with 10-foot UI title', async () => {
     render(<LoginForm />)
 
-    expect(screen.getByText('IPTV Viewer')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByText('IPTV Viewer')).toBeInTheDocument()
+    })
   })
 
-  it('should update input values on change', () => {
+  it('should update input values on change', async () => {
     render(<LoginForm />)
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/username/i)).toBeInTheDocument()
+    })
 
     const usernameInput = screen.getByLabelText(/username/i)
     const passwordInput = screen.getByLabelText(/password/i)
@@ -56,6 +76,10 @@ describe('LoginForm', () => {
 
     render(<LoginForm />)
 
+    await waitFor(() => {
+      expect(screen.getByLabelText(/username/i)).toBeInTheDocument()
+    })
+
     fireEvent.change(screen.getByLabelText(/username/i), { target: { value: 'testuser' } })
     fireEvent.change(screen.getByLabelText(/password/i), { target: { value: 'testpass' } })
     fireEvent.click(screen.getByRole('button', { name: /sign in/i }))
@@ -75,6 +99,10 @@ describe('LoginForm', () => {
 
     render(<LoginForm />)
 
+    await waitFor(() => {
+      expect(screen.getByLabelText(/username/i)).toBeInTheDocument()
+    })
+
     fireEvent.change(screen.getByLabelText(/username/i), { target: { value: 'testuser' } })
     fireEvent.change(screen.getByLabelText(/password/i), { target: { value: 'testpass' } })
     fireEvent.click(screen.getByRole('button', { name: /sign in/i }))
@@ -89,6 +117,10 @@ describe('LoginForm', () => {
 
     render(<LoginForm />)
 
+    await waitFor(() => {
+      expect(screen.getByLabelText(/username/i)).toBeInTheDocument()
+    })
+
     fireEvent.change(screen.getByLabelText(/username/i), { target: { value: 'baduser' } })
     fireEvent.change(screen.getByLabelText(/password/i), { target: { value: 'badpass' } })
     fireEvent.click(screen.getByRole('button', { name: /sign in/i }))
@@ -96,8 +128,12 @@ describe('LoginForm', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Invalid credentials')
   })
 
-  it('should have proper tab order for keyboard navigation', () => {
+  it('should have proper tab order for keyboard navigation', async () => {
     render(<LoginForm />)
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/username/i)).toBeInTheDocument()
+    })
 
     const usernameInput = screen.getByLabelText(/username/i)
     const passwordInput = screen.getByLabelText(/password/i)
@@ -109,8 +145,12 @@ describe('LoginForm', () => {
     expect(submitButton).not.toHaveAttribute('tabindex', '-1')
   })
 
-  it('should have 10-foot UI appropriate styling', () => {
+  it('should have 10-foot UI appropriate styling', async () => {
     render(<LoginForm />)
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/username/i)).toBeInTheDocument()
+    })
 
     const usernameInput = screen.getByLabelText(/username/i)
     const submitButton = screen.getByRole('button', { name: /sign in/i })
@@ -118,5 +158,277 @@ describe('LoginForm', () => {
     // Check for h-14 class (56px height for 10-foot UI)
     expect(usernameInput.className).toContain('h-14')
     expect(submitButton.className).toContain('h-14')
+  })
+
+  describe('Plex authentication', () => {
+    it('should show Plex button when plexAuthEnabled is true', async () => {
+      vi.mocked(api.getAuthConfig).mockResolvedValueOnce({
+        localAuthEnabled: true,
+        plexAuthEnabled: true,
+      })
+
+      render(<LoginForm />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Sign in with Plex')).toBeInTheDocument()
+      })
+    })
+
+    it('should hide Plex button when plexAuthEnabled is false', async () => {
+      vi.mocked(api.getAuthConfig).mockResolvedValueOnce({
+        localAuthEnabled: true,
+        plexAuthEnabled: false,
+      })
+
+      render(<LoginForm />)
+
+      // Wait for config to load, then verify no Plex button
+      await waitFor(() => {
+        expect(api.getAuthConfig).toHaveBeenCalled()
+      })
+
+      expect(screen.queryByText('Sign in with Plex')).not.toBeInTheDocument()
+    })
+
+    it('should handle successful Plex login flow', async () => {
+      const mockSetAuth = vi.fn()
+      useAuthStore.setState({ setAuth: mockSetAuth } as unknown as Parameters<typeof useAuthStore.setState>[0])
+
+      vi.mocked(api.getAuthConfig).mockResolvedValueOnce({
+        localAuthEnabled: true,
+        plexAuthEnabled: true,
+      })
+
+      vi.mocked(plexAuth.authenticateWithPlex).mockResolvedValueOnce('plex-auth-token')
+      vi.mocked(api.loginWithPlex).mockResolvedValueOnce({
+        accessToken: 'jwt-token',
+        tokenType: 'bearer',
+        role: 'viewer',
+      })
+
+      render(<LoginForm />)
+
+      // Wait for config to load
+      await waitFor(() => {
+        expect(screen.getByText('Sign in with Plex')).toBeInTheDocument()
+      })
+
+      // Click Plex login button
+      fireEvent.click(screen.getByText('Sign in with Plex'))
+
+      await waitFor(() => {
+        expect(plexAuth.authenticateWithPlex).toHaveBeenCalled()
+        expect(api.loginWithPlex).toHaveBeenCalledWith('plex-auth-token')
+      })
+    })
+
+    it('should not show error when Plex auth is cancelled', async () => {
+      vi.mocked(api.getAuthConfig).mockResolvedValueOnce({
+        localAuthEnabled: true,
+        plexAuthEnabled: true,
+      })
+
+      vi.mocked(plexAuth.authenticateWithPlex).mockRejectedValueOnce(
+        new Error('Authentication cancelled')
+      )
+
+      render(<LoginForm />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Sign in with Plex')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByText('Sign in with Plex'))
+
+      await waitFor(() => {
+        expect(plexAuth.authenticateWithPlex).toHaveBeenCalled()
+      })
+
+      // Should not show error for cancelled auth
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    })
+
+    it('should show error for other Plex auth failures', async () => {
+      vi.mocked(api.getAuthConfig).mockResolvedValueOnce({
+        localAuthEnabled: true,
+        plexAuthEnabled: true,
+      })
+
+      vi.mocked(plexAuth.authenticateWithPlex).mockRejectedValueOnce(
+        new Error('No access to Plex server')
+      )
+
+      render(<LoginForm />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Sign in with Plex')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByText('Sign in with Plex'))
+
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toHaveTextContent('No access to Plex server')
+      })
+    })
+
+    it('should hide local auth form when localAuthEnabled is false', async () => {
+      vi.mocked(api.getAuthConfig).mockResolvedValueOnce({
+        localAuthEnabled: false,
+        plexAuthEnabled: true,
+      })
+
+      render(<LoginForm />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Sign in with Plex')).toBeInTheDocument()
+      })
+
+      // Local auth fields should not be visible
+      expect(screen.queryByLabelText(/username/i)).not.toBeInTheDocument()
+      expect(screen.queryByLabelText(/password/i)).not.toBeInTheDocument()
+    })
+  })
+
+  describe('Conditional Login UI (Story 8.4)', () => {
+    it('should show error when no auth methods configured', async () => {
+      vi.mocked(api.getAuthConfig).mockResolvedValueOnce({
+        localAuthEnabled: false,
+        plexAuthEnabled: false,
+      })
+
+      render(<LoginForm />)
+
+      await waitFor(() => {
+        expect(screen.getByText('No authentication methods configured')).toBeInTheDocument()
+      })
+      // Should not show login form elements
+      expect(screen.queryByLabelText(/username/i)).not.toBeInTheDocument()
+      expect(screen.queryByText('Sign in with Plex')).not.toBeInTheDocument()
+      // Should show admin contact message
+      expect(screen.getByText(/Please contact the administrator/)).toBeInTheDocument()
+    })
+
+    it('should show only credential form when local auth only', async () => {
+      vi.mocked(api.getAuthConfig).mockResolvedValueOnce({
+        localAuthEnabled: true,
+        plexAuthEnabled: false,
+      })
+
+      render(<LoginForm />)
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/username/i)).toBeInTheDocument()
+      })
+      expect(screen.getByLabelText(/password/i)).toBeInTheDocument()
+      expect(screen.getByText('Sign In')).toBeInTheDocument()
+      // Plex button should not be visible
+      expect(screen.queryByText('Sign in with Plex')).not.toBeInTheDocument()
+      // Separator should not be visible
+      expect(screen.queryByText('or')).not.toBeInTheDocument()
+    })
+
+    it('should show only Plex button when Plex auth only', async () => {
+      vi.mocked(api.getAuthConfig).mockResolvedValueOnce({
+        localAuthEnabled: false,
+        plexAuthEnabled: true,
+      })
+
+      render(<LoginForm />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Sign in with Plex')).toBeInTheDocument()
+      })
+      // Local auth should not be visible
+      expect(screen.queryByLabelText(/username/i)).not.toBeInTheDocument()
+      expect(screen.queryByLabelText(/password/i)).not.toBeInTheDocument()
+      // Separator should not be visible
+      expect(screen.queryByText('or')).not.toBeInTheDocument()
+    })
+
+    it('should show both options with separator when both enabled', async () => {
+      vi.mocked(api.getAuthConfig).mockResolvedValueOnce({
+        localAuthEnabled: true,
+        plexAuthEnabled: true,
+      })
+
+      render(<LoginForm />)
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/username/i)).toBeInTheDocument()
+      })
+      expect(screen.getByLabelText(/password/i)).toBeInTheDocument()
+      expect(screen.getByText('Sign In')).toBeInTheDocument()
+      expect(screen.getByText('or')).toBeInTheDocument()
+      expect(screen.getByText('Sign in with Plex')).toBeInTheDocument()
+    })
+
+    it('should show loading state while fetching config', () => {
+      // Mock a never-resolving promise to keep loading state
+      vi.mocked(api.getAuthConfig).mockImplementation(
+        () => new Promise(() => {})
+      )
+
+      render(<LoginForm />)
+
+      // Check for loading skeleton elements
+      expect(screen.queryByLabelText(/username/i)).not.toBeInTheDocument()
+      expect(screen.queryByText('Sign in with Plex')).not.toBeInTheDocument()
+      // Verify title is not visible yet (skeleton is shown)
+      expect(screen.queryByText('IPTV Viewer')).not.toBeInTheDocument()
+    })
+
+    it('should redirect on successful local login', async () => {
+      const mockSetAuth = vi.fn()
+      useAuthStore.setState({ setAuth: mockSetAuth } as unknown as Parameters<typeof useAuthStore.setState>[0])
+
+      vi.mocked(api.login).mockResolvedValueOnce({
+        accessToken: 'jwt-token',
+        tokenType: 'bearer',
+        role: 'admin',
+      })
+
+      render(<LoginForm />)
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/username/i)).toBeInTheDocument()
+      })
+
+      fireEvent.change(screen.getByLabelText(/username/i), { target: { value: 'admin' } })
+      fireEvent.change(screen.getByLabelText(/password/i), { target: { value: 'admin' } })
+      fireEvent.click(screen.getByRole('button', { name: /sign in/i }))
+
+      await waitFor(() => {
+        expect(mockSetAuth).toHaveBeenCalledWith('jwt-token', 'admin')
+      })
+    })
+
+    it('should redirect on successful Plex login', async () => {
+      const mockSetAuth = vi.fn()
+      useAuthStore.setState({ setAuth: mockSetAuth } as unknown as Parameters<typeof useAuthStore.setState>[0])
+
+      vi.mocked(api.getAuthConfig).mockResolvedValueOnce({
+        localAuthEnabled: true,
+        plexAuthEnabled: true,
+      })
+
+      vi.mocked(plexAuth.authenticateWithPlex).mockResolvedValueOnce('plex-auth-token')
+      vi.mocked(api.loginWithPlex).mockResolvedValueOnce({
+        accessToken: 'jwt-token',
+        tokenType: 'bearer',
+        role: 'viewer',
+      })
+
+      render(<LoginForm />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Sign in with Plex')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByText('Sign in with Plex'))
+
+      await waitFor(() => {
+        expect(mockSetAuth).toHaveBeenCalledWith('jwt-token', 'viewer')
+      })
+    })
   })
 })

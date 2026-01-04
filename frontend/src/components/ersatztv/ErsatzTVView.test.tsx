@@ -27,11 +27,37 @@ vi.mock('@/hooks/useMediaQuery', () => ({
   useMediaQuery: vi.fn(() => false), // Desktop by default
 }))
 
+// Mock the escape key hook
+vi.mock('@/hooks/useEscapeKey', () => ({
+  useEscapeKey: vi.fn(),
+}))
+
 // Mock sub-components
 vi.mock('./HLSVideoPlayer', () => ({
-  HLSVideoPlayer: ({ streamUrl, title }: { streamUrl: string; title?: string }) => (
-    <div data-testid="hls-player" data-stream-url={streamUrl} data-title={title}>
+  HLSVideoPlayer: ({
+    streamUrl,
+    title,
+    isTheaterMode,
+    isMobile,
+    onTheaterModeToggle,
+  }: {
+    streamUrl: string
+    title?: string
+    isTheaterMode: boolean
+    isMobile?: boolean
+    onTheaterModeToggle: () => void
+  }) => (
+    <div
+      data-testid="hls-player"
+      data-stream-url={streamUrl}
+      data-title={title}
+      data-theater-mode={isTheaterMode}
+      data-mobile={isMobile}
+    >
       HLS Player Mock
+      <button onClick={onTheaterModeToggle} data-testid="theater-toggle">
+        Toggle Theater
+      </button>
     </div>
   ),
 }))
@@ -137,11 +163,32 @@ const createMockStore = (overrides = {}) => ({
   ...overrides,
 })
 
+// Default UI store mock that returns proper values (not in theater mode)
+const createDefaultUIStore = () => {
+  return (selector: (state: unknown) => unknown) => {
+    const mockState = {
+      setLastRoute: vi.fn(),
+      isEPGVisible: true,
+      toggleEPG: vi.fn(),
+      epgHeightPercent: 30,
+      setEPGHeightPercent: vi.fn(),
+      isChannelSidebarCollapsed: false,
+      toggleChannelSidebar: vi.fn(),
+      lastErsatzTVChannelId: null,
+      setLastErsatzTVChannelId: vi.fn(),
+      isTheaterMode: false,
+      setTheaterMode: vi.fn(),
+      toggleTheaterMode: vi.fn(),
+    }
+    return selector(mockState)
+  }
+}
+
 describe('ErsatzTVView', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.mocked(useErsatztvStore).mockReturnValue(createMockStore())
-    vi.mocked(useUIStore).mockReturnValue(vi.fn())
+    vi.mocked(useUIStore).mockImplementation(createDefaultUIStore())
     // Desktop by default
     vi.mocked(useMediaQueryModule.useMediaQuery).mockReturnValue(false)
   })
@@ -159,8 +206,8 @@ describe('ErsatzTVView', () => {
     )
 
     expect(screen.getByText('Live TV')).toBeInTheDocument()
-    // Header shows "Movie Channels - {channelName}" when channel is selected
-    expect(screen.getByText(/Movie Channels/)).toBeInTheDocument()
+    // Header shows channel name when channel is selected
+    expect(screen.getByText('Test Channel')).toBeInTheDocument()
   })
 
   it('renders navigation link back to live TV', () => {
@@ -268,8 +315,42 @@ describe('ErsatzTVView', () => {
       </MemoryRouter>
     )
 
-    // Header shows "Movie Channels - {channelName}" format
-    expect(screen.getByText('Movie Channels - Test Channel')).toBeInTheDocument()
+    // Header shows channel name when no programme data available
+    expect(screen.getByText('Test Channel')).toBeInTheDocument()
+  })
+
+  it('shows channel name with current programme in header', () => {
+    vi.mocked(useMediaQueryModule.useMediaQuery).mockReturnValue(false) // Desktop
+
+    // Set up a currently playing programme
+    const now = new Date()
+    const programmeStart = new Date(now.getTime() - 30 * 60 * 1000) // 30 min ago
+    const programmeStop = new Date(now.getTime() + 30 * 60 * 1000) // 30 min from now
+
+    vi.mocked(useErsatztvStore).mockReturnValue(
+      createMockStore({
+        programmesByChannel: {
+          ch1: [
+            {
+              id: 'prog1',
+              channelId: 'ch1',
+              title: 'Current Movie',
+              start: programmeStart.toISOString(),
+              stop: programmeStop.toISOString(),
+            },
+          ],
+        },
+      })
+    )
+
+    render(
+      <MemoryRouter>
+        <ErsatzTVView />
+      </MemoryRouter>
+    )
+
+    // Header shows "{Channel Name} - {Currently Playing}" format
+    expect(screen.getByText('Test Channel - Current Movie')).toBeInTheDocument()
   })
 
   it('shows error message when error exists', () => {
@@ -383,7 +464,7 @@ describe('ErsatzTVView - Mobile Layout', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.mocked(useErsatztvStore).mockReturnValue(createMockStore())
-    vi.mocked(useUIStore).mockReturnValue(vi.fn())
+    vi.mocked(useUIStore).mockImplementation(createDefaultUIStore())
     // Mobile viewport
     vi.mocked(useMediaQueryModule.useMediaQuery).mockReturnValue(true)
   })
@@ -443,5 +524,122 @@ describe('ErsatzTVView - Mobile Layout', () => {
     fireEvent.click(channelButton!)
 
     expect(selectChannel).toHaveBeenCalledWith(mockChannel)
+  })
+})
+
+describe('ErsatzTVView - Theater Mode', () => {
+  const toggleTheaterMode = vi.fn()
+  const setTheaterMode = vi.fn()
+
+  const createTheaterModeUIStore = (isTheaterMode: boolean) => {
+    return (selector: (state: unknown) => unknown) => {
+      const mockState = {
+        setLastRoute: vi.fn(),
+        isEPGVisible: true,
+        toggleEPG: vi.fn(),
+        epgHeightPercent: 30,
+        setEPGHeightPercent: vi.fn(),
+        isChannelSidebarCollapsed: false,
+        toggleChannelSidebar: vi.fn(),
+        lastErsatzTVChannelId: null,
+        setLastErsatzTVChannelId: vi.fn(),
+        isTheaterMode,
+        setTheaterMode,
+        toggleTheaterMode,
+      }
+      return selector(mockState)
+    }
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.mocked(useErsatztvStore).mockReturnValue(createMockStore())
+    vi.mocked(useMediaQueryModule.useMediaQuery).mockReturnValue(false) // Desktop
+    toggleTheaterMode.mockClear()
+    setTheaterMode.mockClear()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.clearAllMocks()
+  })
+
+  it('hides header in theater mode', () => {
+    vi.mocked(useUIStore).mockImplementation(createTheaterModeUIStore(true))
+
+    render(
+      <MemoryRouter>
+        <ErsatzTVView />
+      </MemoryRouter>
+    )
+
+    // Header elements should not be visible in theater mode
+    expect(screen.queryByText('Live TV')).not.toBeInTheDocument()
+    expect(screen.queryByText('Logout')).not.toBeInTheDocument()
+  })
+
+  it('hides sidebar in theater mode', () => {
+    vi.mocked(useUIStore).mockImplementation(createTheaterModeUIStore(true))
+
+    render(
+      <MemoryRouter>
+        <ErsatzTVView />
+      </MemoryRouter>
+    )
+
+    expect(screen.queryByTestId('channel-sidebar')).not.toBeInTheDocument()
+  })
+
+  it('hides EPG grid in theater mode', () => {
+    vi.mocked(useUIStore).mockImplementation(createTheaterModeUIStore(true))
+
+    render(
+      <MemoryRouter>
+        <ErsatzTVView />
+      </MemoryRouter>
+    )
+
+    expect(screen.queryByTestId('epg-grid')).not.toBeInTheDocument()
+  })
+
+  it('passes theater mode state to HLSVideoPlayer', () => {
+    vi.mocked(useUIStore).mockImplementation(createTheaterModeUIStore(true))
+
+    render(
+      <MemoryRouter>
+        <ErsatzTVView />
+      </MemoryRouter>
+    )
+
+    const player = screen.getByTestId('hls-player')
+    expect(player).toHaveAttribute('data-theater-mode', 'true')
+  })
+
+  it('toggles theater mode when player requests it', () => {
+    vi.mocked(useUIStore).mockImplementation(createTheaterModeUIStore(false))
+
+    render(
+      <MemoryRouter>
+        <ErsatzTVView />
+      </MemoryRouter>
+    )
+
+    fireEvent.click(screen.getByTestId('theater-toggle'))
+    expect(toggleTheaterMode).toHaveBeenCalled()
+  })
+
+  it('shows all UI elements when not in theater mode', () => {
+    vi.mocked(useUIStore).mockImplementation(createTheaterModeUIStore(false))
+
+    render(
+      <MemoryRouter>
+        <ErsatzTVView />
+      </MemoryRouter>
+    )
+
+    expect(screen.getByText('Live TV')).toBeInTheDocument()
+    expect(screen.getByText('Logout')).toBeInTheDocument()
+    expect(screen.getByTestId('channel-sidebar')).toBeInTheDocument()
+    expect(screen.getByTestId('epg-grid')).toBeInTheDocument()
   })
 })

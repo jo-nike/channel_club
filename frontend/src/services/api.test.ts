@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { login, fetchWithAuth } from './api'
+import { login, fetchWithAuth, getAuthConfig, loginWithPlex } from './api'
 import { useAuthStore } from '@/stores/authStore'
 
 describe('api service', () => {
@@ -357,6 +357,83 @@ describe('api service', () => {
 
       const { fetchCurrentChannel } = await import('./api')
       await expect(fetchCurrentChannel()).rejects.toThrow('Failed to fetch current channel')
+    })
+  })
+
+  describe('getAuthConfig', () => {
+    it('should GET /auth/config and return auth methods', async () => {
+      const mockConfig = {
+        localAuthEnabled: true,
+        plexAuthEnabled: true,
+      }
+
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(mockConfig),
+      } as Response)
+
+      const result = await getAuthConfig()
+
+      expect(fetch).toHaveBeenCalledWith('http://localhost:8000/api/auth/config')
+      expect(result).toEqual(mockConfig)
+    })
+
+    it('should throw error when request fails', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+      } as Response)
+
+      await expect(getAuthConfig()).rejects.toThrow('Failed to get auth config')
+    })
+  })
+
+  describe('loginWithPlex', () => {
+    it('should POST to /auth/plex with authToken', async () => {
+      const mockResponse = {
+        accessToken: 'jwt-token-123',
+        tokenType: 'bearer',
+        role: 'viewer' as const,
+      }
+
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(mockResponse),
+      } as Response)
+
+      const result = await loginWithPlex('plex-auth-token')
+
+      expect(fetch).toHaveBeenCalledWith(
+        'http://localhost:8000/api/auth/plex',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ authToken: 'plex-auth-token' }),
+        }
+      )
+      expect(result).toEqual(mockResponse)
+    })
+
+    it('should throw error with detail message on failure', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        json: () => Promise.resolve({ detail: 'No access to Plex server' }),
+      } as Response)
+
+      await expect(loginWithPlex('plex-token')).rejects.toThrow('No access to Plex server')
+    })
+
+    it('should throw default error if no detail provided', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        json: () => Promise.resolve({}),
+      } as Response)
+
+      await expect(loginWithPlex('bad-token')).rejects.toThrow('Plex authentication failed')
     })
   })
 })

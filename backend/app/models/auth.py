@@ -28,3 +28,12 @@ class TokenPayload(BaseModel):
     sub: str  # username
     role: str  # "admin" or "viewer"
     exp: datetime
+
+
+class AuthConfigResponse(BaseModel):
+    """Response for GET /api/auth/config."""
+
+    local_auth_enabled: bool = Field(alias="localAuthEnabled")
+    plex_auth_enabled: bool = Field(alias="plexAuthEnabled")
+
+    model_config = {"populate_by_name": True}

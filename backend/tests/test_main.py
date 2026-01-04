@@ -1,6 +1,7 @@
 """Integration tests for the main FastAPI app."""
 
 from datetime import UTC
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,8 +11,16 @@ from app.main import app
 
 @pytest.fixture
 def client():
-    """Create test client for main app."""
-    return TestClient(app)
+    """Create test client for main app with local auth enabled."""
+    # Patch settings to enable local auth for integration tests
+    with patch("app.routers.auth.settings") as mock_settings:
+        mock_settings.local_auth_enabled = True
+        mock_settings.plex_auth_enabled = False
+        mock_settings.admin_username = "admin"
+        mock_settings.admin_password = "admin"
+        mock_settings.viewer_username = "viewer"
+        mock_settings.viewer_password = "viewer"
+        yield TestClient(app)
 
 
 def test_health_check(client):

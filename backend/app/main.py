@@ -1,3 +1,5 @@
+import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -5,13 +7,35 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.config import settings
 from app.routers.auth import router as auth_router
 from app.routers.channels import router as channels_router
 from app.routers.epg import router as epg_router
 from app.routers.ersatztv import router as ersatztv_router
 from app.routers.websocket import router as websocket_router
 
-app = FastAPI(title="IPTV Viewer API")
+logger = logging.getLogger(__name__)
+
+
+def validate_auth_configuration() -> None:
+    """Validate authentication configuration on startup."""
+    if not settings.local_auth_enabled and not settings.plex_auth_enabled:
+        logger.warning(
+            "No authentication methods enabled! "
+            "Set LOCAL_AUTH_ENABLED=true or PLEX_AUTH_ENABLED=true"
+        )
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan handler for startup/shutdown events."""
+    # Startup
+    validate_auth_configuration()
+    yield
+    # Shutdown
+
+
+app = FastAPI(title="IPTV Viewer API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

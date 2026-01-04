@@ -89,7 +89,7 @@ export function EPGChannelSidebar({
         >
           <ChevronRight className="h-5 w-5" />
         </button>
-        <div className="mt-2 flex flex-1 flex-col items-center gap-1 overflow-y-auto">
+        <div className="mt-2 flex flex-1 flex-col items-center gap-1 overflow-y-auto pt-1">
           {channels.map((channel) => (
             <button
               key={channel.id}

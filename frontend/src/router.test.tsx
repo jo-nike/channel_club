@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { useAuthStore } from '@/stores/authStore'
 import { useChannelStore } from '@/stores/channelStore'
@@ -9,6 +9,10 @@ import * as api from '@/services/api'
 vi.mock('@/services/api', () => ({
   fetchChannels: vi.fn(),
   fetchNowPlaying: vi.fn(),
+  getAuthConfig: vi.fn().mockResolvedValue({
+    localAuthEnabled: true,
+    plexAuthEnabled: false,
+  }),
 }))
 
 // Mock Vidstack web components
@@ -131,9 +135,9 @@ describe('Router', () => {
 
     render(<RouterProvider router={router} />)
 
-    // The ErsatzTVView should show the Movie Channels header and Live TV nav link
-    expect(screen.getByText('Movie Channels')).toBeInTheDocument()
+    // The ErsatzTVView should show Live TV nav link and Logout button
     expect(screen.getByText('Live TV')).toBeInTheDocument()
+    expect(screen.getByText('Logout')).toBeInTheDocument()
   })
 
   it('shows login form when not authenticated', async () => {
@@ -148,8 +152,10 @@ describe('Router', () => {
 
     render(<RouterProvider router={router} />)
 
-    // LoginForm should be displayed when not authenticated
-    expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument()
+    // LoginForm should be displayed when not authenticated - wait for config to load
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument()
+    })
   })
 
   it('shows login form for protected /ersatztv route when not authenticated', async () => {
@@ -164,9 +170,11 @@ describe('Router', () => {
 
     render(<RouterProvider router={router} />)
 
-    // LoginForm should be displayed
-    expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument()
-    expect(screen.queryByText('Movie Channels')).not.toBeInTheDocument()
+    // LoginForm should be displayed (not ErsatzTVView) - wait for config to load
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Logout')).not.toBeInTheDocument()
   })
 
   it('renders Movies link in MainView header', async () => {

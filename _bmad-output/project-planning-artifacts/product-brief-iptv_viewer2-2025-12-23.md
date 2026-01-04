@@ -244,7 +244,7 @@ N/A - This is a focused personal project with two clear roles (host/viewer). No 
 | FFmpeg transcoding | Dispatcharr handles stream conversion | Never |
 | VPN management | Not needed with Dispatcharr proxy | Never |
 | M3U/EPG source management | Done in Dispatcharr admin | Never |
-| User registration | Hardcoded credentials sufficient | Maybe v2 |
+| User registration | Hardcoded credentials sufficient; Plex auth added in Epic 8 | v2 (Epic 8) |
 
 ### MVP Success Criteria
 
@@ -260,6 +260,12 @@ N/A - This is a focused personal project with two clear roles (host/viewer). No 
 
 #### v2 Enhancements (Epic 6 - In Progress)
 - ~~EPG overlay showing current/next program~~ → **Now Playing in header** (Epic 6)
+
+#### v2 Enhancements (Epic 8 - Planned)
+- **Optional Plex Authentication** - Feature-flagged Plex OAuth for server members
+- **Feature-flagged Local Auth** - Credential-based auth now opt-in (disabled by default)
+- Eliminates need to share credentials with friends
+- Automatic role assignment based on Plex server access
 - **Viewer channel list removed** - viewers see video only (Epic 6)
 - **Admin hamburger menu** - collapsible channel list on all breakpoints (Epic 6)
 - **Slimmer header** with branding update "Jon's place" (Epic 6)

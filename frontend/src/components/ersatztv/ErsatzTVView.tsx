@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Tv, LayoutList, RefreshCw } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useTheme } from '@/hooks/useTheme'
+import { useEscapeKey } from '@/hooks/useEscapeKey'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useUIStore } from '@/stores/uiStore'
 import { getErsatzTVStreamUrl, getErsatzTVLogoUrl } from '@/services/ersatztvApi'
@@ -14,6 +15,7 @@ import { ResizeDragHandle } from '@/components/ui/ResizeDragHandle'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useResizable } from '@/hooks/useResizable'
 import { ThemePicker } from '@/components/ThemePicker'
+import { cn } from '@/lib/utils'
 import type { ErsatzTVProgramme, ErsatzTVChannel } from '@/types'
 
 // Refresh interval for programme data (5 minutes)
@@ -45,6 +47,20 @@ export function ErsatzTVView() {
   const toggleChannelSidebar = useUIStore((s) => s.toggleChannelSidebar)
   const lastErsatzTVChannelId = useUIStore((s) => s.lastErsatzTVChannelId)
   const setLastErsatzTVChannelId = useUIStore((s) => s.setLastErsatzTVChannelId)
+  const isTheaterMode = useUIStore((s) => s.isTheaterMode)
+  const setTheaterMode = useUIStore((s) => s.setTheaterMode)
+  const toggleTheaterMode = useUIStore((s) => s.toggleTheaterMode)
+
+  // Handle Escape key to exit theater mode or fullscreen
+  const handleEscape = useCallback(() => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {})
+    } else if (isTheaterMode) {
+      setTheaterMode(false)
+    }
+  }, [isTheaterMode, setTheaterMode])
+
+  useEscapeKey({ onEscape: handleEscape })
 
   // Track that user visited this route
   useEffect(() => {
@@ -78,6 +94,14 @@ export function ErsatzTVView() {
   // Stream URL for current channel
   const streamUrl = selectedChannel
     ? getErsatzTVStreamUrl(selectedChannel.id)
+    : null
+
+  // Get currently playing programme for header display
+  const currentProgramme = selectedChannel
+    ? programmesByChannel[selectedChannel.id]?.find((p) => {
+        const now = new Date()
+        return new Date(p.start) <= now && new Date(p.stop) > now
+      })
     : null
 
   // Load channels on mount
@@ -144,16 +168,17 @@ export function ErsatzTVView() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
-      {/* Header - matches MainView exactly */}
+      {/* Header - hidden in theater mode */}
+      {!isTheaterMode && (
       <header className="flex justify-between items-center px-4 py-2 bg-background border-b">
         <div className="flex items-center gap-4">
           {/* Theme picker - consistent with MainView placement */}
           <ThemePicker />
-          {/* Current channel name */}
+          {/* Current programme info */}
           <span className="text-muted-foreground text-sm">
-            {selectedChannel?.name
-              ? `Movie Channels - ${selectedChannel.name}`
-              : 'Movie Channels'}
+            {selectedChannel?.name && currentProgramme
+              ? `${selectedChannel.name} - ${currentProgramme.title}`
+              : selectedChannel?.name || 'No programme'}
           </span>
         </div>
 
@@ -199,11 +224,12 @@ export function ErsatzTVView() {
           </button>
         </div>
       </header>
+      )}
 
       {/* Main content */}
       <div ref={containerRef} className="flex flex-1 min-h-0 overflow-hidden">
-        {/* Desktop: Collapsible Sidebar */}
-        {!isMobile && (
+        {/* Desktop: Collapsible Sidebar - hidden in theater mode */}
+        {!isMobile && !isTheaterMode && (
           <EPGChannelSidebar
             onChannelSelect={handleChannelSelect}
             isCollapsed={isChannelSidebarCollapsed}
@@ -213,16 +239,22 @@ export function ErsatzTVView() {
 
         {/* Content area */}
         <main className="flex flex-1 flex-col min-h-0 overflow-hidden">
-          {/* Video player - dynamic height based on EPG visibility */}
+          {/* Video player - fixed full viewport in theater mode, dynamic height otherwise */}
           <div
-            className="relative w-full min-h-0 overflow-hidden bg-black"
-            style={{ flex: isEPGVisible && !isMobile ? `1 1 ${100 - epgHeightPercent}%` : '1 1 100%' }}
+            className={cn(
+              'relative w-full min-h-0 overflow-hidden bg-black',
+              isTheaterMode && 'fixed inset-0 z-50'
+            )}
+            style={!isTheaterMode && isEPGVisible && !isMobile ? { flex: `1 1 ${100 - epgHeightPercent}%` } : !isTheaterMode ? { flex: '1 1 100%' } : undefined}
           >
             {streamUrl ? (
               <div key={videoRefreshKey} className="h-full w-full">
                 <HLSVideoPlayer
                   streamUrl={streamUrl}
                   title={selectedChannel?.name}
+                  isTheaterMode={isTheaterMode}
+                  isMobile={isMobile}
+                  onTheaterModeToggle={toggleTheaterMode}
                 />
               </div>
             ) : (
@@ -236,16 +268,16 @@ export function ErsatzTVView() {
             )}
           </div>
 
-          {/* Resize handle - only on desktop when EPG visible */}
-          {!isMobile && isEPGVisible && (
+          {/* Resize handle - only on desktop when EPG visible, hidden in theater mode */}
+          {!isMobile && isEPGVisible && !isTheaterMode && (
             <ResizeDragHandle
               onMouseDown={handleMouseDown}
               isDragging={isDragging}
             />
           )}
 
-          {/* EPG section - height based on state */}
-          {(isMobile || isEPGVisible) && (
+          {/* EPG section - hidden in theater mode */}
+          {!isTheaterMode && (isMobile || isEPGVisible) && (
             <div
               className="epg-scroll min-h-0 overflow-y-auto"
               style={!isMobile && isEPGVisible ? { flex: `0 0 ${epgHeightPercent}%` } : { flex: '1 1 auto' }}

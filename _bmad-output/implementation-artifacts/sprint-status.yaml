@@ -110,3 +110,12 @@ development_status:
   7-12-programme-details-modal: review
   7-13-ersatztv-main-view: review
   epic-7-retrospective: optional
+
+  # Epic 8: Optional Plex Authentication
+  epic-8: in-progress
+  8-1-plex-authentication-backend-service: review
+  8-2-plex-oauth-token-acquisition: review
+  8-3-plex-user-role-assignment: review
+  8-4-conditional-login-ui: review
+  8-5-feature-flagged-local-authentication: review
+  epic-8-retrospective: optional

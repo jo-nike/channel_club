@@ -1,35 +1,147 @@
-import { useRef, useState, useCallback } from 'react'
+import { useRef, useState, useCallback, useEffect } from 'react'
 import {
   MediaPlayer,
   MediaProvider,
+  useMediaState,
+  useMediaRemote,
   type MediaPlayerInstance,
 } from '@vidstack/react'
-import {
-  defaultLayoutIcons,
-  DefaultVideoLayout,
-} from '@vidstack/react/player/layouts/default'
 import '@vidstack/react/player/styles/default/theme.css'
-import '@vidstack/react/player/styles/default/layouts/video.css'
 import { ProjectorBeamLoader } from '@/components/ProjectorBeamLoader'
+import { ErsatzTVVideoControls } from './ErsatzTVVideoControls'
+import { useAutoHide } from '@/hooks/useAutoHide'
 
 interface HLSVideoPlayerProps {
   streamUrl: string
   title?: string
+  isTheaterMode: boolean
+  isMobile?: boolean
+  onTheaterModeToggle: () => void
   onError?: (error: Error) => void
   onReady?: () => void
 }
 
+// Inner controls component that has access to Vidstack context
+function PlayerControlsWrapper({
+  containerRef,
+  isTheaterMode,
+  isMobile,
+  onTheaterModeToggle,
+}: {
+  containerRef: React.RefObject<HTMLDivElement | null>
+  isTheaterMode: boolean
+  isMobile: boolean
+  onTheaterModeToggle: () => void
+}) {
+  const paused = useMediaState('paused')
+  const volume = useMediaState('volume')
+  const remote = useMediaRemote()
+  const [isHoveringControls, setIsHoveringControls] = useState(false)
+
+  const isPlaying = !paused
+
+  const { isVisible } = useAutoHide({
+    isPlaying,
+    containerRef,
+    isHoveringControls,
+  })
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeElement = document.activeElement
+
+      // Skip if focus is on an input, textarea, or other form element
+      if (
+        activeElement instanceof HTMLInputElement ||
+        activeElement instanceof HTMLTextAreaElement ||
+        activeElement instanceof HTMLSelectElement
+      ) {
+        return
+      }
+
+      // Check if event target is within video container or is the body
+      const container = containerRef.current
+      const isWithinContainer =
+        container?.contains(activeElement) || activeElement === document.body
+
+      if (!isWithinContainer) return
+
+      switch (e.key) {
+        case ' ': // Space - Play/Pause
+          e.preventDefault()
+          remote.togglePaused()
+          break
+
+        case 'm':
+        case 'M': // M - Mute toggle
+          remote.toggleMuted()
+          break
+
+        case 'f':
+        case 'F': // F - Fullscreen toggle
+          remote.toggleFullscreen()
+          break
+
+        case 't':
+        case 'T': // T - Theater mode toggle
+          onTheaterModeToggle()
+          break
+
+        case 'ArrowRight': // Arrow Right - Volume up
+          e.preventDefault()
+          remote.changeVolume(Math.min(1, volume + 0.1))
+          break
+
+        case 'ArrowLeft': // Arrow Left - Volume down
+          e.preventDefault()
+          remote.changeVolume(Math.max(0, volume - 0.1))
+          break
+
+        default:
+          break
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [containerRef, remote, volume, onTheaterModeToggle])
+
+  return (
+    <ErsatzTVVideoControls
+      isTheaterMode={isTheaterMode}
+      isVisible={isVisible}
+      isMobile={isMobile}
+      onTheaterModeToggle={onTheaterModeToggle}
+      onMouseEnter={() => setIsHoveringControls(true)}
+      onMouseLeave={() => setIsHoveringControls(false)}
+    />
+  )
+}
+
 // Inner component that manages player state - remounts when streamUrl changes
-function HLSVideoPlayerInner({ streamUrl, title, onError, onReady }: HLSVideoPlayerProps) {
+function HLSVideoPlayerInner({
+  streamUrl,
+  title,
+  isTheaterMode,
+  isMobile = false,
+  onTheaterModeToggle,
+  onError,
+  onReady,
+}: HLSVideoPlayerProps) {
   const playerRef = useRef<MediaPlayerInstance>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   const [isBuffering, setIsBuffering] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const handleError = useCallback((e: { message?: string }) => {
-    const errorMessage = e.message || 'Playback error'
-    setError('Stream unavailable')
-    onError?.(new Error(errorMessage))
-  }, [onError])
+  const handleError = useCallback(
+    (e: { message?: string }) => {
+      const errorMessage = e.message || 'Playback error'
+      setError('Stream unavailable')
+      onError?.(new Error(errorMessage))
+    },
+    [onError]
+  )
 
   const handlePlaying = useCallback(() => {
     setIsBuffering(false)
@@ -39,6 +151,7 @@ function HLSVideoPlayerInner({ streamUrl, title, onError, onReady }: HLSVideoPla
   const handleWaiting = useCallback(() => {
     setIsBuffering(true)
   }, [])
+
 
   if (error) {
     return (
@@ -54,7 +167,10 @@ function HLSVideoPlayerInner({ streamUrl, title, onError, onReady }: HLSVideoPla
   }
 
   return (
-    <div className="relative h-full w-full bg-black flex items-center justify-center">
+    <div
+      ref={containerRef}
+      className="relative h-full w-full bg-black flex items-center justify-center"
+    >
       <MediaPlayer
         ref={playerRef}
         src={streamUrl}
@@ -68,7 +184,12 @@ function HLSVideoPlayerInner({ streamUrl, title, onError, onReady }: HLSVideoPla
         data-testid="media-player"
       >
         <MediaProvider />
-        <DefaultVideoLayout icons={defaultLayoutIcons} />
+        <PlayerControlsWrapper
+          containerRef={containerRef}
+          isTheaterMode={isTheaterMode}
+          isMobile={isMobile}
+          onTheaterModeToggle={onTheaterModeToggle}
+        />
       </MediaPlayer>
 
       {/* Buffering overlay */}

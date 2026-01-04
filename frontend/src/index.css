@@ -304,6 +304,12 @@
   outline-offset: 2px;
 }
 
+/* Hide Playback and Accessibility menus from ErsatzTV player settings */
+.vds-playback-menu,
+.vds-accessibility-menu {
+  display: none !important;
+}
+
 /* ============================
    PROJECTOR BEAM LOADER
    ============================ */

@@ -14,6 +14,11 @@ export interface TokenResponse {
   role: 'admin' | 'viewer'
 }
 
+export interface AuthConfig {
+  localAuthEnabled: boolean
+  plexAuthEnabled: boolean
+}
+
 export async function login(credentials: LoginRequest): Promise<TokenResponse> {
   const response = await fetch(`${API_URL}/auth/token`, {
     method: 'POST',
@@ -109,6 +114,29 @@ export async function fetchNowPlaying(channelId: string): Promise<EPGResponse> {
 
   if (!response.ok) {
     throw new Error('Failed to fetch EPG')
+  }
+
+  return response.json()
+}
+
+export async function getAuthConfig(): Promise<AuthConfig> {
+  const response = await fetch(`${API_URL}/auth/config`)
+  if (!response.ok) {
+    throw new Error('Failed to get auth config')
+  }
+  return response.json()
+}
+
+export async function loginWithPlex(authToken: string): Promise<TokenResponse> {
+  const response = await fetch(`${API_URL}/auth/plex`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ authToken }),
+  })
+
+  if (!response.ok) {
+    const data = await response.json()
+    throw new Error(data.detail || 'Plex authentication failed')
   }
 
   return response.json()
