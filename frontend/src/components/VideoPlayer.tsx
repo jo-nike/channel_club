@@ -72,6 +72,12 @@ function VideoPlayerInner({ streamUrl, channelName }: VideoPlayerInnerProps) {
     return window.matchMedia('(pointer: coarse)').matches
   }, [])
 
+  // Detect mobile device (small screen + touch)
+  const isMobile = useCallback(() => {
+    const isSmallScreen = window.matchMedia('(max-width: 768px)').matches
+    return isSmallScreen && isTouchDevice()
+  }, [isTouchDevice])
+
   // Handle video area tap/click for touch devices
   const handleVideoAreaClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     // Only handle clicks directly on the video container or video element
@@ -272,6 +278,7 @@ function VideoPlayerInner({ streamUrl, channelName }: VideoPlayerInnerProps) {
         isTheaterMode={isTheaterMode}
         isFullscreen={isFullscreen}
         isVisible={isVisible}
+        isMobile={isMobile()}
         onPlayPause={handlePlayPause}
         onVolumeChange={handleVolumeChange}
         onMuteToggle={handleMuteToggle}

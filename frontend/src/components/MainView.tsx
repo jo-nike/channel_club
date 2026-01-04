@@ -33,8 +33,23 @@ export function MainView() {
   const currentChannel = useChannelStore((s) => s.currentChannel)
   const { epg } = useEPG()
   const [videoRefreshKey, setVideoRefreshKey] = useState(0)
+  const [isFullscreen, setIsFullscreen] = useState(false)
 
   const isMobile = breakpoint === 'mobile'
+
+  // Track fullscreen changes (for hiding header during autorotate fullscreen)
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement)
+    }
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange)
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange)
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange)
+    }
+  }, [])
 
   // Track that user visited this route
   useEffect(() => {
@@ -85,8 +100,8 @@ export function MainView() {
 
   return (
     <div className="h-screen flex flex-col overflow-hidden">
-      {/* Header - hidden in theater mode */}
-      {!isTheaterMode && (
+      {/* Header - hidden in theater mode or fullscreen */}
+      {!isTheaterMode && !isFullscreen && (
         <header className="flex justify-between items-center px-4 py-2 bg-background border-b">
           <div className="flex items-center gap-4">
             {/* Menu button - left side for admin */}
@@ -162,8 +177,8 @@ export function MainView() {
         </div>
       </main>
 
-      {/* Sidebar Overlay - admin only, all breakpoints */}
-      {!isTheaterMode && isAdmin && (
+      {/* Sidebar Overlay - admin only, all breakpoints, hidden in fullscreen */}
+      {!isTheaterMode && !isFullscreen && isAdmin && (
         <>
           {/* Backdrop */}
           <div
@@ -204,8 +219,8 @@ export function MainView() {
         </>
       )}
 
-      {/* Mobile FAB - admin only */}
-      {!isTheaterMode && isMobile && !isSidebarOpen && isAdmin && (
+      {/* Mobile FAB - admin only, hidden in fullscreen */}
+      {!isTheaterMode && !isFullscreen && isMobile && !isSidebarOpen && isAdmin && (
         <button
           onClick={(e) => {
             sidebarTriggerRef.current = e.currentTarget

@@ -9,6 +9,7 @@ export interface VideoControlsProps {
   isTheaterMode: boolean
   isFullscreen: boolean
   isVisible: boolean
+  isMobile?: boolean
   onPlayPause: () => void
   onVolumeChange: (volume: number) => void
   onMuteToggle: () => void
@@ -25,6 +26,7 @@ export function VideoControls({
   isTheaterMode,
   isFullscreen,
   isVisible,
+  isMobile = false,
   onPlayPause,
   onVolumeChange,
   onMuteToggle,
@@ -104,20 +106,22 @@ export function VideoControls({
         )}
       </button>
 
-      {/* Theater Mode Button */}
-      <button
-        type="button"
-        tabIndex={isVisible ? 0 : -1}
-        onClick={onTheaterModeToggle}
-        aria-label={isTheaterMode ? 'Exit theater mode' : 'Theater mode'}
-        className="control-button flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-400/80"
-      >
-        {isTheaterMode ? (
-          <Shrink className="h-6 w-6 text-white" />
-        ) : (
-          <Expand className="h-6 w-6 text-white" />
-        )}
-      </button>
+      {/* Theater Mode Button - hidden on mobile */}
+      {!isMobile && (
+        <button
+          type="button"
+          tabIndex={isVisible ? 0 : -1}
+          onClick={onTheaterModeToggle}
+          aria-label={isTheaterMode ? 'Exit theater mode' : 'Theater mode'}
+          className="control-button flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-400/80"
+        >
+          {isTheaterMode ? (
+            <Shrink className="h-6 w-6 text-white" />
+          ) : (
+            <Expand className="h-6 w-6 text-white" />
+          )}
+        </button>
+      )}
     </div>
   )
 }
