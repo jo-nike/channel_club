@@ -247,6 +247,18 @@
    VIDSTACK VIDEO PLAYER
    ============================ */
 
+/* Force video to scale proportionally instead of cropping */
+[data-media-player] {
+  --media-object-fit: contain;
+}
+
+[data-media-player] video,
+[data-media-player] [data-media-provider] video {
+  object-fit: contain !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+
 /* Vidstack Video Player - 10-Foot UI Customization */
 .video-player-container {
   /* Larger button sizes for TV remotes/10-foot UI */

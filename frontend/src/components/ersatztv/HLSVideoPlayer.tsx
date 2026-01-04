@@ -54,14 +54,14 @@ function HLSVideoPlayerInner({ streamUrl, title, onError, onReady }: HLSVideoPla
   }
 
   return (
-    <div className="relative h-full w-full bg-black">
+    <div className="relative h-full w-full bg-black flex items-center justify-center">
       <MediaPlayer
         ref={playerRef}
         src={streamUrl}
         title={title}
         autoPlay
         playsInline
-        className="h-full w-full"
+        className="h-full w-full max-h-full max-w-full [&_video]:object-contain"
         onWaiting={handleWaiting}
         onPlaying={handlePlaying}
         onError={handleError}
