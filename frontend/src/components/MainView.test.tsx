@@ -100,11 +100,10 @@ describe('MainView', () => {
   })
 
   describe('layout', () => {
-    it('should render header with connection status and logout button', () => {
+    it('should render header with logout button', () => {
       renderWithRouter()
 
-      // Header contains connection status and logout button
-      expect(screen.getByRole('status')).toBeInTheDocument()
+      // Header contains logout button
       expect(screen.getByRole('button', { name: /logout/i })).toBeInTheDocument()
     })
 

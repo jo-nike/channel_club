@@ -1,14 +1,13 @@
 import { render, screen, fireEvent } from '@testing-library/react'
-import { describe, test, expect, vi } from 'vitest'
+import { describe, test, expect } from 'vitest'
 import { ConnectionStatus } from './ConnectionStatus'
 
 describe('ConnectionStatus', () => {
   test('shows Connected with green indicator', () => {
     render(<ConnectionStatus status="connected" />)
 
-    // Status is shown via aria-label on the indicator
-    expect(screen.getByRole('status', { name: 'Connected' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /reconnect/i })).not.toBeInTheDocument()
+    // Status is shown via aria-label on the button
+    expect(screen.getByRole('status', { name: /connected/i })).toBeInTheDocument()
 
     // Check for green indicator (bg-green-500)
     const indicator = document.querySelector('.bg-green-500')
@@ -18,9 +17,8 @@ describe('ConnectionStatus', () => {
   test('shows Connecting with yellow pulsing indicator', () => {
     render(<ConnectionStatus status="connecting" />)
 
-    // Status is shown via aria-label on the indicator
-    expect(screen.getByRole('status', { name: 'Connecting...' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /reconnect/i })).not.toBeInTheDocument()
+    // Status is shown via aria-label on the button
+    expect(screen.getByRole('status', { name: /connecting/i })).toBeInTheDocument()
 
     // Check for yellow indicator
     const indicator = document.querySelector('.bg-yellow-500')
@@ -31,9 +29,8 @@ describe('ConnectionStatus', () => {
   test('shows Reconnecting with yellow pulsing indicator', () => {
     render(<ConnectionStatus status="reconnecting" />)
 
-    // Status is shown via aria-label on the indicator
-    expect(screen.getByRole('status', { name: 'Reconnecting...' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /reconnect/i })).not.toBeInTheDocument()
+    // Status is shown via aria-label on the button
+    expect(screen.getByRole('status', { name: /reconnecting/i })).toBeInTheDocument()
 
     // Check for yellow indicator with pulse
     const indicator = document.querySelector('.bg-yellow-500')
@@ -41,51 +38,76 @@ describe('ConnectionStatus', () => {
     expect(indicator).toHaveClass('animate-pulse')
   })
 
-  test('shows Disconnected with red indicator and reconnect button', () => {
-    const onReconnect = vi.fn()
-    render(<ConnectionStatus status="disconnected" onReconnect={onReconnect} />)
+  test('shows Disconnected with red indicator', () => {
+    render(<ConnectionStatus status="disconnected" />)
 
-    // Status is shown via aria-label on the indicator
-    expect(screen.getByRole('status', { name: 'Disconnected' })).toBeInTheDocument()
+    // Status is shown via aria-label on the button
+    expect(screen.getByRole('status', { name: /disconnected/i })).toBeInTheDocument()
 
     // Check for red indicator (no pulse)
     const indicator = document.querySelector('.bg-red-500')
     expect(indicator).toBeInTheDocument()
     expect(indicator).not.toHaveClass('animate-pulse')
-
-    // Check for reconnect button
-    const button = screen.getByRole('button', { name: /reconnect/i })
-    expect(button).toBeInTheDocument()
   })
 
-  test('calls onReconnect when button is clicked', () => {
-    const onReconnect = vi.fn()
-    render(<ConnectionStatus status="disconnected" onReconnect={onReconnect} />)
+  test('clicking hides indicator by changing to background color', () => {
+    render(<ConnectionStatus status="connected" />)
 
-    const button = screen.getByRole('button', { name: /reconnect/i })
+    const button = screen.getByRole('status')
+
+    // Initially shows green
+    expect(button).toHaveClass('bg-green-500')
+    expect(button).not.toHaveClass('bg-background')
+
+    // Click to hide
     fireEvent.click(button)
 
-    expect(onReconnect).toHaveBeenCalledTimes(1)
+    // Now shows background color
+    expect(button).toHaveClass('bg-background')
+    expect(button).not.toHaveClass('bg-green-500')
   })
 
-  test('does not show reconnect button when no onReconnect provided', () => {
-    render(<ConnectionStatus status="disconnected" />)
+  test('clicking twice restores indicator color', () => {
+    render(<ConnectionStatus status="connected" />)
 
-    // Status is shown via aria-label on the indicator
-    expect(screen.getByRole('status', { name: 'Disconnected' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /reconnect/i })).not.toBeInTheDocument()
+    const button = screen.getByRole('status')
+
+    // Click to hide
+    fireEvent.click(button)
+    expect(button).toHaveClass('bg-background')
+
+    // Click to show again
+    fireEvent.click(button)
+    expect(button).toHaveClass('bg-green-500')
   })
 
-  test('does not show reconnect button for non-disconnected states', () => {
-    const onReconnect = vi.fn()
+  test('hiding stops pulse animation', () => {
+    render(<ConnectionStatus status="connecting" />)
 
-    const { rerender } = render(<ConnectionStatus status="connected" onReconnect={onReconnect} />)
-    expect(screen.queryByRole('button', { name: /reconnect/i })).not.toBeInTheDocument()
+    const button = screen.getByRole('status')
 
-    rerender(<ConnectionStatus status="connecting" onReconnect={onReconnect} />)
-    expect(screen.queryByRole('button', { name: /reconnect/i })).not.toBeInTheDocument()
+    // Initially pulsing
+    expect(button).toHaveClass('animate-pulse')
 
-    rerender(<ConnectionStatus status="reconnecting" onReconnect={onReconnect} />)
-    expect(screen.queryByRole('button', { name: /reconnect/i })).not.toBeInTheDocument()
+    // Click to hide
+    fireEvent.click(button)
+
+    // No longer pulsing
+    expect(button).not.toHaveClass('animate-pulse')
+  })
+
+  test('aria-label updates when hidden', () => {
+    render(<ConnectionStatus status="connected" />)
+
+    const button = screen.getByRole('status')
+
+    // Initially shows "click to hide"
+    expect(button).toHaveAttribute('aria-label', 'Connected (click to hide)')
+
+    // Click to hide
+    fireEvent.click(button)
+
+    // Now shows "click to show"
+    expect(button).toHaveAttribute('aria-label', 'Connected (hidden - click to show)')
   })
 })

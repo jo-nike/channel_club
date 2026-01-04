@@ -18,6 +18,7 @@ import { useResizable } from '@/hooks/useResizable'
 import { useMobileLandscape } from '@/hooks/useMobileLandscape'
 import { ThemePicker } from '@/components/ThemePicker'
 import { AdminModal } from '@/components/AdminModal'
+import { ConnectionStatus } from '@/components/ConnectionStatus'
 import { cn } from '@/lib/utils'
 import type { ErsatzTVProgramme, UnifiedChannel, ErsatzTVChannel } from '@/types'
 
@@ -97,13 +98,14 @@ export function TVView() {
 
   // Track that user visited this route
   useEffect(() => {
-    setLastRoute('/tv' as any)
+    setLastRoute('/tv')
   }, [setLastRoute])
 
-  // Send channel updates for presence tracking
+  // Send channel updates for presence tracking (including view type for unified view)
   useEffect(() => {
     if (status === 'connected') {
-      sendChannelUpdate(selectedChannel?.name ?? null, currentProgrammeTitle)
+      const viewType = selectedChannel?.type === 'ersatztv' ? 'ersatztv' : 'live'
+      sendChannelUpdate(selectedChannel?.name ?? null, currentProgrammeTitle, viewType)
     }
   }, [selectedChannel, currentProgrammeTitle, sendChannelUpdate, status])
 
@@ -225,8 +227,8 @@ export function TVView() {
       {!isTheaterMode && !isMobileLandscape && (
         <header className="flex justify-between items-center px-4 py-2 bg-background border-b">
           <div className="flex items-center gap-4">
-            {/* TV branding */}
-            <h1 className="text-lg font-semibold">TV</h1>
+            {/* Connection status indicator */}
+            <ConnectionStatus status={status} />
             {/* Current channel/programme info */}
             <span className="text-muted-foreground text-sm">
               {selectedChannel?.name && currentProgrammeTitle

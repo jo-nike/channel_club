@@ -121,8 +121,6 @@ describe('App', () => {
       renderWithRouter()
 
       expect(screen.getByRole('button', { name: /logout/i })).toBeInTheDocument()
-      // MainView is rendered - check for connection status indicator
-      expect(screen.getByRole('status')).toBeInTheDocument()
     })
 
     it('should not show LoginForm when authenticated', () => {

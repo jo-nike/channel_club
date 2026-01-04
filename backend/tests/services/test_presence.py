@@ -165,6 +165,52 @@ class TestUpdateUserChannel:
         """Should not error when updating unknown user."""
         presence.update_user_channel("nonexistent", "Some Channel")  # Should not raise
 
+    def test_updates_view_type_when_provided(self) -> None:
+        """Should update view type when provided (for unified TV view)."""
+        presence.track_user(
+            connection_id="abc123",
+            username="testuser",
+            view="live",
+        )
+
+        # Verify initial view and bitrate
+        assert presence._active_users["abc123"].view == "live"
+        assert presence._active_users["abc123"].estimated_bitrate == presence.LIVE_BITRATE
+
+        # Switch to ersatztv via channel update
+        presence.update_user_channel("abc123", "Movies", "Test Movie", view="ersatztv")
+
+        assert presence._active_users["abc123"].view == "ersatztv"
+        assert presence._active_users["abc123"].current_channel == "Movies"
+        assert presence._active_users["abc123"].current_programme == "Test Movie"
+        assert presence._active_users["abc123"].estimated_bitrate == presence.ERSATZTV_BITRATE
+
+    def test_view_update_ignores_invalid_values(self) -> None:
+        """Should ignore invalid view values."""
+        presence.track_user(
+            connection_id="abc123",
+            username="testuser",
+            view="live",
+        )
+
+        # Try to set invalid view
+        presence.update_user_channel("abc123", "Channel", view="invalid")  # type: ignore
+
+        # View should remain unchanged
+        assert presence._active_users["abc123"].view == "live"
+
+    def test_view_update_none_keeps_current_view(self) -> None:
+        """Should keep current view when None is passed."""
+        presence.track_user(
+            connection_id="abc123",
+            username="testuser",
+            view="ersatztv",
+        )
+
+        presence.update_user_channel("abc123", "Channel", view=None)
+
+        assert presence._active_users["abc123"].view == "ersatztv"
+
 
 class TestGetActiveUsers:
     """Tests for get_active_users function."""

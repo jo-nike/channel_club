@@ -1,11 +1,10 @@
+import { useState } from 'react'
 import { cn } from '@/lib/utils'
-import { Button } from '@/components/ui/button'
 
 type ConnectionState = 'connected' | 'connecting' | 'reconnecting' | 'disconnected'
 
 interface ConnectionStatusProps {
   status: ConnectionState
-  onReconnect?: () => void
 }
 
 const statusConfig = {
@@ -31,22 +30,25 @@ const statusConfig = {
   },
 } as const
 
-export function ConnectionStatus({ status, onReconnect }: ConnectionStatusProps) {
+export function ConnectionStatus({ status }: ConnectionStatusProps) {
+  const [isHidden, setIsHidden] = useState(false)
   const config = statusConfig[status]
 
-  return (
-    <div className="flex items-center gap-2">
-      <span
-        className={cn('h-3 w-3 rounded-full', config.color, config.pulse && 'animate-pulse')}
-        role="status"
-        aria-label={config.text}
-      />
+  const handleClick = () => {
+    setIsHidden((prev) => !prev)
+  }
 
-      {status === 'disconnected' && onReconnect && (
-        <Button variant="outline" size="sm" onClick={onReconnect}>
-          Reconnect
-        </Button>
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      className={cn(
+        'h-3 w-3 rounded-full cursor-pointer transition-colors',
+        isHidden ? 'bg-background' : config.color,
+        !isHidden && config.pulse && 'animate-pulse'
       )}
-    </div>
+      role="status"
+      aria-label={isHidden ? `${config.text} (hidden - click to show)` : `${config.text} (click to hide)`}
+    />
   )
 }

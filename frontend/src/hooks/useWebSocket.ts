@@ -25,7 +25,7 @@ interface UseWebSocketOptions {
 interface UseWebSocketReturn {
   status: ConnectionStatus
   reconnect: () => void
-  sendChannelUpdate: (channelName: string | null, programmeTitle?: string | null) => void
+  sendChannelUpdate: (channelName: string | null, programmeTitle?: string | null, viewType?: 'live' | 'ersatztv') => void
 }
 
 export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketReturn {
@@ -201,16 +201,17 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   }, [connect])
 
   const sendChannelUpdate = useCallback(
-    (channelName: string | null, programmeTitle?: string | null) => {
+    (channelName: string | null, programmeTitle?: string | null, viewType?: 'live' | 'ersatztv') => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(
           JSON.stringify({
             type: 'channel_update',
             channel: channelName,
             programme: programmeTitle ?? null,
+            view: viewType ?? null,
           })
         )
-        logger.debug('WebSocket', `Sent channel update: ${channelName || 'null'} - ${programmeTitle || 'null'}`)
+        logger.debug('WebSocket', `Sent channel update: ${channelName || 'null'} - ${programmeTitle || 'null'} (view: ${viewType || 'unchanged'})`)
       }
     },
     []

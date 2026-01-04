@@ -106,22 +106,38 @@ def update_user_channel(
     connection_id: str,
     channel_name: str | None,
     programme_title: str | None = None,
+    view: Literal["live", "ersatztv"] | None = None,
 ) -> None:
-    """Update user's current channel and programme.
+    """Update user's current channel, programme, and optionally view type.
 
     Args:
         connection_id: The connection ID to update.
         channel_name: The new channel name, or None if not watching.
         programme_title: The current programme title, or None.
+        view: Optional view type to update (for unified TV view switching).
     """
     if connection_id in _active_users:
-        _active_users[connection_id].current_channel = channel_name
-        _active_users[connection_id].current_programme = programme_title
+        user = _active_users[connection_id]
+        user.current_channel = channel_name
+        user.current_programme = programme_title
+
+        # Update view type if provided (unified view switching between live/ersatztv)
+        if view is not None and view in ("live", "ersatztv") and user.view != view:
+            log.info(
+                "User {} switching view from {} to {}",
+                user.username,
+                user.view,
+                view,
+            )
+            user.view = view
+            user.estimated_bitrate = LIVE_BITRATE if view == "live" else ERSATZTV_BITRATE
+
         log.debug(
-            "User {} now watching: {} - {}",
-            _active_users[connection_id].username,
+            "User {} now watching: {} - {} (view: {})",
+            user.username,
             channel_name,
             programme_title,
+            user.view,
         )
 
 

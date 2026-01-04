@@ -116,8 +116,12 @@ async def handle_client_message(websocket: WebSocket, message: dict, client_id: 
     elif msg_type == "channel_update":
         channel = message.get("channel")
         programme = message.get("programme")
-        presence.update_user_channel(client_id, channel, programme)
-        log.debug("Channel update from client {}: {} - {}", client_id, channel, programme)
+        view = message.get("view")
+        presence.update_user_channel(client_id, channel, programme, view)
+        log.debug(
+            "Channel update from client {}: {} - {} (view: {})",
+            client_id, channel, programme, view or "unchanged"
+        )
     else:
         # Log unknown message types for debugging
         log.debug("Unknown WebSocket message type from client {}: {}", client_id, msg_type)
