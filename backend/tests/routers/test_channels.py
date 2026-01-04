@@ -394,9 +394,7 @@ class TestSetCurrentChannel:
 class TestChannelsLogging:
     """Tests for channels router logging."""
 
-    def test_get_channels_logs_debug(
-        self, client: TestClient, auth_header: dict[str, str]
-    ) -> None:
+    def test_get_channels_logs_debug(self, client: TestClient, auth_header: dict[str, str]) -> None:
         """GET /channels logs DEBUG level."""
         output = StringIO()
         handler_id = logger.add(output, format="{level} | {message}", level="DEBUG")

@@ -540,9 +540,7 @@ class TestAuthLogging:
     def test_auth_logging_uses_router_context(self, client):
         """Auth logging uses logger.bind(router='auth') context."""
         output = StringIO()
-        handler_id = logger.add(
-            output, format="{extra} | {message}", level="DEBUG"
-        )
+        handler_id = logger.add(output, format="{extra} | {message}", level="DEBUG")
 
         try:
             client.post(
