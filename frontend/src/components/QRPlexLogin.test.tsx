@@ -16,12 +16,14 @@ vi.mock('qrcode.react', () => ({
 }))
 
 describe('QRPlexLogin', () => {
-  const mockPin = { id: 123, code: 'ABCD', authToken: null }
-  const mockAuthUrl = 'https://app.plex.tv/auth#?code=ABCD'
+  const mockStrongPin = { id: 123, code: 'strong-code-abc123', authToken: null }
+  const mockShortPin = { id: 456, code: 'ABCD', authToken: null }
+  const mockAuthUrl = 'https://app.plex.tv/auth#?code=strong-code-abc123'
   const mockStart = vi.fn()
   const mockCancel = vi.fn()
   const defaultMockReturn = {
-    pin: mockPin,
+    pin: mockStrongPin,
+    shortPin: mockShortPin,
     authUrl: mockAuthUrl,
     status: 'polling' as const,
     timeRemaining: 300,
@@ -56,7 +58,7 @@ describe('QRPlexLogin', () => {
       expect(screen.getByText('Scan with your phone to log in')).toBeInTheDocument()
     })
 
-    it('should display manual PIN code', () => {
+    it('should display short PIN code for manual entry at plex.tv/link', () => {
       render(<QRPlexLogin onSuccess={vi.fn()} onCancel={vi.fn()} />)
 
       expect(screen.getByText('ABCD')).toBeInTheDocument()
@@ -80,6 +82,7 @@ describe('QRPlexLogin', () => {
         ...defaultMockReturn,
         authUrl: null,
         pin: null,
+        shortPin: null,
       })
 
       render(<QRPlexLogin onSuccess={vi.fn()} onCancel={vi.fn()} />)

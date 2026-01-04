@@ -14,7 +14,7 @@ export interface QRPlexLoginProps {
  * Displays a QR code that users can scan with their phone to log in.
  */
 export function QRPlexLogin({ onSuccess, onCancel, onError }: QRPlexLoginProps) {
-  const { pin, authUrl, status, timeRemaining, error, start, cancel } = usePlexQRAuth({
+  const { shortPin, authUrl, status, timeRemaining, error, start, cancel } = usePlexQRAuth({
     onSuccess,
     onError,
   })
@@ -127,15 +127,15 @@ export function QRPlexLogin({ onSuccess, onCancel, onError }: QRPlexLoginProps) 
         Scan with your phone to log in
       </p>
 
-      {/* Manual code */}
-      {pin && (
+      {/* Manual code - short PIN for plex.tv/link */}
+      {shortPin && (
         <div className="text-center">
           <p className="text-sm text-muted-foreground">
             Or enter this code at{' '}
             <span className="font-mono text-foreground">plex.tv/link</span>
           </p>
           <p className="text-3xl font-mono font-bold text-foreground mt-2 tracking-widest">
-            {pin.code}
+            {shortPin.code}
           </p>
         </div>
       )}

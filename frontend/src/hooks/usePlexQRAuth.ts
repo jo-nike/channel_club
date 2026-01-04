@@ -12,7 +12,8 @@ export interface UsePlexQRAuthOptions {
 }
 
 export interface UsePlexQRAuthReturn {
-  pin: PlexPin | null
+  pin: PlexPin | null // Strong PIN for QR code auth URL
+  shortPin: PlexPin | null // Short PIN for manual entry at plex.tv/link
   authUrl: string | null
   status: PlexQRAuthStatus
   timeRemaining: number // seconds remaining
@@ -37,6 +38,7 @@ export function usePlexQRAuth(options: UsePlexQRAuthOptions = {}): UsePlexQRAuth
   } = options
 
   const [pin, setPin] = useState<PlexPin | null>(null)
+  const [shortPin, setShortPin] = useState<PlexPin | null>(null)
   const [authUrl, setAuthUrl] = useState<string | null>(null)
   const [status, setStatus] = useState<PlexQRAuthStatus>('idle')
   const [timeRemaining, setTimeRemaining] = useState(Math.floor(timeout / 1000))
@@ -72,6 +74,7 @@ export function usePlexQRAuth(options: UsePlexQRAuthOptions = {}): UsePlexQRAuth
     cleanup()
     setStatus('idle')
     setPin(null)
+    setShortPin(null)
     setAuthUrl(null)
     setTimeRemaining(Math.floor(timeout / 1000))
   }, [cleanup, timeout])
@@ -85,14 +88,21 @@ export function usePlexQRAuth(options: UsePlexQRAuthOptions = {}): UsePlexQRAuth
     startTimeRef.current = Date.now()
 
     try {
-      // Create PIN
-      const newPin = await createPlexPin()
-      setPin(newPin)
+      // Create both PINs in parallel:
+      // - Strong PIN for QR code auth URL
+      // - Short PIN for manual entry at plex.tv/link
+      const [strongPin, manualPin] = await Promise.all([
+        createPlexPin(true),
+        createPlexPin(false),
+      ])
 
-      // Generate auth URL
-      const url = getPlexAuthUrl(newPin)
+      setPin(strongPin)
+      setShortPin(manualPin)
+
+      // Generate auth URL from strong PIN (for QR code)
+      const url = getPlexAuthUrl(strongPin)
       setAuthUrl(url)
-      logger.debug('PlexQRAuth', `PIN created: ${newPin.id}, code: ${newPin.code}`)
+      logger.debug('PlexQRAuth', `Strong PIN: ${strongPin.id}, Short PIN: ${manualPin.id} (${manualPin.code})`)
 
       // Start countdown timer
       countdownIntervalRef.current = setInterval(() => {
@@ -101,12 +111,18 @@ export function usePlexQRAuth(options: UsePlexQRAuthOptions = {}): UsePlexQRAuth
         setTimeRemaining(remaining)
       }, 1000)
 
-      // Start polling for auth completion
+      // Start polling both PINs for auth completion
       pollIntervalRef.current = setInterval(async () => {
         try {
-          const authToken = await checkPlexPin(newPin.id)
+          // Poll both PINs - user might scan QR or enter short code
+          const [strongToken, shortToken] = await Promise.all([
+            checkPlexPin(strongPin.id),
+            checkPlexPin(manualPin.id),
+          ])
+
+          const authToken = strongToken || shortToken
           if (authToken) {
-            logger.info('PlexQRAuth', 'Authentication successful')
+            logger.info('PlexQRAuth', `Authentication successful via ${strongToken ? 'QR' : 'manual PIN'}`)
             cleanup()
             setStatus('success')
             onSuccess?.(authToken)
@@ -138,6 +154,7 @@ export function usePlexQRAuth(options: UsePlexQRAuthOptions = {}): UsePlexQRAuth
 
   return {
     pin,
+    shortPin,
     authUrl,
     status,
     timeRemaining,

@@ -27,18 +27,26 @@ export interface PlexPin {
 
 /**
  * Request a new PIN from Plex API.
+ * @param strong - If true, generates a long cryptographic code for auth URLs.
+ *                 If false, generates a short 4-char code for manual entry at plex.tv/link.
  */
-export async function createPlexPin(): Promise<PlexPin> {
-  logger.debug('Plex', 'Creating Plex PIN')
+export async function createPlexPin(strong = true): Promise<PlexPin> {
+  logger.debug('Plex', `Creating Plex PIN (strong=${strong})`)
+
+  // Only include strong parameter when true - Plex expects strong=true or no parameter
+  const body = strong ? new URLSearchParams({ strong: 'true' }) : undefined
 
   const response = await fetch('https://plex.tv/api/v2/pins', {
     method: 'POST',
     headers: PLEX_API_HEADERS,
-    body: new URLSearchParams({ strong: 'true' }),
+    body,
   })
 
   if (!response.ok) {
     logger.error('Plex', `Failed to create Plex PIN: ${response.status}`)
+    if (response.status === 429) {
+      throw new Error('Too many requests. Please wait a minute and try again.')
+    }
     throw new Error('Failed to create Plex PIN')
   }
 
@@ -75,6 +83,9 @@ export async function checkPlexPin(pinId: number): Promise<string | null> {
 
   if (!response.ok) {
     logger.error('Plex', `Failed to check Plex PIN: ${response.status}`)
+    if (response.status === 429) {
+      throw new Error('Too many requests. Please wait a minute and try again.')
+    }
     throw new Error('Failed to check Plex PIN')
   }
 

@@ -18,14 +18,18 @@ vi.mock('@/lib/logger', () => ({
 }))
 
 describe('usePlexQRAuth', () => {
-  const mockPin = { id: 123, code: 'ABCD', authToken: null }
-  const mockAuthUrl = 'https://app.plex.tv/auth#?code=ABCD'
+  const mockStrongPin = { id: 123, code: 'strong-code-abc123', authToken: null }
+  const mockShortPin = { id: 456, code: 'ABCD', authToken: null }
+  const mockAuthUrl = 'https://app.plex.tv/auth#?code=strong-code-abc123'
   const mockAuthToken = 'plex-auth-token-123'
 
   beforeEach(() => {
     vi.clearAllMocks()
     vi.useFakeTimers()
-    vi.mocked(plexAuth.createPlexPin).mockResolvedValue(mockPin)
+    // Mock createPlexPin to return different PINs based on strong parameter
+    vi.mocked(plexAuth.createPlexPin).mockImplementation((strong = true) =>
+      Promise.resolve(strong ? mockStrongPin : mockShortPin)
+    )
     vi.mocked(plexAuth.getPlexAuthUrl).mockReturnValue(mockAuthUrl)
     vi.mocked(plexAuth.checkPlexPin).mockResolvedValue(null)
   })
@@ -40,6 +44,7 @@ describe('usePlexQRAuth', () => {
 
       expect(result.current.status).toBe('idle')
       expect(result.current.pin).toBeNull()
+      expect(result.current.shortPin).toBeNull()
       expect(result.current.authUrl).toBeNull()
       expect(result.current.error).toBeNull()
     })
@@ -52,16 +57,20 @@ describe('usePlexQRAuth', () => {
   })
 
   describe('start', () => {
-    it('should create PIN and generate auth URL on start', async () => {
+    it('should create both PINs and generate auth URL on start', async () => {
       const { result } = renderHook(() => usePlexQRAuth())
 
       await act(async () => {
         await result.current.start()
       })
 
-      expect(plexAuth.createPlexPin).toHaveBeenCalled()
-      expect(plexAuth.getPlexAuthUrl).toHaveBeenCalledWith(mockPin)
-      expect(result.current.pin).toEqual(mockPin)
+      // Should create both strong and short PINs
+      expect(plexAuth.createPlexPin).toHaveBeenCalledTimes(2)
+      expect(plexAuth.createPlexPin).toHaveBeenCalledWith(true) // strong PIN
+      expect(plexAuth.createPlexPin).toHaveBeenCalledWith(false) // short PIN
+      expect(plexAuth.getPlexAuthUrl).toHaveBeenCalledWith(mockStrongPin)
+      expect(result.current.pin).toEqual(mockStrongPin)
+      expect(result.current.shortPin).toEqual(mockShortPin)
       expect(result.current.authUrl).toBe(mockAuthUrl)
       expect(result.current.status).toBe('polling')
     })
@@ -84,7 +93,7 @@ describe('usePlexQRAuth', () => {
   })
 
   describe('polling', () => {
-    it('should poll for auth token every 2 seconds by default', async () => {
+    it('should poll both PINs every 2 seconds by default', async () => {
       const { result } = renderHook(() => usePlexQRAuth())
 
       await act(async () => {
@@ -93,20 +102,21 @@ describe('usePlexQRAuth', () => {
 
       expect(plexAuth.checkPlexPin).not.toHaveBeenCalled()
 
-      // Advance 2 seconds - first poll
+      // Advance 2 seconds - first poll (checks both PINs)
       await act(async () => {
         vi.advanceTimersByTime(2000)
       })
 
-      expect(plexAuth.checkPlexPin).toHaveBeenCalledTimes(1)
-      expect(plexAuth.checkPlexPin).toHaveBeenCalledWith(mockPin.id)
+      expect(plexAuth.checkPlexPin).toHaveBeenCalledTimes(2)
+      expect(plexAuth.checkPlexPin).toHaveBeenCalledWith(mockStrongPin.id)
+      expect(plexAuth.checkPlexPin).toHaveBeenCalledWith(mockShortPin.id)
 
       // Advance another 2 seconds - second poll
       await act(async () => {
         vi.advanceTimersByTime(2000)
       })
 
-      expect(plexAuth.checkPlexPin).toHaveBeenCalledTimes(2)
+      expect(plexAuth.checkPlexPin).toHaveBeenCalledTimes(4) // 2 PINs x 2 polls
     })
 
     it('should respect custom poll interval', async () => {
@@ -122,15 +132,39 @@ describe('usePlexQRAuth', () => {
       })
       expect(plexAuth.checkPlexPin).not.toHaveBeenCalled()
 
-      // Advance to 5 seconds - first poll
+      // Advance to 5 seconds - first poll (both PINs)
       await act(async () => {
         vi.advanceTimersByTime(3000)
       })
-      expect(plexAuth.checkPlexPin).toHaveBeenCalledTimes(1)
+      expect(plexAuth.checkPlexPin).toHaveBeenCalledTimes(2) // 2 PINs
     })
 
-    it('should call onSuccess when auth token is received', async () => {
-      vi.mocked(plexAuth.checkPlexPin).mockResolvedValue(mockAuthToken)
+    it('should call onSuccess when strong PIN auth token is received', async () => {
+      vi.mocked(plexAuth.checkPlexPin).mockImplementation((pinId) =>
+        Promise.resolve(pinId === mockStrongPin.id ? mockAuthToken : null)
+      )
+      const onSuccess = vi.fn()
+
+      const { result } = renderHook(() => usePlexQRAuth({ onSuccess }))
+
+      await act(async () => {
+        await result.current.start()
+      })
+
+      // Advance timer and flush promises
+      await act(async () => {
+        vi.advanceTimersByTime(2000)
+        await Promise.resolve()
+      })
+
+      expect(result.current.status).toBe('success')
+      expect(onSuccess).toHaveBeenCalledWith(mockAuthToken)
+    })
+
+    it('should call onSuccess when short PIN auth token is received', async () => {
+      vi.mocked(plexAuth.checkPlexPin).mockImplementation((pinId) =>
+        Promise.resolve(pinId === mockShortPin.id ? mockAuthToken : null)
+      )
       const onSuccess = vi.fn()
 
       const { result } = renderHook(() => usePlexQRAuth({ onSuccess }))
@@ -178,10 +212,20 @@ describe('usePlexQRAuth', () => {
     })
 
     it('should continue polling on transient errors', async () => {
-      vi.mocked(plexAuth.checkPlexPin)
-        .mockRejectedValueOnce(new Error('Network error'))
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce(mockAuthToken)
+      let callCount = 0
+      vi.mocked(plexAuth.checkPlexPin).mockImplementation(() => {
+        callCount++
+        // First poll (2 calls) - errors
+        if (callCount <= 2) {
+          return Promise.reject(new Error('Network error'))
+        }
+        // Second poll (2 calls) - null
+        if (callCount <= 4) {
+          return Promise.resolve(null)
+        }
+        // Third poll - success
+        return Promise.resolve(mockAuthToken)
+      })
 
       const { result } = renderHook(() => usePlexQRAuth())
 
@@ -277,6 +321,7 @@ describe('usePlexQRAuth', () => {
 
       expect(result.current.status).toBe('polling')
       expect(result.current.pin).not.toBeNull()
+      expect(result.current.shortPin).not.toBeNull()
 
       act(() => {
         result.current.cancel()
@@ -284,6 +329,7 @@ describe('usePlexQRAuth', () => {
 
       expect(result.current.status).toBe('idle')
       expect(result.current.pin).toBeNull()
+      expect(result.current.shortPin).toBeNull()
       expect(result.current.authUrl).toBeNull()
     })
 

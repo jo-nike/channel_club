@@ -1,13 +1,8 @@
 import { useState, useEffect } from 'react'
 
 /**
- * TV mode detection threshold - screens >= 1280px are considered TV/10-foot UI
- */
-export const TV_MODE_THRESHOLD = 1280
-
-/**
  * Detect if the current environment should use TV mode.
- * Checks localStorage override, TV browser user agents, and screen size.
+ * Checks localStorage override and TV browser user agents (WebOS, Tizen).
  * Exported for testing purposes.
  */
 export function detectTVMode(): boolean {
@@ -23,23 +18,19 @@ export function detectTVMode(): boolean {
   const isWebOS = /webos|web0s/i.test(userAgent)
   const isTizen = /tizen/i.test(userAgent)
 
-  if (isWebOS || isTizen) {
-    return true
-  }
-
-  // Check for large screen (TV-sized display)
-  return window.innerWidth >= TV_MODE_THRESHOLD
+  // Only detect actual TV browsers, not screen size
+  // Desktop users should get popup auth regardless of screen size
+  return isWebOS || isTizen
 }
 
 /**
- * Custom hook to detect TV browsers (WebOS, Tizen) or large screens (>= 1280px).
+ * Custom hook to detect TV browsers (WebOS, Tizen).
  * Enables 10-foot UI mode for better viewing from a distance.
  *
  * Detection order:
  * 1. localStorage override (tv-mode: 'true' | 'false')
  * 2. WebOS user agent detection
  * 3. Tizen user agent detection
- * 4. Large screen detection (>= 1280px)
  *
  * @returns boolean indicating if TV mode should be active
  *

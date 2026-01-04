@@ -8,8 +8,8 @@ interface UIState {
   isSidebarOpen: boolean
   setSidebarOpen: (value: boolean) => void
   toggleSidebar: () => void
-  lastRoute: '/' | '/ersatztv'
-  setLastRoute: (route: '/' | '/ersatztv') => void
+  lastRoute: '/' | '/ersatztv' | '/tv'
+  setLastRoute: (route: '/' | '/ersatztv' | '/tv') => void
   // EPG visibility and sizing
   isEPGVisible: boolean
   setEPGVisible: (value: boolean) => void
@@ -20,9 +20,12 @@ interface UIState {
   isChannelSidebarCollapsed: boolean
   setChannelSidebarCollapsed: (value: boolean) => void
   toggleChannelSidebar: () => void
-  // Last ErsatzTV channel
+  // Last ErsatzTV channel (deprecated, use lastTVChannelId)
   lastErsatzTVChannelId: string | null
   setLastErsatzTVChannelId: (id: string | null) => void
+  // Last TV channel (unified view - can be 'live-channel-0' or ersatztv channel id)
+  lastTVChannelId: string | null
+  setLastTVChannelId: (id: string | null) => void
 }
 
 export const useUIStore = create<UIState>()(
@@ -34,7 +37,7 @@ export const useUIStore = create<UIState>()(
       isSidebarOpen: false,
       setSidebarOpen: (value) => set({ isSidebarOpen: value }),
       toggleSidebar: () => set((s) => ({ isSidebarOpen: !s.isSidebarOpen })),
-      lastRoute: '/ersatztv',
+      lastRoute: '/tv',
       setLastRoute: (route) => set({ lastRoute: route }),
       // EPG visibility and sizing
       isEPGVisible: true,
@@ -46,9 +49,12 @@ export const useUIStore = create<UIState>()(
       isChannelSidebarCollapsed: false,
       setChannelSidebarCollapsed: (value) => set({ isChannelSidebarCollapsed: value }),
       toggleChannelSidebar: () => set((s) => ({ isChannelSidebarCollapsed: !s.isChannelSidebarCollapsed })),
-      // Last ErsatzTV channel
+      // Last ErsatzTV channel (deprecated)
       lastErsatzTVChannelId: null,
       setLastErsatzTVChannelId: (id) => set({ lastErsatzTVChannelId: id }),
+      // Last TV channel (unified view)
+      lastTVChannelId: null,
+      setLastTVChannelId: (id) => set({ lastTVChannelId: id }),
     }),
     {
       name: 'ui-storage',
@@ -59,6 +65,7 @@ export const useUIStore = create<UIState>()(
         epgHeightPercent: state.epgHeightPercent,
         isChannelSidebarCollapsed: state.isChannelSidebarCollapsed,
         lastErsatzTVChannelId: state.lastErsatzTVChannelId,
+        lastTVChannelId: state.lastTVChannelId,
       }),
     }
   )

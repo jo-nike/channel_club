@@ -74,3 +74,15 @@ export interface ErsatzTVProgrammesResponse {
   channelId: string
   programmes: ErsatzTVProgramme[]
 }
+
+// Unified TV types (for consolidated TV view)
+export interface UnifiedChannel {
+  id: string
+  name: string
+  number: number // 0 for Live, 1+ for ErsatzTV
+  streamUrl: string
+  type: 'live' | 'ersatztv'
+  logoUrl?: string
+  group?: string
+  guideId?: string // For live channel EPG lookup
+}

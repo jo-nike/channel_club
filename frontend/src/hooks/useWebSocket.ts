@@ -19,7 +19,7 @@ const INITIAL_BACKOFF = 1000 // 1 second
 const MAX_BACKOFF = 10000 // 10 seconds
 
 interface UseWebSocketOptions {
-  view?: 'live' | 'ersatztv'
+  view?: 'live' | 'ersatztv' | 'tv'
 }
 
 interface UseWebSocketReturn {

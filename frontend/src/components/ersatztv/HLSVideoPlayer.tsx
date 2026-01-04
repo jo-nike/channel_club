@@ -11,6 +11,7 @@ import { ProjectorBeamLoader } from '@/components/ProjectorBeamLoader'
 import { ErsatzTVVideoControls } from './ErsatzTVVideoControls'
 import { useAutoHide } from '@/hooks/useAutoHide'
 import { useOrientationFullscreen } from '@/hooks/useOrientationFullscreen'
+import { useHLSRetry } from '@/hooks/useHLSRetry'
 
 interface HLSVideoPlayerProps {
   streamUrl: string
@@ -133,7 +134,12 @@ function HLSVideoPlayerInner({
   const playerRef = useRef<MediaPlayerInstance>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [isBuffering, setIsBuffering] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+
+  const { status, retryCount, retryKey, handleError, handlePlaying } = useHLSRetry({
+    streamUrl,
+    onReady,
+    onFinalError: onError,
+  })
 
   // Auto-fullscreen on mobile landscape rotation
   useOrientationFullscreen({
@@ -141,30 +147,21 @@ function HLSVideoPlayerInner({
     enabled: true,
   })
 
-  const handleError = useCallback(
-    (e: { message?: string }) => {
-      const errorMessage = e.message || 'Playback error'
-      setError('Stream unavailable')
-      onError?.(new Error(errorMessage))
-    },
-    [onError]
-  )
-
-  const handlePlaying = useCallback(() => {
+  const onPlaying = useCallback(() => {
     setIsBuffering(false)
-    onReady?.()
-  }, [onReady])
+    handlePlaying()
+  }, [handlePlaying])
 
   const handleWaiting = useCallback(() => {
     setIsBuffering(true)
   }, [])
 
 
-  if (error) {
+  if (status === 'failed') {
     return (
       <div className="flex h-full w-full items-center justify-center bg-black">
         <div className="rounded-lg bg-destructive/20 p-6 text-center">
-          <p className="text-xl font-semibold text-destructive-foreground">{error}</p>
+          <p className="text-xl font-semibold text-destructive-foreground">Stream unavailable</p>
           <p className="mt-2 text-sm text-muted-foreground">
             Select another channel from the list
           </p>
@@ -179,6 +176,7 @@ function HLSVideoPlayerInner({
       className="relative h-full w-full bg-black flex items-center justify-center"
     >
       <MediaPlayer
+        key={retryKey}
         ref={playerRef}
         src={streamUrl}
         title={title}
@@ -186,7 +184,7 @@ function HLSVideoPlayerInner({
         playsInline
         className="h-full w-full max-h-full max-w-full [&_video]:object-contain"
         onWaiting={handleWaiting}
-        onPlaying={handlePlaying}
+        onPlaying={onPlaying}
         onError={handleError}
         data-testid="media-player"
       >
@@ -199,8 +197,12 @@ function HLSVideoPlayerInner({
         />
       </MediaPlayer>
 
-      {/* Buffering overlay */}
-      {isBuffering && <ProjectorBeamLoader />}
+      {/* Buffering/Retry overlay */}
+      {(isBuffering || status === 'retrying') && (
+        <ProjectorBeamLoader
+          text={status === 'retrying' ? `Stream starting... (${retryCount + 1}/5)` : undefined}
+        />
+      )}
     </div>
   )
 }
