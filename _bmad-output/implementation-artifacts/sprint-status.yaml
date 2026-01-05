@@ -146,3 +146,14 @@ development_status:
   11-6-active-users-tab-ui: done
   11-7-placeholder-tabs-user-access-plugins: done
   epic-11-retrospective: done
+
+  # Epic 12: Post-MVP Phase 2
+  epic-12: backlog
+  12-1-retire-legacy-mainview-consolidate-routes: backlog
+  12-2-admin-status-tab-system-health-monitoring: backlog
+  12-3-epg-grid-dpad-navigation: backlog
+  12-4-highlight-capture-desktop: backlog
+  12-5-live-channel-change-notification: backlog
+  12-6-channel-card-epg-display: backlog
+  12-7-rounded-corner-ui-polish: backlog
+  epic-12-retrospective: optional

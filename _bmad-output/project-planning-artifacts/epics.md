@@ -1809,3 +1809,254 @@ So that the UI structure is ready for expansion.
 **Given** I am on ErsatzTV
 **When** I open the admin modal
 **Then** the "Plugins" tab is NOT visible
+
+---
+
+## Epic 12: Post-MVP Phase 2
+
+Users enjoy a polished, consolidated viewing experience with enhanced admin monitoring, keyboard navigation for TV remotes, and video highlight capture.
+
+**Key Features:**
+- Unified TV view consolidated at root route `/`
+- Admin status tab for ErsatzTV/Dispatcharr monitoring
+- Full D-pad/keyboard navigation for EPG grid
+- Highlight capture (save last 60s of video)
+- Live channel change notifications
+- UI polish (rounded corners, channel card EPG)
+
+**Environment Variables (New):**
+- `HIGHLIGHT_BUFFER_SECONDS` - Highlight capture buffer duration (default: 60)
+
+---
+
+### Story 12.1: Retire Legacy MainView & Consolidate Routes
+
+As a user,
+I want the unified TV view to be the root route,
+So that there's one consistent entry point to the application.
+
+**Acceptance Criteria:**
+
+**Given** the current route structure with `/` (old MainView) and `/tv` (unified view)
+**When** this story is complete
+**Then** the unified TV view is served at `/`
+**And** the `/tv` route redirects to `/` for backwards compatibility
+**And** the old MainView component is removed
+**And** all dead code from the legacy separate views is cleaned up
+
+**Given** a user bookmarked `/tv`
+**When** they visit that URL
+**Then** they are redirected to `/`
+
+**Given** the admin modal
+**When** opened from the unified view
+**Then** all tabs are available (Channels, Active Users, User Access, Plugins, Status)
+
+---
+
+### Story 12.2: Admin Status Tab - System Health Monitoring
+
+As an admin,
+I want to see ErsatzTV and Dispatcharr system status in the admin modal,
+So that I can monitor service health and resource usage.
+
+**Acceptance Criteria:**
+
+**Given** I open the admin modal
+**When** I navigate to the "Status" tab
+**Then** I see status cards for ErsatzTV and Dispatcharr
+
+**Given** ErsatzTV is reachable
+**When** viewing its status card
+**Then** I see: connection status (Online), active streams, transcoding sessions, CPU usage (if available via API)
+
+**Given** Dispatcharr is reachable
+**When** viewing its status card
+**Then** I see: connection status (Online), active streams, health metrics (if available via API)
+
+**Given** a service is unreachable
+**When** viewing its status card
+**Then** I see: connection status (Offline) with error indication
+
+**Given** the status tab is open
+**When** I remain on the tab
+**Then** status refreshes automatically every 30 seconds
+
+**Pre-Implementation Research (Story Creation Phase):**
+- Explore ErsatzTV Swagger/API for statistics and health endpoints
+- Explore Dispatcharr Swagger at `:9191/swagger/` for stream stats
+- Document available endpoints and response schemas
+
+---
+
+### Story 12.3: EPG Grid D-pad Navigation
+
+As a TV user,
+I want to navigate the EPG grid and channel sidebar with arrow keys,
+So that I can browse without needing a mouse.
+
+**Acceptance Criteria:**
+
+**Given** I am viewing the EPG grid
+**When** I press ↑/↓ arrow keys
+**Then** focus moves between channel rows
+**And** the focused row is visually highlighted
+**And** the grid scrolls to keep focused row visible
+
+**Given** I am viewing the EPG grid
+**When** I press ←/→ arrow keys
+**Then** focus moves between programme cells in time
+**And** the focused cell is visually highlighted
+**And** the grid scrolls horizontally to keep focused cell visible
+
+**Given** a programme cell is focused
+**When** I press Enter or Space
+**Then** the programme details modal opens (not auto-play)
+
+**Given** I am viewing the channel sidebar
+**When** I press ↑/↓ arrow keys
+**Then** focus moves between channel items
+**And** the focused item is visually highlighted
+
+**Given** a channel is focused in the sidebar
+**When** I press Enter or Space
+**Then** that channel starts playing
+
+**Given** I navigate away from the EPG grid and return
+**When** the grid regains focus
+**Then** focus returns to the last focused position (or currently playing programme)
+
+---
+
+### Story 12.4: Highlight Capture (Desktop)
+
+As a desktop viewer,
+I want to save the last minute of video with one click,
+So that I can capture memorable moments from live streams.
+
+**Acceptance Criteria:**
+
+**Given** I am watching video on a desktop browser
+**When** the video player renders
+**Then** I see a "Save Highlight" button in the video controls
+
+**Given** I am watching video on a mobile browser
+**When** the video player renders
+**Then** the "Save Highlight" button is NOT visible
+
+**Given** I am watching and the buffer has accumulated
+**When** I click "Save Highlight"
+**Then** the last 60 seconds of video (configurable) is downloaded as an `.mp4` file
+**And** the filename format is `highlight-{ISO-timestamp}.mp4`
+
+**Given** I just started watching (less than buffer duration)
+**When** I click "Save Highlight"
+**Then** whatever has been buffered so far is downloaded
+**And** I see a brief toast indicating partial capture
+
+**Given** the `HIGHLIGHT_BUFFER_SECONDS` env variable is set to 90
+**When** the video player initializes
+**Then** the buffer retains 90 seconds instead of the default 60
+
+**Given** I am on the Live TV view OR ErsatzTV view
+**When** I click "Save Highlight"
+**Then** the feature works identically on both views
+
+**Environment Variables:**
+- `HIGHLIGHT_BUFFER_SECONDS` - Buffer duration in seconds (default: 60)
+- Add to: root `.env`, `backend/.env`, `frontend/.env`, all `.env.example` files
+
+---
+
+### Story 12.5: Live Channel Change Notification
+
+As a viewer,
+I want optional toast notifications when the Live channel changes,
+So that I know what's now playing without actively checking.
+
+**Acceptance Criteria:**
+
+**Given** I am viewing any page in the app
+**When** I look at the header
+**Then** I see a notification toggle button (bell icon) between the theme picker and logout
+
+**Given** notifications are disabled (default)
+**When** the Live channel changes via WebSocket
+**Then** no toast is shown
+
+**Given** notifications are enabled
+**When** the Live channel changes via WebSocket
+**Then** a toast appears: "Live channel set to: {channel_name} - {programme_title}"
+**And** the toast auto-fades after 5 seconds
+**And** the toast is NOT manually dismissible (auto-fade only)
+
+**Given** I click the notification bell
+**When** it toggles
+**Then** the icon changes (filled = enabled, outline = disabled)
+**And** my preference is saved to localStorage
+
+**Given** I reload the page
+**When** the app initializes
+**Then** my notification preference is restored from localStorage
+
+**Given** no EPG data is available for the channel
+**When** the notification shows
+**Then** only the channel name is displayed (no programme title)
+
+---
+
+### Story 12.6: Channel Card EPG Display
+
+As an admin,
+I want to see what's currently playing on each channel in the admin modal,
+So that I can make informed channel selection choices.
+
+**Acceptance Criteria:**
+
+**Given** I open the admin modal "Channels" tab
+**When** the channel list renders
+**Then** each channel card shows: logo, number, name, current programme title, progress bar
+
+**Given** a channel has EPG data
+**When** its card renders
+**Then** the current programme title is displayed
+**And** a mini progress bar shows how far into the programme
+
+**Given** a channel has no EPG data
+**When** its card renders
+**Then** "No programme info" is displayed in place of the title
+**And** no progress bar is shown
+
+**Given** I open the admin modal
+**When** EPG data is fetched
+**Then** current programmes for all visible channels are loaded
+
+**Given** a programme ends while the modal is open
+**When** the next programme starts
+**Then** the card updates to show the new programme
+
+---
+
+### Story 12.7: Rounded Corner UI Polish
+
+As a user,
+I want smooth visual transitions where the header, video player, and sidebar meet,
+So that the UI feels polished and modern.
+
+**Acceptance Criteria:**
+
+**Given** I am viewing the unified TV view
+**When** I look at the junction where header, video player, and channel sidebar meet
+**Then** the corners are rounded/smoothed instead of sharp 90° angles
+
+**Given** the sidebar is in collapsed state
+**When** viewing the junction
+**Then** the rounded corners are appropriately styled for collapsed layout
+
+**Given** the sidebar is in expanded state
+**When** viewing the junction
+**Then** the rounded corners are appropriately styled for expanded layout
+
+**Given** I am on any screen size (desktop, tablet, mobile)
+**When** viewing the junction
+**Then** the rounded corners adapt appropriately to the layout
