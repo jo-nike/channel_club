@@ -214,9 +214,7 @@ async def get_stream_manifest(channel_id: str) -> str:
                     await asyncio.sleep(delay)
         else:
             log.warning("Stream manifest unavailable after 5 retries for {}", channel_id)
-            raise ValueError(
-                f"Stream unavailable after retries: {last_error}"
-            ) from last_error
+            raise ValueError(f"Stream unavailable after retries: {last_error}") from last_error
 
     # Rewrite manifest with final URL as base (after any redirects)
     final_url = str(response.url)

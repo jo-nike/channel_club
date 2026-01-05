@@ -288,7 +288,9 @@ class TestGetSystemStatus:
 
         with patch("app.routers.auth_deps.verify_token") as mock_verify:
             mock_verify.return_value = admin_token_payload
-            with patch("app.services.status_service.get_system_status", new_callable=AsyncMock) as mock_get_status:
+            with patch(
+                "app.services.status_service.get_system_status", new_callable=AsyncMock
+            ) as mock_get_status:
                 mock_get_status.return_value = mock_status
                 response = client.get(
                     "/api/admin/status",
@@ -330,7 +332,9 @@ class TestGetSystemStatus:
 
         with patch("app.routers.auth_deps.verify_token") as mock_verify:
             mock_verify.return_value = admin_token_payload
-            with patch("app.services.status_service.get_system_status", new_callable=AsyncMock) as mock_get_status:
+            with patch(
+                "app.services.status_service.get_system_status", new_callable=AsyncMock
+            ) as mock_get_status:
                 mock_get_status.return_value = mock_status
                 response = client.get(
                     "/api/admin/status",

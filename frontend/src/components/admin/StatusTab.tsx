@@ -8,7 +8,7 @@ import {
   CardTitle,
   CardDescription,
 } from '@/components/ui/card'
-import { RefreshCw, CheckCircle, XCircle, Activity, Users, Tv, Clock, Wifi } from 'lucide-react'
+import { RefreshCw, CheckCircle, XCircle, Activity, Tv, Clock, Wifi, Zap, Monitor } from 'lucide-react'
 
 function formatLastUpdated(date: Date | null): string {
   if (!date) return ''
@@ -29,6 +29,12 @@ function formatUptime(seconds: number): string {
   const hours = Math.floor(seconds / 3600)
   const mins = Math.floor((seconds % 3600) / 60)
   return `${hours}h ${mins}m`
+}
+
+function formatBufferSeconds(seconds: number | null | undefined): string {
+  if (seconds == null) return 'N/A'
+  if (seconds < 0) return 'behind'
+  return `${seconds.toFixed(1)}s ahead`
 }
 
 export function StatusTab() {
@@ -122,25 +128,52 @@ function ErsatzTVCard({ status }: ErsatzTVCardProps) {
           value={formatLastChecked(status.lastChecked)}
         />
         {status.sessions.length > 0 && (
-          <div className="pt-2 border-t">
-            <p className="text-xs font-medium text-muted-foreground mb-2">
-              Active Channels
+          <div className="pt-3 border-t space-y-3">
+            <p className="text-xs font-medium text-muted-foreground">
+              Active Sessions
             </p>
-            <div className="space-y-1">
-              {status.sessions.map((session) => (
-                <div
-                  key={session.channelNumber}
-                  className="text-sm flex items-center gap-2"
-                >
-                  <span className="text-muted-foreground">
-                    #{session.channelNumber}
+            {status.sessions.map((session) => (
+              <div
+                key={session.channelNumber}
+                className="rounded-md bg-muted/50 p-3 space-y-2"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-sm">
+                    #{session.channelNumber} {session.channelName || ''}
                   </span>
-                  {session.channelName && (
-                    <span>{session.channelName}</span>
+                  {session.state && (
+                    <span className="text-xs px-2 py-0.5 rounded bg-primary/10 text-primary">
+                      {session.state}
+                    </span>
                   )}
                 </div>
-              ))}
-            </div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                  {session.bufferSeconds != null && (
+                    <div className="flex items-center gap-1 text-muted-foreground">
+                      <Zap className="h-3 w-3" />
+                      <span>Buffer: {formatBufferSeconds(session.bufferSeconds)}</span>
+                    </div>
+                  )}
+                  {session.videoBitrate != null && (
+                    <div className="flex items-center gap-1 text-muted-foreground">
+                      <Wifi className="h-3 w-3" />
+                      <span>{session.videoBitrate >= 1000 ? `${(session.videoBitrate / 1000).toFixed(1)} Mbps` : `${session.videoBitrate} kbps`}</span>
+                    </div>
+                  )}
+                  {session.resolution && (
+                    <div className="flex items-center gap-1 text-muted-foreground">
+                      <Monitor className="h-3 w-3" />
+                      <span>{session.resolution}</span>
+                    </div>
+                  )}
+                  {session.videoCodec && (
+                    <div className="text-muted-foreground">
+                      {session.videoCodec.toUpperCase()}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </CardContent>
@@ -174,18 +207,11 @@ function DispatchrrCard({ status }: DispatchrrCardProps) {
           value={status.online ? 'Online' : 'Offline'}
         />
         {status.online && (
-          <>
-            <StatusRow
-              icon={<Tv className="h-4 w-4 text-muted-foreground" />}
-              label="Active Streams"
-              value={status.activeStreams.toString()}
-            />
-            <StatusRow
-              icon={<Users className="h-4 w-4 text-muted-foreground" />}
-              label="Connected Viewers"
-              value={status.totalViewers.toString()}
-            />
-          </>
+          <StatusRow
+            icon={<Tv className="h-4 w-4 text-muted-foreground" />}
+            label="Active Streams"
+            value={status.activeStreams.toString()}
+          />
         )}
         <StatusRow
           label="Last Checked"

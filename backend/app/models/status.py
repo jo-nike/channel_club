@@ -21,6 +21,14 @@ class ErsatzTVSession(BaseModel):
 
     channel_number: int = Field(alias="channelNumber")
     channel_name: str | None = Field(default=None, alias="channelName")
+    state: str | None = None
+    buffer_seconds: float | None = Field(default=None, alias="bufferSeconds")
+    streaming_mode: str | None = Field(default=None, alias="streamingMode")
+    resolution: str | None = None
+    video_codec: str | None = Field(default=None, alias="videoCodec")
+    video_bitrate: int | None = Field(default=None, alias="videoBitrate")
+    audio_codec: str | None = Field(default=None, alias="audioCodec")
+    audio_bitrate: int | None = Field(default=None, alias="audioBitrate")
 
     model_config = {"populate_by_name": True}
 

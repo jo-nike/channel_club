@@ -4,6 +4,14 @@ import { useAuth } from '@/hooks/useAuth'
 interface ErsatzTVSession {
   channelNumber: number
   channelName: string | null
+  state: string | null
+  bufferSeconds: number | null
+  streamingMode: string | null
+  resolution: string | null
+  videoCodec: string | null
+  videoBitrate: number | null
+  audioCodec: string | null
+  audioBitrate: number | null
 }
 
 interface ErsatzTVStatus {

@@ -120,7 +120,10 @@ async def handle_client_message(websocket: WebSocket, message: dict, client_id: 
         presence.update_user_channel(client_id, channel, programme, view)
         log.debug(
             "Channel update from client {}: {} - {} (view: {})",
-            client_id, channel, programme, view or "unchanged"
+            client_id,
+            channel,
+            programme,
+            view or "unchanged",
         )
     else:
         # Log unknown message types for debugging

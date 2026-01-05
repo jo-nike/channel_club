@@ -66,8 +66,8 @@ describe('StatusTab', () => {
           error: null,
           activeSessions: 2,
           sessions: [
-            { channelNumber: 1, channelName: 'Movies' },
-            { channelNumber: 2, channelName: 'Sports' },
+            { channelNumber: 1, channelName: 'Movies', state: null, bufferSeconds: null, streamingMode: null, resolution: null, videoCodec: null, videoBitrate: null, audioCodec: null, audioBitrate: null },
+            { channelNumber: 2, channelName: 'Sports', state: null, bufferSeconds: null, streamingMode: null, resolution: null, videoCodec: null, videoBitrate: null, audioCodec: null, audioBitrate: null },
           ],
         },
         dispatcharr: {
@@ -96,7 +96,6 @@ describe('StatusTab', () => {
     // Check Dispatcharr card
     expect(screen.getByText('Dispatcharr')).toBeInTheDocument()
     expect(screen.getByText('5')).toBeInTheDocument() // activeStreams
-    expect(screen.getByText('10')).toBeInTheDocument() // totalViewers
   })
 
   it('should display offline status with error for unreachable service', () => {
@@ -133,7 +132,7 @@ describe('StatusTab', () => {
     expect(screen.getByText('Offline')).toBeInTheDocument()
   })
 
-  it('should display active channels when ErsatzTV has sessions', () => {
+  it('should display active sessions when ErsatzTV has sessions', () => {
     mockUseSystemStatus.mockReturnValue({
       data: {
         ersatztv: {
@@ -143,8 +142,8 @@ describe('StatusTab', () => {
           error: null,
           activeSessions: 2,
           sessions: [
-            { channelNumber: 1, channelName: 'Movies' },
-            { channelNumber: 3, channelName: 'News' },
+            { channelNumber: 1, channelName: 'Movies', state: 'SeekAndWorkAhead', bufferSeconds: 5.2, streamingMode: 'HLS Segmenter', resolution: '1920x1080', videoCodec: 'H264', videoBitrate: 2000, audioCodec: 'Aac', audioBitrate: 192 },
+            { channelNumber: 3, channelName: 'News', state: 'Playing', bufferSeconds: null, streamingMode: null, resolution: null, videoCodec: null, videoBitrate: null, audioCodec: null, audioBitrate: null },
           ],
         },
         dispatcharr: {
@@ -165,11 +164,16 @@ describe('StatusTab', () => {
 
     render(<StatusTab />)
 
-    expect(screen.getByText('Active Channels')).toBeInTheDocument()
-    expect(screen.getByText('#1')).toBeInTheDocument()
-    expect(screen.getByText('Movies')).toBeInTheDocument()
-    expect(screen.getByText('#3')).toBeInTheDocument()
-    expect(screen.getByText('News')).toBeInTheDocument()
+    // Check active sessions section exists
+    expect(screen.getAllByText('Active Sessions').length).toBeGreaterThan(0)
+    // Check enriched session details
+    expect(screen.getByText(/#1 Movies/)).toBeInTheDocument()
+    expect(screen.getByText('SeekAndWorkAhead')).toBeInTheDocument()
+    expect(screen.getByText('Buffer: 5.2s ahead')).toBeInTheDocument()
+    expect(screen.getByText('1920x1080')).toBeInTheDocument()
+    expect(screen.getByText('2.0 Mbps')).toBeInTheDocument()
+    expect(screen.getByText('H264')).toBeInTheDocument()
+    expect(screen.getByText(/#3 News/)).toBeInTheDocument()
   })
 
   it('should display refresh button', () => {

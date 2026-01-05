@@ -19,23 +19,47 @@ class TestGetErsatzTVStatus:
 
     @pytest.mark.asyncio
     async def test_returns_online_status_with_sessions(self) -> None:
-        """Should return online status with active sessions."""
-        sessions_response = [
-            {"channelNumber": 1, "channelName": "Movies"},
-            {"channelNumber": 2, "channelName": "Sports"},
+        """Should return online status with active sessions and enriched data."""
+        sessions_data = [
+            {
+                "channelNumber": "1",
+                "state": "SeekAndWorkAhead",
+                "transcodedUntil": "2026-01-05T01:10:00+00:00",
+            },
+            {"channelNumber": "2", "state": "Playing"},
+        ]
+        channels_data = [
+            {
+                "number": 1,
+                "name": "Movies",
+                "ffmpegProfile": "1080 h264",
+                "streamingMode": "HLS Segmenter",
+            },
+            {"number": 2, "name": "Sports", "ffmpegProfile": "720p", "streamingMode": "MPEG-TS"},
+        ]
+        profiles_data = [
+            {
+                "name": "1080 h264",
+                "resolution": "1920x1080",
+                "videoFormat": "H264",
+                "videoBitrate": 2000,
+                "audioFormat": "Aac",
+                "audioBitrate": 192,
+            },
+            {
+                "name": "720p",
+                "resolution": "1280x720",
+                "videoFormat": "H264",
+                "videoBitrate": 1500,
+                "audioFormat": "Ac3",
+                "audioBitrate": 128,
+            },
         ]
 
-        mock_response = MagicMock()
-        mock_response.json.return_value = sessions_response
-        mock_response.raise_for_status = MagicMock()
-
-        with patch("app.services.status_service.httpx.AsyncClient") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.get.return_value = mock_response
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_class.return_value = mock_client
-
+        with patch(
+            "app.services.status_service._fetch_ersatztv_data",
+            return_value=(sessions_data, channels_data, profiles_data),
+        ):
             status = await get_ersatztv_status()
 
         assert status.name == "ErsatzTV"
@@ -44,22 +68,20 @@ class TestGetErsatzTVStatus:
         assert len(status.sessions) == 2
         assert status.sessions[0].channel_number == 1
         assert status.sessions[0].channel_name == "Movies"
+        assert status.sessions[0].state == "SeekAndWorkAhead"
+        assert status.sessions[0].resolution == "1920x1080"
+        assert status.sessions[0].video_codec == "H264"
+        assert status.sessions[0].video_bitrate == 2000
+        assert status.sessions[0].streaming_mode == "HLS Segmenter"
         assert status.error is None
 
     @pytest.mark.asyncio
     async def test_returns_online_status_with_empty_sessions(self) -> None:
         """Should return online status with no active sessions."""
-        mock_response = MagicMock()
-        mock_response.json.return_value = []
-        mock_response.raise_for_status = MagicMock()
-
-        with patch("app.services.status_service.httpx.AsyncClient") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.get.return_value = mock_response
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_class.return_value = mock_client
-
+        with patch(
+            "app.services.status_service._fetch_ersatztv_data",
+            return_value=([], [], []),
+        ):
             status = await get_ersatztv_status()
 
         assert status.name == "ErsatzTV"
@@ -69,8 +91,14 @@ class TestGetErsatzTVStatus:
 
     @pytest.mark.asyncio
     async def test_returns_offline_on_connection_error(self) -> None:
-        """Should return offline status when connection fails."""
-        with patch("app.services.status_service.httpx.AsyncClient") as mock_client_class:
+        """Should return offline status when sessions fetch fails and base URL unreachable."""
+        with (
+            patch(
+                "app.services.status_service._fetch_ersatztv_data",
+                return_value=(None, [], []),  # sessions is None = fetch failed
+            ),
+            patch("app.services.status_service.httpx.AsyncClient") as mock_client_class,
+        ):
             mock_client = AsyncMock()
             mock_client.get.side_effect = httpx.ConnectError("Connection refused")
             mock_client.__aenter__.return_value = mock_client
@@ -82,12 +110,17 @@ class TestGetErsatzTVStatus:
         assert status.name == "ErsatzTV"
         assert status.online is False
         assert status.error is not None
-        assert "Connection refused" in status.error
 
     @pytest.mark.asyncio
     async def test_returns_offline_on_timeout(self) -> None:
         """Should return offline status when request times out."""
-        with patch("app.services.status_service.httpx.AsyncClient") as mock_client_class:
+        with (
+            patch(
+                "app.services.status_service._fetch_ersatztv_data",
+                return_value=(None, [], []),
+            ),
+            patch("app.services.status_service.httpx.AsyncClient") as mock_client_class,
+        ):
             mock_client = AsyncMock()
             mock_client.get.side_effect = httpx.TimeoutException("Request timed out")
             mock_client.__aenter__.return_value = mock_client
@@ -101,33 +134,23 @@ class TestGetErsatzTVStatus:
         assert status.error is not None
 
     @pytest.mark.asyncio
-    async def test_falls_back_to_base_url_on_404(self) -> None:
-        """Should try base URL when sessions endpoint returns 404."""
-        # First call to /api/sessions returns 404
-        mock_404_response = MagicMock()
-        mock_404_response.status_code = 404
-        mock_404_response.raise_for_status.side_effect = httpx.HTTPStatusError(
-            "Not Found",
-            request=MagicMock(),
-            response=mock_404_response,
-        )
+    async def test_handles_partial_api_failures(self) -> None:
+        """Should still work when channels/profiles endpoints fail."""
+        sessions_data = [{"channelNumber": "1", "state": "Playing"}]
 
-        # Second call to base URL succeeds
-        mock_base_response = MagicMock()
-        mock_base_response.status_code = 200
-
-        with patch("app.services.status_service.httpx.AsyncClient") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.get.side_effect = [mock_404_response, mock_base_response]
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_class.return_value = mock_client
-
+        # Sessions succeeds, channels and profiles return empty (simulating 404)
+        with patch(
+            "app.services.status_service._fetch_ersatztv_data",
+            return_value=(sessions_data, [], []),
+        ):
             status = await get_ersatztv_status()
 
         assert status.name == "ErsatzTV"
         assert status.online is True
-        assert status.active_sessions == 0
+        assert status.active_sessions == 1
+        # Session exists but without enriched data
+        assert status.sessions[0].channel_number == 1
+        assert status.sessions[0].resolution is None
 
 
 class TestGetDispatchrrStatus:

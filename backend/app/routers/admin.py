@@ -7,8 +7,7 @@ from app.models.admin import ActiveUser, ActiveUsersResponse, ActiveUsersTotals
 from app.models.auth import TokenPayload
 from app.models.status import SystemStatusResponse
 from app.routers.auth_deps import require_admin
-from app.services import presence
-from app.services import status_service
+from app.services import presence, status_service
 
 log = logger.bind(router="admin")
 router = APIRouter(tags=["admin"])

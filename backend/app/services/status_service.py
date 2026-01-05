@@ -20,70 +20,163 @@ from app.models.status import (
 log = logger.bind(service="status")
 
 
+async def _fetch_ersatztv_data(
+    client: httpx.AsyncClient, base_url: str
+) -> tuple[list[dict] | None, list[dict], list[dict]]:
+    """Fetch sessions, channels, and profiles from ErsatzTV in parallel.
+
+    Args:
+        client: httpx client
+        base_url: ErsatzTV base URL
+
+    Returns:
+        Tuple of (sessions, channels, profiles). Sessions is None if fetch failed.
+    """
+    sessions_url = f"{base_url}/api/sessions"
+    channels_url = f"{base_url}/api/channels"
+    profiles_url = f"{base_url}/api/ffmpeg/profiles"
+
+    log.debug("Fetching ErsatzTV data from {}", base_url)
+
+    # Fetch all three endpoints in parallel
+    sessions_resp, channels_resp, profiles_resp = await asyncio.gather(
+        client.get(sessions_url),
+        client.get(channels_url),
+        client.get(profiles_url),
+        return_exceptions=True,
+    )
+
+    # Parse responses - sessions is None if failed, others default to empty
+    sessions: list[dict] | None = None
+    channels: list[dict] = []
+    profiles: list[dict] = []
+
+    if isinstance(sessions_resp, httpx.Response) and sessions_resp.status_code == 200:
+        sessions = sessions_resp.json()
+    elif isinstance(sessions_resp, Exception):
+        log.warning("Failed to fetch ErsatzTV sessions: {}", sessions_resp)
+
+    if isinstance(channels_resp, httpx.Response) and channels_resp.status_code == 200:
+        channels = channels_resp.json()
+    elif isinstance(channels_resp, Exception):
+        log.warning("Failed to fetch ErsatzTV channels: {}", channels_resp)
+
+    if isinstance(profiles_resp, httpx.Response) and profiles_resp.status_code == 200:
+        profiles = profiles_resp.json()
+    elif isinstance(profiles_resp, Exception):
+        log.warning("Failed to fetch ErsatzTV profiles: {}", profiles_resp)
+
+    return sessions, channels, profiles
+
+
+def _build_ersatztv_sessions(
+    sessions_data: list[dict],
+    channels_data: list[dict],
+    profiles_data: list[dict],
+    now: datetime,
+) -> list[ErsatzTVSession]:
+    """Build enriched ErsatzTV session objects by joining data.
+
+    Args:
+        sessions_data: Raw session data from /api/sessions
+        channels_data: Channel data from /api/channels
+        profiles_data: FFmpeg profile data from /api/ffmpeg/profiles
+        now: Current timestamp for buffer calculation
+
+    Returns:
+        List of enriched ErsatzTVSession objects
+    """
+    # Build lookup maps
+    # channels_data has "number" as int, sessions have "channelNumber" as string
+    channel_by_number: dict[str, dict] = {str(ch.get("number", "")): ch for ch in channels_data}
+    profile_by_name: dict[str, dict] = {p.get("name", ""): p for p in profiles_data}
+
+    sessions: list[ErsatzTVSession] = []
+    for session in sessions_data:
+        channel_num = str(session.get("channelNumber", ""))
+        channel = channel_by_number.get(channel_num, {})
+        profile_name = channel.get("ffmpegProfile", "")
+        profile = profile_by_name.get(profile_name, {})
+
+        # Calculate buffer seconds from transcodedUntil
+        buffer_seconds: float | None = None
+        transcoded_until = session.get("transcodedUntil")
+        if transcoded_until:
+            try:
+                # Parse ISO timestamp with timezone
+                transcoded_dt = datetime.fromisoformat(transcoded_until.replace("Z", "+00:00"))
+                buffer_seconds = (transcoded_dt - now).total_seconds()
+            except (ValueError, TypeError) as e:
+                log.debug("Failed to parse transcodedUntil: {}", e)
+
+        sessions.append(
+            ErsatzTVSession(
+                channel_number=int(channel_num) if channel_num.isdigit() else 0,
+                channel_name=channel.get("name"),
+                state=session.get("state"),
+                buffer_seconds=buffer_seconds,
+                streaming_mode=channel.get("streamingMode"),
+                resolution=profile.get("resolution"),
+                video_codec=profile.get("videoFormat"),
+                video_bitrate=profile.get("videoBitrate"),
+                audio_codec=profile.get("audioFormat"),
+                audio_bitrate=profile.get("audioBitrate"),
+            )
+        )
+
+    return sessions
+
+
 async def get_ersatztv_status() -> ErsatzTVStatus:
     """Fetch status from ErsatzTV API.
 
-    Attempts to get active session information from /api/sessions.
-    Falls back to simple connectivity check if endpoint unavailable.
+    Fetches sessions, channels, and profiles in parallel, then joins
+    the data to provide enriched session information.
 
     Returns:
-        ErsatzTVStatus with connection status and session info
+        ErsatzTVStatus with connection status and enriched session info
     """
     now = datetime.now(UTC)
     base_url = settings.ersatztv_base_url
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            # Try the sessions endpoint first (v0.8.5+)
-            sessions_url = f"{base_url}/api/sessions"
-            log.debug("Fetching ErsatzTV sessions from {}", sessions_url)
-
-            response = await client.get(sessions_url)
-            response.raise_for_status()
-
-            # Parse session data
-            sessions_data = response.json()
-            sessions = []
-            if isinstance(sessions_data, list):
-                for session in sessions_data:
-                    sessions.append(
-                        ErsatzTVSession(
-                            channel_number=session.get("channelNumber", 0),
-                            channel_name=session.get("channelName"),
-                        )
-                    )
-
-            log.info(
-                "ErsatzTV online with {} active sessions", len(sessions)
+            sessions_data, channels_data, profiles_data = await _fetch_ersatztv_data(
+                client, base_url
             )
-            return ErsatzTVStatus(
-                name="ErsatzTV",
-                online=True,
-                last_checked=now,
-                active_sessions=len(sessions),
-                sessions=sessions,
+
+            # If we got sessions data (even empty list), we're online
+            if sessions_data is not None:
+                sessions = _build_ersatztv_sessions(
+                    sessions_data, channels_data, profiles_data, now
+                )
+
+                log.info("ErsatzTV online with {} active sessions", len(sessions))
+                return ErsatzTVStatus(
+                    name="ErsatzTV",
+                    online=True,
+                    last_checked=now,
+                    active_sessions=len(sessions),
+                    sessions=sessions,
+                )
+
+            # Sessions endpoint failed - check basic connectivity
+            response = await client.get(base_url)
+            if response.status_code < 500:
+                log.info("ErsatzTV online (no session data available)")
+                return ErsatzTVStatus(
+                    name="ErsatzTV",
+                    online=True,
+                    last_checked=now,
+                    active_sessions=0,
+                    sessions=[],
+                )
+
+            raise httpx.HTTPStatusError(
+                "Could not connect", request=response.request, response=response
             )
 
     except httpx.HTTPStatusError as e:
-        # If sessions endpoint not found, try basic connectivity
-        if e.response.status_code == 404:
-            log.debug("Sessions endpoint not found, checking basic connectivity")
-            try:
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    # Try the base URL to check if ErsatzTV is running
-                    response = await client.get(base_url)
-                    if response.status_code < 500:
-                        log.info("ErsatzTV online (sessions endpoint unavailable)")
-                        return ErsatzTVStatus(
-                            name="ErsatzTV",
-                            online=True,
-                            last_checked=now,
-                            active_sessions=0,
-                            sessions=[],
-                        )
-            except httpx.HTTPError:
-                pass  # Fall through to offline status
-
         log.error("ErsatzTV HTTP error: {} {}", e.response.status_code, str(e))
         return ErsatzTVStatus(
             name="ErsatzTV",
@@ -252,9 +345,7 @@ async def get_dispatcharr_status() -> DispatchrrStatus:
 
             # Parse proxy status data
             data = response.json()
-            active_streams, total_viewers, streams = _parse_dispatcharr_proxy_status(
-                data
-            )
+            active_streams, total_viewers, streams = _parse_dispatcharr_proxy_status(data)
 
             log.info(
                 "Dispatcharr online with {} active streams, {} viewers",
