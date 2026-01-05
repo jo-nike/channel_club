@@ -1,7 +1,6 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { App } from '@/App'
 import { TVView } from '@/components/tv/TVView'
-import { InitialRouteRedirect } from '@/components/InitialRouteRedirect'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
 
 export const router = createBrowserRouter([
@@ -13,22 +12,19 @@ export const router = createBrowserRouter([
         index: true,
         element: (
           <ProtectedRoute>
-            <InitialRouteRedirect />
-          </ProtectedRoute>
-        ),
-      },
-      {
-        path: 'tv',
-        element: (
-          <ProtectedRoute>
             <TVView />
           </ProtectedRoute>
         ),
       },
       {
-        // Legacy route - redirect to /tv
+        // Legacy route - redirect to root for backwards compatibility
+        path: 'tv',
+        element: <Navigate to="/" replace />,
+      },
+      {
+        // Legacy route - redirect to root for backwards compatibility
         path: 'ersatztv',
-        element: <Navigate to="/tv" replace />,
+        element: <Navigate to="/" replace />,
       },
     ],
   },

@@ -9,6 +9,7 @@ import * as api from '@/services/api'
 vi.mock('@/services/api', () => ({
   fetchChannels: vi.fn(),
   setCurrentChannel: vi.fn(),
+  fetchNowPlaying: vi.fn(),
 }))
 
 const mockChannels = [
@@ -280,7 +281,8 @@ describe('ChannelList', () => {
       render(<ChannelList />)
 
       await waitFor(() => {
-        const channelItem = screen.getByText('Channel 1').closest('div')
+        // Find the ChannelItem by its role="option" attribute
+        const channelItem = screen.getByText('Channel 1').closest('[role="option"]')
         expect(channelItem?.className).toContain('border-primary')
       })
     })
@@ -293,7 +295,8 @@ describe('ChannelList', () => {
       render(<ChannelList />)
 
       await waitFor(() => {
-        const channelItem = screen.getByText('Channel 1').closest('div')
+        // Find the ChannelItem by its role="option" attribute
+        const channelItem = screen.getByText('Channel 1').closest('[role="option"]')
         expect(channelItem?.className).toContain('text-lg')
       })
     })
@@ -304,8 +307,180 @@ describe('ChannelList', () => {
       render(<ChannelList />)
 
       await waitFor(() => {
-        const channelItem = screen.getByText('Channel 1').closest('div')
+        // Find the ChannelItem by its role="option" attribute
+        const channelItem = screen.getByText('Channel 1').closest('[role="option"]')
         expect(channelItem?.className).toContain('min-h-[56px]')
+      })
+    })
+  })
+
+  describe('EPG display (AC: #1-5)', () => {
+    beforeEach(() => {
+      vi.mocked(api.fetchNowPlaying).mockReset()
+    })
+
+    it('should display current programme title when EPG data is available (AC: #1, #2)', async () => {
+      vi.mocked(api.fetchChannels).mockResolvedValueOnce(mockChannels)
+      vi.mocked(api.fetchNowPlaying).mockImplementation((channelId) => {
+        if (channelId === '1') {
+          return Promise.resolve({
+            channelId: '1',
+            currentProgram: {
+              title: 'The Morning Show',
+              startTime: new Date(Date.now() - 30 * 60 * 1000).toISOString(), // 30 mins ago
+              endTime: new Date(Date.now() + 30 * 60 * 1000).toISOString(), // 30 mins from now
+            },
+          })
+        }
+        return Promise.resolve({
+          channelId,
+          currentProgram: null,
+        })
+      })
+
+      render(<ChannelList />)
+
+      await waitFor(() => {
+        expect(screen.getByText('The Morning Show')).toBeInTheDocument()
+      })
+    })
+
+    it('should display "No programme info" when no EPG data (AC: #3)', async () => {
+      vi.mocked(api.fetchChannels).mockResolvedValueOnce(mockChannels)
+      vi.mocked(api.fetchNowPlaying).mockResolvedValue({
+        channelId: '1',
+        currentProgram: null,
+      })
+
+      render(<ChannelList />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Channel 1')).toBeInTheDocument()
+      })
+
+      // Wait for EPG fetch to complete
+      await waitFor(() => {
+        // Both channels should show "No programme info" since there's no EPG data
+        const noInfoElements = screen.getAllByText('No programme info')
+        expect(noInfoElements.length).toBe(2)
+      })
+    })
+
+    it('should show progress bar when EPG data has valid start/end times (AC: #2)', async () => {
+      vi.mocked(api.fetchChannels).mockResolvedValueOnce(mockChannels)
+      vi.mocked(api.fetchNowPlaying).mockImplementation((channelId) => {
+        if (channelId === '1') {
+          return Promise.resolve({
+            channelId: '1',
+            currentProgram: {
+              title: 'Test Programme',
+              startTime: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+              endTime: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+            },
+          })
+        }
+        return Promise.resolve({ channelId, currentProgram: null })
+      })
+
+      const { container } = render(<ChannelList />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Test Programme')).toBeInTheDocument()
+      })
+
+      // Check that a progress bar div exists (bg-primary is the fill color)
+      await waitFor(() => {
+        const progressBar = container.querySelector('.bg-primary.h-full')
+        expect(progressBar).toBeInTheDocument()
+      })
+    })
+
+    it('should not show progress bar when no EPG data (AC: #3)', async () => {
+      vi.mocked(api.fetchChannels).mockResolvedValueOnce(mockChannels)
+      vi.mocked(api.fetchNowPlaying).mockResolvedValue({
+        channelId: '1',
+        currentProgram: null,
+      })
+
+      const { container } = render(<ChannelList />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Channel 1')).toBeInTheDocument()
+      })
+
+      // Wait a bit for EPG fetch to complete
+      await new Promise((resolve) => setTimeout(resolve, 100))
+
+      // No progress bar should be visible
+      const progressBars = container.querySelectorAll('.bg-muted.rounded-full.h-1')
+      expect(progressBars.length).toBe(0)
+    })
+
+    it('should fetch EPG data for all channels on mount (AC: #4)', async () => {
+      vi.mocked(api.fetchChannels).mockResolvedValueOnce(mockChannels)
+      vi.mocked(api.fetchNowPlaying).mockResolvedValue({
+        channelId: '1',
+        currentProgram: null,
+      })
+
+      render(<ChannelList />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Channel 1')).toBeInTheDocument()
+      })
+
+      // Wait for EPG fetch to be called
+      await waitFor(() => {
+        // Should be called once for each channel with a guideId
+        expect(api.fetchNowPlaying).toHaveBeenCalledWith('1')
+        expect(api.fetchNowPlaying).toHaveBeenCalledWith('2')
+      })
+    })
+
+    it('should handle channels without guideId gracefully', async () => {
+      const channelsWithoutGuideId = [
+        { id: '1', name: 'Channel 1', streamUrl: 'http://stream1.m3u8', guideId: '' },
+        { id: '2', name: 'Channel 2', streamUrl: 'http://stream2.m3u8', guideId: '2' },
+      ]
+      vi.mocked(api.fetchChannels).mockResolvedValueOnce(channelsWithoutGuideId)
+      vi.mocked(api.fetchNowPlaying).mockResolvedValue({
+        channelId: '2',
+        currentProgram: {
+          title: 'Channel 2 Show',
+          startTime: new Date().toISOString(),
+          endTime: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        },
+      })
+
+      render(<ChannelList />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Channel 1')).toBeInTheDocument()
+        expect(screen.getByText('Channel 2')).toBeInTheDocument()
+      })
+
+      // Only channel 2 (with guideId) should have EPG fetched
+      await waitFor(() => {
+        expect(api.fetchNowPlaying).toHaveBeenCalledWith('2')
+        expect(api.fetchNowPlaying).not.toHaveBeenCalledWith('')
+      })
+    })
+
+    it('should handle EPG fetch errors gracefully (silent fail)', async () => {
+      vi.mocked(api.fetchChannels).mockResolvedValueOnce(mockChannels)
+      vi.mocked(api.fetchNowPlaying).mockRejectedValue(new Error('EPG service unavailable'))
+
+      render(<ChannelList />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Channel 1')).toBeInTheDocument()
+        expect(screen.getByText('Channel 2')).toBeInTheDocument()
+      })
+
+      // Should still show "No programme info" without crashing
+      await waitFor(() => {
+        const noInfoElements = screen.getAllByText('No programme info')
+        expect(noInfoElements.length).toBe(2)
       })
     })
   })

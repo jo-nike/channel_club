@@ -16,6 +16,7 @@ import { useOrientationFullscreen } from '@/hooks/useOrientationFullscreen'
 import { useHLSRetry } from '@/hooks/useHLSRetry'
 import { ChannelSwitchOverlay } from '@/components/ChannelSwitchOverlay'
 import { ProjectorBeamLoader } from '@/components/ProjectorBeamLoader'
+import { getErsatzTVStreamUrl } from '@/services/ersatztvApi'
 import type { UnifiedChannel } from '@/types'
 
 // Constants
@@ -60,11 +61,11 @@ export function DualModeVideoPlayer({
     )
   }
 
-  // ErsatzTV channel - use HLS Vidstack player
+  // ErsatzTV channel - use HLS Vidstack player with proxied stream URL
   return (
     <HLSVideoPlayerWrapper
       key={`hls-${channel.id}`}
-      streamUrl={channel.streamUrl}
+      streamUrl={getErsatzTVStreamUrl(channel.id)}
       title={channel.name}
       isTheaterMode={isTheaterMode}
       isMobile={isMobile}

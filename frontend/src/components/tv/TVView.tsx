@@ -96,9 +96,9 @@ export function TVView() {
     return current?.title ?? null
   })()
 
-  // Track that user visited this route
+  // Track that user visited this route (now at root)
   useEffect(() => {
-    setLastRoute('/tv')
+    setLastRoute('/')
   }, [setLastRoute])
 
   // Send channel updates for presence tracking (including view type for unified view)
@@ -225,7 +225,7 @@ export function TVView() {
     <div className="flex h-screen flex-col overflow-hidden bg-background">
       {/* Header - hidden in theater mode or mobile landscape */}
       {!isTheaterMode && !isMobileLandscape && (
-        <header className="flex justify-between items-center px-4 py-2 bg-background border-b">
+        <header className="flex justify-between items-center px-4 py-2 bg-background border-b rounded-b-lg">
           <div className="flex items-center gap-4">
             {/* Connection status indicator */}
             <ConnectionStatus status={status} />
@@ -303,7 +303,8 @@ export function TVView() {
           <div
             className={cn(
               'relative w-full min-h-0 overflow-hidden bg-black',
-              (isTheaterMode || isMobileLandscape) && 'fixed inset-0 z-50'
+              (isTheaterMode || isMobileLandscape) && 'fixed inset-0 z-50',
+              !isTheaterMode && !isMobileLandscape && 'rounded-lg'
             )}
             style={
               !isTheaterMode && !isMobileLandscape && isEPGVisible && !isMobile
@@ -331,7 +332,7 @@ export function TVView() {
           {/* EPG section - hidden in theater mode or mobile landscape */}
           {!isTheaterMode && !isMobileLandscape && (isMobile || isEPGVisible) && (
             <div
-              className="epg-scroll min-h-0 overflow-y-auto"
+              className="epg-scroll min-h-0 overflow-y-auto rounded-t-lg"
               style={
                 !isMobile && isEPGVisible
                   ? { flex: `0 0 ${epgHeightPercent}%` }

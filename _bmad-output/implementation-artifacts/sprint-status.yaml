@@ -148,12 +148,12 @@ development_status:
   epic-11-retrospective: done
 
   # Epic 12: Post-MVP Phase 2
-  epic-12: backlog
-  12-1-retire-legacy-mainview-consolidate-routes: backlog
+  epic-12: in-progress
+  12-1-retire-legacy-mainview-consolidate-routes: review
   12-2-admin-status-tab-system-health-monitoring: backlog
   12-3-epg-grid-dpad-navigation: backlog
   12-4-highlight-capture-desktop: backlog
-  12-5-live-channel-change-notification: backlog
-  12-6-channel-card-epg-display: backlog
-  12-7-rounded-corner-ui-polish: backlog
+  12-5-live-channel-change-notification: ready-for-dev
+  12-6-channel-card-epg-display: review
+  12-7-rounded-corner-ui-polish: review
   epic-12-retrospective: optional

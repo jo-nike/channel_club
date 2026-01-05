@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
-import { createMemoryRouter, RouterProvider } from 'react-router-dom'
+import { createMemoryRouter, RouterProvider, Navigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/authStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { useUIStore } from '@/stores/uiStore'
@@ -54,8 +54,7 @@ const mockWindowWidth = (width: number) => {
 // Lazy imports to avoid circular dependencies
 const createRouter = async (initialEntries: string[]) => {
   const { App } = await import('@/App')
-  const { MainView } = await import('@/components/MainView')
-  const { ErsatzTVView } = await import('@/components/ersatztv/ErsatzTVView')
+  const { TVView } = await import('@/components/tv/TVView')
   const { ProtectedRoute } = await import('@/components/ProtectedRoute')
 
   return createMemoryRouter(
@@ -68,17 +67,19 @@ const createRouter = async (initialEntries: string[]) => {
             index: true,
             element: (
               <ProtectedRoute>
-                <MainView />
+                <TVView />
               </ProtectedRoute>
             ),
           },
           {
+            // Legacy route - redirect to root for backwards compatibility
+            path: 'tv',
+            element: <Navigate to="/" replace />,
+          },
+          {
+            // Legacy route - redirect to root for backwards compatibility
             path: 'ersatztv',
-            element: (
-              <ProtectedRoute>
-                <ErsatzTVView />
-              </ProtectedRoute>
-            ),
+            element: <Navigate to="/" replace />,
           },
         ],
       },
@@ -119,25 +120,35 @@ describe('Router', () => {
     mockWindowWidth(1200)
   })
 
-  it('renders MainView at root path when authenticated', async () => {
+  it('renders TVView at root path when authenticated', async () => {
     const router = await createRouter(['/'])
 
     render(<RouterProvider router={router} />)
 
-    // MainView should be rendered - check for elements from MainView
+    // TVView should be rendered - check for Logout button
     expect(screen.getByText('Logout')).toBeInTheDocument()
-    // "No channel selected" appears multiple times (header and video player)
-    expect(screen.getAllByText('No channel selected').length).toBeGreaterThanOrEqual(1)
   })
 
-  it('renders ErsatzTVView at /ersatztv when authenticated', async () => {
+  it('redirects /tv to root for backwards compatibility', async () => {
+    const router = await createRouter(['/tv'])
+
+    render(<RouterProvider router={router} />)
+
+    // Should redirect to root and show TVView
+    expect(screen.getByText('Logout')).toBeInTheDocument()
+    // Verify we're at the root path after redirect
+    expect(router.state.location.pathname).toBe('/')
+  })
+
+  it('redirects /ersatztv to root for backwards compatibility', async () => {
     const router = await createRouter(['/ersatztv'])
 
     render(<RouterProvider router={router} />)
 
-    // The ErsatzTVView should show Live TV nav link and Logout button
-    expect(screen.getByText('Live TV')).toBeInTheDocument()
+    // Should redirect to root and show TVView
     expect(screen.getByText('Logout')).toBeInTheDocument()
+    // Verify we're at the root path after redirect
+    expect(router.state.location.pathname).toBe('/')
   })
 
   it('shows login form when not authenticated', async () => {
@@ -158,7 +169,7 @@ describe('Router', () => {
     })
   })
 
-  it('shows login form for protected /ersatztv route when not authenticated', async () => {
+  it('shows login form for protected routes when not authenticated', async () => {
     useAuthStore.setState({
       token: null,
       role: null,
@@ -166,25 +177,42 @@ describe('Router', () => {
       isInitializing: false,
     })
 
-    const router = await createRouter(['/ersatztv'])
+    const router = await createRouter(['/'])
 
     render(<RouterProvider router={router} />)
 
-    // LoginForm should be displayed (not ErsatzTVView) - wait for config to load
+    // LoginForm should be displayed (not TVView) - wait for config to load
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument()
     })
     expect(screen.queryByText('Logout')).not.toBeInTheDocument()
   })
 
-  it('renders Movies link in MainView header', async () => {
+  it('shows admin button for admin users', async () => {
     const router = await createRouter(['/'])
 
     render(<RouterProvider router={router} />)
 
-    // Check for the navigation link - button text is "Movies" (short form)
-    const link = screen.getByRole('link', { name: /movies/i })
-    expect(link).toBeInTheDocument()
-    expect(link).toHaveAttribute('href', '/ersatztv')
+    // Admin should see the admin button to open admin panel
+    expect(screen.getByRole('button', { name: /open admin panel/i })).toBeInTheDocument()
+  })
+
+  it('does not show admin button for viewer users', async () => {
+    const payload = { exp: Math.floor(Date.now() / 1000) + 3600 }
+    const token = `header.${btoa(JSON.stringify(payload))}.signature`
+
+    useAuthStore.setState({
+      token,
+      role: 'viewer',
+      isAuthenticated: true,
+      isInitializing: false,
+    })
+
+    const router = await createRouter(['/'])
+
+    render(<RouterProvider router={router} />)
+
+    // Viewer should NOT see the admin button
+    expect(screen.queryByRole('button', { name: /open admin panel/i })).not.toBeInTheDocument()
   })
 })

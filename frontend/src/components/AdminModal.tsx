@@ -10,7 +10,7 @@ import { ActiveUsersTab } from '@/components/admin/ActiveUsersTab'
 import { PlaceholderTab } from '@/components/admin/PlaceholderTab'
 import { cn } from '@/lib/utils'
 
-type TabType = 'channels' | 'active-users' | 'user-access' | 'plugins'
+type TabType = 'channels' | 'active-users' | 'user-access' | 'plugins' | 'status'
 
 interface AdminModalProps {
   open: boolean
@@ -22,6 +22,7 @@ const tabs: { id: TabType; label: string }[] = [
   { id: 'active-users', label: 'Active Users' },
   { id: 'user-access', label: 'User Access' },
   { id: 'plugins', label: 'Plugins' },
+  { id: 'status', label: 'Status' },
 ]
 
 export function AdminModal({ open, onOpenChange }: AdminModalProps) {
@@ -66,6 +67,14 @@ export function AdminModal({ open, onOpenChange }: AdminModalProps) {
             title="Plugins"
             message="Plugins management coming soon"
             description="Extend functionality with third-party integrations and custom features."
+          />
+        )
+      case 'status':
+        return (
+          <PlaceholderTab
+            title="Status"
+            message="System health monitoring coming soon"
+            description="Monitor ErsatzTV and Dispatcharr service health, active streams, and resource usage."
           />
         )
       default:

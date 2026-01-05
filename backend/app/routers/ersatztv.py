@@ -6,6 +6,8 @@ plus HLS stream proxying and logo serving.
 Story: 7.6 - ErsatzTV API Endpoints
 """
 
+import asyncio
+
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from fastapi.responses import StreamingResponse
@@ -140,13 +142,40 @@ async def get_stream(
         if not manifest_url.startswith(settings.ersatztv_base_url):
             raise HTTPException(status_code=400, detail="Invalid stream URL")
 
-        # Fetch manifest
-        async with httpx.AsyncClient() as client:
-            response = await client.get(manifest_url, timeout=10)
-            response.raise_for_status()
+        # Fetch manifest with retry for cold stream startup
+        # ErsatzTV needs time to initialize transcoding on first access
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            last_error: Exception | None = None
+            response: httpx.Response | None = None
+
+            for attempt in range(5):
+                try:
+                    response = await client.get(manifest_url, timeout=10)
+                    response.raise_for_status()
+                    if response.text.strip():  # Got valid content
+                        break
+                except (httpx.HTTPStatusError, httpx.ConnectError) as e:
+                    last_error = e
+                    if attempt < 4:
+                        delay = 0.5 * (2**attempt)  # 0.5s, 1s, 2s, 4s
+                        log.debug(
+                            "Stream retry {}/{} for {}, waiting {}s",
+                            attempt + 1,
+                            5,
+                            channel_id,
+                            delay,
+                        )
+                        await asyncio.sleep(delay)
+            else:
+                log.warning("Stream unavailable after 5 retries for {}", channel_id)
+                raise HTTPException(
+                    status_code=503, detail="Stream unavailable - cold start timeout"
+                ) from last_error
 
         # Rewrite manifest with token for segment auth
-        base_url = manifest_url.rsplit("/", 1)[0] + "/"
+        # Use final URL after redirects for correct base path
+        final_url = str(response.url)
+        base_url = final_url.rsplit("/", 1)[0] + "/"
         rewritten = rewrite_manifest(response.text, base_url, token=token, channel_id=channel_id)
 
         return StreamingResponse(
@@ -201,7 +230,7 @@ async def get_segment(
         if not segment_url.startswith(settings.ersatztv_base_url):
             raise HTTPException(status_code=400, detail="Invalid segment URL")
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
             response = await client.get(segment_url, timeout=30)
             response.raise_for_status()
 

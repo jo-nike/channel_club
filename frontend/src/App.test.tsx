@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { App } from './App'
-import { MainView } from '@/components/MainView'
+import { TVView } from '@/components/tv/TVView'
 import { useAuthStore } from '@/stores/authStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { useUIStore } from '@/stores/uiStore'
@@ -53,7 +53,7 @@ const renderWithRouter = () => {
         children: [
           {
             index: true,
-            element: <MainView />,
+            element: <TVView />,
           },
         ],
       },
@@ -96,7 +96,7 @@ describe('App', () => {
       expect(screen.getByLabelText(/password/i)).toBeInTheDocument()
     })
 
-    it('should not show MainView when not authenticated', () => {
+    it('should not show TVView when not authenticated', () => {
       renderWithRouter()
 
       expect(screen.queryByRole('button', { name: /logout/i })).not.toBeInTheDocument()
@@ -117,7 +117,7 @@ describe('App', () => {
       })
     })
 
-    it('should show MainView when authenticated with valid token', () => {
+    it('should show TVView when authenticated with valid token', () => {
       renderWithRouter()
 
       expect(screen.getByRole('button', { name: /logout/i })).toBeInTheDocument()

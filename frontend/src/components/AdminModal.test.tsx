@@ -68,13 +68,14 @@ describe('AdminModal', () => {
   })
 
   describe('Tab rendering', () => {
-    it('renders all four tabs (AC #3 - context-agnostic)', () => {
+    it('renders all five tabs (AC #3 - context-agnostic)', () => {
       render(<AdminModal {...defaultProps} />)
 
       expect(screen.getByRole('tab', { name: /channels/i })).toBeInTheDocument()
       expect(screen.getByRole('tab', { name: /active users/i })).toBeInTheDocument()
       expect(screen.getByRole('tab', { name: /user access/i })).toBeInTheDocument()
       expect(screen.getByRole('tab', { name: /plugins/i })).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: /status/i })).toBeInTheDocument()
     })
 
     it('all tabs are always visible regardless of context', () => {
@@ -82,8 +83,8 @@ describe('AdminModal', () => {
       render(<AdminModal {...defaultProps} />)
 
       const tabs = screen.getAllByRole('tab')
-      expect(tabs).toHaveLength(4)
-      expect(tabs.map(t => t.textContent)).toEqual(['Channels', 'Active Users', 'User Access', 'Plugins'])
+      expect(tabs).toHaveLength(5)
+      expect(tabs.map(t => t.textContent)).toEqual(['Channels', 'Active Users', 'User Access', 'Plugins', 'Status'])
     })
   })
 
@@ -143,7 +144,7 @@ describe('AdminModal', () => {
       render(<AdminModal {...defaultProps} />)
 
       const tabs = screen.getAllByRole('tab')
-      expect(tabs.length).toBe(4)
+      expect(tabs.length).toBe(5)
 
       // Each tab should have aria-selected attribute
       tabs.forEach(tab => {
@@ -339,6 +340,16 @@ describe('AdminModal', () => {
       expect(screen.getByText('Plugins management coming soon')).toBeInTheDocument()
       // Check for the description text
       expect(screen.getByText(/Extend functionality/)).toBeInTheDocument()
+    })
+
+    it('shows placeholder content for Status tab (Story 12.1 AC #6)', () => {
+      render(<AdminModal {...defaultProps} />)
+
+      fireEvent.click(screen.getByRole('tab', { name: /status/i }))
+      // Check for the placeholder message which is unique
+      expect(screen.getByText('System health monitoring coming soon')).toBeInTheDocument()
+      // Check for the description text
+      expect(screen.getByText(/Monitor ErsatzTV and Dispatcharr/)).toBeInTheDocument()
     })
 
     it('shows icon in placeholder tabs', () => {

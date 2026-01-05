@@ -17,7 +17,7 @@ export function ResizeDragHandle({
     <div
       className={cn(
         'group flex h-3 w-full cursor-ns-resize items-center justify-center',
-        'border-t bg-muted/50 hover:bg-muted transition-colors',
+        'border-t bg-muted/50 hover:bg-muted transition-colors rounded-t-lg',
         isDragging && 'bg-primary/20',
         className
       )}

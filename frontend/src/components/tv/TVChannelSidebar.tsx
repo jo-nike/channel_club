@@ -61,7 +61,7 @@ export function TVChannelSidebar({
 
   if (error && ersatzTVChannels.length === 0) {
     return (
-      <aside className="flex h-full w-72 items-center justify-center border-r bg-card p-4">
+      <aside className="flex h-full w-72 items-center justify-center border-r bg-card p-4 rounded-r-lg">
         <div className="text-center">
           <p className="text-destructive">{error}</p>
           <button
@@ -78,7 +78,7 @@ export function TVChannelSidebar({
   // Collapsed state
   if (isCollapsed) {
     return (
-      <aside className="flex h-full w-12 flex-col items-center border-r bg-card py-2">
+      <aside className="flex h-full w-12 flex-col items-center border-r bg-card py-2 rounded-r-lg overflow-hidden">
         <button
           onClick={onToggleCollapse}
           className="flex h-10 w-10 items-center justify-center rounded-md hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -103,7 +103,7 @@ export function TVChannelSidebar({
 
   // Expanded state
   return (
-    <aside className="epg-scroll h-full w-72 overflow-y-auto border-r bg-card">
+    <aside className="epg-scroll h-full w-72 overflow-y-auto border-r bg-card rounded-r-lg">
       <div className="sticky top-0 flex items-center justify-between border-b bg-card/95 p-4 backdrop-blur">
         <h2 className="text-lg font-semibold">Channels</h2>
         <button
@@ -281,7 +281,7 @@ function ChannelSidebarSkeleton({ isCollapsed = false }: { isCollapsed?: boolean
   if (isCollapsed) {
     return (
       <aside
-        className="flex h-full w-12 flex-col items-center border-r bg-card py-2"
+        className="flex h-full w-12 flex-col items-center border-r bg-card py-2 rounded-r-lg overflow-hidden"
         role="status"
         aria-label="Loading channels"
       >
@@ -300,7 +300,7 @@ function ChannelSidebarSkeleton({ isCollapsed = false }: { isCollapsed?: boolean
 
   return (
     <aside
-      className="h-full w-72 border-r bg-card"
+      className="h-full w-72 border-r bg-card rounded-r-lg overflow-hidden"
       role="status"
       aria-label="Loading channels"
     >

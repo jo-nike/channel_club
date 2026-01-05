@@ -8,8 +8,8 @@ interface UIState {
   isSidebarOpen: boolean
   setSidebarOpen: (value: boolean) => void
   toggleSidebar: () => void
-  lastRoute: '/' | '/ersatztv' | '/tv'
-  setLastRoute: (route: '/' | '/ersatztv' | '/tv') => void
+  lastRoute: '/'
+  setLastRoute: (route: '/') => void
   // EPG visibility and sizing
   isEPGVisible: boolean
   setEPGVisible: (value: boolean) => void
@@ -37,7 +37,7 @@ export const useUIStore = create<UIState>()(
       isSidebarOpen: false,
       setSidebarOpen: (value) => set({ isSidebarOpen: value }),
       toggleSidebar: () => set((s) => ({ isSidebarOpen: !s.isSidebarOpen })),
-      lastRoute: '/tv',
+      lastRoute: '/',
       setLastRoute: (route) => set({ lastRoute: route }),
       // EPG visibility and sizing
       isEPGVisible: true,

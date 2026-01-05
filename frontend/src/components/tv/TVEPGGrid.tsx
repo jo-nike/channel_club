@@ -325,7 +325,7 @@ function formatTime(date: Date): string {
 
 function EPGGridSkeleton() {
   return (
-    <div className="animate-pulse">
+    <div className="animate-pulse rounded-t-lg overflow-hidden">
       <div className="h-12 bg-muted border-b" />
       <div className="space-y-1 p-2">
         {/* Live channel row skeleton */}

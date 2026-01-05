@@ -6,6 +6,7 @@ This prevents exposing internal ErsatzTV URLs to clients.
 Story: 7.5 - HLS Proxy Service
 """
 
+import asyncio
 import base64
 from urllib.parse import urljoin
 
@@ -188,13 +189,38 @@ async def get_stream_manifest(channel_id: str) -> str:
     if not stream_url.startswith(settings.ersatztv_base_url):
         raise ValueError(f"Stream URL is not from ErsatzTV: {stream_url}")
 
-    async with httpx.AsyncClient() as client:
-        response = await client.get(stream_url, timeout=30)
-        response.raise_for_status()
-        manifest_content = response.text
+    # Fetch manifest with retry for cold stream startup
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        last_error: Exception | None = None
+        response: httpx.Response | None = None
 
-    # Rewrite manifest with stream URL as base
-    return rewrite_manifest(manifest_content, stream_url)
+        for attempt in range(5):
+            try:
+                response = await client.get(stream_url, timeout=30)
+                response.raise_for_status()
+                if response.text.strip():  # Got valid content
+                    break
+            except (httpx.HTTPStatusError, httpx.ConnectError) as e:
+                last_error = e
+                if attempt < 4:
+                    delay = 0.5 * (2**attempt)  # 0.5s, 1s, 2s, 4s
+                    log.debug(
+                        "Stream manifest retry {}/{} for {}, waiting {}s",
+                        attempt + 1,
+                        5,
+                        channel_id,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+        else:
+            log.warning("Stream manifest unavailable after 5 retries for {}", channel_id)
+            raise ValueError(
+                f"Stream unavailable after retries: {last_error}"
+            ) from last_error
+
+    # Rewrite manifest with final URL as base (after any redirects)
+    final_url = str(response.url)
+    return rewrite_manifest(response.text, final_url)
 
 
 async def get_segment(encoded_url: str) -> tuple[bytes, str]:
@@ -216,7 +242,7 @@ async def get_segment(encoded_url: str) -> tuple[bytes, str]:
     if not segment_url.startswith(settings.ersatztv_base_url):
         raise ValueError(f"Segment URL is not from ErsatzTV: {segment_url}")
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(follow_redirects=True) as client:
         response = await client.get(segment_url, timeout=60)
         response.raise_for_status()
         content = response.content
