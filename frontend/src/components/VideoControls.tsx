@@ -11,6 +11,7 @@ export interface VideoControlsProps {
   isFullscreen: boolean
   isVisible: boolean
   isMobile?: boolean
+  isTVMode?: boolean
   onPlayPause: () => void
   onVolumeChange: (volume: number) => void
   onMuteToggle: () => void
@@ -28,6 +29,7 @@ export function VideoControls({
   isFullscreen,
   isVisible,
   isMobile: isMobileProp = false,
+  isTVMode = false,
   onPlayPause,
   onVolumeChange,
   onMuteToggle,
@@ -98,23 +100,25 @@ export function VideoControls({
       {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Fullscreen Button */}
-      <button
-        type="button"
-        tabIndex={isVisible ? 0 : -1}
-        onClick={onFullscreenToggle}
-        aria-label={isFullscreen ? 'Exit fullscreen' : 'Toggle fullscreen'}
-        className="control-button flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-400/80"
-      >
-        {isFullscreen ? (
-          <Minimize className="h-6 w-6 text-white" />
-        ) : (
-          <Maximize className="h-6 w-6 text-white" />
-        )}
-      </button>
+      {/* Fullscreen Button - hidden on TV (TV has native fullscreen) */}
+      {!isTVMode && (
+        <button
+          type="button"
+          tabIndex={isVisible ? 0 : -1}
+          onClick={onFullscreenToggle}
+          aria-label={isFullscreen ? 'Exit fullscreen' : 'Toggle fullscreen'}
+          className="control-button flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-400/80"
+        >
+          {isFullscreen ? (
+            <Minimize className="h-6 w-6 text-white" />
+          ) : (
+            <Maximize className="h-6 w-6 text-white" />
+          )}
+        </button>
+      )}
 
-      {/* Theater Mode Button - hidden on mobile */}
-      {!isMobile && (
+      {/* Theater Mode Button - hidden on mobile and TV */}
+      {!isMobile && !isTVMode && (
         <button
           type="button"
           tabIndex={isVisible ? 0 : -1}

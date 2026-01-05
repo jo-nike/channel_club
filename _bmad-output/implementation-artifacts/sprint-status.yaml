@@ -151,8 +151,8 @@ development_status:
   epic-12: in-progress
   12-1-retire-legacy-mainview-consolidate-routes: review
   12-2-admin-status-tab-system-health-monitoring: review
-  12-3-epg-grid-dpad-navigation: in-progress
-  12-4-highlight-capture-desktop: backlog
+  12-3-epg-grid-dpad-navigation: cancelled
+  12-4-highlight-capture-desktop: ready-for-dev
   12-5-live-channel-change-notification: review
   12-6-channel-card-epg-display: review
   12-7-rounded-corner-ui-polish: review

@@ -11,6 +11,7 @@ import '@vidstack/react/player/styles/default/theme.css'
 import { VideoControls } from '@/components/VideoControls'
 import { ErsatzTVVideoControls } from '@/components/ersatztv/ErsatzTVVideoControls'
 import { useAutoHide } from '@/hooks/useAutoHide'
+import { useTVMode } from '@/hooks/useTVMode'
 import { useVideoKeyboardShortcuts } from '@/hooks/useVideoKeyboardShortcuts'
 import { useOrientationFullscreen } from '@/hooks/useOrientationFullscreen'
 import { useHLSRetry } from '@/hooks/useHLSRetry'
@@ -134,6 +135,9 @@ function LiveVideoPlayer({
   const [isMuted, setIsMuted] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [isHoveringControls, setIsHoveringControls] = useState(false)
+
+  // Detect TV mode
+  const isTVMode = useTVMode()
 
   // Auto-hide controls
   const { isVisible, toggleControls } = useAutoHide({
@@ -316,6 +320,7 @@ function LiveVideoPlayer({
         isFullscreen={isFullscreen}
         isVisible={isVisible}
         isMobile={isMobile}
+        isTVMode={isTVMode}
         onPlayPause={handlePlayPause}
         onVolumeChange={handleVolumeChange}
         onMuteToggle={handleMuteToggle}
@@ -433,6 +438,9 @@ function HLSControlsWrapper({
   const remote = useMediaRemote()
   const [isHoveringControls, setIsHoveringControls] = useState(false)
 
+  // Detect TV mode
+  const isTVMode = useTVMode()
+
   const isPlaying = !paused
 
   const { isVisible } = useAutoHide({
@@ -497,6 +505,7 @@ function HLSControlsWrapper({
       isTheaterMode={isTheaterMode}
       isVisible={isVisible}
       isMobile={isMobile}
+      isTVMode={isTVMode}
       onTheaterModeToggle={onTheaterModeToggle}
       onMouseEnter={() => setIsHoveringControls(true)}
       onMouseLeave={() => setIsHoveringControls(false)}
