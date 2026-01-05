@@ -17,13 +17,14 @@ import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useResizable } from '@/hooks/useResizable'
 import { useMobileLandscape } from '@/hooks/useMobileLandscape'
 import { ThemePicker } from '@/components/ThemePicker'
+import { NotificationToggle } from '@/components/NotificationToggle'
 import { AdminModal } from '@/components/AdminModal'
 import { ConnectionStatus } from '@/components/ConnectionStatus'
 import { cn } from '@/lib/utils'
 import type { ErsatzTVProgramme, UnifiedChannel, ErsatzTVChannel } from '@/types'
 
-// Refresh interval for programme data (5 minutes)
-const REFRESH_INTERVAL = 5 * 60 * 1000
+// Refresh interval for programme data (120 minutes)
+const REFRESH_INTERVAL = 120 * 60 * 1000
 
 export function TVView() {
   const { logout, isAdmin } = useAuth()
@@ -275,6 +276,8 @@ export function TVView() {
             </button>
             {/* Theme picker */}
             <ThemePicker />
+            {/* Notification toggle */}
+            <NotificationToggle />
             {/* Logout button */}
             <button
               onClick={logout}

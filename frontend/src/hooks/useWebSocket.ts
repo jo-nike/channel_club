@@ -1,6 +1,8 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
+import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/authStore'
 import { useChannelStore } from '@/stores/channelStore'
+import { useUIStore } from '@/stores/uiStore'
 import { logger } from '@/lib/logger'
 import { getSessionId } from '@/lib/sessionId'
 import type { Channel } from '@/types'
@@ -32,6 +34,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   const { view = 'live' } = options
   const token = useAuthStore((s) => s.token)
   const setCurrentChannel = useChannelStore((s) => s.setCurrentChannel)
+  const notificationsEnabled = useUIStore((s) => s.notificationsEnabled)
 
   const wsRef = useRef<WebSocket | null>(null)
   const pingIntervalRef = useRef<number | null>(null)
@@ -39,6 +42,12 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   const retryCountRef = useRef(0)
   const intentionalCloseRef = useRef(false)
   const connectRef = useRef<((isReconnect?: boolean) => void) | null>(null)
+  const notificationsEnabledRef = useRef(notificationsEnabled)
+
+  // Keep notificationsEnabledRef in sync with state to avoid stale closure
+  useEffect(() => {
+    notificationsEnabledRef.current = notificationsEnabled
+  }, [notificationsEnabled])
 
   const [status, setStatus] = useState<ConnectionStatus>('disconnected')
 
@@ -69,6 +78,14 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           logger.debug('WebSocket', `Channel update: ${message.channel?.name || 'null'}`)
           if (message.channel) {
             setCurrentChannel(message.channel)
+            // Show notification toast if enabled
+            if (notificationsEnabledRef.current) {
+              const channelName = message.channel.name
+              toast(`Live channel set to: ${channelName}`, {
+                id: `channel-update-${message.channel.id}`,
+                duration: 5000,
+              })
+            }
           }
           break
 

@@ -1,8 +1,15 @@
 import { renderHook, act } from '@testing-library/react'
 import { vi, describe, test, expect, beforeEach, afterEach } from 'vitest'
+import { toast } from 'sonner'
 import { useWebSocket } from './useWebSocket'
 import { useChannelStore } from '@/stores/channelStore'
 import { useAuthStore } from '@/stores/authStore'
+import { useUIStore } from '@/stores/uiStore'
+
+// Mock sonner toast
+vi.mock('sonner', () => ({
+  toast: vi.fn(),
+}))
 
 // Mock WebSocket - simple version without auto-open
 class MockWebSocket {
@@ -77,6 +84,10 @@ describe('useWebSocket', () => {
       isLoading: false,
       error: null,
     })
+    useUIStore.setState({
+      notificationsEnabled: false,
+    })
+    vi.mocked(toast).mockClear()
   })
 
   afterEach(() => {
@@ -674,6 +685,91 @@ describe('useWebSocket', () => {
       expect(url).toContain('token=test-jwt-token')
       expect(url).toContain('view=ersatztv')
       expect(url).toContain('/api/ws')
+    })
+  })
+
+  describe('channel change notifications', () => {
+    test('does not show toast on channel_update when notifications disabled', () => {
+      useUIStore.setState({ notificationsEnabled: false })
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({
+          type: 'channel_update',
+          channel: { id: '2', name: 'ESPN', streamUrl: 'http://stream.url/espn' },
+        })
+      })
+
+      expect(toast).not.toHaveBeenCalled()
+    })
+
+    test('shows toast on channel_update when notifications enabled', () => {
+      useUIStore.setState({ notificationsEnabled: true })
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({
+          type: 'channel_update',
+          channel: { id: '2', name: 'ESPN', streamUrl: 'http://stream.url/espn' },
+        })
+      })
+
+      expect(toast).toHaveBeenCalledWith('Live channel set to: ESPN', { id: 'channel-update-2', duration: 5000 })
+    })
+
+    test('toast includes channel name in message', () => {
+      useUIStore.setState({ notificationsEnabled: true })
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({
+          type: 'channel_update',
+          channel: { id: '3', name: 'TSN Sports Network', streamUrl: 'http://stream.url/tsn' },
+        })
+      })
+
+      expect(toast).toHaveBeenCalledWith('Live channel set to: TSN Sports Network', { id: 'channel-update-3', duration: 5000 })
+    })
+
+    test('respects notification preference change during session', () => {
+      useUIStore.setState({ notificationsEnabled: false })
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+      })
+
+      // First update with notifications disabled
+      act(() => {
+        ws.simulateMessage({
+          type: 'channel_update',
+          channel: { id: '1', name: 'Channel 1', streamUrl: 'http://stream.url/1' },
+        })
+      })
+
+      expect(toast).not.toHaveBeenCalled()
+
+      // Enable notifications
+      act(() => {
+        useUIStore.setState({ notificationsEnabled: true })
+      })
+
+      // Second update with notifications enabled
+      act(() => {
+        ws.simulateMessage({
+          type: 'channel_update',
+          channel: { id: '2', name: 'Channel 2', streamUrl: 'http://stream.url/2' },
+        })
+      })
+
+      expect(toast).toHaveBeenCalledWith('Live channel set to: Channel 2', { id: 'channel-update-2', duration: 5000 })
     })
   })
 })

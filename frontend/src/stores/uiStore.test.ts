@@ -10,6 +10,7 @@ describe('uiStore', () => {
       isEPGVisible: true,
       epgHeightPercent: 25,
       isChannelSidebarCollapsed: false,
+      notificationsEnabled: false,
     })
     localStorage.clear()
   })
@@ -150,6 +151,48 @@ describe('uiStore', () => {
       useUIStore.getState().setChannelSidebarCollapsed(true)
       useUIStore.getState().toggleChannelSidebar()
       expect(useUIStore.getState().isChannelSidebarCollapsed).toBe(false)
+    })
+  })
+
+  describe('notificationsEnabled', () => {
+    it('defaults to false', () => {
+      const state = useUIStore.getState()
+      expect(state.notificationsEnabled).toBe(false)
+    })
+
+    it('can be set to true', () => {
+      useUIStore.getState().setNotificationsEnabled(true)
+      expect(useUIStore.getState().notificationsEnabled).toBe(true)
+    })
+
+    it('can be set to false', () => {
+      useUIStore.getState().setNotificationsEnabled(true)
+      useUIStore.getState().setNotificationsEnabled(false)
+      expect(useUIStore.getState().notificationsEnabled).toBe(false)
+    })
+  })
+
+  describe('toggleNotifications', () => {
+    it('toggles from false to true', () => {
+      useUIStore.getState().toggleNotifications()
+      expect(useUIStore.getState().notificationsEnabled).toBe(true)
+    })
+
+    it('toggles from true to false', () => {
+      useUIStore.getState().setNotificationsEnabled(true)
+      useUIStore.getState().toggleNotifications()
+      expect(useUIStore.getState().notificationsEnabled).toBe(false)
+    })
+  })
+
+  describe('notificationsEnabled persistence', () => {
+    it('persists notificationsEnabled to localStorage', () => {
+      // Verify the partialize includes notificationsEnabled
+      const partialize = useUIStore.persist.getOptions().partialize
+      if (partialize) {
+        const result = partialize(useUIStore.getState())
+        expect('notificationsEnabled' in result).toBe(true)
+      }
     })
   })
 })

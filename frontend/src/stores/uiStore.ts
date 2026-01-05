@@ -26,6 +26,10 @@ interface UIState {
   // Last TV channel (unified view - can be 'live-channel-0' or ersatztv channel id)
   lastTVChannelId: string | null
   setLastTVChannelId: (id: string | null) => void
+  // Live channel change notifications
+  notificationsEnabled: boolean
+  setNotificationsEnabled: (value: boolean) => void
+  toggleNotifications: () => void
 }
 
 export const useUIStore = create<UIState>()(
@@ -55,6 +59,10 @@ export const useUIStore = create<UIState>()(
       // Last TV channel (unified view)
       lastTVChannelId: null,
       setLastTVChannelId: (id) => set({ lastTVChannelId: id }),
+      // Live channel change notifications (disabled by default)
+      notificationsEnabled: false,
+      setNotificationsEnabled: (value) => set({ notificationsEnabled: value }),
+      toggleNotifications: () => set((s) => ({ notificationsEnabled: !s.notificationsEnabled })),
     }),
     {
       name: 'ui-storage',
@@ -66,6 +74,7 @@ export const useUIStore = create<UIState>()(
         isChannelSidebarCollapsed: state.isChannelSidebarCollapsed,
         lastErsatzTVChannelId: state.lastErsatzTVChannelId,
         lastTVChannelId: state.lastTVChannelId,
+        notificationsEnabled: state.notificationsEnabled,
       }),
     }
   )
