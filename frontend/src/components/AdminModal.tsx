@@ -8,6 +8,7 @@ import {
 import { ChannelList } from '@/components/ChannelList'
 import { ActiveUsersTab } from '@/components/admin/ActiveUsersTab'
 import { PlaceholderTab } from '@/components/admin/PlaceholderTab'
+import { StatusTab } from '@/components/admin/StatusTab'
 import { cn } from '@/lib/utils'
 
 type TabType = 'channels' | 'active-users' | 'user-access' | 'plugins' | 'status'
@@ -71,11 +72,9 @@ export function AdminModal({ open, onOpenChange }: AdminModalProps) {
         )
       case 'status':
         return (
-          <PlaceholderTab
-            title="Status"
-            message="System health monitoring coming soon"
-            description="Monitor ErsatzTV and Dispatcharr service health, active streams, and resource usage."
-          />
+          <div className="epg-scroll max-h-[70vh] overflow-y-auto">
+            <StatusTab />
+          </div>
         )
       default:
         return null

@@ -40,6 +40,37 @@ vi.mock('@/hooks/useActiveUsers', () => ({
   }),
 }))
 
+// Mock useSystemStatus for Status tab
+const mockSystemStatusData = {
+  ersatztv: {
+    name: 'ErsatzTV',
+    online: true,
+    lastChecked: '2026-01-04T12:00:00Z',
+    error: null,
+    activeSessions: 2,
+    sessions: [],
+  },
+  dispatcharr: {
+    name: 'Dispatcharr',
+    online: true,
+    lastChecked: '2026-01-04T12:00:00Z',
+    error: null,
+    activeStreams: 5,
+    totalViewers: 10,
+  },
+}
+
+vi.mock('@/hooks/useSystemStatus', () => ({
+  useSystemStatus: () => ({
+    data: mockSystemStatusData,
+    loading: false,
+    error: null,
+    lastUpdated: new Date('2026-01-04T12:00:00Z'),
+    isRefreshing: false,
+    refetch: vi.fn(),
+  }),
+}))
+
 const mockChannels = [
   { id: '1', name: 'Channel 1', streamUrl: 'http://stream1.m3u8', guideId: '1' },
   { id: '2', name: 'Channel 2', streamUrl: 'http://stream2.m3u8', guideId: '2' },
@@ -342,14 +373,15 @@ describe('AdminModal', () => {
       expect(screen.getByText(/Extend functionality/)).toBeInTheDocument()
     })
 
-    it('shows placeholder content for Status tab (Story 12.1 AC #6)', () => {
+    it('shows StatusTab content for Status tab (Story 12.2)', () => {
       render(<AdminModal {...defaultProps} />)
 
       fireEvent.click(screen.getByRole('tab', { name: /status/i }))
-      // Check for the placeholder message which is unique
-      expect(screen.getByText('System health monitoring coming soon')).toBeInTheDocument()
-      // Check for the description text
-      expect(screen.getByText(/Monitor ErsatzTV and Dispatcharr/)).toBeInTheDocument()
+      // Check for StatusTab content - ErsatzTV and Dispatcharr cards
+      expect(screen.getByText('ErsatzTV')).toBeInTheDocument()
+      expect(screen.getByText('Dispatcharr')).toBeInTheDocument()
+      // Check for status header
+      expect(screen.getByText('System Status')).toBeInTheDocument()
     })
 
     it('shows icon in placeholder tabs', () => {

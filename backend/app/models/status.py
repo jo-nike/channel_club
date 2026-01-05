@@ -1,0 +1,78 @@
+"""Status models for service health monitoring."""
+
+from datetime import datetime
+
+from pydantic import BaseModel, Field
+
+
+class ServiceStatus(BaseModel):
+    """Base model for service status."""
+
+    name: str
+    online: bool
+    last_checked: datetime = Field(alias="lastChecked")
+    error: str | None = None
+
+    model_config = {"populate_by_name": True}
+
+
+class ErsatzTVSession(BaseModel):
+    """Represents an active ErsatzTV transcoding session."""
+
+    channel_number: int = Field(alias="channelNumber")
+    channel_name: str | None = Field(default=None, alias="channelName")
+
+    model_config = {"populate_by_name": True}
+
+
+class ErsatzTVStatus(ServiceStatus):
+    """Status model for ErsatzTV service."""
+
+    active_sessions: int = Field(default=0, alias="activeSessions")
+    sessions: list[ErsatzTVSession] = Field(default_factory=list)
+
+
+class DispatcharrClient(BaseModel):
+    """Represents a connected client watching a stream."""
+
+    client_id: str = Field(alias="clientId")
+    user_agent: str | None = Field(default=None, alias="userAgent")
+    ip_address: str | None = Field(default=None, alias="ipAddress")
+    connected_since: float = Field(default=0, alias="connectedSince")
+
+    model_config = {"populate_by_name": True}
+
+
+class DispatcharrStream(BaseModel):
+    """Represents an active stream in Dispatcharr."""
+
+    channel_id: str = Field(alias="channelId")
+    stream_name: str = Field(alias="streamName")
+    state: str = "active"
+    client_count: int = Field(default=0, alias="clientCount")
+    uptime: float = 0
+    total_bytes: int = Field(default=0, alias="totalBytes")
+    avg_bitrate: str = Field(default="", alias="avgBitrate")
+    video_codec: str | None = Field(default=None, alias="videoCodec")
+    resolution: str | None = None
+    source_fps: float | None = Field(default=None, alias="sourceFps")
+    clients: list[DispatcharrClient] = Field(default_factory=list)
+
+    model_config = {"populate_by_name": True}
+
+
+class DispatchrrStatus(ServiceStatus):
+    """Status model for Dispatcharr service."""
+
+    active_streams: int = Field(default=0, alias="activeStreams")
+    total_viewers: int = Field(default=0, alias="totalViewers")
+    streams: list[DispatcharrStream] = Field(default_factory=list)
+
+
+class SystemStatusResponse(BaseModel):
+    """Response model for GET /api/admin/status endpoint."""
+
+    ersatztv: ErsatzTVStatus
+    dispatcharr: DispatchrrStatus
+
+    model_config = {"populate_by_name": True}

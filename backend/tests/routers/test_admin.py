@@ -1,13 +1,14 @@
 """Tests for admin router."""
 
 from datetime import UTC, datetime
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
 from app.models.auth import TokenPayload
+from app.models.status import DispatchrrStatus, ErsatzTVStatus, SystemStatusResponse
 from app.services import presence
 
 
@@ -237,3 +238,107 @@ class TestGetActiveUsers:
         assert response.status_code == 200
         data = response.json()
         assert "connectedSince" in data["liveUsers"][0]
+
+
+class TestGetSystemStatus:
+    """Tests for GET /api/admin/status endpoint."""
+
+    def test_requires_authentication(self, client: TestClient) -> None:
+        """Should return 401 without token."""
+        response = client.get("/api/admin/status")
+        assert response.status_code == 401
+
+    def test_requires_admin_role(
+        self,
+        client: TestClient,
+        viewer_token_payload: TokenPayload,
+    ) -> None:
+        """Should return 403 for non-admin users."""
+        with patch("app.routers.auth_deps.verify_token") as mock_verify:
+            mock_verify.return_value = viewer_token_payload
+            response = client.get(
+                "/api/admin/status",
+                headers={"Authorization": "Bearer fake_token"},
+            )
+        assert response.status_code == 403
+
+    def test_returns_status_for_both_services(
+        self,
+        client: TestClient,
+        admin_token_payload: TokenPayload,
+    ) -> None:
+        """Should return status for ErsatzTV and Dispatcharr."""
+        now = datetime.now(UTC)
+        mock_status = SystemStatusResponse(
+            ersatztv=ErsatzTVStatus(
+                name="ErsatzTV",
+                online=True,
+                last_checked=now,
+                active_sessions=2,
+                sessions=[],
+            ),
+            dispatcharr=DispatchrrStatus(
+                name="Dispatcharr",
+                online=True,
+                last_checked=now,
+                active_streams=5,
+                total_viewers=10,
+            ),
+        )
+
+        with patch("app.routers.auth_deps.verify_token") as mock_verify:
+            mock_verify.return_value = admin_token_payload
+            with patch("app.services.status_service.get_system_status", new_callable=AsyncMock) as mock_get_status:
+                mock_get_status.return_value = mock_status
+                response = client.get(
+                    "/api/admin/status",
+                    headers={"Authorization": "Bearer fake_token"},
+                )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["ersatztv"]["name"] == "ErsatzTV"
+        assert data["ersatztv"]["online"] is True
+        assert data["ersatztv"]["activeSessions"] == 2
+        assert data["dispatcharr"]["name"] == "Dispatcharr"
+        assert data["dispatcharr"]["online"] is True
+        assert data["dispatcharr"]["activeStreams"] == 5
+        assert data["dispatcharr"]["totalViewers"] == 10
+
+    def test_returns_offline_status_for_unreachable_service(
+        self,
+        client: TestClient,
+        admin_token_payload: TokenPayload,
+    ) -> None:
+        """Should return offline status with error for unreachable service."""
+        now = datetime.now(UTC)
+        mock_status = SystemStatusResponse(
+            ersatztv=ErsatzTVStatus(
+                name="ErsatzTV",
+                online=False,
+                last_checked=now,
+                error="Connection refused",
+            ),
+            dispatcharr=DispatchrrStatus(
+                name="Dispatcharr",
+                online=True,
+                last_checked=now,
+                active_streams=0,
+                total_viewers=0,
+            ),
+        )
+
+        with patch("app.routers.auth_deps.verify_token") as mock_verify:
+            mock_verify.return_value = admin_token_payload
+            with patch("app.services.status_service.get_system_status", new_callable=AsyncMock) as mock_get_status:
+                mock_get_status.return_value = mock_status
+                response = client.get(
+                    "/api/admin/status",
+                    headers={"Authorization": "Bearer fake_token"},
+                )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["ersatztv"]["online"] is False
+        assert data["ersatztv"]["error"] == "Connection refused"
+        assert data["dispatcharr"]["online"] is True
