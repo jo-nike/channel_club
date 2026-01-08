@@ -1,6 +1,6 @@
 # Story 12.14: Admin Channel Grouping (Dispatcharr)
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -20,62 +20,62 @@ So that I can navigate a long channel list more efficiently.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create Backend Channel Groups Endpoint (AC: #1, #2)
-  - [ ] Add `GET /api/channels/grouped` endpoint to `backend/app/routers/channels.py`
-  - [ ] Call Dispatcharr `/api/channels/groups/` to get groups
-  - [ ] Call Dispatcharr `/api/channels/channels/` to get channels with `channel_group_id`
-  - [ ] Map channels to groups and return structured response
-  - [ ] Handle channels with no group (put in "Ungrouped" section)
+- [x] Task 1: Create Backend Channel Groups Endpoint (AC: #1, #2)
+  - [x] Add `GET /api/channels/grouped` endpoint to `backend/app/routers/channels.py`
+  - [x] Call Dispatcharr `/api/channels/groups/` to get groups
+  - [x] Call Dispatcharr `/api/channels/channels/` to get channels with `channel_group_id`
+  - [x] Map channels to groups and return structured response
+  - [x] Handle channels with no group (put in "Ungrouped" section)
 
-- [ ] Task 2: Create Pydantic Models for Grouped Channels (AC: #1)
-  - [ ] Add `ChannelGroup` model to `backend/app/models/channel.py`
-  - [ ] Add `GroupedChannelsResponse` model
-  - [ ] Ensure camelCase JSON serialization
+- [x] Task 2: Create Pydantic Models for Grouped Channels (AC: #1)
+  - [x] Add `ChannelGroup` model to `backend/app/models/channel.py`
+  - [x] Add `GroupedChannelsResponse` model
+  - [x] Ensure camelCase JSON serialization
 
-- [ ] Task 3: Update Dispatcharr Service (AC: #1)
-  - [ ] Add `get_channel_groups()` function to fetch groups
-  - [ ] Add `get_channels_with_groups()` function to fetch full channel data
-  - [ ] Handle authentication if required (JWT token)
+- [x] Task 3: Update Dispatcharr Service (AC: #1)
+  - [x] Add `get_channel_groups()` function to fetch groups
+  - [x] Add `get_channels_with_groups()` function to fetch full channel data
+  - [x] Handle authentication if required (JWT token)
 
-- [ ] Task 4: Update Frontend API Service (AC: #1)
-  - [ ] Add `fetchGroupedChannels()` to `frontend/src/services/api.ts`
-  - [ ] Define TypeScript types for `ChannelGroup` and grouped response
+- [x] Task 4: Update Frontend API Service (AC: #1)
+  - [x] Add `fetchGroupedChannels()` to `frontend/src/services/api.ts`
+  - [x] Define TypeScript types for `ChannelGroup` and grouped response
 
-- [ ] Task 5: Create CollapsibleChannelGroup Component (AC: #2, #3)
-  - [ ] Create `frontend/src/components/CollapsibleChannelGroup.tsx`
-  - [ ] Use shadcn/ui Collapsible component
-  - [ ] Display group name and channel count in header
-  - [ ] Animate expand/collapse with ChevronDown icon rotation
-  - [ ] Default to collapsed state
+- [x] Task 5: Create CollapsibleChannelGroup Component (AC: #2, #3)
+  - [x] Create `frontend/src/components/CollapsibleChannelGroup.tsx`
+  - [x] Use shadcn/ui Collapsible component
+  - [x] Display group name and channel count in header
+  - [x] Animate expand/collapse with ChevronDown icon rotation
+  - [x] Default to collapsed state
 
-- [ ] Task 6: Update ChannelList Component (AC: #1, #2, #3)
-  - [ ] Modify to use grouped channels endpoint
-  - [ ] Render CollapsibleChannelGroup for each group
-  - [ ] Keep existing channel selection logic within groups
-  - [ ] Maintain keyboard navigation across groups
+- [x] Task 6: Update ChannelList Component (AC: #1, #2, #3)
+  - [x] Modify to use grouped channels endpoint
+  - [x] Render CollapsibleChannelGroup for each group
+  - [x] Keep existing channel selection logic within groups
+  - [x] Maintain keyboard navigation across groups
 
-- [ ] Task 7: Add Channel Search/Filter (AC: #4)
-  - [ ] Add search input to channel list header
-  - [ ] Filter channels by name (case-insensitive)
-  - [ ] Auto-expand groups containing matching channels
-  - [ ] Show "No matches" message when no results
+- [x] Task 7: Add Channel Search/Filter (AC: #4)
+  - [x] Add search input to channel list header
+  - [x] Filter channels by name (case-insensitive)
+  - [x] Auto-expand groups containing matching channels
+  - [x] Show "No matches" message when no results
 
-- [ ] Task 8: Write Backend Tests (AC: #1, #2)
-  - [ ] Add tests to `backend/tests/routers/test_channels.py`
-  - [ ] Test grouped endpoint with mocked Dispatcharr responses
-  - [ ] Test ungrouped channels handling
-  - [ ] Test error handling when Dispatcharr unavailable
+- [x] Task 8: Write Backend Tests (AC: #1, #2)
+  - [x] Add tests to `backend/tests/routers/test_channels.py`
+  - [x] Test grouped endpoint with mocked Dispatcharr responses
+  - [x] Test ungrouped channels handling
+  - [x] Test error handling when Dispatcharr unavailable
 
-- [ ] Task 9: Write Frontend Tests (AC: #1, #2, #3, #4)
-  - [ ] Create `frontend/src/components/CollapsibleChannelGroup.test.tsx`
-  - [ ] Update `frontend/src/components/ChannelList.test.tsx`
-  - [ ] Test expand/collapse behavior
-  - [ ] Test search filtering and auto-expand
+- [x] Task 9: Write Frontend Tests (AC: #1, #2, #3, #4)
+  - [x] Create `frontend/src/components/CollapsibleChannelGroup.test.tsx`
+  - [x] Update `frontend/src/components/ChannelList.test.tsx`
+  - [x] Test expand/collapse behavior
+  - [x] Test search filtering and auto-expand
 
-- [ ] Task 10: Build and Test
-  - [ ] Run `uv run pytest` - all tests pass
-  - [ ] Run `npm run test` - all tests pass
-  - [ ] Run `npm run build` - builds successfully
+- [x] Task 10: Build and Test
+  - [x] Run `uv run pytest` - all tests pass (449 passed)
+  - [x] Run `npm run test` - all tests pass (746 passed)
+  - [x] Run `npm run build` - builds successfully
   - [ ] Manual testing with actual Dispatcharr data
 
 ## Dev Notes
@@ -227,10 +227,45 @@ Groups should be keyboard navigable:
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.5 (claude-opus-4-5-20251101)
 
 ### Debug Log References
 
+N/A - No debugging issues encountered.
+
 ### Completion Notes List
 
+- ✅ Implemented backend `/api/channels/grouped` endpoint that fetches groups and channels from Dispatcharr API
+- ✅ Added Pydantic models for channel groups with camelCase serialization
+- ✅ Added JWT token authentication for Dispatcharr API calls using cached token
+- ✅ Created `CollapsibleChannelGroup` component using shadcn/ui Collapsible with animated chevron
+- ✅ Updated `ChannelList` to display grouped channels with search/filter functionality
+- ✅ Search auto-expands groups containing matching channels
+- ✅ Ungrouped channels displayed in a separate "Ungrouped" section
+- ✅ All 449 backend tests pass
+- ✅ All 746 frontend tests pass (including updated AdminModal tests)
+- ✅ Frontend build successful
+
 ### File List
+
+**Created:**
+- `frontend/src/components/CollapsibleChannelGroup.tsx`
+- `frontend/src/components/CollapsibleChannelGroup.test.tsx`
+- `frontend/src/components/ui/collapsible.tsx` (via shadcn)
+
+**Modified:**
+- `backend/app/models/channel.py` - Added DispatchrrChannelGroup, DispatchrrFullChannel, ChannelGroupWithChannels, GroupedChannelsResponse models
+- `backend/app/routers/channels.py` - Added `/channels/grouped` endpoint
+- `backend/app/services/dispatcharr.py` - Added get_dispatcharr_token(), get_channel_groups(), get_channels_with_groups(), get_grouped_channels()
+- `backend/tests/routers/test_channels.py` - Added TestListGroupedChannels test class
+- `frontend/src/services/api.ts` - Added fetchGroupedChannels()
+- `frontend/src/types/index.ts` - Added ChannelGroupWithChannels and GroupedChannelsResponse types
+- `frontend/src/components/ChannelList.tsx` - Rewrote to use grouped channels with search
+- `frontend/src/components/ChannelList.test.tsx` - Updated tests for grouped channels
+- `frontend/src/components/AdminModal.test.tsx` - Updated tests for grouped channels API
+
+## Change Log
+
+| Date | Change |
+|------|--------|
+| 2026-01-08 | Implemented channel grouping feature with backend API, collapsible UI, and search/filter functionality |

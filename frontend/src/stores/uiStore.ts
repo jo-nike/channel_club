@@ -30,6 +30,9 @@ interface UIState {
   notificationsEnabled: boolean
   setNotificationsEnabled: (value: boolean) => void
   toggleNotifications: () => void
+  // Volume persistence (shared across all players)
+  volume: number
+  setVolume: (value: number) => void
 }
 
 export const useUIStore = create<UIState>()(
@@ -63,6 +66,9 @@ export const useUIStore = create<UIState>()(
       notificationsEnabled: false,
       setNotificationsEnabled: (value) => set({ notificationsEnabled: value }),
       toggleNotifications: () => set((s) => ({ notificationsEnabled: !s.notificationsEnabled })),
+      // Volume persistence (shared across all players)
+      volume: 1,
+      setVolume: (value) => set({ volume: Math.max(0, Math.min(1, value)) }),
     }),
     {
       name: 'ui-storage',
@@ -75,6 +81,7 @@ export const useUIStore = create<UIState>()(
         lastErsatzTVChannelId: state.lastErsatzTVChannelId,
         lastTVChannelId: state.lastTVChannelId,
         notificationsEnabled: state.notificationsEnabled,
+        volume: state.volume,
       }),
     }
   )

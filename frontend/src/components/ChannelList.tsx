@@ -1,28 +1,70 @@
-import { useEffect, useState, useCallback, forwardRef } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { toast } from 'sonner'
-import { X } from 'lucide-react'
+import { X, Search } from 'lucide-react'
 import { useChannelStore } from '@/stores/channelStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useUIStore } from '@/stores/uiStore'
-import { useRovingTabIndex } from '@/hooks/useRovingTabIndex'
-import { fetchChannels, setCurrentChannel as setCurrentChannelApi, clearCurrentChannel as clearCurrentChannelApi } from '@/services/api'
+import { fetchGroupedChannels, setCurrentChannel as setCurrentChannelApi, clearCurrentChannel as clearCurrentChannelApi } from '@/services/api'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { CollapsibleChannelGroup } from '@/components/CollapsibleChannelGroup'
 import { cn } from '@/lib/utils'
-import type { Channel } from '@/types'
+import type { Channel, GroupedChannelsResponse } from '@/types'
 
 interface ChannelListProps {
   onChannelSelected?: () => void
 }
 
 export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
-  const { channels, currentChannel, isLoading, error, setChannels, setCurrentChannel, setLoading, setError } = useChannelStore()
+  const { currentChannel, setCurrentChannel } = useChannelStore()
   const { role } = useAuthStore()
   const setSidebarOpen = useUIStore((s) => s.setSidebarOpen)
   const isAdmin = role === 'admin'
 
-  // Note: EPG fetching removed - was causing 1000+ API calls for large channel lists
-  // The channel picker doesn't need "now playing" info for every channel
+  const [groupedData, setGroupedData] = useState<GroupedChannelsResponse | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+
+  // Filter groups and channels based on search query
+  const { filteredGroups, filteredUngrouped, expandedGroupIds } = useMemo(() => {
+    if (!groupedData) {
+      return { filteredGroups: [], filteredUngrouped: [], expandedGroupIds: new Set<number>() }
+    }
+
+    const query = searchQuery.toLowerCase().trim()
+    if (!query) {
+      return {
+        filteredGroups: groupedData.groups,
+        filteredUngrouped: groupedData.ungrouped,
+        expandedGroupIds: new Set<number>(),
+      }
+    }
+
+    const expandedIds = new Set<number>()
+    const filteredGroups = groupedData.groups
+      .map((group) => {
+        const matchingChannels = group.channels.filter((ch) =>
+          ch.name.toLowerCase().includes(query)
+        )
+        if (matchingChannels.length > 0) {
+          expandedIds.add(group.id)
+        }
+        return {
+          ...group,
+          channels: matchingChannels,
+          channelCount: matchingChannels.length,
+        }
+      })
+      .filter((g) => g.channels.length > 0)
+
+    const filteredUngrouped = groupedData.ungrouped.filter((ch) =>
+      ch.name.toLowerCase().includes(query)
+    )
+
+    return { filteredGroups, filteredUngrouped, expandedGroupIds: expandedIds }
+  }, [groupedData, searchQuery])
 
   const handleSelectChannel = useCallback(async (channel: Channel) => {
     if (!isAdmin) return
@@ -75,27 +117,20 @@ export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
     }
   }, [isAdmin, currentChannel, setCurrentChannel, setSidebarOpen, onChannelSelected])
 
-  const { focusedIndex, handleKeyDown, getTabIndex, itemRefs } = useRovingTabIndex({
-    items: channels,
-    onSelect: isAdmin ? handleSelectChannel : undefined,
-    getItemId: (channel) => channel.id,
-  })
-
   useEffect(() => {
-    loadChannels()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    loadGroupedChannels()
   }, [])
 
-  async function loadChannels() {
-    setLoading(true)
+  async function loadGroupedChannels() {
+    setIsLoading(true)
     setError(null)
     try {
-      const data = await fetchChannels()
-      setChannels(data)
+      const data = await fetchGroupedChannels()
+      setGroupedData(data)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unable to load channels')
     } finally {
-      setLoading(false)
+      setIsLoading(false)
     }
   }
 
@@ -107,12 +142,17 @@ export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
     return (
       <div className="flex flex-col items-center gap-4 p-4">
         <p className="text-destructive">Unable to load channels</p>
-        <Button onClick={loadChannels}>Retry</Button>
+        <Button onClick={loadGroupedChannels}>Retry</Button>
       </div>
     )
   }
 
-  if (channels.length === 0) {
+  const hasChannels = filteredGroups.length > 0 || filteredUngrouped.length > 0
+  const totalChannels = groupedData
+    ? groupedData.groups.reduce((sum, g) => sum + g.channels.length, 0) + groupedData.ungrouped.length
+    : 0
+
+  if (totalChannels === 0) {
     return (
       <div className="flex items-center justify-center p-4">
         <p className="text-muted-foreground">No channels available</p>
@@ -121,12 +161,29 @@ export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
   }
 
   return (
-    <div
-      role="listbox"
-      aria-label="Channel list"
-      onKeyDown={handleKeyDown}
-      className="flex flex-col gap-2 p-4"
-    >
+    <div className="flex flex-col gap-2 p-4">
+      {/* Search Input */}
+      <div className="relative mb-2">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          type="text"
+          placeholder="Search channels..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="pl-9"
+        />
+        {searchQuery && (
+          <button
+            type="button"
+            onClick={() => setSearchQuery('')}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            aria-label="Clear search"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+
       {/* Clear Channel button - only show when a channel is selected */}
       {currentChannel && isAdmin && (
         <button
@@ -143,86 +200,55 @@ export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
           <span className="font-medium">Clear Channel</span>
         </button>
       )}
-      {channels.map((channel, index) => (
-        <ChannelItem
-          key={channel.id}
-          ref={(el) => {
-            itemRefs.current[index] = el
-          }}
-          channel={channel}
-          isSelected={currentChannel?.id === channel.id}
-          isFocused={index === focusedIndex}
-          isAdmin={isAdmin}
-          tabIndex={getTabIndex(index)}
-          onSelect={() => handleSelectChannel(channel)}
-        />
-      ))}
-    </div>
-  )
-}
 
-interface ChannelItemProps {
-  channel: Channel
-  isSelected: boolean
-  isFocused: boolean
-  isAdmin: boolean
-  tabIndex: 0 | -1
-  onSelect: () => void
-}
-
-const ChannelItem = forwardRef<HTMLDivElement, ChannelItemProps>(function ChannelItem(
-  { channel, isSelected, isFocused, isAdmin, tabIndex, onSelect },
-  ref
-) {
-  const [isSelecting, setIsSelecting] = useState(false)
-
-  async function handleClick() {
-    if (!isAdmin || isSelecting) return
-    setIsSelecting(true)
-    try {
-      await onSelect()
-    } finally {
-      setIsSelecting(false)
-    }
-  }
-
-  return (
-    <div
-      ref={ref}
-      role="option"
-      tabIndex={tabIndex}
-      onClick={isAdmin ? handleClick : undefined}
-      aria-selected={isSelected}
-      aria-disabled={isSelecting}
-      className={cn(
-        'channel-item',
-        'flex items-center gap-3 rounded-lg border p-4 transition-colors',
-        'text-lg',
-        'min-h-[56px]',
-        isSelected && 'border-primary bg-primary/10',
-        isFocused && 'ring-4 ring-primary ring-offset-2',
-        isAdmin && !isSelecting && 'cursor-pointer hover:bg-accent focus:outline-none focus-visible:ring-4 focus-visible:ring-primary',
-        isAdmin && isSelecting && 'cursor-wait opacity-70',
-        !isAdmin && 'cursor-default'
-      )}
-    >
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-2">
-          <span className="font-medium truncate">{channel.name}</span>
-          {isSelected && (
-            <span className="text-sm text-primary flex-shrink-0">Now Playing</span>
-          )}
+      {/* No matches message */}
+      {!hasChannels && searchQuery && (
+        <div className="flex items-center justify-center p-4">
+          <p className="text-muted-foreground">No channels match "{searchQuery}"</p>
         </div>
+      )}
+
+      {/* Channel Groups */}
+      <div role="listbox" aria-label="Channel list" className="space-y-2">
+        {filteredGroups.map((group) => (
+          <CollapsibleChannelGroup
+            key={group.id}
+            group={group}
+            currentChannelId={currentChannel?.id ?? null}
+            isAdmin={isAdmin}
+            onSelectChannel={handleSelectChannel}
+            forceOpen={expandedGroupIds.has(group.id)}
+          />
+        ))}
+
+        {/* Ungrouped channels */}
+        {filteredUngrouped.length > 0 && (
+          <CollapsibleChannelGroup
+            group={{
+              id: -1,
+              name: 'Ungrouped',
+              channelCount: filteredUngrouped.length,
+              channels: filteredUngrouped,
+            }}
+            currentChannelId={currentChannel?.id ?? null}
+            isAdmin={isAdmin}
+            onSelectChannel={handleSelectChannel}
+            forceOpen={searchQuery.length > 0}
+          />
+        )}
       </div>
     </div>
   )
-})
+}
 
 function ChannelListSkeleton() {
   return (
     <div className="flex flex-col gap-2 p-4">
-      {Array.from({ length: 5 }).map((_, i) => (
-        <Skeleton key={i} className="h-14 w-full rounded-lg" />
+      {/* Search skeleton */}
+      <Skeleton className="h-10 w-full rounded-lg mb-2" />
+      {/* Group skeletons */}
+      {Array.from({ length: 4 }).map((_, i) => (
+        <Skeleton key={i} className="h-12 w-full rounded-lg" />
       ))}
     </div>
   )

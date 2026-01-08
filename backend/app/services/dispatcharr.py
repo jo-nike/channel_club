@@ -4,10 +4,20 @@ import httpx
 from loguru import logger
 
 from app.config import settings
-from app.models.channel import Channel, DispatchrrChannel
+from app.models.channel import (
+    Channel,
+    ChannelGroupWithChannels,
+    DispatchrrChannel,
+    DispatchrrChannelGroup,
+    DispatchrrFullChannel,
+    GroupedChannelsResponse,
+)
 
 # Module-level logger with service context
 log = logger.bind(service="dispatcharr")
+
+# Cache for Dispatcharr JWT token
+_dispatcharr_token: str | None = None
 
 
 class DispatchrrUnavailableError(Exception):
@@ -62,3 +72,165 @@ async def get_lineup() -> list[Channel]:
     except httpx.HTTPError as e:
         log.error("Failed to fetch channels: {}", str(e))
         raise DispatchrrUnavailableError(f"Failed to fetch channels: {e}") from e
+
+
+async def get_dispatcharr_token() -> str:
+    """Get JWT token for Dispatcharr API.
+
+    Uses cached token if available, otherwise obtains a new one.
+
+    Returns:
+        JWT access token string.
+
+    Raises:
+        DispatchrrUnavailableError: If authentication fails.
+    """
+    global _dispatcharr_token
+
+    if _dispatcharr_token:
+        return _dispatcharr_token
+
+    if not settings.dispatcharr_username or not settings.dispatcharr_password:
+        raise DispatchrrUnavailableError(
+            "Dispatcharr credentials not configured (DISPATCHARR_USERNAME/DISPATCHARR_PASSWORD)"
+        )
+
+    url = f"{settings.dispatcharr_url}/api/accounts/token/"
+    log.debug("Obtaining Dispatcharr token from {}", url)
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                url,
+                json={
+                    "username": settings.dispatcharr_username,
+                    "password": settings.dispatcharr_password,
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+            _dispatcharr_token = data.get("access")
+            if not _dispatcharr_token:
+                raise DispatchrrUnavailableError("No access token in Dispatcharr response")
+            log.info("Obtained Dispatcharr token successfully")
+            return _dispatcharr_token
+    except httpx.HTTPError as e:
+        log.error("Failed to obtain Dispatcharr token: {}", str(e))
+        raise DispatchrrUnavailableError(f"Failed to authenticate with Dispatcharr: {e}") from e
+
+
+async def get_channel_groups() -> list[DispatchrrChannelGroup]:
+    """Fetch channel groups from Dispatcharr.
+
+    Returns:
+        List of channel group objects.
+
+    Raises:
+        DispatchrrUnavailableError: If Dispatcharr is unreachable.
+    """
+    token = await get_dispatcharr_token()
+    url = f"{settings.dispatcharr_url}/api/channels/groups/"
+    log.debug("Fetching channel groups from {}", url)
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                url,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            response.raise_for_status()
+            groups = [DispatchrrChannelGroup(**g) for g in response.json()]
+            log.info("Fetched {} channel groups", len(groups))
+            return groups
+    except httpx.HTTPError as e:
+        log.error("Failed to fetch channel groups: {}", str(e))
+        raise DispatchrrUnavailableError(f"Failed to fetch channel groups: {e}") from e
+
+
+async def get_channels_with_groups() -> list[DispatchrrFullChannel]:
+    """Fetch full channel data with group IDs from Dispatcharr.
+
+    Returns:
+        List of full channel objects including group assignments.
+
+    Raises:
+        DispatchrrUnavailableError: If Dispatcharr is unreachable.
+    """
+    token = await get_dispatcharr_token()
+    url = f"{settings.dispatcharr_url}/api/channels/channels/"
+    log.debug("Fetching full channel data from {}", url)
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                url,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            response.raise_for_status()
+            channels = [DispatchrrFullChannel(**c) for c in response.json()]
+            log.info("Fetched {} channels with group data", len(channels))
+            return channels
+    except httpx.HTTPError as e:
+        log.error("Failed to fetch channels with groups: {}", str(e))
+        raise DispatchrrUnavailableError(f"Failed to fetch channels: {e}") from e
+
+
+async def get_grouped_channels() -> GroupedChannelsResponse:
+    """Fetch channels organized by groups.
+
+    Combines channel groups and channels into a structured response
+    where channels are nested under their respective groups.
+
+    Returns:
+        GroupedChannelsResponse with groups and ungrouped channels.
+
+    Raises:
+        DispatchrrUnavailableError: If Dispatcharr is unreachable.
+    """
+    # Fetch groups and channels in parallel
+    groups = await get_channel_groups()
+    channels = await get_channels_with_groups()
+
+    # Create a map of group_id -> group data with empty channel lists
+    groups_map: dict[int, ChannelGroupWithChannels] = {}
+    for g in groups:
+        groups_map[g.id] = ChannelGroupWithChannels(
+            id=g.id,
+            name=g.name,
+            channel_count=0,  # Will recalculate based on actual channels
+            channels=[],
+        )
+
+    # Distribute channels to their groups
+    ungrouped: list[Channel] = []
+    for ch in channels:
+        channel = Channel(
+            id=ch.uuid,
+            name=ch.name,
+            stream_url=f"{settings.stream_base_url}/proxy/ts/stream/{ch.uuid}",
+            guide_id=str(ch.id),  # Use Dispatcharr ID as guide_id
+        )
+
+        if ch.channel_group_id and ch.channel_group_id in groups_map:
+            groups_map[ch.channel_group_id].channels.append(channel)
+        else:
+            ungrouped.append(channel)
+
+    # Update channel counts and filter out empty groups
+    result_groups: list[ChannelGroupWithChannels] = []
+    for group in groups_map.values():
+        if group.channels:
+            group.channel_count = len(group.channels)
+            result_groups.append(group)
+
+    # Sort groups by name
+    result_groups.sort(key=lambda g: g.name)
+
+    log.info(
+        "Organized {} channels into {} groups ({} ungrouped)",
+        len(channels),
+        len(result_groups),
+        len(ungrouped),
+    )
+
+    return GroupedChannelsResponse(groups=result_groups, ungrouped=ungrouped)

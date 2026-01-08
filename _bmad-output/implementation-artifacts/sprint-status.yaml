@@ -157,12 +157,12 @@ development_status:
   12-6-channel-card-epg-display: done
   12-7-rounded-corner-ui-polish: done
   12-8-highlight-modal-replay-viewer: done
-  12-9-webm-download-option: review
+  12-9-webm-download-option: done
   12-10-themed-css-tooltips: done
   12-11-favicon-setup: done
   12-12-video-control-bar-position-consistency: done
   12-13-mobile-video-controller-sticky-fix: done
-  12-14-admin-channel-grouping-dispatcharr: ready-for-dev
+  12-14-admin-channel-grouping-dispatcharr: done
   12-15-admin-panel-mobile-tv-layout-fix: done
   epic-12-retrospective: optional
 

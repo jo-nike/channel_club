@@ -12,6 +12,7 @@ import { ErsatzTVVideoControls } from './ErsatzTVVideoControls'
 import { useAutoHide } from '@/hooks/useAutoHide'
 import { useOrientationFullscreen } from '@/hooks/useOrientationFullscreen'
 import { useHLSRetry } from '@/hooks/useHLSRetry'
+import { useUIStore } from '@/stores/uiStore'
 
 interface HLSVideoPlayerProps {
   streamUrl: string
@@ -22,6 +23,23 @@ interface HLSVideoPlayerProps {
   onTheaterModeToggle: () => void
   onError?: (error: Error) => void
   onReady?: () => void
+}
+
+// Get initial volume from localStorage synchronously (avoids Zustand hydration race)
+function getInitialVolume(): number {
+  if (typeof window === 'undefined') return 1
+  try {
+    const stored = localStorage.getItem('ui-storage')
+    if (stored) {
+      const parsed = JSON.parse(stored)
+      if (typeof parsed.state?.volume === 'number') {
+        return parsed.state.volume
+      }
+    }
+  } catch {
+    // Ignore parse errors
+  }
+  return 1
 }
 
 // Inner controls component that has access to Vidstack context
@@ -42,6 +60,14 @@ function PlayerControlsWrapper({
   const volume = useMediaState('volume')
   const remote = useMediaRemote()
   const [isHoveringControls, setIsHoveringControls] = useState(false)
+
+  // Volume persistence - persist changes from keyboard shortcuts
+  const setStoredVolume = useUIStore((s) => s.setVolume)
+
+  const changeVolumeAndPersist = useCallback((newVolume: number) => {
+    remote.changeVolume(newVolume)
+    setStoredVolume(newVolume)
+  }, [remote, setStoredVolume])
 
   const isPlaying = !paused
 
@@ -95,12 +121,12 @@ function PlayerControlsWrapper({
 
         case 'ArrowRight': // Arrow Right - Volume up
           e.preventDefault()
-          remote.changeVolume(Math.min(1, volume + 0.1))
+          changeVolumeAndPersist(Math.min(1, volume + 0.1))
           break
 
         case 'ArrowLeft': // Arrow Left - Volume down
           e.preventDefault()
-          remote.changeVolume(Math.max(0, volume - 0.1))
+          changeVolumeAndPersist(Math.max(0, volume - 0.1))
           break
 
         default:
@@ -110,7 +136,7 @@ function PlayerControlsWrapper({
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [containerRef, remote, volume, onTheaterModeToggle])
+  }, [containerRef, remote, volume, onTheaterModeToggle, changeVolumeAndPersist])
 
   return (
     <ErsatzTVVideoControls
@@ -139,6 +165,9 @@ function HLSVideoPlayerInner({
   const playerRef = useRef<MediaPlayerInstance>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [isBuffering, setIsBuffering] = useState(true)
+
+  // Get initial volume synchronously from localStorage (avoids Zustand hydration race)
+  const [initialVolume] = useState(() => getInitialVolume())
 
   const { status, retryCount, retryKey, handleError, handlePlaying } = useHLSRetry({
     streamUrl,
@@ -187,6 +216,7 @@ function HLSVideoPlayerInner({
         title={title}
         autoPlay
         playsInline
+        volume={initialVolume}
         className="h-full w-full max-h-full max-w-full [&_video]:object-contain"
         onWaiting={handleWaiting}
         onPlaying={onPlaying}

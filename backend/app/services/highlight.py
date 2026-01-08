@@ -289,14 +289,19 @@ class ChannelRecorder:
 
             log.debug("FFmpeg concat command: {}", " ".join(cmd))
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                timeout=timeout,
-            )
+            # Run FFmpeg in a thread pool to avoid blocking the event loop
+            def run_ffmpeg() -> tuple[int, bytes]:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    timeout=timeout,
+                )
+                return result.returncode, result.stderr
 
-            if result.returncode != 0:
-                log.error("FFmpeg concat failed: {}", result.stderr.decode())
+            returncode, stderr = await asyncio.to_thread(run_ffmpeg)
+
+            if returncode != 0:
+                log.error("FFmpeg concat failed: {}", stderr.decode())
                 return None, f"Failed to create {format.upper()} highlight"
 
             if not output_file.exists():

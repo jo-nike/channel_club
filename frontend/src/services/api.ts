@@ -1,6 +1,6 @@
 import { useAuthStore } from '@/stores/authStore'
 import { logger } from '@/lib/logger'
-import type { Channel, EPGResponse } from '@/types'
+import type { Channel, EPGResponse, GroupedChannelsResponse } from '@/types'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
 
@@ -98,6 +98,28 @@ export async function fetchChannels(): Promise<Channel[]> {
 
   const data = await response.json()
   logger.debug('API', `Fetched ${data.length} channels`)
+  return data
+}
+
+export async function fetchGroupedChannels(): Promise<GroupedChannelsResponse> {
+  logger.debug('API', 'Fetching grouped channels')
+
+  const response = await fetchWithAuth('/channels/grouped')
+
+  if (!response.ok) {
+    logger.error('API', `Failed to fetch grouped channels: ${response.status}`, {
+      status: response.status,
+      statusText: response.statusText,
+    })
+    if (response.status === 503) {
+      throw new Error('Channel service unavailable')
+    }
+    throw new Error('Failed to fetch grouped channels')
+  }
+
+  const data: GroupedChannelsResponse = await response.json()
+  const totalChannels = data.groups.reduce((sum, g) => sum + g.channels.length, 0) + data.ungrouped.length
+  logger.debug('API', `Fetched ${data.groups.length} groups with ${totalChannels} total channels`)
   return data
 }
 

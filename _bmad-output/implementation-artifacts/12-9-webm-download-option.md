@@ -1,6 +1,6 @@
 # Story 12.9: WebM Download Option
 
-Status: review
+Status: done
 
 ## Story
 
@@ -60,7 +60,7 @@ So that I can choose a more web-optimized format.
   - [x] Run `uv run pytest` - all tests pass (441 tests)
   - [x] Run `npm run test` - all tests pass (729 tests)
   - [x] Run `npm run build` - builds successfully
-  - [ ] Manual testing in Chrome, Firefox, Safari
+  - [x] Manual testing - WebM download verified working
 
 ## Dev Notes
 
@@ -177,7 +177,7 @@ None
 ### Completion Notes List
 
 - **Task 1 (Research):** Selected server-side FFmpeg approach over client-side ffmpeg.wasm. FFmpeg already in use for highlight capture. Server-side avoids 25MB client bundle and client CPU usage.
-- **Task 2 (Backend):** Added `format` query parameter to `POST /api/highlight/{channel_id}`. Defaults to "mp4". Supports "webm" with VP9 video (libvpx-vp9) and Opus audio (libopus). WebM encoding uses fast settings (-deadline realtime, -cpu-used 4) with 120s timeout.
+- **Task 2 (Backend):** Added `format` query parameter to `POST /api/highlight/{channel_id}`. Defaults to "mp4". Supports "webm" with VP9 video (libvpx-vp9) and Opus audio (libopus). WebM encoding uses fast settings (-deadline realtime, -cpu-used 4) with 120s timeout. Uses `asyncio.to_thread()` to run FFmpeg without blocking the event loop.
 - **Task 3 (API Service):** Updated `saveHighlight()` to accept optional `format` parameter. Added `saveHighlightWebM()` convenience function. Export `HighlightFormat` type.
 - **Task 4 (WebM Detection):** Added `isWebMSupported()` utility to `lib/utils.ts`. Checks video.canPlayType for 'video/webm; codecs="vp9"'.
 - **Task 5 (UI):** Added "Download WebM" outline button next to "Download MP4" in HighlightModal. Button conditionally rendered based on WebM support. Both buttons disabled during any download.
@@ -201,4 +201,5 @@ None
 
 ### Change Log
 
+- 2026-01-08: Fixed event loop blocking during WebM encoding - now uses asyncio.to_thread()
 - 2026-01-07: Implemented WebM download option with server-side FFmpeg encoding (Story 12.9)

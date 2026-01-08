@@ -22,6 +22,18 @@ export interface Channel {
   guideId: string
 }
 
+export interface ChannelGroupWithChannels {
+  id: number
+  name: string
+  channelCount: number
+  channels: Channel[]
+}
+
+export interface GroupedChannelsResponse {
+  groups: ChannelGroupWithChannels[]
+  ungrouped: Channel[]
+}
+
 export interface User {
   username: string
   role: 'admin' | 'viewer'

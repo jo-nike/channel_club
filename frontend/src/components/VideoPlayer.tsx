@@ -9,10 +9,6 @@ import { useOrientationFullscreen } from '@/hooks/useOrientationFullscreen'
 import { ChannelSwitchOverlay } from '@/components/ChannelSwitchOverlay'
 import { ProjectorBeamLoader } from '@/components/ProjectorBeamLoader'
 
-// Constants
-const VOLUME_STORAGE_KEY = 'iptv-volume'
-const DEFAULT_VOLUME = 1
-
 export function VideoPlayer() {
   const currentChannel = useChannelStore((s) => s.currentChannel)
 
@@ -48,10 +44,8 @@ function VideoPlayerInner({ channelId, streamUrl, channelName }: VideoPlayerInne
 
   // Video state
   const [isPlaying, setIsPlaying] = useState(false)
-  const [volume, setVolume] = useState(() => {
-    const stored = localStorage.getItem(VOLUME_STORAGE_KEY)
-    return stored ? parseFloat(stored) : DEFAULT_VOLUME
-  })
+  const volume = useUIStore((s) => s.volume)
+  const setVolume = useUIStore((s) => s.setVolume)
   const [isMuted, setIsMuted] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
 
@@ -117,14 +111,13 @@ function VideoPlayerInner({ channelId, streamUrl, channelName }: VideoPlayerInne
     const clampedVolume = Math.max(0, Math.min(1, newVolume))
     video.volume = clampedVolume
     setVolume(clampedVolume)
-    localStorage.setItem(VOLUME_STORAGE_KEY, clampedVolume.toString())
 
     // Unmute if volume is changed while muted
     if (video.muted && clampedVolume > 0) {
       video.muted = false
       setIsMuted(false)
     }
-  }, [])
+  }, [setVolume])
 
   // Mute toggle
   const handleMuteToggle = useCallback(() => {

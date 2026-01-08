@@ -42,3 +42,41 @@ class CurrentChannelResponse(BaseModel):
     current_channel: Channel | None = Field(None, alias="currentChannel")
 
     model_config = {"populate_by_name": True}
+
+
+class DispatchrrChannelGroup(BaseModel):
+    """Raw channel group data from Dispatcharr /api/channels/groups/."""
+
+    id: int
+    name: str
+    channel_count: int
+
+
+class DispatchrrFullChannel(BaseModel):
+    """Full channel data from Dispatcharr /api/channels/channels/."""
+
+    id: int
+    name: str
+    channel_number: int | None = None
+    channel_group_id: int | None = None
+    uuid: str
+
+
+class ChannelGroupWithChannels(BaseModel):
+    """Channel group with its channels for our API."""
+
+    id: int
+    name: str
+    channel_count: int = Field(alias="channelCount")
+    channels: list[Channel] = []
+
+    model_config = {"populate_by_name": True}
+
+
+class GroupedChannelsResponse(BaseModel):
+    """Response for GET /api/channels/grouped."""
+
+    groups: list[ChannelGroupWithChannels] = []
+    ungrouped: list[Channel] = []
+
+    model_config = {"populate_by_name": True}

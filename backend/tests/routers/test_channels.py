@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from loguru import logger
 
 from app.main import app
-from app.models.channel import Channel
+from app.models.channel import Channel, ChannelGroupWithChannels, GroupedChannelsResponse
 from app.services import channel_state
 from app.services.auth import create_access_token
 from app.services.dispatcharr import DispatchrrUnavailableError
@@ -561,3 +561,212 @@ class TestChannelsLogging:
             assert "channels" in log_output
         finally:
             logger.remove(handler_id)
+
+
+class TestListGroupedChannels:
+    """Tests for GET /api/channels/grouped endpoint."""
+
+    def test_get_grouped_channels_requires_authentication(self, client: TestClient) -> None:
+        """Unauthenticated request returns 401."""
+        response = client.get("/api/channels/grouped")
+        assert response.status_code == 401
+
+    def test_get_grouped_channels_with_invalid_token(self, client: TestClient) -> None:
+        """Request with invalid token returns 401."""
+        response = client.get(
+            "/api/channels/grouped",
+            headers={"Authorization": "Bearer invalid-token"},
+        )
+        assert response.status_code == 401
+
+    def test_get_grouped_channels_success(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Authenticated request returns grouped channel list."""
+        mock_response = GroupedChannelsResponse(
+            groups=[
+                ChannelGroupWithChannels(
+                    id=1,
+                    name="Sports",
+                    channel_count=2,
+                    channels=[
+                        Channel(
+                            id="uuid-1",
+                            name="TSN",
+                            stream_url="https://streams.example.com/proxy/ts/stream/uuid-1",
+                            guide_id="1",
+                        ),
+                        Channel(
+                            id="uuid-2",
+                            name="Sportsnet",
+                            stream_url="https://streams.example.com/proxy/ts/stream/uuid-2",
+                            guide_id="2",
+                        ),
+                    ],
+                ),
+            ],
+            ungrouped=[
+                Channel(
+                    id="uuid-3",
+                    name="CBC",
+                    stream_url="https://streams.example.com/proxy/ts/stream/uuid-3",
+                    guide_id="3",
+                ),
+            ],
+        )
+
+        with patch(
+            "app.routers.channels.get_grouped_channels", new_callable=AsyncMock
+        ) as mock_get_grouped:
+            mock_get_grouped.return_value = mock_response
+
+            response = client.get("/api/channels/grouped", headers=auth_header)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["groups"]) == 1
+        assert data["groups"][0]["name"] == "Sports"
+        assert data["groups"][0]["channelCount"] == 2
+        assert len(data["groups"][0]["channels"]) == 2
+        assert data["groups"][0]["channels"][0]["name"] == "TSN"
+        assert len(data["ungrouped"]) == 1
+        assert data["ungrouped"][0]["name"] == "CBC"
+
+    def test_get_grouped_channels_empty(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Empty grouped response returns empty arrays."""
+        mock_response = GroupedChannelsResponse(groups=[], ungrouped=[])
+
+        with patch(
+            "app.routers.channels.get_grouped_channels", new_callable=AsyncMock
+        ) as mock_get_grouped:
+            mock_get_grouped.return_value = mock_response
+
+            response = client.get("/api/channels/grouped", headers=auth_header)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["groups"] == []
+        assert data["ungrouped"] == []
+
+    def test_get_grouped_channels_dispatcharr_unavailable(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Dispatcharr unavailable returns 503."""
+        with patch(
+            "app.routers.channels.get_grouped_channels", new_callable=AsyncMock
+        ) as mock_get_grouped:
+            mock_get_grouped.side_effect = DispatchrrUnavailableError("Connection failed")
+
+            response = client.get("/api/channels/grouped", headers=auth_header)
+
+        assert response.status_code == 503
+        assert response.json() == {"detail": "Channel service unavailable"}
+
+    def test_get_grouped_channels_admin_can_access(
+        self, client: TestClient, admin_auth_header: dict[str, str]
+    ) -> None:
+        """Admin users can also access grouped channels endpoint."""
+        mock_response = GroupedChannelsResponse(
+            groups=[
+                ChannelGroupWithChannels(
+                    id=1,
+                    name="News",
+                    channel_count=1,
+                    channels=[
+                        Channel(
+                            id="uuid-1",
+                            name="CNN",
+                            stream_url="https://streams.example.com/proxy/ts/stream/uuid-1",
+                            guide_id="1",
+                        ),
+                    ],
+                ),
+            ],
+            ungrouped=[],
+        )
+
+        with patch(
+            "app.routers.channels.get_grouped_channels", new_callable=AsyncMock
+        ) as mock_get_grouped:
+            mock_get_grouped.return_value = mock_response
+
+            response = client.get("/api/channels/grouped", headers=admin_auth_header)
+
+        assert response.status_code == 200
+        assert len(response.json()["groups"]) == 1
+
+    def test_get_grouped_channels_response_uses_camel_case(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Response uses camelCase field names."""
+        mock_response = GroupedChannelsResponse(
+            groups=[
+                ChannelGroupWithChannels(
+                    id=1,
+                    name="Sports",
+                    channel_count=1,
+                    channels=[
+                        Channel(
+                            id="uuid-1",
+                            name="TSN",
+                            stream_url="https://streams.example.com/proxy/ts/stream/uuid-1",
+                            guide_id="1",
+                        ),
+                    ],
+                ),
+            ],
+            ungrouped=[],
+        )
+
+        with patch(
+            "app.routers.channels.get_grouped_channels", new_callable=AsyncMock
+        ) as mock_get_grouped:
+            mock_get_grouped.return_value = mock_response
+
+            response = client.get("/api/channels/grouped", headers=auth_header)
+
+        data = response.json()
+        # Check camelCase is used
+        assert "channelCount" in data["groups"][0]
+        assert "streamUrl" in data["groups"][0]["channels"][0]
+        assert "guideId" in data["groups"][0]["channels"][0]
+        # Check snake_case is NOT used
+        assert "channel_count" not in data["groups"][0]
+        assert "stream_url" not in data["groups"][0]["channels"][0]
+        assert "guide_id" not in data["groups"][0]["channels"][0]
+
+    def test_get_grouped_channels_only_ungrouped(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Handles response with only ungrouped channels."""
+        mock_response = GroupedChannelsResponse(
+            groups=[],
+            ungrouped=[
+                Channel(
+                    id="uuid-1",
+                    name="Channel 1",
+                    stream_url="https://streams.example.com/proxy/ts/stream/uuid-1",
+                    guide_id="1",
+                ),
+                Channel(
+                    id="uuid-2",
+                    name="Channel 2",
+                    stream_url="https://streams.example.com/proxy/ts/stream/uuid-2",
+                    guide_id="2",
+                ),
+            ],
+        )
+
+        with patch(
+            "app.routers.channels.get_grouped_channels", new_callable=AsyncMock
+        ) as mock_get_grouped:
+            mock_get_grouped.return_value = mock_response
+
+            response = client.get("/api/channels/grouped", headers=auth_header)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["groups"] == []
+        assert len(data["ungrouped"]) == 2

@@ -6,6 +6,7 @@ import { useHighlightFeature } from '@/hooks/useHighlightFeature'
 import { HighlightButton } from '@/components/HighlightButton'
 import { HighlightModal } from '@/components/HighlightModal'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useUIStore } from '@/stores/uiStore'
 
 export interface ErsatzTVVideoControlsProps {
   isTheaterMode: boolean
@@ -49,12 +50,16 @@ export function ErsatzTVVideoControls({
 
   const isPlaying = !paused
 
+  // Volume persistence
+  const setStoredVolume = useUIStore((s) => s.setVolume)
+
   const handlePlayPause = () => {
     remote.togglePaused()
   }
 
   const handleVolumeChange = (newVolume: number) => {
     remote.changeVolume(newVolume)
+    setStoredVolume(newVolume)
   }
 
   const handleMuteToggle = () => {

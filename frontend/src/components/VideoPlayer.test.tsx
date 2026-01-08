@@ -49,6 +49,8 @@ describe('VideoPlayer', () => {
         isTheaterMode: false,
         setTheaterMode: vi.fn(),
         toggleTheaterMode: vi.fn(),
+        volume: 1,
+        setVolume: vi.fn(),
       }
       return selector(state)
     })
@@ -208,6 +210,8 @@ describe('VideoPlayer error recovery', () => {
         isTheaterMode: false,
         setTheaterMode: vi.fn(),
         toggleTheaterMode: vi.fn(),
+        volume: 1,
+        setVolume: vi.fn(),
       }
       return selector(state)
     })

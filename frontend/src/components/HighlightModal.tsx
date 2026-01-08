@@ -214,7 +214,7 @@ export function HighlightModal({
                 ) : (
                   <Download className="h-4 w-4" />
                 )}
-                Download WebM
+                Download WebM (Slow)
               </Button>
             )}
           </DialogFooter>

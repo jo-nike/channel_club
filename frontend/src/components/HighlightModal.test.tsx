@@ -219,7 +219,7 @@ describe('HighlightModal', () => {
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /download mp4/i })).toBeInTheDocument()
-        expect(screen.getByRole('button', { name: /download webm/i })).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: /download webm \(slow\)/i })).toBeInTheDocument()
       })
     })
 
@@ -229,7 +229,7 @@ describe('HighlightModal', () => {
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /download mp4/i })).toBeInTheDocument()
-        expect(screen.queryByRole('button', { name: /download webm/i })).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: /download webm \(slow\)/i })).not.toBeInTheDocument()
       })
     })
 
@@ -243,7 +243,7 @@ describe('HighlightModal', () => {
         expect(screen.getByLabelText('Highlight preview')).toBeInTheDocument()
       })
 
-      const webmButton = screen.getByRole('button', { name: /download webm/i })
+      const webmButton = screen.getByRole('button', { name: /download webm \(slow\)/i })
       fireEvent.click(webmButton)
 
       await waitFor(() => {
@@ -274,7 +274,7 @@ describe('HighlightModal', () => {
         expect(screen.getByLabelText('Highlight preview')).toBeInTheDocument()
       })
 
-      const webmButton = screen.getByRole('button', { name: /download webm/i })
+      const webmButton = screen.getByRole('button', { name: /download webm \(slow\)/i })
       fireEvent.click(webmButton)
 
       await waitFor(() => {

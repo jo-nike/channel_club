@@ -4,10 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from loguru import logger
 
 from app.models.auth import TokenPayload
-from app.models.channel import Channel, CurrentChannelResponse, SetChannelRequest
+from app.models.channel import Channel, CurrentChannelResponse, GroupedChannelsResponse, SetChannelRequest
 from app.routers.auth_deps import get_current_user, require_admin
 from app.services import channel_state
-from app.services.dispatcharr import DispatchrrUnavailableError, get_lineup
+from app.services.dispatcharr import DispatchrrUnavailableError, get_grouped_channels, get_lineup
 
 router = APIRouter(tags=["channels"])
 log = logger.bind(router="channels")
@@ -38,6 +38,42 @@ async def list_channels(
         return channels
     except DispatchrrUnavailableError:
         log.warning("Channel service unavailable")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Channel service unavailable",
+        ) from None
+
+
+@router.get("/channels/grouped", response_model=GroupedChannelsResponse)
+async def list_grouped_channels(
+    current_user: TokenPayload = Depends(get_current_user),
+) -> GroupedChannelsResponse:
+    """Get channels organized by groups from Dispatcharr.
+
+    Requires JWT authentication. Returns channels organized into their
+    respective groups, with ungrouped channels in a separate list.
+
+    Args:
+        current_user: Authenticated user from JWT token.
+
+    Returns:
+        GroupedChannelsResponse with groups and ungrouped channels.
+
+    Raises:
+        HTTPException: 503 if Dispatcharr is unavailable.
+    """
+    log.debug("GET /channels/grouped request")
+    try:
+        grouped = await get_grouped_channels()
+        total_channels = sum(len(g.channels) for g in grouped.groups) + len(grouped.ungrouped)
+        log.debug(
+            "Returning {} groups with {} total channels",
+            len(grouped.groups),
+            total_channels,
+        )
+        return grouped
+    except DispatchrrUnavailableError as e:
+        log.warning("Channel service unavailable: {}", str(e))
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Channel service unavailable",

@@ -6,7 +6,7 @@ import { useAuthStore } from '@/stores/authStore'
 import * as api from '@/services/api'
 
 vi.mock('@/services/api', () => ({
-  fetchChannels: vi.fn(),
+  fetchGroupedChannels: vi.fn(),
   setCurrentChannel: vi.fn(),
   clearCurrentChannel: vi.fn(),
 }))
@@ -76,6 +76,18 @@ const mockChannels = [
   { id: '2', name: 'Channel 2', streamUrl: 'http://stream2.m3u8', guideId: '2' },
 ]
 
+const mockGroupedChannelsResponse = {
+  groups: [
+    {
+      id: 1,
+      name: 'Sports',
+      channelCount: 2,
+      channels: mockChannels,
+    },
+  ],
+  ungrouped: [],
+}
+
 describe('AdminModal', () => {
   const defaultProps = {
     open: true,
@@ -95,7 +107,7 @@ describe('AdminModal', () => {
       role: 'admin',
       isAuthenticated: true,
     })
-    vi.mocked(api.fetchChannels).mockResolvedValue(mockChannels)
+    vi.mocked(api.fetchGroupedChannels).mockResolvedValue(mockGroupedChannelsResponse)
   })
 
   describe('Tab rendering', () => {
@@ -228,11 +240,15 @@ describe('AdminModal', () => {
     it('shows ChannelList component in Channels tab (AC #1)', async () => {
       render(<AdminModal {...defaultProps} />)
 
-      // ChannelList fetches channels on mount, should show channel items
+      // ChannelList fetches grouped channels on mount, should show group headers
       await waitFor(() => {
-        expect(screen.getByText('Channel 1')).toBeInTheDocument()
-        expect(screen.getByText('Channel 2')).toBeInTheDocument()
+        expect(screen.getByText('Sports')).toBeInTheDocument()
       })
+
+      // Expand the group to see channels
+      fireEvent.click(screen.getByText('Sports'))
+      expect(screen.getByText('Channel 1')).toBeInTheDocument()
+      expect(screen.getByText('Channel 2')).toBeInTheDocument()
     })
 
     it('shows Clear Channel option at top when a channel is selected (AC #1)', async () => {
@@ -251,7 +267,7 @@ describe('AdminModal', () => {
       render(<AdminModal {...defaultProps} />)
 
       await waitFor(() => {
-        expect(screen.getByText('Channel 1')).toBeInTheDocument()
+        expect(screen.getByText('Sports')).toBeInTheDocument()
       })
 
       expect(screen.queryByRole('button', { name: /clear channel/i })).not.toBeInTheDocument()
@@ -264,9 +280,11 @@ describe('AdminModal', () => {
       render(<AdminModal {...defaultProps} onOpenChange={onOpenChange} />)
 
       await waitFor(() => {
-        expect(screen.getByText('Channel 1')).toBeInTheDocument()
+        expect(screen.getByText('Sports')).toBeInTheDocument()
       })
 
+      // Expand group and select channel
+      fireEvent.click(screen.getByText('Sports'))
       fireEvent.click(screen.getByText('Channel 1'))
 
       await waitFor(() => {
@@ -313,7 +331,7 @@ describe('AdminModal', () => {
       render(<AdminModal {...defaultProps} />)
 
       await waitFor(() => {
-        expect(screen.getByText('Channel 1')).toBeInTheDocument()
+        expect(screen.getByText('Sports')).toBeInTheDocument()
       })
 
       // Check that the channels are within a scrollable tabpanel container
