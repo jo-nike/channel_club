@@ -43,6 +43,42 @@ def get_ersatztv_stream_url(channel_id: str) -> str | None:
     return None
 
 
+def get_dispatcharr_stream_url(channel_id: str) -> str:
+    """Construct Dispatcharr stream URL for a channel UUID.
+
+    Args:
+        channel_id: Dispatcharr channel UUID.
+
+    Returns:
+        Stream URL for the Dispatcharr channel.
+    """
+    stream_url = f"{settings.stream_base_url}/proxy/ts/stream/{channel_id}"
+    log.debug("Constructed Dispatcharr stream URL: {} -> {}", channel_id, stream_url)
+    return stream_url
+
+
+def get_stream_url(channel_id: str) -> str | None:
+    """Get stream URL for a channel, checking ErsatzTV first then Dispatcharr.
+
+    Args:
+        channel_id: Channel ID (ErsatzTV ID or Dispatcharr UUID).
+
+    Returns:
+        Stream URL if found, None otherwise.
+    """
+    # Try ErsatzTV first
+    url = get_ersatztv_stream_url(channel_id)
+    if url:
+        return url
+
+    # Fall back to Dispatcharr - UUIDs are typically 36 chars with hyphens
+    # or 32 chars without. Accept any ID as a valid Dispatcharr channel.
+    if channel_id:
+        return get_dispatcharr_stream_url(channel_id)
+
+    return None
+
+
 class ChannelRecorder:
     """Manages FFmpeg recording for a single channel."""
 
@@ -467,7 +503,7 @@ class HighlightService:
 
         Args:
             channel_id: Unique channel identifier.
-            stream_url: URL of the stream to record (may be overridden for ErsatzTV).
+            stream_url: URL of the stream to record.
 
         Returns:
             True if recorder is running (started or already running).
@@ -476,11 +512,11 @@ class HighlightService:
             log.debug("Highlight feature disabled, not starting recorder")
             return False
 
-        # Try to look up ErsatzTV channel to get direct stream URL
-        ersatztv_url = get_ersatztv_stream_url(channel_id)
-        if ersatztv_url:
-            stream_url = ersatztv_url
-            log.debug("Using direct ErsatzTV stream URL: {}", stream_url)
+        # Use unified stream URL lookup (ErsatzTV first, then Dispatcharr)
+        resolved_url = get_stream_url(channel_id)
+        if resolved_url:
+            stream_url = resolved_url
+            log.debug("Using resolved stream URL: {}", stream_url)
 
         async with self._lock:
             if channel_id in self._recorders:

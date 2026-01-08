@@ -67,10 +67,10 @@ async def get_highlight_status(
     # Auto-start recording if enabled but not already recording
     status = highlight_service.get_status(channel_id)
     if status["enabled"] and not status["recording"]:
-        # Try to start recording for this channel
-        from app.services.highlight import get_ersatztv_stream_url
+        # Try to start recording for this channel (supports both ErsatzTV and Dispatcharr)
+        from app.services.highlight import get_stream_url
 
-        stream_url = get_ersatztv_stream_url(channel_id)
+        stream_url = get_stream_url(channel_id)
         if stream_url:
             log.info("Auto-starting highlight recording for channel {}", channel_id)
             started = await highlight_service.start_recording(channel_id, stream_url)
