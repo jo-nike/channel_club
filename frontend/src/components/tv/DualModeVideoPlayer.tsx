@@ -49,10 +49,12 @@ export function DualModeVideoPlayer({
   }
 
   // Live channel - use mpegts.js player
+  // Use backendId for highlight recording (real Dispatcharr ID), fallback to id
   if (channel.type === 'live') {
     return (
       <LiveVideoPlayer
         key={`live-${channel.streamUrl}`}
+        channelId={channel.backendId || channel.id}
         streamUrl={channel.streamUrl}
         channelName={channel.name}
         isTheaterMode={isTheaterMode}
@@ -66,6 +68,7 @@ export function DualModeVideoPlayer({
   return (
     <HLSVideoPlayerWrapper
       key={`hls-${channel.id}`}
+      channelId={channel.id}
       streamUrl={getErsatzTVStreamUrl(channel.id)}
       title={channel.name}
       isTheaterMode={isTheaterMode}
@@ -105,6 +108,7 @@ function NoLiveChannelPlaceholder() {
 // ============================================================================
 
 interface LiveVideoPlayerProps {
+  channelId: string
   streamUrl: string
   channelName: string
   isTheaterMode: boolean
@@ -113,6 +117,7 @@ interface LiveVideoPlayerProps {
 }
 
 function LiveVideoPlayer({
+  channelId,
   streamUrl,
   channelName,
   isTheaterMode,
@@ -321,6 +326,7 @@ function LiveVideoPlayer({
         isVisible={isVisible}
         isMobile={isMobile}
         isTVMode={isTVMode}
+        channelId={channelId}
         onPlayPause={handlePlayPause}
         onVolumeChange={handleVolumeChange}
         onMuteToggle={handleMuteToggle}
@@ -345,6 +351,7 @@ function LiveVideoPlayer({
 // ============================================================================
 
 interface HLSVideoPlayerWrapperProps {
+  channelId: string
   streamUrl: string
   title?: string
   isTheaterMode: boolean
@@ -353,6 +360,7 @@ interface HLSVideoPlayerWrapperProps {
 }
 
 function HLSVideoPlayerWrapper({
+  channelId,
   streamUrl,
   title,
   isTheaterMode,
@@ -408,6 +416,7 @@ function HLSVideoPlayerWrapper({
           containerRef={containerRef}
           isTheaterMode={isTheaterMode}
           isMobile={isMobile}
+          channelId={channelId}
           onTheaterModeToggle={onTheaterModeToggle}
         />
       </MediaPlayer>
@@ -426,11 +435,13 @@ function HLSControlsWrapper({
   containerRef,
   isTheaterMode,
   isMobile,
+  channelId,
   onTheaterModeToggle,
 }: {
   containerRef: React.RefObject<HTMLDivElement | null>
   isTheaterMode: boolean
   isMobile: boolean
+  channelId: string
   onTheaterModeToggle: () => void
 }) {
   const paused = useMediaState('paused')
@@ -506,6 +517,7 @@ function HLSControlsWrapper({
       isVisible={isVisible}
       isMobile={isMobile}
       isTVMode={isTVMode}
+      channelId={channelId}
       onTheaterModeToggle={onTheaterModeToggle}
       onMouseEnter={() => setIsHoveringControls(true)}
       onMouseLeave={() => setIsHoveringControls(false)}

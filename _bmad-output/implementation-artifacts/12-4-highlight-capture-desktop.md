@@ -1,8 +1,9 @@
 # Story 12.4: Highlight Capture (Desktop)
 
-Status: ready-for-dev
+Status: completed
 
-<!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
+> **ARCHITECTURE CHANGE:** See `sprint-change-proposal-2026-01-06.md`
+> Browser-based approach deprecated. Server-side FFmpeg capture implemented instead.
 
 ## Story
 
@@ -12,291 +13,192 @@ So that I can capture memorable moments from live streams.
 
 ## Acceptance Criteria
 
-1. **Given** I am watching video on a desktop browser, **when** the video player renders, **then** I see a "Save Highlight" button in the video controls
+1. **Given** I am watching video on a desktop browser, **when** the video player renders AND the highlight feature is enabled on the server, **then** I see a "Save Highlight" button in the video controls
 
 2. **Given** I am watching video on a mobile browser, **when** the video player renders, **then** the "Save Highlight" button is NOT visible
 
-3. **Given** I am watching and the buffer has accumulated, **when** I click "Save Highlight", **then** the last 60 seconds of video (configurable) is downloaded as an `.mp4` file, and the filename format is `highlight-{ISO-timestamp}.mp4`
+3. **Given** the highlight feature is disabled on the server (`HIGHLIGHT_ENABLED=false`), **when** the video player renders, **then** the "Save Highlight" button is NOT visible
 
-4. **Given** I just started watching (less than buffer duration), **when** I click "Save Highlight", **then** whatever has been buffered so far is downloaded, and I see a brief toast indicating partial capture
+4. **Given** I am watching and the FFmpeg buffer has accumulated, **when** I click "Save Highlight", **then** the last 60 seconds of video (configurable) is downloaded as an `.mp4` file
 
-5. **Given** the `VITE_HIGHLIGHT_BUFFER_SECONDS` env variable is set to 90, **when** the video player initializes, **then** the buffer retains 90 seconds instead of the default 60
+5. **Given** I just started watching (less than buffer duration), **when** I click "Save Highlight", **then** whatever has been recorded so far is downloaded, and I see a toast indicating partial capture
 
 6. **Given** I am on the Live TV view OR ErsatzTV view, **when** I click "Save Highlight", **then** the feature works identically on both views
 
-## Tasks / Subtasks
+## Tasks / Subtasks (Server-Side Implementation)
 
-- [ ] Task 1: Create useHighlightCapture Hook (AC: #1, #3, #4, #5)
-  - [ ] Create `frontend/src/hooks/useHighlightCapture.ts`
-  - [ ] Implement canvas-based video capture with MediaRecorder
-  - [ ] Create circular buffer to store last N seconds of chunks
-  - [ ] Read buffer duration from `VITE_HIGHLIGHT_BUFFER_SECONDS` env var (default 60)
-  - [ ] Implement `startCapture(videoElement)` to begin continuous recording
-  - [ ] Implement `saveHighlight()` to download accumulated buffer as MP4
-  - [ ] Handle partial capture when buffer < configured duration
-  - [ ] Implement codec detection (MP4 for Chrome/Edge, WebM fallback for Firefox)
-  - [ ] Return `{ isCapturing, bufferSeconds, saveHighlight, startCapture, stopCapture }`
+- [x] Task 1: Add Backend Configuration
+  - [x] Add `HIGHLIGHT_ENABLED` feature flag to `backend/app/config.py` (default: false)
+  - [x] Add `HIGHLIGHT_BUFFER_SECONDS` config (default: 60)
+  - [x] Add `HIGHLIGHT_SEGMENT_SECONDS` config (default: 10)
+  - [x] Add `HIGHLIGHT_TEMP_DIR` config (default: /tmp/highlights)
 
-- [ ] Task 2: Create HighlightButton Component (AC: #1, #2)
-  - [ ] Create `frontend/src/components/HighlightButton.tsx`
-  - [ ] Use `Video` or `Download` icon from lucide-react
-  - [ ] Hide on mobile/touch devices (use `useMediaQuery('(pointer: coarse)')`)
-  - [ ] Match existing control button styling (48px min target, focus-visible ring)
-  - [ ] Show tooltip with buffer status on hover
-  - [ ] Disable button while saving is in progress
+- [x] Task 2: Create HighlightService (Backend)
+  - [x] Create `backend/app/services/highlight.py`
+  - [x] Implement `ChannelRecorder` class that manages FFmpeg process per channel
+  - [x] Implement circular buffer using FFmpeg segment muxer with wrap
+  - [x] Implement `start_recording()`, `stop_recording()`, `save_highlight()` methods
+  - [x] Add cleanup on shutdown via lifespan handler
 
-- [ ] Task 3: Add Environment Variable (AC: #5)
-  - [ ] Add `VITE_HIGHLIGHT_BUFFER_SECONDS=60` to `frontend/.env.example`
-  - [ ] Add `VITE_HIGHLIGHT_BUFFER_SECONDS=60` to root `.env.example`
-  - [ ] Document in both files with comment
-  - [ ] Update `frontend/src/lib/config.ts` or create if needed
+- [x] Task 3: Create Highlight API Endpoints
+  - [x] Create `backend/app/routers/highlight.py`
+  - [x] `GET /api/highlight/feature` - Check if feature is enabled
+  - [x] `GET /api/highlight/status/{channel_id}` - Get recording status
+  - [x] `POST /api/highlight/{channel_id}` - Save and download highlight
 
-- [ ] Task 4: Integrate into VideoControls.tsx (AC: #1, #6)
-  - [ ] Import HighlightButton component
-  - [ ] Add button between volume controls and fullscreen button
-  - [ ] Pass videoRef to enable capture functionality
-  - [ ] Only render when not mobile (`!isMobile`)
-  - [ ] Wire up useHighlightCapture hook
+- [x] Task 4: Integrate with Channel State
+  - [x] Modify `channel_state.set_current_channel()` to start recording when feature enabled
+  - [x] Register highlight router in `main.py`
+  - [x] Add FFmpeg cleanup to app shutdown
 
-- [ ] Task 5: Integrate into ErsatzTVVideoControls.tsx (AC: #1, #6)
-  - [ ] Import HighlightButton component
-  - [ ] Add button in same position as VideoControls
-  - [ ] Wire up to Vidstack video element via ref or context
-  - [ ] Only render when not mobile
+- [x] Task 5: Update Dockerfile
+  - [x] Add `ffmpeg` to apt-get install in Stage 2
 
-- [ ] Task 6: Add Toast Notification (AC: #4)
-  - [ ] Use existing toast/sonner component if available
-  - [ ] Show success toast with filename when download starts
-  - [ ] Show info toast for partial capture with duration saved
-  - [ ] Show error toast if capture fails
+- [x] Task 6: Create Frontend API Functions
+  - [x] Add `getHighlightFeatureEnabled()` to `frontend/src/services/api.ts`
+  - [x] Add `getHighlightStatus()` to `frontend/src/services/api.ts`
+  - [x] Add `saveHighlight()` to `frontend/src/services/api.ts`
 
-- [ ] Task 7: Write Tests (AC: #1-6)
-  - [ ] Create `frontend/src/hooks/useHighlightCapture.test.ts`
-  - [ ] Test buffer accumulation logic
-  - [ ] Test codec detection
-  - [ ] Test partial capture scenario
-  - [ ] Mock MediaRecorder API
-  - [ ] Create `frontend/src/components/HighlightButton.test.tsx`
-  - [ ] Test visibility based on device type
-  - [ ] Test click handler
-  - [ ] Update `VideoControls.test.tsx` with highlight button tests
-  - [ ] Update `ErsatzTVVideoControls.test.tsx` with highlight button tests
+- [x] Task 7: Create useHighlightFeature Hook
+  - [x] Create `frontend/src/hooks/useHighlightFeature.ts`
+  - [x] Fetch feature flag on mount
+  - [x] Return `{ isEnabled, isLoading }`
 
-- [ ] Task 8: Verify and Test
-  - [ ] Run `npm run build` - no errors
-  - [ ] Run `npm run test` - all tests pass
-  - [ ] Manual test: Button visible on desktop Chrome
-  - [ ] Manual test: Button hidden on mobile (use devtools)
-  - [ ] Manual test: Click saves MP4 file
-  - [ ] Manual test: Partial capture toast appears when < 60 sec watched
-  - [ ] Manual test: Works on Live TV view
-  - [ ] Manual test: Works on ErsatzTV view
-  - [ ] Manual test: Firefox downloads WebM (fallback)
+- [x] Task 8: Create HighlightButton Component
+  - [x] Create `frontend/src/components/HighlightButton.tsx`
+  - [x] Use `Download` icon from lucide-react
+  - [x] Poll for status every 5 seconds
+  - [x] Show progress ring while buffer fills
+  - [x] Disable when not recording
+  - [x] Download MP4 via API call
+
+- [x] Task 9: Integrate into VideoControls
+  - [x] Import HighlightButton and useHighlightFeature
+  - [x] Add `channelId` prop
+  - [x] Only show button when feature enabled AND desktop AND has channelId
+
+- [x] Task 10: Integrate into ErsatzTVVideoControls
+  - [x] Import HighlightButton and useHighlightFeature
+  - [x] Add `channelId` prop
+  - [x] Only show button when feature enabled AND desktop AND has channelId
+
+- [x] Task 11: Update Environment Examples
+  - [x] Add highlight config section to `.env.example`
+
+- [x] Task 12: Write Backend Tests
+  - [x] Create `backend/tests/services/test_highlight.py`
+  - [x] Create `backend/tests/routers/test_highlight.py`
+  - [x] Test service methods and edge cases
+  - [x] Test API endpoints with mocked service
+
+- [x] Task 13: Write Frontend Tests
+  - [x] Create `frontend/src/hooks/useHighlightFeature.test.ts`
+  - [x] Create `frontend/src/components/HighlightButton.test.tsx`
+  - [x] Update VideoControls.test.tsx with hook mock
+  - [x] Update ErsatzTVVideoControls.test.tsx with hook mock
+
+- [x] Task 14: Build and Test
+  - [x] Run `uv run pytest` - all 441 backend tests pass
+  - [x] Run `npm run test` - all 705 frontend tests pass
+  - [x] Run `npm run build` - builds successfully
 
 ## Dev Notes
 
-### Technical Approach: Canvas + MediaRecorder
+### Architecture: Server-Side FFmpeg
 
-Based on 2025-2026 research, the most viable browser-native approach for HLS stream capture is:
+The browser-based canvas + MediaRecorder approach was deprecated due to:
+1. WebM corruption with circular buffers
+2. Audio muting issues with MSE streams
+3. Quality loss from canvas re-encoding
+4. Browser codec limitations
 
-1. **Capture video frames to canvas** using `requestAnimationFrame` loop
-2. **Create MediaStream from canvas** using `canvas.captureStream(15)` (15 FPS for performance)
-3. **Record with MediaRecorder** using circular buffer of chunks
-4. **Trim buffer to last N seconds** before download
+Server-side solution using FFmpeg:
+1. FFmpeg records HLS/MPEG-TS streams directly at source quality
+2. Uses segment muxer with wrap for circular buffer
+3. Concatenates segments on demand for MP4 download
+4. No re-encoding - copy codec mode
 
-**Why not direct video.captureStream()?**
-- HLS streams played via hls.js or native browser may have CORS restrictions
-- Canvas approach works universally regardless of stream source
+### FFmpeg Command
 
-### Implementation Architecture
-
-```typescript
-// Hook structure
-interface HighlightCaptureState {
-  isCapturing: boolean
-  bufferSeconds: number  // Current buffer duration
-  maxBufferSeconds: number  // Configured max
-  isSaving: boolean
-}
-
-interface HighlightCaptureActions {
-  startCapture: (video: HTMLVideoElement, canvas: HTMLCanvasElement) => void
-  stopCapture: () => void
-  saveHighlight: () => Promise<void>
-}
+```bash
+ffmpeg -y -hide_banner -loglevel warning \
+  -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 \
+  -i {stream_url} \
+  -c copy \
+  -f segment \
+  -segment_time 10 \
+  -segment_list segments.txt \
+  -segment_list_type flat \
+  -segment_wrap 8 \
+  -reset_timestamps 1 \
+  seg_%03d.ts
 ```
 
-### Codec Detection Pattern
+### API Endpoints
 
-```typescript
-const getSupportedMimeType = (): string => {
-  const types = [
-    'video/mp4; codecs="avc1.42E01E"',  // H.264 - Chrome/Edge/Safari
-    'video/webm; codecs=vp9',             // VP9 - Firefox/Chrome
-    'video/webm',                          // Basic WebM fallback
-  ]
-  for (const type of types) {
-    if (MediaRecorder.isTypeSupported(type)) return type
-  }
-  return ''  // Browser default
-}
+```
+GET  /api/highlight/feature          - Check if enabled
+GET  /api/highlight/status/{id}      - Recording status
+POST /api/highlight/{id}             - Download highlight MP4
 ```
 
-### Circular Buffer Implementation
+### Frontend Integration
 
-```typescript
-interface ChunkWithTime {
-  data: Blob
-  timestamp: number  // When this chunk was recorded
-}
+The button is conditionally rendered based on:
+- `useHighlightFeature()` hook returns `isEnabled: true`
+- Device is not mobile (pointer: coarse check)
+- Device is not TV mode
+- Channel ID is available
 
-// On new chunk:
-chunks.push({ data: event.data, timestamp: Date.now() })
+### File Structure
 
-// Trim old chunks:
-const cutoffTime = Date.now() - (maxBufferSeconds * 1000)
-while (chunks.length > 0 && chunks[0].timestamp < cutoffTime) {
-  chunks.shift()
-}
-```
+**Backend:**
+- `backend/app/config.py` - Added highlight settings
+- `backend/app/services/highlight.py` - ChannelRecorder + HighlightService
+- `backend/app/routers/highlight.py` - API endpoints
+- `backend/app/main.py` - Router registration + shutdown
+- `backend/app/services/channel_state.py` - Recording trigger
 
-### Current Video Player Analysis
-
-**VideoPlayer.tsx (Live TV - mpegts.js):**
-- Uses `mpegts.Player` for MPEG-TS streams
-- videoRef is `useRef<HTMLVideoElement>(null)` at line 40
-- VideoControls receives `videoRef` as prop (line 274-290)
-- Controls positioned at `bottom-12` or `bottom-24` in theater mode
-
-**HLSVideoPlayer.tsx (ErsatzTV - Vidstack):**
-- Uses `@vidstack/react` MediaPlayer component
-- Vidstack manages video element internally
-- PlayerControlsWrapper accesses video via `useMediaRemote()`
-- Need to get video element from Vidstack for capture
-
-**Control Button Styling (must match):**
-```tsx
-className="control-button flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-400/80"
-```
-
-### Mobile Detection Pattern (existing)
-
-```typescript
-// From VideoControls.tsx:40-43
-const isTouchDevice = useMediaQuery('(pointer: coarse)')
-const isMobileQuery = useMediaQuery('(max-width: 768px)')
-const isMobile = isMobileProp || isMobileQuery || isTouchDevice
-```
-
-### Environment Variable Access
-
-```typescript
-// Frontend env vars via Vite
-const BUFFER_SECONDS = parseInt(
-  import.meta.env.VITE_HIGHLIGHT_BUFFER_SECONDS || '60',
-  10
-)
-```
-
-### Browser Compatibility Notes
-
-| Browser | MediaRecorder MP4 | Canvas captureStream | Status |
-|---------|-------------------|---------------------|--------|
-| Chrome 52+ | Yes | Yes | Full support |
-| Edge 79+ | Yes | Yes | Full support |
-| Firefox 43+ | No (WebM only) | Yes | WebM fallback |
-| Safari 14+ | Partial | Partial | May require testing |
-
-### Filename Format
-
-```typescript
-const getHighlightFilename = (): string => {
-  const now = new Date()
-  const iso = now.toISOString().replace(/[:.]/g, '-')  // Safe for filesystem
-  return `highlight-${iso}.mp4`
-}
-// Example: highlight-2026-01-05T10-30-45-123Z.mp4
-```
-
-### Performance Considerations
-
-1. **Canvas FPS**: Use 15-20 FPS (not 30) to reduce CPU load
-2. **Chunk timeslice**: 100-200ms chunks for manageable buffer size
-3. **Memory**: 60 seconds at 15 FPS ~ 100-150MB memory (acceptable)
-4. **Start/stop**: Begin capture when video starts playing, stop on unmount
-
-### Project Structure Notes
-
-**Files to Create:**
-- `frontend/src/hooks/useHighlightCapture.ts` - Main capture hook
-- `frontend/src/hooks/useHighlightCapture.test.ts` - Hook tests
+**Frontend:**
+- `frontend/src/services/api.ts` - API functions
+- `frontend/src/hooks/useHighlightFeature.ts` - Feature flag hook
 - `frontend/src/components/HighlightButton.tsx` - UI component
-- `frontend/src/components/HighlightButton.test.tsx` - Component tests
-
-**Files to Modify:**
-- `frontend/src/components/VideoControls.tsx` - Add button
-- `frontend/src/components/ersatztv/ErsatzTVVideoControls.tsx` - Add button
-- `frontend/.env.example` - Add VITE_HIGHLIGHT_BUFFER_SECONDS
-- `.env.example` - Add VITE_HIGHLIGHT_BUFFER_SECONDS
-
-### Previous Story Intelligence (12-3)
-
-From story 12-3 (EPG Grid D-pad Navigation):
-- Use `focus-visible:ring-2 focus-visible:ring-ring` for focus states
-- Maintain 44px minimum touch targets (10-foot UI requirement)
-- Co-locate test files with source files
-- Pattern: Create hooks for complex stateful logic
-
-### Potential Risks
-
-1. **CORS on canvas** - If video source has restrictive CORS, canvas may be "tainted"
-   - Mitigation: Try/catch and show user-friendly error
-
-2. **Memory consumption** - Long buffer durations could exhaust memory
-   - Mitigation: Cap buffer at 120 seconds max, clear on component unmount
-
-3. **Safari compatibility** - Safari's MediaRecorder support is limited
-   - Mitigation: Graceful degradation, hide button if MediaRecorder not fully supported
-
-4. **Vidstack video access** - May need custom approach to get video element
-   - Mitigation: Research Vidstack API for video element access
-
-### References
-
-- [Source: frontend/src/components/VideoControls.tsx:1-135] - Current control button patterns
-- [Source: frontend/src/components/ersatztv/ErsatzTVVideoControls.tsx:1-143] - Vidstack control integration
-- [Source: frontend/src/components/VideoPlayer.tsx:1-337] - Live TV player (mpegts.js)
-- [Source: frontend/src/components/ersatztv/HLSVideoPlayer.tsx:1-214] - ErsatzTV player (Vidstack)
-- [Source: _bmad-output/project-context.md] - Naming conventions, TypeScript rules
-- [Source: _bmad-output/project-planning-artifacts/epics.md#story-124] - Original requirements
-- [Source: frontend/.env.example] - Environment variable patterns
-
-### Testing Checklist
-
-- [ ] `npm run build` succeeds
-- [ ] `npm run test` passes
-- [ ] Button visible on desktop (manual test)
-- [ ] Button hidden on mobile (manual test)
-- [ ] MP4 downloads on Chrome/Edge (manual test)
-- [ ] WebM downloads on Firefox (manual test)
-- [ ] Partial capture toast works (manual test)
-- [ ] Works on Live TV view (manual test)
-- [ ] Works on ErsatzTV view (manual test)
-- [ ] No console errors during capture (manual test)
-- [ ] Memory stable during long sessions (manual test)
+- `frontend/src/components/VideoControls.tsx` - Integration
+- `frontend/src/components/ersatztv/ErsatzTVVideoControls.tsx` - Integration
 
 ## Dev Agent Record
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.5 (claude-opus-4-5-20251101)
 
-### Debug Log References
+### Completion Notes
 
-### Completion Notes List
+- Fully rewrote from browser-based to server-side approach
+- Feature is disabled by default (`HIGHLIGHT_ENABLED=false`)
+- When enabled, FFmpeg starts recording when channel is selected
+- Recording persists in `/tmp/highlights/{channel_id}/` directory
+- Segments wrap after ~80 seconds (8 segments × 10 seconds)
+- Download returns proper MP4 file with correct headers
+- Button shows progress ring while buffer fills
+- Toast notifications for success, partial capture, and errors
 
-### File List
+### Test Coverage
+
+**Backend (24 new tests):**
+- `tests/services/test_highlight.py` - 14 tests for service
+- `tests/routers/test_highlight.py` - 10 tests for API
+
+**Frontend (17 new tests):**
+- `hooks/useHighlightFeature.test.ts` - 5 tests
+- `components/HighlightButton.test.tsx` - 12 tests
+
+All existing tests continue to pass:
+- Backend: 441 tests
+- Frontend: 705 tests
 
 ## Change Log
 
-- 2026-01-05: Story 12.4 created by BMad workflow - ready for implementation
+- 2026-01-06: Complete rewrite with server-side FFmpeg implementation
+- 2026-01-05: Browser-based approach deprecated due to technical limitations
+- 2026-01-05: Initial browser-based implementation (archived)

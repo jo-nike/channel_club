@@ -85,4 +85,5 @@ export interface UnifiedChannel {
   logoUrl?: string
   group?: string
   guideId?: string // For live channel EPG lookup
+  backendId?: string // Actual backend channel ID (for highlight recording)
 }

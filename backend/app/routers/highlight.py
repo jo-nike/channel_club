@@ -1,0 +1,132 @@
+"""Highlight capture API endpoints.
+
+Provides endpoints for:
+- Checking highlight feature status
+- Saving highlights from active recordings
+- Getting recording status for a channel
+"""
+
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi.responses import Response
+from loguru import logger
+from pydantic import BaseModel
+
+from app.config import settings
+from app.models.auth import TokenPayload
+from app.routers.auth_deps import get_current_user
+from app.services.highlight import highlight_service
+
+router = APIRouter(prefix="/api/highlight", tags=["highlight"])
+log = logger.bind(router="highlight")
+
+
+class HighlightStatusResponse(BaseModel):
+    """Response for highlight feature status."""
+
+    enabled: bool
+    recording: bool
+    bufferSeconds: float = 0
+    maxBufferSeconds: int = 60
+
+
+class HighlightFeatureResponse(BaseModel):
+    """Response for feature flag check."""
+
+    enabled: bool
+
+
+@router.get("/feature", response_model=HighlightFeatureResponse)
+async def get_feature_status(
+    user: TokenPayload = Depends(get_current_user),
+) -> HighlightFeatureResponse:
+    """Check if highlight feature is enabled.
+
+    This endpoint allows the frontend to conditionally show/hide
+    the highlight button based on the server-side feature flag.
+    """
+    log.debug("GET /highlight/feature request")
+    return HighlightFeatureResponse(enabled=settings.highlight_enabled)
+
+
+@router.get("/status/{channel_id}", response_model=HighlightStatusResponse)
+async def get_highlight_status(
+    channel_id: str = Path(..., description="Channel ID to check status for"),
+    user: TokenPayload = Depends(get_current_user),
+) -> HighlightStatusResponse:
+    """Get highlight recording status for a channel.
+
+    Returns whether recording is active and buffer fill level.
+    Auto-starts recording for ErsatzTV channels if not already recording.
+    """
+    log.debug("GET /highlight/status/{} request", channel_id)
+
+    # Auto-start recording if enabled but not already recording
+    status = highlight_service.get_status(channel_id)
+    if status["enabled"] and not status["recording"]:
+        # Try to start recording for this channel
+        from app.services.highlight import get_ersatztv_stream_url
+
+        stream_url = get_ersatztv_stream_url(channel_id)
+        if stream_url:
+            log.info("Auto-starting highlight recording for channel {}", channel_id)
+            started = await highlight_service.start_recording(channel_id, stream_url)
+            if started:
+                # Refresh status after starting
+                status = highlight_service.get_status(channel_id)
+
+    return HighlightStatusResponse(
+        enabled=status["enabled"],
+        recording=status["recording"],
+        bufferSeconds=status.get("bufferSeconds", 0),
+        maxBufferSeconds=status.get("maxBufferSeconds", settings.highlight_buffer_seconds),
+    )
+
+
+@router.post("/{channel_id}")
+async def save_highlight(
+    channel_id: str = Path(..., description="Channel ID to save highlight for"),
+    user: TokenPayload = Depends(get_current_user),
+) -> Response:
+    """Save highlight for a channel.
+
+    Returns the MP4 file as a download with appropriate filename.
+    """
+    log.info("POST /highlight/{} request from user {}", channel_id, user.sub)
+
+    if not settings.highlight_enabled:
+        raise HTTPException(
+            status_code=503,
+            detail="Highlight feature is disabled",
+        )
+
+    mp4_bytes, error = await highlight_service.save_highlight(channel_id)
+
+    if error:
+        log.warning("Highlight save failed for channel {}: {}", channel_id, error)
+        raise HTTPException(
+            status_code=400,
+            detail=error,
+        )
+
+    if not mp4_bytes:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to create highlight",
+        )
+
+    # Generate filename with ISO timestamp
+    timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+    filename = f"highlight-{channel_id}-{timestamp}.mp4"
+
+    log.info("Returning highlight for channel {} ({:.1f} KB)", channel_id, len(mp4_bytes) / 1024)
+
+    return Response(
+        content=mp4_bytes,
+        media_type="video/mp4",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(len(mp4_bytes)),
+        },
+    )

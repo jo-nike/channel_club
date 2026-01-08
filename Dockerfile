@@ -30,8 +30,8 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
-# Install curl for healthcheck and uv for Python package management
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
+# Install curl for healthcheck, ffmpeg for highlight capture, and uv for Python package management
+RUN apt-get update && apt-get install -y --no-install-recommends curl ffmpeg \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir uv
 

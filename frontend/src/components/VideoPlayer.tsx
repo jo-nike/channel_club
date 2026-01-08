@@ -25,6 +25,7 @@ export function VideoPlayer() {
   return (
     <VideoPlayerInner
       key={currentChannel.id}
+      channelId={currentChannel.id}
       streamUrl={currentChannel.streamUrl}
       channelName={currentChannel.name}
     />
@@ -32,11 +33,12 @@ export function VideoPlayer() {
 }
 
 interface VideoPlayerInnerProps {
+  channelId: string
   streamUrl: string
   channelName: string
 }
 
-function VideoPlayerInner({ streamUrl, channelName }: VideoPlayerInnerProps) {
+function VideoPlayerInner({ channelId, streamUrl, channelName }: VideoPlayerInnerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const playerRef = useRef<mpegts.Player | null>(null)
@@ -280,6 +282,7 @@ function VideoPlayerInner({ streamUrl, channelName }: VideoPlayerInnerProps) {
         isFullscreen={isFullscreen}
         isVisible={isVisible}
         isMobile={isMobile()}
+        channelId={channelId}
         onPlayPause={handlePlayPause}
         onVolumeChange={handleVolumeChange}
         onMuteToggle={handleMuteToggle}

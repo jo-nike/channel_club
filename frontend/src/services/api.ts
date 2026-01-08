@@ -205,3 +205,69 @@ export async function loginWithPlex(authToken: string): Promise<TokenResponse> {
   logger.info('API', 'Plex login successful')
   return response.json()
 }
+
+// Highlight Capture API
+
+export interface HighlightFeatureResponse {
+  enabled: boolean
+}
+
+export interface HighlightStatusResponse {
+  enabled: boolean
+  recording: boolean
+  bufferSeconds: number
+  maxBufferSeconds: number
+}
+
+export async function getHighlightFeatureEnabled(): Promise<boolean> {
+  logger.debug('API', 'Checking highlight feature status')
+
+  const response = await fetchWithAuth('/highlight/feature')
+
+  if (!response.ok) {
+    logger.error('API', `Failed to check highlight feature: ${response.status}`)
+    return false
+  }
+
+  const data: HighlightFeatureResponse = await response.json()
+  logger.debug('API', `Highlight feature enabled: ${data.enabled}`)
+  return data.enabled
+}
+
+export async function getHighlightStatus(channelId: string): Promise<HighlightStatusResponse> {
+  logger.debug('API', `Fetching highlight status for channel: ${channelId}`)
+
+  const response = await fetchWithAuth(`/highlight/status/${channelId}`)
+
+  if (!response.ok) {
+    logger.error('API', `Failed to fetch highlight status: ${response.status}`)
+    return { enabled: false, recording: false, bufferSeconds: 0, maxBufferSeconds: 60 }
+  }
+
+  return response.json()
+}
+
+export async function saveHighlight(channelId: string): Promise<Blob> {
+  logger.debug('API', `Saving highlight for channel: ${channelId}`)
+
+  const token = localStorage.getItem('token')
+  const headers: Record<string, string> = {}
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+
+  const response = await fetch(`${API_URL}/highlight/${channelId}`, {
+    method: 'POST',
+    headers,
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to save highlight' }))
+    logger.error('API', `Failed to save highlight: ${response.status}`, { detail: error.detail })
+    throw new Error(error.detail || 'Failed to save highlight')
+  }
+
+  logger.info('API', `Highlight saved for channel: ${channelId}`)
+  return response.blob()
+}

@@ -94,6 +94,7 @@ export const useTVStore = create<TVState>()(
         streamUrl: liveChannel?.streamUrl || '',
         type: 'live',
         guideId: liveChannel?.guideId,
+        backendId: liveChannel?.id, // Real backend ID for highlight recording
       })
 
       // ErsatzTV channels (1+)

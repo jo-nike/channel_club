@@ -11,6 +11,7 @@ import json
 from fastapi import WebSocket
 from loguru import logger
 
+from app.config import settings
 from app.models.channel import Channel
 
 # Module-level logger with service context
@@ -48,6 +49,13 @@ async def set_current_channel(channel: Channel, user: str | None = None) -> Chan
         log.info("Channel changed to '{}' by user '{}'", channel.name, user)
     else:
         log.info("Channel changed to '{}'", channel.name)
+
+    # Start highlight recording if enabled
+    if settings.highlight_enabled and channel.stream_url:
+        # Import here to avoid circular dependency
+        from app.services.highlight import highlight_service
+
+        await highlight_service.start_recording(channel.id, channel.stream_url)
 
     # Broadcast to all connected clients
     await broadcast_channel_update(channel)

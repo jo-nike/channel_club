@@ -2,6 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { ErsatzTVVideoControls, ErsatzTVVideoControlsProps } from './ErsatzTVVideoControls'
 
+// Mock the highlight feature hook - disabled by default for existing tests
+vi.mock('@/hooks/useHighlightFeature', () => ({
+  useHighlightFeature: () => ({ isEnabled: false, isLoading: false }),
+}))
+
 // Mock Vidstack hooks
 const mockRemote = {
   togglePaused: vi.fn(),

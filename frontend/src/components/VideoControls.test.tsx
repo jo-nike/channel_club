@@ -2,6 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { VideoControls, VideoControlsProps } from './VideoControls'
 
+// Mock the highlight feature hook - disabled by default for existing tests
+vi.mock('@/hooks/useHighlightFeature', () => ({
+  useHighlightFeature: () => ({ isEnabled: false, isLoading: false }),
+}))
+
 // Mock video element
 const createMockVideoRef = () => {
   const video = document.createElement('video')

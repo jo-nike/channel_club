@@ -45,6 +45,13 @@ class Settings(BaseSettings):
     ersatztv_xmltv_url: str = "http://192.168.50.108:8409/iptv/xmltv.xml"
     ersatztv_base_url: str = "http://192.168.50.108:8409"
 
+    # Highlight Capture Feature (server-side FFmpeg recording)
+    # Disabled by default - requires FFmpeg in container
+    highlight_enabled: bool = False
+    highlight_buffer_seconds: int = 60  # How many seconds to keep in ring buffer
+    highlight_segment_seconds: int = 10  # FFmpeg segment duration
+    highlight_temp_dir: str = "/tmp/highlights"  # Temp storage for segments
+
     model_config = SettingsConfigDict(env_file=".env")
 
 

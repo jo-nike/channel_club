@@ -16,6 +16,7 @@ import { useHLSRetry } from '@/hooks/useHLSRetry'
 interface HLSVideoPlayerProps {
   streamUrl: string
   title?: string
+  channelId?: string
   isTheaterMode: boolean
   isMobile?: boolean
   onTheaterModeToggle: () => void
@@ -28,11 +29,13 @@ function PlayerControlsWrapper({
   containerRef,
   isTheaterMode,
   isMobile,
+  channelId,
   onTheaterModeToggle,
 }: {
   containerRef: React.RefObject<HTMLDivElement | null>
   isTheaterMode: boolean
   isMobile: boolean
+  channelId?: string
   onTheaterModeToggle: () => void
 }) {
   const paused = useMediaState('paused')
@@ -114,6 +117,7 @@ function PlayerControlsWrapper({
       isTheaterMode={isTheaterMode}
       isVisible={isVisible}
       isMobile={isMobile}
+      channelId={channelId}
       onTheaterModeToggle={onTheaterModeToggle}
       onMouseEnter={() => setIsHoveringControls(true)}
       onMouseLeave={() => setIsHoveringControls(false)}
@@ -125,6 +129,7 @@ function PlayerControlsWrapper({
 function HLSVideoPlayerInner({
   streamUrl,
   title,
+  channelId,
   isTheaterMode,
   isMobile = false,
   onTheaterModeToggle,
@@ -193,6 +198,7 @@ function HLSVideoPlayerInner({
           containerRef={containerRef}
           isTheaterMode={isTheaterMode}
           isMobile={isMobile}
+          channelId={channelId}
           onTheaterModeToggle={onTheaterModeToggle}
         />
       </MediaPlayer>

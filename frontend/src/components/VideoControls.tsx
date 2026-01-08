@@ -1,6 +1,8 @@
 import type { RefObject } from 'react'
 import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Expand, Shrink } from 'lucide-react'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
+import { useHighlightFeature } from '@/hooks/useHighlightFeature'
+import { HighlightButton } from './HighlightButton'
 
 export interface VideoControlsProps {
   videoRef: RefObject<HTMLVideoElement | null>
@@ -12,6 +14,7 @@ export interface VideoControlsProps {
   isVisible: boolean
   isMobile?: boolean
   isTVMode?: boolean
+  channelId?: string
   onPlayPause: () => void
   onVolumeChange: (volume: number) => void
   onMuteToggle: () => void
@@ -30,6 +33,7 @@ export function VideoControls({
   isVisible,
   isMobile: isMobileProp = false,
   isTVMode = false,
+  channelId,
   onPlayPause,
   onVolumeChange,
   onMuteToggle,
@@ -43,6 +47,12 @@ export function VideoControls({
   const isTouchDevice = useMediaQuery('(pointer: coarse)')
   const isMobileQuery = useMediaQuery('(max-width: 768px)')
   const isMobile = isMobileProp || isMobileQuery || isTouchDevice
+
+  // Check if highlight feature is enabled (server-side feature flag)
+  const { isEnabled: highlightEnabled } = useHighlightFeature()
+
+  // Show highlight button on desktop only when feature is enabled
+  const showHighlightButton = highlightEnabled && !isMobile && !isTVMode && channelId
 
   return (
     <div
@@ -96,6 +106,11 @@ export function VideoControls({
           className="h-2 w-24 cursor-pointer appearance-none rounded-full bg-white/30 accent-white"
         />
       </div>
+
+      {/* Highlight Button - desktop only when feature enabled */}
+      {showHighlightButton && (
+        <HighlightButton channelId={channelId} isVisible={isVisible} />
+      )}
 
       {/* Spacer */}
       <div className="flex-1" />
