@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@/test/utils'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { App } from './App'
 import { TVView } from '@/components/tv/TVView'

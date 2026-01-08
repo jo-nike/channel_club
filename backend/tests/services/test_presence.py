@@ -32,10 +32,9 @@ class TestTrackUser:
         assert result.view == "live"
         assert result.current_channel is None
         assert isinstance(result.connected_since, datetime)
-        assert result.estimated_bitrate == presence.LIVE_BITRATE
 
-    def test_tracks_ersatztv_user_with_different_bitrate(self) -> None:
-        """Should use ersatztv bitrate for ersatztv view."""
+    def test_tracks_ersatztv_user(self) -> None:
+        """Should track ersatztv view user."""
         result = presence.track_user(
             connection_id="xyz789",
             username="moviefan",
@@ -43,7 +42,6 @@ class TestTrackUser:
         )
 
         assert result.view == "ersatztv"
-        assert result.estimated_bitrate == presence.ERSATZTV_BITRATE
 
     def test_adds_user_to_active_users(self) -> None:
         """Should add tracked user to active users store."""
@@ -173,9 +171,8 @@ class TestUpdateUserChannel:
             view="live",
         )
 
-        # Verify initial view and bitrate
+        # Verify initial view
         assert presence._active_users["abc123"].view == "live"
-        assert presence._active_users["abc123"].estimated_bitrate == presence.LIVE_BITRATE
 
         # Switch to ersatztv via channel update
         presence.update_user_channel("abc123", "Movies", "Test Movie", view="ersatztv")
@@ -183,7 +180,6 @@ class TestUpdateUserChannel:
         assert presence._active_users["abc123"].view == "ersatztv"
         assert presence._active_users["abc123"].current_channel == "Movies"
         assert presence._active_users["abc123"].current_programme == "Test Movie"
-        assert presence._active_users["abc123"].estimated_bitrate == presence.ERSATZTV_BITRATE
 
     def test_view_update_ignores_invalid_values(self) -> None:
         """Should ignore invalid view values."""
@@ -307,13 +303,3 @@ class TestGetUsersByView:
         assert result[0].view == "ersatztv"
 
 
-class TestBitrateConstants:
-    """Tests for bitrate constants."""
-
-    def test_live_bitrate_is_defined(self) -> None:
-        """Should have LIVE_BITRATE constant defined."""
-        assert presence.LIVE_BITRATE == 8.5
-
-    def test_ersatztv_bitrate_is_defined(self) -> None:
-        """Should have ERSATZTV_BITRATE constant defined."""
-        assert presence.ERSATZTV_BITRATE == 12.0

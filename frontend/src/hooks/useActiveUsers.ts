@@ -6,15 +6,11 @@ interface ActiveUser {
   channel: string | null
   programme: string | null
   connectedSince: string
-  bitrateMbps: number
 }
 
 interface ActiveUsersTotals {
   liveCount: number
   ersatztvCount: number
-  liveBitrateMbps: number
-  ersatztvBitrateMbps: number
-  totalBitrateMbps: number
 }
 
 interface ActiveUsersData {

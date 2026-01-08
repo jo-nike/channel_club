@@ -356,7 +356,6 @@ class TestPresenceTracking:
 
             users = list(presence._active_users.values())
             assert users[0].view == "ersatztv"
-            assert users[0].estimated_bitrate == presence.ERSATZTV_BITRATE
 
     def test_default_view_is_live(self, client: TestClient, valid_token: str):
         """Default view should be 'live' when not specified."""
@@ -365,7 +364,6 @@ class TestPresenceTracking:
 
             users = list(presence._active_users.values())
             assert users[0].view == "live"
-            assert users[0].estimated_bitrate == presence.LIVE_BITRATE
 
     def test_multiple_users_tracked(self, client: TestClient, valid_token: str, admin_token: str):
         """Multiple users should be tracked separately."""

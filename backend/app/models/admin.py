@@ -1,4 +1,4 @@
-"""Admin models for user presence and bitrate tracking."""
+"""Admin models for user presence tracking."""
 
 from datetime import datetime
 
@@ -12,7 +12,6 @@ class ActiveUser(BaseModel):
     channel: str | None = None
     programme: str | None = None
     connected_since: datetime = Field(alias="connectedSince")
-    bitrate_mbps: float = Field(alias="bitrateMbps")
 
     model_config = {"populate_by_name": True}
 
@@ -22,9 +21,6 @@ class ActiveUsersTotals(BaseModel):
 
     live_count: int = Field(alias="liveCount")
     ersatztv_count: int = Field(alias="ersatztvCount")
-    live_bitrate_mbps: float = Field(alias="liveBitrateMbps")
-    ersatztv_bitrate_mbps: float = Field(alias="ersatztvBitrateMbps")
-    total_bitrate_mbps: float = Field(alias="totalBitrateMbps")
 
     model_config = {"populate_by_name": True}
 

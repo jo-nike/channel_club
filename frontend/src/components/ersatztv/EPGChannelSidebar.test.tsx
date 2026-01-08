@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent } from '@/test/utils'
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
 import { EPGChannelSidebar } from './EPGChannelSidebar'
 import { useErsatztvStore } from '@/stores/ersatztvStore'

@@ -20,6 +20,7 @@ dev = [
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
     "ruff>=0.14.10",
+    "basedpyright>=1.29.0",
 ]
 
 [tool.ruff]
@@ -36,3 +37,10 @@ ignore = [
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+
+[tool.basedpyright]
+pythonVersion = "3.13"
+typeCheckingMode = "standard"
+# Pydantic's populate_by_name=True allows snake_case OR camelCase in constructors,
+# but type checkers don't understand this pattern yet. Disable until supported.
+reportCallIssue = "none"

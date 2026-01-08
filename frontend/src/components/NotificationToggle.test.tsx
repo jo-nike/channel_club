@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent } from '@/test/utils'
 import { NotificationToggle } from './NotificationToggle'
 import { useUIStore } from '@/stores/uiStore'
 

@@ -65,10 +65,11 @@ The core use case is simple: you (as admin) select a channel, and all connected 
 5. Responsive layout for desktop/mobile/TV
 
 ### Growth Features (Post-MVP)
-- EPG/Program Guide display
+- EPG/Program Guide display ✓ (Epic 6-7)
 - Multi-channel selection for viewers
-- Chat functionality
+- Chat functionality ✓ (Epic 13)
 - User preferences persistence
+- Highlight capture and replay ✓ (Epic 12)
 
 ### Vision (Future)
 - Recording/DVR scheduling
@@ -264,6 +265,30 @@ Jon selects a channel but it won't load. He checks Dispatcharr directly (via VPN
 - NFR13: Text readable from 10 feet (minimum 24px for body text)
 - NFR14: High contrast between text and background
 - NFR15: Full keyboard/D-pad navigation without mouse required
+
+### Chat Functionality (FR63-66)
+
+- FR63: Users can optionally send and receive chat messages while watching
+- FR64: Chat messages are broadcast to all connected users in real-time
+- FR65: Users can toggle chat visibility without interrupting video playback
+- FR66: Chat feature can be enabled/disabled via environment configuration
+
+### Highlight Modal (FR67-69)
+
+- FR67: Users can preview captured highlights in a modal before downloading
+- FR68: Users can scrub (seek forward/backward) through highlight previews
+- FR69: Users can download highlights in MP4 or WebM format
+
+### UI Polish (FR70-72)
+
+- FR70: All tooltips display with theme-consistent styling (light/dark mode)
+- FR71: Application displays a custom favicon in browser tabs
+- FR72: Video control bar maintains consistent position across playback modes
+
+### Admin Panel Improvements (FR73-74)
+
+- FR73: Admin can view channels organized in collapsible groups
+- FR74: Admin panel displays correctly on mobile and TV devices without overlap
 
 ---
 

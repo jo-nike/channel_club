@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from '@testing-library/react'
+import { renderHook, waitFor } from '@/test/utils'
 import { vi, describe, test, expect, beforeEach, afterEach } from 'vitest'
 import { useEPG } from './useEPG'
 import { useChannelStore } from '@/stores/channelStore'

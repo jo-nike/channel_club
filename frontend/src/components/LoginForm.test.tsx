@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@/test/utils'
 import { LoginForm } from './LoginForm'
 import { useAuthStore } from '@/stores/authStore'
 import * as api from '@/services/api'

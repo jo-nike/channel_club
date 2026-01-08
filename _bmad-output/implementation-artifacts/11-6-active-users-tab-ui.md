@@ -1,158 +1,150 @@
-# Story 11.6: Active Users Tab UI
+# Story 11.6: Active Users Tab UI (UPDATED)
 
 Status: review
 
 ## Story
 
 As an admin,
-I want to see who is currently watching and their bandwidth usage,
-So that I can monitor usage and resource consumption.
+I want to see who is currently watching,
+So that I can monitor active usage.
 
 ## Acceptance Criteria
 
-1. **Given** I open the "Active Users" tab, **when** the tab renders, **then** I see two sections: "Live TV" and "ErsatzTV" **and** I see total bandwidth summary at the top
-2. **Given** users are connected to Live TV, **when** viewing the Live TV section, **then** I see each user with: username, current channel, duration, bitrate (e.g., "8.5 Mbps") **and** I see section subtotal: "2 users • 17.0 Mbps"
-3. **Given** users are connected to ErsatzTV, **when** viewing the ErsatzTV section, **then** I see each user with: username, current channel, duration, bitrate **and** I see section subtotal
+1. **Given** I open the "Active Users" tab, **when** the tab renders, **then** I see two sections: "Live TV" and "ErsatzTV"
+2. **Given** users are connected to Live TV, **when** viewing the Live TV section, **then** I see each user with: username, current channel, duration **and** I see section count: "2 users"
+3. **Given** users are connected to ErsatzTV, **when** viewing the ErsatzTV section, **then** I see each user with: username, current channel, duration **and** I see section count
 4. **Given** no users are connected to a view, **when** viewing that section, **then** I see "No active users" message
 
 ## Tasks / Subtasks
 
-- [x] Task 1: Create useActiveUsers hook (AC: #1, #2, #3, #4)
-  - [x] Create new file `frontend/src/hooks/useActiveUsers.ts`
-  - [x] Implement polling fetch to `/api/admin/active-users`
-  - [x] Add loading and error states
-  - [x] Implement refresh interval (5 seconds)
-  - [x] Use auth token for authenticated request
+- [x] Task 1: Update useActiveUsers hook to remove bitrate handling (AC: #1, #2, #3, #4)
+  - [x] Modify `frontend/src/hooks/useActiveUsers.ts`
+  - [x] Remove `bitrateMbps` from `ActiveUser` interface
+  - [x] Remove `liveBitrateMbps`, `ersatztvBitrateMbps`, `totalBitrateMbps` from `ActiveUsersTotals` interface
+  - [x] Update type to match new backend response
 
-- [x] Task 2: Create formatDuration utility (AC: #2, #3)
-  - [x] Add function to `frontend/src/lib/utils.ts` or create separate utils file
-  - [x] Convert connectedSince timestamp to duration string
-  - [x] Format: "2h 15m", "45m", "5m" etc.
+- [x] Task 2: Update ActiveUsersTab component to remove bitrate display (AC: #1, #2, #3)
+  - [x] Modify `frontend/src/components/admin/ActiveUsersTab.tsx`
+  - [x] Remove total bandwidth summary at top
+  - [x] Remove bitrate from section subtotals (show only user count)
+  - [x] Remove bitrate from user rows
 
-- [x] Task 3: Create ActiveUsersTab component (AC: #1, #2, #3, #4)
-  - [x] Create new file `frontend/src/components/admin/ActiveUsersTab.tsx`
-  - [x] Display total bandwidth summary at top
-  - [x] Create Live TV section with user list
-  - [x] Create ErsatzTV section with user list
-  - [x] Display per-section subtotals
-  - [x] Handle empty states for each section
-  - [x] Handle loading and error states
+- [x] Task 3: Update UserRow subcomponent to remove bitrate display (AC: #2, #3)
+  - [x] Remove bitrate display from user row
+  - [x] Display only: username, current channel, duration
 
-- [x] Task 4: Create UserRow subcomponent (AC: #2, #3)
-  - [x] Display username
-  - [x] Display current channel (or "No channel")
-  - [x] Display formatted duration
-  - [x] Display bitrate with "Mbps" suffix
+- [x] Task 4: Update backend models to remove bitrate fields (AC: Backend alignment)
+  - [x] Modify `backend/app/models/admin.py`
+  - [x] Remove `bitrate_mbps` from `ActiveUser` model
+  - [x] Remove `live_bitrate_mbps`, `ersatztv_bitrate_mbps`, `total_bitrate_mbps` from `ActiveUsersTotals` model
 
-- [x] Task 5: Integrate into AdminModal (AC: #1)
-  - [x] Import ActiveUsersTab into AdminModal
-  - [x] Render when "active-users" tab is active
-  - [x] Ensure proper scrolling for long user lists
+- [x] Task 5: Update backend admin router response (AC: #2)
+  - [x] Modify `backend/app/routers/admin.py`
+  - [x] Remove bitrate calculations from get_active_users endpoint
+  - [x] Update response to match new simplified format
 
-- [x] Task 6: Update WebSocket hook to pass view parameter (AC: Backend integration)
-  - [x] Modify useWebSocket hook to accept view parameter
-  - [x] MainView: pass view="live"
-  - [x] ErsatzTVView: pass view="ersatztv" (not implemented - ErsatzTV does not use WebSocket currently)
+- [x] Task 6: Update presence service to remove bitrate tracking (AC: Backend cleanup)
+  - [x] Modify `backend/app/services/presence.py`
+  - [x] Remove `estimated_bitrate` from `UserPresence` dataclass
+  - [x] Remove `LIVE_BITRATE` and `ERSATZTV_BITRATE` constants
+  - [x] Remove bitrate assignment in `track_user()`
+
+- [x] Task 7: Update tests to reflect bitrate removal (AC: All)
+  - [x] Update `frontend/src/hooks/useActiveUsers.test.ts`
+  - [x] Update `frontend/src/components/admin/ActiveUsersTab.test.tsx`
+  - [x] Update `backend/tests/models/test_admin.py`
+  - [x] Update `backend/tests/routers/test_admin.py`
+  - [x] Update `backend/tests/services/test_presence.py`
 
 ## Dev Notes
 
+### Change Rationale
+
+User requested removal of all bandwidth/bitrate information from Active Users tab as documented in `sprint-change-proposal-2026-01-07.md`. This simplifies the interface while maintaining core functionality of showing who is watching.
+
 ### Architecture Patterns
 
-**useActiveUsers Hook (`frontend/src/hooks/useActiveUsers.ts`):**
+**Updated ActiveUser Interface (Frontend):**
 
 ```tsx
-import { useState, useEffect, useCallback } from 'react'
-import { useAuth } from '@/hooks/useAuth'
-
 interface ActiveUser {
   username: string
   channel: string | null
   connectedSince: string
-  bitrateMbps: number
+  // REMOVED: bitrateMbps: number
 }
+```
 
+**Updated ActiveUsersTotals Interface (Frontend):**
+
+```tsx
 interface ActiveUsersTotals {
   liveCount: number
   ersatztvCount: number
-  liveBitrateMbps: number
-  ersatztvBitrateMbps: number
-  totalBitrateMbps: number
+  // REMOVED: liveBitrateMbps: number
+  // REMOVED: ersatztvBitrateMbps: number
+  // REMOVED: totalBitrateMbps: number
 }
+```
 
+**Updated ActiveUsersData Interface (Frontend):**
+
+```tsx
 interface ActiveUsersData {
   liveUsers: ActiveUser[]
   ersatztvUsers: ActiveUser[]
   totals: ActiveUsersTotals
 }
+```
 
-const POLL_INTERVAL = 5000 // 5 seconds
+**Updated UserSection Component:**
 
-export function useActiveUsers() {
-  const [data, setData] = useState<ActiveUsersData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const { token } = useAuth()
+```tsx
+function UserSection({ title, users, count }: UserSectionProps) {
+  return (
+    <section>
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="font-semibold">{title}</h3>
+        <span className="text-sm text-muted-foreground">
+          {count} user{count !== 1 ? 's' : ''}
+        </span>
+      </div>
 
-  const fetchUsers = useCallback(async () => {
-    if (!token) return
-
-    try {
-      const response = await fetch('/api/admin/active-users', {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch: ${response.status}`)
-      }
-
-      const data = await response.json()
-      setData(data)
-      setError(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error')
-    } finally {
-      setLoading(false)
-    }
-  }, [token])
-
-  useEffect(() => {
-    fetchUsers()
-    const interval = setInterval(fetchUsers, POLL_INTERVAL)
-    return () => clearInterval(interval)
-  }, [fetchUsers])
-
-  return { data, loading, error, refetch: fetchUsers }
+      {users.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No active users</p>
+      ) : (
+        <div className="space-y-2">
+          {users.map((user) => (
+            <UserRow key={`${user.username}-${user.connectedSince}`} user={user} />
+          ))}
+        </div>
+      )}
+    </section>
+  )
 }
 ```
 
-**formatDuration Utility:**
+**Updated UserRow Component:**
 
 ```tsx
-// Add to frontend/src/lib/utils.ts
-
-export function formatDuration(isoDate: string): string {
-  const start = new Date(isoDate)
-  const now = new Date()
-  const diffMs = now.getTime() - start.getTime()
-
-  const minutes = Math.floor(diffMs / 60000)
-  const hours = Math.floor(minutes / 60)
-  const remainingMinutes = minutes % 60
-
-  if (hours > 0) {
-    return `${hours}h ${remainingMinutes}m`
-  }
-  return `${minutes}m`
+function UserRow({ user }: UserRowProps) {
+  return (
+    <div className="flex items-center justify-between rounded-md border p-3">
+      <div className="flex flex-col">
+        <span className="font-medium">{user.username}</span>
+        <span className="text-sm text-muted-foreground">
+          {user.channel || 'No channel'} • {formatDuration(user.connectedSince)}
+        </span>
+      </div>
+      {/* REMOVED: bitrate display */}
+    </div>
+  )
 }
 ```
 
-**ActiveUsersTab Component (`frontend/src/components/admin/ActiveUsersTab.tsx`):**
+**Updated ActiveUsersTab (No Total Summary):**
 
 ```tsx
-import { useActiveUsers } from '@/hooks/useActiveUsers'
-import { formatDuration } from '@/lib/utils'
-import { Skeleton } from '@/components/ui/skeleton'
-
 export function ActiveUsersTab() {
   const { data, loading, error } = useActiveUsers()
 
@@ -174,22 +166,13 @@ export function ActiveUsersTab() {
 
   return (
     <div className="space-y-6 p-4">
-      {/* Total bandwidth summary */}
-      <div className="rounded-lg bg-muted p-4">
-        <div className="text-lg font-semibold">
-          Total Bandwidth: {data.totals.totalBitrateMbps.toFixed(1)} Mbps
-        </div>
-        <div className="text-sm text-muted-foreground">
-          {data.totals.liveCount + data.totals.ersatztvCount} active users
-        </div>
-      </div>
+      {/* REMOVED: Total bandwidth summary */}
 
       {/* Live TV section */}
       <UserSection
         title="Live TV"
         users={data.liveUsers}
         count={data.totals.liveCount}
-        bitrate={data.totals.liveBitrateMbps}
       />
 
       {/* ErsatzTV section */}
@@ -197,153 +180,181 @@ export function ActiveUsersTab() {
         title="ErsatzTV"
         users={data.ersatztvUsers}
         count={data.totals.ersatztvCount}
-        bitrate={data.totals.ersatztvBitrateMbps}
       />
     </div>
   )
 }
+```
 
-interface UserSectionProps {
-  title: string
-  users: Array<{
-    username: string
-    channel: string | null
-    connectedSince: string
-    bitrateMbps: number
-  }>
-  count: number
-  bitrate: number
-}
+### Backend Model Updates
 
-function UserSection({ title, users, count, bitrate }: UserSectionProps) {
-  return (
-    <section>
-      <div className="mb-2 flex items-center justify-between">
-        <h3 className="font-semibold">{title}</h3>
-        <span className="text-sm text-muted-foreground">
-          {count} user{count !== 1 ? 's' : ''} • {bitrate.toFixed(1)} Mbps
-        </span>
-      </div>
+**Updated ActiveUser Model (`backend/app/models/admin.py`):**
 
-      {users.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No active users</p>
-      ) : (
-        <div className="space-y-2">
-          {users.map((user) => (
-            <UserRow key={`${user.username}-${user.connectedSince}`} user={user} />
-          ))}
-        </div>
-      )}
-    </section>
-  )
-}
+```python
+from pydantic import BaseModel, Field
+from datetime import datetime
 
-interface UserRowProps {
-  user: {
-    username: string
-    channel: string | null
-    connectedSince: string
-    bitrateMbps: number
+class ActiveUser(BaseModel):
+    username: str
+    channel: str | None = None
+    connected_since: datetime = Field(alias="connectedSince")
+    # REMOVED: bitrate_mbps: float = Field(alias="bitrateMbps")
+
+    model_config = {"populate_by_name": True}
+```
+
+**Updated ActiveUsersTotals Model:**
+
+```python
+class ActiveUsersTotals(BaseModel):
+    live_count: int = Field(alias="liveCount")
+    ersatztv_count: int = Field(alias="ersatztvCount")
+    # REMOVED: live_bitrate_mbps: float = Field(alias="liveBitrateMbps")
+    # REMOVED: ersatztv_bitrate_mbps: float = Field(alias="ersatztvBitrateMbps")
+    # REMOVED: total_bitrate_mbps: float = Field(alias="totalBitrateMbps")
+
+    model_config = {"populate_by_name": True}
+```
+
+**Updated Presence Service (`backend/app/services/presence.py`):**
+
+```python
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Dict, Literal
+from fastapi import WebSocket
+from loguru import logger
+
+log = logger.bind(service="presence")
+
+# REMOVED: LIVE_BITRATE = 8.5
+# REMOVED: ERSATZTV_BITRATE = 12.0
+
+@dataclass
+class UserPresence:
+    connection_id: str
+    username: str
+    view: Literal["live", "ersatztv"]
+    current_channel: str | None = None
+    connected_since: datetime = field(default_factory=datetime.utcnow)
+    # REMOVED: estimated_bitrate: float = 0.0
+    websocket: WebSocket | None = None
+```
+
+**Updated Admin Router (`backend/app/routers/admin.py`):**
+
+```python
+@router.get("/active-users", response_model=ActiveUsersResponse)
+async def get_active_users(
+    current_user: TokenPayload = Depends(require_admin),
+) -> ActiveUsersResponse:
+    """Get all active users."""
+    log.debug("Admin {} requesting active users", current_user.sub)
+
+    live_users = presence.get_users_by_view("live")
+    ersatztv_users = presence.get_users_by_view("ersatztv")
+
+    # REMOVED: bitrate calculations
+
+    return ActiveUsersResponse(
+        live_users=[
+            ActiveUser(
+                username=u.username,
+                channel=u.current_channel,
+                connected_since=u.connected_since,
+                # REMOVED: bitrate_mbps=u.estimated_bitrate,
+            )
+            for u in live_users
+        ],
+        ersatztv_users=[
+            ActiveUser(
+                username=u.username,
+                channel=u.current_channel,
+                connected_since=u.connected_since,
+                # REMOVED: bitrate_mbps=u.estimated_bitrate,
+            )
+            for u in ersatztv_users
+        ],
+        totals=ActiveUsersTotals(
+            live_count=len(live_users),
+            ersatztv_count=len(ersatztv_users),
+            # REMOVED: live_bitrate_mbps=live_bitrate,
+            # REMOVED: ersatztv_bitrate_mbps=ersatztv_bitrate,
+            # REMOVED: total_bitrate_mbps=live_bitrate + ersatztv_bitrate,
+        ),
+    )
+```
+
+### Updated API Response Format
+
+```json
+{
+  "liveUsers": [
+    {"username": "viewer1", "channel": "BBC One", "connectedSince": "2026-01-04T10:30:00Z"}
+  ],
+  "ersatztvUsers": [
+    {"username": "viewer2", "channel": "Action Movies", "connectedSince": "2026-01-04T11:00:00Z"}
+  ],
+  "totals": {
+    "liveCount": 1,
+    "ersatztvCount": 1
   }
 }
-
-function UserRow({ user }: UserRowProps) {
-  return (
-    <div className="flex items-center justify-between rounded-md border p-3">
-      <div className="flex flex-col">
-        <span className="font-medium">{user.username}</span>
-        <span className="text-sm text-muted-foreground">
-          {user.channel || 'No channel'} • {formatDuration(user.connectedSince)}
-        </span>
-      </div>
-      <span className="text-sm font-medium">
-        {user.bitrateMbps.toFixed(1)} Mbps
-      </span>
-    </div>
-  )
-}
-
-function ActiveUsersTabSkeleton() {
-  return (
-    <div className="space-y-6 p-4">
-      <Skeleton className="h-20 w-full" />
-      <div className="space-y-2">
-        <Skeleton className="h-6 w-24" />
-        <Skeleton className="h-16 w-full" />
-        <Skeleton className="h-16 w-full" />
-      </div>
-      <div className="space-y-2">
-        <Skeleton className="h-6 w-24" />
-        <Skeleton className="h-16 w-full" />
-      </div>
-    </div>
-  )
-}
 ```
 
-### WebSocket View Parameter
-
-Modify existing WebSocket hooks to pass view type:
-
-**MainView.tsx:**
-```tsx
-const { status, reconnect } = useWebSocket({ view: 'live' })
-```
-
-**ErsatzTVView.tsx:**
-```tsx
-// Note: ErsatzTV may not use WebSocket currently
-// If it does, add: const { status } = useWebSocket({ view: 'ersatztv' })
-```
-
-**useWebSocket.ts modification:**
-```tsx
-interface UseWebSocketOptions {
-  view?: 'live' | 'ersatztv'
-}
-
-export function useWebSocket(options: UseWebSocketOptions = {}) {
-  const { view = 'live' } = options
-  // ...
-  const wsUrl = `${WS_BASE_URL}/api/ws?token=${token}&view=${view}`
-  // ...
-}
-```
-
-### File Structure
+### File Structure (Modified Files Only)
 
 ```
 frontend/src/
 ├── hooks/
-│   ├── useActiveUsers.ts (NEW)
-│   └── useWebSocket.ts (modified)
+│   ├── useActiveUsers.ts (MODIFIED - remove bitrate types)
+│   └── useActiveUsers.test.ts (MODIFIED - update tests)
 ├── components/
 │   ├── admin/
-│   │   └── ActiveUsersTab.tsx (NEW)
-│   └── AdminModal.tsx (modified)
+│   │   ├── ActiveUsersTab.tsx (MODIFIED - remove bitrate display)
+│   │   └── ActiveUsersTab.test.tsx (MODIFIED - update tests)
+│   └── AdminModal.tsx (no changes needed)
 └── lib/
-    └── utils.ts (modified - add formatDuration)
+    └── utils.ts (no changes needed - formatDuration stays)
+
+backend/
+├── app/
+│   ├── models/
+│   │   └── admin.py (MODIFIED - remove bitrate fields)
+│   ├── routers/
+│   │   └── admin.py (MODIFIED - remove bitrate calculations)
+│   └── services/
+│       └── presence.py (MODIFIED - remove bitrate tracking)
+└── tests/
+    ├── models/
+    │   └── test_admin.py (MODIFIED - update tests)
+    ├── routers/
+    │   └── test_admin.py (MODIFIED - update tests)
+    └── services/
+        └── test_presence.py (MODIFIED - update tests)
 ```
 
 ### Project Structure Notes
 
-- New components in `admin/` subdirectory for organization
-- Hook follows existing hook patterns
-- Uses existing Skeleton component for loading states
-- formatDuration added to existing utils file
+- This is a modification story updating existing code to remove bandwidth/bitrate functionality
+- No new files are being created
+- The `formatDuration` utility in `utils.ts` remains unchanged
+- The WebSocket hook view parameter added in original 11.6 remains unchanged
 
 ### References
 
-- [Source: frontend/src/hooks/useAuth.ts] - Auth hook pattern
-- [Source: frontend/src/components/ui/skeleton.tsx] - Skeleton component
-- [Source: frontend/src/lib/utils.ts] - Utility functions location
-- [Source: frontend/src/hooks/useWebSocket.ts] - WebSocket hook to modify
-- [Source: _bmad-output/project-planning-artifacts/sprint-change-proposal-2026-01-04-admin-modal.md] - API response format
+- [Source: _bmad-output/project-planning-artifacts/sprint-change-proposal-2026-01-07.md#4.1] - Change rationale
+- [Source: _bmad-output/architecture.md#2026-01-07] - Updated API response format
+- [Source: frontend/src/hooks/useActiveUsers.ts] - Hook to modify
+- [Source: frontend/src/components/admin/ActiveUsersTab.tsx] - Component to modify
+- [Source: backend/app/models/admin.py] - Model to modify
+- [Source: backend/app/routers/admin.py] - Router to modify
+- [Source: backend/app/services/presence.py] - Service to modify
 
 ### Previous Story Dependencies
 
-- **Story 11.1** - AdminModal must exist to integrate tab
-- **Story 11.5** - Backend endpoint must exist for data fetching
+- **Story 11.1** - AdminModal must exist
+- **Story 11.5** - Backend presence tracking (being modified)
 
 ### Testing Notes
 
@@ -352,7 +363,12 @@ frontend/src/
 - Verify empty state displays correctly
 - Verify duration formatting works
 - Test with multiple users in each section
-- Verify totals calculation matches backend
+- Verify NO bitrate/bandwidth info is displayed anywhere
+- Verify totals only show user counts
+
+### Git Analysis
+
+Recent commits show highlight feature work and admin panel fixes. This story aligns with the polish and bug fix theme of Epic 12 extensions.
 
 ## Dev Agent Record
 
@@ -362,43 +378,38 @@ Claude Opus 4.5 (claude-opus-4-5-20251101)
 
 ### Debug Log References
 
-None
+N/A
 
 ### Completion Notes List
 
-- Implemented `useActiveUsers` hook with 5-second polling interval, loading/error states, and authenticated API calls
-- Added `formatDuration` utility function to `utils.ts` that converts ISO dates to human-readable durations (e.g., "2h 15m", "45m")
-- Created `ActiveUsersTab` component with:
-  - Total bandwidth summary at top
-  - Separate sections for Live TV and ErsatzTV users
-  - Section subtotals showing user count and bandwidth
-  - Empty state handling ("No active users")
-  - Loading skeleton state
-  - Error state with message display
-- Created `UserRow` subcomponent displaying username, channel, duration, and bitrate
-- Integrated `ActiveUsersTab` into `AdminModal` with scrollable container
-- Updated `useWebSocket` hook to accept optional `view` parameter ('live' | 'ersatztv')
-- Updated `MainView` to pass `view: 'live'` to WebSocket hook
-- All tests pass: 684 frontend tests, 397 backend tests
-- Linting passes
-
-### Change Log
-
-- 2026-01-04: Implemented Active Users Tab UI (Story 11.6) - all tasks complete
+- Removed all bitrate/bandwidth tracking from frontend and backend
+- Updated `ActiveUser` and `ActiveUsersTotals` interfaces to remove bitrate fields
+- Simplified `ActiveUsersTab` UI to show only user counts (no bandwidth summary)
+- Updated `UserRow` to display: username, channel, programme, duration (no bitrate)
+- Removed `LIVE_BITRATE` and `ERSATZTV_BITRATE` constants from presence service
+- Removed `estimated_bitrate` field from `UserPresence` dataclass
+- All 704 frontend tests pass
+- All 438 backend tests pass
 
 ### File List
 
-**New Files:**
+**Frontend (Modified):**
 - frontend/src/hooks/useActiveUsers.ts
 - frontend/src/hooks/useActiveUsers.test.ts
 - frontend/src/components/admin/ActiveUsersTab.tsx
 - frontend/src/components/admin/ActiveUsersTab.test.tsx
-- frontend/src/lib/utils.test.ts
+- frontend/src/components/AdminModal.test.tsx
 
-**Modified Files:**
-- frontend/src/lib/utils.ts (added formatDuration function)
-- frontend/src/hooks/useWebSocket.ts (added view parameter support)
-- frontend/src/hooks/useWebSocket.test.ts (added view parameter tests)
-- frontend/src/components/AdminModal.tsx (integrated ActiveUsersTab)
-- frontend/src/components/AdminModal.test.tsx (updated tests for ActiveUsersTab)
-- frontend/src/components/MainView.tsx (pass view='live' to useWebSocket)
+**Backend (Modified):**
+- backend/app/models/admin.py
+- backend/app/routers/admin.py
+- backend/app/services/presence.py
+- backend/tests/models/test_admin.py
+- backend/tests/routers/test_admin.py
+- backend/tests/routers/test_websocket.py
+- backend/tests/services/test_presence.py
+
+## Change Log
+
+- 2026-01-07: Removed all bandwidth/bitrate display from Active Users tab per sprint-change-proposal-2026-01-07.md
+

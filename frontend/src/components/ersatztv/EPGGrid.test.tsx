@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, act } from '@testing-library/react'
+import { render, screen, fireEvent, act } from '@/test/utils'
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { EPGGrid } from './EPGGrid'
 import { useErsatztvStore } from '@/stores/ersatztvStore'

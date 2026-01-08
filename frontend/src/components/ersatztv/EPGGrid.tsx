@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { getErsatzTVLogoUrl } from '@/services/ersatztvApi'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { ErsatzTVChannel, ErsatzTVProgramme } from '@/types'
 
 // Grid constants
@@ -166,22 +167,28 @@ function ChannelRow({
       data-testid="channel-row"
     >
       {/* Channel label with logo - clickable */}
-      <button
-        onClick={() => onChannelClick?.(channel)}
-        className="sticky left-0 z-10 flex flex-shrink-0 items-center gap-1.5 bg-card px-2 text-sm font-medium border-r hover:bg-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-        style={{ width: CHANNEL_LABEL_WIDTH }}
-        title={`Switch to ${channel.name}`}
-      >
-        <img
-          src={getErsatzTVLogoUrl(channel.id)}
-          alt=""
-          className="h-8 w-8 flex-shrink-0 rounded object-contain"
-          onError={(e) => {
-            ;(e.target as HTMLImageElement).style.display = 'none'
-          }}
-        />
-        <span className="truncate">{channel.number}</span>
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={() => onChannelClick?.(channel)}
+            className="sticky left-0 z-10 flex flex-shrink-0 items-center gap-1.5 bg-card px-2 text-sm font-medium border-r hover:bg-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+            style={{ width: CHANNEL_LABEL_WIDTH }}
+          >
+            <img
+              src={getErsatzTVLogoUrl(channel.id)}
+              alt=""
+              className="h-8 w-8 flex-shrink-0 rounded object-contain"
+              onError={(e) => {
+                ;(e.target as HTMLImageElement).style.display = 'none'
+              }}
+            />
+            <span className="truncate">{channel.number}</span>
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>
+          <p>Switch to {channel.name}</p>
+        </TooltipContent>
+      </Tooltip>
 
       {/* Programme boxes */}
       <div className="relative" style={{ width: gridWidth }}>

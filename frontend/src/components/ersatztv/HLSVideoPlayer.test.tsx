@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen } from '@/test/utils'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { HLSVideoPlayer } from './HLSVideoPlayer'
 
@@ -116,9 +116,9 @@ describe('HLSVideoPlayer', () => {
           onTheaterModeToggle={vi.fn()}
         />
       )
-      // When in theater mode, control bar position adjusts
+      // Control bar has consistent position regardless of theater mode
       const toolbar = screen.getByRole('toolbar')
-      expect(toolbar).toHaveClass('bottom-24')
+      expect(toolbar).toHaveClass('bottom-4')
     })
 
     it('passes isMobile prop to controls', () => {

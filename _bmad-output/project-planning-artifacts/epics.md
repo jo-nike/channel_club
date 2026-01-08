@@ -231,8 +231,12 @@ This document provides the complete epic and story breakdown for iptv_viewer2, d
 | FR49-52 | Epic 9 | Logging infrastructure |
 | FR53-56 | Epic 10 | PWA support |
 | FR57-62 | Epic 11 | Admin dashboard & presence |
+| FR63-66 | Epic 13 | Chat functionality |
+| FR67-69 | Epic 12 | Highlight modal and formats |
+| FR70-72 | Epic 12 | UI polish (tooltips, favicon, controls) |
+| FR73-74 | Epic 12 | Admin panel improvements |
 
-**Coverage:** 62/62 FRs mapped (100%)
+**Coverage:** 74/74 FRs mapped (100%)
 
 ## Epic List
 
@@ -1764,25 +1768,24 @@ So that admins can monitor who is watching and bandwidth consumption.
 ### Story 11.6: Active Users Tab UI
 
 As an admin,
-I want to see who is currently watching and their bandwidth usage,
-So that I can monitor usage and resource consumption.
+I want to see who is currently watching,
+So that I can monitor active usage.
 
 **Acceptance Criteria:**
 
 **Given** I open the "Active Users" tab
 **When** the tab renders
 **Then** I see two sections: "Live TV" and "ErsatzTV"
-**And** I see total bandwidth summary at the top
 
 **Given** users are connected to Live TV
 **When** viewing the Live TV section
-**Then** I see each user with: username, current channel, duration, bitrate (e.g., "8.5 Mbps")
-**And** I see section subtotal: "2 users • 17.0 Mbps"
+**Then** I see each user with: username, current channel, duration
+**And** I see section count: "2 users"
 
 **Given** users are connected to ErsatzTV
 **When** viewing the ErsatzTV section
-**Then** I see each user with: username, current channel, duration, bitrate
-**And** I see section subtotal
+**Then** I see each user with: username, current channel, duration
+**And** I see section count
 
 **Given** no users are connected to a view
 **When** viewing that section
@@ -2060,3 +2063,432 @@ So that the UI feels polished and modern.
 **Given** I am on any screen size (desktop, tablet, mobile)
 **When** viewing the junction
 **Then** the rounded corners adapt appropriately to the layout
+
+---
+
+### Story 12.8: Highlight Modal Replay Viewer
+
+As a viewer,
+I want to preview highlights in a modal before downloading,
+So that I can review the captured moment and scrub through it.
+
+**Acceptance Criteria:**
+
+**Given** I am watching video on desktop
+**When** I click the "Highlight" button
+**Then** a modal opens with an embedded video player
+**And** the background video volume is lowered to 20%
+
+**Given** the highlight modal is open
+**When** I view the player
+**Then** I see the last 60 seconds (or configured buffer) of captured video
+**And** I can play/pause the replay
+**And** I can scrub forward/backward through the clip
+**And** playback controls include a timeline scrubber
+
+**Given** the highlight modal is open
+**When** I click "Download MP4"
+**Then** the highlight downloads as `highlight-{ISO-timestamp}.mp4`
+
+**Given** the highlight modal is open
+**When** I close the modal (X button, Escape, or click outside)
+**Then** the modal closes
+**And** the background video volume restores to previous level
+
+**Given** I am on mobile
+**When** the video player renders
+**Then** the Highlight button is NOT visible (desktop only)
+
+---
+
+### Story 12.9: WebM Download Option
+
+As a user,
+I want the option to download highlights in WebM format,
+So that I can choose a more web-optimized format.
+
+**Acceptance Criteria:**
+
+**Given** the highlight modal is open
+**When** I view the download options
+**Then** I see two buttons: "Download MP4" and "Download WebM"
+
+**Given** I click "Download WebM"
+**When** the download initiates
+**Then** the highlight downloads as `highlight-{ISO-timestamp}.webm`
+
+**Given** the browser does not support WebM encoding
+**When** the modal renders
+**Then** only "Download MP4" is shown (graceful degradation)
+
+**Pre-Implementation Research:**
+- Investigate MediaRecorder API support for WebM
+- Determine if ffmpeg.wasm is needed for format conversion
+- Assess performance impact of client-side encoding
+
+---
+
+### Story 12.10: Themed CSS Tooltips
+
+As a user,
+I want tooltips to match the application theme,
+So that the UI feels cohesive and polished.
+
+**Acceptance Criteria:**
+
+**Given** any element with a tooltip in the application
+**When** I hover over it (or focus on keyboard)
+**Then** a styled tooltip appears matching the current theme (light/dark)
+
+**Given** I am in dark mode
+**When** a tooltip appears
+**Then** it uses dark theme colors (dark background, light text)
+
+**Given** I am in light mode
+**When** a tooltip appears
+**Then** it uses light theme colors (light background, dark text)
+
+**Given** any tooltip
+**When** it renders
+**Then** it has consistent styling: rounded corners, subtle shadow, smooth fade animation
+**And** positioning is smart (avoids viewport edges)
+
+---
+
+### Story 12.11: Favicon Setup
+
+As a user,
+I want the app to have a distinctive favicon,
+So that I can identify the tab easily in my browser.
+
+**Acceptance Criteria:**
+
+**Given** I visit the application
+**When** the page loads
+**Then** a custom favicon is displayed in the browser tab
+
+**Given** the PWA manifest
+**When** reviewed
+**Then** favicon icons are properly referenced (16x16, 32x32, 180x180 for Apple)
+
+**Given** I install the PWA
+**When** viewing the home screen icon
+**Then** the app icon matches the favicon design
+
+---
+
+### Story 12.12: Video Control Bar Position Consistency
+
+As a user,
+I want the video control bar to stay in the same position,
+So that mode transitions feel smooth and predictable.
+
+**Acceptance Criteria:**
+
+**Given** I am watching video in windowed mode
+**When** I note the control bar position
+**Then** it is anchored at the bottom of the video container
+
+**Given** I switch to theater mode
+**When** the transition completes
+**Then** the control bar remains at the same visual position (no jump/shift)
+
+**Given** I switch to fullscreen mode
+**When** the transition completes
+**Then** the control bar remains at the same visual position (no jump/shift)
+
+**Given** I exit fullscreen or theater mode
+**When** the transition completes
+**Then** the control bar smoothly transitions back without jarring movement
+
+---
+
+### Story 12.13: Mobile Video Controller Sticky Fix
+
+As a mobile user,
+I want consistent video controller behavior,
+So that controls work the same way on Live TV and ErsatzTV.
+
+**Acceptance Criteria:**
+
+**Given** I am on mobile viewing Live TV
+**When** I interact with video controls
+**Then** controls appear and auto-hide after inactivity
+
+**Given** I am on mobile viewing ErsatzTV
+**When** I interact with video controls
+**Then** controls behave identically to Live TV (same show/hide timing)
+
+**Given** I tap to show controls on either view
+**When** controls are visible
+**Then** they are NOT "sticky" (they auto-hide after 3 seconds of inactivity)
+
+**Given** I scroll or interact with EPG on ErsatzTV
+**When** controls are visible
+**Then** they hide appropriately and don't interfere with scrolling
+
+---
+
+### Story 12.14: Admin Channel Grouping (Dispatcharr)
+
+As an admin,
+I want channels organized into collapsible groups,
+So that I can navigate a long channel list more efficiently.
+
+**Acceptance Criteria:**
+
+**Given** I open the admin modal "Channels" tab
+**When** the channel list renders
+**Then** channels are organized into collapsible group sections
+
+**Given** channel groups exist
+**When** viewing the list
+**Then** each group has a header showing group name and channel count
+**And** groups are collapsed by default
+
+**Given** I click on a group header
+**When** the group expands
+**Then** I see all channels within that group
+**And** I can collapse it again by clicking the header
+
+**Given** I search/filter channels
+**When** matches are found
+**Then** matching channels are shown with their groups auto-expanded
+
+**Pre-Implementation Research (REQUIRED):**
+- Investigate Dispatcharr API for group/category metadata
+- Check if `/hdhr/lineup.json` includes group info
+- If not available, determine fallback strategy (parse names, manual config)
+
+---
+
+### Story 12.15: Admin Panel Mobile/TV Layout Fix
+
+As a mobile or TV user,
+I want the admin panel to display correctly,
+So that I can manage channels without overlapping UI elements.
+
+**Acceptance Criteria:**
+
+**Given** I open the admin modal on mobile (<768px)
+**When** the Channels tab renders
+**Then** channel cards do NOT overlap
+**And** cards stack vertically with proper spacing
+
+**Given** I open the admin modal on TV (10-foot UI)
+**When** the Channels tab renders
+**Then** channel cards are properly sized and spaced for remote navigation
+**And** focus indicators are clearly visible
+
+**Given** any screen size
+**When** viewing the Active Users tab
+**Then** user rows do NOT overlap
+**And** content is readable and properly spaced
+
+**Given** the modal on mobile
+**When** scrolling through content
+**Then** scrolling works smoothly within the modal
+**And** modal doesn't close accidentally during scroll
+
+---
+
+## Epic 13: Chat & Developer Experience
+
+Users can optionally engage in real-time chat while watching, and developers benefit from improved code quality through comprehensive type checking.
+
+**Key Features:**
+- WebSocket-based optional chat overlay
+- Real-time message broadcasting to all viewers
+- Python type hints remediation with Ty enforcement
+
+**FRs covered:** FR63, FR64, FR65, FR66
+**Environment Variables:** CHAT_ENABLED
+
+---
+
+### Story 13.1: WebSocket Chat Backend
+
+As the system,
+I want to handle chat messages via WebSocket,
+So that users can communicate in real-time while watching.
+
+**Acceptance Criteria:**
+
+**Given** `CHAT_ENABLED=true` in environment
+**When** a user connects via WebSocket
+**Then** they can send and receive chat messages
+
+**Given** `CHAT_ENABLED=false` or not set
+**When** a user connects via WebSocket
+**Then** chat functionality is disabled (no chat messages processed)
+
+**Given** a user sends a chat message
+**When** the message is received by the server
+**Then** it is broadcast to all connected users
+**And** the message includes: username, content, timestamp, messageId
+
+**Given** a user connects to WebSocket
+**When** connection is established
+**Then** they receive the last 50 chat messages (chat history)
+
+**Given** a chat message is received
+**When** it is processed
+**Then** basic sanitization is applied (strip HTML, limit length to 500 chars)
+
+**WebSocket Message Types:**
+- Client → Server: `{"type": "chat_message", "content": "Hello!"}`
+- Server → Client: `{"type": "chat_message", "username": "Jon", "content": "Hello!", "timestamp": "ISO8601", "messageId": "uuid"}`
+- Server → Client: `{"type": "chat_history", "messages": [...]}`
+
+---
+
+### Story 13.2: Chat UI Component
+
+As a user,
+I want an optional chat overlay while watching,
+So that I can communicate with other viewers.
+
+**Acceptance Criteria:**
+
+**Given** `CHAT_ENABLED=true` and I am viewing video
+**When** the UI renders
+**Then** I see a chat toggle button in the video controls area
+
+**Given** I click the chat toggle button
+**When** the chat opens
+**Then** a chat panel slides in from the right side
+**And** I see recent messages
+**And** I see a message input field at the bottom
+
+**Given** the chat panel is open
+**When** I type a message and press Enter (or click Send)
+**Then** my message is sent via WebSocket
+**And** it appears in the chat with my username
+
+**Given** another user sends a message
+**When** I have the chat open
+**Then** the new message appears in real-time
+**And** the chat auto-scrolls to show new messages
+
+**Given** the chat panel is open
+**When** I click the close button or toggle
+**Then** the panel slides out
+**And** video viewing is unobstructed
+
+**Given** I am on mobile
+**When** the chat is open
+**Then** the chat panel is full-width overlay (not side panel)
+**And** I can dismiss with swipe or close button
+
+**Given** `CHAT_ENABLED=false`
+**When** the UI renders
+**Then** no chat toggle button is visible
+
+---
+
+### Story 13.3: Python Type Hints Remediation with Ty
+
+As a developer,
+I want comprehensive type hints throughout the Python codebase,
+So that code is more maintainable and errors are caught early.
+
+**Acceptance Criteria:**
+
+**Given** the backend codebase
+**When** I run `ty check` (Astral's type checker)
+**Then** all files pass with no type errors
+
+**Given** any Python function
+**When** I review its signature
+**Then** all parameters have type annotations
+**And** return type is annotated
+
+**Given** Pydantic models
+**When** reviewed
+**Then** all fields have explicit type annotations
+
+**Given** FastAPI route handlers
+**When** reviewed
+**Then** all dependencies, parameters, and responses are typed
+
+**Given** the pyproject.toml
+**When** reviewed
+**Then** `ty` is added as a dev dependency
+**And** type checking configuration is present
+
+**Scope:**
+- All files in `backend/app/`
+- Fix existing type errors
+- Add missing annotations
+- Configure `ty` in pyproject.toml
+
+**Post-Implementation Standard:**
+All future Python code must include complete type annotations.
+
+---
+
+### Story 13.4: Chat Media URL Detection & Rendering
+
+As a user,
+I want media URLs in chat messages to automatically render as embedded content,
+So that I can share and view GIFs, videos, and images without leaving the chat.
+
+**Acceptance Criteria:**
+
+**Given** a chat message contains a `.gif` URL
+**When** the message is displayed
+**Then** the GIF renders inline as an animated image
+**And** the original URL is not shown as text
+
+**Given** a chat message contains a `.gifv` URL (Imgur format)
+**When** the message is displayed
+**Then** the content renders as a looping video element
+**And** autoplay is enabled with muted audio
+
+**Given** a chat message contains a `.webm` or `.mp4` URL
+**When** the message is displayed
+**Then** the content renders as a looping video element
+**And** autoplay is enabled with muted audio
+
+**Given** a chat message contains mixed text and media URL
+**When** the message is displayed
+**Then** text renders normally AND media renders inline
+
+**Given** a media URL fails to load
+**When** the error occurs
+**Then** a placeholder with fallback link is shown
+
+---
+
+### Story 13.5: GIF Keyboard Integration
+
+As a user,
+I want a GIF picker/keyboard in the chat,
+So that I can easily search and send animated GIFs without manually finding URLs.
+
+**Acceptance Criteria:**
+
+**Given** I am in the chat input area
+**When** I click the GIF button
+**Then** a GIF picker popover opens
+
+**Given** the GIF picker is open
+**When** it first loads
+**Then** I see trending GIFs
+**And** a search input is focused
+
+**Given** I type in the GIF search input
+**When** I stop typing (debounced)
+**Then** search results appear from the GIF provider (Giphy)
+
+**Given** I see GIF search results
+**When** I click on a GIF
+**Then** the GIF URL is sent as a chat message
+**And** the picker closes
+
+**Given** I am browsing GIFs
+**When** I scroll down
+**Then** more results load automatically (infinite scroll)
+
+**Environment Variables:**
+- `GIPHY_API_KEY` - API key for Giphy service

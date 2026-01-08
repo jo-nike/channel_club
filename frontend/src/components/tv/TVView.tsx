@@ -20,6 +20,7 @@ import { ThemePicker } from '@/components/ThemePicker'
 import { NotificationToggle } from '@/components/NotificationToggle'
 import { AdminModal } from '@/components/AdminModal'
 import { ConnectionStatus } from '@/components/ConnectionStatus'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import type { ErsatzTVProgramme, UnifiedChannel, ErsatzTVChannel } from '@/types'
 
@@ -266,14 +267,20 @@ export function TVView() {
               </button>
             )}
             {/* Refresh video button */}
-            <button
-              onClick={() => setVideoRefreshKey((k) => k + 1)}
-              className="h-8 w-8 flex items-center justify-center bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-              aria-label="Refresh video"
-              title="Refresh video"
-            >
-              <RefreshCw className="h-4 w-4 shrink-0" />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => setVideoRefreshKey((k) => k + 1)}
+                  className="h-8 w-8 flex items-center justify-center bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                  aria-label="Refresh video"
+                >
+                  <RefreshCw className="h-4 w-4 shrink-0" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Refresh video</p>
+              </TooltipContent>
+            </Tooltip>
             {/* Theme picker */}
             <ThemePicker />
             {/* Notification toggle */}

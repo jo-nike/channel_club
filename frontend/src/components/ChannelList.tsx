@@ -7,7 +7,6 @@ import { useUIStore } from '@/stores/uiStore'
 import { useRovingTabIndex } from '@/hooks/useRovingTabIndex'
 import { fetchChannels, setCurrentChannel as setCurrentChannelApi, clearCurrentChannel as clearCurrentChannelApi } from '@/services/api'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { Channel } from '@/types'
@@ -122,45 +121,43 @@ export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
   }
 
   return (
-    <ScrollArea className="h-full">
-      <div
-        role="listbox"
-        aria-label="Channel list"
-        onKeyDown={handleKeyDown}
-        className="flex flex-col gap-2 p-4"
-      >
-        {/* Clear Channel button - only show when a channel is selected */}
-        {currentChannel && isAdmin && (
-          <button
-            type="button"
-            onClick={handleClearChannel}
-            className={cn(
-              'flex items-center gap-3 rounded-lg border border-destructive/50 p-4 transition-colors',
-              'text-lg text-destructive',
-              'min-h-[56px] w-full mb-2',
-              'cursor-pointer hover:bg-destructive/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring'
-            )}
-          >
-            <X className="h-5 w-5" />
-            <span className="font-medium">Clear Channel</span>
-          </button>
-        )}
-        {channels.map((channel, index) => (
-          <ChannelItem
-            key={channel.id}
-            ref={(el) => {
-              itemRefs.current[index] = el
-            }}
-            channel={channel}
-            isSelected={currentChannel?.id === channel.id}
-            isFocused={index === focusedIndex}
-            isAdmin={isAdmin}
-            tabIndex={getTabIndex(index)}
-            onSelect={() => handleSelectChannel(channel)}
-          />
-        ))}
-      </div>
-    </ScrollArea>
+    <div
+      role="listbox"
+      aria-label="Channel list"
+      onKeyDown={handleKeyDown}
+      className="flex flex-col gap-2 p-4"
+    >
+      {/* Clear Channel button - only show when a channel is selected */}
+      {currentChannel && isAdmin && (
+        <button
+          type="button"
+          onClick={handleClearChannel}
+          className={cn(
+            'flex items-center gap-3 rounded-lg border border-destructive/50 p-4 transition-colors',
+            'text-lg text-destructive',
+            'min-h-[56px] w-full mb-2',
+            'cursor-pointer hover:bg-destructive/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+          )}
+        >
+          <X className="h-5 w-5" />
+          <span className="font-medium">Clear Channel</span>
+        </button>
+      )}
+      {channels.map((channel, index) => (
+        <ChannelItem
+          key={channel.id}
+          ref={(el) => {
+            itemRefs.current[index] = el
+          }}
+          channel={channel}
+          isSelected={currentChannel?.id === channel.id}
+          isFocused={index === focusedIndex}
+          isAdmin={isAdmin}
+          tabIndex={getTabIndex(index)}
+          onSelect={() => handleSelectChannel(channel)}
+        />
+      ))}
+    </div>
   )
 }
 
@@ -203,8 +200,8 @@ const ChannelItem = forwardRef<HTMLDivElement, ChannelItemProps>(function Channe
         'text-lg',
         'min-h-[56px]',
         isSelected && 'border-primary bg-primary/10',
-        isFocused && 'ring-2 ring-ring ring-offset-2',
-        isAdmin && !isSelecting && 'cursor-pointer hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        isFocused && 'ring-4 ring-primary ring-offset-2',
+        isAdmin && !isSelecting && 'cursor-pointer hover:bg-accent focus:outline-none focus-visible:ring-4 focus-visible:ring-primary',
         isAdmin && isSelecting && 'cursor-wait opacity-70',
         !isAdmin && 'cursor-default'
       )}

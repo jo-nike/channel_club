@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { renderHook, act } from '@testing-library/react'
+import { renderHook, act } from '@/test/utils'
 import { useTheme } from './useTheme'
 import { useThemeStore } from '@/stores/themeStore'
 import { DEFAULT_THEME_ID } from '@/lib/themes'

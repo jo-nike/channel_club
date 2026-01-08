@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent } from '@/test/utils'
 import { VideoControls, VideoControlsProps } from './VideoControls'
 
 // Mock the highlight feature hook - disabled by default for existing tests
@@ -154,6 +154,38 @@ describe('VideoControls', () => {
       render(<VideoControls {...defaultProps} isTheaterMode={true} />)
 
       expect(screen.getByRole('button', { name: /exit theater/i })).toBeInTheDocument()
+    })
+
+    it('hides theater mode button when in fullscreen', () => {
+      render(<VideoControls {...defaultProps} isFullscreen={true} />)
+
+      expect(screen.queryByRole('button', { name: /theater/i })).not.toBeInTheDocument()
+    })
+
+    it('shows theater mode button when not in fullscreen', () => {
+      render(<VideoControls {...defaultProps} isFullscreen={false} />)
+
+      expect(screen.getByRole('button', { name: /theater/i })).toBeInTheDocument()
+    })
+  })
+
+  describe('Control Bar Positioning', () => {
+    it('has consistent bottom-4 position regardless of theater mode', () => {
+      const { rerender } = render(<VideoControls {...defaultProps} isTheaterMode={false} />)
+
+      const toolbar = screen.getByRole('toolbar')
+      expect(toolbar).toHaveClass('bottom-4')
+
+      rerender(<VideoControls {...defaultProps} isTheaterMode={true} />)
+      expect(toolbar).toHaveClass('bottom-4')
+    })
+
+    it('does not change position between theater and non-theater modes', () => {
+      render(<VideoControls {...defaultProps} isTheaterMode={false} />)
+
+      const toolbar = screen.getByRole('toolbar')
+      expect(toolbar).not.toHaveClass('bottom-12')
+      expect(toolbar).not.toHaveClass('bottom-24')
     })
   })
 

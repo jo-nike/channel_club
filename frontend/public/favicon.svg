@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background circle -->
+  <circle cx="256" cy="256" r="256" fill="#0f172a"/>
+
+  <!-- TV Screen outline -->
+  <rect x="96" y="128" width="320" height="220" rx="20" ry="20" fill="#1e293b" stroke="#3b82f6" stroke-width="8"/>
+
+  <!-- Screen inner area -->
+  <rect x="120" y="152" width="272" height="172" rx="8" ry="8" fill="#0f172a"/>
+
+  <!-- Play button triangle -->
+  <polygon points="220,200 220,280 300,240" fill="#3b82f6"/>
+
+  <!-- TV Stand -->
+  <rect x="200" y="360" width="112" height="16" rx="4" ry="4" fill="#3b82f6"/>
+  <rect x="224" y="348" width="64" height="20" fill="#1e293b"/>
+</svg>

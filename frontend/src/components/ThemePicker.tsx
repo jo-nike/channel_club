@@ -5,6 +5,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTheme } from '@/hooks/useTheme'
 import { getThemeCategories, getTheme } from '@/lib/themes'
 import type { ThemeId } from '@/types/theme'
@@ -26,15 +27,21 @@ export function ThemePicker() {
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          className="h-8 w-8 flex items-center justify-center bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-          aria-label="Choose theme"
-          title="Choose theme"
-        >
-          <Palette className="h-4 w-4 shrink-0" />
-        </button>
-      </PopoverTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <button
+              className="h-8 w-8 flex items-center justify-center bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              aria-label="Choose theme"
+            >
+              <Palette className="h-4 w-4 shrink-0" />
+            </button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>
+          <p>Choose theme</p>
+        </TooltipContent>
+      </Tooltip>
       <PopoverContent className="w-64 p-2" align="end">
         <div className="space-y-3">
           {categories.map((category) => (

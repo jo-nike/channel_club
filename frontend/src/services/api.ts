@@ -247,8 +247,13 @@ export async function getHighlightStatus(channelId: string): Promise<HighlightSt
   return response.json()
 }
 
-export async function saveHighlight(channelId: string): Promise<Blob> {
-  logger.debug('API', `Saving highlight for channel: ${channelId}`)
+export type HighlightFormat = 'mp4' | 'webm'
+
+export async function saveHighlight(
+  channelId: string,
+  format: HighlightFormat = 'mp4'
+): Promise<Blob> {
+  logger.debug('API', `Saving highlight for channel: ${channelId} (format: ${format})`)
 
   const token = localStorage.getItem('token')
   const headers: Record<string, string> = {}
@@ -257,7 +262,7 @@ export async function saveHighlight(channelId: string): Promise<Blob> {
     headers['Authorization'] = `Bearer ${token}`
   }
 
-  const response = await fetch(`${API_URL}/highlight/${channelId}`, {
+  const response = await fetch(`${API_URL}/highlight/${channelId}?format=${format}`, {
     method: 'POST',
     headers,
   })
@@ -268,6 +273,10 @@ export async function saveHighlight(channelId: string): Promise<Blob> {
     throw new Error(error.detail || 'Failed to save highlight')
   }
 
-  logger.info('API', `Highlight saved for channel: ${channelId}`)
+  logger.info('API', `Highlight saved for channel: ${channelId} (format: ${format})`)
   return response.blob()
+}
+
+export async function saveHighlightWebM(channelId: string): Promise<Blob> {
+  return saveHighlight(channelId, 'webm')
 }

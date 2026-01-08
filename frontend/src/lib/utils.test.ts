@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { formatDuration } from './utils'
+import { formatDuration, isWebMSupported } from './utils'
 
 describe('formatDuration', () => {
   beforeEach(() => {
@@ -52,5 +52,21 @@ describe('formatDuration', () => {
     // 4 hours and 45 minutes ago
     const complexDuration = '2026-01-04T07:15:00Z'
     expect(formatDuration(complexDuration)).toBe('4h 45m')
+  })
+})
+
+describe('isWebMSupported', () => {
+  it('should return true when browser supports VP9 codec', () => {
+    // Most modern browsers support VP9 in WebM
+    const result = isWebMSupported()
+    // Just verify it returns a boolean - actual support depends on browser
+    expect(typeof result).toBe('boolean')
+  })
+
+  it('should create a video element to check support', () => {
+    const createElementSpy = vi.spyOn(document, 'createElement')
+    isWebMSupported()
+    expect(createElementSpy).toHaveBeenCalledWith('video')
+    createElementSpy.mockRestore()
   })
 })

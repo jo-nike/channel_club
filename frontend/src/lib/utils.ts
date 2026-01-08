@@ -19,3 +19,13 @@ export function formatDuration(isoDate: string): string {
   }
   return `${minutes}m`
 }
+
+/**
+ * Check if the browser can play WebM video with VP9 codec.
+ * Used for graceful degradation when WebM is not supported.
+ */
+export function isWebMSupported(): boolean {
+  const video = document.createElement('video')
+  // Check VP9 codec support (primary WebM video codec)
+  return video.canPlayType('video/webm; codecs="vp9"') !== ''
+}

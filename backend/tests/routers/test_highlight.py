@@ -163,3 +163,65 @@ class TestSaveHighlight:
         assert "attachment" in response.headers["content-disposition"]
         assert "highlight-channel-1" in response.headers["content-disposition"]
         assert ".mp4" in response.headers["content-disposition"]
+
+    def test_returns_mp4_with_explicit_format(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Returns MP4 when format=mp4 is specified."""
+        mp4_content = b"fake mp4 content"
+
+        with patch("app.routers.highlight.settings") as mock_settings:
+            mock_settings.highlight_enabled = True
+
+            with patch("app.routers.highlight.highlight_service") as mock_service:
+                mock_service.save_highlight = AsyncMock(
+                    return_value=(mp4_content, None)
+                )
+
+                response = client.post(
+                    "/api/highlight/channel-1?format=mp4", headers=auth_header
+                )
+
+        assert response.status_code == 200
+        assert response.content == mp4_content
+        assert response.headers["content-type"] == "video/mp4"
+        mock_service.save_highlight.assert_called_once_with("channel-1", format="mp4")
+
+    def test_returns_webm_on_success(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Returns WebM file when format=webm is specified."""
+        webm_content = b"fake webm content"
+
+        with patch("app.routers.highlight.settings") as mock_settings:
+            mock_settings.highlight_enabled = True
+
+            with patch("app.routers.highlight.highlight_service") as mock_service:
+                mock_service.save_highlight = AsyncMock(
+                    return_value=(webm_content, None)
+                )
+
+                response = client.post(
+                    "/api/highlight/channel-1?format=webm", headers=auth_header
+                )
+
+        assert response.status_code == 200
+        assert response.content == webm_content
+        assert response.headers["content-type"] == "video/webm"
+        assert "attachment" in response.headers["content-disposition"]
+        assert "highlight-channel-1" in response.headers["content-disposition"]
+        assert ".webm" in response.headers["content-disposition"]
+        mock_service.save_highlight.assert_called_once_with("channel-1", format="webm")
+
+    def test_invalid_format_returns_422(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Returns 422 for invalid format parameter."""
+        with patch("app.routers.highlight.settings") as mock_settings:
+            mock_settings.highlight_enabled = True
+
+            response = client.post(
+                "/api/highlight/channel-1?format=avi", headers=auth_header
+            )
+
+        assert response.status_code == 422  # Validation error

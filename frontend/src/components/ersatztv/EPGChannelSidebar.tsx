@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { getErsatzTVLogoUrl, fetchErsatzTVCurrentProgramme } from '@/services/ersatztvApi'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { ErsatzTVChannel } from '@/types'
 
 interface EPGChannelSidebarProps {
@@ -91,23 +92,28 @@ export function EPGChannelSidebar({
         </button>
         <div className="mt-2 flex flex-1 flex-col items-center gap-1 overflow-y-auto pt-1">
           {channels.map((channel) => (
-            <button
-              key={channel.id}
-              onClick={() => {
-                selectChannel(channel)
-                onChannelSelect?.(channel)
-              }}
-              className={`
-                flex h-8 w-8 items-center justify-center rounded bg-muted text-xs font-medium
-                hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring
-                ${selectedChannel?.id === channel.id ? 'ring-2 ring-primary bg-primary/10' : ''}
-              `}
-              title={channel.name}
-              aria-label={`${channel.number} ${channel.name}`}
-              aria-pressed={selectedChannel?.id === channel.id}
-            >
-              {channel.number}
-            </button>
+            <Tooltip key={channel.id}>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => {
+                    selectChannel(channel)
+                    onChannelSelect?.(channel)
+                  }}
+                  className={`
+                    flex h-8 w-8 items-center justify-center rounded bg-muted text-xs font-medium
+                    hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring
+                    ${selectedChannel?.id === channel.id ? 'ring-2 ring-primary bg-primary/10' : ''}
+                  `}
+                  aria-label={`${channel.number} ${channel.name}`}
+                  aria-pressed={selectedChannel?.id === channel.id}
+                >
+                  {channel.number}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                <p>{channel.name}</p>
+              </TooltipContent>
+            </Tooltip>
           ))}
         </div>
       </aside>

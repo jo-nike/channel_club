@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
+import { renderHook, waitFor } from '@/test/utils'
 import { useHighlightFeature } from './useHighlightFeature'
 import * as api from '@/services/api'
 

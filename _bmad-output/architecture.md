@@ -975,3 +975,145 @@ https://streams.domain.com/proxy/ts/stream/{uuid}
 7. Re-fetch on channel change
 ```
 
+### 2026-01-07: Epic 12 Extensions & Epic 13
+
+**New Environment Variables:**
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `CHAT_ENABLED` | Enable/disable chat feature | `false` |
+
+**WebSocket Message Types (Extended):**
+
+```
+# Existing
+Server → Client: {"type": "channel_update", "channel": {...}}
+Server → Client: {"type": "connection_ack", "currentChannel": {...} | null}
+Client → Server: {"type": "ping"}
+Client → Server: {"type": "view_change", "view": "live"|"ersatztv"}
+
+# New - Chat (Epic 13)
+Client → Server: {"type": "chat_message", "content": "string (max 500 chars)"}
+Server → Client: {"type": "chat_message", "username": "string", "content": "string", "timestamp": "ISO8601", "messageId": "uuid"}
+Server → Client: {"type": "chat_history", "messages": [{...}, ...]}
+```
+
+**Chat Architecture:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Chat Data Flow                            │
+├─────────────────────────────────────────────────────────────┤
+│  User sends message                                          │
+│    → WebSocket {"type": "chat_message", "content": "Hi"}    │
+│    → Backend sanitizes (strip HTML, limit 500 chars)        │
+│    → Store in circular buffer (last 100 messages)           │
+│    → Broadcast to all connected clients                      │
+│    → Clients receive and display in chat panel              │
+├─────────────────────────────────────────────────────────────┤
+│  User connects                                               │
+│    → Receive connection_ack (existing)                      │
+│    → Receive chat_history (last 50 messages)                │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Chat Storage:**
+- In-memory circular buffer (100 messages max)
+- No persistence across restarts
+- Fields: messageId (uuid), username, content, timestamp
+
+**New Frontend Components:**
+
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| `ChatPanel.tsx` | `frontend/src/components/` | Chat overlay UI |
+| `ChatMessage.tsx` | `frontend/src/components/` | Individual message display |
+| `HighlightModal.tsx` | `frontend/src/components/` | Highlight preview modal |
+| `ThemedTooltip.tsx` | `frontend/src/components/` | Consistent themed tooltips |
+
+**New Backend Services:**
+
+| Service | Location | Purpose |
+|---------|----------|---------|
+| `chat_service.py` | `backend/app/services/` | Chat message handling & storage |
+
+**Python Tooling Update:**
+
+| Tool | Purpose | Configuration |
+|------|---------|---------------|
+| Ty (Astral) | Type checking | `pyproject.toml` |
+
+**pyproject.toml additions:**
+```toml
+[tool.ty]
+python-version = "3.13"
+
+[project.optional-dependencies]
+dev = [
+    "ty>=0.1.0",
+]
+```
+
+**Type Checking Standard:**
+All Python code must include complete type annotations:
+- Function parameters: typed
+- Return values: typed
+- Class attributes: typed
+- Pydantic models: explicitly typed fields
+
+Run type checking: `uv run ty check backend/app`
+
+**Tooltip Implementation Pattern:**
+
+```tsx
+// Use shadcn/ui Tooltip with theme-aware styling
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+
+<Tooltip>
+  <TooltipTrigger>{children}</TooltipTrigger>
+  <TooltipContent className="bg-popover text-popover-foreground">
+    {content}
+  </TooltipContent>
+</Tooltip>
+```
+
+**Highlight Modal Pattern:**
+
+```tsx
+// Modal controls background video volume
+const [previousVolume, setPreviousVolume] = useState(1)
+
+const openModal = () => {
+  setPreviousVolume(videoRef.current.volume)
+  videoRef.current.volume = 0.2  // Lower to 20%
+  setModalOpen(true)
+}
+
+const closeModal = () => {
+  videoRef.current.volume = previousVolume  // Restore
+  setModalOpen(false)
+}
+```
+
+**API Endpoint Updates:**
+
+| Endpoint | Change |
+|----------|--------|
+| `GET /api/admin/active-users` | Remove `estimatedBitrate` field from response |
+
+**Updated Active Users Response Format:**
+```json
+{
+  "liveUsers": [
+    {"username": "Jon", "currentChannel": "TSN", "connectedSince": "ISO8601"}
+  ],
+  "ersatztvUsers": [...],
+  "totals": {
+    "live": 2,
+    "ersatztv": 1,
+    "total": 3
+  }
+}
+```
+*(Note: `bitrate` fields removed)*
+

@@ -132,7 +132,7 @@ def _parse_xmltv_content(content: str) -> list[Programme]:
             start_str = elem.get("start")
             stop_str = elem.get("stop")
 
-            if not all([channel_id, start_str, stop_str]):
+            if not channel_id or not start_str or not stop_str:
                 continue
 
             start = _parse_xmltv_datetime(start_str)

@@ -454,11 +454,35 @@ function HLSControlsWrapper({
 
   const isPlaying = !paused
 
-  const { isVisible } = useAutoHide({
+  const { isVisible, toggleControls } = useAutoHide({
     isPlaying,
     containerRef,
     isHoveringControls,
   })
+
+  // Detect touch device
+  const isTouchDevice = useCallback(() => {
+    return window.matchMedia('(pointer: coarse)').matches
+  }, [])
+
+  // Handle video area click for touch devices - toggle controls visibility
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    const handleClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      // Don't toggle if clicking on controls
+      if (target.closest('.video-controls')) return
+
+      if (isTouchDevice()) {
+        toggleControls()
+      }
+    }
+
+    container.addEventListener('click', handleClick)
+    return () => container.removeEventListener('click', handleClick)
+  }, [containerRef, isTouchDevice, toggleControls])
 
   // Keyboard shortcuts
   useEffect(() => {

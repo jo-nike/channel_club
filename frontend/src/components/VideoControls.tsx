@@ -1,8 +1,10 @@
-import type { RefObject } from 'react'
+import { useState, useCallback, type RefObject } from 'react'
 import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Expand, Shrink } from 'lucide-react'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useHighlightFeature } from '@/hooks/useHighlightFeature'
 import { HighlightButton } from './HighlightButton'
+import { HighlightModal } from './HighlightModal'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 export interface VideoControlsProps {
   videoRef: RefObject<HTMLVideoElement | null>
@@ -25,6 +27,7 @@ export interface VideoControlsProps {
 }
 
 export function VideoControls({
+  videoRef,
   isPlaying,
   volume,
   isMuted,
@@ -54,46 +57,84 @@ export function VideoControls({
   // Show highlight button on desktop only when feature is enabled
   const showHighlightButton = highlightEnabled && !isMobile && !isTVMode && channelId
 
+  // Highlight modal state
+  const [isHighlightModalOpen, setIsHighlightModalOpen] = useState(false)
+  const [previousVolume, setPreviousVolume] = useState(volume)
+
+  const handleOpenHighlightModal = useCallback(() => {
+    // Store current volume before ducking
+    setPreviousVolume(volume)
+    setIsHighlightModalOpen(true)
+  }, [volume])
+
+  const handleCloseHighlightModal = useCallback(() => {
+    setIsHighlightModalOpen(false)
+  }, [])
+
+  const handleHighlightVolumeChange = useCallback(
+    (newVolume: number) => {
+      if (videoRef.current) {
+        videoRef.current.volume = newVolume
+      }
+      onVolumeChange(newVolume)
+    },
+    [videoRef, onVolumeChange]
+  )
+
   return (
     <div
       role="toolbar"
       aria-label="Video controls"
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
-      className={`video-controls absolute left-4 right-4 z-10 flex items-center gap-4 rounded-lg bg-black/70 p-4 transition-opacity duration-300 ${
-        isTheaterMode ? 'bottom-24' : 'bottom-12'
-      } ${isVisible ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
+      className={`video-controls absolute bottom-4 left-4 right-4 z-10 flex items-center gap-4 rounded-lg bg-black/70 p-4 transition-opacity duration-300 ${
+        isVisible ? 'opacity-100' : 'pointer-events-none opacity-0'
+      }`}
     >
       {/* Play/Pause Button */}
-      <button
-        type="button"
-        tabIndex={isVisible ? 0 : -1}
-        onClick={onPlayPause}
-        aria-label={isPlaying ? 'Pause' : 'Play'}
-        className="control-button flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-400/80"
-      >
-        {isPlaying ? (
-          <Pause className="h-6 w-6 text-white" />
-        ) : (
-          <Play className="h-6 w-6 text-white" />
-        )}
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            tabIndex={isVisible ? 0 : -1}
+            onClick={onPlayPause}
+            aria-label={isPlaying ? 'Pause' : 'Play'}
+            className="control-button flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-400/80"
+          >
+            {isPlaying ? (
+              <Pause className="h-6 w-6 text-white" />
+            ) : (
+              <Play className="h-6 w-6 text-white" />
+            )}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>
+          <p>{isPlaying ? 'Pause' : 'Play'}</p>
+        </TooltipContent>
+      </Tooltip>
 
       {/* Volume Controls */}
       <div className="flex items-center gap-2">
-        <button
-          type="button"
-          tabIndex={isVisible ? 0 : -1}
-          onClick={onMuteToggle}
-          aria-label={isMuted ? 'Unmute' : 'Mute'}
-          className="control-button flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-400/80"
-        >
-          {isMuted ? (
-            <VolumeX className="h-6 w-6 text-white" />
-          ) : (
-            <Volume2 className="h-6 w-6 text-white" />
-          )}
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              tabIndex={isVisible ? 0 : -1}
+              onClick={onMuteToggle}
+              aria-label={isMuted ? 'Unmute' : 'Mute'}
+              className="control-button flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-400/80"
+            >
+              {isMuted ? (
+                <VolumeX className="h-6 w-6 text-white" />
+              ) : (
+                <Volume2 className="h-6 w-6 text-white" />
+              )}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>{isMuted ? 'Unmute' : 'Mute'}</p>
+          </TooltipContent>
+        </Tooltip>
         <input
           type="range"
           tabIndex={isVisible ? 0 : -1}
@@ -109,44 +150,71 @@ export function VideoControls({
 
       {/* Highlight Button - desktop only when feature enabled */}
       {showHighlightButton && (
-        <HighlightButton channelId={channelId} isVisible={isVisible} />
+        <>
+          <HighlightButton
+            channelId={channelId}
+            isVisible={isVisible}
+            onOpenModal={handleOpenHighlightModal}
+          />
+          <HighlightModal
+            isOpen={isHighlightModalOpen}
+            onClose={handleCloseHighlightModal}
+            channelId={channelId}
+            onVolumeChange={handleHighlightVolumeChange}
+            previousVolume={previousVolume}
+          />
+        </>
       )}
 
       {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Fullscreen Button - hidden on TV (TV has native fullscreen) */}
-      {!isTVMode && (
-        <button
-          type="button"
-          tabIndex={isVisible ? 0 : -1}
-          onClick={onFullscreenToggle}
-          aria-label={isFullscreen ? 'Exit fullscreen' : 'Toggle fullscreen'}
-          className="control-button flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-400/80"
-        >
-          {isFullscreen ? (
-            <Minimize className="h-6 w-6 text-white" />
-          ) : (
-            <Maximize className="h-6 w-6 text-white" />
-          )}
-        </button>
+      {/* Theater Mode Button - hidden on mobile, TV, and fullscreen */}
+      {!isMobile && !isTVMode && !isFullscreen && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              tabIndex={isVisible ? 0 : -1}
+              onClick={onTheaterModeToggle}
+              aria-label={isTheaterMode ? 'Exit theater mode' : 'Theater mode'}
+              className="control-button flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-400/80"
+            >
+              {isTheaterMode ? (
+                <Shrink className="h-6 w-6 text-white" />
+              ) : (
+                <Expand className="h-6 w-6 text-white" />
+              )}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>{isTheaterMode ? 'Exit theater mode' : 'Theater mode'}</p>
+          </TooltipContent>
+        </Tooltip>
       )}
 
-      {/* Theater Mode Button - hidden on mobile and TV */}
-      {!isMobile && !isTVMode && (
-        <button
-          type="button"
-          tabIndex={isVisible ? 0 : -1}
-          onClick={onTheaterModeToggle}
-          aria-label={isTheaterMode ? 'Exit theater mode' : 'Theater mode'}
-          className="control-button flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-400/80"
-        >
-          {isTheaterMode ? (
-            <Shrink className="h-6 w-6 text-white" />
-          ) : (
-            <Expand className="h-6 w-6 text-white" />
-          )}
-        </button>
+      {/* Fullscreen Button - hidden on TV (TV has native fullscreen) */}
+      {!isTVMode && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              tabIndex={isVisible ? 0 : -1}
+              onClick={onFullscreenToggle}
+              aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+              className="control-button flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-400/80"
+            >
+              {isFullscreen ? (
+                <Minimize className="h-6 w-6 text-white" />
+              ) : (
+                <Maximize className="h-6 w-6 text-white" />
+              )}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>{isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}</p>
+          </TooltipContent>
+        </Tooltip>
       )}
     </div>
   )

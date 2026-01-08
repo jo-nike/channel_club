@@ -8,7 +8,9 @@ Provides endpoints for:
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Path
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from fastapi.responses import Response
 from loguru import logger
 from pydantic import BaseModel
@@ -87,13 +89,22 @@ async def get_highlight_status(
 @router.post("/{channel_id}")
 async def save_highlight(
     channel_id: str = Path(..., description="Channel ID to save highlight for"),
+    format: Literal["mp4", "webm"] = Query(
+        "mp4", description="Output format: mp4 or webm"
+    ),
     user: TokenPayload = Depends(get_current_user),
 ) -> Response:
     """Save highlight for a channel.
 
-    Returns the MP4 file as a download with appropriate filename.
+    Returns the video file as a download with appropriate filename.
+    Format can be mp4 (fast, universal) or webm (smaller, open format).
     """
-    log.info("POST /highlight/{} request from user {}", channel_id, user.sub)
+    log.info(
+        "POST /highlight/{} (format={}) request from user {}",
+        channel_id,
+        format,
+        user.sub,
+    )
 
     if not settings.highlight_enabled:
         raise HTTPException(
@@ -101,7 +112,7 @@ async def save_highlight(
             detail="Highlight feature is disabled",
         )
 
-    mp4_bytes, error = await highlight_service.save_highlight(channel_id)
+    video_bytes, error = await highlight_service.save_highlight(channel_id, format=format)
 
     if error:
         log.warning("Highlight save failed for channel {}: {}", channel_id, error)
@@ -110,7 +121,7 @@ async def save_highlight(
             detail=error,
         )
 
-    if not mp4_bytes:
+    if not video_bytes:
         raise HTTPException(
             status_code=500,
             detail="Failed to create highlight",
@@ -118,15 +129,23 @@ async def save_highlight(
 
     # Generate filename with ISO timestamp
     timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
-    filename = f"highlight-{channel_id}-{timestamp}.mp4"
+    filename = f"highlight-{channel_id}-{timestamp}.{format}"
 
-    log.info("Returning highlight for channel {} ({:.1f} KB)", channel_id, len(mp4_bytes) / 1024)
+    # Set appropriate media type
+    media_type = "video/webm" if format == "webm" else "video/mp4"
+
+    log.info(
+        "Returning {} highlight for channel {} ({:.1f} KB)",
+        format.upper(),
+        channel_id,
+        len(video_bytes) / 1024,
+    )
 
     return Response(
-        content=mp4_bytes,
-        media_type="video/mp4",
+        content=video_bytes,
+        media_type=media_type,
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
-            "Content-Length": str(len(mp4_bytes)),
+            "Content-Length": str(len(video_bytes)),
         },
     )

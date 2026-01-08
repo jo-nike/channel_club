@@ -33,32 +33,20 @@ export function ActiveUsersTab() {
 
   return (
     <div className="space-y-6 p-4">
-      {/* Total bandwidth summary with refresh */}
-      <div className="rounded-lg bg-muted p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-lg font-semibold">
-              Total Bandwidth: {data.totals.totalBitrateMbps.toFixed(1)} Mbps
-            </div>
-            <div className="text-sm text-muted-foreground">
-              {data.totals.liveCount + data.totals.ersatztvCount} active users
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">
-              {formatLastUpdated(lastUpdated)}
-            </span>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={refetch}
-              disabled={isRefreshing}
-              aria-label="Refresh active users"
-            >
-              <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-            </Button>
-          </div>
-        </div>
+      {/* Header with refresh */}
+      <div className="flex items-center justify-end gap-2">
+        <span className="text-xs text-muted-foreground">
+          {formatLastUpdated(lastUpdated)}
+        </span>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={refetch}
+          disabled={isRefreshing}
+          aria-label="Refresh active users"
+        >
+          <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+        </Button>
       </div>
 
       {/* Live TV section */}
@@ -66,7 +54,6 @@ export function ActiveUsersTab() {
         title="Live TV"
         users={data.liveUsers}
         count={data.totals.liveCount}
-        bitrate={data.totals.liveBitrateMbps}
       />
 
       {/* ErsatzTV section */}
@@ -74,7 +61,6 @@ export function ActiveUsersTab() {
         title="ErsatzTV"
         users={data.ersatztvUsers}
         count={data.totals.ersatztvCount}
-        bitrate={data.totals.ersatztvBitrateMbps}
       />
     </div>
   )
@@ -87,19 +73,17 @@ interface UserSectionProps {
     channel: string | null
     programme: string | null
     connectedSince: string
-    bitrateMbps: number
   }>
   count: number
-  bitrate: number
 }
 
-function UserSection({ title, users, count, bitrate }: UserSectionProps) {
+function UserSection({ title, users, count }: UserSectionProps) {
   return (
     <section>
       <div className="mb-2 flex items-center justify-between">
         <h3 className="font-semibold">{title}</h3>
         <span className="text-sm text-muted-foreground">
-          {count} user{count !== 1 ? 's' : ''} • {bitrate.toFixed(1)} Mbps
+          {count} user{count !== 1 ? 's' : ''}
         </span>
       </div>
 
@@ -122,7 +106,6 @@ interface UserRowProps {
     channel: string | null
     programme: string | null
     connectedSince: string
-    bitrateMbps: number
   }
 }
 
@@ -140,16 +123,13 @@ function UserRow({ user }: UserRowProps) {
   displayParts.push(formatDuration(user.connectedSince))
 
   return (
-    <div className="flex items-center justify-between rounded-md border p-3">
-      <div className="flex flex-col">
-        <span className="font-medium">{user.username}</span>
-        <span className="text-sm text-muted-foreground">
-          {displayParts.join(' - ')}
+    <div className="flex items-center justify-between rounded-md border p-3 min-h-[56px] gap-2">
+      <div className="flex flex-col min-w-0 flex-1">
+        <span className="font-medium truncate">{user.username}</span>
+        <span className="text-sm text-muted-foreground truncate">
+          {displayParts.join(' • ')}
         </span>
       </div>
-      <span className="text-sm font-medium">
-        {user.bitrateMbps.toFixed(1)} Mbps
-      </span>
     </div>
   )
 }

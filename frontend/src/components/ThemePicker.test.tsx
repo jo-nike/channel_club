@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent } from '@/test/utils'
 import { ThemePicker } from './ThemePicker'
 import { useThemeStore } from '@/stores/themeStore'
 import { DEFAULT_THEME_ID, getThemeCategories } from '@/lib/themes'

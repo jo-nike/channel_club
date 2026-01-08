@@ -179,11 +179,16 @@ class ChannelRecorder:
         elapsed = time.time() - self.started_at
         return min(elapsed, settings.highlight_buffer_seconds)
 
-    async def save_highlight(self) -> tuple[bytes | None, str | None]:
-        """Extract and return the current highlight buffer as MP4.
+    async def save_highlight(
+        self, format: str = "mp4"
+    ) -> tuple[bytes | None, str | None]:
+        """Extract and return the current highlight buffer in the specified format.
+
+        Args:
+            format: Output format - "mp4" or "webm"
 
         Returns:
-            Tuple of (mp4_bytes, error_message). If successful, error is None.
+            Tuple of (video_bytes, error_message). If successful, error is None.
         """
         if not self.is_running or not self.segment_dir:
             return None, "Recorder not running"
@@ -230,9 +235,10 @@ class ChannelRecorder:
             return None, "No recent segments available"
 
         log.info(
-            "Saving highlight for channel {} ({} segments)",
+            "Saving highlight for channel {} ({} segments, format: {})",
             self.channel_id,
             len(existing_segments),
+            format,
         )
 
         # Create concat file for FFmpeg
@@ -242,50 +248,74 @@ class ChannelRecorder:
                 for seg_path in existing_segments:
                     f.write(f"file '{seg_path}'\n")
 
-            # Concatenate segments and remux to MP4
-            output_file = self.segment_dir / "highlight.mp4"
-
-            cmd = [
-                "ffmpeg",
-                "-y",
-                "-hide_banner",
-                "-loglevel", "warning",
-                "-f", "concat",
-                "-safe", "0",
-                "-i", str(concat_file),
-                "-c", "copy",  # No re-encoding
-                "-movflags", "+faststart",  # Optimize for streaming
-                str(output_file),
-            ]
+            # Build FFmpeg command based on format
+            if format == "webm":
+                output_file = self.segment_dir / "highlight.webm"
+                # WebM requires transcoding from H.264 to VP9
+                cmd = [
+                    "ffmpeg",
+                    "-y",
+                    "-hide_banner",
+                    "-loglevel", "warning",
+                    "-f", "concat",
+                    "-safe", "0",
+                    "-i", str(concat_file),
+                    "-c:v", "libvpx-vp9",  # VP9 video codec
+                    "-crf", "30",  # Quality setting (lower = better, 30 is good)
+                    "-b:v", "0",  # Variable bitrate
+                    "-c:a", "libopus",  # Opus audio codec
+                    "-b:a", "128k",  # Audio bitrate
+                    "-deadline", "realtime",  # Faster encoding
+                    "-cpu-used", "4",  # Speed/quality tradeoff (0-8, higher = faster)
+                    str(output_file),
+                ]
+                timeout = 120  # WebM encoding takes longer
+            else:
+                output_file = self.segment_dir / "highlight.mp4"
+                # MP4 can use copy (no re-encoding)
+                cmd = [
+                    "ffmpeg",
+                    "-y",
+                    "-hide_banner",
+                    "-loglevel", "warning",
+                    "-f", "concat",
+                    "-safe", "0",
+                    "-i", str(concat_file),
+                    "-c", "copy",  # No re-encoding
+                    "-movflags", "+faststart",  # Optimize for streaming
+                    str(output_file),
+                ]
+                timeout = 30
 
             log.debug("FFmpeg concat command: {}", " ".join(cmd))
 
             result = subprocess.run(
                 cmd,
                 capture_output=True,
-                timeout=30,
+                timeout=timeout,
             )
 
             if result.returncode != 0:
                 log.error("FFmpeg concat failed: {}", result.stderr.decode())
-                return None, "Failed to create highlight"
+                return None, f"Failed to create {format.upper()} highlight"
 
             if not output_file.exists():
                 return None, "Highlight file not created"
 
-            # Read the MP4 file
-            mp4_bytes = output_file.read_bytes()
+            # Read the output file
+            video_bytes = output_file.read_bytes()
             log.info(
-                "Highlight saved for channel {} ({:.1f} KB)",
+                "Highlight saved for channel {} ({:.1f} KB, format: {})",
                 self.channel_id,
-                len(mp4_bytes) / 1024,
+                len(video_bytes) / 1024,
+                format,
             )
 
             # Cleanup temporary files
             concat_file.unlink(missing_ok=True)
             output_file.unlink(missing_ok=True)
 
-            return mp4_bytes, None
+            return video_bytes, None
 
         except subprocess.TimeoutExpired:
             log.error("FFmpeg concat timed out for channel {}", self.channel_id)
@@ -396,14 +426,17 @@ class HighlightService:
             "maxBufferSeconds": settings.highlight_buffer_seconds,
         }
 
-    async def save_highlight(self, channel_id: str) -> tuple[bytes | None, str | None]:
+    async def save_highlight(
+        self, channel_id: str, format: str = "mp4"
+    ) -> tuple[bytes | None, str | None]:
         """Save highlight for a channel.
 
         Args:
             channel_id: Channel to save highlight for.
+            format: Output format - "mp4" or "webm"
 
         Returns:
-            Tuple of (mp4_bytes, error_message).
+            Tuple of (video_bytes, error_message).
         """
         if not settings.highlight_enabled:
             return None, "Highlight feature is disabled"
@@ -411,8 +444,11 @@ class HighlightService:
         if channel_id not in self._recorders:
             return None, "No recording active for this channel"
 
+        if format not in ("mp4", "webm"):
+            return None, f"Invalid format: {format}. Use 'mp4' or 'webm'"
+
         recorder = self._recorders[channel_id]
-        return await recorder.save_highlight()
+        return await recorder.save_highlight(format=format)
 
 
 # Global service instance

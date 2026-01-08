@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { act } from '@testing-library/react'
+import { act } from '@/test/utils'
 import { useErsatztvStore } from './ersatztvStore'
 import type { ErsatzTVChannel } from '@/types'
 

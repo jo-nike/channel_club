@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, Radio } from 'lucide-react'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore } from '@/stores/tvStore'
 import { getErsatzTVLogoUrl, fetchErsatzTVCurrentProgramme } from '@/services/ersatztvApi'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { UnifiedChannel } from '@/types'
 
 interface TVChannelSidebarProps {
@@ -153,29 +154,35 @@ function CollapsedChannelButton({
   const isLive = channel.type === 'live'
 
   return (
-    <button
-      onClick={() => onSelect(channel)}
-      className={`
-        flex h-8 items-center justify-center rounded text-xs font-medium
-        hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring
-        ${isLive ? 'w-auto min-w-8 px-1' : 'w-8'}
-        ${isSelected ? 'ring-2 ring-primary bg-primary/10' : ''}
-        ${isLive && hasLiveChannel ? 'bg-destructive/20 text-destructive' : 'bg-muted'}
-      `}
-      title={channel.name}
-      aria-label={isLive ? 'Live Channel' : `${channel.number} ${channel.name}`}
-      aria-pressed={isSelected}
-    >
-      {isLive ? (
-        hasLiveChannel ? (
-          <span className="font-bold">LIVE</span>
-        ) : (
-          '0'
-        )
-      ) : (
-        channel.number
-      )}
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          onClick={() => onSelect(channel)}
+          className={`
+            flex h-8 items-center justify-center rounded text-xs font-medium
+            hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring
+            ${isLive ? 'w-auto min-w-8 px-1' : 'w-8'}
+            ${isSelected ? 'ring-2 ring-primary bg-primary/10' : ''}
+            ${isLive && hasLiveChannel ? 'bg-destructive/20 text-destructive' : 'bg-muted'}
+          `}
+          aria-label={isLive ? 'Live Channel' : `${channel.number} ${channel.name}`}
+          aria-pressed={isSelected}
+        >
+          {isLive ? (
+            hasLiveChannel ? (
+              <span className="font-bold">LIVE</span>
+            ) : (
+              '0'
+            )
+          ) : (
+            channel.number
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        <p>{channel.name}</p>
+      </TooltipContent>
+    </Tooltip>
   )
 }
 

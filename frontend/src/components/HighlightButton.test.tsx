@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@/test/utils'
 import { HighlightButton } from './HighlightButton'
 import * as api from '@/services/api'
-import { toast } from 'sonner'
 
 // Mock the API service
 vi.mock('@/services/api', () => ({
@@ -12,26 +11,9 @@ vi.mock('@/services/api', () => ({
     bufferSeconds: 30,
     maxBufferSeconds: 60,
   }),
-  saveHighlight: vi.fn().mockResolvedValue(new Blob(['fake video content'], { type: 'video/mp4' })),
-}))
-
-// Mock sonner toast
-vi.mock('sonner', () => ({
-  toast: {
-    success: vi.fn(),
-    error: vi.fn(),
-    info: vi.fn(),
-  },
 }))
 
 const mockGetHighlightStatus = api.getHighlightStatus as ReturnType<typeof vi.fn>
-const mockSaveHighlight = api.saveHighlight as ReturnType<typeof vi.fn>
-
-// Mock URL methods for download
-const mockCreateObjectURL = vi.fn(() => 'blob:test-url')
-const mockRevokeObjectURL = vi.fn()
-global.URL.createObjectURL = mockCreateObjectURL
-global.URL.revokeObjectURL = mockRevokeObjectURL
 
 describe('HighlightButton', () => {
   beforeEach(() => {
@@ -96,8 +78,29 @@ describe('HighlightButton', () => {
     })
   })
 
-  describe('Save Highlight', () => {
-    it('calls saveHighlight API when clicked', async () => {
+  describe('Modal Opening', () => {
+    it('calls onOpenModal when clicked', async () => {
+      mockGetHighlightStatus.mockResolvedValue({
+        enabled: true,
+        recording: true,
+        bufferSeconds: 60,
+        maxBufferSeconds: 60,
+      })
+
+      const onOpenModal = vi.fn()
+      render(<HighlightButton channelId="channel-1" isVisible={true} onOpenModal={onOpenModal} />)
+
+      // Wait for status to be fetched
+      await waitFor(() => {
+        expect(screen.getByRole('button')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByRole('button'))
+
+      expect(onOpenModal).toHaveBeenCalled()
+    })
+
+    it('does nothing if onOpenModal is not provided', async () => {
       mockGetHighlightStatus.mockResolvedValue({
         enabled: true,
         recording: true,
@@ -109,83 +112,11 @@ describe('HighlightButton', () => {
 
       // Wait for status to be fetched
       await waitFor(() => {
-        expect(screen.getByRole('button')).not.toBeDisabled()
+        expect(screen.getByRole('button')).toBeInTheDocument()
       })
 
+      // Should not throw
       fireEvent.click(screen.getByRole('button'))
-
-      await waitFor(() => {
-        expect(mockSaveHighlight).toHaveBeenCalledWith('channel-1')
-      })
-    })
-
-    it('shows success toast when save succeeds', async () => {
-      mockGetHighlightStatus.mockResolvedValue({
-        enabled: true,
-        recording: true,
-        bufferSeconds: 60,
-        maxBufferSeconds: 60,
-      })
-
-      render(<HighlightButton channelId="channel-1" isVisible={true} />)
-
-      // Wait for status to be fetched
-      await waitFor(() => {
-        expect(screen.getByRole('button')).not.toBeDisabled()
-      })
-
-      fireEvent.click(screen.getByRole('button'))
-
-      await waitFor(() => {
-        expect(toast.success).toHaveBeenCalled()
-      })
-    })
-
-    it('shows error toast when save fails', async () => {
-      mockGetHighlightStatus.mockResolvedValue({
-        enabled: true,
-        recording: true,
-        bufferSeconds: 60,
-        maxBufferSeconds: 60,
-      })
-      mockSaveHighlight.mockRejectedValue(new Error('Network error'))
-
-      render(<HighlightButton channelId="channel-1" isVisible={true} />)
-
-      // Wait for status to be fetched
-      await waitFor(() => {
-        expect(screen.getByRole('button')).not.toBeDisabled()
-      })
-
-      fireEvent.click(screen.getByRole('button'))
-
-      await waitFor(() => {
-        expect(toast.error).toHaveBeenCalled()
-      })
-    })
-
-    it('shows partial capture toast when buffer not full', async () => {
-      // Reset mocks to default partial buffer state
-      mockGetHighlightStatus.mockResolvedValue({
-        enabled: true,
-        recording: true,
-        bufferSeconds: 30,
-        maxBufferSeconds: 60,
-      })
-      mockSaveHighlight.mockResolvedValue(new Blob(['fake'], { type: 'video/mp4' }))
-
-      render(<HighlightButton channelId="channel-1" isVisible={true} />)
-
-      // Wait for status to be fetched
-      await waitFor(() => {
-        expect(screen.getByRole('button')).not.toBeDisabled()
-      })
-
-      fireEvent.click(screen.getByRole('button'))
-
-      await waitFor(() => {
-        expect(toast.info).toHaveBeenCalled()
-      })
     })
   })
 

@@ -65,7 +65,7 @@ async def websocket_endpoint(
     view_type = "ersatztv" if view == "ersatztv" else "live"
     presence.track_user(
         connection_id=client_id,
-        username=payload.get("sub"),
+        username=payload["sub"],  # Key guaranteed by verify_websocket_token
         view=view_type,
         websocket=websocket,
     )

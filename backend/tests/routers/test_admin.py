@@ -87,7 +87,6 @@ class TestGetActiveUsers:
         assert data["ersatztvUsers"] == []
         assert data["totals"]["liveCount"] == 0
         assert data["totals"]["ersatztvCount"] == 0
-        assert data["totals"]["totalBitrateMbps"] == 0.0
 
     def test_returns_live_users(
         self,
@@ -115,9 +114,7 @@ class TestGetActiveUsers:
         assert len(data["liveUsers"]) == 1
         assert data["liveUsers"][0]["username"] == "viewer1"
         assert data["liveUsers"][0]["channel"] == "BBC One"
-        assert data["liveUsers"][0]["bitrateMbps"] == 8.5
         assert data["totals"]["liveCount"] == 1
-        assert data["totals"]["liveBitrateMbps"] == 8.5
 
     def test_returns_ersatztv_users(
         self,
@@ -145,16 +142,14 @@ class TestGetActiveUsers:
         assert len(data["ersatztvUsers"]) == 1
         assert data["ersatztvUsers"][0]["username"] == "moviefan"
         assert data["ersatztvUsers"][0]["channel"] == "Action Movies"
-        assert data["ersatztvUsers"][0]["bitrateMbps"] == 12.0
         assert data["totals"]["ersatztvCount"] == 1
-        assert data["totals"]["ersatztvBitrateMbps"] == 12.0
 
-    def test_calculates_total_bitrate(
+    def test_calculates_total_counts(
         self,
         client: TestClient,
         admin_token_payload: TokenPayload,
     ) -> None:
-        """Should calculate total bitrate from users actively watching channels."""
+        """Should calculate total counts from users."""
         # Add users of both types with channels selected
         presence.track_user(
             connection_id="conn1",
@@ -186,35 +181,6 @@ class TestGetActiveUsers:
         data = response.json()
         assert data["totals"]["liveCount"] == 2
         assert data["totals"]["ersatztvCount"] == 1
-        assert data["totals"]["liveBitrateMbps"] == 17.0  # 8.5 * 2
-        assert data["totals"]["ersatztvBitrateMbps"] == 12.0
-        assert data["totals"]["totalBitrateMbps"] == 29.0  # 17.0 + 12.0
-
-    def test_bitrate_zero_when_no_channel_selected(
-        self,
-        client: TestClient,
-        admin_token_payload: TokenPayload,
-    ) -> None:
-        """Should report zero bitrate for users without a channel selected."""
-        # Add user without channel
-        presence.track_user(
-            connection_id="conn1",
-            username="viewer1",
-            view="live",
-        )
-
-        with patch("app.routers.auth_deps.verify_token") as mock_verify:
-            mock_verify.return_value = admin_token_payload
-            response = client.get(
-                "/api/admin/active-users",
-                headers={"Authorization": "Bearer fake_token"},
-            )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["totals"]["liveCount"] == 1
-        assert data["liveUsers"][0]["bitrateMbps"] == 0.0
-        assert data["totals"]["liveBitrateMbps"] == 0.0
 
     def test_response_includes_connected_since(
         self,

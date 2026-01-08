@@ -43,17 +43,9 @@ export function AdminModal({ open, onOpenChange }: AdminModalProps) {
   const renderTabContent = () => {
     switch (activeTab) {
       case 'channels':
-        return (
-          <div className="epg-scroll max-h-[70vh] overflow-y-auto">
-            <ChannelList onChannelSelected={() => onOpenChange(false)} />
-          </div>
-        )
+        return <ChannelList onChannelSelected={() => onOpenChange(false)} />
       case 'active-users':
-        return (
-          <div className="epg-scroll max-h-[70vh] overflow-y-auto">
-            <ActiveUsersTab />
-          </div>
-        )
+        return <ActiveUsersTab />
       case 'user-access':
         return (
           <PlaceholderTab
@@ -71,11 +63,7 @@ export function AdminModal({ open, onOpenChange }: AdminModalProps) {
           />
         )
       case 'status':
-        return (
-          <div className="epg-scroll max-h-[70vh] overflow-y-auto">
-            <StatusTab />
-          </div>
-        )
+        return <StatusTab />
       default:
         return null
     }
@@ -83,13 +71,13 @@ export function AdminModal({ open, onOpenChange }: AdminModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[95vw] sm:w-[85vw] md:w-[75vw] max-w-5xl" aria-describedby={undefined}>
+      <DialogContent className="w-[95vw] sm:w-[85vw] md:w-[75vw] max-w-5xl max-h-[90vh] overflow-hidden flex flex-col" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>Admin Panel</DialogTitle>
         </DialogHeader>
 
-        {/* Tab navigation */}
-        <div role="tablist" className="flex gap-0 border-b">
+        {/* Tab navigation - horizontal scroll for mobile, enhanced focus for TV */}
+        <div role="tablist" className="flex gap-0 border-b overflow-x-auto scrollbar-hide shrink-0">
           {tabs.map(tab => (
             <button
               key={tab.id}
@@ -99,7 +87,9 @@ export function AdminModal({ open, onOpenChange }: AdminModalProps) {
               onClick={() => handleTabClick(tab.id)}
               onKeyDown={(e) => handleTabKeyDown(e, tab.id)}
               className={cn(
-                'px-4 py-2 border-b-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+                'px-4 py-3 border-b-2 transition-colors whitespace-nowrap shrink-0 min-h-[44px]',
+                'focus:outline-none focus-visible:ring-4 focus-visible:ring-primary focus-visible:ring-offset-2',
+                'xl:text-lg xl:px-6 xl:py-4 xl:min-h-[56px]',
                 activeTab === tab.id
                   ? 'border-primary text-primary font-medium'
                   : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -110,8 +100,8 @@ export function AdminModal({ open, onOpenChange }: AdminModalProps) {
           ))}
         </div>
 
-        {/* Tab content panel */}
-        <div role="tabpanel" className="min-h-[200px]">
+        {/* Tab content panel - scroll container for all tab content */}
+        <div role="tabpanel" className="epg-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
           {renderTabContent()}
         </div>
       </DialogContent>

@@ -17,7 +17,7 @@ router = APIRouter(tags=["admin"])
 async def get_active_users(
     current_user: TokenPayload = Depends(require_admin),
 ) -> ActiveUsersResponse:
-    """Get all active users with bitrate information.
+    """Get all active users.
 
     Requires admin role.
 
@@ -34,10 +34,6 @@ async def get_active_users(
     live_users = presence.get_users_by_view("live")
     ersatztv_users = presence.get_users_by_view("ersatztv")
 
-    # Only count bitrate for users actively watching a channel
-    live_bitrate = sum(u.estimated_bitrate for u in live_users if u.current_channel)
-    ersatztv_bitrate = sum(u.estimated_bitrate for u in ersatztv_users if u.current_channel)
-
     return ActiveUsersResponse(
         live_users=[
             ActiveUser(
@@ -45,8 +41,6 @@ async def get_active_users(
                 channel=u.current_channel,
                 programme=u.current_programme,
                 connected_since=u.connected_since,
-                # Only show bitrate when actively watching a channel
-                bitrate_mbps=u.estimated_bitrate if u.current_channel else 0.0,
             )
             for u in live_users
         ],
@@ -56,17 +50,12 @@ async def get_active_users(
                 channel=u.current_channel,
                 programme=u.current_programme,
                 connected_since=u.connected_since,
-                # Only show bitrate when actively watching a channel
-                bitrate_mbps=u.estimated_bitrate if u.current_channel else 0.0,
             )
             for u in ersatztv_users
         ],
         totals=ActiveUsersTotals(
             live_count=len(live_users),
             ersatztv_count=len(ersatztv_users),
-            live_bitrate_mbps=live_bitrate,
-            ersatztv_bitrate_mbps=ersatztv_bitrate,
-            total_bitrate_mbps=live_bitrate + ersatztv_bitrate,
         ),
     )
 

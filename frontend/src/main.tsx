@@ -5,6 +5,7 @@ import { registerSW } from 'virtual:pwa-register'
 import './index.css'
 import { router } from '@/router'
 import { logger } from '@/lib/logger'
+import { TooltipProvider } from '@/components/ui/tooltip'
 
 // Register service worker with update handling
 // Uses autoUpdate mode - SW updates automatically in background
@@ -25,7 +26,9 @@ const updateSW = registerSW({
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <RouterProvider router={router} />
+    <TooltipProvider delayDuration={300}>
+      <RouterProvider router={router} />
+    </TooltipProvider>
   </StrictMode>,
 )
 

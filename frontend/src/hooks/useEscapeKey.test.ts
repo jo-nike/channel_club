@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { renderHook } from '@testing-library/react'
+import { renderHook } from '@/test/utils'
 import { useEscapeKey } from './useEscapeKey'
 
 describe('useEscapeKey', () => {

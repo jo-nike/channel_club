@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 type ConnectionState = 'connected' | 'connecting' | 'reconnecting' | 'disconnected'
 
@@ -38,17 +39,28 @@ export function ConnectionStatus({ status }: ConnectionStatusProps) {
     setIsHidden((prev) => !prev)
   }
 
+  const tooltipText = isHidden
+    ? `${config.text} (hidden)`
+    : config.text
+
   return (
-    <button
-      type="button"
-      onClick={handleClick}
-      className={cn(
-        'h-3 w-3 rounded-full cursor-pointer transition-colors',
-        isHidden ? 'bg-background' : config.color,
-        !isHidden && config.pulse && 'animate-pulse'
-      )}
-      role="status"
-      aria-label={isHidden ? `${config.text} (hidden - click to show)` : `${config.text} (click to hide)`}
-    />
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={handleClick}
+          className={cn(
+            'h-3 w-3 rounded-full cursor-pointer transition-colors',
+            isHidden ? 'bg-background' : config.color,
+            !isHidden && config.pulse && 'animate-pulse'
+          )}
+          role="status"
+          aria-label={isHidden ? `${config.text} (hidden - click to show)` : `${config.text} (click to hide)`}
+        />
+      </TooltipTrigger>
+      <TooltipContent>
+        <p>{tooltipText}</p>
+      </TooltipContent>
+    </Tooltip>
   )
 }

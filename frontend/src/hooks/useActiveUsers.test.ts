@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { renderHook, waitFor, act } from '@testing-library/react'
+import { renderHook, waitFor, act } from '@/test/utils'
 import { useActiveUsers } from './useActiveUsers'
 
 // Mock useAuth hook
@@ -34,7 +34,6 @@ describe('useActiveUsers', () => {
           username: 'user1',
           channel: 'Channel 1',
           connectedSince: '2026-01-04T10:00:00Z',
-          bitrateMbps: 8.5,
         },
       ],
       ersatztvUsers: [
@@ -42,15 +41,11 @@ describe('useActiveUsers', () => {
           username: 'user2',
           channel: 'Movie Channel',
           connectedSince: '2026-01-04T11:00:00Z',
-          bitrateMbps: 12.0,
         },
       ],
       totals: {
         liveCount: 1,
         ersatztvCount: 1,
-        liveBitrateMbps: 8.5,
-        ersatztvBitrateMbps: 12.0,
-        totalBitrateMbps: 20.5,
       },
     }
 
@@ -108,9 +103,6 @@ describe('useActiveUsers', () => {
       totals: {
         liveCount: 0,
         ersatztvCount: 0,
-        liveBitrateMbps: 0,
-        ersatztvBitrateMbps: 0,
-        totalBitrateMbps: 0,
       },
     }
 
@@ -151,9 +143,6 @@ describe('useActiveUsers', () => {
       totals: {
         liveCount: 0,
         ersatztvCount: 0,
-        liveBitrateMbps: 0,
-        ersatztvBitrateMbps: 0,
-        totalBitrateMbps: 0,
       },
     }
 
@@ -186,9 +175,6 @@ describe('useActiveUsers', () => {
       totals: {
         liveCount: 0,
         ersatztvCount: 0,
-        liveBitrateMbps: 0,
-        ersatztvBitrateMbps: 0,
-        totalBitrateMbps: 0,
       },
     }
 

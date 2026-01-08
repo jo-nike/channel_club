@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@/test/utils'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { AdminModal } from './AdminModal'
 import { useChannelStore } from '@/stores/channelStore'
@@ -316,10 +316,9 @@ describe('AdminModal', () => {
         expect(screen.getByText('Channel 1')).toBeInTheDocument()
       })
 
-      // Check that the channels are within a scroll area
-      const channelItem = screen.getByText('Channel 1').closest('.channel-item')
-      const scrollContainer = channelItem?.closest('[data-radix-scroll-area-viewport]')
-      expect(scrollContainer).toBeInTheDocument()
+      // Check that the channels are within a scrollable tabpanel container
+      const tabpanel = screen.getByRole('tabpanel')
+      expect(tabpanel).toHaveClass('overflow-y-auto')
     })
   })
 
@@ -329,13 +328,10 @@ describe('AdminModal', () => {
 
       fireEvent.click(screen.getByRole('tab', { name: /active users/i }))
 
-      // Should show the total bandwidth summary
-      await waitFor(() => {
-        expect(screen.getByText(/Total Bandwidth:/)).toBeInTheDocument()
-      })
-
       // Should show Live TV section
-      expect(screen.getByText('Live TV')).toBeInTheDocument()
+      await waitFor(() => {
+        expect(screen.getByText('Live TV')).toBeInTheDocument()
+      })
 
       // Should show ErsatzTV section
       expect(screen.getByText('ErsatzTV')).toBeInTheDocument()

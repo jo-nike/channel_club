@@ -1,7 +1,7 @@
 """Presence service for tracking connected users and their activity.
 
 This service maintains in-memory tracking of all connected users,
-their view type (live/ersatztv), current channel, and estimated bitrate.
+their view type (live/ersatztv), and current channel.
 The state resets on server restart (acceptable for this use case).
 """
 
@@ -15,10 +15,6 @@ from loguru import logger
 # Module-level logger with service context
 log = logger.bind(service="presence")
 
-# Bitrate estimates (Mbps)
-LIVE_BITRATE = 8.5
-ERSATZTV_BITRATE = 12.0
-
 
 @dataclass
 class UserPresence:
@@ -31,7 +27,6 @@ class UserPresence:
     current_programme: str | None = None
     connected_since: datetime = field(default_factory=lambda: datetime.now(UTC))
     last_activity: datetime = field(default_factory=lambda: datetime.now(UTC))
-    estimated_bitrate: float = 0.0
     websocket: WebSocket | None = None  # For potential future use
 
 
@@ -67,17 +62,15 @@ def track_user(
             view,
         )
 
-    bitrate = LIVE_BITRATE if view == "live" else ERSATZTV_BITRATE
-    presence = UserPresence(
+    user_presence = UserPresence(
         connection_id=connection_id,
         username=username,
         view=view,
-        estimated_bitrate=bitrate,
         websocket=websocket,
     )
-    _active_users[connection_id] = presence
+    _active_users[connection_id] = user_presence
     log.info("User {} connected to {} view (session: {})", username, view, connection_id)
-    return presence
+    return user_presence
 
 
 def remove_user(connection_id: str, websocket: WebSocket | None = None) -> None:
@@ -130,7 +123,6 @@ def update_user_channel(
                 view,
             )
             user.view = view
-            user.estimated_bitrate = LIVE_BITRATE if view == "live" else ERSATZTV_BITRATE
 
         log.debug(
             "User {} now watching: {} - {} (view: {})",
