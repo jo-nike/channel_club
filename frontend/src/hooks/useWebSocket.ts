@@ -48,7 +48,6 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   const chatEnabled = useChatEnabled()
   const addChatMessage = useChatStore((s) => s.addMessage)
   const setChatMessages = useChatStore((s) => s.setMessages)
-  const nickname = useChatStore((s) => s.nickname)
 
   const wsRef = useRef<WebSocket | null>(null)
   const pingIntervalRef = useRef<number | null>(null)
