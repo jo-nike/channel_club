@@ -1,6 +1,6 @@
 # Story 13.4: Chat Media URL Detection & Rendering
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -47,42 +47,42 @@ so that I can share and view GIFs, videos, and images without leaving the chat.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create URL detection utility (AC: #1-4)
-  - [ ] Create `frontend/src/lib/mediaDetection.ts`
-  - [ ] Implement `detectMediaUrl(text: string) -> MediaMatch[]`
-  - [ ] Support patterns: `.gif`, `.gifv`, `.webm`, `.mp4`, `.png`, `.jpg`, `.jpeg`
-  - [ ] Handle Imgur, Giphy, Tenor, and generic URLs
-  - [ ] Return array of {type, url, startIndex, endIndex}
+- [x] Task 1: Create URL detection utility (AC: #1-4)
+  - [x] Create `frontend/src/lib/mediaDetection.ts`
+  - [x] Implement `detectMediaUrl(text: string) -> MediaMatch[]`
+  - [x] Support patterns: `.gif`, `.gifv`, `.webm`, `.mp4`, `.png`, `.jpg`, `.jpeg`
+  - [x] Handle Imgur, Giphy, Tenor, and generic URLs
+  - [x] Return array of {type, url, startIndex, endIndex}
 
-- [ ] Task 2: Create ChatMediaEmbed component (AC: #1-4, #6, #7)
-  - [ ] Create `frontend/src/components/ChatMediaEmbed.tsx`
-  - [ ] Render `<img>` for GIF/image types
-  - [ ] Render `<video loop muted autoPlay playsInline>` for gifv/webm/mp4
-  - [ ] Add loading state with skeleton placeholder
-  - [ ] Add error state with fallback link
-  - [ ] Constrain max dimensions (e.g., max-w-64 max-h-48)
+- [x] Task 2: Create ChatMediaEmbed component (AC: #1-4, #6, #7)
+  - [x] Create `frontend/src/components/ChatMediaEmbed.tsx`
+  - [x] Render `<img>` for GIF/image types
+  - [x] Render `<video loop muted autoPlay playsInline>` for gifv/webm/mp4
+  - [x] Add loading state with skeleton placeholder
+  - [x] Add error state with fallback link
+  - [x] Constrain max dimensions (e.g., max-w-64 max-h-48)
 
-- [ ] Task 3: Update ChatMessage component (AC: #5)
-  - [ ] Parse message content for media URLs
-  - [ ] Split content into text segments and media embeds
-  - [ ] Render mixed content cleanly
-  - [ ] Preserve message order (text before/after media)
+- [x] Task 3: Update ChatMessage component (AC: #5)
+  - [x] Parse message content for media URLs
+  - [x] Split content into text segments and media embeds
+  - [x] Render mixed content cleanly
+  - [x] Preserve message order (text before/after media)
 
-- [ ] Task 4: Add lazy loading (AC: #7)
-  - [ ] Use `loading="lazy"` for images
-  - [ ] Use Intersection Observer for videos
-  - [ ] Only autoplay videos when in viewport
+- [x] Task 4: Add lazy loading (AC: #7)
+  - [x] Use `loading="lazy"` for images
+  - [x] Use Intersection Observer for videos
+  - [x] Only autoplay videos when in viewport
 
-- [ ] Task 5: Handle special URL formats (AC: #2)
-  - [ ] Imgur .gifv → convert to .mp4 for better compatibility
-  - [ ] Giphy URLs → extract direct GIF URL
-  - [ ] Tenor URLs → extract direct GIF URL
+- [x] Task 5: Handle special URL formats (AC: #2)
+  - [x] Imgur .gifv → convert to .mp4 for better compatibility
+  - [x] Giphy URLs → extract direct GIF URL
+  - [x] Tenor URLs → extract direct GIF URL
 
-- [ ] Task 6: Add tests (AC: #1-7)
-  - [ ] Test URL detection for all formats
-  - [ ] Test mixed text + media rendering
-  - [ ] Test error fallback
-  - [ ] Test lazy loading behavior
+- [x] Task 6: Add tests (AC: #1-7)
+  - [x] Test URL detection for all formats
+  - [x] Test mixed text + media rendering
+  - [x] Test error fallback
+  - [x] Test lazy loading behavior
 
 ## Dev Notes
 
@@ -263,10 +263,37 @@ Keep embedded media reasonable to prevent chat flooding:
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.5 (claude-opus-4-5-20251101)
 
 ### Debug Log References
 
+N/A - Implementation proceeded without blocking issues.
+
 ### Completion Notes List
 
+- Created URL detection utility (`mediaDetection.ts`) with support for GIF, video (gifv/webm/mp4), and image formats
+- Regex pattern sorted by extension length to ensure .gifv matches before .gif
+- Imgur .gifv URLs automatically converted to .mp4 for direct video playback
+- Created ChatMediaEmbed component with loading skeleton, error fallback, and size constraints
+- Added IntersectionObserver for viewport-based video autoplay (pause when not visible)
+- Updated ChatMessage component to parse and render mixed text/media content
+- All tests pass (61 total: 31 mediaDetection, 17 ChatMediaEmbed, 13 ChatMessage)
+- Full test suite passes with 869 tests total, no regressions
+- Added IntersectionObserver mock to test setup for proper video testing
+
 ### File List
+
+**New Files:**
+- frontend/src/lib/mediaDetection.ts
+- frontend/src/lib/mediaDetection.test.ts
+- frontend/src/components/ChatMediaEmbed.tsx
+- frontend/src/components/ChatMediaEmbed.test.tsx
+
+**Modified Files:**
+- frontend/src/components/ChatMessage.tsx
+- frontend/src/components/ChatMessage.test.tsx
+- frontend/src/test/setup.ts (added IntersectionObserver mock)
+
+### Change Log
+
+- 2026-01-08: Story 13.4 implemented - Chat Media URL Detection & Rendering complete

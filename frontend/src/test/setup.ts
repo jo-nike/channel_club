@@ -1,11 +1,36 @@
 import '@testing-library/jest-dom'
 import { cleanup } from '@testing-library/react'
-import { afterEach } from 'vitest'
+import { afterEach, vi } from 'vitest'
 
 // Cleanup after each test
 afterEach(() => {
   cleanup()
 })
+
+// Mock IntersectionObserver for lazy loading tests
+class MockIntersectionObserver implements IntersectionObserver {
+  readonly root: Element | Document | null = null
+  readonly rootMargin: string = ''
+  readonly thresholds: ReadonlyArray<number> = []
+
+  // Store callback for potential testing use
+  private _callback: IntersectionObserverCallback
+
+  constructor(
+    callback: IntersectionObserverCallback,
+    _options?: IntersectionObserverInit // eslint-disable-line @typescript-eslint/no-unused-vars
+  ) {
+    this._callback = callback
+  }
+
+  observe(_target: Element): void {} // eslint-disable-line @typescript-eslint/no-unused-vars
+  unobserve(_target: Element): void {} // eslint-disable-line @typescript-eslint/no-unused-vars
+  disconnect(): void {}
+  takeRecords(): IntersectionObserverEntry[] {
+    return []
+  }
+}
+window.IntersectionObserver = MockIntersectionObserver
 
 // Mock window.matchMedia for tests that use media queries
 Object.defineProperty(window, 'matchMedia', {

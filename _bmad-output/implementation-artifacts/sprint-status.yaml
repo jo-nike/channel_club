@@ -171,6 +171,6 @@ development_status:
   13-1-websocket-chat-backend: review
   13-2-chat-ui-component: review
   13-3-python-type-hints-remediation-ty: done
-  13-4-chat-media-url-detection: in-progress
+  13-4-chat-media-url-detection: review
   13-5-gif-keyboard-integration: ready-for-dev
   epic-13-retrospective: optional
