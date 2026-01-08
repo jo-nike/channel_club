@@ -40,7 +40,7 @@ export function LoginForm() {
 
     try {
       const response = await login({ username, password })
-      setAuth(response.accessToken, response.role)
+      setAuth(response.accessToken, response.role, username)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Invalid credentials')
     } finally {

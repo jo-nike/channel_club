@@ -7,11 +7,16 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from jose import JWTError
 from loguru import logger
 
-from app.services import channel_state, presence
+from app.config import settings
+from app.services import channel_state, chat, presence
 from app.services.auth import verify_token
 
 router = APIRouter()
 log = logger.bind(router="websocket")
+
+# Store nicknames per client_id (in-memory, cleared on disconnect)
+_nickname_map: dict[str, str] = {}
+MAX_NICKNAME_LENGTH = 30
 
 
 async def verify_websocket_token(token: str) -> dict | None:
@@ -79,12 +84,22 @@ async def websocket_endpoint(
         }
         await websocket.send_json(ack_message)
 
+        # Send chat history if chat is enabled
+        if settings.chat_enabled:
+            history = chat.get_history(limit=50)
+            history_message = {
+                "type": "chat_history",
+                "messages": [msg.to_dict() for msg in history],
+            }
+            await websocket.send_json(history_message)
+
         # Listen for client messages
+        username = payload["sub"]
         while True:
             data = await websocket.receive_text()
             try:
                 message = json.loads(data)
-                await handle_client_message(websocket, message, client_id)
+                await handle_client_message(websocket, message, client_id, username)
             except json.JSONDecodeError:
                 log.debug("Malformed JSON from client {}", client_id)
 
@@ -97,15 +112,20 @@ async def websocket_endpoint(
         # Pass websocket to avoid race condition on view switch
         presence.remove_user(client_id, websocket)
         channel_state.disconnect(websocket)
+        # Clean up nickname
+        _nickname_map.pop(client_id, None)
 
 
-async def handle_client_message(websocket: WebSocket, message: dict, client_id: str) -> None:
+async def handle_client_message(
+    websocket: WebSocket, message: dict, client_id: str, username: str
+) -> None:
     """Handle incoming client messages.
 
     Args:
         websocket: The WebSocket connection.
         message: Parsed JSON message from client.
         client_id: Unique client identifier for logging.
+        username: Authenticated username of the client.
     """
     msg_type = message.get("type")
 
@@ -125,6 +145,38 @@ async def handle_client_message(websocket: WebSocket, message: dict, client_id: 
             programme,
             view or "unchanged",
         )
+    elif msg_type == "set_nickname":
+        # Handle nickname setting for chat display name
+        nickname = message.get("nickname", "").strip()[:MAX_NICKNAME_LENGTH]
+        if nickname:
+            _nickname_map[client_id] = nickname
+            log.debug("Nickname set for client {}: {}", client_id, nickname)
+        else:
+            # Empty nickname - remove from map (fall back to auth username)
+            _nickname_map.pop(client_id, None)
+            log.debug("Nickname cleared for client {}", client_id)
+
+    elif msg_type == "chat_message":
+        # Handle chat messages only if chat is enabled
+        if not settings.chat_enabled:
+            log.debug("Chat message ignored from client {} - chat disabled", client_id)
+            return
+
+        content = message.get("content", "")
+        # Use nickname if set, otherwise fall back to auth username
+        display_name = _nickname_map.get(client_id, username)
+        chat_msg = chat.add_message(display_name, content)
+
+        if chat_msg:
+            # Broadcast to all connected clients
+            broadcast_message = {
+                "type": "chat_message",
+                **chat_msg.to_dict(),
+            }
+            await channel_state.broadcast(broadcast_message)
+            log.debug("Chat message broadcast from {}: {}", username, chat_msg.message_id[:8])
+        else:
+            log.debug("Chat message from {} rejected (empty/invalid)", username)
     else:
         # Log unknown message types for debugging
         log.debug("Unknown WebSocket message type from client {}: {}", client_id, msg_type)

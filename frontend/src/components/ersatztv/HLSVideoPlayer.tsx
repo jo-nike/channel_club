@@ -169,6 +169,18 @@ function HLSVideoPlayerInner({
   // Get initial volume synchronously from localStorage (avoids Zustand hydration race)
   const [initialVolume] = useState(() => getInitialVolume())
 
+  // Set volume programmatically after player mounts (workaround for Vidstack #1416)
+  // The volume prop is not reliably respected on initial render
+  useEffect(() => {
+    const player = playerRef.current
+    if (player && initialVolume !== 1) {
+      const timer = setTimeout(() => {
+        player.volume = initialVolume
+      }, 0)
+      return () => clearTimeout(timer)
+    }
+  }, [initialVolume])
+
   const { status, retryCount, retryKey, handleError, handlePlaying } = useHLSRetry({
     streamUrl,
     onReady,

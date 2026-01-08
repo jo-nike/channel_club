@@ -5,6 +5,7 @@ import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useHighlightFeature } from '@/hooks/useHighlightFeature'
 import { HighlightButton } from '@/components/HighlightButton'
 import { HighlightModal } from '@/components/HighlightModal'
+import { ChatToggleButton } from '@/components/ChatToggleButton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useUIStore } from '@/stores/uiStore'
 
@@ -175,6 +176,9 @@ export function ErsatzTVVideoControls({
           />
         </>
       )}
+
+      {/* Chat Toggle Button */}
+      <ChatToggleButton isVisible={isVisible} />
 
       {/* Spacer */}
       <div className="flex-1" />

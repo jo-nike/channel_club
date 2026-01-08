@@ -418,7 +418,7 @@ describe('LoginForm', () => {
       fireEvent.click(screen.getByRole('button', { name: /sign in/i }))
 
       await waitFor(() => {
-        expect(mockSetAuth).toHaveBeenCalledWith('jwt-token', 'admin')
+        expect(mockSetAuth).toHaveBeenCalledWith('jwt-token', 'admin', 'admin')
       })
     })
 

@@ -1,5 +1,7 @@
 """Tests for channel state service."""
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 
 from app.models.channel import Channel
@@ -136,3 +138,123 @@ class TestConnectionManagement:
         mock_ws = MagicMock()
         channel_state.disconnect(mock_ws)  # Should not raise
         assert channel_state.get_connection_count() == 0
+
+
+class TestHighlightRecordingOnChannelSwitch:
+    """Tests for highlight recording cleanup on channel switch."""
+
+    @pytest.mark.asyncio
+    async def test_switching_channels_stops_old_recording(self) -> None:
+        """Should stop recording for old channel when switching to new channel."""
+        channel1 = Channel(
+            id="uuid-1",
+            name="TSN",
+            stream_url="https://streams.example.com/stream/uuid-1",
+            guide_id="guide-1",
+        )
+        channel2 = Channel(
+            id="uuid-2",
+            name="Sportsnet",
+            stream_url="https://streams.example.com/stream/uuid-2",
+            guide_id="guide-2",
+        )
+
+        mock_highlight_service = AsyncMock()
+
+        with (
+            patch("app.services.channel_state.settings") as mock_settings,
+            patch(
+                "app.services.highlight.highlight_service", mock_highlight_service
+            ),
+        ):
+            mock_settings.highlight_enabled = True
+
+            await channel_state.set_current_channel(channel1)
+            await channel_state.set_current_channel(channel2)
+
+            # Should have stopped recording for channel1
+            mock_highlight_service.stop_recording.assert_called_once_with("uuid-1")
+            # Should have started recording for both channels
+            assert mock_highlight_service.start_recording.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_switching_to_same_channel_does_not_stop_recording(self) -> None:
+        """Should not stop recording when switching to same channel."""
+        channel = Channel(
+            id="uuid-1",
+            name="TSN",
+            stream_url="https://streams.example.com/stream/uuid-1",
+            guide_id="guide-1",
+        )
+
+        mock_highlight_service = AsyncMock()
+
+        with (
+            patch("app.services.channel_state.settings") as mock_settings,
+            patch(
+                "app.services.highlight.highlight_service", mock_highlight_service
+            ),
+        ):
+            mock_settings.highlight_enabled = True
+
+            await channel_state.set_current_channel(channel)
+            await channel_state.set_current_channel(channel)
+
+            # Should not have called stop_recording (same channel)
+            mock_highlight_service.stop_recording.assert_not_called()
+            # Should have started recording twice (but that's fine, it's idempotent)
+            assert mock_highlight_service.start_recording.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_clearing_channel_stops_recording(self) -> None:
+        """Should stop recording when clearing current channel."""
+        channel = Channel(
+            id="uuid-1",
+            name="TSN",
+            stream_url="https://streams.example.com/stream/uuid-1",
+            guide_id="guide-1",
+        )
+
+        mock_highlight_service = AsyncMock()
+
+        with (
+            patch("app.services.channel_state.settings") as mock_settings,
+            patch(
+                "app.services.highlight.highlight_service", mock_highlight_service
+            ),
+        ):
+            mock_settings.highlight_enabled = True
+
+            await channel_state.set_current_channel(channel)
+            mock_highlight_service.reset_mock()
+
+            await channel_state.clear_current_channel_async()
+
+            # Should have stopped recording for the channel
+            mock_highlight_service.stop_recording.assert_called_once_with("uuid-1")
+
+    @pytest.mark.asyncio
+    async def test_no_recording_when_highlight_disabled(self) -> None:
+        """Should not call recording functions when highlight is disabled."""
+        channel = Channel(
+            id="uuid-1",
+            name="TSN",
+            stream_url="https://streams.example.com/stream/uuid-1",
+            guide_id="guide-1",
+        )
+
+        mock_highlight_service = AsyncMock()
+
+        with (
+            patch("app.services.channel_state.settings") as mock_settings,
+            patch(
+                "app.services.highlight.highlight_service", mock_highlight_service
+            ),
+        ):
+            mock_settings.highlight_enabled = False
+
+            await channel_state.set_current_channel(channel)
+
+            # Should not have called any recording functions
+            mock_highlight_service.start_recording.assert_not_called()
+            mock_highlight_service.stop_recording.assert_not_called()

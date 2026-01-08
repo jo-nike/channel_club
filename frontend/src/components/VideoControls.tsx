@@ -4,6 +4,7 @@ import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useHighlightFeature } from '@/hooks/useHighlightFeature'
 import { HighlightButton } from './HighlightButton'
 import { HighlightModal } from './HighlightModal'
+import { ChatToggleButton } from './ChatToggleButton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 export interface VideoControlsProps {
@@ -165,6 +166,9 @@ export function VideoControls({
           />
         </>
       )}
+
+      {/* Chat Toggle Button */}
+      <ChatToggleButton isVisible={isVisible} />
 
       {/* Spacer */}
       <div className="flex-1" />

@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     # Highlight Capture Feature (server-side FFmpeg recording)
     # Disabled by default - requires FFmpeg in container
     highlight_enabled: bool = False
+
+    # Chat Feature
+    # Enable real-time chat between connected users
+    chat_enabled: bool = False
     highlight_buffer_seconds: int = 60  # How many seconds to keep in ring buffer
     highlight_segment_seconds: int = 10  # FFmpeg segment duration
     highlight_temp_dir: str = "/tmp/highlights"  # Temp storage for segments

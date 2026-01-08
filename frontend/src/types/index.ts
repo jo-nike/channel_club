@@ -99,3 +99,11 @@ export interface UnifiedChannel {
   guideId?: string // For live channel EPG lookup
   backendId?: string // Actual backend channel ID (for highlight recording)
 }
+
+// Chat types
+export interface ChatMessage {
+  messageId: string
+  username: string
+  content: string
+  timestamp: string // ISO8601
+}

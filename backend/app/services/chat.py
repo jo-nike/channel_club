@@ -1,0 +1,157 @@
+"""Chat service for managing real-time chat messages.
+
+This service maintains in-memory storage of chat messages using a circular buffer.
+Messages are broadcast to all connected clients via WebSocket.
+The history resets on server restart (acceptable for this use case).
+"""
+
+import html
+from collections import deque
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from uuid import uuid4
+
+from loguru import logger
+
+# Module-level logger with service context
+log = logger.bind(service="chat")
+
+# Maximum message length after sanitization
+MAX_MESSAGE_LENGTH = 500
+
+# Maximum messages to store in history
+MAX_HISTORY_SIZE = 100
+
+
+@dataclass
+class ChatMessage:
+    """Represents a single chat message."""
+
+    message_id: str
+    username: str
+    content: str
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    def to_dict(self) -> dict:
+        """Convert to JSON-serializable dictionary with camelCase keys."""
+        return {
+            "messageId": self.message_id,
+            "username": self.username,
+            "content": self.content,
+            "timestamp": self.timestamp.isoformat(),
+        }
+
+
+# Circular buffer - max 100 messages
+_chat_history: deque[ChatMessage] = deque(maxlen=MAX_HISTORY_SIZE)
+
+
+def sanitize_message(content: str) -> str | None:
+    """Sanitize a chat message content.
+
+    Applies the following sanitization rules:
+    1. Strip HTML tags using html.escape()
+    2. Trim whitespace
+    3. Limit to MAX_MESSAGE_LENGTH characters (truncate, don't reject)
+    4. Return None if empty after sanitization
+
+    Args:
+        content: The raw message content from the user.
+
+    Returns:
+        Sanitized message string, or None if the message is empty after sanitization.
+    """
+    if not content:
+        log.debug("Empty message content received")
+        return None
+
+    # Escape HTML entities to prevent XSS
+    sanitized = html.escape(content)
+
+    # Trim whitespace
+    sanitized = sanitized.strip()
+
+    # Reject if empty after trimming
+    if not sanitized:
+        log.debug("Message empty after sanitization")
+        return None
+
+    # Truncate to max length
+    if len(sanitized) > MAX_MESSAGE_LENGTH:
+        log.debug(
+            "Message truncated from {} to {} characters",
+            len(sanitized),
+            MAX_MESSAGE_LENGTH,
+        )
+        sanitized = sanitized[:MAX_MESSAGE_LENGTH]
+
+    return sanitized
+
+
+def add_message(username: str, content: str) -> ChatMessage | None:
+    """Add a new chat message to the history.
+
+    The content will be sanitized before adding. If the content is empty
+    or invalid after sanitization, None is returned.
+
+    Args:
+        username: The username of the message sender.
+        content: The raw message content.
+
+    Returns:
+        The created ChatMessage, or None if the message was rejected.
+    """
+    sanitized_content = sanitize_message(content)
+
+    if sanitized_content is None:
+        log.debug("Message from {} rejected after sanitization", username)
+        return None
+
+    message = ChatMessage(
+        message_id=str(uuid4()),
+        username=username,
+        content=sanitized_content,
+    )
+
+    _chat_history.append(message)
+    log.debug(
+        "Chat message added: {} from {} (history size: {})",
+        message.message_id[:8],
+        username,
+        len(_chat_history),
+    )
+
+    return message
+
+
+def get_history(limit: int = 50) -> list[ChatMessage]:
+    """Get recent chat messages from history.
+
+    Args:
+        limit: Maximum number of messages to return (default: 50).
+
+    Returns:
+        List of ChatMessage objects, ordered from oldest to newest.
+    """
+    # Convert deque to list and return last 'limit' messages
+    history_list = list(_chat_history)
+
+    if limit >= len(history_list):
+        return history_list
+
+    return history_list[-limit:]
+
+
+def clear_history() -> None:
+    """Clear all chat history. Useful for testing."""
+    _chat_history.clear()
+    log.debug("Chat history cleared")
+
+
+def get_history_count() -> int:
+    """Get the current number of messages in history.
+
+    Returns:
+        Number of messages currently stored.
+    """
+    return len(_chat_history)

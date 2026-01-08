@@ -52,7 +52,12 @@ class ChannelRecorder:
         self.process: subprocess.Popen | None = None
         self.segment_dir: Path | None = None
         self.started_at: float = 0
+        self.last_activity: float = 0  # Last time this channel was polled
         self._lock = asyncio.Lock()
+
+    def touch(self) -> None:
+        """Update last activity timestamp (called on status poll)."""
+        self.last_activity = time.time()
 
     @property
     def is_running(self) -> bool:
@@ -115,6 +120,7 @@ class ChannelRecorder:
                     preexec_fn=os.setsid,  # Create new process group for clean cleanup
                 )
                 self.started_at = time.time()
+                self.last_activity = time.time()
 
                 # Give FFmpeg a moment to start and check it's running
                 await asyncio.sleep(0.5)
@@ -330,18 +336,117 @@ class ChannelRecorder:
             return None, f"Error: {e}"
 
 
+# Idle timeout for recordings - stop if no status polls for this duration
+# Status is polled every 5 seconds, so 20 seconds = 4 missed polls
+RECORDER_IDLE_TIMEOUT = 20
+
+
 class HighlightService:
     """Manages channel recorders and provides highlight capture functionality."""
 
     def __init__(self):
         self._recorders: dict[str, ChannelRecorder] = {}
         self._lock = asyncio.Lock()
+        self._cleanup_task: asyncio.Task | None = None
+
+    def start_idle_cleanup_task(self) -> None:
+        """Start background task to clean up idle recorders."""
+        if self._cleanup_task is None or self._cleanup_task.done():
+            self._cleanup_task = asyncio.create_task(self._idle_cleanup_loop())
+            log.debug("Started idle recorder cleanup task")
+
+    def stop_idle_cleanup_task(self) -> None:
+        """Stop the background cleanup task."""
+        if self._cleanup_task and not self._cleanup_task.done():
+            self._cleanup_task.cancel()
+            self._cleanup_task = None
+            log.debug("Stopped idle recorder cleanup task")
+
+    async def _idle_cleanup_loop(self) -> None:
+        """Background loop that periodically cleans up idle recorders."""
+        while True:
+            try:
+                await asyncio.sleep(10)  # Check every 10 seconds
+                await self._cleanup_idle_recorders()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.warning("Error in idle cleanup loop: {}", e)
+
+    async def _cleanup_idle_recorders(self) -> None:
+        """Stop recorders that haven't been polled recently."""
+        now = time.time()
+        idle_channels: list[str] = []
+
+        # Find idle recorders (without holding lock during iteration)
+        for channel_id, recorder in list(self._recorders.items()):
+            if recorder.is_running and recorder.last_activity > 0:
+                idle_time = now - recorder.last_activity
+                if idle_time > RECORDER_IDLE_TIMEOUT:
+                    idle_channels.append(channel_id)
+                    log.debug(
+                        "Channel {} idle for {:.1f}s, marking for cleanup",
+                        channel_id,
+                        idle_time,
+                    )
+
+        # Stop idle recorders
+        for channel_id in idle_channels:
+            log.info("Stopping idle recorder for channel {} (no viewers)", channel_id)
+            await self.stop_recording(channel_id)
+
+    def cleanup_orphan_processes(self) -> None:
+        """Kill any orphan FFmpeg processes from previous runs.
+
+        When uvicorn reloads, FFmpeg processes may survive because they run in
+        their own process groups. This method finds and kills them on startup.
+        """
+        highlight_dir = settings.highlight_temp_dir
+        killed = 0
+
+        try:
+            # Find FFmpeg processes that reference our highlight directory
+            result = subprocess.run(
+                ["pgrep", "-f", f"ffmpeg.*{highlight_dir}"],
+                capture_output=True,
+                text=True,
+            )
+
+            if result.returncode == 0 and result.stdout.strip():
+                pids = result.stdout.strip().split("\n")
+                for pid_str in pids:
+                    try:
+                        pid = int(pid_str.strip())
+                        # Kill the process group to ensure children are also killed
+                        try:
+                            os.killpg(os.getpgid(pid), 15)  # SIGTERM
+                            killed += 1
+                            log.debug("Killed orphan FFmpeg process {}", pid)
+                        except ProcessLookupError:
+                            pass  # Process already dead
+                        except PermissionError:
+                            log.warning("No permission to kill process {}", pid)
+                    except ValueError:
+                        continue
+
+                if killed:
+                    log.info("Killed {} orphan FFmpeg processes", killed)
+
+        except FileNotFoundError:
+            # pgrep not available - skip this cleanup
+            log.debug("pgrep not available, skipping orphan process cleanup")
+        except Exception as e:
+            log.warning("Failed to cleanup orphan processes: {}", e)
 
     def cleanup_stale_segments(self) -> None:
         """Remove any stale segment directories from previous runs.
 
         Called at startup to clean up orphaned files from crashes or unclean shutdowns.
+        Also kills any orphan FFmpeg processes that may have survived a reload.
         """
+        # First kill any orphan FFmpeg processes
+        self.cleanup_orphan_processes()
+
         temp_dir = Path(settings.highlight_temp_dir)
         if not temp_dir.exists():
             return
@@ -414,6 +519,8 @@ class HighlightService:
     def get_status(self, channel_id: str) -> dict:
         """Get recording status for a channel.
 
+        Also updates last_activity timestamp to keep recording alive.
+
         Returns:
             Status dict with recording state and buffer info.
         """
@@ -424,6 +531,8 @@ class HighlightService:
             return {"enabled": True, "recording": False, "bufferSeconds": 0}
 
         recorder = self._recorders[channel_id]
+        # Touch to keep recording alive while being polled
+        recorder.touch()
         return {
             "enabled": True,
             "recording": recorder.is_running,

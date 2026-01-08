@@ -3,14 +3,22 @@ import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/authStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { useUIStore } from '@/stores/uiStore'
+import { useChatStore } from '@/stores/chatStore'
 import { logger } from '@/lib/logger'
 import { getSessionId } from '@/lib/sessionId'
-import type { Channel } from '@/types'
+import { useChatEnabled } from './useChatEnabled'
+import type { Channel, ChatMessage } from '@/types'
 
 interface WebSocketMessage {
   type: string
   channel?: Channel
   currentChannel?: Channel | null
+  // Chat message fields
+  messageId?: string
+  username?: string
+  content?: string
+  timestamp?: string
+  messages?: ChatMessage[]
 }
 
 type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
@@ -28,6 +36,8 @@ interface UseWebSocketReturn {
   status: ConnectionStatus
   reconnect: () => void
   sendChannelUpdate: (channelName: string | null, programmeTitle?: string | null, viewType?: 'live' | 'ersatztv') => void
+  sendChatMessage: (content: string) => void
+  sendSetNickname: (nickname: string) => void
 }
 
 export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketReturn {
@@ -35,6 +45,10 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   const token = useAuthStore((s) => s.token)
   const setCurrentChannel = useChannelStore((s) => s.setCurrentChannel)
   const notificationsEnabled = useUIStore((s) => s.notificationsEnabled)
+  const chatEnabled = useChatEnabled()
+  const addChatMessage = useChatStore((s) => s.addMessage)
+  const setChatMessages = useChatStore((s) => s.setMessages)
+  const nickname = useChatStore((s) => s.nickname)
 
   const wsRef = useRef<WebSocket | null>(null)
   const pingIntervalRef = useRef<number | null>(null)
@@ -94,12 +108,31 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           logger.debug('WebSocket', 'Received pong')
           break
 
+        case 'chat_message':
+          if (chatEnabled && message.messageId && message.username && message.content && message.timestamp) {
+            logger.debug('WebSocket', `Chat message from ${message.username}`)
+            addChatMessage({
+              messageId: message.messageId,
+              username: message.username,
+              content: message.content,
+              timestamp: message.timestamp,
+            })
+          }
+          break
+
+        case 'chat_history':
+          if (chatEnabled && message.messages) {
+            logger.debug('WebSocket', `Received chat history: ${message.messages.length} messages`)
+            setChatMessages(message.messages)
+          }
+          break
+
         default:
           // Unknown message type - log but don't crash
           logger.warn('WebSocket', `Unknown message type: ${message.type}`, message)
       }
     },
-    [setCurrentChannel]
+    [setCurrentChannel, chatEnabled, addChatMessage, setChatMessages]
   )
 
   const connect = useCallback(
@@ -128,6 +161,13 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         logger.info('WebSocket', 'Connected successfully')
         setStatus('connected')
         retryCountRef.current = 0
+
+        // Send nickname if set (for chat display name)
+        const currentNickname = useChatStore.getState().nickname
+        if (currentNickname) {
+          ws.send(JSON.stringify({ type: 'set_nickname', nickname: currentNickname }))
+          logger.debug('WebSocket', `Sent nickname on connect: ${currentNickname}`)
+        }
 
         // Start ping interval for keep-alive
         pingIntervalRef.current = window.setInterval(() => {
@@ -234,6 +274,37 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     []
   )
 
+  const sendChatMessage = useCallback(
+    (content: string) => {
+      if (!chatEnabled) {
+        logger.debug('WebSocket', 'Chat disabled - message not sent')
+        return
+      }
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({
+            type: 'chat_message',
+            content,
+          })
+        )
+        logger.debug('WebSocket', `Sent chat message: ${content.substring(0, 50)}...`)
+      }
+    },
+    [chatEnabled]
+  )
+
+  const sendSetNickname = useCallback((nicknameValue: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: 'set_nickname',
+          nickname: nicknameValue,
+        })
+      )
+      logger.debug('WebSocket', `Sent set_nickname: ${nicknameValue}`)
+    }
+  }, [])
+
   // Connect on mount when token is available
   // Intentionally calls connect (which sets state) in effect - this is the standard WebSocket pattern
   useEffect(() => {
@@ -244,5 +315,5 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     return () => disconnect()
   }, [token, connect, disconnect])
 
-  return { status, reconnect, sendChannelUpdate }
+  return { status, reconnect, sendChannelUpdate, sendChatMessage, sendSetNickname }
 }

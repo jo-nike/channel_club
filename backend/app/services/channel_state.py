@@ -43,6 +43,7 @@ async def set_current_channel(channel: Channel, user: str | None = None) -> Chan
         The set channel.
     """
     global _current_channel
+    old_channel = _current_channel
     _current_channel = channel
 
     if user:
@@ -50,12 +51,18 @@ async def set_current_channel(channel: Channel, user: str | None = None) -> Chan
     else:
         log.info("Channel changed to '{}'", channel.name)
 
-    # Start highlight recording if enabled
-    if settings.highlight_enabled and channel.stream_url:
+    # Handle highlight recording on channel switch
+    if settings.highlight_enabled:
         # Import here to avoid circular dependency
         from app.services.highlight import highlight_service
 
-        await highlight_service.start_recording(channel.id, channel.stream_url)
+        # Stop recording for old channel if switching to different channel
+        if old_channel and old_channel.id != channel.id:
+            await highlight_service.stop_recording(old_channel.id)
+
+        # Start recording for new channel
+        if channel.stream_url:
+            await highlight_service.start_recording(channel.id, channel.stream_url)
 
     # Broadcast to all connected clients
     await broadcast_channel_update(channel)
@@ -77,6 +84,13 @@ async def clear_current_channel_async(user: str | None = None) -> None:
         user: Optional username of the user making the change.
     """
     global _current_channel
+
+    # Stop recording for current channel if active
+    if settings.highlight_enabled and _current_channel:
+        from app.services.highlight import highlight_service
+
+        await highlight_service.stop_recording(_current_channel.id)
+
     _current_channel = None
 
     if user:

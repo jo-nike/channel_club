@@ -5,6 +5,15 @@ import { useWebSocket } from './useWebSocket'
 import { useChannelStore } from '@/stores/channelStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useUIStore } from '@/stores/uiStore'
+import { useChatStore } from '@/stores/chatStore'
+
+// Store the original getNickname for mocking
+let mockNickname: string | null = null
+
+// Mock useChatEnabled hook
+vi.mock('./useChatEnabled', () => ({
+  useChatEnabled: vi.fn(() => true),
+}))
 
 // Mock sonner toast
 vi.mock('sonner', () => ({
@@ -86,6 +95,11 @@ describe('useWebSocket', () => {
     })
     useUIStore.setState({
       notificationsEnabled: false,
+    })
+    useChatStore.setState({
+      messages: [],
+      isOpen: false,
+      unreadCount: 0,
     })
     vi.mocked(toast).mockClear()
   })
@@ -770,6 +784,193 @@ describe('useWebSocket', () => {
       })
 
       expect(toast).toHaveBeenCalledWith('Live channel set to: Channel 2', { id: 'channel-update-2', duration: 5000 })
+    })
+  })
+
+  describe('chat_message handling', () => {
+    test('adds chat message to store on chat_message event', () => {
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({
+          type: 'chat_message',
+          messageId: 'msg-1',
+          username: 'TestUser',
+          content: 'Hello world!',
+          timestamp: '2026-01-08T12:00:00Z',
+        })
+      })
+
+      const messages = useChatStore.getState().messages
+      expect(messages).toHaveLength(1)
+      expect(messages[0]).toEqual({
+        messageId: 'msg-1',
+        username: 'TestUser',
+        content: 'Hello world!',
+        timestamp: '2026-01-08T12:00:00Z',
+      })
+    })
+
+    test('ignores chat_message when missing required fields', () => {
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({
+          type: 'chat_message',
+          messageId: 'msg-1',
+          // Missing username, content, timestamp
+        })
+      })
+
+      expect(useChatStore.getState().messages).toHaveLength(0)
+    })
+  })
+
+  describe('chat_history handling', () => {
+    test('sets chat messages on chat_history event', () => {
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({
+          type: 'chat_history',
+          messages: [
+            { messageId: 'msg-1', username: 'User1', content: 'First', timestamp: '2026-01-08T11:00:00Z' },
+            { messageId: 'msg-2', username: 'User2', content: 'Second', timestamp: '2026-01-08T11:05:00Z' },
+          ],
+        })
+      })
+
+      const messages = useChatStore.getState().messages
+      expect(messages).toHaveLength(2)
+      expect(messages[0].messageId).toBe('msg-1')
+      expect(messages[1].messageId).toBe('msg-2')
+    })
+
+    test('ignores chat_history when messages array is missing', () => {
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({
+          type: 'chat_history',
+          // Missing messages array
+        })
+      })
+
+      expect(useChatStore.getState().messages).toHaveLength(0)
+    })
+  })
+
+  describe('sendChatMessage', () => {
+    test('sends chat message when connected', () => {
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+      })
+
+      act(() => {
+        result.current.sendChatMessage('Hello everyone!')
+      })
+
+      expect(ws.send).toHaveBeenCalledWith(
+        JSON.stringify({
+          type: 'chat_message',
+          content: 'Hello everyone!',
+        })
+      )
+    })
+
+    test('does not send when not connected', () => {
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      // Don't open the connection
+
+      act(() => {
+        result.current.sendChatMessage('Hello everyone!')
+      })
+
+      expect(ws.send).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('nickname handling', () => {
+    test('sends set_nickname on connect when nickname is set', () => {
+      useChatStore.setState({ nickname: 'TestNick' })
+
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+      })
+
+      expect(ws.send).toHaveBeenCalledWith(
+        JSON.stringify({
+          type: 'set_nickname',
+          nickname: 'TestNick',
+        })
+      )
+    })
+
+    test('does not send set_nickname on connect when nickname is null', () => {
+      useChatStore.setState({ nickname: null })
+
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+      })
+
+      // Should not have sent set_nickname (no calls at all since ping hasn't fired)
+      expect(ws.send).not.toHaveBeenCalledWith(
+        expect.stringContaining('set_nickname')
+      )
+    })
+
+    test('sendSetNickname sends nickname to server when connected', () => {
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+      })
+
+      ws.send.mockClear() // Clear any previous calls
+
+      act(() => {
+        result.current.sendSetNickname('NewNick')
+      })
+
+      expect(ws.send).toHaveBeenCalledWith(
+        JSON.stringify({
+          type: 'set_nickname',
+          nickname: 'NewNick',
+        })
+      )
+    })
+
+    test('sendSetNickname does not send when not connected', () => {
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      // Don't open the connection
+
+      act(() => {
+        result.current.sendSetNickname('NewNick')
+      })
+
+      expect(ws.send).not.toHaveBeenCalled()
     })
   })
 })

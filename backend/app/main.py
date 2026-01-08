@@ -47,11 +47,14 @@ async def lifespan(app: FastAPI):
         )
         # Clean up any stale segments from previous runs
         highlight_service.cleanup_stale_segments()
+        # Start background task to clean up idle recorders
+        highlight_service.start_idle_cleanup_task()
     validate_auth_configuration()
     yield
     # Shutdown
     logger.info("IPTV Viewer API shutting down")
-    # Stop all highlight recorders
+    # Stop idle cleanup task and all highlight recorders
+    highlight_service.stop_idle_cleanup_task()
     await highlight_service.stop_all()
 
 

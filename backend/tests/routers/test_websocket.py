@@ -8,7 +8,9 @@ from fastapi.testclient import TestClient
 from loguru import logger
 
 from app.main import app
-from app.services import channel_state, presence
+from app.config import settings
+from app.routers import websocket as websocket_router
+from app.services import channel_state, chat, presence
 from app.services.auth import create_access_token
 
 
@@ -36,10 +38,14 @@ def reset_channel_state():
     channel_state.clear_current_channel()
     channel_state._active_connections.clear()
     presence._active_users.clear()
+    chat.clear_history()
+    websocket_router._nickname_map.clear()
     yield
     channel_state.clear_current_channel()
     channel_state._active_connections.clear()
     presence._active_users.clear()
+    chat.clear_history()
+    websocket_router._nickname_map.clear()
 
 
 class TestWebSocketConnection:
@@ -125,16 +131,22 @@ class TestConnectionAck:
 class TestPingPong:
     """Tests for ping/pong functionality."""
 
-    def test_ping_receives_pong_response(self, client: TestClient, valid_token: str):
+    def test_ping_receives_pong_response(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
         """Ping message receives pong response."""
+        monkeypatch.setattr(settings, "chat_enabled", False)
         with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
             ws.receive_json()  # Consume connection_ack
             ws.send_json({"type": "ping"})
             data = ws.receive_json()
             assert data["type"] == "pong"
 
-    def test_unknown_message_type_handled_gracefully(self, client: TestClient, valid_token: str):
+    def test_unknown_message_type_handled_gracefully(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
         """Unknown message types are handled without error."""
+        monkeypatch.setattr(settings, "chat_enabled", False)
         with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
             ws.receive_json()  # Consume connection_ack
             ws.send_json({"type": "unknown_type"})
@@ -180,9 +192,10 @@ class TestChannelBroadcast:
     """Tests for channel update broadcasting."""
 
     def test_broadcast_when_channel_changes(
-        self, client: TestClient, valid_token: str, admin_token: str
+        self, client: TestClient, valid_token: str, admin_token: str, monkeypatch: pytest.MonkeyPatch
     ):
         """Broadcast channel_update when admin sets channel via API."""
+        monkeypatch.setattr(settings, "chat_enabled", False)
 
         with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
             ws.receive_json()  # Consume connection_ack
@@ -209,9 +222,11 @@ class TestChannelBroadcast:
             assert data["channel"]["guideId"] == "guide-123"
 
     def test_multiple_clients_receive_broadcast(
-        self, client: TestClient, valid_token: str, admin_token: str
+        self, client: TestClient, valid_token: str, admin_token: str, monkeypatch: pytest.MonkeyPatch
     ):
         """All connected clients receive broadcast."""
+        monkeypatch.setattr(settings, "chat_enabled", False)
+
         with client.websocket_connect(f"/api/ws?token={valid_token}") as ws1:
             ws1.receive_json()  # Consume ack
 
@@ -386,3 +401,274 @@ class TestPresenceTracking:
 
         # ws1 closed
         assert len(presence._active_users) == 0
+
+
+class TestChatMessages:
+    """Tests for chat message functionality."""
+
+    def test_chat_message_broadcast_when_enabled(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Chat messages are broadcast when chat is enabled."""
+        monkeypatch.setattr(settings, "chat_enabled", True)
+
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws1:
+            ws1.receive_json()  # connection_ack
+            ws1.receive_json()  # chat_history (empty)
+
+            with client.websocket_connect(f"/api/ws?token={valid_token}") as ws2:
+                ws2.receive_json()  # connection_ack
+                ws2.receive_json()  # chat_history
+
+                # Send chat message from ws1
+                ws1.send_json({"type": "chat_message", "content": "Hello everyone!"})
+
+                # Both clients should receive the broadcast
+                msg1 = ws1.receive_json()
+                msg2 = ws2.receive_json()
+
+                assert msg1["type"] == "chat_message"
+                assert msg1["content"] == "Hello everyone!"
+                assert msg1["username"] == "testuser"
+                assert "messageId" in msg1
+                assert "timestamp" in msg1
+
+                assert msg2["type"] == "chat_message"
+                assert msg2["content"] == "Hello everyone!"
+
+    def test_chat_message_ignored_when_disabled(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Chat messages are ignored when chat is disabled."""
+        monkeypatch.setattr(settings, "chat_enabled", False)
+
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            ws.receive_json()  # connection_ack
+
+            # Send chat message
+            ws.send_json({"type": "chat_message", "content": "Hello!"})
+
+            # Send ping to verify connection still works
+            ws.send_json({"type": "ping"})
+            data = ws.receive_json()
+            assert data["type"] == "pong"  # No chat message was broadcast
+
+    def test_chat_history_sent_on_connect_when_enabled(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Chat history is sent on connect when chat is enabled."""
+        monkeypatch.setattr(settings, "chat_enabled", True)
+
+        # Add some messages to history
+        chat.add_message("user1", "First message")
+        chat.add_message("user2", "Second message")
+
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            ack = ws.receive_json()
+            assert ack["type"] == "connection_ack"
+
+            history = ws.receive_json()
+            assert history["type"] == "chat_history"
+            assert len(history["messages"]) == 2
+            assert history["messages"][0]["content"] == "First message"
+            assert history["messages"][1]["content"] == "Second message"
+
+    def test_chat_history_not_sent_when_disabled(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Chat history is not sent when chat is disabled."""
+        monkeypatch.setattr(settings, "chat_enabled", False)
+
+        chat.add_message("user1", "Message")
+
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            ack = ws.receive_json()
+            assert ack["type"] == "connection_ack"
+
+            # Send ping to verify we don't get chat_history
+            ws.send_json({"type": "ping"})
+            data = ws.receive_json()
+            assert data["type"] == "pong"  # Next message is pong, not chat_history
+
+    def test_chat_message_sanitization(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Chat messages are sanitized (HTML escaped)."""
+        monkeypatch.setattr(settings, "chat_enabled", True)
+
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            ws.receive_json()  # connection_ack
+            ws.receive_json()  # chat_history
+
+            ws.send_json({"type": "chat_message", "content": "<script>alert('xss')</script>"})
+
+            msg = ws.receive_json()
+            assert msg["type"] == "chat_message"
+            assert "<script>" not in msg["content"]
+            assert "&lt;script&gt;" in msg["content"]
+
+    def test_empty_chat_message_rejected(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Empty chat messages are rejected."""
+        monkeypatch.setattr(settings, "chat_enabled", True)
+
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            ws.receive_json()  # connection_ack
+            ws.receive_json()  # chat_history
+
+            # Send empty message
+            ws.send_json({"type": "chat_message", "content": ""})
+
+            # Send ping to verify no broadcast happened
+            ws.send_json({"type": "ping"})
+            data = ws.receive_json()
+            assert data["type"] == "pong"  # Next message is pong, not chat
+
+    def test_chat_history_limited_to_50(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Chat history is limited to 50 messages."""
+        monkeypatch.setattr(settings, "chat_enabled", True)
+
+        # Add 60 messages
+        for i in range(60):
+            chat.add_message("user", f"Message {i}")
+
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            ws.receive_json()  # connection_ack
+            history = ws.receive_json()
+
+            assert history["type"] == "chat_history"
+            assert len(history["messages"]) == 50
+            # Should have messages 10-59 (most recent 50)
+            assert history["messages"][0]["content"] == "Message 10"
+            assert history["messages"][49]["content"] == "Message 59"
+
+
+class TestChatNickname:
+    """Tests for chat nickname functionality."""
+
+    def test_set_nickname_changes_display_name(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Setting nickname changes the display name for chat messages."""
+        monkeypatch.setattr(settings, "chat_enabled", True)
+
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            ws.receive_json()  # connection_ack
+            ws.receive_json()  # chat_history
+
+            # Set nickname
+            ws.send_json({"type": "set_nickname", "nickname": "CoolUser"})
+
+            # Send chat message
+            ws.send_json({"type": "chat_message", "content": "Hello!"})
+
+            msg = ws.receive_json()
+            assert msg["type"] == "chat_message"
+            assert msg["username"] == "CoolUser"
+            assert msg["content"] == "Hello!"
+
+    def test_set_nickname_trims_whitespace(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Nickname is trimmed of whitespace."""
+        monkeypatch.setattr(settings, "chat_enabled", True)
+
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            ws.receive_json()  # connection_ack
+            ws.receive_json()  # chat_history
+
+            ws.send_json({"type": "set_nickname", "nickname": "  SpacedName  "})
+            ws.send_json({"type": "chat_message", "content": "Test"})
+
+            msg = ws.receive_json()
+            assert msg["username"] == "SpacedName"
+
+    def test_set_nickname_truncates_to_30_chars(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Nickname is truncated to 30 characters."""
+        monkeypatch.setattr(settings, "chat_enabled", True)
+
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            ws.receive_json()  # connection_ack
+            ws.receive_json()  # chat_history
+
+            long_name = "A" * 50
+            ws.send_json({"type": "set_nickname", "nickname": long_name})
+            ws.send_json({"type": "chat_message", "content": "Test"})
+
+            msg = ws.receive_json()
+            assert msg["username"] == "A" * 30
+
+    def test_empty_nickname_uses_auth_username(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Empty nickname falls back to authenticated username."""
+        monkeypatch.setattr(settings, "chat_enabled", True)
+
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            ws.receive_json()  # connection_ack
+            ws.receive_json()  # chat_history
+
+            # Set then clear nickname
+            ws.send_json({"type": "set_nickname", "nickname": "TempName"})
+            ws.send_json({"type": "set_nickname", "nickname": ""})
+
+            ws.send_json({"type": "chat_message", "content": "Test"})
+
+            msg = ws.receive_json()
+            assert msg["username"] == "testuser"  # Falls back to auth username
+
+    def test_nickname_persists_across_messages(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Nickname persists for subsequent messages."""
+        monkeypatch.setattr(settings, "chat_enabled", True)
+
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            ws.receive_json()  # connection_ack
+            ws.receive_json()  # chat_history
+
+            ws.send_json({"type": "set_nickname", "nickname": "PersistentNick"})
+
+            ws.send_json({"type": "chat_message", "content": "First"})
+            msg1 = ws.receive_json()
+
+            ws.send_json({"type": "chat_message", "content": "Second"})
+            msg2 = ws.receive_json()
+
+            assert msg1["username"] == "PersistentNick"
+            assert msg2["username"] == "PersistentNick"
+
+    def test_different_users_have_different_nicknames(
+        self, client: TestClient, valid_token: str, admin_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Each user can have their own nickname."""
+        monkeypatch.setattr(settings, "chat_enabled", True)
+
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws1:
+            ws1.receive_json()  # connection_ack
+            ws1.receive_json()  # chat_history
+
+            with client.websocket_connect(f"/api/ws?token={admin_token}") as ws2:
+                ws2.receive_json()  # connection_ack
+                ws2.receive_json()  # chat_history
+
+                # Set different nicknames
+                ws1.send_json({"type": "set_nickname", "nickname": "User1Nick"})
+                ws2.send_json({"type": "set_nickname", "nickname": "User2Nick"})
+
+                # Send messages
+                ws1.send_json({"type": "chat_message", "content": "From user 1"})
+                msg1 = ws1.receive_json()
+                ws2.receive_json()  # ws2 also receives the broadcast
+
+                ws2.send_json({"type": "chat_message", "content": "From user 2"})
+                ws1.receive_json()  # ws1 receives ws2's message
+                msg2 = ws2.receive_json()
+
+                assert msg1["username"] == "User1Nick"
+                assert msg2["username"] == "User2Nick"

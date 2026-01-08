@@ -12,6 +12,7 @@ import { DualModeVideoPlayer } from '@/components/tv/DualModeVideoPlayer'
 import { TVEPGGrid } from '@/components/tv/TVEPGGrid'
 import { TVChannelSidebar } from '@/components/tv/TVChannelSidebar'
 import { ProgrammeDetailsModal } from '@/components/ersatztv/ProgrammeDetailsModal'
+import { ChatPanel } from '@/components/ChatPanel'
 import { ResizeDragHandle } from '@/components/ui/ResizeDragHandle'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useResizable } from '@/hooks/useResizable'
@@ -30,8 +31,8 @@ const REFRESH_INTERVAL = 120 * 60 * 1000
 export function TVView() {
   const { logout, isAdmin } = useAuth()
 
-  // WebSocket for presence tracking
-  const { status, sendChannelUpdate } = useWebSocket({ view: 'tv' })
+  // WebSocket for presence tracking and chat
+  const { status, sendChannelUpdate, sendChatMessage, sendSetNickname } = useWebSocket({ view: 'tv' })
 
   // Initialize theme
   useTheme()
@@ -389,6 +390,12 @@ export function TVView() {
           {error}
         </div>
       )}
+
+      {/* Chat Panel */}
+      <ChatPanel
+        onSendMessage={sendChatMessage}
+        onSetNickname={sendSetNickname}
+      />
     </div>
   )
 }

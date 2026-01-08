@@ -24,6 +24,23 @@ import type { UnifiedChannel } from '@/types'
 const VOLUME_STORAGE_KEY = 'iptv-volume'
 const DEFAULT_VOLUME = 1
 
+// Get initial volume from Zustand's localStorage (shared with other players)
+function getInitialVolume(): number {
+  if (typeof window === 'undefined') return DEFAULT_VOLUME
+  try {
+    const stored = localStorage.getItem('ui-storage')
+    if (stored) {
+      const parsed = JSON.parse(stored)
+      if (typeof parsed.state?.volume === 'number') {
+        return parsed.state.volume
+      }
+    }
+  } catch {
+    // Ignore parse errors
+  }
+  return DEFAULT_VOLUME
+}
+
 interface DualModeVideoPlayerProps {
   channel: UnifiedChannel | null
   isTheaterMode: boolean
@@ -371,6 +388,20 @@ function HLSVideoPlayerWrapper({
   const containerRef = useRef<HTMLDivElement>(null)
   const [isBuffering, setIsBuffering] = useState(true)
 
+  // Get initial volume synchronously from localStorage (shared with other players)
+  const [initialVolume] = useState(() => getInitialVolume())
+
+  // Set volume programmatically after player mounts (workaround for Vidstack #1416)
+  useEffect(() => {
+    const player = playerRef.current
+    if (player && initialVolume !== 1) {
+      const timer = setTimeout(() => {
+        player.volume = initialVolume
+      }, 0)
+      return () => clearTimeout(timer)
+    }
+  }, [initialVolume])
+
   const { status, retryCount, retryKey, handleError, handlePlaying } = useHLSRetry({
     streamUrl,
   })
@@ -406,6 +437,7 @@ function HLSVideoPlayerWrapper({
         title={title}
         autoPlay
         playsInline
+        volume={initialVolume}
         className="h-full w-full max-h-full max-w-full [&_video]:object-contain"
         onWaiting={handleWaiting}
         onPlaying={onPlaying}
