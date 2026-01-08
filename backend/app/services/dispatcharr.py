@@ -119,6 +119,13 @@ async def get_dispatcharr_token() -> str:
         raise DispatchrrUnavailableError(f"Failed to authenticate with Dispatcharr: {e}") from e
 
 
+def clear_dispatcharr_token() -> None:
+    """Clear the cached Dispatcharr token to force re-authentication."""
+    global _dispatcharr_token
+    _dispatcharr_token = None
+    log.debug("Cleared cached Dispatcharr token")
+
+
 async def get_channel_groups() -> list[DispatchrrChannelGroup]:
     """Fetch channel groups from Dispatcharr.
 
@@ -138,6 +145,15 @@ async def get_channel_groups() -> list[DispatchrrChannelGroup]:
                 url,
                 headers={"Authorization": f"Bearer {token}"},
             )
+            # Handle token expiration - retry once with fresh token
+            if response.status_code == 401:
+                log.warning("Dispatcharr token expired, refreshing...")
+                clear_dispatcharr_token()
+                token = await get_dispatcharr_token()
+                response = await client.get(
+                    url,
+                    headers={"Authorization": f"Bearer {token}"},
+                )
             response.raise_for_status()
             groups = [DispatchrrChannelGroup(**g) for g in response.json()]
             log.info("Fetched {} channel groups", len(groups))
@@ -166,6 +182,15 @@ async def get_channels_with_groups() -> list[DispatchrrFullChannel]:
                 url,
                 headers={"Authorization": f"Bearer {token}"},
             )
+            # Handle token expiration - retry once with fresh token
+            if response.status_code == 401:
+                log.warning("Dispatcharr token expired, refreshing...")
+                clear_dispatcharr_token()
+                token = await get_dispatcharr_token()
+                response = await client.get(
+                    url,
+                    headers={"Authorization": f"Bearer {token}"},
+                )
             response.raise_for_status()
             channels = [DispatchrrFullChannel(**c) for c in response.json()]
             log.info("Fetched {} channels with group data", len(channels))
