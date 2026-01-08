@@ -8,6 +8,7 @@ services:
         - VITE_WS_URL=${VITE_WS_URL}
         - VITE_STREAM_BASE_URL=${VITE_STREAM_BASE_URL}
         - VITE_CHAT_ENABLED=${VITE_CHAT_ENABLED:-false}
+        - VITE_GIF_ENABLED=${VITE_GIF_ENABLED:-false}
     container_name: iptv-viewer
     ports:
       - "8334:8080"

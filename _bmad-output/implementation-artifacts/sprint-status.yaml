@@ -168,9 +168,9 @@ development_status:
 
   # Epic 13: Chat & Developer Experience
   epic-13: in-progress
-  13-1-websocket-chat-backend: review
-  13-2-chat-ui-component: review
+  13-1-websocket-chat-backend: done
+  13-2-chat-ui-component: done
   13-3-python-type-hints-remediation-ty: done
-  13-4-chat-media-url-detection: review
-  13-5-gif-keyboard-integration: ready-for-dev
+  13-4-chat-media-url-detection: done
+  13-5-gif-keyboard-integration: review
   epic-13-retrospective: optional

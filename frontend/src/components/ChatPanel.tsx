@@ -3,6 +3,7 @@ import { X, Send, Pencil } from 'lucide-react'
 import { useChatStore } from '@/stores/chatStore'
 import { useBreakpoint } from '@/hooks/useBreakpoint'
 import { ChatMessage } from './ChatMessage'
+import { GifButton } from './GifButton'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -199,6 +200,7 @@ export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
                 className="flex-1"
                 maxLength={500}
               />
+              <GifButton onSelect={onSendMessage} disabled={!nickname} />
               <Button
                 onClick={handleSend}
                 disabled={!inputValue.trim()}

@@ -52,6 +52,10 @@ class Settings(BaseSettings):
     # Chat Feature
     # Enable real-time chat between connected users
     chat_enabled: bool = False
+
+    # GIF Feature (requires chat to be enabled)
+    # Enable GIF picker in chat using Giphy API
+    giphy_api_key: str | None = None  # Giphy API key (get from developers.giphy.com)
     highlight_buffer_seconds: int = 60  # How many seconds to keep in ring buffer
     highlight_segment_seconds: int = 10  # FFmpeg segment duration
     highlight_temp_dir: str = "/tmp/highlights"  # Temp storage for segments
