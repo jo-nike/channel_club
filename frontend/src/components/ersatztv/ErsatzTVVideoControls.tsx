@@ -6,6 +6,7 @@ import { useHighlightFeature } from '@/hooks/useHighlightFeature'
 import { HighlightButton } from '@/components/HighlightButton'
 import { HighlightModal } from '@/components/HighlightModal'
 import { ChatToggleButton } from '@/components/ChatToggleButton'
+import { CastButton } from '@/components/CastButton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useUIStore } from '@/stores/uiStore'
 
@@ -15,6 +16,10 @@ export interface ErsatzTVVideoControlsProps {
   isMobile?: boolean
   isTVMode?: boolean
   channelId?: string
+  /** Stream URL for casting (HLS URL from ErsatzTV) */
+  streamUrl?: string
+  /** Channel name for Chromecast display */
+  channelName?: string
   onTheaterModeToggle: () => void
   onMouseEnter?: () => void
   onMouseLeave?: () => void
@@ -26,6 +31,8 @@ export function ErsatzTVVideoControls({
   isMobile: isMobileProp = false,
   isTVMode = false,
   channelId,
+  streamUrl,
+  channelName,
   onTheaterModeToggle,
   onMouseEnter,
   onMouseLeave,
@@ -179,6 +186,17 @@ export function ErsatzTVVideoControls({
 
       {/* Chat Toggle Button */}
       <ChatToggleButton isVisible={isVisible} />
+
+      {/* Cast Button - for Chromecast streaming (HLS direct, no transcoding needed) */}
+      {channelId && (
+        <CastButton
+          channelId={channelId}
+          streamType="hls"
+          streamUrl={streamUrl}
+          channelName={channelName}
+          isVisible={isVisible}
+        />
+      )}
 
       {/* Spacer */}
       <div className="flex-1" />

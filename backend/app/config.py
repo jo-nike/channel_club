@@ -60,6 +60,14 @@ class Settings(BaseSettings):
     highlight_segment_seconds: int = 10  # FFmpeg segment duration
     highlight_temp_dir: str = "/tmp/highlights"  # Temp storage for segments
 
+    # Chromecast Feature (requires FFmpeg in container)
+    # Enables casting streams to Chromecast devices via HLS transcoding
+    cast_enabled: bool = False
+    cast_hls_segment_time: int = 4  # Seconds per HLS segment
+    cast_hls_list_size: int = 5  # Number of segments in playlist (buffer = segment_time * list_size)
+    cast_temp_dir: str = "/tmp/cast_hls"  # Temp storage for HLS segments
+    cast_session_timeout: int = 300  # Seconds without activity before cleanup
+
     model_config = SettingsConfigDict(env_file=".env")
 
 

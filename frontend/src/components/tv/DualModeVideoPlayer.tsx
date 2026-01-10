@@ -344,6 +344,8 @@ function LiveVideoPlayer({
         isMobile={isMobile}
         isTVMode={isTVMode}
         channelId={channelId}
+        streamUrl={streamUrl}
+        channelName={channelName}
         onPlayPause={handlePlayPause}
         onVolumeChange={handleVolumeChange}
         onMuteToggle={handleMuteToggle}
@@ -449,6 +451,8 @@ function HLSVideoPlayerWrapper({
           isTheaterMode={isTheaterMode}
           isMobile={isMobile}
           channelId={channelId}
+          streamUrl={streamUrl}
+          channelName={title}
           onTheaterModeToggle={onTheaterModeToggle}
         />
       </MediaPlayer>
@@ -468,12 +472,16 @@ function HLSControlsWrapper({
   isTheaterMode,
   isMobile,
   channelId,
+  streamUrl,
+  channelName,
   onTheaterModeToggle,
 }: {
   containerRef: React.RefObject<HTMLDivElement | null>
   isTheaterMode: boolean
   isMobile: boolean
   channelId: string
+  streamUrl: string
+  channelName?: string
   onTheaterModeToggle: () => void
 }) {
   const paused = useMediaState('paused')
@@ -574,6 +582,8 @@ function HLSControlsWrapper({
       isMobile={isMobile}
       isTVMode={isTVMode}
       channelId={channelId}
+      streamUrl={streamUrl}
+      channelName={channelName}
       onTheaterModeToggle={onTheaterModeToggle}
       onMouseEnter={() => setIsHoveringControls(true)}
       onMouseLeave={() => setIsHoveringControls(false)}

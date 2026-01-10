@@ -4,6 +4,37 @@ import type { Channel, EPGResponse, GroupedChannelsResponse } from '@/types'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
 
+/**
+ * Get absolute API URL for Chromecast.
+ * Chromecast needs absolute URLs since it can't use browser's origin.
+ * Uses VITE_CAST_BASE_URL if set, otherwise constructs from window.location.
+ */
+export function getCastBaseUrl(): string {
+  // Explicit cast URL takes priority
+  if (import.meta.env.VITE_CAST_BASE_URL) {
+    return import.meta.env.VITE_CAST_BASE_URL
+  }
+
+  // If API_URL is already absolute, use it
+  if (API_URL.startsWith('http://') || API_URL.startsWith('https://')) {
+    return API_URL
+  }
+
+  // Construct absolute URL from current location
+  // In dev, we need to use the backend port (8000) instead of frontend port (5173)
+  const backendPort = import.meta.env.VITE_BACKEND_PORT || '8001'
+  const hostname = window.location.hostname
+  const protocol = window.location.protocol
+
+  // If we're on default ports (80/443), don't append port
+  if (window.location.port === '' || window.location.port === '80' || window.location.port === '443') {
+    return `${protocol}//${hostname}/api`
+  }
+
+  // In dev mode, use backend port
+  return `${protocol}//${hostname}:${backendPort}/api`
+}
+
 export interface LoginRequest {
   username: string
   password: string
@@ -301,4 +332,93 @@ export async function saveHighlight(
 
 export async function saveHighlightWebM(channelId: string): Promise<Blob> {
   return saveHighlight(channelId, 'webm')
+}
+
+// Chromecast API
+
+export interface CastFeatureResponse {
+  enabled: boolean
+}
+
+export interface CastSessionRequest {
+  channel_id: string
+  stream_type: 'hls' | 'mpegts'
+  stream_url?: string
+}
+
+export interface CastSessionResponse {
+  session_id: string
+  hls_url: string
+  needs_transcoding: boolean
+}
+
+export async function getCastFeatureEnabled(): Promise<boolean> {
+  logger.debug('API', 'Checking cast feature status')
+
+  const response = await fetchWithAuth('/cast/feature')
+
+  if (!response.ok) {
+    logger.error('API', `Failed to check cast feature: ${response.status}`)
+    return false
+  }
+
+  const data: CastFeatureResponse = await response.json()
+  logger.debug('API', `Cast feature enabled: ${data.enabled}`)
+  return data.enabled
+}
+
+export async function createCastSession(
+  channelId: string,
+  streamType: 'hls' | 'mpegts',
+  streamUrl?: string
+): Promise<CastSessionResponse> {
+  logger.debug('API', `Creating cast session for channel: ${channelId} (type: ${streamType})`)
+
+  const body: CastSessionRequest = {
+    channel_id: channelId,
+    stream_type: streamType,
+  }
+  if (streamUrl) {
+    body.stream_url = streamUrl
+  }
+
+  const response = await fetchWithAuth('/cast/session', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to create cast session' }))
+    logger.error('API', `Failed to create cast session: ${response.status}`, { detail: error.detail })
+    throw new Error(error.detail || 'Failed to create cast session')
+  }
+
+  const data: CastSessionResponse = await response.json()
+  logger.info('API', `Cast session created: ${data.session_id}`)
+  return data
+}
+
+export async function stopCastSession(sessionId: string): Promise<void> {
+  logger.debug('API', `Stopping cast session: ${sessionId}`)
+
+  const response = await fetchWithAuth(`/cast/session/${sessionId}`, {
+    method: 'DELETE',
+  })
+
+  if (!response.ok) {
+    logger.error('API', `Failed to stop cast session: ${response.status}`)
+    // Don't throw - session might already be cleaned up
+  } else {
+    logger.info('API', `Cast session stopped: ${sessionId}`)
+  }
+}
+
+/**
+ * Get the full URL for an HLS stream from a cast session.
+ * Uses absolute URL so Chromecast can access it.
+ */
+export function getCastHlsUrl(sessionId: string): string {
+  const token = localStorage.getItem('token')
+  const baseUrl = getCastBaseUrl()
+  return `${baseUrl}/cast/hls/${sessionId}/playlist.m3u8${token ? `?token=${token}` : ''}`
 }

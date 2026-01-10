@@ -5,6 +5,7 @@ import { useHighlightFeature } from '@/hooks/useHighlightFeature'
 import { HighlightButton } from './HighlightButton'
 import { HighlightModal } from './HighlightModal'
 import { ChatToggleButton } from './ChatToggleButton'
+import { CastButton } from './CastButton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 export interface VideoControlsProps {
@@ -18,6 +19,10 @@ export interface VideoControlsProps {
   isMobile?: boolean
   isTVMode?: boolean
   channelId?: string
+  /** Stream URL for casting (optional - resolved by backend if not provided) */
+  streamUrl?: string
+  /** Channel name for Chromecast display */
+  channelName?: string
   onPlayPause: () => void
   onVolumeChange: (volume: number) => void
   onMuteToggle: () => void
@@ -38,6 +43,8 @@ export function VideoControls({
   isMobile: isMobileProp = false,
   isTVMode = false,
   channelId,
+  streamUrl,
+  channelName,
   onPlayPause,
   onVolumeChange,
   onMuteToggle,
@@ -169,6 +176,17 @@ export function VideoControls({
 
       {/* Chat Toggle Button */}
       <ChatToggleButton isVisible={isVisible} />
+
+      {/* Cast Button - for Chromecast streaming */}
+      {channelId && (
+        <CastButton
+          channelId={channelId}
+          streamType="mpegts"
+          streamUrl={streamUrl}
+          channelName={channelName}
+          isVisible={isVisible}
+        />
+      )}
 
       {/* Spacer */}
       <div className="flex-1" />

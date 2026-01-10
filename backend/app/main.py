@@ -11,12 +11,14 @@ from app.config import settings
 from app.logging_config import configure_logging
 from app.routers.admin import router as admin_router
 from app.routers.auth import router as auth_router
+from app.routers.cast import router as cast_router
 from app.routers.channels import router as channels_router
 from app.routers.epg import router as epg_router
 from app.routers.ersatztv import router as ersatztv_router
 from app.routers.gif import router as gif_router
 from app.routers.highlight import router as highlight_router
 from app.routers.websocket import router as websocket_router
+from app.services.cast import cast_service
 from app.services.highlight import highlight_service
 
 
@@ -50,6 +52,16 @@ async def lifespan(app: FastAPI):
         highlight_service.cleanup_stale_segments()
         # Start background task to clean up idle recorders
         highlight_service.start_idle_cleanup_task()
+    if settings.cast_enabled:
+        logger.info(
+            "Chromecast streaming enabled (segment: {}s, buffer: {}s)",
+            settings.cast_hls_segment_time,
+            settings.cast_hls_segment_time * settings.cast_hls_list_size,
+        )
+        # Clean up any stale sessions from previous runs
+        cast_service.cleanup_stale_sessions()
+        # Start background task to clean up idle sessions
+        cast_service.start_idle_cleanup_task()
     validate_auth_configuration()
     yield
     # Shutdown
@@ -57,13 +69,20 @@ async def lifespan(app: FastAPI):
     # Stop idle cleanup task and all highlight recorders
     highlight_service.stop_idle_cleanup_task()
     await highlight_service.stop_all()
+    # Stop all cast sessions
+    await cast_service.stop_all()
 
 
 app = FastAPI(title="IPTV Viewer API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:5174"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://192.168.50.167:5173",
+        "http://192.168.50.167:5174",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -75,6 +94,7 @@ app.include_router(channels_router, prefix="/api")
 app.include_router(epg_router, prefix="/api")
 app.include_router(ersatztv_router)
 app.include_router(admin_router, prefix="/api/admin")
+app.include_router(cast_router)
 app.include_router(gif_router)
 app.include_router(highlight_router)
 app.include_router(websocket_router)
