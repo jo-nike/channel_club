@@ -158,7 +158,7 @@ export function useChromecast(): UseChromecastReturn {
         // Configure with Default Media Receiver
         context.setOptions({
           receiverApplicationId: DEFAULT_MEDIA_RECEIVER_APP_ID,
-          autoJoinPolicy: 'ORIGIN_SCOPED',
+          autoJoinPolicy: 'ORIGIN_SCOPED' as chrome.cast.AutoJoinPolicy,
         })
 
         // Create remote player and controller

@@ -145,6 +145,9 @@ declare namespace cast {
 
 declare namespace chrome {
   namespace cast {
+    /** Auto join policy for cast sessions */
+    type AutoJoinPolicy = 'ORIGIN_SCOPED' | 'TAB_AND_ORIGIN_SCOPED' | 'PAGE_SCOPED'
+
     /** Default Media Receiver app ID */
     const media: {
       DEFAULT_MEDIA_RECEIVER_APP_ID: string
@@ -195,7 +198,7 @@ declare namespace chrome {
     }
 
     /** Check if Cast API is available */
-    function isAvailable: boolean
+    const isAvailable: boolean
   }
 }
 
