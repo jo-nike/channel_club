@@ -76,11 +76,12 @@ describe('detectMediaUrls', () => {
       expect(matches[0].type).toBe('image')
     })
 
-    it('detects .webp URLs', () => {
+    it('detects .webp URLs as gif (can be animated)', () => {
       const text = 'Modern format: https://example.com/image.webp'
       const matches = detectMediaUrls(text)
       expect(matches).toHaveLength(1)
-      expect(matches[0].type).toBe('image')
+      // webp is treated as gif since it can be animated (especially from Giphy)
+      expect(matches[0].type).toBe('gif')
     })
   })
 

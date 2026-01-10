@@ -32,6 +32,14 @@ class MockIntersectionObserver implements IntersectionObserver {
 }
 window.IntersectionObserver = MockIntersectionObserver
 
+// Mock ResizeObserver for ScrollArea and other components
+class MockResizeObserver implements ResizeObserver {
+  observe(_target: Element): void {} // eslint-disable-line @typescript-eslint/no-unused-vars
+  unobserve(_target: Element): void {} // eslint-disable-line @typescript-eslint/no-unused-vars
+  disconnect(): void {}
+}
+window.ResizeObserver = MockResizeObserver
+
 // Mock window.matchMedia for tests that use media queries
 Object.defineProperty(window, 'matchMedia', {
   writable: true,

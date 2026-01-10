@@ -18,29 +18,42 @@ export interface GifButtonProps {
 
 export function GifButton({ onSelect, disabled }: GifButtonProps) {
   const [isOpen, setIsOpen] = useState(false)
-  const [serverEnabled, setServerEnabled] = useState<boolean | null>(null)
+  // Initialize to false if build-time flag is off, otherwise null (loading)
+  const [serverEnabled, setServerEnabled] = useState<boolean | null>(
+    GIF_FEATURE_ENABLED ? null : false
+  )
   const breakpoint = useBreakpoint()
   const isMobile = breakpoint === 'mobile'
 
-  // Check if server has GIF feature enabled
+  // Check if server has GIF feature enabled (only if build-time flag is true)
   useEffect(() => {
     if (!GIF_FEATURE_ENABLED) {
-      setServerEnabled(false)
+      // Already handled by initial state
       return
     }
+
+    let cancelled = false
 
     async function checkFeature() {
       try {
         const enabled = await getGifFeatureEnabled()
-        setServerEnabled(enabled)
-        logger.debug('GIF', `Server GIF feature enabled: ${enabled}`)
-      } catch (err) {
-        logger.error('GIF', 'Failed to check GIF feature status')
-        setServerEnabled(false)
+        if (!cancelled) {
+          setServerEnabled(enabled)
+          logger.debug('GIF', `Server GIF feature enabled: ${enabled}`)
+        }
+      } catch {
+        if (!cancelled) {
+          logger.error('GIF', 'Failed to check GIF feature status')
+          setServerEnabled(false)
+        }
       }
     }
 
     checkFeature()
+
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   // Don't render if feature is disabled
@@ -67,14 +80,12 @@ export function GifButton({ onSelect, disabled }: GifButtonProps) {
     return (
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <Button
-          variant="ghost"
           size="icon"
           disabled={disabled}
           onClick={() => setIsOpen(true)}
           aria-label="Send GIF"
-          className="h-9 w-9 shrink-0"
         >
-          <ImageIcon className="h-5 w-5" />
+          <ImageIcon className="h-4 w-4" />
         </Button>
         <DialogContent className="sm:max-w-md max-h-[80vh] p-0 gap-0">
           <DialogHeader className="p-4 pb-0">
@@ -90,13 +101,11 @@ export function GifButton({ onSelect, disabled }: GifButtonProps) {
     <Popover open={isOpen} onOpenChange={setIsOpen}>
       <PopoverTrigger asChild>
         <Button
-          variant="ghost"
           size="icon"
           disabled={disabled}
           aria-label="Send GIF"
-          className="h-9 w-9 shrink-0"
         >
-          <ImageIcon className="h-5 w-5" />
+          <ImageIcon className="h-4 w-4" />
         </Button>
       </PopoverTrigger>
       <PopoverContent

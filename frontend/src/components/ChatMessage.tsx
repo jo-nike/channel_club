@@ -97,7 +97,7 @@ export function ChatMessage({ message, isOwn = false }: ChatMessageProps) {
       }`}
     >
       <div
-        className={`max-w-[85%] rounded-lg px-3 py-2 ${
+        className={`max-w-[85%] rounded-lg px-3 py-2 overflow-hidden ${
           isOwn
             ? 'bg-primary text-primary-foreground'
             : 'bg-muted text-foreground'

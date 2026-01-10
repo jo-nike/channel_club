@@ -51,12 +51,7 @@ export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
     }
   }, [isOpen, showNicknamePrompt])
 
-  // Pre-fill nickname input when editing
-  useEffect(() => {
-    if (isEditingNickname && nickname) {
-      setNicknameInput(nickname)
-    }
-  }, [isEditingNickname, nickname])
+  // Note: nickname input is pre-filled in handleEditNickname callback below
 
   const handleSend = useCallback(() => {
     const trimmed = inputValue.trim()
@@ -101,8 +96,11 @@ export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
   )
 
   const handleEditNickname = useCallback(() => {
+    if (nickname) {
+      setNicknameInput(nickname)
+    }
     setIsEditingNickname(true)
-  }, [])
+  }, [nickname])
 
   if (!isOpen) return null
 

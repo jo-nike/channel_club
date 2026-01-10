@@ -111,12 +111,13 @@ describe('AdminModal', () => {
   })
 
   describe('Tab rendering', () => {
-    it('renders all five tabs (AC #3 - context-agnostic)', () => {
+    it('renders all six tabs (AC #3 - context-agnostic)', () => {
       render(<AdminModal {...defaultProps} />)
 
       expect(screen.getByRole('tab', { name: /channels/i })).toBeInTheDocument()
       expect(screen.getByRole('tab', { name: /active users/i })).toBeInTheDocument()
       expect(screen.getByRole('tab', { name: /user access/i })).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: /chat/i })).toBeInTheDocument()
       expect(screen.getByRole('tab', { name: /plugins/i })).toBeInTheDocument()
       expect(screen.getByRole('tab', { name: /status/i })).toBeInTheDocument()
     })
@@ -126,8 +127,8 @@ describe('AdminModal', () => {
       render(<AdminModal {...defaultProps} />)
 
       const tabs = screen.getAllByRole('tab')
-      expect(tabs).toHaveLength(5)
-      expect(tabs.map(t => t.textContent)).toEqual(['Channels', 'Active Users', 'User Access', 'Plugins', 'Status'])
+      expect(tabs).toHaveLength(6)
+      expect(tabs.map(t => t.textContent)).toEqual(['Channels', 'Active Users', 'User Access', 'Chat', 'Plugins', 'Status'])
     })
   })
 
@@ -187,7 +188,7 @@ describe('AdminModal', () => {
       render(<AdminModal {...defaultProps} />)
 
       const tabs = screen.getAllByRole('tab')
-      expect(tabs.length).toBe(5)
+      expect(tabs.length).toBe(6)
 
       // Each tab should have aria-selected attribute
       tabs.forEach(tab => {

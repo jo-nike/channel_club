@@ -15,11 +15,12 @@ export interface MediaMatch {
 
 /**
  * Media extension patterns grouped by type
+ * Note: webp from giphy.com can be animated, so we treat all webp as potentially animated
  */
 const MEDIA_EXTENSIONS: Record<MediaType, string[]> = {
-  gif: ['gif'],
+  gif: ['gif', 'webp'], // webp can be animated (especially from Giphy)
   video: ['gifv', 'webm', 'mp4'],
-  image: ['png', 'jpg', 'jpeg', 'webp'],
+  image: ['png', 'jpg', 'jpeg'],
 }
 
 /**

@@ -7,9 +7,6 @@ import { useAuthStore } from '@/stores/authStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
 
-// Store the original getNickname for mocking
-let mockNickname: string | null = null
-
 // Mock useChatEnabled hook
 vi.mock('./useChatEnabled', () => ({
   useChatEnabled: vi.fn(() => true),
@@ -907,7 +904,7 @@ describe('useWebSocket', () => {
     test('sends set_nickname on connect when nickname is set', () => {
       useChatStore.setState({ nickname: 'TestNick' })
 
-      const { result } = renderHook(() => useWebSocket())
+      renderHook(() => useWebSocket())
       const ws = MockWebSocket.instances[0]
 
       act(() => {

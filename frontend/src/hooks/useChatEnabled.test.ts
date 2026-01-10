@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { useChatEnabled } from './useChatEnabled'
+// Note: useChatEnabled is dynamically imported in tests to test env var behavior
 
 describe('useChatEnabled', () => {
   const originalEnv = { ...import.meta.env }

@@ -38,10 +38,11 @@ describe('ChatMediaEmbed', () => {
       expect(video).toHaveAttribute('src', 'https://example.com/clip.mp4')
     })
 
-    it('has loop attribute on video', () => {
+    it('does not have loop attribute (loop is controlled manually for pause after N loops)', () => {
       render(<ChatMediaEmbed url="https://example.com/clip.webm" type="video" />)
       const video = document.querySelector('video')
-      expect(video).toHaveAttribute('loop')
+      // Loop is controlled manually via onEnded handler to pause after MAX_LOOPS
+      expect(video).not.toHaveAttribute('loop')
     })
 
     it('has muted attribute on video', () => {

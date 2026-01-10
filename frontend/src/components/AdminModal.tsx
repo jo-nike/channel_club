@@ -7,11 +7,12 @@ import {
 } from '@/components/ui/dialog'
 import { ChannelList } from '@/components/ChannelList'
 import { ActiveUsersTab } from '@/components/admin/ActiveUsersTab'
+import { ChatTab } from '@/components/admin/ChatTab'
 import { PlaceholderTab } from '@/components/admin/PlaceholderTab'
 import { StatusTab } from '@/components/admin/StatusTab'
 import { cn } from '@/lib/utils'
 
-type TabType = 'channels' | 'active-users' | 'user-access' | 'plugins' | 'status'
+type TabType = 'channels' | 'active-users' | 'user-access' | 'chat' | 'plugins' | 'status'
 
 interface AdminModalProps {
   open: boolean
@@ -22,6 +23,7 @@ const tabs: { id: TabType; label: string }[] = [
   { id: 'channels', label: 'Channels' },
   { id: 'active-users', label: 'Active Users' },
   { id: 'user-access', label: 'User Access' },
+  { id: 'chat', label: 'Chat' },
   { id: 'plugins', label: 'Plugins' },
   { id: 'status', label: 'Status' },
 ]
@@ -54,6 +56,8 @@ export function AdminModal({ open, onOpenChange }: AdminModalProps) {
             description="Manage user permissions, invite new users, and control access levels."
           />
         )
+      case 'chat':
+        return <ChatTab />
       case 'plugins':
         return (
           <PlaceholderTab

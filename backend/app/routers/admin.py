@@ -7,7 +7,7 @@ from app.models.admin import ActiveUser, ActiveUsersResponse, ActiveUsersTotals
 from app.models.auth import TokenPayload
 from app.models.status import SystemStatusResponse
 from app.routers.auth_deps import require_admin
-from app.services import presence, status_service
+from app.services import chat, presence, status_service
 
 log = logger.bind(router="admin")
 router = APIRouter(tags=["admin"])
@@ -73,3 +73,19 @@ async def get_system_status(
     """
     log.debug("Admin {} requesting system status", current_user.sub)
     return await status_service.get_system_status()
+
+
+@router.delete("/chat-history")
+async def clear_chat_history(
+    current_user: TokenPayload = Depends(require_admin),
+) -> dict[str, str]:
+    """Clear all chat message history.
+
+    Requires admin role.
+
+    Returns:
+        Confirmation message.
+    """
+    log.info("Admin {} clearing chat history", current_user.sub)
+    chat.clear_history()
+    return {"message": "Chat history cleared"}
