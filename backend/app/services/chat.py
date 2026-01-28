@@ -5,10 +5,9 @@ Messages are broadcast to all connected clients via WebSocket.
 The history resets on server restart (acceptable for this use case).
 """
 
-import html
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from loguru import logger
@@ -21,6 +20,9 @@ MAX_MESSAGE_LENGTH = 500
 
 # Maximum messages to store in history
 MAX_HISTORY_SIZE = 100
+
+# Maximum age for messages (24 hours)
+MAX_MESSAGE_AGE = timedelta(hours=24)
 
 
 @dataclass
@@ -46,14 +48,20 @@ class ChatMessage:
 _chat_history: deque[ChatMessage] = deque(maxlen=MAX_HISTORY_SIZE)
 
 
+def _prune_expired() -> None:
+    """Remove messages older than MAX_MESSAGE_AGE from the history."""
+    cutoff = datetime.now(UTC) - MAX_MESSAGE_AGE
+    while _chat_history and _chat_history[0].timestamp < cutoff:
+        _chat_history.popleft()
+
+
 def sanitize_message(content: str) -> str | None:
     """Sanitize a chat message content.
 
     Applies the following sanitization rules:
-    1. Strip HTML tags using html.escape()
-    2. Trim whitespace
-    3. Limit to MAX_MESSAGE_LENGTH characters (truncate, don't reject)
-    4. Return None if empty after sanitization
+    1. Trim whitespace
+    2. Limit to MAX_MESSAGE_LENGTH characters (truncate, don't reject)
+    3. Return None if empty after sanitization
 
     Args:
         content: The raw message content from the user.
@@ -65,11 +73,12 @@ def sanitize_message(content: str) -> str | None:
         log.debug("Empty message content received")
         return None
 
-    # Escape HTML entities to prevent XSS
-    sanitized = html.escape(content)
+    # Note: No html.escape() here — content is sent as JSON via WebSocket
+    # and rendered by React, which auto-escapes text content (XSS-safe).
+    # html.escape() caused double-escaping (e.g. ' → &#x27; shown literally).
 
     # Trim whitespace
-    sanitized = sanitized.strip()
+    sanitized = content.strip()
 
     # Reject if empty after trimming
     if not sanitized:
@@ -113,6 +122,7 @@ def add_message(username: str, content: str) -> ChatMessage | None:
         content=sanitized_content,
     )
 
+    _prune_expired()
     _chat_history.append(message)
     log.debug(
         "Chat message added: {} from {} (history size: {})",
@@ -133,6 +143,7 @@ def get_history(limit: int = 50) -> list[ChatMessage]:
     Returns:
         List of ChatMessage objects, ordered from oldest to newest.
     """
+    _prune_expired()
     # Convert deque to list and return last 'limit' messages
     history_list = list(_chat_history)
 

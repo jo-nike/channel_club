@@ -16,10 +16,10 @@ def reset_chat_state():
 class TestSanitizeMessage:
     """Tests for sanitize_message function."""
 
-    def test_strips_html_entities(self) -> None:
-        """Should escape HTML entities to prevent XSS."""
+    def test_preserves_special_characters(self) -> None:
+        """Should preserve special characters as-is (React handles XSS)."""
         result = chat.sanitize_message("<script>alert('xss')</script>")
-        assert result == "&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;"
+        assert result == "<script>alert('xss')</script>"
 
     def test_trims_whitespace(self) -> None:
         """Should trim leading and trailing whitespace."""
@@ -75,12 +75,11 @@ class TestAddMessage:
         result = chat.add_message("testuser", "   ")
         assert result is None
 
-    def test_sanitizes_content(self) -> None:
-        """Should sanitize HTML in content."""
+    def test_preserves_html_in_content(self) -> None:
+        """Should preserve HTML in content (React handles XSS on render)."""
         result = chat.add_message("testuser", "<b>bold</b>")
         assert result is not None
-        assert "<b>" not in result.content
-        assert "&lt;b&gt;" in result.content
+        assert result.content == "<b>bold</b>"
 
     def test_generates_unique_message_ids(self) -> None:
         """Should generate unique message IDs for each message."""

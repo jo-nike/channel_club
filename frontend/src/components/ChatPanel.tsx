@@ -29,10 +29,14 @@ export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
   // Show nickname prompt if no nickname set or editing
   const showNicknamePrompt = !nickname || isEditingNickname
 
-  // Auto-scroll to bottom when new messages arrive
+  // Auto-scroll to bottom when new messages arrive or panel opens
   useEffect(() => {
     if (isOpen) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+      // When opening, wait for animation/layout to settle before scrolling
+      const timer = setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+      }, 50)
+      return () => clearTimeout(timer)
     }
   }, [messages, isOpen])
 

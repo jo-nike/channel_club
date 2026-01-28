@@ -144,7 +144,7 @@ export function ChatMediaEmbed({ url, type, onError }: ChatMediaEmbedProps) {
     )
   }
 
-  const mediaClasses = 'max-w-64 max-h-48 rounded object-contain'
+  const mediaClasses = 'max-w-64 max-h-48 w-auto rounded object-contain'
 
   // Inline replay overlay to avoid component-in-render lint error
   const replayOverlay = (
@@ -165,7 +165,7 @@ export function ChatMediaEmbed({ url, type, onError }: ChatMediaEmbedProps) {
     const showFrozen = isPaused && frozenFrame && type === 'gif'
 
     return (
-      <div className="relative inline-block">
+      <div className="relative inline-block max-w-full overflow-hidden">
         {loading && (
           <div className="absolute inset-0 bg-muted animate-pulse rounded" />
         )}
@@ -201,7 +201,7 @@ export function ChatMediaEmbed({ url, type, onError }: ChatMediaEmbedProps) {
 
   // Video types
   return (
-    <div className="relative inline-block">
+    <div className="relative inline-block max-w-full overflow-hidden">
       {loading && (
         <div className="absolute inset-0 bg-muted animate-pulse rounded" />
       )}
