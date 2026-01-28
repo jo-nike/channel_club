@@ -105,6 +105,9 @@ async def head_stream(
         return Response(
             status_code=200,
             media_type="application/vnd.apple.mpegurl",
+            headers={
+                "Access-Control-Allow-Origin": "*",
+            },
         )
     except HTTPException:
         raise
@@ -181,6 +184,9 @@ async def get_stream(
         return StreamingResponse(
             iter([rewritten.encode()]),
             media_type="application/vnd.apple.mpegurl",
+            headers={
+                "Access-Control-Allow-Origin": "*",  # Chromecast needs CORS
+            },
         )
 
     except HTTPException:
@@ -207,6 +213,9 @@ async def head_segment(
         return Response(
             status_code=200,
             media_type="video/mp2t",
+            headers={
+                "Access-Control-Allow-Origin": "*",
+            },
         )
     except HTTPException:
         raise
@@ -240,6 +249,9 @@ async def get_segment(
         return StreamingResponse(
             iter([response.content]),
             media_type=content_type,
+            headers={
+                "Access-Control-Allow-Origin": "*",  # Chromecast needs CORS
+            },
         )
 
     except HTTPException:

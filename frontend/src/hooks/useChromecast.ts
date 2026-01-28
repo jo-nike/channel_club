@@ -24,6 +24,8 @@ export interface ChromecastState {
   error: string | null
   /** Loading state */
   isLoading: boolean
+  /** Remote player state (IDLE, BUFFERING, PLAYING, PAUSED) */
+  playerState: string | null
 }
 
 /**
@@ -39,8 +41,15 @@ export interface UseChromecastReturn extends ChromecastState {
   ) => Promise<void>
   /** Stop the current cast session */
   stopCasting: () => Promise<void>
-  /** Show the Cast device picker dialog */
-  requestSession: () => void
+  /** Show the Cast device picker dialog. If params provided, auto-casts on connect. */
+  requestSession: (params?: {
+    channelId: string
+    streamType: 'hls' | 'mpegts'
+    streamUrl?: string
+    title?: string
+  }) => void
+  /** Cast a public test stream for debugging (call from browser console) */
+  castTestStream: () => Promise<void>
 }
 
 // Default Media Receiver app ID (Google's default receiver that supports HLS)
@@ -79,12 +88,23 @@ export function useChromecast(): UseChromecastReturn {
     deviceName: null,
     error: null,
     isLoading: true,
+    playerState: null,
   })
 
   // Track current cast session for cleanup
   const currentSessionId = useRef<string | null>(null)
   const playerRef = useRef<cast.framework.RemotePlayer | null>(null)
   const controllerRef = useRef<cast.framework.RemotePlayerController | null>(null)
+
+  // Store pending cast params for auto-casting after device selection
+  const pendingCastRef = useRef<{
+    channelId: string
+    streamType: 'hls' | 'mpegts'
+    streamUrl?: string
+    title?: string
+  } | null>(null)
+  // Ref to startCasting so the session listener can call it without stale closures
+  const startCastingRef = useRef<UseChromecastReturn['startCasting'] | null>(null)
 
   /**
    * Initialize the Cast SDK when it becomes available
@@ -187,6 +207,11 @@ export function useChromecast(): UseChromecastReturn {
           handleMediaLoadedChanged
         )
 
+        controllerRef.current.addEventListener(
+          cast.framework.RemotePlayerEventType.PLAYER_STATE_CHANGED,
+          handlePlayerStateChanged
+        )
+
         // Check initial state
         const castState = context.getCastState()
         const isAvailable = castState !== cast.framework.CastState.NO_DEVICES_AVAILABLE
@@ -239,6 +264,26 @@ export function useChromecast(): UseChromecastReturn {
       logger.debug('Cast', `Session state changed: ${sessionState}`)
 
       if (
+        sessionState === cast.framework.SessionState.SESSION_STARTED ||
+        sessionState === cast.framework.SessionState.SESSION_RESUMED
+      ) {
+        // Session just connected — auto-cast if we have pending params
+        const pending = pendingCastRef.current
+        if (pending && startCastingRef.current) {
+          pendingCastRef.current = null
+          logger.info('Cast', 'Session started, auto-casting pending stream')
+          startCastingRef.current(
+            pending.channelId,
+            pending.streamType,
+            pending.streamUrl,
+            pending.title
+          ).catch((err) => {
+            logger.error('Cast', 'Auto-cast failed', { error: err })
+          })
+        }
+      }
+
+      if (
         sessionState === cast.framework.SessionState.SESSION_ENDED ||
         sessionState === cast.framework.SessionState.NO_SESSION
       ) {
@@ -249,6 +294,7 @@ export function useChromecast(): UseChromecastReturn {
           })
           currentSessionId.current = null
         }
+        pendingCastRef.current = null
 
         setState((s) => ({
           ...s,
@@ -286,6 +332,22 @@ export function useChromecast(): UseChromecastReturn {
       }))
     }
 
+    function handlePlayerStateChanged() {
+      if (!mounted || !playerRef.current) return
+
+      const playerState = playerRef.current.playerState
+      logger.info('Cast', `Player state changed: ${playerState}`)
+
+      setState((s) => ({
+        ...s,
+        playerState: playerState ?? null,
+        // If player goes IDLE after we were casting, media likely failed
+        ...(playerState === 'IDLE' && s.isCasting
+          ? { isCasting: false, error: 'Chromecast playback stopped (IDLE)' }
+          : {}),
+      }))
+    }
+
     initializeCast()
 
     return () => {
@@ -295,25 +357,38 @@ export function useChromecast(): UseChromecastReturn {
   }, [])
 
   /**
-   * Request a cast session (show device picker)
+   * Request a cast session (show device picker).
+   * If params are provided, auto-starts casting once the device connects.
    */
-  const requestSession = useCallback(() => {
-    if (typeof cast === 'undefined') return
+  const requestSession = useCallback(
+    (params?: {
+      channelId: string
+      streamType: 'hls' | 'mpegts'
+      streamUrl?: string
+      title?: string
+    }) => {
+      if (typeof cast === 'undefined') return
 
-    const context = cast.framework.CastContext.getInstance()
-    context.requestSession().catch((error: Error) => {
-      // User cancelled is expected, don't show as error
-      if (error.message?.includes('cancel')) {
-        logger.debug('Cast', 'User cancelled cast session request')
-      } else {
-        logger.error('Cast', 'Failed to request cast session', { error })
-        setState((s) => ({
-          ...s,
-          error: 'Failed to connect to Chromecast',
-        }))
-      }
-    })
-  }, [])
+      // Store params so handleSessionStateChanged can auto-cast on connect
+      pendingCastRef.current = params ?? null
+
+      const context = cast.framework.CastContext.getInstance()
+      context.requestSession().catch((error: Error) => {
+        pendingCastRef.current = null
+        // User cancelled is expected, don't show as error
+        if (error.message?.includes('cancel')) {
+          logger.debug('Cast', 'User cancelled cast session request')
+        } else {
+          logger.error('Cast', 'Failed to request cast session', { error })
+          setState((s) => ({
+            ...s,
+            error: 'Failed to connect to Chromecast',
+          }))
+        }
+      })
+    },
+    []
+  )
 
   /**
    * Start casting a stream
@@ -398,9 +473,21 @@ export function useChromecast(): UseChromecastReturn {
 
         logger.info('Cast', 'Media load request sent successfully')
 
+        // Check player state after a brief delay to detect immediate failures
+        setTimeout(() => {
+          if (playerRef.current) {
+            const ps = playerRef.current.playerState
+            logger.info('Cast', `Post-load player state: ${ps}`)
+            if (ps === 'IDLE' || ps === null) {
+              logger.warn('Cast', 'Player is IDLE after loadMedia - media may have failed to load on Chromecast')
+            }
+          }
+        }, 3000)
+
         setState((s) => ({
           ...s,
           isCasting: true,
+          playerState: playerRef.current?.playerState ?? null,
           error: null,
         }))
       } catch (error) {
@@ -423,6 +510,9 @@ export function useChromecast(): UseChromecastReturn {
     },
     []
   )
+
+  // Keep ref in sync for the session state listener
+  startCastingRef.current = startCasting
 
   /**
    * Stop the current cast session
@@ -449,10 +539,50 @@ export function useChromecast(): UseChromecastReturn {
     logger.info('Cast', 'Cast session stopped')
   }, [])
 
+  /**
+   * Cast a known-good public HLS stream for debugging.
+   * If this works, the issue is with our stream/URL, not the Chromecast setup.
+   */
+  const castTestStream = useCallback(async () => {
+    if (typeof cast === 'undefined' || typeof chrome === 'undefined') {
+      throw new Error('Cast SDK not available')
+    }
+
+    const context = cast.framework.CastContext.getInstance()
+    const session = context.getCurrentSession()
+
+    if (!session) {
+      throw new Error('No active cast session - connect to a device first')
+    }
+
+    // Apple's public HLS test stream (Big Buck Bunny)
+    const testUrl = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8'
+
+    logger.info('Cast', `[TEST] Loading public test stream: ${testUrl}`)
+
+    const mediaInfo = new chrome.cast.media.MediaInfo(testUrl, 'application/vnd.apple.mpegurl')
+    mediaInfo.streamType = chrome.cast.media.StreamType.BUFFERED
+    mediaInfo.metadata = { title: 'Test Stream (Big Buck Bunny)' }
+
+    const request = new chrome.cast.media.LoadRequest(mediaInfo)
+    request.autoplay = true
+
+    await session.loadMedia(request)
+    logger.info('Cast', '[TEST] Media load request sent')
+
+    setTimeout(() => {
+      if (playerRef.current) {
+        const ps = playerRef.current.playerState
+        logger.info('Cast', `[TEST] Post-load player state: ${ps}`)
+      }
+    }, 5000)
+  }, [])
+
   return {
     ...state,
     startCasting,
     stopCasting,
     requestSession,
+    castTestStream,
   }
 }

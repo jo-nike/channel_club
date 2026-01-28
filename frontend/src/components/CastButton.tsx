@@ -44,6 +44,7 @@ export function CastButton({
     deviceName,
     error,
     isLoading,
+    playerState,
     startCasting,
     stopCasting,
     requestSession,
@@ -54,15 +55,15 @@ export function CastButton({
   const handleClick = useCallback(async () => {
     if (isStarting) return
 
-    if (!isConnected) {
-      // Not connected - show device picker
-      requestSession()
-      return
-    }
-
     if (isCasting) {
       // Already casting - stop
       await stopCasting()
+      return
+    }
+
+    if (!isConnected) {
+      // Not connected - open device picker with cast params for auto-cast on connect
+      requestSession({ channelId, streamType, streamUrl, title: channelName })
       return
     }
 
@@ -99,7 +100,7 @@ export function CastButton({
   if (error) {
     tooltipText = error
   } else if (isCasting && deviceName) {
-    tooltipText = `Casting to ${deviceName} - Click to stop`
+    tooltipText = `Casting to ${deviceName} [${playerState ?? '?'}] - Click to stop`
   } else if (isConnected && deviceName) {
     tooltipText = `Connected to ${deviceName} - Click to cast`
   } else if (isStarting) {
