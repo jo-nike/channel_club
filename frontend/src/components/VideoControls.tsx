@@ -2,6 +2,7 @@ import { useState, useCallback, type RefObject } from 'react'
 import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Expand, Shrink } from 'lucide-react'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useHighlightFeature } from '@/hooks/useHighlightFeature'
+import { useHighlightStatus } from '@/hooks/useHighlightStatus'
 import { HighlightButton } from './HighlightButton'
 import { HighlightModal } from './HighlightModal'
 import { ChatToggleButton } from './ChatToggleButton'
@@ -64,6 +65,9 @@ export function VideoControls({
 
   // Show highlight button on desktop only when feature is enabled
   const showHighlightButton = highlightEnabled && !isMobile && !isTVMode && channelId
+
+  // Always-on highlight status polling (independent of control visibility)
+  const highlightStatus = useHighlightStatus(showHighlightButton ? channelId : undefined)
 
   // Highlight modal state
   const [isHighlightModalOpen, setIsHighlightModalOpen] = useState(false)
@@ -162,6 +166,7 @@ export function VideoControls({
           <HighlightButton
             channelId={channelId}
             isVisible={isVisible}
+            highlightStatus={highlightStatus}
             onOpenModal={handleOpenHighlightModal}
           />
           <HighlightModal

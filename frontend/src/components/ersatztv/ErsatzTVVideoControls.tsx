@@ -3,6 +3,7 @@ import { useMediaState, useMediaRemote } from '@vidstack/react'
 import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Expand, Shrink } from 'lucide-react'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useHighlightFeature } from '@/hooks/useHighlightFeature'
+import { useHighlightStatus } from '@/hooks/useHighlightStatus'
 import { HighlightButton } from '@/components/HighlightButton'
 import { HighlightModal } from '@/components/HighlightModal'
 import { ChatToggleButton } from '@/components/ChatToggleButton'
@@ -48,6 +49,9 @@ export function ErsatzTVVideoControls({
 
   // Show highlight button on desktop only when feature is enabled
   const showHighlightButton = highlightEnabled && !isMobile && !isTVMode && channelId
+
+  // Always-on highlight status polling (independent of control visibility)
+  const highlightStatus = useHighlightStatus(showHighlightButton ? channelId : undefined)
 
   // Get media state from Vidstack context
   const paused = useMediaState('paused')
@@ -172,6 +176,7 @@ export function ErsatzTVVideoControls({
           <HighlightButton
             channelId={channelId}
             isVisible={isVisible}
+            highlightStatus={highlightStatus}
             onOpenModal={handleOpenHighlightModal}
           />
           <HighlightModal

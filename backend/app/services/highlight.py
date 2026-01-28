@@ -214,12 +214,32 @@ class ChannelRecorder:
                     self.segment_dir = None
 
     def get_buffer_seconds(self) -> float:
-        """Get how many seconds have been recorded so far."""
+        """Get how many seconds of content are actually in the buffer.
+
+        Uses segment file modification times to determine the real time span
+        of recorded content, rather than wall-clock time since process start.
+        This accounts for FFmpeg startup delay and stream interruptions.
+        """
         if not self.is_running or not self.segment_dir:
             return 0
 
-        elapsed = time.time() - self.started_at
-        return min(elapsed, settings.highlight_buffer_seconds)
+        try:
+            seg_files = sorted(
+                self.segment_dir.glob("seg_*.ts"),
+                key=lambda p: p.stat().st_mtime,
+            )
+            if not seg_files:
+                return 0
+
+            # Buffer span = time from oldest segment to now,
+            # capped at the configured buffer max
+            oldest_mtime = seg_files[0].stat().st_mtime
+            span = time.time() - oldest_mtime
+            return min(span, settings.highlight_buffer_seconds)
+        except OSError:
+            # Fallback to wall-clock if file inspection fails
+            elapsed = time.time() - self.started_at
+            return min(elapsed, settings.highlight_buffer_seconds)
 
     async def save_highlight(
         self, format: str = "mp4"
@@ -372,9 +392,10 @@ class ChannelRecorder:
             return None, f"Error: {e}"
 
 
-# Idle timeout for recordings - stop if no status polls for this duration
-# Status is polled every 5 seconds, so 20 seconds = 4 missed polls
-RECORDER_IDLE_TIMEOUT = 20
+# Idle timeout for recordings - stop if no status polls for this duration.
+# With always-on polling from the frontend, this is a safety net for
+# edge cases like browser tab closure or network disconnects.
+RECORDER_IDLE_TIMEOUT = 120
 
 
 class HighlightService:

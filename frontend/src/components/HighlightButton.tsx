@@ -1,53 +1,28 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useCallback } from 'react'
 import { Download } from 'lucide-react'
-import { getHighlightStatus } from '@/services/api'
+import { type HighlightStatusResponse } from '@/services/api'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 export interface HighlightButtonProps {
   channelId: string
   isVisible: boolean
+  highlightStatus: HighlightStatusResponse
   onOpenModal?: () => void
 }
 
-export function HighlightButton({ channelId, isVisible, onOpenModal }: HighlightButtonProps) {
-  const [bufferSeconds, setBufferSeconds] = useState(0)
-  const [isRecording, setIsRecording] = useState(false)
-
-  // Poll for buffer status every 5 seconds when visible
-  useEffect(() => {
-    if (!isVisible || !channelId) return
-
-    const fetchStatus = async () => {
-      try {
-        const status = await getHighlightStatus(channelId)
-        setIsRecording(status.recording)
-        setBufferSeconds(status.bufferSeconds)
-      } catch {
-        // Silently fail - status is informational
-      }
-    }
-
-    // Initial fetch
-    fetchStatus()
-
-    // Poll every 5 seconds
-    const interval = setInterval(fetchStatus, 5000)
-    return () => clearInterval(interval)
-  }, [channelId, isVisible])
-
+export function HighlightButton({ channelId, isVisible, highlightStatus, onOpenModal }: HighlightButtonProps) {
   const handleClick = useCallback(() => {
     if (onOpenModal) {
       onOpenModal()
     }
   }, [onOpenModal])
 
-  // Hide button if not recording (instead of showing disabled)
-  if (!isRecording) {
+  // Hide button if not recording
+  if (!highlightStatus.recording) {
     return null
   }
 
-  // Build tooltip text
-  const seconds = Math.round(bufferSeconds || 0)
+  const seconds = Math.round(highlightStatus.bufferSeconds || 0)
   const tooltipText = `Save last ${seconds}s`
 
   return (
