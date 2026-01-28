@@ -70,6 +70,9 @@ export interface ErsatzTVProgramme {
   start: string // ISO 8601
   stop: string // ISO 8601
   category?: string[]
+  season?: number
+  episode?: number
+  year?: string
 }
 
 export interface ErsatzTVChannelsResponse {

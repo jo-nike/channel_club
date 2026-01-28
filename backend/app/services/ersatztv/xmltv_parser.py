@@ -149,6 +149,29 @@ def _parse_xmltv_content(content: str) -> list[Programme]:
             category_elems = elem.findall("category")
             categories = [c.text for c in category_elems if c.text] or None
 
+            # Parse episode number (xmltv_ns format: "season-1.episode-1.part-1", 0-indexed)
+            season = None
+            episode = None
+            for ep_elem in elem.findall("episode-num"):
+                system = ep_elem.get("system", "")
+                text = ep_elem.text if ep_elem.text else ""
+                if system == "xmltv_ns" and text:
+                    parts = text.split(".")
+                    if len(parts) >= 1 and parts[0].strip():
+                        try:
+                            season = int(parts[0].strip()) + 1
+                        except ValueError:
+                            pass
+                    if len(parts) >= 2 and parts[1].strip():
+                        try:
+                            episode = int(parts[1].strip()) + 1
+                        except ValueError:
+                            pass
+
+            # Parse release year
+            date_elem = elem.find("date")
+            year = date_elem.text.strip()[:4] if date_elem is not None and date_elem.text else None
+
             programme_id = f"{channel_id}_{int(start.timestamp())}"
 
             programme = Programme(
@@ -159,6 +182,9 @@ def _parse_xmltv_content(content: str) -> list[Programme]:
                 start=start,
                 stop=stop,
                 category=categories,
+                season=season,
+                episode=episode,
+                year=year,
             )
             programmes.append(programme)
 

@@ -33,6 +33,9 @@ class Programme(BaseModel):
     start: datetime = Field(..., description="Start time (UTC)")
     stop: datetime = Field(..., description="End time (UTC)")
     category: list[str] | None = Field(default=None, description="Programme categories")
+    season: int | None = Field(default=None, description="Season number")
+    episode: int | None = Field(default=None, description="Episode number")
+    year: str | None = Field(default=None, description="Release year")
 
     model_config = {"populate_by_name": True}
 

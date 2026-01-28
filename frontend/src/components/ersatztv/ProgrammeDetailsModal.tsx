@@ -7,7 +7,6 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import type { ErsatzTVProgramme, ErsatzTVChannel } from '@/types'
 
 interface ProgrammeDetailsModalProps {
@@ -52,27 +51,26 @@ export function ProgrammeDetailsModal({
           <DialogTitle className="text-2xl">{programme.title}</DialogTitle>
           <DialogDescription asChild>
             <div className="space-y-1">
+              {(programme.season != null || programme.episode != null || programme.year) && (
+                <p className="text-sm text-muted-foreground">
+                  {[
+                    (programme.season != null || programme.episode != null) &&
+                      [
+                        programme.season != null && `S${String(programme.season).padStart(2, '0')}`,
+                        programme.episode != null && `E${String(programme.episode).padStart(2, '0')}`,
+                      ].filter(Boolean).join(''),
+                    programme.year,
+                  ].filter(Boolean).join(' · ')}
+                </p>
+              )}
               <p className="text-muted-foreground">
-                {formatTime(startTime)} - {formatTime(endTime)} ({duration} min)
-              </p>
-              <p className="text-sm text-muted-foreground">
-                on {channel.name}
+                {formatTime(startTime)} - {formatTime(endTime)} ({duration} min) · {channel.name}
               </p>
             </div>
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
-          {programme.category && programme.category.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {programme.category.map((cat, i) => (
-                <Badge key={i} variant="secondary">
-                  {cat}
-                </Badge>
-              ))}
-            </div>
-          )}
-
+        <div className="py-4">
           {programme.description ? (
             <div className="prose prose-sm dark:prose-invert max-w-none">
               <p>{programme.description}</p>

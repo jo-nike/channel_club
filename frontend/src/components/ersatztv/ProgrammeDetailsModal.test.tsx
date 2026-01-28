@@ -56,12 +56,6 @@ describe('ProgrammeDetailsModal', () => {
     expect(screen.getByText('A test movie description')).toBeInTheDocument()
   })
 
-  it('displays category badges', () => {
-    render(<ProgrammeDetailsModal {...defaultProps} />)
-    expect(screen.getByText('Movie')).toBeInTheDocument()
-    expect(screen.getByText('Comedy')).toBeInTheDocument()
-  })
-
   it('shows fallback when no description', () => {
     const programmeWithoutDesc: ErsatzTVProgramme = {
       ...mockProgramme,
