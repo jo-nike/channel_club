@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Settings, LayoutList, RefreshCw } from 'lucide-react'
+import { ShieldCheck, LayoutList, RefreshCw } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useTheme } from '@/hooks/useTheme'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
@@ -17,8 +17,8 @@ import { ResizeDragHandle } from '@/components/ui/ResizeDragHandle'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useResizable } from '@/hooks/useResizable'
 import { useMobileLandscape } from '@/hooks/useMobileLandscape'
-import { ThemePicker } from '@/components/ThemePicker'
-import { NotificationToggle } from '@/components/NotificationToggle'
+import { ChatToggleButton } from '@/components/ChatToggleButton'
+import { UserSettingsMenu } from '@/components/UserSettingsMenu'
 import { AdminModal } from '@/components/AdminModal'
 import { ConnectionStatus } from '@/components/ConnectionStatus'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -241,21 +241,27 @@ export function TVView() {
           </div>
 
           <div className="flex items-center gap-2">
-            {/* EPG toggle button - desktop only */}
+            {/* Guide toggle button - desktop only */}
             {!isMobile && (
-              <button
-                onClick={toggleEPG}
-                className={`
-                  h-8 px-3 flex items-center gap-2 rounded-md text-sm
-                  focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2
-                  ${isEPGVisible ? 'bg-secondary text-secondary-foreground hover:bg-secondary/80' : 'bg-muted text-muted-foreground hover:bg-muted/80'}
-                `}
-                aria-pressed={isEPGVisible}
-                aria-label={isEPGVisible ? 'Hide EPG guide' : 'Show EPG guide'}
-              >
-                <LayoutList className="h-4 w-4 shrink-0" />
-                <span className="hidden md:inline">EPG</span>
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={toggleEPG}
+                    className={`
+                      h-8 w-8 flex items-center justify-center rounded-md
+                      focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2
+                      ${isEPGVisible ? 'bg-secondary text-secondary-foreground hover:bg-secondary/80' : 'bg-muted text-muted-foreground hover:bg-muted/80'}
+                    `}
+                    aria-pressed={isEPGVisible}
+                    aria-label={isEPGVisible ? 'Hide guide' : 'Show guide'}
+                  >
+                    <LayoutList className="h-4 w-4 shrink-0" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{isEPGVisible ? 'Hide guide' : 'Show guide'}</p>
+                </TooltipContent>
+              </Tooltip>
             )}
             {/* Admin button */}
             {isAdmin && (
@@ -264,7 +270,7 @@ export function TVView() {
                 className="h-8 w-8 flex items-center justify-center bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                 aria-label="Open admin panel"
               >
-                <Settings className="h-4 w-4 shrink-0" />
+                <ShieldCheck className="h-4 w-4 shrink-0" />
               </button>
             )}
             {/* Refresh video button */}
@@ -282,17 +288,10 @@ export function TVView() {
                 <p>Refresh video</p>
               </TooltipContent>
             </Tooltip>
-            {/* Theme picker */}
-            <ThemePicker />
-            {/* Notification toggle */}
-            <NotificationToggle />
-            {/* Logout button */}
-            <button
-              onClick={logout}
-              className="h-8 px-3 text-sm whitespace-nowrap shrink-0 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-            >
-              Logout
-            </button>
+            {/* Chat toggle */}
+            <ChatToggleButton />
+            {/* User settings (theme + notifications + logout) */}
+            <UserSettingsMenu onLogout={logout} />
           </div>
         </header>
       )}

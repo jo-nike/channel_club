@@ -5,7 +5,6 @@ import { useHighlightFeature } from '@/hooks/useHighlightFeature'
 import { useHighlightStatus } from '@/hooks/useHighlightStatus'
 import { HighlightButton } from './HighlightButton'
 import { HighlightModal } from './HighlightModal'
-import { ChatToggleButton } from './ChatToggleButton'
 import { CastButton } from './CastButton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
@@ -178,9 +177,6 @@ export function VideoControls({
           />
         </>
       )}
-
-      {/* Chat Toggle Button */}
-      <ChatToggleButton isVisible={isVisible} />
 
       {/* Cast Button - for Chromecast streaming */}
       {channelId && (

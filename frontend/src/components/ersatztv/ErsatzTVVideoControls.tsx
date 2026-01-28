@@ -6,7 +6,6 @@ import { useHighlightFeature } from '@/hooks/useHighlightFeature'
 import { useHighlightStatus } from '@/hooks/useHighlightStatus'
 import { HighlightButton } from '@/components/HighlightButton'
 import { HighlightModal } from '@/components/HighlightModal'
-import { ChatToggleButton } from '@/components/ChatToggleButton'
 import { CastButton } from '@/components/CastButton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useUIStore } from '@/stores/uiStore'
@@ -188,9 +187,6 @@ export function ErsatzTVVideoControls({
           />
         </>
       )}
-
-      {/* Chat Toggle Button */}
-      <ChatToggleButton isVisible={isVisible} />
 
       {/* Cast Button - for Chromecast streaming (HLS direct, no transcoding needed) */}
       {channelId && (
