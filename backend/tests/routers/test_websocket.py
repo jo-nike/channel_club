@@ -490,22 +490,22 @@ class TestChatMessages:
             data = ws.receive_json()
             assert data["type"] == "pong"  # Next message is pong, not chat_history
 
-    def test_chat_message_sanitization(
+    def test_chat_message_whitespace_trimmed(
         self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
     ):
-        """Chat messages are sanitized (HTML escaped)."""
+        """Chat messages are trimmed but not HTML escaped (React handles XSS)."""
         monkeypatch.setattr(settings, "chat_enabled", True)
 
         with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
             ws.receive_json()  # connection_ack
             ws.receive_json()  # chat_history
 
-            ws.send_json({"type": "chat_message", "content": "<script>alert('xss')</script>"})
+            ws.send_json({"type": "chat_message", "content": "  hello world  "})
 
             msg = ws.receive_json()
             assert msg["type"] == "chat_message"
-            assert "<script>" not in msg["content"]
-            assert "&lt;script&gt;" in msg["content"]
+            # Content is trimmed
+            assert msg["content"] == "hello world"
 
     def test_empty_chat_message_rejected(
         self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch

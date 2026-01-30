@@ -40,7 +40,6 @@ export function HighlightModal({
   const [highlightBlobUrl, setHighlightBlobUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [bufferSeconds, setBufferSeconds] = useState(0)
-  const [maxBufferSeconds, setMaxBufferSeconds] = useState(60)
   const [videoDuration, setVideoDuration] = useState(0)
   const [trimStart, setTrimStart] = useState(0)
   const [trimEnd, setTrimEnd] = useState(0)
@@ -63,7 +62,6 @@ export function HighlightModal({
         try {
           const status = await getHighlightStatus(channelId)
           setBufferSeconds(status.bufferSeconds)
-          setMaxBufferSeconds(status.maxBufferSeconds)
         } catch {
           // Status is informational, continue even if it fails
         }

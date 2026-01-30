@@ -189,7 +189,7 @@ describe('HighlightModal', () => {
       })
     })
 
-    it('shows partial capture toast when buffer not full', async () => {
+    it('shows success toast with actual buffer duration', async () => {
       mockGetHighlightStatus.mockResolvedValue({
         enabled: true,
         recording: true,
@@ -207,7 +207,7 @@ describe('HighlightModal', () => {
       fireEvent.click(downloadButton)
 
       await waitFor(() => {
-        expect(toast.info).toHaveBeenCalled()
+        expect(toast.success).toHaveBeenCalled()
       })
     })
   })
@@ -247,8 +247,8 @@ describe('HighlightModal', () => {
       fireEvent.click(webmButton)
 
       await waitFor(() => {
-        // saveHighlight should be called with webm format
-        expect(mockSaveHighlight).toHaveBeenCalledWith('channel-1', 'webm')
+        // saveHighlight should be called with webm format (no trim options)
+        expect(mockSaveHighlight).toHaveBeenCalledWith('channel-1', 'webm', undefined)
         expect(toast.success).toHaveBeenCalled()
       })
     })
