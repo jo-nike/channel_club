@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { Download, Loader2 } from 'lucide-react'
+import { Download, Loader2, RotateCcw } from 'lucide-react'
 import { toast } from 'sonner'
-import { saveHighlight, getHighlightStatus, type HighlightFormat } from '@/services/api'
+import { saveHighlight, getHighlightStatus, type HighlightFormat, type TrimOptions } from '@/services/api'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -10,7 +10,15 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
+import { Slider } from '@/components/ui/slider'
 import { isWebMSupported } from '@/lib/utils'
+
+/** Format seconds as MM:SS */
+function formatTime(seconds: number): string {
+  const mins = Math.floor(seconds / 60)
+  const secs = Math.floor(seconds % 60)
+  return `${mins}:${secs.toString().padStart(2, '0')}`
+}
 
 export interface HighlightModalProps {
   isOpen: boolean
@@ -33,6 +41,9 @@ export function HighlightModal({
   const [error, setError] = useState<string | null>(null)
   const [bufferSeconds, setBufferSeconds] = useState(0)
   const [maxBufferSeconds, setMaxBufferSeconds] = useState(60)
+  const [videoDuration, setVideoDuration] = useState(0)
+  const [trimStart, setTrimStart] = useState(0)
+  const [trimEnd, setTrimEnd] = useState(0)
   const videoRef = useRef<HTMLVideoElement>(null)
   const blobRef = useRef<Blob | null>(null)
 
@@ -86,7 +97,17 @@ export function HighlightModal({
     }
   }, [highlightBlobUrl])
 
-  // Handle modal close - restore volume
+  // Handle video metadata loaded - initialize trim values
+  const handleLoadedMetadata = useCallback(() => {
+    if (videoRef.current) {
+      const duration = videoRef.current.duration
+      setVideoDuration(duration)
+      setTrimStart(0)
+      setTrimEnd(duration)
+    }
+  }, [])
+
+  // Handle modal close - restore volume and reset state
   const handleClose = useCallback(() => {
     // Restore previous volume
     onVolumeChange?.(previousVolume)
@@ -98,24 +119,49 @@ export function HighlightModal({
     }
     blobRef.current = null
     setError(null)
+    setVideoDuration(0)
+    setTrimStart(0)
+    setTrimEnd(0)
 
     onClose()
   }, [onClose, onVolumeChange, previousVolume, highlightBlobUrl])
 
+  // Check if user has applied any trimming
+  const hasTrimming = videoDuration > 0 && (trimStart > 0.1 || trimEnd < videoDuration - 0.1)
+  const trimmedDuration = trimEnd - trimStart
+
+  // Handle slider value changes
+  const handleSliderChange = useCallback((values: number[]) => {
+    if (values.length === 2) {
+      setTrimStart(values[0])
+      setTrimEnd(values[1])
+    }
+  }, [])
+
+  // Reset trim to full duration
+  const handleResetTrim = useCallback(() => {
+    setTrimStart(0)
+    setTrimEnd(videoDuration)
+  }, [videoDuration])
+
   // Handle download for a specific format
   const handleDownload = useCallback(
     async (format: HighlightFormat) => {
-      // For MP4, use the already-fetched blob
-      // For WebM, we need to fetch from the server with the format parameter
       setIsDownloading(format)
 
       try {
+        // Build trim options if user has trimmed
+        const trimOptions: TrimOptions | undefined = hasTrimming
+          ? { startTime: trimStart, endTime: trimEnd }
+          : undefined
+
         let blob: Blob
-        if (format === 'mp4' && blobRef.current) {
+        // Use cached blob only for MP4 without trimming
+        if (format === 'mp4' && !hasTrimming && blobRef.current) {
           blob = blobRef.current
         } else {
-          // Fetch the highlight in the requested format
-          blob = await saveHighlight(channelId, format)
+          // Fetch with trimming applied server-side
+          blob = await saveHighlight(channelId, format, trimOptions)
         }
 
         // Generate filename with timestamp
@@ -132,25 +178,19 @@ export function HighlightModal({
         document.body.removeChild(a)
         URL.revokeObjectURL(url)
 
-        // Show success toast
-        const seconds = Math.round(bufferSeconds)
+        // Show success toast with actual duration
+        const duration = hasTrimming ? Math.round(trimmedDuration) : Math.round(bufferSeconds)
         const formatLabel = format.toUpperCase()
-        if (seconds < maxBufferSeconds) {
-          toast.info(`Saved ${seconds}s ${formatLabel} highlight (partial capture)`, {
-            description: filename,
-          })
-        } else {
-          toast.success(`Saved ${maxBufferSeconds}s ${formatLabel} highlight`, {
-            description: filename,
-          })
-        }
+        toast.success(`Saved ${duration}s ${formatLabel} highlight`, {
+          description: filename,
+        })
       } catch {
         toast.error(`Failed to download ${format.toUpperCase()} highlight`)
       } finally {
         setIsDownloading(null)
       }
     },
-    [channelId, bufferSeconds, maxBufferSeconds]
+    [channelId, bufferSeconds, hasTrimming, trimStart, trimEnd, trimmedDuration]
   )
 
   // Convenience handlers for each format
@@ -187,11 +227,55 @@ export function HighlightModal({
               src={highlightBlobUrl}
               controls
               autoPlay
+              onLoadedMetadata={handleLoadedMetadata}
               className="w-full rounded-lg"
               aria-label="Highlight preview"
             />
           )}
         </div>
+
+        {/* Trim controls */}
+        {highlightBlobUrl && !isLoading && !error && videoDuration > 0 && (
+          <div className="space-y-3 px-1">
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-muted-foreground w-14 text-right">
+                {formatTime(trimStart)}
+              </span>
+              <Slider
+                value={[trimStart, trimEnd]}
+                min={0}
+                max={videoDuration}
+                step={0.1}
+                onValueChange={handleSliderChange}
+                className="flex-1"
+              />
+              <span className="text-sm text-muted-foreground w-14">
+                {formatTime(trimEnd)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">
+                Duration: <span className="text-foreground font-medium">{formatTime(trimmedDuration)}</span>
+                {hasTrimming && (
+                  <span className="text-muted-foreground ml-1">
+                    (trimmed from {formatTime(videoDuration)})
+                  </span>
+                )}
+              </span>
+              {hasTrimming && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleResetTrim}
+                  className="h-7 px-2"
+                >
+                  <RotateCcw className="h-3 w-3 mr-1" />
+                  Reset
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
 
         {highlightBlobUrl && !isLoading && !error && (
           <DialogFooter className="flex gap-2 sm:gap-2">
@@ -201,7 +285,7 @@ export function HighlightModal({
               ) : (
                 <Download className="h-4 w-4" />
               )}
-              Download MP4
+              Download MP4 {hasTrimming && `(${formatTime(trimmedDuration)})`}
             </Button>
             {webmSupported && (
               <Button
@@ -214,7 +298,7 @@ export function HighlightModal({
                 ) : (
                   <Download className="h-4 w-4" />
                 )}
-                Download WebM (Slow)
+                Download WebM (Slow) {hasTrimming && `(${formatTime(trimmedDuration)})`}
               </Button>
             )}
           </DialogFooter>

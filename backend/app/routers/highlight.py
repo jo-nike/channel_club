@@ -92,17 +92,26 @@ async def save_highlight(
     format: Literal["mp4", "webm"] = Query(
         "mp4", description="Output format: mp4 or webm"
     ),
+    start_time: float | None = Query(
+        None, ge=0, description="Start time in seconds from beginning of buffer"
+    ),
+    end_time: float | None = Query(
+        None, ge=0, description="End time in seconds from beginning of buffer"
+    ),
     user: TokenPayload = Depends(get_current_user),
 ) -> Response:
     """Save highlight for a channel.
 
     Returns the video file as a download with appropriate filename.
     Format can be mp4 (fast, universal) or webm (smaller, open format).
+    Optionally trim the clip using start_time and end_time parameters.
     """
     log.info(
-        "POST /highlight/{} (format={}) request from user {}",
+        "POST /highlight/{} (format={}, start={}, end={}) request from user {}",
         channel_id,
         format,
+        start_time,
+        end_time,
         user.sub,
     )
 
@@ -112,7 +121,16 @@ async def save_highlight(
             detail="Highlight feature is disabled",
         )
 
-    video_bytes, error = await highlight_service.save_highlight(channel_id, format=format)
+    # Validate trim parameters
+    if start_time is not None and end_time is not None and start_time >= end_time:
+        raise HTTPException(
+            status_code=400,
+            detail="start_time must be less than end_time",
+        )
+
+    video_bytes, error = await highlight_service.save_highlight(
+        channel_id, format=format, start_time=start_time, end_time=end_time
+    )
 
     if error:
         log.warning("Highlight save failed for channel {}: {}", channel_id, error)

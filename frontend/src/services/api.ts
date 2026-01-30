@@ -302,11 +302,17 @@ export async function getHighlightStatus(channelId: string): Promise<HighlightSt
 
 export type HighlightFormat = 'mp4' | 'webm'
 
+export interface TrimOptions {
+  startTime?: number
+  endTime?: number
+}
+
 export async function saveHighlight(
   channelId: string,
-  format: HighlightFormat = 'mp4'
+  format: HighlightFormat = 'mp4',
+  trimOptions?: TrimOptions
 ): Promise<Blob> {
-  logger.debug('API', `Saving highlight for channel: ${channelId} (format: ${format})`)
+  logger.debug('API', `Saving highlight for channel: ${channelId} (format: ${format}, trim: ${JSON.stringify(trimOptions)})`)
 
   const token = localStorage.getItem('token')
   const headers: Record<string, string> = {}
@@ -315,7 +321,16 @@ export async function saveHighlight(
     headers['Authorization'] = `Bearer ${token}`
   }
 
-  const response = await fetch(`${API_URL}/highlight/${channelId}?format=${format}`, {
+  // Build URL with query params
+  const params = new URLSearchParams({ format })
+  if (trimOptions?.startTime !== undefined && trimOptions.startTime > 0) {
+    params.append('start_time', trimOptions.startTime.toString())
+  }
+  if (trimOptions?.endTime !== undefined) {
+    params.append('end_time', trimOptions.endTime.toString())
+  }
+
+  const response = await fetch(`${API_URL}/highlight/${channelId}?${params}`, {
     method: 'POST',
     headers,
   })

@@ -242,12 +242,17 @@ class ChannelRecorder:
             return min(elapsed, settings.highlight_buffer_seconds)
 
     async def save_highlight(
-        self, format: str = "mp4"
+        self,
+        format: str = "mp4",
+        start_time: float | None = None,
+        end_time: float | None = None,
     ) -> tuple[bytes | None, str | None]:
         """Extract and return the current highlight buffer in the specified format.
 
         Args:
             format: Output format - "mp4" or "webm"
+            start_time: Optional start time in seconds for trimming
+            end_time: Optional end time in seconds for trimming
 
         Returns:
             Tuple of (video_bytes, error_message). If successful, error is None.
@@ -297,10 +302,12 @@ class ChannelRecorder:
             return None, "No recent segments available"
 
         log.info(
-            "Saving highlight for channel {} ({} segments, format: {})",
+            "Saving highlight for channel {} ({} segments, format: {}, trim: {}-{})",
             self.channel_id,
             len(existing_segments),
             format,
+            start_time,
+            end_time,
         )
 
         # Create concat file for FFmpeg
@@ -310,10 +317,21 @@ class ChannelRecorder:
                 for seg_path in existing_segments:
                     f.write(f"file '{seg_path}'\n")
 
+            # Calculate trim parameters
+            trim_args: list[str] = []
+            if start_time is not None and start_time > 0:
+                trim_args.extend(["-ss", str(start_time)])
+            if start_time is not None and end_time is not None:
+                duration = end_time - start_time
+                trim_args.extend(["-t", str(duration)])
+            elif end_time is not None:
+                trim_args.extend(["-t", str(end_time)])
+
             # Build FFmpeg command based on format
             if format == "webm":
                 output_file = self.segment_dir / "highlight.webm"
                 # WebM requires transcoding from H.264 to VP9
+                # For transcoding, put seek after input for frame-accurate seeking
                 cmd = [
                     "ffmpeg",
                     "-y",
@@ -322,6 +340,7 @@ class ChannelRecorder:
                     "-f", "concat",
                     "-safe", "0",
                     "-i", str(concat_file),
+                    *trim_args,  # Trim args after input for accurate seeking
                     "-c:v", "libvpx-vp9",  # VP9 video codec
                     "-crf", "30",  # Quality setting (lower = better, 30 is good)
                     "-b:v", "0",  # Variable bitrate
@@ -335,6 +354,7 @@ class ChannelRecorder:
             else:
                 output_file = self.segment_dir / "highlight.mp4"
                 # MP4 can use copy (no re-encoding)
+                # For copy mode, put seek after input (seeking before input with copy can be imprecise)
                 cmd = [
                     "ffmpeg",
                     "-y",
@@ -343,6 +363,7 @@ class ChannelRecorder:
                     "-f", "concat",
                     "-safe", "0",
                     "-i", str(concat_file),
+                    *trim_args,  # Trim args after input
                     "-c", "copy",  # No re-encoding
                     "-movflags", "+faststart",  # Optimize for streaming
                     str(output_file),
@@ -598,13 +619,19 @@ class HighlightService:
         }
 
     async def save_highlight(
-        self, channel_id: str, format: str = "mp4"
+        self,
+        channel_id: str,
+        format: str = "mp4",
+        start_time: float | None = None,
+        end_time: float | None = None,
     ) -> tuple[bytes | None, str | None]:
         """Save highlight for a channel.
 
         Args:
             channel_id: Channel to save highlight for.
             format: Output format - "mp4" or "webm"
+            start_time: Optional start time in seconds for trimming
+            end_time: Optional end time in seconds for trimming
 
         Returns:
             Tuple of (video_bytes, error_message).
@@ -619,7 +646,9 @@ class HighlightService:
             return None, f"Invalid format: {format}. Use 'mp4' or 'webm'"
 
         recorder = self._recorders[channel_id]
-        return await recorder.save_highlight(format=format)
+        return await recorder.save_highlight(
+            format=format, start_time=start_time, end_time=end_time
+        )
 
 
 # Global service instance
