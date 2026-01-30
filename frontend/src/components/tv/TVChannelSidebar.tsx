@@ -159,7 +159,7 @@ function CollapsedChannelButton({
         <button
           onClick={() => onSelect(channel)}
           className={`
-            flex h-8 items-center justify-center rounded text-xs font-medium
+            flex h-8 items-center justify-center rounded text-xs font-medium overflow-hidden
             hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring
             ${isLive ? 'w-auto min-w-8 px-1' : 'w-8'}
             ${isSelected ? 'ring-2 ring-primary bg-primary/10' : ''}
@@ -170,10 +170,19 @@ function CollapsedChannelButton({
         >
           {isLive ? (
             hasLiveChannel ? (
-              <span className="font-bold">LIVE</span>
+              <Radio className="h-4 w-4 text-destructive" />
             ) : (
               '0'
             )
+          ) : channel.logoUrl ? (
+            <img
+              src={getErsatzTVLogoUrl(channel.id)}
+              alt=""
+              className="h-full w-full object-contain"
+              onError={(e) => {
+                ;(e.target as HTMLImageElement).style.display = 'none'
+              }}
+            />
           ) : (
             channel.number
           )}

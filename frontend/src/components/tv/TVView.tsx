@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { ShieldCheck, LayoutList, RefreshCw } from 'lucide-react'
+import { ShieldCheck, LayoutList, RefreshCw, Radio } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useTheme } from '@/hooks/useTheme'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
@@ -7,6 +7,7 @@ import { useWebSocket } from '@/hooks/useWebSocket'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { useTVStore, initializeTVStore } from '@/stores/tvStore'
+import { getErsatzTVLogoUrl } from '@/services/ersatztvApi'
 import { useUIStore } from '@/stores/uiStore'
 import { DualModeVideoPlayer } from '@/components/tv/DualModeVideoPlayer'
 import { TVEPGGrid } from '@/components/tv/TVEPGGrid'
@@ -451,9 +452,20 @@ function MobileChannelList({ onChannelSelect, liveEPGTitle }: MobileChannelListP
                 }`}
               >
                 {isLive ? (
-                  <span className="text-xs font-bold text-destructive">
-                    {hasLiveChannel ? 'LIVE' : '0'}
-                  </span>
+                  hasLiveChannel ? (
+                    <Radio className="h-6 w-6 text-destructive" />
+                  ) : (
+                    <span className="text-xs font-bold text-destructive">0</span>
+                  )
+                ) : channel.logoUrl ? (
+                  <img
+                    src={getErsatzTVLogoUrl(channel.id)}
+                    alt=""
+                    className="h-full w-full object-contain"
+                    onError={(e) => {
+                      ;(e.target as HTMLImageElement).style.display = 'none'
+                    }}
+                  />
                 ) : (
                   <span className="text-sm font-medium">{channel.number}</span>
                 )}

@@ -125,8 +125,8 @@ describe('Router', () => {
 
     render(<RouterProvider router={router} />)
 
-    // TVView should be rendered - check for Logout button
-    expect(screen.getByText('Logout')).toBeInTheDocument()
+    // TVView should be rendered - check for User settings button
+    expect(screen.getByRole('button', { name: /user settings/i })).toBeInTheDocument()
   })
 
   it('redirects /tv to root for backwards compatibility', async () => {
@@ -135,7 +135,7 @@ describe('Router', () => {
     render(<RouterProvider router={router} />)
 
     // Should redirect to root and show TVView
-    expect(screen.getByText('Logout')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /user settings/i })).toBeInTheDocument()
     // Verify we're at the root path after redirect
     expect(router.state.location.pathname).toBe('/')
   })
@@ -146,7 +146,7 @@ describe('Router', () => {
     render(<RouterProvider router={router} />)
 
     // Should redirect to root and show TVView
-    expect(screen.getByText('Logout')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /user settings/i })).toBeInTheDocument()
     // Verify we're at the root path after redirect
     expect(router.state.location.pathname).toBe('/')
   })
@@ -185,7 +185,7 @@ describe('Router', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument()
     })
-    expect(screen.queryByText('Logout')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /user settings/i })).not.toBeInTheDocument()
   })
 
   it('shows admin button for admin users', async () => {
