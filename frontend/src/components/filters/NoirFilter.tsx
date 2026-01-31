@@ -4,7 +4,7 @@ interface NoirFilterProps {
 
 /**
  * Noir filter overlay - classic black & white with high contrast.
- * Features desaturation, contrast boost, and dramatic vignette.
+ * Uses backdrop-filter for proper desaturation without affecting UI controls.
  */
 export function NoirFilter({ isActive }: NoirFilterProps) {
   if (!isActive) return null
@@ -15,21 +15,12 @@ export function NoirFilter({ isActive }: NoirFilterProps) {
       role="presentation"
       aria-hidden="true"
     >
-      {/* Desaturation - use 'color' blend mode with gray to strip color */}
+      {/* Desaturation + contrast using backdrop-filter */}
       <div
         className="absolute inset-0"
         style={{
-          backgroundColor: '#808080',
-          mixBlendMode: 'color',
-        }}
-      />
-
-      {/* Contrast boost - darken midtones/shadows */}
-      <div
-        className="absolute inset-0"
-        style={{
-          backgroundColor: 'rgba(0, 0, 0, 0.15)',
-          mixBlendMode: 'multiply',
+          backdropFilter: 'grayscale(1) contrast(1.15)',
+          WebkitBackdropFilter: 'grayscale(1) contrast(1.15)',
         }}
       />
 
@@ -37,13 +28,13 @@ export function NoirFilter({ isActive }: NoirFilterProps) {
       <div
         className="absolute inset-0"
         style={{
-          background: 'radial-gradient(ellipse at center, transparent 30%, rgba(0, 0, 0, 0.7) 100%)',
+          background: 'radial-gradient(ellipse at center, transparent 30%, rgba(0, 0, 0, 0.6) 100%)',
         }}
       />
 
       {/* Subtle film grain for texture */}
       <svg
-        className="absolute inset-0 h-full w-full opacity-[0.06]"
+        className="absolute inset-0 h-full w-full opacity-[0.05]"
         xmlns="http://www.w3.org/2000/svg"
         aria-hidden="true"
       >
