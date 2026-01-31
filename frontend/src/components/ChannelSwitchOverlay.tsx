@@ -3,6 +3,9 @@ import { ProjectorBeamLoader } from '@/components/ProjectorBeamLoader'
 import { StaticNoiseOverlay } from '@/components/StaticNoiseOverlay'
 import { ChannelInfoOverlay } from '@/components/ChannelInfoOverlay'
 import { VHSTrackingEffect } from '@/components/filters/VHSTrackingEffect'
+import { FilmCountdownOverlay } from '@/components/filters/FilmCountdownOverlay'
+import { NoirIrisOverlay } from '@/components/filters/NoirIrisOverlay'
+import { GrindhouseTransitionOverlay } from '@/components/filters/GrindhouseTransitionOverlay'
 import { useFilterStore } from '@/stores/filterStore'
 
 // Timing constants - exported for testing
@@ -29,10 +32,26 @@ export function ChannelSwitchOverlay({
   isError = false,
 }: ChannelSwitchOverlayProps) {
   const [phase, setPhase] = useState<Phase>('HIDDEN')
-  const isRetroTVActive = useFilterStore((s) => s.isFilterActive('retro-tv'))
   const startTimeRef = useRef<number>(0)
   const phaseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const errorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Filter states
+  const isRetroTVActive = useFilterStore((s) => s.isFilterActive('retro-tv'))
+  const isFilmGrainActive = useFilterStore((s) => s.isFilterActive('film-grain'))
+  const isNoirActive = useFilterStore((s) => s.isFilterActive('noir'))
+  const isGrindhouseActive = useFilterStore((s) => s.isFilterActive('grindhouse'))
+
+  // Determine which transition style to use (priority order)
+  const getTransitionType = () => {
+    if (isGrindhouseActive) return 'grindhouse'
+    if (isNoirActive) return 'noir'
+    if (isFilmGrainActive) return 'film-grain'
+    if (isRetroTVActive) return 'retro-tv'
+    return 'default'
+  }
+
+  const transitionType = getTransitionType()
 
   // Clear phase timeout
   const clearPhaseTimeout = () => {
@@ -51,15 +70,12 @@ export function ChannelSwitchOverlay({
   }
 
   // Handle error state - AC #4: show extended static before error message
-  // Uses separate timeout ref to avoid interfering with phase transitions
   useEffect(() => {
     if (isError && phase !== 'ERROR_STATIC' && phase !== 'HIDDEN') {
-      clearPhaseTimeout() // Stop any pending phase transition
+      clearPhaseTimeout()
       clearErrorTimeout()
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setPhase('ERROR_STATIC')
 
-      // After extended static, hide overlay so error message can show
       errorTimeoutRef.current = setTimeout(() => {
         setPhase('HIDDEN')
       }, ERROR_STATIC_DURATION)
@@ -69,14 +85,11 @@ export function ChannelSwitchOverlay({
   }, [isError]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle visibility changes - start state machine
-  // Note: setState is intentional here to sync component phase with external isVisible prop
   useEffect(() => {
     if (isVisible) {
-      // Reset to start of state machine
       clearPhaseTimeout()
       clearErrorTimeout()
       startTimeRef.current = Date.now()
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setPhase('STATIC_BURST')
 
       // Transition to LOADING after static burst
@@ -84,23 +97,19 @@ export function ChannelSwitchOverlay({
         setPhase('LOADING')
       }, STATIC_BURST_DURATION)
     } else if (phase !== 'HIDDEN' && phase !== 'ERROR_STATIC') {
-      // Stream started playing - check minimum display time
       const elapsed = Date.now() - startTimeRef.current
       const remaining = MIN_OVERLAY_DISPLAY - elapsed
 
       clearPhaseTimeout()
 
       if (remaining > 0) {
-        // Wait for minimum display time before fading out
         phaseTimeoutRef.current = setTimeout(() => {
           setPhase('FADE_OUT')
-          // Hide after fade-out animation completes
           phaseTimeoutRef.current = setTimeout(() => {
             setPhase('HIDDEN')
           }, FADE_OUT_DURATION)
         }, remaining)
       } else {
-        // Already past minimum time, start fade out
         setPhase('FADE_OUT')
         phaseTimeoutRef.current = setTimeout(() => {
           setPhase('HIDDEN')
@@ -111,7 +120,6 @@ export function ChannelSwitchOverlay({
     return clearPhaseTimeout
   }, [isVisible]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Don't render if hidden
   if (phase === 'HIDDEN') return null
 
   // Determine fade state for channel info
@@ -122,29 +130,50 @@ export function ChannelSwitchOverlay({
         ? 'out'
         : 'none'
 
-  // Show static during STATIC_BURST or ERROR_STATIC phases
   const showStatic = phase === 'STATIC_BURST' || phase === 'ERROR_STATIC'
-
-  // Show VHS effects throughout channel switch when retro filter active (including LOADING phase)
-  const showVHSEffect = (phase === 'STATIC_BURST' || phase === 'LOADING' || phase === 'ERROR_STATIC') && isRetroTVActive
+  const isLoading = phase === 'STATIC_BURST' || phase === 'LOADING' || phase === 'ERROR_STATIC'
 
   return (
     <div className="pointer-events-none absolute inset-0 z-30">
-      {/* Static noise burst - during STATIC_BURST or ERROR_STATIC phases */}
-      <StaticNoiseOverlay isVisible={showStatic} />
+      {/* Default: Static noise burst - only for default and retro-tv */}
+      {(transitionType === 'default' || transitionType === 'retro-tv') && (
+        <StaticNoiseOverlay isVisible={showStatic} />
+      )}
 
-      {/* VHS Tracking effect - layered on top throughout channel switch when retro filter active */}
-      <VHSTrackingEffect isActive={showVHSEffect} />
+      {/* Retro TV: VHS tracking effects */}
+      {transitionType === 'retro-tv' && (
+        <VHSTrackingEffect isActive={isLoading} />
+      )}
 
-      {/* Projector beam loader - during LOADING phase, hidden when retro filter uses VHS effects instead */}
-      {phase === 'LOADING' && !isRetroTVActive && <ProjectorBeamLoader text={`Loading ${channelName}...`} />}
+      {/* Film Grain: Film countdown leader */}
+      {transitionType === 'film-grain' && (
+        <FilmCountdownOverlay isActive={isLoading} />
+      )}
+
+      {/* Noir: Iris wipe */}
+      {transitionType === 'noir' && (
+        <NoirIrisOverlay isActive={isLoading} />
+      )}
+
+      {/* Grindhouse: Damaged film reel */}
+      {transitionType === 'grindhouse' && (
+        <GrindhouseTransitionOverlay isActive={isLoading} />
+      )}
+
+      {/* Default: Projector beam loader - only when no filter active */}
+      {transitionType === 'default' && phase === 'LOADING' && (
+        <ProjectorBeamLoader text={`Loading ${channelName}...`} />
+      )}
 
       {/* Channel info overlay - visible during all phases with appropriate fade */}
-      <ChannelInfoOverlay
-        channelNumber={channelNumber}
-        channelName={channelName}
-        fadeState={fadeState}
-      />
+      {/* Hide for film-grain and grindhouse which have their own text */}
+      {transitionType !== 'film-grain' && transitionType !== 'grindhouse' && (
+        <ChannelInfoOverlay
+          channelNumber={channelNumber}
+          channelName={channelName}
+          fadeState={fadeState}
+        />
+      )}
 
       {/* Fade out overlay background during FADE_OUT phase */}
       {phase === 'FADE_OUT' && (
