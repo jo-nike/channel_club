@@ -357,7 +357,7 @@ export function TVView() {
                 />
               ) : (
                 <TVEPGGrid
-                  hours={6}
+                  hours={48}
                   programmesByChannel={programmesByChannel}
                   loading={programmesLoading}
                   liveEPG={liveEPG}
