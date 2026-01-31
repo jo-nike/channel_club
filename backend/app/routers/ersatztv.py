@@ -48,7 +48,7 @@ async def list_channels(user=Depends(get_current_user)) -> EPGChannelResponse:
 @router.get("/programmes/{channel_id}", response_model=ProgrammeListResponse)
 async def list_programmes(
     channel_id: str = Path(...),
-    hours: int = Query(default=6, ge=1, le=24),
+    hours: int = Query(default=6, ge=1, le=168),  # Up to 7 days
     user=Depends(get_current_user),
 ) -> ProgrammeListResponse:
     """Get programmes for channel within time window."""

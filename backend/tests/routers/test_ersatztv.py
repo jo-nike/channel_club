@@ -192,9 +192,9 @@ class TestListProgrammes:
         assert response.status_code == 422
 
     def test_hours_validation_max(self, client: TestClient, auth_header: dict[str, str]) -> None:
-        """Hours param must be at most 24."""
+        """Hours param must be at most 168 (7 days)."""
         response = client.get(
-            "/api/ersatztv/programmes/comedy-classics?hours=25", headers=auth_header
+            "/api/ersatztv/programmes/comedy-classics?hours=169", headers=auth_header
         )
         assert response.status_code == 422
 
