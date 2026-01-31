@@ -409,22 +409,52 @@ interface MobileChannelListProps {
 function MobileChannelList({ onChannelSelect, liveEPGTitle }: MobileChannelListProps) {
   const { getUnifiedChannels, isLiveChannelActive, selectedChannel } = useTVStore()
   const { programmesByChannel } = useErsatztvStore()
+  const [currentTime, setCurrentTime] = useState(() => Date.now())
 
   const unifiedChannels = getUnifiedChannels()
   const hasLiveChannel = isLiveChannelActive()
 
+  // Update current time every 30 seconds for time remaining calculations
+  useEffect(() => {
+    const interval = setInterval(() => setCurrentTime(Date.now()), 30 * 1000)
+    return () => clearInterval(interval)
+  }, [])
+
   // Helper to get current programme for a channel
-  const getCurrentProgramme = (channel: UnifiedChannel): string | undefined => {
-    if (channel.type === 'live') {
-      return liveEPGTitle ?? (hasLiveChannel ? 'Broadcasting...' : 'Awaiting broadcast...')
-    }
+  const getCurrentProgramme = (channel: UnifiedChannel): ErsatzTVProgramme | undefined => {
+    if (channel.type === 'live') return undefined
     const programmes = programmesByChannel[channel.id]
     if (!programmes) return undefined
     const now = new Date()
-    const current = programmes.find(
+    return programmes.find(
       (p) => new Date(p.start) <= now && new Date(p.stop) > now
     )
-    return current?.title
+  }
+
+  // Helper to get live programme title
+  const getLiveProgrammeTitle = (): string => {
+    return liveEPGTitle ?? (hasLiveChannel ? 'Broadcasting...' : 'Awaiting broadcast...')
+  }
+
+  // Calculate progress and time remaining
+  const formatTimeRemaining = (programme: ErsatzTVProgramme): string => {
+    const stopTime = new Date(programme.stop).getTime()
+    const remainingMs = stopTime - currentTime
+    if (remainingMs <= 0) return 'Ending...'
+    const remainingMinutes = Math.ceil(remainingMs / (1000 * 60))
+    if (remainingMinutes < 60) return `${remainingMinutes}m left`
+    const hours = Math.floor(remainingMinutes / 60)
+    const minutes = remainingMinutes % 60
+    return minutes === 0 ? `${hours}h left` : `${hours}h ${minutes}m left`
+  }
+
+  const calculateProgress = (programme: ErsatzTVProgramme): number => {
+    const startTime = new Date(programme.start).getTime()
+    const stopTime = new Date(programme.stop).getTime()
+    const totalDuration = stopTime - startTime
+    const elapsed = currentTime - startTime
+    if (totalDuration <= 0) return 0
+    return Math.min(100, Math.max(0, (elapsed / totalDuration) * 100))
   }
 
   return (
@@ -482,8 +512,22 @@ function MobileChannelList({ onChannelSelect, liveEPGTitle }: MobileChannelListP
                   )}
                 </div>
                 <p className="truncate text-sm text-muted-foreground">
-                  {currentProgramme || channel.group}
+                  {isLive ? getLiveProgrammeTitle() : currentProgramme?.title || channel.group}
                 </p>
+                {/* Progress bar and time remaining for ErsatzTV channels */}
+                {!isLive && currentProgramme && (
+                  <div className="mt-1.5 flex items-center gap-2">
+                    <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-primary/60 transition-all duration-300"
+                        style={{ width: `${calculateProgress(currentProgramme)}%` }}
+                      />
+                    </div>
+                    <span className="shrink-0 text-[10px] text-muted-foreground">
+                      {formatTimeRemaining(currentProgramme)}
+                    </span>
+                  </div>
+                )}
               </div>
               {selectedChannel?.id === channel.id && (
                 <span
