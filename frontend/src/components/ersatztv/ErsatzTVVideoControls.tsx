@@ -81,9 +81,22 @@ export function ErsatzTVVideoControls({
     remote.toggleMuted()
   }
 
-  const handleFullscreenToggle = () => {
-    remote.toggleFullscreen()
-  }
+  const handleFullscreenToggle = useCallback(() => {
+    // Use container ref for fullscreen to ensure portals render correctly
+    // (Vidstack's remote.toggleFullscreen() fullscreens the MediaPlayer element,
+    // which breaks portal rendering for FilterMenu)
+    const container = containerRef?.current
+    if (container) {
+      if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {})
+      } else {
+        container.requestFullscreen().catch(() => {})
+      }
+    } else {
+      // Fallback to Vidstack's fullscreen if no container ref
+      remote.toggleFullscreen()
+    }
+  }, [containerRef, remote])
 
   // Highlight modal state
   const [isHighlightModalOpen, setIsHighlightModalOpen] = useState(false)

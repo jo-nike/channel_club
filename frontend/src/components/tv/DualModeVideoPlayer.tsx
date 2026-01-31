@@ -605,7 +605,14 @@ function HLSControlsWrapper({
           break
         case 'f':
         case 'F':
-          remote.toggleFullscreen()
+          // Use container for fullscreen to ensure portals render correctly
+          if (containerRef.current) {
+            if (document.fullscreenElement) {
+              document.exitFullscreen().catch(() => {})
+            } else {
+              containerRef.current.requestFullscreen().catch(() => {})
+            }
+          }
           break
         case 't':
         case 'T':
