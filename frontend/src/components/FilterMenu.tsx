@@ -1,4 +1,4 @@
-import { useState, type RefObject } from 'react'
+import { useState, useEffect, type RefObject } from 'react'
 import { SlidersHorizontal } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -19,10 +19,20 @@ interface FilterMenuProps {
  */
 export function FilterMenu({ isVisible, containerRef }: FilterMenuProps) {
   const [isOpen, setIsOpen] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
   const isMobile = useMediaQuery('(max-width: 768px)')
   const { activeFilters, toggleFilter, isFilterActive } = useFilterStore()
 
   const hasActiveFilters = activeFilters.length > 0
+
+  // Track fullscreen state to update portal container
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement)
+    }
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
+  }, [])
 
   // Filter toggle row component
   const FilterToggle = ({ filter }: { filter: (typeof FILTER_REGISTRY)[0] }) => {
@@ -87,8 +97,10 @@ export function FilterMenu({ isVisible, containerRef }: FilterMenuProps) {
     </button>
   )
 
-  // Get portal container
-  const portalContainer = containerRef?.current ?? undefined
+  // Get portal container - use fullscreen element when in fullscreen, otherwise containerRef
+  const portalContainer = isFullscreen
+    ? (document.fullscreenElement as HTMLElement) ?? undefined
+    : containerRef?.current ?? undefined
 
   // Mobile: Use Dialog as bottom sheet
   if (isMobile) {
