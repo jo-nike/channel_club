@@ -395,6 +395,70 @@
 }
 
 /* ============================
+   CHANNEL SWITCH TRANSITION
+   ============================ */
+
+@keyframes static-grain {
+  0% { transform: translate(0, 0); }
+  25% { transform: translate(-5%, -5%); }
+  50% { transform: translate(5%, 5%); }
+  75% { transform: translate(-5%, 5%); }
+  100% { transform: translate(0, 0); }
+}
+
+@keyframes overlay-fade-in {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+@keyframes overlay-fade-out {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes phosphor-glow-pulse {
+  0%, 100% {
+    text-shadow:
+      0 0 4px currentColor,
+      0 0 8px currentColor,
+      0 0 16px currentColor;
+  }
+  50% {
+    text-shadow:
+      0 0 6px currentColor,
+      0 0 12px currentColor,
+      0 0 24px currentColor;
+  }
+}
+
+.animate-static-grain {
+  animation: static-grain 0.1s steps(4) infinite;
+}
+
+.animate-overlay-fade-in {
+  animation: overlay-fade-in 0.3s ease-out forwards;
+}
+
+.animate-overlay-fade-out {
+  animation: overlay-fade-out 1s ease-in forwards;
+}
+
+.animate-phosphor-glow-pulse {
+  animation: phosphor-glow-pulse 1.5s ease-in-out infinite;
+}
+
+/* Phosphor glow text styling - classic CRT green */
+.text-phosphor-glow {
+  color: #00ff88;
+  text-shadow:
+    0 0 4px currentColor,
+    0 0 8px currentColor,
+    0 0 16px currentColor;
+  font-family: ui-monospace, monospace;
+  letter-spacing: 0.1em;
+}
+
+/* ============================
    EPG MODERN SCROLLBAR
    ============================ */
 

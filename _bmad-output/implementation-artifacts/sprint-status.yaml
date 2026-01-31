@@ -164,6 +164,8 @@ development_status:
   12-13-mobile-video-controller-sticky-fix: done
   12-14-admin-channel-grouping-dispatcharr: done
   12-15-admin-panel-mobile-tv-layout-fix: done
+  12-16-channel-switch-transition-effects: done
+  12-17-video-filter-system-retro-tv-mode: ready-for-dev
   epic-12-retrospective: optional
 
   # Epic 13: Chat & Developer Experience

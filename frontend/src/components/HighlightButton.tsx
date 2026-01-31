@@ -10,7 +10,7 @@ export interface HighlightButtonProps {
   onOpenModal?: () => void
 }
 
-export function HighlightButton({ channelId: _channelId, isVisible, highlightStatus, onOpenModal }: HighlightButtonProps) {
+export function HighlightButton({ isVisible, highlightStatus, onOpenModal }: HighlightButtonProps) {
   const handleClick = useCallback(() => {
     if (onOpenModal) {
       onOpenModal()

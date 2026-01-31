@@ -285,10 +285,12 @@ function VideoPlayerInner({ channelId, streamUrl, channelName }: VideoPlayerInne
         onMouseLeave={() => setIsHoveringControls(false)}
       />
 
-      {/* Channel switch overlay - during initial load */}
+      {/* Channel switch overlay - during initial load or error */}
       <ChannelSwitchOverlay
         channelName={channelName}
+        channelNumber={channelId.slice(0, 3).toUpperCase()}
         isVisible={isChangingChannel}
+        isError={!!error}
       />
 
       {/* Buffering overlay - during playback (only show when not changing channel) */}

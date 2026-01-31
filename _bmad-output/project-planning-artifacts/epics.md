@@ -235,8 +235,10 @@ This document provides the complete epic and story breakdown for iptv_viewer2, d
 | FR67-69 | Epic 12 | Highlight modal and formats |
 | FR70-72 | Epic 12 | UI polish (tooltips, favicon, controls) |
 | FR73-74 | Epic 12 | Admin panel improvements |
+| FR75 | Epic 12 | Channel switch transition effects |
+| FR76 | Epic 12 | Video filter system with Retro TV mode |
 
-**Coverage:** 74/74 FRs mapped (100%)
+**Coverage:** 76/76 FRs mapped (100%)
 
 ## Epic List
 
@@ -1826,6 +1828,8 @@ Users enjoy a polished, consolidated viewing experience with enhanced admin moni
 - Highlight capture (save last 60s of video)
 - Live channel change notifications
 - UI polish (rounded corners, channel card EPG)
+- Channel switch transition effects (static burst, channel overlay)
+- Video filter system with Retro TV mode (CRT scanlines, VHS artifacts)
 
 **Environment Variables (New):**
 - `HIGHLIGHT_BUFFER_SECONDS` - Highlight capture buffer duration (default: 60)
@@ -2289,6 +2293,99 @@ So that I can manage channels without overlapping UI elements.
 **When** scrolling through content
 **Then** scrolling works smoothly within the modal
 **And** modal doesn't close accidentally during scroll
+
+---
+
+### Story 12.16: Channel Switch Transition Effects
+
+As a viewer,
+I want channel switches to include brief visual transitions,
+So that the experience feels more like traditional TV channel surfing.
+
+**Acceptance Criteria:**
+
+**Given** I am watching on Live TV or ErsatzTV
+**When** the channel changes (admin switch, sidebar selection, or EPG click)
+**Then** a brief transition effect plays before the new stream loads
+
+**Given** a channel switch is triggered
+**When** the transition plays
+**Then** I see a brief static/noise burst (150-300ms)
+**And** a channel number/name overlay fades in then out
+**And** the new stream begins playing
+
+**Given** the channel overlay appears
+**When** it renders
+**Then** it displays in a retro TV font style (blocky, phosphor-glow aesthetic)
+**And** it fades out after 2 seconds
+
+**Given** the stream fails to load after transition
+**When** error state is reached
+**Then** the static effect continues briefly before showing error message
+
+**Given** I am on any device (desktop, mobile, TV)
+**When** channel switches
+**Then** the transition effect works consistently
+
+**Technical Notes:**
+- Transition overlay rendered as CSS/canvas layer above video
+- Static effect can be CSS noise animation or short video loop
+- Channel overlay uses absolute positioning, z-index above video
+- Transition timing should not block stream loading (parallel)
+
+---
+
+### Story 12.17: Video Filter System with Retro TV Mode
+
+As a viewer,
+I want to apply optional visual filters to the video playback,
+So that I can customize my viewing experience with fun effects.
+
+**Acceptance Criteria:**
+
+**Given** I am watching video on any view
+**When** I look at the video controls
+**Then** I see a "Filters" button (icon: sliders or film strip)
+
+**Given** I click the Filters button
+**When** the filter menu opens
+**Then** I see a list of available filters with toggle switches
+**And** "Retro TV" is the first available filter
+
+**Given** I enable the "Retro TV" filter
+**When** the filter activates
+**Then** I see CRT scanlines (horizontal lines across screen)
+**And** I see subtle screen curvature/vignette effect (darker corners)
+**And** I see slight RGB color separation on high-contrast edges
+**And** I see very subtle static noise texture overlay
+
+**Given** the "Retro TV" filter is active
+**When** a channel switch occurs
+**Then** the static/snow effect is more pronounced during transition
+**And** brief VHS tracking distortion appears (wavy horizontal bands)
+
+**Given** I disable the "Retro TV" filter
+**When** the toggle is switched off
+**Then** all effects are removed immediately
+**And** video returns to normal playback
+
+**Given** I enable a filter and reload the page
+**When** the app initializes
+**Then** my filter preference is restored from localStorage
+
+**Given** I am on mobile
+**When** viewing the filter menu
+**Then** the UI adapts appropriately (bottom sheet or simplified popover)
+
+**Given** the filter system architecture
+**When** new filters are added in future
+**Then** they can be added to the filter list without restructuring
+**And** multiple filters can be enabled simultaneously (if compatible)
+
+**Technical Approach Options:**
+- CSS Filters + Pseudo-elements: Scanlines via repeating-linear-gradient, vignette via radial-gradient, noise via SVG filter
+- WebGL/Canvas Shaders: More performant for complex effects, better control
+- Hybrid: CSS for simple effects, canvas overlay for noise/tracking
 
 ---
 

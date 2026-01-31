@@ -35,6 +35,7 @@ export function GifPicker({ onSelect, onClose }: GifPickerProps) {
     loadTrending()
     // Focus input after render
     setTimeout(() => inputRef.current?.focus(), 100)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Search when debounced query changes

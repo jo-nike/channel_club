@@ -18,6 +18,7 @@ export function useHighlightStatus(channelId: string | undefined): HighlightStat
 
   useEffect(() => {
     if (!channelId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setStatus(defaultStatus)
       return
     }
