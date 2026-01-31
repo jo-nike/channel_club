@@ -136,8 +136,8 @@ export function ChannelSwitchOverlay({
       {/* VHS Tracking effect - layered on top throughout channel switch when retro filter active */}
       <VHSTrackingEffect isActive={showVHSEffect} />
 
-      {/* Projector beam loader - during LOADING phase only */}
-      {phase === 'LOADING' && <ProjectorBeamLoader text={`Loading ${channelName}...`} />}
+      {/* Projector beam loader - during LOADING phase, hidden when retro filter uses VHS effects instead */}
+      {phase === 'LOADING' && !isRetroTVActive && <ProjectorBeamLoader text={`Loading ${channelName}...`} />}
 
       {/* Channel info overlay - visible during all phases with appropriate fade */}
       <ChannelInfoOverlay
