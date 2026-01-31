@@ -10,6 +10,9 @@ import { useOrientationFullscreen } from '@/hooks/useOrientationFullscreen'
 import { ChannelSwitchOverlay } from '@/components/ChannelSwitchOverlay'
 import { ProjectorBeamLoader } from '@/components/ProjectorBeamLoader'
 import { RetroTVFilter } from '@/components/filters/RetroTVFilter'
+import { FilmGrainFilter } from '@/components/filters/FilmGrainFilter'
+import { NoirFilter } from '@/components/filters/NoirFilter'
+import { GrindhouseFilter } from '@/components/filters/GrindhouseFilter'
 
 export function VideoPlayer() {
   const currentChannel = useChannelStore((s) => s.currentChannel)
@@ -60,6 +63,9 @@ function VideoPlayerInner({ channelId, streamUrl, channelName }: VideoPlayerInne
 
   // Video filter state
   const isRetroTVActive = useFilterStore((s) => s.isFilterActive('retro-tv'))
+  const isFilmGrainActive = useFilterStore((s) => s.isFilterActive('film-grain'))
+  const isNoirActive = useFilterStore((s) => s.isFilterActive('noir'))
+  const isGrindhouseActive = useFilterStore((s) => s.isFilterActive('grindhouse'))
 
   // Auto-hide controls with hover override
   const { isVisible, toggleControls } = useAutoHide({
@@ -270,8 +276,11 @@ function VideoPlayerInner({ channelId, streamUrl, channelName }: VideoPlayerInne
         className="h-full w-full object-contain"
       />
 
-      {/* Retro TV filter overlay */}
+      {/* Video filter overlays */}
       <RetroTVFilter isActive={isRetroTVActive} />
+      <FilmGrainFilter isActive={isFilmGrainActive} />
+      <NoirFilter isActive={isNoirActive} />
+      <GrindhouseFilter isActive={isGrindhouseActive} />
 
       {/* Custom video controls */}
       <VideoControls

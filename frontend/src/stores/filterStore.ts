@@ -21,9 +21,21 @@ export const FILTER_REGISTRY: FilterDefinition[] = [
     name: 'Retro TV',
     description: 'CRT scanlines and VHS tracking effects',
   },
-  // Future filters can be added here:
-  // { id: 'film-grain', name: 'Film Grain', description: 'Classic film grain texture' },
-  // { id: 'noir', name: 'Black & White', description: 'Monochrome noir effect' },
+  {
+    id: 'film-grain',
+    name: 'Film Grain',
+    description: '8mm film texture with subtle flicker',
+  },
+  {
+    id: 'noir',
+    name: 'Noir',
+    description: 'Black & white with high contrast',
+  },
+  {
+    id: 'grindhouse',
+    name: 'Grindhouse',
+    description: 'Damaged film: scratches, burns, splices',
+  },
 ]
 
 interface FilterState {

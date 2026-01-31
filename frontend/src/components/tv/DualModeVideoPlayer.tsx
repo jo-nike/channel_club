@@ -18,6 +18,9 @@ import { useHLSRetry } from '@/hooks/useHLSRetry'
 import { ChannelSwitchOverlay } from '@/components/ChannelSwitchOverlay'
 import { ProjectorBeamLoader } from '@/components/ProjectorBeamLoader'
 import { RetroTVFilter } from '@/components/filters/RetroTVFilter'
+import { FilmGrainFilter } from '@/components/filters/FilmGrainFilter'
+import { NoirFilter } from '@/components/filters/NoirFilter'
+import { GrindhouseFilter } from '@/components/filters/GrindhouseFilter'
 import { useFilterStore } from '@/stores/filterStore'
 import { getErsatzTVStreamUrl } from '@/services/ersatztvApi'
 import type { UnifiedChannel } from '@/types'
@@ -169,6 +172,9 @@ function LiveVideoPlayer({
 
   // Video filter state
   const isRetroTVActive = useFilterStore((s) => s.isFilterActive('retro-tv'))
+  const isFilmGrainActive = useFilterStore((s) => s.isFilterActive('film-grain'))
+  const isNoirActive = useFilterStore((s) => s.isFilterActive('noir'))
+  const isGrindhouseActive = useFilterStore((s) => s.isFilterActive('grindhouse'))
 
   // Auto-hide controls
   const { isVisible, toggleControls } = useAutoHide({
@@ -342,8 +348,11 @@ function LiveVideoPlayer({
     >
       <video ref={videoRef} autoPlay className="h-full w-full object-contain" />
 
-      {/* Retro TV filter overlay */}
+      {/* Video filter overlays */}
       <RetroTVFilter isActive={isRetroTVActive} />
+      <FilmGrainFilter isActive={isFilmGrainActive} />
+      <NoirFilter isActive={isNoirActive} />
+      <GrindhouseFilter isActive={isGrindhouseActive} />
 
       <VideoControls
         videoRef={videoRef}
@@ -430,6 +439,9 @@ function HLSVideoPlayerWrapper({
 
   // Video filter state
   const isRetroTVActive = useFilterStore((s) => s.isFilterActive('retro-tv'))
+  const isFilmGrainActive = useFilterStore((s) => s.isFilterActive('film-grain'))
+  const isNoirActive = useFilterStore((s) => s.isFilterActive('noir'))
+  const isGrindhouseActive = useFilterStore((s) => s.isFilterActive('grindhouse'))
 
   useOrientationFullscreen({ containerRef, enabled: true })
 
@@ -481,8 +493,11 @@ function HLSVideoPlayerWrapper({
         />
       </MediaPlayer>
 
-      {/* Retro TV filter overlay */}
+      {/* Video filter overlays */}
       <RetroTVFilter isActive={isRetroTVActive} />
+      <FilmGrainFilter isActive={isFilmGrainActive} />
+      <NoirFilter isActive={isNoirActive} />
+      <GrindhouseFilter isActive={isGrindhouseActive} />
 
       {/* Channel switch overlay with static effect - during initial load */}
       <ChannelSwitchOverlay

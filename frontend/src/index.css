@@ -654,3 +654,24 @@
 .animate-vhs-static-burst {
   animation: vhs-static-burst 0.3s ease-out forwards;
 }
+
+/* ==========================================================================
+   GRINDHOUSE FILTER EFFECTS
+   ========================================================================== */
+
+/* Scratch flicker animation */
+@keyframes scratch-flicker {
+  0% { opacity: 1; }
+  50% { opacity: 0.3; }
+  100% { opacity: 1; }
+}
+
+/* Film burn pulse */
+@keyframes burn-pulse {
+  0%, 100% { opacity: 0.1; }
+  50% { opacity: 0.2; }
+}
+
+.animate-burn-pulse {
+  animation: burn-pulse 2s ease-in-out infinite;
+}
