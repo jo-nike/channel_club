@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, useMemo } from 'react'
-import { Radio } from 'lucide-react'
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
+import { ChevronLeft, ChevronRight, Radio } from 'lucide-react'
 import { useTVStore, LIVE_CHANNEL_ID } from '@/stores/tvStore'
 import { getErsatzTVLogoUrl } from '@/services/ersatztvApi'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -84,6 +84,21 @@ export function TVEPGGrid({
     return calculateTimeOffset(currentTime, startTime)
   }, [currentTime, startTime])
 
+  // Navigation functions
+  const scrollByHours = useCallback((hoursToScroll: number) => {
+    if (containerRef.current) {
+      const pixelsToScroll = hoursToScroll * HOUR_WIDTH
+      containerRef.current.scrollBy({ left: pixelsToScroll, behavior: 'smooth' })
+    }
+  }, [])
+
+  const scrollToNow = useCallback(() => {
+    if (containerRef.current) {
+      const nowOffset = calculateTimeOffset(new Date(), startTime)
+      containerRef.current.scrollTo({ left: Math.max(0, nowOffset - 100), behavior: 'smooth' })
+    }
+  }, [startTime])
+
   // Convert live EPG to programme format for display (current only, no next)
   const liveProgrammes = useMemo(() => {
     if (!liveEPG?.currentProgram) return []
@@ -115,11 +130,33 @@ export function TVEPGGrid({
         className="sticky top-0 z-20 flex bg-card border-b"
         style={{ width: CHANNEL_LABEL_WIDTH + gridWidth }}
       >
-        {/* Spacer for channel label column */}
+        {/* Navigation controls */}
         <div
-          className="shrink-0 bg-card"
+          className="sticky left-0 z-30 flex shrink-0 items-center justify-center gap-0.5 bg-card px-1"
           style={{ width: CHANNEL_LABEL_WIDTH }}
-        />
+        >
+          <button
+            onClick={() => scrollByHours(-2)}
+            className="flex h-6 w-6 items-center justify-center rounded hover:bg-accent"
+            aria-label="Scroll back 2 hours"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <button
+            onClick={scrollToNow}
+            className="px-1 text-xs font-medium hover:bg-accent rounded"
+            aria-label="Scroll to now"
+          >
+            Now
+          </button>
+          <button
+            onClick={() => scrollByHours(2)}
+            className="flex h-6 w-6 items-center justify-center rounded hover:bg-accent"
+            aria-label="Scroll forward 2 hours"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
         {/* Time slots */}
         <div className="flex">
           {timeSlots.map((slot, i) => (
