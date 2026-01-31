@@ -493,3 +493,164 @@
 .epg-scroll::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+/* ============================
+   RETRO TV FILTER EFFECTS
+   ============================ */
+
+/* CRT Scanlines - repeating horizontal lines */
+.bg-scanlines {
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.3) 2px,
+    rgba(0, 0, 0, 0.3) 4px
+  );
+}
+
+/* Animated scanlines that scroll for authenticity */
+@keyframes scanline-scroll {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 0 4px;
+  }
+}
+
+.bg-scanlines-animated {
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.3) 2px,
+    rgba(0, 0, 0, 0.3) 4px
+  );
+  animation: scanline-scroll 0.5s linear infinite;
+}
+
+/* Vignette - radial gradient darkening corners (CRT tube effect) */
+.bg-vignette {
+  background: radial-gradient(
+    ellipse at center,
+    transparent 50%,
+    rgba(0, 0, 0, 0.4) 100%
+  );
+}
+
+/* Chromatic aberration - RGB color separation on edges */
+.chromatic-aberration {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 0, 0, 0.02) 0%,
+    transparent 3%,
+    transparent 97%,
+    rgba(0, 0, 255, 0.02) 100%
+  );
+}
+
+/* Alternative chromatic aberration using box-shadow (more pronounced) */
+.chromatic-aberration-strong {
+  box-shadow:
+    -2px 0 0 rgba(255, 0, 0, 0.1),
+    2px 0 0 rgba(0, 0, 255, 0.1);
+}
+
+/* Chromatic shift animation for pulsing effect */
+@keyframes chromatic-shift {
+  0%, 100% {
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.animate-chromatic-shift {
+  animation: chromatic-shift 2s ease-in-out infinite;
+}
+
+/* ============================
+   VHS TRACKING EFFECTS
+   ============================ */
+
+/* VHS tracking distortion animation */
+@keyframes vhs-tracking {
+  0% {
+    transform: translateY(0) skewX(0);
+  }
+  25% {
+    transform: translateY(2px) skewX(2deg);
+  }
+  50% {
+    transform: translateY(-1px) skewX(-1deg);
+  }
+  75% {
+    transform: translateY(3px) skewX(1deg);
+  }
+  100% {
+    transform: translateY(0) skewX(0);
+  }
+}
+
+.vhs-tracking-band {
+  animation: vhs-tracking 0.15s steps(4) infinite;
+  height: 8px;
+  background: linear-gradient(transparent, rgba(255, 255, 255, 0.1), transparent);
+}
+
+/* VHS glitch effect - horizontal displacement */
+@keyframes vhs-glitch {
+  0%, 100% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  10% {
+    transform: translateX(-2px);
+  }
+  20% {
+    transform: translateX(2px);
+  }
+  30% {
+    transform: translateX(-1px);
+    opacity: 0.9;
+  }
+  40% {
+    transform: translateX(1px);
+  }
+  50% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-vhs-glitch {
+  animation: vhs-glitch 0.2s steps(3) infinite;
+}
+
+/* VHS static burst - enhanced noise during transitions */
+@keyframes vhs-static-burst {
+  0% {
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.8;
+  }
+  30% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.9;
+  }
+  70% {
+    opacity: 0.3;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.animate-vhs-static-burst {
+  animation: vhs-static-burst 0.3s ease-out forwards;
+}

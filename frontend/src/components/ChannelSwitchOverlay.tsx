@@ -2,6 +2,8 @@ import { useEffect, useState, useRef } from 'react'
 import { ProjectorBeamLoader } from '@/components/ProjectorBeamLoader'
 import { StaticNoiseOverlay } from '@/components/StaticNoiseOverlay'
 import { ChannelInfoOverlay } from '@/components/ChannelInfoOverlay'
+import { VHSTrackingEffect } from '@/components/filters/VHSTrackingEffect'
+import { useFilterStore } from '@/stores/filterStore'
 
 // Timing constants - exported for testing
 export const STATIC_BURST_DURATION = 200 // ms (within AC spec of 150-300ms)
@@ -27,6 +29,7 @@ export function ChannelSwitchOverlay({
   isError = false,
 }: ChannelSwitchOverlayProps) {
   const [phase, setPhase] = useState<Phase>('HIDDEN')
+  const isRetroTVActive = useFilterStore((s) => s.isFilterActive('retro-tv'))
   const startTimeRef = useRef<number>(0)
   const phaseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const errorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -126,6 +129,9 @@ export function ChannelSwitchOverlay({
     <div className="pointer-events-none absolute inset-0 z-30">
       {/* Static noise burst - during STATIC_BURST or ERROR_STATIC phases */}
       <StaticNoiseOverlay isVisible={showStatic} />
+
+      {/* VHS Tracking effect - enhanced transition when retro-tv filter is active */}
+      <VHSTrackingEffect isActive={showStatic && isRetroTVActive} />
 
       {/* Projector beam loader - during LOADING phase only */}
       {phase === 'LOADING' && <ProjectorBeamLoader text={`Loading ${channelName}...`} />}

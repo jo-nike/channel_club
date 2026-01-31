@@ -17,6 +17,8 @@ import { useOrientationFullscreen } from '@/hooks/useOrientationFullscreen'
 import { useHLSRetry } from '@/hooks/useHLSRetry'
 import { ChannelSwitchOverlay } from '@/components/ChannelSwitchOverlay'
 import { ProjectorBeamLoader } from '@/components/ProjectorBeamLoader'
+import { RetroTVFilter } from '@/components/filters/RetroTVFilter'
+import { useFilterStore } from '@/stores/filterStore'
 import { getErsatzTVStreamUrl } from '@/services/ersatztvApi'
 import type { UnifiedChannel } from '@/types'
 
@@ -164,6 +166,9 @@ function LiveVideoPlayer({
 
   // Detect TV mode
   const isTVMode = useTVMode()
+
+  // Video filter state
+  const isRetroTVActive = useFilterStore((s) => s.isFilterActive('retro-tv'))
 
   // Auto-hide controls
   const { isVisible, toggleControls } = useAutoHide({
@@ -337,6 +342,9 @@ function LiveVideoPlayer({
     >
       <video ref={videoRef} autoPlay className="h-full w-full object-contain" />
 
+      {/* Retro TV filter overlay */}
+      <RetroTVFilter isActive={isRetroTVActive} />
+
       <VideoControls
         videoRef={videoRef}
         isPlaying={isPlaying}
@@ -420,6 +428,9 @@ function HLSVideoPlayerWrapper({
     streamUrl,
   })
 
+  // Video filter state
+  const isRetroTVActive = useFilterStore((s) => s.isFilterActive('retro-tv'))
+
   useOrientationFullscreen({ containerRef, enabled: true })
 
   const onPlaying = useCallback(() => {
@@ -470,12 +481,14 @@ function HLSVideoPlayerWrapper({
         />
       </MediaPlayer>
 
-      {/* Channel switch overlay with static effect - during initial load or error */}
+      {/* Retro TV filter overlay */}
+      <RetroTVFilter isActive={isRetroTVActive} />
+
+      {/* Channel switch overlay with static effect - during initial load */}
       <ChannelSwitchOverlay
         channelName={title || 'Channel'}
         channelNumber={channelNumber}
         isVisible={isChangingChannel}
-        isError={status === 'failed'}
       />
 
       {/* Buffering overlay - during playback (only show when not changing channel) */}

@@ -7,6 +7,7 @@ import { useHighlightStatus } from '@/hooks/useHighlightStatus'
 import { HighlightButton } from '@/components/HighlightButton'
 import { HighlightModal } from '@/components/HighlightModal'
 import { CastButton } from '@/components/CastButton'
+import { FilterMenu } from '@/components/FilterMenu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useUIStore } from '@/stores/uiStore'
 
@@ -198,6 +199,9 @@ export function ErsatzTVVideoControls({
           isVisible={isVisible}
         />
       )}
+
+      {/* Filter Menu */}
+      <FilterMenu isVisible={isVisible} />
 
       {/* Spacer */}
       <div className="flex-1" />

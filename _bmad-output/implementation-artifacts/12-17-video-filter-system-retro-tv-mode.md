@@ -1,6 +1,6 @@
 # Story 12.17: Video Filter System with Retro TV Mode
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -28,56 +28,56 @@ So that I can customize my viewing experience with fun effects.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create filter store with localStorage persistence (AC: #6, #8)
-  - [ ] 1.1 Create `filterStore.ts` in stores directory
-  - [ ] 1.2 Define filter state interface with `activeFilters: string[]`
-  - [ ] 1.3 Add `toggleFilter(filterId)` and `isFilterActive(filterId)` actions
-  - [ ] 1.4 Implement Zustand persist middleware for localStorage
-  - [ ] 1.5 Define extensible filter registry pattern for future filters
+- [x] Task 1: Create filter store with localStorage persistence (AC: #6, #8)
+  - [x] 1.1 Create `filterStore.ts` in stores directory
+  - [x] 1.2 Define filter state interface with `activeFilters: string[]`
+  - [x] 1.3 Add `toggleFilter(filterId)` and `isFilterActive(filterId)` actions
+  - [x] 1.4 Implement Zustand persist middleware for localStorage
+  - [x] 1.5 Define extensible filter registry pattern for future filters
 
-- [ ] Task 2: Create RetroTVFilter CSS overlay component (AC: #3)
-  - [ ] 2.1 Create `RetroTVFilter.tsx` component
-  - [ ] 2.2 Implement CRT scanlines (repeating horizontal lines, 2px spacing)
-  - [ ] 2.3 Implement vignette effect (radial gradient darkening corners)
-  - [ ] 2.4 Implement RGB chromatic aberration (offset red/blue channels)
-  - [ ] 2.5 Implement subtle static noise texture (low-opacity SVG noise)
-  - [ ] 2.6 Use CSS `mix-blend-mode` and `pointer-events: none` for overlay
+- [x] Task 2: Create RetroTVFilter CSS overlay component (AC: #3)
+  - [x] 2.1 Create `RetroTVFilter.tsx` component
+  - [x] 2.2 Implement CRT scanlines (repeating horizontal lines, 2px spacing)
+  - [x] 2.3 Implement vignette effect (radial gradient darkening corners)
+  - [x] 2.4 Implement RGB chromatic aberration (offset red/blue channels)
+  - [x] 2.5 Implement subtle static noise texture (low-opacity SVG noise)
+  - [x] 2.6 Use CSS `mix-blend-mode` and `pointer-events: none` for overlay
 
-- [ ] Task 3: Create VHSTrackingEffect for enhanced transitions (AC: #4)
-  - [ ] 3.1 Create `VHSTrackingEffect.tsx` component
-  - [ ] 3.2 Implement wavy horizontal band distortion animation
-  - [ ] 3.3 Implement enhanced static/snow burst effect
-  - [ ] 3.4 Export as conditional overlay triggered during channel switch
+- [x] Task 3: Create VHSTrackingEffect for enhanced transitions (AC: #4)
+  - [x] 3.1 Create `VHSTrackingEffect.tsx` component
+  - [x] 3.2 Implement wavy horizontal band distortion animation
+  - [x] 3.3 Implement enhanced static/snow burst effect
+  - [x] 3.4 Export as conditional overlay triggered during channel switch
 
-- [ ] Task 4: Create FilterMenu component (AC: #1, #2, #7)
-  - [ ] 4.1 Create `FilterMenu.tsx` with Popover or Dialog wrapper
-  - [ ] 4.2 List available filters with toggle switches
-  - [ ] 4.3 Add filter icon button (use Lucide `SlidersHorizontal` or `Film`)
-  - [ ] 4.4 Implement mobile-responsive layout (bottom sheet pattern)
-  - [ ] 4.5 Connect toggles to filterStore actions
+- [x] Task 4: Create FilterMenu component (AC: #1, #2, #7)
+  - [x] 4.1 Create `FilterMenu.tsx` with Popover or Dialog wrapper
+  - [x] 4.2 List available filters with toggle switches
+  - [x] 4.3 Add filter icon button (use Lucide `SlidersHorizontal` or `Film`)
+  - [x] 4.4 Implement mobile-responsive layout (bottom sheet pattern)
+  - [x] 4.5 Connect toggles to filterStore actions
 
-- [ ] Task 5: Integrate filter button into VideoControls (AC: #1)
-  - [ ] 5.1 Add filter button to `VideoControls.tsx`
-  - [ ] 5.2 Add filter button to `ErsatzTVVideoControls.tsx`
-  - [ ] 5.3 Position consistently with other control buttons
-  - [ ] 5.4 Show active indicator when any filter is enabled
+- [x] Task 5: Integrate filter button into VideoControls (AC: #1)
+  - [x] 5.1 Add filter button to `VideoControls.tsx`
+  - [x] 5.2 Add filter button to `ErsatzTVVideoControls.tsx`
+  - [x] 5.3 Position consistently with other control buttons
+  - [x] 5.4 Show active indicator when any filter is enabled
 
-- [ ] Task 6: Integrate RetroTVFilter overlay into video players (AC: #3, #5)
-  - [ ] 6.1 Add RetroTVFilter to `VideoPlayer.tsx` (conditionally rendered)
-  - [ ] 6.2 Add RetroTVFilter to `DualModeVideoPlayer.tsx` LiveVideoPlayer
-  - [ ] 6.3 Add RetroTVFilter to `DualModeVideoPlayer.tsx` HLSVideoPlayerWrapper
-  - [ ] 6.4 Connect visibility to filterStore `isFilterActive('retro-tv')`
+- [x] Task 6: Integrate RetroTVFilter overlay into video players (AC: #3, #5)
+  - [x] 6.1 Add RetroTVFilter to `VideoPlayer.tsx` (conditionally rendered)
+  - [x] 6.2 Add RetroTVFilter to `DualModeVideoPlayer.tsx` LiveVideoPlayer
+  - [x] 6.3 Add RetroTVFilter to `DualModeVideoPlayer.tsx` HLSVideoPlayerWrapper
+  - [x] 6.4 Connect visibility to filterStore `isFilterActive('retro-tv')`
 
-- [ ] Task 7: Integrate VHS effect with ChannelSwitchOverlay (AC: #4)
-  - [ ] 7.1 Check filterStore for retro-tv active state in overlay
-  - [ ] 7.2 Render VHSTrackingEffect when retro-tv filter active
-  - [ ] 7.3 Enhance static burst intensity when filter active
+- [x] Task 7: Integrate VHS effect with ChannelSwitchOverlay (AC: #4)
+  - [x] 7.1 Check filterStore for retro-tv active state in overlay
+  - [x] 7.2 Render VHSTrackingEffect when retro-tv filter active
+  - [x] 7.3 Enhance static burst intensity when filter active
 
-- [ ] Task 8: Add CSS keyframes for filter effects (AC: #3, #4)
-  - [ ] 8.1 Add `@keyframes scanline-scroll` for moving scanlines
-  - [ ] 8.2 Add `@keyframes vhs-tracking` for wavy distortion
-  - [ ] 8.3 Add `@keyframes chromatic-shift` for RGB separation pulse
-  - [ ] 8.4 Add utility classes in index.css
+- [x] Task 8: Add CSS keyframes for filter effects (AC: #3, #4)
+  - [x] 8.1 Add `@keyframes scanline-scroll` for moving scanlines
+  - [x] 8.2 Add `@keyframes vhs-tracking` for wavy distortion
+  - [x] 8.3 Add `@keyframes chromatic-shift` for RGB separation pulse
+  - [x] 8.4 Add utility classes in index.css
 
 ## Dev Notes
 
@@ -86,19 +86,21 @@ So that I can customize my viewing experience with fun effects.
 Design for future filter additions without restructuring:
 
 ```typescript
-// filterStore.ts
+// filterStore.ts - Metadata-only registry (components rendered separately to avoid circular deps)
 interface FilterDefinition {
   id: string
   name: string
   description: string
-  component: React.ComponentType<FilterOverlayProps>
 }
 
 const FILTER_REGISTRY: FilterDefinition[] = [
-  { id: 'retro-tv', name: 'Retro TV', description: 'CRT scanlines and VHS effects', component: RetroTVFilter },
-  // Future: { id: 'film-grain', name: 'Film Grain', ... }
-  // Future: { id: 'noir', name: 'Black & White', ... }
+  { id: 'retro-tv', name: 'Retro TV', description: 'CRT scanlines and VHS tracking effects' },
+  // Future: { id: 'film-grain', name: 'Film Grain', description: '...' }
+  // Future: { id: 'noir', name: 'Black & White', description: '...' }
 ]
+
+// Filter components are rendered in video players based on isFilterActive(filterId)
+// This separation avoids circular dependencies between store and components
 ```
 
 ### RetroTVFilter CSS Implementation
@@ -261,10 +263,57 @@ On mobile (< 768px):
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude claude-opus-4-5-20251101
 
 ### Debug Log References
 
+N/A - Implementation proceeded without blocking issues.
+
 ### Completion Notes List
 
+- **Task 1**: Created `filterStore.ts` with Zustand persist middleware. Implemented `FILTER_REGISTRY` for extensible filter definitions, `toggleFilter()` action, and `isFilterActive()` selector. Added comprehensive unit tests (10 tests passing).
+
+- **Task 2**: Created `RetroTVFilter.tsx` component with four layered effects: CRT scanlines (repeating linear gradient), vignette (radial gradient), chromatic aberration (edge color separation), and static noise (SVG feTurbulence at 5% opacity). All effects use CSS with `pointer-events: none` for performance. Added 9 unit tests.
+
+- **Task 3**: Created `VHSTrackingEffect.tsx` for enhanced channel switch transitions. Implements wavy horizontal tracking bands, enhanced static burst, and RGB color glitch lines. Animations use CSS keyframes with randomized positioning. Added 9 unit tests.
+
+- **Task 4**: Created `FilterMenu.tsx` component with responsive design - uses Popover on desktop and Dialog (bottom sheet) on mobile. Features toggle switches for each filter from the registry, active indicator on button, and proper accessibility attributes. Added 9 unit tests.
+
+- **Task 5**: Integrated FilterMenu into both `VideoControls.tsx` and `ErsatzTVVideoControls.tsx`. Positioned after Cast button, before the spacer. Button shows primary color when filters are active.
+
+- **Task 6**: Integrated RetroTVFilter overlay into all three video player components: `VideoPlayer.tsx`, `DualModeVideoPlayer.tsx` (LiveVideoPlayer), and `DualModeVideoPlayer.tsx` (HLSVideoPlayerWrapper). Filter visibility controlled by filterStore state.
+
+- **Task 7**: Enhanced `ChannelSwitchOverlay.tsx` to render VHSTrackingEffect during static phases when retro-tv filter is active. VHS effect adds wavy tracking bands and enhanced static burst during channel transitions.
+
+- **Task 8**: Added CSS keyframes and utility classes to `index.css`: `scanline-scroll`, `vhs-tracking`, `chromatic-shift`, `vhs-glitch`, `vhs-static-burst`, plus `.bg-scanlines`, `.bg-vignette`, `.chromatic-aberration`, and `.vhs-tracking-band` classes.
+
 ### File List
+
+**Files Created:**
+- `frontend/src/stores/filterStore.ts`
+- `frontend/src/stores/filterStore.test.ts`
+- `frontend/src/components/filters/RetroTVFilter.tsx`
+- `frontend/src/components/filters/RetroTVFilter.test.tsx`
+- `frontend/src/components/filters/VHSTrackingEffect.tsx`
+- `frontend/src/components/filters/VHSTrackingEffect.test.tsx`
+- `frontend/src/components/filters/index.ts` (barrel export)
+- `frontend/src/components/FilterMenu.tsx`
+- `frontend/src/components/FilterMenu.test.tsx`
+
+**Files Modified:**
+- `frontend/src/components/VideoControls.tsx`
+- `frontend/src/components/ersatztv/ErsatzTVVideoControls.tsx`
+- `frontend/src/components/VideoPlayer.tsx`
+- `frontend/src/components/tv/DualModeVideoPlayer.tsx`
+- `frontend/src/components/ChannelSwitchOverlay.tsx`
+- `frontend/src/index.css`
+
+**Unrelated Changes in Working Tree (should be separate commit):**
+- `frontend/src/components/tv/TVView.tsx` - EPG hours changed 6→48 (not part of this story)
+
+## Change Log
+
+| Date | Change | Author |
+|------|--------|--------|
+| 2026-01-31 | Implemented video filter system with Retro TV mode - all 8 tasks completed | Claude claude-opus-4-5-20251101 |
+| 2026-01-31 | Code review: Fixed 7 issues (2 HIGH, 3 MEDIUM, 2 LOW) - added relative positioning to FilterMenu button, strengthened VHS test assertions, added hydration test for persistence, created filters/index.ts barrel, updated Dev Notes to match implementation | Claude claude-opus-4-5-20251101 |

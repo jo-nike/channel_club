@@ -6,6 +6,7 @@ import { useHighlightStatus } from '@/hooks/useHighlightStatus'
 import { HighlightButton } from './HighlightButton'
 import { HighlightModal } from './HighlightModal'
 import { CastButton } from './CastButton'
+import { FilterMenu } from './FilterMenu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 export interface VideoControlsProps {
@@ -188,6 +189,9 @@ export function VideoControls({
           isVisible={isVisible}
         />
       )}
+
+      {/* Filter Menu */}
+      <FilterMenu isVisible={isVisible} />
 
       {/* Spacer */}
       <div className="flex-1" />

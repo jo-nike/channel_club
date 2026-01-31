@@ -2,12 +2,14 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import mpegts from 'mpegts.js'
 import { useChannelStore } from '@/stores/channelStore'
 import { useUIStore } from '@/stores/uiStore'
+import { useFilterStore } from '@/stores/filterStore'
 import { VideoControls } from '@/components/VideoControls'
 import { useAutoHide } from '@/hooks/useAutoHide'
 import { useVideoKeyboardShortcuts } from '@/hooks/useVideoKeyboardShortcuts'
 import { useOrientationFullscreen } from '@/hooks/useOrientationFullscreen'
 import { ChannelSwitchOverlay } from '@/components/ChannelSwitchOverlay'
 import { ProjectorBeamLoader } from '@/components/ProjectorBeamLoader'
+import { RetroTVFilter } from '@/components/filters/RetroTVFilter'
 
 export function VideoPlayer() {
   const currentChannel = useChannelStore((s) => s.currentChannel)
@@ -55,6 +57,9 @@ function VideoPlayerInner({ channelId, streamUrl, channelName }: VideoPlayerInne
   // Theater mode from UI store
   const isTheaterMode = useUIStore((s) => s.isTheaterMode)
   const toggleTheaterMode = useUIStore((s) => s.toggleTheaterMode)
+
+  // Video filter state
+  const isRetroTVActive = useFilterStore((s) => s.isFilterActive('retro-tv'))
 
   // Auto-hide controls with hover override
   const { isVisible, toggleControls } = useAutoHide({
@@ -264,6 +269,9 @@ function VideoPlayerInner({ channelId, streamUrl, channelName }: VideoPlayerInne
         autoPlay
         className="h-full w-full object-contain"
       />
+
+      {/* Retro TV filter overlay */}
+      <RetroTVFilter isActive={isRetroTVActive} />
 
       {/* Custom video controls */}
       <VideoControls
