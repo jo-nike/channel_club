@@ -11,6 +11,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 
 export interface VideoControlsProps {
   videoRef: RefObject<HTMLVideoElement | null>
+  /** Container ref for portal rendering (needed for fullscreen popover support) */
+  containerRef?: RefObject<HTMLElement | null>
   isPlaying: boolean
   volume: number
   isMuted: boolean
@@ -35,6 +37,7 @@ export interface VideoControlsProps {
 
 export function VideoControls({
   videoRef,
+  containerRef,
   isPlaying,
   volume,
   isMuted,
@@ -191,7 +194,7 @@ export function VideoControls({
       )}
 
       {/* Filter Menu */}
-      <FilterMenu isVisible={isVisible} />
+      <FilterMenu isVisible={isVisible} containerRef={containerRef} />
 
       {/* Spacer */}
       <div className="flex-1" />

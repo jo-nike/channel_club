@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, type RefObject } from 'react'
 import { useMediaState, useMediaRemote } from '@vidstack/react'
 import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Expand, Shrink } from 'lucide-react'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
@@ -12,6 +12,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useUIStore } from '@/stores/uiStore'
 
 export interface ErsatzTVVideoControlsProps {
+  /** Container ref for portal rendering (needed for fullscreen popover support) */
+  containerRef?: RefObject<HTMLElement | null>
   isTheaterMode: boolean
   isVisible: boolean
   isMobile?: boolean
@@ -27,6 +29,7 @@ export interface ErsatzTVVideoControlsProps {
 }
 
 export function ErsatzTVVideoControls({
+  containerRef,
   isTheaterMode,
   isVisible,
   isMobile: isMobileProp = false,
@@ -201,7 +204,7 @@ export function ErsatzTVVideoControls({
       )}
 
       {/* Filter Menu */}
-      <FilterMenu isVisible={isVisible} />
+      <FilterMenu isVisible={isVisible} containerRef={containerRef} />
 
       {/* Spacer */}
       <div className="flex-1" />

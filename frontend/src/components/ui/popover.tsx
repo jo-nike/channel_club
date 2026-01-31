@@ -15,14 +15,21 @@ function PopoverTrigger({
   return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} />
 }
 
+interface PopoverContentProps
+  extends React.ComponentProps<typeof PopoverPrimitive.Content> {
+  /** Container element for the portal (for fullscreen support) */
+  container?: HTMLElement | null
+}
+
 function PopoverContent({
   className,
   align = "center",
   sideOffset = 4,
+  container,
   ...props
-}: React.ComponentProps<typeof PopoverPrimitive.Content>) {
+}: PopoverContentProps) {
   return (
-    <PopoverPrimitive.Portal>
+    <PopoverPrimitive.Portal container={container}>
       <PopoverPrimitive.Content
         data-slot="popover-content"
         align={align}

@@ -356,6 +356,7 @@ function LiveVideoPlayer({
 
       <VideoControls
         videoRef={videoRef}
+        containerRef={containerRef}
         isPlaying={isPlaying}
         volume={volume}
         isMuted={isMuted}
@@ -627,6 +628,7 @@ function HLSControlsWrapper({
 
   return (
     <ErsatzTVVideoControls
+      containerRef={containerRef}
       isTheaterMode={isTheaterMode}
       isVisible={isVisible}
       isMobile={isMobile}

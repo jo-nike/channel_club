@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type RefObject } from 'react'
 import { SlidersHorizontal } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -9,13 +9,15 @@ import { useMediaQuery } from '@/hooks/useMediaQuery'
 interface FilterMenuProps {
   /** Whether the control is visible (for tabIndex management) */
   isVisible: boolean
+  /** Container ref for portal rendering (needed for fullscreen support) */
+  containerRef?: RefObject<HTMLElement | null>
 }
 
 /**
  * Filter menu component for selecting video filter effects.
  * Uses Popover on desktop, Dialog (bottom sheet) on mobile.
  */
-export function FilterMenu({ isVisible }: FilterMenuProps) {
+export function FilterMenu({ isVisible, containerRef }: FilterMenuProps) {
   const [isOpen, setIsOpen] = useState(false)
   const isMobile = useMediaQuery('(max-width: 768px)')
   const { activeFilters, toggleFilter, isFilterActive } = useFilterStore()
@@ -85,6 +87,9 @@ export function FilterMenu({ isVisible }: FilterMenuProps) {
     </button>
   )
 
+  // Get portal container
+  const portalContainer = containerRef?.current ?? undefined
+
   // Mobile: Use Dialog as bottom sheet
   if (isMobile) {
     return (
@@ -98,7 +103,10 @@ export function FilterMenu({ isVisible }: FilterMenuProps) {
               <p>Filters</p>
             </TooltipContent>
           </Tooltip>
-          <DialogContent className="bottom-0 top-auto translate-y-0 rounded-t-xl rounded-b-none max-w-full sm:max-w-lg">
+          <DialogContent
+            className="bottom-0 top-auto translate-y-0 rounded-t-xl rounded-b-none max-w-full sm:max-w-lg"
+            container={portalContainer}
+          >
             <DialogHeader>
               <DialogTitle>Video Filters</DialogTitle>
             </DialogHeader>
@@ -125,6 +133,7 @@ export function FilterMenu({ isVisible }: FilterMenuProps) {
         side="top"
         align="center"
         sideOffset={8}
+        container={portalContainer}
       >
         <div className="flex flex-col gap-3">
           <h3 className="font-semibold">Video Filters</h3>

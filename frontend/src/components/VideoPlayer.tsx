@@ -285,6 +285,7 @@ function VideoPlayerInner({ channelId, streamUrl, channelName }: VideoPlayerInne
       {/* Custom video controls */}
       <VideoControls
         videoRef={videoRef}
+        containerRef={containerRef}
         isPlaying={isPlaying}
         volume={volume}
         isMuted={isMuted}
