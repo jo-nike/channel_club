@@ -15,38 +15,35 @@ export function NoirFilter({ isActive }: NoirFilterProps) {
       role="presentation"
       aria-hidden="true"
     >
-      {/* Desaturation layer using mix-blend-mode */}
+      {/* Desaturation - use 'color' blend mode with gray to strip color */}
       <div
         className="absolute inset-0"
         style={{
           backgroundColor: '#808080',
-          mixBlendMode: 'saturation',
+          mixBlendMode: 'color',
         }}
       />
 
-      {/* Contrast boost - darken shadows */}
+      {/* Contrast boost - darken midtones/shadows */}
       <div
-        className="absolute inset-0 mix-blend-multiply opacity-20"
-        style={{ backgroundColor: '#000000' }}
-      />
-
-      {/* Contrast boost - brighten highlights */}
-      <div
-        className="absolute inset-0 mix-blend-screen opacity-10"
-        style={{ backgroundColor: '#ffffff' }}
+        className="absolute inset-0"
+        style={{
+          backgroundColor: 'rgba(0, 0, 0, 0.15)',
+          mixBlendMode: 'multiply',
+        }}
       />
 
       {/* Dramatic vignette */}
       <div
         className="absolute inset-0"
         style={{
-          background: 'radial-gradient(ellipse at center, transparent 40%, rgba(0, 0, 0, 0.6) 100%)',
+          background: 'radial-gradient(ellipse at center, transparent 30%, rgba(0, 0, 0, 0.7) 100%)',
         }}
       />
 
       {/* Subtle film grain for texture */}
       <svg
-        className="absolute inset-0 h-full w-full opacity-[0.04]"
+        className="absolute inset-0 h-full w-full opacity-[0.06]"
         xmlns="http://www.w3.org/2000/svg"
         aria-hidden="true"
       >
