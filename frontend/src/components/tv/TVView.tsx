@@ -148,7 +148,7 @@ export function TVView() {
   // Load all programmes after channels are loaded
   useEffect(() => {
     if (ersatzTVChannels.length > 0) {
-      loadAllProgrammes(6)
+      loadAllProgrammes(48)
     }
   }, [ersatzTVChannels.length, loadAllProgrammes])
 
@@ -171,7 +171,7 @@ export function TVView() {
     if (ersatzTVChannels.length === 0) return
 
     const interval = setInterval(() => {
-      loadAllProgrammes(6, true) // silent refresh to avoid skeleton flash
+      loadAllProgrammes(48, true) // silent refresh to avoid skeleton flash
       if (selectedChannel?.type === 'live') {
         loadLiveEPG()
       }
