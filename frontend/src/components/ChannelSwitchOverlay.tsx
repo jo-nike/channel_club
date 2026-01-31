@@ -125,13 +125,16 @@ export function ChannelSwitchOverlay({
   // Show static during STATIC_BURST or ERROR_STATIC phases
   const showStatic = phase === 'STATIC_BURST' || phase === 'ERROR_STATIC'
 
+  // Show VHS effects throughout channel switch when retro filter active (including LOADING phase)
+  const showVHSEffect = (phase === 'STATIC_BURST' || phase === 'LOADING' || phase === 'ERROR_STATIC') && isRetroTVActive
+
   return (
     <div className="pointer-events-none absolute inset-0 z-30">
       {/* Static noise burst - during STATIC_BURST or ERROR_STATIC phases */}
       <StaticNoiseOverlay isVisible={showStatic} />
 
-      {/* VHS Tracking effect - enhanced transition when retro-tv filter is active */}
-      <VHSTrackingEffect isActive={showStatic && isRetroTVActive} />
+      {/* VHS Tracking effect - layered on top throughout channel switch when retro filter active */}
+      <VHSTrackingEffect isActive={showVHSEffect} />
 
       {/* Projector beam loader - during LOADING phase only */}
       {phase === 'LOADING' && <ProjectorBeamLoader text={`Loading ${channelName}...`} />}
