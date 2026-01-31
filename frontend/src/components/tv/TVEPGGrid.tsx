@@ -105,17 +105,27 @@ export function TVEPGGrid({
   }
 
   return (
-    <div className="relative overflow-hidden" data-testid="tv-epg-grid">
-      {/* Time header */}
-      <div className="sticky top-0 z-20 bg-card border-b">
+    <div
+      ref={containerRef}
+      className="epg-scroll relative overflow-x-auto overflow-y-hidden"
+      data-testid="tv-epg-grid"
+    >
+      {/* Time header - sticky top, scrolls horizontally with grid */}
+      <div
+        className="sticky top-0 z-20 flex bg-card border-b"
+        style={{ width: CHANNEL_LABEL_WIDTH + gridWidth }}
+      >
+        {/* Spacer for channel label column */}
         <div
-          className="flex"
-          style={{ width: gridWidth, marginLeft: CHANNEL_LABEL_WIDTH }}
-        >
+          className="shrink-0 bg-card"
+          style={{ width: CHANNEL_LABEL_WIDTH }}
+        />
+        {/* Time slots */}
+        <div className="flex">
           {timeSlots.map((slot, i) => (
             <div
               key={i}
-              className="flex-shrink-0 border-l px-2 py-2 text-sm text-muted-foreground"
+              className="shrink-0 border-l px-2 py-2 text-sm text-muted-foreground"
               style={{ width: SLOT_WIDTH }}
             >
               {formatTime(slot)}
@@ -126,14 +136,16 @@ export function TVEPGGrid({
 
       {/* Grid container */}
       <div
-        ref={containerRef}
-        className="relative overflow-x-hidden overflow-y-hidden"
-        style={{ height: unifiedChannels.length * ROW_HEIGHT }}
+        className="relative"
+        style={{
+          height: unifiedChannels.length * ROW_HEIGHT,
+          width: CHANNEL_LABEL_WIDTH + gridWidth,
+        }}
       >
         {/* Now marker */}
         {nowMarkerOffset > 0 && nowMarkerOffset < gridWidth && (
           <div
-            className="absolute top-0 bottom-0 z-30 w-0.5 bg-destructive"
+            className="absolute top-0 bottom-0 z-10 w-0.5 bg-destructive"
             style={{ left: CHANNEL_LABEL_WIDTH + nowMarkerOffset }}
           >
             <div className="absolute -top-1 -left-1.5 h-3 w-3 rounded-full bg-destructive" />
