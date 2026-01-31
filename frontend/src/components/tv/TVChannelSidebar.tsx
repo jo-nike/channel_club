@@ -4,7 +4,7 @@ import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore } from '@/stores/tvStore'
 import { getErsatzTVLogoUrl, fetchErsatzTVCurrentProgramme } from '@/services/ersatztvApi'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import type { UnifiedChannel } from '@/types'
+import type { UnifiedChannel, ErsatzTVProgramme } from '@/types'
 
 interface TVChannelSidebarProps {
   isCollapsed?: boolean
@@ -20,22 +20,29 @@ export function TVChannelSidebar({
   const { channels: ersatzTVChannels, channelsLoading, error, loadChannels } = useErsatztvStore()
   const { selectedChannel, selectChannel, getUnifiedChannels, isLiveChannelActive } = useTVStore()
 
-  const [channelProgrammes, setChannelProgrammes] = useState<Record<string, string>>({})
+  const [channelProgrammes, setChannelProgrammes] = useState<Record<string, ErsatzTVProgramme>>({})
+  const [currentTime, setCurrentTime] = useState(() => Date.now())
 
   // Get unified channel list
   const unifiedChannels = getUnifiedChannels()
   const hasLiveChannel = isLiveChannelActive()
 
-  // Fetch current programmes for ErsatzTV channels
+  // Update current time every 30 seconds for time remaining calculations
+  useEffect(() => {
+    const interval = setInterval(() => setCurrentTime(Date.now()), 30 * 1000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // Fetch current programmes for ErsatzTV channels every 30 seconds
   useEffect(() => {
     const fetchAllCurrentProgrammes = async () => {
-      const results: Record<string, string> = {}
+      const results: Record<string, ErsatzTVProgramme> = {}
       await Promise.all(
         ersatzTVChannels.map(async (channel) => {
           try {
             const data = await fetchErsatzTVCurrentProgramme(channel.id)
             if (data.current) {
-              results[channel.id] = data.current.title
+              results[channel.id] = data.current
             }
           } catch {
             // Ignore individual failures
@@ -47,7 +54,7 @@ export function TVChannelSidebar({
 
     if (ersatzTVChannels.length > 0) {
       fetchAllCurrentProgrammes()
-      const interval = setInterval(fetchAllCurrentProgrammes, 5 * 60 * 1000)
+      const interval = setInterval(fetchAllCurrentProgrammes, 30 * 1000)
       return () => clearInterval(interval)
     }
   }, [ersatzTVChannels])
@@ -124,8 +131,10 @@ export function TVChannelSidebar({
             isSelected={selectedChannel?.id === channel.id}
             onSelect={handleChannelClick}
             currentProgramme={
-              channel.type === 'live' ? liveEPGTitle : channelProgrammes[channel.id]
+              channel.type === 'live' ? liveEPGTitle : channelProgrammes[channel.id]?.title
             }
+            programme={channel.type === 'live' ? undefined : channelProgrammes[channel.id]}
+            currentTime={currentTime}
             hasLiveChannel={hasLiveChannel}
           />
         ))}
@@ -204,7 +213,42 @@ interface ChannelItemProps {
   isSelected: boolean
   onSelect: (channel: UnifiedChannel) => void
   currentProgramme?: string | null
+  programme?: ErsatzTVProgramme
+  currentTime: number
   hasLiveChannel: boolean
+}
+
+function formatTimeRemaining(programme: ErsatzTVProgramme, currentTime: number): string {
+  const stopTime = new Date(programme.stop).getTime()
+  const remainingMs = stopTime - currentTime
+
+  if (remainingMs <= 0) return 'Ending...'
+
+  const remainingMinutes = Math.ceil(remainingMs / (1000 * 60))
+
+  if (remainingMinutes < 60) {
+    return `${remainingMinutes}m left`
+  }
+
+  const hours = Math.floor(remainingMinutes / 60)
+  const minutes = remainingMinutes % 60
+
+  if (minutes === 0) {
+    return `${hours}h left`
+  }
+
+  return `${hours}h ${minutes}m left`
+}
+
+function calculateProgress(programme: ErsatzTVProgramme, currentTime: number): number {
+  const startTime = new Date(programme.start).getTime()
+  const stopTime = new Date(programme.stop).getTime()
+  const totalDuration = stopTime - startTime
+  const elapsed = currentTime - startTime
+
+  if (totalDuration <= 0) return 0
+
+  return Math.min(100, Math.max(0, (elapsed / totalDuration) * 100))
 }
 
 function ChannelItem({
@@ -212,9 +256,13 @@ function ChannelItem({
   isSelected,
   onSelect,
   currentProgramme,
+  programme,
+  currentTime,
   hasLiveChannel,
 }: ChannelItemProps) {
   const isLive = channel.type === 'live'
+  const progress = programme ? calculateProgress(programme, currentTime) : 0
+  const timeRemaining = programme ? formatTimeRemaining(programme, currentTime) : null
 
   return (
     <li>
@@ -232,7 +280,7 @@ function ChannelItem({
       >
         {/* Channel logo / icon */}
         <div
-          className={`h-12 w-12 flex-shrink-0 overflow-hidden rounded flex items-center justify-center ${
+          className={`h-12 w-12 shrink-0 overflow-hidden rounded flex items-center justify-center ${
             isLive ? 'bg-destructive/20' : 'bg-muted'
           }`}
         >
@@ -272,11 +320,25 @@ function ChannelItem({
                 : 'Awaiting broadcast...'
               : currentProgramme || 'Now playing...'}
           </p>
+          {/* Progress bar and time remaining for ErsatzTV channels */}
+          {!isLive && programme && (
+            <div className="mt-1.5 flex items-center gap-2">
+              <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-primary/60 transition-all duration-300"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+              <span className="shrink-0 text-[10px] text-muted-foreground">
+                {timeRemaining}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Playing indicator */}
         {isSelected && (
-          <div className="flex-shrink-0">
+          <div className="shrink-0">
             <span
               className={`inline-flex h-3 w-3 animate-pulse rounded-full ${
                 isLive ? 'bg-destructive' : 'bg-primary'
