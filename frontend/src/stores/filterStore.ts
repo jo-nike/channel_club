@@ -36,6 +36,11 @@ export const FILTER_REGISTRY: FilterDefinition[] = [
     name: 'Grindhouse',
     description: 'Damaged film: scratches, burns, splices',
   },
+  {
+    id: 'sports-hd',
+    name: 'Sports HD',
+    description: 'Enhanced clarity for fast-action sports',
+  },
 ]
 
 interface FilterState {

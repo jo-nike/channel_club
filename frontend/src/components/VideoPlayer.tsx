@@ -13,6 +13,7 @@ import { RetroTVFilter } from '@/components/filters/RetroTVFilter'
 import { FilmGrainFilter } from '@/components/filters/FilmGrainFilter'
 import { NoirFilter } from '@/components/filters/NoirFilter'
 import { GrindhouseFilter } from '@/components/filters/GrindhouseFilter'
+import { SportsHDFilter } from '@/components/filters/SportsHDFilter'
 
 export function VideoPlayer() {
   const currentChannel = useChannelStore((s) => s.currentChannel)
@@ -66,6 +67,7 @@ function VideoPlayerInner({ channelId, streamUrl, channelName }: VideoPlayerInne
   const isFilmGrainActive = useFilterStore((s) => s.isFilterActive('film-grain'))
   const isNoirActive = useFilterStore((s) => s.isFilterActive('noir'))
   const isGrindhouseActive = useFilterStore((s) => s.isFilterActive('grindhouse'))
+  const isSportsHDActive = useFilterStore((s) => s.isFilterActive('sports-hd'))
 
   // Auto-hide controls with hover override
   const { isVisible, toggleControls } = useAutoHide({
@@ -281,6 +283,7 @@ function VideoPlayerInner({ channelId, streamUrl, channelName }: VideoPlayerInne
       <FilmGrainFilter isActive={isFilmGrainActive} />
       <NoirFilter isActive={isNoirActive} />
       <GrindhouseFilter isActive={isGrindhouseActive} />
+      <SportsHDFilter isActive={isSportsHDActive} />
 
       {/* Custom video controls */}
       <VideoControls

@@ -21,6 +21,7 @@ import { RetroTVFilter } from '@/components/filters/RetroTVFilter'
 import { FilmGrainFilter } from '@/components/filters/FilmGrainFilter'
 import { NoirFilter } from '@/components/filters/NoirFilter'
 import { GrindhouseFilter } from '@/components/filters/GrindhouseFilter'
+import { SportsHDFilter } from '@/components/filters/SportsHDFilter'
 import { useFilterStore } from '@/stores/filterStore'
 import { getErsatzTVStreamUrl } from '@/services/ersatztvApi'
 import type { UnifiedChannel } from '@/types'
@@ -175,6 +176,7 @@ function LiveVideoPlayer({
   const isFilmGrainActive = useFilterStore((s) => s.isFilterActive('film-grain'))
   const isNoirActive = useFilterStore((s) => s.isFilterActive('noir'))
   const isGrindhouseActive = useFilterStore((s) => s.isFilterActive('grindhouse'))
+  const isSportsHDActive = useFilterStore((s) => s.isFilterActive('sports-hd'))
 
   // Auto-hide controls
   const { isVisible, toggleControls } = useAutoHide({
@@ -353,6 +355,7 @@ function LiveVideoPlayer({
       <FilmGrainFilter isActive={isFilmGrainActive} />
       <NoirFilter isActive={isNoirActive} />
       <GrindhouseFilter isActive={isGrindhouseActive} />
+      <SportsHDFilter isActive={isSportsHDActive} />
 
       <VideoControls
         videoRef={videoRef}
@@ -443,6 +446,7 @@ function HLSVideoPlayerWrapper({
   const isFilmGrainActive = useFilterStore((s) => s.isFilterActive('film-grain'))
   const isNoirActive = useFilterStore((s) => s.isFilterActive('noir'))
   const isGrindhouseActive = useFilterStore((s) => s.isFilterActive('grindhouse'))
+  const isSportsHDActive = useFilterStore((s) => s.isFilterActive('sports-hd'))
 
   useOrientationFullscreen({ containerRef, enabled: true })
 
@@ -499,6 +503,7 @@ function HLSVideoPlayerWrapper({
       <FilmGrainFilter isActive={isFilmGrainActive} />
       <NoirFilter isActive={isNoirActive} />
       <GrindhouseFilter isActive={isGrindhouseActive} />
+      <SportsHDFilter isActive={isSportsHDActive} />
 
       {/* Channel switch overlay with static effect - during initial load */}
       <ChannelSwitchOverlay
