@@ -22,6 +22,7 @@ import { ChatToggleButton } from '@/components/ChatToggleButton'
 import { UserSettingsMenu } from '@/components/UserSettingsMenu'
 import { AdminModal } from '@/components/AdminModal'
 import { ConnectionStatus } from '@/components/ConnectionStatus'
+import { NHLScoresOverlay } from '@/components/NHLScoresOverlay'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import type { ErsatzTVProgramme, UnifiedChannel, ErsatzTVChannel } from '@/types'
@@ -71,6 +72,8 @@ export function TVView() {
   const isTheaterMode = useUIStore((s) => s.isTheaterMode)
   const setTheaterMode = useUIStore((s) => s.setTheaterMode)
   const toggleTheaterMode = useUIStore((s) => s.toggleTheaterMode)
+  const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
+  const toggleNHLOverlay = useUIStore((s) => s.toggleNHLOverlay)
 
   // Handle Escape key
   const handleEscape = useCallback(() => {
@@ -264,6 +267,36 @@ export function TVView() {
                 </TooltipContent>
               </Tooltip>
             )}
+            {/* NHL Scores button - desktop only */}
+            {!isMobile && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={toggleNHLOverlay}
+                    className={`
+                      h-8 w-8 flex items-center justify-center rounded-md
+                      focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2
+                      ${isNHLOverlayVisible ? 'bg-secondary text-secondary-foreground hover:bg-secondary/80' : 'bg-muted text-muted-foreground hover:bg-muted/80'}
+                    `}
+                    aria-pressed={isNHLOverlayVisible}
+                    aria-label={isNHLOverlayVisible ? 'Hide NHL Scores' : 'NHL Scores'}
+                  >
+                    <svg
+                      viewBox="0 0 105 150"
+                      className="h-4 w-4"
+                      fill="currentColor"
+                      aria-hidden="true"
+                    >
+                      <path d="M52.5 0C23.5 0 0 10 0 10v90c0 30 52.5 50 52.5 50S105 130 105 100V10S81.5 0 52.5 0z" />
+                      <text x="52.5" y="85" textAnchor="middle" fontSize="36" fontWeight="bold" fontFamily="Arial" fill="var(--background, #fff)">NHL</text>
+                    </svg>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{isNHLOverlayVisible ? 'Hide NHL Scores' : 'NHL Scores'}</p>
+                </TooltipContent>
+              </Tooltip>
+            )}
             {/* Admin button */}
             {isAdmin && (
               <button
@@ -333,6 +366,8 @@ export function TVView() {
                 onTheaterModeToggle={toggleTheaterMode}
               />
             </div>
+            {/* NHL Scores Overlay - positioned over video */}
+            <NHLScoresOverlay isVisible={isNHLOverlayVisible} />
           </div>
 
           {/* Resize handle - only on desktop when EPG visible, hidden in theater/landscape */}

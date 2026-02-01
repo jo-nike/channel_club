@@ -17,6 +17,7 @@ from app.routers.epg import router as epg_router
 from app.routers.ersatztv import router as ersatztv_router
 from app.routers.gif import router as gif_router
 from app.routers.highlight import router as highlight_router
+from app.routers.nhl import router as nhl_router
 from app.routers.websocket import router as websocket_router
 from app.services.cast import cast_service
 from app.services.highlight import highlight_service
@@ -97,6 +98,7 @@ app.include_router(admin_router, prefix="/api/admin")
 app.include_router(cast_router)
 app.include_router(gif_router)
 app.include_router(highlight_router)
+app.include_router(nhl_router)
 app.include_router(websocket_router)
 
 

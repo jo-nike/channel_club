@@ -33,6 +33,10 @@ interface UIState {
   // Volume persistence (shared across all players)
   volume: number
   setVolume: (value: number) => void
+  // NHL scores overlay (ephemeral - not persisted)
+  isNHLOverlayVisible: boolean
+  setNHLOverlayVisible: (value: boolean) => void
+  toggleNHLOverlay: () => void
 }
 
 export const useUIStore = create<UIState>()(
@@ -69,6 +73,10 @@ export const useUIStore = create<UIState>()(
       // Volume persistence (shared across all players)
       volume: 1,
       setVolume: (value) => set({ volume: Math.max(0, Math.min(1, value)) }),
+      // NHL scores overlay (ephemeral - not persisted)
+      isNHLOverlayVisible: false,
+      setNHLOverlayVisible: (value) => set({ isNHLOverlayVisible: value }),
+      toggleNHLOverlay: () => set((s) => ({ isNHLOverlayVisible: !s.isNHLOverlayVisible })),
     }),
     {
       name: 'ui-storage',
