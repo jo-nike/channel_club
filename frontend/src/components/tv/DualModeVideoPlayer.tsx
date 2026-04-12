@@ -15,7 +15,6 @@ import { useTVMode } from '@/hooks/useTVMode'
 import { useVideoKeyboardShortcuts } from '@/hooks/useVideoKeyboardShortcuts'
 import { useOrientationFullscreen } from '@/hooks/useOrientationFullscreen'
 import { useHLSRetry } from '@/hooks/useHLSRetry'
-import { ChannelSwitchOverlay } from '@/components/ChannelSwitchOverlay'
 import { ProjectorBeamLoader } from '@/components/ProjectorBeamLoader'
 import { RetroTVFilter } from '@/components/filters/RetroTVFilter'
 import { FilmGrainFilter } from '@/components/filters/FilmGrainFilter'
@@ -156,8 +155,6 @@ function LiveVideoPlayer({
   const playerRef = useRef<mpegts.Player | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isBuffering, setIsBuffering] = useState(false)
-  const [isChangingChannel, setIsChangingChannel] = useState(true)
-
   // Video state
   const [isPlaying, setIsPlaying] = useState(false)
   const [volume, setVolume] = useState(() => {
@@ -306,7 +303,6 @@ function LiveVideoPlayer({
     const handleWaiting = () => setIsBuffering(true)
     const handlePlaying = () => {
       setIsBuffering(false)
-      setIsChangingChannel(false)
       setError(null)
       setIsPlaying(true)
     }
@@ -380,14 +376,7 @@ function LiveVideoPlayer({
         onMouseLeave={() => setIsHoveringControls(false)}
       />
 
-      <ChannelSwitchOverlay
-        channelName={channelName}
-        channelNumber={channelNumber}
-        isVisible={isChangingChannel}
-        isError={!!error}
-      />
-
-      {isBuffering && !isChangingChannel && <ProjectorBeamLoader />}
+      {isBuffering && <ProjectorBeamLoader />}
 
       {!isMpegtsSupported && <ErrorOverlay message="MPEG-TS playback not supported" />}
       {error && isMpegtsSupported && <ErrorOverlay message={error} />}
@@ -421,7 +410,6 @@ function HLSVideoPlayerWrapper({
   const playerRef = useRef<MediaPlayerInstance>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [isBuffering, setIsBuffering] = useState(true)
-  const [isChangingChannel, setIsChangingChannel] = useState(true)
 
   // Get initial volume synchronously from localStorage (shared with other players)
   const [initialVolume] = useState(() => getInitialVolume())
@@ -452,7 +440,6 @@ function HLSVideoPlayerWrapper({
 
   const onPlaying = useCallback(() => {
     setIsBuffering(false)
-    setIsChangingChannel(false)
     handlePlaying()
   }, [handlePlaying])
 
@@ -505,15 +492,8 @@ function HLSVideoPlayerWrapper({
       <GrindhouseFilter isActive={isGrindhouseActive} />
       <SportsHDFilter isActive={isSportsHDActive} />
 
-      {/* Channel switch overlay with static effect - during initial load */}
-      <ChannelSwitchOverlay
-        channelName={title || 'Channel'}
-        channelNumber={channelNumber}
-        isVisible={isChangingChannel}
-      />
-
-      {/* Buffering overlay - during playback (only show when not changing channel) */}
-      {(isBuffering || status === 'retrying') && !isChangingChannel && (
+      {/* Buffering overlay */}
+      {(isBuffering || status === 'retrying') && (
         <ProjectorBeamLoader
           text={status === 'retrying' ? `Stream starting... (${retryCount + 1}/5)` : undefined}
         />

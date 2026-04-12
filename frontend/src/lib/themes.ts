@@ -287,7 +287,7 @@ export const themes: Record<ThemeId, Theme> = {
  * Get theme by ID
  */
 export function getTheme(id: ThemeId): Theme {
-  return themes[id]
+  return themes[id] ?? themes[DEFAULT_THEME_ID]
 }
 
 /**

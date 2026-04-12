@@ -7,7 +7,6 @@ import { VideoControls } from '@/components/VideoControls'
 import { useAutoHide } from '@/hooks/useAutoHide'
 import { useVideoKeyboardShortcuts } from '@/hooks/useVideoKeyboardShortcuts'
 import { useOrientationFullscreen } from '@/hooks/useOrientationFullscreen'
-import { ChannelSwitchOverlay } from '@/components/ChannelSwitchOverlay'
 import { ProjectorBeamLoader } from '@/components/ProjectorBeamLoader'
 import { RetroTVFilter } from '@/components/filters/RetroTVFilter'
 import { FilmGrainFilter } from '@/components/filters/FilmGrainFilter'
@@ -46,8 +45,6 @@ function VideoPlayerInner({ channelId, streamUrl, channelName }: VideoPlayerInne
   const playerRef = useRef<mpegts.Player | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isBuffering, setIsBuffering] = useState(false)
-  const [isChangingChannel, setIsChangingChannel] = useState(true)
-
   // Video state
   const [isPlaying, setIsPlaying] = useState(false)
   const volume = useUIStore((s) => s.volume)
@@ -230,7 +227,6 @@ function VideoPlayerInner({ channelId, streamUrl, channelName }: VideoPlayerInne
     const handleWaiting = () => setIsBuffering(true)
     const handlePlaying = () => {
       setIsBuffering(false)
-      setIsChangingChannel(false)
       setError(null)
       setIsPlaying(true)
     }
@@ -306,16 +302,8 @@ function VideoPlayerInner({ channelId, streamUrl, channelName }: VideoPlayerInne
         onMouseLeave={() => setIsHoveringControls(false)}
       />
 
-      {/* Channel switch overlay - during initial load or error */}
-      <ChannelSwitchOverlay
-        channelName={channelName}
-        channelNumber={channelId.slice(0, 3).toUpperCase()}
-        isVisible={isChangingChannel}
-        isError={!!error}
-      />
-
-      {/* Buffering overlay - during playback (only show when not changing channel) */}
-      <BufferingOverlay isVisible={isBuffering && !isChangingChannel} />
+      {/* Buffering overlay */}
+      <BufferingOverlay isVisible={isBuffering} />
 
       {/* Error overlay on top of player */}
       {!isMpegtsSupported && <ErrorOverlay message="MPEG-TS playback not supported in this browser" />}
