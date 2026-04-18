@@ -45,7 +45,7 @@ export function AdminModal({ open, onOpenChange }: AdminModalProps) {
   const renderTabContent = () => {
     switch (activeTab) {
       case 'channels':
-        return <ChannelList onChannelSelected={() => onOpenChange(false)} />
+        return <ChannelList />
       case 'active-users':
         return <ActiveUsersTab />
       case 'user-access':

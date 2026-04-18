@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -20,6 +21,10 @@ from app.routers.highlight import router as highlight_router
 from app.routers.nhl import router as nhl_router
 from app.routers.websocket import router as websocket_router
 from app.services.cast import cast_service
+from app.services.dispatcharr import (
+    DispatchrrUnavailableError,
+    get_grouped_channels,
+)
 from app.services.highlight import highlight_service
 
 
@@ -64,6 +69,20 @@ async def lifespan(app: FastAPI):
         # Start background task to clean up idle sessions
         cast_service.start_idle_cleanup_task()
     validate_auth_configuration()
+
+    # Warm the channel groups cache in the background so the first admin
+    # modal open doesn't block on a cold Dispatcharr fetch.
+    async def _warm_channels_cache() -> None:
+        try:
+            await get_grouped_channels()
+            logger.info("Channel groups cache warmed")
+        except DispatchrrUnavailableError as e:
+            logger.warning("Channel cache warmup skipped: {}", str(e))
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Channel cache warmup failed: {}", str(e))
+
+    asyncio.create_task(_warm_channels_cache())
+
     yield
     # Shutdown
     logger.info("IPTV Viewer API shutting down")

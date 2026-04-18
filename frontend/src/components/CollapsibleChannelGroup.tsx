@@ -23,19 +23,29 @@ export const CollapsibleChannelGroup = forwardRef<CollapsibleChannelGroupHandle,
     ref
   ) {
     const [isOpen, setIsOpen] = useState(forceOpen)
+    const [hasOpened, setHasOpened] = useState(forceOpen)
 
     // Expose setOpen method to parent
     useImperativeHandle(ref, () => ({
-      setOpen: (open: boolean) => setIsOpen(open),
+      setOpen: (open: boolean) => {
+        setIsOpen(open)
+        if (open) setHasOpened(true)
+      },
     }))
 
     // Update open state when forceOpen changes (for search filtering)
     if (forceOpen && !isOpen) {
       setIsOpen(true)
+      setHasOpened(true)
+    }
+
+    const handleOpenChange = (open: boolean) => {
+      setIsOpen(open)
+      if (open) setHasOpened(true)
     }
 
     return (
-      <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+      <Collapsible open={isOpen} onOpenChange={handleOpenChange}>
         <CollapsibleTrigger
           className={cn(
             'flex items-center justify-between w-full p-3 rounded-lg transition-colors',
@@ -57,7 +67,7 @@ export const CollapsibleChannelGroup = forwardRef<CollapsibleChannelGroupHandle,
           </Badge>
         </CollapsibleTrigger>
         <CollapsibleContent className="pl-6 space-y-1">
-          {group.channels.map((channel) => (
+          {hasOpened && group.channels.map((channel) => (
             <ChannelGroupItem
               key={channel.id}
               channel={channel}

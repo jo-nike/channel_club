@@ -1,5 +1,8 @@
 """Dispatcharr API client service."""
 
+import asyncio
+import time
+
 import httpx
 from loguru import logger
 
@@ -18,6 +21,30 @@ log = logger.bind(service="dispatcharr")
 
 # Cache for Dispatcharr JWT token
 _dispatcharr_token: str | None = None
+
+# In-memory cache for grouped channels response.
+# Dispatcharr's /api/channels/channels/ can be slow with large lineups; cache
+# the assembled response for a short TTL so repeat opens of the admin modal
+# are instant. A single in-flight lock prevents thundering herd on expiry.
+_GROUPED_CACHE_TTL_SECONDS = 300
+_grouped_cache: GroupedChannelsResponse | None = None
+_grouped_cache_expires_at: float = 0.0
+_grouped_cache_lock: asyncio.Lock | None = None
+
+
+def _get_grouped_cache_lock() -> asyncio.Lock:
+    global _grouped_cache_lock
+    if _grouped_cache_lock is None:
+        _grouped_cache_lock = asyncio.Lock()
+    return _grouped_cache_lock
+
+
+def invalidate_grouped_channels_cache() -> None:
+    """Invalidate the grouped channels cache (e.g., on admin refresh)."""
+    global _grouped_cache, _grouped_cache_expires_at
+    _grouped_cache = None
+    _grouped_cache_expires_at = 0.0
+    log.debug("Grouped channels cache invalidated")
 
 
 class DispatchrrUnavailableError(Exception):
@@ -204,7 +231,8 @@ async def get_grouped_channels() -> GroupedChannelsResponse:
     """Fetch channels organized by groups.
 
     Combines channel groups and channels into a structured response
-    where channels are nested under their respective groups.
+    where channels are nested under their respective groups. Result is
+    cached in-memory for _GROUPED_CACHE_TTL_SECONDS.
 
     Returns:
         GroupedChannelsResponse with groups and ungrouped channels.
@@ -212,9 +240,30 @@ async def get_grouped_channels() -> GroupedChannelsResponse:
     Raises:
         DispatchrrUnavailableError: If Dispatcharr is unreachable.
     """
-    # Fetch groups and channels in parallel
-    groups = await get_channel_groups()
-    channels = await get_channels_with_groups()
+    global _grouped_cache, _grouped_cache_expires_at
+
+    now = time.monotonic()
+    if _grouped_cache is not None and now < _grouped_cache_expires_at:
+        log.debug("Returning grouped channels from cache")
+        return _grouped_cache
+
+    async with _get_grouped_cache_lock():
+        # Re-check after acquiring the lock (another request may have refreshed)
+        now = time.monotonic()
+        if _grouped_cache is not None and now < _grouped_cache_expires_at:
+            return _grouped_cache
+
+        result = await _build_grouped_channels()
+        _grouped_cache = result
+        _grouped_cache_expires_at = time.monotonic() + _GROUPED_CACHE_TTL_SECONDS
+        return result
+
+
+async def _build_grouped_channels() -> GroupedChannelsResponse:
+    # Fetch groups and channels concurrently
+    groups, channels = await asyncio.gather(
+        get_channel_groups(), get_channels_with_groups()
+    )
 
     # Create a map of group_id -> group data with empty channel lists
     groups_map: dict[int, ChannelGroupWithChannels] = {}
