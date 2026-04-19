@@ -204,6 +204,67 @@ class TestTransformGame:
 
         assert result.outcome_type == "OT"
 
+    def test_transform_game_with_broadcasts(self) -> None:
+        """Transform game extracts tvBroadcasts and dedupes duplicates."""
+        api_game = {
+            "id": 2024020130,
+            "gameState": "FUT",
+            "homeTeam": {
+                "name": {"default": "Carolina Hurricanes"},
+                "abbrev": "CAR",
+                "score": None,
+                "logo": "https://assets.nhle.com/logos/nhl/svg/CAR_light.svg",
+            },
+            "awayTeam": {
+                "name": {"default": "Ottawa Senators"},
+                "abbrev": "OTT",
+                "score": None,
+                "logo": "https://assets.nhle.com/logos/nhl/svg/OTT_light.svg",
+            },
+            "startTimeUTC": "2026-04-18T23:00:00Z",
+            "gameCenterLink": "/gamecenter/ott-vs-car/2026/04/18/2024020130",
+            "tvBroadcasts": [
+                {"id": 309, "market": "N", "countryCode": "US", "network": "ESPN"},
+                {"id": 282, "market": "N", "countryCode": "CA", "network": "SN"},
+                # Duplicate network (same network, market, country) — should be dropped
+                {"id": 999, "market": "N", "countryCode": "CA", "network": "SN"},
+                {"id": 561, "market": "H", "countryCode": "US", "network": "FDSNSO"},
+            ],
+        }
+
+        result = _transform_game(api_game)
+
+        assert len(result.broadcasts) == 3
+        networks = [(b.network, b.market, b.country_code) for b in result.broadcasts]
+        assert ("ESPN", "N", "US") in networks
+        assert ("SN", "N", "CA") in networks
+        assert ("FDSNSO", "H", "US") in networks
+
+    def test_transform_game_without_broadcasts(self) -> None:
+        """Games with no tvBroadcasts field yield empty broadcasts list."""
+        api_game = {
+            "id": 2024020131,
+            "gameState": "FUT",
+            "homeTeam": {
+                "name": {"default": "Home"},
+                "abbrev": "HOM",
+                "score": None,
+                "logo": "https://assets.nhle.com/logos/nhl/svg/HOM_light.svg",
+            },
+            "awayTeam": {
+                "name": {"default": "Away"},
+                "abbrev": "AWY",
+                "score": None,
+                "logo": "https://assets.nhle.com/logos/nhl/svg/AWY_light.svg",
+            },
+            "startTimeUTC": "2026-04-18T23:00:00Z",
+            "gameCenterLink": "",
+        }
+
+        result = _transform_game(api_game)
+
+        assert result.broadcasts == []
+
     def test_transform_game_with_situation(self) -> None:
         """Transform game with power play situation."""
         api_game = {

@@ -145,7 +145,6 @@ function LiveVideoPlayer({
   channelId,
   streamUrl,
   channelName,
-  channelNumber,
   isTheaterMode,
   isMobile,
   onTheaterModeToggle,
@@ -400,7 +399,6 @@ interface HLSVideoPlayerWrapperProps {
 
 function HLSVideoPlayerWrapper({
   channelId,
-  channelNumber,
   streamUrl,
   title,
   isTheaterMode,

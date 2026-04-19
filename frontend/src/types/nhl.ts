@@ -19,6 +19,16 @@ export interface NHLSituation {
 /** Game status type. */
 export type GameStatus = 'scheduled' | 'live' | 'final'
 
+/** Broadcast market: National, Home-regional, Away-regional. */
+export type BroadcastMarket = 'N' | 'H' | 'A'
+
+/** TV broadcast carrying an NHL game. */
+export interface NHLBroadcast {
+  network: string
+  market: BroadcastMarket
+  countryCode: string
+}
+
 /** NHL game information with teams, status, and live details. */
 export interface NHLGame {
   id: number
@@ -35,6 +45,8 @@ export interface NHLGame {
   outcomeType?: string
   /** Situation (optional, power play info). */
   situation?: NHLSituation
+  /** TV broadcasts carrying the game (national + regional). */
+  broadcasts: NHLBroadcast[]
 }
 
 /** Response model for NHL scores endpoint. */

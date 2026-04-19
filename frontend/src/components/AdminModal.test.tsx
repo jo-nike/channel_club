@@ -127,8 +127,8 @@ describe('AdminModal', () => {
       render(<AdminModal {...defaultProps} />)
 
       const tabs = screen.getAllByRole('tab')
-      expect(tabs).toHaveLength(6)
-      expect(tabs.map(t => t.textContent)).toEqual(['Channels', 'Active Users', 'User Access', 'Chat', 'Plugins', 'Status'])
+      expect(tabs).toHaveLength(7)
+      expect(tabs.map(t => t.textContent)).toEqual(['Channels', 'Active Users', 'User Access', 'Chat', 'NHL', 'Plugins', 'Status'])
     })
   })
 
@@ -188,7 +188,7 @@ describe('AdminModal', () => {
       render(<AdminModal {...defaultProps} />)
 
       const tabs = screen.getAllByRole('tab')
-      expect(tabs.length).toBe(6)
+      expect(tabs.length).toBe(7)
 
       // Each tab should have aria-selected attribute
       tabs.forEach(tab => {
@@ -274,7 +274,7 @@ describe('AdminModal', () => {
       expect(screen.queryByRole('button', { name: /clear channel/i })).not.toBeInTheDocument()
     })
 
-    it('closes modal when channel is selected (AC #2)', async () => {
+    it('keeps modal open on channel select', async () => {
       const onOpenChange = vi.fn()
       vi.mocked(api.setCurrentChannel).mockResolvedValue(mockChannels[0])
 
@@ -288,12 +288,16 @@ describe('AdminModal', () => {
       fireEvent.click(screen.getByText('Sports'))
       fireEvent.click(screen.getByText('Channel 1'))
 
+      // Allow any pending async state updates to settle
       await waitFor(() => {
-        expect(onOpenChange).toHaveBeenCalledWith(false)
+        expect(vi.mocked(api.setCurrentChannel)).toHaveBeenCalled()
       })
+
+      // Modal should remain open: onOpenChange must not be called with false
+      expect(onOpenChange).not.toHaveBeenCalledWith(false)
     })
 
-    it('closes modal when Clear Channel is clicked (AC #3)', async () => {
+    it('keeps modal open on clear', async () => {
       const onOpenChange = vi.fn()
       useChannelStore.setState({ currentChannel: mockChannels[0] })
       vi.mocked(api.clearCurrentChannel).mockResolvedValue(undefined)
@@ -306,9 +310,13 @@ describe('AdminModal', () => {
 
       fireEvent.click(screen.getByRole('button', { name: /clear channel/i }))
 
+      // Allow any pending async state updates to settle
       await waitFor(() => {
-        expect(onOpenChange).toHaveBeenCalledWith(false)
+        expect(vi.mocked(api.clearCurrentChannel)).toHaveBeenCalled()
       })
+
+      // Modal should remain open: onOpenChange must not be called with false
+      expect(onOpenChange).not.toHaveBeenCalledWith(false)
     })
 
     it('calls clearCurrentChannel API when Clear Channel is clicked (AC #3)', async () => {

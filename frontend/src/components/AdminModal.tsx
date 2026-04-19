@@ -8,11 +8,12 @@ import {
 import { ChannelList } from '@/components/ChannelList'
 import { ActiveUsersTab } from '@/components/admin/ActiveUsersTab'
 import { ChatTab } from '@/components/admin/ChatTab'
+import { NHLGamesTab } from '@/components/admin/NHLGamesTab'
 import { PlaceholderTab } from '@/components/admin/PlaceholderTab'
 import { StatusTab } from '@/components/admin/StatusTab'
 import { cn } from '@/lib/utils'
 
-type TabType = 'channels' | 'active-users' | 'user-access' | 'chat' | 'plugins' | 'status'
+type TabType = 'channels' | 'active-users' | 'user-access' | 'chat' | 'nhl' | 'plugins' | 'status'
 
 interface AdminModalProps {
   open: boolean
@@ -24,6 +25,7 @@ const tabs: { id: TabType; label: string }[] = [
   { id: 'active-users', label: 'Active Users' },
   { id: 'user-access', label: 'User Access' },
   { id: 'chat', label: 'Chat' },
+  { id: 'nhl', label: 'NHL' },
   { id: 'plugins', label: 'Plugins' },
   { id: 'status', label: 'Status' },
 ]
@@ -58,6 +60,8 @@ export function AdminModal({ open, onOpenChange }: AdminModalProps) {
         )
       case 'chat':
         return <ChatTab />
+      case 'nhl':
+        return <NHLGamesTab />
       case 'plugins':
         return (
           <PlaceholderTab

@@ -39,7 +39,7 @@ interface VideoPlayerInnerProps {
   channelName: string
 }
 
-function VideoPlayerInner({ channelId, streamUrl, channelName }: VideoPlayerInnerProps) {
+function VideoPlayerInner({ channelId, streamUrl }: VideoPlayerInnerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const playerRef = useRef<mpegts.Player | null>(null)

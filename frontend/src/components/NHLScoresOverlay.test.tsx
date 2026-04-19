@@ -401,7 +401,7 @@ describe('NHLScoresOverlay', () => {
     render(<NHLScoresOverlay isVisible={true} />)
 
     // Click on the content (NHL heading)
-    const heading = screen.getByText('NHL')
+    const heading = screen.getByRole('heading', { name: 'NHL' })
     fireEvent.click(heading)
 
     expect(mockToggleNHLOverlay).not.toHaveBeenCalled()
@@ -425,7 +425,7 @@ describe('NHLScoresOverlay', () => {
     expect(dialog).toHaveAttribute('aria-modal', 'true')
     expect(dialog).toHaveAttribute('aria-labelledby', 'nhl-scores-title')
 
-    const title = screen.getByText('NHL')
+    const title = screen.getByRole('heading', { name: 'NHL' })
     expect(title).toHaveAttribute('id', 'nhl-scores-title')
   })
 })

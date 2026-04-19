@@ -6,7 +6,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.models.nhl import NHLGame, NHLScoresResponse, NHLTeam
+from app.models.nhl import NHLBroadcast, NHLGame, NHLScoresResponse, NHLTeam
 from app.routers.nhl import router
 from app.services.nhl import NHLApiError, NHLConnectionError
 
@@ -72,6 +72,50 @@ class TestGetScoresEndpoint:
         assert len(data["games"]) == 1
         assert data["games"][0]["status"] == "live"
         assert data["games"][0]["homeTeam"]["abbreviation"] == "BOS"
+
+    def test_get_scores_includes_broadcasts(self, client: TestClient) -> None:
+        """Broadcasts are serialized with camelCase aliases."""
+        mock_response = NHLScoresResponse(
+            games=[
+                NHLGame(
+                    id=1,
+                    status="scheduled",
+                    home_team=NHLTeam(
+                        name="Carolina Hurricanes",
+                        abbreviation="CAR",
+                        score=0,
+                        logo="x",
+                        logo_dark="x",
+                    ),
+                    away_team=NHLTeam(
+                        name="Ottawa Senators",
+                        abbreviation="OTT",
+                        score=0,
+                        logo="x",
+                        logo_dark="x",
+                    ),
+                    start_time="2026-04-18T23:00:00Z",
+                    game_center_link="",
+                    broadcasts=[
+                        NHLBroadcast(network="ESPN", market="N", country_code="US"),
+                        NHLBroadcast(network="SN", market="N", country_code="CA"),
+                    ],
+                ),
+            ],
+            date="2026-04-18",
+            live_game_count=0,
+        )
+
+        with patch("app.routers.nhl.get_nhl_scores", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = mock_response
+            response = client.get("/api/nhl/scores")
+
+        assert response.status_code == 200
+        broadcasts = response.json()["games"][0]["broadcasts"]
+        assert broadcasts == [
+            {"network": "ESPN", "market": "N", "countryCode": "US"},
+            {"network": "SN", "market": "N", "countryCode": "CA"},
+        ]
 
     def test_get_scores_with_date_parameter(self, client: TestClient) -> None:
         """Passes date parameter to service."""

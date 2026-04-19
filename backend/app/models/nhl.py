@@ -15,6 +15,16 @@ class NHLTeam(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class NHLBroadcast(BaseModel):
+    """NHL game broadcast (TV network carrying the game)."""
+
+    network: str  # e.g. "ESPN", "SN", "TVAS", "FDSNSO"
+    market: str  # "N" (national) | "H" (home regional) | "A" (away regional)
+    country_code: str = Field(alias="countryCode")  # "US" | "CA"
+
+    model_config = {"populate_by_name": True}
+
+
 class NHLSituation(BaseModel):
     """NHL game situation (power play, penalty, etc.)."""
 
@@ -44,6 +54,8 @@ class NHLGame(BaseModel):
     outcome_type: str | None = Field(alias="outcomeType", default=None)
     # Situation (optional, power play info)
     situation: NHLSituation | None = None
+    # TV broadcasts carrying the game (national + regional)
+    broadcasts: list[NHLBroadcast] = Field(default_factory=list)
 
     model_config = {"populate_by_name": True}
 

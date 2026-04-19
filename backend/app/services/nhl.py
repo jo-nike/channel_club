@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 import httpx
 from loguru import logger
 
-from app.models.nhl import NHLGame, NHLScoresResponse, NHLSituation, NHLTeam
+from app.models.nhl import NHLBroadcast, NHLGame, NHLScoresResponse, NHLSituation, NHLTeam
 
 # Module-level logger with service context
 log = logger.bind(service="nhl")
@@ -177,6 +177,24 @@ def _transform_game(api_game: dict[str, Any]) -> NHLGame:
         last_period_type = game_outcome.get("lastPeriodType")
         if last_period_type and last_period_type != "REG":
             game.outcome_type = last_period_type
+
+    # Add TV broadcasts (dedupe by (network, market, countryCode) — the API
+    # occasionally lists the same network twice with different sequenceNumbers)
+    broadcasts_data = api_game.get("tvBroadcasts") or []
+    seen: set[tuple[str, str, str]] = set()
+    for b in broadcasts_data:
+        network = b.get("network")
+        if not network:
+            continue
+        market = b.get("market", "")
+        country = b.get("countryCode", "")
+        key = (network, market, country)
+        if key in seen:
+            continue
+        seen.add(key)
+        game.broadcasts.append(
+            NHLBroadcast(network=network, market=market, country_code=country)
+        )
 
     # Add situation (power play, etc.)
     situation_data = api_game.get("situation")
