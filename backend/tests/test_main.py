@@ -71,6 +71,50 @@ class TestValidateAuthConfiguration:
             mock_settings.viewer_password = None
             validate_auth_configuration()
 
+    def test_refuses_to_start_on_default_jwt_secret(self) -> None:
+        """The source-public dev secret lets anyone forge an admin token."""
+        from app.main import validate_auth_configuration
+
+        with patch("app.main.settings") as mock_settings:
+            mock_settings.jwt_secret = "dev-secret-change-in-production"
+            with pytest.raises(RuntimeError, match="known-public"):
+                validate_auth_configuration()
+
+    def test_refuses_to_start_on_env_example_jwt_secret(self) -> None:
+        """The .env.example placeholder is equally public in git."""
+        from app.main import validate_auth_configuration
+
+        with patch("app.main.settings") as mock_settings:
+            mock_settings.jwt_secret = "your-secret-key-change-me"
+            with pytest.raises(RuntimeError, match="known-public"):
+                validate_auth_configuration()
+
+    def test_public_jwt_secret_rejected_even_with_auth_disabled(self) -> None:
+        """verify_token runs regardless of the login flags, so the guard is not
+        gated on them: a forged default-secret token would authenticate even
+        with local and Plex auth both off."""
+        from app.main import validate_auth_configuration
+
+        with patch("app.main.settings") as mock_settings:
+            mock_settings.jwt_secret = "dev-secret-change-in-production"
+            mock_settings.local_auth_enabled = False
+            mock_settings.plex_auth_enabled = False
+            with pytest.raises(RuntimeError, match="known-public"):
+                validate_auth_configuration()
+
+    def test_starts_on_strong_jwt_secret(self) -> None:
+        """A non-placeholder secret passes the guard."""
+        from app.main import validate_auth_configuration
+
+        with patch("app.main.settings") as mock_settings:
+            mock_settings.jwt_secret = "9f8c2b1a" * 8  # 64 hex chars, not public
+            mock_settings.plex_auth_enabled = False
+            mock_settings.plex_server_machine_id = None
+            mock_settings.local_auth_enabled = True
+            mock_settings.admin_password = "set"
+            mock_settings.viewer_password = None
+            validate_auth_configuration()
+
 
 def test_health_check(client):
     """Test health check endpoint."""
