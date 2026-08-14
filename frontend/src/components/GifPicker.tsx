@@ -29,16 +29,15 @@ export function GifPicker({ onSelect, onClose }: GifPickerProps) {
   const loadMoreRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const gridRef = useRef<HTMLDivElement>(null)
+  const requestIdRef = useRef(0)
 
-  // Load trending on mount
+  // Focus input after render
   useEffect(() => {
-    loadTrending()
-    // Focus input after render
     setTimeout(() => inputRef.current?.focus(), 100)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Search when debounced query changes
+  // Search when debounced query changes (also handles the initial trending load,
+  // since debouncedQuery starts out as '')
   useEffect(() => {
     if (debouncedQuery) {
       search(debouncedQuery, 0)
@@ -73,26 +72,36 @@ export function GifPicker({ onSelect, onClose }: GifPickerProps) {
   }, [loading, loadingMore, hasMore, debouncedQuery, offset])
 
   const loadTrending = useCallback(async () => {
+    const requestId = ++requestIdRef.current
     setLoading(true)
     setError(null)
     setQuery('')
 
     try {
       const data = await fetchTrending(PAGE_SIZE)
+      if (requestId !== requestIdRef.current) return // superseded by a newer request
       setGifs(data.gifs)
       setOffset(0)
       setHasMore(false) // Trending doesn't support pagination
       logger.debug('GIF', `Loaded ${data.gifs.length} trending GIFs`)
     } catch (err) {
+      if (requestId !== requestIdRef.current) return
       const message = err instanceof Error ? err.message : 'Failed to load GIFs'
       setError(message)
       logger.error('GIF', `Failed to load trending: ${message}`)
     } finally {
-      setLoading(false)
+      // Clear both flags: a superseded load-more (loadingMore=true) can be
+      // replaced by this trending load, and only clearing `loading` would leak
+      // loadingMore=true forever, wedging the infinite-scroll sentinel.
+      if (requestId === requestIdRef.current) {
+        setLoading(false)
+        setLoadingMore(false)
+      }
     }
   }, [])
 
   const search = useCallback(async (q: string, off: number) => {
+    const requestId = ++requestIdRef.current
     if (off === 0) {
       setLoading(true)
       setGifs([])
@@ -103,6 +112,7 @@ export function GifPicker({ onSelect, onClose }: GifPickerProps) {
 
     try {
       const data = await searchGifs(q, off, PAGE_SIZE)
+      if (requestId !== requestIdRef.current) return // superseded by a newer request
       if (off === 0) {
         setGifs(data.gifs)
       } else {
@@ -113,12 +123,15 @@ export function GifPicker({ onSelect, onClose }: GifPickerProps) {
       setHasMore(data.gifs.length === PAGE_SIZE)
       logger.debug('GIF', `Search "${q}" returned ${data.gifs.length} GIFs (offset=${off})`)
     } catch (err) {
+      if (requestId !== requestIdRef.current) return
       const message = err instanceof Error ? err.message : 'Search failed'
       setError(message)
       logger.error('GIF', `Search failed: ${message}`)
     } finally {
-      setLoading(false)
-      setLoadingMore(false)
+      if (requestId === requestIdRef.current) {
+        setLoading(false)
+        setLoadingMore(false)
+      }
     }
   }, [])
 

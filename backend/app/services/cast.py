@@ -147,7 +147,8 @@ class CastSession:
                         return f"/api/cast/hls/{self.session_id}/playlist.m3u8"
 
                 log.error("FFmpeg did not create playlist for session {}", self.session_id)
-                await self.stop()
+                # Already holding the lock - use the lock-free variant
+                await self._stop_locked()
                 return None
 
             except FileNotFoundError:
@@ -157,41 +158,49 @@ class CastSession:
                 log.error("Failed to start FFmpeg for cast session {}: {}", self.session_id, e)
                 return None
 
+    @staticmethod
+    def _terminate_process(process: subprocess.Popen) -> None:
+        """Terminate an FFmpeg process group (blocking - run via asyncio.to_thread)."""
+        try:
+            # Send SIGTERM to process group
+            os.killpg(os.getpgid(process.pid), 15)  # SIGTERM
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                os.killpg(os.getpgid(process.pid), 9)  # SIGKILL
+                process.wait()
+        except ProcessLookupError:
+            pass  # Process already dead
+        except Exception as e:
+            log.warning("Error stopping FFmpeg process: {}", e)
+
+    async def _stop_locked(self) -> None:
+        """Stop FFmpeg transcoding and cleanup files. Caller must hold self._lock."""
+        if self.process:
+            log.info(
+                "Stopping FFmpeg for cast session {} (PID: {})",
+                self.session_id,
+                self.process.pid,
+            )
+            process = self.process
+            self.process = None
+            # Killing and reaping FFmpeg blocks for up to 5s - keep it off the event loop
+            await asyncio.to_thread(self._terminate_process, process)
+
+        # Cleanup output directory
+        if self.output_dir and self.output_dir.exists():
+            try:
+                shutil.rmtree(self.output_dir)
+                log.debug("Cleaned up HLS directory for session {}", self.session_id)
+            except Exception as e:
+                log.warning("Failed to cleanup HLS files for session {}: {}", self.session_id, e)
+            finally:
+                self.output_dir = None
+
     async def stop(self) -> None:
         """Stop FFmpeg transcoding and cleanup files."""
         async with self._lock:
-            if self.process:
-                log.info(
-                    "Stopping FFmpeg for cast session {} (PID: {})",
-                    self.session_id,
-                    self.process.pid,
-                )
-                try:
-                    # Send SIGTERM to process group
-                    os.killpg(os.getpgid(self.process.pid), 15)  # SIGTERM
-                    try:
-                        self.process.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        os.killpg(os.getpgid(self.process.pid), 9)  # SIGKILL
-                        self.process.wait()
-                except ProcessLookupError:
-                    pass  # Process already dead
-                except Exception as e:
-                    log.warning("Error stopping FFmpeg process: {}", e)
-                finally:
-                    self.process = None
-
-            # Cleanup output directory
-            if self.output_dir and self.output_dir.exists():
-                try:
-                    shutil.rmtree(self.output_dir)
-                    log.debug("Cleaned up HLS directory for session {}", self.session_id)
-                except Exception as e:
-                    log.warning(
-                        "Failed to cleanup HLS files for session {}: {}", self.session_id, e
-                    )
-                finally:
-                    self.output_dir = None
+            await self._stop_locked()
 
     def get_file_path(self, filename: str) -> Path | None:
         """Get path to an HLS file (playlist or segment).
@@ -343,22 +352,28 @@ class CastService:
             return None
 
         session_id = str(uuid.uuid4())
+        session = CastSession(session_id, channel_id, stream_url, stream_type)
+
+        # Only track sessions that need transcoding. Registered before start() so
+        # shutdown/stop can still reach an FFmpeg process that is coming up.
+        if stream_type == "mpegts":
+            async with self._lock:
+                self._sessions[session_id] = session
+
+        # Never hold the service lock across start() - it can take up to 10s and
+        # would block stop_session/stop_all/idle cleanup for the duration.
+        hls_url = await session.start()
+
+        if hls_url:
+            return {
+                "session_id": session_id,
+                "hls_url": hls_url,
+                "needs_transcoding": stream_type == "mpegts",
+            }
 
         async with self._lock:
-            session = CastSession(session_id, channel_id, stream_url, stream_type)
-            hls_url = await session.start()
-
-            if hls_url:
-                # Only track sessions that need transcoding
-                if stream_type == "mpegts":
-                    self._sessions[session_id] = session
-                return {
-                    "session_id": session_id,
-                    "hls_url": hls_url,
-                    "needs_transcoding": stream_type == "mpegts",
-                }
-
-            return None
+            self._sessions.pop(session_id, None)
+        return None
 
     async def stop_session(self, session_id: str) -> bool:
         """Stop a cast session and cleanup resources.
@@ -370,21 +385,25 @@ class CastService:
             True if session was found and stopped, False otherwise.
         """
         async with self._lock:
-            if session_id in self._sessions:
-                await self._sessions[session_id].stop()
-                del self._sessions[session_id]
-                log.info("Cast session {} stopped", session_id)
-                return True
-            return False
+            session = self._sessions.pop(session_id, None)
+
+        # Stop outside the service lock - session.stop() waits on FFmpeg
+        if session:
+            await session.stop()
+            log.info("Cast session {} stopped", session_id)
+            return True
+        return False
 
     async def stop_all(self) -> None:
         """Stop all sessions (for shutdown)."""
         self.stop_idle_cleanup_task()
         async with self._lock:
-            for session in self._sessions.values():
-                await session.stop()
+            sessions = list(self._sessions.values())
             self._sessions.clear()
-            log.info("All cast sessions stopped")
+
+        for session in sessions:
+            await session.stop()
+        log.info("All cast sessions stopped")
 
     def get_session(self, session_id: str) -> CastSession | None:
         """Get a session by ID."""

@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from io import StringIO
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from loguru import logger
@@ -322,9 +323,11 @@ class TestGetStream:
         ):
             mock_response = MagicMock()
             mock_response.text = manifest
+            mock_response.is_redirect = False
             mock_response.raise_for_status = MagicMock()
             mock_client = AsyncMock()
-            mock_client.get.return_value = mock_response
+            mock_client.build_request = MagicMock(return_value=MagicMock())
+            mock_client.send = AsyncMock(return_value=mock_response)
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
             mock_client_cls.return_value = mock_client
@@ -373,9 +376,11 @@ class TestGetStream:
         ):
             mock_response = MagicMock()
             mock_response.text = manifest
+            mock_response.is_redirect = False
             mock_response.raise_for_status = MagicMock()
             mock_client = AsyncMock()
-            mock_client.get.return_value = mock_response
+            mock_client.build_request = MagicMock(return_value=MagicMock())
+            mock_client.send = AsyncMock(return_value=mock_response)
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
             mock_client_cls.return_value = mock_client
@@ -401,9 +406,11 @@ class TestGetStream:
             mock_rewrite.return_value = "#EXTM3U\n/api/ersatztv/segments/encoded"
             mock_response = MagicMock()
             mock_response.text = manifest
+            mock_response.is_redirect = False
             mock_response.raise_for_status = MagicMock()
             mock_client = AsyncMock()
-            mock_client.get.return_value = mock_response
+            mock_client.build_request = MagicMock(return_value=MagicMock())
+            mock_client.send = AsyncMock(return_value=mock_response)
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
             mock_client_cls.return_value = mock_client
@@ -488,13 +495,19 @@ class TestGetSegment:
             patch("app.routers.ersatztv.httpx.AsyncClient") as mock_client_cls,
         ):
             mock_response = MagicMock()
-            mock_response.content = segment_content
+            mock_response.is_redirect = False
             mock_response.headers = {"content-type": "video/mp2t"}
             mock_response.raise_for_status = MagicMock()
+
+            async def aiter_bytes():
+                yield segment_content
+
+            mock_response.aiter_bytes = aiter_bytes
+            mock_response.aclose = AsyncMock()
             mock_client = AsyncMock()
-            mock_client.get.return_value = mock_response
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
+            mock_client.build_request = MagicMock(return_value=MagicMock())
+            mock_client.send = AsyncMock(return_value=mock_response)
+            mock_client.aclose = AsyncMock()
             mock_client_cls.return_value = mock_client
 
             response = client.get(f"/api/ersatztv/segments/{encoded_url}", headers=auth_header)
@@ -529,13 +542,19 @@ class TestGetSegment:
             patch("app.routers.ersatztv.httpx.AsyncClient") as mock_client_cls,
         ):
             mock_response = MagicMock()
-            mock_response.content = segment_content
+            mock_response.is_redirect = False
             mock_response.headers = {"content-type": "video/mp2t"}
             mock_response.raise_for_status = MagicMock()
+
+            async def aiter_bytes():
+                yield segment_content
+
+            mock_response.aiter_bytes = aiter_bytes
+            mock_response.aclose = AsyncMock()
             mock_client = AsyncMock()
-            mock_client.get.return_value = mock_response
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
+            mock_client.build_request = MagicMock(return_value=MagicMock())
+            mock_client.send = AsyncMock(return_value=mock_response)
+            mock_client.aclose = AsyncMock()
             mock_client_cls.return_value = mock_client
 
             # Use token as query param instead of header
@@ -543,6 +562,83 @@ class TestGetSegment:
 
         assert response.status_code == 200
         assert response.content == segment_content
+
+    def test_rejects_off_host_redirect(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """An off-host redirect hop is never fetched and the request fails."""
+        # Encodes http://192.168.50.108:8409/segment.ts
+        encoded_url = "aHR0cDovLzE5Mi4xNjguNTAuMTA4Ojg0MDkvc2VnbWVudC50cw"
+
+        with (
+            patch(
+                "app.routers.ersatztv.decode_url",
+                return_value="http://192.168.50.108:8409/segment.ts",
+            ),
+            patch("app.routers.ersatztv.httpx.AsyncClient") as mock_client_cls,
+        ):
+            # Upstream tries to bounce us to the cloud metadata endpoint.
+            redirect_response = MagicMock()
+            redirect_response.is_redirect = True
+            redirect_response.headers = {"location": "http://169.254.169.254/latest/meta-data/"}
+            redirect_response.url = httpx.URL("http://192.168.50.108:8409/segment.ts")
+            redirect_response.aclose = AsyncMock()
+
+            requested_urls: list[str] = []
+
+            def build_request(method: str, url: str) -> MagicMock:
+                request = MagicMock()
+                request.url = url
+                return request
+
+            async def send(request: MagicMock, stream: bool = False) -> MagicMock:
+                requested_urls.append(str(request.url))
+                return redirect_response
+
+            mock_client = AsyncMock()
+            mock_client.build_request = MagicMock(side_effect=build_request)
+            mock_client.send = AsyncMock(side_effect=send)
+            mock_client.aclose = AsyncMock()
+            mock_client_cls.return_value = mock_client
+
+            response = client.get(f"/api/ersatztv/segments/{encoded_url}", headers=auth_header)
+
+        assert response.status_code in (400, 503)
+        # The metadata host must never have been contacted.
+        assert all("169.254.169.254" not in url for url in requested_urls)
+
+    def test_rejects_oversized_content_length(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """A Content-Length above the cap fails with 502 before streaming starts."""
+        # Encodes http://192.168.50.108:8409/segment.ts
+        encoded_url = "aHR0cDovLzE5Mi4xNjguNTAuMTA4Ojg0MDkvc2VnbWVudC50cw"
+
+        with (
+            patch(
+                "app.routers.ersatztv.decode_url",
+                return_value="http://192.168.50.108:8409/segment.ts",
+            ),
+            patch("app.routers.ersatztv.httpx.AsyncClient") as mock_client_cls,
+        ):
+            mock_response = MagicMock()
+            mock_response.is_redirect = False
+            mock_response.headers = {
+                "content-type": "video/mp2t",
+                "content-length": str(64 * 1024 * 1024 + 1),
+            }
+            mock_response.raise_for_status = MagicMock()
+            mock_response.aclose = AsyncMock()
+            mock_client = AsyncMock()
+            mock_client.build_request = MagicMock(return_value=MagicMock())
+            mock_client.send = AsyncMock(return_value=mock_response)
+            mock_client.aclose = AsyncMock()
+            mock_client_cls.return_value = mock_client
+
+            response = client.get(f"/api/ersatztv/segments/{encoded_url}", headers=auth_header)
+
+        assert response.status_code == 502
+        assert response.json()["detail"] == "Segment too large"
 
 
 class TestGetLogo:
@@ -675,9 +771,11 @@ class TestErsatzTVLogging:
             ):
                 mock_response = MagicMock()
                 mock_response.text = "#EXTM3U"
+                mock_response.is_redirect = False
                 mock_response.raise_for_status = MagicMock()
                 mock_client = AsyncMock()
-                mock_client.get.return_value = mock_response
+                mock_client.build_request = MagicMock(return_value=MagicMock())
+                mock_client.send = AsyncMock(return_value=mock_response)
                 mock_client.__aenter__.return_value = mock_client
                 mock_client.__aexit__.return_value = None
                 mock_client_cls.return_value = mock_client

@@ -7,6 +7,7 @@ Provides endpoints for:
 - Checking cast feature status
 """
 
+import asyncio
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path
@@ -35,7 +36,6 @@ class CreateSessionRequest(BaseModel):
 
     channel_id: str
     stream_type: Literal["hls", "mpegts"]
-    stream_url: str | None = None  # Optional - will be resolved if not provided
 
 
 class CastSessionResponse(BaseModel):
@@ -82,15 +82,21 @@ async def create_cast_session(
             detail="Cast feature is disabled",
         )
 
-    # Resolve stream URL if not provided
-    stream_url = request.stream_url
+    # Always resolve server-side - a client-supplied URL would let any authenticated
+    # user point the server's FFmpeg at an arbitrary host (SSRF). get_stream_url
+    # does a blocking M3U fetch (up to 30s) on a cold cache and can raise, so run
+    # it off the event loop and turn a failure into a clean 404 rather than a 500
+    # that also stalls every other request.
+    try:
+        stream_url = await asyncio.to_thread(get_stream_url, request.channel_id)
+    except Exception as e:  # noqa: BLE001
+        log.warning("Failed to resolve stream URL for channel {}: {}", request.channel_id, e)
+        stream_url = None
     if not stream_url:
-        stream_url = get_stream_url(request.channel_id)
-        if not stream_url:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Could not resolve stream URL for channel {request.channel_id}",
-            )
+        raise HTTPException(
+            status_code=404,
+            detail=f"Could not resolve stream URL for channel {request.channel_id}",
+        )
 
     result = await cast_service.create_session(
         channel_id=request.channel_id,

@@ -53,6 +53,8 @@ export function HighlightModal({
   useEffect(() => {
     if (!isOpen || !channelId) return
 
+    let cancelled = false
+
     const fetchHighlight = async () => {
       setIsLoading(true)
       setError(null)
@@ -61,13 +63,16 @@ export function HighlightModal({
         // First get buffer status for toast message later
         try {
           const status = await getHighlightStatus(channelId)
-          setBufferSeconds(status.bufferSeconds)
+          if (!cancelled) setBufferSeconds(status.bufferSeconds)
         } catch {
           // Status is informational, continue even if it fails
         }
 
+        if (cancelled) return
+
         // Fetch the highlight video
         const blob = await saveHighlight(channelId)
+        if (cancelled) return
         blobRef.current = blob
         const url = URL.createObjectURL(blob)
         setHighlightBlobUrl(url)
@@ -75,15 +80,20 @@ export function HighlightModal({
         // Duck background video volume
         onVolumeChange?.(0.2)
       } catch (err) {
+        if (cancelled) return
         const message = err instanceof Error ? err.message : 'Failed to load highlight'
         setError(message)
         toast.error('Failed to load highlight', { description: message })
       } finally {
-        setIsLoading(false)
+        if (!cancelled) setIsLoading(false)
       }
     }
 
     fetchHighlight()
+
+    return () => {
+      cancelled = true
+    }
   }, [isOpen, channelId, onVolumeChange])
 
   // Cleanup blob URL when modal closes

@@ -8,7 +8,7 @@ Story: 7.5 - HLS Proxy Service
 
 import asyncio
 import base64
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 from loguru import logger
@@ -18,6 +18,86 @@ from app.services.ersatztv.epg_service import get_channel_by_id
 
 # Module-level logger with service context
 log = logger.bind(service="ersatztv")
+
+# Only these schemes may be proxied, and their implicit ports
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def is_ersatztv_url(url: str) -> bool:
+    """Check that a URL points at the configured ErsatzTV server.
+
+    A prefix check is not enough: "http://host:port@evil.example.com/x" starts
+    with the configured base URL but resolves to evil.example.com, because
+    "host:port" is parsed as userinfo. This compares the parsed scheme, host and
+    port instead, and rejects any URL carrying a userinfo component.
+
+    Args:
+        url: Absolute URL to validate
+
+    Returns:
+        True if the URL targets the configured ErsatzTV server
+    """
+    try:
+        target = urlsplit(url)
+        base = urlsplit(settings.ersatztv_base_url)
+
+        # Userinfo makes the real host ambiguous - never proxy it
+        if target.username or target.password:
+            return False
+        if target.scheme not in _DEFAULT_PORTS or target.scheme != base.scheme:
+            return False
+        if not target.hostname or target.hostname != base.hostname:
+            return False
+
+        target_port = target.port or _DEFAULT_PORTS[target.scheme]
+        base_port = base.port or _DEFAULT_PORTS[base.scheme]
+    except ValueError:
+        # Malformed netloc (bad port, unbalanced IPv6 brackets, ...)
+        return False
+
+    return target_port == base_port
+
+
+async def fetch_ersatztv(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    stream: bool = False,
+    max_redirects: int = 5,
+) -> httpx.Response:
+    """GET ``url``, following redirects only while every hop stays on ErsatzTV.
+
+    The client MUST be created with ``follow_redirects=False``. httpx's own
+    redirect following would connect to whatever a hop points at, reopening the
+    SSRF that :func:`is_ersatztv_url` closes. This validates every hop before
+    connecting to it.
+
+    Args:
+        client: httpx client created with ``follow_redirects=False``
+        url: Absolute URL to fetch; validated against the ErsatzTV allowlist
+        stream: If True, return with the response body still open (the caller
+            owns closing it)
+        max_redirects: Maximum number of on-host redirect hops to follow
+
+    Returns:
+        The final, non-redirect response.
+
+    Raises:
+        ValueError: If a hop leaves the ErsatzTV host or the redirect limit is
+            exceeded.
+    """
+    for _ in range(max_redirects + 1):
+        if not is_ersatztv_url(url):
+            raise ValueError(f"URL is not from ErsatzTV: {url}")
+        response = await client.send(client.build_request("GET", url), stream=stream)
+        if response.is_redirect and "location" in response.headers:
+            location = str(response.url.join(response.headers["location"]))
+            if stream:
+                await response.aclose()
+            url = location
+            continue
+        return response
+    raise ValueError(f"Too many redirects for {url}")
 
 
 class HLSManifestRewriter:
@@ -186,7 +266,7 @@ async def get_stream_manifest(channel_id: str) -> str:
     stream_url = channel.stream_url
 
     # Validate URL is from ErsatzTV
-    if not stream_url.startswith(settings.ersatztv_base_url):
+    if not is_ersatztv_url(stream_url):
         raise ValueError(f"Stream URL is not from ErsatzTV: {stream_url}")
 
     # Fetch manifest with retry for cold stream startup
@@ -237,7 +317,7 @@ async def get_segment(encoded_url: str) -> tuple[bytes, str]:
     segment_url = decode_url(encoded_url)
 
     # Validate URL is from ErsatzTV
-    if not segment_url.startswith(settings.ersatztv_base_url):
+    if not is_ersatztv_url(segment_url):
         raise ValueError(f"Segment URL is not from ErsatzTV: {segment_url}")
 
     async with httpx.AsyncClient(follow_redirects=True) as client:

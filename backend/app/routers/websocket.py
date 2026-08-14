@@ -14,9 +14,33 @@ from app.services.auth import verify_token
 router = APIRouter()
 log = logger.bind(router="websocket")
 
-# Store nicknames per client_id (in-memory, cleared on disconnect)
-_nickname_map: dict[str, str] = {}
+# Store nicknames per client_id as (owning websocket, nickname) pairs
+# (in-memory, cleared on disconnect). The websocket is kept so an old
+# connection's cleanup cannot clobber a nickname set by a newer one.
+_nickname_map: dict[str, tuple[WebSocket, str]] = {}
 MAX_NICKNAME_LENGTH = 30
+
+
+def _clear_nickname(client_id: str, websocket: WebSocket) -> None:
+    """Remove a client's nickname, but only if this WebSocket still owns it.
+
+    Mirrors the identity guard in presence.remove_user: on a view switch the
+    new connection sets its nickname before the old connection's cleanup runs.
+
+    Args:
+        client_id: The client (session) ID whose nickname should be removed.
+        websocket: The WebSocket requesting the removal.
+    """
+    entry = _nickname_map.get(client_id)
+    if entry is None:
+        return
+    if entry[0] is not websocket:
+        log.debug(
+            "Ignoring nickname clear for client {} - WebSocket mismatch (view switch)",
+            client_id,
+        )
+        return
+    _nickname_map.pop(client_id, None)
 
 
 async def verify_websocket_token(token: str) -> dict | None:
@@ -54,7 +78,11 @@ async def websocket_endpoint(
     # Session ID allows same-tab view switches to replace old presence entry
     client_id = session_id if session_id else str(uuid4())[:8]
 
-    # Validate token before accepting connection
+    # Accept before validating: closing a WebSocket before the handshake
+    # completes is turned into a plain HTTP 403, so the client would see 1006
+    # instead of the 4001 auth-failure code it acts on.
+    await websocket.accept()
+
     payload = await verify_websocket_token(token)
     if not payload:
         log.warning("WebSocket auth failed for client {}", client_id)
@@ -63,7 +91,7 @@ async def websocket_endpoint(
 
     log.info("WebSocket connected: client {} (user={})", client_id, payload.get("sub"))
 
-    # Accept connection and track it
+    # Track the accepted connection
     await channel_state.connect(websocket)
 
     # Track user presence
@@ -113,8 +141,8 @@ async def websocket_endpoint(
         # Pass websocket to avoid race condition on view switch
         presence.remove_user(client_id, websocket)
         channel_state.disconnect(websocket)
-        # Clean up nickname
-        _nickname_map.pop(client_id, None)
+        # Clean up nickname (same websocket-identity guard as presence)
+        _clear_nickname(client_id, websocket)
 
 
 async def handle_client_message(
@@ -150,11 +178,11 @@ async def handle_client_message(
         # Handle nickname setting for chat display name
         nickname = message.get("nickname", "").strip()[:MAX_NICKNAME_LENGTH]
         if nickname:
-            _nickname_map[client_id] = nickname
+            _nickname_map[client_id] = (websocket, nickname)
             log.debug("Nickname set for client {}: {}", client_id, nickname)
         else:
             # Empty nickname - remove from map (fall back to auth username)
-            _nickname_map.pop(client_id, None)
+            _clear_nickname(client_id, websocket)
             log.debug("Nickname cleared for client {}", client_id)
 
     elif msg_type == "chat_message":
@@ -165,7 +193,8 @@ async def handle_client_message(
 
         content = message.get("content", "")
         # Use nickname if set, otherwise fall back to auth username
-        display_name = _nickname_map.get(client_id, username)
+        nickname_entry = _nickname_map.get(client_id)
+        display_name = nickname_entry[1] if nickname_entry else username
         chat_msg = chat.add_message(display_name, content)
 
         if chat_msg:

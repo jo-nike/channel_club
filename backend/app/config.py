@@ -2,6 +2,24 @@ from functools import cached_property
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Placeholder signing key for local development. It is public in the source, so
+# validate_auth_configuration() refuses to start on it — otherwise anyone can
+# forge an admin JWT.
+DEFAULT_JWT_SECRET = "dev-secret-change-in-production"
+
+# Signing keys that are published somewhere public (this source, the committed
+# .env.example onboarding template, ...) and therefore give no security at all.
+# validate_auth_configuration() refuses to start on any of them. Add new
+# placeholders here whenever an example/template ships a guessable value.
+KNOWN_PUBLIC_JWT_SECRETS = frozenset(
+    {
+        DEFAULT_JWT_SECRET,
+        "your-secret-key-change-me",  # shipped in .env.example
+        "changeme",
+        "secret",
+    }
+)
+
 
 class Settings(BaseSettings):
     port: int = 8001
@@ -12,7 +30,7 @@ class Settings(BaseSettings):
 
     dispatcharr_url: str = "http://10.8.0.2:9191"
     stream_base_url: str = "https://streams.domain.com"
-    jwt_secret: str = "dev-secret-change-in-production"
+    jwt_secret: str = DEFAULT_JWT_SECRET
 
     # Logging Configuration
     log_level: str = "INFO"  # DEBUG, INFO, WARNING, ERROR

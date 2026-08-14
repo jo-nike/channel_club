@@ -17,6 +17,8 @@ interface TVState {
   // Live channel EPG data (for Channel 0)
   liveEPG: EPGResponse | null
   liveEPGLoading: boolean
+  // Monotonic id used to discard out-of-order loadLiveEPG responses (internal)
+  epgRequestId: number
 
   // Actions
   selectChannel: (channel: UnifiedChannel) => void
@@ -45,6 +47,7 @@ export const useTVStore = create<TVState>()(
     selectedChannel: null,
     liveEPG: null,
     liveEPGLoading: false,
+    epgRequestId: 0,
 
     selectChannel: (channel: UnifiedChannel) => {
       logger.debug('TVStore', `Selected channel: ${channel.name} (${channel.type})`)
@@ -66,16 +69,38 @@ export const useTVStore = create<TVState>()(
 
     loadLiveEPG: async () => {
       const liveChannel = useChannelStore.getState().currentChannel
+      const requestId = get().epgRequestId + 1
+      set({ epgRequestId: requestId })
+
       if (!liveChannel?.guideId) {
         set({ liveEPG: null, liveEPGLoading: false })
         return
       }
 
+      const guideId = liveChannel.guideId
       set({ liveEPGLoading: true })
+
+      // A response is stale if a newer loadLiveEPG has started (epgRequestId
+      // moved on, which also orders two in-flight requests for the same guideId)
+      // or the live channel changed while this request was in flight.
+      const isStale = () =>
+        get().epgRequestId !== requestId ||
+        useChannelStore.getState().currentChannel?.guideId !== guideId
+
       try {
-        const epg = await fetchNowPlaying(liveChannel.guideId)
+        const epg = await fetchNowPlaying(guideId)
+        if (isStale()) {
+          // Don't clobber fresher EPG. Only clear the loading flag if no newer
+          // request owns it, otherwise that request clears it when it lands.
+          if (get().epgRequestId === requestId) set({ liveEPGLoading: false })
+          return
+        }
         set({ liveEPG: epg, liveEPGLoading: false })
       } catch {
+        if (isStale()) {
+          if (get().epgRequestId === requestId) set({ liveEPGLoading: false })
+          return
+        }
         set({ liveEPG: null, liveEPGLoading: false })
       }
     },

@@ -1,5 +1,5 @@
 import asyncio
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
-from app.config import settings
+from app.config import KNOWN_PUBLIC_JWT_SECRETS, settings
 from app.logging_config import configure_logging
 from app.routers.admin import router as admin_router
 from app.routers.auth import router as auth_router
@@ -33,8 +33,22 @@ def validate_auth_configuration() -> None:
     """Validate authentication configuration on startup.
 
     Raises:
-        RuntimeError: If Plex auth is enabled without a server machine ID.
+        RuntimeError: If Plex auth is enabled without a server machine ID, or if
+            an auth method is enabled while JWTs are signed with the dev secret.
     """
+    # These signing keys are published (this source, the .env.example template),
+    # so anyone can forge a token — including {"role": "admin"}. This is NOT
+    # gated on an auth method being enabled: verify_token/get_current_user run on
+    # every protected request regardless of the login flags, so a forged
+    # default-secret token authenticates even with local/Plex auth turned off.
+    # Refuse to start on any known-public secret, full stop.
+    if settings.jwt_secret in KNOWN_PUBLIC_JWT_SECRETS:
+        raise RuntimeError(
+            "JWT_SECRET is a known-public placeholder value. It is published in "
+            "the source or .env.example, so anyone can forge an admin token. Set "
+            "JWT_SECRET to a strong random value (e.g. `openssl rand -hex 32`)."
+        )
+
     # Refuse to start rather than serve an open door. check_server_access()
     # returns True when plex_server_machine_id is unset, so without it ANY
     # valid Plex account on the internet authenticates and is issued a JWT
@@ -106,11 +120,19 @@ async def lifespan(app: FastAPI):
         except Exception as e:  # noqa: BLE001
             logger.warning("Channel cache warmup failed: {}", str(e))
 
-    asyncio.create_task(_warm_channels_cache())
+    # The event loop only holds a weak reference to a running task, so keep a
+    # strong one for the app's lifetime — otherwise the warmup can be collected
+    # mid-fetch and the cache silently stays cold.
+    app.state.warmup_task = asyncio.create_task(_warm_channels_cache())
 
     yield
     # Shutdown
     logger.info("IPTV Viewer API shutting down")
+    # Cancel the warmup if a restart lands mid-fetch, rather than tearing the
+    # loop down with a pending task.
+    app.state.warmup_task.cancel()
+    with suppress(asyncio.CancelledError):
+        await app.state.warmup_task
     # Stop idle cleanup task and all highlight recorders
     highlight_service.stop_idle_cleanup_task()
     await highlight_service.stop_all()
@@ -159,6 +181,9 @@ async def health_check() -> dict[str, str]:
 static_path = Path(__file__).parent.parent / "static"
 
 if static_path.exists():
+    # Symlink-resolved root the SPA catch-all confines every request to
+    static_root = static_path.resolve()
+
     # Mount assets directory for JS, CSS, and other static files
     assets_path = static_path / "assets"
     if assets_path.exists():
@@ -173,9 +198,18 @@ if static_path.exists():
     # This must be defined AFTER all other routes
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str) -> FileResponse:
-        # Check if requesting a static file that exists
-        file_path = static_path / full_path
-        if file_path.exists() and file_path.is_file():
-            return FileResponse(file_path)
+        # uvicorn percent-decodes the request path without normalising "..", so
+        # a request for /%2e%2e%2f%2e%2e%2fetc%2fpasswd arrives here verbatim.
+        # Resolve the join and serve it only if it stays inside the static root,
+        # otherwise the catch-all hands out any file the process can read.
+        # resolve()/is_file() touch the filesystem, so a percent-encoded NUL
+        # (/%00) or other malformed path raises ValueError/OSError — swallow it
+        # and fall back to the SPA rather than 500-ing with a traceback.
+        try:
+            file_path = (static_path / full_path).resolve()
+            if file_path.is_relative_to(static_root) and file_path.is_file():
+                return FileResponse(file_path)
+        except (ValueError, OSError):
+            pass
         # Otherwise return index.html for SPA routing
         return FileResponse(static_path / "index.html")

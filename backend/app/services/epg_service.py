@@ -1,5 +1,6 @@
 """EPG service for fetching and caching XMLTV data from Dispatcharr."""
 
+import asyncio
 from datetime import UTC, datetime, timedelta, timezone
 
 import httpx
@@ -27,6 +28,8 @@ class EPGService:
         self._cache: dict[str, list[Program]] = {}  # channel_id -> list of programs
         self._cache_expires: datetime | None = None
         self._cache_ttl = timedelta(hours=24)
+        # A single in-flight lock prevents thundering herd on expiry
+        self._refresh_lock = asyncio.Lock()
 
     def _is_cache_valid(self) -> bool:
         """Check if cache is still valid."""
@@ -137,7 +140,9 @@ class EPGService:
                 response = await client.get(url)
                 response.raise_for_status()
 
-                self._cache = self._parse_xmltv(response.text)
+                # Parse in a thread pool - ElementTree over the whole XMLTV
+                # feed is CPU-bound and would otherwise block the event loop
+                self._cache = await asyncio.to_thread(self._parse_xmltv, response.text)
                 self._cache_expires = datetime.now(UTC) + self._cache_ttl
 
                 total_programmes = sum(len(progs) for progs in self._cache.values())
@@ -167,13 +172,21 @@ class EPGService:
     async def _ensure_cache(self) -> None:
         """Refresh the cache if stale, falling back to stale data on failure.
 
+        The refresh is serialized behind a lock so that concurrent requests
+        hitting an expired cache share one XMLTV download and parse.
+
         Raises:
             EPGServiceError: If cache is empty and refresh fails.
         """
         if self._is_cache_valid():
             return
 
-        refresh_success = await self.refresh_cache()
+        async with self._refresh_lock:
+            # Re-check after acquiring the lock (another request may have refreshed)
+            if self._is_cache_valid():
+                return
+
+            refresh_success = await self.refresh_cache()
 
         if not refresh_success:
             # If refresh failed but we have stale cache, use it

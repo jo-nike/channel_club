@@ -9,6 +9,7 @@ import asyncio
 import json
 
 from fastapi import WebSocket
+from fastapi.websockets import WebSocketState
 from loguru import logger
 
 from app.config import settings
@@ -16,6 +17,10 @@ from app.models.channel import Channel
 
 # Module-level logger with service context
 log = logger.bind(service="channel")
+
+# Per-send timeout for broadcasts, so one stalled client cannot hang the
+# handlers that await broadcast() (chat, channel change, settings update)
+BROADCAST_SEND_TIMEOUT_SECONDS = 5.0
 
 # In-memory state - resets on restart (acceptable for MVP)
 _current_channel: Channel | None = None
@@ -103,12 +108,17 @@ async def clear_current_channel_async(user: str | None = None) -> None:
 
 
 async def connect(websocket: WebSocket) -> None:
-    """Accept and track a WebSocket connection.
+    """Accept (if not already accepted) and track a WebSocket connection.
+
+    Callers that need to send a custom close code on auth failure accept the
+    socket themselves first; accepting twice raises, so only accept here when
+    the handshake is still pending.
 
     Args:
         websocket: The WebSocket connection to accept and track.
     """
-    await websocket.accept()
+    if websocket.application_state == WebSocketState.CONNECTING:
+        await websocket.accept()
     _active_connections.add(websocket)
     log.debug("WebSocket connected, total connections: {}", len(_active_connections))
 
@@ -150,8 +160,16 @@ async def broadcast(message: dict) -> None:
 
     async def send_safe(ws: WebSocket) -> tuple[WebSocket, bool]:
         try:
-            await ws.send_text(message_text)
+            await asyncio.wait_for(
+                ws.send_text(message_text), timeout=BROADCAST_SEND_TIMEOUT_SECONDS
+            )
             return ws, True
+        except TimeoutError:
+            log.warning(
+                "Broadcast send timed out after {}s, dropping connection",
+                BROADCAST_SEND_TIMEOUT_SECONDS,
+            )
+            return ws, False
         except Exception:
             return ws, False
 
