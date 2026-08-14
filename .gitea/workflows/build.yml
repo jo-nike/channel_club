@@ -128,8 +128,10 @@ jobs:
       - name: Dependency scan (Trivy fs)
         run: trivy fs --scanners vuln,license --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --no-progress .trivy-scan
 
+      # node_modules is absent in this job (no npm ci here), but vendored
+      # Dockerfiles inside it would otherwise be scanned as if they were ours.
       - name: Misconfig scan (Trivy config)
-        run: trivy config --severity HIGH,CRITICAL --exit-code 1 .
+        run: trivy config --severity HIGH,CRITICAL --exit-code 1 --skip-dirs "**/node_modules" .
 
   release:
     needs: [test-backend, test-frontend, security]

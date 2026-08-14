@@ -1,0 +1,11 @@
+# Documented gitleaks suppressions. Each entry needs a date and a rationale.
+# Format: <commit>:<file>:<rule>:<startline>
+
+# 2026-08-14 — False positive. _bmad/_config/files-manifest.csv is a BMAD file
+# manifest whose last column is literally headed "hash": SHA-256 content digests
+# of documentation markdown files (bmm/testarch/knowledge/*.md). The
+# generic-api-key rule matches the 64-hex-char digests because they sit next to
+# filenames containing "api", "auth" and "email". They are not credentials.
+481624ccd30af15b0610736df5986a3cda962463:_bmad/_config/files-manifest.csv:generic-api-key:17
+481624ccd30af15b0610736df5986a3cda962463:_bmad/_config/files-manifest.csv:generic-api-key:20
+481624ccd30af15b0610736df5986a3cda962463:_bmad/_config/files-manifest.csv:generic-api-key:49

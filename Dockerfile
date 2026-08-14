@@ -64,8 +64,18 @@ COPY backend/app ./app
 # Copy frontend build artifacts to static directory
 COPY --from=frontend-build /app/frontend/dist ./static
 
+# Run as a non-root user (Trivy DS-0002). The highlight and cast features write
+# to their temp dirs, so create them up front owned by appuser rather than
+# relying on the app to mkdir them at runtime.
+RUN useradd --create-home --uid 10001 appuser \
+    && mkdir -p /tmp/highlights /tmp/cast_hls \
+    && chown -R appuser:appuser /app /tmp/highlights /tmp/cast_hls
+USER appuser
+
 # Expose port 8080
 EXPOSE 8080
 
-# Run uvicorn server
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
+# Invoke the venv's uvicorn directly rather than via `uv run`: uv would try to
+# re-resolve and write to the environment at startup, which a non-root user
+# cannot do.
+CMD ["/app/.venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
