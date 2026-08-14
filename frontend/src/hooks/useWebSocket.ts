@@ -12,7 +12,7 @@ import type { AppSettings, Channel, ChatMessage } from '@/types'
 
 interface WebSocketMessage {
   type: string
-  channel?: Channel
+  channel?: Channel | null
   currentChannel?: Channel | null
   settings?: AppSettings
   // Chat message fields
@@ -56,7 +56,9 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   const pingIntervalRef = useRef<number | null>(null)
   const reconnectTimeoutRef = useRef<number | null>(null)
   const retryCountRef = useRef(0)
-  const intentionalCloseRef = useRef(false)
+  // Tracked per socket instance - a shared flag would be reset by a new connect()
+  // before the previous socket's close event arrives
+  const intentionalClosesRef = useRef(new WeakSet<WebSocket>())
   const connectRef = useRef<((isReconnect?: boolean) => void) | null>(null)
   const notificationsEnabledRef = useRef(notificationsEnabled)
 
@@ -102,16 +104,15 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
 
         case 'channel_update':
           logger.debug('WebSocket', `Channel update: ${message.channel?.name || 'null'}`)
-          if (message.channel) {
-            setCurrentChannel(message.channel)
-            // Show notification toast if enabled
-            if (notificationsEnabledRef.current) {
-              const channelName = message.channel.name
-              toast(`Live channel set to: ${channelName}`, {
-                id: `channel-update-${message.channel.id}`,
-                duration: 5000,
-              })
-            }
+          // A null channel means the channel was cleared - propagate it too
+          setCurrentChannel(message.channel ?? null)
+          // Show notification toast if enabled
+          if (message.channel && notificationsEnabledRef.current) {
+            const channelName = message.channel.name
+            toast(`Live channel set to: ${channelName}`, {
+              id: `channel-update-${message.channel.id}`,
+              duration: 5000,
+            })
           }
           break
 
@@ -151,11 +152,14 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     (isReconnect = false) => {
       if (!token) return
 
-      // Close existing connection if any
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        intentionalCloseRef.current = true
-        wsRef.current.close()
+      // Close existing connection if any (a CONNECTING socket would otherwise be orphaned)
+      const existing = wsRef.current
+      if (existing && existing.readyState !== WebSocket.CLOSED) {
+        intentionalClosesRef.current.add(existing)
+        existing.close()
       }
+      // Drop the old socket's ping interval and any pending reconnect
+      clearTimers()
 
       logger.info('WebSocket', isReconnect ? 'Reconnecting...' : 'Connecting...')
       setStatus(isReconnect ? 'reconnecting' : 'connecting')
@@ -167,9 +171,11 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
 
       const ws = new WebSocket(wsUrl)
       wsRef.current = ws
-      intentionalCloseRef.current = false
 
       ws.onopen = () => {
+        // Ignore a socket that has already been superseded by a newer one
+        if (wsRef.current !== ws) return
+
         logger.info('WebSocket', 'Connected successfully')
         setStatus('connected')
         retryCountRef.current = 0
@@ -190,6 +196,9 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       }
 
       ws.onmessage = (event) => {
+        // Ignore a socket that has already been superseded by a newer one
+        if (wsRef.current !== ws) return
+
         try {
           const message: WebSocketMessage = JSON.parse(event.data)
           handleMessage(message)
@@ -207,20 +216,31 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       }
 
       ws.onclose = (event) => {
-        clearTimers()
-        wsRef.current = null
-
-        // Don't reconnect if intentionally closed (logout)
-        if (intentionalCloseRef.current) {
+        // Don't reconnect if intentionally closed (logout, or replaced by a new connection)
+        if (intentionalClosesRef.current.has(ws)) {
           logger.info('WebSocket', 'Disconnected (intentional)')
-          setStatus('disconnected')
+          if (wsRef.current === ws) {
+            clearTimers()
+            wsRef.current = null
+            setStatus('disconnected')
+          }
           return
         }
 
-        // Token expired - don't reconnect, redirect to login
+        // Ignore a socket that has already been superseded by a newer one
+        if (wsRef.current !== ws) {
+          logger.debug('WebSocket', `Ignoring close from stale socket (code: ${event.code})`)
+          return
+        }
+
+        clearTimers()
+        wsRef.current = null
+
+        // Token expired - don't reconnect, log out and redirect to login
         if (event.code === 4001) {
           logger.info('WebSocket', 'Disconnected (token expired)')
           setStatus('disconnected')
+          useAuthStore.getState().logout()
           return
         }
 
@@ -254,10 +274,11 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   }, [connect])
 
   const disconnect = useCallback(() => {
-    intentionalCloseRef.current = true
     clearTimers()
-    if (wsRef.current) {
-      wsRef.current.close()
+    const ws = wsRef.current
+    if (ws) {
+      intentionalClosesRef.current.add(ws)
+      ws.close()
       wsRef.current = null
     }
     setStatus('disconnected')
@@ -265,7 +286,6 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
 
   const reconnect = useCallback(() => {
     retryCountRef.current = 0
-    intentionalCloseRef.current = false
     connect(true)
   }, [connect])
 
