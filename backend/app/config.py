@@ -41,9 +41,10 @@ class Settings(BaseSettings):
     viewer_username: str = "viewer"
     viewer_password: str = "viewer"
 
-    # Dispatcharr Authentication (optional - for accessing stats endpoints)
-    dispatcharr_username: str | None = None
-    dispatcharr_password: str | None = None
+    # Dispatcharr Authentication (optional - for channel and stats endpoints).
+    # Personal API key from the Dispatcharr profile page (0.20.0+). Sent as
+    # "Authorization: ApiKey <key>"; does not expire.
+    dispatcharr_api_key: str | None = None
 
     # ErsatzTV Configuration
     ersatztv_m3u_url: str = "http://192.168.50.108:8409/iptv/channels.m3u"
