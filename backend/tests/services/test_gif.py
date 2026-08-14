@@ -1,12 +1,12 @@
 """Tests for GIF service."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 
-from app.services.gif import GifService, GifServiceError, gif_service
+from app.services.gif import GifService, GifServiceError
 
 
 @pytest.fixture
@@ -286,7 +286,11 @@ class TestNormalizeResponse:
                     "id": "gif2",
                     "title": "Has URL",
                     "images": {
-                        "original": {"url": "https://giphy.com/gif2.gif", "width": "100", "height": "100"}
+                        "original": {
+                            "url": "https://giphy.com/gif2.gif",
+                            "width": "100",
+                            "height": "100",
+                        }
                     },
                 },
             ],

@@ -6,6 +6,7 @@ Implements 5-minute TTL caching with timezone-aware UTC conversion.
 Story: 7.3 - XMLTV Parser Service
 """
 
+import contextlib
 from datetime import UTC, datetime, timedelta, timezone
 
 import httpx
@@ -158,15 +159,11 @@ def _parse_xmltv_content(content: str) -> list[Programme]:
                 if system == "xmltv_ns" and text:
                     parts = text.split(".")
                     if len(parts) >= 1 and parts[0].strip():
-                        try:
+                        with contextlib.suppress(ValueError):
                             season = int(parts[0].strip()) + 1
-                        except ValueError:
-                            pass
                     if len(parts) >= 2 and parts[1].strip():
-                        try:
+                        with contextlib.suppress(ValueError):
                             episode = int(parts[1].strip()) + 1
-                        except ValueError:
-                            pass
 
             # Parse release year
             date_elem = elem.find("date")

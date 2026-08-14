@@ -354,7 +354,8 @@ class ChannelRecorder:
             else:
                 output_file = self.segment_dir / "highlight.mp4"
                 # MP4 can use copy (no re-encoding)
-                # For copy mode, put seek after input (seeking before input with copy can be imprecise)
+                # For copy mode, put seek after input
+                # (seeking before input with copy can be imprecise)
                 cmd = [
                     "ffmpeg",
                     "-y",

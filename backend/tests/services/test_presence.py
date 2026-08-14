@@ -225,9 +225,9 @@ class TestGetActiveUsers:
         )
 
         result = presence.get_active_users()
-        result["new_key"] = "should not affect original"
+        del result["abc123"]
 
-        assert "new_key" not in presence._active_users
+        assert "abc123" in presence._active_users
 
     def test_returns_all_active_users(self) -> None:
         """Should return all tracked users."""

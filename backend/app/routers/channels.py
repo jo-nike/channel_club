@@ -4,7 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from loguru import logger
 
 from app.models.auth import TokenPayload
-from app.models.channel import Channel, CurrentChannelResponse, GroupedChannelsResponse, SetChannelRequest
+from app.models.channel import (
+    Channel,
+    CurrentChannelResponse,
+    GroupedChannelsResponse,
+    SetChannelRequest,
+)
 from app.routers.auth_deps import get_current_user, require_admin, require_channel_control
 from app.services import channel_state
 from app.services.dispatcharr import DispatchrrUnavailableError, get_grouped_channels, get_lineup

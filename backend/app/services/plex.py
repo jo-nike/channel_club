@@ -123,8 +123,9 @@ async def get_server_owner_id() -> str | None:
             return None
 
 
-# Allow tests to clear the cache
-get_server_owner_id.cache_clear = lambda: _server_owner_id_cache.clear()  # type: ignore[attr-defined]
+def clear_server_owner_id_cache() -> None:
+    """Clear the cached server owner id."""
+    _server_owner_id_cache.clear()
 
 
 async def determine_role(plex_user: PlexUser) -> str:

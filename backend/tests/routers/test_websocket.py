@@ -7,8 +7,8 @@ import pytest
 from fastapi.testclient import TestClient
 from loguru import logger
 
-from app.main import app
 from app.config import settings
+from app.main import app
 from app.routers import websocket as websocket_router
 from app.services import channel_state, chat, presence
 from app.services.auth import create_access_token
@@ -192,7 +192,11 @@ class TestChannelBroadcast:
     """Tests for channel update broadcasting."""
 
     def test_broadcast_when_channel_changes(
-        self, client: TestClient, valid_token: str, admin_token: str, monkeypatch: pytest.MonkeyPatch
+        self,
+        client: TestClient,
+        valid_token: str,
+        admin_token: str,
+        monkeypatch: pytest.MonkeyPatch,
     ):
         """Broadcast channel_update when admin sets channel via API."""
         monkeypatch.setattr(settings, "chat_enabled", False)
@@ -222,7 +226,11 @@ class TestChannelBroadcast:
             assert data["channel"]["guideId"] == "guide-123"
 
     def test_multiple_clients_receive_broadcast(
-        self, client: TestClient, valid_token: str, admin_token: str, monkeypatch: pytest.MonkeyPatch
+        self,
+        client: TestClient,
+        valid_token: str,
+        admin_token: str,
+        monkeypatch: pytest.MonkeyPatch,
     ):
         """All connected clients receive broadcast."""
         monkeypatch.setattr(settings, "chat_enabled", False)
@@ -644,7 +652,11 @@ class TestChatNickname:
             assert msg2["username"] == "PersistentNick"
 
     def test_different_users_have_different_nicknames(
-        self, client: TestClient, valid_token: str, admin_token: str, monkeypatch: pytest.MonkeyPatch
+        self,
+        client: TestClient,
+        valid_token: str,
+        admin_token: str,
+        monkeypatch: pytest.MonkeyPatch,
     ):
         """Each user can have their own nickname."""
         monkeypatch.setattr(settings, "chat_enabled", True)

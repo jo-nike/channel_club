@@ -1,10 +1,56 @@
-import { useState, useEffect, type RefObject } from 'react'
+import { useState, useEffect, useCallback, type RefObject } from 'react'
 import { SlidersHorizontal } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useFilterStore, FILTER_REGISTRY } from '@/stores/filterStore'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
+
+/** Filter toggle row. Declared at module scope so it keeps its identity across renders. */
+function FilterToggle({ filter }: { filter: (typeof FILTER_REGISTRY)[0] }) {
+  const { toggleFilter, isFilterActive } = useFilterStore()
+  const isActive = isFilterActive(filter.id)
+
+  return (
+    <button
+      type="button"
+      onClick={() => toggleFilter(filter.id)}
+      className={`flex w-full items-center justify-between rounded-lg p-3 transition-colors ${
+        isActive
+          ? 'bg-primary/20 hover:bg-primary/30'
+          : 'hover:bg-muted'
+      }`}
+      aria-pressed={isActive}
+    >
+      <div className="flex flex-col items-start gap-0.5">
+        <span className="font-medium">{filter.name}</span>
+        <span className="text-xs text-muted-foreground">{filter.description}</span>
+      </div>
+      <div
+        className={`h-6 w-11 rounded-full transition-colors ${
+          isActive ? 'bg-primary' : 'bg-muted-foreground/30'
+        } relative`}
+      >
+        <div
+          className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-transform ${
+            isActive ? 'translate-x-6' : 'translate-x-1'
+          }`}
+        />
+      </div>
+    </button>
+  )
+}
+
+/** Filter list content, shared between the Popover and Dialog layouts. */
+function FilterList() {
+  return (
+    <div className="flex flex-col gap-2">
+      {FILTER_REGISTRY.map((filter) => (
+        <FilterToggle key={filter.id} filter={filter} />
+      ))}
+    </div>
+  )
+}
 
 interface FilterMenuProps {
   /** Whether the control is visible (for tabIndex management) */
@@ -19,63 +65,37 @@ interface FilterMenuProps {
  */
 export function FilterMenu({ isVisible, containerRef }: FilterMenuProps) {
   const [isOpen, setIsOpen] = useState(false)
-  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [portalContainer, setPortalContainer] = useState<HTMLElement | undefined>(undefined)
   const isMobile = useMediaQuery('(max-width: 768px)')
-  const { activeFilters, toggleFilter, isFilterActive } = useFilterStore()
+  const activeFilters = useFilterStore((s) => s.activeFilters)
 
   const hasActiveFilters = activeFilters.length > 0
 
-  // Track fullscreen state to update portal container
+  // Where the menu portals to: the fullscreen element when we are in fullscreen,
+  // otherwise the player container. Neither is a render-time value, so this is
+  // only ever called from an event handler.
+  const resolvePortalContainer = useCallback(
+    () =>
+      (document.fullscreenElement as HTMLElement | null) ?? containerRef?.current ?? undefined,
+    [containerRef]
+  )
+
+  // Keep the portal target in sync when entering or leaving fullscreen
   useEffect(() => {
     const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement)
+      setPortalContainer(resolvePortalContainer())
     }
     document.addEventListener('fullscreenchange', handleFullscreenChange)
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
-  }, [])
+  }, [resolvePortalContainer])
 
-  // Filter toggle row component
-  const FilterToggle = ({ filter }: { filter: (typeof FILTER_REGISTRY)[0] }) => {
-    const isActive = isFilterActive(filter.id)
-
-    return (
-      <button
-        type="button"
-        onClick={() => toggleFilter(filter.id)}
-        className={`flex w-full items-center justify-between rounded-lg p-3 transition-colors ${
-          isActive
-            ? 'bg-primary/20 hover:bg-primary/30'
-            : 'hover:bg-muted'
-        }`}
-        aria-pressed={isActive}
-      >
-        <div className="flex flex-col items-start gap-0.5">
-          <span className="font-medium">{filter.name}</span>
-          <span className="text-xs text-muted-foreground">{filter.description}</span>
-        </div>
-        <div
-          className={`h-6 w-11 rounded-full transition-colors ${
-            isActive ? 'bg-primary' : 'bg-muted-foreground/30'
-          } relative`}
-        >
-          <div
-            className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-transform ${
-              isActive ? 'translate-x-6' : 'translate-x-1'
-            }`}
-          />
-        </div>
-      </button>
-    )
+  // Resolve the container as the menu opens, when the ref is guaranteed populated
+  const handleOpenChange = (open: boolean) => {
+    if (open) {
+      setPortalContainer(resolvePortalContainer())
+    }
+    setIsOpen(open)
   }
-
-  // Filter list content (shared between Popover and Dialog)
-  const FilterList = () => (
-    <div className="flex flex-col gap-2">
-      {FILTER_REGISTRY.map((filter) => (
-        <FilterToggle key={filter.id} filter={filter} />
-      ))}
-    </div>
-  )
 
   // Trigger button
   const TriggerButton = (
@@ -97,19 +117,14 @@ export function FilterMenu({ isVisible, containerRef }: FilterMenuProps) {
     </button>
   )
 
-  // Get portal container - use fullscreen element when in fullscreen, otherwise containerRef
-  const portalContainer = isFullscreen
-    ? (document.fullscreenElement as HTMLElement) ?? undefined
-    : containerRef?.current ?? undefined
-
   // Mobile: Use Dialog as bottom sheet
   if (isMobile) {
     return (
       <div className="relative">
-        <Dialog open={isOpen} onOpenChange={setIsOpen}>
+        <Dialog open={isOpen} onOpenChange={handleOpenChange}>
           <Tooltip>
             <TooltipTrigger asChild>
-              <div onClick={() => setIsOpen(true)}>{TriggerButton}</div>
+              <div onClick={() => handleOpenChange(true)}>{TriggerButton}</div>
             </TooltipTrigger>
             <TooltipContent>
               <p>Filters</p>
@@ -131,7 +146,7 @@ export function FilterMenu({ isVisible, containerRef }: FilterMenuProps) {
 
   // Desktop: Use Popover
   return (
-    <Popover open={isOpen} onOpenChange={setIsOpen}>
+    <Popover open={isOpen} onOpenChange={handleOpenChange}>
       <Tooltip>
         <TooltipTrigger asChild>
           <PopoverTrigger asChild>{TriggerButton}</PopoverTrigger>

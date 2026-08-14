@@ -34,7 +34,7 @@ def _validate_date(date: str) -> None:
         raise HTTPException(
             status_code=400,
             detail={"message": "Invalid date", "error": "Date does not exist"},
-        )
+        ) from None
 
 
 @router.get("/scores", response_model=NHLScoresResponse)

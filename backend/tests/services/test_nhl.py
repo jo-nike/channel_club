@@ -1,12 +1,10 @@
 """Tests for NHL scores service."""
 
-import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 
-from app.models.nhl import NHLGame, NHLScoresResponse, NHLTeam
 from app.services.nhl import (
     NHLApiError,
     NHLConnectionError,

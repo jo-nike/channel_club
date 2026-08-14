@@ -174,7 +174,9 @@ class CastSession:
                     shutil.rmtree(self.output_dir)
                     log.debug("Cleaned up HLS directory for session {}", self.session_id)
                 except Exception as e:
-                    log.warning("Failed to cleanup HLS files for session {}: {}", self.session_id, e)
+                    log.warning(
+                        "Failed to cleanup HLS files for session {}: {}", self.session_id, e
+                    )
                 finally:
                     self.output_dir = None
 

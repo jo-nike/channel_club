@@ -74,7 +74,7 @@ class TestEPGChannel:
             "logoUrl": "http://example.com/logo.png",
         }
 
-        channel = EPGChannel(**data)
+        channel = EPGChannel.model_validate(data)
 
         assert channel.stream_url == "http://example.com/stream.m3u8"
         assert channel.logo_url == "http://example.com/logo.png"

@@ -47,11 +47,10 @@ export function GrindhouseFilter({ isActive }: GrindhouseFilterProps) {
   }, [isActive])
 
   // Generate random scratches
+  // Nothing renders while inactive and the generator runs again on reactivation,
+  // so there is no stale state to clear here.
   useEffect(() => {
-    if (!isActive) {
-      setScratches([])
-      return
-    }
+    if (!isActive) return
 
     const generateScratches = () => {
       const count = 2 + Math.floor(Math.random() * 4)
@@ -74,11 +73,11 @@ export function GrindhouseFilter({ isActive }: GrindhouseFilterProps) {
   }, [isActive])
 
   // Generate burn marks (less frequent)
+  // Randomness cannot run during render (react-hooks/purity) and the component
+  // stays mounted while inactive, so a lazy initializer would freeze the marks
+  // for the whole session. Picking them on activation is what the effect is for.
   useEffect(() => {
-    if (!isActive) {
-      setBurnMarks([])
-      return
-    }
+    if (!isActive) return
 
     const marks: BurnMark[] = Array.from({ length: 3 }, (_, i) => ({
       id: i,
@@ -87,6 +86,7 @@ export function GrindhouseFilter({ isActive }: GrindhouseFilterProps) {
       size: 50 + Math.random() * 100,
       opacity: 0.05 + Math.random() * 0.1,
     }))
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- see above
     setBurnMarks(marks)
   }, [isActive])
 

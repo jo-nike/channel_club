@@ -44,7 +44,7 @@ describe('filterStore', () => {
 
   describe('toggleFilter', () => {
     it('should add filter when not active', () => {
-      const { toggleFilter, activeFilters } = useFilterStore.getState()
+      const { toggleFilter } = useFilterStore.getState()
 
       toggleFilter('retro-tv')
 

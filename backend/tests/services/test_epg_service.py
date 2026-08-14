@@ -213,6 +213,7 @@ class TestRefreshCache:
 
         expected_min = before + timedelta(hours=24)
         expected_max = after + timedelta(hours=24)
+        assert service._cache_expires is not None
         assert expected_min <= service._cache_expires <= expected_max
 
     @pytest.mark.asyncio
@@ -506,9 +507,11 @@ class TestGetNowPlayingBulk:
         service._cache = {}
         service._cache_expires = None
 
-        with patch.object(service, "refresh_cache", new=AsyncMock(return_value=False)):
-            with pytest.raises(EPGServiceError):
-                await service.get_now_playing_bulk()
+        with (
+            patch.object(service, "refresh_cache", new=AsyncMock(return_value=False)),
+            pytest.raises(EPGServiceError),
+        ):
+            await service.get_now_playing_bulk()
 
 
 class TestCacheValidity:

@@ -182,13 +182,13 @@ class TestGetServerOwnerId:
     @pytest.mark.asyncio
     async def test_returns_none_when_no_server_token(self) -> None:
         """Returns None when plex_server_token is not configured."""
-        from app.services.plex import get_server_owner_id
+        from app.services.plex import clear_server_owner_id_cache, get_server_owner_id
 
         with patch("app.services.plex.settings") as mock_settings:
             mock_settings.plex_server_token = None
 
             # Clear cache before test
-            get_server_owner_id.cache_clear()
+            clear_server_owner_id_cache()
             result = await get_server_owner_id()
 
             assert result is None
@@ -196,7 +196,7 @@ class TestGetServerOwnerId:
     @pytest.mark.asyncio
     async def test_returns_owner_id_from_api(self) -> None:
         """Returns server owner ID from Plex API."""
-        from app.services.plex import get_server_owner_id
+        from app.services.plex import clear_server_owner_id_cache, get_server_owner_id
 
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -215,7 +215,7 @@ class TestGetServerOwnerId:
                 )
 
                 # Clear cache before test
-                get_server_owner_id.cache_clear()
+                clear_server_owner_id_cache()
                 result = await get_server_owner_id()
 
                 assert result == "98765"
@@ -223,7 +223,7 @@ class TestGetServerOwnerId:
     @pytest.mark.asyncio
     async def test_returns_none_on_api_failure(self) -> None:
         """Returns None when Plex API request fails."""
-        from app.services.plex import get_server_owner_id
+        from app.services.plex import clear_server_owner_id_cache, get_server_owner_id
 
         mock_response = MagicMock()
         mock_response.status_code = 401
@@ -237,7 +237,7 @@ class TestGetServerOwnerId:
                 )
 
                 # Clear cache before test
-                get_server_owner_id.cache_clear()
+                clear_server_owner_id_cache()
                 result = await get_server_owner_id()
 
                 assert result is None
@@ -245,7 +245,7 @@ class TestGetServerOwnerId:
     @pytest.mark.asyncio
     async def test_caches_result(self) -> None:
         """Caches the server owner ID after first call."""
-        from app.services.plex import get_server_owner_id
+        from app.services.plex import clear_server_owner_id_cache, get_server_owner_id
 
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -263,7 +263,7 @@ class TestGetServerOwnerId:
                 mock_client.return_value.__aenter__.return_value.get = mock_get
 
                 # Clear cache before test
-                get_server_owner_id.cache_clear()
+                clear_server_owner_id_cache()
 
                 # Call twice
                 await get_server_owner_id()
