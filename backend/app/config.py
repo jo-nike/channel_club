@@ -35,11 +35,13 @@ class Settings(BaseSettings):
             return []
         return [u.strip() for u in self.plex_admin_users_str.split(",") if u.strip()]
 
-    # Local Auth Credentials (only used when local_auth_enabled=True)
+    # Local Auth Credentials (only used when local_auth_enabled=True).
+    # No password defaults: a guessable fallback must never be what protects
+    # the app if the flag is turned back on. Unset means every login is rejected.
     admin_username: str = "admin"
-    admin_password: str = "admin"
+    admin_password: str | None = None
     viewer_username: str = "viewer"
-    viewer_password: str = "viewer"
+    viewer_password: str | None = None
 
     # Dispatcharr Authentication (optional - for channel and stats endpoints).
     # Personal API key from the Dispatcharr profile page (0.20.0+). Sent as

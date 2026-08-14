@@ -30,11 +30,35 @@ from app.services.highlight import highlight_service
 
 
 def validate_auth_configuration() -> None:
-    """Validate authentication configuration on startup."""
+    """Validate authentication configuration on startup.
+
+    Raises:
+        RuntimeError: If Plex auth is enabled without a server machine ID.
+    """
+    # Refuse to start rather than serve an open door. check_server_access()
+    # returns True when plex_server_machine_id is unset, so without it ANY
+    # valid Plex account on the internet authenticates and is issued a JWT
+    # with PLEX_DEFAULT_ROLE. Once Plex is the only enabled method, that is a
+    # silent authentication bypass — far better to fail the deploy loudly.
+    if settings.plex_auth_enabled and not settings.plex_server_machine_id:
+        raise RuntimeError(
+            "PLEX_AUTH_ENABLED is true but PLEX_SERVER_MACHINE_ID is not set. "
+            "Without it, server access checks pass for any Plex account. "
+            "Set PLEX_SERVER_MACHINE_ID or disable Plex auth."
+        )
+
     if not settings.local_auth_enabled and not settings.plex_auth_enabled:
         logger.warning(
             "No authentication methods enabled! "
             "Set LOCAL_AUTH_ENABLED=true or PLEX_AUTH_ENABLED=true"
+        )
+
+    # Local auth with no passwords configured rejects every login attempt.
+    # Non-fatal, but silent 401s are a miserable thing to debug.
+    if settings.local_auth_enabled and not (settings.admin_password or settings.viewer_password):
+        logger.warning(
+            "LOCAL_AUTH_ENABLED is true but neither ADMIN_PASSWORD nor "
+            "VIEWER_PASSWORD is set — every local login will be rejected"
         )
 
 
