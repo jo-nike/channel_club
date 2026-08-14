@@ -6,6 +6,7 @@ from io import StringIO
 import pytest
 from fastapi.testclient import TestClient
 from loguru import logger
+from starlette.websockets import WebSocketDisconnect
 
 from app.config import settings
 from app.main import app
@@ -59,13 +60,15 @@ class TestWebSocketConnection:
             assert "currentChannel" in data
 
     def test_websocket_invalid_token_rejects_connection(self, client: TestClient):
-        """Invalid token rejects connection with code 4001."""
-        # WebSocket connections with invalid tokens raise an exception
+        """Invalid token: connection is accepted, then closed with code 4001."""
+        # The endpoint accepts before validating so the custom 4001 code reaches
+        # the client (a pre-handshake close would surface as a generic 1006).
         with (
-            pytest.raises((Exception,)),  # noqa: B017
-            client.websocket_connect("/api/ws?token=invalid_token"),
+            client.websocket_connect("/api/ws?token=invalid_token") as ws,
+            pytest.raises(WebSocketDisconnect) as exc_info,
         ):
-            pass
+            ws.receive_json()
+        assert exc_info.value.code == 4001
 
     def test_websocket_missing_token_rejects_connection(self, client: TestClient):
         """Missing token rejects connection."""
@@ -92,10 +95,11 @@ class TestWebSocketConnection:
         expired_token = jwt.encode(expired_payload, settings.jwt_secret, algorithm="HS256")
 
         with (
-            pytest.raises((Exception,)),  # noqa: B017
-            client.websocket_connect(f"/api/ws?token={expired_token}"),
+            client.websocket_connect(f"/api/ws?token={expired_token}") as ws,
+            pytest.raises(WebSocketDisconnect) as exc_info,
         ):
-            pass
+            ws.receive_json()
+        assert exc_info.value.code == 4001
 
 
 class TestConnectionAck:
@@ -304,10 +308,10 @@ class TestWebSocketLogging:
 
         try:
             with (
-                pytest.raises((Exception,)),  # noqa: B017
-                client.websocket_connect("/api/ws?token=invalid_token"),
+                client.websocket_connect("/api/ws?token=invalid_token") as ws,
+                pytest.raises(WebSocketDisconnect),
             ):
-                pass
+                ws.receive_json()
 
             log_output = output.getvalue()
             assert "WARNING" in log_output

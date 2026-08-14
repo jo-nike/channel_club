@@ -7,7 +7,7 @@ from app.models.admin import ActiveUser, ActiveUsersResponse, ActiveUsersTotals
 from app.models.auth import TokenPayload
 from app.models.status import SystemStatusResponse
 from app.routers.auth_deps import require_admin
-from app.services import chat, presence, status_service
+from app.services import channel_state, chat, presence, status_service
 
 log = logger.bind(router="admin")
 router = APIRouter(tags=["admin"])
@@ -88,4 +88,9 @@ async def clear_chat_history(
     """
     log.info("Admin {} clearing chat history", current_user.sub)
     chat.clear_history()
+
+    # Tell connected clients to replace their history, otherwise they keep
+    # showing the deleted messages until they reconnect
+    await channel_state.broadcast({"type": "chat_history", "messages": []})
+
     return {"message": "Chat history cleared"}
