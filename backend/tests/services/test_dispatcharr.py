@@ -8,9 +8,58 @@ import pytest
 from app.models.channel import Channel
 from app.services.dispatcharr import (
     DispatchrrUnavailableError,
+    dispatcharr_auth_headers,
     extract_uuid,
+    get_channel_groups,
     get_lineup,
 )
+
+
+class TestDispatcharrAuthHeaders:
+    """Tests for dispatcharr_auth_headers."""
+
+    def test_builds_apikey_header(self) -> None:
+        """Should send the key using Dispatcharr's ApiKey scheme, not Bearer."""
+        with patch("app.services.dispatcharr.settings") as mock_settings:
+            mock_settings.dispatcharr_api_key = "secret-key"
+            assert dispatcharr_auth_headers() == {"Authorization": "ApiKey secret-key"}
+
+    def test_raises_when_api_key_missing(self) -> None:
+        """Should fail loudly rather than issuing an unauthenticated request."""
+        with patch("app.services.dispatcharr.settings") as mock_settings:
+            mock_settings.dispatcharr_api_key = None
+            with pytest.raises(DispatchrrUnavailableError, match="DISPATCHARR_API_KEY"):
+                dispatcharr_auth_headers()
+
+    @pytest.mark.asyncio
+    async def test_channel_groups_sends_api_key(self) -> None:
+        """Authenticated calls should carry the API key header."""
+        response = MagicMock()
+        response.json.return_value = []
+        response.raise_for_status = MagicMock()
+
+        with patch("app.services.dispatcharr.httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            with patch("app.services.dispatcharr.settings") as mock_settings:
+                mock_settings.dispatcharr_api_key = "secret-key"
+                mock_settings.dispatcharr_url = "http://test:9191"
+                await get_channel_groups()
+
+        _, kwargs = mock_client.get.call_args
+        assert kwargs["headers"] == {"Authorization": "ApiKey secret-key"}
+
+    @pytest.mark.asyncio
+    async def test_channel_groups_raises_without_api_key(self) -> None:
+        """No key configured should surface as DispatchrrUnavailableError (503)."""
+        with patch("app.services.dispatcharr.settings") as mock_settings:
+            mock_settings.dispatcharr_api_key = None
+            with pytest.raises(DispatchrrUnavailableError):
+                await get_channel_groups()
 
 
 class TestExtractUuid:

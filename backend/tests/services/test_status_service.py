@@ -159,15 +159,6 @@ class TestGetDispatchrrStatus:
     @pytest.mark.asyncio
     async def test_returns_online_status_with_streams(self) -> None:
         """Should return online status with stream info from proxy status."""
-        # Mock token response
-        token_response = MagicMock()
-        token_response.status_code = 200
-        token_response.json.return_value = {"access": "test-token", "refresh": "refresh"}
-
-        # Mock CSRF response
-        csrf_response = MagicMock()
-        csrf_response.cookies = {}
-
         # Mock proxy status response
         proxy_status_response = {
             "channels": [
@@ -226,19 +217,18 @@ class TestGetDispatchrrStatus:
 
         with patch("app.services.status_service.httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
-            mock_client.cookies = MagicMock()
-            mock_client.cookies.get.return_value = "csrf-token"
-            # Order: CSRF GET, token POST, proxy status GET
-            mock_client.get.side_effect = [csrf_response, status_response]
-            mock_client.post.return_value = token_response
+            # Only one call now: the authenticated proxy status GET
+            mock_client.get.return_value = status_response
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
             mock_client_class.return_value = mock_client
 
-            with patch("app.services.status_service.settings") as mock_settings:
+            with (
+                patch("app.services.status_service.settings") as mock_settings,
+                patch("app.services.dispatcharr.settings") as mock_dispatcharr_settings,
+            ):
                 mock_settings.dispatcharr_url = "http://test:9191"
-                mock_settings.dispatcharr_username = "testuser"
-                mock_settings.dispatcharr_password = "testpass"
+                mock_dispatcharr_settings.dispatcharr_api_key = "test-api-key"
 
                 status = await get_dispatcharr_status()
 
@@ -269,8 +259,8 @@ class TestGetDispatchrrStatus:
         assert status.error is not None
 
     @pytest.mark.asyncio
-    async def test_falls_back_to_lineup_when_no_credentials(self) -> None:
-        """Should fall back to lineup check when no credentials configured."""
+    async def test_falls_back_to_lineup_when_no_api_key(self) -> None:
+        """Should fall back to lineup check when no API key is configured."""
         # Mock lineup response (no auth required)
         mock_lineup_response = MagicMock()
         mock_lineup_response.status_code = 200
@@ -282,10 +272,12 @@ class TestGetDispatchrrStatus:
             mock_client.__aexit__.return_value = None
             mock_client_class.return_value = mock_client
 
-            with patch("app.services.status_service.settings") as mock_settings:
+            with (
+                patch("app.services.status_service.settings") as mock_settings,
+                patch("app.services.dispatcharr.settings") as mock_dispatcharr_settings,
+            ):
                 mock_settings.dispatcharr_url = "http://test:9191"
-                mock_settings.dispatcharr_username = None
-                mock_settings.dispatcharr_password = None
+                mock_dispatcharr_settings.dispatcharr_api_key = None
 
                 status = await get_dispatcharr_status()
 

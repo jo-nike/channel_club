@@ -15,6 +15,10 @@ from app.models.status import (
     ErsatzTVStatus,
     SystemStatusResponse,
 )
+from app.services.dispatcharr import (
+    DispatchrrUnavailableError,
+    dispatcharr_auth_headers,
+)
 
 # Module-level logger with service context
 log = logger.bind(service="status")
@@ -195,61 +199,6 @@ async def get_ersatztv_status() -> ErsatzTVStatus:
         )
 
 
-async def _dispatcharr_get_token(client: httpx.AsyncClient, base_url: str) -> str | None:
-    """Get JWT access token from Dispatcharr using SimpleJWT.
-
-    Args:
-        client: httpx client
-        base_url: Dispatcharr base URL
-
-    Returns:
-        JWT access token if successful, None otherwise
-    """
-    if not settings.dispatcharr_username or not settings.dispatcharr_password:
-        return None
-
-    try:
-        # First get CSRF token
-        await client.get(f"{base_url}/api/")
-        csrf_token = client.cookies.get("csrftoken")
-
-        credentials = {
-            "username": settings.dispatcharr_username,
-            "password": settings.dispatcharr_password,
-        }
-
-        headers = {"Content-Type": "application/json"}
-        if csrf_token:
-            headers["X-CSRFToken"] = csrf_token
-
-        # SimpleJWT token endpoint (under accounts app)
-        token_url = f"{base_url}/api/accounts/token/"
-        log.debug("Getting JWT token from: {}", token_url)
-
-        response = await client.post(token_url, json=credentials, headers=headers)
-
-        if response.status_code == 200:
-            data = response.json()
-            log.debug("Token response keys: {}", list(data.keys()))
-
-            # SimpleJWT returns 'access' and 'refresh' tokens
-            access_token = data.get("access")
-            if access_token:
-                log.info("Successfully got JWT token from Dispatcharr")
-                return access_token
-
-        log.warning(
-            "Dispatcharr token request failed: {} - {}",
-            response.status_code,
-            response.text[:200] if response.text else "no response",
-        )
-        return None
-
-    except httpx.HTTPError as e:
-        log.warning("Dispatcharr token error: {}", str(e))
-        return None
-
-
 def _parse_dispatcharr_proxy_status(
     data: dict,
 ) -> tuple[int, int, list[DispatcharrStream]]:
@@ -306,7 +255,7 @@ async def get_dispatcharr_status() -> DispatchrrStatus:
     """Fetch status from Dispatcharr API.
 
     Attempts to get active stream information from /proxy/ts/status.
-    Requires JWT auth.
+    Requires an API key.
 
     Returns:
         DispatchrrStatus with connection status and stream info
@@ -319,10 +268,10 @@ async def get_dispatcharr_status() -> DispatchrrStatus:
         async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
             log.debug("Fetching Dispatcharr proxy status from {}", proxy_status_url)
 
-            # Get JWT token for auth
-            token = await _dispatcharr_get_token(client, base_url)
-            if not token:
-                log.warning("Could not get Dispatcharr token, checking basic connectivity")
+            try:
+                headers = dispatcharr_auth_headers()
+            except DispatchrrUnavailableError:
+                log.warning("No Dispatcharr API key configured, checking basic connectivity")
                 # Fall back to checking if service is reachable
                 response = await client.get(f"{base_url}/hdhr/lineup.json")
                 if response.status_code < 500:
@@ -336,10 +285,8 @@ async def get_dispatcharr_status() -> DispatchrrStatus:
                     )
                 raise httpx.HTTPStatusError(
                     "Could not connect", request=response.request, response=response
-                )
+                ) from None
 
-            # Fetch proxy status with Bearer token
-            headers = {"Authorization": f"Bearer {token}"}
             response = await client.get(proxy_status_url, headers=headers)
             response.raise_for_status()
 
@@ -376,7 +323,7 @@ async def get_dispatcharr_status() -> DispatchrrStatus:
                     if response.status_code < 500:
                         log.info(
                             "Dispatcharr online (stats require auth - configure "
-                            "DISPATCHARR_USERNAME and DISPATCHARR_PASSWORD)"
+                            "DISPATCHARR_API_KEY)"
                         )
                         return DispatchrrStatus(
                             name="Dispatcharr",
