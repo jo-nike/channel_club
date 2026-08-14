@@ -24,6 +24,54 @@ def client():
         yield TestClient(app)
 
 
+class TestValidateAuthConfiguration:
+    """Startup validation of the authentication configuration."""
+
+    def test_refuses_to_start_when_plex_enabled_without_machine_id(self) -> None:
+        """Missing machine ID makes check_server_access() admit any Plex account."""
+        from app.main import validate_auth_configuration
+
+        with patch("app.main.settings") as mock_settings:
+            mock_settings.plex_auth_enabled = True
+            mock_settings.plex_server_machine_id = None
+            with pytest.raises(RuntimeError, match="PLEX_SERVER_MACHINE_ID"):
+                validate_auth_configuration()
+
+    def test_starts_when_plex_enabled_with_machine_id(self) -> None:
+        """A configured machine ID is the supported production setup."""
+        from app.main import validate_auth_configuration
+
+        with patch("app.main.settings") as mock_settings:
+            mock_settings.plex_auth_enabled = True
+            mock_settings.plex_server_machine_id = "abc123"
+            mock_settings.local_auth_enabled = False
+            validate_auth_configuration()
+
+    def test_machine_id_not_required_when_plex_disabled(self) -> None:
+        """The guard must not block local-auth-only deployments."""
+        from app.main import validate_auth_configuration
+
+        with patch("app.main.settings") as mock_settings:
+            mock_settings.plex_auth_enabled = False
+            mock_settings.plex_server_machine_id = None
+            mock_settings.local_auth_enabled = True
+            mock_settings.admin_password = "set"
+            mock_settings.viewer_password = None
+            validate_auth_configuration()
+
+    def test_warns_but_starts_when_local_auth_has_no_passwords(self) -> None:
+        """Unset passwords reject every login; warn rather than fail."""
+        from app.main import validate_auth_configuration
+
+        with patch("app.main.settings") as mock_settings:
+            mock_settings.plex_auth_enabled = False
+            mock_settings.plex_server_machine_id = None
+            mock_settings.local_auth_enabled = True
+            mock_settings.admin_password = None
+            mock_settings.viewer_password = None
+            validate_auth_configuration()
+
+
 def test_health_check(client):
     """Test health check endpoint."""
     response = client.get("/api/health")

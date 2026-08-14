@@ -44,3 +44,6 @@ htmlcov/
 .ideas
 # Trivy scan staging (generated in CI)
 .trivy-scan/
+
+# Local backups taken while retiring the Dispatcharr password
+*.bak-preapikey
