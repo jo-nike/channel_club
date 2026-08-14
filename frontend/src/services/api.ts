@@ -1,6 +1,13 @@
 import { useAuthStore } from '@/stores/authStore'
 import { logger } from '@/lib/logger'
-import type { Channel, EPGResponse, GroupedChannelsResponse } from '@/types'
+import type {
+  AppSettings,
+  Channel,
+  EPGResponse,
+  GroupedChannelsResponse,
+  NowPlayingBulkResponse,
+  Program,
+} from '@/types'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
 
@@ -223,6 +230,54 @@ export async function fetchNowPlaying(channelId: string): Promise<EPGResponse> {
     throw new Error('Failed to fetch EPG')
   }
 
+  return response.json()
+}
+
+export async function fetchNowPlayingAll(): Promise<Record<string, Program>> {
+  logger.debug('API', 'Fetching now playing for all channels')
+
+  const response = await fetchWithAuth('/epg/now-playing/all')
+
+  if (!response.ok) {
+    logger.error('API', `Failed to fetch bulk EPG: ${response.status}`)
+    throw new Error('Failed to fetch EPG')
+  }
+
+  const data: NowPlayingBulkResponse = await response.json()
+  logger.debug('API', `Fetched now playing for ${Object.keys(data.nowPlaying).length} channels`)
+  return data.nowPlaying
+}
+
+export async function fetchAppSettings(): Promise<AppSettings> {
+  logger.debug('API', 'Fetching app settings')
+
+  const response = await fetchWithAuth('/settings')
+
+  if (!response.ok) {
+    logger.error('API', `Failed to fetch app settings: ${response.status}`)
+    throw new Error('Failed to fetch settings')
+  }
+
+  return response.json()
+}
+
+export async function updateAppSettings(settings: Partial<AppSettings>): Promise<AppSettings> {
+  logger.debug('API', `Updating app settings: ${JSON.stringify(settings)}`)
+
+  const response = await fetchWithAuth('/settings', {
+    method: 'PUT',
+    body: JSON.stringify(settings),
+  })
+
+  if (!response.ok) {
+    logger.error('API', `Failed to update app settings: ${response.status}`)
+    if (response.status === 403) {
+      throw new Error('Only admins can change settings')
+    }
+    throw new Error('Failed to update settings')
+  }
+
+  logger.info('API', 'App settings updated')
   return response.json()
 }
 

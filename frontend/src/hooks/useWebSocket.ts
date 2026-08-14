@@ -4,15 +4,17 @@ import { useAuthStore } from '@/stores/authStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { logger } from '@/lib/logger'
 import { getSessionId } from '@/lib/sessionId'
 import { useChatEnabled } from './useChatEnabled'
-import type { Channel, ChatMessage } from '@/types'
+import type { AppSettings, Channel, ChatMessage } from '@/types'
 
 interface WebSocketMessage {
   type: string
   channel?: Channel
   currentChannel?: Channel | null
+  settings?: AppSettings
   // Chat message fields
   messageId?: string
   username?: string
@@ -48,6 +50,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   const chatEnabled = useChatEnabled()
   const addChatMessage = useChatStore((s) => s.addMessage)
   const setChatMessages = useChatStore((s) => s.setMessages)
+  const setUserChannelSelection = useSettingsStore((s) => s.setUserChannelSelection)
 
   const wsRef = useRef<WebSocket | null>(null)
   const pingIntervalRef = useRef<number | null>(null)
@@ -85,6 +88,16 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         case 'connection_ack':
           logger.debug('WebSocket', 'Received connection_ack', message)
           setCurrentChannel(message.currentChannel ?? null)
+          if (message.settings) {
+            setUserChannelSelection(message.settings.userChannelSelection)
+          }
+          break
+
+        case 'settings_update':
+          logger.debug('WebSocket', 'Received settings_update', message)
+          if (message.settings) {
+            setUserChannelSelection(message.settings.userChannelSelection)
+          }
           break
 
         case 'channel_update':
@@ -131,7 +144,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           logger.warn('WebSocket', `Unknown message type: ${message.type}`, message)
       }
     },
-    [setCurrentChannel, chatEnabled, addChatMessage, setChatMessages]
+    [setCurrentChannel, chatEnabled, addChatMessage, setChatMessages, setUserChannelSelection]
   )
 
   const connect = useCallback(

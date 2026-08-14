@@ -3,14 +3,15 @@ import { toast } from 'sonner'
 import { X, Search } from 'lucide-react'
 import { useChannelStore } from '@/stores/channelStore'
 import { useAuthStore } from '@/stores/authStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { useUIStore } from '@/stores/uiStore'
-import { fetchGroupedChannels, setCurrentChannel as setCurrentChannelApi, clearCurrentChannel as clearCurrentChannelApi } from '@/services/api'
+import { fetchGroupedChannels, fetchNowPlayingAll, setCurrentChannel as setCurrentChannelApi, clearCurrentChannel as clearCurrentChannelApi } from '@/services/api'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { CollapsibleChannelGroup } from '@/components/CollapsibleChannelGroup'
 import { cn } from '@/lib/utils'
-import type { Channel, GroupedChannelsResponse } from '@/types'
+import type { Channel, GroupedChannelsResponse, Program } from '@/types'
 
 interface ChannelListProps {
   onChannelSelected?: () => void
@@ -19,10 +20,14 @@ interface ChannelListProps {
 export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
   const { currentChannel, setCurrentChannel } = useChannelStore()
   const { role } = useAuthStore()
+  const userChannelSelection = useSettingsStore((s) => s.userChannelSelection)
   const setSidebarOpen = useUIStore((s) => s.setSidebarOpen)
   const isAdmin = role === 'admin'
+  // Admins always may; everyone else only when the admin has opened it up
+  const canSelect = isAdmin || userChannelSelection
 
   const [groupedData, setGroupedData] = useState<GroupedChannelsResponse | null>(null)
+  const [nowPlaying, setNowPlaying] = useState<Record<string, Program>>({})
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
@@ -67,7 +72,7 @@ export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
   }, [groupedData, searchQuery])
 
   const handleSelectChannel = useCallback(async (channel: Channel) => {
-    if (!isAdmin) return
+    if (!canSelect) return
 
     // Optimistic update
     const previousChannel = currentChannel
@@ -90,7 +95,7 @@ export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
         description: e instanceof Error ? e.message : 'Please try again',
       })
     }
-  }, [isAdmin, currentChannel, setCurrentChannel, setSidebarOpen, onChannelSelected])
+  }, [canSelect, currentChannel, setCurrentChannel, setSidebarOpen, onChannelSelected])
 
   const handleClearChannel = useCallback(async () => {
     if (!isAdmin) return
@@ -119,6 +124,7 @@ export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
 
   useEffect(() => {
     loadGroupedChannels()
+    loadNowPlaying()
   }, [])
 
   async function loadGroupedChannels() {
@@ -131,6 +137,15 @@ export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
       setError(e instanceof Error ? e.message : 'Unable to load channels')
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  // Non-fatal: without EPG the list still renders, just without programme titles
+  async function loadNowPlaying() {
+    try {
+      setNowPlaying(await fetchNowPlayingAll())
+    } catch {
+      setNowPlaying({})
     }
   }
 
@@ -215,7 +230,8 @@ export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
             key={group.id}
             group={group}
             currentChannelId={currentChannel?.id ?? null}
-            isAdmin={isAdmin}
+            canSelect={canSelect}
+            nowPlaying={nowPlaying}
             onSelectChannel={handleSelectChannel}
             forceOpen={expandedGroupIds.has(group.id)}
           />
@@ -231,7 +247,8 @@ export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
               channels: filteredUngrouped,
             }}
             currentChannelId={currentChannel?.id ?? null}
-            isAdmin={isAdmin}
+            canSelect={canSelect}
+            nowPlaying={nowPlaying}
             onSelectChannel={handleSelectChannel}
             forceOpen={searchQuery.length > 0}
           />

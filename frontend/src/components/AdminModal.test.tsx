@@ -7,8 +7,11 @@ import * as api from '@/services/api'
 
 vi.mock('@/services/api', () => ({
   fetchGroupedChannels: vi.fn(),
+  fetchNowPlayingAll: vi.fn(),
   setCurrentChannel: vi.fn(),
   clearCurrentChannel: vi.fn(),
+  fetchAppSettings: vi.fn(),
+  updateAppSettings: vi.fn(),
 }))
 
 // Mock useActiveUsers for Active Users tab
@@ -108,6 +111,9 @@ describe('AdminModal', () => {
       isAuthenticated: true,
     })
     vi.mocked(api.fetchGroupedChannels).mockResolvedValue(mockGroupedChannelsResponse)
+    vi.mocked(api.fetchNowPlayingAll).mockResolvedValue({})
+    vi.mocked(api.fetchAppSettings).mockResolvedValue({ userChannelSelection: false })
+    vi.mocked(api.updateAppSettings).mockResolvedValue({ userChannelSelection: true })
   })
 
   describe('Tab rendering', () => {
@@ -376,14 +382,13 @@ describe('AdminModal', () => {
   })
 
   describe('Placeholder content (Story 11.7)', () => {
-    it('shows placeholder content for User Access tab (AC #1)', () => {
+    it('shows the live channel selection toggle for the User Access tab', () => {
       render(<AdminModal {...defaultProps} />)
 
       fireEvent.click(screen.getByRole('tab', { name: /user access/i }))
-      // Check for the placeholder message which is unique
-      expect(screen.getByText('User access management coming soon')).toBeInTheDocument()
-      // Check for the description text
-      expect(screen.getByText(/Manage user permissions/)).toBeInTheDocument()
+
+      expect(screen.getByText('Live Channel Selection')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /disabled/i })).toBeInTheDocument()
     })
 
     it('shows placeholder content for Plugins tab (AC #2)', () => {
@@ -410,7 +415,7 @@ describe('AdminModal', () => {
     it('shows icon in placeholder tabs', () => {
       render(<AdminModal {...defaultProps} />)
 
-      fireEvent.click(screen.getByRole('tab', { name: /user access/i }))
+      fireEvent.click(screen.getByRole('tab', { name: /plugins/i }))
       // Look for the SVG icon inside tabpanel
       const tabpanel = screen.getByRole('tabpanel')
       expect(tabpanel.querySelector('svg')).toBeInTheDocument()

@@ -20,7 +20,7 @@ describe('CollapsibleChannelGroup', () => {
         <CollapsibleChannelGroup
           group={mockGroup}
           currentChannelId={null}
-          isAdmin={true}
+          canSelect={true}
           onSelectChannel={vi.fn()}
         />
       )
@@ -34,7 +34,7 @@ describe('CollapsibleChannelGroup', () => {
         <CollapsibleChannelGroup
           group={mockGroup}
           currentChannelId={null}
-          isAdmin={true}
+          canSelect={true}
           onSelectChannel={vi.fn()}
         />
       )
@@ -49,7 +49,7 @@ describe('CollapsibleChannelGroup', () => {
         <CollapsibleChannelGroup
           group={mockGroup}
           currentChannelId={null}
-          isAdmin={true}
+          canSelect={true}
           onSelectChannel={vi.fn()}
         />
       )
@@ -68,7 +68,7 @@ describe('CollapsibleChannelGroup', () => {
         <CollapsibleChannelGroup
           group={mockGroup}
           currentChannelId={null}
-          isAdmin={true}
+          canSelect={true}
           onSelectChannel={vi.fn()}
         />
       )
@@ -85,7 +85,7 @@ describe('CollapsibleChannelGroup', () => {
         <CollapsibleChannelGroup
           group={mockGroup}
           currentChannelId={null}
-          isAdmin={true}
+          canSelect={true}
           onSelectChannel={vi.fn()}
         />
       )
@@ -104,7 +104,7 @@ describe('CollapsibleChannelGroup', () => {
         <CollapsibleChannelGroup
           group={mockGroup}
           currentChannelId={null}
-          isAdmin={true}
+          canSelect={true}
           onSelectChannel={vi.fn()}
         />
       )
@@ -124,7 +124,7 @@ describe('CollapsibleChannelGroup', () => {
         <CollapsibleChannelGroup
           group={mockGroup}
           currentChannelId={null}
-          isAdmin={true}
+          canSelect={true}
           onSelectChannel={vi.fn()}
           forceOpen={true}
         />
@@ -143,7 +143,7 @@ describe('CollapsibleChannelGroup', () => {
         <CollapsibleChannelGroup
           group={mockGroup}
           currentChannelId={null}
-          isAdmin={true}
+          canSelect={true}
           onSelectChannel={onSelectChannel}
           forceOpen={true}
         />
@@ -160,7 +160,7 @@ describe('CollapsibleChannelGroup', () => {
         <CollapsibleChannelGroup
           group={mockGroup}
           currentChannelId={null}
-          isAdmin={false}
+          canSelect={false}
           onSelectChannel={onSelectChannel}
           forceOpen={true}
         />
@@ -176,7 +176,7 @@ describe('CollapsibleChannelGroup', () => {
         <CollapsibleChannelGroup
           group={mockGroup}
           currentChannelId="1"
-          isAdmin={true}
+          canSelect={true}
           onSelectChannel={vi.fn()}
           forceOpen={true}
         />
@@ -190,7 +190,7 @@ describe('CollapsibleChannelGroup', () => {
         <CollapsibleChannelGroup
           group={mockGroup}
           currentChannelId="1"
-          isAdmin={true}
+          canSelect={true}
           onSelectChannel={vi.fn()}
           forceOpen={true}
         />
@@ -208,7 +208,7 @@ describe('CollapsibleChannelGroup', () => {
         <CollapsibleChannelGroup
           group={mockGroup}
           currentChannelId={null}
-          isAdmin={true}
+          canSelect={true}
           onSelectChannel={onSelectChannel}
           forceOpen={true}
         />
@@ -226,7 +226,7 @@ describe('CollapsibleChannelGroup', () => {
         <CollapsibleChannelGroup
           group={mockGroup}
           currentChannelId={null}
-          isAdmin={true}
+          canSelect={true}
           onSelectChannel={onSelectChannel}
           forceOpen={true}
         />

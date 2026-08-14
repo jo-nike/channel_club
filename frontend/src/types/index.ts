@@ -52,6 +52,16 @@ export interface EPGResponse {
   nextProgram?: Program | null
 }
 
+/** Current programme per channel, keyed by Channel.guideId. */
+export interface NowPlayingBulkResponse {
+  nowPlaying: Record<string, Program>
+}
+
+/** Runtime settings an admin can toggle for all users. */
+export interface AppSettings {
+  userChannelSelection: boolean
+}
+
 // ErsatzTV types
 export interface ErsatzTVChannel {
   id: string

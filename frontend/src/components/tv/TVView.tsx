@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { ShieldCheck, LayoutList, RefreshCw, Radio } from 'lucide-react'
+import { ShieldCheck, LayoutList, RefreshCw, Radio, Tv } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
+import { useAppSettings } from '@/hooks/useAppSettings'
 import { useTheme } from '@/hooks/useTheme'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
 import { useWebSocket } from '@/hooks/useWebSocket'
@@ -21,6 +22,7 @@ import { useMobileLandscape } from '@/hooks/useMobileLandscape'
 import { ChatToggleButton } from '@/components/ChatToggleButton'
 import { UserSettingsMenu } from '@/components/UserSettingsMenu'
 import { AdminModal } from '@/components/AdminModal'
+import { LiveChannelPickerDialog } from '@/components/LiveChannelPickerDialog'
 import { ConnectionStatus } from '@/components/ConnectionStatus'
 import { NHLScoresOverlay } from '@/components/NHLScoresOverlay'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -32,6 +34,9 @@ const REFRESH_INTERVAL = 120 * 60 * 1000
 
 export function TVView() {
   const { logout, isAdmin } = useAuth()
+
+  // Admin-controlled: lets non-admins change the live channel for everyone
+  const { userChannelSelection } = useAppSettings()
 
   // WebSocket for presence tracking and chat
   const { status, sendChannelUpdate, sendChatMessage, sendSetNickname } = useWebSocket({ view: 'tv' })
@@ -135,6 +140,9 @@ export function TVView() {
 
   // Admin modal state
   const [adminModalOpen, setAdminModalOpen] = useState(false)
+
+  // Channel picker state (non-admin users, when the admin has enabled it)
+  const [channelPickerOpen, setChannelPickerOpen] = useState(false)
 
   // Video refresh key
   const [videoRefreshKey, setVideoRefreshKey] = useState(0)
@@ -297,6 +305,23 @@ export function TVView() {
                 </TooltipContent>
               </Tooltip>
             )}
+            {/* Channel picker - non-admins, only when the admin has enabled it */}
+            {!isAdmin && userChannelSelection && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setChannelPickerOpen(true)}
+                    className="h-8 w-8 flex items-center justify-center bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                    aria-label="Change live channel"
+                  >
+                    <Tv className="h-4 w-4 shrink-0" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Change live channel</p>
+                </TooltipContent>
+              </Tooltip>
+            )}
             {/* Admin button */}
             {isAdmin && (
               <button
@@ -417,6 +442,14 @@ export function TVView() {
       {/* Admin Modal */}
       {isAdmin && (
         <AdminModal open={adminModalOpen} onOpenChange={setAdminModalOpen} />
+      )}
+
+      {/* Channel picker for non-admin users */}
+      {!isAdmin && userChannelSelection && (
+        <LiveChannelPickerDialog
+          open={channelPickerOpen}
+          onOpenChange={setChannelPickerOpen}
+        />
       )}
 
       {/* Error toast */}

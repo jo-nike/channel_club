@@ -11,6 +11,7 @@ import { ChatTab } from '@/components/admin/ChatTab'
 import { NHLGamesTab } from '@/components/admin/NHLGamesTab'
 import { PlaceholderTab } from '@/components/admin/PlaceholderTab'
 import { StatusTab } from '@/components/admin/StatusTab'
+import { UserAccessTab } from '@/components/admin/UserAccessTab'
 import { cn } from '@/lib/utils'
 
 type TabType = 'channels' | 'active-users' | 'user-access' | 'chat' | 'nhl' | 'plugins' | 'status'
@@ -51,13 +52,7 @@ export function AdminModal({ open, onOpenChange }: AdminModalProps) {
       case 'active-users':
         return <ActiveUsersTab />
       case 'user-access':
-        return (
-          <PlaceholderTab
-            title="User Access"
-            message="User access management coming soon"
-            description="Manage user permissions, invite new users, and control access levels."
-          />
-        )
+        return <UserAccessTab />
       case 'chat':
         return <ChatTab />
       case 'nhl':

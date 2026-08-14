@@ -4,11 +4,13 @@ import { ChannelList } from './ChannelList'
 import { useChannelStore } from '@/stores/channelStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useUIStore } from '@/stores/uiStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 import * as api from '@/services/api'
 import type { GroupedChannelsResponse } from '@/types'
 
 vi.mock('@/services/api', () => ({
   fetchGroupedChannels: vi.fn(),
+  fetchNowPlayingAll: vi.fn(),
   setCurrentChannel: vi.fn(),
   clearCurrentChannel: vi.fn(),
 }))
@@ -52,6 +54,8 @@ describe('ChannelList', () => {
       role: 'viewer',
       isAuthenticated: true,
     })
+    useSettingsStore.setState({ userChannelSelection: false })
+    vi.mocked(api.fetchNowPlayingAll).mockResolvedValue({})
   })
 
   describe('Loading state', () => {
@@ -383,6 +387,88 @@ describe('ChannelList', () => {
       })
 
       expect(screen.queryByText('Clear Channel')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('Viewer user with user channel selection enabled', () => {
+    beforeEach(() => {
+      useAuthStore.setState({ role: 'viewer' })
+      useSettingsStore.setState({ userChannelSelection: true })
+    })
+
+    it('should select channel when viewer clicks', async () => {
+      vi.mocked(api.fetchGroupedChannels).mockResolvedValueOnce(mockGroupedResponse)
+      vi.mocked(api.setCurrentChannel).mockResolvedValueOnce(
+        mockGroupedResponse.groups[0].channels[0]
+      )
+
+      render(<ChannelList />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Sports')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByText('Sports'))
+      fireEvent.click(screen.getByText('TSN'))
+
+      await waitFor(() => {
+        expect(vi.mocked(api.setCurrentChannel)).toHaveBeenCalledWith(
+          mockGroupedResponse.groups[0].channels[0]
+        )
+      })
+    })
+
+    it('should still not show clear channel button', async () => {
+      vi.mocked(api.fetchGroupedChannels).mockResolvedValueOnce(mockGroupedResponse)
+      useChannelStore.setState({ currentChannel: mockGroupedResponse.groups[0].channels[0] })
+
+      render(<ChannelList />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Sports')).toBeInTheDocument()
+      })
+
+      expect(screen.queryByText('Clear Channel')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('Now playing', () => {
+    it('should show the current programme under each channel', async () => {
+      vi.mocked(api.fetchGroupedChannels).mockResolvedValueOnce(mockGroupedResponse)
+      vi.mocked(api.fetchNowPlayingAll).mockResolvedValueOnce({
+        // Keyed by guideId, not channel id
+        '1': {
+          title: 'NHL: Habs @ Leafs',
+          startTime: '2026-08-14T18:00:00Z',
+          endTime: '2026-08-14T21:00:00Z',
+        },
+      })
+
+      render(<ChannelList />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Sports')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByText('Sports'))
+
+      await waitFor(() => {
+        expect(screen.getByText('NHL: Habs @ Leafs')).toBeInTheDocument()
+      })
+    })
+
+    it('should still render the list when the EPG request fails', async () => {
+      vi.mocked(api.fetchGroupedChannels).mockResolvedValueOnce(mockGroupedResponse)
+      vi.mocked(api.fetchNowPlayingAll).mockRejectedValueOnce(new Error('EPG down'))
+
+      render(<ChannelList />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Sports')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByText('Sports'))
+      expect(screen.getByText('TSN')).toBeInTheDocument()
     })
   })
 

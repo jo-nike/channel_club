@@ -3,14 +3,16 @@ import { ChevronDown } from 'lucide-react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
-import type { Channel, ChannelGroupWithChannels } from '@/types'
+import type { Channel, ChannelGroupWithChannels, Program } from '@/types'
 
 interface CollapsibleChannelGroupProps {
   group: ChannelGroupWithChannels
   currentChannelId: string | null
-  isAdmin: boolean
+  canSelect: boolean
   onSelectChannel: (channel: Channel) => void
   forceOpen?: boolean
+  /** Current programme per channel, keyed by Channel.guideId. */
+  nowPlaying?: Record<string, Program>
 }
 
 export interface CollapsibleChannelGroupHandle {
@@ -19,7 +21,7 @@ export interface CollapsibleChannelGroupHandle {
 
 export const CollapsibleChannelGroup = forwardRef<CollapsibleChannelGroupHandle, CollapsibleChannelGroupProps>(
   function CollapsibleChannelGroup(
-    { group, currentChannelId, isAdmin, onSelectChannel, forceOpen = false },
+    { group, currentChannelId, canSelect, onSelectChannel, forceOpen = false, nowPlaying },
     ref
   ) {
     const [isOpen, setIsOpen] = useState(forceOpen)
@@ -72,7 +74,8 @@ export const CollapsibleChannelGroup = forwardRef<CollapsibleChannelGroupHandle,
               key={channel.id}
               channel={channel}
               isSelected={currentChannelId === channel.id}
-              isAdmin={isAdmin}
+              canSelect={canSelect}
+              currentProgramme={nowPlaying?.[channel.guideId]?.title}
               onSelect={() => onSelectChannel(channel)}
             />
           ))}
@@ -85,15 +88,22 @@ export const CollapsibleChannelGroup = forwardRef<CollapsibleChannelGroupHandle,
 interface ChannelGroupItemProps {
   channel: Channel
   isSelected: boolean
-  isAdmin: boolean
+  canSelect: boolean
+  currentProgramme?: string
   onSelect: () => void
 }
 
-function ChannelGroupItem({ channel, isSelected, isAdmin, onSelect }: ChannelGroupItemProps) {
+function ChannelGroupItem({
+  channel,
+  isSelected,
+  canSelect,
+  currentProgramme,
+  onSelect,
+}: ChannelGroupItemProps) {
   const [isSelecting, setIsSelecting] = useState(false)
 
   async function handleClick() {
-    if (!isAdmin || isSelecting) return
+    if (!canSelect || isSelecting) return
     setIsSelecting(true)
     try {
       await onSelect()
@@ -106,9 +116,9 @@ function ChannelGroupItem({ channel, isSelected, isAdmin, onSelect }: ChannelGro
     <div
       role="option"
       tabIndex={0}
-      onClick={isAdmin ? handleClick : undefined}
+      onClick={canSelect ? handleClick : undefined}
       onKeyDown={(e) => {
-        if (isAdmin && (e.key === 'Enter' || e.key === ' ')) {
+        if (canSelect && (e.key === 'Enter' || e.key === ' ')) {
           e.preventDefault()
           handleClick()
         }
@@ -120,9 +130,9 @@ function ChannelGroupItem({ channel, isSelected, isAdmin, onSelect }: ChannelGro
         'text-base',
         'min-h-[48px]',
         isSelected && 'border-primary bg-primary/10',
-        isAdmin && !isSelecting && 'cursor-pointer hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-        isAdmin && isSelecting && 'cursor-wait opacity-70',
-        !isAdmin && 'cursor-default'
+        canSelect && !isSelecting && 'cursor-pointer hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+        canSelect && isSelecting && 'cursor-wait opacity-70',
+        !canSelect && 'cursor-default'
       )}
     >
       <div className="min-w-0 flex-1">
@@ -132,6 +142,9 @@ function ChannelGroupItem({ channel, isSelected, isAdmin, onSelect }: ChannelGro
             <span className="text-sm text-primary flex-shrink-0">Now Playing</span>
           )}
         </div>
+        {currentProgramme && (
+          <p className="truncate text-sm text-muted-foreground">{currentProgramme}</p>
+        )}
       </div>
     </div>
   )
