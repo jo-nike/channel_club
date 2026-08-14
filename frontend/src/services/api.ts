@@ -28,8 +28,6 @@ export function getCastBaseUrl(): string {
   }
 
   // Construct absolute URL from current location
-  // In dev, we need to use the backend port (8000) instead of frontend port (5173)
-  const backendPort = import.meta.env.VITE_BACKEND_PORT || '8001'
   const hostname = window.location.hostname
   const protocol = window.location.protocol
 
@@ -38,8 +36,16 @@ export function getCastBaseUrl(): string {
     return `${protocol}//${hostname}/api`
   }
 
-  // In dev mode, use backend port
-  return `${protocol}//${hostname}:${backendPort}/api`
+  // In dev, the frontend runs on a different port than the backend, so we
+  // need to use the backend port (default 8001) instead of the frontend port
+  // (5173). VITE_BACKEND_PORT is a dev-only override; prod falls through below.
+  if (import.meta.env.DEV) {
+    const backendPort = import.meta.env.VITE_BACKEND_PORT || '8001'
+    return `${protocol}//${hostname}:${backendPort}/api`
+  }
+
+  // In prod, the backend serves the frontend, so reuse the current host:port
+  return `${protocol}//${window.location.host}/api`
 }
 
 export interface LoginRequest {
@@ -302,7 +308,7 @@ export async function loginWithPlex(authToken: string): Promise<TokenResponse> {
   })
 
   if (!response.ok) {
-    const data = await response.json()
+    const data = await response.json().catch(() => ({ detail: 'Plex authentication failed' }))
     logger.error('API', 'Plex login failed', {
       status: response.status,
       detail: data.detail,
