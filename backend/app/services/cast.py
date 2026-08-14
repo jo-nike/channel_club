@@ -85,19 +85,32 @@ class CastSession:
                 "ffmpeg",
                 "-y",  # Overwrite output files
                 "-hide_banner",
-                "-loglevel", "warning",
-                "-reconnect", "1",
-                "-reconnect_streamed", "1",
-                "-reconnect_delay_max", "5",
-                "-i", self.stream_url,
-                "-c:v", "copy",  # No video re-encoding (fast)
-                "-c:a", "aac",  # Re-encode audio to AAC (Chromecast compatible)
-                "-b:a", "128k",  # Audio bitrate
-                "-f", "hls",
-                "-hls_time", str(settings.cast_hls_segment_time),
-                "-hls_list_size", str(settings.cast_hls_list_size),
-                "-hls_flags", "delete_segments+append_list",
-                "-hls_segment_filename", segment_pattern,
+                "-loglevel",
+                "warning",
+                "-reconnect",
+                "1",
+                "-reconnect_streamed",
+                "1",
+                "-reconnect_delay_max",
+                "5",
+                "-i",
+                self.stream_url,
+                "-c:v",
+                "copy",  # No video re-encoding (fast)
+                "-c:a",
+                "aac",  # Re-encode audio to AAC (Chromecast compatible)
+                "-b:a",
+                "128k",  # Audio bitrate
+                "-f",
+                "hls",
+                "-hls_time",
+                str(settings.cast_hls_segment_time),
+                "-hls_list_size",
+                str(settings.cast_hls_list_size),
+                "-hls_flags",
+                "delete_segments+append_list",
+                "-hls_segment_filename",
+                segment_pattern,
                 playlist_path,
             ]
 

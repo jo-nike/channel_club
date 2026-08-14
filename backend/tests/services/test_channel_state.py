@@ -163,9 +163,7 @@ class TestHighlightRecordingOnChannelSwitch:
 
         with (
             patch("app.services.channel_state.settings") as mock_settings,
-            patch(
-                "app.services.highlight.highlight_service", mock_highlight_service
-            ),
+            patch("app.services.highlight.highlight_service", mock_highlight_service),
         ):
             mock_settings.highlight_enabled = True
 
@@ -191,9 +189,7 @@ class TestHighlightRecordingOnChannelSwitch:
 
         with (
             patch("app.services.channel_state.settings") as mock_settings,
-            patch(
-                "app.services.highlight.highlight_service", mock_highlight_service
-            ),
+            patch("app.services.highlight.highlight_service", mock_highlight_service),
         ):
             mock_settings.highlight_enabled = True
 
@@ -219,9 +215,7 @@ class TestHighlightRecordingOnChannelSwitch:
 
         with (
             patch("app.services.channel_state.settings") as mock_settings,
-            patch(
-                "app.services.highlight.highlight_service", mock_highlight_service
-            ),
+            patch("app.services.highlight.highlight_service", mock_highlight_service),
         ):
             mock_settings.highlight_enabled = True
 
@@ -247,9 +241,7 @@ class TestHighlightRecordingOnChannelSwitch:
 
         with (
             patch("app.services.channel_state.settings") as mock_settings,
-            patch(
-                "app.services.highlight.highlight_service", mock_highlight_service
-            ),
+            patch("app.services.highlight.highlight_service", mock_highlight_service),
         ):
             mock_settings.highlight_enabled = False
 

@@ -113,9 +113,7 @@ class TestHighlightService:
             assert not result
 
     @pytest.mark.asyncio
-    async def test_save_highlight_fails_when_disabled(
-        self, service: HighlightService
-    ) -> None:
+    async def test_save_highlight_fails_when_disabled(self, service: HighlightService) -> None:
         """Should return error when feature disabled."""
         with patch("app.services.highlight.settings") as mock_settings:
             mock_settings.highlight_enabled = False
@@ -124,9 +122,7 @@ class TestHighlightService:
             assert error == "Highlight feature is disabled"
 
     @pytest.mark.asyncio
-    async def test_save_highlight_fails_when_no_recorder(
-        self, service: HighlightService
-    ) -> None:
+    async def test_save_highlight_fails_when_no_recorder(self, service: HighlightService) -> None:
         """Should return error when no recorder for channel."""
         with patch("app.services.highlight.settings") as mock_settings:
             mock_settings.highlight_enabled = True

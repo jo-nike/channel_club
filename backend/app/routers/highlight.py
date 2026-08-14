@@ -88,9 +88,7 @@ async def get_highlight_status(
 @router.post("/{channel_id}")
 async def save_highlight(
     channel_id: str = Path(..., description="Channel ID to save highlight for"),
-    format: Literal["mp4", "webm"] = Query(
-        "mp4", description="Output format: mp4 or webm"
-    ),
+    format: Literal["mp4", "webm"] = Query("mp4", description="Output format: mp4 or webm"),
     start_time: float | None = Query(
         None, ge=0, description="Start time in seconds from beginning of buffer"
     ),

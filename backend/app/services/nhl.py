@@ -192,9 +192,7 @@ def _transform_game(api_game: dict[str, Any]) -> NHLGame:
         if key in seen:
             continue
         seen.add(key)
-        game.broadcasts.append(
-            NHLBroadcast(network=network, market=market, country_code=country)
-        )
+        game.broadcasts.append(NHLBroadcast(network=network, market=market, country_code=country))
 
     # Add situation (power play, etc.)
     situation_data = api_game.get("situation")

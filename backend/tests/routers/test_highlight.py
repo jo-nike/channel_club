@@ -124,26 +124,20 @@ class TestSaveHighlight:
         assert response.status_code == 503
         assert response.json()["detail"] == "Highlight feature is disabled"
 
-    def test_returns_400_on_error(
-        self, client: TestClient, auth_header: dict[str, str]
-    ) -> None:
+    def test_returns_400_on_error(self, client: TestClient, auth_header: dict[str, str]) -> None:
         """Returns 400 with error message on failure."""
         with patch("app.routers.highlight.settings") as mock_settings:
             mock_settings.highlight_enabled = True
 
             with patch("app.routers.highlight.highlight_service") as mock_service:
-                mock_service.save_highlight = AsyncMock(
-                    return_value=(None, "No recording active")
-                )
+                mock_service.save_highlight = AsyncMock(return_value=(None, "No recording active"))
 
                 response = client.post("/api/highlight/channel-1", headers=auth_header)
 
         assert response.status_code == 400
         assert response.json()["detail"] == "No recording active"
 
-    def test_returns_mp4_on_success(
-        self, client: TestClient, auth_header: dict[str, str]
-    ) -> None:
+    def test_returns_mp4_on_success(self, client: TestClient, auth_header: dict[str, str]) -> None:
         """Returns MP4 file on success."""
         mp4_content = b"fake mp4 content"
 
@@ -151,9 +145,7 @@ class TestSaveHighlight:
             mock_settings.highlight_enabled = True
 
             with patch("app.routers.highlight.highlight_service") as mock_service:
-                mock_service.save_highlight = AsyncMock(
-                    return_value=(mp4_content, None)
-                )
+                mock_service.save_highlight = AsyncMock(return_value=(mp4_content, None))
 
                 response = client.post("/api/highlight/channel-1", headers=auth_header)
 
@@ -174,13 +166,9 @@ class TestSaveHighlight:
             mock_settings.highlight_enabled = True
 
             with patch("app.routers.highlight.highlight_service") as mock_service:
-                mock_service.save_highlight = AsyncMock(
-                    return_value=(mp4_content, None)
-                )
+                mock_service.save_highlight = AsyncMock(return_value=(mp4_content, None))
 
-                response = client.post(
-                    "/api/highlight/channel-1?format=mp4", headers=auth_header
-                )
+                response = client.post("/api/highlight/channel-1?format=mp4", headers=auth_header)
 
         assert response.status_code == 200
         assert response.content == mp4_content
@@ -189,9 +177,7 @@ class TestSaveHighlight:
             "channel-1", format="mp4", start_time=None, end_time=None
         )
 
-    def test_returns_webm_on_success(
-        self, client: TestClient, auth_header: dict[str, str]
-    ) -> None:
+    def test_returns_webm_on_success(self, client: TestClient, auth_header: dict[str, str]) -> None:
         """Returns WebM file when format=webm is specified."""
         webm_content = b"fake webm content"
 
@@ -199,13 +185,9 @@ class TestSaveHighlight:
             mock_settings.highlight_enabled = True
 
             with patch("app.routers.highlight.highlight_service") as mock_service:
-                mock_service.save_highlight = AsyncMock(
-                    return_value=(webm_content, None)
-                )
+                mock_service.save_highlight = AsyncMock(return_value=(webm_content, None))
 
-                response = client.post(
-                    "/api/highlight/channel-1?format=webm", headers=auth_header
-                )
+                response = client.post("/api/highlight/channel-1?format=webm", headers=auth_header)
 
         assert response.status_code == 200
         assert response.content == webm_content
@@ -224,8 +206,6 @@ class TestSaveHighlight:
         with patch("app.routers.highlight.settings") as mock_settings:
             mock_settings.highlight_enabled = True
 
-            response = client.post(
-                "/api/highlight/channel-1?format=avi", headers=auth_header
-            )
+            response = client.post("/api/highlight/channel-1?format=avi", headers=auth_header)
 
         assert response.status_code == 422  # Validation error
