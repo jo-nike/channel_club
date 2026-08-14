@@ -78,7 +78,7 @@ async def validate_plex_token(auth_token: str) -> PlexUser:
             raise InvalidPlexTokenError(f"Missing field in Plex response: {e}") from e
 
 
-_server_owner_id_cache: dict[str, str | None] = {}
+_server_owner_id_cache: dict[str, str] = {}
 
 
 async def get_server_owner_id() -> str | None:
@@ -88,7 +88,9 @@ async def get_server_owner_id() -> str | None:
         The Plex user ID of the server owner, or None if not configured/invalid.
 
     Note:
-        Result is cached to avoid repeated API calls.
+        Only successful lookups are cached, to avoid repeated API calls. A
+        failed lookup is never cached: caching None would strip the owner's
+        admin role for the lifetime of the process after one transient error.
     """
     if not settings.plex_server_token:
         log.debug("No Plex server token configured")
@@ -107,8 +109,9 @@ async def get_server_owner_id() -> str | None:
             headers={**PLEX_API_HEADERS, "X-Plex-Token": settings.plex_server_token},
         )
         if response.status_code != 200:
+            # Not cached: a transient 5xx/429 must not permanently downgrade the
+            # owner. The next login retries the lookup.
             log.warning("Failed to fetch server owner ID, status: {}", response.status_code)
-            _server_owner_id_cache[cache_key] = None
             return None
 
         try:
@@ -118,8 +121,8 @@ async def get_server_owner_id() -> str | None:
             log.debug("Cached server owner ID")
             return owner_id
         except Exception as e:
+            # Not cached, for the same reason as the non-200 branch above.
             log.error("Error parsing server owner response: {}", e)
-            _server_owner_id_cache[cache_key] = None
             return None
 
 
