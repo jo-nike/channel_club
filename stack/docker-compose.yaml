@@ -23,7 +23,7 @@ x-logging: &bounded-logging
 
 services:
   iptv-viewer:
-    image: gitea.example.com/jon/iptv-viewer:${APP_VERSION:-latest}
+    image: gitea.example.com/jons-org/iptv-viewer:${APP_VERSION:-latest}
     container_name: iptv-viewer
     ports:
       - "8334:8080"

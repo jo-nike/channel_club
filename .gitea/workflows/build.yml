@@ -27,7 +27,7 @@ on:
 
 env:
   REGISTRY: gitea.example.com
-  IMAGE: gitea.example.com/jon/iptv-viewer
+  IMAGE: gitea.example.com/jons-org/iptv-viewer
   DEPLOY_HOST: 192.168.50.108
   DEPLOY_USER: j
   DEPLOY_DIR: /srv/channel-club
@@ -208,7 +208,7 @@ jobs:
           git config user.name "gitea-actions"
           git config user.email "actions@example.com"
           git tag -f "$VERSION"
-          git push "https://ci:${{ secrets.RELEASE_TOKEN }}@gitea.example.com/jon/streams_viewer.git" "$VERSION"
+          git push "https://ci:${{ secrets.RELEASE_TOKEN }}@gitea.example.com/jons-org/streams_viewer.git" "$VERSION"
 
       - name: Deploy to plex-stack
         run: |
