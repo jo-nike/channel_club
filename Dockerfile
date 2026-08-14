@@ -7,6 +7,7 @@ ARG VITE_WS_URL
 ARG VITE_STREAM_BASE_URL
 ARG VITE_CHAT_ENABLED=false
 ARG VITE_GIF_ENABLED=false
+ARG VITE_LOG_LEVEL=info
 
 # Set as env vars so Vite can access them during build
 ENV VITE_API_URL=$VITE_API_URL
@@ -14,6 +15,7 @@ ENV VITE_WS_URL=$VITE_WS_URL
 ENV VITE_STREAM_BASE_URL=$VITE_STREAM_BASE_URL
 ENV VITE_CHAT_ENABLED=$VITE_CHAT_ENABLED
 ENV VITE_GIF_ENABLED=$VITE_GIF_ENABLED
+ENV VITE_LOG_LEVEL=$VITE_LOG_LEVEL
 
 WORKDIR /app/frontend
 
@@ -32,10 +34,21 @@ RUN npm run build
 # Stage 2: Production runtime
 FROM python:3.13-slim
 
+# Immutable build identifier, reported by /api/health so a deploy can verify
+# the new build is actually serving. CI passes the CalVer+SHA release tag.
+ARG APP_VERSION=dev
+ENV APP_VERSION=$APP_VERSION
+
+# Cache-buster for the apt upgrade below. CI passes today's date so the layer
+# re-runs daily; without it a warm build cache reuses a stale layer and the
+# image ships base-OS packages that the vulnerability scan rightly fails on.
+ARG APT_REFRESH=0
+
 WORKDIR /app
 
 # Install curl for healthcheck, ffmpeg for highlight capture, and uv for Python package management
-RUN apt-get update && apt-get install -y --no-install-recommends curl ffmpeg \
+RUN apt-get update && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends curl ffmpeg \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir uv
 
