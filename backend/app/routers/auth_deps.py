@@ -6,6 +6,7 @@ from jose import JWTError
 from loguru import logger
 
 from app.models.auth import TokenPayload
+from app.services import app_settings
 from app.services.auth import verify_token
 
 log = logger.bind(router="auth_deps")
@@ -98,3 +99,33 @@ async def require_admin(
             detail="Admin access required",
         )
     return current_user
+
+
+async def require_channel_control(
+    current_user: TokenPayload = Depends(get_current_user),
+) -> TokenPayload:
+    """Verify the user may change the live channel.
+
+    Admins always may. Other users may only when an admin has enabled the
+    user_channel_selection setting.
+
+    Args:
+        current_user: The authenticated user from get_current_user.
+
+    Returns:
+        TokenPayload if the user may change the live channel.
+
+    Raises:
+        HTTPException: 403 if the user is not allowed to change the channel.
+    """
+    if current_user.role == "admin":
+        return current_user
+
+    if app_settings.user_channel_selection_enabled():
+        return current_user
+
+    log.warning("Unauthorized channel change attempt by user: {}", current_user.sub)
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Channel selection is restricted to admins",
+    )

@@ -33,3 +33,19 @@ class ActiveUsersResponse(BaseModel):
     totals: ActiveUsersTotals
 
     model_config = {"populate_by_name": True}
+
+
+class AppSettings(BaseModel):
+    """Runtime settings an admin can toggle for all users."""
+
+    user_channel_selection: bool = Field(alias="userChannelSelection")
+
+    model_config = {"populate_by_name": True}
+
+
+class UpdateAppSettingsRequest(BaseModel):
+    """Request body for PUT /api/settings. Omitted fields are left unchanged."""
+
+    user_channel_selection: bool | None = Field(None, alias="userChannelSelection")
+
+    model_config = {"populate_by_name": True}

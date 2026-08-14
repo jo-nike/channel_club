@@ -164,40 +164,36 @@ class EPGService:
             log.error("Failed to parse XMLTV data: {}", e)
             return False
 
-    async def get_now_playing(self, channel_id: str) -> EPGResponse:
-        """Get current and next program for a channel.
-
-        Args:
-            channel_id: UUID of the channel to look up.
-
-        Returns:
-            EPGResponse with current and next program info.
+    async def _ensure_cache(self) -> None:
+        """Refresh the cache if stale, falling back to stale data on failure.
 
         Raises:
             EPGServiceError: If cache is empty and refresh fails.
         """
-        # Check if cache needs refresh
-        if not self._is_cache_valid():
-            refresh_success = await self.refresh_cache()
+        if self._is_cache_valid():
+            return
 
-            if not refresh_success:
-                # If refresh failed but we have stale cache, use it
-                if self._cache:
-                    log.warning("Using stale EPG cache after refresh failure")
-                else:
-                    raise EPGServiceError("EPG service unavailable")
+        refresh_success = await self.refresh_cache()
 
-        # Look up programs for channel
-        programs = self._cache.get(channel_id, [])
+        if not refresh_success:
+            # If refresh failed but we have stale cache, use it
+            if self._cache:
+                log.warning("Using stale EPG cache after refresh failure")
+            else:
+                raise EPGServiceError("EPG service unavailable")
 
-        if not programs:
-            return EPGResponse(
-                channel_id=channel_id,
-                current_program=None,
-                next_program=None,
-            )
+    def _find_current_and_next(
+        self, programs: list[Program], now: datetime
+    ) -> tuple[Program | None, Program | None]:
+        """Find the on-air program and the one following it.
 
-        now = datetime.now(UTC)
+        Args:
+            programs: Programs for a single channel, sorted by start time.
+            now: Timezone-aware reference time.
+
+        Returns:
+            Tuple of (current program, next program), either of which may be None.
+        """
         current_program: Program | None = None
         next_program: Program | None = None
 
@@ -221,11 +217,65 @@ class EPGService:
                 next_program = program
                 break
 
+        return current_program, next_program
+
+    async def get_now_playing(self, channel_id: str) -> EPGResponse:
+        """Get current and next program for a channel.
+
+        Args:
+            channel_id: UUID of the channel to look up.
+
+        Returns:
+            EPGResponse with current and next program info.
+
+        Raises:
+            EPGServiceError: If cache is empty and refresh fails.
+        """
+        await self._ensure_cache()
+
+        # Look up programs for channel
+        programs = self._cache.get(channel_id, [])
+
+        if not programs:
+            return EPGResponse(
+                channel_id=channel_id,
+                current_program=None,
+                next_program=None,
+            )
+
+        current_program, next_program = self._find_current_and_next(programs, datetime.now(UTC))
+
         return EPGResponse(
             channel_id=channel_id,
             current_program=current_program,
             next_program=next_program,
         )
+
+    async def get_now_playing_bulk(self) -> dict[str, Program]:
+        """Get the on-air program for every channel in the EPG cache.
+
+        The whole XMLTV feed is already cached in memory, so this is a scan over
+        local data rather than one upstream call per channel.
+
+        Returns:
+            Mapping of channel_id to its current program. Channels with nothing
+            on air are omitted.
+
+        Raises:
+            EPGServiceError: If cache is empty and refresh fails.
+        """
+        await self._ensure_cache()
+
+        now = datetime.now(UTC)
+        now_playing: dict[str, Program] = {}
+
+        for channel_id, programs in self._cache.items():
+            current_program, _ = self._find_current_and_next(programs, now)
+            if current_program is not None:
+                now_playing[channel_id] = current_program
+
+        log.debug("Bulk now-playing: {} of {} channels on air", len(now_playing), len(self._cache))
+        return now_playing
 
 
 # Global singleton instance

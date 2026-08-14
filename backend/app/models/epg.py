@@ -16,6 +16,14 @@ class Program(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class NowPlayingBulkResponse(BaseModel):
+    """Response for GET /api/epg/now-playing/all."""
+
+    now_playing: dict[str, Program] = Field(alias="nowPlaying")
+
+    model_config = {"populate_by_name": True}
+
+
 class EPGResponse(BaseModel):
     """Response model for EPG now-playing endpoint."""
 

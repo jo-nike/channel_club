@@ -8,7 +8,7 @@ from jose import JWTError
 from loguru import logger
 
 from app.config import settings
-from app.services import channel_state, chat, presence
+from app.services import app_settings, channel_state, chat, presence
 from app.services.auth import verify_token
 
 router = APIRouter()
@@ -76,11 +76,12 @@ async def websocket_endpoint(
     )
 
     try:
-        # Send connection acknowledgment with current channel
+        # Send connection acknowledgment with current channel and settings
         current = channel_state.get_current_channel()
         ack_message = {
             "type": "connection_ack",
             "currentChannel": current.model_dump(by_alias=True) if current else None,
+            "settings": app_settings.get_app_settings().model_dump(by_alias=True),
         }
         await websocket.send_json(ack_message)
 

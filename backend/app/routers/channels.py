@@ -5,7 +5,7 @@ from loguru import logger
 
 from app.models.auth import TokenPayload
 from app.models.channel import Channel, CurrentChannelResponse, GroupedChannelsResponse, SetChannelRequest
-from app.routers.auth_deps import get_current_user, require_admin
+from app.routers.auth_deps import get_current_user, require_admin, require_channel_control
 from app.services import channel_state
 from app.services.dispatcharr import DispatchrrUnavailableError, get_grouped_channels, get_lineup
 
@@ -102,21 +102,22 @@ async def get_current_channel(
 @router.put("/channels/current", response_model=Channel)
 async def set_current_channel(
     request: SetChannelRequest,
-    current_user: TokenPayload = Depends(require_admin),
+    current_user: TokenPayload = Depends(require_channel_control),
 ) -> Channel:
-    """Set the current channel (admin only).
+    """Set the current channel.
 
-    Requires admin role. Updates the current channel state and broadcasts
-    to all WebSocket clients.
+    Requires admin role, unless an admin has enabled the user_channel_selection
+    setting, in which case any authenticated user may change the channel.
+    Updates the current channel state and broadcasts to all WebSocket clients.
 
     Args:
         request: Channel data to set.
-        current_user: Authenticated admin user from JWT token.
+        current_user: Authenticated user allowed to change the channel.
 
     Returns:
         The updated channel.
     """
-    log.info("Admin {} changing channel to '{}'", current_user.sub, request.name)
+    log.info("User {} changing channel to '{}'", current_user.sub, request.name)
     channel = Channel(
         id=request.id,
         name=request.name,
