@@ -200,14 +200,21 @@ class ChannelRecorder:
                     self.channel_id,
                     self.process.pid,
                 )
-                try:
+                process = self.process
+
+                # Signal and reap in a thread pool to avoid blocking the event
+                # loop - a stalled FFmpeg can ignore SIGTERM for the full timeout
+                def terminate_process() -> None:
                     # Send SIGTERM to process group
-                    os.killpg(os.getpgid(self.process.pid), 15)  # SIGTERM
+                    os.killpg(os.getpgid(process.pid), 15)  # SIGTERM
                     try:
-                        self.process.wait(timeout=5)
+                        process.wait(timeout=5)
                     except subprocess.TimeoutExpired:
-                        os.killpg(os.getpgid(self.process.pid), 9)  # SIGKILL
-                        self.process.wait()
+                        os.killpg(os.getpgid(process.pid), 9)  # SIGKILL
+                        process.wait()
+
+                try:
+                    await asyncio.to_thread(terminate_process)
                 except ProcessLookupError:
                     pass  # Process already dead
                 except Exception as e:
@@ -218,7 +225,8 @@ class ChannelRecorder:
             # Cleanup segment directory
             if self.segment_dir and self.segment_dir.exists():
                 try:
-                    shutil.rmtree(self.segment_dir)
+                    # Recursive delete is filesystem-bound - keep it off the loop
+                    await asyncio.to_thread(shutil.rmtree, self.segment_dir)
                     log.debug("Cleaned up segment directory for channel {}", self.channel_id)
                 except Exception as e:
                     log.warning("Failed to cleanup segments for channel {}: {}", self.channel_id, e)

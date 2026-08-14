@@ -273,8 +273,12 @@ async def get_nhl_scores(date: str | None = None) -> NHLScoresResponse:
         live_game_count=live_game_count,
     )
 
-    # Cache the result
-    _cache[cache_key] = (result, time.time())
+    # Cache the result, dropping entries whose TTL has lapsed first - any valid
+    # date is a cache key, so without eviction the cache grows without bound
+    now = time.time()
+    for stale_key in [k for k, (_, ts) in _cache.items() if now - ts >= CACHE_TTL_SECONDS]:
+        del _cache[stale_key]
+    _cache[cache_key] = (result, now)
     log.info("Fetched {} NHL games ({} live) for {}", len(games), live_game_count, effective_date)
 
     return result
