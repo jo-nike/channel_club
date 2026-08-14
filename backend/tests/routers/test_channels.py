@@ -9,7 +9,7 @@ from loguru import logger
 
 from app.main import app
 from app.models.channel import Channel, ChannelGroupWithChannels, GroupedChannelsResponse
-from app.services import channel_state
+from app.services import app_settings, channel_state
 from app.services.auth import create_access_token
 from app.services.dispatcharr import DispatchrrUnavailableError
 
@@ -252,7 +252,7 @@ class TestSetCurrentChannel:
     def test_viewer_gets_403_forbidden(
         self, client: TestClient, auth_header: dict[str, str]
     ) -> None:
-        """Viewer role returns 403 Forbidden."""
+        """Viewer role returns 403 Forbidden while user channel selection is off."""
         channel_data = {
             "id": "uuid",
             "name": "TSN",
@@ -263,7 +263,28 @@ class TestSetCurrentChannel:
         response = client.put("/api/channels/current", json=channel_data, headers=auth_header)
 
         assert response.status_code == 403
-        assert response.json()["detail"] == "Admin access required"
+        assert response.json()["detail"] == "Channel selection is restricted to admins"
+
+    def test_viewer_can_set_channel_when_user_selection_enabled(
+        self,
+        client: TestClient,
+        auth_header: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Viewer can set the channel once an admin enables user channel selection."""
+        monkeypatch.setattr(app_settings, "_user_channel_selection", True)
+
+        channel_data = {
+            "id": "uuid-789",
+            "name": "TSN",
+            "streamUrl": "https://example.com/stream",
+            "guideId": "1",
+        }
+
+        response = client.put("/api/channels/current", json=channel_data, headers=auth_header)
+
+        assert response.status_code == 200
+        assert response.json()["name"] == "TSN"
 
     def test_admin_can_set_channel(
         self, client: TestClient, admin_auth_header: dict[str, str]
@@ -403,6 +424,20 @@ class TestClearCurrentChannel:
         self, client: TestClient, auth_header: dict[str, str]
     ) -> None:
         """Viewer role returns 403 Forbidden."""
+        response = client.delete("/api/channels/current", headers=auth_header)
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Admin access required"
+
+    def test_viewer_still_forbidden_when_user_selection_enabled(
+        self,
+        client: TestClient,
+        auth_header: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Clearing stays admin-only even when users may set the channel."""
+        monkeypatch.setattr(app_settings, "_user_channel_selection", True)
+
         response = client.delete("/api/channels/current", headers=auth_header)
 
         assert response.status_code == 403

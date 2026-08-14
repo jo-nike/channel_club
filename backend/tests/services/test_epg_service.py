@@ -426,6 +426,91 @@ class TestGetNowPlaying:
                 await service.get_now_playing("channel-1")
 
 
+class TestGetNowPlayingBulk:
+    """Tests for get_now_playing_bulk functionality."""
+
+    @pytest.mark.asyncio
+    async def test_returns_on_air_program_per_channel(self) -> None:
+        """Every channel with something airing is included."""
+        service = EPGService("http://test:9191")
+
+        now = datetime.now(UTC)
+        service._cache = {
+            "channel-1": [
+                Program(
+                    title="Show One",
+                    start_time=now - timedelta(minutes=30),
+                    end_time=now + timedelta(minutes=30),
+                ),
+            ],
+            "channel-2": [
+                Program(
+                    title="Show Two",
+                    start_time=now - timedelta(minutes=10),
+                    end_time=now + timedelta(minutes=50),
+                ),
+            ],
+        }
+        service._cache_expires = now + timedelta(hours=1)
+
+        result = await service.get_now_playing_bulk()
+
+        assert set(result) == {"channel-1", "channel-2"}
+        assert result["channel-1"].title == "Show One"
+        assert result["channel-2"].title == "Show Two"
+
+    @pytest.mark.asyncio
+    async def test_omits_channels_with_nothing_on_air(self) -> None:
+        """Channels whose schedule has no current program are left out."""
+        service = EPGService("http://test:9191")
+
+        now = datetime.now(UTC)
+        service._cache = {
+            "channel-1": [
+                Program(
+                    title="On Air",
+                    start_time=now - timedelta(minutes=30),
+                    end_time=now + timedelta(minutes=30),
+                ),
+            ],
+            "channel-2": [
+                Program(
+                    title="Later Today",
+                    start_time=now + timedelta(hours=2),
+                    end_time=now + timedelta(hours=3),
+                ),
+            ],
+            "channel-3": [],
+        }
+        service._cache_expires = now + timedelta(hours=1)
+
+        result = await service.get_now_playing_bulk()
+
+        assert set(result) == {"channel-1"}
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_dict_for_empty_cache(self) -> None:
+        """A valid but empty cache yields no results rather than an error."""
+        service = EPGService("http://test:9191")
+
+        service._cache = {}
+        service._cache_expires = datetime.now(UTC) + timedelta(hours=1)
+
+        assert await service.get_now_playing_bulk() == {}
+
+    @pytest.mark.asyncio
+    async def test_raises_when_no_cache_and_refresh_fails(self) -> None:
+        """Propagates EPGServiceError like the single-channel lookup does."""
+        service = EPGService("http://test:9191")
+
+        service._cache = {}
+        service._cache_expires = None
+
+        with patch.object(service, "refresh_cache", new=AsyncMock(return_value=False)):
+            with pytest.raises(EPGServiceError):
+                await service.get_now_playing_bulk()
+
+
 class TestCacheValidity:
     """Tests for cache validity checking."""
 

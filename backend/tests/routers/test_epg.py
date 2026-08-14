@@ -263,3 +263,67 @@ class TestEPGLogging:
             assert "epg" in log_output
         finally:
             logger.remove(handler_id)
+
+
+class TestGetNowPlayingAll:
+    """Tests for GET /api/epg/now-playing/all endpoint."""
+
+    def test_requires_authentication(self, client: TestClient) -> None:
+        """Unauthenticated request returns 401."""
+        response = client.get("/api/epg/now-playing/all")
+
+        assert response.status_code == 401
+
+    def test_returns_program_per_channel(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Returns the on-air program keyed by channel id."""
+        now = datetime.now(UTC)
+        mock_now_playing = {
+            "uuid-123": Program(
+                title="Test Show",
+                start_time=now - timedelta(minutes=30),
+                end_time=now + timedelta(minutes=30),
+                description="A test program",
+            ),
+        }
+
+        with patch("app.routers.epg.get_epg_service") as mock_get_service:
+            mock_service = AsyncMock()
+            mock_service.get_now_playing_bulk.return_value = mock_now_playing
+            mock_get_service.return_value = mock_service
+
+            response = client.get("/api/epg/now-playing/all", headers=auth_header)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["nowPlaying"]["uuid-123"]["title"] == "Test Show"
+        assert data["nowPlaying"]["uuid-123"]["description"] == "A test program"
+
+    def test_returns_empty_mapping_when_nothing_on_air(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """An empty result is a valid response, not an error."""
+        with patch("app.routers.epg.get_epg_service") as mock_get_service:
+            mock_service = AsyncMock()
+            mock_service.get_now_playing_bulk.return_value = {}
+            mock_get_service.return_value = mock_service
+
+            response = client.get("/api/epg/now-playing/all", headers=auth_header)
+
+        assert response.status_code == 200
+        assert response.json() == {"nowPlaying": {}}
+
+    def test_returns_503_when_service_unavailable(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Returns 503 when EPG service is unavailable."""
+        with patch("app.routers.epg.get_epg_service") as mock_get_service:
+            mock_service = AsyncMock()
+            mock_service.get_now_playing_bulk.side_effect = EPGServiceError("unavailable")
+            mock_get_service.return_value = mock_service
+
+            response = client.get("/api/epg/now-playing/all", headers=auth_header)
+
+        assert response.status_code == 503
+        assert response.json() == {"detail": "EPG service unavailable"}

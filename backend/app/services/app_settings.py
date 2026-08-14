@@ -65,9 +65,3 @@ async def broadcast_settings_update() -> None:
         "settings": get_app_settings().model_dump(by_alias=True),
     }
     await channel_state.broadcast(message)
-
-
-def reset() -> None:
-    """Reset settings to their defaults (used by tests)."""
-    global _user_channel_selection
-    _user_channel_selection = False
