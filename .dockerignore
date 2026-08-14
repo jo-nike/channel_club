@@ -1,0 +1,43 @@
+# Build context exclusions. The image needs backend/app, frontend source, and
+# the dependency manifests — nothing else.
+
+# VCS and agent scratch
+.git
+.gitignore
+.claude
+.ideas
+_bmad
+_bmad-output
+
+# Secrets must never enter the build context
+.env
+.env.*
+!.env.example
+
+# Dependencies and build outputs (reinstalled/rebuilt inside the image)
+node_modules
+**/node_modules
+frontend/dist
+backend/.venv
+**/__pycache__
+**/*.pyc
+
+# Tests are not shipped in the runtime image
+backend/tests
+**/*.test.ts
+**/*.test.tsx
+
+# Caches
+.mypy_cache
+.pytest_cache
+.ruff_cache
+**/.vite
+coverage
+htmlcov
+.coverage
+
+# Docs and local tooling
+README.md
+CLAUDE.md
+docker-compose.yml
+run.sh
