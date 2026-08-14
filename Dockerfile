@@ -55,8 +55,17 @@ RUN apt-get update && apt-get upgrade -y \
 # Copy backend dependency files first for better layer caching
 COPY backend/pyproject.toml backend/uv.lock ./
 
-# Install Python dependencies
-RUN uv sync --frozen --no-dev
+# Install Python dependencies, then drop the build-only tooling. uv and pip are
+# not on any runtime path (the CMD invokes .venv/bin/uvicorn directly), and
+# pip's vendored tree carries CVEs we cannot patch and do not run — keeping the
+# image scan actionable on things that actually ship.
+RUN uv sync --frozen --no-dev \
+    && rm -rf /usr/local/bin/uv /usr/local/bin/uvx \
+       /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.13 \
+       /usr/local/lib/python3.13/site-packages/uv \
+       /usr/local/lib/python3.13/site-packages/uv-*.dist-info \
+       /usr/local/lib/python3.13/site-packages/pip \
+       /usr/local/lib/python3.13/site-packages/pip-*.dist-info
 
 # Copy backend source code
 COPY backend/app ./app
