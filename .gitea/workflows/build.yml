@@ -1,0 +1,240 @@
+# CI/CD for the IPTV viewer. Self-contained: docker-stacks is NOT involved —
+# this pipeline owns the deploy end to end.
+#
+# push to master:
+#   test-backend + test-frontend + security (parallel) → release:
+#     build the image → scan it → push to gitea.example.com (CalVer+SHA tag, e.g.
+#     2026.08.14-a1b2c3d, plus :latest) → git tag → render
+#     stack/docker-compose.yaml with the pinned tag → scp to plex-stack at
+#     /srv/channel-club → docker compose up -d → poll
+#     /api/health until the NEW version reports healthy.
+#
+# Secrets never pass through CI. The Infisical agent on plex-stack renders
+# .env from the homelab-infra store (/plex/iptv_viewer); the deploy asserts
+# that file exists and never ships it.
+#
+# Gitea repo secrets required:
+#   REGISTRY_USER / REGISTRY_TOKEN  — Gitea container registry login
+#   RELEASE_TOKEN                   — PAT used to push the release tag
+#   SSH_PRIVATE_KEY                 — deploy key for j@192.168.50.108
+
+name: CI + Deploy
+
+on:
+  push:
+    branches:
+      - master
+
+env:
+  REGISTRY: gitea.example.com
+  IMAGE: gitea.example.com/jon/iptv-viewer
+  DEPLOY_HOST: 192.168.50.108
+  DEPLOY_USER: j
+  DEPLOY_DIR: /srv/channel-club
+  HEALTH_URL: http://192.168.50.108:8334/api/health
+
+jobs:
+  test-backend:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/catthehacker/ubuntu:act-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Lint (ruff)
+        run: uv run ruff check .
+
+      - name: Format check (ruff)
+        run: uv run ruff format --check .
+
+      - name: Type check (basedpyright)
+        run: uv run basedpyright
+
+      - name: Test (pytest)
+        run: uv run pytest -q
+
+  test-frontend:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/catthehacker/ubuntu:act-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install
+        run: npm --prefix frontend ci
+
+      - name: Lint (eslint)
+        run: npm --prefix frontend run lint
+
+      - name: Test (vitest)
+        run: npm --prefix frontend test -- --run
+
+      - name: Build
+        run: npm --prefix frontend run build
+
+  # Secret + dependency + IaC scanning. Blocks the deploy (release needs it).
+  security:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/catthehacker/ubuntu:act-latest
+    env:
+      TRIVY_VERSION: "0.72.0"
+      GITLEAKS_VERSION: "8.30.1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # gitleaks scans full git history
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install Trivy + gitleaks
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b /usr/local/bin "v${TRIVY_VERSION}"
+          curl -sfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+
+      - name: Secret scan (gitleaks)
+        run: gitleaks detect --source . --redact
+
+      - name: Export dependency manifests
+        run: |
+          mkdir -p .trivy-scan
+          (cd backend && uv export --frozen --no-dev --format requirements-txt -o ../.trivy-scan/requirements.txt)
+          cp frontend/package-lock.json .trivy-scan/package-lock.json
+
+      - name: Dependency scan (Trivy fs)
+        run: trivy fs --scanners vuln,license --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --no-progress .trivy-scan
+
+      - name: Misconfig scan (Trivy config)
+        run: trivy config --severity HIGH,CRITICAL --exit-code 1 .
+
+  release:
+    needs: [test-backend, test-frontend, security]
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/catthehacker/ubuntu:act-latest
+    env:
+      TRIVY_VERSION: "0.72.0"
+      # Vite inlines these into the client bundle at build time, so they cannot
+      # come from the runtime .env. They are already public in the shipped JS —
+      # nothing secret belongs here.
+      VITE_API_URL: /api
+      VITE_WS_URL: wss://tv.example.com/api/ws
+      VITE_STREAM_BASE_URL: https://streams.example.com
+      VITE_CHAT_ENABLED: "true"
+      VITE_GIF_ENABLED: "true"
+      VITE_LOG_LEVEL: info
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compute version (CalVer + short SHA)
+        id: ver
+        run: |
+          VERSION="$(date -u +%Y.%m.%d)-$(git rev-parse --short=7 HEAD)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Version: $VERSION"
+
+      - name: Login to Gitea registry
+        run: echo "${{ secrets.REGISTRY_TOKEN }}" | docker login "$REGISTRY" -u "${{ secrets.REGISTRY_USER }}" --password-stdin
+
+      - name: Install Trivy
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b /usr/local/bin "v${TRIVY_VERSION}"
+
+      - name: Build image
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          docker build --pull \
+            --build-arg APP_VERSION="$VERSION" \
+            --build-arg APT_REFRESH="$(date -u +%Y-%m-%d)" \
+            --build-arg VITE_API_URL="$VITE_API_URL" \
+            --build-arg VITE_WS_URL="$VITE_WS_URL" \
+            --build-arg VITE_STREAM_BASE_URL="$VITE_STREAM_BASE_URL" \
+            --build-arg VITE_CHAT_ENABLED="$VITE_CHAT_ENABLED" \
+            --build-arg VITE_GIF_ENABLED="$VITE_GIF_ENABLED" \
+            --build-arg VITE_LOG_LEVEL="$VITE_LOG_LEVEL" \
+            -t "$IMAGE:$VERSION" -t "$IMAGE:latest" .
+
+      # Scan before publishing, so a vulnerable image never reaches the
+      # registry or plex-stack.
+      - name: Scan image (Trivy)
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed \
+            --exit-code 1 "$IMAGE:$VERSION"
+
+      - name: Push image
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          docker push "$IMAGE:$VERSION"
+          docker push "$IMAGE:latest"
+
+      # Every release tag maps 1:1 to an immutable image tag — this is the
+      # rollback mechanism.
+      - name: Tag release
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          git config user.name "gitea-actions"
+          git config user.email "actions@example.com"
+          git tag -f "$VERSION"
+          git push "https://ci:${{ secrets.RELEASE_TOKEN }}@gitea.example.com/jon/streams_viewer.git" "$VERSION"
+
+      - name: Deploy to plex-stack
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          REMOTE="$DEPLOY_USER@$DEPLOY_HOST"
+          ssh -i ~/.ssh/deploy_key "$REMOTE" "mkdir -p '$DEPLOY_DIR'"
+          # Secrets never ship from CI: the Infisical-rendered .env must exist.
+          ssh -i ~/.ssh/deploy_key "$REMOTE" "test -f '$DEPLOY_DIR/.env'" \
+            || { echo "::error::$DEPLOY_DIR/.env missing on $DEPLOY_HOST — add the Infisical template before deploying"; exit 1; }
+          sed "s#\${APP_VERSION:-latest}#$VERSION#g" stack/docker-compose.yaml > /tmp/rendered-compose.yaml
+          scp -i ~/.ssh/deploy_key /tmp/rendered-compose.yaml "$REMOTE:$DEPLOY_DIR/docker-compose.yaml"
+          ssh -i ~/.ssh/deploy_key "$REMOTE" "cd '$DEPLOY_DIR' && docker compose up -d"
+
+      - name: Verify deployed version healthy
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          for attempt in $(seq 1 30); do
+            body=$(curl -sf --max-time 5 "$HEALTH_URL" || true)
+            if echo "$body" | python3 -c "import json,sys; d=json.load(sys.stdin); raise SystemExit(0 if d.get('status')=='ok' and d.get('version')=='$VERSION' else 1)" 2>/dev/null; then
+              echo "healthy at version $VERSION"
+              exit 0
+            fi
+            echo "waiting for $VERSION to become healthy ($attempt/30)"
+            sleep 5
+          done
+          echo "::error::deployed version never became healthy"
+          exit 1
+
+      - name: Cleanup deploy key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key /tmp/rendered-compose.yaml
