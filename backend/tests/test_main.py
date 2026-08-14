@@ -6,6 +6,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
+from app.config import settings
 from app.main import app
 
 
@@ -27,7 +28,14 @@ def test_health_check(client):
     """Test health check endpoint."""
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json() == {"status": "ok", "version": settings.app_version}
+
+
+def test_health_check_reports_build_version(client):
+    """Health should report the injected build version so CI can gate on it."""
+    with patch("app.main.settings.app_version", "2026.08.14-abc1234"):
+        response = client.get("/api/health")
+    assert response.json()["version"] == "2026.08.14-abc1234"
 
 
 def test_auth_token_endpoint_registered(client):
