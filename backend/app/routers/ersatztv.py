@@ -7,13 +7,13 @@ Story: 7.6 - ErsatzTV API Endpoints
 """
 
 import asyncio
+from collections.abc import AsyncIterator
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from fastapi.responses import StreamingResponse
 from loguru import logger
 
-from app.config import settings
 from app.models.ersatztv import (
     CurrentProgrammeResponse,
     EPGChannelResponse,
@@ -26,10 +26,19 @@ from app.services.ersatztv import (
     get_current_programme,
     get_programmes_by_channel,
 )
-from app.services.ersatztv.hls_rewriter import decode_url, rewrite_manifest
+from app.services.ersatztv.hls_rewriter import (
+    decode_url,
+    fetch_ersatztv,
+    is_ersatztv_url,
+    rewrite_manifest,
+)
 
 router = APIRouter(prefix="/api/ersatztv", tags=["ersatztv"])
 log = logger.bind(router="ersatztv")
+
+# Cap on a proxied segment body so a hostile or oversized upstream response
+# cannot exhaust process memory. HLS segments are seconds of video.
+MAX_SEGMENT_BYTES = 64 * 1024 * 1024
 
 
 @router.get("/channels", response_model=EPGChannelResponse)
@@ -99,7 +108,7 @@ async def head_stream(
                 raise HTTPException(status_code=404, detail="Channel not found")
             manifest_url = channel.stream_url
 
-        if not manifest_url.startswith(settings.ersatztv_base_url):
+        if not is_ersatztv_url(manifest_url):
             raise HTTPException(status_code=400, detail="Invalid stream URL")
 
         return Response(
@@ -142,18 +151,22 @@ async def get_stream(
             manifest_url = channel.stream_url
 
         # Validate URL is from ErsatzTV
-        if not manifest_url.startswith(settings.ersatztv_base_url):
+        if not is_ersatztv_url(manifest_url):
             raise HTTPException(status_code=400, detail="Invalid stream URL")
 
         # Fetch manifest with retry for cold stream startup
-        # ErsatzTV needs time to initialize transcoding on first access
-        async with httpx.AsyncClient(follow_redirects=True) as client:
+        # ErsatzTV needs time to initialize transcoding on first access.
+        # follow_redirects is disabled so fetch_ersatztv can re-validate every
+        # hop against the allowlist; an off-host redirect raises ValueError,
+        # which propagates to the outer handler as a 503 rather than being
+        # retried.
+        async with httpx.AsyncClient(follow_redirects=False, timeout=10) as client:
             last_error: Exception | None = None
             response: httpx.Response | None = None
 
             for attempt in range(5):
                 try:
-                    response = await client.get(manifest_url, timeout=10)
+                    response = await fetch_ersatztv(client, manifest_url, stream=False)
                     response.raise_for_status()
                     if response.text.strip():  # Got valid content
                         break
@@ -207,7 +220,7 @@ async def head_segment(
     try:
         segment_url = decode_url(encoded_url)
 
-        if not segment_url.startswith(settings.ersatztv_base_url):
+        if not is_ersatztv_url(segment_url):
             raise HTTPException(status_code=400, detail="Invalid segment URL")
 
         return Response(
@@ -236,18 +249,69 @@ async def get_segment(
         segment_url = decode_url(encoded_url)
 
         # Validate URL is from ErsatzTV
-        if not segment_url.startswith(settings.ersatztv_base_url):
+        if not is_ersatztv_url(segment_url):
             raise HTTPException(status_code=400, detail="Invalid segment URL")
 
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            response = await client.get(segment_url, timeout=30)
-            response.raise_for_status()
+        # Stream the body through instead of buffering it - a segment must never
+        # be materialised in memory, whatever size the upstream claims to send.
+        # follow_redirects is disabled so fetch_ersatztv can re-validate every
+        # redirect hop against the allowlist.
+        client = httpx.AsyncClient(follow_redirects=False, timeout=30)
+        try:
+            response = await fetch_ersatztv(client, segment_url, stream=True)
+            try:
+                response.raise_for_status()
+            except BaseException:
+                await response.aclose()
+                raise
+        except BaseException:
+            await client.aclose()
+            raise
 
         # Determine content type
         content_type = response.headers.get("content-type", "video/mp2t")
 
+        # Reject an oversized segment up-front, while we can still send a real
+        # status code. A silent truncation would present a corrupt body as 200.
+        declared_length = response.headers.get("content-length")
+        if declared_length is not None:
+            try:
+                declared_bytes = int(declared_length)
+            except ValueError:
+                declared_bytes = None
+            if declared_bytes is not None and declared_bytes > MAX_SEGMENT_BYTES:
+                log.warning(
+                    "Segment content-length {} exceeds {} byte cap, rejecting",
+                    declared_bytes,
+                    MAX_SEGMENT_BYTES,
+                )
+                await response.aclose()
+                await client.aclose()
+                raise HTTPException(status_code=502, detail="Segment too large")
+
+        async def stream_segment() -> AsyncIterator[bytes]:
+            """Forward upstream chunks, enforcing the size cap on unbounded bodies."""
+            sent = 0
+            try:
+                async for chunk in response.aiter_bytes():
+                    sent += len(chunk)
+                    if sent > MAX_SEGMENT_BYTES:
+                        # Never present a truncated body as a complete segment -
+                        # abort the stream instead of silently stopping.
+                        log.error("Segment exceeded {} byte cap, aborting", MAX_SEGMENT_BYTES)
+                        raise RuntimeError("Segment exceeded size cap")
+                    yield chunk
+            except httpx.HTTPError as e:
+                # Headers are already sent, so a clean 5xx is impossible here.
+                # Ending the stream beats leaking a raw traceback to the client.
+                log.error("Upstream failure mid-segment, ending stream: {}", e)
+                return
+            finally:
+                await response.aclose()
+                await client.aclose()
+
         return StreamingResponse(
-            iter([response.content]),
+            stream_segment(),
             media_type=content_type,
             headers={
                 "Access-Control-Allow-Origin": "*",  # Chromecast needs CORS
