@@ -53,30 +53,26 @@ export function useHLSRetry({
       retryTimeoutRef.current = null
     }
 
-    setRetryCount((currentCount) => {
-      if (currentCount < MAX_RETRIES) {
-        const delay = getBackoffDelay(currentCount)
-        logger.debug(
-          'HLSRetry',
-          `Retry ${currentCount + 1}/${MAX_RETRIES} in ${delay}ms for ${streamUrl}`
-        )
+    if (retryCount < MAX_RETRIES) {
+      const delay = getBackoffDelay(retryCount)
+      logger.debug(
+        'HLSRetry',
+        `Retry ${retryCount + 1}/${MAX_RETRIES} in ${delay}ms for ${streamUrl}`
+      )
 
-        setStatus('retrying')
+      setStatus('retrying')
+      setRetryCount((prev) => prev + 1)
 
-        retryTimeoutRef.current = window.setTimeout(() => {
-          // Increment key to force MediaPlayer remount
-          setRetryKey((prev) => prev + 1)
-        }, delay)
-
-        return currentCount + 1
-      } else {
-        logger.warn('HLSRetry', `Max retries (${MAX_RETRIES}) reached for ${streamUrl}`)
-        setStatus('failed')
-        onFinalError?.(new Error('Stream unavailable after maximum retries'))
-        return currentCount
-      }
-    })
-  }, [streamUrl, getBackoffDelay, onFinalError])
+      retryTimeoutRef.current = window.setTimeout(() => {
+        // Increment key to force MediaPlayer remount
+        setRetryKey((prev) => prev + 1)
+      }, delay)
+    } else {
+      logger.warn('HLSRetry', `Max retries (${MAX_RETRIES}) reached for ${streamUrl}`)
+      setStatus('failed')
+      onFinalError?.(new Error('Stream unavailable after maximum retries'))
+    }
+  }, [retryCount, streamUrl, getBackoffDelay, onFinalError])
 
   const handlePlaying = useCallback(() => {
     // Clear any pending retry

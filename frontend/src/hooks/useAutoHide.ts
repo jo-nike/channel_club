@@ -67,7 +67,17 @@ export function useAutoHide({ isPlaying, containerRef, isHoveringControls = fals
     container.addEventListener('touchstart', handleActivity)
 
     // Keyboard events (global)
-    const handleKeyDown = () => showControls()
+    const handleKeyDown = () => {
+      const activeElement = document.activeElement
+      if (
+        activeElement instanceof HTMLInputElement ||
+        activeElement instanceof HTMLTextAreaElement ||
+        activeElement instanceof HTMLSelectElement
+      ) {
+        return
+      }
+      showControls()
+    }
     window.addEventListener('keydown', handleKeyDown)
 
     return () => {

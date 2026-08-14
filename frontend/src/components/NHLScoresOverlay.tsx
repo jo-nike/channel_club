@@ -254,6 +254,7 @@ function TickerScroll({ games }: { games: NHLGame[] }) {
       cancelAnimationFrame(animationId)
       if (pauseTimeoutRef.current) {
         clearTimeout(pauseTimeoutRef.current)
+        pauseTimeoutRef.current = null
       }
     }
   }, [isOverflowing, isPaused, games])

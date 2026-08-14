@@ -27,6 +27,18 @@ describe('ChatMediaEmbed', () => {
       const img = screen.getByRole('img')
       expect(img).toHaveClass('max-w-64', 'max-h-48')
     })
+
+    it('sets crossOrigin for gif type (needed for freeze-frame capture)', () => {
+      render(<ChatMediaEmbed url="https://example.com/funny.gif" type="gif" />)
+      const img = screen.getByRole('img')
+      expect(img).toHaveAttribute('crossorigin', 'anonymous')
+    })
+
+    it('does not set crossOrigin for plain image type', () => {
+      render(<ChatMediaEmbed url="https://example.com/photo.png" type="image" />)
+      const img = screen.getByRole('img')
+      expect(img).not.toHaveAttribute('crossorigin')
+    })
   })
 
   describe('Video rendering', () => {
@@ -75,8 +87,10 @@ describe('ChatMediaEmbed', () => {
       render(<ChatMediaEmbed url="https://example.com/broken.gif" type="gif" />)
       const img = screen.getByRole('img')
 
-      // Simulate error
+      // First error is treated as a CORS-mode failure and retried without
+      // crossOrigin; only a second failure gives up and shows the fallback.
       fireEvent.error(img)
+      fireEvent.error(screen.getByRole('img'))
 
       // Should show fallback link
       const fallbackLink = screen.getByText(/media unavailable/i)
@@ -85,6 +99,18 @@ describe('ChatMediaEmbed', () => {
         'href',
         'https://example.com/broken.gif'
       )
+    })
+
+    it('shows fallback link when a plain image fails to load (no CORS retry)', () => {
+      render(<ChatMediaEmbed url="https://example.com/broken.png" type="image" />)
+      const img = screen.getByRole('img')
+
+      // Plain images never set crossOrigin, so a single error goes straight
+      // to the fallback link.
+      fireEvent.error(img)
+
+      const fallbackLink = screen.getByText(/media unavailable/i)
+      expect(fallbackLink).toBeInTheDocument()
     })
 
     it('shows fallback link when video fails to load', () => {
@@ -104,7 +130,10 @@ describe('ChatMediaEmbed', () => {
     it('fallback link opens in new tab', () => {
       render(<ChatMediaEmbed url="https://example.com/broken.gif" type="gif" />)
       const img = screen.getByRole('img')
+      // First error is treated as a CORS-mode failure and retried without
+      // crossOrigin; only a second failure gives up and shows the fallback.
       fireEvent.error(img)
+      fireEvent.error(screen.getByRole('img'))
 
       const fallbackLink = screen.getByText(/media unavailable/i).closest('a')
       expect(fallbackLink).toHaveAttribute('target', '_blank')

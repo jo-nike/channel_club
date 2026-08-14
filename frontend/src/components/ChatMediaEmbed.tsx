@@ -21,6 +21,7 @@ export function ChatMediaEmbed({ url, type, onError }: ChatMediaEmbedProps) {
   const [isPaused, setIsPaused] = useState(false)
   const [loopCount, setLoopCount] = useState(0)
   const [frozenFrame, setFrozenFrame] = useState<string | null>(null)
+  const [skipCrossOrigin, setSkipCrossOrigin] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const imgRef = useRef<HTMLImageElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -122,6 +123,12 @@ export function ChatMediaEmbed({ url, type, onError }: ChatMediaEmbedProps) {
   }, [type])
 
   const handleError = () => {
+    if (type === 'gif' && !skipCrossOrigin) {
+      // CORS-mode load failed (host likely omits Access-Control-Allow-Origin) -
+      // retry without crossOrigin and just skip freeze-frame capture for this GIF.
+      setSkipCrossOrigin(true)
+      return
+    }
     setError(true)
     setLoading(false)
     onError?.()
@@ -181,13 +188,13 @@ export function ChatMediaEmbed({ url, type, onError }: ChatMediaEmbedProps) {
             className={mediaClasses}
           />
         ) : (
-          // Show animated GIF - crossOrigin allows canvas capture
+          // Show animated GIF/image - crossOrigin (GIF only) allows canvas capture
           <img
             ref={imgRef}
             src={url}
             alt="Shared media"
             loading="lazy"
-            crossOrigin="anonymous"
+            crossOrigin={type === 'gif' && !skipCrossOrigin ? 'anonymous' : undefined}
             className={mediaClasses}
             onLoad={handleLoad}
             onError={handleError}
