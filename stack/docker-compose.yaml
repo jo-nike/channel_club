@@ -1,0 +1,42 @@
+# Production compose for the IPTV viewer. This file is canonical: CI renders
+# ${APP_VERSION:-latest} to the concrete release tag, scp's the result to
+# plex-stack at /srv/channel-club/docker-compose.yaml,
+# and runs `docker compose up -d` there.
+#
+# Image references only, never a `build:` key — the image is built and scanned
+# in CI before it ever reaches the host. The repo-root docker-compose.yml is
+# the local build-from-source counterpart.
+#
+# .env is NOT deployed from CI. The Infisical agent on plex-stack renders it
+# from the homelab-infra store at /plex/iptv_viewer. A new stack has no .env
+# until those secrets and a host template exist, so CI asserts the file is
+# present before deploying rather than starting with empty variables.
+#
+# The CI render is a literal string replace of "${APP_VERSION:-latest}", so
+# that expression must be written exactly that way.
+
+x-logging: &bounded-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  iptv-viewer:
+    image: gitea.example.com/jon/iptv-viewer:${APP_VERSION:-latest}
+    container_name: iptv-viewer
+    ports:
+      - "8334:8080"
+    env_file:
+      - .env
+    restart: unless-stopped
+    logging: *bounded-logging
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      mcp.role: "IPTV viewer web app (Dispatcharr/ErsatzTV front end)"
+      mcp.auth: "plex-oauth"
