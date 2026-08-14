@@ -22,11 +22,11 @@ import { NoirFilter } from '@/components/filters/NoirFilter'
 import { GrindhouseFilter } from '@/components/filters/GrindhouseFilter'
 import { SportsHDFilter } from '@/components/filters/SportsHDFilter'
 import { useFilterStore } from '@/stores/filterStore'
+import { useUIStore } from '@/stores/uiStore'
 import { getErsatzTVStreamUrl } from '@/services/ersatztvApi'
 import type { UnifiedChannel } from '@/types'
 
 // Constants
-const VOLUME_STORAGE_KEY = 'iptv-volume'
 const DEFAULT_VOLUME = 1
 
 // Get initial volume from Zustand's localStorage (shared with other players)
@@ -156,16 +156,16 @@ function LiveVideoPlayer({
   const [isBuffering, setIsBuffering] = useState(false)
   // Video state
   const [isPlaying, setIsPlaying] = useState(false)
-  const [volume, setVolume] = useState(() => {
-    const stored = localStorage.getItem(VOLUME_STORAGE_KEY)
-    return stored ? parseFloat(stored) : DEFAULT_VOLUME
-  })
+  const [volume, setVolume] = useState(() => getInitialVolume())
   const [isMuted, setIsMuted] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [isHoveringControls, setIsHoveringControls] = useState(false)
 
   // Detect TV mode
   const isTVMode = useTVMode()
+
+  // Volume persistence (shared with the HLS player via uiStore)
+  const setStoredVolume = useUIStore((s) => s.setVolume)
 
   // Video filter state
   const isRetroTVActive = useFilterStore((s) => s.isFilterActive('retro-tv'))
@@ -218,13 +218,13 @@ function LiveVideoPlayer({
     const clampedVolume = Math.max(0, Math.min(1, newVolume))
     video.volume = clampedVolume
     setVolume(clampedVolume)
-    localStorage.setItem(VOLUME_STORAGE_KEY, clampedVolume.toString())
+    setStoredVolume(clampedVolume)
 
     if (video.muted && clampedVolume > 0) {
       video.muted = false
       setIsMuted(false)
     }
-  }, [])
+  }, [setStoredVolume])
 
   const handleMuteToggle = useCallback(() => {
     const video = videoRef.current
@@ -526,6 +526,17 @@ function HLSControlsWrapper({
   // Detect TV mode
   const isTVMode = useTVMode()
 
+  // Volume persistence - persist changes from keyboard shortcuts
+  const setStoredVolume = useUIStore((s) => s.setVolume)
+
+  const changeVolumeAndPersist = useCallback(
+    (newVolume: number) => {
+      remote.changeVolume(newVolume)
+      setStoredVolume(newVolume)
+    },
+    [remote, setStoredVolume]
+  )
+
   const isPlaying = !paused
 
   const { isVisible, toggleControls } = useAutoHide({
@@ -603,18 +614,18 @@ function HLSControlsWrapper({
           break
         case 'ArrowRight':
           e.preventDefault()
-          remote.changeVolume(Math.min(1, volume + 0.1))
+          changeVolumeAndPersist(Math.min(1, volume + 0.1))
           break
         case 'ArrowLeft':
           e.preventDefault()
-          remote.changeVolume(Math.max(0, volume - 0.1))
+          changeVolumeAndPersist(Math.max(0, volume - 0.1))
           break
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [containerRef, remote, volume, onTheaterModeToggle])
+  }, [containerRef, remote, volume, onTheaterModeToggle, changeVolumeAndPersist])
 
   return (
     <ErsatzTVVideoControls
