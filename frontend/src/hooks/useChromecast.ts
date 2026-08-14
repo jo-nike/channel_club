@@ -55,6 +55,13 @@ export interface UseChromecastReturn extends ChromecastState {
 // Default Media Receiver app ID (Google's default receiver that supports HLS)
 const DEFAULT_MEDIA_RECEIVER_APP_ID = 'CC1AD845'
 
+// Backend transcoding session for the active cast, kept at module scope so any
+// mounted hook instance can stop it. The Cast SDK context is a process-wide
+// singleton, so at most one cast session exists across all instances, but the
+// instance that created the backend session may already have unmounted (players
+// remount on every channel switch / retry) by the time the cast session ends.
+let currentSessionId: string | null = null
+
 /**
  * Hook for managing Chromecast casting functionality.
  *
@@ -91,8 +98,6 @@ export function useChromecast(): UseChromecastReturn {
     playerState: null,
   })
 
-  // Track current cast session for cleanup
-  const currentSessionId = useRef<string | null>(null)
   const playerRef = useRef<cast.framework.RemotePlayer | null>(null)
   const controllerRef = useRef<cast.framework.RemotePlayerController | null>(null)
 
@@ -111,6 +116,8 @@ export function useChromecast(): UseChromecastReturn {
    */
   useEffect(() => {
     let mounted = true
+    // Set once listeners are attached, so cleanup knows what to detach
+    let listeningContext: cast.framework.CastContext | null = null
 
     async function initializeCast() {
       // First check if server has cast feature enabled
@@ -212,6 +219,8 @@ export function useChromecast(): UseChromecastReturn {
           handlePlayerStateChanged
         )
 
+        listeningContext = context
+
         // Check initial state
         const castState = context.getCastState()
         const isAvailable = castState !== cast.framework.CastState.NO_DEVICES_AVAILABLE
@@ -258,14 +267,13 @@ export function useChromecast(): UseChromecastReturn {
     }
 
     function handleSessionStateChanged(event: cast.framework.SessionStateEventData) {
-      if (!mounted) return
-
       const { sessionState } = event
       logger.debug('Cast', `Session state changed: ${sessionState}`)
 
       if (
-        sessionState === cast.framework.SessionState.SESSION_STARTED ||
-        sessionState === cast.framework.SessionState.SESSION_RESUMED
+        mounted &&
+        (sessionState === cast.framework.SessionState.SESSION_STARTED ||
+          sessionState === cast.framework.SessionState.SESSION_RESUMED)
       ) {
         // Session just connected — auto-cast if we have pending params
         const pending = pendingCastRef.current
@@ -287,21 +295,26 @@ export function useChromecast(): UseChromecastReturn {
         sessionState === cast.framework.SessionState.SESSION_ENDED ||
         sessionState === cast.framework.SessionState.NO_SESSION
       ) {
-        // Session ended - cleanup backend session if we have one
-        if (currentSessionId.current) {
-          stopCastSession(currentSessionId.current).catch(() => {
+        // Session ended - cleanup backend session if we have one.
+        // Not guarded by `mounted`: the instance that created the session may be
+        // gone, and clearing the id first keeps this idempotent across instances.
+        const sessionId = currentSessionId
+        if (sessionId) {
+          currentSessionId = null
+          stopCastSession(sessionId).catch(() => {
             // Ignore cleanup errors
           })
-          currentSessionId.current = null
         }
         pendingCastRef.current = null
 
-        setState((s) => ({
-          ...s,
-          isConnected: false,
-          isCasting: false,
-          deviceName: null,
-        }))
+        if (mounted) {
+          setState((s) => ({
+            ...s,
+            isConnected: false,
+            isCasting: false,
+            deviceName: null,
+          }))
+        }
       }
     }
 
@@ -352,7 +365,35 @@ export function useChromecast(): UseChromecastReturn {
 
     return () => {
       mounted = false
-      // Cleanup listeners would go here if needed
+
+      // CastContext is a process-wide singleton, so listeners left behind
+      // accumulate on every remount (channel switch, retry, refresh)
+      if (listeningContext) {
+        listeningContext.removeEventListener(
+          cast.framework.CastContextEventType.CAST_STATE_CHANGED,
+          handleCastStateChanged
+        )
+
+        listeningContext.removeEventListener(
+          cast.framework.CastContextEventType.SESSION_STATE_CHANGED,
+          handleSessionStateChanged
+        )
+
+        controllerRef.current?.removeEventListener(
+          cast.framework.RemotePlayerEventType.IS_CONNECTED_CHANGED,
+          handlePlayerConnectedChanged
+        )
+
+        controllerRef.current?.removeEventListener(
+          cast.framework.RemotePlayerEventType.IS_MEDIA_LOADED_CHANGED,
+          handleMediaLoadedChanged
+        )
+
+        controllerRef.current?.removeEventListener(
+          cast.framework.RemotePlayerEventType.PLAYER_STATE_CHANGED,
+          handlePlayerStateChanged
+        )
+      }
     }
   }, [])
 
@@ -437,7 +478,7 @@ export function useChromecast(): UseChromecastReturn {
           logger.debug('Cast', 'Creating backend transcoding session', { channelId, streamType })
 
           const castSession = await createCastSession(channelId, streamType, streamUrl)
-          currentSessionId.current = castSession.session_id
+          currentSessionId = castSession.session_id
 
           if (castSession.needs_transcoding) {
             // Get the full HLS URL with auth token
@@ -494,9 +535,10 @@ export function useChromecast(): UseChromecastReturn {
         logger.error('Cast', 'Failed to start casting', { error })
 
         // Cleanup backend session on failure
-        if (currentSessionId.current) {
-          stopCastSession(currentSessionId.current).catch(() => {})
-          currentSessionId.current = null
+        const sessionId = currentSessionId
+        if (sessionId) {
+          currentSessionId = null
+          stopCastSession(sessionId).catch(() => {})
         }
 
         setState((s) => ({
@@ -526,9 +568,10 @@ export function useChromecast(): UseChromecastReturn {
     }
 
     // Cleanup backend session
-    if (currentSessionId.current) {
-      await stopCastSession(currentSessionId.current)
-      currentSessionId.current = null
+    const sessionId = currentSessionId
+    if (sessionId) {
+      currentSessionId = null
+      await stopCastSession(sessionId)
     }
 
     setState((s) => ({
