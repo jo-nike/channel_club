@@ -22,6 +22,13 @@
 # inherited by this repo:
 #   REGISTRY_USER / REGISTRY_TOKEN  — Gitea container registry login
 #   SSH_PRIVATE_KEY                 — deploy key for j@192.168.50.108
+#
+# DEPLOY_KNOWN_HOSTS must also be set at the jons-org (or repo) level —
+# it is NOT one of the pre-existing three above. Populate it with the
+# output of `ssh-keyscan 192.168.50.108` run once from a trusted vantage
+# point (e.g. from plex-stack itself, or over the LAN console). Without
+# it the deploy step refuses to run rather than trusting whatever host
+# key answers on the wire that run.
 
 name: CI + Deploy
 
@@ -155,9 +162,10 @@ jobs:
       #                          window.location.host; the var is never read.
       #   VITE_STREAM_BASE_URL — stream URLs are built server-side from the
       #                          backend's STREAM_BASE_URL.
-      # VITE_CAST_BASE_URL and VITE_BACKEND_PORT are read but left unset on
-      # purpose: getCastBaseUrl() then derives the right absolute URL from
-      # window.location, which is correct behind the proxy on 443.
+      # VITE_CAST_BASE_URL is read but left unset on purpose: getCastBaseUrl()
+      # then derives the right absolute URL from window.location, which is
+      # correct behind the proxy on 443. VITE_BACKEND_PORT is a dev-only override
+      # and is not read at all in a prod build, so it is not passed either.
       VITE_API_URL: /api
       VITE_CHAT_ENABLED: "true"
       VITE_GIF_ENABLED: "true"
@@ -180,6 +188,20 @@ jobs:
         run: |
           curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
             | sh -s -- -b /usr/local/bin "v${TRIVY_VERSION}"
+
+      # Fail fast on missing deploy secrets BEFORE building and pushing, so a
+      # missing host-key pin can never leave a published-but-undeployable image
+      # (and :latest moved) in the registry.
+      - name: Preflight deploy secrets
+        run: |
+          if [ -z "${{ secrets.DEPLOY_KNOWN_HOSTS }}" ]; then
+            echo "::error::DEPLOY_KNOWN_HOSTS secret is not set — populate it with \`ssh-keyscan $DEPLOY_HOST\` output captured from a trusted vantage point before deploying."
+            exit 1
+          fi
+          if [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
+            echo "::error::SSH_PRIVATE_KEY secret is not set — cannot deploy."
+            exit 1
+          fi
 
       - name: Build image
         run: |
@@ -213,15 +235,25 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          # Pin the deploy host's key instead of trusting whatever answers at
+          # run time: ssh-keyscan here would be trust-on-every-run and is
+          # spoofable by anyone on-path for $DEPLOY_HOST. DEPLOY_KNOWN_HOSTS
+          # must be populated with `ssh-keyscan 192.168.50.108` output
+          # captured once from a trusted vantage point.
+          if [ -z "${{ secrets.DEPLOY_KNOWN_HOSTS }}" ]; then
+            echo "::error::DEPLOY_KNOWN_HOSTS secret is not set — refusing to deploy with an unpinned host key. Populate it with \`ssh-keyscan $DEPLOY_HOST\` output from a trusted vantage point."
+            exit 1
+          fi
+          echo "${{ secrets.DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          SSH="ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes"
           REMOTE="$DEPLOY_USER@$DEPLOY_HOST"
-          ssh -i ~/.ssh/deploy_key "$REMOTE" "mkdir -p '$DEPLOY_DIR'"
+          $SSH "$REMOTE" "mkdir -p '$DEPLOY_DIR'"
           # Secrets never ship from CI: the Infisical-rendered .env must exist.
-          ssh -i ~/.ssh/deploy_key "$REMOTE" "test -f '$DEPLOY_DIR/.env'" \
+          $SSH "$REMOTE" "test -f '$DEPLOY_DIR/.env'" \
             || { echo "::error::$DEPLOY_DIR/.env missing on $DEPLOY_HOST — add the Infisical template before deploying"; exit 1; }
           sed "s#\${APP_VERSION:-latest}#$VERSION#g" stack/docker-compose.yaml > /tmp/rendered-compose.yaml
-          scp -i ~/.ssh/deploy_key /tmp/rendered-compose.yaml "$REMOTE:$DEPLOY_DIR/docker-compose.yaml"
-          ssh -i ~/.ssh/deploy_key "$REMOTE" "cd '$DEPLOY_DIR' && docker compose up -d"
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes /tmp/rendered-compose.yaml "$REMOTE:$DEPLOY_DIR/docker-compose.yaml"
+          $SSH "$REMOTE" "cd '$DEPLOY_DIR' && docker compose up -d"
 
       - name: Verify deployed version healthy
         run: |
