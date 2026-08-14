@@ -261,9 +261,7 @@ async def get_grouped_channels() -> GroupedChannelsResponse:
 
 async def _build_grouped_channels() -> GroupedChannelsResponse:
     # Fetch groups and channels concurrently
-    groups, channels = await asyncio.gather(
-        get_channel_groups(), get_channels_with_groups()
-    )
+    groups, channels = await asyncio.gather(get_channel_groups(), get_channels_with_groups())
 
     # Create a map of group_id -> group data with empty channel lists
     groups_map: dict[int, ChannelGroupWithChannels] = {}

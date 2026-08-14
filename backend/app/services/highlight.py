@@ -124,20 +124,32 @@ class ChannelRecorder:
                 "ffmpeg",
                 "-y",  # Overwrite output files
                 "-hide_banner",
-                "-loglevel", "warning",
-                "-reconnect", "1",
-                "-reconnect_streamed", "1",
-                "-reconnect_delay_max", "5",
-                "-i", self.stream_url,
-                "-c", "copy",  # No re-encoding - copy codec
-                "-f", "segment",
-                "-segment_time", str(settings.highlight_segment_seconds),
-                "-segment_list", segment_list,
-                "-segment_list_type", "flat",
-                "-segment_wrap", str(
+                "-loglevel",
+                "warning",
+                "-reconnect",
+                "1",
+                "-reconnect_streamed",
+                "1",
+                "-reconnect_delay_max",
+                "5",
+                "-i",
+                self.stream_url,
+                "-c",
+                "copy",  # No re-encoding - copy codec
+                "-f",
+                "segment",
+                "-segment_time",
+                str(settings.highlight_segment_seconds),
+                "-segment_list",
+                segment_list,
+                "-segment_list_type",
+                "flat",
+                "-segment_wrap",
+                str(
                     (settings.highlight_buffer_seconds // settings.highlight_segment_seconds) + 2
                 ),  # Number of segments to keep before wrapping
-                "-reset_timestamps", "1",
+                "-reset_timestamps",
+                "1",
                 segment_pattern,
             ]
 
@@ -293,10 +305,7 @@ class ChannelRecorder:
 
         # Filter to only segments within the buffer window
         cutoff_time = time.time() - settings.highlight_buffer_seconds
-        existing_segments = [
-            seg for seg in existing_segments
-            if seg.stat().st_mtime >= cutoff_time
-        ]
+        existing_segments = [seg for seg in existing_segments if seg.stat().st_mtime >= cutoff_time]
 
         if not existing_segments:
             return None, "No recent segments available"
@@ -336,18 +345,29 @@ class ChannelRecorder:
                     "ffmpeg",
                     "-y",
                     "-hide_banner",
-                    "-loglevel", "warning",
-                    "-f", "concat",
-                    "-safe", "0",
-                    "-i", str(concat_file),
+                    "-loglevel",
+                    "warning",
+                    "-f",
+                    "concat",
+                    "-safe",
+                    "0",
+                    "-i",
+                    str(concat_file),
                     *trim_args,  # Trim args after input for accurate seeking
-                    "-c:v", "libvpx-vp9",  # VP9 video codec
-                    "-crf", "30",  # Quality setting (lower = better, 30 is good)
-                    "-b:v", "0",  # Variable bitrate
-                    "-c:a", "libopus",  # Opus audio codec
-                    "-b:a", "128k",  # Audio bitrate
-                    "-deadline", "realtime",  # Faster encoding
-                    "-cpu-used", "4",  # Speed/quality tradeoff (0-8, higher = faster)
+                    "-c:v",
+                    "libvpx-vp9",  # VP9 video codec
+                    "-crf",
+                    "30",  # Quality setting (lower = better, 30 is good)
+                    "-b:v",
+                    "0",  # Variable bitrate
+                    "-c:a",
+                    "libopus",  # Opus audio codec
+                    "-b:a",
+                    "128k",  # Audio bitrate
+                    "-deadline",
+                    "realtime",  # Faster encoding
+                    "-cpu-used",
+                    "4",  # Speed/quality tradeoff (0-8, higher = faster)
                     str(output_file),
                 ]
                 timeout = 120  # WebM encoding takes longer
@@ -360,13 +380,19 @@ class ChannelRecorder:
                     "ffmpeg",
                     "-y",
                     "-hide_banner",
-                    "-loglevel", "warning",
-                    "-f", "concat",
-                    "-safe", "0",
-                    "-i", str(concat_file),
+                    "-loglevel",
+                    "warning",
+                    "-f",
+                    "concat",
+                    "-safe",
+                    "0",
+                    "-i",
+                    str(concat_file),
                     *trim_args,  # Trim args after input
-                    "-c", "copy",  # No re-encoding
-                    "-movflags", "+faststart",  # Optimize for streaming
+                    "-c",
+                    "copy",  # No re-encoding
+                    "-movflags",
+                    "+faststart",  # Optimize for streaming
                     str(output_file),
                 ]
                 timeout = 30

@@ -301,5 +301,3 @@ class TestGetUsersByView:
         assert len(result) == 1
         assert result[0].username == "user2"
         assert result[0].view == "ersatztv"
-
-

@@ -83,9 +83,7 @@ class TestUpdateSettings:
         assert response.json()["detail"] == "Admin access required"
         assert app_settings.user_channel_selection_enabled() is False
 
-    def test_admin_can_enable(
-        self, client: TestClient, admin_auth_header: dict[str, str]
-    ) -> None:
+    def test_admin_can_enable(self, client: TestClient, admin_auth_header: dict[str, str]) -> None:
         """Admin can turn user channel selection on."""
         response = client.put(
             "/api/settings",

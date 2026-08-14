@@ -110,9 +110,7 @@ class TestGetTrending:
             with patch("httpx.AsyncClient") as MockClient:
                 mock_client_instance = AsyncMock()
                 mock_client_instance.get = AsyncMock(return_value=mock_response)
-                mock_client_instance.__aenter__ = AsyncMock(
-                    return_value=mock_client_instance
-                )
+                mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
                 mock_client_instance.__aexit__ = AsyncMock(return_value=None)
                 MockClient.return_value = mock_client_instance
 
@@ -124,9 +122,7 @@ class TestGetTrending:
         assert result["pagination"]["totalCount"] == 100
 
     @pytest.mark.asyncio
-    async def test_uses_cached_result(
-        self, service: GifService, mock_giphy_response: dict
-    ) -> None:
+    async def test_uses_cached_result(self, service: GifService, mock_giphy_response: dict) -> None:
         """Returns cached result within cache duration."""
         mock_response = MagicMock()
         mock_response.json.return_value = mock_giphy_response
@@ -138,9 +134,7 @@ class TestGetTrending:
             with patch("httpx.AsyncClient") as MockClient:
                 mock_client_instance = AsyncMock()
                 mock_client_instance.get = AsyncMock(return_value=mock_response)
-                mock_client_instance.__aenter__ = AsyncMock(
-                    return_value=mock_client_instance
-                )
+                mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
                 mock_client_instance.__aexit__ = AsyncMock(return_value=None)
                 MockClient.return_value = mock_client_instance
 
@@ -162,12 +156,8 @@ class TestGetTrending:
 
             with patch("httpx.AsyncClient") as MockClient:
                 mock_client_instance = AsyncMock()
-                mock_client_instance.get = AsyncMock(
-                    side_effect=httpx.TimeoutException("timeout")
-                )
-                mock_client_instance.__aenter__ = AsyncMock(
-                    return_value=mock_client_instance
-                )
+                mock_client_instance.get = AsyncMock(side_effect=httpx.TimeoutException("timeout"))
+                mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
                 mock_client_instance.__aexit__ = AsyncMock(return_value=None)
                 MockClient.return_value = mock_client_instance
 
@@ -192,9 +182,7 @@ class TestSearch:
             assert "not configured" in str(exc.value)
 
     @pytest.mark.asyncio
-    async def test_searches_for_gifs(
-        self, service: GifService, mock_giphy_response: dict
-    ) -> None:
+    async def test_searches_for_gifs(self, service: GifService, mock_giphy_response: dict) -> None:
         """Searches for GIFs with query."""
         mock_response = MagicMock()
         mock_response.json.return_value = mock_giphy_response
@@ -206,9 +194,7 @@ class TestSearch:
             with patch("httpx.AsyncClient") as MockClient:
                 mock_client_instance = AsyncMock()
                 mock_client_instance.get = AsyncMock(return_value=mock_response)
-                mock_client_instance.__aenter__ = AsyncMock(
-                    return_value=mock_client_instance
-                )
+                mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
                 mock_client_instance.__aexit__ = AsyncMock(return_value=None)
                 MockClient.return_value = mock_client_instance
 
@@ -234,9 +220,7 @@ class TestSearch:
             with patch("httpx.AsyncClient") as MockClient:
                 mock_client_instance = AsyncMock()
                 mock_client_instance.get = AsyncMock(return_value=mock_response)
-                mock_client_instance.__aenter__ = AsyncMock(
-                    return_value=mock_client_instance
-                )
+                mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
                 mock_client_instance.__aexit__ = AsyncMock(return_value=None)
                 MockClient.return_value = mock_client_instance
 

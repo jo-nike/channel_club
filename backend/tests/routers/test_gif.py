@@ -76,9 +76,7 @@ class TestGetTrending:
         response = client.get("/api/gif/trending")
         assert response.status_code == 401
 
-    def test_returns_trending_gifs(
-        self, client: TestClient, auth_header: dict[str, str]
-    ) -> None:
+    def test_returns_trending_gifs(self, client: TestClient, auth_header: dict[str, str]) -> None:
         """Returns trending GIFs on success."""
         mock_result = {
             "gifs": [
@@ -124,18 +122,14 @@ class TestGetTrending:
     ) -> None:
         """Returns 503 when service fails."""
         with patch("app.routers.gif.gif_service") as mock_service:
-            mock_service.get_trending = AsyncMock(
-                side_effect=GifServiceError("API unavailable")
-            )
+            mock_service.get_trending = AsyncMock(side_effect=GifServiceError("API unavailable"))
 
             response = client.get("/api/gif/trending", headers=auth_header)
 
         assert response.status_code == 503
         assert "API unavailable" in response.json()["detail"]
 
-    def test_validates_limit_max(
-        self, client: TestClient, auth_header: dict[str, str]
-    ) -> None:
+    def test_validates_limit_max(self, client: TestClient, auth_header: dict[str, str]) -> None:
         """Validates limit parameter max value."""
         response = client.get("/api/gif/trending?limit=100", headers=auth_header)
         assert response.status_code == 422  # Validation error
@@ -156,9 +150,7 @@ class TestSearchGifs:
         response = client.get("/api/gif/search", headers=auth_header)
         assert response.status_code == 422
 
-    def test_searches_for_gifs(
-        self, client: TestClient, auth_header: dict[str, str]
-    ) -> None:
+    def test_searches_for_gifs(self, client: TestClient, auth_header: dict[str, str]) -> None:
         """Searches for GIFs with query."""
         mock_result = {
             "gifs": [
@@ -193,9 +185,7 @@ class TestSearchGifs:
         with patch("app.routers.gif.gif_service") as mock_service:
             mock_service.search = AsyncMock(return_value=mock_result)
 
-            response = client.get(
-                "/api/gif/search?q=dogs&offset=25&limit=10", headers=auth_header
-            )
+            response = client.get("/api/gif/search?q=dogs&offset=25&limit=10", headers=auth_header)
 
         assert response.status_code == 200
         mock_service.search.assert_called_once_with("dogs", 25, 10)
@@ -205,9 +195,7 @@ class TestSearchGifs:
     ) -> None:
         """Returns 503 when service fails."""
         with patch("app.routers.gif.gif_service") as mock_service:
-            mock_service.search = AsyncMock(
-                side_effect=GifServiceError("Search failed")
-            )
+            mock_service.search = AsyncMock(side_effect=GifServiceError("Search failed"))
 
             response = client.get("/api/gif/search?q=test", headers=auth_header)
 
@@ -228,9 +216,7 @@ class TestSearchGifs:
         response = client.get("/api/gif/search?q=test&offset=-1", headers=auth_header)
         assert response.status_code == 422  # Validation error
 
-    def test_validates_limit_range(
-        self, client: TestClient, auth_header: dict[str, str]
-    ) -> None:
+    def test_validates_limit_range(self, client: TestClient, auth_header: dict[str, str]) -> None:
         """Validates limit parameter range."""
         # Too small
         response = client.get("/api/gif/search?q=test&limit=0", headers=auth_header)

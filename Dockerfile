@@ -7,6 +7,7 @@ ARG VITE_WS_URL
 ARG VITE_STREAM_BASE_URL
 ARG VITE_CHAT_ENABLED=false
 ARG VITE_GIF_ENABLED=false
+ARG VITE_LOG_LEVEL=info
 
 # Set as env vars so Vite can access them during build
 ENV VITE_API_URL=$VITE_API_URL
@@ -14,6 +15,7 @@ ENV VITE_WS_URL=$VITE_WS_URL
 ENV VITE_STREAM_BASE_URL=$VITE_STREAM_BASE_URL
 ENV VITE_CHAT_ENABLED=$VITE_CHAT_ENABLED
 ENV VITE_GIF_ENABLED=$VITE_GIF_ENABLED
+ENV VITE_LOG_LEVEL=$VITE_LOG_LEVEL
 
 WORKDIR /app/frontend
 
@@ -32,18 +34,38 @@ RUN npm run build
 # Stage 2: Production runtime
 FROM python:3.13-slim
 
+# Immutable build identifier, reported by /api/health so a deploy can verify
+# the new build is actually serving. CI passes the CalVer+SHA release tag.
+ARG APP_VERSION=dev
+ENV APP_VERSION=$APP_VERSION
+
+# Cache-buster for the apt upgrade below. CI passes today's date so the layer
+# re-runs daily; without it a warm build cache reuses a stale layer and the
+# image ships base-OS packages that the vulnerability scan rightly fails on.
+ARG APT_REFRESH=0
+
 WORKDIR /app
 
 # Install curl for healthcheck, ffmpeg for highlight capture, and uv for Python package management
-RUN apt-get update && apt-get install -y --no-install-recommends curl ffmpeg \
+RUN apt-get update && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends curl ffmpeg \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir uv
 
 # Copy backend dependency files first for better layer caching
 COPY backend/pyproject.toml backend/uv.lock ./
 
-# Install Python dependencies
-RUN uv sync --frozen --no-dev
+# Install Python dependencies, then drop the build-only tooling. uv and pip are
+# not on any runtime path (the CMD invokes .venv/bin/uvicorn directly), and
+# pip's vendored tree carries CVEs we cannot patch and do not run — keeping the
+# image scan actionable on things that actually ship.
+RUN uv sync --frozen --no-dev \
+    && rm -rf /usr/local/bin/uv /usr/local/bin/uvx \
+       /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.13 \
+       /usr/local/lib/python3.13/site-packages/uv \
+       /usr/local/lib/python3.13/site-packages/uv-*.dist-info \
+       /usr/local/lib/python3.13/site-packages/pip \
+       /usr/local/lib/python3.13/site-packages/pip-*.dist-info
 
 # Copy backend source code
 COPY backend/app ./app
@@ -51,8 +73,18 @@ COPY backend/app ./app
 # Copy frontend build artifacts to static directory
 COPY --from=frontend-build /app/frontend/dist ./static
 
+# Run as a non-root user (Trivy DS-0002). The highlight and cast features write
+# to their temp dirs, so create them up front owned by appuser rather than
+# relying on the app to mkdir them at runtime.
+RUN useradd --create-home --uid 10001 appuser \
+    && mkdir -p /tmp/highlights /tmp/cast_hls \
+    && chown -R appuser:appuser /app /tmp/highlights /tmp/cast_hls
+USER appuser
+
 # Expose port 8080
 EXPOSE 8080
 
-# Run uvicorn server
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
+# Invoke the venv's uvicorn directly rather than via `uv run`: uv would try to
+# re-resolve and write to the environment at startup, which a non-root user
+# cannot do.
+CMD ["/app/.venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]

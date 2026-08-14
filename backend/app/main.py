@@ -125,7 +125,9 @@ app.include_router(websocket_router)
 
 @app.get("/api/health")
 async def health_check() -> dict[str, str]:
-    return {"status": "ok"}
+    # version lets a deploy confirm the *new* build is serving, not just that
+    # something is up. CI polls this until it matches the tag it just pushed.
+    return {"status": "ok", "version": settings.app_version}
 
 
 # Static file serving for production (when running in Docker container)
