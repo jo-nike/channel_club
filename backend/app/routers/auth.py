@@ -49,11 +49,16 @@ async def login(request: LoginRequest) -> TokenResponse:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
 
     # Check admin credentials
-    if request.username == settings.admin_username and request.password == settings.admin_password:
+    if (
+        settings.admin_password
+        and request.username == settings.admin_username
+        and request.password == settings.admin_password
+    ):
         role = "admin"
     # Check viewer credentials
     elif (
-        request.username == settings.viewer_username
+        settings.viewer_password
+        and request.username == settings.viewer_username
         and request.password == settings.viewer_password
     ):
         role = "viewer"

@@ -556,3 +556,25 @@ class TestAuthLogging:
             assert "auth" in log_output
         finally:
             logger.remove(handler_id)
+
+
+@pytest.mark.parametrize("configured", [None, ""])
+@pytest.mark.parametrize("username", ["admin", "viewer"])
+def test_sec02_blank_accounts_never_authenticate(client_local_enabled, configured, username):
+    with (
+        patch("app.routers.auth.settings.admin_password", configured),
+        patch("app.routers.auth.settings.viewer_password", configured),
+    ):
+        response = client_local_enabled.post(
+            "/api/auth/token", json={"username": username, "password": ""}
+        )
+    assert response.status_code == 401
+
+
+def test_sec02_viewer_can_login_with_admin_disabled(client_local_enabled):
+    with patch("app.routers.auth.settings.admin_password", ""):
+        response = client_local_enabled.post(
+            "/api/auth/token", json={"username": "viewer", "password": "viewer"}
+        )
+    assert response.status_code == 200
+    assert response.json()["role"] == "viewer"
