@@ -33,6 +33,7 @@ class GifService:
 
     def __init__(self) -> None:
         self._trending_cache: dict | None = None
+        self._trending_limit: int | None = None
         self._trending_cached_at: datetime | None = None
 
     def _is_enabled(self) -> bool:
@@ -56,8 +57,9 @@ class GifService:
         if not self._is_enabled():
             raise GifServiceError("GIF feature is not configured (missing API key)")
 
-        # Check cache
-        if self._trending_cache and self._trending_cached_at:
+        limit = max(1, min(limit, 50))
+        # The one-entry cache includes the requested result shape in its key.
+        if self._trending_cache and self._trending_cached_at and self._trending_limit == limit:
             cache_age = datetime.now(UTC) - self._trending_cached_at
             if cache_age < timedelta(minutes=TRENDING_CACHE_MINUTES):
                 log.debug("Returning cached trending GIFs")
@@ -90,6 +92,7 @@ class GifService:
         result = self._normalize_response(data)
 
         # Cache the result
+        self._trending_limit = limit
         self._trending_cache = result
         self._trending_cached_at = datetime.now(UTC)
         log.debug("Cached {} trending GIFs", len(result.get("gifs", [])))
