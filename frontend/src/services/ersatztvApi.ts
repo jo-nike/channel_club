@@ -7,7 +7,7 @@ import type {
   ErsatzTVProgrammesResponse,
 } from '@/types'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
+import { API_URL } from './apiBase'
 
 export async function fetchErsatzTVChannels(): Promise<ErsatzTVChannel[]> {
   logger.debug('API', 'Fetching ErsatzTV channels')

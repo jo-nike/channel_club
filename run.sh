@@ -20,7 +20,8 @@ echo "Starting backend on :8001..."
 (cd "$ROOT_DIR/backend" && uv run uvicorn app.main:app --reload --port 8001) &
 BACKEND_PID=$!
 
-echo "Starting frontend..."
+echo "Starting frontend at http://localhost:5173 (LAN: http://<this-machine-ip>:5173)..."
+echo "Browser /api HTTP and WebSocket traffic is proxied to backend :8001."
 (cd "$ROOT_DIR/frontend" && npm run dev) &
 FRONTEND_PID=$!
 

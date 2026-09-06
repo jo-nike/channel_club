@@ -29,7 +29,7 @@ describe('api service', () => {
       const result = await login({ username: 'testuser', password: 'testpass' })
 
       expect(fetch).toHaveBeenCalledWith(
-        'http://localhost:8000/api/auth/token',
+        '/api/auth/token',
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -83,7 +83,7 @@ describe('api service', () => {
       await fetchWithAuth('/test-endpoint')
 
       expect(fetch).toHaveBeenCalledWith(
-        'http://localhost:8000/api/test-endpoint',
+        '/api/test-endpoint',
         expect.objectContaining({
           headers: expect.objectContaining({
             'Content-Type': 'application/json',
@@ -105,7 +105,7 @@ describe('api service', () => {
       await fetchWithAuth('/test-endpoint')
 
       expect(fetch).toHaveBeenCalledWith(
-        'http://localhost:8000/api/test-endpoint',
+        '/api/test-endpoint',
         expect.objectContaining({
           headers: {
             'Content-Type': 'application/json',
@@ -159,7 +159,7 @@ describe('api service', () => {
       })
 
       expect(fetch).toHaveBeenCalledWith(
-        'http://localhost:8000/api/endpoint',
+        '/api/endpoint',
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({ data: 'test' }),
@@ -191,7 +191,7 @@ describe('api service', () => {
       const result = await fetchChannels()
 
       expect(fetch).toHaveBeenCalledWith(
-        'http://localhost:8000/api/channels',
+        '/api/channels',
         expect.objectContaining({
           headers: expect.objectContaining({
             Authorization: 'Bearer test-token',
@@ -265,7 +265,7 @@ describe('api service', () => {
       const result = await setCurrentChannel(mockChannel)
 
       expect(fetch).toHaveBeenCalledWith(
-        'http://localhost:8000/api/channels/current',
+        '/api/channels/current',
         expect.objectContaining({
           method: 'PUT',
           body: JSON.stringify(mockChannel),
@@ -321,7 +321,7 @@ describe('api service', () => {
       const result = await fetchCurrentChannel()
 
       expect(fetch).toHaveBeenCalledWith(
-        'http://localhost:8000/api/channels/current',
+        '/api/channels/current',
         expect.objectContaining({
           headers: expect.objectContaining({
             Authorization: 'Bearer test-token',
@@ -375,7 +375,7 @@ describe('api service', () => {
 
       const result = await getAuthConfig()
 
-      expect(fetch).toHaveBeenCalledWith('http://localhost:8000/api/auth/config')
+      expect(fetch).toHaveBeenCalledWith('/api/auth/config')
       expect(result).toEqual(mockConfig)
     })
 
@@ -406,7 +406,7 @@ describe('api service', () => {
       const result = await loginWithPlex('plex-auth-token')
 
       expect(fetch).toHaveBeenCalledWith(
-        'http://localhost:8000/api/auth/plex',
+        '/api/auth/plex',
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
