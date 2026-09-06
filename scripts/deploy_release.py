@@ -19,12 +19,16 @@ def atomic_write(path: Path, content: str) -> None:
     os.replace(temporary, path)
 
 
-def verify_health(url: str, version: str) -> None:
+def verify_health(url: str, version: str, build_id: str | None = None) -> None:
     for _ in range(30):
         try:
             with urlopen(url, timeout=5) as response:
                 data = json.load(response)
-            if data.get("status") == "ok" and data.get("version") == version:
+            if (
+                data.get("status") == "ok"
+                and data.get("version") == version
+                and (build_id is None or data.get("buildId") == build_id)
+            ):
                 return
         except (URLError, ValueError, TimeoutError):
             pass
@@ -35,7 +39,11 @@ def verify_health(url: str, version: str) -> None:
 def verify_artifact(directory: Path, image_reference: str) -> str:
     def output(*arguments: str) -> str:
         return subprocess.run(
-            ["docker", *arguments], cwd=directory, check=True, capture_output=True, text=True
+            ["docker", *arguments],
+            cwd=directory,
+            check=True,
+            capture_output=True,
+            text=True,
         ).stdout.strip()
 
     expected_id = output("image", "inspect", "--format", "{{.Id}}", image_reference)
@@ -45,12 +53,20 @@ def verify_artifact(directory: Path, image_reference: str) -> str:
     actual_id = output("inspect", "--format", "{{.Image}}", container)
     actual_reference = output("inspect", "--format", "{{.Config.Image}}", container)
     if actual_id != expected_id or actual_reference != image_reference:
-        raise RuntimeError("Running container does not match the requested immutable image")
+        raise RuntimeError(
+            "Running container does not match the requested immutable image"
+        )
     return actual_id
 
 
 def deploy(
-    directory: Path, staging: Path, source: str, version: str, health_url: str, image_reference: str
+    directory: Path,
+    staging: Path,
+    source: str,
+    version: str,
+    health_url: str,
+    image_reference: str,
+    build_id: str | None = None,
 ) -> None:
     if not re.fullmatch(r"[a-zA-Z0-9._:/-]+@sha256:[0-9a-f]{64}", image_reference):
         raise ValueError("An immutable registry image digest is required")
@@ -66,7 +82,9 @@ def deploy(
             raise RuntimeError("Host-managed .env is missing")
         accepted = directory / ".accepted-source"
         if accepted.exists() and accepted.read_text().strip() not in history:
-            raise RuntimeError("Stale or divergent release refused; explicit rollback required")
+            raise RuntimeError(
+                "Stale or divergent release refused; explicit rollback required"
+            )
         # Advance before installation: even a failed health check cannot permit
         # an older runner to overwrite a newer accepted source revision.
         atomic_write(accepted, source + "\n")
@@ -77,9 +95,16 @@ def deploy(
         if record.exists():
             atomic_write(directory / "previous-deployment.json", record.read_text())
         atomic_write(manifest, (staging / "docker-compose.yaml").read_text())
-        subprocess.run(["docker", "compose", "pull", "iptv-viewer"], cwd=directory, check=True)
+        subprocess.run(
+            ["docker", "compose", "pull", "iptv-viewer"], cwd=directory, check=True
+        )
         subprocess.run(["docker", "compose", "up", "-d"], cwd=directory, check=True)
-        verify_health(health_url, version)
+        # Old records use version as their build identifier. New releases must
+        # match both semantic version and exact build, even on same-version reruns.
+        if build_id is None:
+            verify_health(health_url, version)
+        else:
+            verify_health(health_url, version, build_id)
         image_id = verify_artifact(directory, image_reference)
         atomic_write(
             record,
@@ -87,6 +112,7 @@ def deploy(
                 {
                     "source": source,
                     "version": version,
+                    "build_id": build_id,
                     "image_reference": image_reference,
                     "image_id": image_id,
                 }
@@ -104,6 +130,7 @@ def main() -> None:
     parser.add_argument("version")
     parser.add_argument("health_url")
     parser.add_argument("image_reference")
+    parser.add_argument("--build-id")
     arguments = parser.parse_args()
     deploy(**vars(arguments))
 

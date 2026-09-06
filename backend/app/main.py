@@ -10,6 +10,7 @@ from loguru import logger
 
 from app.config import KNOWN_PUBLIC_JWT_SECRETS, settings
 from app.logging_config import configure_logging
+from app.metadata import APP_NAME, APP_VERSION
 from app.routers.admin import router as admin_router
 from app.routers.auth import router as auth_router
 from app.routers.cast import router as cast_router
@@ -88,8 +89,8 @@ async def lifespan(app: FastAPI):
     # Startup
     configure_logging()
     logger.info(
-        "IPTV Viewer API starting",
-        version="0.1.0",
+        "Channel Club API starting",
+        version=APP_VERSION,
         log_level=settings.log_level,
         log_format=settings.log_format,
     )
@@ -138,7 +139,7 @@ async def lifespan(app: FastAPI):
 
     yield
     # Shutdown
-    logger.info("IPTV Viewer API shutting down")
+    logger.info("Channel Club API shutting down")
     # Cancel the warmup if a restart lands mid-fetch, rather than tearing the
     # loop down with a pending task.
     app.state.warmup_task.cancel()
@@ -151,7 +152,7 @@ async def lifespan(app: FastAPI):
     await cast_service.stop_all()
 
 
-app = FastAPI(title="IPTV Viewer API", lifespan=lifespan)
+app = FastAPI(title=f"{APP_NAME} API", version=APP_VERSION, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -182,9 +183,12 @@ app.include_router(websocket_router)
 
 @app.get("/api/health")
 async def health_check() -> dict[str, str]:
-    # version lets a deploy confirm the *new* build is serving, not just that
-    # something is up. CI polls this until it matches the tag it just pushed.
-    return {"status": "ok", "version": settings.app_version}
+    return {
+        "status": "ok",
+        "version": APP_VERSION,
+        "buildId": settings.app_build_id,
+        "revision": settings.app_revision,
+    }
 
 
 # Static file serving for production (when running in Docker container)

@@ -122,9 +122,24 @@ export async function fetchWithAuth(
   return response
 }
 
-export async function healthCheck(): Promise<{ status: string }> {
-  const response = await fetch(`${API_URL}/health`)
-  return response.json()
+export interface ApplicationHealth {
+  status: 'ok'
+  version: string
+  buildId: string
+  revision: string
+}
+
+export async function healthCheck(signal?: AbortSignal): Promise<ApplicationHealth> {
+  const response = await fetch(`${API_URL}/health`, { signal, cache: 'no-store' })
+  if (!response.ok) throw new Error('Application health unavailable')
+  const data: unknown = await response.json()
+  if (!data || typeof data !== 'object' || !('status' in data) || data.status !== 'ok'
+    || !('version' in data) || typeof data.version !== 'string' || !data.version
+    || !('buildId' in data) || typeof data.buildId !== 'string' || !data.buildId
+    || !('revision' in data) || typeof data.revision !== 'string' || !data.revision) {
+    throw new Error('Invalid application health response')
+  }
+  return data as ApplicationHealth
 }
 
 export async function fetchChannels(): Promise<Channel[]> {

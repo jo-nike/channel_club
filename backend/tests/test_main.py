@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.config import settings
 from app.main import app
+from app.metadata import APP_VERSION
 
 
 @pytest.fixture
@@ -128,14 +129,20 @@ def test_health_check(client):
     """Test health check endpoint."""
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": settings.app_version}
+    assert response.json() == {
+        "status": "ok",
+        "version": APP_VERSION,
+        "buildId": settings.app_build_id,
+        "revision": settings.app_revision,
+    }
 
 
 def test_health_check_reports_build_version(client):
     """Health should report the injected build version so CI can gate on it."""
-    with patch("app.main.settings.app_version", "2026.08.14-abc1234"):
+    with patch("app.main.settings.app_build_id", "1.0.0-build-abc1234-unique"):
         response = client.get("/api/health")
-    assert response.json()["version"] == "2026.08.14-abc1234"
+    assert response.json()["version"] == APP_VERSION
+    assert response.json()["buildId"] == "1.0.0-build-abc1234-unique"
 
 
 def test_auth_token_endpoint_registered(client):

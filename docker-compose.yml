@@ -9,7 +9,7 @@ services:
         - VITE_STREAM_BASE_URL=${VITE_STREAM_BASE_URL}
         - VITE_CHAT_ENABLED=${VITE_CHAT_ENABLED:-false}
         - VITE_GIF_ENABLED=${VITE_GIF_ENABLED:-false}
-    container_name: iptv-viewer
+    container_name: channel-club
     ports:
       - "8334:8080"
     env_file:

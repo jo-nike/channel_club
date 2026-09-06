@@ -1,4 +1,4 @@
-# Production compose for the IPTV viewer. This file is canonical: CI renders
+# Production compose for Channel Club. This file is canonical: CI renders
 # ${IMAGE_REFERENCE:?Immutable image digest required} to the pushed registry digest, scp's the result to
 # plex-stack at /srv/channel-club/docker-compose.yaml,
 # and runs `docker compose up -d` there.
@@ -24,7 +24,7 @@ x-logging: &bounded-logging
 services:
   iptv-viewer:
     image: ${IMAGE_REFERENCE:?Immutable image digest required}
-    container_name: iptv-viewer
+    container_name: channel-club
     ports:
       - "8334:8080"
     env_file:
@@ -38,5 +38,5 @@ services:
       retries: 3
       start_period: 40s
     labels:
-      mcp.role: "IPTV viewer web app (Dispatcharr/ErsatzTV front end)"
+      mcp.role: "Channel Club web app (Dispatcharr/ErsatzTV front end)"
       mcp.auth: "plex-oauth"

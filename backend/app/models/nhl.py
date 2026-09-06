@@ -1,4 +1,4 @@
-"""NHL scores models for IPTV Viewer API."""
+"""NHL scores models for Channel Club API."""
 
 from pydantic import BaseModel, Field
 

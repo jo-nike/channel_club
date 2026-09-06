@@ -1,3 +1,4 @@
+import { APP_NAME, APP_TAGLINE } from '@/lib/appInfo'
 import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -114,7 +115,8 @@ export function LoginForm() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background p-4">
         <div className="w-full max-w-md p-8 border rounded-lg shadow-lg bg-card text-center">
-          <h1 className="text-3xl font-bold text-foreground mb-4">IPTV Viewer</h1>
+          <h1 className="text-3xl font-bold text-foreground mb-4">{APP_NAME}</h1>
+          <p className="mb-6 text-muted-foreground">{APP_TAGLINE}</p>
           <div
             role="alert"
             className="p-4 text-xl text-destructive-foreground bg-destructive/10 border border-destructive rounded-md"
@@ -137,8 +139,9 @@ export function LoginForm() {
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="w-full max-w-md space-y-6 p-8 border rounded-lg shadow-lg bg-card">
         <h1 className="text-3xl font-bold text-center text-foreground">
-          IPTV Viewer
+          {APP_NAME}
         </h1>
+        <p className="text-center text-muted-foreground">{APP_TAGLINE}</p>
 
         {error && (
           <div

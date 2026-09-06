@@ -1,4 +1,4 @@
-"""NHL scores router for IPTV Viewer API."""
+"""NHL scores router for Channel Club API."""
 
 import re
 from datetime import datetime

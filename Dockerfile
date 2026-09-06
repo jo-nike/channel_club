@@ -34,10 +34,11 @@ RUN npm run build
 # Stage 2: Production runtime
 FROM python:3.13-slim
 
-# Immutable build identifier, reported by /api/health so a deploy can verify
-# the new build is actually serving. CI passes the CalVer+SHA release tag.
-ARG APP_VERSION=dev
-ENV APP_VERSION=$APP_VERSION
+# Build identity is distinct from the application version in pyproject.toml.
+ARG APP_BUILD_ID=dev
+ARG APP_REVISION=dev
+ENV APP_BUILD_ID=$APP_BUILD_ID
+ENV APP_REVISION=$APP_REVISION
 
 # Cache-buster for the apt upgrade below. CI passes today's date so the layer
 # re-runs daily; without it a warm build cache reuses a stale layer and the

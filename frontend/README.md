@@ -1,4 +1,4 @@
-# IPTV Viewer frontend
+# Channel Club frontend
 
 React/TypeScript frontend built with Vite. See the [root setup guide](../README.md) for credentials and complete local startup.
 
@@ -18,3 +18,5 @@ node scripts/check-service-worker.mjs
 ```
 
 Browser checks use Chrome and synthetic fixtures; the dev proxy check requires port 8001 free. Receiver/device/media playback checks require a separate controlled integration environment.
+
+Application versioning and Docker releases are documented in the [root release guide](../README.md#application-version-and-releases).

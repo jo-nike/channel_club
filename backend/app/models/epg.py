@@ -1,4 +1,4 @@
-"""EPG (Electronic Program Guide) models for IPTV Viewer API."""
+"""EPG (Electronic Program Guide) models for Channel Club API."""
 
 from datetime import datetime
 

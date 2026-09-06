@@ -1,34 +1,7 @@
-# CI/CD for the IPTV viewer. Self-contained: docker-stacks is NOT involved —
-# this pipeline owns the deploy end to end.
-#
-# push to master:
-#   test-backend + test-frontend + security (parallel) → release:
-#     build the image → scan it → push to gitea.example.com (CalVer+SHA tag, e.g.
-#     2026.08.14-a1b2c3d-<build ID>) → render stack/docker-compose.yaml with
-#     the registry digest → scp to plex-stack at
-#     /srv/channel-club → docker compose up -d → poll
-#     /api/health until the NEW version reports healthy.
-#
-# Rollback: restore a recorded image digest under the deployment-host lock. No git tag is
-# pushed — the version string already embeds the short commit SHA, so the source
-# commit for any running build is recoverable from `docker ps` or /api/health.
-# That keeps a repo-write credential out of the pipeline entirely.
-#
-# Secrets never pass through CI. The Infisical agent on plex-stack renders
-# .env from the homelab-infra store (/plex/iptv_viewer); the deploy asserts
-# that file exists and never ships it.
-#
-# Secrets used — all three already exist at the jons-org level and are
-# inherited by this repo:
-#   REGISTRY_USER / REGISTRY_TOKEN  — Gitea container registry login
-#   SSH_PRIVATE_KEY                 — deploy key for j@192.168.50.108
-#
-# DEPLOY_KNOWN_HOSTS must also be set at the jons-org (or repo) level —
-# it is NOT one of the pre-existing three above. Populate it with the
-# output of `ssh-keyscan 192.168.50.108` run once from a trusted vantage
-# point (e.g. from plex-stack itself, or over the LAN console). Without
-# it the deploy step refuses to run rather than trusting whatever host
-# key answers on the wire that run.
+# Channel Club CI/CD. Master builds deploy by immutable digest; vX.Y.Z tags
+# publish a matching fixed Docker release tag without another deployment.
+# Registry and SSH credentials remain the existing Gitea organization secrets.
+# The host directory and Infisical path stay unchanged during the rename.
 
 name: CI + Deploy
 
@@ -36,10 +9,12 @@ on:
   push:
     branches:
       - master
+    tags:
+      - "v*"
 
 env:
   REGISTRY: gitea.example.com
-  IMAGE: gitea.example.com/jons-org/iptv-viewer
+  IMAGE: gitea.example.com/jons-org/channel-club
   DEPLOY_HOST: 192.168.50.108
   DEPLOY_USER: j
   DEPLOY_DIR: /srv/channel-club
@@ -61,6 +36,9 @@ jobs:
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Check application version consistency
+        run: uv run --frozen python ../scripts/version.py
 
       - name: Sync dependencies
         run: uv sync --frozen
@@ -146,6 +124,10 @@ jobs:
         run: trivy config --severity HIGH,CRITICAL --exit-code 1 --skip-dirs "**/node_modules" .
 
   release:
+    # Serialize retries for the same release ref before checking/publishing its tag.
+    concurrency:
+      group: channel-club-publish-${{ github.ref }}
+      cancel-in-progress: false
     needs: [test-backend, test-frontend, security]
     runs-on: ubuntu-latest
     container:
@@ -176,26 +158,38 @@ jobs:
         with:
           fetch-depth: 0 # host validates source ancestry before accepting a release
 
-      - name: Compute unique build version (CalVer + source + random build ID)
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Compute application version and unique build identity
         id: ver
+        env:
+          SOURCE_REF: ${{ github.ref }}
         run: |
-          VERSION="$(date -u +%Y.%m.%d)-$(git rev-parse --short=7 HEAD)-$(python3 -c 'import secrets; print(secrets.token_hex(8))')"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Version: $VERSION"
+          python3 -m scripts.release metadata --ref "$SOURCE_REF" \
+            --source "$(git rev-parse HEAD)" --output "$GITHUB_OUTPUT"
 
       - name: Login to Gitea registry
         run: echo "${{ secrets.REGISTRY_TOKEN }}" | docker login "$REGISTRY" -u "${{ secrets.REGISTRY_USER }}" --password-stdin
+
+      - name: Reuse an already published matching release
+        id: existing
+        run: |
+          python3 -m scripts.release existing --image "$IMAGE" \
+            --source "$(git rev-parse HEAD)" \
+            --release-tag "${{ steps.ver.outputs.release_tag }}" --output "$GITHUB_OUTPUT"
 
       - name: Install Trivy
         run: |
           curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
             | sh -s -- -b /usr/local/bin "v${TRIVY_VERSION}"
 
-      # Fail fast on missing deploy secrets BEFORE building and pushing, so a
-      # missing host-key pin can never leave a published-but-undeployable image
-      # in the registry.
+      # Tag publication needs registry access only; master also deploys.
       - name: Preflight deploy secrets
         run: |
+          if [ -n "${{ steps.ver.outputs.release_tag }}" ]; then exit 0; fi
           if [ -z "${{ secrets.DEPLOY_KNOWN_HOSTS }}" ]; then
             echo "::error::DEPLOY_KNOWN_HOSTS secret is not set — populate it with \`ssh-keyscan $DEPLOY_HOST\` output captured from a trusted vantage point before deploying."
             exit 1
@@ -207,35 +201,45 @@ jobs:
 
       - name: Build image
         run: |
+          if [ "${{ steps.existing.outputs.exists }}" = true ]; then exit 0; fi
           VERSION="${{ steps.ver.outputs.version }}"
+          BUILD_ID="${{ steps.ver.outputs.build_id }}"
           docker build --pull \
-            --build-arg APP_VERSION="$VERSION" \
+            --build-arg APP_BUILD_ID="$BUILD_ID" \
+            --build-arg APP_REVISION="$(git rev-parse HEAD)" \
+            --label org.opencontainers.image.title="Channel Club" \
+            --label org.opencontainers.image.version="$VERSION" \
+            --label org.opencontainers.image.revision="$(git rev-parse HEAD)" \
             --build-arg APT_REFRESH="$(date -u +%Y-%m-%d)" \
             --build-arg VITE_API_URL="$VITE_API_URL" \
             --build-arg VITE_CHAT_ENABLED="$VITE_CHAT_ENABLED" \
             --build-arg VITE_GIF_ENABLED="$VITE_GIF_ENABLED" \
             --build-arg VITE_LOG_LEVEL="$VITE_LOG_LEVEL" \
-            -t "$IMAGE:$VERSION" .
+            -t "$IMAGE:$BUILD_ID" .
 
       # Scan before publishing, so a vulnerable image never reaches the
       # registry or plex-stack.
       - name: Scan image (Trivy)
         run: |
-          VERSION="${{ steps.ver.outputs.version }}"
+          if [ "${{ steps.existing.outputs.exists }}" = true ]; then exit 0; fi
+          BUILD_ID="${{ steps.ver.outputs.build_id }}"
           trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed \
-            --exit-code 1 "$IMAGE:$VERSION"
+            --exit-code 1 "$IMAGE:$BUILD_ID"
 
-      - name: Push image and resolve immutable digest
+      - name: Publish scanned image and resolve immutable digest
         id: artifact
         run: |
-          VERSION="${{ steps.ver.outputs.version }}"
-          docker push "$IMAGE:$VERSION"
-          docker image inspect "$IMAGE:$VERSION" --format '{{json .RepoDigests}}' > /tmp/repo-digests.json
-          IMAGE_REFERENCE=$(python3 -c 'import json,sys; refs=[r for r in json.load(open("/tmp/repo-digests.json")) if r.startswith(sys.argv[1]+"@sha256:")]; assert len(refs)==1, "Expected one pushed digest"; print(refs[0])' "$IMAGE")
-          echo "image_reference=$IMAGE_REFERENCE" >> "$GITHUB_OUTPUT"
+          if [ "${{ steps.existing.outputs.exists }}" = true ]; then
+            echo "image_reference=${{ steps.existing.outputs.image_reference }}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python3 -m scripts.release publish --image "$IMAGE" \
+            --source "$(git rev-parse HEAD)" --build-id "${{ steps.ver.outputs.build_id }}" \
+            --release-tag "${{ steps.ver.outputs.release_tag }}" --output "$GITHUB_OUTPUT"
 
       - name: Deploy to plex-stack
         run: |
+          if [ -n "${{ steps.ver.outputs.release_tag }}" ]; then exit 0; fi
           VERSION="${{ steps.ver.outputs.version }}"
           IMAGE_REFERENCE="${{ steps.artifact.outputs.image_reference }}"
           mkdir -p ~/.ssh
@@ -265,7 +269,7 @@ jobs:
           git rev-list HEAD > /tmp/source-history
           scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes /tmp/rendered-compose.yaml "$REMOTE:$STAGING/docker-compose.yaml"
           scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes /tmp/source-history scripts/deploy_release.py "$REMOTE:$STAGING/"
-          $SSH "$REMOTE" "python3 '$STAGING/deploy_release.py' '$DEPLOY_DIR' '$STAGING' '$(git rev-parse HEAD)' '$VERSION' '$HEALTH_URL' '$IMAGE_REFERENCE'"
+          $SSH "$REMOTE" "python3 '$STAGING/deploy_release.py' '$DEPLOY_DIR' '$STAGING' '$(git rev-parse HEAD)' '$VERSION' '$HEALTH_URL' '$IMAGE_REFERENCE' --build-id '${{ steps.ver.outputs.build_id }}'"
 
       - name: Cleanup deploy key
         if: always()

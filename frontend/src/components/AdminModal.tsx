@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { APP_NAME, APP_VERSION } from '@/lib/appInfo'
 import {
   Dialog,
   DialogContent,
@@ -77,6 +78,7 @@ export function AdminModal({ open, onOpenChange }: AdminModalProps) {
       <DialogContent className="w-[95vw] sm:w-[85vw] md:w-[75vw] max-w-5xl max-h-[90vh] overflow-hidden flex flex-col" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>Admin Panel</DialogTitle>
+          <p className="text-sm text-muted-foreground">{APP_NAME} v{APP_VERSION}</p>
         </DialogHeader>
 
         {/* Tab navigation - horizontal scroll for mobile, enhanced focus for TV */}

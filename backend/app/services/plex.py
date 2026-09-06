@@ -11,7 +11,7 @@ log = logger.bind(service="plex")
 
 PLEX_API_HEADERS = {
     "Accept": "application/json",
-    "X-Plex-Product": "IPTV Viewer",
+    "X-Plex-Product": "Channel Club",
     "X-Plex-Client-Identifier": "iptv-viewer-2",
 }
 

@@ -69,7 +69,7 @@ describe('plexAuth', () => {
       expect(url).toContain(`clientID=${PLEX_CLIENT_ID}`)
       expect(url).toContain('code=ABC123')
       // URLSearchParams encodes spaces as + not %20
-      expect(url).toContain('context%5Bdevice%5D%5Bproduct%5D=IPTV+Viewer')
+      expect(url).toContain('context%5Bdevice%5D%5Bproduct%5D=Channel+Club')
     })
   })
 

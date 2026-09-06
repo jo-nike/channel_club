@@ -208,7 +208,7 @@ describe('StatusTab', () => {
     expect(screen.getByRole('button', { name: /refresh/i })).toBeInTheDocument()
   })
 
-  it('should return null when no data', () => {
+  it('keeps application information when upstream data is absent', () => {
     mockUseSystemStatus.mockReturnValue({
       data: null,
       loading: false,
@@ -218,8 +218,8 @@ describe('StatusTab', () => {
       refetch: vi.fn(),
     })
 
-    const { container } = render(<StatusTab />)
+    render(<StatusTab />)
 
-    expect(container.firstChild).toBeNull()
+    expect(screen.getByText('Channel Club')).toBeInTheDocument()
   })
 })

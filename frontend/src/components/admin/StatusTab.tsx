@@ -1,4 +1,5 @@
 import { useSystemStatus, type SystemStatusData } from '@/hooks/useSystemStatus'
+import { ApplicationStatus } from './ApplicationStatus'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import {
@@ -38,6 +39,10 @@ function formatBufferSeconds(seconds: number | null | undefined): string {
 }
 
 export function StatusTab() {
+  return <><ApplicationStatus /><ServiceStatus /></>
+}
+
+function ServiceStatus() {
   const { data, loading, error, lastUpdated, isRefreshing, refetch } = useSystemStatus()
 
   if (loading) {

@@ -151,3 +151,35 @@ def test_ops02_rebuild_records_exact_previous_artifact(tmp_path, monkeypatch):
     assert current["image_reference"] == second_image
     assert old["image_id"] != current["image_id"]
     assert (host / "previous-compose.yaml").read_text() == "build-one"
+
+
+def test_same_version_requires_exact_build_identity(monkeypatch):
+    from io import BytesIO
+
+    monkeypatch.setattr(
+        release,
+        "urlopen",
+        lambda *args, **kwargs: BytesIO(b'{"status":"ok","version":"1.0.0","buildId":"old-build"}'),
+    )
+    monkeypatch.setattr(release.time, "sleep", lambda *args: None)
+    with pytest.raises(RuntimeError, match="expected healthy version"):
+        release.verify_health("http://controlled/health", "1.0.0", "new-build")
+    release.verify_health("http://controlled/health", "1.0.0", "old-build")
+
+
+def test_new_deployment_records_version_and_build_id(tmp_path, monkeypatch):
+    import json
+
+    host = tmp_path / "host"
+    host.mkdir()
+    (host / ".env").touch()
+    source = "a" * 40
+    staged = stage(tmp_path, "new-stage", [source])
+    health = Mock()
+    monkeypatch.setattr(release.subprocess, "run", Mock())
+    monkeypatch.setattr(release, "verify_health", health)
+    monkeypatch.setattr(release, "verify_artifact", lambda *args: "exact-image-id")
+    release.deploy(host, staged, source, "1.0.0", "http://controlled/health", IMAGE, "unique-build")
+    health.assert_called_once_with("http://controlled/health", "1.0.0", "unique-build")
+    record = json.loads((host / "deployment.json").read_text())
+    assert (record["version"], record["build_id"]) == ("1.0.0", "unique-build")

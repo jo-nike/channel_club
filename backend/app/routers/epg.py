@@ -1,4 +1,4 @@
-"""EPG router for IPTV Viewer API."""
+"""EPG router for Channel Club API."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from loguru import logger

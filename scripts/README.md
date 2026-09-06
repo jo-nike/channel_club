@@ -25,12 +25,12 @@ Regression tests run independent local processes against temporary deployment
 directories and replace Docker/health actions with controlled functions. They do
 not connect to the deployment host or claim a production rollout.
 
-Each build receives a fresh random build identifier in `APP_VERSION`, even for
+Each build receives a fresh random build identifier in `APP_BUILD_ID`, even for
 same-day reruns of the same commit. CI resolves the digest after pushing the
 scanned image and installs `repository@sha256:...` in Compose. The host explicitly
-pulls it, checks the unique application version, then verifies the container's
+pulls it, checks both the semantic application version and exact build ID, then verifies the container's
 actual image ID and configured digest against that exact local image. Both are
-recorded in `deployment.json`; previous records and compose manifests make the
+recorded alongside `version` and `build_id` in `deployment.json`; previous records and compose manifests make the
 prior artifact addressable without relying on a mutable tag. Rollback restores
 that recorded digest, not a newly resolved tag with an old version label.
 
@@ -51,3 +51,30 @@ player controls, thumbnails, keyboard/pointer trimming, matching download/upload
 bytes, responsive layout, and restoration of live audio. It writes screenshots
 to `/tmp/iptv-clip-*.png` and removes its temporary media, browser profile, and
 harness. It does not connect to configured media providers or a real Zipline server.
+
+## Channel Club versioned publishing
+
+`python3 scripts/version.py` checks the canonical Python project version against
+frontend metadata and both lockfiles. `--set X.Y.Z` synchronizes those application
+records without upgrading dependencies. The Python runtime reads the shipped
+`pyproject.toml`; Vite injects the validated frontend package version.
+
+`python3 -m scripts.release` supplies the CI metadata, existing-release check and
+publication operations. Master builds publish unique version/build tags and deploy
+by digest. A `vX.Y.Z` Git tag must match package metadata, and publishes the fixed
+`gitea.example.com/jons-org/channel-club:X.Y.Z` image without running deployment. The
+release job serializes matching refs; existing matching releases are reused and
+conflicting version/source labels are rejected. Registry lookup failures abort;
+only Docker's explicit missing-manifest response permits creating a release tag.
+
+The host helper accepts `--build-id` for new releases. `/api/health` now returns
+`status`, `version`, `buildId` and `revision`; two builds of version 1.0.0 cannot
+satisfy one another's deployment checks. Legacy records without `build_id` retain
+the old health-version check for an explicit rollback; image digest verification
+still applies. Restore the recorded previous Compose file to recover its old
+container name and repository. Keep the same Compose project directory and service
+key (`iptv-viewer`) so Compose manages the rename as a service replacement.
+
+Do not move published Git release tags. Bump the application version and create a
+new tag for a new release. Existing registry/SSH secrets are reused; the workflow
+does not create Git tags or require a repository-write credential.

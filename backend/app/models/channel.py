@@ -1,4 +1,4 @@
-"""Channel models for IPTV Viewer API."""
+"""Channel models for Channel Club API."""
 
 from typing import Annotated
 

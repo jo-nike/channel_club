@@ -64,7 +64,7 @@ describe('LoginForm', () => {
     render(<LoginForm />)
 
     await waitFor(() => {
-      expect(screen.getByText('IPTV Viewer')).toBeInTheDocument()
+      expect(screen.getByText('Channel Club')).toBeInTheDocument()
     })
   })
 
@@ -394,7 +394,7 @@ describe('LoginForm', () => {
       expect(screen.queryByLabelText(/username/i)).not.toBeInTheDocument()
       expect(screen.queryByText('Sign in with Plex')).not.toBeInTheDocument()
       // Verify title is not visible yet (skeleton is shown)
-      expect(screen.queryByText('IPTV Viewer')).not.toBeInTheDocument()
+      expect(screen.queryByText('Channel Club')).not.toBeInTheDocument()
     })
 
     it('should redirect on successful local login', async () => {

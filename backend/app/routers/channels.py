@@ -1,4 +1,4 @@
-"""Channels router for IPTV Viewer API."""
+"""Channels router for Channel Club API."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from loguru import logger

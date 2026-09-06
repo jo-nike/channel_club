@@ -3,9 +3,13 @@ import react from '@vitejs/plugin-react-swc'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import path from 'path'
+import { readFileSync } from 'node:fs'
+
+const appVersion = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version
 
 // https://vite.dev/config/
 export default defineConfig({
+  define: { __APP_VERSION__: JSON.stringify(appVersion) },
   plugins: [
     react(),
     tailwindcss(),
@@ -55,9 +59,9 @@ export default defineConfig({
         navigateFallbackDenylist: [/^\/api(?:\/|$)/],
       },
       manifest: {
-        name: "Jon's Place IPTV",
-        short_name: 'IPTV',
-        description: 'Watch IPTV together',
+        name: 'Channel Club',
+        short_name: 'Channel Club',
+        description: 'Good TV. Better company.',
         theme_color: '#0f172a',
         background_color: '#0f172a',
         display: 'standalone',

@@ -5,7 +5,7 @@ import { AppLoadingScreen } from './AppLoadingScreen'
 describe('AppLoadingScreen', () => {
   it('renders app title', () => {
     render(<AppLoadingScreen />)
-    expect(screen.getByText('IPTV Viewer')).toBeInTheDocument()
+    expect(screen.getByText('Channel Club')).toBeInTheDocument()
   })
 
   it('renders loading spinner', () => {

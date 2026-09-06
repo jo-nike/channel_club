@@ -1,7 +1,7 @@
 [project]
-name = "backend"
-version = "0.1.0"
-description = "Add your description here"
+name = "channel-club"
+version = "1.0.0"
+description = "Channel Club — Good TV. Better company."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [

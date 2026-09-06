@@ -1,4 +1,4 @@
-# IPTV Viewer backend
+# Channel Club backend
 
 FastAPI backend. See the [root setup guide](../README.md) for the complete browser/proxy workflow.
 
@@ -18,3 +18,5 @@ uv run basedpyright
 ```
 
 Highlights and Cast require FFmpeg when enabled. Temporary recording/export roots, concurrent sessions, encoding limits and idle lifetimes are controlled by backend settings. Keep temporary roots dedicated to this application. Unit tests use synthetic configuration and reject unexpected external network access.
+
+Application versioning and Docker releases are documented in the [root release guide](../README.md#application-version-and-releases).

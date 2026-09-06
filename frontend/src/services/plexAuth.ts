@@ -11,7 +11,7 @@
 import { logger } from '@/lib/logger'
 
 export const PLEX_CLIENT_ID = 'iptv-viewer-2'
-export const PLEX_PRODUCT = 'IPTV Viewer'
+export const PLEX_PRODUCT = 'Channel Club'
 
 const PLEX_API_HEADERS = {
   Accept: 'application/json',

@@ -1,4 +1,8 @@
-# IPTV Viewer
+# Channel Club
+
+**Good TV. Better company.**
+
+Version **1.0.0**.
 
 A shared live TV player with optional ErsatzTV guide, Plex login, chat, highlight export and Chromecast controls.
 
@@ -64,7 +68,7 @@ The browser scripts require Chrome (`CHROME_BIN` overrides its executable) and u
 
 ## Docker
 
-Configure root `.env` with strong credentials and your upstream URLs, then run `docker compose up --build`. Production serves the frontend and API from one origin. See the environment examples for feature switches and media resource limits.
+Configure root `.env` with strong credentials and your upstream URLs, then run `docker compose up --build`. The container is named `channel-club`; the internal Compose service remains `iptv-viewer` for deployment compatibility. Production serves the frontend and API from one origin. See the environment examples for feature switches and media resource limits.
 
 ### Clip capture and optional Zipline uploads
 
@@ -83,3 +87,45 @@ Use the instance base URL, without `/api/upload`. Keep the token in backend conf
 Upload uses the same selected range and format as Download. A successful upload displays Zipline's returned URL with Copy and Open actions. Zipline's configured naming, retention, quotas, and size limits apply. If an upload times out, check Zipline before retrying because the file may already have arrived. There is no automatic upload retry.
 
 If you use a reverse proxy, allow request bodies up to your `MEDIA_EXPORT_MAX_BYTES` setting (default 256 MiB) and at least 150 seconds for clip export/upload responses. Smaller Zipline/proxy limits produce an upload error without losing the selection or disabling downloads.
+
+## Application version and releases
+
+The Admin Panel header shows the frontend version. **Status → Channel Club** shows
+frontend/backend versions, the exact build ID and source revision, independently
+of upstream service health. `/api/health` exposes the same backend information.
+
+`backend/pyproject.toml` is the authoritative application version. From the repository
+root, update all application manifest/lockfile entries together:
+
+```bash
+python3 scripts/version.py --set 1.0.1
+python3 scripts/version.py
+```
+
+The helper preserves dependency versions. Update the version shown in this README
+when preparing a release. CI rejects mismatched application metadata.
+
+Every successful `master` push builds and deploys a unique image such as
+`gitea.example.com/jons-org/channel-club:1.0.0-build-abc1234-<build-id>`. Production
+Compose uses the resulting immutable image digest, not a moving version tag.
+
+To publish version **1.0.0**, push an annotated Git tag at the tested commit whose
+application manifests say `1.0.0`:
+
+```bash
+git tag -a v1.0.0 -m "Channel Club 1.0.0"
+git push origin v1.0.0
+```
+
+The tag workflow tests, builds, scans and publishes
+`gitea.example.com/jons-org/channel-club:1.0.0`. It does not trigger another production
+deployment. Later master builds never move this release tag. A retry reuses an
+existing image with matching version/source labels; conflicting tags or registry
+errors fail publication. No `latest` alias is published.
+
+On the next normal deployment, Compose recreates the existing service with the
+new `channel-club` container name and image repository. Port `8334`, the host stack
+directory, Infisical secret path and Plex client identifier are unchanged. Update
+any external monitoring that refers directly to the old container name. Historical
+images remain available for digest-based rollback. See [release execution](scripts/README.md)
+for verification and rollback details.

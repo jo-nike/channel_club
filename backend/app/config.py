@@ -25,9 +25,9 @@ KNOWN_PUBLIC_JWT_SECRETS = frozenset(
 class Settings(BaseSettings):
     port: int = 8001
 
-    # Immutable build identifier, baked into the image by CI as an env var.
-    # Reported by /api/health so a deploy can verify the new build is live.
-    app_version: str = "dev"
+    # Build identity stays distinct from the semantic version in pyproject.toml.
+    app_build_id: str = "dev"
+    app_revision: str = "dev"
 
     dispatcharr_url: str = "http://10.8.0.2:9191"
     stream_base_url: str = "https://streams.domain.com"
