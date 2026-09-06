@@ -127,9 +127,9 @@ class ChannelRecorder:
             try:
                 self.process = subprocess.Popen(
                     cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    preexec_fn=os.setsid,  # Create new process group for clean cleanup
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,  # Safe from worker threads; no undrained pipes
                 )
                 self.started_at = time.time()
                 self.last_activity = time.time()
@@ -137,7 +137,7 @@ class ChannelRecorder:
                 # Give FFmpeg a moment to start and check it's running
                 await asyncio.sleep(0.5)
                 if not self.is_running:
-                    stderr = self.process.stderr.read().decode() if self.process.stderr else ""
+                    stderr = f"exit status {self.process.returncode}"
                     log.error("FFmpeg failed to start for channel {}: {}", self.channel_id, stderr)
                     return False
 

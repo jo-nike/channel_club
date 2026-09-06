@@ -127,9 +127,9 @@ class CastSession:
             try:
                 self.process = subprocess.Popen(
                     cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    preexec_fn=os.setsid,  # Create new process group for clean cleanup
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,  # Safe from worker threads; no undrained pipes
                 )
                 self.started_at = time.time()
                 self.last_activity = time.time()
@@ -138,7 +138,7 @@ class CastSession:
                 for _ in range(20):
                     await asyncio.sleep(0.5)
                     if not self.is_running:
-                        stderr = self.process.stderr.read().decode() if self.process.stderr else ""
+                        stderr = f"exit status {self.process.returncode}"
                         log.error("FFmpeg failed for cast session {}: {}", self.session_id, stderr)
                         return None
                     if self.playlist_path and self.playlist_path.exists():
