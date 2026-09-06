@@ -238,6 +238,42 @@ class TestGetCurrentChannel:
 class TestSetCurrentChannel:
     """Tests for PUT /api/channels/current endpoint."""
 
+    @pytest.fixture(autouse=True)
+    def catalog(self):
+        """Selection resolves these trusted fixtures instead of request URLs."""
+        channels = [
+            Channel(
+                id="uuid-123",
+                name="TSN",
+                streamUrl="https://streams.example.com/stream/uuid-123",
+                guideId="1",
+            ),
+            Channel(
+                id="uuid-456",
+                name="Sportsnet",
+                streamUrl="https://streams.example.com/stream/uuid-456",
+                guideId="2",
+            ),
+            Channel(
+                id="uuid-789",
+                name="CBC",
+                streamUrl="https://streams.example.com/stream/uuid-789",
+                guideId="3",
+            ),
+            Channel(id="uuid-1", name="TSN", streamUrl="https://example.com/1", guideId="1"),
+            Channel(id="uuid-2", name="Sportsnet", streamUrl="https://example.com/2", guideId="2"),
+            Channel(id="uuid", name="TSN", streamUrl="https://example.com/stream", guideId="1"),
+        ]
+        with (
+            patch("app.services.media_source.get_channel_by_id", return_value=None),
+            patch("app.services.media_source.get_lineup", AsyncMock(return_value=channels)),
+            patch(
+                "app.services.highlight.highlight_service.start_recording",
+                AsyncMock(return_value=True),
+            ),
+        ):
+            yield
+
     def test_requires_authentication(self, client: TestClient) -> None:
         """Unauthenticated request returns 401."""
         channel_data = {
@@ -284,7 +320,7 @@ class TestSetCurrentChannel:
         response = client.put("/api/channels/current", json=channel_data, headers=auth_header)
 
         assert response.status_code == 200
-        assert response.json()["name"] == "TSN"
+        assert response.json()["name"] == "CBC"
 
     def test_admin_can_set_channel(
         self, client: TestClient, admin_auth_header: dict[str, str]
@@ -549,7 +585,17 @@ class TestChannelsLogging:
                 "streamUrl": "https://example.com/stream",
                 "guideId": "1",
             }
-            client.put("/api/channels/current", json=channel_data, headers=admin_auth_header)
+            trusted = Channel(
+                id="uuid-123",
+                name="TestChannel",
+                streamUrl="https://example.com/stream",
+                guideId="1",
+            )
+            with patch("app.services.media_source.get_lineup", AsyncMock(return_value=[trusted])):
+                response = client.put(
+                    "/api/channels/current", json=channel_data, headers=admin_auth_header
+                )
+            assert response.status_code == 200
 
             log_output = output.getvalue()
             assert "INFO" in log_output

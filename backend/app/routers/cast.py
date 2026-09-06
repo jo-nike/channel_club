@@ -7,7 +7,6 @@ Provides endpoints for:
 - Checking cast feature status
 """
 
-import asyncio
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path
@@ -17,9 +16,10 @@ from pydantic import BaseModel
 
 from app.config import settings
 from app.models.auth import TokenPayload
+from app.models.channel import ChannelId
 from app.routers.auth_deps import get_current_user
 from app.services.cast import cast_service
-from app.services.highlight import get_stream_url
+from app.services.media_source import resolve_media_channel
 
 router = APIRouter(prefix="/api/cast", tags=["cast"])
 log = logger.bind(router="cast")
@@ -34,7 +34,7 @@ class CastFeatureResponse(BaseModel):
 class CreateSessionRequest(BaseModel):
     """Request to create a cast session."""
 
-    channel_id: str
+    channel_id: ChannelId
     stream_type: Literal["hls", "mpegts"]
 
 
@@ -82,26 +82,12 @@ async def create_cast_session(
             detail="Cast feature is disabled",
         )
 
-    # Always resolve server-side - a client-supplied URL would let any authenticated
-    # user point the server's FFmpeg at an arbitrary host (SSRF). get_stream_url
-    # does a blocking M3U fetch (up to 30s) on a cold cache and can raise, so run
-    # it off the event loop and turn a failure into a clean 404 rather than a 500
-    # that also stalls every other request.
-    try:
-        stream_url = await asyncio.to_thread(get_stream_url, request.channel_id)
-    except Exception as e:  # noqa: BLE001
-        log.warning("Failed to resolve stream URL for channel {}: {}", request.channel_id, e)
-        stream_url = None
-    if not stream_url:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Could not resolve stream URL for channel {request.channel_id}",
-        )
+    source = await resolve_media_channel(request.channel_id)
 
     result = await cast_service.create_session(
         channel_id=request.channel_id,
-        stream_url=stream_url,
-        stream_type=request.stream_type,
+        stream_url=source.channel.stream_url,
+        stream_type=source.stream_type,
     )
 
     if not result:

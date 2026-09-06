@@ -81,3 +81,46 @@ async def test_startup_lifecycle_uses_opaque_directory_and_cleans(tmp_path, monk
             process.poll.return_value = 1
             await recorder.stop()
     assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("identifier", ["", " ", "unknown"])
+async def test_unresolved_source_never_spawns(identifier, monkeypatch):
+    from fastapi import HTTPException
+
+    from app.services.highlight import HighlightService
+
+    monkeypatch.setattr(settings, "highlight_enabled", True)
+    with (
+        patch("app.services.media_source.get_channel_by_id", return_value=None),
+        patch("app.services.media_source.get_lineup", AsyncMock(return_value=[])),
+        patch("subprocess.Popen") as spawn,
+    ):
+        with pytest.raises(HTTPException):
+            await HighlightService().start_recording(
+                identifier, "http://off-catalog.invalid/private"
+            )
+        spawn.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider", ["dispatcharr", "ersatz"])
+async def test_resolved_source_replaces_client_url(provider, monkeypatch):
+    from app.models.channel import Channel
+    from app.services.highlight import HighlightService
+
+    channel = Channel(
+        id="valid", name="catalog", streamUrl="http://catalog.invalid/source", guideId="v"
+    )
+    monkeypatch.setattr(settings, "highlight_enabled", True)
+    with (
+        patch(
+            "app.services.media_source.get_channel_by_id",
+            return_value=channel if provider == "ersatz" else None,
+        ),
+        patch("app.services.media_source.get_lineup", AsyncMock(return_value=[channel])),
+        patch.object(ChannelRecorder, "start", AsyncMock(return_value=True)),
+    ):
+        service = HighlightService()
+        assert await service.start_recording("valid", "http://off-catalog.invalid/private")
+        assert service._recorders["valid"].stream_url == channel.stream_url

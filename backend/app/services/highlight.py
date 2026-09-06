@@ -22,6 +22,7 @@ from loguru import logger
 
 from app.config import settings
 from app.models.channel import validate_channel_id
+from app.services.media_source import resolve_media_channel
 
 log = logger.bind(service="highlight")
 
@@ -34,61 +35,6 @@ def remove_recording_directory(directory: Path) -> None:
         log.warning("Refusing removal outside recording directory")
         return
     shutil.rmtree(directory)
-
-
-def get_ersatztv_stream_url(channel_id: str) -> str | None:
-    """Get direct ErsatzTV HLS stream URL for a channel by looking it up.
-
-    Args:
-        channel_id: ErsatzTV channel ID.
-
-    Returns:
-        Direct HLS stream URL if found, None otherwise.
-    """
-    # Import here to avoid circular dependency
-    from app.services.ersatztv import get_channel_by_id
-
-    channel = get_channel_by_id(channel_id)
-    if channel:
-        log.debug("Found ErsatzTV channel: {} -> {}", channel_id, channel.stream_url)
-        return channel.stream_url
-    return None
-
-
-def get_dispatcharr_stream_url(channel_id: str) -> str:
-    """Construct Dispatcharr stream URL for a channel UUID.
-
-    Args:
-        channel_id: Dispatcharr channel UUID.
-
-    Returns:
-        Stream URL for the Dispatcharr channel.
-    """
-    stream_url = f"{settings.stream_base_url}/proxy/ts/stream/{channel_id}"
-    log.debug("Constructed Dispatcharr stream URL: {} -> {}", channel_id, stream_url)
-    return stream_url
-
-
-def get_stream_url(channel_id: str) -> str | None:
-    """Get stream URL for a channel, checking ErsatzTV first then Dispatcharr.
-
-    Args:
-        channel_id: Channel ID (ErsatzTV ID or Dispatcharr UUID).
-
-    Returns:
-        Stream URL if found, None otherwise.
-    """
-    # Try ErsatzTV first
-    url = get_ersatztv_stream_url(channel_id)
-    if url:
-        return url
-
-    # Fall back to Dispatcharr - UUIDs are typically 36 chars with hyphens
-    # or 32 chars without. Accept any ID as a valid Dispatcharr channel.
-    if channel_id:
-        return get_dispatcharr_stream_url(channel_id)
-
-    return None
 
 
 class ChannelRecorder:
@@ -146,6 +92,8 @@ class ChannelRecorder:
                 "1",
                 "-reconnect_delay_max",
                 "5",
+                "-protocol_whitelist",
+                "http,https,tcp,tls,crypto",
                 "-i",
                 self.stream_url,
                 "-c",
@@ -612,11 +560,8 @@ class HighlightService:
             log.debug("Highlight feature disabled, not starting recorder")
             return False
 
-        # Use unified stream URL lookup (ErsatzTV first, then Dispatcharr)
-        resolved_url = get_stream_url(channel_id)
-        if resolved_url:
-            stream_url = resolved_url
-            log.debug("Using resolved stream URL: {}", stream_url)
+        source = await resolve_media_channel(channel_id)
+        stream_url = source.channel.stream_url
 
         async with self._lock:
             if channel_id in self._recorders:

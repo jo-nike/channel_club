@@ -13,6 +13,7 @@ from app.models.channel import (
 from app.routers.auth_deps import get_current_user, require_admin, require_channel_control
 from app.services import channel_state
 from app.services.dispatcharr import DispatchrrUnavailableError, get_grouped_channels, get_lineup
+from app.services.media_source import resolve_media_channel
 
 router = APIRouter(tags=["channels"])
 log = logger.bind(router="channels")
@@ -123,12 +124,7 @@ async def set_current_channel(
         The updated channel.
     """
     log.info("User {} changing channel to '{}'", current_user.sub, request.name)
-    channel = Channel(
-        id=request.id,
-        name=request.name,
-        stream_url=request.stream_url,
-        guide_id=request.guide_id,
-    )
+    channel = (await resolve_media_channel(request.id)).channel
     return await channel_state.set_current_channel(channel, user=current_user.sub)
 
 

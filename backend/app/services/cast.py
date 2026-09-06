@@ -93,6 +93,8 @@ class CastSession:
                 "1",
                 "-reconnect_delay_max",
                 "5",
+                "-protocol_whitelist",
+                "http,https,tcp,tls,crypto",
                 "-i",
                 self.stream_url,
                 "-c:v",
