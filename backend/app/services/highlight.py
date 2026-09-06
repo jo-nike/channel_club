@@ -13,15 +13,18 @@ Architecture:
 import asyncio
 import os
 import shutil
+import signal
 import subprocess
 import tempfile
 import time
+from contextlib import suppress
 from pathlib import Path
 
 from loguru import logger
 
 from app.config import settings
 from app.models.channel import validate_channel_id
+from app.services.media_export import encode_file, owned_thread
 from app.services.media_limits import export_budget, process_budget
 from app.services.media_source import resolve_media_channel
 
@@ -233,191 +236,79 @@ class ChannelRecorder:
             elapsed = time.time() - self.started_at
             return min(elapsed, settings.highlight_buffer_seconds)
 
+    def _snapshot(self, workspace: Path) -> Path:
+        """Copy completed segments while producer is paused and lifecycle locked."""
+        if not self.segment_dir or not self.process:
+            raise ValueError("Recorder not running")
+        producer_pid = self.process.pid
+        os.killpg(producer_pid, signal.SIGSTOP)
+        try:
+            _, status = os.waitpid(producer_pid, os.WUNTRACED)
+            if not os.WIFSTOPPED(status):
+                raise ValueError("Recorder exited while capturing highlight")
+            segment_list = self.segment_dir / "segments.txt"
+            entries = segment_list.read_text().splitlines()
+            if not entries:
+                raise ValueError("No segments recorded yet")
+            capacity = settings.highlight_buffer_seconds // settings.highlight_segment_seconds + 2
+            # The next ring index is being written and must never enter a snapshot.
+            last = Path(entries[-1]).name
+            current = f"seg_{(int(last[4:7]) + 1) % capacity:03d}.ts"
+            names = list(dict.fromkeys(reversed(entries)))[:capacity]
+            paths = []
+            for entry in reversed(names):
+                name = Path(entry).name
+                if name != current and name.startswith("seg_") and name.endswith(".ts"):
+                    path = self.segment_dir / name
+                    if path.is_file() and not path.is_symlink():
+                        paths.append(path)
+            paths.sort(key=lambda path: path.stat().st_mtime)
+            cutoff = time.time() - settings.highlight_buffer_seconds
+            paths = [path for path in paths if path.stat().st_mtime >= cutoff]
+            if not paths:
+                raise ValueError("No recent segments available")
+            if sum(path.stat().st_size for path in paths) > settings.media_export_max_bytes:
+                raise ValueError("Highlight exceeds export size limit")
+            names = []
+            for index, path in enumerate(paths):
+                name = f"input_{index:03d}.ts"
+                shutil.copyfile(path, workspace / name)
+                names.append(name)
+            concat = workspace / "concat.txt"
+            concat.write_text("".join(f"file '{name}'\n" for name in names))
+            return concat
+        finally:
+            with suppress(ProcessLookupError):
+                os.killpg(producer_pid, signal.SIGCONT)
+
     async def save_highlight(
         self,
         format: str = "mp4",
         start_time: float | None = None,
         end_time: float | None = None,
     ) -> tuple[bytes | None, str | None]:
-        """Extract and return the current highlight buffer in the specified format.
-
-        Args:
-            format: Output format - "mp4" or "webm"
-            start_time: Optional start time in seconds for trimming
-            end_time: Optional end time in seconds for trimming
-
-        Returns:
-            Tuple of (video_bytes, error_message). If successful, error is None.
-        """
-        if not self.is_running or not self.segment_dir:
-            return None, "Recorder not running"
-
-        segment_list = self.segment_dir / "segments.txt"
-        if not segment_list.exists():
-            return None, "No segments recorded yet"
-
-        # Read segment list and get recent segments
-        try:
-            segments = segment_list.read_text().strip().split("\n")
-            segments = [s.strip() for s in segments if s.strip()]
-        except Exception as e:
-            log.error("Failed to read segment list: {}", e)
-            return None, "Failed to read segments"
-
-        if not segments:
-            return None, "No segments recorded yet"
-
-        # Deduplicate and collect unique segment files
-        # (segments.txt grows indefinitely with duplicate entries after wrap)
-        seen_segments: set[Path] = set()
-        existing_segments: list[Path] = []
-        for seg_name in segments:
-            seg_path = self.segment_dir / seg_name
-            if seg_path.exists() and seg_path not in seen_segments:
-                seen_segments.add(seg_path)
-                existing_segments.append(seg_path)
-
-        if not existing_segments:
-            return None, "No segment files found"
-
-        # Sort by modification time (oldest first for correct playback order)
-        existing_segments.sort(key=lambda p: p.stat().st_mtime)
-
-        # Filter to only segments within the buffer window
-        cutoff_time = time.time() - settings.highlight_buffer_seconds
-        existing_segments = [seg for seg in existing_segments if seg.stat().st_mtime >= cutoff_time]
-
-        if not existing_segments:
-            return None, "No recent segments available"
-
-        log.info(
-            "Saving highlight for channel {} ({} segments, format: {}, trim: {}-{})",
-            self.channel_id,
-            len(existing_segments),
-            format,
-            start_time,
-            end_time,
-        )
-
-        # Create concat file for FFmpeg
-        concat_file = self.segment_dir / "concat.txt"
-        try:
-            with open(concat_file, "w") as f:
-                for seg_path in existing_segments:
-                    f.write(f"file '{seg_path}'\n")
-
-            # Calculate trim parameters
-            trim_args: list[str] = []
-            if start_time is not None and start_time > 0:
-                trim_args.extend(["-ss", str(start_time)])
-            if start_time is not None and end_time is not None:
-                duration = end_time - start_time
-                trim_args.extend(["-t", str(duration)])
-            elif end_time is not None:
-                trim_args.extend(["-t", str(end_time)])
-
-            # Build FFmpeg command based on format
-            if format == "webm":
-                output_file = self.segment_dir / "highlight.webm"
-                # WebM requires transcoding from H.264 to VP9
-                # For transcoding, put seek after input for frame-accurate seeking
-                cmd = [
-                    "ffmpeg",
-                    "-y",
-                    "-hide_banner",
-                    "-loglevel",
-                    "warning",
-                    "-f",
-                    "concat",
-                    "-safe",
-                    "0",
-                    "-i",
-                    str(concat_file),
-                    *trim_args,  # Trim args after input for accurate seeking
-                    "-c:v",
-                    "libvpx-vp9",  # VP9 video codec
-                    "-crf",
-                    "30",  # Quality setting (lower = better, 30 is good)
-                    "-b:v",
-                    "0",  # Variable bitrate
-                    "-c:a",
-                    "libopus",  # Opus audio codec
-                    "-b:a",
-                    "128k",  # Audio bitrate
-                    "-deadline",
-                    "realtime",  # Faster encoding
-                    "-cpu-used",
-                    "4",  # Speed/quality tradeoff (0-8, higher = faster)
-                    str(output_file),
-                ]
-                timeout = 120  # WebM encoding takes longer
-            else:
-                output_file = self.segment_dir / "highlight.mp4"
-                # MP4 can use copy (no re-encoding)
-                # For copy mode, put seek after input
-                # (seeking before input with copy can be imprecise)
-                cmd = [
-                    "ffmpeg",
-                    "-y",
-                    "-hide_banner",
-                    "-loglevel",
-                    "warning",
-                    "-f",
-                    "concat",
-                    "-safe",
-                    "0",
-                    "-i",
-                    str(concat_file),
-                    *trim_args,  # Trim args after input
-                    "-c",
-                    "copy",  # No re-encoding
-                    "-movflags",
-                    "+faststart",  # Optimize for streaming
-                    str(output_file),
-                ]
-                timeout = 30
-
-            log.debug("FFmpeg concat command: {}", " ".join(cmd))
-
-            # Run FFmpeg in a thread pool to avoid blocking the event loop
-            def run_ffmpeg() -> tuple[int, bytes]:
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    timeout=timeout,
+        """Export private copied inputs; producer stop/wrap cannot change them."""
+        with tempfile.TemporaryDirectory(prefix="highlight-export-") as directory:
+            workspace = Path(directory)
+            try:
+                async with self._lock:
+                    if not self.is_running or not self.segment_dir:
+                        return None, "Recorder not running"
+                    concat = await owned_thread(self._snapshot, workspace)
+                video = await encode_file(
+                    concat,
+                    workspace / f"highlight.{format}",
+                    format,
+                    start_time,
+                    end_time,
+                    concat=True,
                 )
-                return result.returncode, result.stderr
-
-            returncode, stderr = await asyncio.to_thread(run_ffmpeg)
-
-            if returncode != 0:
-                log.error("FFmpeg concat failed: {}", stderr.decode())
-                return None, f"Failed to create {format.upper()} highlight"
-
-            if not output_file.exists():
-                return None, "Highlight file not created"
-
-            # Read the output file
-            video_bytes = output_file.read_bytes()
-            log.info(
-                "Highlight saved for channel {} ({:.1f} KB, format: {})",
-                self.channel_id,
-                len(video_bytes) / 1024,
-                format,
-            )
-
-            # Cleanup temporary files
-            concat_file.unlink(missing_ok=True)
-            output_file.unlink(missing_ok=True)
-
-            return video_bytes, None
-
-        except subprocess.TimeoutExpired:
-            log.error("FFmpeg concat timed out for channel {}", self.channel_id)
-            return None, "Highlight creation timed out"
-        except Exception as e:
-            log.error("Failed to save highlight for channel {}: {}", self.channel_id, e)
-            return None, f"Error: {e}"
+                return video, None
+            except TimeoutError:
+                return None, "Highlight creation timed out"
+            except (OSError, ValueError) as exc:
+                log.warning("Highlight export failed: {}", exc)
+                return None, str(exc)
 
 
 # Idle timeout for recordings - stop if no status polls for this duration.
