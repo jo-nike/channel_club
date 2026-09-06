@@ -9,3 +9,21 @@
 481624ccd30af15b0610736df5986a3cda962463:_bmad/_config/files-manifest.csv:generic-api-key:17
 481624ccd30af15b0610736df5986a3cda962463:_bmad/_config/files-manifest.csv:generic-api-key:20
 481624ccd30af15b0610736df5986a3cda962463:_bmad/_config/files-manifest.csv:generic-api-key:49
+
+# 2026-09-06 — False positive. Commit fcaaef1e (SEC-01) added tests that set
+# mock_settings.jwt_secret to the placeholder string
+# "synthetic-test-signing-key-with-32-characters" so the startup guard sees a
+# secret long enough to pass. The generic-api-key rule matches it because the
+# attribute name contains "secret" and the value is long. It is a test fixture,
+# not a credential, and nothing needs rotating.
+fcaaef1e222d9226928e65c0ed41d86499a806ac:backend/tests/routers/test_auth.py:generic-api-key:172
+fcaaef1e222d9226928e65c0ed41d86499a806ac:backend/tests/routers/test_auth.py:generic-api-key:192
+fcaaef1e222d9226928e65c0ed41d86499a806ac:backend/tests/routers/test_auth.py:generic-api-key:212
+fcaaef1e222d9226928e65c0ed41d86499a806ac:backend/tests/test_main.py:generic-api-key:105
+fcaaef1e222d9226928e65c0ed41d86499a806ac:backend/tests/test_main.py:generic-api-key:117
+fcaaef1e222d9226928e65c0ed41d86499a806ac:backend/tests/test_main.py:generic-api-key:35
+fcaaef1e222d9226928e65c0ed41d86499a806ac:backend/tests/test_main.py:generic-api-key:46
+fcaaef1e222d9226928e65c0ed41d86499a806ac:backend/tests/test_main.py:generic-api-key:57
+fcaaef1e222d9226928e65c0ed41d86499a806ac:backend/tests/test_main.py:generic-api-key:70
+fcaaef1e222d9226928e65c0ed41d86499a806ac:backend/tests/test_main.py:generic-api-key:83
+fcaaef1e222d9226928e65c0ed41d86499a806ac:backend/tests/test_main.py:generic-api-key:93
