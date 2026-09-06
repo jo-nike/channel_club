@@ -13,6 +13,12 @@ interface UseVideoKeyboardShortcutsOptions {
 
 const VOLUME_STEP = 0.1
 
+function isInteractiveTarget(target: EventTarget | null) {
+  return target instanceof Element && Boolean(target.closest(
+    'button, a[href], input, textarea, select, summary, [contenteditable]:not([contenteditable="false"]), [role="button"], [role="slider"], [role="menuitem"], [role="option"], [role="tab"], [role="checkbox"], [role="switch"], [role="textbox"], [role="combobox"], [role="spinbutton"]'
+  ))
+}
+
 export function useVideoKeyboardShortcuts({
   containerRef,
   onPlayPause,
@@ -29,14 +35,8 @@ export function useVideoKeyboardShortcuts({
       const container = containerRef.current
       const activeElement = document.activeElement
 
-      // Skip if focus is on an input, textarea, or other form element
-      if (
-        activeElement instanceof HTMLInputElement ||
-        activeElement instanceof HTMLTextAreaElement ||
-        activeElement instanceof HTMLSelectElement
-      ) {
-        return
-      }
+      if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey ||
+        isInteractiveTarget(e.target) || isInteractiveTarget(activeElement)) return
 
       // Check if event target is within video container or is the body
       const isWithinContainer =

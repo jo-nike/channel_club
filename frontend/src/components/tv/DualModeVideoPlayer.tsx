@@ -569,63 +569,18 @@ function HLSControlsWrapper({
     return () => container.removeEventListener('click', handleClick)
   }, [containerRef, isTouchDevice, toggleControls])
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const activeElement = document.activeElement
-
-      if (
-        activeElement instanceof HTMLInputElement ||
-        activeElement instanceof HTMLTextAreaElement ||
-        activeElement instanceof HTMLSelectElement
-      ) {
-        return
-      }
-
-      const container = containerRef.current
-      const isWithinContainer =
-        container?.contains(activeElement) || activeElement === document.body
-
-      if (!isWithinContainer) return
-
-      switch (e.key) {
-        case ' ':
-          e.preventDefault()
-          remote.togglePaused()
-          break
-        case 'm':
-        case 'M':
-          remote.toggleMuted()
-          break
-        case 'f':
-        case 'F':
-          // Use container for fullscreen to ensure portals render correctly
-          if (containerRef.current) {
-            if (document.fullscreenElement) {
-              document.exitFullscreen().catch(() => {})
-            } else {
-              containerRef.current.requestFullscreen().catch(() => {})
-            }
-          }
-          break
-        case 't':
-        case 'T':
-          onTheaterModeToggle()
-          break
-        case 'ArrowRight':
-          e.preventDefault()
-          changeVolumeAndPersist(Math.min(1, volume + 0.1))
-          break
-        case 'ArrowLeft':
-          e.preventDefault()
-          changeVolumeAndPersist(Math.max(0, volume - 0.1))
-          break
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [containerRef, remote, volume, onTheaterModeToggle, changeVolumeAndPersist])
+  useVideoKeyboardShortcuts({
+    containerRef,
+    onPlayPause: () => remote.togglePaused(),
+    onMuteToggle: () => remote.toggleMuted(),
+    onFullscreenToggle: () => {
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
+      else containerRef.current?.requestFullscreen().catch(() => {})
+    },
+    onTheaterModeToggle,
+    onVolumeChange: changeVolumeAndPersist,
+    volume,
+  })
 
   return (
     <ErsatzTVVideoControls

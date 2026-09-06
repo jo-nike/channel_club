@@ -117,4 +117,30 @@ describe('useVideoKeyboardShortcuts', () => {
 
     document.body.removeChild(input)
   })
+  it.each(['button', 'slider', 'menuitem', 'editable', 'link'])('FE-09 preserves focused %s native keyboard handling', (kind) => {
+    const element = document.createElement(kind === 'button' ? 'button' : kind === 'link' ? 'a' : 'div')
+    element.tabIndex = 0
+    if (kind === 'editable') element.setAttribute('contenteditable', 'true')
+    else if (kind === 'link') element.setAttribute('href', '#')
+    else if (kind !== 'button') element.setAttribute('role', kind)
+    container.append(element)
+    element.focus()
+    renderHook(() => useVideoKeyboardShortcuts(mockProps))
+    for (const key of [' ', 'ArrowRight', 'ArrowLeft', 'm', 'f']) {
+      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+      element.dispatchEvent(event)
+      expect(event.defaultPrevented).toBe(false)
+    }
+    expect(mockProps.onPlayPause).not.toHaveBeenCalled()
+    expect(mockProps.onVolumeChange).not.toHaveBeenCalled()
+    expect(mockProps.onMuteToggle).not.toHaveBeenCalled()
+  })
+  it('FE-09 respects an already handled player-surface event', () => {
+    renderHook(() => useVideoKeyboardShortcuts(mockProps))
+    const event = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true })
+    event.preventDefault()
+    window.dispatchEvent(event)
+    expect(mockProps.onPlayPause).not.toHaveBeenCalled()
+  })
+
 })
