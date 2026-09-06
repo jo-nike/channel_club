@@ -117,6 +117,10 @@ def _parse_m3u_content(content: str) -> list[EPGChannel]:
             stream_url = None
             while i < len(lines):
                 next_line = lines[i].strip()
+                if next_line.startswith("#EXTINF:"):
+                    # Leave the next metadata record for the outer parser.
+                    i -= 1
+                    break
                 if next_line and not next_line.startswith("#"):
                     stream_url = next_line
                     break
@@ -125,8 +129,11 @@ def _parse_m3u_content(content: str) -> list[EPGChannel]:
             if stream_url:
                 # Determine unique ID: tvg-id > channel-id > index
                 unique_id = tvg_id or channel_id or str(channel_index + 1)
-                if unique_id in seen_ids:
-                    unique_id = f"{unique_id}_{channel_index + 1}"
+                original_id = unique_id
+                suffix = channel_index + 1
+                while unique_id in seen_ids:
+                    unique_id = f"{original_id}_{suffix}"
+                    suffix += 1
                 seen_ids.add(unique_id)
 
                 # Parse channel number
@@ -141,6 +148,7 @@ def _parse_m3u_content(content: str) -> list[EPGChannel]:
 
                 channel = EPGChannel(
                     id=unique_id,
+                    xmltv_id=tvg_id or channel_id or original_id,
                     name=tvg_name or unique_id,
                     stream_url=stream_url,
                     logo_url=tvg_logo,

@@ -66,6 +66,27 @@ def get_channel_by_id(channel_id: str) -> EPGChannel | None:
     return None
 
 
+def _programmes_for_channel(channel_id: str) -> list[Programme]:
+    # Channel selection IDs are unique; the provider's XMLTV identity may repeat.
+    try:
+        channel = get_channel_by_id(channel_id)
+    except Exception:
+        channel = None  # A catalog outage must not disable already-known XMLTV IDs.
+    identity = (channel.xmltv_id if channel else None) or channel_id
+    return [
+        programme.model_copy(
+            update={
+                "channel_id": channel_id,
+                "id": f"{channel_id}_{int(programme.start.timestamp())}",
+            }
+        )
+        if identity != channel_id
+        else programme
+        for programme in parse_xmltv()
+        if programme.channel_id == identity
+    ]
+
+
 def get_current_programme(channel_id: str) -> tuple[Programme | None, Programme | None]:
     """
     Get current and next programme for a channel.
@@ -76,7 +97,7 @@ def get_current_programme(channel_id: str) -> tuple[Programme | None, Programme 
     Returns:
         Tuple of (current_programme, next_programme), either may be None
     """
-    programmes = parse_xmltv()
+    programmes = _programmes_for_channel(channel_id)
     now = datetime.now(UTC)
 
     current = None
@@ -117,7 +138,7 @@ def get_programmes_by_channel(channel_id: str, hours: int = 6) -> list[Programme
     Returns:
         List of programmes sorted by start time
     """
-    programmes = parse_xmltv()
+    programmes = _programmes_for_channel(channel_id)
     now = datetime.now(UTC)
     end_time = now + timedelta(hours=hours)
 
@@ -149,7 +170,7 @@ def get_upcoming_programmes(
     Returns:
         List of upcoming programmes sorted by start time
     """
-    programmes = parse_xmltv()
+    programmes = _programmes_for_channel(channel_id)
     now = datetime.now(UTC)
     end_time = now + timedelta(hours=hours)
 

@@ -9,6 +9,9 @@ class EPGChannel(BaseModel):
     """ErsatzTV channel from M3U playlist."""
 
     id: str = Field(..., description="Unique channel identifier (tvg-id)")
+    xmltv_id: str | None = Field(
+        default=None, alias="xmltvId", description="Original XMLTV identity"
+    )
     name: str = Field(..., description="Channel display name")
     stream_url: str = Field(alias="streamUrl", description="HLS stream URL")
     logo_url: str | None = Field(

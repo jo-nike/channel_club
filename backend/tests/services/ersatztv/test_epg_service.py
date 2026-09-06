@@ -6,6 +6,8 @@ Story: 7.4 - EPG Service Layer
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from app.models.ersatztv import EPGChannel, Programme
 
 
@@ -359,3 +361,9 @@ class TestRefreshAll:
 
         mock_clear_m3u.assert_called_once()
         mock_clear_xmltv.assert_called_once()
+
+
+@pytest.fixture(autouse=True)
+def synthetic_optional_catalog():
+    with patch("app.services.ersatztv.epg_service.parse_m3u_playlist", return_value=[]):
+        yield
