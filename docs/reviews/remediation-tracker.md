@@ -1,63 +1,199 @@
 # Adversarial review remediation tracker
 
-Baseline: `cfb180ca874eb5a98ed86c9b7e72f9cae65913f9`. Initial HEAD matches baseline; existing untracked review documents preserved unchanged. One atomic implementation commit per finding; ledger documentation commits are separate.
+Baseline: `cfb180ca874eb5a98ed86c9b7e72f9cae65913f9`. Initial HEAD matched it exactly. Both supplied review files are preserved byte-for-byte; the HTML embedded Markdown equals the primary report. Primary report SHA256: `6591bbcff4d9534945c80ce9081e3427aa2122984efb14f0d69a7f8f5534dbb4`.
 
-Statuses: Open → In progress → Fixed (acceptance verified), or Blocked with precise remaining action. Synthetic fixtures and temporary storage only; no deployment or physical-device claims.
+**39 fixed: 8 High, 26 Medium, 5 Low.** No inaccurate/already-fixed findings and no externally blocked confirmed findings. Each finding has exactly one implementation/regression commit on master; documentation commits are separate.
+
+Root coordinated the shared repository and final evidence. Security, media and frontend agents owned explicit modules, staged owned files and preserved each other’s work. Final consolidation folded targeted follow-ups and relocated the FE-12 shared-file hunk; exact Git tree equality with the pre-consolidation backup was verified.
 
 | ID | Severity | Status | Dependencies | Responsible agent | Implementation notes | Verification evidence | Commit |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| FE-01 | High | Focused verified | — | root | exclude APIs from offline cache and purge legacy data | Real generated SW Chrome: admin→viewer→anonymous, legacy deletion, offline/11s upstream delays; no cached API entries | `076d93c` |
-| MEDIA-01 | High | Focused verified | — | media | isolate recorder directories and contain lifecycle cleanup | Agent focused regressions pass; full aggregate checks pending | `06db357` |
-| MEDIA-02 | High | Focused verified | — | root | offload and serialize upstream feed lookups | 46 focused route tests; delayed lookup permits concurrent ASGI health; 20 cold callers share failure | `d0ebf16` |
-| MEDIA-03 | High | Focused verified | MEDIA-01, MEDIA-15 | media | enforce shared media admission budgets and release failed work | Agent focused regressions pass; full aggregate checks pending | `06d1d4d` |
-| MEDIA-15 | High | Focused verified | MEDIA-01 | media | resolve every media input from authoritative catalogs | Agent focused regressions pass; full aggregate checks pending | `24e335d` |
-| SEC-01 | High | Focused verified | — | security | reject unusable JWT signing secrets before startup | Agent focused regressions pass; full aggregate checks pending | `fcaaef1` |
-| SEC-02 | High | Focused verified | — | security | disable local accounts with empty passwords | Agent focused regressions pass; full aggregate checks pending | `b52fa60` |
-| SEC-03 | High | Focused verified | — | security | redact bearer credentials before server and browser log sinks | Agent focused regressions pass; full aggregate checks pending | `6f11412` |
-| DEV-01 | Medium | Focused verified | — | root | route default browser API calls through the development proxy | 38 focused tests plus real Chrome/Vite synthetic auth on loopback and machine LAN address | `23206e2` |
-| FE-02 | Medium | Focused verified | FE-01 | root | verify live media bypasses generated worker caches | Real generated SW Chrome: stream/segments/cast HLS uncached; offline errors instead of stale media | `5276e4e` |
-| FE-03 | Medium | Focused verified | — | frontend | invalidate abandoned QR authentication attempts | Agent focused regressions pass; full aggregate checks pending | `8ed804e` |
-| FE-04 | Medium | Focused verified | — | frontend | bind unauthorized responses to their login generation | Agent focused regressions pass; full aggregate checks pending | `fdc8f85` |
-| FE-05 | Medium | Focused verified | — | frontend | keep live channel synchronized without optional catalog | Agent focused regressions pass; full aggregate checks pending | `4dad81a` |
-| FE-06 | Medium | Focused verified | MEDIA-05 snapshot contract | frontend | export exact preview media without recapturing live buffer | 18 modal + 4 backend tests; actual FFmpeg color-frame decode validates original capture | `7833512` |
-| FE-07 | Medium | Focused verified | — | frontend | hydrate Cast controls from existing receiver state | Agent focused regressions pass; full aggregate checks pending | `39947df` |
-| FE-08 | Medium | Focused verified | — | frontend | own Cast resources and serialize receiver replacements | Agent focused regressions pass; full aggregate checks pending | `2e1b759` |
-| FE-09 | Medium | Focused verified | — | frontend | preserve native controls in shared player shortcuts | Agent focused regressions pass; full aggregate checks pending | `13783ee` |
-| FE-10 | Medium | Focused verified | — | frontend | recover exhausted WebSocket connections visibly and online | Agent focused regressions pass; full aggregate checks pending | `d47aa8e` |
-| FE-11 | Medium | Focused verified | — | frontend | preserve rejected chat drafts and expose delivery uncertainty | Agent focused regressions pass; full aggregate checks pending | `725d32c` |
-| MEDIA-04 | Medium | Focused verified | — | media | redirect process output and verify flood-safe progress | Actual harmless child emits1MiB stderr and progresses/terminates | `7a89900` |
-| MEDIA-05 | Medium | Focused verified | — | media | snapshot completed segments into isolated cancellable exports | Concurrent isolated captures, stop/wrap mutation, cancellation reaps actual harmless encoder | `20d5b81` |
-| MEDIA-06 | Medium | Focused verified | MEDIA-15 | media | isolate provider resolution and report catalog outages accurately | Agent focused regressions pass; full aggregate checks pending | `606cd6f` |
-| MEDIA-07 | Medium | Focused verified | — | root | proxy HLS URI attributes and query-bearing playlists | 35 focused HLS tests; real browser/player integration in progress | `b260f70` |
-| MEDIA-08 | Medium | Focused verified | — | root | bound upstream manifests logos and feed bodies | 138 Ersatz/bounded-body tests; false/absent lengths, read cap, timeout, early video MIME refusal | `09d546b` |
-| MEDIA-09 | Medium | Focused verified | — | root | constrain logo origins and serve only safe raster content | 52 focused logo/route tests; off-origin no-connect, redirect validation, active content refused | `27652da` |
-| MEDIA-10 | Medium | In progress | — | root | Mid-segment upstream failures are silently finalized as successful truncated responses | Pending | — |
-| MEDIA-11 | Medium | Focused verified | — | root | share failed refreshes and back off stale caches | 39 EPG/parser tests; 20 callers share failed refresh, stale backoff, recovery deadline | `420d04d` |
-| OPS-01 | Medium | Focused verified | — | root | serialize host deployment and refuse stale source revisions | Independent process interleaving and stale source refusal; host deployment not executed | `cc5d9f7` |
-| OPS-02 | Medium | In progress | — | root | Rebuilding a release reuses a tag that Compose may never pull | Pending | — |
-| SEC-04 | Medium | Focused verified | SEC-01 | security | apply current administrator grants to channel control | Agent focused regressions pass; full aggregate checks pending | `bc6a5ba` |
-| SEC-05 | Medium | Focused verified | — | security | validate bounded WebSocket messages before shared state mutation | Agent focused regressions pass; full aggregate checks pending | `d35cd13` |
-| SEC-06 | Medium | Focused verified | — | security | expire idle and active WebSockets at signed token deadline | Agent focused regressions pass; full aggregate checks pending | `d7edeb0` |
-| SEC-07 | Medium | Focused verified | — | security | close failed broadcasts and cancel their session owners | Agent focused regressions pass; full aggregate checks pending | `213d87a` |
-| SEC-08 | Medium | Focused verified | — | security | validate upstream status shapes and isolate service failures | Agent focused regressions pass; full aggregate checks pending | `4f6e3e3` |
-| FE-12 | Low | Focused verified | — | frontend | advance programme headers and presence on shared clock | Agent focused regressions pass; full aggregate checks pending | `efa2595` |
-| MEDIA-12 | Low | In progress | — | root | Trending GIF cache ignores the requested limit | Pending | — |
-| MEDIA-13 | Low | In progress | — | root | Malformed/duplicate M3U entries can silently select the wrong channel | Pending | — |
-| MEDIA-14 | Low | Focused verified | — | media | bound segment manifests across recording wrap cycles | Actual FFmpeg 40 segments/wrap4 retains3 ordered entries | `31f4d6d` |
-| QA-01 | Low | Focused verified | — | root | isolate backend settings and forbid external networking | 712 full backend tests pass under blank JWT/invalid PORT/hostile URL parent values; external sockets/DNS denied | `e82120b` |
+| FE-01 | High | Fixed | — | root | Network-only API policy precedes asset matchers; activation deletes legacy API/static/image caches and navigation excludes every API path. | Real generated production worker in isolated Chrome: synthetic admin→viewer→anonymous headers, offline and 11-second upstream delay, old cache deletion, no API entries. Delays may fail transport; never fall back to privileged data. | `73f9b88` |
+| MEDIA-01 | High | Fixed | — | media | Ingress rejects path-like IDs; recorder directories use opaque server-generated names; every destructive cleanup enforces resolved non-root containment. | Actual route/JSON tests reject traversal before process creation; temporary/synthetic recorder tests preserve sibling sentinels and cover failed, slow, cancelled and later-dead startup. Destructive demonstrations were mocked. | `c69a6fc` |
+| MEDIA-02 | High | Fixed | MEDIA-11 | root | Entire synchronous feed lookup/parsing runs in bounded executor workers; refresh locks share work, with cold-failure and stale-cache backoff. | A blocked public logo lookup allows concurrent real ASGI health requests; 20 cold callers share one failure. MEDIA-11 verifies populated-cache backoff/recovery; authoritative media resolver also offloads lookup. | `c695035` |
+| MEDIA-03 | High | Fixed | MEDIA-01, MEDIA-15 | media | Shared per-worker global/user admission precedes process creation or export work; owned cancellations/failures/dead recorders release capacity. | Mocked concurrent admissions enforce 429 without spawning/queuing excess; duplicate sessions stay within configured budgets; dead/cancelled/failing work is reclaimed. Defaults: 8 processes/2 per user, 2 exports/1 per user. | `db2c00e` |
+| MEDIA-15 | High | Fixed | MEDIA-01 | media | Channel/source/type/URL come from authoritative catalogs for selection, highlight and Cast; unresolved IDs never preserve request-supplied URLs; FFmpeg protocols constrained. | Empty/whitespace/unknown/off-catalog and provider-failure tests prevent subprocess input from client URLs; valid Dispatcharr and Ersatz sources still resolve under permission checks. | `cf586e1` |
+| SEC-01 | High | Fixed | — | security | Startup rejects public, blank, whitespace and fewer than 32 non-padding-character JWT keys before media side effects. | Startup matrix covers login flags and explicit environment JWT_SECRET=; strong synthetic signing configuration succeeds. | `fcaaef1` |
+| SEC-02 | High | Fixed | — | security | Empty/unset passwords disable each local account; root/backend examples use blank disabled accounts and require generated signing keys. | None/empty configured admin and viewer passwords reject empty submissions; independently configured viewer login works while admin remains disabled. | `8efad14` |
+| SEC-03 | High | Fixed | — | security | Central backend/browser logging redacts bearer/query/structured secrets, percent-encoded keys and exception values; traceback local dumps disabled. | Actual Uvicorn HTTP HLS-shaped requests and WebSocket handshakes captured in pretty/JSON logs; synthetic logger tests cover args/nested fields/exceptions and all browser levels/HLS/Cast URLs. Reverse-proxy logs remain operator-owned. | `cb28869` |
+| DEV-01 | Medium | Fixed | — | frontend | All frontend API clients share relative /api; examples and root/backend/frontend setup docs match backend 8001 and Vite proxy, including signing-key setup. | 38 focused API checks plus actual Chrome with real Vite proxy and synthetic auth/guide fixtures on loopback and machine LAN address; no frontend dotenv. Same machine LAN-origin test, not a separate physical device. | `44ce1e7` |
+| FE-02 | Medium | Fixed | FE-01 | root | Uses FE-01 shared network-only policy; adds dedicated generated-worker coverage for live manifests, segments and Cast HLS. | Actual Chrome verifies all three media route families never enter Cache Storage; offline fetch fails and delayed fetch never serves old media. | `623301b` |
+| FE-03 | Medium | Fixed | — | frontend | Attempt generations own PIN creation, serial polls and timers; cancel/retry/timeout/unmount invalidate every late continuation. | Deferred creation and poll tests cover all abandonment paths and replacement ownership; slow polling stays serial and success fires at most once. | `e8ba867` |
+| FE-04 | Medium | Fixed | — | frontend | Auth generation accompanies each request; a 401 logs out only its still-current session, including same-token reuse. | Deferred old-account 401 preserves replacement login; current-session 401 logs out; reused-token generation regression passes. | `5f42a1a` |
+| FE-05 | Medium | Fixed | — | frontend | Live selection reconciles backend changes directly; optional-catalog failure keeps live controls; populated-catalog default selection waits for loading. | Routed TVView with real stores/sidebar and mocked player adapter: empty and rejected 503 catalogs follow A→B→clear; asynchronous populated catalog retains documented default. | `5e0f340` |
+| FE-06 | Medium | Fixed | MEDIA-03, MEDIA-05 | frontend | Trim/conversion uploads the held preview bytes to a bounded authenticated export endpoint instead of recapturing the ring. | Modal tests cover delayed trimmed MP4/WebM and untrimmed preview; actual synthetic FFmpeg red/green source conversion and decoded-frame checks prove original capture identity. | `5535e1e` |
+| FE-07 | Medium | Fixed | — | frontend | Hook initialization reads existing receiver session/media state; remounted controls expose playing/paused state and Stop. | Actual hook and CastButton integrated with SDK doubles exercise playing/paused receiver remounts. No physical Chromecast was used. | `0d13996` |
+| FE-08 | Medium | Fixed | — | frontend | Generation-owned backend UUIDs and serialized receiver loads handle replacement, disconnect, pending creation and already-issued loads; debug path shares ownership. | Deferred SDK/process-API fixtures cover replacement, stop/unmount, late creation/load and listener ownership; no actual receiver claim. | `cb63186` |
+| FE-09 | Medium | Fixed | — | frontend | Both player modes use the shared keyboard hook, preserving focused native and accessible controls. | Native button/link/select, contenteditable and Radix/control targets retain default handling; standalone shortcuts still work. Tests use jsdom, not a TV remote. | `480ee79` |
+| FE-10 | Medium | Fixed | — | frontend | Visible reconnect and browser online/visibility recovery resume exhausted sockets; auth-terminal close and logout remain terminal. | Fake sockets exhaust retries, recover by visible action/online transition without reload, and do not reconnect after logout or 4001. | `91b03a3` |
+| FE-11 | Medium | Fixed | SEC-05, SEC-06, SEC-07 | frontend | Matching server acknowledgement clears the pending draft exactly once; disconnected/timeout/old-socket ACKs preserve it and GIF selection. | Real ChatPanel+hook fixtures and backend ACK route tests cover CONNECTING/CLOSING/CLOSED, pending sends, new edits, rejected/duplicate/late ACKs and lost ACK. ACK means accepted into server memory and broadcast, not durable delivery/read receipts. | `855c160` |
+| MEDIA-04 | Medium | Fixed | — | media | Both FFmpeg services direct stderr/stdout to DEVNULL and use start_new_session, avoiding unread pipe backpressure. | Actual harmless child emits 1 MiB stderr and reaches its progress marker; service stop terminates/reaps it. This is a real process test, not a live media stress test. | `dc04773` |
+| MEDIA-05 | Medium | Fixed | MEDIA-03, MEDIA-04 | media | Lifecycle-locked snapshots pause the producer briefly, copy completed segments to unique export workspaces, then resume; encoders are cancellation-owned. | Concurrent distinct trim/format jobs keep independent bytes despite ring overwrite and recorder stop; failures/timeouts/cancellation remove workspaces; actual harmless encoder cancellation is reaped. | `df40bc3` |
+| MEDIA-06 | Medium | Fixed | MEDIA-15 | media | Authoritative Dispatcharr matches bypass ErsatzTV entirely; true catalog miss is 404, unavailable catalogs yield 503. | Controlled Dispatcharr lineup plus cold Ersatz failure still permits highlight/Cast resolution; genuine missing IDs and provider failures return distinct statuses. | `993c286` |
+| MEDIA-07 | Medium | Fixed | — | root | All URI-bearing tags route through proxy; playlist detection uses parsed paths with explicit resource/playlist tag semantics and full final-URL resolution. | Round trips cover KEY,MAP,MEDIA,I-FRAME,query variants and query-only MAP. Actual Chrome+hls.js plays generated fMP4(56 decoded frames) and encrypted TS(55); keys/init/audio/subtitles/nested playlists use authenticated proxy, with no direct upstream browser requests. | `f395c29` |
+| MEDIA-08 | Medium | Fixed | — | root | Decoded manifest/logo/feed bodies have byte and time budgets; manifest MIME/header validation rejects wrong resource types; retained legacy helpers use bounded validated redirects. | 138 focused upstream/router/parser checks include false/absent lengths, chunk overflow closure, total async body timeout, bounded synchronous feed reads and video MIME rejected before body reads. | `4ce618d` |
+| MEDIA-09 | Medium | Fixed | MEDIA-08 | root | Logos require configured trusted origins at every hop and matching safe raster signatures/MIME; responses add sandbox CSP and nosniff. | Off-origin metadata makes no request; hostile redirect, HTML/script SVG and mislabeled content are rejected; explicitly allowed raster CDN content works. PNG/JPEG/GIF/WebP supported; SVG intentionally refused. | `529c9f5` |
+| MEDIA-10 | Medium | Fixed | — | root | Mid-body upstream I/O errors propagate through ASGI so framing aborts; finally closes both upstream response/client. | Injected partial-media then ReadError makes iterator and actual ASGI client fail, rather than completing a truncated 200; resources are closed. | `09fbb28` |
+| MEDIA-11 | Medium | Fixed | — | root | Refresh success expiry and failed-attempt retry deadlines are separate; populated stale results and cold failures share bounded backoff. | 20 expired-cache callers share one failed attempt; calls during backoff return stale data without network waits; after deadline a successful refresh resets retry state. | `e1bdb65` |
+| OPS-01 | Medium | Fixed | — | security | Host flock covers source-ancestry acceptance, atomic compose install and verification; unique staging and no latest promotion prevent overlapping stale deployments. | Independent temporary-directory process interleaving proves serialization and delayed A after B is rejected. Does not rely on unverified Gitea concurrency syntax; no host deployment performed. | `4e1fde7` |
+| OPS-02 | Medium | Fixed | — | security | Builds get unique IDs; CI deploys registry digest, explicitly pulls it, verifies running image reference/ID and records previous artifacts. | Orchestration fixtures validate digest/version checks; actual local Docker builds two images with same source marker and verifies first→second→first rollback with distinct image IDs. Remote registry/deploy unexecuted. | `d1df420` |
+| SEC-04 | Medium | Fixed | — | security | Channel-control guard shares current-admin predicate and applies viewer-selection policy after demotion. | ASGI admin/channel requests deny stale admin with viewer selection off, allow channel selection under viewer policy, and preserve current local/Plex list/owner/default admin cases. | `93f4721` |
+| SEC-05 | Medium | Fixed | — | security | Discriminated bounded WebSocket schemas validate JSON before presence/nickname/chat mutation. | Malformed top-level and object/list/numeric/null/string cases cannot poison admin active-users; valid bounded presence and messages still work. | `c3fb140` |
+| SEC-06 | Medium | Fixed | — | security | Signed expiry bounds the whole WebSocket session, including idle/initial sends; expiry closes 4001 and cleans all ownership state. | Actual short-lived signed-token ASGI tests plus controlled idle/active transports verify expiry, rejected reuse, no later messages/broadcasts, and presence/connection/nickname cleanup. | `3ba9484` |
+| SEC-07 | Medium | Fixed | — | security | Failed broadcasts remove/close clients and cancel their owning endpoint when transport close cannot unblock receive. | Timed-out transport closes 1011 and cleans once; healthy peers continue; dropped clients receive no future broadcasts and overlapping drops do not duplicate cleanup. | `001e80b` |
+| SEC-08 | Medium | Fixed | — | security | Status clients validate upstream shapes; decode/schema errors become typed service errors and aggregation preserves healthy peers. | Controlled HTML200, object-for-list, malformed sessions and invalid Dispatcharr field cases plus admin route tests retain the independent healthy-service result. | `2bf4bcc` |
+| FE-12 | Low | Fixed | — | frontend | A shared minute clock updates programme/header/presence and independently refreshes live guide data at boundaries with bounded polling. | Routed fake-clock tests cross programme boundaries without unrelated events and update header, presence and live EPG; optional catalog is not required. | `23df9fb` |
+| MEDIA-12 | Low | Fixed | — | root | Trending cache identity includes normalized requested limit and its pagination result. | Both 1→50→1 and 25→1→25 sequences preserve counts/pagination; repeated same-limit requests reuse cached results. | `4cd35ef` |
+| MEDIA-13 | Low | Fixed | — | root | New EXTINF ends a malformed record; collision suffixes loop until unique; separate XMLTV identity maps programmes back to unique channel IDs. | Missing URL cannot steal next stream; adversarial preexisting suffixes stay unique/stable; duplicate provider IDs retain guide association without mutating original programmes. | `cc77e5f` |
+| MEDIA-14 | Low | Fixed | — | media | FFmpeg segment_list_size bounds completed metadata; snapshot work deduplicates bounded entries and excludes the active writer. | Actual FFmpeg lavfi produces 40 completed segments with wrap 4; manifest retains 3 ordered completed entries across wraps; export regressions preserve playback order. | `8554b68` |
+| QA-01 | Low | Fixed | — | root | Tests strip inherited settings before app import, disable dotenv, use synthetic defaults and fail external DNS/sockets; multi-socket fixtures share one ASGI loop. | Full 736-test backend suite passes with blank JWT, invalid PORT, hostile upstream URL and synthetic parent credentials while external networking is denied; 53 shared-loop WebSocket tests pass. | `14533d5` |
 
-## Verification ledger
+## Committed regression sources
 
-Latest full backend checkpoint: **712 passed** with hostile parent environment and socket guard. Frontend checkpoint: **994 passed**, ESLint and production build passed. Final checks will follow remaining fixes and integration review.
+- **FE-01**: `frontend/scripts/check-service-worker.mjs`, `frontend/src/test/pwa.test.ts`
 
-The generated production SW runs in real isolated Chrome. Cast SDK tests remain mocked; no physical Chromecast claim. Actual harmless subprocess and synthetic FFmpeg media tests are identified individually.
+- **MEDIA-01**: `backend/tests/services/test_media_boundaries.py`
 
-Final history cleanup will fold ID-targeted fixup commits and relocate a shared-file FE-12 hunk from FE-10; original review files remain untouched.
+- **MEDIA-02**: `backend/tests/routers/test_media_responsiveness.py`
+
+- **MEDIA-03**: `backend/tests/routers/test_highlight.py`, `backend/tests/services/test_media_boundaries.py`, `backend/tests/services/test_media_limits.py`
+
+- **MEDIA-15**: `backend/tests/routers/test_channels.py`, `backend/tests/services/test_media_boundaries.py`
+
+- **SEC-01**: `backend/tests/routers/test_auth.py`, `backend/tests/test_main.py`
+
+- **SEC-02**: `backend/tests/routers/test_auth.py`
+
+- **SEC-03**: `backend/tests/test_logging_config.py`, `backend/tests/test_security_logging_transport.py`, `frontend/src/lib/logger.test.ts`
+
+- **DEV-01**: `frontend/scripts/check-dev-proxy.mjs`, `frontend/src/services/api.test.ts`
+
+- **FE-02**: `frontend/scripts/check-service-worker.mjs`
+
+- **FE-03**: `frontend/src/hooks/usePlexQRAuth.test.ts`
+
+- **FE-04**: `frontend/src/services/api.session.test.ts`
+
+- **FE-05**: `frontend/src/components/tv/TVView.test.tsx`
+
+- **FE-06**: `backend/tests/routers/test_highlight_export.py`, `frontend/src/components/HighlightModal.test.tsx`
+
+- **FE-07**: `frontend/src/hooks/useChromecast.test.ts`
+
+- **FE-08**: `frontend/src/hooks/useChromecast.test.ts`
+
+- **FE-09**: `frontend/src/hooks/useVideoKeyboardShortcuts.test.ts`
+
+- **FE-10**: `frontend/src/components/ConnectionStatus.test.tsx`, `frontend/src/hooks/useWebSocket.test.ts`
+
+- **FE-11**: `backend/tests/routers/test_chat_ack.py`, `frontend/src/components/ChatPanel.test.tsx`, `frontend/src/components/GifPicker.delivery.test.tsx`, `frontend/src/hooks/useWebSocket.test.ts`
+
+- **MEDIA-04**: `backend/tests/services/test_media_processes.py`
+
+- **MEDIA-05**: `backend/tests/services/test_media_exports.py`
+
+- **MEDIA-06**: `backend/tests/services/test_media_boundaries.py`
+
+- **MEDIA-07**: `backend/tests/routers/test_hls_relative_uris.py`, `backend/tests/services/ersatztv/test_hls_attributes.py`, `frontend/scripts/check-hls-proxy.mjs`
+
+- **MEDIA-08**: `backend/tests/routers/test_ersatztv.py`, `backend/tests/services/ersatztv/test_hls_rewriter.py`, `backend/tests/services/ersatztv/test_m3u_parser.py`, `backend/tests/services/ersatztv/test_xmltv_parser.py`, `backend/tests/services/test_bounded_http.py`
+
+- **MEDIA-09**: `backend/tests/routers/test_ersatztv.py`, `backend/tests/services/test_logo_proxy.py`
+
+- **MEDIA-10**: `backend/tests/routers/test_segment_failure.py`
+
+- **MEDIA-11**: `backend/tests/services/test_epg_retry_backoff.py`
+
+- **OPS-01**: `backend/tests/test_release_deployment.py`
+
+- **OPS-02**: `backend/tests/test_release_deployment.py`, `scripts/check_release_images.py`
+
+- **SEC-04**: `backend/tests/routers/test_auth_deps.py`
+
+- **SEC-05**: `backend/tests/routers/test_websocket.py`
+
+- **SEC-06**: `backend/tests/routers/test_websocket.py`, `backend/tests/routers/test_websocket_expiry.py`
+
+- **SEC-07**: `backend/tests/routers/test_websocket.py`
+
+- **SEC-08**: `backend/tests/services/test_status_service.py`
+
+- **FE-12**: `frontend/src/components/tv/TVView.test.tsx`
+
+- **MEDIA-12**: `backend/tests/services/test_gif_cache_limits.py`
+
+- **MEDIA-13**: `backend/tests/services/ersatztv/test_epg_service.py`, `backend/tests/services/ersatztv/test_m3u_identity.py`
+
+- **MEDIA-14**: `backend/tests/services/test_media_manifest.py`
+
+- **QA-01**: `backend/tests/conftest.py`, `backend/tests/routers/test_websocket.py`
+
+## Verification
+
+- Backend: **736 passed**, with inherited blank JWT, invalid PORT, hostile upstream URL and synthetic parent credentials; external DNS/socket guard active. Ruff check, Ruff format (115 files) and basedpyright (0 errors/warnings/notes) passed.
+- Frontend: **1008 passed across 80 files**; ESLint, TypeScript and production Vite/PWA build passed. Existing main-chunk (1171.91 kB minified) and stale Browserslist warnings remain; neither proves a performance defect. No frontend formatter is configured; whitespace check is included.
+- Real isolated Chrome executes the **generated production worker**, including old-cache migration, synthetic account headers, offline and 11-second upstream-delay paths, and all live media route families. Transport failures are acceptable; cached privileged/stale data never substitutes for the network.
+- Real Chrome+hls.js decoded **56 fMP4 frames and 55 encrypted-TS frames** from generated fixtures through the real authenticated FastAPI proxy; initialization maps, keys, nested query playlists, audio and subtitle requests stayed proxied.
+- Real Chrome/Vite dev-proxy checks passed for synthetic auth config/login/guide calls on loopback and the machine LAN address. This used a browser on the same machine, not a second physical LAN device.
+- Actual harmless subprocess tests verify output-flood progress, stop and cancellation/reaping. Actual FFmpeg tests verify bounded ring manifests and unchanged preview source through trim/conversion.
+- Actual local Docker built two different synthetic images for one source marker, switched first→second→first, verified image IDs and cleaned only fixture resources. Host deployment concurrency/order checks use independent processes with mocked Docker/health operations; the remote registry and deployed application were not exercised.
+
+The baseline passed 603 backend and 960 frontend tests. New regression scenarios establish the reviewed contracts; aggregate counts alone do not. Synthetic credentials, temporary storage, process doubles and controlled upstreams were used. An existing multi-portal WebSocket test hang was corrected by sharing one ASGI lifespan/loop rather than weakening tests.
+
+## Reproduce
+
+Run from the indicated directory. Browser checks require installed Chrome; media checks require FFmpeg. The HLS harness downloads a version-and-SHA256-pinned test library unless HLS_BUNDLE supplies it. No live provider credentials are needed.
+
+```bash
+# backend
+uv run ruff check .
+uv run ruff format --check .
+uv run basedpyright
+JWT_SECRET= PORT=hostile ERSATZTV_BASE_URL=https://hostile.invalid uv run pytest -q
+
+# frontend
+npm run lint
+npm test
+npm run build
+node scripts/check-service-worker.mjs
+node scripts/check-service-worker.mjs --media
+node scripts/check-hls-proxy.mjs
+node scripts/check-dev-proxy.mjs
+
+# repository root; optional actual Docker fixture check (preexisting Alpine image)
+python3 -m scripts.check_release_images
+```
+
+## Operating limits and remaining limitations
+
+- Run **one backend media worker** with the current process-local budgets. Defaults are 8 shared media processes/2 per authenticated user, 2 encoding jobs/1 per user and256MiB maximum export size. Horizontal scaling needs shared admission before increasing worker count.
+- Manifests are capped at 2 MiB, logos 4 MiB and Ersatz feeds 32 MiB. Async body reads have a 15-second deadline; synchronous feed reads check that deadline between chunks with a 2-second inactivity timeout. Feed failures back off 5 seconds and preserve stale data.
+- Logo origins default to the configured ErsatzTV origin. Additional trusted origins use ERSATZTV_LOGO_ORIGINS as a JSON array, e.g. `["https://images.example.com"]`. PNG/JPEG/GIF/WebP are supported; active HTML/SVG is refused.
+- Snapshot creation briefly pauses its Linux FFmpeg recorder while copying completed files. MP4 exports retain fast stream-copy semantics; packet clocks and exact keyframe trim precision need representative real-media validation.
+- Chat acknowledgement confirms acceptance into server memory and completion of broadcast, not durable delivery or a read receipt. A lost acknowledgement preserves the draft and asks users to check chat before manually retrying; no automatic duplicate resend occurs.
+- Cast SDK lifecycle verification is mocked. No physical Chromecast, native Safari/mobile/TV remote, live provider, long-running soak, production rollout, or current registry vulnerability scan is claimed.
+- Reverse-proxy credential-log redaction, public-ingress budgets and immediate token/grant revocation remain operator/product follow-ups. Existing stateless revocation and known-UUID Cast capability policies were preserved. See all 16 coverage decisions below and `scripts/README.md` for explicit locked rollback.
+
 
 ## Coverage gaps and design decisions
 
-All 16 report follow-up areas will be assessed before completion.
+All 16 follow-up areas from the original report are assessed. These are not additional confirmed findings; none was silently counted as fixed. Remaining work below does not prevent verification of the 39 reviewed fixes.
 
-## Coordination
-
-Root owns tracker and summaries. Agents report evidence and hashes to root; commit only owned paths. Shared configuration changes require coordination.
+| Area | Assessment / rationale | Concrete follow-up |
+| --- | --- | --- |
+| Exposure and abuse budgets | MEDIA-03 enforces process/export quotas at the trusted process boundary. Current deployment uses one backend worker. | Before increasing workers/replicas, move quotas to shared admission; operator must document intended exposure and enforce login/chat/WebSocket ingress budgets. Gateway configuration was outside this repository; existing exposure was not expanded. |
+| Session identity and revocation | SEC-04 rechecks admin policy; SEC-06 enforces actual JWT expiry. Existing client session IDs and Plex-owner compatibility policy remain. | Design server-bound multi-tab presence and retain immutable Plex grant provenance before requiring immediate revocation. Seven-day stateless revocation latency is distinct from expired-socket authorization. |
+| Core TV and Cast coverage | Added routed TVView/store scenarios, actual CastButton+hook SDK fixtures, HLS shared shortcuts and ownership races. | Run physical Chromecast resume/replacement/reachability smoke tests on the intended network. SDK doubles establish lifecycle logic, not receiver interoperability. |
+| PWA tests | Generated production worker runs in real Chrome; legacy account caches and live resources are tested. Removed duplicated-regex tautology coverage. | Keep npm build + check-service-worker.mjs and --media as release integration checks; test upgrades from any future intentionally cached account data. |
+| Async lifecycle coverage | Deferred QR/auth/Cast completions, generation changes, native-focused targets and matching chat ACKs are covered. | Maintain late-success/failure/cancel permutations when extending those APIs; current reviewed race acceptance criteria are covered. |
+| Real media/browser behavior | Actual synthetic FFmpeg capture/conversion and Chrome fMP4/encrypted HLS playback now verified. | Before platform support claims, exercise native Safari HLS, mobile autoplay/fullscreen, TV remote and sustained real-provider decoding. No live Plex/Dispatcharr/ErsatzTV or physical receiver validation was performed. |
+| Long-session rendering | FE-12 advances programme metadata; no measured evidence established a guide rendering performance defect. | Profile realistic large guide fixtures and a multi-day open session, including the mount-fixed 48-hour horizon, before selecting moving windows/virtualization. |
+| Reduced motion and media controls | Focused control handling is repaired; no-CORS animated-image canvas fallback behavior remains a separate unconfirmed coverage gap. | Use controlled cross-origin animated images in Chrome/Safari to verify pause/replay/reduced-motion; decide a static fallback if freezing cannot be supported. |
+| Upstream auth errors | Status shape/error isolation is fixed; no change to Plex OAuth error contract was required for the confirmed fixes. | Add HTML200, malformed user/resources, timeout and DNS fixtures to normalize Plex auth errors into stable retryable responses without weakening validation. |
+| CI trust and freshness | Release scanning stages remain, builds get unique IDs and deployment pins/scopes artifact identity. | Operator should confirm branch protection/pre-merge CI and pin mutable actions/base/installer provenance as policy requires; perform current vulnerability/image scans. This remediation is not an advisory clearance. |
+| Deployment readiness | Host critical section includes verification; current/previous digest and compose records support explicit recovery. Optional upstreams remain outside process liveness. | Rehearse documented manual rollback under the same lock on the real host; choose whether automatic rollback/readiness gates are desired. No production deployment or rollback was executed. |
+| Legacy media helpers | Retained HLS helpers now use bounded bodies, origin-checked redirects and manifest header validation. | Cast internal filename helper has no demonstrated external traversal because route takes one segment; consolidate containment before exposing any additional multi-component filename entry point. |
+| Feed parser edge cases | MEDIA-13 handles malformed boundaries/colliding IDs and preserves XMLTV identity; Ersatz parser failures retain stale cache with backoff. | Add actual provider fixtures for remaining XMLTV timezone/episode/DefusedXML cases and Dispatcharr URL variants. No successful XXE was asserted or exercised. |
+| Media clocks and network topology | Immutable snapshots/export sources and bounded metadata are tested using synthetic media. Packet clock/GOP/provider topology remain deployment-specific. | Test clock jumps/keyframe boundaries and document desired trim precision; verify Cast URLs are receiver-reachable on LAN or remote topology before enabling it. Snapshot creation briefly pauses its Linux recorder; MP4 uses stream copy. |
+| Cast ownership policy | Media admission is associated with authenticated identity. Existing known-UUID stop/playback capability behavior is preserved. | If creator-only stop or immediate capability revocation is required, introduce that explicit product contract and tests. Possession of the currently intended UUID capability is not newly labelled an authorization bypass. |
+| Documentation | DEV-01 and SEC-02 repair tested setup, relative APIs, generated signing keys and disabled blank accounts; obsolete credential/env comments removed. | Operating limits are recorded below. Keep examples synchronized with the tested same-origin startup path and document physical network/device prerequisites when validated. |

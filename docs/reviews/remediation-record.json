@@ -1,0 +1,682 @@
+{
+  "date": "2026-09-06",
+  "baseline": "cfb180ca874eb5a98ed86c9b7e72f9cae65913f9",
+  "review_sha256": "6591bbcff4d9534945c80ce9081e3427aa2122984efb14f0d69a7f8f5534dbb4",
+  "findings": [
+    {
+      "id": "FE-01",
+      "severity": "High",
+      "title": "Shared PWA API cache crosses account/authorization boundaries",
+      "status": "Fixed",
+      "dependencies": [],
+      "owner": "root",
+      "implementation": "Network-only API policy precedes asset matchers; activation deletes legacy API/static/image caches and navigation excludes every API path.",
+      "verification": "Real generated production worker in isolated Chrome: synthetic admin\u2192viewer\u2192anonymous headers, offline and 11-second upstream delay, old cache deletion, no API entries. Delays may fail transport; never fall back to privileged data.",
+      "tests": [
+        "frontend/scripts/check-service-worker.mjs",
+        "frontend/src/test/pwa.test.ts"
+      ],
+      "commit": "73f9b880fa06bb17be668ababc4ac897e73c3ad8"
+    },
+    {
+      "id": "MEDIA-01",
+      "severity": "High",
+      "title": "User-controlled highlight channel IDs escape the recording directory and reach recursive deletion",
+      "status": "Fixed",
+      "dependencies": [],
+      "owner": "media",
+      "implementation": "Ingress rejects path-like IDs; recorder directories use opaque server-generated names; every destructive cleanup enforces resolved non-root containment.",
+      "verification": "Actual route/JSON tests reject traversal before process creation; temporary/synthetic recorder tests preserve sibling sentinels and cover failed, slow, cancelled and later-dead startup. Destructive demonstrations were mocked.",
+      "tests": [
+        "backend/tests/services/test_media_boundaries.py"
+      ],
+      "commit": "c69a6fcea9b93fad11e27e2602703620c89b0dee"
+    },
+    {
+      "id": "MEDIA-02",
+      "severity": "High",
+      "title": "Public logo requests and async media routes synchronously fetch upstream feeds, blocking every request on the event loop",
+      "status": "Fixed",
+      "dependencies": [
+        "MEDIA-11"
+      ],
+      "owner": "root",
+      "implementation": "Entire synchronous feed lookup/parsing runs in bounded executor workers; refresh locks share work, with cold-failure and stale-cache backoff.",
+      "verification": "A blocked public logo lookup allows concurrent real ASGI health requests; 20 cold callers share one failure. MEDIA-11 verifies populated-cache backoff/recovery; authoritative media resolver also offloads lookup.",
+      "tests": [
+        "backend/tests/routers/test_media_responsiveness.py"
+      ],
+      "commit": "c69503595e38457b65d819e14251fd95ac9dc4d4"
+    },
+    {
+      "id": "MEDIA-03",
+      "severity": "High",
+      "title": "Authenticated media calls admit unlimited FFmpeg processes and encoding jobs",
+      "status": "Fixed",
+      "dependencies": [
+        "MEDIA-01",
+        "MEDIA-15"
+      ],
+      "owner": "media",
+      "implementation": "Shared per-worker global/user admission precedes process creation or export work; owned cancellations/failures/dead recorders release capacity.",
+      "verification": "Mocked concurrent admissions enforce 429 without spawning/queuing excess; duplicate sessions stay within configured budgets; dead/cancelled/failing work is reclaimed. Defaults: 8 processes/2 per user, 2 exports/1 per user.",
+      "tests": [
+        "backend/tests/routers/test_highlight.py",
+        "backend/tests/services/test_media_boundaries.py",
+        "backend/tests/services/test_media_limits.py"
+      ],
+      "commit": "db2c00ebfdef7498923943b02ee61768f98bfa33"
+    },
+    {
+      "id": "MEDIA-15",
+      "severity": "High",
+      "title": "Empty channel ID preserves a client-supplied URL as FFmpeg input",
+      "status": "Fixed",
+      "dependencies": [
+        "MEDIA-01"
+      ],
+      "owner": "media",
+      "implementation": "Channel/source/type/URL come from authoritative catalogs for selection, highlight and Cast; unresolved IDs never preserve request-supplied URLs; FFmpeg protocols constrained.",
+      "verification": "Empty/whitespace/unknown/off-catalog and provider-failure tests prevent subprocess input from client URLs; valid Dispatcharr and Ersatz sources still resolve under permission checks.",
+      "tests": [
+        "backend/tests/routers/test_channels.py",
+        "backend/tests/services/test_media_boundaries.py"
+      ],
+      "commit": "cf586e189e60204c3e424cffb4a25efbbf06f5e5"
+    },
+    {
+      "id": "SEC-01",
+      "severity": "High",
+      "title": "Empty signing key passes startup and permits forged administrator tokens",
+      "status": "Fixed",
+      "dependencies": [],
+      "owner": "security",
+      "implementation": "Startup rejects public, blank, whitespace and fewer than 32 non-padding-character JWT keys before media side effects.",
+      "verification": "Startup matrix covers login flags and explicit environment JWT_SECRET=; strong synthetic signing configuration succeeds.",
+      "tests": [
+        "backend/tests/routers/test_auth.py",
+        "backend/tests/test_main.py"
+      ],
+      "commit": "fcaaef1e222d9226928e65c0ed41d86499a806ac"
+    },
+    {
+      "id": "SEC-02",
+      "severity": "High",
+      "title": "Explicitly empty local passwords authenticate despite the startup warning",
+      "status": "Fixed",
+      "dependencies": [],
+      "owner": "security",
+      "implementation": "Empty/unset passwords disable each local account; root/backend examples use blank disabled accounts and require generated signing keys.",
+      "verification": "None/empty configured admin and viewer passwords reject empty submissions; independently configured viewer login works while admin remains disabled.",
+      "tests": [
+        "backend/tests/routers/test_auth.py"
+      ],
+      "commit": "8efad14283ea9f8be8a0cb4db6fa02db9282f251"
+    },
+    {
+      "id": "SEC-03",
+      "severity": "High",
+      "title": "Full bearer credentials are written to routine request logs",
+      "status": "Fixed",
+      "dependencies": [],
+      "owner": "security",
+      "implementation": "Central backend/browser logging redacts bearer/query/structured secrets, percent-encoded keys and exception values; traceback local dumps disabled.",
+      "verification": "Actual Uvicorn HTTP HLS-shaped requests and WebSocket handshakes captured in pretty/JSON logs; synthetic logger tests cover args/nested fields/exceptions and all browser levels/HLS/Cast URLs. Reverse-proxy logs remain operator-owned.",
+      "tests": [
+        "backend/tests/test_logging_config.py",
+        "backend/tests/test_security_logging_transport.py",
+        "frontend/src/lib/logger.test.ts"
+      ],
+      "commit": "cb28869080d6c6ac1a3f3824043501c469756408"
+    },
+    {
+      "id": "DEV-01",
+      "severity": "Medium",
+      "title": "Documented local startup sends API requests to the wrong port",
+      "status": "Fixed",
+      "dependencies": [],
+      "owner": "frontend",
+      "implementation": "All frontend API clients share relative /api; examples and root/backend/frontend setup docs match backend 8001 and Vite proxy, including signing-key setup.",
+      "verification": "38 focused API checks plus actual Chrome with real Vite proxy and synthetic auth/guide fixtures on loopback and machine LAN address; no frontend dotenv. Same machine LAN-origin test, not a separate physical device.",
+      "tests": [
+        "frontend/scripts/check-dev-proxy.mjs",
+        "frontend/src/services/api.test.ts"
+      ],
+      "commit": "44ce1e78959268457867162aa34e32a73442d5d6"
+    },
+    {
+      "id": "FE-02",
+      "severity": "Medium",
+      "title": "Live HLS playlists and segments are cached under the API fallback policy",
+      "status": "Fixed",
+      "dependencies": [
+        "FE-01"
+      ],
+      "owner": "root",
+      "implementation": "Uses FE-01 shared network-only policy; adds dedicated generated-worker coverage for live manifests, segments and Cast HLS.",
+      "verification": "Actual Chrome verifies all three media route families never enter Cache Storage; offline fetch fails and delayed fetch never serves old media.",
+      "tests": [
+        "frontend/scripts/check-service-worker.mjs"
+      ],
+      "commit": "623301b8618060cf69e1d5e2824982ab36eb405e"
+    },
+    {
+      "id": "FE-03",
+      "severity": "Medium",
+      "title": "QR authentication survives cancellation/unmount and can authenticate the abandoned flow",
+      "status": "Fixed",
+      "dependencies": [],
+      "owner": "frontend",
+      "implementation": "Attempt generations own PIN creation, serial polls and timers; cancel/retry/timeout/unmount invalidate every late continuation.",
+      "verification": "Deferred creation and poll tests cover all abandonment paths and replacement ownership; slow polling stays serial and success fires at most once.",
+      "tests": [
+        "frontend/src/hooks/usePlexQRAuth.test.ts"
+      ],
+      "commit": "e8ba86742e2efa5c6c18ebc6426c31b226d57b21"
+    },
+    {
+      "id": "FE-04",
+      "severity": "Medium",
+      "title": "A stale 401 response logs out a newly signed-in account",
+      "status": "Fixed",
+      "dependencies": [],
+      "owner": "frontend",
+      "implementation": "Auth generation accompanies each request; a 401 logs out only its still-current session, including same-token reuse.",
+      "verification": "Deferred old-account 401 preserves replacement login; current-session 401 logs out; reused-token generation regression passes.",
+      "tests": [
+        "frontend/src/services/api.session.test.ts"
+      ],
+      "commit": "5f42a1ae4d7def1182d0639043b3f510397a6413"
+    },
+    {
+      "id": "FE-05",
+      "severity": "Medium",
+      "title": "Live Channel 0 stops following backend channel changes when ErsatzTV is absent",
+      "status": "Fixed",
+      "dependencies": [],
+      "owner": "frontend",
+      "implementation": "Live selection reconciles backend changes directly; optional-catalog failure keeps live controls; populated-catalog default selection waits for loading.",
+      "verification": "Routed TVView with real stores/sidebar and mocked player adapter: empty and rejected 503 catalogs follow A\u2192B\u2192clear; asynchronous populated catalog retains documented default.",
+      "tests": [
+        "frontend/src/components/tv/TVView.test.tsx"
+      ],
+      "commit": "5e0f3401bfce9579a32a4c298fa4220a2b116ca9"
+    },
+    {
+      "id": "FE-06",
+      "severity": "Medium",
+      "title": "Highlight trimming/WebM export downloads a different capture from the preview",
+      "status": "Fixed",
+      "dependencies": [
+        "MEDIA-03",
+        "MEDIA-05"
+      ],
+      "owner": "frontend",
+      "implementation": "Trim/conversion uploads the held preview bytes to a bounded authenticated export endpoint instead of recapturing the ring.",
+      "verification": "Modal tests cover delayed trimmed MP4/WebM and untrimmed preview; actual synthetic FFmpeg red/green source conversion and decoded-frame checks prove original capture identity.",
+      "tests": [
+        "backend/tests/routers/test_highlight_export.py",
+        "frontend/src/components/HighlightModal.test.tsx"
+      ],
+      "commit": "5535e1eb67e00c1db4d1f3ba30d02f3576b595f3"
+    },
+    {
+      "id": "FE-07",
+      "severity": "Medium",
+      "title": "Cast controls forget a connected, playing receiver after player remount",
+      "status": "Fixed",
+      "dependencies": [],
+      "owner": "frontend",
+      "implementation": "Hook initialization reads existing receiver session/media state; remounted controls expose playing/paused state and Stop.",
+      "verification": "Actual hook and CastButton integrated with SDK doubles exercise playing/paused receiver remounts. No physical Chromecast was used.",
+      "tests": [
+        "frontend/src/hooks/useChromecast.test.ts"
+      ],
+      "commit": "0d139960bb135a06fed0edc232775cd9b5d2d587"
+    },
+    {
+      "id": "FE-08",
+      "severity": "Medium",
+      "title": "Cast backend sessions lose ownership on replacement and disconnect races",
+      "status": "Fixed",
+      "dependencies": [],
+      "owner": "frontend",
+      "implementation": "Generation-owned backend UUIDs and serialized receiver loads handle replacement, disconnect, pending creation and already-issued loads; debug path shares ownership.",
+      "verification": "Deferred SDK/process-API fixtures cover replacement, stop/unmount, late creation/load and listener ownership; no actual receiver claim.",
+      "tests": [
+        "frontend/src/hooks/useChromecast.test.ts"
+      ],
+      "commit": "cb6318600a3a09ac582432682ff7ec53fb280d4c"
+    },
+    {
+      "id": "FE-09",
+      "severity": "Medium",
+      "title": "Player keyboard shortcuts hijack native focused controls",
+      "status": "Fixed",
+      "dependencies": [],
+      "owner": "frontend",
+      "implementation": "Both player modes use the shared keyboard hook, preserving focused native and accessible controls.",
+      "verification": "Native button/link/select, contenteditable and Radix/control targets retain default handling; standalone shortcuts still work. Tests use jsdom, not a TV remote.",
+      "tests": [
+        "frontend/src/hooks/useVideoKeyboardShortcuts.test.ts"
+      ],
+      "commit": "480ee79c39206472bb4bb829defeeb2f435aa7ec"
+    },
+    {
+      "id": "FE-10",
+      "severity": "Medium",
+      "title": "Sustained WebSocket outage permanently disconnects the UI without a recovery control",
+      "status": "Fixed",
+      "dependencies": [],
+      "owner": "frontend",
+      "implementation": "Visible reconnect and browser online/visibility recovery resume exhausted sockets; auth-terminal close and logout remain terminal.",
+      "verification": "Fake sockets exhaust retries, recover by visible action/online transition without reload, and do not reconnect after logout or 4001.",
+      "tests": [
+        "frontend/src/components/ConnectionStatus.test.tsx",
+        "frontend/src/hooks/useWebSocket.test.ts"
+      ],
+      "commit": "91b03a3c52567373f6e5490b233d826a585a7e0b"
+    },
+    {
+      "id": "FE-11",
+      "severity": "Medium",
+      "title": "Chat silently discards the draft when the socket cannot send",
+      "status": "Fixed",
+      "dependencies": [
+        "SEC-05",
+        "SEC-06",
+        "SEC-07"
+      ],
+      "owner": "frontend",
+      "implementation": "Matching server acknowledgement clears the pending draft exactly once; disconnected/timeout/old-socket ACKs preserve it and GIF selection.",
+      "verification": "Real ChatPanel+hook fixtures and backend ACK route tests cover CONNECTING/CLOSING/CLOSED, pending sends, new edits, rejected/duplicate/late ACKs and lost ACK. ACK means accepted into server memory and broadcast, not durable delivery/read receipts.",
+      "tests": [
+        "backend/tests/routers/test_chat_ack.py",
+        "frontend/src/components/ChatPanel.test.tsx",
+        "frontend/src/components/GifPicker.delivery.test.tsx",
+        "frontend/src/hooks/useWebSocket.test.ts"
+      ],
+      "commit": "855c160da269e6ebeddb4bf5e14a1b2ad58f8549"
+    },
+    {
+      "id": "MEDIA-04",
+      "severity": "Medium",
+      "title": "FFmpeg stderr pipes are never drained, eventually freezing recording/transcoding",
+      "status": "Fixed",
+      "dependencies": [],
+      "owner": "media",
+      "implementation": "Both FFmpeg services direct stderr/stdout to DEVNULL and use start_new_session, avoiding unread pipe backpressure.",
+      "verification": "Actual harmless child emits 1 MiB stderr and reaches its progress marker; service stop terminates/reaps it. This is a real process test, not a live media stress test.",
+      "tests": [
+        "backend/tests/services/test_media_processes.py"
+      ],
+      "commit": "dc047733d19cc32836ddde315fefd275a4920914"
+    },
+    {
+      "id": "MEDIA-05",
+      "severity": "Medium",
+      "title": "Concurrent highlight exports share mutable input/output files and can delete each other's results",
+      "status": "Fixed",
+      "dependencies": [
+        "MEDIA-03",
+        "MEDIA-04"
+      ],
+      "owner": "media",
+      "implementation": "Lifecycle-locked snapshots pause the producer briefly, copy completed segments to unique export workspaces, then resume; encoders are cancellation-owned.",
+      "verification": "Concurrent distinct trim/format jobs keep independent bytes despite ring overwrite and recorder stop; failures/timeouts/cancellation remove workspaces; actual harmless encoder cancellation is reaped.",
+      "tests": [
+        "backend/tests/services/test_media_exports.py"
+      ],
+      "commit": "df40bc3ee3af1e6d67506cab89e7a1b57f6a2eca"
+    },
+    {
+      "id": "MEDIA-06",
+      "severity": "Medium",
+      "title": "ErsatzTV lookup failure disables independent Dispatcharr highlights and cast",
+      "status": "Fixed",
+      "dependencies": [
+        "MEDIA-15"
+      ],
+      "owner": "media",
+      "implementation": "Authoritative Dispatcharr matches bypass ErsatzTV entirely; true catalog miss is 404, unavailable catalogs yield 503.",
+      "verification": "Controlled Dispatcharr lineup plus cold Ersatz failure still permits highlight/Cast resolution; genuine missing IDs and provider failures return distinct statuses.",
+      "tests": [
+        "backend/tests/services/test_media_boundaries.py"
+      ],
+      "commit": "993c28670e042d78bd9d1439b877fa342f4770e4"
+    },
+    {
+      "id": "MEDIA-07",
+      "severity": "Medium",
+      "title": "HLS rewriting misses URI-bearing tags and playlists with query strings",
+      "status": "Fixed",
+      "dependencies": [],
+      "owner": "root",
+      "implementation": "All URI-bearing tags route through proxy; playlist detection uses parsed paths with explicit resource/playlist tag semantics and full final-URL resolution.",
+      "verification": "Round trips cover KEY,MAP,MEDIA,I-FRAME,query variants and query-only MAP. Actual Chrome+hls.js plays generated fMP4(56 decoded frames) and encrypted TS(55); keys/init/audio/subtitles/nested playlists use authenticated proxy, with no direct upstream browser requests.",
+      "tests": [
+        "backend/tests/routers/test_hls_relative_uris.py",
+        "backend/tests/services/ersatztv/test_hls_attributes.py",
+        "frontend/scripts/check-hls-proxy.mjs"
+      ],
+      "commit": "f395c2999902bc3be19840ca2c3d2e264f98e69e"
+    },
+    {
+      "id": "MEDIA-08",
+      "severity": "Medium",
+      "title": "Manifest and logo fetches remain unbounded despite the segment-size cap",
+      "status": "Fixed",
+      "dependencies": [],
+      "owner": "root",
+      "implementation": "Decoded manifest/logo/feed bodies have byte and time budgets; manifest MIME/header validation rejects wrong resource types; retained legacy helpers use bounded validated redirects.",
+      "verification": "138 focused upstream/router/parser checks include false/absent lengths, chunk overflow closure, total async body timeout, bounded synchronous feed reads and video MIME rejected before body reads.",
+      "tests": [
+        "backend/tests/routers/test_ersatztv.py",
+        "backend/tests/services/ersatztv/test_hls_rewriter.py",
+        "backend/tests/services/ersatztv/test_m3u_parser.py",
+        "backend/tests/services/ersatztv/test_xmltv_parser.py",
+        "backend/tests/services/test_bounded_http.py"
+      ],
+      "commit": "4ce618d9821348cfee25bde34264ade025b648f9"
+    },
+    {
+      "id": "MEDIA-09",
+      "severity": "Medium",
+      "title": "Public logo proxy trusts feed-supplied targets and serves arbitrary active content on the application origin",
+      "status": "Fixed",
+      "dependencies": [
+        "MEDIA-08"
+      ],
+      "owner": "root",
+      "implementation": "Logos require configured trusted origins at every hop and matching safe raster signatures/MIME; responses add sandbox CSP and nosniff.",
+      "verification": "Off-origin metadata makes no request; hostile redirect, HTML/script SVG and mislabeled content are rejected; explicitly allowed raster CDN content works. PNG/JPEG/GIF/WebP supported; SVG intentionally refused.",
+      "tests": [
+        "backend/tests/routers/test_ersatztv.py",
+        "backend/tests/services/test_logo_proxy.py"
+      ],
+      "commit": "529c9f5024c8dd31a49a5337e5ffb19f4f5f9f44"
+    },
+    {
+      "id": "MEDIA-10",
+      "severity": "Medium",
+      "title": "Mid-segment upstream failures are silently finalized as successful truncated responses",
+      "status": "Fixed",
+      "dependencies": [],
+      "owner": "root",
+      "implementation": "Mid-body upstream I/O errors propagate through ASGI so framing aborts; finally closes both upstream response/client.",
+      "verification": "Injected partial-media then ReadError makes iterator and actual ASGI client fail, rather than completing a truncated 200; resources are closed.",
+      "tests": [
+        "backend/tests/routers/test_segment_failure.py"
+      ],
+      "commit": "09fbb28ad5c97dee94e4085694274fd7bf43454b"
+    },
+    {
+      "id": "MEDIA-11",
+      "severity": "Medium",
+      "title": "Failed EPG refreshes serialize one new timeout per waiting caller instead of sharing the failure",
+      "status": "Fixed",
+      "dependencies": [],
+      "owner": "root",
+      "implementation": "Refresh success expiry and failed-attempt retry deadlines are separate; populated stale results and cold failures share bounded backoff.",
+      "verification": "20 expired-cache callers share one failed attempt; calls during backoff return stale data without network waits; after deadline a successful refresh resets retry state.",
+      "tests": [
+        "backend/tests/services/test_epg_retry_backoff.py"
+      ],
+      "commit": "e1bdb651ea94ae994bab6d0ca07b739e9a81b49c"
+    },
+    {
+      "id": "OPS-01",
+      "severity": "Medium",
+      "title": "Concurrent releases can deploy older code after newer code",
+      "status": "Fixed",
+      "dependencies": [],
+      "owner": "security",
+      "implementation": "Host flock covers source-ancestry acceptance, atomic compose install and verification; unique staging and no latest promotion prevent overlapping stale deployments.",
+      "verification": "Independent temporary-directory process interleaving proves serialization and delayed A after B is rejected. Does not rely on unverified Gitea concurrency syntax; no host deployment performed.",
+      "tests": [
+        "backend/tests/test_release_deployment.py"
+      ],
+      "commit": "4e1fde7bdb6011ac4ac082374782fe66c9363f68"
+    },
+    {
+      "id": "OPS-02",
+      "severity": "Medium",
+      "title": "Rebuilding a release reuses a tag that Compose may never pull",
+      "status": "Fixed",
+      "dependencies": [],
+      "owner": "security",
+      "implementation": "Builds get unique IDs; CI deploys registry digest, explicitly pulls it, verifies running image reference/ID and records previous artifacts.",
+      "verification": "Orchestration fixtures validate digest/version checks; actual local Docker builds two images with same source marker and verifies first\u2192second\u2192first rollback with distinct image IDs. Remote registry/deploy unexecuted.",
+      "tests": [
+        "backend/tests/test_release_deployment.py",
+        "scripts/check_release_images.py"
+      ],
+      "commit": "d1df420705134499e56d22712c77d312d0408591"
+    },
+    {
+      "id": "SEC-04",
+      "severity": "Medium",
+      "title": "Channel control bypasses the existing stale-administrator check",
+      "status": "Fixed",
+      "dependencies": [],
+      "owner": "security",
+      "implementation": "Channel-control guard shares current-admin predicate and applies viewer-selection policy after demotion.",
+      "verification": "ASGI admin/channel requests deny stale admin with viewer selection off, allow channel selection under viewer policy, and preserve current local/Plex list/owner/default admin cases.",
+      "tests": [
+        "backend/tests/routers/test_auth_deps.py"
+      ],
+      "commit": "93f472168ea243235a4e356c82a95f291db6337c"
+    },
+    {
+      "id": "SEC-05",
+      "severity": "Medium",
+      "title": "A viewer can poison presence data and disable the administrator user list",
+      "status": "Fixed",
+      "dependencies": [],
+      "owner": "security",
+      "implementation": "Discriminated bounded WebSocket schemas validate JSON before presence/nickname/chat mutation.",
+      "verification": "Malformed top-level and object/list/numeric/null/string cases cannot poison admin active-users; valid bounded presence and messages still work.",
+      "tests": [
+        "backend/tests/routers/test_websocket.py"
+      ],
+      "commit": "c3fb1404024caf7f69bade86f2390db86244b43f"
+    },
+    {
+      "id": "SEC-06",
+      "severity": "Medium",
+      "title": "An established WebSocket remains authorized after its JWT expires",
+      "status": "Fixed",
+      "dependencies": [],
+      "owner": "security",
+      "implementation": "Signed expiry bounds the whole WebSocket session, including idle/initial sends; expiry closes 4001 and cleans all ownership state.",
+      "verification": "Actual short-lived signed-token ASGI tests plus controlled idle/active transports verify expiry, rejected reuse, no later messages/broadcasts, and presence/connection/nickname cleanup.",
+      "tests": [
+        "backend/tests/routers/test_websocket.py",
+        "backend/tests/routers/test_websocket_expiry.py"
+      ],
+      "commit": "3ba9484aff5ee127318bfab3fc43ff2279f4ff83"
+    },
+    {
+      "id": "SEC-07",
+      "severity": "Medium",
+      "title": "A broadcast timeout silently strands an otherwise live client",
+      "status": "Fixed",
+      "dependencies": [],
+      "owner": "security",
+      "implementation": "Failed broadcasts remove/close clients and cancel their owning endpoint when transport close cannot unblock receive.",
+      "verification": "Timed-out transport closes 1011 and cleans once; healthy peers continue; dropped clients receive no future broadcasts and overlapping drops do not duplicate cleanup.",
+      "tests": [
+        "backend/tests/routers/test_websocket.py"
+      ],
+      "commit": "001e80b6873dd43897bf75569385475eb96c5154"
+    },
+    {
+      "id": "SEC-08",
+      "severity": "Medium",
+      "title": "Unexpected upstream status payloads crash the whole combined status endpoint",
+      "status": "Fixed",
+      "dependencies": [],
+      "owner": "security",
+      "implementation": "Status clients validate upstream shapes; decode/schema errors become typed service errors and aggregation preserves healthy peers.",
+      "verification": "Controlled HTML200, object-for-list, malformed sessions and invalid Dispatcharr field cases plus admin route tests retain the independent healthy-service result.",
+      "tests": [
+        "backend/tests/services/test_status_service.py"
+      ],
+      "commit": "2bf4bcc06b4526a00cfd8a265e903cb920de92a3"
+    },
+    {
+      "id": "FE-12",
+      "severity": "Low",
+      "title": "Now-playing and presence metadata do not advance at programme boundaries",
+      "status": "Fixed",
+      "dependencies": [],
+      "owner": "frontend",
+      "implementation": "A shared minute clock updates programme/header/presence and independently refreshes live guide data at boundaries with bounded polling.",
+      "verification": "Routed fake-clock tests cross programme boundaries without unrelated events and update header, presence and live EPG; optional catalog is not required.",
+      "tests": [
+        "frontend/src/components/tv/TVView.test.tsx"
+      ],
+      "commit": "23df9fb063d1f2f06a96456e8864bb098b7a0d96"
+    },
+    {
+      "id": "MEDIA-12",
+      "severity": "Low",
+      "title": "Trending GIF cache ignores the requested limit",
+      "status": "Fixed",
+      "dependencies": [],
+      "owner": "root",
+      "implementation": "Trending cache identity includes normalized requested limit and its pagination result.",
+      "verification": "Both 1\u219250\u21921 and 25\u21921\u219225 sequences preserve counts/pagination; repeated same-limit requests reuse cached results.",
+      "tests": [
+        "backend/tests/services/test_gif_cache_limits.py"
+      ],
+      "commit": "4cd35ef706cea7386d75afabf4c9a1543fbc9cc9"
+    },
+    {
+      "id": "MEDIA-13",
+      "severity": "Low",
+      "title": "Malformed/duplicate M3U entries can silently select the wrong channel",
+      "status": "Fixed",
+      "dependencies": [],
+      "owner": "root",
+      "implementation": "New EXTINF ends a malformed record; collision suffixes loop until unique; separate XMLTV identity maps programmes back to unique channel IDs.",
+      "verification": "Missing URL cannot steal next stream; adversarial preexisting suffixes stay unique/stable; duplicate provider IDs retain guide association without mutating original programmes.",
+      "tests": [
+        "backend/tests/services/ersatztv/test_epg_service.py",
+        "backend/tests/services/ersatztv/test_m3u_identity.py"
+      ],
+      "commit": "cc77e5fe1b465f9faeaf6ede8b168d1dfd73a486"
+    },
+    {
+      "id": "MEDIA-14",
+      "severity": "Low",
+      "title": "Highlight segment metadata grows without bound even though media files wrap",
+      "status": "Fixed",
+      "dependencies": [],
+      "owner": "media",
+      "implementation": "FFmpeg segment_list_size bounds completed metadata; snapshot work deduplicates bounded entries and excludes the active writer.",
+      "verification": "Actual FFmpeg lavfi produces 40 completed segments with wrap 4; manifest retains 3 ordered completed entries across wraps; export regressions preserve playback order.",
+      "tests": [
+        "backend/tests/services/test_media_manifest.py"
+      ],
+      "commit": "8554b68f4b20dbdad3763b9b6a7bdc2b2542c311"
+    },
+    {
+      "id": "QA-01",
+      "severity": "Low",
+      "title": "Backend tests inherit local integration settings and can call the network",
+      "status": "Fixed",
+      "dependencies": [],
+      "owner": "root",
+      "implementation": "Tests strip inherited settings before app import, disable dotenv, use synthetic defaults and fail external DNS/sockets; multi-socket fixtures share one ASGI loop.",
+      "verification": "Full 736-test backend suite passes with blank JWT, invalid PORT, hostile upstream URL and synthetic parent credentials while external networking is denied; 53 shared-loop WebSocket tests pass.",
+      "tests": [
+        "backend/tests/conftest.py",
+        "backend/tests/routers/test_websocket.py"
+      ],
+      "commit": "14533d555c0ea35c7b6fd3191b07eda34b03d1f4"
+    }
+  ],
+  "coverage": [
+    {
+      "area": "Exposure and abuse budgets",
+      "assessment": "MEDIA-03 enforces process/export quotas at the trusted process boundary. Current deployment uses one backend worker.",
+      "followup": "Before increasing workers/replicas, move quotas to shared admission; operator must document intended exposure and enforce login/chat/WebSocket ingress budgets. Gateway configuration was outside this repository; existing exposure was not expanded."
+    },
+    {
+      "area": "Session identity and revocation",
+      "assessment": "SEC-04 rechecks admin policy; SEC-06 enforces actual JWT expiry. Existing client session IDs and Plex-owner compatibility policy remain.",
+      "followup": "Design server-bound multi-tab presence and retain immutable Plex grant provenance before requiring immediate revocation. Seven-day stateless revocation latency is distinct from expired-socket authorization."
+    },
+    {
+      "area": "Core TV and Cast coverage",
+      "assessment": "Added routed TVView/store scenarios, actual CastButton+hook SDK fixtures, HLS shared shortcuts and ownership races.",
+      "followup": "Run physical Chromecast resume/replacement/reachability smoke tests on the intended network. SDK doubles establish lifecycle logic, not receiver interoperability."
+    },
+    {
+      "area": "PWA tests",
+      "assessment": "Generated production worker runs in real Chrome; legacy account caches and live resources are tested. Removed duplicated-regex tautology coverage.",
+      "followup": "Keep npm build + check-service-worker.mjs and --media as release integration checks; test upgrades from any future intentionally cached account data."
+    },
+    {
+      "area": "Async lifecycle coverage",
+      "assessment": "Deferred QR/auth/Cast completions, generation changes, native-focused targets and matching chat ACKs are covered.",
+      "followup": "Maintain late-success/failure/cancel permutations when extending those APIs; current reviewed race acceptance criteria are covered."
+    },
+    {
+      "area": "Real media/browser behavior",
+      "assessment": "Actual synthetic FFmpeg capture/conversion and Chrome fMP4/encrypted HLS playback now verified.",
+      "followup": "Before platform support claims, exercise native Safari HLS, mobile autoplay/fullscreen, TV remote and sustained real-provider decoding. No live Plex/Dispatcharr/ErsatzTV or physical receiver validation was performed."
+    },
+    {
+      "area": "Long-session rendering",
+      "assessment": "FE-12 advances programme metadata; no measured evidence established a guide rendering performance defect.",
+      "followup": "Profile realistic large guide fixtures and a multi-day open session, including the mount-fixed 48-hour horizon, before selecting moving windows/virtualization."
+    },
+    {
+      "area": "Reduced motion and media controls",
+      "assessment": "Focused control handling is repaired; no-CORS animated-image canvas fallback behavior remains a separate unconfirmed coverage gap.",
+      "followup": "Use controlled cross-origin animated images in Chrome/Safari to verify pause/replay/reduced-motion; decide a static fallback if freezing cannot be supported."
+    },
+    {
+      "area": "Upstream auth errors",
+      "assessment": "Status shape/error isolation is fixed; no change to Plex OAuth error contract was required for the confirmed fixes.",
+      "followup": "Add HTML200, malformed user/resources, timeout and DNS fixtures to normalize Plex auth errors into stable retryable responses without weakening validation."
+    },
+    {
+      "area": "CI trust and freshness",
+      "assessment": "Release scanning stages remain, builds get unique IDs and deployment pins/scopes artifact identity.",
+      "followup": "Operator should confirm branch protection/pre-merge CI and pin mutable actions/base/installer provenance as policy requires; perform current vulnerability/image scans. This remediation is not an advisory clearance."
+    },
+    {
+      "area": "Deployment readiness",
+      "assessment": "Host critical section includes verification; current/previous digest and compose records support explicit recovery. Optional upstreams remain outside process liveness.",
+      "followup": "Rehearse documented manual rollback under the same lock on the real host; choose whether automatic rollback/readiness gates are desired. No production deployment or rollback was executed."
+    },
+    {
+      "area": "Legacy media helpers",
+      "assessment": "Retained HLS helpers now use bounded bodies, origin-checked redirects and manifest header validation.",
+      "followup": "Cast internal filename helper has no demonstrated external traversal because route takes one segment; consolidate containment before exposing any additional multi-component filename entry point."
+    },
+    {
+      "area": "Feed parser edge cases",
+      "assessment": "MEDIA-13 handles malformed boundaries/colliding IDs and preserves XMLTV identity; Ersatz parser failures retain stale cache with backoff.",
+      "followup": "Add actual provider fixtures for remaining XMLTV timezone/episode/DefusedXML cases and Dispatcharr URL variants. No successful XXE was asserted or exercised."
+    },
+    {
+      "area": "Media clocks and network topology",
+      "assessment": "Immutable snapshots/export sources and bounded metadata are tested using synthetic media. Packet clock/GOP/provider topology remain deployment-specific.",
+      "followup": "Test clock jumps/keyframe boundaries and document desired trim precision; verify Cast URLs are receiver-reachable on LAN or remote topology before enabling it. Snapshot creation briefly pauses its Linux recorder; MP4 uses stream copy."
+    },
+    {
+      "area": "Cast ownership policy",
+      "assessment": "Media admission is associated with authenticated identity. Existing known-UUID stop/playback capability behavior is preserved.",
+      "followup": "If creator-only stop or immediate capability revocation is required, introduce that explicit product contract and tests. Possession of the currently intended UUID capability is not newly labelled an authorization bypass."
+    },
+    {
+      "area": "Documentation",
+      "assessment": "DEV-01 and SEC-02 repair tested setup, relative APIs, generated signing keys and disabled blank accounts; obsolete credential/env comments removed.",
+      "followup": "Operating limits are recorded below. Keep examples synchronized with the tested same-origin startup path and document physical network/device prerequisites when validated."
+    }
+  ]
+}
