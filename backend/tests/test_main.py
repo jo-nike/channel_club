@@ -32,6 +32,7 @@ class TestValidateAuthConfiguration:
         from app.main import validate_auth_configuration
 
         with patch("app.main.settings") as mock_settings:
+            mock_settings.jwt_secret = "synthetic-test-signing-key-with-32-characters"
             mock_settings.plex_auth_enabled = True
             mock_settings.plex_server_machine_id = None
             with pytest.raises(RuntimeError, match="PLEX_SERVER_MACHINE_ID"):
@@ -42,6 +43,7 @@ class TestValidateAuthConfiguration:
         from app.main import validate_auth_configuration
 
         with patch("app.main.settings") as mock_settings:
+            mock_settings.jwt_secret = "synthetic-test-signing-key-with-32-characters"
             mock_settings.plex_auth_enabled = True
             mock_settings.plex_server_machine_id = "abc123"
             mock_settings.local_auth_enabled = False
@@ -52,6 +54,7 @@ class TestValidateAuthConfiguration:
         from app.main import validate_auth_configuration
 
         with patch("app.main.settings") as mock_settings:
+            mock_settings.jwt_secret = "synthetic-test-signing-key-with-32-characters"
             mock_settings.plex_auth_enabled = False
             mock_settings.plex_server_machine_id = None
             mock_settings.local_auth_enabled = True
@@ -64,6 +67,7 @@ class TestValidateAuthConfiguration:
         from app.main import validate_auth_configuration
 
         with patch("app.main.settings") as mock_settings:
+            mock_settings.jwt_secret = "synthetic-test-signing-key-with-32-characters"
             mock_settings.plex_auth_enabled = False
             mock_settings.plex_server_machine_id = None
             mock_settings.local_auth_enabled = True
@@ -76,6 +80,7 @@ class TestValidateAuthConfiguration:
         from app.main import validate_auth_configuration
 
         with patch("app.main.settings") as mock_settings:
+            mock_settings.jwt_secret = "synthetic-test-signing-key-with-32-characters"
             mock_settings.jwt_secret = "dev-secret-change-in-production"
             with pytest.raises(RuntimeError, match="known-public"):
                 validate_auth_configuration()
@@ -85,6 +90,7 @@ class TestValidateAuthConfiguration:
         from app.main import validate_auth_configuration
 
         with patch("app.main.settings") as mock_settings:
+            mock_settings.jwt_secret = "synthetic-test-signing-key-with-32-characters"
             mock_settings.jwt_secret = "your-secret-key-change-me"
             with pytest.raises(RuntimeError, match="known-public"):
                 validate_auth_configuration()
@@ -96,6 +102,7 @@ class TestValidateAuthConfiguration:
         from app.main import validate_auth_configuration
 
         with patch("app.main.settings") as mock_settings:
+            mock_settings.jwt_secret = "synthetic-test-signing-key-with-32-characters"
             mock_settings.jwt_secret = "dev-secret-change-in-production"
             mock_settings.local_auth_enabled = False
             mock_settings.plex_auth_enabled = False
@@ -107,6 +114,7 @@ class TestValidateAuthConfiguration:
         from app.main import validate_auth_configuration
 
         with patch("app.main.settings") as mock_settings:
+            mock_settings.jwt_secret = "synthetic-test-signing-key-with-32-characters"
             mock_settings.jwt_secret = "9f8c2b1a" * 8  # 64 hex chars, not public
             mock_settings.plex_auth_enabled = False
             mock_settings.plex_server_machine_id = None
@@ -185,3 +193,27 @@ def test_token_expiration_is_7_days(client):
     expected = now + timedelta(days=7)
     # Allow 1 minute tolerance
     assert abs((payload.exp - expected).total_seconds()) < 60
+
+
+@pytest.mark.parametrize("secret", ["", " " * 64, "short", "x" * 31])
+@pytest.mark.parametrize("enabled", [True, False])
+def test_sec01_rejects_unusable_signing_keys(secret, enabled):
+    from app.main import validate_auth_configuration
+
+    with patch("app.main.settings") as config:
+        config.jwt_secret = secret
+        config.local_auth_enabled = enabled
+        config.plex_auth_enabled = enabled
+        with pytest.raises(RuntimeError, match="JWT_SECRET"):
+            validate_auth_configuration()
+
+
+def test_sec01_empty_environment_secret(monkeypatch):
+    from app.config import Settings
+    from app.main import validate_auth_configuration
+
+    monkeypatch.setenv("JWT_SECRET", "")
+    config = Settings(_env_file=None)
+    assert config.jwt_secret == ""
+    with patch("app.main.settings", config), pytest.raises(RuntimeError, match="JWT_SECRET"):
+        validate_auth_configuration()

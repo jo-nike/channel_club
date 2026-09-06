@@ -169,6 +169,7 @@ class TestStartupValidation:
 
         try:
             with patch("app.main.settings") as mock_settings:
+                mock_settings.jwt_secret = "synthetic-test-signing-key-with-32-characters"
                 mock_settings.local_auth_enabled = False
                 mock_settings.plex_auth_enabled = False
 
@@ -188,6 +189,7 @@ class TestStartupValidation:
 
         try:
             with patch("app.main.settings") as mock_settings:
+                mock_settings.jwt_secret = "synthetic-test-signing-key-with-32-characters"
                 mock_settings.local_auth_enabled = True
                 mock_settings.plex_auth_enabled = False
 
@@ -207,6 +209,7 @@ class TestStartupValidation:
 
         try:
             with patch("app.main.settings") as mock_settings:
+                mock_settings.jwt_secret = "synthetic-test-signing-key-with-32-characters"
                 mock_settings.local_auth_enabled = False
                 mock_settings.plex_auth_enabled = True
 

@@ -49,6 +49,12 @@ def validate_auth_configuration() -> None:
             "JWT_SECRET to a strong random value (e.g. `openssl rand -hex 32`)."
         )
 
+    if len(settings.jwt_secret.strip()) < 32:
+        raise RuntimeError(
+            "JWT_SECRET must contain at least 32 non-padding characters. "
+            "Generate a random secret with `openssl rand -hex 32`."
+        )
+
     # Refuse to start rather than serve an open door. check_server_access()
     # returns True when plex_server_machine_id is unset, so without it ANY
     # valid Plex account on the internet authenticates and is issued a JWT
@@ -87,6 +93,7 @@ async def lifespan(app: FastAPI):
         log_level=settings.log_level,
         log_format=settings.log_format,
     )
+    validate_auth_configuration()
     if settings.highlight_enabled:
         logger.info(
             "Highlight capture enabled (buffer: {}s, segments: {}s)",
@@ -107,7 +114,6 @@ async def lifespan(app: FastAPI):
         cast_service.cleanup_stale_sessions()
         # Start background task to clean up idle sessions
         cast_service.start_idle_cleanup_task()
-    validate_auth_configuration()
 
     # Warm the channel groups cache in the background so the first admin
     # modal open doesn't block on a cold Dispatcharr fetch.
