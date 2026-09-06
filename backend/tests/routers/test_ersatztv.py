@@ -304,6 +304,69 @@ class TestHeadStream:
 class TestGetStream:
     """Tests for GET /api/ersatztv/stream/{channel_id} endpoint."""
 
+    @pytest.mark.parametrize("failure", ["json", "html", "timeout", "exhausted"])
+    def test_cold_start_retries_before_manifest_validation(
+        self, client: TestClient, auth_header: dict[str, str], mock_channel: EPGChannel, failure
+    ) -> None:
+        import gzip
+
+        calls = []
+        error_responses = []
+
+        class ErrorBody(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                raise AssertionError("Error body must not be read or parsed as HLS")
+                yield b""
+
+        def upstream(request):
+            calls.append(request)
+            if len(calls) == 1 or failure == "exhausted":
+                if failure == "timeout":
+                    raise httpx.ReadTimeout("cold start", request=request)
+                response = httpx.Response(
+                    503,
+                    headers={
+                        "Content-Type": "application/json" if failure == "json" else "text/html"
+                    },
+                    stream=ErrorBody(),
+                )
+                error_responses.append(response)
+                return response
+            body = gzip.compress(b"#EXTM3U\n#EXTINF:5,\nsegment.ts\n")
+            return httpx.Response(
+                200,
+                headers={
+                    "Content-Type": "application/vnd.apple.mpegurl",
+                    "Content-Encoding": "gzip",
+                    "Content-Length": str(len(body)),
+                },
+                stream=httpx.ByteStream(body),
+            )
+
+        real_client = httpx.AsyncClient
+        with (
+            patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel),
+            patch(
+                "app.routers.ersatztv.httpx.AsyncClient",
+                side_effect=lambda **kwargs: real_client(
+                    transport=httpx.MockTransport(upstream), **kwargs
+                ),
+            ),
+            patch("app.routers.ersatztv.asyncio.sleep", AsyncMock()) as sleep,
+        ):
+            response = client.get("/api/ersatztv/stream/comedy-classics", headers=auth_header)
+        assert all(r.is_closed for r in error_responses)
+        if failure == "exhausted":
+            assert response.status_code == 503
+            assert len(calls) == 5
+            assert sleep.await_count == 4
+        else:
+            assert response.status_code == 200
+            assert response.text.startswith("#EXTM3U")
+            assert "/api/ersatztv/segments/" in response.text
+            assert len(calls) == 2
+            sleep.assert_awaited_once_with(0.5)
+
     def test_requires_authentication(self, client: TestClient) -> None:
         """Unauthenticated request returns 401."""
         response = client.get("/api/ersatztv/stream/comedy-classics")

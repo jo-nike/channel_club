@@ -15,7 +15,7 @@ import httpx
 from loguru import logger
 
 from app.config import settings
-from app.services.bounded_http import MANIFEST_BYTES, read_bounded
+from app.services.bounded_http import MANIFEST_BYTES, decoded_response, read_bounded
 from app.services.ersatztv.epg_service import get_channel_by_id
 
 # Module-level logger with service context
@@ -98,6 +98,13 @@ async def fetch_ersatztv(
             url = location
             continue
         if not stream:
+            # Cold-start errors commonly have JSON/HTML bodies. Preserve the
+            # HTTP error so the route can retry; never parse it as a manifest.
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError:
+                await response.aclose()
+                raise
             mime = response.headers.get("content-type", "").split(";", 1)[0].lower()
             if mime and mime not in {
                 "application/vnd.apple.mpegurl",
@@ -116,12 +123,7 @@ async def fetch_ersatztv(
                 and not body.removeprefix(b"\xef\xbb\xbf").startswith(b"#EXTM3U")
             ):
                 raise ValueError("Invalid HLS manifest header")
-            return httpx.Response(
-                response.status_code,
-                headers=response.headers,
-                content=body,
-                request=response.request,
-            )
+            return decoded_response(response, body)
         return response
     raise ValueError(f"Too many redirects for {url}")
 

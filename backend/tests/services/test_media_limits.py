@@ -101,3 +101,84 @@ async def test_dead_recorder_reclaimed_with_budget():
     recorder.stop.assert_awaited_once()
     assert not service._recorders
     assert not process_budget.owners
+
+
+async def test_optional_highlights_defer_at_capacity_and_recover():
+    from types import SimpleNamespace
+
+    from app.models.channel import Channel
+    from app.services.highlight import ChannelRecorder
+
+    service = HighlightService()
+    channel = Channel(id="new", name="New", streamUrl="https://source/ts", guideId="1")
+    for _ in range(2):
+        process_budget.acquire("alice")
+    with (
+        patch(
+            "app.services.highlight.resolve_media_channel",
+            AsyncMock(return_value=SimpleNamespace(channel=channel)),
+        ) as resolve,
+        patch.object(ChannelRecorder, "start", AsyncMock(return_value=True)) as start,
+        patch.object(ChannelRecorder, "stop", AsyncMock()),
+    ):
+        assert await service.start_recording("new", "", owner="alice") is False
+        assert process_budget.owners["alice"] == 2
+        resolve.assert_not_called()
+        start.assert_not_called()
+        process_budget.release("alice")
+        assert await service.start_recording("new", "", owner="alice") is True
+        assert process_budget.owners["alice"] == 2
+        await service.stop_all()
+        assert process_budget.owners["alice"] == 1
+
+
+async def test_status_poll_at_capacity_returns_unavailable_without_error():
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+    from app.services.auth import create_access_token
+
+    service = HighlightService()
+    for _ in range(2):
+        process_budget.acquire("alice")
+    token = create_access_token({"sub": "alice", "role": "viewer"})
+    with (
+        patch("app.routers.highlight.highlight_service", service),
+        patch("app.services.highlight.resolve_media_channel", AsyncMock()) as resolve,
+    ):
+        response = TestClient(app).get(
+            "/api/highlight/status/new", headers={"Authorization": f"Bearer {token}"}
+        )
+    assert response.status_code == 200
+    assert response.json()["enabled"] is True
+    assert response.json()["recording"] is False
+    assert response.json()["bufferSeconds"] == 0
+    assert process_budget.owners["alice"] == 2
+    resolve.assert_not_called()
+
+
+@pytest.mark.parametrize("failure", [False, True])
+async def test_channel_selection_broadcasts_even_when_highlights_unavailable(failure):
+    from app.models.channel import Channel
+    from app.services import channel_state
+
+    service = HighlightService()
+    channel = Channel(id="new", name="New", streamUrl="https://source/ts", guideId="1")
+    for _ in range(2):
+        process_budget.acquire("alice")
+    channel_state.clear_current_channel()
+    try:
+        with (
+            patch("app.services.highlight.highlight_service", service),
+            patch("app.services.channel_state.broadcast_channel_update", AsyncMock()) as broadcast,
+        ):
+            if failure:
+                with patch.object(service, "start_recording", AsyncMock(side_effect=RuntimeError)):
+                    result = await channel_state.set_current_channel(channel, user="alice")
+            else:
+                result = await channel_state.set_current_channel(channel, user="alice")
+            assert result == channel
+            assert channel_state.get_current_channel() == channel
+            broadcast.assert_awaited_once_with(channel)
+    finally:
+        channel_state.clear_current_channel()

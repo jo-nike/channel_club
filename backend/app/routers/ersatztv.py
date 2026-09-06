@@ -171,7 +171,7 @@ async def get_stream(
                     response.raise_for_status()
                     if response.text.strip():  # Got valid content
                         break
-                except (httpx.HTTPStatusError, httpx.ConnectError) as e:
+                except (httpx.HTTPStatusError, httpx.TransportError) as e:
                     last_error = e
                     if attempt < 4:
                         delay = 0.5 * (2**attempt)  # 0.5s, 1s, 2s, 4s
@@ -218,7 +218,7 @@ async def get_stream(
     except HTTPException:
         raise
     except Exception as e:
-        log.error("Stream error for channel {}: {}", channel_id, e)
+        log.error("Stream error for channel {}: {}: {}", channel_id, type(e).__name__, e)
         raise HTTPException(status_code=503, detail="Stream unavailable") from None
 
 
