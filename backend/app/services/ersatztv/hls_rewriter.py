@@ -8,7 +8,8 @@ Story: 7.5 - HLS Proxy Service
 
 import asyncio
 import base64
-from urllib.parse import urljoin, urlsplit
+import re
+from urllib.parse import quote, urlencode, urljoin, urlsplit
 
 import httpx
 from loguru import logger
@@ -133,44 +134,41 @@ class HLSManifestRewriter:
         lines = manifest_content.split("\n")
         rewritten = []
 
-        # Build query string with token if provided
-        token_qs = f"?token={token}" if token else ""
+        def proxy_uri(uri: str, playlist: bool | None = None) -> str:
+            absolute = urljoin(base_url, uri)
+            encoded = self._encode_url(absolute)
+            if playlist is True or (
+                playlist is None and urlsplit(absolute).path.lower().endswith(".m3u8")
+            ):
+                query = {"url": encoded}
+                if token:
+                    query["token"] = token
+                cid = quote(channel_id or "_nested", safe="")
+                return f"{self.stream_proxy_url}/{cid}?{urlencode(query)}"
+            suffix = "?" + urlencode({"token": token}) if token else ""
+            return f"{self.proxy_base_url}/{encoded}{suffix}"
 
         for line in lines:
             stripped = line.strip()
-
-            # Preserve empty lines
             if not stripped:
                 rewritten.append(line)
-                continue
-
-            # Skip comments/tags (lines starting with #)
-            if stripped.startswith("#"):
-                rewritten.append(line)
-                continue
-
-            # Resolve relative URL to absolute
-            if stripped.startswith("http://") or stripped.startswith("https://"):
-                absolute_url = stripped
+            elif stripped.startswith("#"):
+                # URI is a quoted HLS attribute (commas may appear inside it).
+                # Some playlist attributes use extensionless provider URLs.
+                playlist = stripped.split(":", 1)[0] in {
+                    "#EXT-X-MEDIA",
+                    "#EXT-X-I-FRAME-STREAM-INF",
+                    "#EXT-X-RENDITION-REPORT",
+                }
+                rewritten.append(
+                    re.sub(
+                        r'(\bURI=")([^"]*)(")',
+                        lambda match, playlist=playlist: match[1] + proxy_uri(match[2], playlist) + match[3],
+                        line,
+                    )
+                )
             else:
-                absolute_url = urljoin(base_url, stripped)
-
-            # Check if this is a nested m3u8 (variant playlist)
-            if stripped.endswith(".m3u8"):
-                # Rewrite to stream proxy endpoint with channel_id
-                encoded = self._encode_url(absolute_url)
-                # Use channel_id or placeholder for nested playlists
-                cid = channel_id or "_nested"
-                proxied = f"{self.stream_proxy_url}/{cid}?url={encoded}"
-                if token:
-                    proxied += f"&token={token}"
-            else:
-                # Segment URL - encode for segment proxy
-                encoded = self._encode_url(absolute_url)
-                proxied = f"{self.proxy_base_url}/{encoded}{token_qs}"
-
-            log.debug("Manifest rewrite: {}... -> {}...", stripped[:40], proxied[:50])
-            rewritten.append(proxied)
+                rewritten.append(proxy_uri(stripped))
 
         return "\n".join(rewritten)
 

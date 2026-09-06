@@ -191,8 +191,7 @@ async def get_stream(
         # Rewrite manifest with token for segment auth
         # Use final URL after redirects for correct base path
         final_url = str(response.url)
-        base_url = final_url.rsplit("/", 1)[0] + "/"
-        rewritten = rewrite_manifest(response.text, base_url, token=token, channel_id=channel_id)
+        rewritten = rewrite_manifest(response.text, final_url, token=token, channel_id=channel_id)
 
         return StreamingResponse(
             iter([rewritten.encode()]),
