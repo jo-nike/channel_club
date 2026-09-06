@@ -4,6 +4,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { useAppSettings } from '@/hooks/useAppSettings'
 import { useTheme } from '@/hooks/useTheme'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
+import { useProgrammeClock } from '@/hooks/useProgrammeClock'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useChannelStore } from '@/stores/channelStore'
@@ -92,6 +93,8 @@ export function TVView() {
 
   useEscapeKey({ onEscape: handleEscape })
 
+  const programmeTime = useProgrammeClock()
+
   // Get currently playing programme for presence tracking
   const currentProgrammeTitle = (() => {
     if (!selectedChannel) return null
@@ -102,7 +105,7 @@ export function TVView() {
 
     const programmes = programmesByChannel[selectedChannel.id]
     if (!programmes) return null
-    const now = new Date()
+    const now = new Date(programmeTime)
     const current = programmes.find(
       (p) => new Date(p.start) <= now && new Date(p.stop) > now
     )
@@ -177,6 +180,23 @@ export function TVView() {
       loadLiveEPG()
     }
   }, [liveChannel, loadLiveEPG])
+
+  // Refresh live metadata at its boundary, with a one-minute fallback even
+  // when the optional catalogue is unavailable or the upstream EPG fails.
+  useEffect(() => {
+    if (!liveChannel?.guideId) return
+    const end = liveEPG?.currentProgram?.endTime
+    const untilEnd = end ? new Date(end).getTime() - Date.now() : 60_000
+    const delay = untilEnd > 0 ? Math.min(untilEnd, 60_000) : 30_000
+    let active = true
+    let timer: ReturnType<typeof setTimeout>
+    const refresh = async () => {
+      await loadLiveEPG()
+      if (active) timer = setTimeout(refresh, 60_000)
+    }
+    timer = setTimeout(refresh, delay)
+    return () => { active = false; clearTimeout(timer) }
+  }, [liveChannel?.guideId, liveEPG, loadLiveEPG])
 
   // Auto-refresh programme data (silent to avoid flash)
   useEffect(() => {
