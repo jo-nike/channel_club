@@ -61,6 +61,16 @@ const DEFAULT_MEDIA_RECEIVER_APP_ID = 'CC1AD845'
 // instance that created the backend session may already have unmounted (players
 // remount on every channel switch / retry) by the time the cast session ends.
 let currentSessionId: string | null = null
+const ownedSessions = new Set<string>()
+let castGeneration = 0
+let castStopped = true
+let mediaLoadQueue: Promise<unknown> = Promise.resolve()
+
+async function releaseSession(id: string | null) {
+  if (!id || !ownedSessions.delete(id)) return
+  if (currentSessionId === id) currentSessionId = null
+  await stopCastSession(id).catch(() => {})
+}
 
 /**
  * Hook for managing Chromecast casting functionality.
@@ -98,6 +108,7 @@ export function useChromecast(): UseChromecastReturn {
     playerState: null,
   })
 
+  const pendingOperation = useRef<number | null>(null)
   const playerRef = useRef<cast.framework.RemotePlayer | null>(null)
   const controllerRef = useRef<cast.framework.RemotePlayerController | null>(null)
 
@@ -220,6 +231,11 @@ export function useChromecast(): UseChromecastReturn {
         )
 
         listeningContext = context
+        if (!context.getCurrentSession()) {
+          castGeneration += 1
+          castStopped = true
+          void releaseSession(currentSessionId)
+        }
 
         // Check initial state
         const castState = context.getCastState()
@@ -302,13 +318,9 @@ export function useChromecast(): UseChromecastReturn {
         // Session ended - cleanup backend session if we have one.
         // Not guarded by `mounted`: the instance that created the session may be
         // gone, and clearing the id first keeps this idempotent across instances.
-        const sessionId = currentSessionId
-        if (sessionId) {
-          currentSessionId = null
-          stopCastSession(sessionId).catch(() => {
-            // Ignore cleanup errors
-          })
-        }
+        castGeneration += 1
+        castStopped = true
+        void releaseSession(currentSessionId)
         pendingCastRef.current = null
 
         if (mounted) {
@@ -369,6 +381,10 @@ export function useChromecast(): UseChromecastReturn {
 
     return () => {
       mounted = false
+      if (pendingOperation.current === castGeneration) {
+        castGeneration += 1
+        castStopped = true
+      }
 
       // CastContext is a process-wide singleton, so listeners left behind
       // accumulate on every remount (channel switch, retry, refresh)
@@ -456,6 +472,13 @@ export function useChromecast(): UseChromecastReturn {
         throw new Error('No active cast session')
       }
 
+      const operation = ++castGeneration
+      castStopped = false
+      pendingOperation.current = operation
+      const isCurrent = () => operation === castGeneration && context.getCurrentSession() === session
+      let ownedSessionId: string | null = null
+      await releaseSession(currentSessionId)
+      if (!isCurrent()) return
       setState((s) => ({ ...s, error: null }))
 
       try {
@@ -482,7 +505,10 @@ export function useChromecast(): UseChromecastReturn {
           logger.debug('Cast', 'Creating backend transcoding session', { channelId, streamType })
 
           const castSession = await createCastSession(channelId, streamType, streamUrl)
-          currentSessionId = castSession.session_id
+          ownedSessionId = castSession.session_id
+          ownedSessions.add(ownedSessionId)
+          if (!isCurrent()) { await releaseSession(ownedSessionId); return }
+          currentSessionId = ownedSessionId
 
           if (castSession.needs_transcoding) {
             // Get the full HLS URL with auth token
@@ -514,13 +540,24 @@ export function useChromecast(): UseChromecastReturn {
 
         // Load media on Chromecast
         logger.debug('Cast', 'Calling session.loadMedia...')
-        await session.loadMedia(request)
+        const loading = mediaLoadQueue.catch(() => {}).then(async () => {
+          if (isCurrent()) await session.loadMedia(request)
+        })
+        mediaLoadQueue = loading
+        await loading
+        if (!isCurrent()) {
+          // A receiver may finish an already-issued load after Stop. Complete
+          // that cancellation once the SDK settles, without stopping a winner.
+          if (castStopped && context.getCurrentSession() === session) controllerRef.current?.stop()
+          return
+        }
+        pendingOperation.current = null
 
         logger.info('Cast', 'Media load request sent successfully')
 
         // Check player state after a brief delay to detect immediate failures
         setTimeout(() => {
-          if (playerRef.current) {
+          if (isCurrent() && playerRef.current) {
             const ps = playerRef.current.playerState
             logger.info('Cast', `Post-load player state: ${ps}`)
             if (ps === 'IDLE' || ps === null) {
@@ -538,12 +575,10 @@ export function useChromecast(): UseChromecastReturn {
       } catch (error) {
         logger.error('Cast', 'Failed to start casting', { error })
 
-        // Cleanup backend session on failure
-        const sessionId = currentSessionId
-        if (sessionId) {
-          currentSessionId = null
-          stopCastSession(sessionId).catch(() => {})
-        }
+        // Only this operation can release its own backend resource.
+        await releaseSession(ownedSessionId)
+        if (!isCurrent()) return
+        pendingOperation.current = null
 
         setState((s) => ({
           ...s,
@@ -566,6 +601,10 @@ export function useChromecast(): UseChromecastReturn {
   const stopCasting = useCallback(async () => {
     if (typeof cast === 'undefined') return
 
+    castGeneration += 1
+    castStopped = true
+    pendingCastRef.current = null
+
     // Stop playback on Chromecast
     if (controllerRef.current) {
       controllerRef.current.stop()
@@ -575,7 +614,7 @@ export function useChromecast(): UseChromecastReturn {
     const sessionId = currentSessionId
     if (sessionId) {
       currentSessionId = null
-      await stopCastSession(sessionId)
+      await releaseSession(sessionId)
     }
 
     setState((s) => ({
@@ -591,39 +630,8 @@ export function useChromecast(): UseChromecastReturn {
    * If this works, the issue is with our stream/URL, not the Chromecast setup.
    */
   const castTestStream = useCallback(async () => {
-    if (typeof cast === 'undefined' || typeof chrome === 'undefined') {
-      throw new Error('Cast SDK not available')
-    }
-
-    const context = cast.framework.CastContext.getInstance()
-    const session = context.getCurrentSession()
-
-    if (!session) {
-      throw new Error('No active cast session - connect to a device first')
-    }
-
-    // Apple's public HLS test stream (Big Buck Bunny)
-    const testUrl = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8'
-
-    logger.info('Cast', `[TEST] Loading public test stream: ${testUrl}`)
-
-    const mediaInfo = new chrome.cast.media.MediaInfo(testUrl, 'application/vnd.apple.mpegurl')
-    mediaInfo.streamType = chrome.cast.media.StreamType.BUFFERED
-    mediaInfo.metadata = { title: 'Test Stream (Big Buck Bunny)' }
-
-    const request = new chrome.cast.media.LoadRequest(mediaInfo)
-    request.autoplay = true
-
-    await session.loadMedia(request)
-    logger.info('Cast', '[TEST] Media load request sent')
-
-    setTimeout(() => {
-      if (playerRef.current) {
-        const ps = playerRef.current.playerState
-        logger.info('Cast', `[TEST] Post-load player state: ${ps}`)
-      }
-    }, 5000)
-  }, [])
+    await startCasting('test-stream', 'hls', 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8', 'Test Stream (Big Buck Bunny)')
+  }, [startCasting])
 
   return {
     ...state,
