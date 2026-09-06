@@ -172,7 +172,7 @@ async def require_channel_control(
     Raises:
         HTTPException: 403 if the user is not allowed to change the channel.
     """
-    if current_user.role == "admin":
+    if current_user.role == "admin" and _admin_in_current_config(current_user.sub):
         return current_user
 
     if app_settings.user_channel_selection_enabled():
