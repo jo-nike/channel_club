@@ -1,4 +1,4 @@
-import { useState, useCallback, type RefObject } from 'react'
+import { useState, useCallback, useEffect, type RefObject } from 'react'
 import { useMediaState, useMediaRemote } from '@vidstack/react'
 import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Expand, Shrink } from 'lucide-react'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
@@ -50,8 +50,8 @@ export function ErsatzTVVideoControls({
   // Check if highlight feature is enabled (server-side feature flag)
   const { isEnabled: highlightEnabled } = useHighlightFeature()
 
-  // Show highlight button on desktop only when feature is enabled
-  const showHighlightButton = highlightEnabled && !isMobile && !isTVMode && channelId
+  // Show highlight capture on pointer/touch players when feature is enabled
+  const showHighlightButton = highlightEnabled && !isTVMode && channelId
 
   // Always-on highlight status polling (independent of control visibility)
   const highlightStatus = useHighlightStatus(showHighlightButton ? channelId : undefined)
@@ -98,26 +98,17 @@ export function ErsatzTVVideoControls({
     }
   }, [containerRef, remote])
 
-  // Highlight modal state
-  const [isHighlightModalOpen, setIsHighlightModalOpen] = useState(false)
-  const [previousVolume, setPreviousVolume] = useState(volume)
-
+  const [capture, setCapture] = useState<{ channel: string; container: HTMLElement | null } | null>(null)
+  useEffect(() => () => setCapture(null), [channelId])
   const handleOpenHighlightModal = useCallback(() => {
-    // Store current volume before ducking
-    setPreviousVolume(volume)
-    setIsHighlightModalOpen(true)
-  }, [volume])
-
-  const handleCloseHighlightModal = useCallback(() => {
-    setIsHighlightModalOpen(false)
-  }, [])
-
-  const handleHighlightVolumeChange = useCallback(
-    (newVolume: number) => {
-      remote.changeVolume(newVolume)
-    },
-    [remote]
-  )
+    if (channelId) setCapture({ channel: channelId, container: containerRef?.current ?? null })
+  }, [channelId, containerRef])
+  const handleCloseHighlightModal = useCallback(() => setCapture(null), [])
+  const acquirePreviewAudio = useCallback(() => {
+    const wasMuted = muted
+    remote.mute()
+    return () => { if (!wasMuted) remote.unmute() }
+  }, [remote, muted])
 
   return (
     <div
@@ -125,7 +116,7 @@ export function ErsatzTVVideoControls({
       aria-label="Video controls"
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
-      className={`video-controls absolute bottom-4 left-4 right-4 z-10 flex items-center gap-4 rounded-lg bg-black/70 p-4 transition-opacity duration-300 ${
+      className={`video-controls absolute bottom-4 left-4 right-4 z-10 flex items-center gap-2 rounded-lg bg-black/70 p-2 sm:gap-4 sm:p-4 transition-opacity duration-300 ${
         isVisible ? 'opacity-100' : 'pointer-events-none opacity-0'
       }`}
     >
@@ -182,11 +173,11 @@ export function ErsatzTVVideoControls({
           value={muted ? 0 : volume}
           onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
           aria-label="Volume"
-          className="h-2 w-24 cursor-pointer appearance-none rounded-full bg-white/30 accent-white"
+          className="hidden h-2 w-24 cursor-pointer sm:block appearance-none rounded-full bg-white/30 accent-white"
         />
       </div>
 
-      {/* Highlight Button - desktop only when feature enabled */}
+      {/* Highlight capture */}
       {showHighlightButton && (
         <>
           <HighlightButton
@@ -196,11 +187,11 @@ export function ErsatzTVVideoControls({
             onOpenModal={handleOpenHighlightModal}
           />
           <HighlightModal
-            isOpen={isHighlightModalOpen}
+            isOpen={capture?.channel === channelId}
             onClose={handleCloseHighlightModal}
             channelId={channelId}
-            onVolumeChange={handleHighlightVolumeChange}
-            previousVolume={previousVolume}
+            acquirePreviewAudio={acquirePreviewAudio}
+            container={capture?.container}
           />
         </>
       )}

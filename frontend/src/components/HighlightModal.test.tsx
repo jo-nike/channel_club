@@ -2,338 +2,192 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@/test/utils'
 import { HighlightModal } from './HighlightModal'
 import * as api from '@/services/api'
-import * as utils from '@/lib/utils'
-import { toast } from 'sonner'
 
-// Mock the API service
 vi.mock('@/services/api', () => ({
-  getHighlightStatus: vi.fn().mockResolvedValue({
-    enabled: true,
-    recording: true,
-    bufferSeconds: 60,
-    maxBufferSeconds: 60,
-  }),
-  exportHighlight: vi.fn().mockResolvedValue(new Blob(['converted'], { type: 'video/webm' })),
-  saveHighlight: vi.fn().mockResolvedValue(new Blob(['fake video content'], { type: 'video/mp4' })),
+  saveHighlight: vi.fn(), exportHighlight: vi.fn(), uploadHighlight: vi.fn(), getHighlightFeatures: vi.fn(),
 }))
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
+const preview = new Blob(['original snapshot'], { type: 'video/mp4' })
+const prepared = new Blob(['selected frames'], { type: 'video/mp4' })
+const props = { isOpen: true, onClose: vi.fn(), channelId: 'channel-1' }
 
-// Mock isWebMSupported utility
-vi.mock('@/lib/utils', async () => {
-  const actual = await vi.importActual('@/lib/utils')
-  return {
-    ...actual,
-    isWebMSupported: vi.fn().mockReturnValue(true),
-  }
+async function ready(duration = 60) {
+  const video = await screen.findByLabelText('Highlight preview') as HTMLVideoElement
+  Object.defineProperty(video, 'duration', { configurable: true, value: duration })
+  fireEvent.loadedMetadata(video)
+  return video
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  vi.mocked(api.saveHighlight).mockResolvedValue(preview)
+  vi.mocked(api.exportHighlight).mockResolvedValue(prepared)
+  vi.mocked(api.getHighlightFeatures).mockResolvedValue({ enabled: true, ziplineEnabled: false })
+  vi.mocked(api.uploadHighlight).mockResolvedValue({ url: 'https://clips.example/clip.mp4', name: 'clip.mp4' })
+  URL.createObjectURL = vi.fn(() => 'blob:clip')
+  URL.revokeObjectURL = vi.fn()
+  vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(function (this: HTMLVideoElement) {
+    Object.defineProperty(this, 'paused', { configurable: true, value: true })
+    this.dispatchEvent(new Event('pause'))
+  })
+  vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(function (this: HTMLVideoElement) {
+    Object.defineProperty(this, 'paused', { configurable: true, value: false })
+    this.dispatchEvent(new Event('play'))
+    return Promise.resolve()
+  })
+  vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
+  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
 })
 
-// Mock sonner toast
-vi.mock('sonner', () => ({
-  toast: {
-    success: vi.fn(),
-    error: vi.fn(),
-    info: vi.fn(),
-  },
-}))
-
-const mockSaveHighlight = api.saveHighlight as ReturnType<typeof vi.fn>
-const mockGetHighlightStatus = api.getHighlightStatus as ReturnType<typeof vi.fn>
-const mockIsWebMSupported = utils.isWebMSupported as ReturnType<typeof vi.fn>
-
-// Mock URL methods for download
-const mockCreateObjectURL = vi.fn(() => 'blob:test-url')
-const mockRevokeObjectURL = vi.fn()
-global.URL.createObjectURL = mockCreateObjectURL
-global.URL.revokeObjectURL = mockRevokeObjectURL
-
-describe('HighlightModal', () => {
-  const defaultProps = {
-    isOpen: true,
-    onClose: vi.fn(),
-    channelId: 'channel-1',
-    onVolumeChange: vi.fn(),
-    previousVolume: 1,
-  }
-
-  beforeEach(() => {
-    vi.clearAllMocks()
-    vi.mocked(api.exportHighlight).mockResolvedValue(new Blob(['converted']))
-    mockSaveHighlight.mockResolvedValue(new Blob(['fake video content'], { type: 'video/mp4' }))
-    mockGetHighlightStatus.mockResolvedValue({
-      enabled: true,
-      recording: true,
-      bufferSeconds: 60,
-      maxBufferSeconds: 60,
-    })
-    mockIsWebMSupported.mockReturnValue(true)
+describe('Clip editor', () => {
+  it('captures once, selects recent footage and previews only the selection', async () => {
+    render(<HighlightModal {...props} />)
+    const video = await ready()
+    fireEvent.click(screen.getByRole('button', { name: 'Last 15s' }))
+    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(45)
+    expect(video.currentTime).toBe(45)
+    fireEvent.click(screen.getByRole('button', { name: 'Play selection' }))
+    await waitFor(() => expect(screen.getByText('Pause preview')).toBeInTheDocument())
+    video.currentTime = 60
+    fireEvent.timeUpdate(video)
+    expect(video.paused).toBe(true)
+    expect(api.saveHighlight).toHaveBeenCalledTimes(1)
   })
 
-  describe('Modal Rendering', () => {
-    it('renders the modal when isOpen is true', async () => {
-      render(<HighlightModal {...defaultProps} />)
-
-      await waitFor(() => {
-        expect(screen.getByRole('dialog')).toBeInTheDocument()
-        expect(screen.getByText('Highlight Preview')).toBeInTheDocument()
-      })
-    })
-
-    it('does not render when isOpen is false', () => {
-      render(<HighlightModal {...defaultProps} isOpen={false} />)
-
-      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    })
-
-    it('shows loading state initially', () => {
-      render(<HighlightModal {...defaultProps} />)
-
-      expect(screen.getByText('Loading highlight...')).toBeInTheDocument()
-    })
+  it('supports keyboard boundary adjustment, clamped fields, short buffers and reset', async () => {
+    render(<HighlightModal {...props} />)
+    const video = await ready(8)
+    fireEvent.click(screen.getByText('Last 30s'))
+    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(0)
+    const handle = screen.getByRole('slider', { name: 'Start boundary' })
+    fireEvent.focus(handle); fireEvent.keyDown(handle, { key: 'ArrowRight' })
+    expect(video.currentTime).toBeCloseTo(0.1)
+    fireEvent.change(screen.getByLabelText('End (seconds)'), { target: { value: '0' } })
+    fireEvent.blur(screen.getByLabelText('End (seconds)'))
+    expect(screen.getByLabelText('End (seconds)')).toHaveValue(0.2)
+    fireEvent.click(screen.getByText('Reset'))
+    expect(screen.getByLabelText('End (seconds)')).toHaveValue(8)
   })
 
-  describe('Video Loading', () => {
-    it('fetches highlight on modal open', async () => {
-      render(<HighlightModal {...defaultProps} />)
-
-      await waitFor(() => {
-        expect(mockSaveHighlight).toHaveBeenCalledWith('channel-1')
-      })
-    })
-
-    it('displays video element after successful load', async () => {
-      render(<HighlightModal {...defaultProps} />)
-
-      await waitFor(() => {
-        const video = screen.getByLabelText('Highlight preview')
-        expect(video).toBeInTheDocument()
-        expect(video).toHaveAttribute('src', 'blob:test-url')
-        expect(video).toHaveAttribute('controls')
-        expect(video).toHaveAttribute('autoplay')
-      })
-    })
-
-    it('shows error message on fetch failure', async () => {
-      mockSaveHighlight.mockRejectedValue(new Error('Network error'))
-
-      render(<HighlightModal {...defaultProps} />)
-
-      await waitFor(() => {
-        expect(screen.getByText('Network error')).toBeInTheDocument()
-        expect(toast.error).toHaveBeenCalledWith('Failed to load highlight', {
-          description: 'Network error',
-        })
-      })
-    })
+  it('allows typing a new end time without clamping intermediate digits', async () => {
+    render(<HighlightModal {...props} />)
+    await ready()
+    fireEvent.click(screen.getByText('Last 10s'))
+    const field = screen.getByLabelText('End (seconds)')
+    fireEvent.focus(field)
+    fireEvent.change(field, { target: { value: '5' } })
+    expect(field).toHaveValue(5)
+    fireEvent.change(field, { target: { value: '59.3' } })
+    fireEvent.blur(field)
+    expect(field).toHaveValue(59.3)
+    expect(screen.getByText('Selected: 9.3s')).toBeInTheDocument()
   })
 
-  describe('Volume Ducking', () => {
-    it('ducks volume to 20% when modal opens and loads highlight', async () => {
-      const onVolumeChange = vi.fn()
-      render(<HighlightModal {...defaultProps} onVolumeChange={onVolumeChange} />)
-
-      await waitFor(() => {
-        expect(onVolumeChange).toHaveBeenCalledWith(0.2)
-      })
-    })
-
-    it('restores previous volume when modal closes', async () => {
-      const onVolumeChange = vi.fn()
-      const onClose = vi.fn()
-      render(
-        <HighlightModal
-          {...defaultProps}
-          onVolumeChange={onVolumeChange}
-          onClose={onClose}
-          previousVolume={0.8}
-        />
-      )
-
-      // Wait for highlight to load
-      await waitFor(() => {
-        expect(screen.getByLabelText('Highlight preview')).toBeInTheDocument()
-      })
-
-      // Clear mocks to track restore call
-      onVolumeChange.mockClear()
-
-      // Click close button
-      const closeButton = screen.getByRole('button', { name: /close/i })
-      fireEvent.click(closeButton)
-
-      await waitFor(() => {
-        expect(onVolumeChange).toHaveBeenCalledWith(0.8)
-        expect(onClose).toHaveBeenCalled()
-      })
-    })
+  it('retains the prepared clip after an upload error for download or manual retry', async () => {
+    vi.mocked(api.getHighlightFeatures).mockResolvedValue({ enabled: true, ziplineEnabled: true })
+    vi.mocked(api.uploadHighlight).mockRejectedValueOnce(new Error('Zipline quota exceeded'))
+    render(<HighlightModal {...props} />)
+    await ready()
+    fireEvent.click(screen.getByText('Last 10s'))
+    fireEvent.click(screen.getByText('Upload to Zipline'))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Zipline quota exceeded')
+    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(50)
+    fireEvent.click(screen.getByText('Download clip'))
+    await waitFor(() => expect(HTMLAnchorElement.prototype.click).toHaveBeenCalled())
+    expect(api.exportHighlight).toHaveBeenCalledTimes(1)
+    expect(api.uploadHighlight).toHaveBeenCalledTimes(1)
   })
 
-  describe('Download Functionality', () => {
-    it('shows download button after video loads', async () => {
-      render(<HighlightModal {...defaultProps} />)
-
-      await waitFor(() => {
-        const downloadButton = screen.getByRole('button', { name: /download mp4/i })
-        expect(downloadButton).toBeInTheDocument()
-      })
-    })
-
-    it('triggers download when download button clicked', async () => {
-      render(<HighlightModal {...defaultProps} />)
-
-      await waitFor(() => {
-        expect(screen.getByLabelText('Highlight preview')).toBeInTheDocument()
-      })
-
-      const downloadButton = screen.getByRole('button', { name: /download mp4/i })
-      fireEvent.click(downloadButton)
-
-      await waitFor(() => {
-        expect(toast.success).toHaveBeenCalled()
-      })
-    })
-
-    it('shows success toast with actual buffer duration', async () => {
-      mockGetHighlightStatus.mockResolvedValue({
-        enabled: true,
-        recording: true,
-        bufferSeconds: 30,
-        maxBufferSeconds: 60,
-      })
-
-      render(<HighlightModal {...defaultProps} />)
-
-      await waitFor(() => {
-        expect(screen.getByLabelText('Highlight preview')).toBeInTheDocument()
-      })
-
-      const downloadButton = screen.getByRole('button', { name: /download mp4/i })
-      fireEvent.click(downloadButton)
-
-      await waitFor(() => {
-        expect(toast.success).toHaveBeenCalled()
-      })
-    })
+  it('downloads the original untrimmed snapshot without encoding', async () => {
+    render(<HighlightModal {...props} />)
+    await ready()
+    fireEvent.click(screen.getByText('Download clip'))
+    await waitFor(() => expect(HTMLAnchorElement.prototype.click).toHaveBeenCalled())
+    expect(api.exportHighlight).not.toHaveBeenCalled()
+    expect(URL.createObjectURL).toHaveBeenCalledWith(preview)
   })
 
-  describe('WebM Download Functionality', () => {
-    it('shows both MP4 and WebM download buttons when WebM is supported', async () => {
-      mockIsWebMSupported.mockReturnValue(true)
-      render(<HighlightModal {...defaultProps} />)
-
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /download mp4/i })).toBeInTheDocument()
-        expect(screen.getByRole('button', { name: /download webm \(slow\)/i })).toBeInTheDocument()
-      })
-    })
-
-    it('hides WebM button when WebM is not supported (graceful degradation)', async () => {
-      mockIsWebMSupported.mockReturnValue(false)
-      render(<HighlightModal {...defaultProps} />)
-
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /download mp4/i })).toBeInTheDocument()
-        expect(screen.queryByRole('button', { name: /download webm \(slow\)/i })).not.toBeInTheDocument()
-      })
-    })
-
-    it('triggers WebM download when WebM button clicked', async () => {
-      mockIsWebMSupported.mockReturnValue(true)
-      mockSaveHighlight.mockResolvedValue(new Blob(['fake webm content'], { type: 'video/webm' }))
-
-      render(<HighlightModal {...defaultProps} />)
-
-      await waitFor(() => {
-        expect(screen.getByLabelText('Highlight preview')).toBeInTheDocument()
-      })
-
-      const webmButton = screen.getByRole('button', { name: /download webm \(slow\)/i })
-      fireEvent.click(webmButton)
-
-      await waitFor(() => {
-        // saveHighlight should be called with webm format (no trim options)
-        expect(api.exportHighlight).toHaveBeenCalledWith(expect.any(Blob), 'webm', undefined)
-        expect(toast.success).toHaveBeenCalled()
-      })
-    })
-
-    it('disables both buttons while downloading', async () => {
-      mockIsWebMSupported.mockReturnValue(true)
-      // Create a never-resolving promise to simulate ongoing download
-      let resolveDownload: (value: Blob) => void
-      vi.mocked(api.exportHighlight).mockImplementation(() => new Promise((resolve) => { resolveDownload = resolve }))
-
-      render(<HighlightModal {...defaultProps} />)
-
-      await waitFor(() => {
-        expect(screen.getByLabelText('Highlight preview')).toBeInTheDocument()
-      })
-
-      const webmButton = screen.getByRole('button', { name: /download webm \(slow\)/i })
-      fireEvent.click(webmButton)
-
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /download mp4/i })).toBeDisabled()
-        expect(webmButton).toBeDisabled()
-      })
-
-      // Cleanup: resolve the promise
-      resolveDownload!(new Blob(['webm content'], { type: 'video/webm' }))
-    })
+  it('shares prepared bytes between download and Zipline and displays its returned link', async () => {
+    vi.mocked(api.getHighlightFeatures).mockResolvedValue({ enabled: true, ziplineEnabled: true })
+    render(<HighlightModal {...props} />)
+    await ready()
+    fireEvent.click(screen.getByText('Last 10s'))
+    fireEvent.click(screen.getByText('Download clip'))
+    await waitFor(() => expect(screen.getByText('Download clip')).not.toBeDisabled())
+    fireEvent.click(screen.getByText('Upload to Zipline'))
+    expect(await screen.findByLabelText('Uploaded clip link')).toHaveValue('https://clips.example/clip.mp4')
+    expect(api.exportHighlight).toHaveBeenCalledExactlyOnceWith(preview, 'mp4', { startTime: 50, endTime: 60 }, expect.any(AbortSignal))
+    expect(api.uploadHighlight).toHaveBeenCalledExactlyOnceWith(prepared, 'mp4', expect.any(AbortSignal))
+    expect(screen.getByRole('link', { name: 'Open' })).toHaveAttribute('href', 'https://clips.example/clip.mp4')
   })
 
-  describe('Keyboard Navigation', () => {
-    it('closes modal on Escape key press', async () => {
-      const onClose = vi.fn()
-      const onVolumeChange = vi.fn()
-      render(<HighlightModal {...defaultProps} onClose={onClose} onVolumeChange={onVolumeChange} />)
-
-      await waitFor(() => {
-        expect(screen.getByLabelText('Highlight preview')).toBeInTheDocument()
-      })
-
-      // Escape key triggers dialog close
-      fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
-
-      await waitFor(() => {
-        expect(onClose).toHaveBeenCalled()
-      })
-    })
+  it('keeps downloads usable and hides upload when Zipline is disabled', async () => {
+    render(<HighlightModal {...props} />)
+    await ready()
+    expect(screen.queryByText('Upload to Zipline')).not.toBeInTheDocument()
+    expect(screen.getByText('Download clip')).toBeEnabled()
+    expect(api.uploadHighlight).not.toHaveBeenCalled()
   })
 
-  describe('Cleanup', () => {
-    it('revokes blob URL on modal close', async () => {
-      const { unmount } = render(<HighlightModal {...defaultProps} />)
-
-      await waitFor(() => {
-        expect(screen.getByLabelText('Highlight preview')).toBeInTheDocument()
-      })
-
-      unmount()
-
-      expect(mockRevokeObjectURL).toHaveBeenCalled()
-    })
-  })
-  it('FE-06 exports held preview frames after the live capture advances', async () => {
-    const preview = new Blob(['frames-001-through-060'], { type: 'video/mp4' })
-    mockSaveHighlight.mockResolvedValueOnce(preview)
-    render(<HighlightModal {...defaultProps} />)
-    const video = await screen.findByLabelText('Highlight preview')
-    Object.defineProperty(video, 'duration', { value: 60 })
-    fireEvent.loadedMetadata(video)
-    // The next rolling capture would contain entirely different frames.
-    mockSaveHighlight.mockResolvedValue(new Blob(['frames-021-through-080']))
-    fireEvent.click(screen.getByRole('button', { name: /download mp4/i }))
-    await waitFor(() => expect(toast.success).toHaveBeenCalled())
-    expect(mockCreateObjectURL).toHaveBeenCalledWith(preview)
-    const sliders = screen.getAllByRole('slider')
-    fireEvent.focus(sliders[0])
-    fireEvent.keyDown(sliders[0], { key: 'ArrowRight' })
-    fireEvent.keyDown(sliders[0], { key: 'ArrowRight' })
-    fireEvent.click(screen.getByRole('button', { name: /download mp4/i }))
-    await waitFor(() => expect(api.exportHighlight).toHaveBeenCalledWith(preview, 'mp4', expect.objectContaining({ startTime: expect.any(Number) })))
-    await waitFor(() => expect(screen.getByRole('button', { name: /download webm/i })).not.toBeDisabled())
-    fireEvent.click(screen.getByRole('button', { name: /download webm/i }))
-    await waitFor(() => expect(api.exportHighlight).toHaveBeenCalledWith(preview, 'webm', expect.any(Object)))
-    expect(mockSaveHighlight).toHaveBeenCalledTimes(1)
+  it('retains selection on export failure and prevents duplicate conversions', async () => {
+    let reject!: (error: Error) => void
+    vi.mocked(api.exportHighlight).mockImplementationOnce(() => new Promise((_, fail) => { reject = fail }))
+    render(<HighlightModal {...props} />)
+    await ready()
+    fireEvent.click(screen.getByText('Last 15s'))
+    fireEvent.click(screen.getByText('Download clip')); fireEvent.click(screen.getByText('Download clip'))
+    expect(api.exportHighlight).toHaveBeenCalledTimes(1)
+    reject(new Error('Encoder timed out'))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Encoder timed out')
+    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(45)
+    fireEvent.click(screen.getByText('Download clip'))
+    await waitFor(() => expect(api.exportHighlight).toHaveBeenCalledTimes(2))
   })
 
+  it('restores audio, aborts requests and starts a fresh session after reopening', async () => {
+    const restore = vi.fn()
+    const acquirePreviewAudio = vi.fn(() => restore)
+    const { rerender } = render(<HighlightModal {...props} acquirePreviewAudio={acquirePreviewAudio} />)
+    await ready()
+    fireEvent.click(screen.getByText('Last 10s'))
+    const signal = vi.mocked(api.saveHighlight).mock.calls[0][3]!
+    rerender(<HighlightModal {...props} isOpen={false} acquirePreviewAudio={acquirePreviewAudio} />)
+    expect(signal.aborted).toBe(true)
+    expect(restore).toHaveBeenCalledTimes(1)
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:clip')
+    rerender(<HighlightModal {...props} acquirePreviewAudio={acquirePreviewAudio} />)
+    await ready()
+    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(0)
+  })
+
+  it('ignores a late capture response after switching channels', async () => {
+    let resolve!: (blob: Blob) => void
+    vi.mocked(api.saveHighlight).mockImplementationOnce(() => new Promise(done => { resolve = done }))
+    const { rerender } = render(<HighlightModal {...props} />)
+    rerender(<HighlightModal {...props} channelId="channel-2" />)
+    await ready()
+    resolve(new Blob(['old channel']))
+    await waitFor(() => expect(URL.createObjectURL).toHaveBeenCalledTimes(1))
+  })
+
+  it('offers capture retry on invalid metadata and closes on Escape', async () => {
+    render(<HighlightModal {...props} />)
+    await ready(Infinity)
+    expect(screen.getByRole('alert')).toHaveTextContent('no usable duration')
+    fireEvent.click(screen.getByText('Capture again'))
+    await ready()
+    expect(api.saveHighlight).toHaveBeenCalledTimes(2)
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
+    expect(props.onClose).toHaveBeenCalled()
+  })
+
+  it('converts WebM with the same fractional selection', async () => {
+    render(<HighlightModal {...props} />)
+    await ready()
+    fireEvent.change(screen.getByLabelText('Start (seconds)'), { target: { value: '1.3' } })
+    fireEvent.blur(screen.getByLabelText('Start (seconds)'))
+    fireEvent.change(screen.getByLabelText('Format'), { target: { value: 'webm' } })
+    fireEvent.click(screen.getByText('Download clip'))
+    await waitFor(() => expect(api.exportHighlight).toHaveBeenCalledWith(preview, 'webm', { startTime: 1.3, endTime: 60 }, expect.any(AbortSignal)))
+  })
 })

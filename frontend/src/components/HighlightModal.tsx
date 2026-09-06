@@ -1,316 +1,225 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { Download, Loader2, RotateCcw } from 'lucide-react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { Download, Upload, Play, Pause, RotateCcw, Loader2, Copy, ExternalLink, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { saveHighlight, exportHighlight, getHighlightStatus, type HighlightFormat, type TrimOptions } from '@/services/api'
+import { saveHighlight, exportHighlight, uploadHighlight, getHighlightFeatures, type HighlightFormat, type UploadedHighlight } from '@/services/api'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog'
-import { Slider } from '@/components/ui/slider'
-import { isWebMSupported } from '@/lib/utils'
-
-/** Format seconds as MM:SS */
-function formatTime(seconds: number): string {
-  const mins = Math.floor(seconds / 60)
-  const secs = Math.floor(seconds % 60)
-  return `${mins}:${secs.toString().padStart(2, '0')}`
-}
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { ClipTimeline } from './ClipTimeline'
+import { ClipTimeField } from './ClipTimeField'
 
 export interface HighlightModalProps {
   isOpen: boolean
   onClose: () => void
   channelId: string
-  onVolumeChange?: (volume: number) => void
-  previousVolume?: number
+  /** Acquire temporary audio suppression; returned cleanup restores it. */
+  acquirePreviewAudio?: () => () => void
+  container?: HTMLElement | null
 }
 
-export function HighlightModal({
-  isOpen,
-  onClose,
-  channelId,
-  onVolumeChange,
-  previousVolume = 1,
-}: HighlightModalProps) {
-  const [isLoading, setIsLoading] = useState(false)
-  const [isDownloading, setIsDownloading] = useState<HighlightFormat | null>(null)
-  const [highlightBlobUrl, setHighlightBlobUrl] = useState<string | null>(null)
+/** Mounting a fresh session prevents stale frames, selections, and requests leaking across captures. */
+export function HighlightModal({ isOpen, ...props }: HighlightModalProps) {
+  return isOpen ? <ClipSession key={props.channelId} {...props} /> : null
+}
+
+function ClipSession({ channelId, onClose, acquirePreviewAudio, container }: Omit<HighlightModalProps, 'isOpen'>) {
+  const [source, setSource] = useState<{ blob: Blob; url: string } | null>(null)
+  const [duration, setDuration] = useState(0)
+  const [range, setRange] = useState<[number, number]>([0, 0])
+  const [playhead, setPlayhead] = useState(0)
+  const [playing, setPlaying] = useState(false)
+  const [format, setFormat] = useState<HighlightFormat>('mp4')
+  const [stage, setStage] = useState<'preparing' | 'uploading' | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [bufferSeconds, setBufferSeconds] = useState(0)
-  const [videoDuration, setVideoDuration] = useState(0)
-  const [trimStart, setTrimStart] = useState(0)
-  const [trimEnd, setTrimEnd] = useState(0)
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const blobRef = useRef<Blob | null>(null)
+  const [captureError, setCaptureError] = useState<string | null>(null)
+  const [uploaded, setUploaded] = useState<UploadedHighlight | null>(null)
+  const [zipline, setZipline] = useState(false)
+  const [attempt, setAttempt] = useState(0)
+  const video = useRef<HTMLVideoElement>(null)
+  const uploadResult = useRef<HTMLDivElement>(null)
+  const controller = useRef<AbortController | null>(null)
+  const busy = useRef(false)
+  const cache = useRef<{ key: string; blob: Blob } | null>(null)
+  const [acquireAudio] = useState(() => acquirePreviewAudio)
+  const [start, end] = range
+  const ready = duration >= 0.1 && source !== null && !captureError
 
-  // Check WebM support once on mount
-  const webmSupported = useMemo(() => isWebMSupported(), [])
-
-  // Fetch highlight when modal opens
+  useEffect(() => acquireAudio?.(), [acquireAudio])
+  useEffect(() => { if (uploaded) uploadResult.current?.scrollIntoView?.({ block: 'nearest' }) }, [uploaded])
   useEffect(() => {
-    if (!isOpen || !channelId) return
+    const request = new AbortController()
+    controller.current = request
+    let url: string | undefined
+    void saveHighlight(channelId, 'mp4', undefined, request.signal).then(blob => {
+      if (request.signal.aborted) return
+      url = URL.createObjectURL(blob)
+      setSource({ blob, url })
+    }).catch(err => {
+      if (!request.signal.aborted) setCaptureError(err instanceof Error ? err.message : 'Could not capture clip')
+    })
+    void getHighlightFeatures(request.signal).then(features => {
+      if (!request.signal.aborted) setZipline(features.ziplineEnabled === true)
+    }).catch(() => {})
+    return () => { request.abort(); if (url) URL.revokeObjectURL(url) }
+  }, [channelId, attempt])
 
-    let cancelled = false
+  const seek = useCallback((time: number) => {
+    const player = video.current
+    if (!player) return
+    player.pause()
+    player.currentTime = Math.max(0, Math.min(duration, time))
+    setPlayhead(player.currentTime)
+    setPlaying(false)
+  }, [duration])
 
-    const fetchHighlight = async () => {
-      setIsLoading(true)
-      setError(null)
-
-      try {
-        // First get buffer status for toast message later
-        try {
-          const status = await getHighlightStatus(channelId)
-          if (!cancelled) setBufferSeconds(status.bufferSeconds)
-        } catch {
-          // Status is informational, continue even if it fails
-        }
-
-        if (cancelled) return
-
-        // Fetch the highlight video
-        const blob = await saveHighlight(channelId)
-        if (cancelled) return
-        blobRef.current = blob
-        const url = URL.createObjectURL(blob)
-        setHighlightBlobUrl(url)
-
-        // Duck background video volume
-        onVolumeChange?.(0.2)
-      } catch (err) {
-        if (cancelled) return
-        const message = err instanceof Error ? err.message : 'Failed to load highlight'
-        setError(message)
-        toast.error('Failed to load highlight', { description: message })
-      } finally {
-        if (!cancelled) setIsLoading(false)
-      }
-    }
-
-    fetchHighlight()
-
-    return () => {
-      cancelled = true
-    }
-  }, [isOpen, channelId, onVolumeChange])
-
-  // Cleanup blob URL when modal closes
-  useEffect(() => {
-    return () => {
-      if (highlightBlobUrl) {
-        URL.revokeObjectURL(highlightBlobUrl)
-      }
-    }
-  }, [highlightBlobUrl])
-
-  // Handle video metadata loaded - initialize trim values
-  const handleLoadedMetadata = useCallback(() => {
-    if (videoRef.current) {
-      const duration = videoRef.current.duration
-      setVideoDuration(duration)
-      setTrimStart(0)
-      setTrimEnd(duration)
-    }
-  }, [])
-
-  // Handle modal close - restore volume and reset state
-  const handleClose = useCallback(() => {
-    // Restore previous volume
-    onVolumeChange?.(previousVolume)
-
-    // Cleanup blob URL
-    if (highlightBlobUrl) {
-      URL.revokeObjectURL(highlightBlobUrl)
-      setHighlightBlobUrl(null)
-    }
-    blobRef.current = null
+  function select(nextStart: number, nextEnd: number, boundary = nextStart) {
+    if (!Number.isFinite(nextStart) || !Number.isFinite(nextEnd)) return
+    const safeStart = Math.max(0, Math.min(duration - 0.1, nextStart))
+    const safeEnd = Math.min(duration, Math.max(safeStart + 0.1, nextEnd))
+    setRange([safeStart, safeEnd])
+    setUploaded(null)
     setError(null)
-    setVideoDuration(0)
-    setTrimStart(0)
-    setTrimEnd(0)
+    seek(Math.max(safeStart, Math.min(safeEnd, boundary)))
+  }
 
-    onClose()
-  }, [onClose, onVolumeChange, previousVolume, highlightBlobUrl])
-
-  // Check if user has applied any trimming
-  const hasTrimming = videoDuration > 0 && (trimStart > 0.1 || trimEnd < videoDuration - 0.1)
-  const trimmedDuration = trimEnd - trimStart
-
-  // Handle slider value changes
-  const handleSliderChange = useCallback((values: number[]) => {
-    if (values.length === 2) {
-      setTrimStart(values[0])
-      setTrimEnd(values[1])
-    }
-  }, [])
-
-  // Reset trim to full duration
-  const handleResetTrim = useCallback(() => {
-    setTrimStart(0)
-    setTrimEnd(videoDuration)
-  }, [videoDuration])
-
-  // Handle download for a specific format
-  const handleDownload = useCallback(
-    async (format: HighlightFormat) => {
-      setIsDownloading(format)
-
-      try {
-        // Build trim options if user has trimmed
-        const trimOptions: TrimOptions | undefined = hasTrimming
-          ? { startTime: trimStart, endTime: trimEnd }
-          : undefined
-
-        let blob: Blob
-        // Use cached blob only for MP4 without trimming
-        if (format === 'mp4' && !hasTrimming && blobRef.current) {
-          blob = blobRef.current
-        } else {
-          if (!blobRef.current) throw new Error('Preview is not available')
-          blob = await exportHighlight(blobRef.current, format, trimOptions)
-        }
-
-        // Generate filename with timestamp
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-        const filename = `highlight-${channelId}-${timestamp}.${format}`
-
-        // Download the file
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = filename
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-        URL.revokeObjectURL(url)
-
-        // Show success toast with actual duration
-        const duration = hasTrimming ? Math.round(trimmedDuration) : Math.round(bufferSeconds)
-        const formatLabel = format.toUpperCase()
-        toast.success(`Saved ${duration}s ${formatLabel} highlight`, {
-          description: filename,
-        })
-      } catch {
-        toast.error(`Failed to download ${format.toUpperCase()} highlight`)
-      } finally {
-        setIsDownloading(null)
+  // timeupdate is too coarse for short selections; check each animation frame as well.
+  useEffect(() => {
+    if (!playing) return
+    let frame = 0
+    const tick = () => {
+      const player = video.current
+      if (!player) return
+      if (player.currentTime >= end) {
+        player.pause(); player.currentTime = end; setPlaying(false)
       }
-    },
-    [channelId, bufferSeconds, hasTrimming, trimStart, trimEnd, trimmedDuration]
-  )
+      setPlayhead(player.currentTime)
+      if (!player.paused) frame = requestAnimationFrame(tick)
+    }
+    frame = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(frame)
+  }, [playing, end])
 
-  // Convenience handlers for each format
-  const handleDownloadMP4 = useCallback(() => handleDownload('mp4'), [handleDownload])
-  const handleDownloadWebM = useCallback(() => handleDownload('webm'), [handleDownload])
+  async function playSelection() {
+    const player = video.current
+    if (!player) return
+    if (playing) { player.pause(); return }
+    player.currentTime = start
+    try { await player.play() } catch { setError('Playback could not start. Try Play selection again.') }
+  }
+
+  async function output(destination: 'download' | 'zipline') {
+    if (!ready || !source || busy.current) return
+    busy.current = true
+    setStage('preparing'); setError(null)
+    const signal = controller.current!.signal
+    const key = `${start}:${end}:${format}`
+    try {
+      let blob = cache.current?.key === key ? cache.current.blob : null
+      if (!blob) {
+        const trimmed = start > 0.001 || end < duration - 0.001
+        blob = format === 'mp4' && !trimmed ? source.blob
+          : await exportHighlight(source.blob, format, trimmed ? { startTime: start, endTime: end } : undefined, signal)
+        if (signal.aborted) return
+        cache.current = { key, blob }
+      }
+      if (destination === 'zipline') {
+        setStage('uploading')
+        const result = await uploadHighlight(blob, format, signal)
+        if (!signal.aborted) setUploaded(result)
+      } else {
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = `highlight-${channelId}-${new Date().toISOString().replace(/[:.]/g, '-')}.${format}`
+        document.body.appendChild(link); link.click(); link.remove()
+        // Give the browser time to start consuming the download URL.
+        setTimeout(() => URL.revokeObjectURL(url), 1000)
+        toast.success(`Download started · ${(end - start).toFixed(1)}s ${format.toUpperCase()}`)
+      }
+    } catch (err) {
+      if (!signal.aborted) setError(err instanceof Error ? err.message : 'Export failed. Please try again.')
+    } finally {
+      busy.current = false
+      if (!signal.aborted) setStage(null)
+    }
+  }
+
+  function retryCapture() {
+    setSource(null); setCaptureError(null); setDuration(0); setRange([0, 0])
+    setPlayhead(0); setPlaying(false); cache.current = null
+    setAttempt(value => value + 1)
+  }
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && handleClose()}>
-      <DialogContent className="max-w-3xl">
-        <DialogHeader>
-          <DialogTitle>Highlight Preview</DialogTitle>
+    <Dialog open onOpenChange={open => { if (!open) onClose() }}>
+      <DialogContent container={container} showCloseButton={false} className="max-h-[92dvh] max-w-[min(48rem,calc(100%-2rem))] overflow-y-auto" onKeyDown={event => event.stopPropagation()}>
+        <DialogHeader className="sticky -top-6 z-20 -mx-6 -mt-6 border-b bg-background p-6 pr-14">
+          <Button variant="ghost" size="icon" aria-label="Close editor" onClick={onClose} className="absolute right-3 top-3"><X /></Button>
+          <DialogTitle>Create clip</DialogTitle>
+          <DialogDescription>Choose the moment to keep, preview your selection, then export it.</DialogDescription>
         </DialogHeader>
-
-        <div className="relative min-h-[200px]">
-          {isLoading && (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-              <span className="ml-3 text-muted-foreground">Loading highlight...</span>
+        {captureError ? <div role="alert" className="space-y-3 py-8 text-center">
+          <p>{captureError}</p><Button variant="outline" onClick={retryCapture}>Capture again</Button>
+        </div> : !source ? <div role="status" className="flex items-center justify-center gap-3 py-16"><Loader2 className="animate-spin" />Capturing recent footage…</div> : (
+          <video ref={video} src={source.url} playsInline preload="auto" aria-label="Highlight preview"
+            className="max-h-[28dvh] w-full rounded-lg bg-black object-contain"
+            onLoadedMetadata={() => {
+              const length = video.current?.duration ?? 0
+              if (!Number.isFinite(length) || length < 0.1) { setCaptureError('This capture has no usable duration. Capture again once more footage is available.'); return }
+              setDuration(length); setRange([0, length])
+            }}
+            onError={() => setCaptureError('This capture could not be played. Capture again to retry.')}
+            onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}
+            onTimeUpdate={() => {
+              const player = video.current
+              if (!player) return
+              if (!player.paused && player.currentTime >= end) { player.pause(); player.currentTime = end }
+              setPlayhead(player.currentTime)
+            }} />
+        )}
+        {ready && source && <>
+          <fieldset disabled={stage !== null} className="min-w-0 space-y-4 disabled:opacity-70">
+            <legend className="sr-only">Clip selection</legend>
+            <div className="flex flex-wrap items-center gap-2">
+              {[10, 15, 30].map(seconds => <Button key={seconds} type="button" variant="outline" size="sm"
+                onClick={() => select(Math.max(0, duration - seconds), duration)}>Last {seconds}s</Button>)}
+              <Button type="button" variant="outline" size="sm" onClick={() => select(0, duration)}>Full clip</Button>
+              <span className="ml-auto text-sm text-muted-foreground">{duration.toFixed(1)}s captured</span>
             </div>
-          )}
-
-          {error && !isLoading && (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <p className="text-destructive">{error}</p>
-              <Button variant="outline" onClick={handleClose} className="mt-4">
-                Close
-              </Button>
+            <ClipTimeline url={source.url} duration={duration} start={start} end={end} playhead={playhead}
+              onChange={select} onSeek={seek} disabled={stage !== null} />
+            <div className="flex flex-wrap items-end gap-3">
+              <ClipTimeField label="Start (seconds)" value={start} min={0} max={end - 0.1}
+                onCommit={value => select(value, end)} />
+              <ClipTimeField label="End (seconds)" value={end} min={start + 0.1} max={duration}
+                onCommit={value => select(start, value, value)} />
+              <Button variant="ghost" onClick={() => select(0, duration)}><RotateCcw />Reset</Button>
+              <span className="ml-auto pb-2 text-sm font-semibold tabular-nums">Selected: {(end - start).toFixed(1)}s</span>
             </div>
-          )}
-
-          {highlightBlobUrl && !isLoading && !error && (
-            <video
-              ref={videoRef}
-              src={highlightBlobUrl}
-              controls
-              autoPlay
-              onLoadedMetadata={handleLoadedMetadata}
-              className="w-full rounded-lg"
-              aria-label="Highlight preview"
-            />
-          )}
-        </div>
-
-        {/* Trim controls */}
-        {highlightBlobUrl && !isLoading && !error && videoDuration > 0 && (
-          <div className="space-y-3 px-1">
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-muted-foreground w-14 text-right">
-                {formatTime(trimStart)}
-              </span>
-              <Slider
-                value={[trimStart, trimEnd]}
-                min={0}
-                max={videoDuration}
-                step={0.1}
-                onValueChange={handleSliderChange}
-                className="flex-1"
-              />
-              <span className="text-sm text-muted-foreground w-14">
-                {formatTime(trimEnd)}
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">
-                Duration: <span className="text-foreground font-medium">{formatTime(trimmedDuration)}</span>
-                {hasTrimming && (
-                  <span className="text-muted-foreground ml-1">
-                    (trimmed from {formatTime(videoDuration)})
-                  </span>
-                )}
-              </span>
-              {hasTrimming && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleResetTrim}
-                  className="h-7 px-2"
-                >
-                  <RotateCcw className="h-3 w-3 mr-1" />
-                  Reset
-                </Button>
-              )}
-            </div>
+            <Button variant="outline" onClick={() => void playSelection()}>{playing ? <Pause /> : <Play />}{playing ? 'Pause preview' : 'Play selection'}</Button>
+          </fieldset>
+          <div className="flex flex-wrap items-end gap-3 border-t pt-4">
+            <label className="flex flex-col gap-1 text-sm">Format
+              <select value={format} disabled={stage !== null} onChange={e => { setFormat(e.target.value as HighlightFormat); setUploaded(null) }} className="h-10 rounded-md border bg-background px-3">
+                <option value="mp4">MP4</option><option value="webm">WebM</option>
+              </select>
+            </label>
+            <Button disabled={stage !== null} onClick={() => void output('download')}><Download />Download clip</Button>
+            {zipline && <Button variant="outline" disabled={stage !== null || uploaded !== null} onClick={() => void output('zipline')}><Upload />{uploaded ? 'Uploaded to Zipline' : 'Upload to Zipline'}</Button>}
           </div>
-        )}
-
-        {highlightBlobUrl && !isLoading && !error && (
-          <DialogFooter className="flex gap-2 sm:gap-2">
-            <Button onClick={handleDownloadMP4} disabled={isDownloading !== null}>
-              {isDownloading === 'mp4' ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Download className="h-4 w-4" />
-              )}
-              Download MP4 {hasTrimming && `(${formatTime(trimmedDuration)})`}
-            </Button>
-            {webmSupported && (
-              <Button
-                onClick={handleDownloadWebM}
-                variant="outline"
-                disabled={isDownloading !== null}
-              >
-                {isDownloading === 'webm' ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Download className="h-4 w-4" />
-                )}
-                Download WebM (Slow) {hasTrimming && `(${formatTime(trimmedDuration)})`}
-              </Button>
-            )}
-          </DialogFooter>
-        )}
+        </>}
+        {stage && <p role="status" className="flex items-center gap-2 text-sm"><Loader2 className="h-4 w-4 animate-spin" />{stage === 'preparing' ? 'Preparing your clip…' : 'Uploading to Zipline…'}</p>}
+        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+        {uploaded && <div ref={uploadResult} className="space-y-2 rounded-lg border p-3" role="status">
+          <p className="text-sm font-medium">Uploaded to Zipline</p>
+          <input readOnly aria-label="Uploaded clip link" value={uploaded.url} className="w-full rounded border bg-background p-2 text-sm" onFocus={e => e.target.select()} />
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={async () => {
+              try { await navigator.clipboard.writeText(uploaded.url); toast.success('Link copied') }
+              catch { setError('Could not copy automatically. Select and copy the link above.') }
+            }}><Copy />Copy link</Button>
+            <Button variant="outline" size="sm" asChild><a href={uploaded.url} target="_blank" rel="noopener noreferrer"><ExternalLink />Open</a></Button>
+          </div>
+        </div>}
       </DialogContent>
     </Dialog>
   )

@@ -41,3 +41,13 @@ fixture Compose container, and restores the first content ID. It removes only
 its own named fixture resources. This exercises real local Docker image changes
 and rollback; it does not publish images, test the remote registry, or deploy the
 application.
+
+## Clip editor browser check
+
+Run `node scripts/check-clip-editor.mjs` with frontend dependencies installed,
+FFmpeg available, and Chrome (`CHROME_BIN` can override the executable). It starts
+an isolated Vite harness with generated media and mock APIs. It checks both
+player controls, thumbnails, keyboard/pointer trimming, matching download/upload
+bytes, responsive layout, and restoration of live audio. It writes screenshots
+to `/tmp/iptv-clip-*.png` and removes its temporary media, browser profile, and
+harness. It does not connect to configured media providers or a real Zipline server.

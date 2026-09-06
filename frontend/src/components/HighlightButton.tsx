@@ -17,13 +17,10 @@ export function HighlightButton({ isVisible, highlightStatus, onOpenModal }: Hig
     }
   }, [onOpenModal])
 
-  // Hide button if not recording
-  if (!highlightStatus.recording) {
-    return null
-  }
-
-  const seconds = Math.round(highlightStatus.bufferSeconds || 0)
-  const tooltipText = `Save last ${seconds}s`
+  const seconds = Math.max(0, Math.floor(highlightStatus.bufferSeconds || 0))
+  const ready = highlightStatus.recording && (highlightStatus.ready ?? seconds > 0)
+  const tooltipText = ready ? `Capture clip · ${seconds}s available`
+    : highlightStatus.recording ? 'Buffering clip…' : 'Clip unavailable'
 
   return (
     <Tooltip>
@@ -32,10 +29,12 @@ export function HighlightButton({ isVisible, highlightStatus, onOpenModal }: Hig
           type="button"
           tabIndex={isVisible ? 0 : -1}
           onClick={handleClick}
+          disabled={!ready}
           aria-label={tooltipText}
-          className="control-button relative flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-400/80"
+          className="control-button relative flex min-h-[48px] min-w-[48px] items-center justify-center gap-2 rounded-lg px-2 transition-colors disabled:opacity-50 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-400/80"
         >
           <Clapperboard className="h-6 w-6 text-white" />
+          <span className="hidden text-xs text-white sm:inline">{ready ? `Capture clip · ${seconds}s` : tooltipText}</span>
         </button>
       </TooltipTrigger>
       <TooltipContent>

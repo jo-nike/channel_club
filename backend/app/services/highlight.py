@@ -210,6 +210,27 @@ class ChannelRecorder:
             finally:
                 self.segment_dir = None
 
+    def has_completed_segment(self) -> bool:
+        """An active recorder can still be warming up its first usable segment."""
+        if not self.is_running or not self.segment_dir:
+            return False
+        try:
+            entries = (self.segment_dir / "segments.txt").read_text().splitlines()
+            if not entries:
+                return False
+            name = Path(entries[-1]).name
+            if not name.startswith("seg_") or not name.endswith(".ts"):
+                return False
+            path = self.segment_dir / name
+            return (
+                not path.is_symlink()
+                and path.is_file()
+                and path.stat().st_size > 0
+                and path.stat().st_mtime >= time.time() - settings.highlight_buffer_seconds
+            )
+        except OSError:
+            return False
+
     def get_buffer_seconds(self) -> float:
         """Get how many seconds of content are actually in the buffer.
 
@@ -231,7 +252,7 @@ class ChannelRecorder:
             # Buffer span = time from oldest segment to now,
             # capped at the configured buffer max
             oldest_mtime = seg_files[0].stat().st_mtime
-            span = time.time() - oldest_mtime
+            span = time.time() - oldest_mtime + settings.highlight_segment_seconds
             return min(span, settings.highlight_buffer_seconds)
         except OSError:
             # Fallback to wall-clock if file inspection fails
@@ -528,6 +549,7 @@ class HighlightService:
         return {
             "enabled": True,
             "recording": recorder.is_running,
+            "ready": recorder.has_completed_segment(),
             "bufferSeconds": recorder.get_buffer_seconds(),
             "maxBufferSeconds": settings.highlight_buffer_seconds,
         }

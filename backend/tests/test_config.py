@@ -95,3 +95,23 @@ class TestErsatzTVSettings:
         assert "m3u" in m3u_url or "channels" in m3u_url
         assert "xml" in settings.ersatztv_xmltv_url.lower()
         assert settings.ersatztv_base_url.startswith("http")
+
+
+def test_shared_dotenv_ignores_frontend_keys():
+    """The launcher and Compose can use one dotenv without VITE_* validation errors."""
+    from pydantic_settings import DotEnvSettingsSource
+
+    with patch.object(
+        DotEnvSettingsSource,
+        "_read_env_files",
+        return_value={
+            "jwt_secret": "synthetic-local-signing-key-at-least-32-characters",
+            "local_auth_enabled": "true",
+            "vite_api_url": "/api",
+            "vite_log_level": "debug",
+        },
+    ):
+        config = Settings()
+    assert config.local_auth_enabled is True
+    assert config.jwt_secret == "synthetic-local-signing-key-at-least-32-characters"
+    assert "vite_api_url" not in config.model_dump()

@@ -94,6 +94,11 @@ async def lifespan(app: FastAPI):
         log_format=settings.log_format,
     )
     validate_auth_configuration()
+    if settings.zipline_enabled and not settings.zipline_available:
+        logger.warning(
+            "Zipline uploads unavailable: enable highlights and configure "
+            "ZIPLINE_URL and ZIPLINE_TOKEN"
+        )
     if settings.highlight_enabled:
         logger.info(
             "Highlight capture enabled (buffer: {}s, segments: {}s)",

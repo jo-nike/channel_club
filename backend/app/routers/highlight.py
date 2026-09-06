@@ -22,8 +22,9 @@ from app.models.auth import TokenPayload
 from app.models.channel import ChannelId, validate_channel_id
 from app.routers.auth_deps import get_current_user
 from app.services.highlight import highlight_service
-from app.services.media_export import encode_file, owned_thread
+from app.services.media_export import encode_file, media_duration, owned_thread
 from app.services.media_limits import export_budget
+from app.services.zipline import upload_clip
 
 router = APIRouter(prefix="/api/highlight", tags=["highlight"])
 log = logger.bind(router="highlight")
@@ -34,6 +35,7 @@ class HighlightStatusResponse(BaseModel):
 
     enabled: bool
     recording: bool
+    ready: bool = False
     bufferSeconds: float = 0
     maxBufferSeconds: int = 60
 
@@ -42,6 +44,7 @@ class HighlightFeatureResponse(BaseModel):
     """Response for feature flag check."""
 
     enabled: bool
+    ziplineEnabled: bool = False
 
 
 @router.get("/feature", response_model=HighlightFeatureResponse)
@@ -54,7 +57,50 @@ async def get_feature_status(
     the highlight button based on the server-side feature flag.
     """
     log.debug("GET /highlight/feature request")
-    return HighlightFeatureResponse(enabled=settings.highlight_enabled)
+    return HighlightFeatureResponse(
+        enabled=settings.highlight_enabled, ziplineEnabled=settings.zipline_available
+    )
+
+
+async def ingest_preview(request: Request, source: FilePath) -> None:
+    size = 0
+    with source.open("wb") as output:
+        async with asyncio.timeout(30):
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > settings.media_export_max_bytes:
+                    raise HTTPException(413, "Preview exceeds export size limit")
+                await owned_thread(output.write, chunk)
+    if not size:
+        raise HTTPException(400, "Preview is empty")
+
+
+@router.post("/upload")
+async def upload_highlight(
+    request: Request,
+    format: Literal["mp4", "webm"] = Query("mp4"),
+    user: TokenPayload = Depends(get_current_user),
+) -> dict[str, str]:
+    """Upload already prepared media; disabled requests never ingest or contact Zipline."""
+    if not settings.zipline_available:
+        raise HTTPException(503, "Zipline uploads are disabled or not configured")
+    content_type = f"video/{format}"
+    if request.headers.get("content-type", "").split(";")[0] != content_type:
+        raise HTTPException(415, f"Expected {content_type}")
+    with (
+        export_budget.slot(user.sub),
+        tempfile.TemporaryDirectory(prefix="highlight-upload-") as directory,
+    ):
+        source = FilePath(directory) / f"clip.{format}"
+        try:
+            await ingest_preview(request, source)
+            await media_duration(source)
+            filename = f"highlight-{datetime.now().strftime('%Y-%m-%dT%H-%M-%S')}.{format}"
+            return await upload_clip(source, filename, content_type)
+        except TimeoutError:
+            raise HTTPException(408, "Clip upload to the viewer timed out") from None
+        except (OSError, ValueError):
+            raise HTTPException(400, "Unable to read clip") from None
 
 
 @router.get("/status/{channel_id}", response_model=HighlightStatusResponse)
@@ -83,6 +129,7 @@ async def get_highlight_status(
     return HighlightStatusResponse(
         enabled=status["enabled"],
         recording=status["recording"],
+        ready=status.get("ready", False),
         bufferSeconds=status.get("bufferSeconds", 0),
         maxBufferSeconds=status.get("maxBufferSeconds", settings.highlight_buffer_seconds),
     )
@@ -108,24 +155,16 @@ async def export_preview(
         tempfile.TemporaryDirectory(prefix="highlight-preview-") as directory,
     ):
         source = FilePath(directory) / "preview.mp4"
-        size = 0
         try:
-            # Reserve before ingestion and bound both byte count and upload time.
-            with source.open("wb") as output:
-                async with asyncio.timeout(30):
-                    async for chunk in request.stream():
-                        size += len(chunk)
-                        if size > settings.media_export_max_bytes:
-                            raise HTTPException(413, "Preview exceeds export size limit")
-                        await owned_thread(output.write, chunk)
-            if not size:
-                raise HTTPException(400, "Preview is empty")
+            await ingest_preview(request, source)
             video = await encode_file(
                 source, FilePath(directory) / f"export.{format}", format, start_time, end_time
             )
         except TimeoutError:
             raise HTTPException(408, "Preview upload or conversion timed out") from None
-        except (OSError, ValueError):
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+        except OSError:
             raise HTTPException(400, "Unable to convert preview") from None
     return Response(
         video,
@@ -142,10 +181,13 @@ async def save_highlight(
     channel_id: ChannelId = Path(..., description="Channel ID to save highlight for"),
     format: Literal["mp4", "webm"] = Query("mp4", description="Output format: mp4 or webm"),
     start_time: float | None = Query(
-        None, ge=0, description="Start time in seconds from beginning of buffer"
+        None,
+        ge=0,
+        allow_inf_nan=False,
+        description="Start time in seconds from beginning of buffer",
     ),
     end_time: float | None = Query(
-        None, ge=0, description="End time in seconds from beginning of buffer"
+        None, ge=0, allow_inf_nan=False, description="End time in seconds from beginning of buffer"
     ),
     user: TokenPayload = Depends(get_current_user),
 ) -> Response:

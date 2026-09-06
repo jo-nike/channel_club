@@ -2,40 +2,29 @@ import { useState, useEffect } from 'react'
 import { getHighlightStatus, type HighlightStatusResponse } from '@/services/api'
 
 const defaultStatus: HighlightStatusResponse = {
-  enabled: false,
-  recording: false,
-  bufferSeconds: 0,
-  maxBufferSeconds: 60,
+  enabled: false, recording: false, bufferSeconds: 0, maxBufferSeconds: 60,
 }
 
-/**
- * Poll highlight recording status for a channel.
- * Runs regardless of UI visibility to keep the backend recorder alive
- * and the buffer accumulating.
- */
+/** Poll independently of control visibility to keep the recorder alive. */
 export function useHighlightStatus(channelId: string | undefined): HighlightStatusResponse {
-  const [status, setStatus] = useState<HighlightStatusResponse>(defaultStatus)
-
+  const [result, setResult] = useState<{ channel: string; status: HighlightStatusResponse } | null>(null)
   useEffect(() => {
-    if (!channelId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setStatus(defaultStatus)
-      return
-    }
-
+    if (!channelId) return
+    const controller = new AbortController()
+    let pending = false
     const fetchStatus = async () => {
+      if (pending) return
+      pending = true
       try {
-        const result = await getHighlightStatus(channelId)
-        setStatus(result)
+        const status = await getHighlightStatus(channelId, controller.signal)
+        if (!controller.signal.aborted) setResult({ channel: channelId, status })
       } catch {
-        // Silently fail - status is informational
-      }
+        if (!controller.signal.aborted) setResult({ channel: channelId, status: defaultStatus })
+      } finally { pending = false }
     }
-
-    fetchStatus()
+    void fetchStatus()
     const interval = setInterval(fetchStatus, 5000)
-    return () => clearInterval(interval)
+    return () => { controller.abort(); clearInterval(interval) }
   }, [channelId])
-
-  return status
+  return result && result.channel === channelId ? result.status : defaultStatus
 }

@@ -97,7 +97,7 @@ describe('HighlightButton', () => {
   })
 
   describe('Hidden State', () => {
-    it('is hidden when not recording', () => {
+    it('is unavailable when not recording', () => {
       const notRecordingStatus: HighlightStatusResponse = {
         enabled: true,
         recording: false,
@@ -114,8 +114,15 @@ describe('HighlightButton', () => {
       )
 
       // Button should not be in the document when not recording
-      expect(screen.queryByRole('button')).not.toBeInTheDocument()
+      expect(screen.getByRole('button')).toBeDisabled()
+      expect(screen.getByRole('button')).toHaveAccessibleName('Clip unavailable')
     })
+  })
+
+  it('waits for a completed segment even when an incomplete buffer has seconds', () => {
+    render(<HighlightButton channelId="channel-1" isVisible highlightStatus={{ ...defaultStatus, ready: false }} />)
+    expect(screen.getByRole('button')).toBeDisabled()
+    expect(screen.getByRole('button')).toHaveAccessibleName('Buffering clip…')
   })
 
   describe('Styling', () => {

@@ -1,4 +1,5 @@
 from functools import cached_property
+from urllib.parse import urlsplit
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -78,6 +79,30 @@ class Settings(BaseSettings):
     # Disabled by default - requires FFmpeg in container
     highlight_enabled: bool = False
 
+    # Optional shared upload destination. Credentials never leave the backend.
+    zipline_enabled: bool = False
+    zipline_url: str = ""
+    zipline_token: str = ""
+
+    @property
+    def zipline_available(self) -> bool:
+        try:
+            url = urlsplit(self.zipline_url)
+            return bool(
+                self.highlight_enabled
+                and self.zipline_enabled
+                and self.zipline_token.strip()
+                and url.scheme in ("http", "https")
+                and url.hostname
+                and url.port != 0
+                and not url.username
+                and not url.password
+                and not url.query
+                and not url.fragment
+            )
+        except ValueError:
+            return False
+
     # Chat Feature
     # Enable real-time chat between connected users
     chat_enabled: bool = False
@@ -105,7 +130,8 @@ class Settings(BaseSettings):
     cast_temp_dir: str = "/tmp/cast_hls"  # Temp storage for HLS segments
     cast_session_timeout: int = 300  # Seconds without activity before cleanup
 
-    model_config = SettingsConfigDict(env_file=".env")
+    # The shared root dotenv also contains frontend/Compose settings.
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
 settings = Settings()

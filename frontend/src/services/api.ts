@@ -327,34 +327,31 @@ export async function loginWithPlex(authToken: string): Promise<TokenResponse> {
 
 export interface HighlightFeatureResponse {
   enabled: boolean
+  ziplineEnabled: boolean
 }
 
 export interface HighlightStatusResponse {
   enabled: boolean
   recording: boolean
+  ready?: boolean
   bufferSeconds: number
   maxBufferSeconds: number
 }
 
-export async function getHighlightFeatureEnabled(): Promise<boolean> {
-  logger.debug('API', 'Checking highlight feature status')
-
-  const response = await fetchWithAuth('/highlight/feature')
-
-  if (!response.ok) {
-    logger.error('API', `Failed to check highlight feature: ${response.status}`)
-    return false
-  }
-
-  const data: HighlightFeatureResponse = await response.json()
-  logger.debug('API', `Highlight feature enabled: ${data.enabled}`)
-  return data.enabled
+export async function getHighlightFeatures(signal?: AbortSignal): Promise<HighlightFeatureResponse> {
+  const response = await fetchWithAuth('/highlight/feature', { signal })
+  if (!response.ok) return { enabled: false, ziplineEnabled: false }
+  return response.json()
 }
 
-export async function getHighlightStatus(channelId: string): Promise<HighlightStatusResponse> {
+export async function getHighlightFeatureEnabled(): Promise<boolean> {
+  return (await getHighlightFeatures()).enabled
+}
+
+export async function getHighlightStatus(channelId: string, signal?: AbortSignal): Promise<HighlightStatusResponse> {
   logger.debug('API', `Fetching highlight status for channel: ${channelId}`)
 
-  const response = await fetchWithAuth(`/highlight/status/${channelId}`)
+  const response = await fetchWithAuth(`/highlight/status/${channelId}`, { signal })
 
   if (!response.ok) {
     logger.error('API', `Failed to fetch highlight status: ${response.status}`)
@@ -374,7 +371,8 @@ export interface TrimOptions {
 export async function saveHighlight(
   channelId: string,
   format: HighlightFormat = 'mp4',
-  trimOptions?: TrimOptions
+  trimOptions?: TrimOptions,
+  signal?: AbortSignal
 ): Promise<Blob> {
   logger.debug('API', `Saving highlight for channel: ${channelId} (format: ${format}, trim: ${JSON.stringify(trimOptions)})`)
 
@@ -397,6 +395,7 @@ export async function saveHighlight(
   const response = await fetch(`${API_URL}/highlight/${channelId}?${params}`, {
     method: 'POST',
     headers,
+    signal,
   })
 
   if (!response.ok) {
@@ -413,23 +412,38 @@ export async function saveHighlight(
 export async function exportHighlight(
   preview: Blob,
   format: HighlightFormat,
-  trimOptions?: TrimOptions
+  trimOptions?: TrimOptions,
+  signal?: AbortSignal
 ): Promise<Blob> {
   const params = new URLSearchParams({ format })
   if (trimOptions) {
-    params.set('start_time', String(trimOptions.startTime))
-    params.set('end_time', String(trimOptions.endTime))
+    if (trimOptions.startTime !== undefined) params.set('start_time', String(trimOptions.startTime))
+    if (trimOptions.endTime !== undefined) params.set('end_time', String(trimOptions.endTime))
   }
   const response = await fetchWithAuth(`/highlight/export?${params}`, {
     method: 'POST',
     headers: { 'Content-Type': 'video/mp4' },
     body: preview,
+    signal,
   })
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Failed to export highlight' }))
     throw new Error(error.detail || 'Failed to export highlight')
   }
   return response.blob()
+}
+
+export interface UploadedHighlight { url: string; name: string }
+
+export async function uploadHighlight(clip: Blob, format: HighlightFormat, signal?: AbortSignal): Promise<UploadedHighlight> {
+  const response = await fetchWithAuth(`/highlight/upload?format=${format}`, {
+    method: 'POST', headers: { 'Content-Type': `video/${format}` }, body: clip, signal,
+  })
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Upload failed. Check Zipline before retrying.' }))
+    throw new Error(error.detail || 'Upload failed. Check Zipline before retrying.')
+  }
+  return response.json()
 }
 
 export async function saveHighlightWebM(channelId: string): Promise<Blob> {

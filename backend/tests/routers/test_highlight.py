@@ -36,11 +36,12 @@ class TestGetFeatureStatus:
         """Returns enabled=false when feature disabled."""
         with patch("app.routers.highlight.settings") as mock_settings:
             mock_settings.highlight_enabled = False
+            mock_settings.zipline_available = False
 
             response = client.get("/api/highlight/feature", headers=auth_header)
 
         assert response.status_code == 200
-        assert response.json() == {"enabled": False}
+        assert response.json() == {"enabled": False, "ziplineEnabled": False}
 
     def test_returns_enabled_true_when_enabled(
         self, client: TestClient, auth_header: dict[str, str]
@@ -48,11 +49,12 @@ class TestGetFeatureStatus:
         """Returns enabled=true when feature enabled."""
         with patch("app.routers.highlight.settings") as mock_settings:
             mock_settings.highlight_enabled = True
+            mock_settings.zipline_available = False
 
             response = client.get("/api/highlight/feature", headers=auth_header)
 
         assert response.status_code == 200
-        assert response.json() == {"enabled": True}
+        assert response.json() == {"enabled": True, "ziplineEnabled": False}
 
 
 class TestGetHighlightStatus:
