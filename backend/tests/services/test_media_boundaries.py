@@ -16,6 +16,61 @@ from app.routers.highlight import router
 from app.services.highlight import ChannelRecorder, remove_recording_directory
 
 
+@pytest.fixture(autouse=True)
+def empty_grouped_catalog():
+    from app.models.channel import GroupedChannelsResponse
+
+    with patch(
+        "app.services.media_source.get_grouped_channels",
+        AsyncMock(return_value=GroupedChannelsResponse()),
+    ):
+        yield
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ungrouped", [False, True])
+async def test_picker_catalog_resolves_without_hdhr_or_ersatz(ungrouped):
+    from app.models.channel import Channel, ChannelGroupWithChannels, GroupedChannelsResponse
+    from app.services.media_source import resolve_media_channel
+
+    channel = Channel(id="picker", name="Trusted", streamUrl="https://source/ts", guideId="194")
+    catalog = GroupedChannelsResponse(
+        groups=[]
+        if ungrouped
+        else [ChannelGroupWithChannels(id=1, name="Canada", channelCount=1, channels=[channel])],
+        ungrouped=[channel] if ungrouped else [],
+    )
+    with (
+        patch("app.services.media_source.get_grouped_channels", AsyncMock(return_value=catalog)),
+        patch(
+            "app.services.media_source.get_lineup", AsyncMock(side_effect=RuntimeError("403"))
+        ) as lineup,
+        patch(
+            "app.services.media_source.get_channel_by_id", side_effect=RuntimeError("offline")
+        ) as ersatz,
+    ):
+        source = await resolve_media_channel(channel.id)
+        assert source.channel == channel
+        assert source.stream_type == "mpegts"
+        lineup.assert_not_called()
+        ersatz.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_grouped_outage_keeps_lineup_fallback():
+    from app.models.channel import Channel
+    from app.services.media_source import resolve_media_channel
+
+    channel = Channel(id="lineup", name="Trusted", streamUrl="https://source/ts", guideId="194")
+    with (
+        patch(
+            "app.services.media_source.get_grouped_channels", AsyncMock(side_effect=RuntimeError)
+        ),
+        patch("app.services.media_source.get_lineup", AsyncMock(return_value=[channel])),
+    ):
+        assert (await resolve_media_channel(channel.id)).channel == channel
+
+
 @pytest.mark.parametrize("identifier", ["", " ", ".", "..", "/tmp/victim", "a/../b", "a\\b"])
 def test_channel_json_rejects_paths(identifier):
     with pytest.raises(ValueError):

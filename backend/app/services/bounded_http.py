@@ -46,9 +46,14 @@ def fetch_feed(url: str, timeout: float = BODY_SECONDS) -> httpx.Response:
             if monotonic() > deadline or len(data) + len(chunk) > FEED_BYTES:
                 raise ValueError("Feed exceeds byte/time budget")
             data.extend(chunk)
+        # iter_bytes() has already decoded Content-Encoding. Reusing the wire
+        # headers would decode again and retain the compressed body's length.
+        headers = response.headers.copy()
+        for name in ("content-encoding", "content-length", "transfer-encoding"):
+            headers.pop(name, None)
         return httpx.Response(
             response.status_code,
-            headers=response.headers,
+            headers=headers,
             content=bytes(data),
             request=response.request,
         )
