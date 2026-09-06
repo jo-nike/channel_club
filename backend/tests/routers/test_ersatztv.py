@@ -304,7 +304,7 @@ class TestHeadStream:
 class TestGetStream:
     """Tests for GET /api/ersatztv/stream/{channel_id} endpoint."""
 
-    @pytest.mark.parametrize("failure", ["json", "html", "timeout", "exhausted"])
+    @pytest.mark.parametrize("failure", ["json", "html", "timeout", "exhausted", "late", "empty"])
     def test_cold_start_retries_before_manifest_validation(
         self, client: TestClient, auth_header: dict[str, str], mock_channel: EPGChannel, failure
     ) -> None:
@@ -320,11 +320,18 @@ class TestGetStream:
 
         def upstream(request):
             calls.append(request)
-            if len(calls) == 1 or failure == "exhausted":
+            if (
+                failure in {"late", "empty"}
+                and len(calls) <= 6
+                or len(calls) == 1
+                or failure == "exhausted"
+            ):
                 if failure == "timeout":
                     raise httpx.ReadTimeout("cold start", request=request)
+                if failure == "empty":
+                    return httpx.Response(200, text="")
                 response = httpx.Response(
-                    503,
+                    404 if failure == "late" else 503,
                     headers={
                         "Content-Type": "application/json" if failure == "json" else "text/html"
                     },
@@ -358,14 +365,41 @@ class TestGetStream:
         assert all(r.is_closed for r in error_responses)
         if failure == "exhausted":
             assert response.status_code == 503
-            assert len(calls) == 5
-            assert sleep.await_count == 4
+            assert len(calls) == 8
+            assert sleep.await_count == 7
         else:
             assert response.status_code == 200
             assert response.text.startswith("#EXTM3U")
             assert "/api/ersatztv/segments/" in response.text
-            assert len(calls) == 2
-            sleep.assert_awaited_once_with(0.5)
+            if failure in {"late", "empty"}:
+                assert len(calls) == 7
+                assert sum(call.args[0] for call in sleep.await_args_list) == 15.5
+            else:
+                assert len(calls) == 2
+                sleep.assert_awaited_once_with(0.5)
+
+    def test_startup_wall_timeout_cancels_pending_fetch(
+        self, client: TestClient, auth_header: dict[str, str], mock_channel: EPGChannel
+    ) -> None:
+        import asyncio
+
+        cancelled = []
+
+        async def stalled(*args, **kwargs):
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.append(True)
+
+        with (
+            patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel),
+            patch("app.routers.ersatztv.STREAM_STARTUP_SECONDS", 0.01),
+            patch("app.routers.ersatztv.fetch_ersatztv", AsyncMock(side_effect=stalled)) as fetch,
+        ):
+            response = client.get("/api/ersatztv/stream/comedy-classics", headers=auth_header)
+        assert response.status_code == 503
+        assert cancelled == [True]
+        fetch.assert_awaited_once()
 
     def test_requires_authentication(self, client: TestClient) -> None:
         """Unauthenticated request returns 401."""

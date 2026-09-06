@@ -37,6 +37,9 @@ from app.services.logo_proxy import fetch_logo
 router = APIRouter(prefix="/api/ersatztv", tags=["ersatztv"])
 log = logger.bind(router="ersatztv")
 
+STREAM_STARTUP_SECONDS = 30
+STREAM_STARTUP_ATTEMPTS = 8
+
 # Cap on a proxied segment body so a hostile or oversized upstream response
 # cannot exhaust process memory. HLS segments are seconds of video.
 MAX_SEGMENT_BYTES = 64 * 1024 * 1024
@@ -161,30 +164,35 @@ async def get_stream(
         # hop against the allowlist; an off-host redirect raises ValueError,
         # which propagates to the outer handler as a 503 rather than being
         # retried.
-        async with httpx.AsyncClient(follow_redirects=False, timeout=10) as client:
+        async with (
+            asyncio.timeout(STREAM_STARTUP_SECONDS),
+            httpx.AsyncClient(follow_redirects=False, timeout=10) as client,
+        ):
             last_error: Exception | None = None
             response: httpx.Response | None = None
 
-            for attempt in range(5):
+            for attempt in range(STREAM_STARTUP_ATTEMPTS):
                 try:
                     response = await fetch_ersatztv(client, manifest_url, stream=False)
                     response.raise_for_status()
                     if response.text.strip():  # Got valid content
                         break
-                except (httpx.HTTPStatusError, httpx.TransportError) as e:
+                except (httpx.HTTPStatusError, httpx.TransportError, TimeoutError) as e:
                     last_error = e
-                    if attempt < 4:
-                        delay = 0.5 * (2**attempt)  # 0.5s, 1s, 2s, 4s
-                        log.debug(
-                            "Stream retry {}/{} for {}, waiting {}s",
-                            attempt + 1,
-                            5,
-                            channel_id,
-                            delay,
-                        )
-                        await asyncio.sleep(delay)
+                if attempt < STREAM_STARTUP_ATTEMPTS - 1:
+                    # A cold nested playlist may need three four-second
+                    # segments before it exists. Also back off empty 200s.
+                    delay = min(0.5 * (2**attempt), 4)
+                    log.debug(
+                        "Stream retry {}/{} for {}, waiting {}s",
+                        attempt + 1,
+                        STREAM_STARTUP_ATTEMPTS,
+                        channel_id,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
             else:
-                log.warning("Stream unavailable after 5 retries for {}", channel_id)
+                log.warning("Stream startup retries exhausted for {}", channel_id)
                 raise HTTPException(
                     status_code=503, detail="Stream unavailable - cold start timeout"
                 ) from last_error
