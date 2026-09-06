@@ -96,7 +96,7 @@ async def websocket_endpoint(
     log.info("WebSocket connected: client {} (user={})", client_id, payload.get("sub"))
 
     # Track the accepted connection
-    await channel_state.connect(websocket)
+    await channel_state.connect(websocket, owner=asyncio.current_task())
 
     # Track user presence
     view_type = "ersatztv" if view == "ersatztv" else "live"

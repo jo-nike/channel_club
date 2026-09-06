@@ -816,3 +816,51 @@ async def test_sec06_verified_payload_retains_signed_expiry(valid_token):
     payload = await websocket_router.verify_websocket_token(valid_token)
     assert payload is not None
     assert payload["exp"] == verify_token(valid_token).exp.timestamp()
+
+
+async def test_sec07_failed_broadcast_closes_and_cleans_endpoint(monkeypatch, valid_token):
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    from fastapi.websockets import WebSocketState
+
+    ws = MagicMock()
+    ws.application_state = WebSocketState.CONNECTED
+    ws.accept = AsyncMock()
+    ws.close = AsyncMock()
+    ws.send_json = AsyncMock()
+    ws.send_text = AsyncMock(side_effect=TimeoutError)
+    ws.receive_text = AsyncMock(side_effect=lambda: asyncio.sleep(3600))
+
+    # AsyncMock does not await returned awaitables; use an actual blocking receive.
+    async def receive():
+        await asyncio.Event().wait()
+
+    ws.receive_text = receive
+    cleanup = MagicMock(wraps=presence.remove_user)
+    monkeypatch.setattr(presence, "remove_user", cleanup)
+    task = asyncio.create_task(
+        websocket_router.websocket_endpoint(ws, valid_token, "live", "failed")
+    )
+    for _ in range(20):
+        await asyncio.sleep(0)
+        if channel_state.get_connection_count():
+            break
+    await websocket_router.handle_client_message(
+        ws, {"type": "set_nickname", "nickname": "temp"}, "failed", "user"
+    )
+    healthy = MagicMock()
+    healthy.application_state = WebSocketState.CONNECTED
+    healthy.send_text = AsyncMock()
+    await channel_state.connect(healthy)
+    await channel_state.broadcast({"type": "channel_update", "channel": None})
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    ws.close.assert_awaited_once_with(code=1011, reason="Broadcast failed; reconnect")
+    cleanup.assert_called_once_with("failed", ws)
+    assert "failed" not in presence._active_users
+    assert "failed" not in websocket_router._nickname_map
+    await channel_state.broadcast({"type": "resynchronized"})
+    assert healthy.send_text.await_count == 2
+    assert ws.send_text.await_count == 1
+    channel_state.disconnect(healthy)

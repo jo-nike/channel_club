@@ -25,6 +25,7 @@ BROADCAST_SEND_TIMEOUT_SECONDS = 5.0
 # In-memory state - resets on restart (acceptable for MVP)
 _current_channel: Channel | None = None
 _active_connections: set[WebSocket] = set()
+_connection_owners: dict[WebSocket, asyncio.Task] = {}
 
 
 def get_current_channel() -> Channel | None:
@@ -109,7 +110,7 @@ async def clear_current_channel_async(user: str | None = None) -> None:
     await broadcast({"type": "channel_update", "channel": None})
 
 
-async def connect(websocket: WebSocket) -> None:
+async def connect(websocket: WebSocket, owner: asyncio.Task | None = None) -> None:
     """Accept (if not already accepted) and track a WebSocket connection.
 
     Callers that need to send a custom close code on auth failure accept the
@@ -122,6 +123,8 @@ async def connect(websocket: WebSocket) -> None:
     if websocket.application_state == WebSocketState.CONNECTING:
         await websocket.accept()
     _active_connections.add(websocket)
+    if owner is not None:
+        _connection_owners[websocket] = owner
     log.debug("WebSocket connected, total connections: {}", len(_active_connections))
 
 
@@ -132,6 +135,7 @@ def disconnect(websocket: WebSocket) -> None:
         websocket: The WebSocket connection to remove.
     """
     _active_connections.discard(websocket)
+    _connection_owners.pop(websocket, None)
     log.debug("WebSocket disconnected, remaining connections: {}", len(_active_connections))
 
 
@@ -180,10 +184,31 @@ async def broadcast(message: dict) -> None:
         return_exceptions=True,
     )
 
-    # Remove failed connections
-    for result in results:
-        if isinstance(result, tuple) and not result[1]:
-            _active_connections.discard(result[0])
+    async def close_failed(ws: WebSocket) -> None:
+        if ws not in _active_connections:
+            return  # Another overlapping broadcast already owns cleanup.
+        owner = _connection_owners.get(ws)
+        disconnect(ws)
+        try:
+            await asyncio.wait_for(
+                ws.close(code=1011, reason="Broadcast failed; reconnect"),
+                timeout=BROADCAST_SEND_TIMEOUT_SECONDS,
+            )
+        except Exception:
+            log.debug("Failed connection transport could not close")
+        finally:
+            # Closing an ASGI socket need not unblock receive immediately.
+            # Cancel its owning endpoint so presence/nickname cleanup always runs.
+            if owner is not None and not owner.done():
+                owner.cancel()
+
+    await asyncio.gather(
+        *(
+            close_failed(result[0])
+            for result in results
+            if isinstance(result, tuple) and not result[1]
+        )
+    )
 
 
 def get_connection_count() -> int:
