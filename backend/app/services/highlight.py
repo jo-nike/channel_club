@@ -110,6 +110,8 @@ class ChannelRecorder:
                 segment_list,
                 "-segment_list_type",
                 "flat",
+                "-segment_list_size",
+                str((settings.highlight_buffer_seconds // settings.highlight_segment_seconds) + 1),
                 "-segment_wrap",
                 str(
                     (settings.highlight_buffer_seconds // settings.highlight_segment_seconds) + 2
