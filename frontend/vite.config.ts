@@ -14,22 +14,14 @@ export default defineConfig({
       workbox: {
         // Precache app shell assets
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        importScripts: ['/sw-migration.js'],
 
         // Runtime caching strategies
         runtimeCaching: [
           {
-            // API calls - network first with cache fallback
-            // Excludes WebSocket connections
-            urlPattern: /^https?:\/\/[^/]+\/api\/(?!ws).*/,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'api-cache',
-              expiration: {
-                maxEntries: 50,
-                maxAgeSeconds: 60 * 5, // 5 minutes
-              },
-              networkTimeoutSeconds: 10,
-            },
+            // Match before file extensions so API data always uses server authorization.
+            urlPattern: /^https?:\/\/[^/]+\/api(?:\/|$)/,
+            handler: 'NetworkOnly',
           },
           {
             // Static assets - cache first (versioned by build)
@@ -60,12 +52,7 @@ export default defineConfig({
         // Navigate fallback for SPA routing
         navigateFallback: '/index.html',
         // Exclude streams and WebSocket from navigation fallback
-        navigateFallbackDenylist: [
-          /^\/api\/ws/,
-          /^\/api\/ersatztv\/stream/,
-          /^\/api\/ersatztv\/segments/,
-          /^blob:/,
-        ],
+        navigateFallbackDenylist: [/^\/api(?:\/|$)/],
       },
       manifest: {
         name: "Jon's Place IPTV",
