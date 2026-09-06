@@ -49,7 +49,10 @@ export function usePlexQRAuth(options: UsePlexQRAuthOptions = {}): UsePlexQRAuth
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const startTimeRef = useRef<number>(0)
 
+  const generation = useRef(0)
+
   const cleanup = useCallback(() => {
+    generation.current += 1
     if (pollIntervalRef.current) {
       clearInterval(pollIntervalRef.current)
       pollIntervalRef.current = null
@@ -82,10 +85,22 @@ export function usePlexQRAuth(options: UsePlexQRAuthOptions = {}): UsePlexQRAuth
   const start = useCallback(async () => {
     logger.debug('PlexQRAuth', 'Starting QR authentication flow')
     cleanup()
+    const attempt = generation.current
+    const current = () => generation.current === attempt
     setError(null)
     setStatus('polling')
     setTimeRemaining(Math.floor(timeout / 1000))
     startTimeRef.current = Date.now()
+
+    timeoutRef.current = setTimeout(() => {
+      if (!current()) return
+      cleanup()
+      setStatus('timeout')
+      setTimeRemaining(0)
+      const timeoutError = new Error('Authentication timed out')
+      setError(timeoutError)
+      onError?.(timeoutError)
+    }, timeout)
 
     try {
       // Create both PINs in parallel:
@@ -96,6 +111,7 @@ export function usePlexQRAuth(options: UsePlexQRAuthOptions = {}): UsePlexQRAuth
         createPlexPin(false),
       ])
 
+      if (!current()) return
       setPin(strongPin)
       setShortPin(manualPin)
 
@@ -112,7 +128,8 @@ export function usePlexQRAuth(options: UsePlexQRAuthOptions = {}): UsePlexQRAuth
       }, 1000)
 
       // Start polling both PINs for auth completion
-      pollIntervalRef.current = setInterval(async () => {
+      const poll = async () => {
+        if (!current()) return
         try {
           // Poll both PINs - user might scan QR or enter short code
           const [strongToken, shortToken] = await Promise.all([
@@ -120,6 +137,7 @@ export function usePlexQRAuth(options: UsePlexQRAuthOptions = {}): UsePlexQRAuth
             checkPlexPin(manualPin.id),
           ])
 
+          if (!current()) return
           const authToken = strongToken || shortToken
           if (authToken) {
             logger.info('PlexQRAuth', `Authentication successful via ${strongToken ? 'QR' : 'manual PIN'}`)
@@ -131,18 +149,11 @@ export function usePlexQRAuth(options: UsePlexQRAuthOptions = {}): UsePlexQRAuth
           // Continue polling on transient errors
           logger.debug('PlexQRAuth', 'Poll error, continuing', pollError)
         }
-      }, pollInterval)
-
-      // Set timeout
-      timeoutRef.current = setTimeout(() => {
-        logger.error('PlexQRAuth', 'Authentication timed out')
-        cleanup()
-        setStatus('timeout')
-        const timeoutError = new Error('Authentication timed out')
-        setError(timeoutError)
-        onError?.(timeoutError)
-      }, timeout)
+        if (current()) pollIntervalRef.current = setTimeout(poll, pollInterval)
+      }
+      pollIntervalRef.current = setTimeout(poll, pollInterval)
     } catch (startError) {
+      if (!current()) return
       logger.error('PlexQRAuth', 'Failed to start authentication', startError)
       cleanup()
       setStatus('error')

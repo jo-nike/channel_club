@@ -423,3 +423,68 @@ describe('usePlexQRAuth', () => {
     })
   })
 })
+
+describe('FE-03 attempt ownership', () => {
+  beforeEach(() => { vi.clearAllMocks(); vi.useFakeTimers() })
+  afterEach(() => vi.useRealTimers())
+  it.each(['cancel', 'unmount', 'timeout', 'retry'])('ignores creation completing after %s', async (action) => {
+    let resolve!: (pin: plexAuth.PlexPin) => void
+    const pending = new Promise<plexAuth.PlexPin>((done) => { resolve = done })
+    vi.mocked(plexAuth.createPlexPin).mockReturnValue(pending)
+    const onSuccess = vi.fn()
+    const { result, unmount } = renderHook(() => usePlexQRAuth({ timeout: 1000, onSuccess }))
+    let starting!: Promise<void>
+    act(() => { starting = result.current.start() })
+    if (action === 'unmount') unmount()
+    else if (action === 'timeout') await act(() => vi.advanceTimersByTimeAsync(1000))
+    else act(() => result.current.cancel())
+    if (action === 'retry') {
+      vi.mocked(plexAuth.createPlexPin).mockResolvedValue({ id: 2, code: 'new', authToken: null })
+      await act(() => result.current.start())
+    }
+    await act(async () => { resolve({ id: 1, code: 'old', authToken: null }); await starting })
+    expect(onSuccess).not.toHaveBeenCalled()
+    if (action === 'retry') expect(result.current.pin?.id).toBe(2)
+    else expect(vi.getTimerCount()).toBe(0)
+    unmount()
+  })
+  it('serializes slow polls and ignores late authentication after cancellation', async () => {
+    vi.mocked(plexAuth.createPlexPin).mockResolvedValue({ id: 1, code: 'pin', authToken: null })
+    let resolve!: (token: string) => void
+    vi.mocked(plexAuth.checkPlexPin).mockReturnValue(new Promise((done) => { resolve = done }))
+    const onSuccess = vi.fn()
+    const { result } = renderHook(() => usePlexQRAuth({ onSuccess }))
+    await act(() => result.current.start())
+    await act(() => vi.advanceTimersByTimeAsync(10000))
+    expect(plexAuth.checkPlexPin).toHaveBeenCalledTimes(2)
+    act(() => result.current.cancel())
+    await act(async () => resolve('abandoned'))
+    expect(onSuccess).not.toHaveBeenCalled()
+    expect(result.current.status).toBe('idle')
+    expect(vi.getTimerCount()).toBe(0)
+  })
+  it.each(['timeout', 'retry', 'unmount'])('invalidates an in-flight PIN poll on %s', async (action) => {
+    vi.mocked(plexAuth.createPlexPin).mockResolvedValue({ id: 1, code: 'pin', authToken: null })
+    let finish!: (token: string) => void
+    vi.mocked(plexAuth.checkPlexPin).mockReturnValue(new Promise((resolve) => { finish = resolve }))
+    const onSuccess = vi.fn()
+    const { result, unmount } = renderHook(() => usePlexQRAuth({ onSuccess, timeout: 5000, pollInterval: 1000 }))
+    await act(() => result.current.start())
+    await act(() => vi.advanceTimersByTimeAsync(1000))
+    if (action === 'timeout') await act(() => vi.advanceTimersByTimeAsync(4000))
+    else if (action === 'unmount') unmount()
+    else {
+      vi.mocked(plexAuth.createPlexPin).mockResolvedValue({ id: 2, code: 'replacement', authToken: null })
+      vi.mocked(plexAuth.checkPlexPin).mockResolvedValue('replacement-token')
+      await act(() => result.current.start())
+    }
+    await act(async () => finish('abandoned-token'))
+    expect(onSuccess).not.toHaveBeenCalled()
+    if (action === 'retry') {
+      await act(() => vi.advanceTimersByTimeAsync(1000))
+      expect(onSuccess).toHaveBeenCalledExactlyOnceWith('replacement-token')
+    } else expect(vi.getTimerCount()).toBe(0)
+    unmount()
+  })
+
+})
