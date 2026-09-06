@@ -97,6 +97,10 @@ def parse_xmltv() -> list[Programme]:
     Raises:
         Exception: If fetch fails and no cached data available
     """
+    if _cache.get("retry_at") and datetime.now() < _cache["retry_at"]:
+        if _cache["last_successful_fetch"] is not None:
+            return _cache["programmes"]
+        raise RuntimeError("Feed temporarily unavailable")
     if not _is_cache_expired():
         log.debug("Cache hit for XMLTV data")
         return _cache["programmes"]
@@ -117,6 +121,7 @@ def parse_xmltv() -> list[Programme]:
         return programmes
 
     except Exception as e:
+        _cache["retry_at"] = datetime.now() + timedelta(seconds=5)
         log.error("Failed to fetch XMLTV: {}", e)
         if _cache["last_successful_fetch"] is not None:
             log.warning("Returning stale XMLTV cached data after fetch failure")
@@ -196,5 +201,7 @@ def _parse_xmltv_content(content: str) -> list[Programme]:
 
 def clear_cache() -> None:
     """Clear XMLTV cache, forcing re-fetch on next request."""
+    parse_xmltv.__dict__["reset_failure"]()
+    _cache["retry_at"] = None
     _cache["timestamp"] = None
     log.info("XMLTV cache cleared")

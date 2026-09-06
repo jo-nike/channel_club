@@ -7,7 +7,7 @@ Story: 7.2 - M3U Parser Service
 """
 
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import httpx
 from loguru import logger
@@ -52,6 +52,10 @@ def parse_m3u_playlist() -> list[EPGChannel]:
         Exception: If fetch fails and no cached data available
     """
     # Check cache
+    if _cache.get("retry_at") and datetime.now() < _cache["retry_at"]:
+        if _cache["last_successful_fetch"] is not None:
+            return _cache["channels"]
+        raise RuntimeError("Feed temporarily unavailable")
     if not _is_cache_expired():
         log.debug("Cache hit for M3U data")
         return _cache["channels"]
@@ -73,6 +77,7 @@ def parse_m3u_playlist() -> list[EPGChannel]:
         return channels
 
     except Exception as e:
+        _cache["retry_at"] = datetime.now() + timedelta(seconds=5)
         log.error("Failed to fetch M3U: {}", e)
         if _cache["last_successful_fetch"] is not None:
             log.warning("Returning stale M3U cached data after fetch failure")
@@ -158,5 +163,7 @@ def _extract_attr(line: str, attr_name: str) -> str | None:
 
 def clear_cache() -> None:
     """Clear M3U cache, forcing re-fetch on next request."""
+    parse_m3u_playlist.__dict__["reset_failure"]()
+    _cache["retry_at"] = None
     _cache["timestamp"] = None
     log.info("M3U cache cleared")

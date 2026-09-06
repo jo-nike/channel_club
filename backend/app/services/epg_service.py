@@ -30,6 +30,7 @@ class EPGService:
         self._cache_ttl = timedelta(hours=24)
         # A single in-flight lock prevents thundering herd on expiry
         self._refresh_lock = asyncio.Lock()
+        self._retry_at: datetime | None = None
 
     def _is_cache_valid(self) -> bool:
         """Check if cache is still valid."""
@@ -186,7 +187,12 @@ class EPGService:
             if self._is_cache_valid():
                 return
 
+            if self._retry_at is not None and datetime.now(UTC) < self._retry_at:
+                if self._cache:
+                    return
+                raise EPGServiceError("EPG service unavailable; retry later")
             refresh_success = await self.refresh_cache()
+            self._retry_at = None if refresh_success else datetime.now(UTC) + timedelta(seconds=5)
 
         if not refresh_success:
             # If refresh failed but we have stale cache, use it

@@ -25,4 +25,10 @@ def serialized_refresh(function):
                 retry_at = monotonic() + 5
                 raise
 
+    def reset_failure():
+        nonlocal retry_at, failure
+        with lock:
+            retry_at, failure = 0.0, None
+
+    wrapped.__dict__["reset_failure"] = reset_failure
     return wrapped
