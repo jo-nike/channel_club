@@ -1,5 +1,5 @@
 # Production compose for the IPTV viewer. This file is canonical: CI renders
-# ${APP_VERSION:-latest} to the concrete release tag, scp's the result to
+# ${IMAGE_REFERENCE:?Immutable image digest required} to the pushed registry digest, scp's the result to
 # plex-stack at /srv/channel-club/docker-compose.yaml,
 # and runs `docker compose up -d` there.
 #
@@ -12,7 +12,7 @@
 # until those secrets and a host template exist, so CI asserts the file is
 # present before deploying rather than starting with empty variables.
 #
-# The CI render is a literal string replace of "${APP_VERSION:-latest}", so
+# The CI render is a literal string replace of "${IMAGE_REFERENCE:?Immutable image digest required}", so
 # that expression must be written exactly that way.
 
 x-logging: &bounded-logging
@@ -23,7 +23,7 @@ x-logging: &bounded-logging
 
 services:
   iptv-viewer:
-    image: gitea.example.com/jons-org/iptv-viewer:${APP_VERSION:-latest}
+    image: ${IMAGE_REFERENCE:?Immutable image digest required}
     container_name: iptv-viewer
     ports:
       - "8334:8080"

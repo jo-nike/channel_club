@@ -4,12 +4,12 @@
 # push to master:
 #   test-backend + test-frontend + security (parallel) → release:
 #     build the image → scan it → push to gitea.example.com (CalVer+SHA tag, e.g.
-#     2026.08.14-a1b2c3d) → render stack/docker-compose.yaml with
-#     the pinned tag → scp to plex-stack at
+#     2026.08.14-a1b2c3d-<build ID>) → render stack/docker-compose.yaml with
+#     the registry digest → scp to plex-stack at
 #     /srv/channel-club → docker compose up -d → poll
 #     /api/health until the NEW version reports healthy.
 #
-# Rollback: re-deploy an earlier immutable tag from the registry. No git tag is
+# Rollback: restore a recorded image digest under the deployment-host lock. No git tag is
 # pushed — the version string already embeds the short commit SHA, so the source
 # commit for any running build is recoverable from `docker ps` or /api/health.
 # That keeps a repo-write credential out of the pipeline entirely.
@@ -176,10 +176,10 @@ jobs:
         with:
           fetch-depth: 0 # host validates source ancestry before accepting a release
 
-      - name: Compute version (CalVer + short SHA)
+      - name: Compute unique build version (CalVer + source + random build ID)
         id: ver
         run: |
-          VERSION="$(date -u +%Y.%m.%d)-$(git rev-parse --short=7 HEAD)"
+          VERSION="$(date -u +%Y.%m.%d)-$(git rev-parse --short=7 HEAD)-$(python3 -c 'import secrets; print(secrets.token_hex(8))')"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Version: $VERSION"
 
@@ -225,14 +225,19 @@ jobs:
           trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed \
             --exit-code 1 "$IMAGE:$VERSION"
 
-      - name: Push image
+      - name: Push image and resolve immutable digest
+        id: artifact
         run: |
           VERSION="${{ steps.ver.outputs.version }}"
           docker push "$IMAGE:$VERSION"
+          docker image inspect "$IMAGE:$VERSION" --format '{{json .RepoDigests}}' > /tmp/repo-digests.json
+          IMAGE_REFERENCE=$(python3 -c 'import json,sys; refs=[r for r in json.load(open("/tmp/repo-digests.json")) if r.startswith(sys.argv[1]+"@sha256:")]; assert len(refs)==1, "Expected one pushed digest"; print(refs[0])' "$IMAGE")
+          echo "image_reference=$IMAGE_REFERENCE" >> "$GITHUB_OUTPUT"
 
       - name: Deploy to plex-stack
         run: |
           VERSION="${{ steps.ver.outputs.version }}"
+          IMAGE_REFERENCE="${{ steps.artifact.outputs.image_reference }}"
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
@@ -256,12 +261,12 @@ jobs:
           # by the host helper while holding its lock through health verification.
           STAGING=$($SSH "$REMOTE" "mktemp -d '$DEPLOY_DIR/.release.XXXXXXXX'")
           trap '$SSH "$REMOTE" "rm -rf -- \"$STAGING\""' EXIT
-          sed "s#\${APP_VERSION:-latest}#$VERSION#g" stack/docker-compose.yaml > /tmp/rendered-compose.yaml
+          sed "s#\${IMAGE_REFERENCE:?Immutable image digest required}#$IMAGE_REFERENCE#g" stack/docker-compose.yaml > /tmp/rendered-compose.yaml
           git rev-list HEAD > /tmp/source-history
           scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes /tmp/rendered-compose.yaml "$REMOTE:$STAGING/docker-compose.yaml"
           scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes /tmp/source-history scripts/deploy_release.py "$REMOTE:$STAGING/"
-          $SSH "$REMOTE" "python3 '$STAGING/deploy_release.py' '$DEPLOY_DIR' '$STAGING' '$(git rev-parse HEAD)' '$VERSION' '$HEALTH_URL'"
+          $SSH "$REMOTE" "python3 '$STAGING/deploy_release.py' '$DEPLOY_DIR' '$STAGING' '$(git rev-parse HEAD)' '$VERSION' '$HEALTH_URL' '$IMAGE_REFERENCE'"
 
       - name: Cleanup deploy key
         if: always()
-        run: rm -f ~/.ssh/deploy_key /tmp/rendered-compose.yaml /tmp/source-history
+        run: rm -f ~/.ssh/deploy_key /tmp/rendered-compose.yaml /tmp/source-history /tmp/repo-digests.json

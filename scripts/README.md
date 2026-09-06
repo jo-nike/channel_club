@@ -24,3 +24,20 @@ requirements; the application health endpoint remains the check.
 Regression tests run independent local processes against temporary deployment
 directories and replace Docker/health actions with controlled functions. They do
 not connect to the deployment host or claim a production rollout.
+
+Each build receives a fresh random build identifier in `APP_VERSION`, even for
+same-day reruns of the same commit. CI resolves the digest after pushing the
+scanned image and installs `repository@sha256:...` in Compose. The host explicitly
+pulls it, checks the unique application version, then verifies the container's
+actual image ID and configured digest against that exact local image. Both are
+recorded in `deployment.json`; previous records and compose manifests make the
+prior artifact addressable without relying on a mutable tag. Rollback restores
+that recorded digest, not a newly resolved tag with an old version label.
+
+Run `python3 -m scripts.check_release_images` from the repository root for the
+optional real Docker identity check. It requires a preexisting `alpine:latest`,
+builds two isolated synthetic images from the same source marker, replaces a
+fixture Compose container, and restores the first content ID. It removes only
+its own named fixture resources. This exercises real local Docker image changes
+and rollback; it does not publish images, test the remote registry, or deploy the
+application.
