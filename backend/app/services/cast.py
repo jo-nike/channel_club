@@ -22,6 +22,7 @@ from pathlib import Path
 from loguru import logger
 
 from app.config import settings
+from app.services.media_limits import process_budget
 
 log = logger.bind(service="cast")
 
@@ -228,6 +229,7 @@ class CastService:
 
     def __init__(self):
         self._sessions: dict[str, CastSession] = {}
+        self._owners: dict[str, str] = {}
         self._lock = asyncio.Lock()
         self._cleanup_task: asyncio.Task | None = None
 
@@ -262,7 +264,9 @@ class CastService:
 
         # Find idle sessions
         for session_id, session in list(self._sessions.items()):
-            if session.last_activity > 0:
+            if session.stream_type == "mpegts" and not session.is_running:
+                idle_sessions.append(session_id)
+            elif session.last_activity > 0:
                 idle_time = now - session.last_activity
                 if idle_time > settings.cast_session_timeout:
                     idle_sessions.append(session_id)
@@ -337,7 +341,7 @@ class CastService:
             log.warning("Failed to cleanup orphan processes: {}", e)
 
     async def create_session(
-        self, channel_id: str, stream_url: str, stream_type: str
+        self, channel_id: str, stream_url: str, stream_type: str, owner: str = "system"
     ) -> dict | None:
         """Create a new cast session with HLS transcoding.
 
@@ -353,29 +357,31 @@ class CastService:
             log.warning("Cast feature is disabled")
             return None
 
+        # Admission is synchronous and precedes subprocess creation or queued startup.
+        process_budget.acquire(owner)
         session_id = str(uuid.uuid4())
         session = CastSession(session_id, channel_id, stream_url, stream_type)
-
-        # Only track sessions that need transcoding. Registered before start() so
-        # shutdown/stop can still reach an FFmpeg process that is coming up.
-        if stream_type == "mpegts":
+        retained = False
+        try:
             async with self._lock:
                 self._sessions[session_id] = session
-
-        # Never hold the service lock across start() - it can take up to 10s and
-        # would block stop_session/stop_all/idle cleanup for the duration.
-        hls_url = await session.start()
-
-        if hls_url:
-            return {
-                "session_id": session_id,
-                "hls_url": hls_url,
-                "needs_transcoding": stream_type == "mpegts",
-            }
-
-        async with self._lock:
-            self._sessions.pop(session_id, None)
-        return None
+                self._owners[session_id] = owner
+            hls_url = await session.start()
+            if hls_url and self._sessions.get(session_id) is session:
+                retained = True
+                return {
+                    "session_id": session_id,
+                    "hls_url": hls_url,
+                    "needs_transcoding": stream_type == "mpegts",
+                }
+            return None
+        finally:
+            if not retained:
+                await session.stop()
+                async with self._lock:
+                    self._sessions.pop(session_id, None)
+                    if session_id in self._owners:
+                        process_budget.release(self._owners.pop(session_id))
 
     async def stop_session(self, session_id: str) -> bool:
         """Stop a cast session and cleanup resources.
@@ -391,7 +397,10 @@ class CastService:
 
         # Stop outside the service lock - session.stop() waits on FFmpeg
         if session:
-            await session.stop()
+            try:
+                await session.stop()
+            finally:
+                process_budget.release(self._owners.pop(session_id, "system"))
             log.info("Cast session {} stopped", session_id)
             return True
         return False
@@ -400,11 +409,14 @@ class CastService:
         """Stop all sessions (for shutdown)."""
         self.stop_idle_cleanup_task()
         async with self._lock:
-            sessions = list(self._sessions.values())
+            sessions = list(self._sessions.items())
             self._sessions.clear()
 
-        for session in sessions:
-            await session.stop()
+        for session_id, session in sessions:
+            try:
+                await session.stop()
+            finally:
+                process_budget.release(self._owners.pop(session_id, "system"))
         log.info("All cast sessions stopped")
 
     def get_session(self, session_id: str) -> CastSession | None:

@@ -174,7 +174,7 @@ class TestSaveHighlight:
         assert response.content == mp4_content
         assert response.headers["content-type"] == "video/mp4"
         mock_service.save_highlight.assert_called_once_with(
-            "channel-1", format="mp4", start_time=None, end_time=None
+            "channel-1", format="mp4", start_time=None, end_time=None, owner="testuser"
         )
 
     def test_returns_webm_on_success(self, client: TestClient, auth_header: dict[str, str]) -> None:
@@ -196,7 +196,7 @@ class TestSaveHighlight:
         assert "highlight-channel-1" in response.headers["content-disposition"]
         assert ".webm" in response.headers["content-disposition"]
         mock_service.save_highlight.assert_called_once_with(
-            "channel-1", format="webm", start_time=None, end_time=None
+            "channel-1", format="webm", start_time=None, end_time=None, owner="testuser"
         )
 
     def test_invalid_format_returns_422(

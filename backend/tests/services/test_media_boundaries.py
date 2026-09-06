@@ -124,3 +124,4 @@ async def test_resolved_source_replaces_client_url(provider, monkeypatch):
         service = HighlightService()
         assert await service.start_recording("valid", "http://off-catalog.invalid/private")
         assert service._recorders["valid"].stream_url == channel.stream_url
+        await service.stop_all()

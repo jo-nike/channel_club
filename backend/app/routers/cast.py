@@ -88,6 +88,7 @@ async def create_cast_session(
         channel_id=request.channel_id,
         stream_url=source.channel.stream_url,
         stream_type=source.stream_type,
+        owner=user.sub,
     )
 
     if not result:

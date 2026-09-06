@@ -71,7 +71,7 @@ async def get_highlight_status(
     # Auto-start recording if enabled but not already recording
     status = highlight_service.get_status(channel_id)
     if status["enabled"] and not status["recording"]:
-        started = await highlight_service.start_recording(channel_id, "")
+        started = await highlight_service.start_recording(channel_id, "", owner=user.sub)
         if started:
             status = highlight_service.get_status(channel_id)
 
@@ -124,7 +124,7 @@ async def save_highlight(
         )
 
     video_bytes, error = await highlight_service.save_highlight(
-        channel_id, format=format, start_time=start_time, end_time=end_time
+        channel_id, format=format, start_time=start_time, end_time=end_time, owner=user.sub
     )
 
     if error:

@@ -86,6 +86,12 @@ class Settings(BaseSettings):
     highlight_segment_seconds: int = 10  # FFmpeg segment duration
     highlight_temp_dir: str = "/tmp/highlights"  # Temp storage for segments
 
+    # Shared per-worker admission limits (deploy one media worker).
+    media_process_limit: int = 8
+    media_process_per_user: int = 2
+    media_export_limit: int = 2
+    media_export_per_user: int = 1
+
     # Chromecast Feature (requires FFmpeg in container)
     # Enables casting streams to Chromecast devices via HLS transcoding
     cast_enabled: bool = False

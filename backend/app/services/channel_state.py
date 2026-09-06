@@ -67,7 +67,9 @@ async def set_current_channel(channel: Channel, user: str | None = None) -> Chan
 
         # Start recording for new channel
         if channel.stream_url:
-            await highlight_service.start_recording(channel.id, channel.stream_url)
+            await highlight_service.start_recording(
+                channel.id, channel.stream_url, owner=user or "system"
+            )
 
     # Broadcast to all connected clients
     await broadcast_channel_update(channel)

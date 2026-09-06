@@ -22,6 +22,7 @@ from loguru import logger
 
 from app.config import settings
 from app.models.channel import validate_channel_id
+from app.services.media_limits import export_budget, process_budget
 from app.services.media_source import resolve_media_channel
 
 log = logger.bind(service="highlight")
@@ -430,6 +431,7 @@ class HighlightService:
 
     def __init__(self):
         self._recorders: dict[str, ChannelRecorder] = {}
+        self._owners: dict[str, str] = {}
         self._lock = asyncio.Lock()
         self._cleanup_task: asyncio.Task | None = None
 
@@ -464,7 +466,9 @@ class HighlightService:
 
         # Find idle recorders (without holding lock during iteration)
         for channel_id, recorder in list(self._recorders.items()):
-            if recorder.is_running and recorder.last_activity > 0:
+            if not recorder.is_running:
+                idle_channels.append(channel_id)
+            elif recorder.last_activity > 0:
                 idle_time = now - recorder.last_activity
                 if idle_time > RECORDER_IDLE_TIMEOUT:
                     idle_channels.append(channel_id)
@@ -546,7 +550,9 @@ class HighlightService:
         except Exception as e:
             log.warning("Failed to cleanup stale segments: {}", e)
 
-    async def start_recording(self, channel_id: str, stream_url: str) -> bool:
+    async def start_recording(
+        self, channel_id: str, stream_url: str, owner: str = "system"
+    ) -> bool:
         """Start recording a channel (if not already recording).
 
         Args:
@@ -560,32 +566,34 @@ class HighlightService:
             log.debug("Highlight feature disabled, not starting recorder")
             return False
 
-        source = await resolve_media_channel(channel_id)
-        stream_url = source.channel.stream_url
-
-        async with self._lock:
-            if channel_id in self._recorders:
-                recorder = self._recorders[channel_id]
-                if recorder.is_running:
-                    return True
-                # Recorder exists but stopped - restart it
-                await recorder.stop()
-                try:
-                    return await recorder.start()
-                finally:
-                    if not recorder.is_running:
-                        await recorder.stop()
-
-            # Create new recorder
-            recorder = ChannelRecorder(channel_id, stream_url)
-            try:
+        if channel_id in self._recorders and self._recorders[channel_id].is_running:
+            return True
+        # Reserve before any awaited work: overload never queues behind startup.
+        process_budget.acquire(owner)
+        retained = False
+        recorder = None
+        try:
+            source = await resolve_media_channel(channel_id)
+            async with self._lock:
+                if channel_id in self._recorders:
+                    existing = self._recorders[channel_id]
+                    if existing.is_running:
+                        return True
+                    await existing.stop()
+                    process_budget.release(self._owners.pop(channel_id, "system"))
+                    del self._recorders[channel_id]
+                recorder = ChannelRecorder(channel_id, source.channel.stream_url)
                 if await recorder.start():
                     self._recorders[channel_id] = recorder
+                    self._owners[channel_id] = owner
+                    retained = True
                     return True
                 return False
-            finally:
-                if channel_id not in self._recorders:
+        finally:
+            if not retained:
+                if recorder is not None:
                     await recorder.stop()
+                process_budget.release(owner)
 
     async def stop_recording(self, channel_id: str) -> None:
         """Stop recording a channel.
@@ -597,12 +605,14 @@ class HighlightService:
             if channel_id in self._recorders:
                 await self._recorders[channel_id].stop()
                 del self._recorders[channel_id]
+                process_budget.release(self._owners.pop(channel_id, "system"))
 
     async def stop_all(self) -> None:
         """Stop all recorders (for shutdown)."""
         async with self._lock:
-            for recorder in self._recorders.values():
+            for channel_id, recorder in self._recorders.items():
                 await recorder.stop()
+                process_budget.release(self._owners.pop(channel_id, "system"))
             self._recorders.clear()
 
     def get_status(self, channel_id: str) -> dict:
@@ -635,6 +645,7 @@ class HighlightService:
         format: str = "mp4",
         start_time: float | None = None,
         end_time: float | None = None,
+        owner: str = "system",
     ) -> tuple[bytes | None, str | None]:
         """Save highlight for a channel.
 
@@ -657,9 +668,10 @@ class HighlightService:
             return None, f"Invalid format: {format}. Use 'mp4' or 'webm'"
 
         recorder = self._recorders[channel_id]
-        return await recorder.save_highlight(
-            format=format, start_time=start_time, end_time=end_time
-        )
+        with export_budget.slot(owner):
+            return await recorder.save_highlight(
+                format=format, start_time=start_time, end_time=end_time
+            )
 
 
 # Global service instance
