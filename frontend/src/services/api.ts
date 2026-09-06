@@ -409,6 +409,29 @@ export async function saveHighlight(
   return response.blob()
 }
 
+/** Convert the exact preview bytes; never recapture the rolling live buffer. */
+export async function exportHighlight(
+  preview: Blob,
+  format: HighlightFormat,
+  trimOptions?: TrimOptions
+): Promise<Blob> {
+  const params = new URLSearchParams({ format })
+  if (trimOptions) {
+    params.set('start_time', String(trimOptions.startTime))
+    params.set('end_time', String(trimOptions.endTime))
+  }
+  const response = await fetchWithAuth(`/highlight/export?${params}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'video/mp4' },
+    body: preview,
+  })
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to export highlight' }))
+    throw new Error(error.detail || 'Failed to export highlight')
+  }
+  return response.blob()
+}
+
 export async function saveHighlightWebM(channelId: string): Promise<Blob> {
   return saveHighlight(channelId, 'webm')
 }

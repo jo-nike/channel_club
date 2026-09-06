@@ -6,10 +6,13 @@ Provides endpoints for:
 - Getting recording status for a channel
 """
 
+import asyncio
+import tempfile
 from datetime import datetime
+from pathlib import Path as FilePath
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.responses import Response
 from loguru import logger
 from pydantic import BaseModel
@@ -19,6 +22,8 @@ from app.models.auth import TokenPayload
 from app.models.channel import ChannelId, validate_channel_id
 from app.routers.auth_deps import get_current_user
 from app.services.highlight import highlight_service
+from app.services.media_export import encode_file, owned_thread
+from app.services.media_limits import export_budget
 
 router = APIRouter(prefix="/api/highlight", tags=["highlight"])
 log = logger.bind(router="highlight")
@@ -80,6 +85,55 @@ async def get_highlight_status(
         recording=status["recording"],
         bufferSeconds=status.get("bufferSeconds", 0),
         maxBufferSeconds=status.get("maxBufferSeconds", settings.highlight_buffer_seconds),
+    )
+
+
+@router.post("/export")
+async def export_preview(
+    request: Request,
+    format: Literal["mp4", "webm"] = Query("mp4"),
+    start_time: float | None = Query(None, ge=0, allow_inf_nan=False),
+    end_time: float | None = Query(None, ge=0, allow_inf_nan=False),
+    user: TokenPayload = Depends(get_current_user),
+) -> Response:
+    """Transform the exact MP4 preview held by the user, without recapturing live TV."""
+    if not settings.highlight_enabled:
+        raise HTTPException(503, "Highlight feature is disabled")
+    if request.headers.get("content-type", "").split(";")[0] != "video/mp4":
+        raise HTTPException(415, "Expected an MP4 preview")
+    if start_time is not None and end_time is not None and start_time >= end_time:
+        raise HTTPException(400, "start_time must be less than end_time")
+    with (
+        export_budget.slot(user.sub),
+        tempfile.TemporaryDirectory(prefix="highlight-preview-") as directory,
+    ):
+        source = FilePath(directory) / "preview.mp4"
+        size = 0
+        try:
+            # Reserve before ingestion and bound both byte count and upload time.
+            with source.open("wb") as output:
+                async with asyncio.timeout(30):
+                    async for chunk in request.stream():
+                        size += len(chunk)
+                        if size > settings.media_export_max_bytes:
+                            raise HTTPException(413, "Preview exceeds export size limit")
+                        await owned_thread(output.write, chunk)
+            if not size:
+                raise HTTPException(400, "Preview is empty")
+            video = await encode_file(
+                source, FilePath(directory) / f"export.{format}", format, start_time, end_time
+            )
+        except TimeoutError:
+            raise HTTPException(408, "Preview upload or conversion timed out") from None
+        except (OSError, ValueError):
+            raise HTTPException(400, "Unable to convert preview") from None
+    return Response(
+        video,
+        media_type=f"video/{format}",
+        headers={
+            "Content-Disposition": f'attachment; filename="highlight.{format}"',
+            "Cache-Control": "no-store",
+        },
     )
 
 

@@ -13,6 +13,7 @@ vi.mock('@/services/api', () => ({
     bufferSeconds: 60,
     maxBufferSeconds: 60,
   }),
+  exportHighlight: vi.fn().mockResolvedValue(new Blob(['converted'], { type: 'video/webm' })),
   saveHighlight: vi.fn().mockResolvedValue(new Blob(['fake video content'], { type: 'video/mp4' })),
 }))
 
@@ -55,6 +56,7 @@ describe('HighlightModal', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(api.exportHighlight).mockResolvedValue(new Blob(['converted']))
     mockSaveHighlight.mockResolvedValue(new Blob(['fake video content'], { type: 'video/mp4' }))
     mockGetHighlightStatus.mockResolvedValue({
       enabled: true,
@@ -248,7 +250,7 @@ describe('HighlightModal', () => {
 
       await waitFor(() => {
         // saveHighlight should be called with webm format (no trim options)
-        expect(mockSaveHighlight).toHaveBeenCalledWith('channel-1', 'webm', undefined)
+        expect(api.exportHighlight).toHaveBeenCalledWith(expect.any(Blob), 'webm', undefined)
         expect(toast.success).toHaveBeenCalled()
       })
     })
@@ -257,16 +259,7 @@ describe('HighlightModal', () => {
       mockIsWebMSupported.mockReturnValue(true)
       // Create a never-resolving promise to simulate ongoing download
       let resolveDownload: (value: Blob) => void
-      mockSaveHighlight.mockImplementation(
-        (_channelId: string, format?: string) =>
-          new Promise((resolve) => {
-            if (format === 'webm') {
-              resolveDownload = resolve
-            } else {
-              resolve(new Blob(['mp4 content'], { type: 'video/mp4' }))
-            }
-          })
-      )
+      vi.mocked(api.exportHighlight).mockImplementation(() => new Promise((resolve) => { resolveDownload = resolve }))
 
       render(<HighlightModal {...defaultProps} />)
 
@@ -319,4 +312,28 @@ describe('HighlightModal', () => {
       expect(mockRevokeObjectURL).toHaveBeenCalled()
     })
   })
+  it('FE-06 exports held preview frames after the live capture advances', async () => {
+    const preview = new Blob(['frames-001-through-060'], { type: 'video/mp4' })
+    mockSaveHighlight.mockResolvedValueOnce(preview)
+    render(<HighlightModal {...defaultProps} />)
+    const video = await screen.findByLabelText('Highlight preview')
+    Object.defineProperty(video, 'duration', { value: 60 })
+    fireEvent.loadedMetadata(video)
+    // The next rolling capture would contain entirely different frames.
+    mockSaveHighlight.mockResolvedValue(new Blob(['frames-021-through-080']))
+    fireEvent.click(screen.getByRole('button', { name: /download mp4/i }))
+    await waitFor(() => expect(toast.success).toHaveBeenCalled())
+    expect(mockCreateObjectURL).toHaveBeenCalledWith(preview)
+    const sliders = screen.getAllByRole('slider')
+    fireEvent.focus(sliders[0])
+    fireEvent.keyDown(sliders[0], { key: 'ArrowRight' })
+    fireEvent.keyDown(sliders[0], { key: 'ArrowRight' })
+    fireEvent.click(screen.getByRole('button', { name: /download mp4/i }))
+    await waitFor(() => expect(api.exportHighlight).toHaveBeenCalledWith(preview, 'mp4', expect.objectContaining({ startTime: expect.any(Number) })))
+    await waitFor(() => expect(screen.getByRole('button', { name: /download webm/i })).not.toBeDisabled())
+    fireEvent.click(screen.getByRole('button', { name: /download webm/i }))
+    await waitFor(() => expect(api.exportHighlight).toHaveBeenCalledWith(preview, 'webm', expect.any(Object)))
+    expect(mockSaveHighlight).toHaveBeenCalledTimes(1)
+  })
+
 })

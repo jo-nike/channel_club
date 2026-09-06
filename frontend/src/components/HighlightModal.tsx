@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Download, Loader2, RotateCcw } from 'lucide-react'
 import { toast } from 'sonner'
-import { saveHighlight, getHighlightStatus, type HighlightFormat, type TrimOptions } from '@/services/api'
+import { saveHighlight, exportHighlight, getHighlightStatus, type HighlightFormat, type TrimOptions } from '@/services/api'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -168,8 +168,8 @@ export function HighlightModal({
         if (format === 'mp4' && !hasTrimming && blobRef.current) {
           blob = blobRef.current
         } else {
-          // Fetch with trimming applied server-side
-          blob = await saveHighlight(channelId, format, trimOptions)
+          if (!blobRef.current) throw new Error('Preview is not available')
+          blob = await exportHighlight(blobRef.current, format, trimOptions)
         }
 
         // Generate filename with timestamp
