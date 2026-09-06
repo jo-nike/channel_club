@@ -1,6 +1,8 @@
 """WebSocket router for real-time channel updates."""
 
+import asyncio
 import json
+import time
 from uuid import uuid4
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
@@ -56,7 +58,7 @@ async def verify_websocket_token(token: str) -> dict | None:
     """
     try:
         payload = verify_token(token)
-        return {"sub": payload.sub, "role": payload.role}
+        return {"sub": payload.sub, "role": payload.role, "exp": payload.exp.timestamp()}
     except JWTError:
         return None
 
@@ -86,7 +88,7 @@ async def websocket_endpoint(
     await websocket.accept()
 
     payload = await verify_websocket_token(token)
-    if not payload:
+    if not payload or time.time() >= payload["exp"]:
         log.warning("WebSocket auth failed for client {}", client_id)
         await websocket.close(code=4001, reason="Invalid token")
         return
@@ -106,37 +108,43 @@ async def websocket_endpoint(
     )
 
     try:
-        # Send connection acknowledgment with current channel and settings
-        current = channel_state.get_current_channel()
-        ack_message = {
-            "type": "connection_ack",
-            "currentChannel": current.model_dump(by_alias=True) if current else None,
-            "settings": app_settings.get_app_settings().model_dump(by_alias=True),
-        }
-        await websocket.send_json(ack_message)
-
-        # Send chat history if chat is enabled
-        if settings.chat_enabled:
-            history = chat.get_history(limit=50)
-            history_message = {
-                "type": "chat_history",
-                "messages": [msg.to_dict() for msg in history],
+        async with asyncio.timeout(max(0, payload["exp"] - time.time())):
+            # Send connection acknowledgment with current channel and settings
+            current = channel_state.get_current_channel()
+            ack_message = {
+                "type": "connection_ack",
+                "currentChannel": current.model_dump(by_alias=True) if current else None,
+                "settings": app_settings.get_app_settings().model_dump(by_alias=True),
             }
-            await websocket.send_json(history_message)
+            await websocket.send_json(ack_message)
 
-        # Listen for client messages
-        username = payload["sub"]
-        while True:
-            data = await websocket.receive_text()
-            if len(data.encode("utf-8")) > MAX_MESSAGE_BYTES:
-                await websocket.close(code=1009, reason="Message too large")
-                return
-            try:
-                message = json.loads(data)
-                await handle_client_message(websocket, message, client_id, username)
-            except json.JSONDecodeError:
-                log.debug("Malformed JSON from client {}", client_id)
+            # Send chat history if chat is enabled
+            if settings.chat_enabled:
+                history = chat.get_history(limit=50)
+                history_message = {
+                    "type": "chat_history",
+                    "messages": [msg.to_dict() for msg in history],
+                }
+                await websocket.send_json(history_message)
 
+            # Listen for client messages
+            username = payload["sub"]
+            while True:
+                data = await websocket.receive_text()
+                if time.time() >= payload["exp"]:
+                    raise TimeoutError
+                if len(data.encode("utf-8")) > MAX_MESSAGE_BYTES:
+                    await websocket.close(code=1009, reason="Message too large")
+                    return
+                try:
+                    message = json.loads(data)
+                    await handle_client_message(websocket, message, client_id, username)
+                except json.JSONDecodeError:
+                    log.debug("Malformed JSON from client {}", client_id)
+    except TimeoutError:
+        # Remove from broadcasts before awaiting transport shutdown.
+        channel_state.disconnect(websocket)
+        await asyncio.wait_for(websocket.close(code=4001, reason="Token expired"), timeout=1)
     except WebSocketDisconnect:
         log.info("WebSocket disconnected: client {}", client_id)
     except Exception as e:

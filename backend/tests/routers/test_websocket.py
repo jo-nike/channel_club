@@ -765,3 +765,54 @@ def test_sec05_oversize_message_closes_before_mutation(client, valid_token):
             ws.receive_json()
         assert error.value.code == 1009
     assert chat.get_history() == []
+
+
+@pytest.mark.parametrize("active", [False, True])
+def test_sec06_socket_expires_and_cleans_all_state(client, monkeypatch, active):
+    import time
+
+    from jose import jwt
+
+    monkeypatch.setattr(settings, "chat_enabled", True)
+    # Use a fractional deadline in the verified payload for fast deterministic
+    # transport lifecycle testing, while retaining a genuinely signed valid JWT.
+    original_verify = websocket_router.verify_websocket_token
+
+    async def short_lived(token):
+        payload = await original_verify(token)
+        assert payload is not None
+        payload["exp"] = time.time() + 0.15
+        return payload
+
+    monkeypatch.setattr(websocket_router, "verify_websocket_token", short_lived)
+    token = jwt.encode(
+        {"sub": "expiring", "role": "viewer", "exp": time.time() + 5},
+        settings.jwt_secret,
+        algorithm="HS256",
+    )
+    with client.websocket_connect(f"/api/ws?token={token}&session_id=expiring") as ws:
+        assert ws.receive_json()["type"] == "connection_ack"
+        assert ws.receive_json()["type"] == "chat_history"
+        ws.send_json({"type": "set_nickname", "nickname": "Temporary"})
+        ws.send_json({"type": "ping"})
+        assert ws.receive_json()["type"] == "pong"
+        if active:
+            ws.send_json({"type": "chat_message", "content": "before expiry"})
+            assert ws.receive_json()["type"] == "chat_message"
+        with pytest.raises(WebSocketDisconnect) as error:
+            ws.receive_json()
+        assert error.value.code == 4001
+    assert "expiring" not in presence._active_users
+    assert "expiring" not in websocket_router._nickname_map
+    assert channel_state.get_connection_count() == 0
+    assert [message.content for message in chat.get_history()] == (
+        ["before expiry"] if active else []
+    )
+
+
+async def test_sec06_verified_payload_retains_signed_expiry(valid_token):
+    from app.services.auth import verify_token
+
+    payload = await websocket_router.verify_websocket_token(valid_token)
+    assert payload is not None
+    assert payload["exp"] == verify_token(valid_token).exp.timestamp()
