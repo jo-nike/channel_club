@@ -238,6 +238,40 @@ class TestGetCurrentChannel:
 class TestSetCurrentChannel:
     """Tests for PUT /api/channels/current endpoint."""
 
+    def test_picker_channel_uses_trusted_metadata_when_hdhr_forbidden(
+        self, client: TestClient, admin_auth_header: dict[str, str]
+    ) -> None:
+        trusted = Channel(
+            id="picker-only",
+            name="CA-FR: ICI TELE QUEBEC",
+            streamUrl="https://streams.example.com/proxy/ts/stream/picker-only",
+            guideId="194",
+        )
+        with (
+            patch(
+                "app.services.media_source.get_grouped_channels",
+                AsyncMock(return_value=GroupedChannelsResponse(ungrouped=[trusted])),
+            ),
+            patch(
+                "app.services.media_source.get_lineup",
+                AsyncMock(side_effect=DispatchrrUnavailableError("403 Forbidden")),
+            ) as lineup,
+        ):
+            response = client.put(
+                "/api/channels/current",
+                headers=admin_auth_header,
+                json={
+                    "id": trusted.id,
+                    "name": "Forged",
+                    "streamUrl": "http://untrusted/private",
+                    "guideId": "forged",
+                },
+            )
+        assert response.status_code == 200
+        assert response.json() == trusted.model_dump(by_alias=True)
+        assert channel_state.get_current_channel() == trusted
+        lineup.assert_not_called()
+
     @pytest.fixture(autouse=True)
     def catalog(self):
         """Selection resolves these trusted fixtures instead of request URLs."""
