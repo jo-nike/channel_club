@@ -231,6 +231,10 @@ export function useChromecast(): UseChromecastReturn {
           setState((s) => ({
             ...s,
             isAvailable,
+            isConnected: Boolean(context.getCurrentSession() && playerRef.current?.isConnected),
+            isCasting: Boolean(playerRef.current?.isMediaLoaded && playerRef.current?.playerState !== 'IDLE'),
+            playerState: playerRef.current?.playerState ?? null,
+            deviceName: context.getCurrentSession()?.getCastDevice()?.friendlyName ?? null,
             isLoading: false,
           }))
         }
