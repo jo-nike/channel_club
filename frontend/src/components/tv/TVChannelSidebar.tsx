@@ -63,26 +63,6 @@ export function TVChannelSidebar({
     selectChannel(channel)
   }
 
-  if (channelsLoading && ersatzTVChannels.length === 0) {
-    return <ChannelSidebarSkeleton isCollapsed={isCollapsed} />
-  }
-
-  if (error && ersatzTVChannels.length === 0) {
-    return (
-      <aside className="flex h-full w-72 items-center justify-center border-r bg-card p-4 rounded-r-lg">
-        <div className="text-center">
-          <p className="text-destructive">{error}</p>
-          <button
-            onClick={() => loadChannels()}
-            className="mt-2 rounded bg-primary px-4 py-2 text-primary-foreground hover:bg-primary/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            Retry
-          </button>
-        </div>
-      </aside>
-    )
-  }
-
   // Collapsed state
   if (isCollapsed) {
     return (
@@ -123,6 +103,11 @@ export function TVChannelSidebar({
         </button>
       </div>
 
+      {channelsLoading && <p role="status">Loading additional channels...</p>}
+      {error && <div role="status" className="p-4">
+        <p>{error}</p>
+        <button onClick={() => loadChannels()}>Retry additional channels</button>
+      </div>}
       <ul className="divide-y" role="list">
         {unifiedChannels.map((channel) => (
           <ChannelItem
@@ -355,56 +340,3 @@ function ChannelItem({
 // Skeleton
 // ============================================================================
 
-function ChannelSidebarSkeleton({ isCollapsed = false }: { isCollapsed?: boolean }) {
-  if (isCollapsed) {
-    return (
-      <aside
-        className="flex h-full w-12 flex-col items-center border-r bg-card py-2 rounded-r-lg overflow-hidden"
-        role="status"
-        aria-label="Loading channels"
-      >
-        <div className="h-10 w-10 animate-pulse rounded bg-muted" />
-        <div className="mt-2 flex flex-1 flex-col items-center gap-1">
-          {/* Live channel skeleton */}
-          <div className="h-8 w-8 animate-pulse rounded bg-destructive/20" />
-          {/* Regular channel skeletons */}
-          {Array.from({ length: 7 }).map((_, i) => (
-            <div key={i} className="h-8 w-8 animate-pulse rounded bg-muted" />
-          ))}
-        </div>
-      </aside>
-    )
-  }
-
-  return (
-    <aside
-      className="h-full w-72 border-r bg-card rounded-r-lg overflow-hidden"
-      role="status"
-      aria-label="Loading channels"
-    >
-      <div className="border-b p-4">
-        <div className="h-6 w-24 animate-pulse rounded bg-muted" />
-      </div>
-      <div className="divide-y">
-        {/* Live channel skeleton */}
-        <div className="flex items-center gap-3 p-3 bg-destructive/5">
-          <div className="h-12 w-12 animate-pulse rounded bg-destructive/20" />
-          <div className="flex-1 space-y-2">
-            <div className="h-4 w-3/4 animate-pulse rounded bg-muted" />
-            <div className="h-3 w-1/2 animate-pulse rounded bg-muted" />
-          </div>
-        </div>
-        {/* Regular channel skeletons */}
-        {Array.from({ length: 7 }).map((_, i) => (
-          <div key={i} className="flex items-center gap-3 p-3">
-            <div className="h-12 w-12 animate-pulse rounded bg-muted" />
-            <div className="flex-1 space-y-2">
-              <div className="h-4 w-3/4 animate-pulse rounded bg-muted" />
-              <div className="h-3 w-1/2 animate-pulse rounded bg-muted" />
-            </div>
-          </div>
-        ))}
-      </div>
-    </aside>
-  )
-}

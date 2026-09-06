@@ -159,6 +159,8 @@ export function initializeTVStore() {
   const firstErsatzTV = channels.find((ch) => ch.type === 'ersatztv')
   if (firstErsatzTV) {
     selectChannel(firstErsatzTV)
+  } else {
+    selectChannel(channels[0])
   }
 }
 
@@ -173,6 +175,7 @@ useChannelStore.subscribe((state) => {
 
     // If currently viewing Channel 0, update the EPG
     if (selectedChannel?.type === 'live') {
+      useTVStore.setState({ selectedChannel: useTVStore.getState().getUnifiedChannels()[0] })
       loadLiveEPG()
     }
 

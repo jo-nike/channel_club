@@ -47,6 +47,7 @@ export function TVView() {
   // ErsatzTV store - for loading channels and programmes
   const {
     channels: ersatzTVChannels,
+    channelsLoading,
     programmesLoading,
     programmesByChannel,
     error,
@@ -165,10 +166,10 @@ export function TVView() {
 
   // Initialize TV store after channels are loaded
   useEffect(() => {
-    if (ersatzTVChannels.length > 0) {
+    if (!channelsLoading && !useErsatztvStore.getState().channelsLoading) {
       initializeTVStore()
     }
-  }, [ersatzTVChannels.length, liveChannel])
+  }, [ersatzTVChannels.length, channelsLoading])
 
   // Load live EPG when live channel changes
   useEffect(() => {
