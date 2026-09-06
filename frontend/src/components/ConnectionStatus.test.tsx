@@ -111,3 +111,10 @@ describe('ConnectionStatus', () => {
     expect(button).toHaveAttribute('aria-label', 'Connected (hidden - click to show)')
   })
 })
+
+it('FE-10 exposes a visible reconnect action while disconnected', () => {
+  const reconnect = vi.fn()
+  render(<ConnectionStatus status="disconnected" onReconnect={reconnect} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Reconnect' }))
+  expect(reconnect).toHaveBeenCalledTimes(1)
+})

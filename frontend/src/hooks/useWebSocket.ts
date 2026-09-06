@@ -286,8 +286,22 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
 
   const reconnect = useCallback(() => {
     retryCountRef.current = 0
+    if (!token || useAuthStore.getState().token !== token) return
     connect(true)
-  }, [connect])
+  }, [connect, token])
+
+  useEffect(() => {
+    const recover = () => {
+      if (!wsRef.current || wsRef.current.readyState === WebSocket.CLOSED) reconnect()
+    }
+    const onVisible = () => { if (document.visibilityState === 'visible') recover() }
+    window.addEventListener('online', recover)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.removeEventListener('online', recover)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [reconnect])
 
   const sendChannelUpdate = useCallback(
     (channelName: string | null, programmeTitle?: string | null, viewType?: 'live' | 'ersatztv') => {

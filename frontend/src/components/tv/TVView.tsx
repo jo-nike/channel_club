@@ -39,7 +39,7 @@ export function TVView() {
   const { userChannelSelection } = useAppSettings()
 
   // WebSocket for presence tracking and chat
-  const { status, sendChannelUpdate, sendChatMessage, sendSetNickname } = useWebSocket({ view: 'tv' })
+  const { status, reconnect, sendChannelUpdate, sendChatMessage, sendSetNickname } = useWebSocket({ view: 'tv' })
 
   // Initialize theme
   useTheme()
@@ -244,7 +244,7 @@ export function TVView() {
         <header className="flex justify-between items-center px-4 py-2 bg-background border-b rounded-b-lg">
           <div className="flex items-center gap-4">
             {/* Connection status indicator */}
-            <ConnectionStatus status={status} />
+            <ConnectionStatus status={status} onReconnect={reconnect} />
             {/* Current channel/programme info */}
             <span className="text-muted-foreground text-sm">
               {selectedChannel?.name && currentProgrammeTitle

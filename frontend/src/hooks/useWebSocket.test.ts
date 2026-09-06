@@ -970,4 +970,25 @@ describe('useWebSocket', () => {
       expect(ws.send).not.toHaveBeenCalled()
     })
   })
+  test('FE-10 online recovery reconnects after exhausting retries but never after expiry', async () => {
+    vi.useFakeTimers()
+    const { result, unmount } = renderHook(() => useWebSocket())
+    for (let attempt = 0; attempt <= 5; attempt++) {
+      act(() => MockWebSocket.instances.at(-1)!.simulateClose(1006))
+      await act(() => vi.advanceTimersByTimeAsync(11000))
+    }
+    expect(result.current.status).toBe('disconnected')
+    expect(MockWebSocket.instances).toHaveLength(6)
+    act(() => window.dispatchEvent(new Event('online')))
+    expect(MockWebSocket.instances).toHaveLength(7)
+    act(() => MockWebSocket.instances.at(-1)!.simulateOpen())
+    expect(result.current.status).toBe('connected')
+    act(() => MockWebSocket.instances.at(-1)!.simulateClose(4001))
+    act(() => window.dispatchEvent(new Event('online')))
+    await act(() => vi.advanceTimersByTimeAsync(120000))
+    expect(MockWebSocket.instances).toHaveLength(7)
+    unmount()
+    vi.useRealTimers()
+  })
+
 })

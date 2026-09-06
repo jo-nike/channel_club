@@ -5,6 +5,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 type ConnectionState = 'connected' | 'connecting' | 'reconnecting' | 'disconnected'
 
 interface ConnectionStatusProps {
+  onReconnect?: () => void
   status: ConnectionState
 }
 
@@ -31,7 +32,7 @@ const statusConfig = {
   },
 } as const
 
-export function ConnectionStatus({ status }: ConnectionStatusProps) {
+export function ConnectionStatus({ status, onReconnect }: ConnectionStatusProps) {
   const [isHidden, setIsHidden] = useState(false)
   const config = statusConfig[status]
 
@@ -42,6 +43,10 @@ export function ConnectionStatus({ status }: ConnectionStatusProps) {
   const tooltipText = isHidden
     ? `${config.text} (hidden)`
     : config.text
+
+  if (status === 'disconnected' && onReconnect) {
+    return <button type="button" onClick={onReconnect} className="text-sm text-destructive">Reconnect</button>
+  }
 
   return (
     <Tooltip>
