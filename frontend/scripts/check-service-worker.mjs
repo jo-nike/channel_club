@@ -1,5 +1,5 @@
 /** Real generated-worker regression, synthetic localhost API and isolated Chrome profile.
- * Run npm run build && node scripts/check-service-worker.mjs.
+ * Run npm run build && node scripts/check-service-worker.mjs [--media].
  */
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
@@ -84,7 +84,9 @@ try {
   })()`)
   assert.equal(await evaluate("caches.has('api-cache')"), false, 'legacy cache deleted on activation')
   const request = (path, account) => evaluate(`fetch(${JSON.stringify(path)}, {headers:{Authorization:${JSON.stringify(account)}}}).then(async r => ({status:r.status, body:await r.text()})).catch(e => ({failed:true,error:String(e)}))`)
-  const paths = ['/api/admin/active-users', '/api/admin/status', '/api/auth/config', '/api/private.png']
+  const paths = process.argv.includes('--media')
+    ? ['/api/ersatztv/stream/test', '/api/ersatztv/segments/test.ts', '/api/cast/hls/test/index.m3u8']
+    : ['/api/admin/active-users', '/api/admin/status', '/api/auth/config', '/api/private.png']
   for (const path of paths) assert.match((await request(path, 'synthetic-admin')).body, /synthetic-admin/)
   mode = 'offline'
   for (const account of ['synthetic-viewer', '']) {
@@ -100,7 +102,7 @@ try {
   }
   const cached = await evaluate(`(async () => { const out=[]; for(const name of await caches.keys()) for(const req of await (await caches.open(name)).keys()) out.push(req.url); return out; })()`)
   assert.ok(cached.every(url => !new URL(url).pathname.startsWith('/api/')), JSON.stringify(cached))
-  console.log(`PASS: real generated SW account transitions, legacy deletion, offline and >10s delay; no API cache entries`)
+  console.log(`PASS: real generated SW ${process.argv.includes('--media') ? 'media bypass' : 'account transitions'}, legacy deletion, offline and >10s delay; no API cache entries`)
 } finally {
   socket?.close()
   chrome.kill('SIGTERM')
