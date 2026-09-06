@@ -15,6 +15,7 @@ from loguru import logger
 
 from app.config import settings
 from app.models.ersatztv import Programme
+from app.services.ersatztv.refresh import serialized_refresh
 
 # Module-level logger with service context
 log = logger.bind(service="ersatztv")
@@ -82,6 +83,7 @@ def _is_cache_expired() -> bool:
     return age.total_seconds() > CACHE_TTL_SECONDS
 
 
+@serialized_refresh
 def parse_xmltv() -> list[Programme]:
     """
     Parse ErsatzTV XMLTV and return list of programmes.
