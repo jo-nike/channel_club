@@ -1,7 +1,9 @@
 """Tests for WebSocket router."""
 
+from collections.abc import Iterator
 from datetime import UTC
 from io import StringIO
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -28,9 +30,13 @@ def admin_token() -> str:
 
 
 @pytest.fixture
-def client() -> TestClient:
-    """Create test client."""
-    return TestClient(app)
+def client() -> Iterator[TestClient]:
+    """Share one ASGI event loop across concurrent sockets; stub startup I/O."""
+    with (
+        patch("app.main.get_grouped_channels", new=AsyncMock(return_value=[])),
+        TestClient(app) as client,
+    ):
+        yield client
 
 
 @pytest.fixture(autouse=True)
