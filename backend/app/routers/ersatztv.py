@@ -316,9 +316,9 @@ async def get_segment(
                     yield chunk
             except httpx.HTTPError as e:
                 # Headers are already sent, so a clean 5xx is impossible here.
-                # Ending the stream beats leaking a raw traceback to the client.
-                log.error("Upstream failure mid-segment, ending stream: {}", e)
-                return
+                # Propagate so ASGI aborts framing; a clean EOF would certify corrupt media.
+                log.error("Upstream failure mid-segment, aborting stream: {}", e)
+                raise
             finally:
                 await response.aclose()
                 await client.aclose()
