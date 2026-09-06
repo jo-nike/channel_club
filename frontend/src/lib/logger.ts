@@ -28,6 +28,55 @@ const formatTimestamp = (): string => {
   return new Date().toISOString().substring(11, 23) // HH:mm:ss.SSS
 }
 
+const credentialKey =
+  /^(?:token|access_token|authToken|authorization|password|api[_-]?key|x-plex-token)$/i
+const credentialText =
+  /([?&](?:token|access_token|authToken|api[_-]?key|x-plex-token)=)[^&\s\\"'<>]*|(Bearer\s+)[^\s"'<>]+/gi
+
+const redactCredentials = (
+  value: unknown,
+  seen = new WeakSet<object>(),
+): unknown => {
+  if (typeof value === 'string') {
+    const sanitized = value.replace(
+      /([?&])([^=&\s]+)=([^&\s\\"'<>]*)/g,
+      (match, separator, key) => {
+        try {
+          return credentialKey.test(decodeURIComponent(key))
+            ? `${separator}${key}=[REDACTED]`
+            : match
+        } catch {
+          return match
+        }
+      },
+    )
+    return sanitized.replace(
+      credentialText,
+      (_match, query, bearer) => `${query || bearer}[REDACTED]`,
+    )
+  }
+  if (value && typeof value === 'object') {
+    if (seen.has(value)) return '[Circular]'
+    seen.add(value)
+    if (value instanceof Error) {
+      return {
+        name: value.name,
+        message: redactCredentials(value.message),
+        stack: redactCredentials(value.stack),
+      }
+    }
+    if (Array.isArray(value))
+      return value.map((item) => redactCredentials(item, seen))
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [
+        key,
+        credentialKey.test(key) ? '[REDACTED]' : redactCredentials(item, seen),
+      ]),
+    )
+  }
+  return value
+}
+
 const log = (
   level: LogLevel,
   context: string,
@@ -42,9 +91,13 @@ const log = (
 
   const consoleFn = console[level]
   if (data.length > 0) {
-    consoleFn(prefix, message, ...data)
+    consoleFn(
+      redactCredentials(prefix),
+      redactCredentials(message),
+      ...data.map((item) => redactCredentials(item)),
+    )
   } else {
-    consoleFn(prefix, message)
+    consoleFn(redactCredentials(prefix), redactCredentials(message))
   }
 }
 

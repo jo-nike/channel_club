@@ -289,3 +289,58 @@ class TestConfigureLogging:
         if log_output.strip():
             with pytest.raises(json.JSONDecodeError):
                 json.loads(log_output.strip())
+
+
+@pytest.mark.parametrize("log_format", ["pretty", "json"])
+def test_sec03_access_and_structured_credentials_are_redacted(log_format):
+    output = StringIO()
+    secret = "SYNTHETIC_REUSABLE_BEARER_SECRET"
+    config = Settings(_env_file=None, log_format=log_format, log_level="DEBUG")
+    with patch("app.logging_config.settings", config), patch.object(sys, "stderr", output):
+        configure_logging()
+        for name, template, args in [
+            (
+                "uvicorn.error",
+                '%s - "WebSocket %s" [accepted]',
+                ("127.0.0.1", f"/api/ws?%74oken={secret}&view=live"),
+            ),
+            (
+                "uvicorn.access",
+                '%s - "%s %s HTTP/%s" %d',
+                ("127.0.0.1", "GET", f"/api/ersatztv/stream/1?token={secret}", "1.1", 200),
+            ),
+        ]:
+            record = logging.LogRecord(name, logging.INFO, __file__, 1, template, args, None)
+            InterceptHandler().emit(record)
+            assert secret not in str(record.__dict__)
+        logger.bind(headers={"Authorization": f"Bearer {secret}"}, token=secret).warning(
+            "Stream failed {}", f"https://synthetic/stream?token={secret}&channel=1"
+        )
+    captured = output.getvalue()
+    assert secret not in captured
+    assert "[REDACTED]" in captured
+    assert "view=live" in captured
+    assert "/api/ersatztv/stream/1" in captured
+    if log_format == "json":
+        assert all(json.loads(line)["record"] for line in captured.splitlines())
+
+
+@pytest.mark.parametrize("log_format", ["pretty", "json"])
+def test_sec03_exception_logs_do_not_expose_credentials_or_locals(log_format):
+    output = StringIO()
+    secret = "SYNTHETIC_EXCEPTION_CREDENTIAL"
+    config = Settings(_env_file=None, log_format=log_format, log_level="DEBUG")
+    with patch("app.logging_config.settings", config), patch.object(sys, "stderr", output):
+        configure_logging()
+        try:
+            raise ValueError("Stream failed: /api/stream?token=" + secret)
+        except ValueError:
+            logger.exception("Stream failure")
+            record = logging.LogRecord(
+                "uvicorn.error", logging.ERROR, __file__, 1, "Handshake failed", (), sys.exc_info()
+            )
+            InterceptHandler().emit(record)
+            assert secret not in str(record.__dict__)
+    assert secret not in output.getvalue()
+    assert "[REDACTED]" in output.getvalue()
+    assert "Stream failure" in output.getvalue()

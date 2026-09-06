@@ -85,7 +85,7 @@ describe('logger', () => {
 
       expect(consoleSpy.debug).toHaveBeenCalled()
       const call = consoleSpy.debug.mock.calls[0]
-      expect(call[2]).toBe(extraData)
+      expect(call[2]).toEqual(extraData)
     })
   })
 
@@ -168,3 +168,27 @@ describe('logger', () => {
     })
   })
 })
+
+it.each(['debug', 'info', 'warn', 'error'] as const)(
+  'SEC-03 redacts HLS/Cast diagnostics at %s level without mutating callers',
+  async (level) => {
+    vi.resetModules()
+    vi.stubEnv('VITE_LOG_LEVEL', 'debug')
+    const spy = vi.spyOn(console, level).mockImplementation(() => {})
+    const { logger } = await import('./logger')
+    const secret = 'SYNTHETIC_REUSABLE_BEARER_SECRET'
+    const url = `https://synthetic/api/ersatztv/stream/1?%74oken=${secret}&channel=1`
+    const data = {
+      url,
+      nested: { authorization: `Bearer ${secret}`, token: secret },
+    }
+    logger[level]('Cast', `HLS retries exhausted: ${url}`, data, new Error(url))
+    const output = JSON.stringify(spy.mock.calls)
+    expect(output).not.toContain(secret)
+    expect(output).toContain('[REDACTED]')
+    expect(output).toContain('channel=1')
+    expect(data.nested.token).toBe(secret)
+    spy.mockRestore()
+    vi.unstubAllEnvs()
+  },
+)
