@@ -93,6 +93,7 @@ export async function fetchWithAuth(
   logger.debug('API', `Request: ${options.method || 'GET'} ${endpoint}`)
 
   const token = localStorage.getItem('token')
+  const generation = useAuthStore.getState().generation
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -112,7 +113,9 @@ export async function fetchWithAuth(
   if (response.status === 401) {
     logger.error('API', `Session expired: ${endpoint}`, { status: 401 })
     // Clear auth state and redirect to login
-    useAuthStore.getState().logout()
+    if (useAuthStore.getState().generation === generation && localStorage.getItem('token') === token) {
+      useAuthStore.getState().logout()
+    }
     throw new Error('Session expired')
   }
 

@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { logger } from '@/lib/logger'
 
 interface AuthState {
+  generation: number
   token: string | null
   role: 'admin' | 'viewer' | null
   username: string | null
@@ -12,7 +13,8 @@ interface AuthState {
   initialize: () => void
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
+  generation: 0,
   token: null,
   role: null,
   username: null,
@@ -27,7 +29,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     if (username) {
       localStorage.setItem('username', username)
     }
-    set({ token, role, username: username ?? null, isAuthenticated: true })
+    set({ generation: get().generation + 1, token, role, username: username ?? null, isAuthenticated: true })
   },
 
   logout: () => {
@@ -36,7 +38,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     localStorage.removeItem('token')
     localStorage.removeItem('role')
     localStorage.removeItem('username')
-    set({ token: null, role: null, username: null, isAuthenticated: false })
+    set({ generation: get().generation + 1, token: null, role: null, username: null, isAuthenticated: false })
   },
 
   initialize: () => {
@@ -46,7 +48,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     const username = localStorage.getItem('username')
     if (token && role) {
       logger.debug('Auth', `Restored session for role: ${role}`)
-      set({ token, role, username, isAuthenticated: true, isInitializing: false })
+      set({ generation: get().generation + 1, token, role, username, isAuthenticated: true, isInitializing: false })
     } else {
       logger.debug('Auth', 'No existing session found')
       set({ isInitializing: false })
