@@ -9,6 +9,13 @@ from fastapi import HTTPException
 from app.config import settings
 
 
+class MediaCapacityError(HTTPException):
+    """No process/export slot is currently available."""
+
+    def __init__(self):
+        super().__init__(429, "Media capacity exhausted; retry after active work finishes")
+
+
 class MediaBudget:
     def __init__(self, kind: str):
         self.kind = kind
@@ -18,7 +25,7 @@ class MediaBudget:
         global_limit = getattr(settings, f"media_{self.kind}_limit")
         user_limit = getattr(settings, f"media_{self.kind}_per_user")
         if sum(self.owners.values()) >= global_limit or self.owners[owner] >= user_limit:
-            raise HTTPException(429, "Media capacity exhausted; retry after active work finishes")
+            raise MediaCapacityError()
         self.owners[owner] += 1
 
     def release(self, owner: str) -> None:

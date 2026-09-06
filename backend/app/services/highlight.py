@@ -25,7 +25,7 @@ from loguru import logger
 from app.config import settings
 from app.models.channel import validate_channel_id
 from app.services.media_export import encode_file, owned_thread
-from app.services.media_limits import export_budget, process_budget
+from app.services.media_limits import MediaCapacityError, export_budget, process_budget
 from app.services.media_source import resolve_media_channel
 
 log = logger.bind(service="highlight")
@@ -474,7 +474,8 @@ class HighlightService:
             stream_url: URL of the stream to record.
 
         Returns:
-            True if recorder is running (started or already running).
+            True if recorder is running (started or already running). False if
+            optional recording cannot start, including when capacity is full.
         """
         if not settings.highlight_enabled:
             log.debug("Highlight feature disabled, not starting recorder")
@@ -483,7 +484,13 @@ class HighlightService:
         if channel_id in self._recorders and self._recorders[channel_id].is_running:
             return True
         # Reserve before any awaited work: overload never queues behind startup.
-        process_budget.acquire(owner)
+        try:
+            process_budget.acquire(owner)
+        except MediaCapacityError:
+            # Recording is optional; normal status polling and channel changes
+            # must continue while cast/recorder jobs occupy the available slots.
+            log.debug("Highlight recording deferred for {}: capacity full", channel_id)
+            return False
         retained = False
         recorder = None
         try:

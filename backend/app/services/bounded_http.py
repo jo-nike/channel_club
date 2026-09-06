@@ -11,6 +11,16 @@ FEED_BYTES = 32 * 1024 * 1024
 BODY_SECONDS = 15
 
 
+def decoded_response(response: httpx.Response, body: bytes) -> httpx.Response:
+    """Wrap decoded bytes without applying the upstream's wire encoding again."""
+    headers = response.headers.copy()
+    for name in ("content-encoding", "content-length", "transfer-encoding"):
+        headers.pop(name, None)
+    return httpx.Response(
+        response.status_code, headers=headers, content=body, request=response.request
+    )
+
+
 def check_length(response: httpx.Response, limit: int) -> None:
     try:
         size = int(response.headers.get("content-length", "0"))
@@ -46,14 +56,4 @@ def fetch_feed(url: str, timeout: float = BODY_SECONDS) -> httpx.Response:
             if monotonic() > deadline or len(data) + len(chunk) > FEED_BYTES:
                 raise ValueError("Feed exceeds byte/time budget")
             data.extend(chunk)
-        # iter_bytes() has already decoded Content-Encoding. Reusing the wire
-        # headers would decode again and retain the compressed body's length.
-        headers = response.headers.copy()
-        for name in ("content-encoding", "content-length", "transfer-encoding"):
-            headers.pop(name, None)
-        return httpx.Response(
-            response.status_code,
-            headers=headers,
-            content=bytes(data),
-            request=response.request,
-        )
+        return decoded_response(response, bytes(data))

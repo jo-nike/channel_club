@@ -62,15 +62,18 @@ async def set_current_channel(channel: Channel, user: str | None = None) -> Chan
         # Import here to avoid circular dependency
         from app.services.highlight import highlight_service
 
-        # Stop recording for old channel if switching to different channel
-        if old_channel and old_channel.id != channel.id:
-            await highlight_service.stop_recording(old_channel.id)
+        try:
+            # Stop recording for old channel if switching to different channel
+            if old_channel and old_channel.id != channel.id:
+                await highlight_service.stop_recording(old_channel.id)
 
-        # Start recording for new channel
-        if channel.stream_url:
-            await highlight_service.start_recording(
-                channel.id, channel.stream_url, owner=user or "system"
-            )
+            # Optional recording must not prevent the selected channel broadcast.
+            if channel.stream_url:
+                await highlight_service.start_recording(
+                    channel.id, channel.stream_url, owner=user or "system"
+                )
+        except Exception as exc:
+            log.warning("Highlight setup failed for {}: {}", channel.id, exc)
 
     # Broadcast to all connected clients
     await broadcast_channel_update(channel)
