@@ -6,8 +6,10 @@ from uuid import uuid4
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from jose import JWTError
 from loguru import logger
+from pydantic import ValidationError
 
 from app.config import settings
+from app.models.websocket import MAX_MESSAGE_BYTES, client_message_adapter
 from app.services import app_settings, channel_state, chat, presence
 from app.services.auth import verify_token
 
@@ -126,6 +128,9 @@ async def websocket_endpoint(
         username = payload["sub"]
         while True:
             data = await websocket.receive_text()
+            if len(data.encode("utf-8")) > MAX_MESSAGE_BYTES:
+                await websocket.close(code=1009, reason="Message too large")
+                return
             try:
                 message = json.loads(data)
                 await handle_client_message(websocket, message, client_id, username)
@@ -146,7 +151,7 @@ async def websocket_endpoint(
 
 
 async def handle_client_message(
-    websocket: WebSocket, message: dict, client_id: str, username: str
+    websocket: WebSocket, message: object, client_id: str, username: str
 ) -> None:
     """Handle incoming client messages.
 
@@ -156,16 +161,29 @@ async def handle_client_message(
         client_id: Unique client identifier for logging.
         username: Authenticated username of the client.
     """
-    msg_type = message.get("type")
+    # Preserve forward compatibility for unknown types, but never store unchecked data.
+    if (
+        isinstance(message, dict)
+        and isinstance(message.get("type"), str)
+        and message["type"] not in {"ping", "channel_update", "set_nickname", "chat_message"}
+    ):
+        return
+    try:
+        validated = client_message_adapter.validate_python(message).model_dump()
+    except ValidationError:
+        await websocket.send_json({"type": "error", "code": "invalid_message"})
+        return
+
+    msg_type = validated.get("type")
 
     if msg_type == "ping":
         log.debug("Ping from client {}, sending pong", client_id)
         presence.update_last_activity(client_id)
         await websocket.send_json({"type": "pong"})
     elif msg_type == "channel_update":
-        channel = message.get("channel")
-        programme = message.get("programme")
-        view = message.get("view")
+        channel = validated.get("channel")
+        programme = validated.get("programme")
+        view = validated.get("view")
         presence.update_user_channel(client_id, channel, programme, view)
         log.debug(
             "Channel update from client {}: {} - {} (view: {})",
@@ -176,7 +194,7 @@ async def handle_client_message(
         )
     elif msg_type == "set_nickname":
         # Handle nickname setting for chat display name
-        nickname = message.get("nickname", "").strip()[:MAX_NICKNAME_LENGTH]
+        nickname = validated.get("nickname", "").strip()[:MAX_NICKNAME_LENGTH]
         if nickname:
             _nickname_map[client_id] = (websocket, nickname)
             log.debug("Nickname set for client {}: {}", client_id, nickname)
@@ -191,7 +209,7 @@ async def handle_client_message(
             log.debug("Chat message ignored from client {} - chat disabled", client_id)
             return
 
-        content = message.get("content", "")
+        content = validated.get("content", "")
         # Use nickname if set, otherwise fall back to auth username
         nickname_entry = _nickname_map.get(client_id)
         display_name = nickname_entry[1] if nickname_entry else username

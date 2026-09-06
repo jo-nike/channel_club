@@ -193,6 +193,35 @@ class TestConnectionTracking:
 
 
 class TestChannelBroadcast:
+    @pytest.fixture(autouse=True)
+    def authoritative_catalog(self, monkeypatch):
+        from unittest.mock import AsyncMock
+
+        from app.models.channel import Channel
+        from app.services import media_source
+
+        monkeypatch.setattr(media_source, "get_channel_by_id", lambda _id: None)
+        monkeypatch.setattr(
+            media_source,
+            "get_lineup",
+            AsyncMock(
+                return_value=[
+                    Channel(
+                        id="test-123",
+                        name="Test Channel",
+                        stream_url="http://test",
+                        guide_id="guide-123",
+                    ),
+                    Channel(
+                        id="multi-123",
+                        name="Multi Test",
+                        stream_url="http://multi",
+                        guide_id="guide-multi",
+                    ),
+                ]
+            ),
+        )
+
     """Tests for channel update broadcasting."""
 
     def test_broadcast_when_channel_changes(
@@ -688,3 +717,51 @@ class TestChatNickname:
 
                 assert msg1["username"] == "User1Nick"
                 assert msg2["username"] == "User2Nick"
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        [],
+        None,
+        4,
+        "text",
+        {"type": "channel_update", "channel": {}},
+        {"type": "channel_update", "channel": []},
+        {"type": "channel_update", "channel": 4},
+        {"type": "channel_update", "programme": {}},
+        {"type": "channel_update", "programme": []},
+        {"type": "channel_update", "programme": 4},
+        {"type": "channel_update", "channel": "x" * 513},
+        {"type": "set_nickname", "nickname": {}},
+        {"type": "chat_message", "content": 42},
+    ],
+)
+def test_sec05_invalid_messages_cannot_poison_presence(client, valid_token, admin_token, message):
+    with client.websocket_connect(f"/api/ws?token={valid_token}&session_id=validated") as ws:
+        assert ws.receive_json()["type"] == "connection_ack"
+        ws.send_json(message)
+        assert ws.receive_json() == {"type": "error", "code": "invalid_message"}
+        response = client.get(
+            "/api/admin/active-users", headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        assert response.status_code == 200
+        assert presence._active_users["validated"].current_channel is None
+        ws.send_json({"type": "channel_update", "channel": "Channel", "programme": "Programme"})
+        ws.send_json({"type": "ping"})
+        assert ws.receive_json()["type"] == "pong"
+        assert presence._active_users["validated"].current_programme == "Programme"
+        ws.send_json({"type": "channel_update", "channel": None, "programme": None})
+        ws.send_json({"type": "ping"})
+        assert ws.receive_json()["type"] == "pong"
+        assert presence._active_users["validated"].current_programme is None
+
+
+def test_sec05_oversize_message_closes_before_mutation(client, valid_token):
+    with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "chat_message", "content": "x" * 17000})
+        with pytest.raises(WebSocketDisconnect) as error:
+            ws.receive_json()
+        assert error.value.code == 1009
+    assert chat.get_history() == []
