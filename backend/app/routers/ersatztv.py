@@ -20,7 +20,6 @@ from app.models.ersatztv import (
     ProgrammeListResponse,
 )
 from app.routers.auth_deps import get_current_user, get_current_user_or_token
-from app.services.bounded_http import LOGO_BYTES, read_bounded
 from app.services.ersatztv import (
     get_channel_by_id,
     get_channels,
@@ -33,6 +32,7 @@ from app.services.ersatztv.hls_rewriter import (
     is_ersatztv_url,
     rewrite_manifest,
 )
+from app.services.logo_proxy import fetch_logo
 
 router = APIRouter(prefix="/api/ersatztv", tags=["ersatztv"])
 log = logger.bind(router="ersatztv")
@@ -356,18 +356,15 @@ async def get_logo(
             raise HTTPException(status_code=404, detail="No logo available")
 
         async with httpx.AsyncClient(follow_redirects=False, timeout=10) as client:
-            response = await client.send(client.build_request("GET", logo_url), stream=True)
-            try:
-                response.raise_for_status()
-                body = await read_bounded(response, LOGO_BYTES)
-            finally:
-                await response.aclose()
+            body, content_type = await fetch_logo(client, logo_url)
 
-        content_type = response.headers.get("content-type", "image/png")
-
-        return StreamingResponse(
-            iter([body]),
+        return Response(
+            body,
             media_type=content_type,
+            headers={
+                "Content-Security-Policy": "default-src 'none'; sandbox",
+                "X-Content-Type-Options": "nosniff",
+            },
         )
 
     except HTTPException:

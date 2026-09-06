@@ -653,7 +653,7 @@ class TestGetLogo:
     def test_no_authentication_required(self, client: TestClient, mock_channel: EPGChannel) -> None:
         """Logo endpoint does not require authentication (browser img tags can't send headers)."""
         assert mock_channel.original_logo_url is not None
-        logo_content = b"PNG image data"
+        logo_content = b"\x89PNG\r\n\x1a\nsynthetic-image-data"
 
         with (
             patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel),
@@ -682,7 +682,7 @@ class TestGetLogo:
     def test_returns_logo_image(self, client: TestClient, mock_channel: EPGChannel) -> None:
         """Returns logo image from ErsatzTV."""
         assert mock_channel.original_logo_url is not None
-        logo_content = b"PNG image data"
+        logo_content = b"\x89PNG\r\n\x1a\nsynthetic-image-data"
 
         with (
             patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel),

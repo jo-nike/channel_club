@@ -71,6 +71,9 @@ class Settings(BaseSettings):
     ersatztv_xmltv_url: str = "http://192.168.50.108:8409/iptv/xmltv.xml"
     ersatztv_base_url: str = "http://192.168.50.108:8409"
 
+    # Additional trusted logo origins, e.g. ["https://images.example.com"].
+    ersatztv_logo_origins: list[str] = []
+
     # Highlight Capture Feature (server-side FFmpeg recording)
     # Disabled by default - requires FFmpeg in container
     highlight_enabled: bool = False
