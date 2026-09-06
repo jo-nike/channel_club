@@ -215,6 +215,14 @@ async def handle_client_message(
         # Handle chat messages only if chat is enabled
         if not settings.chat_enabled:
             log.debug("Chat message ignored from client {} - chat disabled", client_id)
+            if validated.get("clientMessageId"):
+                await websocket.send_json(
+                    {
+                        "type": "chat_ack",
+                        "clientMessageId": validated["clientMessageId"],
+                        "accepted": False,
+                    }
+                )
             return
 
         content = validated.get("content", "")
@@ -230,9 +238,26 @@ async def handle_client_message(
                 **chat_msg.to_dict(),
             }
             await channel_state.broadcast(broadcast_message)
+            if validated.get("clientMessageId"):
+                await websocket.send_json(
+                    {
+                        "type": "chat_ack",
+                        "clientMessageId": validated["clientMessageId"],
+                        "accepted": True,
+                        "messageId": chat_msg.message_id,
+                    }
+                )
             log.debug("Chat message broadcast from {}: {}", username, chat_msg.message_id[:8])
         else:
             log.debug("Chat message from {} rejected (empty/invalid)", username)
+            if validated.get("clientMessageId"):
+                await websocket.send_json(
+                    {
+                        "type": "chat_ack",
+                        "clientMessageId": validated["clientMessageId"],
+                        "accepted": False,
+                    }
+                )
     else:
         # Log unknown message types for debugging
         log.debug("Unknown WebSocket message type from client {}: {}", client_id, msg_type)

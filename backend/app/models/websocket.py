@@ -37,6 +37,7 @@ class NicknameMessage(ClientMessage):
 class ChatMessage(ClientMessage):
     type: Literal["chat_message"]
     content: InputText = ""
+    clientMessageId: Annotated[str, Field(strict=True, min_length=1, max_length=64)] | None = None
 
 
 client_message_adapter = TypeAdapter(

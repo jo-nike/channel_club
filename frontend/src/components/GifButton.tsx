@@ -12,7 +12,7 @@ import { logger } from '@/lib/logger'
 const GIF_FEATURE_ENABLED = import.meta.env.VITE_GIF_ENABLED === 'true'
 
 export interface GifButtonProps {
-  onSelect: (gifUrl: string) => void
+  onSelect: (gifUrl: string) => boolean | void | Promise<boolean | void>
   disabled?: boolean
 }
 
@@ -66,9 +66,10 @@ export function GifButton({ onSelect, disabled }: GifButtonProps) {
     return null
   }
 
-  const handleSelect = (gifUrl: string) => {
-    onSelect(gifUrl)
-    setIsOpen(false)
+  const handleSelect = async (gifUrl: string) => {
+    const sent = await onSelect(gifUrl)
+    if (sent !== false) setIsOpen(false)
+    return sent
   }
 
   const handleClose = () => {

@@ -16,6 +16,8 @@ interface WebSocketMessage {
   currentChannel?: Channel | null
   settings?: AppSettings
   // Chat message fields
+  clientMessageId?: string
+  accepted?: boolean
   messageId?: string
   username?: string
   content?: string
@@ -34,11 +36,13 @@ interface UseWebSocketOptions {
   view?: 'live' | 'ersatztv' | 'tv'
 }
 
+export type ChatSendResult = 'acknowledged' | 'not-sent' | 'unconfirmed'
+
 interface UseWebSocketReturn {
   status: ConnectionStatus
   reconnect: () => void
   sendChannelUpdate: (channelName: string | null, programmeTitle?: string | null, viewType?: 'live' | 'ersatztv') => void
-  sendChatMessage: (content: string) => void
+  sendChatMessage: (content: string) => Promise<ChatSendResult>
   sendSetNickname: (nickname: string) => void
 }
 
@@ -52,6 +56,11 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   const setChatMessages = useChatStore((s) => s.setMessages)
   const setUserChannelSelection = useSettingsStore((s) => s.setUserChannelSelection)
 
+  const pendingChat = useRef(new Map<string, { finish: (result: ChatSendResult) => void; timer: ReturnType<typeof setTimeout> }>())
+  const clearPendingChat = useCallback(() => {
+    pendingChat.current.forEach(({ finish, timer }) => { clearTimeout(timer); finish('unconfirmed') })
+    pendingChat.current.clear()
+  }, [])
   const wsRef = useRef<WebSocket | null>(null)
   const pingIntervalRef = useRef<number | null>(null)
   const reconnectTimeoutRef = useRef<number | null>(null)
@@ -152,6 +161,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     (isReconnect = false) => {
       if (!token) return
 
+      clearPendingChat()
       // Close existing connection if any (a CONNECTING socket would otherwise be orphaned)
       const existing = wsRef.current
       if (existing && existing.readyState !== WebSocket.CLOSED) {
@@ -201,7 +211,14 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
 
         try {
           const message: WebSocketMessage = JSON.parse(event.data)
-          handleMessage(message)
+          if (message.type === 'chat_ack' && message.clientMessageId) {
+            const pending = pendingChat.current.get(message.clientMessageId)
+            if (pending) {
+              pendingChat.current.delete(message.clientMessageId)
+              clearTimeout(pending.timer)
+              pending.finish(message.accepted && message.messageId ? 'acknowledged' : 'not-sent')
+            }
+          } else handleMessage(message)
         } catch (e) {
           // Log but don't crash on invalid JSON
           logger.error('WebSocket', 'Failed to parse message', {
@@ -234,6 +251,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         }
 
         clearTimers()
+        clearPendingChat()
         wsRef.current = null
 
         // Token expired - don't reconnect, log out and redirect to login
@@ -265,7 +283,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         }
       }
     },
-    [token, view, handleMessage, clearTimers, getBackoffDelay]
+    [token, view, handleMessage, clearTimers, clearPendingChat, getBackoffDelay]
   )
 
   // Keep connectRef in sync with connect function
@@ -275,6 +293,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
 
   const disconnect = useCallback(() => {
     clearTimers()
+    clearPendingChat()
     const ws = wsRef.current
     if (ws) {
       intentionalClosesRef.current.add(ws)
@@ -282,7 +301,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       wsRef.current = null
     }
     setStatus('disconnected')
-  }, [clearTimers])
+  }, [clearTimers, clearPendingChat])
 
   const reconnect = useCallback(() => {
     retryCountRef.current = 0
@@ -321,20 +340,25 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   )
 
   const sendChatMessage = useCallback(
-    (content: string) => {
-      if (!chatEnabled) {
-        logger.debug('WebSocket', 'Chat disabled - message not sent')
-        return
-      }
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(
-          JSON.stringify({
-            type: 'chat_message',
-            content,
-          })
-        )
-        logger.debug('WebSocket', `Sent chat message: ${content.substring(0, 50)}...`)
-      }
+    (content: string): Promise<ChatSendResult> => {
+      const socket = wsRef.current
+      if (!chatEnabled || socket?.readyState !== WebSocket.OPEN || pendingChat.current.size >= 20) return Promise.resolve('not-sent')
+      // getRandomValues also works on the supported HTTP LAN development origin.
+      const clientMessageId = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, '0')).join('')
+      return new Promise((finish) => {
+        const timer = setTimeout(() => {
+          pendingChat.current.delete(clientMessageId)
+          finish('unconfirmed')
+        }, 10_000)
+        pendingChat.current.set(clientMessageId, { finish, timer })
+        try {
+          socket.send(JSON.stringify({ type: 'chat_message', content, clientMessageId }))
+        } catch {
+          clearTimeout(timer)
+          pendingChat.current.delete(clientMessageId)
+          finish('not-sent')
+        }
+      })
     },
     [chatEnabled]
   )

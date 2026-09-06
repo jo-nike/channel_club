@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState, useCallback, type KeyboardEvent } from 'react'
 import { X, Send, Pencil } from 'lucide-react'
+import type { ChatSendResult } from '@/hooks/useWebSocket'
 import { useChatStore } from '@/stores/chatStore'
 import { useBreakpoint } from '@/hooks/useBreakpoint'
 import { ChatMessage } from './ChatMessage'
@@ -9,7 +10,7 @@ import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 
 export interface ChatPanelProps {
-  onSendMessage: (content: string) => void
+  onSendMessage: (content: string) => Promise<ChatSendResult> | ChatSendResult
   currentUsername?: string
   onSetNickname?: (nickname: string) => void
 }
@@ -20,6 +21,10 @@ export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
   const isMobile = breakpoint === 'mobile'
 
   const [inputValue, setInputValue] = useState('')
+  const [deliveryStatus, setDeliveryStatus] = useState('')
+  const [isSending, setIsSending] = useState(false)
+  const sending = useRef(false)
+  const draftVersion = useRef(0)
   const [nicknameInput, setNicknameInput] = useState('')
   const [isEditingNickname, setIsEditingNickname] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -57,13 +62,28 @@ export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
 
   // Note: nickname input is pre-filled in handleEditNickname callback below
 
-  const handleSend = useCallback(() => {
-    const trimmed = inputValue.trim()
-    if (!trimmed) return
+  const send = useCallback(async (content: string) => {
+    if (sending.current) return 'not-sent' as const
+    sending.current = true
+    setIsSending(true)
+    setDeliveryStatus('Sending; waiting for server acknowledgement...')
+    let result: ChatSendResult
+    try { result = await onSendMessage(content) } catch { result = 'unconfirmed' }
+    setDeliveryStatus(result === 'acknowledged' ? 'Message accepted by server.' : result === 'not-sent'
+      ? 'Message not sent. Reconnect and try again; your draft is saved.'
+      : 'Delivery is unconfirmed. Your draft is saved; check chat before retrying to avoid duplicates.')
+    sending.current = false
+    setIsSending(false)
+    return result
+  }, [onSendMessage])
 
-    onSendMessage(trimmed)
-    setInputValue('')
-  }, [inputValue, onSendMessage])
+  const handleSend = useCallback(async () => {
+    const trimmed = inputValue.trim()
+    if (!trimmed || sending.current) return
+    const version = draftVersion.current
+    const result = await send(trimmed)
+    if (result === 'acknowledged' && draftVersion.current === version) setInputValue('')
+  }, [inputValue, send])
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLInputElement>) => {
@@ -119,6 +139,7 @@ export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
 
   return (
     <div className={`${panelClasses} ${animationClasses}`}>
+      {deliveryStatus && <p role="status" className="px-4 py-2 text-sm">{deliveryStatus}</p>}
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="flex items-center gap-2">
@@ -196,16 +217,16 @@ export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
               <Input
                 ref={inputRef}
                 value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
+                onChange={(e) => { draftVersion.current += 1; setInputValue(e.target.value) }}
                 onKeyDown={handleKeyDown}
                 placeholder="Type a message..."
                 className="flex-1"
                 maxLength={500}
               />
-              <GifButton onSelect={onSendMessage} disabled={!nickname} />
+              <GifButton onSelect={async (url) => (await send(url)) === 'acknowledged'} disabled={!nickname || isSending} />
               <Button
                 onClick={handleSend}
-                disabled={!inputValue.trim()}
+                disabled={!inputValue.trim() || isSending}
                 size="icon"
                 aria-label="Send message"
               >

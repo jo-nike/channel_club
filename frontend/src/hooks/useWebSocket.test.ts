@@ -1,4 +1,6 @@
-import { renderHook, act } from '@/test/utils'
+import { createElement } from 'react'
+import { ChatPanel } from '@/components/ChatPanel'
+import { render, screen, fireEvent, waitFor, renderHook, act } from '@/test/utils'
 import { vi, describe, test, expect, beforeEach, afterEach } from 'vitest'
 import { toast } from 'sonner'
 import { useWebSocket } from './useWebSocket'
@@ -878,12 +880,7 @@ describe('useWebSocket', () => {
         result.current.sendChatMessage('Hello everyone!')
       })
 
-      expect(ws.send).toHaveBeenCalledWith(
-        JSON.stringify({
-          type: 'chat_message',
-          content: 'Hello everyone!',
-        })
-      )
+      expect(JSON.parse(ws.send.mock.calls.at(-1)![0])).toMatchObject({ type: 'chat_message', content: 'Hello everyone!', clientMessageId: expect.any(String) })
     })
 
     test('does not send when not connected', () => {
@@ -989,6 +986,76 @@ describe('useWebSocket', () => {
     expect(MockWebSocket.instances).toHaveLength(7)
     unmount()
     vi.useRealTimers()
+  })
+
+
+  test.each([0, 2, 3])('FE-11 reports no send for readyState %s', async (readyState) => {
+    const { result } = renderHook(() => useWebSocket())
+    MockWebSocket.instances.at(-1)!.readyState = readyState
+    await expect(result.current.sendChatMessage('retained draft')).resolves.toBe('not-sent')
+    expect(MockWebSocket.instances.at(-1)!.send).not.toHaveBeenCalled()
+  })
+  test('FE-11 acknowledges only the matching pending ID once', async () => {
+    const { result } = renderHook(() => useWebSocket())
+    const socket = MockWebSocket.instances.at(-1)!
+    act(() => socket.simulateOpen())
+    const completed = vi.fn()
+    const sending = result.current.sendChatMessage('message').then(completed)
+    const { clientMessageId } = JSON.parse(socket.send.mock.calls.at(-1)![0])
+    act(() => socket.simulateMessage({ type: 'chat_ack', clientMessageId: 'different', accepted: true, messageId: 'server-id' }))
+    await Promise.resolve()
+    expect(completed).not.toHaveBeenCalled()
+    act(() => socket.simulateMessage({ type: 'chat_ack', clientMessageId, accepted: true, messageId: 'server-id' }))
+    await sending
+    act(() => socket.simulateMessage({ type: 'chat_ack', clientMessageId, accepted: true, messageId: 'server-id' }))
+    expect(completed).toHaveBeenCalledExactlyOnceWith('acknowledged')
+    socket.send.mockImplementationOnce(() => { throw new Error('connection lost') })
+    await expect(result.current.sendChatMessage('retained')).resolves.toBe('not-sent')
+  })
+  test.each(['disconnect', 'timeout', 'replace'])('FE-11 reports unconfirmed delivery on %s and ignores late ACK', async (action) => {
+    vi.useFakeTimers()
+    const { result, unmount } = renderHook(() => useWebSocket())
+    const socket = MockWebSocket.instances.at(-1)!
+    act(() => socket.simulateOpen())
+    const completed = vi.fn()
+    const sending = result.current.sendChatMessage('pending').then(completed)
+    const { clientMessageId } = JSON.parse(socket.send.mock.calls.at(-1)![0])
+    if (action === 'timeout') await act(() => vi.advanceTimersByTimeAsync(10000))
+    else if (action === 'replace') act(() => result.current.reconnect())
+    else act(() => socket.simulateClose(1006))
+    await sending
+    act(() => socket.simulateMessage({ type: 'chat_ack', clientMessageId, accepted: true, messageId: 'server-id' }))
+    expect(completed).toHaveBeenCalledExactlyOnceWith('unconfirmed')
+    unmount()
+    vi.useRealTimers()
+  })
+  test('FE-11 routed chat keeps a disconnected draft until the replacement socket acknowledges it', async () => {
+    Element.prototype.scrollIntoView = vi.fn() // jsdom has no layout scrolling implementation
+    useChatStore.setState({ isOpen: true, nickname: 'Synthetic sender' })
+    function ChatHarness() {
+      const { sendChatMessage } = useWebSocket()
+      return createElement(ChatPanel, { onSendMessage: sendChatMessage })
+    }
+    render(createElement(ChatHarness))
+    const first = MockWebSocket.instances.at(-1)!
+    act(() => first.simulateOpen())
+    const input = screen.getByPlaceholderText('Type a message...')
+    fireEvent.change(input, { target: { value: 'Keep until acknowledged' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    const oldId = JSON.parse(first.send.mock.calls.at(-1)![0]).clientMessageId
+    expect(input).toHaveValue('Keep until acknowledged')
+    act(() => first.simulateClose(1006))
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Delivery is unconfirmed'))
+    act(() => window.dispatchEvent(new Event('online')))
+    const replacement = MockWebSocket.instances.at(-1)!
+    act(() => replacement.simulateOpen())
+    fireEvent.keyDown(input, { key: 'Enter' })
+    const newId = JSON.parse(replacement.send.mock.calls.at(-1)![0]).clientMessageId
+    act(() => first.simulateMessage({ type: 'chat_ack', clientMessageId: oldId, accepted: true, messageId: 'old-server-id' }))
+    expect(input).toHaveValue('Keep until acknowledged')
+    act(() => replacement.simulateMessage({ type: 'chat_ack', clientMessageId: newId, accepted: true, messageId: 'new-server-id' }))
+    await waitFor(() => expect(input).toHaveValue(''))
+    expect(screen.getByRole('status')).toHaveTextContent('Message accepted by server')
   })
 
 })

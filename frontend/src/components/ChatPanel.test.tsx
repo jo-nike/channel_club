@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@/test/utils'
+import { act, render, screen, fireEvent, waitFor } from '@/test/utils'
 import { ChatPanel } from './ChatPanel'
 import { useChatStore } from '@/stores/chatStore'
 import type { ChatMessage } from '@/types'
@@ -32,7 +32,7 @@ describe('ChatPanel', () => {
       unreadCount: 0,
       nickname: 'TestUser', // Set default nickname so chat UI shows
     })
-    mockOnSendMessage.mockClear()
+    mockOnSendMessage.mockReset().mockReturnValue('acknowledged')
   })
 
   it('renders when isOpen is true', () => {
@@ -85,14 +85,14 @@ describe('ChatPanel', () => {
     expect(mockOnSendMessage).toHaveBeenCalledWith('Hello world!')
   })
 
-  it('clears input after sending', () => {
+  it('clears input after sending', async () => {
     render(<ChatPanel onSendMessage={mockOnSendMessage} />)
     const input = screen.getByPlaceholderText('Type a message...')
 
     fireEvent.change(input, { target: { value: 'Hello!' } })
     fireEvent.keyDown(input, { key: 'Enter' })
 
-    expect(input).toHaveValue('')
+    await waitFor(() => expect(input).toHaveValue(''))
   })
 
   it('does not send empty messages', () => {
@@ -227,5 +227,42 @@ describe('ChatPanel', () => {
 
       expect(screen.getByPlaceholderText('Enter display name...')).toBeInTheDocument()
     })
+  })
+  it('FE-11 preserves failed drafts and clears only after matching acknowledgement', async () => {
+    mockOnSendMessage.mockReturnValueOnce('not-sent').mockReturnValueOnce('acknowledged')
+    render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+    const input = screen.getByPlaceholderText('Type a message...')
+    fireEvent.change(input, { target: { value: 'Keep this message' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Message not sent'))
+    expect(input).toHaveValue('Keep this message')
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => expect(input).toHaveValue(''))
+    expect(screen.getByRole('status')).toHaveTextContent('Message accepted by server')
+    expect(mockOnSendMessage).toHaveBeenCalledTimes(2)
+  })
+  it('FE-11 keeps the draft pending and preserves new edits when its old send is acknowledged', async () => {
+    let finish!: (result: string) => void
+    mockOnSendMessage.mockReturnValue(new Promise((resolve) => { finish = resolve }))
+    render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+    const input = screen.getByPlaceholderText('Type a message...')
+    fireEvent.change(input, { target: { value: 'First' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(input).toHaveValue('First')
+    expect(screen.getByRole('status')).toHaveTextContent('waiting for server acknowledgement')
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(mockOnSendMessage).toHaveBeenCalledTimes(1)
+    fireEvent.change(input, { target: { value: 'New draft' } })
+    await act(async () => finish('acknowledged'))
+    expect(input).toHaveValue('New draft')
+  })
+  it('FE-11 retains a draft when delivery becomes uncertain after send', async () => {
+    mockOnSendMessage.mockResolvedValue('unconfirmed')
+    render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+    const input = screen.getByPlaceholderText('Type a message...')
+    fireEvent.change(input, { target: { value: 'Uncertain' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Delivery is unconfirmed'))
+    expect(input).toHaveValue('Uncertain')
   })
 })

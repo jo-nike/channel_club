@@ -8,7 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { logger } from '@/lib/logger'
 
 export interface GifPickerProps {
-  onSelect: (gifUrl: string) => void
+  onSelect: (gifUrl: string) => boolean | void | Promise<boolean | void>
   onClose: () => void
 }
 
@@ -142,10 +142,9 @@ export function GifPicker({ onSelect, onClose }: GifPickerProps) {
   }, [debouncedQuery, loadingMore, hasMore, offset, search])
 
   const handleSelect = useCallback(
-    (gif: GifItem) => {
+    async (gif: GifItem) => {
       logger.debug('GIF', `Selected GIF: ${gif.id}`)
-      onSelect(gif.url)
-      onClose()
+      if (await onSelect(gif.url) !== false) onClose()
     },
     [onSelect, onClose]
   )
