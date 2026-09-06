@@ -24,6 +24,12 @@ from app.services.dispatcharr import (
 log = logger.bind(service="status")
 
 
+def _object_list(value: object) -> list[dict]:
+    if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
+        raise ValueError("Expected a list of objects")
+    return value
+
+
 async def _fetch_ersatztv_data(
     client: httpx.AsyncClient, base_url: str
 ) -> tuple[list[dict] | None, list[dict], list[dict]]:
@@ -56,17 +62,17 @@ async def _fetch_ersatztv_data(
     profiles: list[dict] = []
 
     if isinstance(sessions_resp, httpx.Response) and sessions_resp.status_code == 200:
-        sessions = sessions_resp.json()
+        sessions = _object_list(sessions_resp.json())
     elif isinstance(sessions_resp, Exception):
         log.warning("Failed to fetch ErsatzTV sessions: {}", sessions_resp)
 
     if isinstance(channels_resp, httpx.Response) and channels_resp.status_code == 200:
-        channels = channels_resp.json()
+        channels = _object_list(channels_resp.json())
     elif isinstance(channels_resp, Exception):
         log.warning("Failed to fetch ErsatzTV channels: {}", channels_resp)
 
     if isinstance(profiles_resp, httpx.Response) and profiles_resp.status_code == 200:
-        profiles = profiles_resp.json()
+        profiles = _object_list(profiles_resp.json())
     elif isinstance(profiles_resp, Exception):
         log.warning("Failed to fetch ErsatzTV profiles: {}", profiles_resp)
 
@@ -198,6 +204,15 @@ async def get_ersatztv_status() -> ErsatzTVStatus:
             error=str(e),
         )
 
+    except (ValueError, TypeError, AttributeError):
+        log.warning("Invalid ErsatzTV status response schema")
+        return ErsatzTVStatus(
+            name="ErsatzTV",
+            online=False,
+            last_checked=now,
+            error="Invalid upstream status response",
+        )
+
 
 def _parse_dispatcharr_proxy_status(
     data: dict,
@@ -210,7 +225,9 @@ def _parse_dispatcharr_proxy_status(
     Returns:
         Tuple of (active_streams, total_viewers, streams)
     """
-    channels = data.get("channels", [])
+    if not isinstance(data, dict):
+        raise ValueError("Expected a status object")
+    channels = _object_list(data.get("channels", []))
     streams: list[DispatcharrStream] = []
 
     for ch in channels:
@@ -222,7 +239,7 @@ def _parse_dispatcharr_proxy_status(
                 ip_address=c.get("ip_address"),
                 connected_since=c.get("connected_since", 0),
             )
-            for c in ch.get("clients", [])
+            for c in _object_list(ch.get("clients", []))
         ]
 
         stream = DispatcharrStream(
@@ -352,6 +369,15 @@ async def get_dispatcharr_status() -> DispatchrrStatus:
             error=str(e),
         )
 
+    except (ValueError, TypeError, AttributeError):
+        log.warning("Invalid Dispatcharr status response schema")
+        return DispatchrrStatus(
+            name="Dispatcharr",
+            online=False,
+            last_checked=now,
+            error="Invalid upstream status response",
+        )
+
 
 async def get_system_status() -> SystemStatusResponse:
     """Get combined status of all external services.
@@ -365,9 +391,20 @@ async def get_system_status() -> SystemStatusResponse:
     ersatztv_status, dispatcharr_status = await asyncio.gather(
         get_ersatztv_status(),
         get_dispatcharr_status(),
+        return_exceptions=True,
     )
 
+    # A failure in one integration must never hide the independent service.
+    now = datetime.now(UTC)
     return SystemStatusResponse(
-        ersatztv=ersatztv_status,
-        dispatcharr=dispatcharr_status,
+        ersatztv=ersatztv_status
+        if isinstance(ersatztv_status, ErsatzTVStatus)
+        else ErsatzTVStatus(
+            name="ErsatzTV", online=False, last_checked=now, error="Status check failed"
+        ),
+        dispatcharr=dispatcharr_status
+        if isinstance(dispatcharr_status, DispatchrrStatus)
+        else DispatchrrStatus(
+            name="Dispatcharr", online=False, last_checked=now, error="Status check failed"
+        ),
     )

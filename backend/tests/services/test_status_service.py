@@ -357,3 +357,108 @@ class TestGetSystemStatus:
 
         assert status.ersatztv.online is True
         assert status.dispatcharr.online is False
+
+
+@pytest.mark.parametrize(
+    "bad_payload",
+    [
+        "<html>maintenance</html>",
+        {"error": "maintenance"},
+        [None],
+        [{"channelNumber": "1", "state": {"invalid": "object"}}],
+        [{"channelNumber": "1", "transcodedUntil": 42}],
+    ],
+)
+async def test_sec08_invalid_ersatztv_preserves_healthy_dispatcharr(monkeypatch, bad_payload):
+    from app.services import status_service
+
+    def upstream(request):
+        if request.url.path == "/api/sessions":
+            if isinstance(bad_payload, str):
+                return httpx.Response(200, text=bad_payload)
+            return httpx.Response(200, json=bad_payload)
+        if request.url.path == "/proxy/ts/status":
+            return httpx.Response(200, json={"channels": []})
+        return httpx.Response(200, json=[])
+
+    factory = httpx.AsyncClient
+    monkeypatch.setattr(
+        status_service.httpx,
+        "AsyncClient",
+        lambda **kwargs: factory(transport=httpx.MockTransport(upstream), **kwargs),
+    )
+    monkeypatch.setattr(
+        status_service, "dispatcharr_auth_headers", lambda: {"Authorization": "ApiKey synthetic"}
+    )
+    result = await status_service.get_system_status()
+    assert result.ersatztv.online is False
+    assert result.ersatztv.error == "Invalid upstream status response"
+    assert result.dispatcharr.online is True
+
+
+@pytest.mark.parametrize(
+    "bad_payload",
+    [
+        "<html>maintenance</html>",
+        [],
+        {"channels": {}},
+        {"channels": [None]},
+        {"channels": [{"client_count": "invalid"}]},
+        {"channels": [{"clients": [42]}]},
+    ],
+)
+async def test_sec08_invalid_dispatcharr_preserves_healthy_ersatztv(monkeypatch, bad_payload):
+    from app.services import status_service
+
+    def upstream(request):
+        if request.url.path == "/proxy/ts/status":
+            if isinstance(bad_payload, str):
+                return httpx.Response(200, text=bad_payload)
+            return httpx.Response(200, json=bad_payload)
+        return httpx.Response(200, json=[])
+
+    factory = httpx.AsyncClient
+    monkeypatch.setattr(
+        status_service.httpx,
+        "AsyncClient",
+        lambda **kwargs: factory(transport=httpx.MockTransport(upstream), **kwargs),
+    )
+    monkeypatch.setattr(
+        status_service, "dispatcharr_auth_headers", lambda: {"Authorization": "ApiKey synthetic"}
+    )
+    result = await status_service.get_system_status()
+    assert result.dispatcharr.online is False
+    assert result.dispatcharr.error == "Invalid upstream status response"
+    assert result.ersatztv.online is True
+
+
+def test_sec08_admin_endpoint_isolates_unexpected_service_failure(monkeypatch):
+    from datetime import UTC, datetime
+    from unittest.mock import AsyncMock
+
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+    from app.models.status import DispatchrrStatus
+    from app.services import status_service
+    from app.services.auth import create_access_token
+
+    monkeypatch.setattr(
+        status_service, "get_ersatztv_status", AsyncMock(side_effect=RuntimeError("schema drift"))
+    )
+    monkeypatch.setattr(
+        status_service,
+        "get_dispatcharr_status",
+        AsyncMock(
+            return_value=DispatchrrStatus(
+                name="Dispatcharr", online=True, last_checked=datetime.now(UTC)
+            )
+        ),
+    )
+    token = create_access_token({"sub": "admin", "role": "admin"})
+    response = TestClient(app).get(
+        "/api/admin/status", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert response.status_code == 200
+    assert response.json()["ersatztv"]["error"] == "Status check failed"
+    assert response.json()["dispatcharr"]["online"] is True
