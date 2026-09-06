@@ -1,6 +1,23 @@
 """Channel models for IPTV Viewer API."""
 
-from pydantic import BaseModel, Field
+from typing import Annotated
+
+from pydantic import AfterValidator, BaseModel, Field
+
+
+def validate_channel_id(value: str) -> str:
+    """Channel IDs are opaque identifiers, never filesystem paths."""
+    if (
+        not value.strip()
+        or value != value.strip()
+        or value in {".", ".."}
+        or any(char in value for char in ("/", "\\", "\x00"))
+    ):
+        raise ValueError("Invalid channel identifier")
+    return value
+
+
+ChannelId = Annotated[str, Field(min_length=1, max_length=256), AfterValidator(validate_channel_id)]
 
 
 class DispatchrrChannel(BaseModel):
@@ -28,7 +45,7 @@ class Channel(BaseModel):
 class SetChannelRequest(BaseModel):
     """Request body for PUT /api/channels/current."""
 
-    id: str
+    id: ChannelId
     name: str
     stream_url: str = Field(alias="streamUrl")
     guide_id: str = Field(alias="guideId")

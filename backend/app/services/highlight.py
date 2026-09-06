@@ -14,14 +14,26 @@ import asyncio
 import os
 import shutil
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
 from loguru import logger
 
 from app.config import settings
+from app.models.channel import validate_channel_id
 
 log = logger.bind(service="highlight")
+
+
+def remove_recording_directory(directory: Path) -> None:
+    """Delete only strict descendants of the configured recording root."""
+    root = Path(settings.highlight_temp_dir).resolve()
+    resolved = directory.resolve()
+    if resolved == root or not resolved.is_relative_to(root) or directory.is_symlink():
+        log.warning("Refusing removal outside recording directory")
+        return
+    shutil.rmtree(directory)
 
 
 def get_ersatztv_stream_url(channel_id: str) -> str | None:
@@ -112,8 +124,10 @@ class ChannelRecorder:
                 return True
 
             # Create segment directory
-            self.segment_dir = Path(settings.highlight_temp_dir) / self.channel_id
-            self.segment_dir.mkdir(parents=True, exist_ok=True)
+            validate_channel_id(self.channel_id)
+            root = Path(settings.highlight_temp_dir)
+            root.mkdir(parents=True, exist_ok=True)
+            self.segment_dir = Path(tempfile.mkdtemp(prefix="recorder-", dir=root))
 
             # Build FFmpeg command for HLS segment recording
             # Uses segment muxer to create rolling segments
@@ -160,6 +174,7 @@ class ChannelRecorder:
             )
             log.debug("FFmpeg command: {}", " ".join(cmd))
 
+            started = False
             try:
                 self.process = subprocess.Popen(
                     cmd,
@@ -182,6 +197,7 @@ class ChannelRecorder:
                     self.channel_id,
                     self.process.pid,
                 )
+                started = True
                 return True
 
             except FileNotFoundError:
@@ -190,48 +206,55 @@ class ChannelRecorder:
             except Exception as e:
                 log.error("Failed to start FFmpeg for channel {}: {}", self.channel_id, e)
                 return False
+            finally:
+                if not started:
+                    await self._stop_locked()
 
     async def stop(self) -> None:
         """Stop FFmpeg recording and cleanup."""
         async with self._lock:
-            if self.process:
-                log.info(
-                    "Stopping FFmpeg recorder for channel {} (PID: {})",
-                    self.channel_id,
-                    self.process.pid,
-                )
-                process = self.process
+            await self._stop_locked()
 
-                # Signal and reap in a thread pool to avoid blocking the event
-                # loop - a stalled FFmpeg can ignore SIGTERM for the full timeout
-                def terminate_process() -> None:
-                    # Send SIGTERM to process group
-                    os.killpg(os.getpgid(process.pid), 15)  # SIGTERM
-                    try:
-                        process.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        os.killpg(os.getpgid(process.pid), 9)  # SIGKILL
-                        process.wait()
+    async def _stop_locked(self) -> None:
+        """Stop resources while the recorder lifecycle lock is held."""
+        if self.process:
+            log.info(
+                "Stopping FFmpeg recorder for channel {} (PID: {})",
+                self.channel_id,
+                self.process.pid,
+            )
+            process = self.process
 
+            # Signal and reap in a thread pool to avoid blocking the event
+            # loop - a stalled FFmpeg can ignore SIGTERM for the full timeout
+            def terminate_process() -> None:
+                # Send SIGTERM to process group
+                os.killpg(os.getpgid(process.pid), 15)  # SIGTERM
                 try:
-                    await asyncio.to_thread(terminate_process)
-                except ProcessLookupError:
-                    pass  # Process already dead
-                except Exception as e:
-                    log.warning("Error stopping FFmpeg process: {}", e)
-                finally:
-                    self.process = None
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    os.killpg(os.getpgid(process.pid), 9)  # SIGKILL
+                    process.wait()
 
-            # Cleanup segment directory
-            if self.segment_dir and self.segment_dir.exists():
-                try:
-                    # Recursive delete is filesystem-bound - keep it off the loop
-                    await asyncio.to_thread(shutil.rmtree, self.segment_dir)
-                    log.debug("Cleaned up segment directory for channel {}", self.channel_id)
-                except Exception as e:
-                    log.warning("Failed to cleanup segments for channel {}: {}", self.channel_id, e)
-                finally:
-                    self.segment_dir = None
+            try:
+                await asyncio.to_thread(terminate_process)
+            except ProcessLookupError:
+                pass  # Process already dead
+            except Exception as e:
+                log.warning("Error stopping FFmpeg process: {}", e)
+            finally:
+                self.process = None
+
+        # Cleanup segment directory
+        if self.segment_dir and self.segment_dir.exists():
+            try:
+                # Recursive delete is filesystem-bound - keep it off the loop
+                await asyncio.to_thread(remove_recording_directory, self.segment_dir)
+                log.debug("Cleaned up segment directory for channel {}", self.channel_id)
+            except Exception as e:
+                log.warning("Failed to cleanup segments for channel {}: {}", self.channel_id, e)
+            finally:
+                self.segment_dir = None
 
     def get_buffer_seconds(self) -> float:
         """Get how many seconds of content are actually in the buffer.
@@ -568,7 +591,7 @@ class HighlightService:
             removed = 0
             for item in temp_dir.iterdir():
                 if item.is_dir():
-                    shutil.rmtree(item)
+                    remove_recording_directory(item)
                     removed += 1
             if removed:
                 log.info("Cleaned up {} stale segment directories", removed)
@@ -601,15 +624,23 @@ class HighlightService:
                 if recorder.is_running:
                     return True
                 # Recorder exists but stopped - restart it
-                await recorder.start()
-                return recorder.is_running
+                await recorder.stop()
+                try:
+                    return await recorder.start()
+                finally:
+                    if not recorder.is_running:
+                        await recorder.stop()
 
             # Create new recorder
             recorder = ChannelRecorder(channel_id, stream_url)
-            if await recorder.start():
-                self._recorders[channel_id] = recorder
-                return True
-            return False
+            try:
+                if await recorder.start():
+                    self._recorders[channel_id] = recorder
+                    return True
+                return False
+            finally:
+                if channel_id not in self._recorders:
+                    await recorder.stop()
 
     async def stop_recording(self, channel_id: str) -> None:
         """Stop recording a channel.

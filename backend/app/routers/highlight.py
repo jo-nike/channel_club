@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from app.config import settings
 from app.models.auth import TokenPayload
+from app.models.channel import ChannelId, validate_channel_id
 from app.routers.auth_deps import get_current_user
 from app.services.highlight import highlight_service
 
@@ -53,7 +54,7 @@ async def get_feature_status(
 
 @router.get("/status/{channel_id}", response_model=HighlightStatusResponse)
 async def get_highlight_status(
-    channel_id: str = Path(..., description="Channel ID to check status for"),
+    channel_id: ChannelId = Path(..., description="Channel ID to check status for"),
     user: TokenPayload = Depends(get_current_user),
 ) -> HighlightStatusResponse:
     """Get highlight recording status for a channel.
@@ -61,6 +62,10 @@ async def get_highlight_status(
     Returns whether recording is active and buffer fill level.
     Auto-starts recording for ErsatzTV channels if not already recording.
     """
+    try:
+        validate_channel_id(channel_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
     log.debug("GET /highlight/status/{} request", channel_id)
 
     # Auto-start recording if enabled but not already recording
@@ -87,7 +92,7 @@ async def get_highlight_status(
 
 @router.post("/{channel_id}")
 async def save_highlight(
-    channel_id: str = Path(..., description="Channel ID to save highlight for"),
+    channel_id: ChannelId = Path(..., description="Channel ID to save highlight for"),
     format: Literal["mp4", "webm"] = Query("mp4", description="Output format: mp4 or webm"),
     start_time: float | None = Query(
         None, ge=0, description="Start time in seconds from beginning of buffer"
