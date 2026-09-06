@@ -30,21 +30,27 @@ async def resolve_media_channel(channel_id: str) -> MediaChannel:
         validate_channel_id(channel_id)
     except ValueError:
         raise HTTPException(422, "Invalid channel identifier") from None
+    unavailable = False
+    # Dispatcharr's authenticated lineup is independent of optional ErsatzTV.
+    # Never refresh ErsatzTV at all when Dispatcharr already knows this ID.
     try:
-        ersatz = await asyncio.to_thread(get_channel_by_id, channel_id)
-        if ersatz:
-            return checked_source(
-                Channel(
-                    id=ersatz.id, name=ersatz.name, streamUrl=ersatz.stream_url, guideId=ersatz.id
-                ),
-                "hls",
-            )
         lineup = await get_lineup()
-    except Exception as exc:
-        if isinstance(exc, HTTPException):
-            raise
-        raise HTTPException(503, "Channel catalog unavailable") from None
+    except Exception:
+        unavailable = True
+        lineup = []
     for channel in lineup:
         if channel.id == channel_id:
             return checked_source(channel, "mpegts")
+    try:
+        ersatz = await asyncio.to_thread(get_channel_by_id, channel_id)
+    except Exception:
+        unavailable = True
+        ersatz = None
+    if ersatz:
+        return checked_source(
+            Channel(id=ersatz.id, name=ersatz.name, streamUrl=ersatz.stream_url, guideId=ersatz.id),
+            "hls",
+        )
+    if unavailable:
+        raise HTTPException(503, "Channel catalog unavailable")
     raise HTTPException(404, "Channel not found")

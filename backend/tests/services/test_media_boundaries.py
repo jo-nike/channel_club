@@ -125,3 +125,61 @@ async def test_resolved_source_replaces_client_url(provider, monkeypatch):
         assert await service.start_recording("valid", "http://off-catalog.invalid/private")
         assert service._recorders["valid"].stream_url == channel.stream_url
         await service.stop_all()
+
+
+@pytest.mark.asyncio
+async def test_dispatcharr_media_does_not_depend_on_ersatz(monkeypatch):
+    from app.models.channel import Channel
+    from app.services.media_source import resolve_media_channel
+
+    channel = Channel(
+        id="dispatch", name="healthy", streamUrl="http://catalog.invalid/ts", guideId="1"
+    )
+    with (
+        patch("app.services.media_source.get_lineup", AsyncMock(return_value=[channel])),
+        patch(
+            "app.services.media_source.get_channel_by_id", side_effect=RuntimeError("offline")
+        ) as optional,
+    ):
+        source = await resolve_media_channel("dispatch")
+        assert source.stream_type == "mpegts"
+        assert source.channel == channel
+        optional.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outage,expected", [(False, 404), (True, 503)])
+async def test_unknown_and_unavailable_have_distinct_status(outage, expected):
+    from fastapi import HTTPException
+
+    from app.services.media_source import resolve_media_channel
+
+    with (
+        patch("app.services.media_source.get_lineup", AsyncMock(return_value=[])),
+        patch(
+            "app.services.media_source.get_channel_by_id",
+            return_value=None,
+            side_effect=RuntimeError("offline") if outage else None,
+        ),
+    ):
+        with pytest.raises(HTTPException) as exc:
+            await resolve_media_channel("unknown")
+        assert exc.value.status_code == expected
+
+
+@pytest.mark.asyncio
+async def test_ersatz_works_when_dispatcharr_unavailable():
+    from app.models.channel import Channel
+    from app.services.media_source import resolve_media_channel
+
+    channel = Channel(
+        id="ersatz", name="healthy", streamUrl="http://catalog.invalid/hls", guideId="1"
+    )
+    with (
+        patch(
+            "app.services.media_source.get_lineup", AsyncMock(side_effect=RuntimeError("offline"))
+        ),
+        patch("app.services.media_source.get_channel_by_id", return_value=channel),
+    ):
+        source = await resolve_media_channel("ersatz")
+        assert source.stream_type == "hls"
