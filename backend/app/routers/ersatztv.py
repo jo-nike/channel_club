@@ -20,6 +20,7 @@ from app.models.ersatztv import (
     ProgrammeListResponse,
 )
 from app.routers.auth_deps import get_current_user, get_current_user_or_token
+from app.services.bounded_http import LOGO_BYTES, read_bounded
 from app.services.ersatztv import (
     get_channel_by_id,
     get_channels,
@@ -188,6 +189,19 @@ async def get_stream(
                     status_code=503, detail="Stream unavailable - cold start timeout"
                 ) from last_error
 
+        content_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
+        if content_type and content_type not in {
+            "application/vnd.apple.mpegurl",
+            "application/x-mpegurl",
+            "audio/mpegurl",
+            "audio/x-mpegurl",
+            "text/plain",
+            "application/octet-stream",
+        }:
+            raise HTTPException(status_code=502, detail="Upstream is not an HLS manifest")
+        if not response.text.lstrip("\ufeff").startswith("#EXTM3U"):
+            raise HTTPException(status_code=502, detail="Invalid HLS manifest")
+
         # Rewrite manifest with token for segment auth
         # Use final URL after redirects for correct base path
         final_url = str(response.url)
@@ -341,14 +355,18 @@ async def get_logo(
         if not logo_url:
             raise HTTPException(status_code=404, detail="No logo available")
 
-        async with httpx.AsyncClient() as client:
-            response = await client.get(logo_url, timeout=10)
-            response.raise_for_status()
+        async with httpx.AsyncClient(follow_redirects=False, timeout=10) as client:
+            response = await client.send(client.build_request("GET", logo_url), stream=True)
+            try:
+                response.raise_for_status()
+                body = await read_bounded(response, LOGO_BYTES)
+            finally:
+                await response.aclose()
 
         content_type = response.headers.get("content-type", "image/png")
 
         return StreamingResponse(
-            iter([response.content]),
+            iter([body]),
             media_type=content_type,
         )
 

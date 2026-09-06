@@ -9,11 +9,11 @@ Story: 7.2 - M3U Parser Service
 import re
 from datetime import datetime, timedelta
 
-import httpx
 from loguru import logger
 
 from app.config import settings
 from app.models.ersatztv import EPGChannel
+from app.services.bounded_http import fetch_feed
 from app.services.ersatztv.refresh import serialized_refresh
 
 # Module-level logger with service context
@@ -63,7 +63,7 @@ def parse_m3u_playlist() -> list[EPGChannel]:
     log.debug("Cache miss for M3U data, fetching from {}", settings.ersatztv_m3u_url)
 
     try:
-        response = httpx.get(settings.ersatztv_m3u_url, timeout=30)
+        response = fetch_feed(settings.ersatztv_m3u_url)
         response.raise_for_status()
 
         channels = _parse_m3u_content(response.text)

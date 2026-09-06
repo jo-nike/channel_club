@@ -15,6 +15,7 @@ import httpx
 from loguru import logger
 
 from app.config import settings
+from app.services.bounded_http import MANIFEST_BYTES, read_bounded
 from app.services.ersatztv.epg_service import get_channel_by_id
 
 # Module-level logger with service context
@@ -90,13 +91,37 @@ async def fetch_ersatztv(
     for _ in range(max_redirects + 1):
         if not is_ersatztv_url(url):
             raise ValueError(f"URL is not from ErsatzTV: {url}")
-        response = await client.send(client.build_request("GET", url), stream=stream)
+        response = await client.send(client.build_request("GET", url), stream=True)
         if response.is_redirect and "location" in response.headers:
             location = str(response.url.join(response.headers["location"]))
-            if stream:
-                await response.aclose()
+            await response.aclose()
             url = location
             continue
+        if not stream:
+            mime = response.headers.get("content-type", "").split(";", 1)[0].lower()
+            if mime and mime not in {
+                "application/vnd.apple.mpegurl",
+                "application/x-mpegurl",
+                "audio/mpegurl",
+                "audio/x-mpegurl",
+                "text/plain",
+                "application/octet-stream",
+            }:
+                await response.aclose()
+                raise ValueError("Upstream is not an HLS manifest")
+            body = await read_bounded(response, MANIFEST_BYTES)
+            if (
+                response.is_success
+                and body.strip()
+                and not body.removeprefix(b"\xef\xbb\xbf").startswith(b"#EXTM3U")
+            ):
+                raise ValueError("Invalid HLS manifest header")
+            return httpx.Response(
+                response.status_code,
+                headers=response.headers,
+                content=body,
+                request=response.request,
+            )
         return response
     raise ValueError(f"Too many redirects for {url}")
 
@@ -163,7 +188,9 @@ class HLSManifestRewriter:
                 rewritten.append(
                     re.sub(
                         r'(\bURI=")([^"]*)(")',
-                        lambda match, playlist=playlist: match[1] + proxy_uri(match[2], playlist) + match[3],
+                        lambda match, playlist=playlist: (
+                            match[1] + proxy_uri(match[2], playlist) + match[3]
+                        ),
                         line,
                     )
                 )
@@ -257,7 +284,7 @@ async def get_stream_manifest(channel_id: str) -> str:
     Raises:
         ValueError: If channel not found or URL invalid
     """
-    channel = get_channel_by_id(channel_id)
+    channel = await asyncio.to_thread(get_channel_by_id, channel_id)
     if channel is None:
         raise ValueError(f"Channel not found: {channel_id}")
 
@@ -268,13 +295,13 @@ async def get_stream_manifest(channel_id: str) -> str:
         raise ValueError(f"Stream URL is not from ErsatzTV: {stream_url}")
 
     # Fetch manifest with retry for cold stream startup
-    async with httpx.AsyncClient(follow_redirects=True) as client:
+    async with httpx.AsyncClient(follow_redirects=False, timeout=15) as client:
         last_error: Exception | None = None
         response: httpx.Response | None = None
 
         for attempt in range(5):
             try:
-                response = await client.get(stream_url, timeout=30)
+                response = await fetch_ersatztv(client, stream_url)
                 response.raise_for_status()
                 if response.text.strip():  # Got valid content
                     break
@@ -318,10 +345,10 @@ async def get_segment(encoded_url: str) -> tuple[bytes, str]:
     if not is_ersatztv_url(segment_url):
         raise ValueError(f"Segment URL is not from ErsatzTV: {segment_url}")
 
-    async with httpx.AsyncClient(follow_redirects=True) as client:
-        response = await client.get(segment_url, timeout=60)
+    async with httpx.AsyncClient(follow_redirects=False, timeout=15) as client:
+        response = await fetch_ersatztv(client, segment_url, stream=True)
         response.raise_for_status()
-        content = response.content
+        content = await read_bounded(response, 64 * 1024 * 1024)
         content_type = response.headers.get("content-type", "video/mp2t")
 
     return content, content_type

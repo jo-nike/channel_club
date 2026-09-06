@@ -321,10 +321,12 @@ class TestGetStream:
             patch("app.routers.ersatztv.httpx.AsyncClient") as mock_client_cls,
             patch("app.routers.ersatztv.rewrite_manifest", return_value=rewritten),
         ):
-            mock_response = MagicMock()
-            mock_response.text = manifest
-            mock_response.is_redirect = False
-            mock_response.raise_for_status = MagicMock()
+            mock_response = httpx.Response(
+                200,
+                text=manifest,
+                headers={"content-type": "application/vnd.apple.mpegurl"},
+                request=httpx.Request("GET", mock_channel.stream_url),
+            )
             mock_client = AsyncMock()
             mock_client.build_request = MagicMock(return_value=MagicMock())
             mock_client.send = AsyncMock(return_value=mock_response)
@@ -374,10 +376,12 @@ class TestGetStream:
             patch("app.routers.ersatztv.httpx.AsyncClient") as mock_client_cls,
             patch("app.routers.ersatztv.rewrite_manifest", return_value=rewritten),
         ):
-            mock_response = MagicMock()
-            mock_response.text = manifest
-            mock_response.is_redirect = False
-            mock_response.raise_for_status = MagicMock()
+            mock_response = httpx.Response(
+                200,
+                text=manifest,
+                headers={"content-type": "application/vnd.apple.mpegurl"},
+                request=httpx.Request("GET", mock_channel.stream_url),
+            )
             mock_client = AsyncMock()
             mock_client.build_request = MagicMock(return_value=MagicMock())
             mock_client.send = AsyncMock(return_value=mock_response)
@@ -404,10 +408,12 @@ class TestGetStream:
             patch("app.routers.ersatztv.rewrite_manifest") as mock_rewrite,
         ):
             mock_rewrite.return_value = "#EXTM3U\n/api/ersatztv/segments/encoded"
-            mock_response = MagicMock()
-            mock_response.text = manifest
-            mock_response.is_redirect = False
-            mock_response.raise_for_status = MagicMock()
+            mock_response = httpx.Response(
+                200,
+                text=manifest,
+                headers={"content-type": "application/vnd.apple.mpegurl"},
+                request=httpx.Request("GET", mock_channel.stream_url),
+            )
             mock_client = AsyncMock()
             mock_client.build_request = MagicMock(return_value=MagicMock())
             mock_client.send = AsyncMock(return_value=mock_response)
@@ -646,18 +652,24 @@ class TestGetLogo:
 
     def test_no_authentication_required(self, client: TestClient, mock_channel: EPGChannel) -> None:
         """Logo endpoint does not require authentication (browser img tags can't send headers)."""
+        assert mock_channel.original_logo_url is not None
         logo_content = b"PNG image data"
 
         with (
             patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel),
             patch("app.routers.ersatztv.httpx.AsyncClient") as mock_client_cls,
         ):
-            mock_response = MagicMock()
-            mock_response.content = logo_content
-            mock_response.headers = {"content-type": "image/png"}
-            mock_response.raise_for_status = MagicMock()
+            mock_response = httpx.Response(
+                200,
+                content=logo_content,
+                headers={"content-type": "image/png"},
+                request=httpx.Request("GET", mock_channel.original_logo_url),
+            )
             mock_client = AsyncMock()
-            mock_client.get.return_value = mock_response
+            mock_client.build_request = MagicMock(
+                return_value=httpx.Request("GET", mock_channel.original_logo_url)
+            )
+            mock_client.send.return_value = mock_response
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
             mock_client_cls.return_value = mock_client
@@ -669,18 +681,24 @@ class TestGetLogo:
 
     def test_returns_logo_image(self, client: TestClient, mock_channel: EPGChannel) -> None:
         """Returns logo image from ErsatzTV."""
+        assert mock_channel.original_logo_url is not None
         logo_content = b"PNG image data"
 
         with (
             patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel),
             patch("app.routers.ersatztv.httpx.AsyncClient") as mock_client_cls,
         ):
-            mock_response = MagicMock()
-            mock_response.content = logo_content
-            mock_response.headers = {"content-type": "image/png"}
-            mock_response.raise_for_status = MagicMock()
+            mock_response = httpx.Response(
+                200,
+                content=logo_content,
+                headers={"content-type": "image/png"},
+                request=httpx.Request("GET", mock_channel.original_logo_url),
+            )
             mock_client = AsyncMock()
-            mock_client.get.return_value = mock_response
+            mock_client.build_request = MagicMock(
+                return_value=httpx.Request("GET", mock_channel.original_logo_url)
+            )
+            mock_client.send.return_value = mock_response
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
             mock_client_cls.return_value = mock_client

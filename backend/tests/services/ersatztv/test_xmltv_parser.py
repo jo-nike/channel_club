@@ -220,7 +220,7 @@ class TestParseXmltvCache:
         # Reset cache
         xmltv_parser.clear_cache()
 
-        with patch.object(xmltv_parser.httpx, "get") as mock_get:
+        with patch.object(xmltv_parser, "fetch_feed") as mock_get:
             mock_response = MagicMock()
             mock_response.text = SAMPLE_XMLTV
             mock_response.raise_for_status = MagicMock()
@@ -243,7 +243,7 @@ class TestParseXmltvCache:
         # Reset cache
         xmltv_parser.clear_cache()
 
-        with patch.object(xmltv_parser.httpx, "get") as mock_get:
+        with patch.object(xmltv_parser, "fetch_feed") as mock_get:
             mock_response = MagicMock()
             mock_response.text = SAMPLE_XMLTV
             mock_response.raise_for_status = MagicMock()
@@ -266,7 +266,7 @@ class TestParseXmltvCache:
 
         xmltv_parser.clear_cache()
 
-        with patch.object(xmltv_parser.httpx, "get") as mock_get:
+        with patch.object(xmltv_parser, "fetch_feed") as mock_get:
             mock_response = MagicMock()
             mock_response.text = SAMPLE_XMLTV
             mock_response.raise_for_status = MagicMock()
@@ -292,7 +292,7 @@ class TestParseXmltvErrorHandling:
 
         xmltv_parser.clear_cache()
 
-        with patch.object(xmltv_parser.httpx, "get") as mock_get:
+        with patch.object(xmltv_parser, "fetch_feed") as mock_get:
             # First call succeeds
             mock_response = MagicMock()
             mock_response.text = SAMPLE_XMLTV
@@ -320,7 +320,7 @@ class TestParseXmltvErrorHandling:
         # Also clear last_successful_fetch
         xmltv_parser._cache["last_successful_fetch"] = None
 
-        with patch.object(xmltv_parser.httpx, "get") as mock_get:
+        with patch.object(xmltv_parser, "fetch_feed") as mock_get:
             mock_get.side_effect = Exception("Network error")
 
             with pytest.raises(Exception, match="Failed to load EPG"):

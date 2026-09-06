@@ -5,6 +5,7 @@ Story: 7.5 - HLS Proxy Service
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from app.services.ersatztv.hls_rewriter import (
@@ -259,9 +260,9 @@ class TestGetStreamManifest:
         mock_channel = MagicMock()
         mock_channel.stream_url = "http://192.168.50.108:8409/iptv/channel1.m3u8"
 
-        mock_response = AsyncMock()
-        mock_response.text = SAMPLE_MANIFEST
-        mock_response.raise_for_status = MagicMock()
+        mock_response = httpx.Response(
+            200, text=SAMPLE_MANIFEST, request=httpx.Request("GET", mock_channel.stream_url)
+        )
 
         with (
             patch(
@@ -273,7 +274,8 @@ class TestGetStreamManifest:
         ):
             mock_settings.ersatztv_base_url = "http://192.168.50.108:8409"
             mock_client = AsyncMock()
-            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.build_request = MagicMock(return_value=mock_response.request)
+            mock_client.send = AsyncMock(return_value=mock_response)
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=None)
             mock_client_class.return_value = mock_client
@@ -323,10 +325,12 @@ class TestGetSegment:
         original_url = "http://192.168.50.108:8409/iptv/segment-001.ts"
         encoded = rewriter._encode_url(original_url)
 
-        mock_response = AsyncMock()
-        mock_response.content = b"fake-segment-data"
-        mock_response.headers = {"content-type": "video/mp2t"}
-        mock_response.raise_for_status = MagicMock()
+        mock_response = httpx.Response(
+            200,
+            content=b"fake-segment-data",
+            headers={"content-type": "video/mp2t"},
+            request=httpx.Request("GET", original_url),
+        )
 
         with (
             patch("app.services.ersatztv.hls_rewriter.settings") as mock_settings,
@@ -334,7 +338,8 @@ class TestGetSegment:
         ):
             mock_settings.ersatztv_base_url = "http://192.168.50.108:8409"
             mock_client = AsyncMock()
-            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.build_request = MagicMock(return_value=mock_response.request)
+            mock_client.send = AsyncMock(return_value=mock_response)
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=None)
             mock_client_class.return_value = mock_client

@@ -9,12 +9,12 @@ Story: 7.3 - XMLTV Parser Service
 import contextlib
 from datetime import UTC, datetime, timedelta, timezone
 
-import httpx
 from defusedxml import ElementTree
 from loguru import logger
 
 from app.config import settings
 from app.models.ersatztv import Programme
+from app.services.bounded_http import fetch_feed
 from app.services.ersatztv.refresh import serialized_refresh
 
 # Module-level logger with service context
@@ -108,7 +108,7 @@ def parse_xmltv() -> list[Programme]:
     log.debug("Cache miss for XMLTV data, fetching from {}", settings.ersatztv_xmltv_url)
 
     try:
-        response = httpx.get(settings.ersatztv_xmltv_url, timeout=30)
+        response = fetch_feed(settings.ersatztv_xmltv_url)
         response.raise_for_status()
 
         programmes = _parse_xmltv_content(response.text)

@@ -143,7 +143,7 @@ class TestCacheBehavior:
         _cache["timestamp"] = datetime.now() - timedelta(seconds=CACHE_TTL_SECONDS + 1)
         assert _is_cache_expired() is True
 
-    @patch("app.services.ersatztv.m3u_parser.httpx.get")
+    @patch("app.services.ersatztv.m3u_parser.fetch_feed")
     def test_returns_cached_data_within_ttl(self, mock_get: MagicMock):
         """Cache returns cached data without refetching within TTL."""
         mock_response = MagicMock()
@@ -160,7 +160,7 @@ class TestCacheBehavior:
         assert mock_get.call_count == 1  # Still just 1 call
         assert len(channels1) == len(channels2)
 
-    @patch("app.services.ersatztv.m3u_parser.httpx.get")
+    @patch("app.services.ersatztv.m3u_parser.fetch_feed")
     def test_refetches_after_cache_expires(self, mock_get: MagicMock):
         """Cache refetches data after TTL expires."""
         mock_response = MagicMock()
@@ -196,7 +196,7 @@ class TestGracefulFallback:
         """Reset cache before each test."""
         clear_cache()
 
-    @patch("app.services.ersatztv.m3u_parser.httpx.get")
+    @patch("app.services.ersatztv.m3u_parser.fetch_feed")
     def test_returns_stale_cache_on_network_error(self, mock_get: MagicMock):
         """Returns stale cached data if network fails."""
         # First call succeeds
@@ -218,7 +218,7 @@ class TestGracefulFallback:
         channels2 = parse_m3u_playlist()
         assert len(channels2) == 2  # Same as cached
 
-    @patch("app.services.ersatztv.m3u_parser.httpx.get")
+    @patch("app.services.ersatztv.m3u_parser.fetch_feed")
     def test_raises_exception_when_no_cache_available(self, mock_get: MagicMock):
         """Raises exception if fetch fails and no cache exists."""
         # Ensure cache is completely clean (including last_successful_fetch)
@@ -233,7 +233,7 @@ class TestGracefulFallback:
 
         assert "Failed to load channels from ErsatzTV" in str(exc_info.value)
 
-    @patch("app.services.ersatztv.m3u_parser.httpx.get")
+    @patch("app.services.ersatztv.m3u_parser.fetch_feed")
     def test_returns_stale_cache_on_http_error(self, mock_get: MagicMock):
         """Returns stale cached data on HTTP status errors."""
         # First call succeeds
@@ -264,7 +264,7 @@ class TestIntegration:
         """Reset cache before each test."""
         clear_cache()
 
-    @patch("app.services.ersatztv.m3u_parser.httpx.get")
+    @patch("app.services.ersatztv.m3u_parser.fetch_feed")
     def test_full_parsing_workflow(self, mock_get: MagicMock):
         """Full workflow: fetch, parse, cache, return EPGChannel list."""
         mock_response = MagicMock()
