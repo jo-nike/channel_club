@@ -17,6 +17,7 @@ from app.routers.cast import router as cast_router
 from app.routers.channels import router as channels_router
 from app.routers.epg import router as epg_router
 from app.routers.ersatztv import router as ersatztv_router
+from app.routers.feedback import router as feedback_router
 from app.routers.gif import router as gif_router
 from app.routers.highlight import router as highlight_router
 from app.routers.nhl import router as nhl_router
@@ -100,6 +101,11 @@ async def lifespan(app: FastAPI):
             "Zipline uploads unavailable: enable highlights and configure "
             "ZIPLINE_URL and ZIPLINE_TOKEN"
         )
+    if settings.ntfy_enabled and not settings.ntfy_available:
+        logger.warning(
+            "Feedback push unavailable: configure NTFY_URL (http/https base URL) "
+            "and NTFY_TOPIC (letters, digits, '_' or '-')"
+        )
     if settings.highlight_enabled:
         logger.info(
             "Highlight capture enabled (buffer: {}s, segments: {}s)",
@@ -176,6 +182,7 @@ app.include_router(admin_router, prefix="/api/admin")
 app.include_router(settings_router, prefix="/api")
 app.include_router(cast_router)
 app.include_router(gif_router)
+app.include_router(feedback_router)
 app.include_router(highlight_router)
 app.include_router(nhl_router)
 app.include_router(websocket_router)
