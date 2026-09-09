@@ -7,7 +7,7 @@ describe('uiStore', () => {
     useUIStore.setState({
       isTheaterMode: false,
       isSidebarOpen: false,
-      isEPGVisible: true,
+      isEPGVisible: false,
       epgHeightPercent: 25,
       isChannelSidebarCollapsed: false,
       notificationsEnabled: false,
@@ -87,25 +87,25 @@ describe('uiStore', () => {
   })
 
   describe('isEPGVisible', () => {
-    it('defaults to true', () => {
-      const state = useUIStore.getState()
-      expect(state.isEPGVisible).toBe(true)
-    })
-
-    it('can be set to false', () => {
-      useUIStore.getState().setEPGVisible(false)
+    it('defaults to closed', () => {
+      expect(useUIStore.getInitialState().isEPGVisible).toBe(false)
       expect(useUIStore.getState().isEPGVisible).toBe(false)
     })
 
-    it('toggles from true to false', () => {
-      useUIStore.getState().toggleEPG()
-      expect(useUIStore.getState().isEPGVisible).toBe(false)
+    it('can be set to true', () => {
+      useUIStore.getState().setEPGVisible(true)
+      expect(useUIStore.getState().isEPGVisible).toBe(true)
     })
 
     it('toggles from false to true', () => {
-      useUIStore.getState().setEPGVisible(false)
       useUIStore.getState().toggleEPG()
       expect(useUIStore.getState().isEPGVisible).toBe(true)
+    })
+
+    it('toggles from true to false', () => {
+      useUIStore.getState().setEPGVisible(true)
+      useUIStore.getState().toggleEPG()
+      expect(useUIStore.getState().isEPGVisible).toBe(false)
     })
   })
 

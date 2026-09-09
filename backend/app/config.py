@@ -1,3 +1,4 @@
+import re
 from functools import cached_property
 from urllib.parse import urlsplit
 
@@ -20,6 +21,10 @@ KNOWN_PUBLIC_JWT_SECRETS = frozenset(
         "secret",
     }
 )
+
+# ntfy topic names: letters, digits, underscore, hyphen; 1-64 characters. Anything
+# else would let a topic value change the publish path.
+NTFY_TOPIC_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
 class Settings(BaseSettings):
@@ -92,6 +97,33 @@ class Settings(BaseSettings):
                 self.highlight_enabled
                 and self.zipline_enabled
                 and self.zipline_token.strip()
+                and url.scheme in ("http", "https")
+                and url.hostname
+                and url.port != 0
+                and not url.username
+                and not url.password
+                and not url.query
+                and not url.fragment
+            )
+        except ValueError:
+            return False
+
+    # Optional feedback push to an ntfy topic. Destination and token are
+    # server-owned; never a VITE_ variable.
+    ntfy_enabled: bool = False
+    ntfy_url: str = ""  # Instance base URL, e.g. https://ntfy.sh or a self-hosted server
+    ntfy_topic: str = ""  # Dedicated topic, e.g. channel-club-feedback
+    ntfy_token: str = ""  # Optional access token for protected topics (sent as Bearer)
+    feedback_cooldown_seconds: int = 30  # Minimum gap between submissions per user
+    feedback_hourly_limit: int = 10  # Maximum submissions per user per hour
+
+    @property
+    def ntfy_available(self) -> bool:
+        try:
+            url = urlsplit(self.ntfy_url)
+            return bool(
+                self.ntfy_enabled
+                and NTFY_TOPIC_PATTERN.fullmatch(self.ntfy_topic)
                 and url.scheme in ("http", "https")
                 and url.hostname
                 and url.port != 0
