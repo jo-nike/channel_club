@@ -22,6 +22,7 @@ vi.mock('@/components/tv/TVEPGGrid', () => ({ TVEPGGrid: () => null }))
 vi.mock('@/components/ChatPanel', () => ({ ChatPanel: () => null }))
 vi.mock('@/components/ersatztv/ProgrammeDetailsModal', () => ({ ProgrammeDetailsModal: () => null }))
 vi.mock('@/components/UserSettingsMenu', () => ({ UserSettingsMenu: () => null }))
+vi.mock('@/components/FeedbackButton', () => ({ FeedbackButton: () => null }))
 vi.mock('@/components/AdminModal', () => ({ AdminModal: () => null }))
 vi.mock('@/components/NHLScoresOverlay', () => ({ NHLScoresOverlay: () => null }))
 

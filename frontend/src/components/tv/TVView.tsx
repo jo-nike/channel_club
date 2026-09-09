@@ -21,6 +21,7 @@ import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useResizable } from '@/hooks/useResizable'
 import { useMobileLandscape } from '@/hooks/useMobileLandscape'
 import { ChatToggleButton } from '@/components/ChatToggleButton'
+import { FeedbackButton } from '@/components/FeedbackButton'
 import { UserSettingsMenu } from '@/components/UserSettingsMenu'
 import { AdminModal } from '@/components/AdminModal'
 import { LiveChannelPickerDialog } from '@/components/LiveChannelPickerDialog'
@@ -368,6 +369,8 @@ export function TVView() {
                 <p>Refresh video</p>
               </TooltipContent>
             </Tooltip>
+            {/* Feedback (hidden unless the server is configured for it) */}
+            <FeedbackButton />
             {/* Chat toggle */}
             <ChatToggleButton />
             {/* User settings (theme + notifications + logout) */}
