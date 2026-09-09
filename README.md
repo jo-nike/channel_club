@@ -88,6 +88,21 @@ Upload uses the same selected range and format as Download. A successful upload 
 
 If you use a reverse proxy, allow request bodies up to your `MEDIA_EXPORT_MAX_BYTES` setting (default 256 MiB) and at least 150 seconds for clip export/upload responses. Smaller Zipline/proxy limits produce an upload error without losing the selection or disabling downloads.
 
+### Feedback via ntfy
+
+Feedback is optional and **off by default**. When configured, every logged-in viewer gets a "Send feedback" button in the header that opens a short form (bug / suggestion / other, a message, and an optional way to reach them). Each submission is pushed to an [ntfy](https://ntfy.sh) topic with the username, role, app version and build, current view, browser, and viewport attached, so a bug report is actionable without a follow-up. Set these backend environment variables and restart the backend/container:
+
+```dotenv
+NTFY_ENABLED=true
+NTFY_URL=https://ntfy.sh
+NTFY_TOPIC=channel-club-feedback
+NTFY_TOKEN=your-access-token   # only for protected topics
+```
+
+Use the instance base URL without the topic. Topics are created on first publish, so just subscribe to the topic name on your phone. On a public server, choose a topic name that cannot be guessed. Keep the URL, topic, and token in backend configuration; do not use a `VITE_` variable. When the flag is off or the configuration is invalid, the button is hidden, `POST /api/feedback` returns 503, the app makes no ntfy requests, and the startup log names what is missing.
+
+Each user may send one report every `FEEDBACK_COOLDOWN_SECONDS` (default 30) and at most `FEEDBACK_HOURLY_LIMIT` per hour (default 10); limits are per backend process. A failed delivery does not count against the user. Message bodies stay under ntfy's default 4 KiB message limit.
+
 ## Application version and releases
 
 The Admin Panel header shows the frontend version. **Status → Channel Club** shows
