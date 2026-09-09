@@ -50,8 +50,8 @@ export const useUIStore = create<UIState>()(
       toggleSidebar: () => set((s) => ({ isSidebarOpen: !s.isSidebarOpen })),
       lastRoute: '/',
       setLastRoute: (route) => set({ lastRoute: route }),
-      // EPG visibility and sizing
-      isEPGVisible: true,
+      // EPG visibility and sizing (guide starts closed; the header toggle opens it)
+      isEPGVisible: false,
       setEPGVisible: (value) => set({ isEPGVisible: value }),
       toggleEPG: () => set((s) => ({ isEPGVisible: !s.isEPGVisible })),
       epgHeightPercent: 25,
