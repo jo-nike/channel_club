@@ -103,6 +103,18 @@ Use the instance base URL without the topic. Topics are created on first publish
 
 Each user may send one report every `FEEDBACK_COOLDOWN_SECONDS` (default 30) and at most `FEEDBACK_HOURLY_LIMIT` per hour (default 10); limits are per backend process. A failed delivery does not count against the user. Message bodies stay under ntfy's default 4 KiB message limit.
 
+### Viewing analytics from logs
+
+The backend emits structured presence events at INFO so viewing history can be charted from the log store without a database. Each event is a loguru record with bound fields (`event`, `user`, `session`, `view`, `channel`, `channel_id`, `programme`, `duration_s`, `reason`):
+
+| event | when |
+|---|---|
+| `session.start` / `session.stop` | a viewer's WebSocket connects / disconnects (stop carries `duration_s` and a reason: `disconnect`, `stale`, `view_switch`) |
+| `watch.start` / `watch.stop` | the viewer's selected channel changes (stop carries `duration_s`; reason `switch`, `cleared`, or the session reason). A programme title rollover on the same channel emits nothing. |
+| `channel.change` | the shared live channel is changed (`user`, `channel`, `channel_id`) |
+
+Run with `LOG_FORMAT=json` so the fields are machine-readable; in Loki they parse as `{container="channel-club"} | json | record_extra_event="watch.stop"`. The frontend sends `channelId` with every `channel_update` WebSocket message (the Dispatcharr stream UUID for Live, the tvg-id for ErsatzTV) so events join to the channel catalogue by id as well as by name. The Grafana dashboard that consumes these events lives in the homelab repo (`grafana/generate-channel-club-dashboard.py`).
+
 ## Application version and releases
 
 The Admin Panel header shows the frontend version. **Status → Channel Club** shows
