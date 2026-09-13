@@ -52,10 +52,9 @@ async def set_current_channel(channel: Channel, user: str | None = None) -> Chan
     old_channel = _current_channel
     _current_channel = channel
 
-    if user:
-        log.info("Channel changed to '{}' by user '{}'", channel.name, user)
-    else:
-        log.info("Channel changed to '{}'", channel.name)
+    log.bind(event="channel.change", user=user, channel=channel.name, channel_id=channel.id).info(
+        "Channel changed to '{}' by user '{}'", channel.name, user or "system"
+    )
 
     # Handle highlight recording on channel switch
     if settings.highlight_enabled:

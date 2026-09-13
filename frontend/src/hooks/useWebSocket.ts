@@ -41,7 +41,7 @@ export type ChatSendResult = 'acknowledged' | 'not-sent' | 'unconfirmed'
 interface UseWebSocketReturn {
   status: ConnectionStatus
   reconnect: () => void
-  sendChannelUpdate: (channelName: string | null, programmeTitle?: string | null, viewType?: 'live' | 'ersatztv') => void
+  sendChannelUpdate: (channelName: string | null, programmeTitle?: string | null, viewType?: 'live' | 'ersatztv', channelId?: string | null) => void
   sendChatMessage: (content: string) => Promise<ChatSendResult>
   sendSetNickname: (nickname: string) => void
 }
@@ -323,12 +323,13 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   }, [reconnect])
 
   const sendChannelUpdate = useCallback(
-    (channelName: string | null, programmeTitle?: string | null, viewType?: 'live' | 'ersatztv') => {
+    (channelName: string | null, programmeTitle?: string | null, viewType?: 'live' | 'ersatztv', channelId?: string | null) => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(
           JSON.stringify({
             type: 'channel_update',
             channel: channelName,
+            channelId: channelId ?? null,
             programme: programmeTitle ?? null,
             view: viewType ?? null,
           })
