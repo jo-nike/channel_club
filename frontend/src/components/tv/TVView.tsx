@@ -122,7 +122,9 @@ export function TVView() {
   useEffect(() => {
     if (status === 'connected') {
       const viewType = selectedChannel?.type === 'ersatztv' ? 'ersatztv' : 'live'
-      sendChannelUpdate(selectedChannel?.name ?? null, currentProgrammeTitle, viewType)
+      // Live slot carries a synthetic id; backendId is the real Dispatcharr channel id
+      const channelId = selectedChannel?.backendId ?? selectedChannel?.id ?? null
+      sendChannelUpdate(selectedChannel?.name ?? null, currentProgrammeTitle, viewType, channelId)
     }
   }, [selectedChannel, currentProgrammeTitle, sendChannelUpdate, status])
 

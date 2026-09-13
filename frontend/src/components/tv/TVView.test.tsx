@@ -74,7 +74,7 @@ describe('FE-12 programme boundary clock', () => {
     expect(screen.getByText('Cinema - First')).toBeVisible()
     await act(() => vi.advanceTimersByTimeAsync(30000))
     expect(screen.getByText('Cinema - Second')).toBeVisible()
-    expect(presence).toHaveBeenLastCalledWith('Cinema', 'Second', 'ersatztv')
+    expect(presence).toHaveBeenLastCalledWith('Cinema', 'Second', 'ersatztv', 'e')
   })
   it('refreshes live EPG at programme end with no optional catalogue', async () => {
     vi.useFakeTimers()
@@ -89,6 +89,6 @@ describe('FE-12 programme boundary clock', () => {
     expect(screen.getByText('A - First live')).toBeVisible()
     await act(() => vi.advanceTimersByTimeAsync(10000))
     expect(screen.getByText('A - Next live')).toBeVisible()
-    expect(presence).toHaveBeenLastCalledWith('A', 'Next live', 'live')
+    expect(presence).toHaveBeenLastCalledWith('A', 'Next live', 'live', 'a')
   })
 })
