@@ -25,6 +25,7 @@ class PingMessage(ClientMessage):
 class ChannelUpdateMessage(ClientMessage):
     type: Literal["channel_update"]
     channel: PresenceText | None = None
+    channelId: PresenceText | None = None
     programme: PresenceText | None = None
     view: Literal["live", "ersatztv"] | None = None
 

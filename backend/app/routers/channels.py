@@ -123,7 +123,7 @@ async def set_current_channel(
     Returns:
         The updated channel.
     """
-    log.info("User {} changing channel to '{}'", current_user.sub, request.name)
+    log.debug("User {} changing channel to '{}'", current_user.sub, request.name)
     channel = (await resolve_media_channel(request.id)).channel
     return await channel_state.set_current_channel(channel, user=current_user.sub)
 

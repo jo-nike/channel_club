@@ -192,7 +192,9 @@ async def handle_client_message(
         channel = validated.get("channel")
         programme = validated.get("programme")
         view = validated.get("view")
-        presence.update_user_channel(client_id, channel, programme, view)
+        presence.update_user_channel(
+            client_id, channel, programme, view, channel_id=validated.get("channelId")
+        )
         log.debug(
             "Channel update from client {}: {} - {} (view: {})",
             client_id,
