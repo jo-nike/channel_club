@@ -1,5 +1,6 @@
 """Tests for highlight router."""
 
+import time
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -7,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.services.auth import create_access_token
+from app.services.highlight import CAPTURE_TTL_SECONDS, Capture, highlight_service
 
 
 @pytest.fixture
@@ -211,3 +213,133 @@ class TestSaveHighlight:
             response = client.post("/api/highlight/channel-1?format=avi", headers=auth_header)
 
         assert response.status_code == 422  # Validation error
+
+
+CAPTURE_ID = "synthetic-capture-0001"
+
+
+@pytest.fixture
+def capture(tmp_path):
+    """A real file registered for `testuser`; removed after the test."""
+    path = tmp_path / "snapshot.mp4"
+    path.write_bytes(b"0123456789abcdefghijklmnopqrstuvwxyz")
+    item = Capture(
+        CAPTURE_ID, "testuser", "channel-1", path, path.stat().st_size, 12.5, time.time()
+    )
+    highlight_service.captures.captures[CAPTURE_ID] = item
+    yield item
+    highlight_service.captures.captures.pop(CAPTURE_ID, None)
+
+
+class TestCreateCapture:
+    """Tests for POST /api/highlight/{channel_id}/capture endpoint."""
+
+    def test_requires_authentication(self, client: TestClient) -> None:
+        assert client.post("/api/highlight/channel-1/capture").status_code == 401
+
+    def test_returns_503_when_disabled(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        with patch("app.routers.highlight.settings") as mock_settings:
+            mock_settings.highlight_enabled = False
+            response = client.post("/api/highlight/channel-1/capture", headers=auth_header)
+        assert response.status_code == 503
+
+    def test_returns_400_on_error(self, client: TestClient, auth_header: dict[str, str]) -> None:
+        with patch("app.routers.highlight.settings") as mock_settings:
+            mock_settings.highlight_enabled = True
+            with patch("app.routers.highlight.highlight_service") as mock_service:
+                mock_service.create_capture = AsyncMock(return_value=(None, "No recording active"))
+                response = client.post("/api/highlight/channel-1/capture", headers=auth_header)
+        assert response.status_code == 400
+        assert response.json()["detail"] == "No recording active"
+
+    def test_returns_capture_descriptor(
+        self, client: TestClient, auth_header: dict[str, str], capture: Capture
+    ) -> None:
+        with patch("app.routers.highlight.settings") as mock_settings:
+            mock_settings.highlight_enabled = True
+            with patch("app.routers.highlight.highlight_service") as mock_service:
+                mock_service.create_capture = AsyncMock(return_value=(capture, None))
+                response = client.post("/api/highlight/channel-1/capture", headers=auth_header)
+        assert response.status_code == 200
+        data = response.json()
+        assert data == {
+            "id": CAPTURE_ID,
+            "duration": 12.5,
+            "bytes": 36,
+            "expiresAt": pytest.approx(capture.created_at + CAPTURE_TTL_SECONDS),
+        }
+        mock_service.create_capture.assert_awaited_once_with("channel-1", owner="testuser")
+
+
+class TestCaptureMedia:
+    """Tests for GET and DELETE /api/highlight/capture/{id}."""
+
+    def test_requires_authentication(self, client: TestClient, capture: Capture) -> None:
+        assert client.get(f"/api/highlight/capture/{CAPTURE_ID}").status_code == 401
+        assert client.delete(f"/api/highlight/capture/{CAPTURE_ID}").status_code == 401
+        assert CAPTURE_ID in highlight_service.captures.captures
+
+    def test_streams_with_header_or_query_token(
+        self, client: TestClient, auth_header: dict[str, str], capture: Capture
+    ) -> None:
+        response = client.get(f"/api/highlight/capture/{CAPTURE_ID}", headers=auth_header)
+        assert response.status_code == 200
+        assert response.content == capture.path.read_bytes()
+        assert response.headers["content-type"] == "video/mp4"
+        assert response.headers["accept-ranges"] == "bytes"
+        assert response.headers["cache-control"] == "private, no-store"
+        assert "content-disposition" not in response.headers
+
+        token = auth_header["Authorization"].removeprefix("Bearer ")
+        response = client.get(f"/api/highlight/capture/{CAPTURE_ID}?token={token}&download=1")
+        assert response.status_code == 200
+        assert response.headers["content-disposition"].startswith(
+            'attachment; filename="highlight-channel-1-'
+        )
+
+    def test_serves_byte_ranges(
+        self, client: TestClient, auth_header: dict[str, str], capture: Capture
+    ) -> None:
+        response = client.get(
+            f"/api/highlight/capture/{CAPTURE_ID}", headers={**auth_header, "Range": "bytes=0-15"}
+        )
+        assert response.status_code == 206
+        assert response.content == b"0123456789abcdef"
+        assert response.headers["content-range"] == "bytes 0-15/36"
+
+    def test_other_users_and_expired_captures_are_not_found(
+        self, client: TestClient, capture: Capture
+    ) -> None:
+        other = {
+            "Authorization": f"Bearer {create_access_token({'sub': 'other', 'role': 'viewer'})}"
+        }
+        assert client.get(f"/api/highlight/capture/{CAPTURE_ID}", headers=other).status_code == 404
+        assert (
+            client.delete(f"/api/highlight/capture/{CAPTURE_ID}", headers=other).status_code == 204
+        )
+        assert CAPTURE_ID in highlight_service.captures.captures
+        assert (
+            client.get("/api/highlight/capture/not-a-valid-id!", headers=other).status_code == 422
+        )
+
+    def test_delete_frees_capture(
+        self, client: TestClient, auth_header: dict[str, str], capture: Capture, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(
+            "app.services.highlight.settings.highlight_temp_dir", str(capture.path.parent.parent)
+        )
+        assert (
+            client.delete(f"/api/highlight/capture/{CAPTURE_ID}", headers=auth_header).status_code
+            == 204
+        )
+        assert (
+            client.get(f"/api/highlight/capture/{CAPTURE_ID}", headers=auth_header).status_code
+            == 404
+        )
+        assert not capture.path.exists()
+        assert (
+            client.delete(f"/api/highlight/capture/{CAPTURE_ID}", headers=auth_header).status_code
+            == 204
+        )

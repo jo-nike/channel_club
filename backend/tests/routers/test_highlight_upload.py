@@ -1,6 +1,7 @@
 """Optional shared Zipline uploads: feature gating, bounded ingestion, exact bytes."""
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -54,10 +55,14 @@ async def test_flag_controls_capability_and_upload_before_ingestion(
         assert response.status_code == (415 if available else 503)
         ingest.assert_not_called()
     # The ordinary export path remains independent of Zipline configuration.
-    with patch("app.routers.highlight.encode_file", new_callable=AsyncMock, return_value=b"mp4"):
-        response = await client.post(
-            "/api/highlight/export", content=b"preview", headers={"Content-Type": "video/mp4"}
-        )
+    with (
+        patch("app.routers.highlight.encode_file", new_callable=AsyncMock, return_value=b"mp4"),
+        patch(
+            "app.routers.highlight.highlight_service.get_capture",
+            return_value=SimpleNamespace(path="snapshot.mp4"),
+        ),
+    ):
+        response = await client.post("/api/highlight/export?capture=synthetic-capture-0001")
         assert response.status_code == 200
 
 
