@@ -157,33 +157,37 @@ async def test_capture_waits_for_completed_segment(tmp_path):
 
 
 async def test_capture_store_replaces_per_owner_and_expires(preview, tmp_path, monkeypatch):
-    from types import SimpleNamespace
+    from pathlib import Path
 
     from app.config import settings
-    from app.services.highlight import CAPTURE_TTL_SECONDS, CaptureStore
+    from app.services.highlight import CAPTURE_TTL_SECONDS, CaptureStore, ChannelRecorder
 
     monkeypatch.setattr(settings, "highlight_temp_dir", str(tmp_path))
 
-    async def copy_preview(output):
-        shutil.copyfile(preview, output)
+    class CopyingRecorder(ChannelRecorder):
+        async def capture(self, output: Path) -> None:
+            shutil.copyfile(preview, output)
 
-    async def broken(output):
-        raise ValueError("Recorder not running")
+    class BrokenRecorder(ChannelRecorder):
+        async def capture(self, output: Path) -> None:
+            raise ValueError("Recorder not running")
 
+    copying = CopyingRecorder("synthetic", "http://fixture")
+    broken = BrokenRecorder("synthetic", "http://fixture")
     store = CaptureStore()
-    first = await store.create(SimpleNamespace(capture=copy_preview), "viewer", "channel-1")
+    first = await store.create(copying, "viewer", "channel-1")
     assert first.path.exists() and first.size == preview.stat().st_size
     assert abs(first.duration - 5) < 0.2
     assert store.get(first.id, "viewer") is first
     assert store.get(first.id, "other") is None
 
-    second = await store.create(SimpleNamespace(capture=copy_preview), "viewer", "channel-1")
+    second = await store.create(copying, "viewer", "channel-1")
     assert not first.path.parent.exists() and store.get(first.id, "viewer") is None
-    other = await store.create(SimpleNamespace(capture=copy_preview), "other", "channel-1")
+    other = await store.create(copying, "other", "channel-1")
     assert second.path.exists() and other.path.exists()
 
     with pytest.raises(ValueError):
-        await store.create(SimpleNamespace(capture=broken), "viewer", "channel-1")
+        await store.create(broken, "viewer", "channel-1")
     assert sorted(item.name for item in (tmp_path / "captures").iterdir()) == sorted(
         [second.id, other.id]
     )
