@@ -13,14 +13,14 @@ from pathlib import Path as FilePath
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from loguru import logger
 from pydantic import BaseModel
 
 from app.config import settings
 from app.models.auth import TokenPayload
 from app.models.channel import ChannelId, validate_channel_id
-from app.routers.auth_deps import get_current_user
+from app.routers.auth_deps import get_current_user, get_current_user_or_token
 from app.services.highlight import highlight_service
 from app.services.media_export import encode_file, media_duration, owned_thread
 from app.services.media_limits import export_budget
@@ -45,6 +45,18 @@ class HighlightFeatureResponse(BaseModel):
 
     enabled: bool
     ziplineEnabled: bool = False
+
+
+class CaptureResponse(BaseModel):
+    """A server-held snapshot the editor streams by URL and exports by id."""
+
+    id: str
+    duration: float
+    bytes: int
+    expiresAt: float
+
+
+CaptureIdPath = Path(..., pattern=r"^[A-Za-z0-9_-]{16,64}$", description="Capture id")
 
 
 @router.get("/feature", response_model=HighlightFeatureResponse)
@@ -135,37 +147,84 @@ async def get_highlight_status(
     )
 
 
+@router.post("/{channel_id}/capture", response_model=CaptureResponse)
+async def create_capture(
+    channel_id: ChannelId = Path(..., description="Channel ID to capture"),
+    user: TokenPayload = Depends(get_current_user),
+) -> CaptureResponse:
+    """Snapshot the recent buffer server-side; the editor streams it by range."""
+    if not settings.highlight_enabled:
+        raise HTTPException(503, "Highlight feature is disabled")
+    capture, error = await highlight_service.create_capture(channel_id, owner=user.sub)
+    if error or capture is None:
+        log.warning("Highlight capture failed for channel {}: {}", channel_id, error)
+        raise HTTPException(400, error or "Failed to create highlight")
+    return CaptureResponse(
+        id=capture.id,
+        duration=capture.duration,
+        bytes=capture.size,
+        expiresAt=capture.expires_at,
+    )
+
+
+@router.get("/capture/{capture_id}")
+async def get_capture(
+    capture_id: str = CaptureIdPath,
+    download: bool = Query(False),
+    user: TokenPayload = Depends(get_current_user_or_token),
+) -> FileResponse:
+    """Serve the owner's capture with range support so media elements can seek early."""
+    capture = highlight_service.get_capture(capture_id, user.sub)
+    if capture is None:
+        raise HTTPException(404, "Capture not found")
+    headers = {"Cache-Control": "private, no-store"}
+    if download:
+        timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+        filename = f"highlight-{capture.channel_id}-{timestamp}.mp4"
+        headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return FileResponse(capture.path, media_type="video/mp4", headers=headers)
+
+
+@router.delete("/capture/{capture_id}", status_code=204)
+async def delete_capture(
+    capture_id: str = CaptureIdPath,
+    user: TokenPayload = Depends(get_current_user),
+) -> Response:
+    """Free the capture as soon as the editor closes; unknown ids are already gone."""
+    await highlight_service.delete_capture(capture_id, user.sub)
+    return Response(status_code=204)
+
+
 @router.post("/export")
 async def export_preview(
-    request: Request,
+    capture: str = Query(..., pattern=r"^[A-Za-z0-9_-]{16,64}$"),
     format: Literal["mp4", "webm"] = Query("mp4"),
     start_time: float | None = Query(None, ge=0, allow_inf_nan=False),
     end_time: float | None = Query(None, ge=0, allow_inf_nan=False),
     user: TokenPayload = Depends(get_current_user),
 ) -> Response:
-    """Transform the exact MP4 preview held by the user, without recapturing live TV."""
+    """Transform the exact snapshot the user previewed, without recapturing live TV."""
     if not settings.highlight_enabled:
         raise HTTPException(503, "Highlight feature is disabled")
-    if request.headers.get("content-type", "").split(";")[0] != "video/mp4":
-        raise HTTPException(415, "Expected an MP4 preview")
     if start_time is not None and end_time is not None and start_time >= end_time:
         raise HTTPException(400, "start_time must be less than end_time")
+    source = highlight_service.get_capture(capture, user.sub)
+    if source is None:
+        raise HTTPException(404, "Capture not found")
     with (
         export_budget.slot(user.sub),
         tempfile.TemporaryDirectory(prefix="highlight-preview-") as directory,
     ):
-        source = FilePath(directory) / "preview.mp4"
         try:
-            await ingest_preview(request, source)
             video = await encode_file(
-                source, FilePath(directory) / f"export.{format}", format, start_time, end_time
+                source.path, FilePath(directory) / f"export.{format}", format, start_time, end_time
             )
         except TimeoutError:
-            raise HTTPException(408, "Preview upload or conversion timed out") from None
+            raise HTTPException(408, "Clip conversion timed out") from None
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from None
         except OSError:
-            raise HTTPException(400, "Unable to convert preview") from None
+            raise HTTPException(400, "Unable to convert capture") from None
     return Response(
         video,
         media_type=f"video/{format}",

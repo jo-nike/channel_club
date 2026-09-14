@@ -12,19 +12,21 @@ Architecture:
 
 import asyncio
 import os
+import secrets
 import shutil
 import signal
 import subprocess
 import tempfile
 import time
 from contextlib import suppress
+from dataclasses import dataclass
 from pathlib import Path
 
 from loguru import logger
 
 from app.config import settings
 from app.models.channel import validate_channel_id
-from app.services.media_export import encode_file, owned_thread
+from app.services.media_export import encode_file, media_duration, owned_thread
 from app.services.media_limits import MediaCapacityError, export_budget, process_budget
 from app.services.media_source import resolve_media_channel
 
@@ -304,6 +306,15 @@ class ChannelRecorder:
             with suppress(ProcessLookupError):
                 os.killpg(producer_pid, signal.SIGCONT)
 
+    async def capture(self, output: Path) -> None:
+        """Remux the private snapshot into an immutable MP4 the editor streams by URL."""
+        with tempfile.TemporaryDirectory(prefix="highlight-capture-") as directory:
+            async with self._lock:
+                if not self.is_running or not self.segment_dir:
+                    raise ValueError("Recorder not running")
+                concat = await owned_thread(self._snapshot, Path(directory))
+            await encode_file(concat, output, "mp4", None, None, concat=True)
+
     async def save_highlight(
         self,
         format: str = "mp4",
@@ -339,6 +350,86 @@ class ChannelRecorder:
 # edge cases like browser tab closure or network disconnects.
 RECORDER_IDLE_TIMEOUT = 120
 
+# Captures outlive the editor session by a margin; closing the editor deletes them early.
+CAPTURE_TTL_SECONDS = 15 * 60
+
+
+@dataclass(frozen=True)
+class Capture:
+    """An immutable snapshot held on disk for one owner."""
+
+    id: str
+    owner: str
+    channel_id: str
+    path: Path
+    size: int
+    duration: float
+    created_at: float
+
+    @property
+    def expires_at(self) -> float:
+        return self.created_at + CAPTURE_TTL_SECONDS
+
+
+class CaptureStore:
+    """Server-held snapshots: the browser streams them by range instead of downloading."""
+
+    def __init__(self):
+        self.captures: dict[str, Capture] = {}
+
+    async def create(self, recorder: ChannelRecorder, owner: str, channel_id: str) -> Capture:
+        root = Path(settings.highlight_temp_dir) / "captures"
+        root.mkdir(parents=True, exist_ok=True)
+        capture_id = secrets.token_urlsafe(16)
+        directory = root / capture_id
+        directory.mkdir(mode=0o700)
+        path = directory / "snapshot.mp4"
+        try:
+            await recorder.capture(path)
+            duration = await media_duration(path)
+            size = await owned_thread(lambda: path.stat().st_size)
+        except BaseException:
+            await asyncio.to_thread(remove_recording_directory, directory)
+            raise
+        # One capture per owner bounds disk use to one export-sized file each.
+        for previous in [item for item in self.captures.values() if item.owner == owner]:
+            await self._remove(previous)
+        capture = Capture(capture_id, owner, channel_id, path, size, duration, time.time())
+        self.captures[capture_id] = capture
+        log.info(
+            "Capture {} ready for {} ({:.1f}s, {:.1f} KB)", capture_id, owner, duration, size / 1024
+        )
+        return capture
+
+    def get(self, capture_id: str, owner: str) -> Capture | None:
+        """Foreign or expired captures are indistinguishable from unknown ones."""
+        capture = self.captures.get(capture_id)
+        if capture is None or capture.owner != owner or capture.expires_at <= time.time():
+            return None
+        return capture
+
+    async def delete(self, capture_id: str, owner: str) -> None:
+        capture = self.captures.get(capture_id)
+        if capture is not None and capture.owner == owner:
+            await self._remove(capture)
+
+    async def sweep(self, now: float | None = None) -> None:
+        now = time.time() if now is None else now
+        for capture in list(self.captures.values()):
+            if capture.expires_at <= now:
+                await self._remove(capture)
+
+    async def clear(self) -> None:
+        for capture in list(self.captures.values()):
+            await self._remove(capture)
+
+    async def _remove(self, capture: Capture) -> None:
+        self.captures.pop(capture.id, None)
+        try:
+            await asyncio.to_thread(remove_recording_directory, capture.path.parent)
+        except OSError as exc:
+            log.warning("Failed to remove capture {}: {}", capture.id, exc)
+
 
 class HighlightService:
     """Manages channel recorders and provides highlight capture functionality."""
@@ -348,6 +439,7 @@ class HighlightService:
         self._owners: dict[str, str] = {}
         self._lock = asyncio.Lock()
         self._cleanup_task: asyncio.Task | None = None
+        self.captures = CaptureStore()
 
     def start_idle_cleanup_task(self) -> None:
         """Start background task to clean up idle recorders."""
@@ -368,6 +460,7 @@ class HighlightService:
             try:
                 await asyncio.sleep(10)  # Check every 10 seconds
                 await self._cleanup_idle_recorders()
+                await self.captures.sweep()
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -535,6 +628,7 @@ class HighlightService:
                 await recorder.stop()
                 process_budget.release(self._owners.pop(channel_id, "system"))
             self._recorders.clear()
+        await self.captures.clear()
 
     def get_status(self, channel_id: str) -> dict:
         """Get recording status for a channel.
@@ -594,6 +688,30 @@ class HighlightService:
             return await recorder.save_highlight(
                 format=format, start_time=start_time, end_time=end_time
             )
+
+    async def create_capture(
+        self, channel_id: str, owner: str
+    ) -> tuple[Capture | None, str | None]:
+        """Snapshot the channel into a server-held capture the owner can stream and export."""
+        if not settings.highlight_enabled:
+            return None, "Highlight feature is disabled"
+        if channel_id not in self._recorders:
+            return None, "No recording active for this channel"
+        recorder = self._recorders[channel_id]
+        with export_budget.slot(owner):
+            try:
+                return await self.captures.create(recorder, owner, channel_id), None
+            except TimeoutError:
+                return None, "Highlight creation timed out"
+            except (OSError, ValueError) as exc:
+                log.warning("Highlight capture failed: {}", exc)
+                return None, str(exc)
+
+    def get_capture(self, capture_id: str, owner: str) -> Capture | None:
+        return self.captures.get(capture_id, owner)
+
+    async def delete_capture(self, capture_id: str, owner: str) -> None:
+        await self.captures.delete(capture_id, owner)
 
 
 # Global service instance

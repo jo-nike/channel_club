@@ -11,7 +11,8 @@ const frontend = join(root, 'frontend')
 const workspace = await mkdtemp(join(tmpdir(), 'iptv-clip-check-'))
 const harness = await mkdtemp(join(frontend, '.clip-check-'))
 let server, chrome, socket
-const requests = { exports: 0, uploads: 0 }
+const requests = { captures: 0, exports: 0, uploads: 0, deletes: 0 }
+const CAPTURE = 'synthetic-capture-0001'
 try {
   const source = join(workspace, 'preview.mp4')
   execFileSync('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=25:duration=12', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=12', '-c:v', 'libx264', '-preset', 'ultrafast', '-g', '100', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-movflags', '+faststart', source])
@@ -25,6 +26,7 @@ import { VideoControls } from '../src/components/VideoControls'
 import { ErsatzTVVideoControls } from '../src/components/ersatztv/ErsatzTVVideoControls'
 import { TooltipProvider } from '../src/components/ui/tooltip'
 import '../src/index.css'
+localStorage.setItem('token', 'synthetic-token')
 function App() {
   const containerRef = useRef(null), videoRef = useRef(null)
   const common = { containerRef, isTheaterMode: false, isVisible: true, channelId: 'synthetic', onTheaterModeToggle: () => {} }
@@ -49,10 +51,23 @@ createRoot(document.getElementById('root')).render(<App />)
         if (!url.pathname.startsWith('/api/')) return next()
         if (url.pathname === '/api/highlight/feature') return send(200, JSON.stringify({ enabled: true, ziplineEnabled: true }))
         if (url.pathname.startsWith('/api/highlight/status/')) return send(200, JSON.stringify({ enabled: true, recording: true, bufferSeconds: 12, maxBufferSeconds: 60 }))
-        if (url.pathname === '/api/highlight/synthetic') return send(200, preview, 'video/mp4')
+        if (url.pathname === '/api/highlight/synthetic/capture') {
+          requests.captures++
+          return send(200, JSON.stringify({ id: CAPTURE, duration: 12, bytes: preview.length, expiresAt: 0 }))
+        }
+        if (url.pathname === `/api/highlight/capture/${CAPTURE}`) {
+          if (req.method === 'DELETE') { requests.deletes++; res.writeHead(204); return res.end() }
+          if (url.searchParams.get('token') !== 'synthetic-token' && !req.headers.authorization) throw new Error('Capture request carried no token')
+          // The editor must work from byte ranges the way the real backend serves them.
+          const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '')
+          if (!range) { res.writeHead(200, { 'Content-Type': 'video/mp4', 'Accept-Ranges': 'bytes', 'Content-Length': preview.length }); return res.end(preview) }
+          const start = range[1] ? Number(range[1]) : preview.length - Number(range[2])
+          const end = range[1] && range[2] ? Math.min(Number(range[2]), preview.length - 1) : preview.length - 1
+          res.writeHead(206, { 'Content-Type': 'video/mp4', 'Accept-Ranges': 'bytes', 'Content-Range': `bytes ${start}-${end}/${preview.length}`, 'Content-Length': end - start + 1 })
+          return res.end(preview.subarray(start, end + 1))
+        }
         if (url.pathname === '/api/highlight/export') {
-          const chunks = []; for await (const chunk of req) chunks.push(chunk)
-          if (!Buffer.concat(chunks).equals(preview)) throw new Error('Export changed source snapshot')
+          if (url.searchParams.get('capture') !== CAPTURE) throw new Error('Export did not reference the capture')
           const target = join(workspace, 'trim.mp4')
           execFileSync('ffmpeg', ['-y', '-v', 'error', '-i', source, '-ss', url.searchParams.get('start_time'), '-t', String(Number(url.searchParams.get('end_time')) - Number(url.searchParams.get('start_time'))), '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', target])
           prepared = await readFile(target); requests.exports++
@@ -146,10 +161,12 @@ createRoot(document.getElementById('root')).render(<App />)
     await evaluate(`document.querySelector('[aria-label="Close editor"]').click()`)
     await until(`!document.querySelector('[role="dialog"]')`)
     await until(`!document.querySelector('video').muted`)
+    for (let i = 0; i < 50 && requests.deletes < requests.captures; i++) await sleep(100)
+    if (requests.deletes !== requests.captures) throw new Error(`${mode}: closing the editor did not free the capture`)
     await cdp('Emulation.setDeviceMetricsOverride', { width: 1280, height: 1000, deviceScaleFactor: 1, mobile: false })
     console.log(`${mode}: thumbnails, keyboard, pointer drag, prepared export/upload bytes, responsive editor, audio restore passed`)
   }
-  if (requests.exports !== 2 || requests.uploads !== 2) throw new Error(`Unexpected repeat exports: ${JSON.stringify(requests)}`)
+  if (requests.captures !== 2 || requests.exports !== 2 || requests.uploads !== 2) throw new Error(`Unexpected request counts: ${JSON.stringify(requests)}`)
   console.log('PASS', requests)
 } finally {
   socket?.close()

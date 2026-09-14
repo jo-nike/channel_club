@@ -154,3 +154,39 @@ async def test_capture_waits_for_completed_segment(tmp_path):
     assert recorder.has_completed_segment()
     (tmp_path / "seg_000.ts").write_bytes(b"")
     assert not recorder.has_completed_segment()
+
+
+async def test_capture_store_replaces_per_owner_and_expires(preview, tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.config import settings
+    from app.services.highlight import CAPTURE_TTL_SECONDS, CaptureStore
+
+    monkeypatch.setattr(settings, "highlight_temp_dir", str(tmp_path))
+
+    async def copy_preview(output):
+        shutil.copyfile(preview, output)
+
+    async def broken(output):
+        raise ValueError("Recorder not running")
+
+    store = CaptureStore()
+    first = await store.create(SimpleNamespace(capture=copy_preview), "viewer", "channel-1")
+    assert first.path.exists() and first.size == preview.stat().st_size
+    assert abs(first.duration - 5) < 0.2
+    assert store.get(first.id, "viewer") is first
+    assert store.get(first.id, "other") is None
+
+    second = await store.create(SimpleNamespace(capture=copy_preview), "viewer", "channel-1")
+    assert not first.path.parent.exists() and store.get(first.id, "viewer") is None
+    other = await store.create(SimpleNamespace(capture=copy_preview), "other", "channel-1")
+    assert second.path.exists() and other.path.exists()
+
+    with pytest.raises(ValueError):
+        await store.create(SimpleNamespace(capture=broken), "viewer", "channel-1")
+    assert sorted(item.name for item in (tmp_path / "captures").iterdir()) == sorted(
+        [second.id, other.id]
+    )
+
+    await store.sweep(now=other.created_at + CAPTURE_TTL_SECONDS)
+    assert store.captures == {} and not (second.path.exists() or other.path.exists())

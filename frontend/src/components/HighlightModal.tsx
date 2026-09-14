@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Download, Upload, Play, Pause, RotateCcw, Loader2, Copy, ExternalLink, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { saveHighlight, exportHighlight, uploadHighlight, getHighlightFeatures, type HighlightFormat, type UploadedHighlight } from '@/services/api'
+import { createHighlightCapture, highlightCaptureUrl, fetchHighlightCapture, deleteHighlightCapture, exportHighlight, uploadHighlight, getHighlightFeatures, type HighlightFormat, type UploadedHighlight } from '@/services/api'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { ClipTimeline } from './ClipTimeline'
@@ -22,7 +22,7 @@ export function HighlightModal({ isOpen, ...props }: HighlightModalProps) {
 }
 
 function ClipSession({ channelId, onClose, acquirePreviewAudio, container }: Omit<HighlightModalProps, 'isOpen'>) {
-  const [source, setSource] = useState<{ blob: Blob; url: string } | null>(null)
+  const [source, setSource] = useState<{ id: string; url: string } | null>(null)
   const [duration, setDuration] = useState(0)
   const [range, setRange] = useState<[number, number]>([0, 0])
   const [playhead, setPlayhead] = useState(0)
@@ -48,18 +48,20 @@ function ClipSession({ channelId, onClose, acquirePreviewAudio, container }: Omi
   useEffect(() => {
     const request = new AbortController()
     controller.current = request
-    let url: string | undefined
-    void saveHighlight(channelId, 'mp4', undefined, request.signal).then(blob => {
-      if (request.signal.aborted) return
-      url = URL.createObjectURL(blob)
-      setSource({ blob, url })
+    let captureId: string | undefined
+    // The server keeps the snapshot; the video element streams it by range, so the
+    // editor appears once the metadata arrives instead of after a full download.
+    void createHighlightCapture(channelId, request.signal).then(capture => {
+      if (request.signal.aborted) { void deleteHighlightCapture(capture.id); return }
+      captureId = capture.id
+      setSource({ id: capture.id, url: highlightCaptureUrl(capture.id) })
     }).catch(err => {
       if (!request.signal.aborted) setCaptureError(err instanceof Error ? err.message : 'Could not capture clip')
     })
     void getHighlightFeatures(request.signal).then(features => {
       if (!request.signal.aborted) setZipline(features.ziplineEnabled === true)
     }).catch(() => {})
-    return () => { request.abort(); if (url) URL.revokeObjectURL(url) }
+    return () => { request.abort(); if (captureId) void deleteHighlightCapture(captureId) }
   }, [channelId, attempt])
 
   const seek = useCallback((time: number) => {
@@ -116,8 +118,8 @@ function ClipSession({ channelId, onClose, acquirePreviewAudio, container }: Omi
       let blob = cache.current?.key === key ? cache.current.blob : null
       if (!blob) {
         const trimmed = start > 0.001 || end < duration - 0.001
-        blob = format === 'mp4' && !trimmed ? source.blob
-          : await exportHighlight(source.blob, format, trimmed ? { startTime: start, endTime: end } : undefined, signal)
+        blob = format === 'mp4' && !trimmed ? await fetchHighlightCapture(source.id, signal)
+          : await exportHighlight(source.id, format, trimmed ? { startTime: start, endTime: end } : undefined, signal)
         if (signal.aborted) return
         cache.current = { key, blob }
       }
