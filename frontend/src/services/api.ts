@@ -423,24 +423,58 @@ export async function saveHighlight(
   return response.blob()
 }
 
-/** Convert the exact preview bytes; never recapture the rolling live buffer. */
+export interface HighlightCapture {
+  id: string
+  duration: number
+  bytes: number
+  expiresAt: number
+}
+
+/** Snapshot the recent buffer server-side; the editor streams it by URL instead of downloading it. */
+export async function createHighlightCapture(channelId: string, signal?: AbortSignal): Promise<HighlightCapture> {
+  const response = await fetchWithAuth(`/highlight/${channelId}/capture`, { method: 'POST', signal })
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Could not capture clip' }))
+    throw new Error(error.detail || 'Could not capture clip')
+  }
+  return response.json()
+}
+
+/** Media elements cannot send headers, so the token travels in the query like HLS streams. */
+export function highlightCaptureUrl(captureId: string): string {
+  const token = localStorage.getItem('token')
+  return `${API_URL}/highlight/capture/${captureId}${token ? `?token=${token}` : ''}`
+}
+
+/** The untrimmed MP4 is the capture itself; fetch it only when the user downloads it. */
+export async function fetchHighlightCapture(captureId: string, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetchWithAuth(`/highlight/capture/${captureId}`, { signal })
+  if (!response.ok) throw new Error('This capture is no longer available. Capture again to retry.')
+  return response.blob()
+}
+
+/** Free server disk as soon as the editor closes; expiry covers anything missed. */
+export async function deleteHighlightCapture(captureId: string): Promise<void> {
+  try {
+    await fetchWithAuth(`/highlight/capture/${captureId}`, { method: 'DELETE', keepalive: true })
+  } catch {
+    // Best effort only.
+  }
+}
+
+/** Convert the exact snapshot the user previewed; never recapture the rolling live buffer. */
 export async function exportHighlight(
-  preview: Blob,
+  captureId: string,
   format: HighlightFormat,
   trimOptions?: TrimOptions,
   signal?: AbortSignal
 ): Promise<Blob> {
-  const params = new URLSearchParams({ format })
+  const params = new URLSearchParams({ capture: captureId, format })
   if (trimOptions) {
     if (trimOptions.startTime !== undefined) params.set('start_time', String(trimOptions.startTime))
     if (trimOptions.endTime !== undefined) params.set('end_time', String(trimOptions.endTime))
   }
-  const response = await fetchWithAuth(`/highlight/export?${params}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'video/mp4' },
-    body: preview,
-    signal,
-  })
+  const response = await fetchWithAuth(`/highlight/export?${params}`, { method: 'POST', signal })
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Failed to export highlight' }))
     throw new Error(error.detail || 'Failed to export highlight')
