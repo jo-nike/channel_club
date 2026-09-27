@@ -7,6 +7,25 @@
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // Apply the saved theme before first paint, so there is no light or
+      // dark flash before React mounts. useTheme writes the snapshot
+      // (src/lib/themeBoot.ts); without one, use the default dark theme.
+      (function () {
+        var root = document.documentElement;
+        try {
+          var boot = JSON.parse(localStorage.getItem('theme-boot'));
+          if (boot && boot.v === 1 && boot.vars) {
+            for (var name in boot.vars) root.style.setProperty(name, boot.vars[name]);
+            if (boot.dark) root.classList.add('dark');
+            else root.classList.remove('dark');
+            return;
+          }
+        } catch (e) {}
+        root.classList.add('dark');
+        root.style.setProperty('--background', 'oklch(0.19 0.022 265)');
+      })();
+    </script>
     <title>Channel Club</title>
     <meta name="description" content="Good TV. Better company." />
     <meta name="apple-mobile-web-app-title" content="Channel Club" />
