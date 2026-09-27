@@ -40,6 +40,10 @@
   --color-live: var(--live);
   --color-live-foreground: var(--live-foreground);
   --color-live-surface: color-mix(in oklch, var(--live) 14%, var(--card));
+  /* Your own chat bubble: 18% of your member colour (lib/memberColor.ts) over
+     the card. Mixed in OKLab: the card's faint hue would drag an OKLCH mix
+     towards blue-violet for every member. */
+  --color-member-surface: color-mix(in oklab, var(--member) 18%, var(--card));
   --color-guide-now: var(--guide-now);
   --color-guide-future: var(--guide-future);
   --color-success: var(--success);
