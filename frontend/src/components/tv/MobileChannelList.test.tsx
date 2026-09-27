@@ -438,6 +438,13 @@ describe('MobileChannelList', () => {
       expect(screen.queryByRole('button', { name: 'Show schedule for Live' })).not.toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Pick a channel' })).toBeInTheDocument()
     })
+
+    it('makes Pick a channel a 44px target on touch screens', () => {
+      useChannelStore.setState({ currentChannel: null })
+      render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={vi.fn()} onPickLive={vi.fn()} />)
+
+      expect(screen.getByRole('button', { name: 'Pick a channel' })).toHaveClass('pointer-coarse:h-11')
+    })
   })
 
   it('keeps a long channel name to one line, beside the LIVE pill', () => {

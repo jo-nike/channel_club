@@ -33,6 +33,19 @@ describe('Toaster', () => {
     expect(toaster.style.fontFamily).toBe('var(--font-sans)')
   })
 
+  it('makes a toast action a 44px target on touch screens', async () => {
+    render(<Toaster />)
+    act(() => { toast('Match starts now', { action: { label: 'Watch', onClick: () => {} } }) })
+
+    const action = await waitFor(() => {
+      const element = document.querySelector<HTMLElement>('[data-sonner-toast] [data-action]')
+      expect(element).not.toBeNull()
+      return element!
+    })
+    expect(action).toHaveTextContent('Watch')
+    expect(action).toHaveClass('pointer-coarse:min-h-11')
+  })
+
   describe('with the player fullscreen', () => {
     const setFullscreenElement = (element: Element | null) => act(() => {
       Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: element })

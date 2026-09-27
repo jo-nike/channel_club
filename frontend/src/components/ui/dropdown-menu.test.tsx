@@ -18,6 +18,8 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
 } from './dropdown-menu'
 
 function openMenu() {
@@ -73,6 +75,35 @@ describe('DropdownMenu', () => {
     for (const item of items) {
       expect(item.className).toContain('data-[highlighted]:bg-accent')
       expect(item.className).not.toMatch(/(^|\s)focus:/)
+    }
+  })
+
+  it('makes every kind of item a 44px target on touch screens only', () => {
+    render(
+      <DropdownMenu>
+        <DropdownMenuTrigger>Account</DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <DropdownMenuItem>Profile</DropdownMenuItem>
+          <DropdownMenuCheckboxItem checked>Chat</DropdownMenuCheckboxItem>
+          <DropdownMenuRadioGroup value="a">
+            <DropdownMenuRadioItem value="a">A</DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>More</DropdownMenuSubTrigger>
+          </DropdownMenuSub>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    )
+    openMenu()
+
+    const items = [
+      screen.getByRole('menuitem', { name: 'Profile' }),
+      screen.getByRole('menuitemcheckbox', { name: 'Chat' }),
+      screen.getByRole('menuitemradio', { name: 'A' }),
+      screen.getByRole('menuitem', { name: 'More' }),
+    ]
+    for (const item of items) {
+      expect(item).toHaveClass('pointer-coarse:min-h-11', 'py-1.5')
     }
   })
 

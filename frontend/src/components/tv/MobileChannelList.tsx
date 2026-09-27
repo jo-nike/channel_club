@@ -219,7 +219,7 @@ export function MobileChannelList({
                   />
                 )}
                 {showPickLive && (
-                  <Button size="sm" onClick={onPickLive}>
+                  <Button size="sm" onClick={onPickLive} className="pointer-coarse:h-11">
                     Pick a channel
                   </Button>
                 )}
