@@ -29,6 +29,22 @@ describe('useRovingTabIndex', () => {
     expect(result.current.focusedIndex).toBe(0)
   })
 
+  it('starts the tab stop on initialIndex, and moves on from there', () => {
+    const { result } = renderHook(() =>
+      useRovingTabIndex({ items: mockItems, initialIndex: 1 })
+    )
+
+    expect(result.current.focusedIndex).toBe(1)
+    expect(result.current.getTabIndex(1)).toBe(0)
+    expect(result.current.getTabIndex(0)).toBe(-1)
+
+    act(() => {
+      result.current.handleKeyDown(createKeyboardEvent('ArrowDown'))
+    })
+
+    expect(result.current.focusedIndex).toBe(2)
+  })
+
   it('moves focus down on ArrowDown', () => {
     const { result } = renderHook(() =>
       useRovingTabIndex({ items: mockItems })

@@ -19,7 +19,7 @@ interface ZapBannerProps {
 /**
  * Channel banner for the couch (TV) view. It appears when it mounts and again
  * whenever the channel changes, then hides 3s later. The hint tells remote
- * users how to change channel, since the couch view has no guide.
+ * users how to change channel and how to open the guide.
  *
  * A typed number that matches no channel (yet) shows its digits instead of a
  * channel, and 'No channel 99' once it is entered, so the banner never
@@ -80,7 +80,7 @@ function ZapBannerCard({ children, detail = null }: { children: ReactNode; detai
     <div className="rounded-2xl bg-black/70 px-8 py-6 text-white shadow-2xl">
       <p className="text-5xl font-bold">{children}</p>
       {detail && <p className="mt-3 text-3xl font-semibold">{detail}</p>}
-      <p className="mt-3 text-2xl text-white/80">▲▼ change channel · 0-9 channel number</p>
+      <p className="mt-3 text-2xl text-white/80">▲▼ change channel · 0-9 channel number · OK guide</p>
     </div>
   )
 }

@@ -171,7 +171,7 @@ describe('CouchView: zapping', () => {
     const banner = screen.getByRole('status')
     // Opening the view shows the playing channel and the hint
     expect(banner).toHaveTextContent('CH 1 · Movies')
-    expect(banner).toHaveTextContent('▲▼ change channel · 0-9 channel number')
+    expect(banner).toHaveTextContent('▲▼ change channel · 0-9 channel number · OK guide')
 
     act(() => { vi.advanceTimersByTime(2000) })
     press('ArrowUp')
@@ -243,6 +243,7 @@ describe('CouchView: channel numbers', () => {
     expect(notPrevented).toBe(false)
     expect(selectedId()).toBe('e2')
     expect(requestFullscreen).not.toHaveBeenCalled()
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
   })
 
   it('keeps digits from the player, which would read them a second time', () => {
@@ -295,11 +296,12 @@ describe('CouchView: OK and fullscreen', () => {
     expect(requestFullscreen).toHaveBeenCalledTimes(1)
   })
 
-  it('does nothing more once the page is fullscreen', () => {
+  it('only opens the guide once the page is fullscreen', () => {
     setFullscreenElement(document.documentElement)
     renderCouch()
 
-    expect(press('Enter', { keyCode: 13 })).toBe(true)
+    expect(press('Enter', { keyCode: 13 })).toBe(false)
+    expect(screen.getByRole('listbox', { name: 'Channels' })).toBeInTheDocument()
     expect(requestFullscreen).not.toHaveBeenCalled()
   })
 
@@ -320,6 +322,91 @@ describe('CouchView: OK and fullscreen', () => {
     await act(async () => {})
 
     expect(requestFullscreen).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('CouchView: guide', () => {
+  const guide = () => screen.queryByRole('listbox', { name: 'Channels' })
+  const focusedRow = () => document.activeElement!
+  const pressInGuide = (key: string, init: { keyCode?: number } = {}) => press(key, init, focusedRow())
+
+  it('opens the now/next guide on OK, focused on the channel playing, with no guide grid', () => {
+    renderCouch()
+    expect(guide()).not.toBeInTheDocument()
+
+    press('Enter', { keyCode: 13 })
+
+    expect(guide()).toBeInTheDocument()
+    expect(focusedRow()).toHaveAttribute('role', 'option')
+    expect(focusedRow()).toHaveTextContent('Movies')
+    expect(focusedRow()).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByTestId('tv-epg-grid')).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['Guide', 'Guide', 0],
+    ['Info', 'Info', 0],
+    ['Tizen Guide', 'Unidentified', 458],
+  ])('opens it on the remote %s key too', (_label, key, keyCode) => {
+    renderCouch()
+
+    expect(press(key, { keyCode })).toBe(false)
+
+    expect(guide()).toBeInTheDocument()
+  })
+
+  it('moves through the guide with the arrows without zapping, and tunes on OK', () => {
+    renderCouch()
+    press('Enter', { keyCode: 13 })
+
+    pressInGuide('ArrowDown')
+    pressInGuide('ArrowDown')
+    act(() => { vi.advanceTimersByTime(700) })
+    expect(selectedId()).toBe('e1')
+    expect(focusedRow()).toHaveTextContent('Westerns')
+
+    pressInGuide('Enter', { keyCode: 13 })
+
+    expect(selectedId()).toBe('e12')
+    expect(guide()).not.toBeInTheDocument()
+    expect(screen.getByTestId('player')).toHaveTextContent('/e12')
+  })
+
+  it('leaves digits alone while the guide is open', () => {
+    renderCouch()
+    press('Enter', { keyCode: 13 })
+
+    pressInGuide('2', { keyCode: 50 })
+    act(() => { vi.advanceTimersByTime(1500) })
+
+    expect(selectedId()).toBe('e1')
+    expect(guide()).toBeInTheDocument()
+  })
+
+  it('hides it on Back without leaving fullscreen, and a later OK opens it again', () => {
+    const exitFullscreen = vi.fn(() => Promise.resolve())
+    Object.defineProperty(document, 'exitFullscreen', { configurable: true, value: exitFullscreen })
+    setFullscreenElement(document.documentElement)
+    renderCouch()
+    press('Enter', { keyCode: 13 })
+
+    expect(pressInGuide('Unidentified', { keyCode: 461 })).toBe(false)
+
+    expect(guide()).not.toBeInTheDocument()
+    expect(exitFullscreen).not.toHaveBeenCalled()
+    expect(selectedId()).toBe('e1')
+
+    press('Enter', { keyCode: 13 })
+    expect(guide()).toBeInTheDocument()
+  })
+
+  it('hides it when a pointer click takes focus elsewhere', () => {
+    renderCouch()
+    press('Enter', { keyCode: 13 })
+
+    act(() => screen.getByRole('button', { name: 'Account menu' }).focus())
+
+    expect(guide()).not.toBeInTheDocument()
   })
 })
 

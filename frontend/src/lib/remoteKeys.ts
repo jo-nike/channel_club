@@ -7,7 +7,7 @@
  * matches its legacy keyCode.
  */
 
-export type RemoteAction = 'channelUp' | 'channelDown' | 'back' | 'ok' | 'digit' | 'playPause'
+export type RemoteAction = 'channelUp' | 'channelDown' | 'back' | 'ok' | 'digit' | 'playPause' | 'guide'
 
 // webOS sends CH+/CH- as PageUp/PageDown (33/34)
 const CHANNEL_UP_KEYS = new Set(['ArrowUp', 'PageUp', 'ChannelUp'])
@@ -19,6 +19,11 @@ const BACK_KEYS = new Set(['Escape', 'Backspace', 'GoBack', 'BrowserBack'])
 const BACK_CODES = new Set([27, 8, 461, 10009])
 // 179 MediaPlayPause, 10252 Tizen MediaPlayPause
 const PLAY_PAUSE_CODES = new Set([179, 10252])
+// The remote's Guide and Info buttons both open the couch guide. 457 Info and
+// 458 Guide are Tizen's codes (a packaged app registers them; the stock
+// browser may keep them); verify on each set.
+const GUIDE_KEYS = new Set(['Guide', 'Info'])
+const GUIDE_CODES = new Set([457, 458])
 
 /**
  * The digit ('0'-'9') a keydown types, or null: the number row and the
@@ -39,6 +44,7 @@ export function getRemoteAction(e: Pick<KeyboardEvent, 'key' | 'keyCode'>): Remo
   if (BACK_KEYS.has(e.key) || BACK_CODES.has(e.keyCode)) return 'back'
   if (e.key === 'Enter' || e.keyCode === 13) return 'ok'
   if (e.key === 'MediaPlayPause' || PLAY_PAUSE_CODES.has(e.keyCode)) return 'playPause'
+  if (GUIDE_KEYS.has(e.key) || GUIDE_CODES.has(e.keyCode)) return 'guide'
   if (getRemoteDigit(e) !== null) return 'digit'
   return null
 }

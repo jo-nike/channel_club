@@ -17,6 +17,8 @@ describe('getRemoteAction', () => {
     ['BrowserBack', 0, 'back'],
     ['Enter', 13, 'ok'],
     ['MediaPlayPause', 179, 'playPause'],
+    ['Guide', 0, 'guide'],
+    ['Info', 0, 'guide'],
     ['0', 48, 'digit'],
     ['7', 55, 'digit'],
     ['9', 105, 'digit'], // number pad
@@ -38,6 +40,8 @@ describe('getRemoteAction', () => {
     [13, 'ok'],
     [179, 'playPause'],
     [10252, 'playPause'], // Tizen play/pause
+    [457, 'guide'], // Tizen Info
+    [458, 'guide'], // Tizen Guide
     [49, 'digit'],
     [96, 'digit'], // number pad 0
   ])('maps keyCode %i with an unidentified key to %s', (keyCode, action) => {
