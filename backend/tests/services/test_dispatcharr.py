@@ -11,14 +11,18 @@ from app.models.channel import (
     DispatchrrFullChannel,
     GroupedChannelsResponse,
 )
+from app.services import dispatcharr
 from app.services.dispatcharr import (
     DispatchrrUnavailableError,
     _build_grouped_channels,
+    _cached_logo,
+    _store_logo,
     dispatcharr_auth_headers,
     extract_uuid,
     format_channel_number,
     get_channel_groups,
     get_lineup,
+    invalidate_grouped_channels_cache,
 )
 
 
@@ -395,3 +399,33 @@ class TestBuildGroupedChannels:
         )
 
         assert response.groups[0].channels[0].logo_url is None
+
+
+class TestChannelLogoCache:
+    """The logo cache is bounded by bytes and drops the least recently used first."""
+
+    def test_evicts_least_recently_used_over_the_byte_budget(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        invalidate_grouped_channels_cache()
+        monkeypatch.setattr(dispatcharr, "_LOGO_CACHE_MAX_BYTES", 25)
+        try:
+            _store_logo(1, b"a" * 10, "image/png")
+            _store_logo(2, b"b" * 10, "image/png")
+            assert _cached_logo(1) is not None  # 1 is now the most recently used
+            _store_logo(3, b"c" * 10, "image/png")
+
+            assert _cached_logo(2) is None
+            assert _cached_logo(1) == (b"a" * 10, "image/png")
+            assert _cached_logo(3) == (b"c" * 10, "image/png")
+        finally:
+            invalidate_grouped_channels_cache()
+
+    def test_expired_logo_is_not_served(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        invalidate_grouped_channels_cache()
+        monkeypatch.setattr(dispatcharr, "_LOGO_CACHE_TTL_SECONDS", -1)
+        try:
+            _store_logo(1, b"a" * 10, "image/png")
+            assert _cached_logo(1) is None
+        finally:
+            invalidate_grouped_channels_cache()
