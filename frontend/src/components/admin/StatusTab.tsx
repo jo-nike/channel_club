@@ -293,7 +293,7 @@ function GuideDataCard({ status }: GuideDataCardProps) {
             Guide data (XMLTV)
           </CardTitle>
           {state === 'Stale' ? (
-            <div className="flex items-center gap-1 text-amber-600">
+            <div className="flex items-center gap-1 text-warning">
               <TriangleAlert className="h-5 w-5" />
             </div>
           ) : (
@@ -326,11 +326,11 @@ interface StatusIndicatorProps {
 
 function StatusIndicator({ online }: StatusIndicatorProps) {
   return online ? (
-    <div className="flex items-center gap-1 text-green-600">
+    <div className="flex items-center gap-1 text-success">
       <CheckCircle className="h-5 w-5" />
     </div>
   ) : (
-    <div className="flex items-center gap-1 text-red-600">
+    <div className="flex items-center gap-1 text-destructive">
       <XCircle className="h-5 w-5" />
     </div>
   )
