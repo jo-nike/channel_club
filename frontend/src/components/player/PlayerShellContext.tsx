@@ -38,10 +38,31 @@ export interface PlayerShell {
    * bar's rocker; absent where the page gives the player no zap
    */
   stepChannel?: (dir: 1 | -1) => void
+  /**
+   * The engine is well behind its own live edge, and how to get back to it;
+   * null while it is at the edge, or there is no engine. This is the local
+   * stream only, never the group (see useShellLiveEdge).
+   */
+  behindLive: BehindLive | null
+  /** The engine reports whether it is behind (see useShellLiveEdge) */
+  setBehindLive: (behind: BehindLive | null) => void
+  /**
+   * The live (mpegts) engine's picture had started and is now paused, by the
+   * viewer or the browser: the shared channel moves on without them
+   */
+  isLivePaused: boolean
+  /** The live engine reports its pause (see useShellLivePaused) */
+  setLivePaused: (paused: boolean) => void
   /** Re-initialises the engine; the shell (and fullscreen) stays */
   reload: () => void
   /** Changes on every reload, whether asked for here or by the page */
   reloadKey: number
+}
+
+/** An engine that has fallen behind its own live edge */
+export interface BehindLive {
+  /** Back to the live edge, playing */
+  jumpToLive: () => void
 }
 
 export const PlayerShellContext = createContext<PlayerShell | null>(null)
@@ -71,4 +92,34 @@ export function useShellPlayback(isPlaying: boolean): void {
     },
     [setPlaying, setHoveringControls]
   )
+}
+
+/**
+ * Reports to the shell whether the engine is behind its own live edge, for
+ * the info rail's 'Behind live' chip. An engine that goes away is behind
+ * nothing.
+ */
+export function useShellLiveEdge(isBehind: boolean, jumpToLive: () => void): void {
+  const { setBehindLive } = usePlayerShell()
+
+  useEffect(() => {
+    setBehindLive(isBehind ? { jumpToLive } : null)
+  }, [isBehind, jumpToLive, setBehindLive])
+
+  useEffect(() => () => setBehindLive(null), [setBehindLive])
+}
+
+/**
+ * Reports to the shell whether the live engine's picture is paused after it
+ * started, for the info rail's one-time 'fall behind' hint. An engine that
+ * goes away is paused no longer.
+ */
+export function useShellLivePaused(isPaused: boolean): void {
+  const { setLivePaused } = usePlayerShell()
+
+  useEffect(() => {
+    setLivePaused(isPaused)
+  }, [isPaused, setLivePaused])
+
+  useEffect(() => () => setLivePaused(false), [setLivePaused])
 }

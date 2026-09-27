@@ -55,6 +55,8 @@ const fakeAdapter = (overrides: Partial<PlayerMediaAdapter> = {}): PlayerMediaAd
   togglePaused: vi.fn(),
   unmuteElement: vi.fn(),
   streamType: 'mpegts',
+  isBehindLive: false,
+  jumpToLive: vi.fn(),
   ...overrides,
 })
 
@@ -69,6 +71,10 @@ const fakeShell = (overrides: Partial<PlayerShell> = {}): PlayerShell => ({
   setHoveringControls: vi.fn(),
   isInfoRailVisible: false,
   setInfoRailVisible: vi.fn(),
+  behindLive: null,
+  setBehindLive: vi.fn(),
+  isLivePaused: false,
+  setLivePaused: vi.fn(),
   reload: vi.fn(),
   reloadKey: 0,
   ...overrides,

@@ -48,6 +48,10 @@ const makeShell = (overrides: Partial<PlayerShell> = {}): PlayerShell => ({
   setHoveringControls: vi.fn(),
   isInfoRailVisible: false,
   setInfoRailVisible: vi.fn(),
+  behindLive: null,
+  setBehindLive: vi.fn(),
+  isLivePaused: false,
+  setLivePaused: vi.fn(),
   reload: vi.fn(),
   reloadKey: 0,
   ...overrides,
@@ -602,5 +606,143 @@ describe('PlayerInfoOverlay: typing a channel number', () => {
     )
 
     expect(queryRail()).not.toBeInTheDocument()
+  })
+})
+
+describe('PlayerInfoOverlay: behind live', () => {
+  const behind = () => ({ jumpToLive: vi.fn() })
+  const jumpButton = () => screen.queryByRole('button', { name: 'Behind live Jump to live' })
+
+  it("puts 'Behind live · Jump to live' in the LIVE pill's place on the club channel", () => {
+    renderOverlay(liveSlot(), { behindLive: behind() })
+
+    expect(jumpButton()).toBeInTheDocument()
+    expect(rail()).toHaveTextContent('Behind live · Jump to live')
+    expect(screen.queryByTestId('live-pill')).not.toBeInTheDocument()
+  })
+
+  it('never claims to be in sync with the group', () => {
+    renderOverlay(liveSlot(), { behindLive: behind() })
+
+    expect(rail()).not.toHaveTextContent(/group|friends|everyone|sync/i)
+  })
+
+  it('shows the LIVE pill again once back at the edge', () => {
+    const { update } = renderOverlay(liveSlot(), { behindLive: behind() })
+
+    update(liveSlot(), { behindLive: null })
+
+    expect(jumpButton()).not.toBeInTheDocument()
+    expect(screen.getByTestId('live-pill')).toBeInTheDocument()
+  })
+
+  it('shows on an ErsatzTV channel too, which has no LIVE pill', () => {
+    renderOverlay(cinema, { behindLive: behind() })
+
+    expect(jumpButton()).toBeInTheDocument()
+  })
+
+  it("jumps with the engine's own jump", () => {
+    const behindLive = behind()
+    renderOverlay(liveSlot(), { behindLive })
+
+    const button = jumpButton()
+    if (!button) throw new Error('no Jump to live button')
+    fireEvent.click(button)
+
+    expect(behindLive.jumpToLive).toHaveBeenCalledTimes(1)
+  })
+
+  it('can be clicked and tabbed to only while the rail shows, and keeps the controls up while hovered', () => {
+    const setHoveringControls = vi.fn()
+    const { update } = renderOverlay(liveSlot(), { behindLive: behind(), setHoveringControls })
+    const button = () => {
+      const element = jumpButton()
+      if (!element) throw new Error('no Jump to live button')
+      return element
+    }
+    expect(button()).toHaveAttribute('tabindex', '0')
+    expect(button()).toHaveClass('pointer-events-auto', 'video-controls')
+
+    fireEvent.mouseEnter(button())
+    expect(setHoveringControls).toHaveBeenLastCalledWith(true)
+    fireEvent.mouseLeave(button())
+    expect(setHoveringControls).toHaveBeenLastCalledWith(false)
+
+    waitOutTuneBanner()
+    update(liveSlot(), { behindLive: behind(), setHoveringControls, controlsVisible: false })
+
+    expect(rail()).toHaveClass('opacity-0')
+    expect(button()).toHaveAttribute('tabindex', '-1')
+    expect(button()).not.toHaveClass('pointer-events-auto')
+  })
+
+  it('is about the channel playing, not one being previewed with the channel keys', () => {
+    render(
+      <PlayerShellContext value={makeShell({ behindLive: behind() })}>
+        <PlayerInfoOverlay channel={liveSlot()} pending={cinema} />
+      </PlayerShellContext>
+    )
+
+    expect(rail()).toHaveTextContent('Cinema')
+    expect(jumpButton()).not.toBeInTheDocument()
+  })
+})
+
+describe('PlayerInfoOverlay: pausing the shared live channel', () => {
+  const HINT = "You'll fall behind the group"
+  const liveStatus = () => screen.getByRole('status')
+
+  it('hints that pausing puts the viewer behind the group, in the live status line', () => {
+    renderOverlay(liveSlot(), { isLivePaused: true })
+
+    expect(liveStatus()).toHaveTextContent(HINT)
+  })
+
+  it('shows the hint once: gone on play, and not for the next pause', () => {
+    const { update } = renderOverlay(liveSlot(), { isLivePaused: false })
+    expect(rail()).not.toHaveTextContent(HINT)
+
+    update(liveSlot(), { isLivePaused: true })
+    expect(liveStatus()).toHaveTextContent(HINT)
+
+    update(liveSlot(), { isLivePaused: false })
+    expect(rail()).not.toHaveTextContent(HINT)
+
+    update(liveSlot(), { isLivePaused: true })
+    expect(rail()).not.toHaveTextContent(HINT)
+  })
+
+  it('gives way to a live-channel change announcement', () => {
+    renderOverlay(liveSlot(), { isLivePaused: true })
+    expect(liveStatus()).toHaveTextContent(HINT)
+
+    act(() => useChannelStore.getState().setLastChange({ by: 'jon', at: Date.now(), channelName: 'TSN 5' }))
+
+    expect(liveStatus()).toHaveTextContent('jon put on TSN 5')
+    expect(liveStatus()).not.toHaveTextContent(HINT)
+  })
+
+  it('is only about the shared live channel', () => {
+    renderOverlay(cinema, { isLivePaused: true })
+
+    expect(rail()).not.toHaveTextContent(HINT)
+  })
+
+  it('waits while a channel is previewed with the channel keys', () => {
+    const view = render(
+      <PlayerShellContext value={makeShell({ isLivePaused: true })}>
+        <PlayerInfoOverlay channel={liveSlot()} pending={cinema} />
+      </PlayerShellContext>
+    )
+    expect(rail()).not.toHaveTextContent(HINT)
+
+    view.rerender(
+      <PlayerShellContext value={makeShell({ isLivePaused: true })}>
+        <PlayerInfoOverlay channel={liveSlot()} />
+      </PlayerShellContext>
+    )
+
+    expect(liveStatus()).toHaveTextContent(HINT)
   })
 })

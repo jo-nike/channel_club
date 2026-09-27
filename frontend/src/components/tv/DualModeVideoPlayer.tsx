@@ -22,7 +22,14 @@ import { ProjectorBeamLoader } from '@/components/ProjectorBeamLoader'
 import { Button } from '@/components/ui/button'
 import { AutoplayNotice } from '@/components/player/AutoplayNotice'
 import { CastErrorBanner, CastingCard } from '@/components/player/CastingCard'
-import { PlayerShellContext, usePlayerShell, useShellPlayback } from '@/components/player/PlayerShellContext'
+import {
+  PlayerShellContext,
+  usePlayerShell,
+  useShellLiveEdge,
+  useShellLivePaused,
+  useShellPlayback,
+  type BehindLive,
+} from '@/components/player/PlayerShellContext'
 import { FilterLayer } from '@/components/player/FilterLayer'
 import { PlayerChrome } from '@/components/player/PlayerChrome'
 import { PlayerInfoOverlay } from '@/components/player/PlayerInfoOverlay'
@@ -116,6 +123,11 @@ export function DualModeVideoPlayer({
   // The info rail reports whether it is up; the sound-off pill moves under it
   const [isInfoRailVisible, setInfoRailVisible] = useState(false)
 
+  // The engine reports when it is behind its live edge; the info rail says so
+  const [behindLive, setBehindLive] = useState<BehindLive | null>(null)
+  // The live engine reports a pause; the info rail hints what it costs
+  const [isLivePaused, setLivePaused] = useState(false)
+
   // Both counters only grow, so their sum changes on every reload
   const [shellReloads, setShellReloads] = useState(0)
   const reloadKey = pageReloadKey + shellReloads
@@ -134,6 +146,10 @@ export function DualModeVideoPlayer({
       setHoveringControls,
       isInfoRailVisible,
       setInfoRailVisible,
+      behindLive,
+      setBehindLive,
+      isLivePaused,
+      setLivePaused,
       stepChannel,
       reload,
       reloadKey,
@@ -145,6 +161,8 @@ export function DualModeVideoPlayer({
       onTheaterModeToggle,
       controlsVisible,
       isInfoRailVisible,
+      behindLive,
+      isLivePaused,
       stepChannel,
       reload,
       reloadKey,
@@ -294,6 +312,17 @@ export function DualModeVideoPlayer({
 const STALL_CHECK_MS = 1000
 const STALL_TIMEOUT_MS = 8000
 
+// Gentle catch-up on the live stream: once the picture is more than 5s behind
+// the end of what it has buffered, it plays at 1.1x until it is 3s behind.
+// Small drifts (a stall, a slow buffer) close without a visible jump. Tune on
+// real streams: the thresholds are the finding's conservative starting point.
+const LIVE_SYNC_CONFIG: mpegts.Config = {
+  liveSync: true,
+  liveSyncMaxLatency: 5,
+  liveSyncTargetLatency: 3,
+  liveSyncPlaybackRate: 1.1,
+}
+
 // Browsers refuse unmuted playback that no user gesture started, but always
 // allow it muted
 function isAutoplayPolicyError(error: unknown): boolean {
@@ -409,6 +438,13 @@ function LiveVideoPlayer({
   // The shell's auto-hide follows this engine; a tap on the picture toggles it
   useShellPlayback(isPlaying)
 
+  // Behind its own live edge: only once playback has started (before that the
+  // autoplay notice speaks), and not under the casting card, which pauses it
+  useShellLiveEdge(hasStarted && adapter.isBehindLive && !isCasting, adapter.jumpToLive)
+  // Paused after it started: not the casting hold, and not once the stream
+  // has failed (the status card speaks then)
+  useShellLivePaused(hasStarted && !isPlaying && !isCasting && !isStopped)
+
   // The tap is a user gesture, so the browser lets the element unmute
   const handleSoundOn = useCallback(() => {
     unmuteElement()
@@ -486,11 +522,15 @@ function LiveVideoPlayer({
     const video = videoRef.current
     if (!video || !isMpegtsSupported || isStopped) return
 
-    const player = mpegts.createPlayer({
-      type: 'mpegts',
-      isLive: true,
-      url: streamUrl,
-    })
+    const player = mpegts.createPlayer(
+      {
+        type: 'mpegts',
+        isLive: true,
+        url: streamUrl,
+      },
+      // Not on a TV: playbackRate catch-up is untested on TV browsers
+      isTVMode ? undefined : LIVE_SYNC_CONFIG
+    )
 
     player.attachMediaElement(video)
     player.load()
@@ -872,6 +912,9 @@ function HLSControlsWrapper({
 
   // The shell's auto-hide follows this engine; a tap on the picture toggles it
   useShellPlayback(adapter.isPlaying)
+
+  // Behind its own live edge; not under the casting card, which pauses it
+  useShellLiveEdge(adapter.isBehindLive && !isCasting, adapter.jumpToLive)
 
   useVideoKeyboardShortcuts({
     containerRef,
