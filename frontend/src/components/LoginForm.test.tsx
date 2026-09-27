@@ -55,6 +55,7 @@ describe('LoginForm', () => {
       plexAuthEnabled: false,
     })
     vi.mocked(plexAuth.openPlexAuthWindow).mockReturnValue(plexWindow)
+    vi.mocked(useTVModeModule.useTVMode).mockReturnValue(false)
   })
 
   it('should render login form with username and password fields', async () => {
@@ -67,12 +68,12 @@ describe('LoginForm', () => {
     expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument()
   })
 
-  it('should render with 10-foot UI title', async () => {
+  it('shows the wordmark as its heading', async () => {
     render(<LoginForm />)
 
-    await waitFor(() => {
-      expect(screen.getByText('Channel Club')).toBeInTheDocument()
-    })
+    await screen.findByLabelText(/username/i)
+    const heading = screen.getByRole('heading', { level: 1, name: 'Channel Club' })
+    expect(within(heading).getByRole('img', { name: 'Channel Club' })).toHaveAttribute('data-size', 'lg')
   })
 
   it('should update input values on change', async () => {
@@ -190,19 +191,40 @@ describe('LoginForm', () => {
     expect(submitButton).not.toHaveAttribute('tabindex', '-1')
   })
 
-  it('should have 10-foot UI appropriate styling', async () => {
+  it('sizes the fields, labels and button for a desktop, not a TV', async () => {
     render(<LoginForm />)
 
-    await waitFor(() => {
-      expect(screen.getByLabelText(/username/i)).toBeInTheDocument()
-    })
-
-    const usernameInput = screen.getByLabelText(/username/i)
+    const usernameInput = await screen.findByLabelText(/username/i)
     const submitButton = screen.getByRole('button', { name: /sign in/i })
 
-    // Check for h-14 class (56px height for 10-foot UI)
-    expect(usernameInput.className).toContain('h-14')
-    expect(submitButton.className).toContain('h-14')
+    for (const input of [usernameInput, screen.getByLabelText(/password/i)]) {
+      expect(input).toHaveClass('h-11', 'text-base', 'md:text-base')
+      expect(input).not.toHaveClass('h-14')
+      expect(input).not.toHaveClass('text-2xl')
+    }
+    expect(screen.getByText('Username')).toHaveClass('text-sm')
+    expect(screen.getByText('Username')).not.toHaveClass('text-xl')
+    expect(submitButton).toHaveClass('h-12', 'text-base')
+    expect(submitButton).not.toHaveClass('h-14')
+    expect(submitButton).not.toHaveClass('text-2xl')
+  })
+
+  it('keeps the room-sized fields and button on a TV', async () => {
+    vi.mocked(useTVModeModule.useTVMode).mockReturnValue(true)
+    render(<LoginForm />)
+
+    const usernameInput = await screen.findByLabelText(/username/i)
+
+    expect(usernameInput).toHaveClass('h-14', 'text-2xl')
+    expect(screen.getByText('Username')).toHaveClass('text-xl')
+    expect(screen.getByRole('button', { name: /sign in/i })).toHaveClass('h-14', 'text-2xl')
+  })
+
+  it('makes Sign In the primary button when it is the only way in', async () => {
+    render(<LoginForm />)
+
+    const submitButton = await screen.findByRole('button', { name: 'Sign In' })
+    expect(submitButton).toHaveAttribute('data-variant', 'default')
   })
 
   describe('Plex authentication', () => {
@@ -582,6 +604,18 @@ describe('LoginForm', () => {
       expect(screen.queryByText('or')).not.toBeInTheDocument()
     })
 
+    it('steps Sign In back to secondary so the Plex button is the one call to action', async () => {
+      vi.mocked(api.getAuthConfig).mockResolvedValueOnce({
+        localAuthEnabled: true,
+        plexAuthEnabled: true,
+      })
+
+      render(<LoginForm />)
+
+      expect(await screen.findByRole('button', { name: 'Sign In' })).toHaveAttribute('data-variant', 'secondary')
+      expect(screen.getByRole('button', { name: 'Sign in with Plex' })).toHaveClass('bg-[#E5A00D]', 'h-12', 'text-base')
+    })
+
     it('should show both options with separator when both enabled', async () => {
       vi.mocked(api.getAuthConfig).mockResolvedValueOnce({
         localAuthEnabled: true,
@@ -607,11 +641,12 @@ describe('LoginForm', () => {
 
       render(<LoginForm />)
 
-      // Check for loading skeleton elements
+      // The app's branded loading screen carries on, not a second skeleton
       expect(screen.queryByLabelText(/username/i)).not.toBeInTheDocument()
       expect(screen.queryByText('Sign in with Plex')).not.toBeInTheDocument()
-      // Verify title is not visible yet (skeleton is shown)
-      expect(screen.queryByText('Channel Club')).not.toBeInTheDocument()
+      expect(screen.getByRole('heading', { level: 1, name: 'Channel Club' })).toBeInTheDocument()
+      expect(screen.getByText('Loading…')).toBeInTheDocument()
+      expect(document.querySelector('.animate-pulse')).toBeNull()
     })
 
     it('should redirect on successful local login', async () => {
@@ -842,14 +877,15 @@ describe('LoginForm', () => {
 
     it('keeps the sign-in screen at least 1rem clear of the status bar and home indicator', async () => {
       render(<LoginForm />)
-      const heading = await screen.findByRole('heading', { name: 'Channel Club' })
+      await screen.findByLabelText(/username/i)
+      const heading = screen.getByRole('heading', { name: 'Channel Club' })
       expect(heading.closest('.min-h-screen')).toHaveClass(...safe)
     })
 
-    it('pads the loading skeleton the same way', () => {
+    it('keeps the loading screen clear of them too', () => {
       vi.mocked(api.getAuthConfig).mockReturnValue(new Promise(() => {}))
       const { container } = render(<LoginForm />)
-      expect(container.firstChild).toHaveClass('min-h-screen', ...safe)
+      expect(container.firstChild).toHaveClass('h-screen', 'pt-safe', 'pb-safe')
     })
   })
 

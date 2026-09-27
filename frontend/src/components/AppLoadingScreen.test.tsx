@@ -3,9 +3,9 @@ import { render, screen } from '@/test/utils'
 import { AppLoadingScreen } from './AppLoadingScreen'
 
 describe('AppLoadingScreen', () => {
-  it('renders app title', () => {
+  it('renders app title as the heading', () => {
     render(<AppLoadingScreen />)
-    expect(screen.getByText('Channel Club')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Channel Club' })).toBeInTheDocument()
   })
 
   it('renders loading spinner', () => {
@@ -19,9 +19,17 @@ describe('AppLoadingScreen', () => {
     expect(screen.getByText('Loading…')).toBeVisible()
   })
 
-  it('renders app logo emoji', () => {
+  it('shows the wordmark at its large size in place of the old emoji logo', () => {
     render(<AppLoadingScreen />)
-    expect(screen.getByText('📺')).toBeInTheDocument()
+    const wordmark = screen.getByRole('img', { name: 'Channel Club' })
+    expect(wordmark).toHaveAttribute('data-size', 'lg')
+    expect(wordmark.querySelector('[data-slot="wordmark-dot"]')).not.toBeNull()
+    expect(screen.queryByText('📺')).not.toBeInTheDocument()
+  })
+
+  it('shows the tagline', () => {
+    render(<AppLoadingScreen />)
+    expect(screen.getByText('Good TV. Better company.')).toBeInTheDocument()
   })
 
   it('is full screen height', () => {

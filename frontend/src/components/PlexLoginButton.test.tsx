@@ -53,6 +53,21 @@ describe('PlexLoginButton', () => {
     expect(button).toHaveClass('bg-[#E5A00D]')
   })
 
+  it('is desktop-sized by default', () => {
+    render(<PlexLoginButton onClick={vi.fn()} isLoading={false} />)
+    const button = screen.getByRole('button', { name: 'Sign in with Plex' })
+    expect(button).toHaveClass('h-12', 'text-base')
+    expect(button).not.toHaveClass('h-14')
+    expect(button).not.toHaveClass('text-2xl')
+  })
+
+  it('is room-sized on a TV', () => {
+    render(<PlexLoginButton onClick={vi.fn()} isLoading={false} tv />)
+    const button = screen.getByRole('button', { name: 'Sign in with Plex' })
+    expect(button).toHaveClass('h-14', 'text-2xl')
+    expect(button).not.toHaveClass('h-12')
+  })
+
   it('leaves focus to the global outline, so a click draws no ring', () => {
     render(<PlexLoginButton onClick={vi.fn()} isLoading={false} />)
     expect(focusOverrides(screen.getByRole('button'))).toEqual([])
