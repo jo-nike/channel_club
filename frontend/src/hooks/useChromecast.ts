@@ -251,9 +251,9 @@ function initializeCastContext() {
       isLoading: false,
     })
   } catch (error) {
+    // The button stays hidden, so there is nothing for the viewer to act on
     logger.error('Cast', 'Failed to initialize Cast SDK', { error })
     setCastState({ isAvailable: false, isLoading: false })
-    reportError('Failed to initialize Cast SDK')
   }
 }
 
@@ -346,11 +346,25 @@ function handlePlayerStateChanged() {
   logger.info('Cast', `Player state changed: ${playerState}`)
 
   setCastState({ playerState: playerState ?? null })
-  // If player goes IDLE after we were casting, media likely failed
-  if (playerState === 'IDLE' && useCastStore.getState().isCasting) {
+  // If player goes IDLE after we were casting, media likely failed. Not when
+  // this page stopped it (Stop clears isCasting first), or the session is
+  // ending: those are someone's choice.
+  const { isCasting, deviceName } = useCastStore.getState()
+  if (playerState === 'IDLE' && isCasting) {
     setCastState({ isCasting: false })
-    reportError('Chromecast playback stopped (IDLE)')
+    if (!isSessionEnding()) {
+      reportError(`${deviceName ?? 'The Chromecast'} stopped playing`)
+    }
   }
+}
+
+function isSessionEnding() {
+  const sessionState = cast.framework.CastContext.getInstance().getSessionState()
+  return (
+    sessionState === cast.framework.SessionState.SESSION_ENDING ||
+    sessionState === cast.framework.SessionState.SESSION_ENDED ||
+    sessionState === cast.framework.SessionState.NO_SESSION
+  )
 }
 
 /**
@@ -364,14 +378,17 @@ function requestSession(params?: CastParams) {
   pendingCast = params ?? null
 
   const context = cast.framework.CastContext.getInstance()
-  context.requestSession().catch((error: Error) => {
+  context.requestSession().catch((error: unknown) => {
     pendingCast = null
+    // The SDK rejects with a chrome.cast.ErrorCode, a plain string: 'cancel'
+    // when the viewer closes the picker without choosing a device
+    const code = typeof error === 'string' ? error : error instanceof Error ? error.message : ''
     // User cancelled is expected, don't show as error
-    if (error.message?.includes('cancel')) {
+    if (code.includes('cancel')) {
       logger.debug('Cast', 'User cancelled cast session request')
     } else {
       logger.error('Cast', 'Failed to request cast session', { error })
-      reportError('Failed to connect to Chromecast')
+      reportError("Couldn't connect to the Chromecast")
     }
   })
 }
@@ -503,8 +520,9 @@ async function startCasting(
     if (!isCurrent()) return
     pendingOperation = null
 
+    // The cause is in the log; the viewer gets plain words
     setCastState({ isCasting: false })
-    reportError(error instanceof Error ? error.message : 'Failed to start casting')
+    reportError("Couldn't start casting. Try again.")
 
     throw error
   }
@@ -519,6 +537,8 @@ export async function stopCasting() {
   castGeneration += 1
   castStopped = true
   pendingCast = null
+  // Before the receiver hears of it: the IDLE it reports is not a failure
+  setCastState({ isCasting: false })
 
   // Stop playback on Chromecast
   if (remoteController) {
@@ -531,8 +551,6 @@ export async function stopCasting() {
     currentSessionId = null
     await releaseSession(sessionId)
   }
-
-  setCastState({ isCasting: false })
 
   logger.info('Cast', 'Cast session stopped')
 }

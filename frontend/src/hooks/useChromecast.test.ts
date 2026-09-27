@@ -8,15 +8,20 @@ import { INITIAL_CAST_STATE, useCastStore } from '@/stores/castStore'
 vi.mock('@/services/api', () => ({ getCastFeatureEnabled: vi.fn().mockResolvedValue(true), createCastSession: vi.fn(), stopCastSession: vi.fn().mockResolvedValue(undefined), getCastHlsUrl: (id: string) => `https://fixture/${id}`, getCastBaseUrl: () => 'https://fixture/api' }))
 const listeners = new Map<string, Set<(event: { sessionState: string }) => void>>()
 const session = { getCastDevice: () => ({ friendlyName: 'Fixture receiver' }), loadMedia: vi.fn().mockResolvedValue(undefined) }
-const context = { setOptions: vi.fn(), getCastState: () => 'CONNECTED', getCurrentSession: () => session,
+let sessionState = 'STARTED'
+const context = { setOptions: vi.fn(), getCastState: () => 'CONNECTED', getCurrentSession: () => session, getSessionState: () => sessionState,
   addEventListener: (name: string, fn: (event: { sessionState: string }) => void) => { if (!listeners.has(name)) listeners.set(name, new Set()); listeners.get(name)!.add(fn) },
   removeEventListener: (name: string, fn: (event: { sessionState: string }) => void) => listeners.get(name)?.delete(fn), requestSession: vi.fn() }
 const controllerStop = vi.fn()
 let remoteState = 'PLAYING'
+// The remote player the hook made, and its controller's listeners by event
+const remote = { current: null as { playerState: string } | null }
+const playerListeners = new Map<string, () => void>()
+const firePlayerState = (state: string) => act(() => { remote.current!.playerState = state; playerListeners.get('playerState')?.() })
 beforeEach(() => {
-  vi.clearAllMocks(); listeners.clear(); remoteState = 'PLAYING'
+  vi.clearAllMocks(); listeners.clear(); playerListeners.clear(); remoteState = 'PLAYING'; sessionState = 'STARTED'
   useCastStore.setState(INITIAL_CAST_STATE)
-  vi.stubGlobal('cast', { framework: { CastContext: { getInstance: () => context }, RemotePlayer: class { isConnected = true; isMediaLoaded = true; playerState = remoteState }, RemotePlayerController: class { addEventListener() {} removeEventListener() {} stop = controllerStop }, CastContextEventType: { CAST_STATE_CHANGED: 'cast', SESSION_STATE_CHANGED: 'session' }, RemotePlayerEventType: {}, CastState: { NO_DEVICES_AVAILABLE: 'NONE', CONNECTED: 'CONNECTED' }, SessionState: { SESSION_ENDED: 'ENDED', NO_SESSION: 'NONE', SESSION_STARTED: 'STARTED', SESSION_RESUMED: 'RESUMED' } } })
+  vi.stubGlobal('cast', { framework: { CastContext: { getInstance: () => context }, RemotePlayer: class { isConnected = true; isMediaLoaded = true; playerState = remoteState; constructor() { remote.current = this } }, RemotePlayerController: class { addEventListener(name: string, fn: () => void) { playerListeners.set(name, fn) } removeEventListener(name: string) { playerListeners.delete(name) } stop = controllerStop }, CastContextEventType: { CAST_STATE_CHANGED: 'cast', SESSION_STATE_CHANGED: 'session' }, RemotePlayerEventType: { IS_CONNECTED_CHANGED: 'connected', IS_MEDIA_LOADED_CHANGED: 'loaded', PLAYER_STATE_CHANGED: 'playerState' }, CastState: { NO_DEVICES_AVAILABLE: 'NONE', CONNECTED: 'CONNECTED' }, SessionState: { SESSION_ENDING: 'ENDING', SESSION_ENDED: 'ENDED', NO_SESSION: 'NONE', SESSION_STARTED: 'STARTED', SESSION_RESUMED: 'RESUMED' } } })
   vi.stubGlobal('chrome', { cast: { media: { MediaInfo: class { constructor(public url: string) {} }, LoadRequest: class { constructor(public media: unknown) {} }, StreamType: { LIVE: 'LIVE', BUFFERED: 'BUFFERED' } } } })
 })
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
@@ -55,11 +60,11 @@ describe('FE-07 SDK snapshot hydration (mock receiver)', () => {
   it('shows the existing receiver stop action after actual CastButton remount', async () => {
     const props = { channelId: 'a', streamType: 'mpegts' as const, isVisible: true }
     const first = render(createElement(CastButton, props))
-    await screen.findByRole('button', { name: /Casting to Fixture receiver.*Click to stop/ })
+    await screen.findByRole('button', { name: 'Casting to Fixture receiver · click to stop' })
     first.unmount()
     render(createElement(CastButton, { ...props, channelId: 'b' }))
-    fireEvent.click(await screen.findByRole('button', { name: /Casting to Fixture receiver.*Click to stop/ }))
-    await screen.findByRole('button', { name: /Connected to Fixture receiver - Click to cast/ })
+    fireEvent.click(await screen.findByRole('button', { name: 'Casting to Fixture receiver · click to stop' }))
+    await screen.findByRole('button', { name: 'Connected to Fixture receiver · click to cast' })
     expect(context.requestSession).not.toHaveBeenCalled()
   })
 
@@ -170,4 +175,53 @@ describe('FE-08 operation ownership (mock SDK/API)', () => {
     await act(() => result.current.stopCasting())
   })
 
+})
+
+describe('cast failures in plain words', () => {
+  const lastError = () => useCastStore.getState().lastError?.message ?? null
+  const ready = async () => {
+    const hook = renderHook(useChromecast)
+    await waitFor(() => expect(hook.result.current.isLoading).toBe(false))
+    return hook
+  }
+
+  it('a receiver that stops playing on its own is reported by name', async () => {
+    const { result } = await ready()
+    firePlayerState('IDLE')
+    expect(result.current.isCasting).toBe(false)
+    expect(lastError()).toBe('Fixture receiver stopped playing')
+  })
+
+  it('stopping from this page is not a failure, even when the receiver reports IDLE first', async () => {
+    const { result } = await ready()
+    controllerStop.mockImplementationOnce(() => firePlayerState('IDLE'))
+    await act(() => result.current.stopCasting())
+    expect(result.current.isCasting).toBe(false)
+    expect(lastError()).toBeNull()
+  })
+
+  it('a session that is ending is not a failure', async () => {
+    await ready()
+    sessionState = 'ENDING'
+    firePlayerState('IDLE')
+    expect(lastError()).toBeNull()
+  })
+
+  it('a device that will not connect says so, and a cancelled picker says nothing', async () => {
+    const { result } = await ready()
+    // The SDK rejects with a chrome.cast.ErrorCode string, not an Error
+    context.requestSession.mockRejectedValueOnce('cancel')
+    await act(async () => result.current.requestSession())
+    expect(lastError()).toBeNull()
+    context.requestSession.mockRejectedValueOnce('session_error')
+    await act(async () => result.current.requestSession())
+    expect(lastError()).toBe("Couldn't connect to the Chromecast")
+  })
+
+  it('a cast that fails to start says so without the internal cause', async () => {
+    vi.mocked(api.createCastSession).mockRejectedValueOnce(new Error('Failed to create cast session: 500'))
+    const { result } = await ready()
+    await act(() => result.current.startCasting('a', 'mpegts').catch(() => {}))
+    expect(lastError()).toBe("Couldn't start casting. Try again.")
+  })
 })

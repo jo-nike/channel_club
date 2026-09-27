@@ -9,7 +9,8 @@ function subscribe(callback: () => void) {
   return () => FULLSCREEN_EVENTS.forEach((event) => document.removeEventListener(event, callback))
 }
 
-function getFullscreenElement(): Element | null {
+/** The page's fullscreen element, if any (Safari only has the webkit one) */
+export function getFullscreenElement(): Element | null {
   return document.fullscreenElement ?? (document as WebkitDocument).webkitFullscreenElement ?? null
 }
 
