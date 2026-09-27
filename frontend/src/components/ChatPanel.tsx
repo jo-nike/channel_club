@@ -630,9 +630,11 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
                 maxLength={500}
               />
               <GifButton onSelect={async (url) => (await send(url)) === 'acknowledged'} disabled={isSending || !isConnected} />
+              {/* Filled only once there is something to send */}
               <Button
                 onClick={handleSend}
                 disabled={!inputValue.trim() || isSending || !isConnected}
+                variant={inputValue.trim() ? 'default' : 'ghost'}
                 size="icon"
                 aria-label="Send message"
               >

@@ -75,11 +75,13 @@ export function GifButton({ onSelect, disabled }: GifButtonProps) {
     setIsOpen(false)
   }
 
+  // The trigger is a quiet ghost icon, so Send stays the composer's main action.
   // Use Dialog for mobile (bottom sheet style), Popover for desktop
   if (isMobile) {
     return (
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <Button
+          variant="ghost"
           size="icon"
           disabled={disabled}
           onClick={() => setIsOpen(true)}
@@ -101,6 +103,7 @@ export function GifButton({ onSelect, disabled }: GifButtonProps) {
     <Popover open={isOpen} onOpenChange={setIsOpen}>
       <PopoverTrigger asChild>
         <Button
+          variant="ghost"
           size="icon"
           disabled={disabled}
           aria-label="Send GIF"

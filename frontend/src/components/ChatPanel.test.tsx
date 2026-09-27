@@ -1167,6 +1167,21 @@ describe('ChatPanel', () => {
     })
   })
 
+  describe('composer emphasis', () => {
+    it('keeps Send a ghost button until there is text, then fills it', () => {
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      const send = screen.getByRole('button', { name: 'Send message' })
+      expect(send).toHaveAttribute('data-variant', 'ghost')
+
+      fireEvent.change(screen.getByPlaceholderText('Type a message...'), { target: { value: '   ' } })
+      expect(send).toHaveAttribute('data-variant', 'ghost')
+
+      fireEvent.change(screen.getByPlaceholderText('Type a message...'), { target: { value: 'Goal!' } })
+      expect(send).toHaveAttribute('data-variant', 'default')
+      expect(send).toHaveClass('bg-primary')
+    })
+  })
+
   describe('message log', () => {
     afterEach(() => vi.useRealTimers())
 
