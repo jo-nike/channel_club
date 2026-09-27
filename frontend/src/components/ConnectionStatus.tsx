@@ -11,22 +11,22 @@ interface ConnectionStatusProps {
 
 const statusConfig = {
   connected: {
-    color: 'bg-green-500',
+    color: 'bg-success',
     text: 'Connected',
     pulse: false,
   },
   connecting: {
-    color: 'bg-yellow-500',
+    color: 'bg-warning',
     text: 'Connecting...',
     pulse: true,
   },
   reconnecting: {
-    color: 'bg-yellow-500',
+    color: 'bg-warning',
     text: 'Reconnecting...',
     pulse: true,
   },
   disconnected: {
-    color: 'bg-red-500',
+    color: 'bg-destructive',
     text: 'Disconnected',
     pulse: false,
   },

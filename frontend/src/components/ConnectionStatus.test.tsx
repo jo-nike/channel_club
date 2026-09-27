@@ -3,49 +3,49 @@ import { describe, test, expect } from 'vitest'
 import { ConnectionStatus } from './ConnectionStatus'
 
 describe('ConnectionStatus', () => {
-  test('shows Connected with green indicator', () => {
+  test('shows Connected with the success indicator', () => {
     render(<ConnectionStatus status="connected" />)
 
     // Status is shown via aria-label on the button
     expect(screen.getByRole('status', { name: /connected/i })).toBeInTheDocument()
 
-    // Check for green indicator (bg-green-500)
-    const indicator = document.querySelector('.bg-green-500')
+    // Check for the success indicator (bg-success)
+    const indicator = document.querySelector('.bg-success')
     expect(indicator).toBeInTheDocument()
   })
 
-  test('shows Connecting with yellow pulsing indicator', () => {
+  test('shows Connecting with the warning pulsing indicator', () => {
     render(<ConnectionStatus status="connecting" />)
 
     // Status is shown via aria-label on the button
     expect(screen.getByRole('status', { name: /connecting/i })).toBeInTheDocument()
 
-    // Check for yellow indicator
-    const indicator = document.querySelector('.bg-yellow-500')
+    // Check for the warning indicator
+    const indicator = document.querySelector('.bg-warning')
     expect(indicator).toBeInTheDocument()
     expect(indicator).toHaveClass('animate-pulse')
   })
 
-  test('shows Reconnecting with yellow pulsing indicator', () => {
+  test('shows Reconnecting with the warning pulsing indicator', () => {
     render(<ConnectionStatus status="reconnecting" />)
 
     // Status is shown via aria-label on the button
     expect(screen.getByRole('status', { name: /reconnecting/i })).toBeInTheDocument()
 
-    // Check for yellow indicator with pulse
-    const indicator = document.querySelector('.bg-yellow-500')
+    // Check for the warning indicator with pulse
+    const indicator = document.querySelector('.bg-warning')
     expect(indicator).toBeInTheDocument()
     expect(indicator).toHaveClass('animate-pulse')
   })
 
-  test('shows Disconnected with red indicator', () => {
+  test('shows Disconnected with the destructive indicator', () => {
     render(<ConnectionStatus status="disconnected" />)
 
     // Status is shown via aria-label on the button
     expect(screen.getByRole('status', { name: /disconnected/i })).toBeInTheDocument()
 
-    // Check for red indicator (no pulse)
-    const indicator = document.querySelector('.bg-red-500')
+    // Check for the destructive indicator (no pulse)
+    const indicator = document.querySelector('.bg-destructive')
     expect(indicator).toBeInTheDocument()
     expect(indicator).not.toHaveClass('animate-pulse')
   })
@@ -55,8 +55,8 @@ describe('ConnectionStatus', () => {
 
     const button = screen.getByRole('status')
 
-    // Initially shows green
-    expect(button).toHaveClass('bg-green-500')
+    // Initially shows the success colour
+    expect(button).toHaveClass('bg-success')
     expect(button).not.toHaveClass('bg-background')
 
     // Click to hide
@@ -64,7 +64,7 @@ describe('ConnectionStatus', () => {
 
     // Now shows background color
     expect(button).toHaveClass('bg-background')
-    expect(button).not.toHaveClass('bg-green-500')
+    expect(button).not.toHaveClass('bg-success')
   })
 
   test('clicking twice restores indicator color', () => {
@@ -78,7 +78,7 @@ describe('ConnectionStatus', () => {
 
     // Click to show again
     fireEvent.click(button)
-    expect(button).toHaveClass('bg-green-500')
+    expect(button).toHaveClass('bg-success')
   })
 
   test('hiding stops pulse animation', () => {
