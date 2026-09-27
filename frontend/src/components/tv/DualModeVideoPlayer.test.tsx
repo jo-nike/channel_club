@@ -2170,14 +2170,53 @@ describe('DualModeVideoPlayer auto-hide: one visibility in the shell', () => {
     expect(toolbar()).toHaveClass('opacity-0')
   })
 
-  it('hides the pointer over the playing live picture with the controls', () => {
-    renderPlayer(liveChannel('https://fixture/a'))
-    startLive()
-    expect(video().parentElement).not.toHaveClass('cursor-none')
+  // The element around the engine, which carries the shell's pointer rule
+  const engineFrame = () => {
+    const frame = shell().querySelector('[data-media-player], video')?.closest('.video-player-container > div')
+    if (!frame) throw new Error('no engine frame')
+    return frame
+  }
+
+  it.each([
+    ['live', liveChannel('https://fixture/a')],
+    ['ErsatzTV', hlsChannel('1', 1)],
+  ])('%s: hides the pointer over the playing picture with the controls', (engine, channel) => {
+    renderPlayer(channel)
+    if (engine === 'live') startLive()
+    expect(engineFrame()).not.toHaveClass('cursor-none')
 
     waitOut()
 
-    expect(video().parentElement).toHaveClass('cursor-none')
+    expect(engineFrame()).toHaveClass('cursor-none')
+  })
+
+  it('keeps the pointer while the ErsatzTV picture is paused', () => {
+    vidstack.state = { ...vidstack.state, paused: true }
+    renderPlayer(hlsChannel('1', 1))
+
+    waitOut()
+
+    expect(engineFrame()).not.toHaveClass('cursor-none')
+  })
+
+  it('brings the pointer back with the controls', () => {
+    renderPlayer(hlsChannel('1', 1))
+    waitOut()
+    expect(engineFrame()).toHaveClass('cursor-none')
+
+    act(() => {
+      shell().dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerType: 'mouse', clientX: 40 }))
+    })
+
+    expect(engineFrame()).not.toHaveClass('cursor-none')
+  })
+
+  it('leaves the shell itself alone: the clip editor and shortcut sheet portal into it and keep the pointer', () => {
+    renderPlayer(hlsChannel('1', 1))
+    waitOut()
+
+    expect(engineFrame()).toHaveClass('cursor-none')
+    expect(shell()).not.toHaveClass('cursor-none')
   })
 
   it('a new stream brings the controls back until it plays', () => {

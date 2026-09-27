@@ -241,7 +241,13 @@ export function DualModeVideoPlayer({
       >
         {/* Before the engine, so its control bar paints above the filters */}
         <FilterLayer />
-        {engine}
+        {/* The pointer hides with the controls over a playing picture, the
+            same for every engine. Around the engine, not on the shell: the
+            clip editor and the shortcut sheet portal into the shell and keep
+            their pointer. Unpositioned, so the paint order stays the same. */}
+        <div className={`h-full w-full${!controlsVisible && isEnginePlaying ? ' cursor-none' : ''}`}>
+          {engine}
+        </div>
         {/* The info rail and NHL ticker: in the shell, so they show in
             fullscreen and stay put while the engine is swapped */}
         <PlayerInfoOverlay
@@ -360,8 +366,7 @@ function LiveVideoPlayer({
   isMobile,
 }: LiveVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
-  const { containerRef, toggleFullscreen, toggleTheaterMode, controlsVisible, isInfoRailVisible, reload } =
-    usePlayerShell()
+  const { containerRef, toggleFullscreen, toggleTheaterMode, isInfoRailVisible, reload } = usePlayerShell()
   const playerRef = useRef<mpegts.Player | null>(null)
   const [isBuffering, setIsBuffering] = useState(false)
   // Errors, the upstream closing and stalls reconnect with backoff, then stop
@@ -548,7 +553,7 @@ function LiveVideoPlayer({
   }, [retryKey, isStopped, isMpegtsSupported, fail])
 
   return (
-    <div className={`relative h-full w-full ${!controlsVisible && isPlaying ? 'cursor-none' : ''}`}>
+    <div className="relative h-full w-full">
       <video ref={videoRef} autoPlay className="h-full w-full object-contain" />
 
       <PlayerChrome
