@@ -255,6 +255,43 @@ describe('plexAuth', () => {
       expect(await outcome).toMatchObject({ name: 'PlexAuthError', code: 'cancelled' })
     })
 
+    it('rejects cancelled and closes the window when the signal aborts', async () => {
+      vi.useFakeTimers()
+      vi.mocked(fetch).mockResolvedValueOnce(pinResponse()).mockResolvedValue(tokenResponse(null))
+      const popup = fakePopup()
+      const controller = new AbortController()
+
+      const outcome = authenticateWithPlex(popup as unknown as Window, controller.signal)
+        .catch((e: unknown) => e)
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(popup.close).not.toHaveBeenCalled()
+
+      controller.abort()
+
+      // Rejected straight away, without waiting for the next poll
+      expect(await outcome).toMatchObject({ name: 'PlexAuthError', code: 'cancelled' })
+      expect(popup.close).toHaveBeenCalled()
+      const polls = vi.mocked(fetch).mock.calls.length
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(vi.mocked(fetch).mock.calls.length).toBe(polls)
+    })
+
+    it('rejects cancelled without loading Plex when aborted while the PIN is created', async () => {
+      let respond!: (r: Response) => void
+      vi.mocked(fetch).mockReturnValueOnce(new Promise<Response>((done) => { respond = done }))
+      const popup = fakePopup()
+      const controller = new AbortController()
+
+      const outcome = authenticateWithPlex(popup as unknown as Window, controller.signal)
+        .catch((e: unknown) => e)
+      controller.abort()
+      respond(pinResponse())
+
+      expect(await outcome).toMatchObject({ name: 'PlexAuthError', code: 'cancelled' })
+      expect(popup.close).toHaveBeenCalled()
+      expect(popup.location.href).toBe('about:blank')
+    })
+
     it('rejects timeout and closes the window after 5 minutes', async () => {
       vi.useFakeTimers()
       vi.mocked(fetch).mockResolvedValueOnce(pinResponse()).mockResolvedValue(tokenResponse(null))

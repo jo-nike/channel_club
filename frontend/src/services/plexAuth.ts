@@ -135,10 +135,12 @@ export function openPlexAuthWindow(): Window | null {
  * Creates a PIN, points the window at the Plex auth page, polls for
  * authentication and returns the auth token when the user completes login.
  *
+ * Aborting `signal` closes the window and rejects with 'cancelled'.
+ *
  * @throws PlexAuthError if the PIN can't be created (the window is closed),
- *         the user closes the window, or it times out after 5 minutes
+ *         the user closes the window or aborts, or it times out after 5 minutes
  */
-export async function authenticateWithPlex(popup: Window): Promise<string> {
+export async function authenticateWithPlex(popup: Window, signal?: AbortSignal): Promise<string> {
   logger.debug('Plex', 'Starting Plex OAuth flow')
 
   // 1. Create PIN. On failure, don't leave the blank window behind.
@@ -150,7 +152,8 @@ export async function authenticateWithPlex(popup: Window): Promise<string> {
     throw err
   }
 
-  if (popup.closed) {
+  if (popup.closed || signal?.aborted) {
+    popup.close()
     logger.info('Plex', 'Authentication cancelled by user')
     throw new PlexAuthError('cancelled', 'Authentication cancelled')
   }
@@ -165,7 +168,16 @@ export async function authenticateWithPlex(popup: Window): Promise<string> {
       settled = true
       clearInterval(pollInterval)
       clearTimeout(timeout)
+      signal?.removeEventListener('abort', onAbort)
     }
+
+    const onAbort = () => {
+      finish()
+      popup.close()
+      logger.info('Plex', 'Authentication cancelled by user')
+      reject(new PlexAuthError('cancelled', 'Authentication cancelled'))
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
 
     const pollInterval = setInterval(async () => {
       // Check if popup was closed

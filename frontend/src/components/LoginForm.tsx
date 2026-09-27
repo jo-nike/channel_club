@@ -1,5 +1,5 @@
 import { APP_NAME, APP_TAGLINE } from '@/lib/appInfo'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { PlexLoginButton } from '@/components/PlexLoginButton'
@@ -21,6 +21,8 @@ export function LoginForm() {
   const [authConfig, setAuthConfig] = useState<AuthConfig | null>(null)
   const [configLoading, setConfigLoading] = useState(true)
   const [plexAuthMode, setPlexAuthMode] = useState<PlexAuthMode>('select')
+  // Aborts the popup flow in progress (Cancel); null when none is running
+  const plexAbortRef = useRef<AbortController | null>(null)
   const setAuth = useAuthStore((state) => state.setAuth)
   const isTVMode = useTVMode()
 
@@ -64,19 +66,34 @@ export function LoginForm() {
       setError('Failed to open Plex authentication popup')
       return
     }
+    const controller = new AbortController()
+    plexAbortRef.current = controller
     setPlexLoading(true)
     try {
-      const authToken = await authenticateWithPlex(popup)
+      const authToken = await authenticateWithPlex(popup, controller.signal)
       const response = await loginWithPlex(authToken)
+      if (controller.signal.aborted) return
       setAuth(response.accessToken, response.role)
     } catch (err) {
-      const cancelled = err instanceof PlexAuthError && err.code === 'cancelled'
+      // Cancel pressed, or the user closed the Plex window: not an error
+      const cancelled = controller.signal.aborted
+        || (err instanceof PlexAuthError && err.code === 'cancelled')
       if (err instanceof Error && !cancelled) {
         setError(err.message)
       }
     } finally {
-      setPlexLoading(false)
+      // A cancelled flow has already handed the button back
+      if (plexAbortRef.current === controller) {
+        plexAbortRef.current = null
+        setPlexLoading(false)
+      }
     }
+  }
+
+  const handlePlexCancel = () => {
+    plexAbortRef.current?.abort()
+    plexAbortRef.current = null
+    setPlexLoading(false)
   }
 
   const handleQRPlexSuccess = async (authToken: string) => {
@@ -222,7 +239,12 @@ export function LoginForm() {
         {/* Plex Auth Section */}
         {showPlexAuth && plexAuthMode === 'select' && (
           <div className="space-y-3">
-            <PlexLoginButton onClick={handlePlexLogin} isLoading={plexLoading || isLoading} />
+            <PlexLoginButton
+              onClick={handlePlexLogin}
+              onCancel={handlePlexCancel}
+              isLoading={plexLoading}
+              disabled={isLoading}
+            />
             {/* Show QR option link for desktop users */}
             {!isTVMode && (
               <button

@@ -290,6 +290,7 @@ describe('LoginForm', () => {
       })
 
       // Should not show error for cancelled auth
+      expect(await screen.findByRole('button', { name: 'Sign in with Plex' })).toBeEnabled()
       expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     })
 
@@ -328,7 +329,7 @@ describe('LoginForm', () => {
 
       // Checked synchronously after the click: no await has run yet
       expect(plexAuth.openPlexAuthWindow).toHaveBeenCalledTimes(1)
-      expect(plexAuth.authenticateWithPlex).toHaveBeenCalledWith(plexWindow)
+      expect(plexAuth.authenticateWithPlex).toHaveBeenCalledWith(plexWindow, expect.any(AbortSignal))
     })
 
     it('shows an error and starts no flow when the browser blocks the window', async () => {
@@ -344,6 +345,84 @@ describe('LoginForm', () => {
       expect(await screen.findByRole('alert')).toBeInTheDocument()
       expect(plexAuth.authenticateWithPlex).not.toHaveBeenCalled()
       expect(screen.getByText('Sign in with Plex')).toBeEnabled()
+    })
+
+    describe('Cancel while waiting for Plex', () => {
+      beforeEach(() => {
+        vi.mocked(api.getAuthConfig).mockResolvedValue({
+          localAuthEnabled: true,
+          plexAuthEnabled: true,
+        })
+      })
+
+      /** Behaves like the real flow: pending until the signal aborts, then 'cancelled'. */
+      function pendingUntilAborted() {
+        const signals: AbortSignal[] = []
+        vi.mocked(plexAuth.authenticateWithPlex).mockImplementationOnce((_popup, signal) => {
+          if (signal) signals.push(signal)
+          return new Promise((_resolve, reject) => {
+            signal?.addEventListener('abort', () => {
+              reject(new plexAuth.PlexAuthError('cancelled', 'Authentication cancelled'))
+            })
+          })
+        })
+        return signals
+      }
+
+      it('shows Waiting for Plex with a Cancel button while the window is open', async () => {
+        pendingUntilAborted()
+        render(<LoginForm />)
+        fireEvent.click(await screen.findByText('Sign in with Plex'))
+
+        expect(await screen.findByRole('button', { name: 'Waiting for Plex...' })).toBeDisabled()
+        expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled()
+      })
+
+      it('Cancel aborts the flow and re-enables the button with no error', async () => {
+        const signals = pendingUntilAborted()
+        render(<LoginForm />)
+        fireEvent.click(await screen.findByText('Sign in with Plex'))
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
+
+        expect(signals[0].aborted).toBe(true)
+        expect(await screen.findByRole('button', { name: 'Sign in with Plex' })).toBeEnabled()
+        expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Sign In' })).toBeEnabled()
+        await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
+      })
+
+      it('does not sign in when Cancel is pressed after Plex returned a token', async () => {
+        const mockSetAuth = vi.fn()
+        useAuthStore.setState({ setAuth: mockSetAuth } as unknown as Parameters<typeof useAuthStore.setState>[0])
+        vi.mocked(plexAuth.authenticateWithPlex).mockResolvedValueOnce('plex-auth-token')
+        let finishLogin!: (r: Awaited<ReturnType<typeof api.loginWithPlex>>) => void
+        vi.mocked(api.loginWithPlex).mockReturnValueOnce(new Promise((done) => { finishLogin = done }))
+
+        render(<LoginForm />)
+        fireEvent.click(await screen.findByText('Sign in with Plex'))
+        await waitFor(() => expect(api.loginWithPlex).toHaveBeenCalledWith('plex-auth-token'))
+
+        fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+        finishLogin({ accessToken: 'jwt-token', tokenType: 'bearer', role: 'viewer' })
+
+        expect(await screen.findByRole('button', { name: 'Sign in with Plex' })).toBeEnabled()
+        // Let the finished login settle before checking nothing was signed in
+        await new Promise((done) => setTimeout(done, 0))
+        expect(mockSetAuth).not.toHaveBeenCalled()
+      })
+
+      it('a local sign-in disables the Plex button without the waiting state', async () => {
+        vi.mocked(api.login).mockReturnValueOnce(new Promise(() => {}))
+        render(<LoginForm />)
+
+        fireEvent.change(await screen.findByLabelText(/username/i), { target: { value: 'u' } })
+        fireEvent.change(screen.getByLabelText(/password/i), { target: { value: 'p' } })
+        fireEvent.click(screen.getByRole('button', { name: 'Sign In' }))
+
+        expect(await screen.findByRole('button', { name: 'Sign in with Plex' })).toBeDisabled()
+        expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument()
+      })
     })
 
     it('should hide local auth form when localAuthEnabled is false', async () => {
