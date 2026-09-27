@@ -1229,6 +1229,74 @@ describe('DualModeVideoPlayer NHL ticker', () => {
   })
 })
 
+describe('DualModeVideoPlayer info rail', () => {
+  const rail = () => screen.getByTestId('player-info-rail')
+
+  it('renders inside the shell, so it shows in fullscreen, and survives a live channel change', () => {
+    const { switchTo } = renderPlayer({ ...liveChannel('https://fixture/a'), name: 'TSN 5' })
+    const first = rail()
+    const firstVideo = video()
+    expect(shell()).toContainElement(first)
+    expect(first).toHaveTextContent('TSN 5')
+
+    switchTo({ ...liveChannel('https://fixture/b'), name: 'Sportsnet One' })
+
+    expect(video()).not.toBe(firstVideo)
+    expect(rail()).toBe(first)
+    expect(shell()).toContainElement(rail())
+    expect(rail()).toHaveTextContent('Sportsnet One')
+  })
+
+  // env() is viewport-wide: inline under the page header (phone portrait) the
+  // notch is the header's, and adding it again would push the rail and what
+  // sits under it into the picture
+  it('takes the safe-area top inset only when the shell is at the top of the viewport', () => {
+    const insetTop = () => shell().style.getPropertyValue('--player-inset-top')
+    const channel = liveChannel('https://fixture/a')
+    const { rerender } = render(
+      <DualModeVideoPlayer channel={channel} isTheaterMode={false} onTheaterModeToggle={vi.fn()} />
+    )
+    expect(insetTop()).toBe('0px')
+    expect(rail().className).not.toContain('safe-area-inset-top')
+    expect(rail()).toHaveClass('pt-[calc(0.75rem+var(--player-inset-top,0px))]')
+
+    rerender(<DualModeVideoPlayer channel={channel} isTheaterMode={true} onTheaterModeToggle={vi.fn()} />)
+    expect(insetTop()).toBe('env(safe-area-inset-top, 0px)')
+
+    rerender(<DualModeVideoPlayer channel={channel} isTheaterMode={false} onTheaterModeToggle={vi.fn()} />)
+    expect(insetTop()).toBe('0px')
+    try {
+      act(() => {
+        Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: shell() })
+        document.dispatchEvent(new Event('fullscreenchange'))
+      })
+      expect(insetTop()).toBe('env(safe-area-inset-top, 0px)')
+    } finally {
+      Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null })
+    }
+  })
+
+  it('follows the shell\'s control visibility', () => {
+    vi.useFakeTimers()
+    try {
+      renderPlayer(liveChannel('https://fixture/a'))
+      act(() => {
+        video().dispatchEvent(new Event('playing'))
+      })
+      expect(rail()).toHaveClass('opacity-100')
+
+      act(() => {
+        vi.advanceTimersByTime(5000)
+      })
+
+      expect(shellProbe.current?.controlsVisible).toBe(false)
+      expect(rail()).toHaveClass('opacity-0')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
 describe('DualModeVideoPlayer audio: browsers that ignore script volume (iOS/iPadOS)', () => {
   it.each([
     ['live', liveChannel('https://fixture/a')],
