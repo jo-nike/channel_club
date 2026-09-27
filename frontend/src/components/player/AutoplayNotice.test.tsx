@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@/test/utils'
 import { AutoplayNotice } from './AutoplayNotice'
 import { focusOverrides } from '@/test/focus'
+import { useUIStore } from '@/stores/uiStore'
 
 // Script volume detection (false on iOS/iPadOS Safari)
 const volumeSupport = vi.hoisted(() => ({ canSet: true }))
@@ -10,6 +11,7 @@ vi.mock('@/hooks/useCanSetVolume', () => ({ useCanSetVolume: () => volumeSupport
 describe('AutoplayNotice', () => {
   beforeEach(() => {
     volumeSupport.canSet = true
+    useUIStore.setState({ isNHLOverlayVisible: false })
   })
 
   it("'sound-off' says the sound is off, names the saved level and unmutes on tap", () => {
@@ -34,6 +36,21 @@ describe('AutoplayNotice', () => {
 
     const pill = screen.getByRole('button', { name: /Sound is off/ })
     expect(pill).toHaveClass('top-[calc(4.25rem+var(--player-inset-top,0px))]', 'left-1/2')
+    expect(pill).not.toHaveClass('top-4')
+  })
+
+  it("'sound-off' moves below the NHL strip while it is open, under the rail or not", () => {
+    useUIStore.setState({ isNHLOverlayVisible: true })
+    const { rerender } = render(
+      <AutoplayNotice mode="sound-off" volume={0.62} onUnmute={vi.fn()} onPlay={vi.fn()} belowRail />
+    )
+
+    const pill = screen.getByRole('button', { name: /Sound is off/ })
+    expect(pill).toHaveClass('top-[calc(8.75rem+var(--player-inset-top,0px))]')
+    expect(pill).not.toHaveClass('top-[calc(4.25rem+var(--player-inset-top,0px))]')
+
+    rerender(<AutoplayNotice mode="sound-off" volume={0.62} onUnmute={vi.fn()} onPlay={vi.fn()} />)
+    expect(pill).toHaveClass('top-[5rem]')
     expect(pill).not.toHaveClass('top-4')
   })
 
