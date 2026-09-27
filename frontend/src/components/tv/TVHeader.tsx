@@ -1,4 +1,4 @@
-import { ShieldCheck, LayoutList, RefreshCw, Tv } from 'lucide-react'
+import { ShieldCheck, LayoutList, Tv } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useAppSettings } from '@/hooks/useAppSettings'
 import type { WebSocketStatus } from '@/hooks/useWebSocket'
@@ -15,7 +15,7 @@ interface TVHeaderProps {
   onOpenAdmin: () => void
   // Opens the live channel picker (the button shows only for non-admins the admin allows)
   onOpenChannelPicker: () => void
-  // Remounts the video player
+  // Reloads the video player (the account menu's Reload stream)
   onReload: () => void
   isMobile: boolean
 }
@@ -45,7 +45,7 @@ export function TVHeader({
         <NowWatching isMobile={isMobile} />
       </div>
 
-      {/* Phones keep Host or Change live, Chat, Refresh and the account menu as 44px targets */}
+      {/* Phones keep Host or Change live, Chat and the account menu as 44px targets */}
       <nav aria-label="Watch controls" className="flex shrink-0 items-center gap-1 md:gap-2">
         {/* Guide toggle - desktop only */}
         {!isMobile && (
@@ -93,8 +93,6 @@ export function TVHeader({
         )}
         {/* Chat toggle, the one filled action */}
         <ChatToggleButton />
-        {/* Refresh video: remounts the player. Stays until the player has its own reload. */}
-        <HeaderAction icon={<RefreshCw />} label="Refresh video" onClick={onReload} />
         {/* Account menu: live channel, admin, reload, feedback, pop-ups, theme, sign out */}
         <AccountMenu
           onOpenChannelPicker={onOpenChannelPicker}

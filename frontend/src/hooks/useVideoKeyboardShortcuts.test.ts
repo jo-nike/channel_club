@@ -16,6 +16,7 @@ describe('useVideoKeyboardShortcuts', () => {
       onMuteToggle: vi.fn(),
       onFullscreenToggle: vi.fn(),
       onTheaterModeToggle: vi.fn(),
+      onRetry: vi.fn(),
       onVolumeChange: vi.fn(),
       onUnmute: vi.fn(),
       volume: 0.5,
@@ -70,6 +71,33 @@ describe('useVideoKeyboardShortcuts', () => {
     fireKeyEvent('t')
 
     expect(mockProps.onTheaterModeToggle).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['r', 'R'])('calls onRetry when %s is pressed', (key) => {
+    renderHook(() => useVideoKeyboardShortcuts(mockProps))
+
+    fireKeyEvent(key)
+
+    expect(mockProps.onRetry).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves R to a focused text field', () => {
+    renderHook(() => useVideoKeyboardShortcuts(mockProps))
+    const input = document.createElement('input')
+    container.appendChild(input)
+    input.focus()
+
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'r', bubbles: true }))
+
+    expect(mockProps.onRetry).not.toHaveBeenCalled()
+  })
+
+  it('leaves Ctrl+R (the browser reload) alone', () => {
+    renderHook(() => useVideoKeyboardShortcuts(mockProps))
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'r', ctrlKey: true, bubbles: true }))
+
+    expect(mockProps.onRetry).not.toHaveBeenCalled()
   })
 
   it('increases volume when ArrowRight is pressed', () => {

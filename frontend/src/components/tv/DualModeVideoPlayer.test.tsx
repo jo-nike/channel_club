@@ -7,6 +7,8 @@ import { useFilterStore } from '@/stores/filterStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useClipStore } from '@/stores/clipStore'
+import { useErsatztvStore } from '@/stores/ersatztvStore'
+import { useTVStore } from '@/stores/tvStore'
 import type { UnifiedChannel } from '@/types'
 import type { PlayerShell } from '@/components/player/PlayerShellContext'
 
@@ -15,10 +17,37 @@ import type { PlayerShell } from '@/components/player/PlayerShellContext'
 // MediaPlayer records its props and renders a focusable data-media-player div.
 // ----------------------------------------------------------------------------
 
+// Every player mpegts.js creates, with the handlers it was given
+const mpegtsHarness = vi.hoisted(() => {
+  type StubPlayer = {
+    handlers: Map<string, () => void>
+    attachMediaElement: () => void
+    load: () => void
+    on: (event: string, handler: () => void) => void
+    destroy: () => void
+  }
+  const players: StubPlayer[] = []
+  const createPlayer = vi.fn(() => {
+    const handlers = new Map<string, () => void>()
+    const player: StubPlayer = {
+      handlers,
+      attachMediaElement: vi.fn(),
+      load: vi.fn(),
+      on: vi.fn((event: string, handler: () => void) => {
+        handlers.set(event, handler)
+      }),
+      destroy: vi.fn(),
+    }
+    players.push(player)
+    return player
+  })
+  return { players, createPlayer }
+})
+
 vi.mock('mpegts.js', () => ({
   default: {
     isSupported: () => true,
-    createPlayer: () => ({ attachMediaElement: vi.fn(), load: vi.fn(), on: vi.fn(), destroy: vi.fn() }),
+    createPlayer: mpegtsHarness.createPlayer,
     Events: { ERROR: 'error', LOADING_COMPLETE: 'loading_complete' },
   },
 }))
@@ -103,6 +132,9 @@ vi.mock('@/services/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/services/api')>()),
   ...clipApi,
   highlightCaptureUrl: (id: string) => `/api/highlight/capture/${id}`,
+  // The TV store looks the live guide up when live TV changes; never answered here
+  fetchNowPlaying: () => new Promise(() => {}),
+  fetchLiveProgrammes: () => new Promise(() => {}),
 }))
 // The cast button renders in both control bars, so it reports the shell it
 // sits in and what it would cast
@@ -231,6 +263,8 @@ beforeEach(() => {
   clipApi.deleteHighlightCapture.mockReset().mockResolvedValue(undefined)
   clipApi.getHighlightFeatures.mockReset().mockResolvedValue({ enabled: true, ziplineEnabled: false })
   volumeSupport.canSet = true
+  mpegtsHarness.players.length = 0
+  mpegtsHarness.createPlayer.mockClear()
   vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
 })
 
@@ -994,24 +1028,371 @@ describe('DualModeVideoPlayer shell: fullscreen survives engine swaps', () => {
     expect(screen.getByRole('button', { name: 'Exit fullscreen' })).toBeInTheDocument()
   })
 
-  it('the ErsatzTV failed state renders inside the shell', async () => {
+  it.each([
+    ['live', liveChannel('https://fixture/a')],
+    ['ErsatzTV', hlsChannel('1', 1)],
+  ])('%s: the bar\'s Reload and the R key re-initialise only the engine', (_engine, channel) => {
+    renderPlayer(channel)
+    const fullscreen = enterFullscreen()
+    const firstVideo = document.querySelector('video')
+    vidstack.mounted.mockClear()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reload stream' }))
+    if (channel.type === 'live') expect(video()).not.toBe(firstVideo)
+    else expect(vidstack.mounted).toHaveBeenCalledTimes(1)
+    const secondVideo = document.querySelector('video')
+
+    fireEvent.keyDown(window, { key: 'r' })
+    if (channel.type === 'live') expect(video()).not.toBe(secondVideo)
+    else expect(vidstack.mounted).toHaveBeenCalledTimes(2)
+
+    expect(shell()).toBe(fullscreen)
+    expect(screen.getByRole('button', { name: 'Exit fullscreen' })).toBeInTheDocument()
+  })
+
+  it('ErsatzTV: says the stream is starting until it has played, then reconnecting, from 1 of 5', async () => {
+    vi.useFakeTimers()
+    try {
+      renderPlayer(hlsChannel('1', 1))
+
+      act(() => lastPlayerProps().onError?.())
+      expect(screen.getByText('Starting stream... 1 of 5')).toBeInTheDocument()
+      await act(() => vi.advanceTimersByTimeAsync(1000))
+      act(() => lastPlayerProps().onError?.())
+      expect(screen.getByText('Starting stream... 2 of 5')).toBeInTheDocument()
+      await act(() => vi.advanceTimersByTimeAsync(2000))
+
+      act(() => lastPlayerProps().onPlaying?.())
+      expect(screen.queryByText(/of 5/)).not.toBeInTheDocument()
+      act(() => lastPlayerProps().onError?.())
+
+      expect(screen.getByText('Reconnecting... 1 of 5')).toBeInTheDocument()
+      // Non-blocking: the pill lets taps through to the controls under it
+      expect(screen.getByText('Reconnecting... 1 of 5').closest('[role="status"]')).toHaveClass('pointer-events-none')
+      expect(screen.getByRole('toolbar', { name: 'Video controls' })).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('ErsatzTV: when the retries stop, the card shows in the same shell over the player and its controls', async () => {
     vi.useFakeTimers()
     try {
       renderPlayer(hlsChannel('1', 1))
       const fullscreen = enterFullscreen()
 
-      // useHLSRetry gives up after its retries
-      for (let i = 0; i < 10 && !screen.queryByText('Stream unavailable'); i++) {
+      // useStreamRecovery gives up after its reconnects
+      for (let i = 0; i < 10 && !screen.queryByText('Stream stopped'); i++) {
         act(() => lastPlayerProps().onError?.())
-        await act(() => vi.advanceTimersByTimeAsync(5000))
+        await act(() => vi.advanceTimersByTimeAsync(8000))
       }
 
-      expect(screen.getByText('Stream unavailable')).toBeInTheDocument()
+      expect(screen.getByText('Stream stopped')).toBeInTheDocument()
+      expect(screen.queryByText(/Select another channel/)).not.toBeInTheDocument()
       expect(shell()).toBe(fullscreen)
-      expect(fullscreen).toContainElement(screen.getByText('Stream unavailable'))
+      expect(fullscreen).toContainElement(screen.getByText('Stream stopped'))
+      expect(fullscreen).toContainElement(document.querySelector<HTMLElement>('[data-media-player]'))
+      expect(screen.getByRole('toolbar', { name: 'Video controls' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Exit fullscreen' })).toBeInTheDocument()
+
+      // Retry starts the player again with a full set of reconnects
+      vidstack.mounted.mockClear()
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+      expect(vidstack.mounted).toHaveBeenCalledTimes(1)
+      expect(screen.queryByText('Stream stopped')).not.toBeInTheDocument()
+      act(() => lastPlayerProps().onError?.())
+      expect(screen.getByText('Starting stream... 1 of 5')).toBeInTheDocument()
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('DualModeVideoPlayer live reconnect', () => {
+  // jsdom's element is always paused at 0s; these stand in for playback
+  let isPaused = false
+  let currentTime = 0
+  let visibility: DocumentVisibilityState = 'visible'
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    isPaused = false
+    currentTime = 0
+    visibility = 'visible'
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => visibility })
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    Reflect.deleteProperty(document, 'visibilityState')
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels: [] })
+    useTVStore.setState({ selectedChannel: null, previousChannelId: null })
+  })
+
+  // A live channel that has been playing, unless told it hasn't started
+  const renderLive = ({ started = true } = {}) => {
+    const view = renderPlayer(liveChannel('https://fixture/a'))
+    Object.defineProperty(video(), 'paused', { configurable: true, get: () => isPaused })
+    Object.defineProperty(video(), 'currentTime', { configurable: true, get: () => currentTime })
+    if (started) {
+      act(() => {
+        video().dispatchEvent(new Event('playing'))
+      })
+    }
+    return view
+  }
+
+  const players = () => mpegtsHarness.players
+  const lastPlayer = () => {
+    const player = players().at(-1)
+    if (!player) throw new Error('no mpegts player')
+    return player
+  }
+  const emit = (event: 'error' | 'loading_complete') => act(() => lastPlayer().handlers.get(event)?.())
+  const advance = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms))
+  const reconnecting = (attempt: number) => screen.queryByText(`Reconnecting... ${attempt} of 5`)
+
+  it('an mpegts error says it is reconnecting, keeps the controls and starts a new player after 1s', async () => {
+    renderLive()
+    expect(mpegtsHarness.createPlayer).toHaveBeenCalledTimes(1)
+    const first = lastPlayer()
+    const element = video()
+
+    emit('error')
+
+    expect(reconnecting(1)).toBeInTheDocument()
+    // A pill that lets taps through, over a player that keeps its controls
+    expect(reconnecting(1)?.closest('[role="status"]')).toHaveClass('pointer-events-none')
+    expect(screen.getByRole('toolbar', { name: 'Video controls' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Mute' }))
+    expect(useAudioStore.getState().muted).toBe(true)
+    await advance(999)
+    expect(mpegtsHarness.createPlayer).toHaveBeenCalledTimes(1)
+    await advance(1)
+    expect(mpegtsHarness.createPlayer).toHaveBeenCalledTimes(2)
+    expect(first.destroy).toHaveBeenCalledTimes(1)
+    // Same element, same shell: only the mpegts player is new
+    expect(video()).toBe(element)
+    expect(lastPlayer().attachMediaElement).toHaveBeenCalledWith(element)
+  })
+
+  it("the element's error and the player's error in one failure count as one reconnect", async () => {
+    renderLive()
+
+    emit('error')
+    act(() => {
+      video().dispatchEvent(new Event('error'))
+    })
+
+    expect(reconnecting(1)).toBeInTheDocument()
+    await advance(1000)
+    expect(mpegtsHarness.createPlayer).toHaveBeenCalledTimes(2)
+    // No second reconnect queued (the new player gets its own 8s stall window)
+    await advance(5000)
+    expect(mpegtsHarness.createPlayer).toHaveBeenCalledTimes(2)
+    expect(reconnecting(1)).toBeInTheDocument()
+  })
+
+  it('the upstream closing while playing reconnects, but not while paused', async () => {
+    renderLive()
+    isPaused = true
+
+    emit('loading_complete')
+    await advance(10_000)
+    expect(mpegtsHarness.createPlayer).toHaveBeenCalledTimes(1)
+    expect(reconnecting(1)).not.toBeInTheDocument()
+
+    isPaused = false
+    emit('loading_complete')
+    expect(reconnecting(1)).toBeInTheDocument()
+    await advance(1000)
+    expect(mpegtsHarness.createPlayer).toHaveBeenCalledTimes(2)
+  })
+
+  it('the watchdog reconnects when the picture stands still for 8s while playing', async () => {
+    renderLive()
+
+    // Moving: no stall however long it plays
+    for (let i = 0; i < 10; i++) {
+      currentTime += 1
+      await advance(1000)
+    }
+    expect(reconnecting(1)).not.toBeInTheDocument()
+
+    await advance(7000)
+    expect(reconnecting(1)).not.toBeInTheDocument()
+    await advance(1000)
+    expect(reconnecting(1)).toBeInTheDocument()
+    await advance(1000)
+    expect(mpegtsHarness.createPlayer).toHaveBeenCalledTimes(2)
+  })
+
+  // Destroying an mpegts player reloads the element, and a reload rejects a
+  // play() still pending with AbortError
+  const holdPlayUntilDestroy = () => {
+    const pending: Array<(reason: unknown) => void> = []
+    vi.mocked(HTMLMediaElement.prototype.play).mockImplementation(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          pending.push(reject)
+        })
+    )
+    return () => {
+      vi.mocked(lastPlayer().destroy).mockImplementation(() => {
+        for (const reject of pending.splice(0)) {
+          reject(new DOMException('The play() request was interrupted by a new load request', 'AbortError'))
+        }
+      })
+    }
+  }
+
+  it('an attempt a reconnect or the stop interrupts never asks for a tap to play', async () => {
+    const abortPlayOnDestroy = holdPlayUntilDestroy()
+    renderLive()
+
+    for (const delay of [1000, 2000, 4000, 8000, 8000]) {
+      abortPlayOnDestroy()
+      emit('error')
+      await advance(delay)
+      expect(startPlaybackButton()).not.toBeInTheDocument()
+    }
+    abortPlayOnDestroy()
+    emit('error')
+    await advance(0)
+
+    expect(lastPlayer().destroy).toHaveBeenCalledTimes(1)
+    expect(startPlaybackButton()).not.toBeInTheDocument()
+  })
+
+  it('a tap to play that a reconnect interrupts does not ask again', async () => {
+    const abortPlayOnDestroy = holdPlayUntilDestroy()
+    vi.mocked(HTMLMediaElement.prototype.play).mockRejectedValueOnce(new Error('no source yet'))
+    renderLive()
+    await advance(0)
+    fireEvent.click(startPlaybackButton()!)
+    expect(startPlaybackButton()).not.toBeInTheDocument()
+
+    abortPlayOnDestroy()
+    emit('error')
+    await advance(1000)
+
+    expect(mpegtsHarness.createPlayer).toHaveBeenCalledTimes(2)
+    expect(startPlaybackButton()).not.toBeInTheDocument()
+  })
+
+  it('the watchdog leaves a paused player alone', async () => {
+    renderLive()
+    isPaused = true
+
+    await advance(30_000)
+
+    expect(reconnecting(1)).not.toBeInTheDocument()
+    expect(mpegtsHarness.createPlayer).toHaveBeenCalledTimes(1)
+  })
+
+  it('the watchdog leaves a hidden tab alone, and starts counting afresh when it shows', async () => {
+    renderLive()
+    visibility = 'hidden'
+
+    await advance(30_000)
+    expect(reconnecting(1)).not.toBeInTheDocument()
+
+    visibility = 'visible'
+    await advance(7000)
+    expect(reconnecting(1)).not.toBeInTheDocument()
+    await advance(2000)
+    expect(reconnecting(1)).toBeInTheDocument()
+  })
+
+  it('playing again starts the count over', async () => {
+    renderLive()
+    emit('error')
+    await advance(1000)
+    emit('error')
+    expect(reconnecting(2)).toBeInTheDocument()
+    await advance(2000)
+
+    act(() => {
+      video().dispatchEvent(new Event('playing'))
+    })
+    expect(screen.queryByText(/Reconnecting/)).not.toBeInTheDocument()
+
+    emit('error')
+    expect(reconnecting(1)).toBeInTheDocument()
+  })
+
+  it('says it is starting the stream when nothing has played yet', () => {
+    renderLive({ started: false })
+
+    emit('error')
+
+    expect(screen.getByText('Starting stream... 1 of 5')).toBeInTheDocument()
+  })
+
+  const failFiveTimes = async () => {
+    for (const [i, delay] of [1000, 2000, 4000, 8000, 8000].entries()) {
+      emit('error')
+      expect(reconnecting(i + 1)).toBeInTheDocument()
+      await advance(delay)
+    }
+    expect(mpegtsHarness.createPlayer).toHaveBeenCalledTimes(6)
+    emit('error')
+  }
+
+  it('stops after 5 reconnects, letting go of the upstream, with Stream stopped in the shell', async () => {
+    renderLive()
+
+    await failFiveTimes()
+
+    expect(screen.queryByText(/Reconnecting/)).not.toBeInTheDocument()
+    expect(screen.getByText('Stream stopped')).toBeInTheDocument()
+    expect(shell()).toContainElement(screen.getByText('Stream stopped'))
+    expect(screen.queryByText(/Select another channel/)).not.toBeInTheDocument()
+    expect(screen.getByRole('toolbar', { name: 'Video controls' })).toBeInTheDocument()
+    expect(lastPlayer().destroy).toHaveBeenCalledTimes(1)
+    await advance(60_000)
+    expect(mpegtsHarness.createPlayer).toHaveBeenCalledTimes(6)
+  })
+
+  it('Retry starts a new player with a full set of reconnects', async () => {
+    renderLive()
+    await failFiveTimes()
+    const element = video()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+    expect(mpegtsHarness.createPlayer).toHaveBeenCalledTimes(7)
+    expect(lastPlayer().attachMediaElement).toHaveBeenCalledWith(element)
+    expect(screen.queryByText('Stream stopped')).not.toBeInTheDocument()
+    emit('error')
+    expect(reconnecting(1)).toBeInTheDocument()
+  })
+
+  it('R after the reconnects stop starts the stream again', async () => {
+    renderLive()
+    await failFiveTimes()
+
+    fireEvent.keyDown(window, { key: 'R' })
+
+    expect(screen.queryByText('Stream stopped')).not.toBeInTheDocument()
+    expect(mpegtsHarness.createPlayer).toHaveBeenCalledTimes(7)
+  })
+
+  it("'Back to' tunes this viewer to their previous channel, leaving the club's live channel alone", async () => {
+    const tsn = { id: '28', name: 'TSN 5', streamUrl: 'https://fixture/a', guideId: '5' }
+    useChannelStore.setState({ currentChannel: tsn })
+    useErsatztvStore.setState({
+      channels: [{ id: 'e2', name: 'Cartoons', number: 2, streamUrl: '/e2', logoUrl: '', group: '' }],
+    })
+    useTVStore.setState({ selectedChannel: liveChannel('https://fixture/a'), previousChannelId: 'e2' })
+    renderLive()
+    expect(screen.queryByRole('button', { name: /Back to/ })).not.toBeInTheDocument()
+
+    await failFiveTimes()
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Cartoons' }))
+
+    expect(useTVStore.getState().selectedChannel).toMatchObject({ id: 'e2', type: 'ersatztv' })
+    expect(useChannelStore.getState().currentChannel).toBe(tsn)
   })
 })
 

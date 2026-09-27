@@ -120,7 +120,7 @@ describe('PlayerChrome', () => {
     it('gives every button a 48px target and the over-video focus ring', () => {
       renderChrome()
 
-      for (const name of ['Play', 'Mute', 'Theater mode', 'Fullscreen']) {
+      for (const name of ['Play', 'Mute', 'Reload stream', 'Theater mode', 'Fullscreen']) {
         const button = screen.getByRole('button', { name })
         expect(button).toHaveClass('min-h-[48px]', 'min-w-[48px]', 'focus-ring-media')
         expect(focusOverrides(button)).toEqual([])
@@ -302,6 +302,37 @@ describe('PlayerChrome', () => {
       renderChrome({ shell: { isFullscreen: true } })
 
       expect(screen.getByRole('button', { name: 'Exit fullscreen' })).toBeInTheDocument()
+    })
+  })
+
+  describe('reload', () => {
+    it('reloads the stream through the shell, keeping it', () => {
+      const { shell } = renderChrome()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Reload stream' }))
+
+      expect(shell.reload).toHaveBeenCalledTimes(1)
+    })
+
+    it.each([
+      ['fullscreen', { isFullscreen: true }],
+      ['theater', { isTheaterMode: true }],
+    ])('is there in %s, where the page header is gone', (_mode, shell) => {
+      renderChrome({ shell })
+      expect(screen.getByRole('button', { name: 'Reload stream' })).toBeInTheDocument()
+    })
+
+    it('shows on phones too, hidden only below 400px wide, where the bar has no room', () => {
+      renderChrome({ props: { isMobile: true } })
+
+      const reload = screen.getByRole('button', { name: 'Reload stream' })
+      expect(reload).toHaveClass('max-[399px]:hidden')
+      expect(reload).toHaveAttribute('tabindex', '0')
+    })
+
+    it('leaves the tab order with the rest of the bar when the controls hide', () => {
+      renderChrome({ shell: { controlsVisible: false } })
+      expect(screen.getByRole('button', { name: 'Reload stream' })).toHaveAttribute('tabindex', '-1')
     })
   })
 
