@@ -33,6 +33,9 @@ export interface PlayerChromeProps {
 
 const CONTROL_BUTTON =
   'control-button flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-ring-media'
+// The phone-landscape bar: 44px targets, the smallest a finger reliably hits
+const COMPACT_CONTROL_BUTTON =
+  'control-button flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-ring-media'
 
 /**
  * The player's control bar, the same for every engine: playback through the
@@ -74,6 +77,10 @@ export function PlayerChrome({
   // not on a TV until couch mode gives chat a remote-friendly home.
   const chatEnabled = useChatEnabled()
   const isMobileLandscape = useMobileLandscape()
+  // Sideways, a 390px-tall picture can't spare a 48px bar with room around
+  // it: the bar tightens to 44px targets and a thin scrim
+  const isCompact = isMobileLandscape
+  const buttonClass = isCompact ? COMPACT_CONTROL_BUTTON : CONTROL_BUTTON
   const isChatOpen = useChatStore((s) => s.isOpen)
   const unreadCount = useChatStore((s) => s.unreadCount)
   const toggleChat = useChatStore((s) => s.toggleOpen)
@@ -134,14 +141,19 @@ export function PlayerChrome({
   // A full-width strip on a gradient scrim rather than a boxed card: it
   // covers less of the picture (a broadcaster's score bug sits in the lower
   // corners), and the top of the scrim fades out instead of ending in an edge.
-  // index.css keeps its padding clear of the notch and home indicator.
+  // index.css keeps its padding clear of the notch and home indicator. The
+  // compact bar also brings the Cast and filter buttons, drawn elsewhere, down
+  // to 44px.
+  const layoutClass = isCompact
+    ? 'gap-2 p-1.5 [&_.control-button]:min-h-[44px] [&_.control-button]:min-w-[44px]'
+    : 'gap-2 px-3 pb-2 pt-8 sm:gap-4'
   return (
     <div
       role="toolbar"
       aria-label="Video controls"
       onMouseEnter={() => setHoveringControls(true)}
       onMouseLeave={() => setHoveringControls(false)}
-      className={`video-controls @container absolute inset-x-0 bottom-0 z-10 flex items-center gap-2 bg-gradient-to-t from-black/80 via-black/50 to-transparent px-3 pb-2 pt-8 sm:gap-4 transition-opacity duration-300 ${
+      className={`video-controls @container absolute inset-x-0 bottom-0 z-10 flex items-center bg-gradient-to-t from-black/80 via-black/50 to-transparent ${layoutClass} transition-opacity duration-300 ${
         isVisible ? 'opacity-100' : 'pointer-events-none opacity-0'
       }`}
     >
@@ -154,7 +166,7 @@ export function PlayerChrome({
             onClick={adapter.togglePaused}
             aria-label={playLabel}
             aria-keyshortcuts="Space"
-            className={CONTROL_BUTTON}
+            className={buttonClass}
           >
             {adapter.isPlaying ? (
               <Pause className="h-6 w-6 text-white" />
@@ -178,7 +190,7 @@ export function PlayerChrome({
               onClick={toggleMute}
               aria-label={muteLabel}
               aria-keyshortcuts="M"
-              className={CONTROL_BUTTON}
+              className={buttonClass}
             >
               {isMuted ? (
                 <VolumeX className="h-6 w-6 text-white" />
@@ -216,7 +228,7 @@ export function PlayerChrome({
         <ChannelRocker
           onStep={stepChannel}
           tabIndex={tabIndex}
-          buttonClassName={CONTROL_BUTTON}
+          buttonClassName={buttonClass}
           className={rockerFitClass}
         />
       )}
@@ -229,6 +241,7 @@ export function PlayerChrome({
           highlightStatus={highlightStatus}
           loaded={highlightLoaded}
           onOpenModal={handleOpenHighlightModal}
+          compact={isCompact}
         />
       )}
 
@@ -258,7 +271,7 @@ export function PlayerChrome({
               aria-expanded={isChatOpen}
               aria-controls="chat-panel"
               aria-keyshortcuts="C"
-              className={`${CONTROL_BUTTON} relative`}
+              className={`${buttonClass} relative`}
             >
               <MessageCircle className="h-6 w-6 text-white" />
               <UnreadBadge count={unreadCount} className="absolute top-1 right-1" />
@@ -285,7 +298,7 @@ export function PlayerChrome({
             onClick={reload}
             aria-label="Reload stream"
             aria-keyshortcuts="R"
-            className={`${CONTROL_BUTTON} max-[399px]:hidden`}
+            className={`${buttonClass} max-[399px]:hidden`}
           >
             <RotateCw className="h-6 w-6 text-white" />
           </button>
@@ -306,7 +319,7 @@ export function PlayerChrome({
               onClick={toggleTheaterMode}
               aria-label={theaterLabel}
               aria-keyshortcuts="T"
-              className={CONTROL_BUTTON}
+              className={buttonClass}
             >
               {isTheaterMode ? (
                 <Shrink className="h-6 w-6 text-white" />
@@ -330,7 +343,7 @@ export function PlayerChrome({
             onClick={toggleFullscreen}
             aria-label={fullscreenLabel}
             aria-keyshortcuts="F"
-            className={CONTROL_BUTTON}
+            className={buttonClass}
           >
             {isFullscreen ? (
               <Minimize className="h-6 w-6 text-white" />

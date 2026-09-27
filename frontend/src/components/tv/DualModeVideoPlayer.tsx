@@ -15,6 +15,8 @@ import { useVideoKeyboardShortcuts } from '@/hooks/useVideoKeyboardShortcuts'
 import { useFullscreenState } from '@/hooks/useFullscreenState'
 import { useStreamRecovery } from '@/hooks/useStreamRecovery'
 import { useChatEnabled } from '@/hooks/useChatEnabled'
+import { useMobileLandscape } from '@/hooks/useMobileLandscape'
+import { useSwipeZap } from '@/hooks/useSwipeZap'
 import { ProjectorBeamLoader } from '@/components/ProjectorBeamLoader'
 import { Button } from '@/components/ui/button'
 import { AutoplayNotice } from '@/components/player/AutoplayNotice'
@@ -172,6 +174,14 @@ export function DualModeVideoPlayer({
     onFocusSearch: focusSearch,
   })
 
+  // A phone held sideways has no guide or channel list: a vertical swipe on
+  // the picture zaps instead. The shell takes every touch gesture itself
+  // (touch-action: none), or the browser would scroll and cancel the swipe;
+  // taps still reach the auto-hide.
+  const isMobileLandscape = useMobileLandscape()
+  const isSwipeZap = isMobileLandscape && zap !== undefined
+  useSwipeZap({ containerRef, enabled: isSwipeZap, onStep: zap?.step })
+
   // What this viewer's player shows now, for the clip editor's notice: null
   // while live TV is stopped, nothing before a channel is selected
   const playingChannel = !channel
@@ -224,7 +234,11 @@ export function DualModeVideoPlayer({
 
   return (
     <PlayerShellContext value={shell}>
-      <div ref={attachShell} className="video-player-container relative h-full w-full bg-black" style={insetTop}>
+      <div
+        ref={attachShell}
+        className={`video-player-container relative h-full w-full bg-black${isSwipeZap ? ' touch-none' : ''}`}
+        style={insetTop}
+      >
         {/* Before the engine, so its control bar paints above the filters */}
         <FilterLayer />
         {engine}
