@@ -5,14 +5,20 @@ import {
   OctagonXIcon,
   TriangleAlertIcon,
 } from "lucide-react"
+import { createPortal } from "react-dom"
 import { Toaster as Sonner, type ToasterProps } from "sonner"
+import { usePlayerFullscreenElement } from "@/hooks/useFullscreenState"
 
 // Toasts sit top-center, below the notch, leaving the bottom-right corner to
 // the install banner
 const TOP_OFFSET = { top: "calc(16px + env(safe-area-inset-top, 0px))" }
 
+// While the player is fullscreen only it is drawn, so the toasts (reminders,
+// live changes) move inside it. Moving remounts the toaster: a toast already
+// up at that moment isn't carried over, later ones show.
 export function Toaster({ ...props }: ToasterProps) {
-  return (
+  const fullscreenPlayer = usePlayerFullscreenElement()
+  const toaster = (
     <Sonner
       theme="dark"
       className="toaster group"
@@ -37,4 +43,5 @@ export function Toaster({ ...props }: ToasterProps) {
       {...props}
     />
   )
+  return fullscreenPlayer ? createPortal(toaster, fullscreenPlayer) : toaster
 }
