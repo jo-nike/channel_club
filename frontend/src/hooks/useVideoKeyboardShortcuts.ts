@@ -24,6 +24,10 @@ interface UseVideoKeyboardShortcutsOptions {
   onChannelStep?: (dir: 1 | -1) => void
   /** Back to the channel watched before this one (L) */
   onLastChannel?: () => void
+  /** A digit of a channel number ('0'-'9') */
+  onDigit?: (digit: string) => void
+  /** Enter: commit the number being typed; returns false when none is */
+  onDigitCommit?: () => boolean
   /** Leave ArrowUp/ArrowDown alone (TV mode, where they belong to channel changes) */
   ignoreVerticalArrows?: boolean
 }
@@ -60,6 +64,8 @@ export function useVideoKeyboardShortcuts({
   isMuted = false,
   onChannelStep,
   onLastChannel,
+  onDigit,
+  onDigitCommit,
   ignoreVerticalArrows = false,
 }: UseVideoKeyboardShortcutsOptions) {
   const handleKeyDown = useCallback(
@@ -144,6 +150,23 @@ export function useVideoKeyboardShortcuts({
           onLastChannel?.()
           break
 
+        case '0':
+        case '1':
+        case '2':
+        case '3':
+        case '4':
+        case '5':
+        case '6':
+        case '7':
+        case '8':
+        case '9': // 0-9 - Type a channel number
+          onDigit?.(e.key)
+          break
+
+        case 'Enter': // Enter - Tune the number typed so far (a focused button keeps it)
+          if (onDigitCommit?.()) e.preventDefault()
+          break
+
         default:
           break
       }
@@ -161,6 +184,8 @@ export function useVideoKeyboardShortcuts({
       isMuted,
       onChannelStep,
       onLastChannel,
+      onDigit,
+      onDigitCommit,
       ignoreVerticalArrows,
     ]
   )

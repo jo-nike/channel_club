@@ -528,3 +528,47 @@ describe('PlayerInfoOverlay: channel keys preview', () => {
     expect(rail()).toHaveTextContent('Cartoons')
   })
 })
+
+describe('PlayerInfoOverlay: typing a channel number', () => {
+  const hidden = { controlsVisible: false }
+  const renderEntry = (props: { pending?: UnifiedChannel | null; entry?: string | null; missing?: string | null }) =>
+    render(
+      <PlayerShellContext value={makeShell(hidden)}>
+        <PlayerInfoOverlay channel={cinema} {...props} />
+      </PlayerShellContext>
+    )
+
+  it('shows the channel the digits match so far', () => {
+    renderEntry({ entry: '2', pending: { ...cinema, id: 'e2', name: 'Cartoons', number: 2 } })
+
+    expect(rail()).toHaveClass('opacity-100')
+    expect(rail()).toHaveTextContent('Cartoons')
+  })
+
+  it('shows just the digits while they match no channel', () => {
+    renderEntry({ entry: '99' })
+
+    expect(rail()).toHaveClass('opacity-100')
+    expect(rail()).toHaveTextContent('99')
+    expect(rail()).not.toHaveTextContent('Cinema')
+    expect(rail()).not.toHaveTextContent('No channel')
+  })
+
+  it("says 'No channel 99' once an unknown number is entered, over hidden controls", () => {
+    renderEntry({ missing: '99' })
+
+    expect(rail()).toHaveClass('opacity-100')
+    expect(screen.getByRole('status')).toHaveTextContent('No channel 99')
+  })
+
+  it('leaves TV theater to its own channel banner', () => {
+    localStorage.setItem('tv-mode', 'true')
+    render(
+      <PlayerShellContext value={makeShell({ isTheaterMode: true })}>
+        <PlayerInfoOverlay channel={cinema} missing="99" />
+      </PlayerShellContext>
+    )
+
+    expect(queryRail()).not.toBeInTheDocument()
+  })
+})

@@ -136,13 +136,16 @@ export function DualModeVideoPlayer({
     ]
   )
 
-  // Channel keys (PageUp/PageDown, ]/[, L) belong to the shell, not the
-  // engine: they must work on the empty live slot too, which has no engine.
-  // The shell stays mounted across the tune, so fullscreen survives it.
+  // Channel keys (PageUp/PageDown, ]/[, L, digits, Enter) belong to the
+  // shell, not the engine: they must work on the empty live slot too, which
+  // has no engine. The shell stays mounted across the tune, so fullscreen
+  // survives it.
   useVideoKeyboardShortcuts({
     containerRef,
     onChannelStep: zap?.step,
     onLastChannel: zap?.tuneLast,
+    onDigit: zap?.digit,
+    onDigitCommit: zap?.commitDigits,
   })
 
   // What this viewer's player shows now, for the clip editor's notice: null
@@ -203,7 +206,12 @@ export function DualModeVideoPlayer({
         {engine}
         {/* The info rail and NHL ticker: in the shell, so they show in
             fullscreen and stay put while the engine is swapped */}
-        <PlayerInfoOverlay channel={channel} pending={zap?.pending ?? null} />
+        <PlayerInfoOverlay
+          channel={channel}
+          pending={zap?.pending ?? null}
+          entry={zap?.entry ?? null}
+          missing={zap?.missing ?? null}
+        />
       </div>
       {/* One editor for every engine, keyed by the capture's channel, not the one playing */}
       <HighlightModal

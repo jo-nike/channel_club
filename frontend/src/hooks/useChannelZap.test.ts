@@ -194,6 +194,149 @@ describe('useChannelZap', () => {
     })
   })
 
+  describe('number entry', () => {
+    // Slot 0 plus channels 1-36, as on the club's lineup
+    const lineup = Array.from({ length: 37 }, (_, n) => channel(n))
+
+    function setupDigits(selected: UnifiedChannel | null) {
+      const onTune = vi.fn<(channel: UnifiedChannel) => void>()
+      const hook = renderHook(() => useChannelZap({ getChannels: () => lineup, selected, onTune }))
+      return { onTune, ...hook }
+    }
+
+    it("'1', '2' previews channel 12 and tunes it 1.5s after the last digit", () => {
+      const { result, onTune } = setupDigits(lineup[3])
+
+      act(() => result.current.digit('1'))
+      expect(result.current.entry).toBe('1')
+      expect(result.current.pending).toBe(lineup[1])
+      act(() => { vi.advanceTimersByTime(1000) })
+      act(() => result.current.digit('2'))
+      expect(result.current.entry).toBe('12')
+      expect(result.current.pending).toBe(lineup[12])
+
+      act(() => { vi.advanceTimersByTime(1499) })
+      expect(onTune).not.toHaveBeenCalled()
+      act(() => { vi.advanceTimersByTime(1) })
+
+      expect(onTune).toHaveBeenCalledTimes(1)
+      expect(onTune).toHaveBeenCalledWith(lineup[12])
+      expect(result.current.entry).toBeNull()
+      expect(result.current.pending).toBeNull()
+    })
+
+    it('Enter (commitDigits) tunes at once', () => {
+      const { result, onTune } = setupDigits(lineup[3])
+
+      act(() => {
+        result.current.digit('1')
+        result.current.digit('2')
+      })
+      let committed = false
+      act(() => { committed = result.current.commitDigits() })
+
+      expect(committed).toBe(true)
+      expect(onTune).toHaveBeenCalledWith(lineup[12])
+      act(() => { vi.advanceTimersByTime(1500) })
+      expect(onTune).toHaveBeenCalledTimes(1)
+    })
+
+    it('commitDigits with nothing typed does nothing and says so', () => {
+      const { result, onTune } = setupDigits(lineup[3])
+
+      let committed = true
+      act(() => { committed = result.current.commitDigits() })
+
+      expect(committed).toBe(false)
+      expect(onTune).not.toHaveBeenCalled()
+    })
+
+    it("an unknown number tunes nothing and reports 'No channel 99' for 3s", () => {
+      const { result, onTune } = setupDigits(lineup[3])
+
+      act(() => {
+        result.current.digit('9')
+        result.current.digit('9')
+      })
+      expect(result.current.pending).toBeNull()
+      act(() => { vi.advanceTimersByTime(1500) })
+
+      expect(onTune).not.toHaveBeenCalled()
+      expect(result.current.missing).toBe('99')
+      expect(result.current.entry).toBeNull()
+      act(() => { vi.advanceTimersByTime(3000) })
+      expect(result.current.missing).toBeNull()
+    })
+
+    it('a new key replaces the missing number at once', () => {
+      const { result } = setupDigits(lineup[3])
+
+      act(() => {
+        result.current.digit('9')
+        result.current.digit('9')
+        result.current.commitDigits()
+      })
+      expect(result.current.missing).toBe('99')
+
+      act(() => result.current.digit('4'))
+      expect(result.current.missing).toBeNull()
+      expect(result.current.entry).toBe('4')
+    })
+
+    it("'0' tunes the live slot", () => {
+      const { result, onTune } = setupDigits(lineup[3])
+
+      act(() => result.current.digit('0'))
+      act(() => { vi.advanceTimersByTime(1500) })
+
+      expect(onTune).toHaveBeenCalledWith(lineup[0])
+    })
+
+    it("typing the playing channel's number doesn't tune it again", () => {
+      const { result, onTune } = setupDigits(lineup[7])
+
+      act(() => result.current.digit('7'))
+      act(() => { vi.advanceTimersByTime(1500) })
+
+      expect(onTune).not.toHaveBeenCalled()
+    })
+
+    it('a fourth digit starts a new number', () => {
+      const { result } = setupDigits(lineup[3])
+
+      act(() => {
+        for (const d of ['1', '2', '3', '2']) result.current.digit(d)
+      })
+
+      expect(result.current.entry).toBe('2')
+      expect(result.current.pending).toBe(lineup[2])
+    })
+
+    it('a step drops the number being typed and steps from the playing channel', () => {
+      const { result, onTune } = setupDigits(lineup[3])
+
+      act(() => result.current.digit('2'))
+      act(() => result.current.step(1))
+      expect(result.current.entry).toBeNull()
+      expect(result.current.pending).toBe(lineup[4])
+      act(() => { vi.advanceTimersByTime(1500) })
+
+      expect(onTune).toHaveBeenCalledTimes(1)
+      expect(onTune).toHaveBeenCalledWith(lineup[4])
+    })
+
+    it('a digit drops a step in progress', () => {
+      const { result, onTune } = setupDigits(lineup[3])
+
+      act(() => result.current.step(1))
+      act(() => result.current.digit('9'))
+      act(() => { vi.advanceTimersByTime(1500) })
+
+      expect(onTune).toHaveBeenCalledTimes(1)
+      expect(onTune).toHaveBeenCalledWith(lineup[9])
+    })
+  })
+
   it('does not tune after unmounting', () => {
     const { result, onTune, unmount } = setup(channels[1])
 

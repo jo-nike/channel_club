@@ -2279,6 +2279,10 @@ describe('DualModeVideoPlayer channel keys', () => {
     pending,
     step: vi.fn(),
     tuneLast: vi.fn(),
+    entry: null,
+    missing: null,
+    digit: vi.fn(),
+    commitDigits: vi.fn(() => true),
   })
 
   it.each([
@@ -2294,6 +2298,36 @@ describe('DualModeVideoPlayer channel keys', () => {
 
     expect(vi.mocked(zap.step).mock.calls).toEqual([[1], [-1], [1], [-1]])
     expect(zap.tuneLast).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['live', liveChannel('https://fixture/a')],
+    ['ErsatzTV', hlsChannel('1', 1)],
+    ['the empty live slot', liveChannel('')],
+  ])('%s: digits build a channel number and Enter commits it', (_what, channel) => {
+    const zap = fakeZap()
+    render(<DualModeVideoPlayer channel={channel} isTheaterMode={false} onTheaterModeToggle={vi.fn()} zap={zap} />)
+
+    fireEvent.keyDown(window, { key: '1' })
+    fireEvent.keyDown(window, { key: '2' })
+    fireEvent.keyDown(window, { key: 'Enter' })
+
+    expect(vi.mocked(zap.digit).mock.calls).toEqual([['1'], ['2']])
+    expect(zap.commitDigits).toHaveBeenCalledTimes(1)
+  })
+
+  it("says 'No channel 99' in the info rail", () => {
+    render(
+      <DualModeVideoPlayer
+        channel={hlsChannel('1', 1)}
+        isTheaterMode={false}
+        onTheaterModeToggle={vi.fn()}
+        zap={{ ...fakeZap(), missing: '99' }}
+      />
+    )
+
+    expect(screen.getByTestId('player-info-rail')).toHaveTextContent('No channel 99')
+    expect(shell()).toContainElement(screen.getByTestId('player-info-rail'))
   })
 
   it('a channel key is one step, however many engines have come and gone', () => {
@@ -2402,6 +2436,43 @@ describe('DualModeVideoPlayer channel keys', () => {
       fireEvent.keyDown(window, { key: 'L' })
       expect(useTVStore.getState().selectedChannel?.number).toBe(0)
       expect(tunes).toEqual(['live-channel-0', 'e5', 'live-channel-0'])
+    })
+
+    it("typing 2 tunes channel 2 after 1.5s, and Enter doesn't wait", () => {
+      render(<Page />)
+
+      fireEvent.keyDown(window, { key: '2' })
+      expect(screen.getByTestId('player-info-rail')).toHaveTextContent('Channel 2')
+      act(() => {
+        vi.advanceTimersByTime(1499)
+      })
+      expect(tunes).toEqual([])
+      act(() => {
+        vi.advanceTimersByTime(1)
+      })
+      expect(useTVStore.getState().selectedChannel?.id).toBe('e2')
+
+      fireEvent.keyDown(window, { key: '4' })
+      fireEvent.keyDown(window, { key: 'Enter' })
+      expect(useTVStore.getState().selectedChannel?.id).toBe('e4')
+      expect(tunes).toEqual(['e2', 'e4'])
+    })
+
+    it("an unknown number stays on the channel and says 'No channel 99'", () => {
+      render(<Page />)
+
+      fireEvent.keyDown(window, { key: '9' })
+      fireEvent.keyDown(window, { key: '9' })
+      fireEvent.keyDown(window, { key: 'Enter' })
+
+      expect(tunes).toEqual([])
+      expect(useTVStore.getState().selectedChannel?.id).toBe('e5')
+      expect(screen.getByTestId('player-info-rail')).toHaveTextContent('No channel 99')
+
+      act(() => {
+        vi.advanceTimersByTime(3000)
+      })
+      expect(screen.getByTestId('player-info-rail')).toHaveTextContent('Channel 5')
     })
   })
 })

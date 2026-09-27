@@ -478,8 +478,16 @@ export function TVView() {
                 zap={zap}
               />
             </ErrorBoundary>
-            {/* Channel banner while zapping in TV theater */}
-            {isTVTheater && <ZapBanner channel={zapPending ?? selectedChannel} />}
+            {/* Channel banner while zapping in TV theater, where the info
+                rail stays away. A typed number shows its channel once it
+                matches one, and its digits until then. */}
+            {isTVTheater && (
+              <ZapBanner
+                channel={zapPending ?? selectedChannel}
+                entry={zapPending ? null : zap.entry}
+                missing={zap.missing}
+              />
+            )}
           </div>
 
           {/* Resize handle - only on desktop when EPG visible, hidden in theater/landscape */}

@@ -466,6 +466,63 @@ describe('useVideoKeyboardShortcuts', () => {
       expect(mockProps.onVolumeChange).toHaveBeenCalledTimes(1)
     })
 
+    it.each(['0', '1', '5', '9'])('digit %s is part of a channel number', (key) => {
+      const onDigit = vi.fn()
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onDigit }))
+
+      press(window, key)
+
+      expect(onDigit).toHaveBeenCalledTimes(1)
+      expect(onDigit).toHaveBeenCalledWith(key)
+    })
+
+    it('digits work with focus on a sidebar button, but not in a text field or dialog', () => {
+      const onDigit = vi.fn()
+      const button = document.createElement('button')
+      const input = document.createElement('input')
+      const dialog = document.createElement('div')
+      dialog.setAttribute('role', 'dialog')
+      const inDialog = document.createElement('button')
+      dialog.append(inDialog)
+      document.body.append(button, input, dialog)
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onDigit }))
+
+      button.focus()
+      press(button, '1')
+      input.focus()
+      press(input, '2')
+      inDialog.focus()
+      press(inDialog, '3')
+
+      expect(onDigit.mock.calls).toEqual([['1']])
+      document.body.removeChild(button)
+      document.body.removeChild(input)
+      document.body.removeChild(dialog)
+    })
+
+    it('Enter commits the number being typed, and only then takes the key', () => {
+      const onDigitCommit = vi.fn(() => true)
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onDigitCommit }))
+
+      expect(press(window, 'Enter').defaultPrevented).toBe(true)
+      expect(onDigitCommit).toHaveBeenCalledTimes(1)
+
+      onDigitCommit.mockReturnValue(false)
+      expect(press(window, 'Enter').defaultPrevented).toBe(false)
+    })
+
+    it('Enter on a focused button stays with the button', () => {
+      const onDigitCommit = vi.fn(() => true)
+      const button = document.createElement('button')
+      document.body.appendChild(button)
+      button.focus()
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onDigitCommit }))
+
+      expect(press(button, 'Enter').defaultPrevented).toBe(false)
+      expect(onDigitCommit).not.toHaveBeenCalled()
+      document.body.removeChild(button)
+    })
+
     it('an instance without channel actions leaves PageUp to the page', () => {
       renderHook(() => useVideoKeyboardShortcuts(mockProps))
 
