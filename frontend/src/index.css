@@ -159,6 +159,17 @@
 }
 
 /* ============================
+   iOS SAFE AREA
+   ============================ */
+
+/* viewport-fit=cover (index.html) with the black-translucent status bar
+   draws the page under the status bar, notch and home indicator. These keep
+   content clear of them; env() resolves to 0 where there are no insets. */
+@utility pt-header-safe {
+  padding-top: calc(0.5rem + env(safe-area-inset-top, 0px));
+}
+
+/* ============================
    VIDSTACK VIDEO PLAYER
    ============================ */
 

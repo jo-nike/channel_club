@@ -327,7 +327,7 @@ export function TVView() {
     <div className="flex h-screen supports-[height:100dvh]:h-dvh flex-col overflow-hidden bg-background">
       {/* Header - hidden in theater mode or mobile landscape */}
       {!isTheaterMode && !isMobileLandscape && (
-        <header className="flex justify-between items-center px-4 py-2 bg-background border-b rounded-b-lg">
+        <header className="flex justify-between items-center px-4 pt-header-safe pb-2 bg-background border-b rounded-b-lg">
           <div className="flex min-w-0 flex-1 items-center gap-4">
             {/* Connection status indicator */}
             <ConnectionStatus status={status} onReconnect={reconnect} />

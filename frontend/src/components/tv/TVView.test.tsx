@@ -242,3 +242,13 @@ describe('G-08 viewport height and header title', () => {
     expect(titleEl.parentElement).toHaveClass('min-w-0', 'flex-1')
   })
 })
+
+describe('A-V2 iOS safe area', () => {
+  it('pads the header below the status bar', () => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    const header = screen.getByRole('banner')
+    expect(header).toHaveClass('pt-header-safe', 'pb-2')
+    expect(header).not.toHaveClass('py-2')
+  })
+})
