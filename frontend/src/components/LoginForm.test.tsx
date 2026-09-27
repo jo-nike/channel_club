@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@/test/utils'
+import { render, screen, fireEvent, waitFor, within } from '@/test/utils'
 import { LoginForm } from './LoginForm'
 import { focusOverrides } from '@/test/focus'
 import { useAuthStore } from '@/stores/authStore'
@@ -315,6 +315,8 @@ describe('LoginForm', () => {
       await waitFor(() => {
         expect(screen.getByRole('alert')).toHaveTextContent('No access to Plex server')
       })
+      // Retrying won't change the server's answer, so no Plex actions
+      expect(within(screen.getByRole('alert')).queryByRole('button')).not.toBeInTheDocument()
     })
 
     it('opens the Plex window during the click, before anything is awaited', async () => {
@@ -342,9 +344,90 @@ describe('LoginForm', () => {
       render(<LoginForm />)
       fireEvent.click(await screen.findByText('Sign in with Plex'))
 
-      expect(await screen.findByRole('alert')).toBeInTheDocument()
+      expect(await screen.findByRole('alert')).toHaveTextContent('Your browser blocked the Plex window.')
       expect(plexAuth.authenticateWithPlex).not.toHaveBeenCalled()
       expect(screen.getByText('Sign in with Plex')).toBeEnabled()
+    })
+
+    describe('actionable error callout', () => {
+      beforeEach(() => {
+        vi.mocked(api.getAuthConfig).mockResolvedValue({
+          localAuthEnabled: true,
+          plexAuthEnabled: true,
+        })
+      })
+
+      async function blockedWindow() {
+        vi.mocked(plexAuth.openPlexAuthWindow).mockReturnValueOnce(null)
+        render(<LoginForm />)
+        fireEvent.click(await screen.findByText('Sign in with Plex'))
+        return screen.findByRole('alert')
+      }
+
+      it('offers Try again and Sign in with a code when the window is blocked', async () => {
+        const alert = await blockedWindow()
+
+        expect(alert).toHaveTextContent('Your browser blocked the Plex window.')
+        expect(within(alert).getByRole('button', { name: 'Try again' })).toBeEnabled()
+        expect(within(alert).getByRole('button', { name: 'Sign in with a code' })).toBeEnabled()
+      })
+
+      it('is a small callout with an icon, in the foreground colour on the red tint', async () => {
+        const alert = await blockedWindow()
+
+        expect(alert).toHaveClass('text-sm', 'text-foreground', 'bg-destructive/10')
+        expect(alert).not.toHaveClass('text-xl')
+        expect(alert.querySelector('svg')).toHaveClass('text-destructive')
+      })
+
+      it('Sign in with a code switches to the code sign-in and clears the error', async () => {
+        const alert = await blockedWindow()
+
+        fireEvent.click(within(alert).getByRole('button', { name: 'Sign in with a code' }))
+
+        expect(await screen.findByTestId('qr-plex-login')).toBeInTheDocument()
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      })
+
+      it('the Sign in with a code link below the button clears the error too', async () => {
+        const alert = await blockedWindow()
+        const link = screen.getAllByRole('button', { name: 'Sign in with a code' })
+          .find((el) => !alert.contains(el))
+
+        fireEvent.click(link!)
+
+        expect(await screen.findByTestId('qr-plex-login')).toBeInTheDocument()
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      })
+
+      it('Try again opens the Plex window again and clears the error', async () => {
+        vi.mocked(plexAuth.authenticateWithPlex).mockReturnValueOnce(new Promise(() => {}))
+        const alert = await blockedWindow()
+
+        fireEvent.click(within(alert).getByRole('button', { name: 'Try again' }))
+
+        expect(plexAuth.openPlexAuthWindow).toHaveBeenCalledTimes(2)
+        expect(plexAuth.authenticateWithPlex).toHaveBeenCalledWith(plexWindow, expect.any(AbortSignal))
+        await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
+        expect(screen.getByRole('button', { name: 'Waiting for Plex...' })).toBeDisabled()
+      })
+
+      it.each([
+        ['timeout', 'Plex sign-in timed out.'],
+        ['rate_limited', 'Too many attempts, wait a minute.'],
+      ] as const)('shows the %s copy with both actions', async (code, copy) => {
+        vi.mocked(plexAuth.authenticateWithPlex).mockRejectedValueOnce(
+          new plexAuth.PlexAuthError(code, 'raw message')
+        )
+        render(<LoginForm />)
+        fireEvent.click(await screen.findByText('Sign in with Plex'))
+
+        const alert = await screen.findByRole('alert')
+        expect(alert).toHaveTextContent(copy)
+        expect(alert).not.toHaveTextContent('raw message')
+        expect(within(alert).getByRole('button', { name: 'Try again' })).toBeInTheDocument()
+        expect(within(alert).getByRole('button', { name: 'Sign in with a code' })).toBeInTheDocument()
+      })
     })
 
     describe('Cancel while waiting for Plex', () => {
@@ -610,7 +693,7 @@ describe('LoginForm', () => {
       })
     })
 
-    it('should show "Use QR code" link for desktop users', async () => {
+    it('should show the "Sign in with a code" link for desktop users', async () => {
       vi.mocked(useTVModeModule.useTVMode).mockReturnValue(false)
 
       render(<LoginForm />)
@@ -619,10 +702,10 @@ describe('LoginForm', () => {
         expect(screen.getByText('Sign in with Plex')).toBeInTheDocument()
       })
 
-      expect(screen.getByText(/use qr code instead/i)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Sign in with a code' })).toBeInTheDocument()
     })
 
-    it('should not show "Use QR code" link for TV users', async () => {
+    it('should not show the "Sign in with a code" link for TV users', async () => {
       vi.mocked(useTVModeModule.useTVMode).mockReturnValue(true)
 
       render(<LoginForm />)
@@ -631,7 +714,7 @@ describe('LoginForm', () => {
         expect(screen.getByText('Sign in with Plex')).toBeInTheDocument()
       })
 
-      expect(screen.queryByText(/use qr code instead/i)).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Sign in with a code' })).not.toBeInTheDocument()
     })
 
     it('should show QR login when desktop user clicks QR link', async () => {
@@ -643,7 +726,7 @@ describe('LoginForm', () => {
         expect(screen.getByText('Sign in with Plex')).toBeInTheDocument()
       })
 
-      fireEvent.click(screen.getByText(/use qr code instead/i))
+      fireEvent.click(screen.getByRole('button', { name: 'Sign in with a code' }))
 
       await waitFor(() => {
         expect(screen.getByTestId('qr-plex-login')).toBeInTheDocument()
