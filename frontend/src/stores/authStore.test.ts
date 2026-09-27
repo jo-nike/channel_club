@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { useAuthStore } from './authStore'
 
 function base64url(value: unknown): string {
@@ -161,6 +161,52 @@ describe('authStore', () => {
       const state = useAuthStore.getState()
       expect(state.isAuthenticated).toBe(false)
       expect(state.isInitializing).toBe(false)
+    })
+  })
+
+  describe('with site storage blocked', () => {
+    const realStorage = window.localStorage
+    const blocked = () => {
+      throw new DOMException('The operation is insecure.', 'SecurityError')
+    }
+
+    beforeEach(() => {
+      Object.defineProperty(window, 'localStorage', {
+        value: { getItem: blocked, setItem: blocked, removeItem: blocked, clear: blocked },
+        writable: true,
+      })
+    })
+
+    afterEach(() => {
+      Object.defineProperty(window, 'localStorage', { value: realStorage, writable: true })
+    })
+
+    it('initialize finishes with no saved session instead of throwing', () => {
+      expect(() => useAuthStore.getState().initialize()).not.toThrow()
+
+      const state = useAuthStore.getState()
+      expect(state.isAuthenticated).toBe(false)
+      expect(state.isInitializing).toBe(false)
+    })
+
+    it('setAuth still signs in for this page', () => {
+      const token = makeToken({ sub: 'plex-user' })
+
+      expect(() => useAuthStore.getState().setAuth(token, 'viewer')).not.toThrow()
+
+      const state = useAuthStore.getState()
+      expect(state.isAuthenticated).toBe(true)
+      expect(state.token).toBe(token)
+      expect(state.username).toBe('plex-user')
+    })
+
+    it('logout still signs out', () => {
+      useAuthStore.setState({ token: 'test-token', role: 'viewer', username: 'u', isAuthenticated: true })
+
+      expect(() => useAuthStore.getState().logout()).not.toThrow()
+
+      expect(useAuthStore.getState().isAuthenticated).toBe(false)
+      expect(useAuthStore.getState().token).toBeNull()
     })
   })
 })

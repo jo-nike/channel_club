@@ -22,4 +22,23 @@ describe('FE-04 request session ownership', () => {
     await expect(fetchWithAuth('/channels')).rejects.toThrow('Session expired')
     expect(useAuthStore.getState().isAuthenticated).toBe(false)
   })
+  it('sends the in-memory token when site storage is blocked', async () => {
+    const realStorage = window.localStorage
+    const blocked = () => { throw new DOMException('The operation is insecure.', 'SecurityError') }
+    Object.defineProperty(window, 'localStorage', {
+      value: { getItem: blocked, setItem: blocked, removeItem: blocked, clear: blocked },
+      writable: true,
+    })
+    try {
+      useAuthStore.getState().setAuth('page-only', 'viewer')
+      const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 401 }))
+      vi.stubGlobal('fetch', fetchMock)
+      await expect(fetchWithAuth('/channels')).rejects.toThrow('Session expired')
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+      expect((init.headers as Record<string, string>)['Authorization']).toBe('Bearer page-only')
+      expect(useAuthStore.getState().isAuthenticated).toBe(false)
+    } finally {
+      Object.defineProperty(window, 'localStorage', { value: realStorage, writable: true })
+    }
+  })
 })

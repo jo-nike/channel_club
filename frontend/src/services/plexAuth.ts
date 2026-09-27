@@ -29,6 +29,7 @@ export type PlexAuthErrorCode =
   | 'timeout'
   | 'rate_limited'
   | 'pin_failed'
+  | 'finish_failed'
 
 /**
  * A Plex sign-in failure with a stable code, so callers can branch on what
@@ -233,7 +234,8 @@ const REDIRECT_PIN_CHECK_INTERVAL_MS = 1000
  * The id lives in sessionStorage rather than a query parameter so the router
  * never sees it. The returned promise settles once navigation has started.
  *
- * @throws PlexAuthError if the PIN can't be created, or 'cancelled' if
+ * @throws PlexAuthError if the PIN can't be created or remembered (storage
+ *         blocked: 'pin_failed', and the page stays), or 'cancelled' if
  *         `signal` aborts first (nothing is stored and the page stays)
  */
 export async function authenticateWithPlexRedirect(signal?: AbortSignal): Promise<void> {
@@ -245,13 +247,23 @@ export async function authenticateWithPlexRedirect(signal?: AbortSignal): Promis
     throw new PlexAuthError('cancelled', 'Authentication cancelled')
   }
 
-  sessionStorage.setItem(PLEX_PENDING_PIN_KEY, String(pin.id))
+  try {
+    sessionStorage.setItem(PLEX_PENDING_PIN_KEY, String(pin.id))
+  } catch {
+    // Storage blocked: the return couldn't finish sign-in, so don't leave
+    throw new PlexAuthError('pin_failed', 'Cannot remember the Plex PIN: storage is blocked')
+  }
   window.location.assign(getPlexAuthUrl(pin, `${window.location.origin}/`))
 }
 
 /** The stored PIN id, or null when there is none or it isn't a PIN id. */
 function readPendingPlexPin(): number | null {
-  const stored = sessionStorage.getItem(PLEX_PENDING_PIN_KEY)
+  let stored: string | null = null
+  try {
+    stored = sessionStorage.getItem(PLEX_PENDING_PIN_KEY)
+  } catch {
+    // Storage blocked: nothing can have been stored
+  }
   const pinId = Number(stored)
   return stored !== null && Number.isSafeInteger(pinId) && pinId > 0 ? pinId : null
 }
@@ -267,7 +279,11 @@ export function hasPendingPlexPin(): boolean {
  */
 export function takePendingPlexPin(): number | null {
   const pinId = readPendingPlexPin()
-  sessionStorage.removeItem(PLEX_PENDING_PIN_KEY)
+  try {
+    sessionStorage.removeItem(PLEX_PENDING_PIN_KEY)
+  } catch {
+    // Storage blocked: nothing to remove
+  }
   return pinId
 }
 
@@ -278,7 +294,8 @@ export function takePendingPlexPin(): number | null {
  *
  * @throws PlexAuthError 'cancelled' if the PIN never got a token (the user came
  *         back without signing in) or `signal` aborts; the error itself
- *         (e.g. 'rate_limited') when the last check failed
+ *         (e.g. 'rate_limited') when the last check failed, with a failed
+ *         check reported as 'finish_failed' (sign-in was being finished)
  */
 export async function finishPlexRedirect(pinId: number, signal?: AbortSignal): Promise<string> {
   let lastError: unknown = null
@@ -297,7 +314,12 @@ export async function finishPlexRedirect(pinId: number, signal?: AbortSignal): P
       lastError = err
     }
   }
-  if (lastError && !signal?.aborted) throw lastError
+  if (lastError && !signal?.aborted) {
+    if (lastError instanceof PlexAuthError && lastError.code === 'pin_failed') {
+      throw new PlexAuthError('finish_failed', 'Failed to finish Plex sign-in')
+    }
+    throw lastError
+  }
   logger.info('Plex', 'Plex redirect returned without a sign-in')
   throw new PlexAuthError('cancelled', 'Authentication cancelled')
 }

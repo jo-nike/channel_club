@@ -85,27 +85,42 @@ let registeredSuggester: ChatSuggester | null = null
  */
 const loadNickname = (username: string): string | null => {
   const key = nicknameStorageKey(username)
-  const legacy = localStorage.getItem(LEGACY_NICKNAME_STORAGE_KEY)
-  if (legacy !== null) {
-    localStorage.removeItem(LEGACY_NICKNAME_STORAGE_KEY)
-    if (localStorage.getItem(key) === null && legacy) {
-      localStorage.setItem(key, legacy)
-      logger.debug('ChatStore', `Adopted legacy nickname for ${username}`)
+  try {
+    const legacy = localStorage.getItem(LEGACY_NICKNAME_STORAGE_KEY)
+    if (legacy !== null) {
+      localStorage.removeItem(LEGACY_NICKNAME_STORAGE_KEY)
+      if (localStorage.getItem(key) === null && legacy) {
+        localStorage.setItem(key, legacy)
+        logger.debug('ChatStore', `Adopted legacy nickname for ${username}`)
+      }
     }
+    return localStorage.getItem(key)
+  } catch {
+    // Storage blocked: no stored nickname
+    return null
   }
-  return localStorage.getItem(key)
 }
 
 /** This user's stored lastReadAt, or null if none is stored. */
 const loadLastRead = (username: string): number | null => {
-  const stored = localStorage.getItem(lastReadStorageKey(username))
+  let stored: string | null = null
+  try {
+    stored = localStorage.getItem(lastReadStorageKey(username))
+  } catch {
+    // Storage blocked: nothing stored
+  }
   const value = stored === null ? NaN : Number(stored)
   return Number.isFinite(value) ? value : null
 }
 
 /** Remember lastReadAt for this user; without a known identity it stays in memory. */
 const saveLastRead = (me: ChatIdentity | null, lastReadAt: number | null) => {
-  if (me && lastReadAt !== null) localStorage.setItem(lastReadStorageKey(me.username), String(lastReadAt))
+  if (!me || lastReadAt === null) return
+  try {
+    localStorage.setItem(lastReadStorageKey(me.username), String(lastReadAt))
+  } catch {
+    // Storage blocked: read state stays in memory
+  }
 }
 
 /** The later of two read times; read state never moves backwards. */
@@ -122,8 +137,12 @@ const newestTimestamp = (messages: ChatMessage[]): number | null =>
 /** Store this user's nickname, or remove it when there is none; without a known identity there is no key. */
 const saveNickname = (me: ChatIdentity | null, nickname: string | null) => {
   if (!me) return
-  if (nickname) localStorage.setItem(nicknameStorageKey(me.username), nickname)
-  else localStorage.removeItem(nicknameStorageKey(me.username))
+  try {
+    if (nickname) localStorage.setItem(nicknameStorageKey(me.username), nickname)
+    else localStorage.removeItem(nicknameStorageKey(me.username))
+  } catch {
+    // Storage blocked: the nickname stays in memory
+  }
 }
 
 /** A line the server posts about a shared event (someone changing Live), not a member's message. */
@@ -250,12 +269,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const me = get().me
     if (!trimmed) {
       // Empty nickname - clear it
-      if (me) localStorage.removeItem(nicknameStorageKey(me.username))
+      saveNickname(me, null)
       set({ nickname: null })
       logger.debug('ChatStore', 'Nickname cleared')
     } else {
       // Without a known identity there is no key to store it under; keep it in memory
-      if (me) localStorage.setItem(nicknameStorageKey(me.username), trimmed)
+      saveNickname(me, trimmed)
       // Applied at once; the server only answers if it refuses the name
       set((state) => ({ nickname: trimmed, revertNickname: state.nickname }))
       logger.debug('ChatStore', `Nickname set to: ${trimmed}`)
@@ -263,8 +282,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   clearNickname: () => {
-    const me = get().me
-    if (me) localStorage.removeItem(nicknameStorageKey(me.username))
+    saveNickname(get().me, null)
     set({ nickname: null })
     logger.debug('ChatStore', 'Nickname cleared')
   },

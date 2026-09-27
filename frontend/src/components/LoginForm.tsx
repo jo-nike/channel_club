@@ -26,12 +26,13 @@ import {
 
 type PlexAuthMode = 'select' | 'popup' | 'qr'
 
-/** What the sign-in callout says for each Plex popup failure. */
+/** What the sign-in callout says for each Plex sign-in failure (popup or redirect). */
 const PLEX_ERROR_COPY: Record<PlexAuthErrorCode, string> = {
   popup_blocked: 'Your browser blocked the Plex window.',
   timeout: 'Plex sign-in timed out.',
   rate_limited: 'Too many attempts, wait a minute.',
   pin_failed: "Couldn't start Plex sign-in.",
+  finish_failed: "Couldn't finish Plex sign-in. Try again.",
   cancelled: 'Plex sign-in was cancelled.',
 }
 
@@ -138,6 +139,29 @@ export function LoginForm() {
     const controller = new AbortController()
     resumePlexRedirect(pinId, controller)
     return () => controller.abort()
+  }, [])
+
+  // Back from Plex with the Back button: the browser may restore this page
+  // from its back-forward cache, still "Waiting for Plex..." with no check
+  // running. Finish the pending PIN as a normal return would, or let go.
+  const handleRestoredPage = useEffectEvent((event: PageTransitionEvent) => {
+    if (!event.persisted) return
+    plexAbortRef.current?.abort()
+    plexAbortRef.current = null
+    const pinId = takePendingPlexPin()
+    if (pinId === null) {
+      setPlexLoading(false)
+      return
+    }
+    setError('')
+    setPlexLoading(true)
+    resumePlexRedirect(pinId, new AbortController())
+  })
+
+  useEffect(() => {
+    const onPageShow = (event: PageTransitionEvent) => handleRestoredPage(event)
+    window.addEventListener('pageshow', onPageShow)
+    return () => window.removeEventListener('pageshow', onPageShow)
   }, [])
 
   const handlePlexLogin = async () => {

@@ -87,13 +87,22 @@ export async function login(credentials: LoginRequest): Promise<TokenResponse> {
   return response.json()
 }
 
+/** The stored token, or the in-memory one when site storage is blocked (signed in for this page only). */
+export function getAuthToken(): string | null {
+  try {
+    return localStorage.getItem('token')
+  } catch {
+    return useAuthStore.getState().token
+  }
+}
+
 export async function fetchWithAuth(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<Response> {
   logger.debug('API', `Request: ${options.method || 'GET'} ${endpoint}`)
 
-  const token = localStorage.getItem('token')
+  const token = getAuthToken()
   const generation = useAuthStore.getState().generation
 
   const headers: Record<string, string> = {
@@ -114,7 +123,7 @@ export async function fetchWithAuth(
   if (response.status === 401) {
     logger.error('API', `Session expired: ${endpoint}`, { status: 401 })
     // Clear auth state and redirect to login
-    if (useAuthStore.getState().generation === generation && localStorage.getItem('token') === token) {
+    if (useAuthStore.getState().generation === generation && getAuthToken() === token) {
       useAuthStore.getState().logout()
     }
     throw new Error('Session expired')
@@ -420,7 +429,7 @@ export async function saveHighlight(
 ): Promise<Blob> {
   logger.debug('API', `Saving highlight for channel: ${channelId} (format: ${format}, trim: ${JSON.stringify(trimOptions)})`)
 
-  const token = localStorage.getItem('token')
+  const token = getAuthToken()
   const headers: Record<string, string> = {}
 
   if (token) {
@@ -475,7 +484,7 @@ export async function createHighlightCapture(channelId: string, signal?: AbortSi
 
 /** Media elements cannot send headers, so the token travels in the query like HLS streams. */
 export function highlightCaptureUrl(captureId: string): string {
-  const token = localStorage.getItem('token')
+  const token = getAuthToken()
   return `${API_URL}/highlight/capture/${captureId}${token ? `?token=${token}` : ''}`
 }
 
@@ -630,7 +639,7 @@ export async function stopCastSession(sessionId: string): Promise<void> {
  * Uses absolute URL so Chromecast can access it.
  */
 export function getCastHlsUrl(sessionId: string): string {
-  const token = localStorage.getItem('token')
+  const token = getAuthToken()
   const baseUrl = getCastBaseUrl()
   return `${baseUrl}/cast/hls/${sessionId}/playlist.m3u8${token ? `?token=${token}` : ''}`
 }

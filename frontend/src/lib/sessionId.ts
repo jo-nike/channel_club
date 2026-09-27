@@ -20,11 +20,19 @@ function generateSessionId(): string {
  * Uses sessionStorage so each tab gets its own ID, but it persists
  * across navigation within the tab.
  */
+let memorySessionId: string | null = null
+
 export function getSessionId(): string {
-  let sessionId = sessionStorage.getItem(SESSION_ID_KEY)
-  if (!sessionId) {
-    sessionId = generateSessionId()
-    sessionStorage.setItem(SESSION_ID_KEY, sessionId)
+  try {
+    let sessionId = sessionStorage.getItem(SESSION_ID_KEY)
+    if (!sessionId) {
+      sessionId = generateSessionId()
+      sessionStorage.setItem(SESSION_ID_KEY, sessionId)
+    }
+    return sessionId
+  } catch {
+    // Storage blocked (a locked-down TV browser): keep one id for the page's lifetime
+    memorySessionId ??= generateSessionId()
+    return memorySessionId
   }
-  return sessionId
 }

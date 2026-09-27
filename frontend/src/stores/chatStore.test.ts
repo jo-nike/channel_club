@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { useChatStore, isOwnMessage, type ChatSender, type ChatSuggester } from './chatStore'
 import { useAuthStore } from './authStore'
 import type { ChatMessage } from '@/types'
@@ -238,6 +238,46 @@ describe('useChatStore', () => {
       useChatStore.getState().clearNickname()
       expect(useChatStore.getState().nickname).toBeNull()
       expect(localStorage.getItem('chat_nickname:alice')).toBeNull()
+    })
+  })
+
+  describe('with site storage blocked', () => {
+    const realStorage = window.localStorage
+    const blocked = () => {
+      throw new DOMException('The operation is insecure.', 'SecurityError')
+    }
+
+    beforeEach(() => {
+      Object.defineProperty(window, 'localStorage', {
+        value: { getItem: blocked, setItem: blocked, removeItem: blocked, clear: blocked },
+        writable: true,
+      })
+    })
+
+    afterEach(() => {
+      Object.defineProperty(window, 'localStorage', { value: realStorage, writable: true })
+    })
+
+    it('setIdentity starts with no nickname and no read time', () => {
+      expect(() => useChatStore.getState().setIdentity({ username: 'alice' })).not.toThrow()
+      expect(useChatStore.getState().me).toEqual({ username: 'alice' })
+      expect(useChatStore.getState().nickname).toBeNull()
+      expect(useChatStore.getState().lastReadAt).toBeNull()
+    })
+
+    it('nicknames and read times are kept in memory', () => {
+      useChatStore.getState().setIdentity({ username: 'alice' })
+
+      expect(() => useChatStore.getState().setNickname('Ally')).not.toThrow()
+      expect(useChatStore.getState().nickname).toBe('Ally')
+
+      const history = [{ ...createMessage('1', 'bob'), timestamp: '2026-09-26T20:00:01Z' }]
+      expect(() => useChatStore.getState().setMessages(history)).not.toThrow()
+      expect(useChatStore.getState().lastReadAt).toBe(Date.parse('2026-09-26T20:00:01Z'))
+      expect(() => useChatStore.getState().setOpen(true)).not.toThrow()
+
+      expect(() => useChatStore.getState().clearNickname()).not.toThrow()
+      expect(useChatStore.getState().nickname).toBeNull()
     })
   })
 
