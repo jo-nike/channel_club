@@ -38,6 +38,9 @@ export function Toaster({ ...props }: ToasterProps) {
           "--normal-text": "var(--popover-foreground)",
           "--normal-border": "var(--border)",
           "--border-radius": "var(--radius)",
+          // Sonner's own CSS sets a system font stack on the toaster; the
+          // inline style wins, and the titles inherit the app's UI face
+          fontFamily: "var(--font-sans)",
         } as React.CSSProperties
       }
       {...props}

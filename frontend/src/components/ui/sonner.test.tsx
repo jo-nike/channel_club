@@ -20,6 +20,19 @@ describe('Toaster', () => {
     }
   })
 
+  it('draws toasts in the app font, not Sonner\'s system font stack', async () => {
+    render(<Toaster />)
+    act(() => { toast('Hello') })
+
+    const toaster = await waitFor(() => {
+      const element = document.querySelector<HTMLElement>('[data-sonner-toaster]')
+      expect(element).not.toBeNull()
+      return element!
+    })
+    // jsdom resolves no fonts, so check the inline style that beats Sonner's rule
+    expect(toaster.style.fontFamily).toBe('var(--font-sans)')
+  })
+
   describe('with the player fullscreen', () => {
     const setFullscreenElement = (element: Element | null) => act(() => {
       Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: element })
