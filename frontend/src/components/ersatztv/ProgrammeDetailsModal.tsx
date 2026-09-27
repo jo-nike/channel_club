@@ -102,7 +102,9 @@ export function ProgrammeDetailsModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      {/* A long synopsis scrolls inside the dialog rather than pushing its
+          title and actions off a phone screen */}
+      <DialogContent className="max-h-[85dvh] max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-2xl">{programme.title}</DialogTitle>
           <DialogDescription asChild>

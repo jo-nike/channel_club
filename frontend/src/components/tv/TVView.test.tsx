@@ -573,6 +573,51 @@ describe('programme progress on the phone list', () => {
   })
 })
 
+describe('schedule on the phone list', () => {
+  const NOW = new Date('2026-09-26T20:00:00Z').getTime()
+  const MINUTE = 60_000
+  const movies = { id: 'e1', name: 'Movies', number: 1, streamUrl: '/e1', logoUrl: '', group: '' }
+  const lateMovie: ErsatzTVProgramme = {
+    id: 'p2',
+    channelId: 'e1',
+    title: 'Late Movie',
+    start: new Date(NOW + 30 * MINUTE).toISOString(),
+    stop: new Date(NOW + 150 * MINUTE).toISOString(),
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+    matchOnly('(max-width: 768px)')
+    modal.last = null
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([movies])
+    useErsatztvStore.setState({
+      loadAllProgrammes: vi.fn().mockResolvedValue(undefined),
+      programmesByChannel: { e1: [lateMovie] },
+    })
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    window.matchMedia = originalMatchMedia
+    useErsatztvStore.setState({ programmesByChannel: {} })
+  })
+
+  it("opens a programme's details from an expanded row, without tuning", async () => {
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('/e1'))
+    // Start on the live slot, so a tune to Movies would show
+    fireEvent.click(screen.getByText('A', { selector: 'p' }).closest('button') as HTMLElement)
+    expect(useTVStore.getState().selectedChannel?.type).toBe('live')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show schedule for Movies' }))
+    const schedule = screen.getByRole('list', { name: 'Schedule for Movies' })
+    fireEvent.click(within(schedule).getByRole('button', { name: /Late Movie$/ }))
+
+    expect(modal.last).toMatchObject({ open: true, programme: lateMovie, channel: { id: 'e1', name: 'Movies' } })
+    expect(useTVStore.getState().selectedChannel?.type).toBe('live')
+  })
+})
+
 describe('B-06 guide mode', () => {
   beforeEach(() => vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([]))
   afterEach(() => {

@@ -1,34 +1,49 @@
-import { Radio, AudioLines } from 'lucide-react'
-import { useMemo } from 'react'
+import { Radio, AudioLines, ChevronDown } from 'lucide-react'
+import { useId, useMemo, useState } from 'react'
 import { useProgrammeClock } from '@/hooks/useProgrammeClock'
-import { buildProgrammeIndex, findCurrentAndNext, type CurrentAndNext } from '@/lib/programmeIndex'
+import { buildProgrammeIndex, findCurrentAndNext, findInRange, type CurrentAndNext } from '@/lib/programmeIndex'
 import { calculateProgress, formatRemaining } from '@/lib/programmes'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore, describeLiveGuide, LIVE_CHANNEL_ID } from '@/stores/tvStore'
 import { getErsatzTVLogoUrl } from '@/services/ersatztvApi'
 import { Button } from '@/components/ui/button'
-import type { UnifiedChannel } from '@/types'
+import { cn } from '@/lib/utils'
+import type { ErsatzTVProgramme, UnifiedChannel } from '@/types'
 
-// Created once: the Next line formats a time on every row on every tick
-const nextTimeFormat = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' })
+// Created once: the Next lines and schedules format times on every tick
+const timeFormat = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' })
 
 const NOTHING_ON: CurrentAndNext = { current: null, next: null }
+
+// How many programmes an expanded row lists, starting with the one on now
+const SCHEDULE_LENGTH = 4
 
 // Mobile card layout
 interface MobileChannelListProps {
   onChannelSelect: (channel: UnifiedChannel) => void
+  // A programme tapped in an expanded row's schedule
+  onProgrammeClick: (programme: ErsatzTVProgramme, channel: UnifiedChannel) => void
   liveEPGTitle?: string | null
   // Opens the live channel picker; only for people allowed to change live TV
   onPickLive?: () => void
 }
 
-export function MobileChannelList({ onChannelSelect, liveEPGTitle, onPickLive }: MobileChannelListProps) {
+export function MobileChannelList({
+  onChannelSelect,
+  onProgrammeClick,
+  liveEPGTitle,
+  onPickLive,
+}: MobileChannelListProps) {
   const { getUnifiedChannels, isLiveChannelActive, selectedChannel, liveEPGStatus } = useTVStore()
   const { programmesByChannel } = useErsatztvStore()
-  // The live channel's schedule, for the live row's Next line
+  // The live channel's schedule, for the live row's Next line and schedule
   const liveProgrammes = useTVStore((s) => s.liveProgrammes)
   // Shared 30s clock for the current programme, progress and time remaining
   const currentTime = useProgrammeClock()
+
+  // One row at a time shows its schedule
+  const [expandedChannelId, setExpandedChannelId] = useState<string | null>(null)
+  const scheduleIdPrefix = useId()
 
   const unifiedChannels = getUnifiedChannels()
   const hasLiveChannel = isLiveChannelActive()
@@ -46,6 +61,14 @@ export function MobileChannelList({ onChannelSelect, liveEPGTitle, onPickLive }:
     }
     return findCurrentAndNext(programmeIndex, channel.id, currentTime)
   }
+  // The expanded row's programmes that haven't ended, from the one on now
+  const getSchedule = (channel: UnifiedChannel) =>
+    findInRange(
+      channel.type === 'live' ? liveProgrammeIndex : programmeIndex,
+      channel.id,
+      currentTime,
+      Infinity
+    ).slice(0, SCHEDULE_LENGTH)
 
   // Helper to get live programme title
   const getLiveProgrammeTitle = (): string => {
@@ -60,7 +83,7 @@ export function MobileChannelList({ onChannelSelect, liveEPGTitle, onPickLive }:
     <div className="space-y-2 px-4 pt-4 pb-[calc(1rem+var(--install-prompt-h,0px))]">
       <h2 className="text-lg font-semibold">Channels</h2>
       <div className="grid grid-cols-1 gap-2">
-        {unifiedChannels.map((channel) => {
+        {unifiedChannels.map((channel, index) => {
           const isLive = channel.type === 'live'
           const isSelected = selectedChannel?.id === channel.id
           const { current, next } = getNowAndNext(channel)
@@ -74,16 +97,16 @@ export function MobileChannelList({ onChannelSelect, liveEPGTitle, onPickLive }:
           // The empty live slot offers the picker next to the tune button
           // (a sibling, since buttons can't nest)
           const showPickLive = isLive && !hasLiveChannel && !!onPickLive
+          // Every row has a schedule to show but the empty live slot
+          const canExpand = !isLive || hasLiveChannel
+          const isExpanded = canExpand && expandedChannelId === channel.id
+          const scheduleId = `${scheduleIdPrefix}schedule-${index}`
+          const channelName = isLive && !hasLiveChannel ? 'Live' : channel.name
 
           const tuneButton = (
             <button
-              key={channel.id}
               onClick={() => onChannelSelect(channel)}
-              className={`
-                flex items-center gap-3 p-2 text-left
-                transition-colors hover:bg-accent
-                ${showPickLive ? 'min-w-0 flex-1 rounded-lg' : cardClassName}
-              `}
+              className="flex min-w-0 flex-1 items-center gap-3 rounded-lg p-2 text-left transition-colors hover:bg-accent"
             >
               {/* Every row carries its number (0 is the live slot), so a
                   channel with a logo can still be found by number */}
@@ -150,7 +173,7 @@ export function MobileChannelList({ onChannelSelect, liveEPGTitle, onPickLive }:
                     don't grow when the schedule arrives */}
                 {(!isLive || hasLiveChannel) && (
                   <p className="mt-1 h-4 truncate text-xs leading-4 text-muted-foreground">
-                    {next && `Next ${nextTimeFormat.format(next.startMs)} · ${next.programme.title}`}
+                    {next && `Next ${timeFormat.format(next.startMs)} · ${next.programme.title}`}
                   </p>
                 )}
               </div>
@@ -165,18 +188,84 @@ export function MobileChannelList({ onChannelSelect, liveEPGTitle, onPickLive }:
             </button>
           )
 
-          if (!showPickLive) return tuneButton
-
+          // The tune button, the picker and the chevron are siblings, since
+          // buttons can't nest: tapping the chevron never tunes
           return (
-            <div key={channel.id} className={`flex items-center pr-3 ${cardClassName}`}>
-              {tuneButton}
-              <Button size="sm" onClick={onPickLive}>
-                Pick a channel
-              </Button>
+            <div key={channel.id} className={cardClassName}>
+              <div className={cn('flex items-center', showPickLive && 'pr-3')}>
+                {tuneButton}
+                {showPickLive && (
+                  <Button size="sm" onClick={onPickLive}>
+                    Pick a channel
+                  </Button>
+                )}
+                {canExpand && (
+                  <button
+                    type="button"
+                    onClick={() => setExpandedChannelId(isExpanded ? null : channel.id)}
+                    aria-expanded={isExpanded}
+                    aria-controls={scheduleId}
+                    aria-label={`Show schedule for ${channelName}`}
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent"
+                  >
+                    <ChevronDown
+                      className={cn('h-5 w-5 transition-transform', isExpanded && 'rotate-180')}
+                      aria-hidden="true"
+                    />
+                  </button>
+                )}
+              </div>
+              {isExpanded && (
+                <ChannelSchedule
+                  id={scheduleId}
+                  channelName={channelName}
+                  schedule={getSchedule(channel)}
+                  onProgrammeClick={(programme) => onProgrammeClick(programme, channel)}
+                />
+              )}
             </div>
           )
         })}
       </div>
     </div>
+  )
+}
+
+interface ChannelScheduleProps {
+  id: string
+  channelName: string
+  schedule: readonly { programme: ErsatzTVProgramme; startMs: number }[]
+  onProgrammeClick: (programme: ErsatzTVProgramme) => void
+}
+
+// An expanded row's upcoming programmes; each opens its details
+function ChannelSchedule({ id, channelName, schedule, onProgrammeClick }: ChannelScheduleProps) {
+  if (schedule.length === 0) {
+    return (
+      <p id={id} className="border-t px-3 py-2 text-sm text-muted-foreground">
+        No schedule to show
+      </p>
+    )
+  }
+
+  return (
+    <ul id={id} aria-label={`Schedule for ${channelName}`} className="border-t p-1">
+      {schedule.map(({ programme, startMs }) => (
+        <li key={programme.id}>
+          <button
+            type="button"
+            onClick={() => onProgrammeClick(programme)}
+            // The time and title are separate boxes with no space between
+            aria-label={`${timeFormat.format(startMs)} ${programme.title}`}
+            className="flex min-h-11 w-full items-center gap-3 rounded-md px-2 text-left text-sm transition-colors hover:bg-accent"
+          >
+            <span className="min-w-12 shrink-0 font-display font-bold tabular-nums text-muted-foreground">
+              {timeFormat.format(startMs)}
+            </span>
+            <span className="min-w-0 truncate">{programme.title}</span>
+          </button>
+        </li>
+      ))}
+    </ul>
   )
 }
