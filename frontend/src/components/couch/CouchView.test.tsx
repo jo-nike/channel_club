@@ -376,8 +376,41 @@ describe('CouchView: Back', () => {
 
 describe('couch styles', () => {
   const css = readFileSync('src/index.css', 'utf8')
+  /** The body of the rule whose selector is exactly `selector` */
+  const rule = (selector: string) => {
+    const at = css.indexOf(`\n${selector} {`)
+    if (at === -1) return undefined
+    const open = css.indexOf('{', at)
+    return css.slice(open + 1, css.indexOf('}', open)).trim()
+  }
 
   it('hides tooltips under html.couch', () => {
-    expect(css).toMatch(/\.couch \[data-slot="tooltip-content"\] \{\s*display: none;\s*\}/)
+    expect(rule('.couch [data-slot="tooltip-content"]')).toBe('display: none;')
+  })
+
+  it('defines the safe area and the focus colour as .couch tokens, focus in the brand colour', () => {
+    expect(rule('.couch')).toBe('--couch-safe-x: 5vw;\n  --couch-safe-y: 5vh;\n  --couch-focus: var(--primary);')
+  })
+
+  it('never changes the root font size, which would rescale every dialog', () => {
+    const couchRules = [...css.matchAll(/^([^\n{}]*\.couch[^\n{}]*)\{([^}]*)\}/gm)]
+    expect(couchRules.length).toBeGreaterThan(0)
+    for (const [, , body] of couchRules) expect(body).not.toMatch(/font-size/)
+  })
+
+  it('shows remote focus in the couch focus colour with a non-colour cue: a thick outline and a scale', () => {
+    expect(rule('.couch .couch-view :focus-visible')).toBe('outline: 4px solid var(--couch-focus);\n  outline-offset: 3px;')
+    expect(rule('.couch .couch-view :is(button, [role="button"]):focus-visible')).toBe('transform: scale(1.1);')
+  })
+
+  it('keeps the control bar inside the title-safe area', () => {
+    expect(rule('.couch .couch-view .video-controls.px-3')).toContain('max(0.75rem, var(--couch-safe-x))')
+    expect(rule('.couch .couch-view .video-controls.pb-2')).toBe('padding-bottom: max(0.5rem, var(--couch-safe-y));')
+  })
+
+  it('places the channel banner inside the title-safe area', () => {
+    render(<CouchView />)
+
+    expect(screen.getByRole('status')).toHaveClass('left-(--couch-safe-x)', 'top-(--couch-safe-y)')
   })
 })

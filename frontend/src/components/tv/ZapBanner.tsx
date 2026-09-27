@@ -40,7 +40,8 @@ export function ZapBanner({ channel, entry = null, missing = null, liveChange = 
     <div
       role="status"
       aria-live="polite"
-      className="pointer-events-none absolute left-[4%] top-[6%] z-10"
+      // Inside the TV's title-safe area (index.css .couch tokens)
+      className="pointer-events-none absolute left-(--couch-safe-x) top-(--couch-safe-y) z-10"
     >
       {/* Remounting on each change restarts the 3s timer */}
       {number !== null ? (
