@@ -19,11 +19,11 @@ describe('useSetLiveChannel', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useChannelStore.setState({ currentChannel: tsn })
-    useAuthStore.setState({ username: 'jon' })
+    useAuthStore.setState({ username: 'jon', role: 'admin' })
     useRecentLiveStore.setState({ byUser: {} })
   })
 
-  const recents = () => useRecentLiveStore.getState().byUser.jon?.map((c) => c.id)
+  const recents = () => useRecentLiveStore.getState().byUser.jon
 
   it('switches the store before the server answers, then keeps it', async () => {
     let resolve!: (channel: Channel) => void
@@ -82,7 +82,7 @@ describe('useSetLiveChannel', () => {
     toastError.mockRestore()
   })
 
-  it("remembers each switch in the signed-in person's recents", async () => {
+  it("remembers each switch in the signed-in admin's recents", async () => {
     vi.mocked(api.setCurrentChannel).mockImplementation(async (channel) => channel)
     const { result } = renderHook(() => useSetLiveChannel())
 
@@ -92,5 +92,18 @@ describe('useSetLiveChannel', () => {
     })
 
     expect(recents()).toEqual(['1', '3'])
+  })
+
+  it('records nothing for a viewer allowed to pick channels', async () => {
+    useAuthStore.setState({ username: 'sam', role: 'viewer' })
+    vi.mocked(api.setCurrentChannel).mockImplementation(async (channel) => channel)
+    const { result } = renderHook(() => useSetLiveChannel())
+
+    await act(async () => {
+      expect(await result.current(cnn)).toBe(true)
+    })
+
+    expect(useChannelStore.getState().currentChannel).toEqual(cnn)
+    expect(useRecentLiveStore.getState().byUser).toEqual({})
   })
 })

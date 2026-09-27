@@ -11,7 +11,8 @@ import type { Channel } from '@/types'
  * straight away so the picker responds at once; if the server refuses, the
  * previous live channel comes back and a toast says why. Resolves to whether
  * the switch went through. Only a switch the server accepted is remembered in
- * the signed-in person's recent live channels.
+ * the signed-in admin's recent live channels: the Recent chips are on the
+ * admin On air card, so a viewer allowed to pick channels records none.
  *
  * The optimistic switch happens synchronously, before the returned promise
  * first yields, so callers can close their picker right after calling it.
@@ -19,6 +20,7 @@ import type { Channel } from '@/types'
 export function useSetLiveChannel() {
   const setCurrentChannel = useChannelStore((s) => s.setCurrentChannel)
   const username = useAuthStore((s) => s.username)
+  const isAdmin = useAuthStore((s) => s.role === 'admin')
   const recordRecent = useRecentLiveStore((s) => s.record)
 
   return useCallback(async (channel: Channel): Promise<boolean> => {
@@ -35,7 +37,7 @@ export function useSetLiveChannel() {
       })
       return false
     }
-    if (username) recordRecent(username, channel)
+    if (username && isAdmin) recordRecent(username, channel.id)
     return true
-  }, [setCurrentChannel, username, recordRecent])
+  }, [setCurrentChannel, username, isAdmin, recordRecent])
 }

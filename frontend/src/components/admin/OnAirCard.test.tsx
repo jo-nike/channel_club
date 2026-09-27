@@ -6,9 +6,10 @@ import { useChannelStore } from '@/stores/channelStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useRecentLiveStore } from '@/stores/recentLiveStore'
 import * as api from '@/services/api'
-import type { Channel } from '@/types'
+import type { Channel, GroupedChannelsResponse } from '@/types'
 
 vi.mock('@/services/api', () => ({
+  fetchGroupedChannels: vi.fn(),
   fetchNowPlaying: vi.fn(),
   setCurrentChannel: vi.fn(),
   clearCurrentChannel: vi.fn(),
@@ -34,6 +35,11 @@ const tsn: Channel = { id: '1', name: 'TSN', streamUrl: 'http://stream1.m3u8', g
 const sportsnet: Channel = { id: '2', name: 'Sportsnet', streamUrl: 'http://stream2.m3u8', guideId: 'sn.ca' }
 const cnn: Channel = { id: '3', name: 'CNN', streamUrl: 'http://stream3.m3u8', guideId: 'cnn.us' }
 
+const catalogue = (...channels: Channel[]): GroupedChannelsResponse => ({
+  groups: [{ id: 1, name: 'Sports', channelCount: channels.length - 1, channels: channels.slice(1) }],
+  ungrouped: channels.slice(0, 1),
+})
+
 const programme = (title: string) => ({
   channelId: 'x',
   currentProgram: { title, startTime: '2026-09-27T18:00:00Z', endTime: '2026-09-27T21:00:00Z' },
@@ -47,6 +53,8 @@ describe('OnAirCard', () => {
     useAuthStore.setState({ token: 'test-token', role: 'admin', username: 'jon', isAuthenticated: true })
     useRecentLiveStore.setState({ byUser: {} })
     vi.mocked(api.fetchNowPlaying).mockResolvedValue({ channelId: 'x', currentProgram: null })
+    // Loads only in the tests about the Recent row, which wait for it
+    vi.mocked(api.fetchGroupedChannels).mockReturnValue(new Promise(() => {}))
   })
 
   it('names the channel on air', () => {
@@ -196,46 +204,97 @@ describe('OnAirCard', () => {
       expect(api.fetchNowPlaying).not.toHaveBeenCalled()
     })
 
-    it('still offers recent channels to go back to', () => {
-      useRecentLiveStore.getState().record('jon', tsn)
+    it('still offers recent channels to go back to', async () => {
+      vi.mocked(api.fetchGroupedChannels).mockResolvedValue(catalogue(tsn, sportsnet, cnn))
+      useRecentLiveStore.getState().record('jon', tsn.id)
 
       render(<OnAirCard />)
 
-      const recent = screen.getByRole('group', { name: 'Recent live channels' })
+      const recent = await screen.findByRole('group', { name: 'Recent live channels' })
       expect(within(recent).getByRole('button', { name: 'TSN' })).toBeInTheDocument()
     })
   })
 
   describe('Recent', () => {
-    it('lists the recent channels except the one on air, most recent first', () => {
+    beforeEach(() => {
+      vi.mocked(api.fetchGroupedChannels).mockResolvedValue(catalogue(tsn, sportsnet, cnn))
+    })
+
+    it('lists the recent channels except the one on air, most recent first', async () => {
       const { record } = useRecentLiveStore.getState()
-      record('jon', cnn)
-      record('jon', sportsnet)
-      record('jon', tsn)
+      record('jon', cnn.id)
+      record('jon', sportsnet.id)
+      record('jon', tsn.id)
 
       render(<OnAirCard />)
 
-      const recent = screen.getByRole('group', { name: 'Recent live channels' })
+      const recent = await screen.findByRole('group', { name: 'Recent live channels' })
       expect(within(recent).getAllByRole('button').map((b) => b.textContent)).toEqual(['Sportsnet', 'CNN'])
     })
 
-    it("shows only the signed-in admin's recents", () => {
-      useRecentLiveStore.getState().record('sam', cnn)
+    it("shows only the signed-in admin's recents", async () => {
+      useRecentLiveStore.getState().record('sam', cnn.id)
+
+      render(<OnAirCard />)
+
+      await waitFor(() => expect(api.fetchGroupedChannels).toHaveBeenCalled())
+      expect(screen.queryByRole('group', { name: 'Recent live channels' })).not.toBeInTheDocument()
+    })
+
+    it('shows no recents until the catalogue has loaded, nor when it cannot load', async () => {
+      useRecentLiveStore.getState().record('jon', cnn.id)
+      vi.mocked(api.fetchGroupedChannels).mockRejectedValueOnce(new Error('Channel service unavailable'))
 
       render(<OnAirCard />)
 
       expect(screen.queryByRole('group', { name: 'Recent live channels' })).not.toBeInTheDocument()
+      await waitFor(() => expect(api.fetchGroupedChannels).toHaveBeenCalled())
+      expect(screen.queryByRole('group', { name: 'Recent live channels' })).not.toBeInTheDocument()
+      // Nothing is forgotten on a failed load
+      expect(useRecentLiveStore.getState().byUser.jon).toEqual([cnn.id])
+    })
+
+    it('names and switches to the channel as the catalogue has it now', async () => {
+      const renamed: Channel = { ...cnn, name: 'CNN International', streamUrl: 'http://stream3b.m3u8' }
+      vi.mocked(api.fetchGroupedChannels).mockResolvedValue(catalogue(tsn, renamed))
+      vi.mocked(api.setCurrentChannel).mockResolvedValueOnce(renamed)
+      useRecentLiveStore.getState().record('jon', cnn.id)
+
+      render(<OnAirCard />)
+
+      fireEvent.click(await screen.findByRole('button', { name: 'CNN International' }))
+
+      expect(api.setCurrentChannel).toHaveBeenCalledWith(renamed)
+      expect(useChannelStore.getState().currentChannel).toEqual(renamed)
+      // On air now, it leaves the Recent row, which has nothing else to show
+      await waitFor(() => {
+        expect(screen.queryByRole('group', { name: 'Recent live channels' })).not.toBeInTheDocument()
+      })
+      expect(screen.getByText('CNN International')).toBeInTheDocument()
+    })
+
+    it('drops, and forgets, recent channels that are no longer in the catalogue', async () => {
+      vi.mocked(api.fetchGroupedChannels).mockResolvedValue(catalogue(tsn, cnn))
+      const { record } = useRecentLiveStore.getState()
+      record('jon', cnn.id)
+      record('jon', sportsnet.id)
+
+      render(<OnAirCard />)
+
+      const recent = await screen.findByRole('group', { name: 'Recent live channels' })
+      expect(within(recent).getAllByRole('button').map((b) => b.textContent)).toEqual(['CNN'])
+      expect(useRecentLiveStore.getState().byUser.jon).toEqual([cnn.id])
     })
 
     it('puts a recent channel on live TV in one tap', async () => {
       vi.mocked(api.setCurrentChannel).mockResolvedValueOnce(cnn)
       const { record } = useRecentLiveStore.getState()
-      record('jon', tsn)
-      record('jon', cnn)
+      record('jon', tsn.id)
+      record('jon', cnn.id)
 
       render(<OnAirCard />)
 
-      fireEvent.click(screen.getByRole('button', { name: 'CNN' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'CNN' }))
 
       expect(api.setCurrentChannel).toHaveBeenCalledWith(cnn)
       expect(useChannelStore.getState().currentChannel).toEqual(cnn)
