@@ -412,6 +412,9 @@ RECORDER_IDLE_TIMEOUT = 120
 # Captures outlive the editor session by a margin; closing the editor deletes them early.
 CAPTURE_TTL_SECONDS = 15 * 60
 
+# A download link only has to last until the browser follows it.
+DOWNLOAD_TOKEN_TTL_SECONDS = 60
+
 
 @dataclass(frozen=True)
 class Capture:
@@ -434,11 +437,21 @@ class Capture:
         return self.created_at + CAPTURE_TTL_SECONDS
 
 
+@dataclass(frozen=True)
+class DownloadToken:
+    """A single-use grant to download one owner's capture without their session token."""
+
+    capture_id: str
+    owner: str
+    expires_at: float
+
+
 class CaptureStore:
     """Server-held snapshots: the browser streams them by range instead of downloading."""
 
     def __init__(self):
         self.captures: dict[str, Capture] = {}
+        self.download_tokens: dict[str, DownloadToken] = {}
 
     async def create(
         self, recorder: ChannelRecorder, owner: str, channel_id: str, pressed_at: float
@@ -484,6 +497,27 @@ class CaptureStore:
             return None
         return capture
 
+    def issue_download_token(self, capture_id: str, owner: str) -> str | None:
+        """A plain link for the browser's download manager, which cannot send the JWT header.
+
+        Keeps the session token out of the URL, download history and proxy logs.
+        """
+        if self.get(capture_id, owner) is None:
+            return None
+        self._drop_expired_tokens(time.time())
+        token = secrets.token_urlsafe(24)
+        self.download_tokens[token] = DownloadToken(
+            capture_id, owner, time.time() + DOWNLOAD_TOKEN_TTL_SECONDS
+        )
+        return token
+
+    def redeem_download_token(self, token: str) -> Capture | None:
+        """Spend the token: a second request, an expired token or a gone capture finds nothing."""
+        grant = self.download_tokens.pop(token, None)
+        if grant is None or grant.expires_at <= time.time():
+            return None
+        return self.get(grant.capture_id, grant.owner)
+
     async def delete(self, capture_id: str, owner: str) -> None:
         capture = self.captures.get(capture_id)
         if capture is not None and capture.owner == owner:
@@ -491,9 +525,15 @@ class CaptureStore:
 
     async def sweep(self, now: float | None = None) -> None:
         now = time.time() if now is None else now
+        self._drop_expired_tokens(now)
         for capture in list(self.captures.values()):
             if capture.expires_at <= now:
                 await self._remove(capture)
+
+    def _drop_expired_tokens(self, now: float) -> None:
+        for token, grant in list(self.download_tokens.items()):
+            if grant.expires_at <= now:
+                del self.download_tokens[token]
 
     async def clear(self) -> None:
         for capture in list(self.captures.values()):
@@ -501,6 +541,9 @@ class CaptureStore:
 
     async def _remove(self, capture: Capture) -> None:
         self.captures.pop(capture.id, None)
+        for token, grant in list(self.download_tokens.items()):
+            if grant.capture_id == capture.id:
+                del self.download_tokens[token]
         try:
             await asyncio.to_thread(remove_recording_directory, capture.path.parent)
         except OSError as exc:
@@ -791,6 +834,12 @@ class HighlightService:
 
     async def delete_capture(self, capture_id: str, owner: str) -> None:
         await self.captures.delete(capture_id, owner)
+
+    def issue_download_token(self, capture_id: str, owner: str) -> str | None:
+        return self.captures.issue_download_token(capture_id, owner)
+
+    def redeem_download_token(self, token: str) -> Capture | None:
+        return self.captures.redeem_download_token(token)
 
 
 # Global service instance

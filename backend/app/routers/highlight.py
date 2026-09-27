@@ -8,6 +8,8 @@ Provides endpoints for:
 
 import asyncio
 import tempfile
+from collections.abc import Awaitable
+from contextlib import suppress
 from datetime import datetime
 from pathlib import Path as FilePath
 from typing import Literal
@@ -21,7 +23,7 @@ from app.config import settings
 from app.models.auth import TokenPayload
 from app.models.channel import ChannelId, validate_channel_id
 from app.routers.auth_deps import get_current_user, get_current_user_or_token
-from app.services.highlight import highlight_service
+from app.services.highlight import Capture, highlight_service
 from app.services.media_export import encode_file, media_duration, owned_thread
 from app.services.media_limits import export_budget
 from app.services.zipline import upload_clip
@@ -59,7 +61,25 @@ class CaptureResponse(BaseModel):
     endsAt: float
 
 
+class DownloadLinkResponse(BaseModel):
+    """A single-use, short-lived download link that carries no session token."""
+
+    url: str
+
+
+# How often a running export checks whether the browser is still waiting for it
+DISCONNECT_POLL_SECONDS = 0.5
+
 CaptureIdPath = Path(..., pattern=r"^[A-Za-z0-9_-]{16,64}$", description="Capture id")
+
+
+def capture_file(capture: Capture, download: bool) -> FileResponse:
+    headers = {"Cache-Control": "private, no-store"}
+    if download:
+        timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+        filename = f"highlight-{capture.channel_id}-{timestamp}.mp4"
+        headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return FileResponse(capture.path, media_type="video/mp4", headers=headers)
 
 
 @router.get("/feature", response_model=HighlightFeatureResponse)
@@ -182,12 +202,30 @@ async def get_capture(
     capture = highlight_service.get_capture(capture_id, user.sub)
     if capture is None:
         raise HTTPException(404, "Capture not found")
-    headers = {"Cache-Control": "private, no-store"}
-    if download:
-        timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
-        filename = f"highlight-{capture.channel_id}-{timestamp}.mp4"
-        headers["Content-Disposition"] = f'attachment; filename="{filename}"'
-    return FileResponse(capture.path, media_type="video/mp4", headers=headers)
+    return capture_file(capture, download)
+
+
+@router.post("/capture/{capture_id}/download-token", response_model=DownloadLinkResponse)
+async def create_download_link(
+    capture_id: str = CaptureIdPath,
+    user: TokenPayload = Depends(get_current_user),
+) -> DownloadLinkResponse:
+    """Let the browser save the capture directly without putting the JWT in the URL."""
+    token = highlight_service.issue_download_token(capture_id, user.sub)
+    if token is None:
+        raise HTTPException(404, "Capture not found")
+    return DownloadLinkResponse(url=f"/api/highlight/download/{token}")
+
+
+@router.get("/download/{token}")
+async def download_capture(
+    token: str = Path(..., pattern=r"^[A-Za-z0-9_-]{16,64}$", description="Download token"),
+) -> FileResponse:
+    """Serve a capture once to whoever holds its download token, as an attachment."""
+    capture = highlight_service.redeem_download_token(token)
+    if capture is None:
+        raise HTTPException(404, "Download link expired or already used")
+    return capture_file(capture, download=True)
 
 
 @router.delete("/capture/{capture_id}", status_code=204)
@@ -200,8 +238,31 @@ async def delete_capture(
     return Response(status_code=204)
 
 
+async def unless_disconnected[T](request: Request, work: Awaitable[T]) -> T:
+    """Starlette keeps running a handler after the client leaves; stop the work when it does.
+
+    Cancelling an encode kills its FFmpeg process, so the caller's export slot is freed
+    as soon as the browser cancels instead of when the encode finishes.
+    """
+    task = asyncio.ensure_future(work)
+    try:
+        while True:
+            done, _ = await asyncio.wait({task}, timeout=DISCONNECT_POLL_SECONDS)
+            if done:
+                return task.result()
+            if await request.is_disconnected():
+                log.info("Client left during a clip export; stopping the encode")
+                raise HTTPException(499, "Client closed the request")
+    finally:
+        if not task.done():
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+
+
 @router.post("/export")
 async def export_preview(
+    request: Request,
     capture: str = Query(..., pattern=r"^[A-Za-z0-9_-]{16,64}$"),
     format: Literal["mp4", "webm"] = Query("mp4"),
     start_time: float | None = Query(None, ge=0, allow_inf_nan=False),
@@ -221,8 +282,15 @@ async def export_preview(
         tempfile.TemporaryDirectory(prefix="highlight-preview-") as directory,
     ):
         try:
-            video = await encode_file(
-                source.path, FilePath(directory) / f"export.{format}", format, start_time, end_time
+            video = await unless_disconnected(
+                request,
+                encode_file(
+                    source.path,
+                    FilePath(directory) / f"export.{format}",
+                    format,
+                    start_time,
+                    end_time,
+                ),
             )
         except TimeoutError:
             raise HTTPException(408, "Clip conversion timed out") from None

@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, within } from '@/test/utils'
+import { render, screen, fireEvent, waitFor, within, act } from '@/test/utils'
 import { HighlightModal } from './HighlightModal'
 import * as api from '@/services/api'
 import { useAudioStore } from '@/stores/audioStore'
 
 vi.mock('@/services/api', () => ({
-  createHighlightCapture: vi.fn(), highlightCaptureUrl: vi.fn(), fetchHighlightCapture: vi.fn(), deleteHighlightCapture: vi.fn(),
+  createHighlightCapture: vi.fn(), highlightCaptureUrl: vi.fn(), fetchHighlightCapture: vi.fn(), createCaptureDownloadUrl: vi.fn(), deleteHighlightCapture: vi.fn(),
   exportHighlight: vi.fn(), uploadHighlight: vi.fn(), getHighlightFeatures: vi.fn(),
 }))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
@@ -44,6 +44,7 @@ beforeEach(() => {
   vi.mocked(api.createHighlightCapture).mockResolvedValue(capture)
   vi.mocked(api.highlightCaptureUrl).mockImplementation(id => `/api/highlight/capture/${id}?token=t`)
   vi.mocked(api.fetchHighlightCapture).mockResolvedValue(preview)
+  vi.mocked(api.createCaptureDownloadUrl).mockResolvedValue('/api/highlight/download/single-use-token')
   vi.mocked(api.deleteHighlightCapture).mockResolvedValue()
   vi.mocked(api.exportHighlight).mockResolvedValue(prepared)
   vi.mocked(api.getHighlightFeatures).mockResolvedValue({ enabled: true, ziplineEnabled: false })
@@ -363,7 +364,7 @@ describe('Clip editor', () => {
     render(<HighlightModal {...props} />)
     await ready()
     fireEvent.click(screen.getByRole('button', { name: '10s' }))
-    fireEvent.click(screen.getByText('Upload to Zipline'))
+    fireEvent.click(screen.getByText('Get share link'))
     expect(await screen.findByRole('alert')).toHaveTextContent('Zipline quota exceeded')
     expect(shown('Start')).toBe('50.0s')
     fireEvent.click(screen.getByText('Download clip'))
@@ -372,15 +373,85 @@ describe('Clip editor', () => {
     expect(api.uploadHighlight).toHaveBeenCalledTimes(1)
   })
 
-  it('downloads the original untrimmed snapshot without encoding', async () => {
-    render(<HighlightModal {...props} />)
+  it('downloads the original untrimmed snapshot straight from a single-use link, without encoding or fetching it', async () => {
+    const saved: (string | null)[] = []
+    vi.mocked(HTMLAnchorElement.prototype.click).mockImplementation(function (this: HTMLAnchorElement) { saved.push(this.getAttribute('href')) })
+    const { unmount } = render(<HighlightModal {...props} />)
     await ready()
     fireEvent.click(screen.getByRole('button', { name: 'Full' }))
     fireEvent.click(screen.getByText('Download clip'))
-    await waitFor(() => expect(HTMLAnchorElement.prototype.click).toHaveBeenCalled())
+    await waitFor(() => expect(saved).toEqual(['/api/highlight/download/single-use-token']))
+    expect(api.createCaptureDownloadUrl).toHaveBeenCalledExactlyOnceWith('capture-1', expect.any(AbortSignal))
     expect(api.exportHighlight).not.toHaveBeenCalled()
-    expect(api.fetchHighlightCapture).toHaveBeenCalledExactlyOnceWith('capture-1', expect.any(AbortSignal))
-    expect(URL.createObjectURL).toHaveBeenCalledWith(preview)
+    expect(api.fetchHighlightCapture).not.toHaveBeenCalled()
+    expect(URL.createObjectURL).not.toHaveBeenCalled()
+    // The session token never goes into the download link
+    expect(saved[0]).not.toContain('token=')
+    await waitFor(() => expect(screen.getByText('Download clip')).toBeEnabled())
+    vi.useFakeTimers()
+    try { unmount(); act(() => { vi.runAllTimers() }) } finally { vi.useRealTimers() }
+  })
+
+  it('hands over the direct download when Download clip is double-clicked', async () => {
+    const { unmount } = render(<HighlightModal {...props} />)
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: 'Full' }))
+    const download = screen.getByRole('button', { name: 'Download clip' })
+    fireEvent.click(download, { detail: 1 }); fireEvent.click(download, { detail: 2 })
+    expect(vi.mocked(api.createCaptureDownloadUrl).mock.calls[0][1]!.aborted).toBe(false)
+    await waitFor(() => expect(HTMLAnchorElement.prototype.click).toHaveBeenCalledTimes(1))
+    expect(api.createCaptureDownloadUrl).toHaveBeenCalledTimes(1)
+    // Run the delete deferred for the download now, so it does not land in a later test
+    vi.useFakeTimers()
+    try { unmount(); act(() => { vi.runAllTimers() }) } finally { vi.useRealTimers() }
+  })
+
+  it('deletes the capture only after the browser has had time to start the direct download', async () => {
+    let link!: (url: string) => void
+    vi.mocked(api.createCaptureDownloadUrl).mockImplementationOnce(() => new Promise(done => { link = done }))
+    const { rerender } = render(<HighlightModal {...props} />)
+    await ready()
+    vi.useFakeTimers()
+    try {
+      fireEvent.click(screen.getByRole('button', { name: 'Full' }))
+      fireEvent.click(screen.getByText('Download clip'))
+      await act(async () => { link('/api/highlight/download/single-use-token') })
+      expect(HTMLAnchorElement.prototype.click).toHaveBeenCalledTimes(1)
+      // Delivered, so closing does not ask; the delete waits for the download to reach the server
+      fireEvent.click(screen.getByRole('button', { name: 'Close editor' }))
+      expect(props.onClose).toHaveBeenCalledTimes(1)
+      rerender(<HighlightModal {...props} isOpen={false} />)
+      expect(api.deleteHighlightCapture).not.toHaveBeenCalled()
+      act(() => { vi.advanceTimersByTime(4000) })
+      expect(api.deleteHighlightCapture).not.toHaveBeenCalled()
+      act(() => { vi.advanceTimersByTime(1000) })
+      expect(api.deleteHighlightCapture).toHaveBeenCalledExactlyOnceWith('capture-1')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('discarding while the download link is requested cancels the download and deletes at once', async () => {
+    vi.mocked(api.createCaptureDownloadUrl).mockImplementationOnce(() => new Promise(() => {}))
+    const { rerender } = render(<HighlightModal {...props} />)
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: 'Full' }))
+    fireEvent.click(screen.getByText('Download clip'))
+    const signal = vi.mocked(api.createCaptureDownloadUrl).mock.calls[0][1]!
+    rerender(<HighlightModal {...props} isOpen={false} />)
+    expect(signal.aborted).toBe(true)
+    expect(HTMLAnchorElement.prototype.click).not.toHaveBeenCalled()
+    expect(api.deleteHighlightCapture).toHaveBeenCalledExactlyOnceWith('capture-1')
+  })
+
+  it('still uploads the untrimmed snapshot bytes to Zipline', async () => {
+    vi.mocked(api.getHighlightFeatures).mockResolvedValue({ enabled: true, ziplineEnabled: true })
+    render(<HighlightModal {...props} />)
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: 'Full' }))
+    fireEvent.click(screen.getByText('Get share link'))
+    await waitFor(() => expect(api.uploadHighlight).toHaveBeenCalledExactlyOnceWith(preview, 'mp4', expect.any(AbortSignal)))
+    expect(api.createCaptureDownloadUrl).not.toHaveBeenCalled()
   })
 
   it('shares prepared bytes between download and Zipline and displays its returned link', async () => {
@@ -390,17 +461,45 @@ describe('Clip editor', () => {
     fireEvent.click(screen.getByRole('button', { name: '10s' }))
     fireEvent.click(screen.getByText('Download clip'))
     await waitFor(() => expect(screen.getByText('Download clip')).not.toBeDisabled())
-    fireEvent.click(screen.getByText('Upload to Zipline'))
+    fireEvent.click(screen.getByText('Get share link'))
     expect(await screen.findByLabelText('Uploaded clip link')).toHaveValue('https://clips.example/clip.mp4')
     expect(api.exportHighlight).toHaveBeenCalledExactlyOnceWith('capture-1', 'mp4', { startTime: 50, endTime: 60 }, expect.any(AbortSignal))
     expect(api.uploadHighlight).toHaveBeenCalledExactlyOnceWith(prepared, 'mp4', expect.any(AbortSignal))
     expect(screen.getByRole('link', { name: 'Open' })).toHaveAttribute('href', 'https://clips.example/clip.mp4')
   })
 
+  it('offers a share link, naming Zipline only in the tooltip, and says when the link is ready', async () => {
+    vi.mocked(api.getHighlightFeatures).mockResolvedValue({ enabled: true, ziplineEnabled: true })
+    render(<HighlightModal {...props} />)
+    await ready()
+    const share = await screen.findByRole('button', { name: 'Get share link' })
+    expect(screen.queryByText(/Upload to Zipline/)).not.toBeInTheDocument()
+    act(() => { share.focus() })
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Uploads to Zipline')
+    fireEvent.click(share)
+    expect(await screen.findByLabelText('Uploaded clip link')).toHaveValue('https://clips.example/clip.mp4')
+    expect(screen.getByRole('button', { name: 'Share link ready' })).toBeDisabled()
+    expect(screen.getByText('Share link ready', { selector: 'p' })).toBeInTheDocument()
+  })
+
+  it('shows the share tooltip inside the fullscreen container', async () => {
+    vi.mocked(api.getHighlightFeatures).mockResolvedValue({ enabled: true, ziplineEnabled: true })
+    const player = document.body.appendChild(document.createElement('div'))
+    try {
+      render(<HighlightModal {...props} container={player} />)
+      await ready()
+      const share = await screen.findByRole('button', { name: 'Get share link' })
+      act(() => { share.focus() })
+      expect(player).toContainElement(await screen.findByRole('tooltip'))
+    } finally {
+      player.remove()
+    }
+  })
+
   it('keeps downloads usable and hides upload when Zipline is disabled', async () => {
     render(<HighlightModal {...props} />)
     await ready()
-    expect(screen.queryByText('Upload to Zipline')).not.toBeInTheDocument()
+    expect(screen.queryByText('Get share link')).not.toBeInTheDocument()
     expect(screen.getByText('Download clip')).toBeEnabled()
     expect(api.uploadHighlight).not.toHaveBeenCalled()
   })
@@ -411,13 +510,109 @@ describe('Clip editor', () => {
     render(<HighlightModal {...props} />)
     await ready()
     fireEvent.click(screen.getByRole('button', { name: '30s' }))
-    fireEvent.click(screen.getByText('Download clip')); fireEvent.click(screen.getByText('Download clip'))
+    const download = screen.getByRole('button', { name: 'Download clip' })
+    fireEvent.click(download); fireEvent.click(download)
+    // The button becomes Cancel while the export runs, so it cannot start a second one, and the
+    // second click that lands on it straight away does not cancel the first
+    expect(screen.queryByText('Download clip')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
     expect(api.exportHighlight).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(api.exportHighlight).mock.calls[0][3]!.aborted).toBe(false)
     reject(new Error('Encoder timed out'))
     expect(await screen.findByRole('alert')).toHaveTextContent('Encoder timed out')
     expect(shown('Start')).toBe('30.0s')
     fireEvent.click(screen.getByText('Download clip'))
     await waitFor(() => expect(api.exportHighlight).toHaveBeenCalledTimes(2))
+  })
+
+  it('keeps the actions, progress and errors in the footer outside the scrolling body', async () => {
+    let reject!: (error: Error) => void
+    vi.mocked(api.exportHighlight).mockImplementationOnce(() => new Promise((_, fail) => { reject = fail }))
+    render(<HighlightModal {...props} />)
+    await ready()
+    const footer = screen.getByRole('group', { name: 'Export' })
+    expect(within(footer).getByLabelText('Format')).toBeInTheDocument()
+    fireEvent.click(within(footer).getByRole('button', { name: 'Download clip' }))
+    expect(within(footer).getByRole('status')).toHaveTextContent('Preparing your clip…')
+    // The body scrolls on its own; the footer is not inside it.
+    expect(screen.getByLabelText('Highlight preview').parentElement!.contains(footer)).toBe(false)
+    reject(new Error('Encoder timed out'))
+    expect(await within(footer).findByRole('alert')).toHaveTextContent('Encoder timed out')
+  })
+
+  it('counts the seconds on the busy button and Cancel stops only the export', async () => {
+    const exports: AbortSignal[] = []
+    vi.mocked(api.exportHighlight).mockImplementation((_id, _format, _trim, signal) => new Promise((_, fail) => {
+      exports.push(signal!)
+      signal!.addEventListener('abort', () => fail(new DOMException('Aborted', 'AbortError')))
+    }))
+    render(<HighlightModal {...props} />)
+    await ready()
+    vi.useFakeTimers()
+    try {
+      fireEvent.click(screen.getByRole('button', { name: 'Download clip' }))
+      const cancel = screen.getByRole('button', { name: 'Cancel' })
+      expect(cancel).toHaveTextContent('0s')
+      act(() => { vi.advanceTimersByTime(3000) })
+      expect(cancel).toHaveTextContent('3s')
+      act(() => { vi.advanceTimersByTime(1000) })
+      expect(cancel).toHaveTextContent('4s')
+
+      fireEvent.click(cancel)
+      expect(exports[0].aborted).toBe(true)
+      await act(async () => {})
+      // The session and its capture are kept: nothing is deleted and the selection stays
+      expect(vi.mocked(api.createHighlightCapture).mock.calls[0][1]!.aborted).toBe(false)
+      expect(api.deleteHighlightCapture).not.toHaveBeenCalled()
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(screen.queryByText('Preparing your clip…')).not.toBeInTheDocument()
+      expect(shown('Start')).toBe('40.0s')
+      expect(screen.getByRole('button', { name: 'Download clip' })).toBeEnabled()
+
+      // A new export starts its count again
+      fireEvent.click(screen.getByRole('button', { name: 'Download clip' }))
+      expect(screen.getByRole('button', { name: 'Cancel' })).toHaveTextContent('0s')
+      expect(exports).toHaveLength(2)
+      expect(exports[1].aborted).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('finishes the export a double-click on Download clip started, however slow the double-click', async () => {
+    let finish!: (blob: Blob) => void
+    vi.mocked(api.exportHighlight).mockImplementationOnce(() => new Promise(done => { finish = done }))
+    render(<HighlightModal {...props} />)
+    await ready()
+    vi.useFakeTimers()
+    try {
+      fireEvent.click(screen.getByRole('button', { name: '30s' }))
+      const download = screen.getByRole('button', { name: 'Download clip' })
+      fireEvent.click(download, { detail: 1 })
+      // The second click of the pair lands on the same button, now Cancel, after the guard window
+      act(() => { vi.advanceTimersByTime(600) })
+      expect(download).toHaveAccessibleName(/^Cancel/)
+      fireEvent.click(download, { detail: 2 })
+      const signal = vi.mocked(api.exportHighlight).mock.calls[0][3]!
+      expect(signal.aborted).toBe(false)
+      await act(async () => { finish(prepared) })
+      expect(URL.createObjectURL).toHaveBeenCalledExactlyOnceWith(prepared)
+      expect(HTMLAnchorElement.prototype.click).toHaveBeenCalledTimes(1)
+      expect(api.exportHighlight).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('stops a running export when the editor closes', async () => {
+    vi.mocked(api.exportHighlight).mockImplementationOnce(() => new Promise(() => {}))
+    const { rerender } = render(<HighlightModal {...props} />)
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: 'Download clip' }))
+    const signal = vi.mocked(api.exportHighlight).mock.calls[0][3]!
+    expect(signal.aborted).toBe(false)
+    rerender(<HighlightModal {...props} isOpen={false} />)
+    expect(signal.aborted).toBe(true)
   })
 
   it('restores audio, aborts requests and starts a fresh session after reopening', async () => {
