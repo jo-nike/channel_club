@@ -1161,6 +1161,21 @@ describe('ChatPanel', () => {
       expect(screen.queryByRole('button', { name: 'Close chat' })).not.toBeInTheDocument()
     })
 
+    it('lets the picture show through when drawn over it', () => {
+      render(<ChatPanel onSendMessage={mockOnSendMessage} variant="overlay" translucent />)
+      const panel = document.getElementById('chat-panel')
+      expect(panel).toHaveClass('fixed', 'right-0', 'w-80', 'bg-background/85', 'backdrop-blur')
+      expect(panel).not.toHaveClass('bg-background')
+    })
+
+    it('is opaque unless asked to be translucent', () => {
+      render(<ChatPanel onSendMessage={mockOnSendMessage} variant="overlay" />)
+      const panel = document.getElementById('chat-panel')
+      expect(panel).toHaveClass('bg-background')
+      expect(panel).not.toHaveClass('bg-background/85')
+      expect(panel).not.toHaveClass('backdrop-blur')
+    })
+
     it('is the overlay drawer when no variant is given', () => {
       render(<ChatPanel onSendMessage={mockOnSendMessage} />)
       expect(document.getElementById('chat-panel')).toHaveClass('fixed', 'right-0', 'w-80')

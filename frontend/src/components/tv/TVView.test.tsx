@@ -14,7 +14,7 @@ import { mockViewport } from '@/test/viewport'
 const presence = vi.hoisted(() => vi.fn())
 const crash = vi.hoisted(() => ({ player: false, chat: false }))
 const socket = vi.hoisted(() => ({ status: 'connected', reconnect: () => {} }))
-const chatProps = vi.hoisted(() => ({ last: null as null | { status?: string; onReconnect?: () => void; variant?: string; onComposerFocusChange?: (focused: boolean) => void } }))
+const chatProps = vi.hoisted(() => ({ last: null as null | { status?: string; onReconnect?: () => void; variant?: string; translucent?: boolean; onComposerFocusChange?: (focused: boolean) => void } }))
 const auth = vi.hoisted(() => ({ isAdmin: false }))
 const appSettings = vi.hoisted(() => ({ userChannelSelection: false }))
 // Chat is a build-time flag, off in tests unless a test turns it on
@@ -55,7 +55,7 @@ vi.mock('@/components/ChatPanel', async () => {
   const { useState } = await import('react')
   // Like the real panel, renders nothing (and so can't throw) while closed,
   // and keeps its draft in its own state
-  return { ChatPanel: (props: { status?: string; onReconnect?: () => void; variant?: string; onComposerFocusChange?: (focused: boolean) => void }) => {
+  return { ChatPanel: (props: { status?: string; onReconnect?: () => void; variant?: string; translucent?: boolean; onComposerFocusChange?: (focused: boolean) => void }) => {
     chatProps.last = props
     const isOpen = useChatStore((s) => s.isOpen)
     const [draft, setDraft] = useState('')
@@ -784,6 +784,64 @@ describe('E-01 chat placement', () => {
     const chat = await openChat()
     expect(chat).toHaveAttribute('data-variant', 'overlay')
   })
+
+  const video = () => screen.getByTestId('player').closest('.bg-black') as HTMLElement
+
+  it('docks beside the picture in theater: the video stops short of the chat column', async () => {
+    mockViewport({ width: 1440 })
+    useUIStore.setState({ isTheaterMode: true })
+    await openChat()
+
+    expect(video()).toHaveClass('fixed', 'inset-y-0', 'left-0', 'right-80', 'z-50', 'w-auto')
+    expect(video()).not.toHaveClass('inset-0')
+    expect(video()).not.toHaveClass('w-full')
+    // Beside the picture, not over it, so it stays opaque
+    expect(chatProps.last?.translucent).toBe(false)
+  })
+
+  it('gives theater the whole screen again when chat closes', async () => {
+    mockViewport({ width: 1440 })
+    useUIStore.setState({ isTheaterMode: true })
+    await openChat()
+    expect(video()).toHaveClass('right-80')
+
+    act(() => useChatStore.setState({ isOpen: false }))
+
+    expect(video()).toHaveClass('fixed', 'inset-0', 'z-50')
+    expect(video()).not.toHaveClass('right-80')
+  })
+
+  it('fills the screen in theater while chat is closed', async () => {
+    mockViewport({ width: 1440 })
+    useUIStore.setState({ isTheaterMode: true })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+
+    expect(video()).toHaveClass('fixed', 'inset-0', 'z-50')
+    expect(video()).not.toHaveClass('right-80')
+  })
+
+  it('keeps the page layout for a chat docked outside theater', async () => {
+    mockViewport({ width: 1440 })
+    await openChat()
+
+    expect(video()).not.toHaveClass('fixed')
+    expect(chatProps.last?.translucent).toBe(false)
+  })
+
+  it.each([
+    ['held sideways', { width: 667, height: 375, pointer: 'coarse' as const }, false],
+    ['in theater', { width: 390, height: 844, pointer: 'coarse' as const }, true],
+  ])('stays over the whole picture on a phone %s, see-through', async (_mode, viewport, theater) => {
+    mockViewport(viewport)
+    useUIStore.setState({ isTheaterMode: theater })
+    const chat = await openChat()
+
+    expect(chat).toHaveAttribute('data-variant', 'overlay')
+    expect(video()).toHaveClass('fixed', 'inset-0', 'z-50')
+    expect(video()).not.toHaveClass('right-80')
+    expect(chatProps.last?.translucent).toBe(true)
+  })
 })
 
 describe('G-07/E-02 Channels and Chat tabs on a phone', () => {
@@ -1026,6 +1084,30 @@ describe('G-07/E-02 Channels and Chat tabs on a phone', () => {
 
     act(() => useChatStore.setState({ isOpen: true }))
     expect(screen.getByTestId('chat')).toHaveAttribute('data-variant', 'overlay')
+  })
+})
+
+describe('E-06 unread count outside the page', () => {
+  beforeEach(() => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
+    document.title = 'Channel Club'
+  })
+  afterEach(() => {
+    delete (navigator as unknown as { setAppBadge?: unknown }).setAppBadge
+  })
+
+  it('puts the unread count in the tab title and on the app badge, and takes it off on opening chat', async () => {
+    const setAppBadge = vi.fn(() => Promise.resolve())
+    Object.defineProperty(navigator, 'setAppBadge', { value: setAppBadge, configurable: true, writable: true })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+
+    act(() => useChatStore.setState({ unreadCount: 3 }))
+    expect(document.title).toBe('(3) Channel Club')
+    expect(setAppBadge).toHaveBeenLastCalledWith(3)
+
+    act(() => useChatStore.getState().setOpen(true))
+    expect(document.title).toBe('Channel Club')
   })
 })
 

@@ -32,6 +32,7 @@ import { useResizable } from '@/hooks/useResizable'
 import { useMobileLandscape } from '@/hooks/useMobileLandscape'
 import { useChatEnabled } from '@/hooks/useChatEnabled'
 import { useVisualViewportHeight } from '@/hooks/useVisualViewportHeight'
+import { useUnreadTitleBadge } from '@/hooks/useUnreadTitleBadge'
 import { AdminModal } from '@/components/AdminModal'
 import { LiveChannelPickerDialog } from '@/components/LiveChannelPickerDialog'
 import { getProgrammeState } from '@/lib/programmes'
@@ -268,6 +269,8 @@ export function TVView() {
   const isChatOpen = useChatStore((s) => s.isOpen)
   const setChatOpen = useChatStore((s) => s.setOpen)
   const chatEnabled = useChatEnabled()
+  // The unread count in the tab title and on the installed app's icon
+  useUnreadTitleBadge()
 
   // Responsive
   const layoutMode = useLayoutMode()
@@ -302,6 +305,11 @@ export function TVView() {
       : layoutMode === 'desktop'
         ? 'docked'
         : 'sheet'
+  // In theater the picture then stops short of the 320px chat column rather
+  // than playing under it. Not on a phone, sideways or in theater, which has
+  // no width to spare: there chat stays over the picture, see-through.
+  const isTheaterDocked = isTheaterMode && isChatOpen && !isMobile && !isMobileLandscape
+  const isChatOverPicture = chatVariant === 'overlay' && !isTheaterDocked
 
   // Between 1024 and 1279px a full channel list, the player and docked chat
   // don't fit side by side, so the list folds to its rail while chat is open.
@@ -501,12 +509,15 @@ export function TVView() {
         {/* In the Chat tab it keeps only its own height (video and strip),
             leaving the rest to chat */}
         <main className={cn('flex flex-col min-h-0 overflow-hidden', showPhoneTabs && isChatOpen ? 'flex-none' : 'flex-1')}>
-          {/* Video player - fixed full viewport in theater mode or mobile landscape,
-              a full-width 16:9 box in phone portrait */}
+          {/* Video player - fixed full viewport in theater mode or mobile landscape
+              (short of the chat column while it's docked in theater), a
+              full-width 16:9 box in phone portrait */}
           <div
             className={cn(
               'relative w-full min-h-0 overflow-hidden bg-black',
-              (isTheaterMode || isMobileLandscape) && 'fixed inset-0 z-50',
+              (isTheaterMode || isMobileLandscape) &&
+                // w-auto: a 100% width would override the right edge
+                (isTheaterDocked ? 'fixed inset-y-0 left-0 right-80 z-50 w-auto' : 'fixed inset-0 z-50'),
               isPhonePortrait && (isVideoStrip ? 'h-24 flex-none' : 'aspect-video flex-none'),
               !isTheaterMode && !isMobileLandscape && !isMobile && 'rounded-lg'
             )}
@@ -668,6 +679,7 @@ export function TVView() {
               status={status}
               onReconnect={reconnect}
               variant={showPhoneTabs ? 'inline' : chatVariant}
+              translucent={!showPhoneTabs && isChatOverPicture}
               onComposerFocusChange={setComposerFocused}
             />
           </ErrorBoundary>

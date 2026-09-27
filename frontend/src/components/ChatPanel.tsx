@@ -7,6 +7,7 @@ import { useChatStore, isOwnMessage } from '@/stores/chatStore'
 import type { ChatMessage as ChatMessageData } from '@/types'
 import { useNow } from '@/hooks/useNow'
 import { useFocusTrap } from '@/hooks/useFocusTrap'
+import { cn } from '@/lib/utils'
 import { ChatMessage } from './ChatMessage'
 import { GifButton } from './GifButton'
 import { Button } from '@/components/ui/button'
@@ -43,6 +44,9 @@ export interface ChatPanelProps {
   status?: WebSocketStatus
   onReconnect?: () => void
   variant?: ChatPanelVariant
+  // Drawn over the picture (the overlay in phone landscape): a see-through
+  // background, so the video stays in view behind the messages
+  translucent?: boolean
   // Whether focus is in the composer (the message field, GIF and Send), so
   // the view can make room above a soft keyboard
   onComposerFocusChange?: (focused: boolean) => void
@@ -94,7 +98,7 @@ interface SendFailure {
   clientMessageId: string
 }
 
-export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', onReconnect, variant = 'overlay', onComposerFocusChange }: ChatPanelProps) {
+export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', onReconnect, variant = 'overlay', translucent = false, onComposerFocusChange }: ChatPanelProps) {
   const {
     messages, isOpen, setOpen, nickname, me, readMarker, historyReset, nicknameRejection,
     setNickname, clearNickname, clearNicknameRejection,
@@ -445,7 +449,7 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
       aria-label={isLandmark ? 'Chat' : undefined}
       aria-modal={isDialog ? true : undefined}
       aria-labelledby={isDialog ? 'chat-panel-title' : undefined}
-      className={PANEL_CLASSES[variant]}
+      className={cn(PANEL_CLASSES[variant], translucent && 'bg-background/85 backdrop-blur')}
     >
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
