@@ -78,8 +78,7 @@ export function AccountMenu({ onOpenChannelPicker, onOpenAdmin, onReload, isMobi
   const hideActivityHintId = useId()
   const chatPreviews = useUIStore((s) => s.chatPreviews)
   const setChatPreviews = useUIStore((s) => s.setChatPreviews)
-  // Only where there is chat over the video: not without chat, nor on the TV layout
-  const chatEnabled = useChatEnabled()
+  // Only where there is chat over the video: not without chat (chatEnabled), nor on the TV layout
   const isTVMode = useTVMode()
   const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
   const setNHLOverlayVisible = useUIStore((s) => s.setNHLOverlayVisible)
