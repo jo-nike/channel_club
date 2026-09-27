@@ -452,3 +452,79 @@ describe('PlayerInfoOverlay: NHL ticker', () => {
     expect(ticker()).not.toBeInTheDocument()
   })
 })
+
+describe('PlayerInfoOverlay: channel keys preview', () => {
+  const hidden = { controlsVisible: false }
+  const channel2: UnifiedChannel = { ...cinema, id: 'e2', name: 'Cartoons', number: 2, logoUrl: undefined }
+
+  const renderWithPending = (channel: UnifiedChannel | null, pending: UnifiedChannel | null) => {
+    const view = render(
+      <PlayerShellContext value={makeShell(hidden)}>
+        <PlayerInfoOverlay channel={channel} pending={pending} />
+      </PlayerShellContext>
+    )
+    return {
+      ...view,
+      update: (nextChannel: UnifiedChannel | null, nextPending: UnifiedChannel | null) =>
+        view.rerender(
+          <PlayerShellContext value={makeShell(hidden)}>
+            <PlayerInfoOverlay channel={nextChannel} pending={nextPending} />
+          </PlayerShellContext>
+        ),
+    }
+  }
+
+  it('shows the channel being stepped to at once, with the controls hidden, before it is tuned', () => {
+    const { update } = renderWithPending(cinema, null)
+    waitOutTuneBanner()
+    expect(rail()).toHaveClass('opacity-0')
+
+    update(cinema, channel2)
+
+    expect(rail()).toHaveClass('opacity-100')
+    expect(rail()).toHaveTextContent('2')
+    expect(rail()).toHaveTextContent('Cartoons')
+    expect(rail()).not.toHaveTextContent('Cinema')
+  })
+
+  it("shows what is on the previewed channel, not the playing one's programme", () => {
+    renderWithPending(liveSlot('TSN 5'), cinema)
+
+    expect(rail()).toHaveTextContent('Cinema')
+    expect(rail()).toHaveTextContent('The Two Towers · 32m left')
+  })
+
+  it('stays up for the whole preview, then hands over to the tune banner', () => {
+    const { update } = renderWithPending(cinema, null)
+    waitOutTuneBanner()
+
+    update(cinema, channel2)
+    advance(10_000)
+    expect(rail()).toHaveClass('opacity-100')
+
+    // The tune lands as the preview ends: the new channel gets its 4s
+    update(channel2, null)
+    expect(rail()).toHaveTextContent('Cartoons')
+    advance(3999)
+    expect(rail()).toHaveClass('opacity-100')
+    advance(1)
+    expect(rail()).toHaveClass('opacity-0')
+  })
+
+  it('stepping back to the playing channel ends the preview without a tune banner', () => {
+    const { update } = renderWithPending(cinema, null)
+    waitOutTuneBanner()
+
+    update(cinema, channel2)
+    update(cinema, null)
+
+    expect(rail()).toHaveTextContent('Cinema')
+    expect(rail()).toHaveClass('opacity-0')
+  })
+
+  it('shows a preview before the player has a channel', () => {
+    renderWithPending(null, channel2)
+
+    expect(rail()).toHaveTextContent('Cartoons')
+  })
+})

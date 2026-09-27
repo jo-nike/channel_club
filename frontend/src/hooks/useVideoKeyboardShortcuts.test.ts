@@ -358,6 +358,121 @@ describe('useVideoKeyboardShortcuts', () => {
     expect(mockProps.onVolumeChange).not.toHaveBeenCalled()
   })
 
+  describe('channel keys', () => {
+    const press = (target: EventTarget, key: string, init: KeyboardEventInit = {}) => {
+      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init })
+      target.dispatchEvent(event)
+      return event
+    }
+
+    it.each([
+      ['PageUp', 1],
+      [']', 1],
+      ['PageDown', -1],
+      ['[', -1],
+    ] as const)('%s steps the channel by %i without scrolling the page', (key, dir) => {
+      const onChannelStep = vi.fn()
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onChannelStep }))
+
+      const event = press(window, key)
+
+      expect(onChannelStep).toHaveBeenCalledTimes(1)
+      expect(onChannelStep).toHaveBeenCalledWith(dir)
+      expect(event.defaultPrevented).toBe(true)
+    })
+
+    it.each(['l', 'L'])('%s goes back to the last channel', (key) => {
+      const onLastChannel = vi.fn()
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onLastChannel }))
+
+      press(window, key)
+
+      expect(onLastChannel).toHaveBeenCalledTimes(1)
+    })
+
+    it('work with focus on a sidebar channel button outside the player', () => {
+      const onChannelStep = vi.fn()
+      const onLastChannel = vi.fn()
+      const button = document.createElement('button')
+      document.body.appendChild(button)
+      button.focus()
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onChannelStep, onLastChannel }))
+
+      for (const key of ['PageDown', ']', 'l']) press(button, key)
+
+      expect(onChannelStep.mock.calls).toEqual([[-1], [1]])
+      expect(onLastChannel).toHaveBeenCalledTimes(1)
+      document.body.removeChild(button)
+    })
+
+    it('still work in TV mode, where only Up/Down step aside', () => {
+      const onChannelStep = vi.fn()
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onChannelStep, ignoreVerticalArrows: true }))
+
+      press(window, 'ArrowUp')
+      press(window, 'PageDown')
+
+      expect(onChannelStep).toHaveBeenCalledTimes(1)
+      expect(onChannelStep).toHaveBeenCalledWith(-1)
+      expect(mockProps.onVolumeChange).not.toHaveBeenCalled()
+    })
+
+    it('are left to text fields and dialogs', () => {
+      const onChannelStep = vi.fn()
+      const onLastChannel = vi.fn()
+      const input = document.createElement('input')
+      const dialog = document.createElement('div')
+      dialog.setAttribute('role', 'dialog')
+      const inDialog = document.createElement('button')
+      dialog.append(inDialog)
+      document.body.append(input, dialog)
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onChannelStep, onLastChannel }))
+
+      for (const target of [input, inDialog]) {
+        target.focus()
+        for (const key of ['PageUp', '[', 'l']) {
+          expect(press(target, key).defaultPrevented).toBe(false)
+        }
+      }
+
+      expect(onChannelStep).not.toHaveBeenCalled()
+      expect(onLastChannel).not.toHaveBeenCalled()
+      document.body.removeChild(input)
+      document.body.removeChild(dialog)
+    })
+
+    it('ignore modifiers (Ctrl+PageUp switches browser tabs)', () => {
+      const onChannelStep = vi.fn()
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onChannelStep }))
+
+      press(window, 'PageUp', { ctrlKey: true })
+      press(window, 'PageDown', { altKey: true })
+      press(window, ']', { metaKey: true })
+
+      expect(onChannelStep).not.toHaveBeenCalled()
+    })
+
+    it('leaves keys with no action alone, so two instances can split the map', () => {
+      renderHook(() => useVideoKeyboardShortcuts(mockProps))
+      const onChannelStep = vi.fn()
+      renderHook(() => useVideoKeyboardShortcuts({ containerRef: { current: container }, onChannelStep }))
+
+      expect(press(window, 'PageUp').defaultPrevented).toBe(true)
+      expect(press(window, ' ').defaultPrevented).toBe(true)
+      press(window, 'ArrowUp')
+
+      expect(onChannelStep).toHaveBeenCalledTimes(1)
+      expect(mockProps.onPlayPause).toHaveBeenCalledTimes(1)
+      expect(mockProps.onVolumeChange).toHaveBeenCalledTimes(1)
+    })
+
+    it('an instance without channel actions leaves PageUp to the page', () => {
+      renderHook(() => useVideoKeyboardShortcuts(mockProps))
+
+      expect(press(window, 'PageUp').defaultPrevented).toBe(false)
+    })
+  })
+
   it('FE-09 respects an already handled player-surface event', () => {
     renderHook(() => useVideoKeyboardShortcuts(mockProps))
     const event = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true })

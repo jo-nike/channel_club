@@ -19,6 +19,8 @@ const LIVE_CHANGE_BANNER_MS = 5000
 interface PlayerInfoOverlayProps {
   /** The channel the player is on; null before the TV store has one */
   channel: UnifiedChannel | null
+  /** A channel stepped to with the channel keys but not tuned yet */
+  pending?: UnifiedChannel | null
 }
 
 /**
@@ -34,8 +36,11 @@ interface PlayerInfoOverlayProps {
  * rail: the ticker and the engine's sound-off pill move down while the rail is
  * up, so they never overlap it. TV theater has its own channel banner
  * (ZapBanner) in that corner, so the rail stays out of it there.
+ *
+ * While the viewer steps through channels, the rail shows the channel they
+ * are heading for at once; the tune itself waits until they stop pressing.
  */
-export function PlayerInfoOverlay({ channel }: PlayerInfoOverlayProps) {
+export function PlayerInfoOverlay({ channel, pending = null }: PlayerInfoOverlayProps) {
   const { controlsVisible, isTheaterMode, setInfoRailVisible } = usePlayerShell()
   const isTVMode = useTVMode()
   const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
@@ -84,8 +89,9 @@ export function PlayerInfoOverlay({ channel }: PlayerInfoOverlayProps) {
     return () => clearTimeout(timer)
   }, [liveChange])
 
-  const hasRail = channel !== null && !(isTVMode && isTheaterMode)
-  const isRailVisible = hasRail && (controlsVisible || isTuneBanner || liveChange !== null)
+  const railChannel = pending ?? channel
+  const hasRail = railChannel !== null && !(isTVMode && isTheaterMode)
+  const isRailVisible = hasRail && (controlsVisible || isTuneBanner || liveChange !== null || pending !== null)
 
   // The engine's sound-off pill moves under the rail while it is up
   useEffect(() => {
@@ -95,7 +101,14 @@ export function PlayerInfoOverlay({ channel }: PlayerInfoOverlayProps) {
 
   return (
     <>
-      {hasRail && <InfoRail channel={channel} isVisible={isRailVisible} liveChange={liveChange} />}
+      {/* A live change is about the channel playing, not one being previewed */}
+      {hasRail && (
+        <InfoRail
+          channel={railChannel}
+          isVisible={isRailVisible}
+          liveChange={pending ? null : liveChange}
+        />
+      )}
       <NHLScoresOverlay isVisible={isNHLOverlayVisible} belowRail={isRailVisible} />
     </>
   )

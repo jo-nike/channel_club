@@ -17,11 +17,12 @@ const socket = vi.hoisted(() => ({ status: 'connected', reconnect: () => {} }))
 const chatProps = vi.hoisted(() => ({ last: null as null | { status?: string; onReconnect?: () => void; variant?: string } }))
 const auth = vi.hoisted(() => ({ isAdmin: false }))
 const appSettings = vi.hoisted(() => ({ userChannelSelection: false }))
-const playerProps = vi.hoisted(() => ({ onPickLive: undefined as undefined | (() => void), renders: 0, reloadKey: undefined as undefined | number, mounts: 0 }))
+const playerProps = vi.hoisted(() => ({ onPickLive: undefined as undefined | (() => void), renders: 0, reloadKey: undefined as undefined | number, mounts: 0, zap: undefined as undefined | ChannelZap }))
 const guide = vi.hoisted(() => ({ onProgrammeClick: undefined as undefined | ((programme: ErsatzTVProgramme, channel: UnifiedChannel) => void) }))
 const modal = vi.hoisted(() => ({ last: null as null | { programme: ErsatzTVProgramme | null; channel: { id: string; name: string } | null; open: boolean; onWatch: (channel: { id: string; name: string }) => void } }))
 vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn(), fetchLiveProgrammes: vi.fn(async () => ({ channelId: '', programmes: [] })) }))
 import type { ErsatzTVProgramme, UnifiedChannel } from '@/types'
+import type { ChannelZap } from '@/hooks/useChannelZap'
 
 vi.mock('@/services/ersatztvApi', () => ({ fetchErsatzTVChannels: vi.fn(), fetchErsatzTVCurrentProgramme: vi.fn(), getErsatzTVLogoUrl: vi.fn() }))
 vi.mock('@/hooks/useWebSocket', () => ({ useWebSocket: () => ({ status: socket.status, reconnect: socket.reconnect, sendChannelUpdate: presence, sendChatMessage: vi.fn(), sendSetNickname: vi.fn() }) }))
@@ -32,9 +33,10 @@ vi.mock('@/components/LiveChannelPickerDialog', () => ({ LiveChannelPickerDialog
 ) }))
 vi.mock('@/components/tv/DualModeVideoPlayer', async () => {
   const { useEffect } = await import('react')
-  return { DualModeVideoPlayer: ({ channel, onPickLive, reloadKey }: { channel: UnifiedChannel | null; onPickLive?: () => void; reloadKey?: number }) => {
+  return { DualModeVideoPlayer: ({ channel, onPickLive, reloadKey, zap }: { channel: UnifiedChannel | null; onPickLive?: () => void; reloadKey?: number; zap?: ChannelZap }) => {
     playerProps.onPickLive = onPickLive
     playerProps.reloadKey = reloadKey
+    playerProps.zap = zap
     playerProps.renders += 1
     useEffect(() => { playerProps.mounts += 1 }, [])
     if (crash.player) throw new Error('player exploded')
@@ -879,5 +881,49 @@ describe('E-10 Escape closes chat before leaving theater', () => {
 
     expect(exitFullscreen).toHaveBeenCalledTimes(1)
     expect(useChatStore.getState().isOpen).toBe(true)
+  })
+})
+
+describe('C-07 channel keys', () => {
+  const lineup = [1, 2, 3].map((n) => ({ id: `e${n}`, name: `Channel ${n}`, number: n, streamUrl: `/e${n}`, group: '' }))
+
+  beforeEach(() => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue(lineup)
+    vi.mocked(api.fetchErsatzTVCurrentProgramme).mockResolvedValue({ current: null, next: null })
+    useErsatztvStore.setState({ channels: lineup, loadAllProgrammes: vi.fn().mockResolvedValue(undefined) })
+    useUIStore.setState({ lastTVChannelId: 'e1' })
+  })
+
+  const selected = () => useTVStore.getState().selectedChannel?.id
+
+  it("hands the player the page's zap, whose steps tune the TV store once the presses stop", async () => {
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(selected()).toBe('e1'))
+    vi.useFakeTimers()
+
+    act(() => {
+      playerProps.zap?.step(1)
+      playerProps.zap?.step(1)
+    })
+    expect(playerProps.zap?.pending?.id).toBe('e3')
+    expect(selected()).toBe('e1')
+
+    act(() => {
+      vi.advanceTimersByTime(700)
+    })
+    expect(selected()).toBe('e3')
+    expect(playerProps.zap?.pending).toBeNull()
+  })
+
+  it("L tunes the TV store's previous channel", async () => {
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(selected()).toBe('e1'))
+    const e3 = useTVStore.getState().getUnifiedChannels().find((c) => c.id === 'e3')
+    if (!e3) throw new Error('no e3')
+    act(() => useTVStore.getState().selectChannel(e3))
+
+    act(() => playerProps.zap?.tuneLast())
+
+    expect(selected()).toBe('e1')
   })
 })

@@ -1,20 +1,29 @@
 import { useEffect, useCallback } from 'react'
 import type { RefObject } from 'react'
 
+/**
+ * Every action is optional, so the playback keys can live with the engine
+ * that plays and the channel keys with the shell, which is there even when no
+ * engine is (the empty live slot). A key with no action is left alone.
+ */
 interface UseVideoKeyboardShortcutsOptions {
   containerRef: RefObject<HTMLElement | null>
-  onPlayPause: () => void
-  onMuteToggle: () => void
-  onFullscreenToggle: () => void
-  onTheaterModeToggle: () => void
+  onPlayPause?: () => void
+  onMuteToggle?: () => void
+  onFullscreenToggle?: () => void
+  onTheaterModeToggle?: () => void
   /** Start the stream again (R), as the player's Reload does */
-  onRetry: () => void
-  onVolumeChange: (volume: number) => void
+  onRetry?: () => void
+  onVolumeChange?: (volume: number) => void
   /** Unmute at the saved level (volume up while muted) */
-  onUnmute: () => void
+  onUnmute?: () => void
   /** Saved level, kept while muted */
-  volume: number
-  isMuted: boolean
+  volume?: number
+  isMuted?: boolean
+  /** Channel up (+1: PageUp, ]) or down (-1: PageDown, [) */
+  onChannelStep?: (dir: 1 | -1) => void
+  /** Back to the channel watched before this one (L) */
+  onLastChannel?: () => void
   /** Leave ArrowUp/ArrowDown alone (TV mode, where they belong to channel changes) */
   ignoreVerticalArrows?: boolean
 }
@@ -30,8 +39,8 @@ const BUTTON_SELECTOR = 'button, [role="button"]'
 const ACTIVATION_KEYS = new Set([' ', 'Enter'])
 // Space and the arrows act on the player itself, so they need focus in the
 // player or on nothing: elsewhere they scroll the page or move focus in a list.
-// Every other shortcut is a single letter that nothing else on the page uses,
-// so it also works with focus on a channel button just clicked.
+// Every other shortcut is a single key that nothing else on the page uses, so
+// it also works with focus on a channel button just clicked.
 const PLAYER_KEYS = new Set([' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
 
 function matches(target: EventTarget | null, selector: string) {
@@ -47,8 +56,10 @@ export function useVideoKeyboardShortcuts({
   onRetry,
   onVolumeChange,
   onUnmute,
-  volume,
-  isMuted,
+  volume = 0,
+  isMuted = false,
+  onChannelStep,
+  onLastChannel,
   ignoreVerticalArrows = false,
 }: UseVideoKeyboardShortcutsOptions) {
   const handleKeyDown = useCallback(
@@ -76,43 +87,61 @@ export function useVideoKeyboardShortcuts({
 
       switch (e.key) {
         case ' ': // Space - Play/Pause
+          if (!onPlayPause) break
           e.preventDefault()
           onPlayPause()
           break
 
         case 'm':
         case 'M': // M - Mute toggle
-          onMuteToggle()
+          onMuteToggle?.()
           break
 
         case 'f':
         case 'F': // F - Fullscreen toggle
-          onFullscreenToggle()
+          onFullscreenToggle?.()
           break
 
         case 't':
         case 'T': // T - Theater mode toggle
-          onTheaterModeToggle()
+          onTheaterModeToggle?.()
           break
 
         case 'r':
         case 'R': // R - Reload the stream
-          onRetry()
+          onRetry?.()
           break
 
         case 'ArrowUp': // Arrow Up - Volume up
         case 'ArrowRight': // Arrow Right - Volume up (alias)
+          if (!onVolumeChange) break
           e.preventDefault()
           // From mute, come back at the saved level rather than stepping up from zero
-          if (isMuted) onUnmute()
+          if (isMuted) onUnmute?.()
           else onVolumeChange(Math.min(1, volume + VOLUME_STEP))
           break
 
         case 'ArrowDown': // Arrow Down - Volume down
         case 'ArrowLeft': // Arrow Left - Volume down (alias)
+          if (!onVolumeChange) break
           e.preventDefault()
           // Already silent: keep the mute and the saved level
           if (!isMuted) onVolumeChange(Math.max(0, volume - VOLUME_STEP))
+          break
+
+        case 'PageUp': // PageUp or ] - Channel up (webOS CH+ arrives as PageUp)
+        case ']':
+        case 'PageDown': // PageDown or [ - Channel down
+        case '[':
+          if (!onChannelStep) break
+          // Not a page scroll as well
+          e.preventDefault()
+          onChannelStep(e.key === 'PageUp' || e.key === ']' ? 1 : -1)
+          break
+
+        case 'l':
+        case 'L': // L - Last channel
+          onLastChannel?.()
           break
 
         default:
@@ -130,6 +159,8 @@ export function useVideoKeyboardShortcuts({
       onUnmute,
       volume,
       isMuted,
+      onChannelStep,
+      onLastChannel,
       ignoreVerticalArrows,
     ]
   )

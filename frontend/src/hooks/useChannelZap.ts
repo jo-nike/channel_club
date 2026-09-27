@@ -6,17 +6,21 @@ interface UseChannelZapOptions {
   getChannels: () => UnifiedChannel[]
   /** The channel currently playing. */
   selected: UnifiedChannel | null
+  /** The channel watched before this one (tvStore.previousChannelId), for tuneLast. */
+  previousId?: string | null
   /** Tunes to a channel once the viewer stops pressing. */
   onTune: (channel: UnifiedChannel) => void
   /** How long after the last step to tune. */
   delayMs?: number
 }
 
-interface UseChannelZap {
+export interface ChannelZap {
   /** The channel the viewer has stepped to but not tuned yet, or null. */
   pending: UnifiedChannel | null
   /** Steps one channel up (+1, next higher number) or down (-1), wrapping. */
   step: (dir: 1 | -1) => void
+  /** Tunes straight back to the previous channel, dropping any step in progress. */
+  tuneLast: () => void
 }
 
 /**
@@ -25,21 +29,22 @@ interface UseChannelZap {
  * has stopped pressing for `delayMs`. Tuning remounts the player, starts a new
  * ErsatzTV session and sends a presence update, so a burst of presses must
  * cost one tune, not one per press. Stepping back to the playing channel
- * doesn't tune at all.
+ * doesn't tune at all. The last-channel key tunes at once: it is one press.
  */
 export function useChannelZap({
   getChannels,
   selected,
+  previousId = null,
   onTune,
   delayMs = 700,
-}: UseChannelZapOptions): UseChannelZap {
+}: UseChannelZapOptions): ChannelZap {
   const [pending, setPending] = useState<UnifiedChannel | null>(null)
   const pendingRef = useRef<UnifiedChannel | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const latest = useRef({ getChannels, selected, onTune, delayMs })
+  const latest = useRef({ getChannels, selected, previousId, onTune, delayMs })
 
   useEffect(() => {
-    latest.current = { getChannels, selected, onTune, delayMs }
+    latest.current = { getChannels, selected, previousId, onTune, delayMs }
   })
 
   useEffect(
@@ -77,5 +82,15 @@ export function useChannelZap({
     }, delayMs)
   }, [])
 
-  return { pending, step }
+  const tuneLast = useCallback(() => {
+    const { getChannels, selected, previousId, onTune } = latest.current
+    if (timerRef.current) clearTimeout(timerRef.current)
+    timerRef.current = null
+    pendingRef.current = null
+    const last = previousId ? getChannels().find((c) => c.id === previousId) : undefined
+    if (last && last.id !== selected?.id) onTune(last)
+    setPending(null)
+  }, [])
+
+  return { pending, step, tuneLast }
 }

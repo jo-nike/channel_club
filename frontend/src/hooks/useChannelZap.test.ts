@@ -15,11 +15,11 @@ const channel = (number: number): UnifiedChannel => ({
 const channels = [0, 1, 2, 3, 4, 5].map(channel)
 const getChannels = () => channels
 
-function setup(selected: UnifiedChannel | null, delayMs?: number) {
+function setup(selected: UnifiedChannel | null, delayMs?: number, previousId: string | null = null) {
   const onTune = vi.fn<(channel: UnifiedChannel) => void>()
   const hook = renderHook(
-    ({ selected }) => useChannelZap({ getChannels, selected, onTune, delayMs }),
-    { initialProps: { selected } }
+    ({ selected, previousId }) => useChannelZap({ getChannels, selected, previousId, onTune, delayMs }),
+    { initialProps: { selected, previousId } }
   )
   return { onTune, ...hook }
 }
@@ -109,7 +109,7 @@ describe('useChannelZap', () => {
 
     act(() => result.current.step(1))
     act(() => { vi.advanceTimersByTime(700) })
-    rerender({ selected: channels[2] })
+    rerender({ selected: channels[2], previousId: null })
     act(() => result.current.step(1))
     act(() => { vi.advanceTimersByTime(700) })
 
@@ -134,6 +134,64 @@ describe('useChannelZap', () => {
     act(() => { vi.advanceTimersByTime(200) })
 
     expect(onTune).toHaveBeenCalledWith(channels[2])
+  })
+
+  it('channel down three times (PageDown x3) tunes once, three channels down, after 700ms idle', () => {
+    const { result, onTune } = setup(channels[5])
+
+    act(() => result.current.step(-1))
+    act(() => result.current.step(-1))
+    act(() => result.current.step(-1))
+    expect(result.current.pending).toBe(channels[2])
+    act(() => { vi.advanceTimersByTime(699) })
+    expect(onTune).not.toHaveBeenCalled()
+
+    act(() => { vi.advanceTimersByTime(1) })
+    expect(onTune).toHaveBeenCalledTimes(1)
+    expect(onTune).toHaveBeenCalledWith(channels[2])
+  })
+
+  describe('tuneLast', () => {
+    it('tunes the previous channel at once', () => {
+      const { result, onTune } = setup(channels[4], undefined, 'ch-1')
+
+      act(() => result.current.tuneLast())
+
+      expect(onTune).toHaveBeenCalledTimes(1)
+      expect(onTune).toHaveBeenCalledWith(channels[1])
+    })
+
+    it('goes back and forth as the previous channel follows each tune', () => {
+      const { result, onTune, rerender } = setup(channels[4], undefined, 'ch-1')
+
+      act(() => result.current.tuneLast())
+      rerender({ selected: channels[1], previousId: 'ch-4' })
+      act(() => result.current.tuneLast())
+
+      expect(onTune.mock.calls).toEqual([[channels[1]], [channels[4]]])
+    })
+
+    it('drops a step in progress instead of tuning it too', () => {
+      const { result, onTune } = setup(channels[4], undefined, 'ch-1')
+
+      act(() => result.current.step(1))
+      act(() => result.current.tuneLast())
+      expect(result.current.pending).toBeNull()
+      act(() => { vi.advanceTimersByTime(700) })
+
+      expect(onTune).toHaveBeenCalledTimes(1)
+      expect(onTune).toHaveBeenCalledWith(channels[1])
+    })
+
+    it('does nothing without a previous channel, or when it is no longer listed', () => {
+      const none = setup(channels[4])
+      act(() => none.result.current.tuneLast())
+      expect(none.onTune).not.toHaveBeenCalled()
+
+      const gone = setup(channels[4], undefined, 'ch-99')
+      act(() => gone.result.current.tuneLast())
+      expect(gone.onTune).not.toHaveBeenCalled()
+    })
   })
 
   it('does not tune after unmounting', () => {
