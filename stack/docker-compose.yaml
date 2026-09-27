@@ -29,6 +29,11 @@ services:
       - "8334:8080"
     env_file:
       - .env
+    # Reach Dispatcharr over the WireGuard tunnel (the VPS is 10.8.0.2). Its M3U/EPG
+    # endpoints only admit allow-listed addresses, and the home public IP is dynamic;
+    # the VPN range is allowed. Browsers still resolve streams.example.com publicly.
+    extra_hosts:
+      - "streams.example.com:10.8.0.2"
     restart: unless-stopped
     logging: *bounded-logging
     healthcheck:
