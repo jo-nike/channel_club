@@ -246,7 +246,7 @@ describe('ChatPanel', () => {
 
       // Two 30s ticks of the shared clock
       act(() => { vi.advanceTimersByTime(60_000) })
-      const clock = sentAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      const clock = sentAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
       expect(screen.queryByText('just now')).not.toBeInTheDocument()
       expect(screen.getByText(clock)).toBeInTheDocument()
     } finally {
@@ -275,7 +275,7 @@ describe('ChatPanel', () => {
       act(() => useChatStore.setState({ isOpen: true }))
       act(() => { vi.advanceTimersByTime(0) })
       expect(clockTicks()).toBe(1)
-      const clock = sentAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      const clock = sentAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
       expect(screen.queryByText('just now')).not.toBeInTheDocument()
       expect(screen.getByText(clock)).toBeInTheDocument()
     } finally {

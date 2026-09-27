@@ -850,10 +850,27 @@ describe('TVChannelSidebar programme progress', () => {
     render(<TVChannelSidebar />)
     await act(async () => {})
 
-    const startsAt = new Date(NOW + 65 * MINUTE).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    const startsAt = new Date(NOW + 65 * MINUTE).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
     const nextLine = within(row()).getByText(`Next ${startsAt} · Late Movie`)
     // After the bar and its time-left label
     expect(nextLine.previousElementSibling).toHaveTextContent('1h 5m left')
+  })
+
+  it('writes the Next time without a leading zero, like the guide', async () => {
+    // Local times, so the hour is 1 PM in any timezone
+    vi.setSystemTime(new Date(2026, 8, 26, 12, 0))
+    useErsatztvStore.setState({
+      programmesByChannel: {
+        etv1: [
+          { id: 'p1', channelId: 'etv1', title: 'Evening News', start: new Date(2026, 8, 26, 11, 30).toISOString(), stop: new Date(2026, 8, 26, 13, 52).toISOString() },
+          { id: 'p2', channelId: 'etv1', title: 'Chappie', start: new Date(2026, 8, 26, 13, 52).toISOString(), stop: new Date(2026, 8, 26, 15, 52).toISOString() },
+        ],
+      },
+    })
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+
+    expect(within(row()).getByText(/^Next /).textContent).toMatch(/^Next 1:52\sPM · Chappie$/)
   })
 
   it('shows what comes after a gap on the Next line', async () => {

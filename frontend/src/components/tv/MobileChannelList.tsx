@@ -13,11 +13,8 @@ import { ChannelPresenceStack } from '@/components/tv/ChannelPresenceStack'
 import { usePresenceByChannel } from '@/hooks/usePresenceByChannel'
 import { useFilteredChannels } from '@/hooks/useFilteredChannels'
 import { ChannelFilterBar, NoChannelsMatch } from '@/components/tv/ChannelFilterBar'
-import { cn } from '@/lib/utils'
+import { cn, formatClockTime } from '@/lib/utils'
 import type { ErsatzTVProgramme, UnifiedChannel } from '@/types'
-
-// Created once: the Next lines and schedules format times on every tick
-const timeFormat = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' })
 
 const NOTHING_ON: CurrentAndNext = { current: null, next: null }
 
@@ -189,7 +186,7 @@ export function MobileChannelList({
                     don't grow when the schedule arrives */}
                 {(!isLive || hasLiveChannel) && (
                   <p className="mt-1 h-4 truncate text-xs leading-4 text-muted-foreground">
-                    {next && `Next ${timeFormat.format(next.startMs)} · ${next.programme.title}`}
+                    {next && `Next ${formatClockTime(next.startMs)} · ${next.programme.title}`}
                   </p>
                 )}
               </div>
@@ -285,11 +282,11 @@ function ChannelSchedule({ id, channelName, schedule, onProgrammeClick }: Channe
             type="button"
             onClick={() => onProgrammeClick(programme)}
             // The time and title are separate boxes with no space between
-            aria-label={`${timeFormat.format(startMs)} ${programme.title}`}
+            aria-label={`${formatClockTime(startMs)} ${programme.title}`}
             className="flex min-h-11 w-full items-center gap-3 rounded-md px-2 text-left text-sm transition-colors hover:bg-accent"
           >
             <span className="min-w-12 shrink-0 font-display font-bold tabular-nums text-muted-foreground">
-              {timeFormat.format(startMs)}
+              {formatClockTime(startMs)}
             </span>
             <span className="min-w-0 truncate">{programme.title}</span>
           </button>

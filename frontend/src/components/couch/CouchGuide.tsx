@@ -10,7 +10,7 @@ import { calculateProgress } from '@/lib/programmes'
 import { getRemoteAction } from '@/lib/remoteKeys'
 import { ChannelLogo } from '@/components/ChannelLogo'
 import { LivePill } from '@/components/LivePill'
-import { cn } from '@/lib/utils'
+import { cn, formatClockTime } from '@/lib/utils'
 import type { EPGResponse, UnifiedChannel } from '@/types'
 
 interface CouchGuideProps {
@@ -24,9 +24,6 @@ interface CouchGuideProps {
 
 const getChannelId = (channel: UnifiedChannel) => channel.id
 
-// Created once: every row formats its Next time on every clock tick
-const nextTimeFormat = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' })
-
 /** What a row shows under its name */
 interface RowGuide {
   now: string
@@ -36,7 +33,7 @@ interface RowGuide {
 }
 
 function formatNext(startMs: number, title: string) {
-  return `${nextTimeFormat.format(startMs)} ${title}`
+  return `${formatClockTime(startMs)} ${title}`
 }
 
 function liveRowGuide(

@@ -93,9 +93,17 @@ describe('ChatMessage', () => {
     expect(screen.getByText('just now')).toBeInTheDocument()
 
     rerender(<ChatMessage message={message} now={NOW + 60_000} />)
-    const clock = new Date(NOW).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    const clock = new Date(NOW).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
     expect(screen.queryByText('just now')).not.toBeInTheDocument()
     expect(screen.getByText(clock)).toBeInTheDocument()
+  })
+
+  it('writes the clock time without a leading zero, like the guide', () => {
+    // Local time, so the hour is 1 PM in any timezone
+    const sentAt = new Date(2026, 0, 8, 13, 28)
+    const message = createMessage({ timestamp: sentAt.toISOString() })
+    render(<ChatMessage message={message} now={sentAt.getTime() + 5 * 60_000} />)
+    expect(screen.getByText(/^1:28\sPM$/)).toBeInTheDocument()
   })
 
   it('times a message from the now it is given, not the wall clock', () => {
