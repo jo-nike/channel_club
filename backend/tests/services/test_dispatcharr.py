@@ -5,11 +5,18 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from app.models.channel import Channel
+from app.models.channel import (
+    Channel,
+    DispatchrrChannelGroup,
+    DispatchrrFullChannel,
+    GroupedChannelsResponse,
+)
 from app.services.dispatcharr import (
     DispatchrrUnavailableError,
+    _build_grouped_channels,
     dispatcharr_auth_headers,
     extract_uuid,
+    format_channel_number,
     get_channel_groups,
     get_lineup,
 )
@@ -250,3 +257,91 @@ class TestGetLineup:
                 await get_lineup()
 
         mock_client.get.assert_called_once_with("http://10.8.0.2:9191/hdhr/lineup.json")
+
+
+class TestFormatChannelNumber:
+    """Tests for format_channel_number, which mirrors Dispatcharr's formatting."""
+
+    def test_whole_number_has_no_decimal_part(self) -> None:
+        assert format_channel_number(28) == "28"
+        assert format_channel_number(7.0) == "7"
+
+    def test_fractional_number_keeps_its_decimal_part(self) -> None:
+        assert format_channel_number(5.1) == "5.1"
+
+    def test_missing_number_is_none(self) -> None:
+        assert format_channel_number(None) is None
+
+
+class TestBuildGroupedChannels:
+    """Tests for the grouped catalogue's guide ids."""
+
+    @staticmethod
+    async def _build(raw_channels: list[dict[str, object]]) -> GroupedChannelsResponse:
+        # Validate the raw Dispatcharr JSON the way get_channels_with_groups does
+        channels = [DispatchrrFullChannel.model_validate(c) for c in raw_channels]
+        groups = [DispatchrrChannelGroup(id=1, name="Sports", channel_count=len(channels))]
+        with (
+            patch(
+                "app.services.dispatcharr.get_channel_groups",
+                new=AsyncMock(return_value=groups),
+            ),
+            patch(
+                "app.services.dispatcharr.get_channels_with_groups",
+                new=AsyncMock(return_value=channels),
+            ),
+        ):
+            return await _build_grouped_channels()
+
+    @staticmethod
+    def _guide_ids(response: GroupedChannelsResponse) -> dict[str, str]:
+        channels = [c for g in response.groups for c in g.channels] + response.ungrouped
+        return {c.name: c.guide_id for c in channels}
+
+    @pytest.mark.asyncio
+    async def test_guide_id_is_the_formatted_channel_number(self) -> None:
+        """Guide ids match Dispatcharr's XMLTV channel ids, not its database ids."""
+        response = await self._build(
+            [
+                {
+                    "id": 101,
+                    "name": "TSN 5",
+                    "channel_number": 28,
+                    "channel_group_id": 1,
+                    "uuid": "uuid-28",
+                },
+                {
+                    "id": 102,
+                    "name": "CBC",
+                    "channel_number": 7.0,
+                    "channel_group_id": 1,
+                    "uuid": "uuid-7",
+                },
+                {
+                    "id": 103,
+                    "name": "TVA",
+                    "channel_number": 5.1,
+                    "channel_group_id": None,
+                    "uuid": "uuid-5-1",
+                },
+            ]
+        )
+
+        assert self._guide_ids(response) == {"TSN 5": "28", "CBC": "7", "TVA": "5.1"}
+
+    @pytest.mark.asyncio
+    async def test_guide_id_falls_back_to_database_id_without_a_number(self) -> None:
+        """A channel with no number is keyed by its id, as Dispatcharr's XMLTV does."""
+        response = await self._build(
+            [
+                {
+                    "id": 42,
+                    "name": "Unnumbered",
+                    "channel_number": None,
+                    "channel_group_id": 1,
+                    "uuid": "uuid-42",
+                }
+            ]
+        )
+
+        assert self._guide_ids(response) == {"Unnumbered": "42"}

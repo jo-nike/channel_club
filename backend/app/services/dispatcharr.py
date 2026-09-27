@@ -198,6 +198,20 @@ async def get_grouped_channels() -> GroupedChannelsResponse:
         return result
 
 
+def format_channel_number(value: float | None) -> str | None:
+    """Format a channel number the way Dispatcharr writes it into its outputs.
+
+    Mirrors Dispatcharr's apps/channels/utils.format_channel_number: a whole
+    number renders without a decimal part ("7" for 7.0), a fractional one as
+    the float ("5.1"). Returns None when the channel has no number.
+    """
+    if value is None:
+        return None
+    if value == int(value):
+        return str(int(value))
+    return str(value)
+
+
 async def _build_grouped_channels() -> GroupedChannelsResponse:
     # Fetch groups and channels concurrently
     groups, channels = await asyncio.gather(get_channel_groups(), get_channels_with_groups())
@@ -219,7 +233,9 @@ async def _build_grouped_channels() -> GroupedChannelsResponse:
             id=ch.uuid,
             name=ch.name,
             stream_url=f"{settings.stream_base_url}/proxy/ts/stream/{ch.uuid}",
-            guide_id=str(ch.id),  # Use Dispatcharr ID as guide_id
+            # Dispatcharr's XMLTV (default tvg_id_source) and HDHR Guide_ID key a
+            # channel by its number, falling back to the database id without one
+            guide_id=format_channel_number(ch.channel_number) or str(ch.id),
         )
 
         if ch.channel_group_id and ch.channel_group_id in groups_map:
