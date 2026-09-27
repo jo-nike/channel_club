@@ -1,4 +1,4 @@
-import { Fragment, useRef, useEffect, useLayoutEffect, useState, useCallback, type KeyboardEvent, type UIEvent } from 'react'
+import { Fragment, useRef, useEffect, useLayoutEffect, useEffectEvent, useState, useCallback, type KeyboardEvent, type UIEvent } from 'react'
 import { X, Send, Pencil, Loader2, AlertCircle, WifiOff, ArrowDown, MessageCircle } from 'lucide-react'
 import type { ChatSendResult, WebSocketStatus } from '@/hooks/useWebSocket'
 import { createClientMessageId } from '@/lib/messageId'
@@ -18,9 +18,11 @@ import { ScrollArea } from '@/components/ui/scroll-area'
  * - docked: a column beside the player that the picture shrinks for (desktop)
  * - sheet: over the right of the content, below the header (tablets)
  * - overlay: a drawer over the right edge (theater, phone landscape)
- * - takeover: the whole screen (phones)
+ * - takeover: the whole screen (a phone without the Chat tab)
+ * - inline: the phone's Chat tab under the pinned player, filling the tab
+ *   panel; the tab strip opens and closes it
  */
-export type ChatPanelVariant = 'docked' | 'sheet' | 'overlay' | 'takeover'
+export type ChatPanelVariant = 'docked' | 'sheet' | 'overlay' | 'takeover' | 'inline'
 
 const PANEL_CLASSES: Record<ChatPanelVariant, string> = {
   docked: 'relative flex h-full w-80 shrink-0 flex-col border-l border-border bg-card animate-in fade-in-0 duration-200',
@@ -29,6 +31,9 @@ const PANEL_CLASSES: Record<ChatPanelVariant, string> = {
   // Full-screen on phones: keep the header clear of the status bar and the
   // composer above the home indicator
   takeover: 'fixed inset-0 z-50 bg-background flex flex-col pt-safe pb-safe animate-in fade-in-0 slide-in-from-bottom-4 duration-200',
+  // In the page's flow, at the bottom of the screen: the composer stays
+  // above the home indicator
+  inline: 'flex h-full min-h-0 flex-col bg-background pb-safe',
 }
 
 export interface ChatPanelProps {
@@ -38,6 +43,9 @@ export interface ChatPanelProps {
   status?: WebSocketStatus
   onReconnect?: () => void
   variant?: ChatPanelVariant
+  // Whether focus is in the composer (the message field, GIF and Send), so
+  // the view can make room above a soft keyboard
+  onComposerFocusChange?: (focused: boolean) => void
 }
 
 // Quick reconnects (including the first connect) finish before the row would flicker in
@@ -86,7 +94,7 @@ interface SendFailure {
   clientMessageId: string
 }
 
-export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', onReconnect, variant = 'overlay' }: ChatPanelProps) {
+export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', onReconnect, variant = 'overlay', onComposerFocusChange }: ChatPanelProps) {
   const {
     messages, isOpen, setOpen, nickname, me, readMarker, historyReset, nicknameRejection,
     setNickname, clearNickname, clearNicknameRejection,
@@ -243,17 +251,22 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
     messagesEndRef.current?.scrollIntoView({ behavior: scrollBehavior() })
   }, [])
 
-  // Focus input when panel opens
+  // Focus input when panel opens. Not inline: picking the phone's Chat tab
+  // would raise the keyboard over the messages it just opened. The name
+  // editor still takes focus there, since the viewer asked for it. Only
+  // opening counts: a phone turning sideways moves the open panel from the
+  // Chat tab to the overlay, and that mustn't raise the keyboard either.
+  const focusOnOpen = useEffectEvent(() => {
+    if (showNicknamePrompt) {
+      nicknameInputRef.current?.focus()
+    } else if (variant !== 'inline') {
+      inputRef.current?.focus()
+    }
+  })
   useEffect(() => {
     if (isOpen) {
       // Delay focus to allow animation to complete
-      const timer = setTimeout(() => {
-        if (showNicknamePrompt) {
-          nicknameInputRef.current?.focus()
-        } else {
-          inputRef.current?.focus()
-        }
-      }, 100)
+      const timer = setTimeout(focusOnOpen, 100)
       return () => clearTimeout(timer)
     }
   }, [isOpen, showNicknamePrompt])
@@ -453,15 +466,18 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
             </>
           )}
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={handleClose}
-          aria-label="Close chat"
-          className="h-8 w-8"
-        >
-          <X className="h-5 w-5" />
-        </Button>
+        {/* Inline, the Channels tab is the way back */}
+        {variant !== 'inline' && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleClose}
+            aria-label="Close chat"
+            className="h-8 w-8"
+          >
+            <X className="h-5 w-5" />
+          </Button>
+        )}
       </div>
 
       {/* One row for both states, so switching between them never moves the list */}
@@ -627,7 +643,14 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
                 </Button>
               </div>
             )}
-            <div className="flex gap-2">
+            <div
+              className="flex gap-2"
+              onFocus={() => onComposerFocusChange?.(true)}
+              // Moving between the field, GIF and Send stays in the composer
+              onBlur={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget)) onComposerFocusChange?.(false)
+              }}
+            >
               <Input
                 ref={inputRef}
                 value={inputValue}

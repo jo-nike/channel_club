@@ -45,10 +45,11 @@ export function MobileChannelList({ onChannelSelect, liveEPGTitle, onPickLive }:
       <div className="grid grid-cols-1 gap-2">
         {unifiedChannels.map((channel) => {
           const isLive = channel.type === 'live'
+          const isSelected = selectedChannel?.id === channel.id
           const currentProgramme = getCurrentProgramme(channel)
           const cardClassName = `
             rounded-lg border
-            ${selectedChannel?.id === channel.id ? 'border-primary bg-primary/10' : ''}
+            ${isSelected ? 'border-primary bg-primary/10' : ''}
             ${isLive ? 'bg-destructive/5' : ''}
           `
           // The empty live slot offers the picker next to the tune button
@@ -60,22 +61,27 @@ export function MobileChannelList({ onChannelSelect, liveEPGTitle, onPickLive }:
               key={channel.id}
               onClick={() => onChannelSelect(channel)}
               className={`
-                flex items-center gap-3 p-3 text-left
+                flex items-center gap-3 p-2 text-left
                 transition-colors hover:bg-accent
                 ${showPickLive ? 'min-w-0 flex-1 rounded-lg' : cardClassName}
               `}
             >
+              {/* Every row carries its number (0 is the live slot), so a
+                  channel with a logo can still be found by number */}
+              <span
+                className={`w-6 shrink-0 text-right font-display text-lg font-extrabold leading-none tabular-nums ${
+                  isSelected ? 'text-primary' : 'text-muted-foreground'
+                }`}
+              >
+                {channel.number}
+              </span>
               <div
-                className={`h-12 w-12 flex-shrink-0 overflow-hidden rounded flex items-center justify-center ${
+                className={`h-10 w-10 flex-shrink-0 overflow-hidden rounded flex items-center justify-center ${
                   isLive ? 'bg-destructive/20' : 'bg-muted'
                 }`}
               >
                 {isLive ? (
-                  hasLiveChannel ? (
-                    <Radio className="h-6 w-6 text-destructive" />
-                  ) : (
-                    <span className="text-xs font-bold text-destructive">0</span>
-                  )
+                  <Radio className="h-5 w-5 text-destructive" />
                 ) : channel.logoUrl ? (
                   <img
                     src={getErsatzTVLogoUrl(channel.id)}
@@ -85,9 +91,7 @@ export function MobileChannelList({ onChannelSelect, liveEPGTitle, onPickLive }:
                       ;(e.target as HTMLImageElement).style.display = 'none'
                     }}
                   />
-                ) : (
-                  <span className="font-display text-lg font-extrabold tabular-nums">{channel.number}</span>
-                )}
+                ) : null}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
@@ -95,7 +99,7 @@ export function MobileChannelList({ onChannelSelect, liveEPGTitle, onPickLive }:
                     {isLive ? (hasLiveChannel ? channel.name : 'Live') : channel.name}
                   </p>
                   {isLive && hasLiveChannel && (
-                    <span className="rounded bg-live px-1.5 py-0.5 text-[11px] font-bold uppercase text-live-foreground">
+                    <span className="rounded bg-live px-1.5 py-0.5 text-xs font-bold uppercase text-live-foreground">
                       Live
                     </span>
                   )}
@@ -125,7 +129,7 @@ export function MobileChannelList({ onChannelSelect, liveEPGTitle, onPickLive }:
                 )}
               </div>
               {/* Static, so nothing blinks beside the video */}
-              {selectedChannel?.id === channel.id && (
+              {isSelected && (
                 <AudioLines
                   className={`h-4 w-4 shrink-0 ${isLive ? 'text-live' : 'text-primary'}`}
                   aria-hidden="true"

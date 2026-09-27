@@ -1148,6 +1148,19 @@ describe('ChatPanel', () => {
       expect(panel).toHaveClass(...classes)
     })
 
+    it("fills the phone's Chat tab in the page flow, with no close button and the composer above the home indicator", () => {
+      render(<ChatPanel onSendMessage={mockOnSendMessage} variant="inline" />)
+      const panel = document.getElementById('chat-panel')
+      expect(panel).toContainElement(screen.getByRole('heading', { name: 'Chat' }))
+      expect(panel).toHaveClass('flex', 'h-full', 'min-h-0', 'flex-col', 'pb-safe')
+      expect(panel).not.toHaveClass('fixed')
+      expect(panel).not.toHaveClass('absolute')
+      // The tab strip closes it, so it is neither a landmark nor a dialog
+      expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Close chat' })).not.toBeInTheDocument()
+    })
+
     it('is the overlay drawer when no variant is given', () => {
       render(<ChatPanel onSendMessage={mockOnSendMessage} />)
       expect(document.getElementById('chat-panel')).toHaveClass('fixed', 'right-0', 'w-80')
@@ -1244,7 +1257,7 @@ describe('ChatPanel', () => {
       return opener
     }
 
-    it.each(['docked', 'sheet', 'overlay', 'takeover'] as const)('returns focus to the %s chat opener on close', (variant) => {
+    it.each(['docked', 'sheet', 'overlay', 'takeover', 'inline'] as const)('returns focus to the %s chat opener on close', (variant) => {
       useChatStore.setState({ isOpen: false })
       const opener = addOpener()
       render(<ChatPanel onSendMessage={mockOnSendMessage} variant={variant} />)
@@ -1254,6 +1267,72 @@ describe('ChatPanel', () => {
       act(() => useChatStore.setState({ isOpen: false }))
 
       expect(opener).toHaveFocus()
+    })
+
+    it('focuses the composer shortly after opening', () => {
+      vi.useFakeTimers()
+      try {
+        useChatStore.setState({ isOpen: false })
+        render(<ChatPanel onSendMessage={mockOnSendMessage} variant="overlay" />)
+        act(() => useChatStore.setState({ isOpen: true }))
+
+        act(() => { vi.advanceTimersByTime(150) })
+        expect(screen.getByPlaceholderText('Message the club…')).toHaveFocus()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    // Picking the phone's Chat tab must not raise the soft keyboard over the
+    // messages it just opened
+    it("doesn't focus the inline composer after opening", () => {
+      vi.useFakeTimers()
+      try {
+        useChatStore.setState({ isOpen: false })
+        const opener = addOpener()
+        render(<ChatPanel onSendMessage={mockOnSendMessage} variant="inline" />)
+        act(() => useChatStore.setState({ isOpen: true }))
+
+        act(() => { vi.advanceTimersByTime(150) })
+        expect(screen.getByPlaceholderText('Message the club…')).not.toHaveFocus()
+        expect(opener).toHaveFocus()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    // A phone turning sideways moves the open Chat tab to the overlay: the
+    // panel was already open, so the keyboard stays down
+    it("doesn't focus the composer when an open inline panel becomes the overlay", () => {
+      vi.useFakeTimers()
+      try {
+        useChatStore.setState({ isOpen: false })
+        const opener = addOpener()
+        const { rerender } = render(<ChatPanel onSendMessage={mockOnSendMessage} variant="inline" />)
+        act(() => useChatStore.setState({ isOpen: true }))
+        act(() => { vi.advanceTimersByTime(150) })
+
+        rerender(<ChatPanel onSendMessage={mockOnSendMessage} variant="overlay" />)
+        act(() => { vi.advanceTimersByTime(150) })
+        expect(screen.getByPlaceholderText('Message the club…')).not.toHaveFocus()
+        expect(opener).toHaveFocus()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('still focuses the name field inline when the viewer edits their name', () => {
+      vi.useFakeTimers()
+      try {
+        useChatStore.setState({ me: { username: 'TestUser' } })
+        render(<ChatPanel onSendMessage={mockOnSendMessage} variant="inline" />)
+
+        fireEvent.click(screen.getByRole('button', { name: 'Edit nickname' }))
+        act(() => { vi.advanceTimersByTime(150) })
+        expect(screen.getByPlaceholderText('Display name')).toHaveFocus()
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it('leaves focus alone on close when the viewer has moved it out of chat', () => {
@@ -1278,7 +1357,7 @@ describe('ChatPanel', () => {
       expect(dialog).toHaveAttribute('aria-modal', 'true')
     })
 
-    it.each(['docked', 'sheet', 'overlay'] as const)('keeps the %s panel non-modal', (variant) => {
+    it.each(['docked', 'sheet', 'overlay', 'inline'] as const)('keeps the %s panel non-modal', (variant) => {
       render(<ChatPanel onSendMessage={mockOnSendMessage} variant={variant} />)
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
       expect(document.getElementById('chat-panel')).not.toHaveAttribute('aria-modal')
@@ -1321,6 +1400,38 @@ describe('ChatPanel', () => {
 
       expect(fireEvent.keyDown(gif, { key: 'Tab' })).toBe(true)
       expect(gif).toHaveFocus()
+    })
+  })
+
+  describe('composer focus', () => {
+    it('reports focus entering and leaving the composer, not moves within it', () => {
+      const onComposerFocusChange = vi.fn()
+      render(<ChatPanel onSendMessage={mockOnSendMessage} variant="inline" onComposerFocusChange={onComposerFocusChange} />)
+      const input = screen.getByPlaceholderText('Message the club…')
+      const gif = screen.getByRole('button', { name: 'Send GIF' })
+
+      fireEvent.focus(input)
+      expect(onComposerFocusChange).toHaveBeenLastCalledWith(true)
+
+      // Field to GIF: still in the composer
+      onComposerFocusChange.mockClear()
+      fireEvent.blur(input, { relatedTarget: gif })
+      fireEvent.focus(gif)
+      expect(onComposerFocusChange).not.toHaveBeenCalledWith(false)
+
+      // Out of it (the keyboard closes)
+      fireEvent.blur(gif, { relatedTarget: null })
+      expect(onComposerFocusChange).toHaveBeenLastCalledWith(false)
+    })
+
+    it("doesn't report the name editor as the composer", () => {
+      const onComposerFocusChange = vi.fn()
+      useChatStore.setState({ me: { username: 'TestUser' } })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} variant="inline" onComposerFocusChange={onComposerFocusChange} />)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Edit nickname' }))
+      fireEvent.focus(screen.getByPlaceholderText('Display name'))
+      expect(onComposerFocusChange).not.toHaveBeenCalled()
     })
   })
 

@@ -22,12 +22,16 @@ import { TVHeader } from '@/components/tv/TVHeader'
 import { ProgrammeDetailsModal, type ProgrammeDetailsChannel } from '@/components/ersatztv/ProgrammeDetailsModal'
 import { ChatPanel, type ChatPanelVariant } from '@/components/ChatPanel'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { UnreadBadge } from '@/components/UnreadBadge'
 import { Button } from '@/components/ui/button'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ResizeDragHandle } from '@/components/ui/ResizeDragHandle'
 import { useLayoutMode } from '@/hooks/useLayoutMode'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useResizable } from '@/hooks/useResizable'
 import { useMobileLandscape } from '@/hooks/useMobileLandscape'
+import { useChatEnabled } from '@/hooks/useChatEnabled'
+import { useVisualViewportHeight } from '@/hooks/useVisualViewportHeight'
 import { AdminModal } from '@/components/AdminModal'
 import { LiveChannelPickerDialog } from '@/components/LiveChannelPickerDialog'
 import { getProgrammeState } from '@/lib/programmes'
@@ -42,6 +46,40 @@ const LIVE_SCHEDULE_REFRESH_INTERVAL = 30 * 60 * 1000
 
 // One fixed id, so repeated ErsatzTV failures replace the toast instead of stacking
 const ERSATZ_ERROR_TOAST_ID = 'ersatz-error'
+
+// The phone's Channels | Chat strip: plain labels, the selected one marked by
+// a primary bar along the bottom (M5 mockup)
+const PHONE_TAB_CLASSES = cn(
+  'relative h-full rounded-none border-0 font-semibold text-muted-foreground',
+  'data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none',
+  'dark:data-[state=active]:bg-transparent',
+  'after:absolute after:inset-x-[24%] after:bottom-0 after:h-[3px] after:rounded-t-[3px] data-[state=active]:after:bg-primary'
+)
+
+// The Chat tab and its panel, which is the chat slot after <main> rather than
+// a Radix TabsContent (see the slot), so the two are tied by hand
+const PHONE_CHAT_TAB_ID = 'phone-chat-tab'
+const PHONE_CHAT_PANEL_ID = 'phone-chat-tabpanel'
+
+/**
+ * The Chat tab, with the unread count the header chat button shows. Its own
+ * component, so a new message re-renders the tab rather than the whole view.
+ */
+function PhoneChatTab() {
+  const unreadCount = useChatStore((s) => s.unreadCount)
+  return (
+    <TabsTrigger
+      value="chat"
+      id={PHONE_CHAT_TAB_ID}
+      aria-controls={PHONE_CHAT_PANEL_ID}
+      aria-label={unreadCount > 0 ? `Chat (${unreadCount} new)` : undefined}
+      className={PHONE_TAB_CLASSES}
+    >
+      Chat
+      <UnreadBadge count={unreadCount} />
+    </TabsTrigger>
+  )
+}
 
 export function TVView() {
   const { isAdmin } = useAuth()
@@ -225,22 +263,42 @@ export function TVView() {
   const [videoRefreshKey, setVideoRefreshKey] = useState(0)
   const reloadVideo = useCallback(() => setVideoRefreshKey((k) => k + 1), [])
 
-  // Resets the chat error boundary when chat is closed or reopened
+  // Resets the chat error boundary when chat is closed or reopened. On a
+  // phone it is also the selected tab.
   const isChatOpen = useChatStore((s) => s.isOpen)
+  const setChatOpen = useChatStore((s) => s.setOpen)
+  const chatEnabled = useChatEnabled()
 
   // Responsive
   const layoutMode = useLayoutMode()
   const isMobile = layoutMode === 'phone'
   const isMobileLandscape = useMobileLandscape()
   const isPhonePortrait = isMobile && !isTheaterMode && !isMobileLandscape
-  // Chat takes the whole screen on a phone. Where the player fills the screen
-  // (theater, phone landscape) it slides over the side; otherwise it docks
-  // beside the player on a desktop and opens as a sheet below the header on
-  // a tablet, so the header's controls stay reachable.
-  const chatVariant: ChatPanelVariant = isMobile
-    ? 'takeover'
-    : isTheaterMode || isMobileLandscape
-      ? 'overlay'
+  // Phone portrait: Channels | Chat tabs under the pinned player, so the
+  // picture stays in view while chatting. The selected tab is chatStore's
+  // isOpen, so the header chat button selects Chat and opening it still
+  // clears the unread count. Without chat, the plain channel list.
+  const showPhoneTabs = isPhonePortrait && chatEnabled
+
+  // While the chat composer has focus, the view follows the visual viewport
+  // (on coarse pointers, see the root), so the composer stays above an iOS
+  // soft keyboard. A closed panel can't report its blur, so closing resets
+  // it. (Adjusted while rendering, like railOverride below.)
+  const [isComposerFocused, setComposerFocused] = useState(false)
+  if (!isChatOpen && isComposerFocused) setComposerFocused(false)
+  useVisualViewportHeight(isComposerFocused)
+  // In the phone's Chat tab the video then shrinks to a strip, so the
+  // messages keep more than a sliver of the screen above the keyboard
+  const isVideoStrip = showPhoneTabs && isComposerFocused
+  // Where the player fills the screen (theater, phone landscape) chat slides
+  // over the side; otherwise it docks beside the player on a desktop and
+  // opens as a sheet below the header on a tablet, so the header's controls
+  // stay reachable. Phone portrait has it in the Chat tab (inline); the
+  // takeover is only left for a phone without chat, which can't open it.
+  const chatVariant: ChatPanelVariant = isTheaterMode || isMobileLandscape
+    ? 'overlay'
+    : isMobile
+      ? 'takeover'
       : layoutMode === 'desktop'
         ? 'docked'
         : 'sheet'
@@ -402,10 +460,14 @@ export function TVView() {
   // Live EPG title for sidebar
   const liveEPGTitle = liveEPG?.currentProgram?.title ?? null
 
+  const handlePhoneTabChange = useCallback((tab: string) => setChatOpen(tab === 'chat'), [setChatOpen])
+
   return (
     // 100vh where dvh is unsupported (older webOS/Tizen), the dynamic viewport
-    // elsewhere, so Safari's toolbar doesn't hide the bottom of the list
-    <div className="flex h-screen supports-[height:100dvh]:h-dvh flex-col overflow-hidden bg-background">
+    // elsewhere, so Safari's toolbar doesn't hide the bottom of the list. On
+    // touch screens, the visual viewport while the chat composer has focus
+    // (--app-height, see isComposerFocused), so it stays above the keyboard.
+    <div className="flex h-screen supports-[height:100dvh]:h-dvh pointer-coarse:supports-[height:100dvh]:h-[var(--app-height,100dvh)] flex-col overflow-hidden bg-background">
       {/* Header - hidden in theater mode or mobile landscape */}
       {!isTheaterMode && !isMobileLandscape && (
         <TVHeader
@@ -419,7 +481,9 @@ export function TVView() {
       )}
 
       {/* Main content (relative: the tablet chat sheet is placed in it) */}
-      <div ref={containerRef} className="relative flex flex-1 min-h-0 overflow-hidden">
+      {/* In phone portrait with chat it stacks <main> (video and tab strip)
+          over the chat slot, the Chat tab's panel */}
+      <div ref={containerRef} className={cn('relative flex flex-1 min-h-0 overflow-hidden', showPhoneTabs && 'flex-col')}>
         {/* Desktop: Collapsible Sidebar - hidden in theater mode/landscape, and
             while the guide is open, whose channel column is then the one
             channel list. Its collapsed state stays in the store for when the
@@ -434,14 +498,16 @@ export function TVView() {
         )}
 
         {/* Content area */}
-        <main className="flex flex-1 flex-col min-h-0 overflow-hidden">
+        {/* In the Chat tab it keeps only its own height (video and strip),
+            leaving the rest to chat */}
+        <main className={cn('flex flex-col min-h-0 overflow-hidden', showPhoneTabs && isChatOpen ? 'flex-none' : 'flex-1')}>
           {/* Video player - fixed full viewport in theater mode or mobile landscape,
               a full-width 16:9 box in phone portrait */}
           <div
             className={cn(
               'relative w-full min-h-0 overflow-hidden bg-black',
               (isTheaterMode || isMobileLandscape) && 'fixed inset-0 z-50',
-              isPhonePortrait && 'aspect-video flex-none',
+              isPhonePortrait && (isVideoStrip ? 'h-24 flex-none' : 'aspect-video flex-none'),
               !isTheaterMode && !isMobileLandscape && !isMobile && 'rounded-lg'
             )}
             style={
@@ -502,8 +568,37 @@ export function TVView() {
             />
           )}
 
+          {/* Phone portrait with chat: Channels | Chat tabs fill what the
+              16:9 video leaves */}
+          {showPhoneTabs && (
+            <Tabs
+              value={isChatOpen ? 'chat' : 'channels'}
+              onValueChange={handlePhoneTabChange}
+              className="min-h-0 flex-1 gap-0"
+            >
+              <TabsList
+                aria-label="Channels and chat"
+                className="h-12 w-full shrink-0 rounded-none border-b border-border bg-transparent p-0"
+              >
+                <TabsTrigger value="channels" className={PHONE_TAB_CLASSES}>
+                  Channels
+                </TabsTrigger>
+                <PhoneChatTab />
+              </TabsList>
+              {/* Stays mounted, hidden while chat is open, so the list keeps
+                  its place. The Chat tab's panel is the chat slot after <main>. */}
+              <TabsContent value="channels" forceMount hidden={isChatOpen} className="epg-scroll min-h-0 flex-1 overflow-y-auto rounded-none">
+                <MobileChannelList
+                  onChannelSelect={handleChannelSelect}
+                  liveEPGTitle={liveEPGTitle}
+                  onPickLive={onPickLive}
+                />
+              </TabsContent>
+            </Tabs>
+          )}
+
           {/* EPG section - hidden in theater mode or mobile landscape */}
-          {!isTheaterMode && !isMobileLandscape && (isMobile || isEPGVisible) && (
+          {!showPhoneTabs && !isTheaterMode && !isMobileLandscape && (isMobile || isEPGVisible) && (
             <div
               className={cn(
                 'min-h-0 rounded-t-lg',
@@ -543,28 +638,40 @@ export function TVView() {
         {/* Chat Panel. Always rendered here, after <main>: docked it is the
             row's third column and the player reflows beside it; the sheet is
             placed over the row, below the header; overlay and takeover are
-            fixed to the viewport. One place, so switching variant (entering
-            theater, say) keeps the draft and scroll position. */}
-        <ErrorBoundary
-          name="Chat"
-          resetKey={isChatOpen}
-          fallback={() => (
-            <div role="alert" className="fixed top-4 right-4 z-50 flex items-center gap-3 rounded-lg border bg-card p-4 text-card-foreground shadow-lg">
-              <p className="text-sm">Chat hit an error</p>
-              <Button size="sm" variant="outline" onClick={() => useChatStore.getState().setOpen(false)}>
-                Close
-              </Button>
-            </div>
-          )}
+            fixed to the viewport. In phone portrait with chat it is inline,
+            under <main>'s tab strip, and this slot is the Chat tab's panel;
+            elsewhere the slot has no box of its own (display: contents). One
+            place, so switching variant (entering theater, a phone turning
+            sideways) keeps the draft, a failed send and the scroll position. */}
+        <div
+          id={showPhoneTabs ? PHONE_CHAT_PANEL_ID : undefined}
+          role={showPhoneTabs ? 'tabpanel' : undefined}
+          aria-labelledby={showPhoneTabs ? PHONE_CHAT_TAB_ID : undefined}
+          hidden={showPhoneTabs && !isChatOpen}
+          className={showPhoneTabs ? 'flex min-h-0 flex-1 flex-col' : 'contents'}
         >
-          <ChatPanel
-            onSendMessage={sendChatMessage}
-            onSetNickname={sendSetNickname}
-            status={status}
-            onReconnect={reconnect}
-            variant={chatVariant}
-          />
-        </ErrorBoundary>
+          <ErrorBoundary
+            name="Chat"
+            resetKey={isChatOpen}
+            fallback={() => (
+              <div role="alert" className="fixed top-4 right-4 z-50 flex items-center gap-3 rounded-lg border bg-card p-4 text-card-foreground shadow-lg">
+                <p className="text-sm">Chat hit an error</p>
+                <Button size="sm" variant="outline" onClick={() => useChatStore.getState().setOpen(false)}>
+                  Close
+                </Button>
+              </div>
+            )}
+          >
+            <ChatPanel
+              onSendMessage={sendChatMessage}
+              onSetNickname={sendSetNickname}
+              status={status}
+              onReconnect={reconnect}
+              variant={showPhoneTabs ? 'inline' : chatVariant}
+              onComposerFocusChange={setComposerFocused}
+            />
+          </ErrorBoundary>
+        </div>
       </div>
 
       {/* Programme details modal */}
