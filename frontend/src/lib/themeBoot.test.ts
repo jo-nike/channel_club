@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { colorToCSSVar, createThemeBoot, saveThemeBoot, THEME_BOOT_KEY } from './themeBoot'
 import { getTheme } from './themes'
+import { toHex } from './color'
 
 describe('createThemeBoot', () => {
   it('resolves the Mocha snapshot: dark, with every CSS variable useTheme applies', () => {
@@ -23,6 +24,13 @@ describe('createThemeBoot', () => {
     expect(boot.vars['--background']).toBe(latte.colors.background)
     expect(boot.vars['--primary']).toBe(latte.colors.primary)
     expect(Object.keys(boot.vars)).toHaveLength(Object.keys(colorToCSSVar).length)
+  })
+
+  it('carries the background as hex for the theme-color meta', () => {
+    const latte = getTheme('catppuccin-latte')
+
+    expect(createThemeBoot(latte).themeColor).toBe(toHex(latte.colors.background))
+    expect(createThemeBoot(getTheme('catppuccin-mocha')).themeColor).toMatch(/^#[0-9a-f]{6}$/)
   })
 })
 

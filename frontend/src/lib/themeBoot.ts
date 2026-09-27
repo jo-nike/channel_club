@@ -1,3 +1,4 @@
+import { toHex } from '@/lib/color'
 import type { Theme, ThemeColors } from '@/types/theme'
 
 /**
@@ -61,6 +62,12 @@ export interface ThemeBoot {
   dark: boolean
   /** CSS variable name to value, exactly as useTheme applies them */
   vars: Record<string, string>
+  /**
+   * The background as #rrggbb for meta[name=theme-color] (status bar, PWA
+   * title bar). Browsers don't all accept oklch() there. Snapshots written
+   * before this field existed lack it; the script then leaves the meta alone.
+   */
+  themeColor: string
 }
 
 export function createThemeBoot(theme: Theme): ThemeBoot {
@@ -71,7 +78,7 @@ export function createThemeBoot(theme: Theme): ThemeBoot {
       vars[cssVar] = value
     }
   }
-  return { v: 1, dark: theme.mode === 'dark', vars }
+  return { v: 1, dark: theme.mode === 'dark', vars, themeColor: toHex(theme.colors.background) }
 }
 
 /**

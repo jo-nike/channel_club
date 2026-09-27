@@ -168,6 +168,7 @@ describe('useTheme', () => {
       expect(boot).toMatchObject({ v: 1, dark: true })
       expect(boot.vars['--background']).toBe(getTheme(DEFAULT_THEME_ID).colors.background)
       expect(boot.vars['--primary']).toBe(getTheme(DEFAULT_THEME_ID).colors.primary)
+      expect(boot.themeColor).toBe(toHex(getTheme(DEFAULT_THEME_ID).colors.background))
     })
 
     it('rewrites the snapshot when the theme changes', () => {
@@ -180,6 +181,7 @@ describe('useTheme', () => {
       const boot = readBoot()
       expect(boot.dark).toBe(false)
       expect(boot.vars['--background']).toBe(getTheme('catppuccin-latte').colors.background)
+      expect(boot.themeColor).toBe(toHex(getTheme('catppuccin-latte').colors.background))
     })
 
     it('still applies the theme when storage is unavailable', () => {
