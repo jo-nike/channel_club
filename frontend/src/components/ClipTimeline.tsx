@@ -1,4 +1,4 @@
-import { useRef, type KeyboardEvent, type PointerEvent } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import * as Slider from '@radix-ui/react-slider'
 import { useClipThumbnails } from '@/hooks/useClipThumbnails'
 
@@ -17,12 +17,44 @@ interface Props {
   disabled: boolean
 }
 
-/** Ruler times in seconds from the press: every 10s (5s or 2s on short captures), none crowding the press label at `shown`. */
-function rulerTicks(duration: number, press: number, shown: number): number[] {
+/** Roughly how wide one character of a tick label is at text-xs, in px ('−60 s' measures about 31px). */
+const LABEL_CHAR_PX = 6.5
+/** The clear space kept between labels, in px */
+const LABEL_GAP_PX = 4
+
+function tickLabel(offset: number) {
+  return `${offset < 0 ? '\u2212' : '+'}${Math.abs(offset)} s`
+}
+
+/** The [left, right] of a label `width` px wide at `percent` of a `ruler` px ruler, aligned as edgeAlign places it */
+function labelBox(percent: number, width: number, ruler: number): [number, number] {
+  const x = percent / 100 * ruler
+  return percent < 4 ? [x, x + width] : percent > 96 ? [x - width, x] : [x - width / 2, x + width / 2]
+}
+
+const clear = (a: [number, number], b: [number, number]) => a[1] + LABEL_GAP_PX <= b[0] || b[1] + LABEL_GAP_PX <= a[0]
+
+/**
+ * Ruler times in seconds from the press: every 10s (5s or 2s on short captures). Once the ruler and the
+ * press label at `shown` are measured (px), a tick is kept only if its label clears that label and the
+ * tick kept before it; until then, none within a fifth of the capture of the press label.
+ */
+function rulerTicks(duration: number, press: number, shown: number, rulerPx: number, pillPx: number): number[] {
   const step = duration > 30 ? 10 : duration > 10 ? 5 : 2
+  const measured = rulerPx > 0 && pillPx > 0
+  const pill = labelBox(shown / duration * 100, pillPx, rulerPx)
+  let last: [number, number] | null = null
   const ticks: number[] = []
   for (let k = Math.ceil(-press / step); k * step <= duration - press; k++) {
-    if (k !== 0 && Math.abs(press + k * step - shown) >= duration * 0.2) ticks.push(k * step)
+    if (k === 0) continue
+    if (!measured) {
+      if (Math.abs(press + k * step - shown) >= duration * 0.2) ticks.push(k * step)
+      continue
+    }
+    const box = labelBox((press + k * step) / duration * 100, tickLabel(k * step).length * LABEL_CHAR_PX, rulerPx)
+    if (!clear(box, pill) || (last && !clear(box, last))) continue
+    ticks.push(k * step)
+    last = box
   }
   return ticks
 }
@@ -45,6 +77,25 @@ export function ClipTimeline({ url, duration, start, end, playhead, press, onCha
   const pressPercent = shownPress / duration * 100
   const track = useRef<HTMLSpanElement>(null)
   const dragging = useRef(false)
+  const ruler = useRef<HTMLDivElement>(null)
+  const pill = useRef<HTMLSpanElement>(null)
+  // The ruler's width and the press label's, in px, so ticks give way to the label and to each other
+  const [widths, setWidths] = useState({ ruler: 0, pill: 0 })
+
+  useEffect(() => {
+    const rulerElement = ruler.current
+    const pillElement = pill.current
+    if (!rulerElement || !pillElement) return
+    const update = () => {
+      const next = { ruler: rulerElement.clientWidth, pill: pillElement.offsetWidth }
+      setWidths(current => current.ruler === next.ruler && current.pill === next.pill ? current : next)
+    }
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(rulerElement)
+    observer.observe(pillElement)
+    return () => observer.disconnect()
+  }, [])
 
   function seekTo(clientX: number) {
     const rect = track.current?.getBoundingClientRect()
@@ -129,15 +180,16 @@ export function ClipTimeline({ url, duration, start, end, playhead, press, onCha
             <span className="absolute -top-1 left-1/2 size-3 -translate-x-1/2 rounded-full bg-white shadow" />
           </div>
         </Slider.Root>
-        {/* The ruler counts from the press, which is what the user remembers. */}
-        <div aria-hidden="true" className="relative mt-1 h-5 text-xs tabular-nums text-muted-foreground">
-          {rulerTicks(duration, press, shownPress).map(offset => {
+        {/* The ruler counts from the press, which is what the user remembers. It starts below the
+            handles, which hang past the strip, so a label under one stays readable. */}
+        <div ref={ruler} aria-hidden="true" className="relative mt-3 h-5 text-xs tabular-nums text-muted-foreground">
+          {rulerTicks(duration, press, shownPress, widths.ruler, widths.pill).map(offset => {
             const percent = (press + offset) / duration * 100
             return <span key={offset} className={`absolute top-0 whitespace-nowrap ${edgeAlign(percent)}`} style={{ left: `${percent}%` }}>
-              {`${offset < 0 ? '\u2212' : '+'}${Math.abs(offset)} s`}
+              {tickLabel(offset)}
             </span>
           })}
-          <span className={`absolute top-0 whitespace-nowrap rounded bg-foreground px-1.5 font-semibold text-background ${edgeAlign(pressPercent)}`} style={{ left: `${pressPercent}%` }}>
+          <span ref={pill} className={`absolute top-0 whitespace-nowrap rounded bg-foreground px-1.5 font-semibold text-background ${edgeAlign(pressPercent)}`} style={{ left: `${pressPercent}%` }}>
             {Math.abs(beyond) < 0.05 ? 'You pressed' : `You pressed ${Math.abs(beyond).toFixed(1)} s ${beyond > 0 ? 'after the end' : 'before the start'}`}
           </span>
         </div>
