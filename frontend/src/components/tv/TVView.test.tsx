@@ -13,6 +13,7 @@ import { fetchLiveProgrammes, fetchNowPlaying } from '@/services/api'
 import { toast } from 'sonner'
 import { mockViewport } from '@/test/viewport'
 const presence = vi.hoisted(() => vi.fn())
+const sendChat = vi.hoisted(() => vi.fn())
 const crash = vi.hoisted(() => ({ player: false, chat: false }))
 const socket = vi.hoisted(() => ({ status: 'connected', reconnect: () => {}, sendSuggest: vi.fn() }))
 const chatProps = vi.hoisted(() => ({ last: null as null | { status?: string; onReconnect?: () => void; variant?: string; translucent?: boolean; onComposerFocusChange?: (focused: boolean) => void } }))
@@ -28,7 +29,7 @@ import type { ErsatzTVProgramme, UnifiedChannel } from '@/types'
 import type { ChannelZap } from '@/hooks/useChannelZap'
 
 vi.mock('@/services/ersatztvApi', () => ({ fetchErsatzTVChannels: vi.fn(), fetchErsatzTVCurrentProgramme: vi.fn(), getErsatzTVLogoUrl: vi.fn() }))
-vi.mock('@/hooks/useWebSocket', () => ({ useWebSocket: () => ({ status: socket.status, reconnect: socket.reconnect, sendChannelUpdate: presence, sendChatMessage: vi.fn(), sendSuggest: socket.sendSuggest, sendSetNickname: vi.fn() }) }))
+vi.mock('@/hooks/useWebSocket', () => ({ useWebSocket: () => ({ status: socket.status, reconnect: socket.reconnect, sendChannelUpdate: presence, sendChatMessage: sendChat, sendSuggest: socket.sendSuggest, sendSetNickname: vi.fn() }) }))
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ isAdmin: auth.isAdmin, logout: vi.fn() }) }))
 vi.mock('@/hooks/useChatEnabled', () => ({ useChatEnabled: () => chatFlag.enabled }))
 vi.mock('@/hooks/useAppSettings', () => ({ useAppSettings: () => ({ userChannelSelection: appSettings.userChannelSelection }) }))
@@ -1321,6 +1322,24 @@ describe('E-01 channel list folds to its rail beside docked chat at 1024-1279px'
     act(() => useChatStore.setState({ isOpen: true }))
     expect(screen.getByTestId('chat')).toHaveAttribute('data-variant', 'docked')
     expect(collapseButton()).toBeInTheDocument()
+  })
+})
+
+describe('chat sender for in-player features', () => {
+  beforeEach(() => vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([]))
+
+  it("registers the socket's chat send in chatStore while mounted", async () => {
+    sendChat.mockResolvedValue('acknowledged')
+    const { unmount } = render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+
+    await expect(useChatStore.getState().sendMessage('over the video', 'c-1')).resolves.toBe('acknowledged')
+    expect(sendChat).toHaveBeenCalledWith('over the video', 'c-1')
+
+    unmount()
+    sendChat.mockClear()
+    await expect(useChatStore.getState().sendMessage('after leaving')).resolves.toBe('not-sent')
+    expect(sendChat).not.toHaveBeenCalled()
   })
 })
 

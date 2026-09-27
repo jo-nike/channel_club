@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest'
-import { useChatStore, isOwnMessage } from './chatStore'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { useChatStore, isOwnMessage, type ChatSender } from './chatStore'
 import { useAuthStore } from './authStore'
 import type { ChatMessage } from '@/types'
 
@@ -642,6 +642,48 @@ describe('useChatStore', () => {
 
     it('owns nothing while the identity is unknown', () => {
       expect(isOwnMessage({ username: 'alice' }, { nickname: null, me: null })).toBe(false)
+    })
+  })
+
+  describe('sender', () => {
+    it('sends nothing while no view has registered a sender', async () => {
+      await expect(useChatStore.getState().sendMessage('hello')).resolves.toBe('not-sent')
+    })
+
+    it('sends through the registered sender and returns its result', async () => {
+      const sender = vi.fn<ChatSender>(() => Promise.resolve('acknowledged'))
+      const unregister = useChatStore.getState().registerSender(sender)
+
+      await expect(useChatStore.getState().sendMessage('hello', 'c-1')).resolves.toBe('acknowledged')
+      expect(sender).toHaveBeenCalledWith('hello', 'c-1')
+      unregister()
+    })
+
+    it('reports a sender that throws as unconfirmed', async () => {
+      const unregister = useChatStore.getState().registerSender(() => Promise.reject(new Error('socket gone')))
+      await expect(useChatStore.getState().sendMessage('hello')).resolves.toBe('unconfirmed')
+      unregister()
+    })
+
+    it('stops sending once the sender unregisters', async () => {
+      const sender = vi.fn<ChatSender>(() => Promise.resolve('acknowledged'))
+      useChatStore.getState().registerSender(sender)()
+
+      await expect(useChatStore.getState().sendMessage('hello')).resolves.toBe('not-sent')
+      expect(sender).not.toHaveBeenCalled()
+    })
+
+    it("an old registration's unregister leaves a newer sender in place", async () => {
+      const older = vi.fn<ChatSender>(() => Promise.resolve('acknowledged'))
+      const newer = vi.fn<ChatSender>(() => Promise.resolve('acknowledged'))
+      const unregisterOlder = useChatStore.getState().registerSender(older)
+      const unregisterNewer = useChatStore.getState().registerSender(newer)
+
+      unregisterOlder()
+      await useChatStore.getState().sendMessage('hello')
+      expect(newer).toHaveBeenCalledWith('hello', undefined)
+      expect(older).not.toHaveBeenCalled()
+      unregisterNewer()
     })
   })
 })

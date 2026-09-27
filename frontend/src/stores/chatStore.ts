@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { logger } from '@/lib/logger'
 import { useAuthStore } from '@/stores/authStore'
+import type { ChatSendResult } from '@/hooks/useWebSocket'
 import type { ChatMessage } from '@/types'
 
 // Nicknames are stored per signed-in user, so a shared browser or TV doesn't
@@ -22,6 +23,9 @@ export interface ChatIdentity {
 export interface NicknameRejection {
   nickname: string
 }
+
+/** Posts a chat message over the view's socket (useWebSocket's sendChatMessage). */
+export type ChatSender = (content: string, clientMessageId?: string) => Promise<ChatSendResult>
 
 interface ChatState {
   messages: ChatMessage[]
@@ -52,9 +56,18 @@ interface ChatState {
   resetIdentity: () => void
   rejectNickname: (nickname: string) => void
   clearNicknameRejection: () => void
+  // The view that owns the socket registers how to send, so in-player
+  // features can post without the sender threaded down to them as a prop.
+  // Returns the unregister, which leaves a newer registration alone.
+  registerSender: (sender: ChatSender) => () => void
+  // Sends through the registered sender; 'not-sent' while there is none
+  sendMessage: (content: string, clientMessageId?: string) => Promise<ChatSendResult>
 }
 
 const MAX_MESSAGES = 100
+
+// Outside the state: a function nobody renders, so registering it re-renders nothing
+let registeredSender: ChatSender | null = null
 
 /**
  * Load a user's stored nickname. The first user to sign in after the switch
@@ -286,6 +299,27 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   clearNicknameRejection: () => set({ nicknameRejection: null }),
+
+  registerSender: (sender) => {
+    registeredSender = sender
+    return () => {
+      if (registeredSender === sender) registeredSender = null
+    }
+  },
+
+  sendMessage: async (content, clientMessageId) => {
+    const sender = registeredSender
+    if (!sender) {
+      logger.debug('ChatStore', 'No chat sender registered; message not sent')
+      return 'not-sent'
+    }
+    // A throw is a send whose fate is unknown, as the panel treats it
+    try {
+      return await sender(content, clientMessageId)
+    } catch {
+      return 'unconfirmed'
+    }
+  },
 }))
 
 // Signed out: forget who chat thinks we are, so the next person to sign in on
