@@ -31,6 +31,10 @@ interface UIState {
   isEPGVisible: boolean
   setEPGVisible: (value: boolean) => void
   toggleEPG: () => void
+  // Set when the guide is opened from the keyboard, for it to take focus
+  // once it has rendered (ephemeral - not persisted)
+  guideFocusRequested: boolean
+  setGuideFocusRequested: (value: boolean) => void
   epgHeightPercent: number
   setEPGHeightPercent: (value: number) => void
   // Channel sidebar collapse
@@ -68,6 +72,8 @@ export const useUIStore = create<UIState>()(
       isEPGVisible: false,
       setEPGVisible: (value) => set({ isEPGVisible: value }),
       toggleEPG: () => set((s) => ({ isEPGVisible: !s.isEPGVisible })),
+      guideFocusRequested: false,
+      setGuideFocusRequested: (value) => set({ guideFocusRequested: value }),
       epgHeightPercent: EPG_HEIGHT_DEFAULT,
       setEPGHeightPercent: (value) => set({ epgHeightPercent: clampEPGHeight(value) }),
       // Channel sidebar collapse

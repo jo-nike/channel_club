@@ -314,6 +314,18 @@ describe('uiStore', () => {
     })
   })
 
+  describe('guide focus request', () => {
+    it('is off by default and never saved, so a reload does not move focus', () => {
+      expect(useUIStore.getInitialState().guideFocusRequested).toBe(false)
+      useUIStore.getState().setGuideFocusRequested(true)
+      expect(useUIStore.getState().guideFocusRequested).toBe(true)
+
+      const partialize = useUIStore.persist.getOptions().partialize!
+      expect('guideFocusRequested' in partialize(useUIStore.getState())).toBe(false)
+      useUIStore.setState({ guideFocusRequested: false })
+    })
+  })
+
   describe('notificationsEnabled persistence', () => {
     it('persists notificationsEnabled to localStorage', () => {
       // Verify the partialize includes notificationsEnabled
