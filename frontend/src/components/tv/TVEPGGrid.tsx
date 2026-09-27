@@ -741,30 +741,38 @@ function ChannelLabel({
           fallback={isLive ? <Radio className="h-4 w-4 text-live" /> : undefined}
         />
         <span className="flex min-w-0 flex-1 flex-col gap-1">
+          {/* The name keeps the whole first line, and a few letters at least */}
           <span className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate font-medium">{channel.name}</span>
+            <span className="min-w-[3ch] truncate font-medium">{channel.name}</span>
             {showLiveHighlight && <LivePill />}
           </span>
-          {onAir && (
+          {(onAir || presence) && (
             <span className="flex items-center gap-1.5">
-              <span className="h-0.5 flex-1 overflow-hidden rounded-full bg-muted">
-                <span
-                  data-testid="label-progress"
-                  className={cn('block h-full rounded-full', isLive ? 'bg-live' : 'bg-primary/60')}
-                  style={{ width: `${calculateProgress(onAir.startMs, onAir.stopMs, now)}%` }}
-                />
-              </span>
-              <span className="shrink-0 text-xs leading-none tabular-nums text-muted-foreground">
-                {formatRemaining(onAir.stopMs, now)}
-              </span>
+              {onAir && (
+                <>
+                  <span className="h-0.5 flex-1 overflow-hidden rounded-full bg-muted">
+                    <span
+                      data-testid="label-progress"
+                      className={cn('block h-full rounded-full', isLive ? 'bg-live' : 'bg-primary/60')}
+                      style={{ width: `${calculateProgress(onAir.startMs, onAir.stopMs, now)}%` }}
+                    />
+                  </span>
+                  <span className="shrink-0 text-xs leading-none tabular-nums text-muted-foreground">
+                    {formatRemaining(onAir.stopMs, now)}
+                  </span>
+                </>
+              )}
+              {/* Room for the people on the channel, on the second line so
+                  the name keeps the first, laid over it below */}
+              {presence && <ChannelPresenceSpace people={presence} className="ml-auto" />}
             </span>
           )}
         </span>
-        {/* Room for the people on the channel, laid over it below */}
-        {presence && <ChannelPresenceSpace people={presence} />}
       </button>
       {presence && (
-        // Over its room: centred like it, at the label's right padding. Out
+        // Over its room at the end of the second line: the 20px name line,
+        // the gap and the 24px stack are centred in the 64px row, so the
+        // stack ends 8px above the label's bottom, at its right padding. Out
         // of the grid's keyboard order (the label beside it tunes the same
         // channel), so the guide stays one tab stop.
         <ChannelPresenceStack
@@ -773,7 +781,7 @@ function ChannelLabel({
           isWatching={isWatching}
           onJoin={() => onChannelClick?.(channel)}
           tabIndex={-1}
-          className="absolute top-1/2 right-2 -translate-y-1/2"
+          className="absolute right-2 bottom-2"
         />
       )}
     </div>

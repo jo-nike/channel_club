@@ -1611,7 +1611,7 @@ describe('TVEPGGrid presence stacks', () => {
     cleanup()
     useChannelStore.setState({ currentChannel: null })
     useErsatztvStore.setState({ channels: [] })
-    useTVStore.setState({ selectedChannel: null })
+    useTVStore.setState({ selectedChannel: null, liveProgrammes: [] })
     usePresenceStore.setState({ entries: [] })
     useSettingsStore.setState({ presenceVisible: false })
     useUIStore.setState({ hideMyActivity: false })
@@ -1629,6 +1629,42 @@ describe('TVEPGGrid presence stacks', () => {
     expect(join.closest('[role="rowheader"]')).toBe(label.closest('[role="rowheader"]'))
     // The label keeps its width; the stack sits over room held inside it
     expect(label).toHaveStyle({ width: '208px' })
+  })
+
+  it("holds the stack's room on the second line, so the live row's name keeps the first line", () => {
+    useTVStore.setState({
+      liveProgrammes: [toLiveProgramme({ title: 'Hockey', startTime: start, endTime: stop })],
+    })
+    render(<TVEPGGrid programmesByChannel={{}} />)
+
+    const label = labelFor('TSN 5')
+    const name = within(label).getByText('TSN 5')
+    expect(name).toHaveClass('truncate', 'min-w-[3ch]')
+    const nameLine = name.parentElement!
+    expect(within(nameLine).getByTestId('live-pill')).toBeInTheDocument()
+    const column = nameLine.parentElement!
+    // The room (the aria-hidden copy of the stack) sits on the progress
+    // line, not beside the column in the button's row
+    const space = label.querySelector('[aria-hidden="true"] [data-slot="presence-stack"]')!.parentElement!
+    expect(nameLine.contains(space)).toBe(false)
+    expect(column.contains(space)).toBe(true)
+    expect(space.parentElement).toBe(label.querySelector('[data-testid="label-progress"]')!.parentElement!.parentElement)
+    expect(Array.from(label.children)).not.toContain(space)
+    // The real stack is laid over that line rather than centred on the row
+    const stack = screen.getByRole('button', { name: 'Join maya on TSN 5' })
+    expect(stack).toHaveClass('absolute', 'bottom-2', 'right-2')
+    expect(stack).not.toHaveClass('top-1/2')
+  })
+
+  it('keeps the stack on the second line of a row with nothing on air', () => {
+    render(<TVEPGGrid programmesByChannel={{}} />)
+
+    const label = labelFor('Cartoons')
+    const space = label.querySelector('[aria-hidden="true"] [data-slot="presence-stack"]')!.parentElement!
+    expect(Array.from(label.children)).not.toContain(space)
+    expect(space).toHaveClass('ml-auto')
+    const nameLine = within(label).getByText('Cartoons').parentElement!
+    expect(space.parentElement!.previousElementSibling).toBe(nameLine)
   })
 
   it('tunes to the channel when the stack is clicked', () => {
