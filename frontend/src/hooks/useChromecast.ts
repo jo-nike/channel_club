@@ -124,6 +124,16 @@ function teardownCast() {
       cast.framework.RemotePlayerEventType.PLAYER_STATE_CHANGED,
       handlePlayerStateChanged
     )
+
+    remoteController?.removeEventListener(
+      cast.framework.RemotePlayerEventType.VOLUME_LEVEL_CHANGED,
+      handleReceiverVolumeChanged
+    )
+
+    remoteController?.removeEventListener(
+      cast.framework.RemotePlayerEventType.IS_MUTED_CHANGED,
+      handleReceiverVolumeChanged
+    )
     listeningContext = null
   }
 }
@@ -229,6 +239,17 @@ function initializeCastContext() {
       handlePlayerStateChanged
     )
 
+    // The receiver's volume, for the casting card
+    remoteController.addEventListener(
+      cast.framework.RemotePlayerEventType.VOLUME_LEVEL_CHANGED,
+      handleReceiverVolumeChanged
+    )
+
+    remoteController.addEventListener(
+      cast.framework.RemotePlayerEventType.IS_MUTED_CHANGED,
+      handleReceiverVolumeChanged
+    )
+
     listeningContext = context
     if (!context.getCurrentSession()) {
       castGeneration += 1
@@ -248,6 +269,8 @@ function initializeCastContext() {
       isCasting: Boolean(remotePlayer?.isMediaLoaded && remotePlayer?.playerState !== 'IDLE'),
       playerState: remotePlayer?.playerState ?? null,
       deviceName: context.getCurrentSession()?.getCastDevice()?.friendlyName ?? null,
+      receiverVolume: remotePlayer?.volumeLevel ?? 1,
+      receiverMuted: remotePlayer?.isMuted ?? false,
       isLoading: false,
     })
   } catch (error) {
@@ -356,6 +379,12 @@ function handlePlayerStateChanged() {
       reportError(`${deviceName ?? 'The Chromecast'} stopped playing`)
     }
   }
+}
+
+function handleReceiverVolumeChanged() {
+  if (!remotePlayer) return
+
+  setCastState({ receiverVolume: remotePlayer.volumeLevel, receiverMuted: remotePlayer.isMuted })
 }
 
 function isSessionEnding() {
@@ -556,11 +585,47 @@ export async function stopCasting() {
 }
 
 /**
+ * Set the receiver's volume (0-1). The TV's level only: the viewer's saved
+ * volume in the audio store is for this screen and stays as it is.
+ */
+export function setReceiverVolume(level: number) {
+  if (!remotePlayer || !remoteController) return
+
+  remotePlayer.volumeLevel = level
+  remoteController.setVolumeLevel()
+  setCastState({ receiverVolume: level })
+  // Choosing a level unmutes, as the local slider does
+  if (remotePlayer.isMuted && level > 0) {
+    remoteController.muteOrUnmute()
+    setCastState({ receiverMuted: false })
+  }
+}
+
+/** Mute or unmute the receiver */
+export function toggleReceiverMute() {
+  if (!remotePlayer || !remoteController) return
+
+  remoteController.muteOrUnmute()
+  setCastState({ receiverMuted: !useCastStore.getState().receiverMuted })
+}
+
+/**
  * Cast a known-good public HLS stream for debugging.
  * If this works, the issue is with our stream/URL, not the Chromecast setup.
  */
 async function castTestStream() {
   await startCasting('test-stream', 'hls', 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8', 'Test Stream (Big Buck Bunny)')
+}
+
+/**
+ * Keep the Cast SDK initialised and listening while the caller is mounted,
+ * without reading its state. The player shell holds it, so the listeners
+ * outlive the engine (and the cast button in its controls): a channel change
+ * or the reload after a cast stops doesn't set the SDK up again, and the
+ * casting card on the empty live slot still hears the cast end.
+ */
+export function useCastSdk() {
+  useEffect(acquireCast, [])
 }
 
 /**
@@ -592,7 +657,7 @@ async function castTestStream() {
  * ```
  */
 export function useChromecast(): UseChromecastReturn {
-  useEffect(acquireCast, [])
+  useCastSdk()
 
   const state = useCastStore(
     useShallow((s): ChromecastState => ({
@@ -602,6 +667,8 @@ export function useChromecast(): UseChromecastReturn {
       isCasting: s.isCasting,
       deviceName: s.deviceName,
       playerState: s.playerState,
+      receiverVolume: s.receiverVolume,
+      receiverMuted: s.receiverMuted,
       lastError: s.lastError,
     }))
   )

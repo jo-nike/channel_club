@@ -17,9 +17,11 @@ import { useStreamRecovery } from '@/hooks/useStreamRecovery'
 import { useChatEnabled } from '@/hooks/useChatEnabled'
 import { useMobileLandscape } from '@/hooks/useMobileLandscape'
 import { useSwipeZap } from '@/hooks/useSwipeZap'
+import { useCastSdk } from '@/hooks/useChromecast'
 import { ProjectorBeamLoader } from '@/components/ProjectorBeamLoader'
 import { Button } from '@/components/ui/button'
 import { AutoplayNotice } from '@/components/player/AutoplayNotice'
+import { CastErrorBanner, CastingCard } from '@/components/player/CastingCard'
 import { PlayerShellContext, usePlayerShell, useShellPlayback } from '@/components/player/PlayerShellContext'
 import { FilterLayer } from '@/components/player/FilterLayer'
 import { PlayerChrome } from '@/components/player/PlayerChrome'
@@ -30,6 +32,7 @@ import { useLiveAdapter, useVidstackAdapter } from '@/components/player/mediaAda
 import { usePlayerAudio } from '@/components/player/usePlayerAudio'
 import { HighlightModal } from '@/components/HighlightModal'
 import { useAudioStore, unmutedVolume } from '@/stores/audioStore'
+import { useCastStore } from '@/stores/castStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { useClipStore } from '@/stores/clipStore'
 import { useChatStore } from '@/stores/chatStore'
@@ -148,6 +151,13 @@ export function DualModeVideoPlayer({
     ]
   )
 
+  // While casting, the card takes the picture's place (see the engines for
+  // what the local playback does meanwhile). The shell holds the Cast SDK:
+  // the cast button comes and goes with the engine, and the card must still
+  // hear the cast end on the empty live slot.
+  useCastSdk()
+  const isCasting = useCastStore((s) => s.isCasting)
+
   // The keyboard map ('?'), in the shell so it shows in fullscreen
   const [isShortcutSheetOpen, setShortcutSheetOpen] = useState(false)
   const openShortcutSheet = useCallback(() => setShortcutSheetOpen(true), [])
@@ -239,6 +249,10 @@ export function DualModeVideoPlayer({
       >
         {/* Before the engine, so its control bar paints above the filters */}
         <FilterLayer />
+        {/* Over the picture and the filters, under the engine's control bar
+            and the info rail (both come later at z-10 and above), so the
+            controls and the zap feedback stay usable while casting */}
+        {isCasting && <CastingCard />}
         {/* The pointer hides with the controls over a playing picture, the
             same for every engine. Around the engine, not on the shell: the
             clip editor and the shortcut sheet portal into the shell and keep
@@ -254,6 +268,7 @@ export function DualModeVideoPlayer({
           entry={zap?.entry ?? null}
           missing={zap?.missing ?? null}
         />
+        <CastErrorBanner />
       </div>
       {/* One editor for every engine, keyed by the capture's channel, not the one playing */}
       <HighlightModal
@@ -385,6 +400,9 @@ function LiveVideoPlayer({
   const { volume, isStoreMuted, isMuted, changeVolume, toggleMute, unmute } = usePlayerAudio(adapter)
   // The clip editor is previewing: keep the element silent, the saved mute as it is
   const isPreviewHeld = useAudioStore((s) => s.previewHolds > 0)
+  // Casting: the picture here pauses and the element is silent, the saved
+  // volume and mute as they are
+  const isCasting = useCastStore((s) => s.isCasting)
   const isSystemMuted = isSystemMutedState && !isStoreMuted
   const isSavedMuteNotice = useSavedMuteNotice(hasStarted, isStoreMuted)
 
@@ -428,16 +446,38 @@ function LiveVideoPlayer({
   // Check mpegts.js support
   const isMpegtsSupported = mpegts.isSupported()
 
-  // Apply the saved volume and mute, and any preview hold, to the element.
-  // Declared before the mpegts effect so a new stream starts at the viewer's
-  // level, and silent under an open clip editor.
+  // Apply the saved volume and mute, and any preview hold or cast, to the
+  // element. Declared before the mpegts effect so a new stream starts at the
+  // viewer's level, and silent under an open clip editor or while casting.
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
 
     video.volume = volume
-    video.muted = isStoreMuted || isPreviewHeld
-  }, [volume, isStoreMuted, isPreviewHeld])
+    video.muted = isStoreMuted || isPreviewHeld || isCasting
+  }, [volume, isStoreMuted, isPreviewHeld, isCasting])
+
+  // While casting the element stays paused: autoplay, a reconnect's play()
+  // and Space are all undone
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || !isCasting) return
+
+    const hold = () => video.pause()
+    hold()
+    video.addEventListener('play', hold)
+    return () => video.removeEventListener('play', hold)
+  }, [isCasting])
+
+  // When casting stops, start again at the live edge rather than resume the
+  // buffer paused minutes ago: a new engine, the shell (and fullscreen) kept
+  useEffect(
+    () =>
+      useCastStore.subscribe((state, prev) => {
+        if (prev.isCasting && !state.isCasting) reload()
+      }),
+    [reload]
+  )
 
   // Setup mpegts.js player: again on every reconnect, and not at all once
   // the reconnects have stopped (which also lets go of the upstream)
@@ -467,9 +507,10 @@ function LiveVideoPlayer({
     // while already muted, gets a centre Play button. Destroying this player
     // on a reconnect or the stop rejects a pending play() with AbortError:
     // that attempt is over, so its rejections change nothing.
+    // The cast hold pausing it rejects play() too: that asks for no tap either.
     let active = true
     video.play().catch((error: unknown) => {
-      if (!active) return
+      if (!active || useCastStore.getState().isCasting) return
       setIsBuffering(false)
       if (!isAutoplayPolicyError(error) || video.muted) {
         setIsPlayBlocked(true)
@@ -478,7 +519,7 @@ function LiveVideoPlayer({
       video.muted = true
       setIsSystemMuted(true)
       video.play().catch(() => {
-        if (active) setIsPlayBlocked(true)
+        if (active && !useCastStore.getState().isCasting) setIsPlayBlocked(true)
       })
     })
     playerRef.current = player
@@ -495,8 +536,8 @@ function LiveVideoPlayer({
     // Never saved: element-only mutes (the clip preview hold) must not stick
     const handleVolumeChangeEvent = () => {
       // Read the hold now, not when the unmute was asked for: an unmute
-      // during a preview (the slider, another window) is undone
-      if (!video.muted && useAudioStore.getState().previewHolds > 0) {
+      // during a preview (the slider, another window) or a cast is undone
+      if (!video.muted && (useAudioStore.getState().previewHolds > 0 || useCastStore.getState().isCasting)) {
         video.muted = true
         return
       }
@@ -564,7 +605,9 @@ function LiveVideoPlayer({
       {/* The status card speaks for the stream once it has failed */}
       {isBuffering && (status === 'loading' || status === 'ready') && <ProjectorBeamLoader />}
 
-      {(isPlayBlocked || isSystemMuted || isSavedMuteNotice) && (
+      {/* The notices and the status card are about the local picture: not
+          over the casting card, which paints under them */}
+      {!isCasting && (isPlayBlocked || isSystemMuted || isSavedMuteNotice) && (
         <AutoplayNotice
           mode={isPlayBlocked ? 'tap-to-play' : 'sound-off'}
           volume={isSystemMuted ? volume : unmutedVolume(volume)}
@@ -574,13 +617,15 @@ function LiveVideoPlayer({
         />
       )}
 
-      <StreamStatusCard
-        status={isMpegtsSupported ? status : 'unsupported'}
-        attempt={attempt}
-        maxAttempts={maxRetries}
-        isStarting={!hasStarted}
-        onRetry={retryNow}
-      />
+      {!isCasting && (
+        <StreamStatusCard
+          status={isMpegtsSupported ? status : 'unsupported'}
+          attempt={attempt}
+          maxAttempts={maxRetries}
+          isStarting={!hasStarted}
+          onRetry={retryNow}
+        />
+      )}
     </div>
   )
 }
@@ -615,6 +660,8 @@ function HLSVideoPlayerWrapper({
   const setStoredMuted = useAudioStore((s) => s.setMuted)
   // The clip editor is previewing: the element is muted, the saved mute kept
   const isPreviewHeld = useAudioStore((s) => s.previewHolds > 0)
+  // Casting: paused and muted the same way, the saved mute kept
+  const isCasting = useCastStore((s) => s.isCasting)
   const isSavedMuteNotice = useSavedMuteNotice(hasStarted, muted)
 
   const { status, attempt, maxRetries, retryKey, fail, succeed, retryNow } = useStreamRecovery()
@@ -669,6 +716,8 @@ function HLSVideoPlayerWrapper({
 
   const onAutoPlayFail = useCallback(
     (detail: MediaAutoPlayFailEventDetail) => {
+      // The cast pausing it is not a refusal: nothing to retry or ask
+      if (useCastStore.getState().isCasting) return
       // Vidstack refuses every autoplay request under Reduce Motion. Picking a
       // channel is consent to play, and a plain play() is not an autoplay
       // request, but it has to wait a tick: autoPlaying is reset only after
@@ -685,12 +734,18 @@ function HLSVideoPlayerWrapper({
     [handleRefusedPlay, onPlainPlayFail]
   )
 
+  // While casting the picture stays paused, as on the live engine: the
+  // control bar's Play, which stays in reach over the casting card, is undone
+  const onPlay = useCallback(() => {
+    if (useCastStore.getState().isCasting) playerRef.current?.pause()
+  }, [])
+
   // Any unmute of the element (the notice, Mute button, M key, slider) ends
   // the system mute. Vidstack reports it asynchronously, so the preview hold
   // is read when the event arrives: an unmute during a preview is undone.
   const onVolumeChange = useCallback((detail: MediaVolumeChange) => {
     if (detail.muted) return
-    if (useAudioStore.getState().previewHolds > 0) {
+    if (useAudioStore.getState().previewHolds > 0 || useCastStore.getState().isCasting) {
       playerRef.current?.remoteControl.mute()
       return
     }
@@ -718,6 +773,16 @@ function HLSVideoPlayerWrapper({
     player.play().catch(() => setPlayBlockedKey(retryKey))
   }, [retryKey])
 
+  // Casting pauses the picture here; when it stops, playback resumes
+  useEffect(
+    () =>
+      useCastStore.subscribe((state, prev) => {
+        if (state.isCasting && !prev.isCasting) playerRef.current?.pause()
+        else if (!state.isCasting && prev.isCasting) playerRef.current?.play().catch(onPlainPlayFail)
+      }),
+    [onPlainPlayFail]
+  )
+
   return (
     <div className="relative h-full w-full bg-black flex items-center justify-center">
       <MediaPlayer
@@ -725,10 +790,11 @@ function HLSVideoPlayerWrapper({
         ref={playerRef}
         src={streamUrl}
         title={title}
-        autoPlay
+        // Not while casting: a channel change then stays paused under the card
+        autoPlay={!isCasting}
         playsInline
         volume={volume}
-        muted={muted || isPreviewHeld}
+        muted={muted || isPreviewHeld || isCasting}
         // useVideoKeyboardShortcuts is the only keyboard map: Vidstack's own
         // keys seek, and change volume without saving it
         keyDisabled
@@ -736,6 +802,7 @@ function HLSVideoPlayerWrapper({
         onWaiting={handleWaiting}
         onPlaying={onPlaying}
         onAutoPlayFail={onAutoPlayFail}
+        onPlay={onPlay}
         onVolumeChange={onVolumeChange}
         onError={fail}
       >
@@ -751,7 +818,9 @@ function HLSVideoPlayerWrapper({
       {/* Buffering overlay; the status card speaks for the stream once it has failed */}
       {isBuffering && (status === 'loading' || status === 'ready') && <ProjectorBeamLoader />}
 
-      {(isPlayBlocked || isSystemMuted || isSavedMuteNotice) && (
+      {/* The notices and the status card are about the local picture: not
+          over the casting card, which paints under them */}
+      {!isCasting && (isPlayBlocked || isSystemMuted || isSavedMuteNotice) && (
         <AutoplayNotice
           mode={isPlayBlocked ? 'tap-to-play' : 'sound-off'}
           volume={isSystemMuted ? volume : unmutedVolume(volume)}
@@ -762,13 +831,15 @@ function HLSVideoPlayerWrapper({
       )}
 
       {/* Over the player, which stays mounted with its controls when the retries stop */}
-      <StreamStatusCard
-        status={status}
-        attempt={attempt}
-        maxAttempts={maxRetries}
-        isStarting={!hasStarted}
-        onRetry={retryNow}
-      />
+      {!isCasting && (
+        <StreamStatusCard
+          status={status}
+          attempt={attempt}
+          maxAttempts={maxRetries}
+          isStarting={!hasStarted}
+          onRetry={retryNow}
+        />
+      )}
     </div>
   )
 }
@@ -795,13 +866,15 @@ function HLSControlsWrapper({
 
   // Keyboard volume and mute write the audio store; MediaPlayer follows it
   const { volume, isMuted, changeVolume, toggleMute, unmute } = usePlayerAudio(adapter)
+  // Space would play the picture the casting card stands in for
+  const isCasting = useCastStore((s) => s.isCasting)
 
   // The shell's auto-hide follows this engine; a tap on the picture toggles it
   useShellPlayback(adapter.isPlaying)
 
   useVideoKeyboardShortcuts({
     containerRef,
-    onPlayPause: adapter.togglePaused,
+    onPlayPause: isCasting ? undefined : adapter.togglePaused,
     onMuteToggle: toggleMute,
     onFullscreenToggle: toggleFullscreen,
     onTheaterModeToggle: toggleTheaterMode,

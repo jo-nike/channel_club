@@ -2,7 +2,7 @@ import { createElement } from 'react'
 import { CastButton } from '@/components/CastButton'
 import { act, cleanup, fireEvent, render, screen, renderHook, waitFor } from '@/test/utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { useChromecast } from './useChromecast'
+import { setReceiverVolume, toggleReceiverMute, useChromecast } from './useChromecast'
 import * as api from '@/services/api'
 import { INITIAL_CAST_STATE, useCastStore } from '@/stores/castStore'
 vi.mock('@/services/api', () => ({ getCastFeatureEnabled: vi.fn().mockResolvedValue(true), createCastSession: vi.fn(), stopCastSession: vi.fn().mockResolvedValue(undefined), getCastHlsUrl: (id: string) => `https://fixture/${id}`, getCastBaseUrl: () => 'https://fixture/api' }))
@@ -13,15 +13,17 @@ const context = { setOptions: vi.fn(), getCastState: () => 'CONNECTED', getCurre
   addEventListener: (name: string, fn: (event: { sessionState: string }) => void) => { if (!listeners.has(name)) listeners.set(name, new Set()); listeners.get(name)!.add(fn) },
   removeEventListener: (name: string, fn: (event: { sessionState: string }) => void) => listeners.get(name)?.delete(fn), requestSession: vi.fn() }
 const controllerStop = vi.fn()
+const controllerSetVolume = vi.fn()
+const controllerMute = vi.fn()
 let remoteState = 'PLAYING'
 // The remote player the hook made, and its controller's listeners by event
-const remote = { current: null as { playerState: string } | null }
+const remote = { current: null as { playerState: string; volumeLevel: number; isMuted: boolean } | null }
 const playerListeners = new Map<string, () => void>()
 const firePlayerState = (state: string) => act(() => { remote.current!.playerState = state; playerListeners.get('playerState')?.() })
 beforeEach(() => {
   vi.clearAllMocks(); listeners.clear(); playerListeners.clear(); remoteState = 'PLAYING'; sessionState = 'STARTED'
   useCastStore.setState(INITIAL_CAST_STATE)
-  vi.stubGlobal('cast', { framework: { CastContext: { getInstance: () => context }, RemotePlayer: class { isConnected = true; isMediaLoaded = true; playerState = remoteState; constructor() { remote.current = this } }, RemotePlayerController: class { addEventListener(name: string, fn: () => void) { playerListeners.set(name, fn) } removeEventListener(name: string) { playerListeners.delete(name) } stop = controllerStop }, CastContextEventType: { CAST_STATE_CHANGED: 'cast', SESSION_STATE_CHANGED: 'session' }, RemotePlayerEventType: { IS_CONNECTED_CHANGED: 'connected', IS_MEDIA_LOADED_CHANGED: 'loaded', PLAYER_STATE_CHANGED: 'playerState' }, CastState: { NO_DEVICES_AVAILABLE: 'NONE', CONNECTED: 'CONNECTED' }, SessionState: { SESSION_ENDING: 'ENDING', SESSION_ENDED: 'ENDED', NO_SESSION: 'NONE', SESSION_STARTED: 'STARTED', SESSION_RESUMED: 'RESUMED' } } })
+  vi.stubGlobal('cast', { framework: { CastContext: { getInstance: () => context }, RemotePlayer: class { isConnected = true; isMediaLoaded = true; playerState = remoteState; volumeLevel = 0.5; isMuted = false; constructor() { remote.current = this } }, RemotePlayerController: class { addEventListener(name: string, fn: () => void) { playerListeners.set(name, fn) } removeEventListener(name: string) { playerListeners.delete(name) } stop = controllerStop; setVolumeLevel = controllerSetVolume; muteOrUnmute = controllerMute }, CastContextEventType: { CAST_STATE_CHANGED: 'cast', SESSION_STATE_CHANGED: 'session' }, RemotePlayerEventType: { IS_CONNECTED_CHANGED: 'connected', IS_MEDIA_LOADED_CHANGED: 'loaded', PLAYER_STATE_CHANGED: 'playerState', VOLUME_LEVEL_CHANGED: 'volume', IS_MUTED_CHANGED: 'muted' }, CastState: { NO_DEVICES_AVAILABLE: 'NONE', CONNECTED: 'CONNECTED' }, SessionState: { SESSION_ENDING: 'ENDING', SESSION_ENDED: 'ENDED', NO_SESSION: 'NONE', SESSION_STARTED: 'STARTED', SESSION_RESUMED: 'RESUMED' } } })
   vi.stubGlobal('chrome', { cast: { media: { MediaInfo: class { constructor(public url: string) {} }, LoadRequest: class { constructor(public media: unknown) {} }, StreamType: { LIVE: 'LIVE', BUFFERED: 'BUFFERED' } } } })
 })
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
@@ -223,5 +225,40 @@ describe('cast failures in plain words', () => {
     const { result } = await ready()
     await act(() => result.current.startCasting('a', 'mpegts').catch(() => {}))
     expect(lastError()).toBe("Couldn't start casting. Try again.")
+  })
+})
+
+describe("the receiver's volume", () => {
+  const ready = async () => {
+    const hook = renderHook(useChromecast)
+    await waitFor(() => expect(hook.result.current.isLoading).toBe(false))
+    return hook
+  }
+
+  it('starts from the receiver and follows its changes', async () => {
+    const { result } = await ready()
+    expect(result.current).toMatchObject({ receiverVolume: 0.5, receiverMuted: false })
+
+    act(() => { remote.current!.volumeLevel = 0.2; remote.current!.isMuted = true; playerListeners.get('volume')?.() })
+    expect(result.current).toMatchObject({ receiverVolume: 0.2, receiverMuted: true })
+  })
+
+  it('sets the level through the remote player controller, and a level unmutes', async () => {
+    const { result } = await ready()
+    remote.current!.isMuted = true
+    act(() => setReceiverVolume(0.8))
+
+    expect(remote.current!.volumeLevel).toBe(0.8)
+    expect(controllerSetVolume).toHaveBeenCalledTimes(1)
+    expect(controllerMute).toHaveBeenCalledTimes(1)
+    expect(result.current).toMatchObject({ receiverVolume: 0.8, receiverMuted: false })
+  })
+
+  it('mutes through the controller', async () => {
+    const { result } = await ready()
+    act(() => toggleReceiverMute())
+
+    expect(controllerMute).toHaveBeenCalledTimes(1)
+    expect(result.current.receiverMuted).toBe(true)
   })
 })

@@ -10,6 +10,7 @@ import { useClipStore } from '@/stores/clipStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore } from '@/stores/tvStore'
 import { useChatStore } from '@/stores/chatStore'
+import { INITIAL_CAST_STATE, useCastStore } from '@/stores/castStore'
 import { useChannelZap, type ChannelZap } from '@/hooks/useChannelZap'
 import type { UnifiedChannel } from '@/types'
 import type { NHLGame } from '@/types/nhl'
@@ -60,9 +61,11 @@ type MediaPlayerProps = {
   ref?: Ref<unknown>
   volume?: number
   muted?: boolean
+  autoPlay?: boolean
   keyDisabled?: boolean
   onError?: () => void
   onPlaying?: () => void
+  onPlay?: () => void
   onAutoPlayFail?: (detail: { muted: boolean; error: Error }) => void
   onVolumeChange?: (detail: { volume: number; muted: boolean }) => void
 }
@@ -85,6 +88,7 @@ const vidstack = vi.hoisted(() => {
     // What the MediaPlayer ref exposes
     player: {
       play: vi.fn<() => Promise<void>>(),
+      pause: vi.fn(),
       remoteControl: remote,
       get state() {
         return harness.state
@@ -131,6 +135,7 @@ const clipApi = vi.hoisted(() => ({
   deleteHighlightCapture: vi.fn<(id: string) => Promise<void>>(),
   getHighlightFeatures: vi.fn<() => Promise<{ enabled: boolean; ziplineEnabled: boolean }>>(),
 }))
+const castFeature = vi.hoisted(() => vi.fn(() => new Promise<boolean>(() => {})))
 vi.mock('@/services/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/services/api')>()),
   ...clipApi,
@@ -138,6 +143,8 @@ vi.mock('@/services/api', async (importOriginal) => ({
   // The TV store looks the live guide up when live TV changes; never answered here
   fetchNowPlaying: () => new Promise(() => {}),
   fetchLiveProgrammes: () => new Promise(() => {}),
+  // The shell holds the Cast SDK, which starts with this check; never answered here
+  getCastFeatureEnabled: castFeature,
 }))
 // The cast button renders in both control bars, so it reports the shell it
 // sits in and what it would cast
@@ -276,6 +283,7 @@ beforeEach(() => {
   vidstack.mounted.mockClear()
   Object.values(vidstack.remote).forEach((fn) => fn.mockClear())
   vidstack.player.play.mockReset().mockResolvedValue(undefined)
+  vidstack.player.pause.mockClear()
   highlight.enabled = false
   useClipStore.setState({ session: null })
   clipApi.createHighlightCapture.mockReset().mockResolvedValue({ id: 'capture-1' })
@@ -2801,5 +2809,178 @@ describe('DualModeVideoPlayer panel keys', () => {
 
     expect(useChatStore.getState().isOpen).toBe(true)
     expect(useUIStore.getState().isNHLOverlayVisible).toBe(true)
+  })
+})
+
+describe('DualModeVideoPlayer casting', () => {
+  const startCast = () =>
+    act(() => useCastStore.setState({ isLoading: false, isConnected: true, isCasting: true, deviceName: 'Living Room' }))
+  const stopCast = () => act(() => useCastStore.setState({ isCasting: false }))
+  const castingCard = () => within(shell()).queryByRole('region', { name: 'Casting to Living Room' })
+  let pause: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    useCastStore.setState(INITIAL_CAST_STATE)
+    pause = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    useCastStore.setState(INITIAL_CAST_STATE)
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null })
+  })
+
+  it.each([
+    ['live', liveChannel('https://fixture/a')],
+    ['ErsatzTV', hlsChannel('1', 1)],
+  ])('%s: the casting card stands in for the picture, inside the shell', (_engine, channel) => {
+    renderPlayer(channel)
+    expect(castingCard()).not.toBeInTheDocument()
+
+    startCast()
+    expect(castingCard()).toBeInTheDocument()
+
+    stopCast()
+    expect(castingCard()).not.toBeInTheDocument()
+  })
+
+  it('the card covers the picture, not the controls: the control bar and the info rail paint above it', () => {
+    render(<DualModeVideoPlayer channel={liveChannel('https://fixture/a')} isTheaterMode={true} onTheaterModeToggle={vi.fn()} />)
+    startCast()
+
+    // Same z-10 as the control bar, which comes later in the shell, so it
+    // paints over the card; the info rail is z-20
+    const card = castingCard()!
+    const bar = within(shell()).getByRole('toolbar', { name: 'Video controls' })
+    expect(card).toHaveClass('z-10')
+    expect(bar).toHaveClass('z-10')
+    expect(card.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(card).not.toContainElement(bar)
+    expect(within(bar).getByRole('button', { name: 'Exit theater mode' })).toBeInTheDocument()
+  })
+
+  it('the shell holds the Cast SDK: a channel change, the empty live slot or the reload after a stop never sets it up again', () => {
+    castFeature.mockClear()
+    const { switchTo } = renderPlayer(liveChannel('https://fixture/a'))
+    expect(castFeature).toHaveBeenCalledTimes(1)
+
+    startCast()
+    switchTo(liveChannel(''))
+    switchTo(liveChannel('https://fixture/b'))
+    stopCast()
+    switchTo(hlsChannel('1', 1))
+
+    expect(castFeature).toHaveBeenCalledTimes(1)
+  })
+
+  it('ErsatzTV: the notices about the local picture give way to the card', () => {
+    renderPlayer(hlsChannel('1', 1))
+    act(() => lastPlayerProps().onAutoPlayFail?.({ muted: true, error: policyError() }))
+    expect(startPlaybackButton()).toBeInTheDocument()
+
+    startCast()
+
+    expect(startPlaybackButton()).not.toBeInTheDocument()
+  })
+
+  it('ErsatzTV: Play in the control bar is undone while casting', () => {
+    renderPlayer(hlsChannel('1', 1))
+    startCast()
+    vidstack.player.pause.mockClear()
+
+    act(() => lastPlayerProps().onPlay?.())
+
+    expect(vidstack.player.pause).toHaveBeenCalledTimes(1)
+  })
+
+  it('the empty live slot shows the card too', () => {
+    renderPlayer(liveChannel(''))
+    startCast()
+
+    expect(castingCard()).toBeInTheDocument()
+  })
+
+  it('live: casting pauses and mutes the element, the saved volume and mute unchanged', () => {
+    useAudioStore.setState({ volume: 0.3, muted: false })
+    renderPlayer(liveChannel('https://fixture/a'))
+    vi.mocked(localStorage.setItem).mockClear()
+
+    startCast()
+
+    expect(pause).toHaveBeenCalled()
+    expect(video().muted).toBe(true)
+    expect(useAudioStore.getState()).toMatchObject({ volume: 0.3, muted: false })
+    expect(wroteAudioStorage()).toBe(false)
+  })
+
+  it('live: the element stays paused and silent while casting', () => {
+    renderPlayer(liveChannel('https://fixture/a'))
+    startCast()
+    pause.mockClear()
+
+    act(() => {
+      video().dispatchEvent(new Event('play'))
+      video().muted = false
+    })
+
+    expect(pause).toHaveBeenCalledTimes(1)
+    expect(video().muted).toBe(true)
+    expect(useAudioStore.getState().muted).toBe(false)
+  })
+
+  it('live: stopping starts a new player at the live edge, at the saved level', () => {
+    useAudioStore.setState({ volume: 0.3, muted: false })
+    renderPlayer(liveChannel('https://fixture/a'))
+    startCast()
+    const paused = video()
+    expect(mpegtsHarness.createPlayer).toHaveBeenCalledTimes(1)
+
+    stopCast()
+
+    expect(mpegtsHarness.createPlayer).toHaveBeenCalledTimes(2)
+    expect(mpegtsHarness.players[0].destroy).toHaveBeenCalled()
+    expect(video()).not.toBe(paused)
+    expect(video().muted).toBe(false)
+    expect(video().volume).toBe(0.3)
+  })
+
+  it('ErsatzTV: casting pauses and mutes the player, the saved mute unchanged; stopping resumes it', () => {
+    useAudioStore.setState({ volume: 0.3, muted: false })
+    renderPlayer(hlsChannel('1', 1))
+    vi.mocked(localStorage.setItem).mockClear()
+
+    startCast()
+    expect(vidstack.player.pause).toHaveBeenCalledTimes(1)
+    expect(lastPlayerProps().muted).toBe(true)
+    expect(useAudioStore.getState()).toMatchObject({ volume: 0.3, muted: false })
+    expect(wroteAudioStorage()).toBe(false)
+
+    stopCast()
+    expect(vidstack.player.play).toHaveBeenCalledTimes(1)
+    expect(lastPlayerProps().muted).toBe(false)
+    // Resumed, not remounted
+    expect(vidstack.mounted).toHaveBeenCalledTimes(1)
+  })
+
+  it('ErsatzTV: while casting, Space leaves the picture paused and a channel change does not autoplay', () => {
+    const { switchTo } = renderPlayer(hlsChannel('1', 1))
+    startCast()
+
+    fireEvent.keyDown(window, { key: ' ' })
+    expect(vidstack.remote.togglePaused).not.toHaveBeenCalled()
+
+    switchTo(hlsChannel('2', 2))
+    expect(lastPlayerProps()).toMatchObject({ autoPlay: false, muted: true })
+  })
+
+  it('a cast failure in fullscreen shows as a banner inside the shell', () => {
+    renderPlayer(liveChannel('https://fixture/a'))
+    act(() => {
+      Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: shell() })
+      document.dispatchEvent(new Event('fullscreenchange'))
+    })
+
+    act(() => useCastStore.getState().reportError('Living Room stopped playing'))
+
+    expect(within(shell()).getByRole('alert')).toHaveTextContent('Living Room stopped playing')
   })
 })

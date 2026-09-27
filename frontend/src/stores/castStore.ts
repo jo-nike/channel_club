@@ -20,6 +20,10 @@ export interface CastState {
   deviceName: string | null
   /** Remote player state (IDLE, BUFFERING, PLAYING, PAUSED) */
   playerState: string | null
+  /** The receiver's own volume (0-1): the TV's, never the audio store's */
+  receiverVolume: number
+  /** The receiver's own mute */
+  receiverMuted: boolean
   /** The latest failure; each report is a new object */
   lastError: CastError | null
 }
@@ -36,6 +40,8 @@ export const INITIAL_CAST_STATE: CastState = {
   isCasting: false,
   deviceName: null,
   playerState: null,
+  receiverVolume: 1,
+  receiverMuted: false,
   lastError: null,
 }
 

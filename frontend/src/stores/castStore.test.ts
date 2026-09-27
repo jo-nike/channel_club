@@ -15,6 +15,8 @@ describe('castStore', () => {
       isCasting: false,
       deviceName: null,
       playerState: null,
+      receiverVolume: 1,
+      receiverMuted: false,
       lastError: null,
     })
   })
