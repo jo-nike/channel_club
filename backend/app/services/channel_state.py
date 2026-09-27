@@ -78,7 +78,7 @@ async def set_current_channel(channel: Channel, user: str | None = None) -> Chan
     # Broadcast to all connected clients
     await broadcast_channel_update(channel, changed_by=user)
     if user:
-        await _broadcast_system_line(f"{user} switched Live to {channel.name}")
+        await _broadcast_system_line(f"{user} put on {channel.name}")
 
     return _current_channel
 

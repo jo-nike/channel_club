@@ -1003,31 +1003,31 @@ describe('ChatPanel', () => {
 
     it('breaks a sender\'s group, so their next message names them again', () => {
       useChatStore.setState({
-        messages: [sent('1', 'Alice', 20), line('s1', 'jon switched Live to TSN 5', 15), sent('2', 'Alice', 10)],
+        messages: [sent('1', 'Alice', 20), line('s1', 'jon put on TSN 5', 15), sent('2', 'Alice', 10)],
       })
       render(<ChatPanel onSendMessage={mockOnSendMessage} />)
       expect(screen.getAllByText('Alice')).toHaveLength(2)
-      expect(screen.getByText('jon switched Live to TSN 5 · just now')).toBeInTheDocument()
+      expect(screen.getByText('jon put on TSN 5 · just now')).toBeInTheDocument()
     })
 
     it("doesn't put the 'New' divider before a system line", () => {
       useChatStore.setState({
-        messages: [sent('1', 'OtherUser', 20), line('s1', 'jon switched Live to TSN 5', 10), sent('2', 'OtherUser', 5)],
+        messages: [sent('1', 'OtherUser', 20), line('s1', 'jon put on TSN 5', 10), sent('2', 'OtherUser', 5)],
         readMarker: base - 15_000,
       })
       render(<ChatPanel onSendMessage={mockOnSendMessage} />)
       const divider = screen.getByRole('separator', { name: 'New messages' })
       const follows = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
-      expect(follows(screen.getByText(/jon switched Live/), divider)).toBe(true)
+      expect(follows(screen.getByText(/jon put on/), divider)).toBe(true)
       expect(follows(divider, screen.getByText('Message 2'))).toBe(true)
     })
 
     it('offers Watch on the newest system line only, which puts on channel 0', () => {
       useChatStore.setState({
         messages: [
-          line('s1', 'jon switched Live to TSN 4', 30),
+          line('s1', 'jon put on TSN 4', 30),
           sent('1', 'OtherUser', 20),
-          line('s2', 'jon switched Live to TSN 5', 10),
+          line('s2', 'jon put on TSN 5', 10),
         ],
       })
       render(<ChatPanel onSendMessage={mockOnSendMessage} />)
@@ -1050,7 +1050,7 @@ describe('ChatPanel', () => {
 
     it('offers no Watch to someone already on channel 0', () => {
       useTVStore.setState({ selectedChannel: useTVStore.getState().getUnifiedChannels()[0] })
-      useChatStore.setState({ messages: [line('s1', 'jon switched Live to TSN 5', 10)] })
+      useChatStore.setState({ messages: [line('s1', 'jon put on TSN 5', 10)] })
       render(<ChatPanel onSendMessage={mockOnSendMessage} />)
       expect(screen.queryByRole('button', { name: 'Watch' })).not.toBeInTheDocument()
     })

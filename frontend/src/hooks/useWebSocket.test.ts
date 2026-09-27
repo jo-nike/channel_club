@@ -1135,7 +1135,7 @@ describe('useWebSocket', () => {
           messageId: 'sys-1',
           username: 'Live TV',
           userId: '',
-          content: 'jon switched Live to TSN 5',
+          content: 'jon put on TSN 5',
           timestamp: '2026-01-08T12:00:00Z',
           kind: 'system',
         })
@@ -1143,7 +1143,7 @@ describe('useWebSocket', () => {
 
       const [line] = useChatStore.getState().messages
       expect(line.kind).toBe('system')
-      expect(line.content).toBe('jon switched Live to TSN 5')
+      expect(line.content).toBe('jon put on TSN 5')
     })
 
     test('passes the channel the server stamped through to the store', () => {

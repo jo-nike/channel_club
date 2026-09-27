@@ -197,7 +197,7 @@ class TestLiveChangeSystemLines:
         line = sent[1]
         assert line["kind"] == "system"
         assert line["username"] == "Live TV"
-        assert line["content"] == "jon switched Live to TSN 5"
+        assert line["content"] == "jon put on TSN 5"
 
     @pytest.mark.asyncio
     async def test_clear_posts_a_system_line_when_chat_is_enabled(
