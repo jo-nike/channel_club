@@ -360,13 +360,13 @@ describe('PlayerInfoOverlay: shared live-channel changes', () => {
     liveChangedTo('Sportsnet One', 'jon')
     update(liveSlot('Sportsnet One', 'https://fixture/sn1'), hidden)
 
-    expect(status()).toHaveTextContent('Live changed to Sportsnet One by jon')
+    expect(status()).toHaveTextContent('jon put on Sportsnet One')
     // The whole rail comes up with it, showing the new channel
     expect(rail()).toHaveClass('opacity-100')
     expect(rail()).toHaveTextContent('Sportsnet One')
 
     advance(4999)
-    expect(status()).toHaveTextContent('Live changed to Sportsnet One by jon')
+    expect(status()).toHaveTextContent('jon put on Sportsnet One')
 
     advance(1)
     expect(status()).toBeEmptyDOMElement()
@@ -380,7 +380,7 @@ describe('PlayerInfoOverlay: shared live-channel changes', () => {
 
     liveChangedTo('TSN 3', null)
 
-    expect(status()).toHaveTextContent(/^Live changed to TSN 3$/)
+    expect(status()).toHaveTextContent(/^Live channel set to TSN 3$/)
   })
 
   it('a second change restarts the 5s', () => {
@@ -389,10 +389,10 @@ describe('PlayerInfoOverlay: shared live-channel changes', () => {
     advance(3000)
 
     liveChangedTo('TSN 4', 'dev')
-    expect(status()).toHaveTextContent('Live changed to TSN 4 by dev')
+    expect(status()).toHaveTextContent('dev put on TSN 4')
 
     advance(4999)
-    expect(status()).toHaveTextContent('Live changed to TSN 4 by dev')
+    expect(status()).toHaveTextContent('dev put on TSN 4')
     advance(1)
     expect(status()).toBeEmptyDOMElement()
   })
@@ -420,7 +420,7 @@ describe('PlayerInfoOverlay: shared live-channel changes', () => {
     liveChangedTo('TSN 3', 'jon')
 
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
-    expect(rail()).not.toHaveTextContent(/Live changed/)
+    expect(rail()).not.toHaveTextContent(/put on/)
   })
 
   it('does not announce a change made before tuning to channel 0', () => {

@@ -1699,7 +1699,7 @@ describe('DualModeVideoPlayer info rail', () => {
 
     const status = screen.getByRole('status')
     expect(shell()).toContainElement(status)
-    expect(status).toHaveTextContent('Live changed to Sportsnet One by jon')
+    expect(status).toHaveTextContent('jon put on Sportsnet One')
     act(() => useChannelStore.setState({ lastChange: null }))
   })
 

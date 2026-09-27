@@ -2,12 +2,12 @@ import { useEffect, useState } from 'react'
 import { ChannelLogo } from '@/components/ChannelLogo'
 import { NHLScoresOverlay } from '@/components/NHLScoresOverlay'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useLiveChangeAnnouncement } from '@/hooks/useLiveChangeAnnouncement'
 import { useNowPlaying } from '@/hooks/useNowPlaying'
 import { useTVMode } from '@/hooks/useTVMode'
 import { withKey } from '@/lib/keyHints'
 import { cn } from '@/lib/utils'
-import { useAuthStore } from '@/stores/authStore'
-import { useChannelStore, type LiveChannelChange } from '@/stores/channelStore'
+import { describeLiveChange, useChannelStore, type LiveChannelChange } from '@/stores/channelStore'
 import { describeLiveGuide, useTVStore } from '@/stores/tvStore'
 import { useUIStore } from '@/stores/uiStore'
 import type { UnifiedChannel } from '@/types'
@@ -15,8 +15,6 @@ import { usePlayerShell } from './PlayerShellContext'
 
 /** How long the rail stays up after a tune */
 const TUNE_BANNER_MS = 4000
-/** How long a change to the shared live channel is announced */
-const LIVE_CHANGE_BANNER_MS = 5000
 
 const RAIL_CLASS = cn(
   'pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-4 bg-linear-to-b from-black/80 via-black/40 to-transparent pb-6 text-white transition-opacity duration-300',
@@ -49,7 +47,8 @@ interface PlayerInfoOverlayProps {
  * did it (those viewers get this instead of the toast). It is the one top
  * rail: the ticker and the engine's sound-off pill move down while the rail is
  * up, so they never overlap it. TV theater has its own channel banner
- * (ZapBanner) in that corner, so the rail stays out of it there.
+ * (ZapBanner) in that corner, so the rail stays out of it there and the
+ * banner tells live changes instead.
  *
  * While the viewer steps through channels, the rail shows the channel they
  * are heading for at once; the tune itself waits until they stop pressing.
@@ -79,31 +78,8 @@ export function PlayerInfoOverlay({ channel, pending = null, entry = null, missi
     return () => clearTimeout(timer)
   }, [isTuneBanner, tunedId])
 
-  // A change to the shared live channel while this viewer is on it. Only
-  // changes that arrive while on channel 0 count, not the last one before;
-  // your own change and live TV stopping (the player says so) aren't announced.
-  const isLive = channel?.type === 'live'
-  const [liveChange, setLiveChange] = useState<LiveChannelChange | null>(null)
-  useEffect(() => {
-    if (!isLive) return
-    const unsubscribe = useChannelStore.subscribe((state, prev) => {
-      const change = state.lastChange
-      if (change === prev.lastChange) return
-      const isOwn = change?.by != null && change.by === useAuthStore.getState().username
-      setLiveChange(change?.channelName && !isOwn ? change : null)
-    })
-    return () => {
-      unsubscribe()
-      setLiveChange(null)
-    }
-  }, [isLive])
-
-  // Keyed on the change, so a second change restarts the 5s
-  useEffect(() => {
-    if (!liveChange) return
-    const timer = setTimeout(() => setLiveChange(null), LIVE_CHANGE_BANNER_MS)
-    return () => clearTimeout(timer)
-  }, [liveChange])
+  // A change to the shared live channel while this viewer is on it
+  const liveChange = useLiveChangeAnnouncement(channel?.type === 'live')
 
   const railChannel = pending ?? channel
   // Digits with no channel to show for them
@@ -191,7 +167,7 @@ function InfoRail({ channel, isVisible, liveChange }: InfoRailProps) {
               and make each change a new region that screen readers skip */}
           {isLive && (
             <p role="status" className="mt-0.5 truncate text-sm font-semibold leading-tight empty:mt-0">
-              {liveChange && describeLiveChange(liveChange)}
+              {liveChange && describeLiveChange(liveChange.channelName, liveChange.by)}
             </p>
           )}
         </div>
@@ -245,9 +221,4 @@ function NumberRail({ number, isMissing }: { number: string; isMissing: boolean 
       </div>
     </div>
   )
-}
-
-// 'Live changed to TSN 5 by Jon', or without the name for a system change
-function describeLiveChange({ channelName, by }: LiveChannelChange): string {
-  return by ? `Live changed to ${channelName} by ${by}` : `Live changed to ${channelName}`
 }

@@ -12,6 +12,16 @@ export interface LiveChannelChange {
   channelName: string | null
 }
 
+/**
+ * How a live change reads everywhere it is told (the toast, the info rail,
+ * the TV channel banner): 'jon put on TSN 5', 'Live channel set to TSN 5'
+ * when nobody is named, and 'jon stopped live TV' for a stop.
+ */
+export function describeLiveChange(channelName: string | null, by: string | null): string {
+  if (channelName) return by ? `${by} put on ${channelName}` : `Live channel set to ${channelName}`
+  return by ? `${by} stopped live TV` : 'Live TV stopped'
+}
+
 interface ChannelState {
   channels: Channel[]
   currentChannel: Channel | null
