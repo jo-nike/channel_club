@@ -2450,6 +2450,72 @@ describe('DualModeVideoPlayer channel keys', () => {
       expect(screen.getByRole('button', { name: 'Channel up' })).toBeInTheDocument()
     })
 
+    describe('swipes on a phone held sideways', () => {
+      const LANDSCAPE = '(pointer: coarse) and (orientation: landscape) and (max-height: 500px)'
+      // A swipe on the picture of an 844 x 390 phone, starting mid-height
+      const swipe = (dy: number) => {
+        const target = shell()
+        target.getBoundingClientRect = () => new DOMRect(0, 0, 844, 390)
+        for (const [type, y] of [['pointerdown', 195], ['pointerup', 195 + dy]] as const) {
+          act(() => {
+            target.dispatchEvent(
+              new PointerEvent(type, { bubbles: true, pointerType: 'touch', pointerId: 1, clientX: 400, clientY: y })
+            )
+          })
+        }
+      }
+
+      it('two swipes down show the rail at once and tune once, two channels down', () => {
+        matchMediaQueries([LANDSCAPE, '(pointer: coarse)'])
+        render(<Page />)
+
+        swipe(80)
+        swipe(80)
+        expect(screen.getByTestId('player-info-rail')).toHaveTextContent('Channel 3')
+        expect(tunes).toEqual([])
+
+        act(() => {
+          vi.advanceTimersByTime(700)
+        })
+
+        expect(tunes).toEqual(['e3'])
+        expect(useTVStore.getState().selectedChannel?.id).toBe('e3')
+      })
+
+      it('a swipe up goes to the next channel', () => {
+        matchMediaQueries([LANDSCAPE, '(pointer: coarse)'])
+        useTVStore.setState({ selectedChannel: { ...hlsChannel('e2', 2), streamUrl: '/e2' } })
+        render(<Page />)
+
+        swipe(-80)
+        act(() => {
+          vi.advanceTimersByTime(700)
+        })
+
+        expect(tunes).toEqual(['e3'])
+      })
+
+      it('the shell takes the touch gestures itself, so the browser does not scroll them away', () => {
+        matchMediaQueries([LANDSCAPE, '(pointer: coarse)'])
+        render(<Page />)
+
+        expect(shell()).toHaveClass('touch-none')
+      })
+
+      it('in portrait a swipe changes nothing and the page keeps its touch gestures', () => {
+        matchMediaQueries(['(pointer: coarse)'])
+        render(<Page />)
+
+        swipe(80)
+        act(() => {
+          vi.advanceTimersByTime(700)
+        })
+
+        expect(tunes).toEqual([])
+        expect(shell()).not.toHaveClass('touch-none')
+      })
+    })
+
     it('has no rocker inline below 1024px', () => {
       render(<Page />)
 
