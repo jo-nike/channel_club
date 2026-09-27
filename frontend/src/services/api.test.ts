@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { login, fetchWithAuth, getAuthConfig, loginWithPlex } from './api'
+import { login, fetchWithAuth, getAuthConfig, loginWithPlex, createCaptureDownloadUrl } from './api'
 import { useAuthStore } from '@/stores/authStore'
 
 describe('api service', () => {
@@ -511,6 +511,39 @@ describe('api service', () => {
       } as Response)
 
       await expect(loginWithPlex('bad-token')).rejects.toThrow('Plex authentication failed')
+    })
+  })
+
+  describe('createCaptureDownloadUrl', () => {
+    it('asks for a single-use link with the session header and returns it without the session token', async () => {
+      vi.mocked(localStorage.getItem).mockReturnValue('test-jwt-token')
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ url: '/api/highlight/download/single-use-token' }),
+      } as Response)
+
+      const url = await createCaptureDownloadUrl('capture-1')
+
+      expect(url).toBe('/api/highlight/download/single-use-token')
+      expect(url).not.toContain('test-jwt-token')
+      expect(fetch).toHaveBeenCalledWith(
+        '/api/highlight/capture/capture-1/download-token',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({ Authorization: 'Bearer test-jwt-token' }),
+        })
+      )
+    })
+
+    it('says the capture is gone when the server no longer has it', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        json: () => Promise.resolve({ detail: 'Capture not found' }),
+      } as Response)
+
+      await expect(createCaptureDownloadUrl('capture-1')).rejects.toThrow('This capture is no longer available')
     })
   })
 })

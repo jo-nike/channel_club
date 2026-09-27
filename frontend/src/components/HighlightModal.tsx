@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useId, type MouseEvent, type ReactNode } from 'react'
 import { Download, Upload, Play, Pause, RotateCcw, Loader2, Copy, ExternalLink, X, Pencil } from 'lucide-react'
 import { toast } from 'sonner'
-import { createHighlightCapture, highlightCaptureUrl, fetchHighlightCapture, deleteHighlightCapture, exportHighlight, uploadHighlight, getHighlightFeatures, type HighlightFormat, type UploadedHighlight } from '@/services/api'
+import { createHighlightCapture, highlightCaptureUrl, fetchHighlightCapture, createCaptureDownloadUrl, deleteHighlightCapture, exportHighlight, uploadHighlight, getHighlightFeatures, type HighlightFormat, type UploadedHighlight } from '@/services/api'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -17,6 +17,12 @@ function pressRange(duration: number, press: number): [number, number] {
   const end = Math.min(duration, Math.max(Math.min(duration, 0.1), press))
   return [Math.max(0, end - DEFAULT_CLIP_SECONDS), end]
 }
+
+/**
+ * How long closing the editor waits to delete a capture after handing the browser a direct download
+ * link, so the download request reaches the server (and opens the file) before the delete does.
+ */
+const DOWNLOAD_HANDOFF_MS = 5000
 
 /**
  * The action's button turns into Cancel under the pointer as soon as it is clicked, so the second click
@@ -91,6 +97,8 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
   const uploadResult = useRef<HTMLDivElement>(null)
   const closeButton = useRef<HTMLButtonElement>(null)
   const controller = useRef<AbortController | null>(null)
+  // When this capture was last handed to the browser as a direct download (ms), for the delete on close
+  const handoff = useRef({ at: 0 })
   // Each export has its own controller, so Cancel stops the export and leaves the session and capture alone.
   const exportRequest = useRef<AbortController | null>(null)
   // When the running export started (ms), so a double-click on its button does not cancel it
@@ -132,6 +140,8 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
   useEffect(() => {
     const request = new AbortController()
     controller.current = request
+    const delivery = { at: 0 }
+    handoff.current = delivery
     let captureId: string | undefined
     // The server keeps the snapshot; the video element streams it by range, so the
     // editor appears once the metadata arrives instead of after a full download.
@@ -146,7 +156,14 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
     void getHighlightFeatures(request.signal).then(features => {
       if (!request.signal.aborted) setZipline(features.ziplineEnabled === true)
     }).catch(() => {})
-    return () => { request.abort(); if (captureId) void deleteHighlightCapture(captureId) }
+    return () => {
+      request.abort()
+      if (!captureId) return
+      const id = captureId
+      const wait = delivery.at + DOWNLOAD_HANDOFF_MS - Date.now()
+      if (wait > 0) setTimeout(() => void deleteHighlightCapture(id), wait)
+      else void deleteHighlightCapture(id)
+    }
   }, [channelId, attempt])
 
   const seek = useCallback((time: number) => {
@@ -206,10 +223,20 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
     const signal = request.signal
     setTask(destination); setStage('preparing'); setError(null); setElapsed(0)
     const key = `${start}:${end}:${format}`
+    const trimmed = start > 0.001 || end < duration - 0.001
     try {
+      if (destination === 'download' && format === 'mp4' && !trimmed) {
+        // The untrimmed MP4 is the capture itself: the browser downloads it straight from the server
+        // instead of this page holding the whole file in memory first.
+        const url = await createCaptureDownloadUrl(source.id, signal)
+        if (signal.aborted) return
+        save(url)
+        handoff.current.at = Date.now()
+        downloaded(key)
+        return
+      }
       let blob = cache.current?.key === key ? cache.current.blob : null
       if (!blob) {
-        const trimmed = start > 0.001 || end < duration - 0.001
         blob = format === 'mp4' && !trimmed ? await fetchHighlightCapture(source.id, signal)
           : await exportHighlight(source.id, format, trimmed ? { startTime: start, endTime: end } : undefined, signal)
         if (signal.aborted) return
@@ -221,14 +248,10 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
         if (!signal.aborted) { setUploaded(result); setDelivered(key) }
       } else {
         const url = URL.createObjectURL(blob)
-        const link = document.createElement('a')
-        link.href = url
-        link.download = `highlight-${channelId}-${new Date().toISOString().replace(/[:.]/g, '-')}.${format}`
-        document.body.appendChild(link); link.click(); link.remove()
+        save(url)
         // Give the browser time to start consuming the download URL.
         setTimeout(() => URL.revokeObjectURL(url), 1000)
-        setDelivered(key)
-        toast.success(`Download started · ${(end - start).toFixed(1)}s ${format.toUpperCase()}`)
+        downloaded(key)
       }
     } catch (err) {
       if (!signal.aborted) setError(err instanceof Error ? err.message : 'Export failed. Please try again.')
@@ -238,6 +261,18 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
       exportRequest.current = null
       if (!session.aborted) { setStage(null); setTask(null) }
     }
+  }
+
+  function save(href: string) {
+    const link = document.createElement('a')
+    link.href = href
+    link.download = `highlight-${channelId}-${new Date().toISOString().replace(/[:.]/g, '-')}.${format}`
+    document.body.appendChild(link); link.click(); link.remove()
+  }
+
+  function downloaded(key: string) {
+    setDelivered(key)
+    toast.success(`Download started · ${(end - start).toFixed(1)}s ${format.toUpperCase()}`)
   }
 
   function cancelExport(event: MouseEvent) {

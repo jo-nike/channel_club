@@ -5,7 +5,7 @@ import * as api from '@/services/api'
 import { useAudioStore } from '@/stores/audioStore'
 
 vi.mock('@/services/api', () => ({
-  createHighlightCapture: vi.fn(), highlightCaptureUrl: vi.fn(), fetchHighlightCapture: vi.fn(), deleteHighlightCapture: vi.fn(),
+  createHighlightCapture: vi.fn(), highlightCaptureUrl: vi.fn(), fetchHighlightCapture: vi.fn(), createCaptureDownloadUrl: vi.fn(), deleteHighlightCapture: vi.fn(),
   exportHighlight: vi.fn(), uploadHighlight: vi.fn(), getHighlightFeatures: vi.fn(),
 }))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
@@ -44,6 +44,7 @@ beforeEach(() => {
   vi.mocked(api.createHighlightCapture).mockResolvedValue(capture)
   vi.mocked(api.highlightCaptureUrl).mockImplementation(id => `/api/highlight/capture/${id}?token=t`)
   vi.mocked(api.fetchHighlightCapture).mockResolvedValue(preview)
+  vi.mocked(api.createCaptureDownloadUrl).mockResolvedValue('/api/highlight/download/single-use-token')
   vi.mocked(api.deleteHighlightCapture).mockResolvedValue()
   vi.mocked(api.exportHighlight).mockResolvedValue(prepared)
   vi.mocked(api.getHighlightFeatures).mockResolvedValue({ enabled: true, ziplineEnabled: false })
@@ -372,15 +373,85 @@ describe('Clip editor', () => {
     expect(api.uploadHighlight).toHaveBeenCalledTimes(1)
   })
 
-  it('downloads the original untrimmed snapshot without encoding', async () => {
-    render(<HighlightModal {...props} />)
+  it('downloads the original untrimmed snapshot straight from a single-use link, without encoding or fetching it', async () => {
+    const saved: (string | null)[] = []
+    vi.mocked(HTMLAnchorElement.prototype.click).mockImplementation(function (this: HTMLAnchorElement) { saved.push(this.getAttribute('href')) })
+    const { unmount } = render(<HighlightModal {...props} />)
     await ready()
     fireEvent.click(screen.getByRole('button', { name: 'Full' }))
     fireEvent.click(screen.getByText('Download clip'))
-    await waitFor(() => expect(HTMLAnchorElement.prototype.click).toHaveBeenCalled())
+    await waitFor(() => expect(saved).toEqual(['/api/highlight/download/single-use-token']))
+    expect(api.createCaptureDownloadUrl).toHaveBeenCalledExactlyOnceWith('capture-1', expect.any(AbortSignal))
     expect(api.exportHighlight).not.toHaveBeenCalled()
-    expect(api.fetchHighlightCapture).toHaveBeenCalledExactlyOnceWith('capture-1', expect.any(AbortSignal))
-    expect(URL.createObjectURL).toHaveBeenCalledWith(preview)
+    expect(api.fetchHighlightCapture).not.toHaveBeenCalled()
+    expect(URL.createObjectURL).not.toHaveBeenCalled()
+    // The session token never goes into the download link
+    expect(saved[0]).not.toContain('token=')
+    await waitFor(() => expect(screen.getByText('Download clip')).toBeEnabled())
+    vi.useFakeTimers()
+    try { unmount(); act(() => { vi.runAllTimers() }) } finally { vi.useRealTimers() }
+  })
+
+  it('hands over the direct download when Download clip is double-clicked', async () => {
+    const { unmount } = render(<HighlightModal {...props} />)
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: 'Full' }))
+    const download = screen.getByRole('button', { name: 'Download clip' })
+    fireEvent.click(download, { detail: 1 }); fireEvent.click(download, { detail: 2 })
+    expect(vi.mocked(api.createCaptureDownloadUrl).mock.calls[0][1]!.aborted).toBe(false)
+    await waitFor(() => expect(HTMLAnchorElement.prototype.click).toHaveBeenCalledTimes(1))
+    expect(api.createCaptureDownloadUrl).toHaveBeenCalledTimes(1)
+    // Run the delete deferred for the download now, so it does not land in a later test
+    vi.useFakeTimers()
+    try { unmount(); act(() => { vi.runAllTimers() }) } finally { vi.useRealTimers() }
+  })
+
+  it('deletes the capture only after the browser has had time to start the direct download', async () => {
+    let link!: (url: string) => void
+    vi.mocked(api.createCaptureDownloadUrl).mockImplementationOnce(() => new Promise(done => { link = done }))
+    const { rerender } = render(<HighlightModal {...props} />)
+    await ready()
+    vi.useFakeTimers()
+    try {
+      fireEvent.click(screen.getByRole('button', { name: 'Full' }))
+      fireEvent.click(screen.getByText('Download clip'))
+      await act(async () => { link('/api/highlight/download/single-use-token') })
+      expect(HTMLAnchorElement.prototype.click).toHaveBeenCalledTimes(1)
+      // Delivered, so closing does not ask; the delete waits for the download to reach the server
+      fireEvent.click(screen.getByRole('button', { name: 'Close editor' }))
+      expect(props.onClose).toHaveBeenCalledTimes(1)
+      rerender(<HighlightModal {...props} isOpen={false} />)
+      expect(api.deleteHighlightCapture).not.toHaveBeenCalled()
+      act(() => { vi.advanceTimersByTime(4000) })
+      expect(api.deleteHighlightCapture).not.toHaveBeenCalled()
+      act(() => { vi.advanceTimersByTime(1000) })
+      expect(api.deleteHighlightCapture).toHaveBeenCalledExactlyOnceWith('capture-1')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('discarding while the download link is requested cancels the download and deletes at once', async () => {
+    vi.mocked(api.createCaptureDownloadUrl).mockImplementationOnce(() => new Promise(() => {}))
+    const { rerender } = render(<HighlightModal {...props} />)
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: 'Full' }))
+    fireEvent.click(screen.getByText('Download clip'))
+    const signal = vi.mocked(api.createCaptureDownloadUrl).mock.calls[0][1]!
+    rerender(<HighlightModal {...props} isOpen={false} />)
+    expect(signal.aborted).toBe(true)
+    expect(HTMLAnchorElement.prototype.click).not.toHaveBeenCalled()
+    expect(api.deleteHighlightCapture).toHaveBeenCalledExactlyOnceWith('capture-1')
+  })
+
+  it('still uploads the untrimmed snapshot bytes to Zipline', async () => {
+    vi.mocked(api.getHighlightFeatures).mockResolvedValue({ enabled: true, ziplineEnabled: true })
+    render(<HighlightModal {...props} />)
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: 'Full' }))
+    fireEvent.click(screen.getByText('Upload to Zipline'))
+    await waitFor(() => expect(api.uploadHighlight).toHaveBeenCalledExactlyOnceWith(preview, 'mp4', expect.any(AbortSignal)))
+    expect(api.createCaptureDownloadUrl).not.toHaveBeenCalled()
   })
 
   it('shares prepared bytes between download and Zipline and displays its returned link', async () => {

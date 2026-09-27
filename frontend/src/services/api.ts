@@ -10,7 +10,7 @@ import type {
   Program,
 } from '@/types'
 
-import { API_URL } from './apiBase'
+import { API_URL, apiAssetUrl } from './apiBase'
 
 /**
  * Get absolute API URL for Chromecast.
@@ -484,6 +484,20 @@ export async function fetchHighlightCapture(captureId: string, signal?: AbortSig
   const response = await fetchWithAuth(`/highlight/capture/${captureId}`, { signal })
   if (!response.ok) throw new Error('This capture is no longer available. Capture again to retry.')
   return response.blob()
+}
+
+/**
+ * A single-use link, valid for a minute, that the browser's download manager can follow for the
+ * untrimmed capture. Unlike highlightCaptureUrl it carries no session token, so none ends up in
+ * download history or proxy logs.
+ */
+export async function createCaptureDownloadUrl(captureId: string, signal?: AbortSignal): Promise<string> {
+  const response = await fetchWithAuth(`/highlight/capture/${captureId}/download-token`, { method: 'POST', signal })
+  if (!response.ok) throw new Error('This capture is no longer available. Capture again to retry.')
+  const { url } = await response.json() as { url: string }
+  const resolved = apiAssetUrl(url)
+  if (!resolved) throw new Error('The download link was not valid. Please try again.')
+  return resolved
 }
 
 /** Free server disk as soon as the editor closes; expiry covers anything missed. */
