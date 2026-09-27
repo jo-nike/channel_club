@@ -61,7 +61,7 @@ export function UserSettingsMenu({ onLogout }: UserSettingsMenuProps) {
               ) : (
                 <Bell className="h-4 w-4 shrink-0" />
               )}
-              <span className="flex-1 text-left">Live notifications</span>
+              <span className="flex-1 text-left">Pop-up when the live channel changes</span>
               <span
                 className={cn(
                   'text-xs px-1.5 py-0.5 rounded',

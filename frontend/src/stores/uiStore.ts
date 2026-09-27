@@ -66,8 +66,8 @@ export const useUIStore = create<UIState>()(
       // Last TV channel (unified view)
       lastTVChannelId: null,
       setLastTVChannelId: (id) => set({ lastTVChannelId: id }),
-      // Live channel change notifications (disabled by default)
-      notificationsEnabled: false,
+      // Live channel change pop-ups (on by default)
+      notificationsEnabled: true,
       setNotificationsEnabled: (value) => set({ notificationsEnabled: value }),
       toggleNotifications: () => set((s) => ({ notificationsEnabled: !s.notificationsEnabled })),
       // NHL scores overlay (ephemeral - not persisted)
@@ -77,6 +77,22 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: 'ui-storage',
+      version: 1,
+      // Chained: one `if (fromVersion < n)` guard per version, in order, so an
+      // old save runs every step after it. (Not a fall-through switch:
+      // noFallthroughCasesInSwitch rejects that once a second case exists.)
+      // Leave unknown fields (such as the legacy `volume` the audio store
+      // seeds from) in place.
+      migrate: (persistedState, fromVersion) => {
+        const state = { ...(persistedState as Record<string, unknown>) }
+        if (fromVersion < 1) {
+          // v1: live-change pop-ups default on. An old `false` can't be told
+          // apart from the old default, so everyone is switched on once.
+          state.notificationsEnabled = true
+        }
+        // Fields missing from old saves are filled from the defaults on merge
+        return state as unknown as UIState
+      },
       partialize: (state) => ({
         isSidebarOpen: state.isSidebarOpen,
         lastRoute: state.lastRoute,

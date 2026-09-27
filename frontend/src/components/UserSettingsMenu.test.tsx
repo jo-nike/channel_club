@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, fireEvent } from '@/test/utils'
 import { UserSettingsMenu } from './UserSettingsMenu'
 import { useThemeStore } from '@/stores/themeStore'
+import { useUIStore } from '@/stores/uiStore'
 import { DEFAULT_THEME_ID, getTheme } from '@/lib/themes'
 
 function openMenu() {
@@ -64,5 +65,23 @@ describe('UserSettingsMenu theme options', () => {
       `background-color: ${colors.card};`,
       `background-color: ${colors.primary};`,
     ])
+  })
+})
+
+describe('UserSettingsMenu live-change pop-up toggle', () => {
+  beforeEach(() => {
+    useUIStore.setState({ notificationsEnabled: true })
+  })
+
+  it('names the setting after what it does and toggles it', () => {
+    openMenu()
+
+    const toggle = screen.getByRole('button', { name: /pop-up when the live channel changes/i })
+    expect(toggle).toHaveAttribute('aria-pressed', 'true')
+
+    fireEvent.click(toggle)
+
+    expect(useUIStore.getState().notificationsEnabled).toBe(false)
+    expect(toggle).toHaveAttribute('aria-pressed', 'false')
   })
 })
