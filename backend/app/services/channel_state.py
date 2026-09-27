@@ -14,6 +14,7 @@ from loguru import logger
 
 from app.config import settings
 from app.models.channel import Channel
+from app.services import chat
 
 # Module-level logger with service context
 log = logger.bind(service="channel")
@@ -76,6 +77,8 @@ async def set_current_channel(channel: Channel, user: str | None = None) -> Chan
 
     # Broadcast to all connected clients
     await broadcast_channel_update(channel, changed_by=user)
+    if user:
+        await _broadcast_system_line(f"{user} switched Live to {channel.name}")
 
     return _current_channel
 
@@ -110,6 +113,8 @@ async def clear_current_channel_async(user: str | None = None) -> None:
 
     # Broadcast to all connected clients, naming who stopped live TV
     await broadcast({"type": "channel_update", "channel": None, "changedBy": user})
+    if user:
+        await _broadcast_system_line(f"{user} stopped live TV")
 
 
 async def connect(websocket: WebSocket, owner: asyncio.Task | None = None) -> None:
@@ -156,6 +161,21 @@ async def broadcast_channel_update(channel: Channel, changed_by: str | None = No
     }
     log.debug("Broadcasting channel update to {} clients", len(_active_connections))
     await broadcast(message)
+
+
+async def _broadcast_system_line(content: str) -> None:
+    """Post a system line to chat about a Live change, if chat is enabled.
+
+    The line is broadcast as an ordinary chat_message (kind 'system') but not
+    stored in the chat history; see chat.system_message.
+
+    Args:
+        content: The sentence to show, naming who made the change.
+    """
+    if not settings.chat_enabled:
+        return
+    line = chat.system_message(content)
+    await broadcast({"type": "chat_message", **line.to_dict()})
 
 
 async def broadcast(message: dict) -> None:

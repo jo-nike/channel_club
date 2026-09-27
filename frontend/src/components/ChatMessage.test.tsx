@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen } from '@/test/utils'
+import { fireEvent, render, screen } from '@/test/utils'
 import { ChatMessage } from './ChatMessage'
 import type { ChatMessage as ChatMessageType } from '@/types'
 import type { ThemeId } from '@/types/theme'
@@ -276,6 +276,54 @@ describe('ChatMessage', () => {
       const video = document.querySelector('video')
       expect(video).toBeInTheDocument()
       expect(video).toHaveAttribute('src', 'https://i.imgur.com/abc123.mp4')
+    })
+  })
+
+  describe('system lines', () => {
+    const systemLine = (overrides: Partial<ChatMessageType> = {}) =>
+      createMessage({
+        username: 'Live TV',
+        userId: '',
+        kind: 'system',
+        content: 'jon switched Live to TSN 5',
+        timestamp: new Date(NOW).toISOString(),
+        ...overrides,
+      })
+
+    it('shows the sentence and its time as one line, without a sender, face or bubble', () => {
+      const { container } = render(<ChatMessage message={systemLine()} now={NOW} />)
+      expect(screen.getByText('jon switched Live to TSN 5 · just now')).toBeInTheDocument()
+      expect(screen.queryByText('Live TV')).not.toBeInTheDocument()
+      expect(screen.queryByText('LT')).not.toBeInTheDocument()
+      expect(container.querySelector('.rounded-lg')).toBeNull()
+    })
+
+    it('is centred between rules, in muted text', () => {
+      const { container } = render(<ChatMessage message={systemLine()} now={NOW} />)
+      const line = container.firstElementChild as HTMLElement
+      expect(line).toHaveClass('text-muted-foreground')
+      expect(screen.getByText(/jon switched Live/)).toHaveClass('text-center')
+      expect(line.querySelectorAll('.h-px')).toHaveLength(2)
+    })
+
+    it('stays text: a link in a system line is not embedded', () => {
+      render(<ChatMessage message={systemLine({ content: 'jon switched Live to https://a.com/1.gif' })} now={NOW} />)
+      expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    })
+
+    it('offers Watch only when given what to do, and calls it', () => {
+      const onWatch = vi.fn()
+      const { rerender } = render(<ChatMessage message={systemLine()} now={NOW} />)
+      expect(screen.queryByRole('button', { name: 'Watch' })).not.toBeInTheDocument()
+
+      rerender(<ChatMessage message={systemLine()} now={NOW} onWatch={onWatch} />)
+      fireEvent.click(screen.getByRole('button', { name: 'Watch' }))
+      expect(onWatch).toHaveBeenCalledTimes(1)
+    })
+
+    it('never offers Watch on a member message', () => {
+      render(<ChatMessage message={createMessage()} now={NOW} onWatch={vi.fn()} />)
+      expect(screen.queryByRole('button', { name: 'Watch' })).not.toBeInTheDocument()
     })
   })
 })

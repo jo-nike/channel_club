@@ -1124,6 +1124,28 @@ describe('useWebSocket', () => {
       expect(useChatStore.getState().messages[0].userId).toBe('u_0123456789abcdef')
     })
 
+    test('passes the message kind through, so a system line reaches the store as one', () => {
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({
+          type: 'chat_message',
+          messageId: 'sys-1',
+          username: 'Live TV',
+          userId: '',
+          content: 'jon switched Live to TSN 5',
+          timestamp: '2026-01-08T12:00:00Z',
+          kind: 'system',
+        })
+      })
+
+      const [line] = useChatStore.getState().messages
+      expect(line.kind).toBe('system')
+      expect(line.content).toBe('jon switched Live to TSN 5')
+    })
+
     test('ignores chat_message when missing required fields', () => {
       renderHook(() => useWebSocket())
       const ws = MockWebSocket.instances[0]

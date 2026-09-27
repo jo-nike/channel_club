@@ -3,7 +3,9 @@ import { act, render, screen, fireEvent, waitFor } from '@/test/utils'
 import { ChatPanel } from './ChatPanel'
 import { useChatStore } from '@/stores/chatStore'
 import { usePresenceStore } from '@/stores/presenceStore'
-import type { ChatMessage, PresenceEntry } from '@/types'
+import { useChannelStore } from '@/stores/channelStore'
+import { useTVStore } from '@/stores/tvStore'
+import type { ChatMessage, PresenceEntry, UnifiedChannel } from '@/types'
 
 // Stand-in for the GIF picker, which fetches its feature flag: a click picks one fixed GIF
 const GIF_URL = 'https://media.example/cat.gif'
@@ -891,6 +893,92 @@ describe('ChatPanel', () => {
       expect(screen.getAllByText('OtherUser')).toHaveLength(2)
       // Each side of the divider ends with its time
       expect(screen.getAllByText('just now')).toHaveLength(2)
+    })
+  })
+
+  describe('system lines', () => {
+    const base = new Date(2026, 8, 27, 12, 0).getTime()
+    const sent = (id: string, username: string, secondsAgo: number): ChatMessage => ({
+      messageId: id,
+      username,
+      content: `Message ${id}`,
+      timestamp: new Date(base - secondsAgo * 1000).toISOString(),
+    })
+    const line = (id: string, content: string, secondsAgo: number): ChatMessage => ({
+      messageId: id,
+      username: 'Live TV',
+      userId: '',
+      content,
+      timestamp: new Date(base - secondsAgo * 1000).toISOString(),
+      kind: 'system',
+    })
+    const tsn5 = { id: 'ch-5', name: 'TSN 5', streamUrl: 'http://stream/5', guideId: 'guide-5' }
+    const ersatz: UnifiedChannel = { id: 'etv-1', name: 'Cartoons', number: 1, streamUrl: 'http://etv/1', type: 'ersatztv' }
+
+    beforeEach(() => {
+      vi.useFakeTimers()
+      vi.setSystemTime(base)
+      useChannelStore.setState({ currentChannel: tsn5 })
+      useTVStore.setState({ selectedChannel: ersatz, previousChannelId: null })
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+      useChannelStore.setState({ currentChannel: null })
+      useTVStore.setState({ selectedChannel: null, previousChannelId: null })
+    })
+
+    it('breaks a sender\'s group, so their next message names them again', () => {
+      useChatStore.setState({
+        messages: [sent('1', 'Alice', 20), line('s1', 'jon switched Live to TSN 5', 15), sent('2', 'Alice', 10)],
+      })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.getAllByText('Alice')).toHaveLength(2)
+      expect(screen.getByText('jon switched Live to TSN 5 · just now')).toBeInTheDocument()
+    })
+
+    it("doesn't put the 'New' divider before a system line", () => {
+      useChatStore.setState({
+        messages: [sent('1', 'OtherUser', 20), line('s1', 'jon switched Live to TSN 5', 10), sent('2', 'OtherUser', 5)],
+        readMarker: base - 15_000,
+      })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      const divider = screen.getByRole('separator', { name: 'New messages' })
+      const follows = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
+      expect(follows(screen.getByText(/jon switched Live/), divider)).toBe(true)
+      expect(follows(divider, screen.getByText('Message 2'))).toBe(true)
+    })
+
+    it('offers Watch on the newest system line only, which puts on channel 0', () => {
+      useChatStore.setState({
+        messages: [
+          line('s1', 'jon switched Live to TSN 4', 30),
+          sent('1', 'OtherUser', 20),
+          line('s2', 'jon switched Live to TSN 5', 10),
+        ],
+      })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      const watch = screen.getAllByRole('button', { name: 'Watch' })
+      expect(watch).toHaveLength(1)
+      expect(screen.getByText(/TSN 5 ·/).parentElement).toContainElement(watch[0])
+
+      fireEvent.click(watch[0])
+      const selected = useTVStore.getState().selectedChannel
+      expect(selected?.type).toBe('live')
+      expect(selected?.backendId).toBe('ch-5')
+    })
+
+    it('offers no Watch while Live is off', () => {
+      useChannelStore.setState({ currentChannel: null })
+      useChatStore.setState({ messages: [line('s1', 'jon stopped live TV', 10)] })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.queryByRole('button', { name: 'Watch' })).not.toBeInTheDocument()
+    })
+
+    it('offers no Watch to someone already on channel 0', () => {
+      useTVStore.setState({ selectedChannel: useTVStore.getState().getUnifiedChannels()[0] })
+      useChatStore.setState({ messages: [line('s1', 'jon switched Live to TSN 5', 10)] })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.queryByRole('button', { name: 'Watch' })).not.toBeInTheDocument()
     })
   })
 

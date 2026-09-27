@@ -133,6 +133,9 @@ export interface ChatMessage {
   userId?: string
   content: string
   timestamp: string // ISO8601
+  // 'system' is a line the server posts about a shared event (someone changing
+  // Live), with the whole sentence as content. Absent from older servers: 'user'
+  kind?: 'user' | 'system' | 'share'
 }
 
 // Presence types

@@ -10,6 +10,7 @@ import hmac
 from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 from uuid import uuid4
 
 from loguru import logger
@@ -28,6 +29,13 @@ MAX_HISTORY_SIZE = 100
 # Maximum age for messages (24 hours)
 MAX_MESSAGE_AGE = timedelta(hours=24)
 
+# Sender name on system lines, so clients that predate `kind` still show them
+SYSTEM_USERNAME = "Live TV"
+
+# 'user' is a member's message, 'system' a line the server posts about a shared
+# event (someone changing Live), 'share' a now-playing card
+MessageKind = Literal["user", "system", "share"]
+
 
 @dataclass
 class ChatMessage:
@@ -39,6 +47,7 @@ class ChatMessage:
     # Stable id of the sender's account (see user_id_for); the display name can change
     user_id: str = ""
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+    kind: MessageKind = "user"
 
     def to_dict(self) -> dict:
         """Convert to JSON-serializable dictionary with camelCase keys."""
@@ -48,6 +57,7 @@ class ChatMessage:
             "userId": self.user_id,
             "content": self.content,
             "timestamp": self.timestamp.isoformat(),
+            "kind": self.kind,
         }
 
 
@@ -168,6 +178,28 @@ def add_message(username: str, content: str, user_id: str = "") -> ChatMessage |
     )
 
     return message
+
+
+def system_message(content: str) -> ChatMessage:
+    """Build a system line about a shared event, without storing it.
+
+    System lines are ephemeral: they are broadcast to whoever is connected but
+    never enter the history, so a run of Live changes can't push members'
+    messages out of the MAX_HISTORY_SIZE buffer. The content is the full
+    sentence, so clients that ignore `kind` still render it as a message.
+
+    Args:
+        content: The line to show, e.g. "jon switched Live to TSN 5".
+
+    Returns:
+        A ChatMessage of kind 'system' from SYSTEM_USERNAME.
+    """
+    return ChatMessage(
+        message_id=str(uuid4()),
+        username=SYSTEM_USERNAME,
+        content=content,
+        kind="system",
+    )
 
 
 def get_history(limit: int = 50) -> list[ChatMessage]:

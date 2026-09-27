@@ -215,6 +215,13 @@ class TestChatMessage:
 
         assert msg.to_dict()["userId"] == "u_0123456789abcdef"
 
+    def test_to_dict_emits_kind_user_by_default(self) -> None:
+        """A member's message is kind 'user'."""
+        msg = chat.add_message("testuser", "Hello")
+        assert msg is not None
+
+        assert msg.to_dict()["kind"] == "user"
+
     def test_to_dict_serializes_timestamp_as_iso(self) -> None:
         """Should serialize timestamp as ISO 8601 string."""
         msg = chat.add_message("testuser", "Hello")
@@ -224,6 +231,42 @@ class TestChatMessage:
         timestamp = msg_dict["timestamp"]
         assert isinstance(timestamp, str)
         assert "T" in timestamp  # ISO format includes T separator
+
+
+class TestSystemMessage:
+    """Tests for system_message, the ephemeral lines about shared events."""
+
+    def test_builds_a_system_line_from_live_tv(self) -> None:
+        """The line is kind 'system', from 'Live TV', with the sentence as content."""
+        line = chat.system_message("jon switched Live to TSN 5")
+
+        data = line.to_dict()
+        assert data["kind"] == "system"
+        assert data["username"] == "Live TV"
+        assert data["userId"] == ""
+        assert data["content"] == "jon switched Live to TSN 5"
+        assert data["messageId"]
+
+    def test_is_not_stored_in_history(self) -> None:
+        """System lines never enter the history the chat buffer keeps."""
+        chat.add_message("testuser", "Hello")
+
+        chat.system_message("jon stopped live TV")
+
+        assert chat.get_history_count() == 1
+        assert [m.content for m in chat.get_history()] == ["Hello"]
+
+    def test_does_not_evict_messages_from_a_full_buffer(self) -> None:
+        """A run of system lines leaves a full buffer's oldest message in place."""
+        for i in range(chat.MAX_HISTORY_SIZE):
+            chat.add_message("testuser", f"Message {i}")
+
+        for _ in range(10):
+            chat.system_message("jon switched Live to TSN 5")
+
+        history = chat.get_history(limit=chat.MAX_HISTORY_SIZE)
+        assert len(history) == chat.MAX_HISTORY_SIZE
+        assert history[0].content == "Message 0"
 
 
 class TestUserIdFor:

@@ -1,4 +1,5 @@
 import { useMemo, type ReactNode } from 'react'
+import { Button } from '@/components/ui/button'
 import type { ChatMessage as ChatMessageType } from '@/types'
 import { detectMediaUrls } from '@/lib/mediaDetection'
 import { MEMBER_COLOR_CLASS, memberColorStyle, memberKey } from '@/lib/memberColor'
@@ -14,6 +15,8 @@ export interface ChatMessageProps {
   // first bubble, the time on the last
   isFirstInGroup?: boolean
   isLastInGroup?: boolean
+  // On a system line: go to Live (channel 0). Omitted, the line has no Watch
+  onWatch?: () => void
 }
 
 /**
@@ -92,6 +95,7 @@ export function ChatMessage({
   now,
   isFirstInGroup = true,
   isLastInGroup = true,
+  onWatch,
 }: ChatMessageProps) {
   const formattedTime = formatTimestamp(message.timestamp, now)
 
@@ -99,6 +103,25 @@ export function ChatMessage({
     () => renderContent(message.content),
     [message.content]
   )
+
+  // A line from the server about Live, between rules across the panel: no
+  // sender, face or bubble, and the text as sent (no media embeds)
+  if (message.kind === 'system') {
+    return (
+      <div className="flex items-center gap-2 px-4 py-1.5 text-xs font-medium text-muted-foreground">
+        <span className="h-px flex-1 bg-border" aria-hidden="true" />
+        <p className="min-w-0 text-center break-words">
+          {message.content} · {formattedTime}
+        </p>
+        {onWatch && (
+          <Button variant="link" size="sm" className="h-auto shrink-0 p-0 text-xs" onClick={onWatch}>
+            Watch
+          </Button>
+        )}
+        <span className="h-px flex-1 bg-border" aria-hidden="true" />
+      </div>
+    )
+  }
 
   // Other people's names and faces, and your own bubble, take the sender's member colour
   return (
