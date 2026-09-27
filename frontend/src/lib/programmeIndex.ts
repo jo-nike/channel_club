@@ -72,3 +72,38 @@ export function findCurrentAndNext(index: ProgrammeIndex, channelId: string, now
     next: entries[low] ?? null,
   }
 }
+
+/**
+ * A channel's programmes that overlap [fromMs, toMs): on air at some point
+ * in the range. Found by binary search, so it assumes the schedule doesn't
+ * overlap (stop times then sort with start times), as findCurrentAndNext does.
+ */
+export function findInRange(
+  index: ProgrammeIndex,
+  channelId: string,
+  fromMs: number,
+  toMs: number
+): readonly IndexedProgramme[] {
+  const entries = index.get(channelId)
+  if (!entries || fromMs >= toMs) return []
+
+  // First entry still on air at fromMs
+  let first = 0
+  let high = entries.length
+  while (first < high) {
+    const mid = (first + high) >>> 1
+    if (entries[mid].stopMs <= fromMs) first = mid + 1
+    else high = mid
+  }
+
+  // First entry starting at or after toMs
+  let end = first
+  high = entries.length
+  while (end < high) {
+    const mid = (end + high) >>> 1
+    if (entries[mid].startMs < toMs) end = mid + 1
+    else high = mid
+  }
+
+  return entries.slice(first, end)
+}

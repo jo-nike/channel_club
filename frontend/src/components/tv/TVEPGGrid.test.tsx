@@ -864,3 +864,161 @@ describe('TVEPGGrid re-renders', () => {
     expect(onRender).not.toHaveBeenCalled()
   })
 })
+
+describe('TVEPGGrid windowing', () => {
+  // A 48-hour guide of 36 channels with half-hour programmes: 3,456 blocks.
+  // The grid starts at 19:30, so programme i starts i * 150px in.
+  const NOW = new Date('2026-09-26T20:00:00Z').getTime()
+  const MINUTE = 60_000
+  const at = (minutes: number) => new Date(NOW + minutes * MINUTE).toISOString()
+  const channels = Array.from({ length: 36 }, (_, i) => ({
+    id: `etv${i + 1}`, name: `Channel ${i + 1}`, streamUrl: `/etv${i + 1}`, logoUrl: '', number: i + 1, group: '',
+  }))
+  const schedule: Record<string, ErsatzTVProgramme[]> = Object.fromEntries(
+    channels.map((channel, c) => [
+      channel.id,
+      Array.from({ length: 96 }, (_, i) => ({
+        id: `${channel.id}-${i}`,
+        channelId: channel.id,
+        title: `Show ${c + 1}-${i}`,
+        start: at(-30 + i * 30),
+        stop: at(i * 30),
+      })),
+    ])
+  )
+  const TOTAL_BLOCKS = 36 * 96
+  const isGrid = (el: Element) => el instanceof HTMLElement && el.dataset.testid === 'tv-epg-grid'
+  // Plain selectors: role queries over thousands of nodes are slow in jsdom
+  const grid = () => screen.getByTestId('tv-epg-grid')
+  const blocks = () => grid().querySelectorAll('button[data-state]')
+  const block = (title: string) => screen.queryByText(title)?.closest('button') ?? null
+  const label = (n: number) => grid().querySelector<HTMLElement>(`[aria-label="Switch to ${n} Channel ${n}"]`)
+
+  // Scrolls the grid, then runs the animation frame the scroll asked for
+  function scrollGrid(left: number, top: number) {
+    grid().scrollLeft = left
+    grid().scrollTop = top
+    fireEvent.scroll(grid())
+    act(() => vi.advanceTimersToNextFrame())
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval', 'requestAnimationFrame', 'cancelAnimationFrame'] })
+    vi.setSystemTime(NOW)
+    // jsdom has no layout: give the grid a 1200 x 400 viewport
+    vi.spyOn(Element.prototype, 'clientWidth', 'get').mockImplementation(function (this: Element) {
+      return isGrid(this) ? 1200 : 0
+    })
+    vi.spyOn(Element.prototype, 'clientHeight', 'get').mockImplementation(function (this: Element) {
+      return isGrid(this) ? 400 : 0
+    })
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels })
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+    vi.useRealTimers()
+    useErsatztvStore.setState({ channels: [] })
+    useTVStore.setState({ selectedChannel: null })
+  })
+
+  it('renders only the rows and programmes near the viewport', () => {
+    render(<TVEPGGrid hours={48} programmesByChannel={schedule} />)
+
+    // Rows 0-6 are in view, plus four more: the live row and channels 1-10
+    expect(screen.getAllByTestId('channel-row')).toHaveLength(11)
+    expect(label(10)).toBeInTheDocument()
+    expect(label(11)).not.toBeInTheDocument()
+    // 19:30 to 01:30 (4 hours in view, 2 after): 12 programmes on each of 10 channels
+    expect(blocks()).toHaveLength(120)
+    expect(blocks().length).toBeLessThan(TOTAL_BLOCKS / 20)
+    expect(block('Show 1-11')).toBeInTheDocument()
+    expect(block('Show 1-12')).not.toBeInTheDocument()
+  })
+
+  it('mounts the rows and programmes scrolled to, and drops the ones left behind', () => {
+    render(<TVEPGGrid hours={48} programmesByChannel={schedule} />)
+    expect(block('Show 30-80')).not.toBeInTheDocument()
+
+    // 40 hours in, down to channel 30
+    scrollGrid(80 * 150, 30 * 64)
+
+    expect(block('Show 30-80')).toBeInTheDocument()
+    expect(label(30)).toBeInTheDocument()
+    // An hour kept before the left edge, none further back
+    expect(block('Show 30-78')).toBeInTheDocument()
+    expect(block('Show 30-77')).not.toBeInTheDocument()
+    expect(label(1)).not.toBeInTheDocument()
+    expect(block('Show 1-0')).not.toBeInTheDocument()
+    expect(blocks().length).toBeLessThan(TOTAL_BLOCKS / 20)
+  })
+
+  it('waits for the next frame to follow a scroll', () => {
+    render(<TVEPGGrid hours={48} programmesByChannel={schedule} />)
+
+    grid().scrollTop = 30 * 64
+    fireEvent.scroll(grid())
+    expect(label(30)).not.toBeInTheDocument()
+
+    act(() => vi.advanceTimersToNextFrame())
+    expect(label(30)).toBeInTheDocument()
+  })
+
+  it('keeps the watched row rendered when it is scrolled out of view', () => {
+    useTVStore.setState({ selectedChannel: { ...channels[1], type: 'ersatztv' } })
+    render(<TVEPGGrid hours={48} programmesByChannel={schedule} />)
+
+    scrollGrid(0, 30 * 64)
+
+    expect(label(2)).toHaveAttribute('aria-current', 'true')
+    // Its programmes at the scrolled-to time, as in any rendered row
+    expect(block('Show 2-0')).toBeInTheDocument()
+    // Its neighbours go
+    expect(label(1)).not.toBeInTheDocument()
+    expect(label(3)).not.toBeInTheDocument()
+  })
+
+  it('keeps a focused block rendered and focused however far the guide scrolls', () => {
+    render(<TVEPGGrid hours={48} programmesByChannel={schedule} />)
+    const focused = block('Show 3-2')!
+    act(() => focused.focus())
+
+    scrollGrid(80 * 150, 30 * 64)
+
+    expect(focused).toBeInTheDocument()
+    expect(focused).toHaveFocus()
+    expect(block('Show 3-2')).toBe(focused)
+    // Only that block of its row is kept, and the row's label with it
+    expect(block('Show 3-3')).not.toBeInTheDocument()
+    expect(label(3)).toBeInTheDocument()
+    expect(label(4)).not.toBeInTheDocument()
+  })
+
+  it('keeps a focused channel label rendered and focused when its row scrolls away', () => {
+    render(<TVEPGGrid hours={48} programmesByChannel={schedule} />)
+    const focused = label(5)!
+    act(() => focused.focus())
+
+    scrollGrid(0, 30 * 64)
+
+    expect(focused).toBeInTheDocument()
+    expect(focused).toHaveFocus()
+    expect(label(6)).not.toBeInTheDocument()
+  })
+
+  it('renders everything when the scroller has no size, as before layout', () => {
+    vi.spyOn(Element.prototype, 'clientWidth', 'get').mockReturnValue(0)
+    vi.spyOn(Element.prototype, 'clientHeight', 'get').mockReturnValue(0)
+    // Every eighth programme, spread over the 48 hours, to keep jsdom quick
+    const sparse = Object.fromEntries(
+      Object.entries(schedule).map(([id, programmes]) => [id, programmes.filter((_, i) => i % 8 === 0)])
+    )
+    render(<TVEPGGrid hours={48} programmesByChannel={sparse} />)
+
+    expect(screen.getAllByTestId('channel-row')).toHaveLength(37)
+    expect(blocks()).toHaveLength(36 * 12)
+    expect(block('Show 36-88')).toBeInTheDocument()
+  })
+})

@@ -7,8 +7,15 @@ import { getErsatzTVLogoUrl } from '@/services/ersatztvApi'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useProgrammeClock } from '@/hooks/useProgrammeClock'
+import { useScrollViewport } from '@/hooks/useScrollViewport'
 import { scrollBehavior } from '@/lib/motion'
-import { buildProgrammeIndex, findCurrentAndNext, type IndexedProgramme, type ProgrammeIndex } from '@/lib/programmeIndex'
+import {
+  buildProgrammeIndex,
+  findCurrentAndNext,
+  findInRange,
+  type IndexedProgramme,
+  type ProgrammeIndex,
+} from '@/lib/programmeIndex'
 import { calculateProgress, formatRemaining, type ProgrammeState } from '@/lib/programmes'
 import { cn } from '@/lib/utils'
 import type { UnifiedChannel, ErsatzTVProgramme, EPGResponse } from '@/types'
@@ -28,6 +35,13 @@ const PROGRAMME_TEXT_MIN_WIDTH = 48
 // sticky text can fit the part of its box right of the channel column
 // without a render per scroll
 const SCROLL_X_VAR = '--guide-scroll-x'
+// Windowing: only rows within this many of the viewport are rendered, and in
+// them only programmes on air from an hour before the viewport's left edge
+// to two hours after its right edge
+const ROW_OVERSCAN = 4
+const SLOT_MS = 30 * 60 * 1000
+const OVERSCAN_BEFORE_MS = 60 * 60 * 1000
+const OVERSCAN_AFTER_MS = 2 * 60 * 60 * 1000
 
 interface TVEPGGridProps {
   hours?: number
@@ -55,6 +69,9 @@ export function TVEPGGrid({
   const liveSchedule = useTVStore((s) => s.liveProgrammes)
   const containerRef = useRef<HTMLDivElement>(null)
   const headerRef = useRef<HTMLDivElement>(null)
+  // What's in view of the scroller, for rendering only the rows and
+  // programmes near it
+  const viewport = useScrollViewport(containerRef, !loading)
   // The shared programme clock: the now marker and the blocks' past/now/future
   const now = useProgrammeClock()
 
@@ -171,6 +188,33 @@ export function TVEPGGrid({
     [liveProgrammes]
   )
 
+  // The cell that last had focus: a channel label (programmeId null) or a
+  // block. Its row and block stay rendered however far the guide scrolls, so
+  // focus, and a roving tab stop, never lose their element.
+  const [focusedCell, setFocusedCell] = useState<FocusedCell | null>(null)
+  const handleCellFocus = useCallback((channelId: string, programmeId: string | null) => {
+    setFocusedCell((current) =>
+      current?.channelId === channelId && current.programmeId === programmeId ? current : { channelId, programmeId }
+    )
+  }, [])
+
+  // Rows in the viewport plus overscan. A scroller with no height (not laid
+  // out) renders every row.
+  const rowsWindowed = viewport.height > 0
+  const firstRow = Math.floor(viewport.scrollTop / ROW_HEIGHT) - ROW_OVERSCAN
+  const lastRow = Math.floor((viewport.scrollTop + viewport.height) / ROW_HEIGHT) + ROW_OVERSCAN
+  // The programmes' time range, from the viewport's edges widened to whole
+  // half hours, so a row re-renders when the range crosses a slot rather
+  // than on every scrolled pixel. No width (not laid out): every programme.
+  const gridStartMs = startTime.getTime()
+  const timeWindowed = viewport.width > 0
+  const fromMs = timeWindowed
+    ? gridStartMs + Math.floor(viewport.scrollLeft / SLOT_WIDTH) * SLOT_MS - OVERSCAN_BEFORE_MS
+    : -Infinity
+  const toMs = timeWindowed
+    ? gridStartMs + Math.ceil((viewport.scrollLeft + viewport.width) / SLOT_WIDTH) * SLOT_MS + OVERSCAN_AFTER_MS
+    : Infinity
+
   if (loading) {
     return <EPGGridSkeleton />
   }
@@ -262,27 +306,43 @@ export function TVEPGGrid({
           </div>
         )}
 
-        {/* Channel rows */}
-        {unifiedChannels.map((channel, rowIndex) => (
-          <ChannelRow
-            key={channel.id}
-            channel={channel}
-            gridStartMs={startTime.getTime()}
-            now={now}
-            gridWidth={gridWidth}
-            rowIndex={rowIndex}
-            programmeIndex={channel.type === 'live' ? liveProgrammeIndex : programmeIndex}
-            isWatching={selectedChannelId === channel.id}
-            hasLiveChannel={hasLiveChannel}
-            liveGuideText={describeLiveGuide(liveEPGStatus)}
-            onProgrammeClick={onProgrammeClick}
-            onChannelClick={onChannelClick}
-            onPickLive={onPickLive}
-          />
-        ))}
+        {/* Channel rows near the viewport, plus the watched row and the
+            focused cell's, which are always rendered */}
+        {unifiedChannels.map((channel, rowIndex) => {
+          const isFocusedRow = focusedCell?.channelId === channel.id
+          const inView = !rowsWindowed || (rowIndex >= firstRow && rowIndex <= lastRow)
+          if (!inView && rowIndex !== selectedRowIndex && !isFocusedRow) return null
+          return (
+            <ChannelRow
+              key={channel.id}
+              channel={channel}
+              gridStartMs={gridStartMs}
+              now={now}
+              gridWidth={gridWidth}
+              rowIndex={rowIndex}
+              programmeIndex={channel.type === 'live' ? liveProgrammeIndex : programmeIndex}
+              fromMs={fromMs}
+              toMs={toMs}
+              pinnedProgrammeId={isFocusedRow ? focusedCell.programmeId : null}
+              isWatching={selectedChannelId === channel.id}
+              hasLiveChannel={hasLiveChannel}
+              liveGuideText={describeLiveGuide(liveEPGStatus)}
+              onProgrammeClick={onProgrammeClick}
+              onChannelClick={onChannelClick}
+              onPickLive={onPickLive}
+              onCellFocus={handleCellFocus}
+            />
+          )
+        })}
       </div>
     </div>
   )
+}
+
+interface FocusedCell {
+  channelId: string
+  // null for the channel label
+  programmeId: string | null
 }
 
 interface ChannelRowProps {
@@ -294,6 +354,11 @@ interface ChannelRowProps {
   gridWidth: number
   rowIndex: number
   programmeIndex: ProgrammeIndex
+  // Only programmes on air in [fromMs, toMs) are rendered, epoch ms
+  fromMs: number
+  toMs: number
+  // A block rendered wherever it is, as it holds (or last held) focus
+  pinnedProgrammeId: string | null
   // The channel playing in the player
   isWatching: boolean
   hasLiveChannel: boolean
@@ -302,25 +367,34 @@ interface ChannelRowProps {
   onProgrammeClick?: (programme: ErsatzTVProgramme, channel: UnifiedChannel) => void
   onChannelClick?: (channel: UnifiedChannel) => void
   onPickLive?: () => void
+  onCellFocus?: (channelId: string, programmeId: string | null) => void
 }
 
-function ChannelRow({
+// Memoised: its props are primitives or objects that keep their identity
+// between refreshes, so scrolling re-renders a row only when its time range
+// moves by a slot, and a clock tick only the rows that are rendered
+const ChannelRow = memo(function ChannelRow({
   channel,
   gridStartMs,
   now,
   gridWidth,
   rowIndex,
   programmeIndex,
+  fromMs,
+  toMs,
+  pinnedProgrammeId,
   isWatching,
   hasLiveChannel,
   liveGuideText,
   onProgrammeClick,
   onChannelClick,
   onPickLive,
+  onCellFocus,
 }: ChannelRowProps) {
   const isLive = channel.type === 'live'
   // Sorted, with start and stop parsed once per programme refresh
   const entries = programmeIndex.get(channel.id) ?? NO_ENTRIES
+  const drawn = programmesToDraw(programmeIndex, channel.id, fromMs, toMs, pinnedProgrammeId)
 
   // Only show red background when live channel has active broadcast
   const showLiveHighlight = isLive && hasLiveChannel
@@ -337,6 +411,7 @@ function ChannelRow({
         isWatching={isWatching}
         showLiveHighlight={showLiveHighlight}
         onChannelClick={onChannelClick}
+        onFocus={onCellFocus}
       />
 
       {/* Programme boxes */}
@@ -354,7 +429,7 @@ function ChannelRow({
         ) : isLive && entries.length === 0 ? (
           <LiveRowPlaceholder>{liveGuideText}</LiveRowPlaceholder>
         ) : (
-          entries.map(({ programme, startMs, stopMs }) => {
+          drawn.map(({ programme, startMs, stopMs }) => {
             const left = msToPixels(startMs - gridStartMs)
             const width = msToPixels(stopMs - startMs)
             // Ends before the grid starts
@@ -384,6 +459,7 @@ function ChannelRow({
                 timeLeft={isNow ? formatRemaining(stopMs, now) : undefined}
                 isWatching={isNow && isWatching}
                 onClick={onProgrammeClick}
+                onFocus={onCellFocus}
               />
             )
           })
@@ -391,6 +467,22 @@ function ChannelRow({
       </div>
     </div>
   )
+})
+
+// A row's programmes in [fromMs, toMs), in time order, plus the pinned one
+// wherever it is
+function programmesToDraw(
+  index: ProgrammeIndex,
+  channelId: string,
+  fromMs: number,
+  toMs: number,
+  pinnedProgrammeId: string | null
+): readonly IndexedProgramme[] {
+  const inRange = findInRange(index, channelId, fromMs, toMs)
+  if (pinnedProgrammeId === null || inRange.some((entry) => entry.programme.id === pinnedProgrammeId)) return inRange
+  const pinned = index.get(channelId)?.find((entry) => entry.programme.id === pinnedProgrammeId)
+  if (!pinned) return inRange
+  return [...inRange, pinned].sort((a, b) => a.startMs - b.startMs)
 }
 
 interface ChannelLabelProps {
@@ -399,12 +491,13 @@ interface ChannelLabelProps {
   isWatching: boolean
   showLiveHighlight: boolean
   onChannelClick?: (channel: UnifiedChannel) => void
+  onFocus?: (channelId: string, programmeId: null) => void
 }
 
 // The sticky channel column: number, logo, name, LIVE on an active live row,
 // and the on-air programme's progress and time left, which the sidebar shows
 // when the guide is closed. It reads the shared programme clock itself.
-function ChannelLabel({ channel, programmeIndex, isWatching, showLiveHighlight, onChannelClick }: ChannelLabelProps) {
+function ChannelLabel({ channel, programmeIndex, isWatching, showLiveHighlight, onChannelClick, onFocus }: ChannelLabelProps) {
   const isLive = channel.type === 'live'
   const now = useProgrammeClock()
   const { current: onAir } = findCurrentAndNext(programmeIndex, channel.id, now)
@@ -412,6 +505,7 @@ function ChannelLabel({ channel, programmeIndex, isWatching, showLiveHighlight, 
   return (
     <button
       onClick={() => onChannelClick?.(channel)}
+      onFocus={() => onFocus?.(channel.id, null)}
       className={cn(
         'sticky left-0 z-20 flex shrink-0 items-center gap-2 border-r pl-3 pr-2 text-left text-sm transition-colors hover:bg-accent focus-visible:-outline-offset-2',
         showLiveHighlight ? 'bg-live-surface' : 'bg-card'
@@ -517,6 +611,7 @@ interface ProgrammeBoxProps {
   // On now on the channel being watched
   isWatching: boolean
   onClick?: (programme: ErsatzTVProgramme, channel: UnifiedChannel) => void
+  onFocus?: (channelId: string, programmeId: string) => void
 }
 
 // Memoised on primitive state and geometry props (the programme and channel
@@ -535,6 +630,7 @@ const ProgrammeBox = memo(function ProgrammeBox({
   timeLeft,
   isWatching,
   onClick,
+  onFocus,
 }: ProgrammeBoxProps) {
   const showsText = width >= PROGRAMME_TEXT_MIN_WIDTH
   const meta = state === 'now' ? timeLeft : `${formatTime(startMs)} - ${formatTime(stopMs)}`
@@ -563,6 +659,7 @@ const ProgrammeBox = memo(function ProgrammeBox({
       data-watching={isWatching || undefined}
       aria-label={showsText ? undefined : `${programme.title}, ${meta}`}
       onClick={() => onClick?.(programme, channel)}
+      onFocus={() => onFocus?.(channel.id, programme.id)}
     >
       {showsText && (
         // Sticks just right of the channel column, so the start of the title
