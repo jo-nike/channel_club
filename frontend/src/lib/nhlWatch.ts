@@ -88,22 +88,6 @@ export function liveGameId(rows: readonly GameRow[], liveChannelId: string | nul
   return row ? row.game.id : null
 }
 
-// Channels named in an 'Ask the group' message; the rest go unnamed, so a
-// game on many feeds still makes a short message
-const ASK_CHANNELS_NAMED = 3
-
-/**
- * The chat message a viewer who can't change live TV sends to ask for a game:
- * the matchup, and where it's on when it is on your channels.
- */
-export function askGroupMessage(game: NHLGame, channels: readonly Channel[]): string {
-  const matchup = `${game.awayTeam.abbreviation} @ ${game.homeTeam.abbreviation}`
-  const names = channels.slice(0, ASK_CHANNELS_NAMED).map((c) => c.name)
-  if (names.length === 0) return `Can we watch ${matchup}?`
-  const where = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`
-  return `Can we watch ${matchup}? It's on ${where}.`
-}
-
 /**
  * The live games you can put on right now, by start time: each live game
  * with a broadcast on one of your channels, keeping only those broadcasts.

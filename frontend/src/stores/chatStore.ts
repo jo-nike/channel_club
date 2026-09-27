@@ -27,6 +27,9 @@ export interface NicknameRejection {
 /** Posts a chat message over the view's socket (useWebSocket's sendChatMessage). */
 export type ChatSender = (content: string, clientMessageId?: string) => Promise<ChatSendResult>
 
+/** Posts a live TV suggestion card over the view's socket (useWebSocket's sendSuggest). */
+export type ChatSuggester = (channelId: string, clientMessageId?: string) => Promise<ChatSendResult>
+
 interface ChatState {
   messages: ChatMessage[]
   isOpen: boolean
@@ -62,12 +65,18 @@ interface ChatState {
   registerSender: (sender: ChatSender) => () => void
   // Sends through the registered sender; 'not-sent' while there is none
   sendMessage: (content: string, clientMessageId?: string) => Promise<ChatSendResult>
+  // The same for suggestion cards, so a suggestion made anywhere (the NHL
+  // scores, the Live TV switcher) is the one card an admin can put on
+  registerSuggester: (suggester: ChatSuggester) => () => void
+  // Suggests through the registered suggester; 'not-sent' while there is none
+  suggestChannel: (channelId: string, clientMessageId?: string) => Promise<ChatSendResult>
 }
 
 const MAX_MESSAGES = 100
 
 // Outside the state: a function nobody renders, so registering it re-renders nothing
 let registeredSender: ChatSender | null = null
+let registeredSuggester: ChatSuggester | null = null
 
 /**
  * Load a user's stored nickname. The first user to sign in after the switch
@@ -316,6 +325,26 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // A throw is a send whose fate is unknown, as the panel treats it
     try {
       return await sender(content, clientMessageId)
+    } catch {
+      return 'unconfirmed'
+    }
+  },
+
+  registerSuggester: (suggester) => {
+    registeredSuggester = suggester
+    return () => {
+      if (registeredSuggester === suggester) registeredSuggester = null
+    }
+  },
+
+  suggestChannel: async (channelId, clientMessageId) => {
+    const suggester = registeredSuggester
+    if (!suggester) {
+      logger.debug('ChatStore', 'No chat suggester registered; suggestion not sent')
+      return 'not-sent'
+    }
+    try {
+      return await suggester(channelId, clientMessageId)
     } catch {
       return 'unconfirmed'
     }

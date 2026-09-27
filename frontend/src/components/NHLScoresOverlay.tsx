@@ -1,6 +1,5 @@
-import { useContext, useEffect, useCallback, useId, useMemo, useRef, useState } from 'react'
+import { useContext, useEffect, useCallback, useMemo, useRef, useState, type ReactNode } from 'react'
 import { RefreshCw, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react'
-import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { PlayerShellContext } from '@/components/player/PlayerShellContext'
@@ -8,7 +7,6 @@ import { useChannelCatalogueLoad } from '@/hooks/useChannelCatalogue'
 import { useChatEnabled } from '@/hooks/useChatEnabled'
 import { useNHLScores } from '@/hooks/useNHLScores'
 import { useSetLiveChannel } from '@/hooks/useSetLiveChannel'
-import type { ChatSendResult } from '@/hooks/useWebSocket'
 import { useUIStore } from '@/stores/uiStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useChannelStore } from '@/stores/channelStore'
@@ -17,7 +15,8 @@ import { useNhlMappingStore } from '@/stores/nhlMappingStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { cn } from '@/lib/utils'
 import { scrollBehavior } from '@/lib/motion'
-import { askGroupMessage, channelsOf, liveGameId, matchGames, type GameRow } from '@/lib/nhlWatch'
+import { channelsOf, liveGameId, matchGames, type GameRow } from '@/lib/nhlWatch'
+import { reportSuggestion } from '@/lib/suggestion'
 import type { Channel } from '@/types'
 import type { NHLGame, NHLTeam } from '@/types/nhl'
 
@@ -470,32 +469,16 @@ function gameLabel(game: NHLGame, powerPlay: boolean, onLive: boolean): string {
 }
 
 /**
- * Tell the asker how their question went. The popover has closed by then, so
- * this is all they hear of it.
- */
-async function reportAsk(sending: Promise<ChatSendResult>) {
-  const result = await sending
-  if (result === 'acknowledged') {
-    toast.success('Asked the group in chat')
-  } else if (result === 'not-sent') {
-    toast.error("Couldn't ask the group", { description: 'Please try again' })
-  } else {
-    toast.warning('Your question may not have been posted', {
-      description: 'Check the chat before asking again',
-    })
-  }
-}
-
-/**
  * What you can do about a game: the channels it is on, each with 'Watch
  * together' (put it on live TV for everyone, then join it) for admins, and
  * for everyone when the admin lets viewers change live TV. Everyone else can
- * 'Ask the group' in chat instead, with the game and its channels filled in;
- * that needs chat, so with chat off it is disabled and says why. A game that
- * is over, or on none of your channels, has nothing to do, and one already on
- * Live has nothing to ask for; the channel on Live can't be put on again.
- * When the lineup can't be loaded it says so, and those who can't switch can
- * still ask for the game by name.
+ * 'Suggest' a channel instead: the same suggestion card in chat as the Live
+ * TV switcher's 'Suggest a channel', which anyone allowed can put on with one
+ * press. That needs chat, so with chat off there is only where it's on. A
+ * game that is over, or on none of your channels, has nothing to do, and one
+ * already on Live has nothing to suggest; the channel on Live can't be put on
+ * or suggested again. When the lineup can't be loaded it says so: a
+ * suggestion needs a channel.
  */
 function GameActions({
   game,
@@ -516,11 +499,10 @@ function GameActions({
   const isAdmin = useAuthStore((s) => s.role === 'admin')
   const userChannelSelection = useSettingsStore((s) => s.userChannelSelection)
   const chatEnabled = useChatEnabled()
-  const sendMessage = useChatStore((s) => s.sendMessage)
+  const suggestChannel = useChatStore((s) => s.suggestChannel)
   const setLiveChannel = useSetLiveChannel({ tuneActor: true })
   const liveChannelId = useChannelStore((s) => s.currentChannel?.id ?? null)
   const canSwitch = isAdmin || userChannelSelection
-  const hintId = useId()
 
   const matchup = `${game.awayTeam.abbreviation} @ ${game.homeTeam.abbreviation}`
   const channels = row ? channelsOf(row.broadcasts) : []
@@ -531,37 +513,35 @@ function GameActions({
     void setLiveChannel(channel)
     onDone()
   }
-  const ask = () => {
-    void reportAsk(sendMessage(askGroupMessage(game, channels)))
+  // Reported by a toast once the server has it, as from the Live TV switcher
+  const suggest = (channel: Channel) => {
+    void reportSuggestion(channel, suggestChannel(channel.id))
     onDone()
   }
 
-  // Asking needs chat, not the lineup: without it the message names no channel
-  const askTheGroup = (note: string) => (
-    <div className="grid gap-2">
-      <p className="text-sm text-muted-foreground">{note}</p>
-      <Button
-        size="sm"
-        disabled={!chatEnabled}
-        aria-describedby={chatEnabled ? undefined : hintId}
-        onClick={ask}
-      >
-        Ask the group
-      </Button>
-      {!chatEnabled && (
-        <p id={hintId} className="text-xs text-muted-foreground">
-          Chat is off, so you can't ask the group. Only an admin can change live TV.
-        </p>
-      )}
-    </div>
+  // Each channel showing the game, with what you can do about it
+  const channelList = (action: (channel: Channel) => ReactNode) => (
+    <ul aria-label={`Channels showing ${matchup}`} className="grid gap-1.5">
+      {channels.map((channel) => (
+        <li key={channel.id} className="flex items-center justify-between gap-2">
+          <span className="min-w-0 truncate text-sm">{channel.name}</span>
+          {channel.id === liveChannelId ? (
+            <Button size="sm" variant="secondary" className="shrink-0" disabled aria-label={`${channel.name} is on Live`}>
+              On Live
+            </Button>
+          ) : (
+            action(channel)
+          )}
+        </li>
+      ))}
+    </ul>
   )
-  const lineupError = "Couldn't load your channels. Reopen the scores to try again."
 
   let body
   if (game.status === 'final') {
     body = <p className="text-sm text-muted-foreground">This game is over.</p>
   } else if (lineupFailed) {
-    body = canSwitch ? <p className="text-sm text-muted-foreground">{lineupError}</p> : askTheGroup(lineupError)
+    body = <p className="text-sm text-muted-foreground">Couldn't load your channels. Reopen the scores to try again.</p>
   } else if (row === undefined) {
     body = <p className="text-sm text-muted-foreground">Finding it on your channels…</p>
   } else if (channels.length === 0) {
@@ -571,33 +551,42 @@ function GameActions({
       </p>
     )
   } else if (canSwitch) {
-    body = (
-      <ul aria-label={`Channels showing ${matchup}`} className="grid gap-1.5">
-        {channels.map((channel) => (
-          <li key={channel.id} className="flex items-center justify-between gap-2">
-            <span className="min-w-0 truncate text-sm">{channel.name}</span>
-            {channel.id === liveChannelId ? (
-              <Button size="sm" variant="secondary" className="shrink-0" disabled aria-label={`${channel.name} is on Live`}>
-                On Live
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                className="shrink-0"
-                aria-label={`Watch together on ${channel.name}`}
-                onClick={() => watch(channel)}
-              >
-                Watch together
-              </Button>
-            )}
-          </li>
-        ))}
-      </ul>
-    )
+    body = channelList((channel) => (
+      <Button
+        size="sm"
+        className="shrink-0"
+        aria-label={`Watch together on ${channel.name}`}
+        onClick={() => watch(channel)}
+      >
+        Watch together
+      </Button>
+    ))
   } else if (onLive) {
     body = <p className="text-sm text-muted-foreground">It's on Live now.</p>
+  } else if (chatEnabled) {
+    body = (
+      <div className="grid gap-2">
+        <p className="text-sm text-muted-foreground">
+          Suggest it in chat. Anyone allowed to change live TV can put it on.
+        </p>
+        {channelList((channel) => (
+          <Button
+            size="sm"
+            className="shrink-0"
+            aria-label={`Suggest ${channel.name} in chat`}
+            onClick={() => suggest(channel)}
+          >
+            Suggest
+          </Button>
+        ))}
+      </div>
+    )
   } else {
-    body = askTheGroup(`On ${channels.map((c) => c.name).join(', ')}`)
+    body = (
+      <p className="text-sm text-muted-foreground">
+        On {channels.map((c) => c.name).join(', ')}. Only an admin can change live TV.
+      </p>
+    )
   }
 
   return (

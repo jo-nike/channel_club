@@ -92,9 +92,11 @@ export function TVView() {
   // WebSocket for presence tracking and chat
   const { status, reconnect, sendChannelUpdate, sendChatMessage, sendShare, sendSuggest, sendSetNickname } = useWebSocket({ view: 'tv' })
 
-  // In-player features (the chat over the video, Post to chat) send through
-  // chatStore, so the sender needn't be threaded down to them
+  // In-player features (the chat over the video, Post to chat, the NHL
+  // scores' Suggest) send through chatStore, so the senders needn't be
+  // threaded down to them
   useEffect(() => useChatStore.getState().registerSender(sendChatMessage), [sendChatMessage])
+  useEffect(() => useChatStore.getState().registerSuggester(sendSuggest), [sendSuggest])
 
   // ErsatzTV store - for loading channels and programmes. Field selectors,
   // so unrelated store updates don't re-render the whole view

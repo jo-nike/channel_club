@@ -1344,6 +1344,20 @@ describe('chat sender for in-player features', () => {
     await expect(useChatStore.getState().sendMessage('after leaving')).resolves.toBe('not-sent')
     expect(sendChat).not.toHaveBeenCalled()
   })
+
+  it("registers the socket's suggestion send too, for the NHL scores' Suggest", async () => {
+    socket.sendSuggest.mockResolvedValue('acknowledged')
+    const { unmount } = render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+
+    await expect(useChatStore.getState().suggestChannel('42', 'c-1')).resolves.toBe('acknowledged')
+    expect(socket.sendSuggest).toHaveBeenCalledWith('42', 'c-1')
+
+    unmount()
+    socket.sendSuggest.mockClear()
+    await expect(useChatStore.getState().suggestChannel('42')).resolves.toBe('not-sent')
+    expect(socket.sendSuggest).not.toHaveBeenCalled()
+  })
 })
 
 describe('E-10 Escape closes chat before leaving theater', () => {

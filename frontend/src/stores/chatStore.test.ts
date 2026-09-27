@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { useChatStore, isOwnMessage, type ChatSender } from './chatStore'
+import { useChatStore, isOwnMessage, type ChatSender, type ChatSuggester } from './chatStore'
 import { useAuthStore } from './authStore'
 import type { ChatMessage } from '@/types'
 
@@ -684,6 +684,46 @@ describe('useChatStore', () => {
       expect(newer).toHaveBeenCalledWith('hello', undefined)
       expect(older).not.toHaveBeenCalled()
       unregisterNewer()
+    })
+  })
+
+  describe('suggester', () => {
+    it('suggests nothing while no view has registered a suggester', async () => {
+      await expect(useChatStore.getState().suggestChannel('42')).resolves.toBe('not-sent')
+    })
+
+    it('suggests through the registered suggester, not the chat sender, and returns its result', async () => {
+      const sender = vi.fn<ChatSender>(() => Promise.resolve('acknowledged'))
+      const suggester = vi.fn<ChatSuggester>(() => Promise.resolve('unconfirmed'))
+      const unregisterSender = useChatStore.getState().registerSender(sender)
+      const unregisterSuggester = useChatStore.getState().registerSuggester(suggester)
+
+      await expect(useChatStore.getState().suggestChannel('42', 'c-1')).resolves.toBe('unconfirmed')
+      expect(suggester).toHaveBeenCalledWith('42', 'c-1')
+      expect(sender).not.toHaveBeenCalled()
+      unregisterSender()
+      unregisterSuggester()
+    })
+
+    it('reports a suggester that throws as unconfirmed', async () => {
+      const unregister = useChatStore.getState().registerSuggester(() => Promise.reject(new Error('socket gone')))
+      await expect(useChatStore.getState().suggestChannel('42')).resolves.toBe('unconfirmed')
+      unregister()
+    })
+
+    it("an old registration's unregister leaves a newer suggester in place", async () => {
+      const older = vi.fn<ChatSuggester>(() => Promise.resolve('acknowledged'))
+      const newer = vi.fn<ChatSuggester>(() => Promise.resolve('acknowledged'))
+      const unregisterOlder = useChatStore.getState().registerSuggester(older)
+      const unregisterNewer = useChatStore.getState().registerSuggester(newer)
+
+      unregisterOlder()
+      await useChatStore.getState().suggestChannel('42')
+      expect(newer).toHaveBeenCalledWith('42', undefined)
+      expect(older).not.toHaveBeenCalled()
+
+      unregisterNewer()
+      await expect(useChatStore.getState().suggestChannel('42')).resolves.toBe('not-sent')
     })
   })
 })
