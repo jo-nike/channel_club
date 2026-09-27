@@ -487,7 +487,8 @@ function ChannelItem({
             </span>
             {isLive && hasLiveChannel && <LivePill />}
           </div>
-          <p className="truncate text-sm text-muted-foreground">
+          {/* Beside Pick a channel the idle copy wraps rather than cutting to 'Nothing …' */}
+          <p className={cn('text-sm text-muted-foreground', showPickLive ? 'line-clamp-2' : 'truncate')}>
             {isLive
               ? hasLiveChannel
                 ? currentProgramme

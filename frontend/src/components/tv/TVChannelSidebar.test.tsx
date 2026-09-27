@@ -706,6 +706,17 @@ describe('TVChannelSidebar empty live slot', () => {
     expect(useTVStore.getState().selectedChannel).toBeNull()
   })
 
+  it('lets the idle copy wrap beside Pick a channel instead of cutting it short', async () => {
+    render(<TVChannelSidebar onPickLive={vi.fn()} />)
+    await act(async () => {})
+
+    const idle = screen.getByText('Nothing on yet')
+    expect(idle).toHaveClass('line-clamp-2')
+    expect(idle).not.toHaveClass('truncate')
+    // Channel rows keep their one-line programme
+    expect(within(screen.getByRole('button', { name: '1 Movies' })).getByText('Now playing...')).toHaveClass('truncate')
+  })
+
   it("tells people who can't change live TV that they're waiting, with no action", async () => {
     render(<TVChannelSidebar />)
     await act(async () => {})
