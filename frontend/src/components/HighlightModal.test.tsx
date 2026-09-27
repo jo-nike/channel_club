@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@/test/utils'
+import { render, screen, fireEvent, waitFor, within } from '@/test/utils'
 import { HighlightModal } from './HighlightModal'
 import * as api from '@/services/api'
 import { useAudioStore } from '@/stores/audioStore'
@@ -14,6 +14,23 @@ const prepared = new Blob(['selected frames'], { type: 'video/mp4' })
 // Pressed as the capture's last frame was recorded, so the press is at its end.
 const capture = { id: 'capture-1', duration: 60, bytes: 17, expiresAt: 0, pressedAt: 1_000, endsAt: 1_000 }
 const props = { isOpen: true, onClose: vi.fn(), channelId: 'channel-1' }
+
+/** The Start or End readout, as shown */
+function shown(name: 'Start' | 'End') {
+  return within(screen.getByRole('group', { name })).getByText(/^\d+\.\ds$/).textContent
+}
+
+/** The exact-time field, opening its popover first */
+function exactField(name: 'Start' | 'End') {
+  if (!screen.queryByLabelText(`${name} (seconds)`)) fireEvent.click(screen.getByRole('button', { name: 'Type exact times' }))
+  return screen.getByLabelText(`${name} (seconds)`)
+}
+
+function typeTime(name: 'Start' | 'End', value: string) {
+  const field = exactField(name)
+  fireEvent.change(field, { target: { value } })
+  fireEvent.blur(field)
+}
 
 async function ready(duration = 60) {
   const video = await screen.findByLabelText('Highlight preview') as HTMLVideoElement
@@ -50,9 +67,9 @@ describe('Clip editor', () => {
   it('captures once, selects recent footage and previews only the selection', async () => {
     render(<HighlightModal {...props} />)
     const video = await ready()
-    fireEvent.click(screen.getByRole('button', { name: 'Last 15s' }))
-    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(45)
-    expect(video.currentTime).toBe(45)
+    fireEvent.click(screen.getByRole('button', { name: '10s' }))
+    expect(shown('Start')).toBe('50.0s')
+    expect(video.currentTime).toBe(50)
     fireEvent.click(screen.getByRole('button', { name: 'Play selection' }))
     await waitFor(() => expect(screen.getByText('Pause preview')).toBeInTheDocument())
     video.currentTime = 60
@@ -65,15 +82,15 @@ describe('Clip editor', () => {
   it('selects the last 20 seconds by default and Reset returns there', async () => {
     render(<HighlightModal {...props} />)
     const video = await ready()
-    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(40)
-    expect(screen.getByLabelText('End (seconds)')).toHaveValue(60)
+    expect(shown('Start')).toBe('40.0s')
+    expect(shown('End')).toBe('60.0s')
     expect(video.currentTime).toBe(40)
     expect(screen.getByText('Selected: 20.0s')).toBeInTheDocument()
-    fireEvent.click(screen.getByText('Full clip'))
-    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Full' }))
+    expect(shown('Start')).toBe('0.0s')
     fireEvent.click(screen.getByText('Reset'))
-    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(40)
-    expect(screen.getByLabelText('End (seconds)')).toHaveValue(60)
+    expect(shown('Start')).toBe('40.0s')
+    expect(shown('End')).toBe('60.0s')
   })
 
   it('selects the 20 seconds ending where the user pressed, not the end of the capture', async () => {
@@ -81,17 +98,17 @@ describe('Clip editor', () => {
     vi.mocked(api.createHighlightCapture).mockResolvedValue({ ...capture, pressedAt: 1_000, endsAt: 1_005 })
     render(<HighlightModal {...props} />)
     const video = await ready()
-    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(35)
-    expect(screen.getByLabelText('End (seconds)')).toHaveValue(55)
+    expect(shown('Start')).toBe('35.0s')
+    expect(shown('End')).toBe('55.0s')
     expect(video.currentTime).toBe(35)
     expect(parseFloat(screen.getByText('You pressed').style.left)).toBeCloseTo(55 / 60 * 100)
-    fireEvent.click(screen.getByText('Last 10s'))
-    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(45)
-    expect(screen.getByLabelText('End (seconds)')).toHaveValue(55)
-    fireEvent.click(screen.getByText('Full clip'))
+    fireEvent.click(screen.getByRole('button', { name: '10s' }))
+    expect(shown('Start')).toBe('45.0s')
+    expect(shown('End')).toBe('55.0s')
+    fireEvent.click(screen.getByRole('button', { name: 'Full' }))
     fireEvent.click(screen.getByText('Reset'))
-    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(35)
-    expect(screen.getByLabelText('End (seconds)')).toHaveValue(55)
+    expect(shown('Start')).toBe('35.0s')
+    expect(shown('End')).toBe('55.0s')
   })
 
   it('plays the default selection once on open and stops at its end', async () => {
@@ -130,8 +147,8 @@ describe('Clip editor', () => {
     await ready()
     expect(screen.getByRole('status')).toHaveTextContent('This capture ends 4.0s before you pressed.')
     // The press is 4s past the capture, so the selection ends at the capture's end: 50-60 is 986-996.
-    fireEvent.click(screen.getByText('Last 10s'))
-    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(50)
+    fireEvent.click(screen.getByRole('button', { name: '10s' }))
+    expect(shown('Start')).toBe('50.0s')
     fireEvent.click(screen.getByRole('button', { name: 'Include the last few seconds' }))
     const video = await ready()
     expect(video).toHaveAttribute('src', '/api/highlight/capture/capture-2?token=t')
@@ -139,8 +156,8 @@ describe('Clip editor', () => {
     // The new capture (946-1006) ends 6s after the original press (not the re-capture's own request
     // time), so the press is at 54s. The selection still starts at 986 (40s in) and, since it ran to
     // the old capture's end, now runs on to the press.
-    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(40)
-    expect(screen.getByLabelText('End (seconds)')).toHaveValue(54)
+    expect(shown('Start')).toBe('40.0s')
+    expect(shown('End')).toBe('54.0s')
     expect(video.currentTime).toBe(40)
     expect(parseFloat(screen.getByText('You pressed').style.left)).toBeCloseTo(90)
     expect(screen.queryByText(/before you pressed\./)).not.toBeInTheDocument()
@@ -155,17 +172,15 @@ describe('Clip editor', () => {
     render(<HighlightModal {...props} />)
     await ready()
     // The capture runs 928-988; 30-40 is 958-968, 42-32s before the press.
-    fireEvent.change(screen.getByLabelText('Start (seconds)'), { target: { value: '30' } })
-    fireEvent.blur(screen.getByLabelText('Start (seconds)'))
-    fireEvent.change(screen.getByLabelText('End (seconds)'), { target: { value: '40' } })
-    fireEvent.blur(screen.getByLabelText('End (seconds)'))
-    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(30)
-    expect(screen.getByLabelText('End (seconds)')).toHaveValue(40)
+    typeTime('Start', '30')
+    typeTime('End', '40')
+    expect(shown('Start')).toBe('30.0s')
+    expect(shown('End')).toBe('40.0s')
     fireEvent.click(screen.getByRole('button', { name: 'Include the last few seconds' }))
     await ready()
     // The new capture runs 942-1002, so 958-968 is 16-26.
-    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(16)
-    expect(screen.getByLabelText('End (seconds)')).toHaveValue(26)
+    expect(shown('Start')).toBe('16.0s')
+    expect(shown('End')).toBe('26.0s')
   })
 
   it('clamps a kept selection that falls outside the new capture', async () => {
@@ -174,12 +189,12 @@ describe('Clip editor', () => {
       .mockResolvedValueOnce({ ...capture, id: 'capture-2', pressedAt: 1_020, endsAt: 1_020 })
     render(<HighlightModal {...props} />)
     await ready()
-    fireEvent.click(screen.getByText('Full clip'))
+    fireEvent.click(screen.getByRole('button', { name: 'Full' }))
     fireEvent.click(screen.getByRole('button', { name: 'Include the last few seconds' }))
     await ready()
     // The press is now 40s into the capture; 60s before it has left the buffer.
-    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(0)
-    expect(screen.getByLabelText('End (seconds)')).toHaveValue(40)
+    expect(shown('Start')).toBe('0.0s')
+    expect(shown('End')).toBe('40.0s')
   })
 
   it('ends the default selection at the capture when it stops short of the press, still counting from the press', async () => {
@@ -187,43 +202,158 @@ describe('Clip editor', () => {
     vi.mocked(api.createHighlightCapture).mockResolvedValue({ ...capture, pressedAt: 1_000, endsAt: 996 })
     render(<HighlightModal {...props} />)
     await ready()
-    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(40)
-    expect(screen.getByLabelText('End (seconds)')).toHaveValue(60)
+    expect(shown('Start')).toBe('40.0s')
+    expect(shown('End')).toBe('60.0s')
     expect(screen.getByText('You pressed 4.0 s after the end')).toBeInTheDocument()
     // 20s before the press is 44s into the capture, not 40s.
     expect(parseFloat(screen.getByText('\u221220 s').style.left)).toBeCloseTo(44 / 60 * 100)
     expect(screen.getByRole('slider', { name: 'Playhead' })).toHaveAttribute('aria-valuetext', '40.0 seconds, 24.0 seconds before you pressed')
-    fireEvent.click(screen.getByText('Last 10s'))
-    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(50)
+    fireEvent.click(screen.getByRole('button', { name: '10s' }))
+    expect(shown('Start')).toBe('50.0s')
+    expect(shown('End')).toBe('60.0s')
+  })
+
+  it('plays the selection with Space and marks the start with I while the timeline has focus', async () => {
+    render(<HighlightModal {...props} />)
+    const video = await ready()
+    const playhead = screen.getByRole('slider', { name: 'Playhead' })
+    expect(await screen.findByText('Pause preview')).toBeInTheDocument()
+    fireEvent.keyDown(playhead, { key: ' ' })
+    expect(video.paused).toBe(true)
+    fireEvent.keyDown(playhead, { key: ' ' })
+    expect(await screen.findByText('Pause preview')).toBeInTheDocument()
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(2)
+    expect(video.currentTime).toBe(40)
+    for (let i = 0; i < 5; i++) fireEvent.keyDown(playhead, { key: 'ArrowRight', shiftKey: true })
+    expect(video.currentTime).toBe(45)
+    fireEvent.keyDown(playhead, { key: 'i' })
+    expect(shown('Start')).toBe('45.0s')
+    expect(shown('End')).toBe('60.0s')
+    fireEvent.keyDown(playhead, { key: 'ArrowRight', shiftKey: true })
+    fireEvent.keyDown(playhead, { key: 'o' })
+    expect(shown('End')).toBe('46.0s')
+    // Elsewhere in the editor the letters and Space are left to the focused control
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Download clip' }), { key: 'i' })
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Download clip' }), { key: ' ' })
+    expect(shown('Start')).toBe('45.0s')
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(2)
+    expect(props.onClose).not.toHaveBeenCalled()
+  })
+
+  it('offers 10, 20, 30 seconds and Full as one control, showing which one the selection is', async () => {
+    render(<HighlightModal {...props} />)
+    await ready()
+    const pressed = () => within(screen.getByRole('group', { name: 'Length' })).getAllByRole('button')
+      .filter(button => button.getAttribute('aria-pressed') === 'true').map(button => button.textContent)
+    expect(within(screen.getByRole('group', { name: 'Length' })).getAllByRole('button').map(button => button.textContent))
+      .toEqual(['10s', '20s', '30s', 'Full'])
+    // The default is the 20 seconds ending at the press
+    expect(pressed()).toEqual(['20s'])
+    fireEvent.click(screen.getByRole('button', { name: '30s' }))
+    expect(pressed()).toEqual(['30s'])
+    expect(shown('Start')).toBe('30.0s')
+    expect(shown('End')).toBe('60.0s')
+    fireEvent.click(screen.getByRole('button', { name: 'Full' }))
+    expect(pressed()).toEqual(['Full'])
+    expect(shown('Start')).toBe('0.0s')
+    fireEvent.click(screen.getByRole('button', { name: '10s' }))
+    expect(pressed()).toEqual(['10s'])
+    // A hand edit is no longer one of the lengths
+    fireEvent.click(screen.getByRole('button', { name: 'Start back 0.1 seconds' }))
+    expect(pressed()).toEqual([])
+    fireEvent.click(screen.getByText('Reset'))
+    expect(pressed()).toEqual(['20s'])
+  })
+
+  it('shows Full, not a length the capture cannot hold, on a short capture', async () => {
+    render(<HighlightModal {...props} />)
+    await ready(8)
+    const group = screen.getByRole('group', { name: 'Length' })
+    fireEvent.click(within(group).getByRole('button', { name: '10s' }))
+    expect(shown('Start')).toBe('0.0s')
+    expect(shown('End')).toBe('8.0s')
+    expect(within(group).getByRole('button', { name: '10s' })).toHaveAttribute('aria-pressed', 'false')
+    expect(within(group).getByRole('button', { name: 'Full' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('nudges the start and end by a tenth or a whole second and previews the moved boundary', async () => {
+    render(<HighlightModal {...props} />)
+    const video = await ready()
+    fireEvent.click(screen.getByRole('button', { name: 'Start back 1 second' }))
+    expect(shown('Start')).toBe('39.0s')
+    expect(video.currentTime).toBe(39)
+    fireEvent.click(screen.getByRole('button', { name: 'Start forward 0.1 seconds' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Start forward 0.1 seconds' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Start forward 0.1 seconds' }))
+    // Tenths, without floating-point drift
+    expect(shown('Start')).toBe('39.3s')
+    expect(video.currentTime).toBe(39.3)
+    fireEvent.click(screen.getByRole('button', { name: 'End back 0.1 seconds' }))
+    expect(shown('End')).toBe('59.9s')
+    expect(video.currentTime).toBe(59.9)
+    expect(screen.getByText('Selected: 20.6s')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'End forward 1 second' }))
+    expect(shown('End')).toBe('60.0s')
+  })
+
+  it('stops a nudge at the capture edges and at the other boundary', async () => {
+    render(<HighlightModal {...props} />)
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: 'End forward 0.1 seconds' }))
+    expect(shown('End')).toBe('60.0s')
+    typeTime('Start', '59.9')
+    fireEvent.click(screen.getByRole('button', { name: 'Start forward 1 second' }))
+    fireEvent.click(screen.getByRole('button', { name: 'End back 0.1 seconds' }))
+    expect(shown('Start')).toBe('59.9s')
+    expect(shown('End')).toBe('60.0s')
+    typeTime('Start', '0.4')
+    fireEvent.click(screen.getByRole('button', { name: 'Start back 1 second' }))
+    expect(shown('Start')).toBe('0.0s')
+  })
+
+  it('keeps exact entry in a popover that commits on Enter and keeps focus there', async () => {
+    render(<HighlightModal {...props} />)
+    await ready()
+    // The fields only appear on request
+    expect(screen.queryByLabelText('Start (seconds)')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Type exact times' }))
+    const start = screen.getByLabelText('Start (seconds)')
+    expect(start).toHaveValue(40)
     expect(screen.getByLabelText('End (seconds)')).toHaveValue(60)
+    start.focus()
+    fireEvent.change(start, { target: { value: '42.5' } })
+    fireEvent.keyDown(start, { key: 'Enter' })
+    expect(shown('Start')).toBe('42.5s')
+    expect(start).toHaveFocus()
+    expect(screen.getByText('Selected: 17.5s')).toBeInTheDocument()
   })
 
   it('supports keyboard boundary adjustment, clamped fields, short buffers and reset', async () => {
     render(<HighlightModal {...props} />)
     const video = await ready(8)
-    fireEvent.click(screen.getByText('Last 30s'))
-    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(0)
+    fireEvent.click(screen.getByRole('button', { name: '30s' }))
+    expect(shown('Start')).toBe('0.0s')
     const handle = screen.getByRole('slider', { name: 'Start boundary' })
     fireEvent.focus(handle); fireEvent.keyDown(handle, { key: 'ArrowRight' })
     expect(video.currentTime).toBeCloseTo(0.1)
-    fireEvent.change(screen.getByLabelText('End (seconds)'), { target: { value: '0' } })
-    fireEvent.blur(screen.getByLabelText('End (seconds)'))
-    expect(screen.getByLabelText('End (seconds)')).toHaveValue(0.2)
+    typeTime('End', '0')
+    expect(shown('End')).toBe('0.2s')
     fireEvent.click(screen.getByText('Reset'))
-    expect(screen.getByLabelText('End (seconds)')).toHaveValue(8)
+    expect(shown('End')).toBe('8.0s')
   })
 
   it('allows typing a new end time without clamping intermediate digits', async () => {
     render(<HighlightModal {...props} />)
     await ready()
-    fireEvent.click(screen.getByText('Last 10s'))
-    const field = screen.getByLabelText('End (seconds)')
+    fireEvent.click(screen.getByRole('button', { name: '10s' }))
+    const field = exactField('End')
     fireEvent.focus(field)
     fireEvent.change(field, { target: { value: '5' } })
     expect(field).toHaveValue(5)
     fireEvent.change(field, { target: { value: '59.3' } })
     fireEvent.blur(field)
     expect(field).toHaveValue(59.3)
+    expect(shown('End')).toBe('59.3s')
     expect(screen.getByText('Selected: 9.3s')).toBeInTheDocument()
   })
 
@@ -232,10 +362,10 @@ describe('Clip editor', () => {
     vi.mocked(api.uploadHighlight).mockRejectedValueOnce(new Error('Zipline quota exceeded'))
     render(<HighlightModal {...props} />)
     await ready()
-    fireEvent.click(screen.getByText('Last 10s'))
+    fireEvent.click(screen.getByRole('button', { name: '10s' }))
     fireEvent.click(screen.getByText('Upload to Zipline'))
     expect(await screen.findByRole('alert')).toHaveTextContent('Zipline quota exceeded')
-    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(50)
+    expect(shown('Start')).toBe('50.0s')
     fireEvent.click(screen.getByText('Download clip'))
     await waitFor(() => expect(HTMLAnchorElement.prototype.click).toHaveBeenCalled())
     expect(api.exportHighlight).toHaveBeenCalledTimes(1)
@@ -245,7 +375,7 @@ describe('Clip editor', () => {
   it('downloads the original untrimmed snapshot without encoding', async () => {
     render(<HighlightModal {...props} />)
     await ready()
-    fireEvent.click(screen.getByText('Full clip'))
+    fireEvent.click(screen.getByRole('button', { name: 'Full' }))
     fireEvent.click(screen.getByText('Download clip'))
     await waitFor(() => expect(HTMLAnchorElement.prototype.click).toHaveBeenCalled())
     expect(api.exportHighlight).not.toHaveBeenCalled()
@@ -257,7 +387,7 @@ describe('Clip editor', () => {
     vi.mocked(api.getHighlightFeatures).mockResolvedValue({ enabled: true, ziplineEnabled: true })
     render(<HighlightModal {...props} />)
     await ready()
-    fireEvent.click(screen.getByText('Last 10s'))
+    fireEvent.click(screen.getByRole('button', { name: '10s' }))
     fireEvent.click(screen.getByText('Download clip'))
     await waitFor(() => expect(screen.getByText('Download clip')).not.toBeDisabled())
     fireEvent.click(screen.getByText('Upload to Zipline'))
@@ -280,12 +410,12 @@ describe('Clip editor', () => {
     vi.mocked(api.exportHighlight).mockImplementationOnce(() => new Promise((_, fail) => { reject = fail }))
     render(<HighlightModal {...props} />)
     await ready()
-    fireEvent.click(screen.getByText('Last 15s'))
+    fireEvent.click(screen.getByRole('button', { name: '30s' }))
     fireEvent.click(screen.getByText('Download clip')); fireEvent.click(screen.getByText('Download clip'))
     expect(api.exportHighlight).toHaveBeenCalledTimes(1)
     reject(new Error('Encoder timed out'))
     expect(await screen.findByRole('alert')).toHaveTextContent('Encoder timed out')
-    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(45)
+    expect(shown('Start')).toBe('30.0s')
     fireEvent.click(screen.getByText('Download clip'))
     await waitFor(() => expect(api.exportHighlight).toHaveBeenCalledTimes(2))
   })
@@ -295,7 +425,7 @@ describe('Clip editor', () => {
     const { rerender } = render(<HighlightModal {...props} />)
     expect(useAudioStore.getState().previewHolds).toBe(1)
     await ready()
-    fireEvent.click(screen.getByText('Last 10s'))
+    fireEvent.click(screen.getByRole('button', { name: '10s' }))
     const signal = vi.mocked(api.createHighlightCapture).mock.calls[0][1]!
     rerender(<HighlightModal {...props} isOpen={false} />)
     expect(signal.aborted).toBe(true)
@@ -304,7 +434,7 @@ describe('Clip editor', () => {
     rerender(<HighlightModal {...props} />)
     expect(useAudioStore.getState().previewHolds).toBe(1)
     await ready()
-    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(40)
+    expect(shown('Start')).toBe('40.0s')
   })
 
   it('says live TV changed and the clip is kept when another channel is playing', async () => {
@@ -318,7 +448,7 @@ describe('Clip editor', () => {
     // The session stays on the capture's channel: nothing is captured again or deleted
     expect(api.createHighlightCapture).toHaveBeenCalledExactlyOnceWith('channel-1', expect.any(AbortSignal))
     expect(api.deleteHighlightCapture).not.toHaveBeenCalled()
-    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(40)
+    expect(shown('Start')).toBe('40.0s')
   })
 
   it('drops the notice when the capture channel is playing again', async () => {
@@ -409,32 +539,36 @@ describe('Clip editor', () => {
   it('closes directly after the current selection was downloaded, and asks again once it changes', async () => {
     render(<HighlightModal {...props} />)
     await ready()
-    fireEvent.click(screen.getByText('Last 10s'))
+    fireEvent.click(screen.getByRole('button', { name: '10s' }))
     fireEvent.click(screen.getByText('Download clip'))
     await waitFor(() => expect(HTMLAnchorElement.prototype.click).toHaveBeenCalled())
     await waitFor(() => expect(screen.getByText('Download clip')).toBeEnabled())
-    fireEvent.click(screen.getByText('Last 15s'))
+    fireEvent.click(screen.getByRole('button', { name: '30s' }))
     fireEvent.click(screen.getByRole('button', { name: 'Close editor' }))
     expect(screen.getByRole('dialog', { name: 'Discard this clip?' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }))
-    fireEvent.click(screen.getByText('Last 10s'))
+    fireEvent.click(screen.getByRole('button', { name: '10s' }))
     fireEvent.click(screen.getByRole('button', { name: 'Close editor' }))
     expect(props.onClose).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('dialog', { name: 'Discard this clip?' })).not.toBeInTheDocument()
   })
 
-  it('lets Escape in a time field revert the typed value without closing or deleting the capture', async () => {
+  it('lets Escape in a time field revert the typed value, then close the exact times, never the editor', async () => {
     render(<HighlightModal {...props} />)
     await ready()
-    const field = screen.getByLabelText('Start (seconds)')
+    const field = exactField('Start')
     fireEvent.focus(field)
     fireEvent.change(field, { target: { value: '12.5' } })
     expect(field).toHaveValue(12.5)
     fireEvent.keyDown(field, { key: 'Escape' })
-    // Without the field guard, Escape would open the confirm, which also keeps onClose uncalled.
+    expect(field).toHaveValue(40)
+    expect(field).toBeInTheDocument()
+    // With nothing typed, Escape closes the exact times and leaves the editor open.
+    fireEvent.keyDown(field, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByLabelText('Start (seconds)')).not.toBeInTheDocument())
     expect(screen.queryByRole('dialog', { name: 'Discard this clip?' })).not.toBeInTheDocument()
     expect(screen.getByRole('dialog', { name: 'Create clip' })).toBeInTheDocument()
-    expect(field).toHaveValue(40)
+    expect(shown('Start')).toBe('40.0s')
     expect(props.onClose).not.toHaveBeenCalled()
     expect(api.deleteHighlightCapture).not.toHaveBeenCalled()
   })
@@ -455,8 +589,7 @@ describe('Clip editor', () => {
   it('converts WebM with the same fractional selection', async () => {
     render(<HighlightModal {...props} />)
     await ready()
-    fireEvent.change(screen.getByLabelText('Start (seconds)'), { target: { value: '1.3' } })
-    fireEvent.blur(screen.getByLabelText('Start (seconds)'))
+    typeTime('Start', '1.3')
     fireEvent.change(screen.getByLabelText('Format'), { target: { value: 'webm' } })
     fireEvent.click(screen.getByText('Download clip'))
     await waitFor(() => expect(api.exportHighlight).toHaveBeenCalledWith('capture-1', 'webm', { startTime: 1.3, endTime: 60 }, expect.any(AbortSignal)))
