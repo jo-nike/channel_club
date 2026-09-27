@@ -581,4 +581,82 @@ describe('useAutoHide', () => {
       expect(result.current.isVisible).toBe(false)
     })
   })
+  describe('pointerOnly (the couch)', () => {
+    const keyDown = () => {
+      act(() => {
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'm' }))
+      })
+    }
+
+    it('starts hidden, and a key press leaves the controls hidden', () => {
+      const containerRef = createContainerRef()
+      const { result } = renderHook(() =>
+        useAutoHide({ isPlaying: true, containerRef, pointerOnly: true })
+      )
+      expect(result.current.isVisible).toBe(false)
+
+      keyDown()
+
+      expect(result.current.isVisible).toBe(false)
+    })
+
+    it('a key press still shows them without pointerOnly', () => {
+      const containerRef = createContainerRef()
+      const { result } = renderHook(() =>
+        useAutoHide({ isPlaying: true, containerRef })
+      )
+      hideByTimeout()
+
+      keyDown()
+
+      expect(result.current.isVisible).toBe(true)
+    })
+
+    it('neither playback starting nor stopping raises them', () => {
+      const containerRef = createContainerRef()
+      const { result, rerender } = renderHook(
+        ({ isPlaying }) => useAutoHide({ isPlaying, containerRef, pointerOnly: true }),
+        { initialProps: { isPlaying: false } }
+      )
+      expect(result.current.isVisible).toBe(false)
+
+      rerender({ isPlaying: true })
+      expect(result.current.isVisible).toBe(false)
+
+      rerender({ isPlaying: false })
+      expect(result.current.isVisible).toBe(false)
+    })
+
+    it('a mouse move shows them and they hide again 3s later', () => {
+      const containerRef = createContainerRef()
+      const { result } = renderHook(() =>
+        useAutoHide({ isPlaying: true, containerRef, pointerOnly: true })
+      )
+
+      pointer(containerRef.current, 'pointermove', 'mouse')
+      expect(result.current.isVisible).toBe(true)
+
+      hideByTimeout()
+      expect(result.current.isVisible).toBe(false)
+    })
+
+    it('controls the pointer brought up stay up while paused, and hide once playback resumes', () => {
+      const containerRef = createContainerRef()
+      const { result, rerender } = renderHook(
+        ({ isPlaying }) => useAutoHide({ isPlaying, containerRef, pointerOnly: true }),
+        { initialProps: { isPlaying: true } }
+      )
+      pointer(containerRef.current, 'pointermove', 'mouse')
+
+      rerender({ isPlaying: false })
+      act(() => {
+        vi.advanceTimersByTime(5000)
+      })
+      expect(result.current.isVisible).toBe(true)
+
+      rerender({ isPlaying: true })
+      hideByTimeout()
+      expect(result.current.isVisible).toBe(false)
+    })
+  })
 })

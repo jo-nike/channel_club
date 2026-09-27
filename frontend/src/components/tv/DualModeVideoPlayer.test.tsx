@@ -2502,6 +2502,43 @@ describe('DualModeVideoPlayer auto-hide: one visibility in the shell', () => {
 
     expect(toolbar()).toHaveClass('opacity-0')
   })
+
+  // The couch's remote can't reach the bar: only a pointer brings it up
+  describe('TV mode', () => {
+    beforeEach(() => {
+      localStorage.setItem('tv-mode', 'true')
+    })
+
+    it('keeps the bar off the picture on mount, when playback starts, on a key press and across a zap', () => {
+      const { switchTo } = renderPlayer(liveChannel('https://fixture/a'))
+      expect(toolbar()).toHaveClass('opacity-0')
+
+      startLive()
+      expect(toolbar()).toHaveClass('opacity-0')
+
+      fireEvent.keyDown(window, { key: 'm' })
+      expect(toolbar()).toHaveClass('opacity-0')
+
+      // The old engine reports stopped as it goes, the new one plays
+      switchTo(liveChannel('https://fixture/b'))
+      expect(toolbar()).toHaveClass('opacity-0')
+      startLive()
+      expect(toolbar()).toHaveClass('opacity-0')
+    })
+
+    it('a Magic Remote pointer move brings the bar up, and it hides 3s later', () => {
+      renderPlayer(liveChannel('https://fixture/a'))
+      startLive()
+
+      act(() => {
+        shell().dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerType: 'mouse', clientX: 40 }))
+      })
+      expect(toolbar()).toHaveClass('opacity-100')
+
+      waitOut()
+      expect(toolbar()).toHaveClass('opacity-0')
+    })
+  })
 })
 
 describe('DualModeVideoPlayer arrival card', () => {
