@@ -153,6 +153,11 @@
   * {
     @apply border-border outline-ring/50;
   }
+  /* Themed scrollbars for every scroll container (dialogs, chat, the guide).
+     scrollbar-color inherits, so setting it on the root covers them all. */
+  html {
+    scrollbar-color: color-mix(in oklch, var(--muted-foreground) 40%, transparent) transparent;
+  }
   body {
     @apply bg-background text-foreground;
   }
@@ -326,9 +331,9 @@
    EPG MODERN SCROLLBAR
    ============================ */
 
+/* Colour comes from the global html rule in the base layer */
 .epg-scroll {
   scrollbar-width: thin;
-  scrollbar-color: color-mix(in oklch, var(--muted-foreground) 40%, transparent) transparent;
 }
 
 .epg-scroll::-webkit-scrollbar {
