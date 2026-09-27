@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { toast } from 'sonner'
-import { X, Search } from 'lucide-react'
+import { X, Search, Square } from 'lucide-react'
 import { useChannelStore } from '@/stores/channelStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useSettingsStore } from '@/stores/settingsStore'
@@ -10,7 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { CollapsibleChannelGroup } from '@/components/CollapsibleChannelGroup'
-import { cn } from '@/lib/utils'
+import { StopLiveTVDialog } from '@/components/StopLiveTVDialog'
 import type { Channel, GroupedChannelsResponse, Program } from '@/types'
 
 interface ChannelListProps {
@@ -199,21 +199,16 @@ export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
         )}
       </div>
 
-      {/* Clear Channel button - only show when a channel is selected */}
+      {/* Stop live TV - admin only, and only while something is live. It stops
+          the shared broadcast for everyone, so it asks first. */}
       {currentChannel && isAdmin && (
-        <button
-          type="button"
-          onClick={handleClearChannel}
-          className={cn(
-            'flex items-center gap-3 rounded-lg border border-destructive/50 p-4 transition-colors',
-            'text-lg text-destructive',
-            'min-h-[56px] w-full mb-2',
-            'cursor-pointer hover:bg-destructive/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring'
-          )}
-        >
-          <X className="h-5 w-5" />
-          <span className="font-medium">Clear Channel</span>
-        </button>
+        // Keyed by channel so an open confirm is dropped when live TV stops or
+        // changes elsewhere, instead of reopening when a channel is next picked
+        <StopLiveTVControl
+          key={currentChannel.id}
+          channelName={currentChannel.name}
+          onConfirm={handleClearChannel}
+        />
       )}
 
       {/* No matches message */}
@@ -267,6 +262,33 @@ function ChannelListSkeleton() {
       {Array.from({ length: 4 }).map((_, i) => (
         <Skeleton key={i} className="h-12 w-full rounded-lg" />
       ))}
+    </div>
+  )
+}
+
+function StopLiveTVControl({ channelName, onConfirm }: { channelName: string; onConfirm: () => void }) {
+  const [confirmOpen, setConfirmOpen] = useState(false)
+
+  return (
+    <div className="flex justify-end">
+      <Button
+        variant="outline"
+        size="sm"
+        className="text-destructive"
+        onClick={() => setConfirmOpen(true)}
+      >
+        <Square />
+        Stop live TV…
+      </Button>
+      <StopLiveTVDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        channelName={channelName}
+        onConfirm={() => {
+          setConfirmOpen(false)
+          onConfirm()
+        }}
+      />
     </div>
   )
 }

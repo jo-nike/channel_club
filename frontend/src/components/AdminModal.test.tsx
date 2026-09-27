@@ -136,8 +136,9 @@ describe('AdminModal', () => {
       expect(screen.getByRole('tab', { name: /active users/i })).toBeInTheDocument()
       expect(screen.getByRole('tab', { name: /user access/i })).toBeInTheDocument()
       expect(screen.getByRole('tab', { name: /chat/i })).toBeInTheDocument()
-      expect(screen.getByRole('tab', { name: /plugins/i })).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: /nhl/i })).toBeInTheDocument()
       expect(screen.getByRole('tab', { name: /status/i })).toBeInTheDocument()
+      expect(screen.queryByRole('tab', { name: /plugins/i })).not.toBeInTheDocument()
     })
 
     it('all tabs are always visible regardless of context', () => {
@@ -145,8 +146,8 @@ describe('AdminModal', () => {
       render(<AdminModal {...defaultProps} />)
 
       const tabs = screen.getAllByRole('tab')
-      expect(tabs).toHaveLength(7)
-      expect(tabs.map(t => t.textContent)).toEqual(['Channels', 'Active Users', 'User Access', 'Chat', 'NHL', 'Plugins', 'Status'])
+      expect(tabs).toHaveLength(6)
+      expect(tabs.map(t => t.textContent)).toEqual(['Channels', 'Active Users', 'User Access', 'Chat', 'NHL', 'Status'])
     })
   })
 
@@ -206,7 +207,7 @@ describe('AdminModal', () => {
       render(<AdminModal {...defaultProps} />)
 
       const tabs = screen.getAllByRole('tab')
-      expect(tabs.length).toBe(7)
+      expect(tabs.length).toBe(6)
 
       // Each tab should have aria-selected attribute
       tabs.forEach(tab => {
@@ -270,17 +271,17 @@ describe('AdminModal', () => {
       expect(screen.getByText('Channel 2')).toBeInTheDocument()
     })
 
-    it('shows Clear Channel option at top when a channel is selected (AC #1)', async () => {
+    it('shows Stop live TV when a channel is selected (AC #1)', async () => {
       useChannelStore.setState({ currentChannel: mockChannels[0] })
 
       render(<AdminModal {...defaultProps} />)
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /clear channel/i })).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Stop live TV…' })).toBeInTheDocument()
       })
     })
 
-    it('does not show Clear Channel option when no channel is selected', async () => {
+    it('does not show Stop live TV when no channel is selected', async () => {
       useChannelStore.setState({ currentChannel: null })
 
       render(<AdminModal {...defaultProps} />)
@@ -289,7 +290,7 @@ describe('AdminModal', () => {
         expect(screen.getByText('Sports')).toBeInTheDocument()
       })
 
-      expect(screen.queryByRole('button', { name: /clear channel/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /stop live tv/i })).not.toBeInTheDocument()
     })
 
     it('keeps modal open on channel select', async () => {
@@ -315,18 +316,15 @@ describe('AdminModal', () => {
       expect(onOpenChange).not.toHaveBeenCalledWith(false)
     })
 
-    it('keeps modal open on clear', async () => {
+    it('keeps modal open when live TV is stopped', async () => {
       const onOpenChange = vi.fn()
       useChannelStore.setState({ currentChannel: mockChannels[0] })
       vi.mocked(api.clearCurrentChannel).mockResolvedValue(undefined)
 
       render(<AdminModal {...defaultProps} onOpenChange={onOpenChange} />)
 
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /clear channel/i })).toBeInTheDocument()
-      })
-
-      fireEvent.click(screen.getByRole('button', { name: /clear channel/i }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Stop live TV…' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Stop live TV' }))
 
       // Allow any pending async state updates to settle
       await waitFor(() => {
@@ -335,22 +333,24 @@ describe('AdminModal', () => {
 
       // Modal should remain open: onOpenChange must not be called with false
       expect(onOpenChange).not.toHaveBeenCalledWith(false)
+      expect(screen.getByText('Admin Panel')).toBeInTheDocument()
     })
 
-    it('calls clearCurrentChannel API when Clear Channel is clicked (AC #3)', async () => {
+    it('calls clearCurrentChannel API only after Stop live TV is confirmed (AC #3)', async () => {
       useChannelStore.setState({ currentChannel: mockChannels[0] })
       vi.mocked(api.clearCurrentChannel).mockResolvedValue(undefined)
 
       render(<AdminModal {...defaultProps} />)
 
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /clear channel/i })).toBeInTheDocument()
-      })
+      fireEvent.click(await screen.findByRole('button', { name: 'Stop live TV…' }))
 
-      fireEvent.click(screen.getByRole('button', { name: /clear channel/i }))
+      expect(screen.getByRole('dialog', { name: 'Stop live TV for everyone?' })).toBeInTheDocument()
+      expect(api.clearCurrentChannel).not.toHaveBeenCalled()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Stop live TV' }))
 
       await waitFor(() => {
-        expect(api.clearCurrentChannel).toHaveBeenCalled()
+        expect(api.clearCurrentChannel).toHaveBeenCalledTimes(1)
       })
     })
 
@@ -393,7 +393,7 @@ describe('AdminModal', () => {
     })
   })
 
-  describe('Placeholder content (Story 11.7)', () => {
+  describe('Tab content (Story 11.7)', () => {
     it('shows the live channel selection toggle for the User Access tab', () => {
       render(<AdminModal {...defaultProps} />)
 
@@ -401,16 +401,6 @@ describe('AdminModal', () => {
 
       expect(screen.getByText('Live Channel Selection')).toBeInTheDocument()
       expect(screen.getByRole('button', { name: /disabled/i })).toBeInTheDocument()
-    })
-
-    it('shows placeholder content for Plugins tab (AC #2)', () => {
-      render(<AdminModal {...defaultProps} />)
-
-      fireEvent.click(screen.getByRole('tab', { name: /plugins/i }))
-      // Check for the placeholder message which is unique
-      expect(screen.getByText('Plugins management coming soon')).toBeInTheDocument()
-      // Check for the description text
-      expect(screen.getByText(/Extend functionality/)).toBeInTheDocument()
     })
 
     it('shows StatusTab content for Status tab (Story 12.2)', () => {
@@ -422,15 +412,6 @@ describe('AdminModal', () => {
       expect(screen.getByText('Dispatcharr')).toBeInTheDocument()
       // Check for status header
       expect(screen.getByText('System Status')).toBeInTheDocument()
-    })
-
-    it('shows icon in placeholder tabs', () => {
-      render(<AdminModal {...defaultProps} />)
-
-      fireEvent.click(screen.getByRole('tab', { name: /plugins/i }))
-      // Look for the SVG icon inside tabpanel
-      const tabpanel = screen.getByRole('tabpanel')
-      expect(tabpanel.querySelector('svg')).toBeInTheDocument()
     })
   })
 })
