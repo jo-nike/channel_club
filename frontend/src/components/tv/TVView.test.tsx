@@ -398,3 +398,50 @@ describe('B-V2 picking a channel from the empty live slot', () => {
     })
   })
 })
+
+describe('programme progress on the phone list', () => {
+  const NOW = new Date('2026-09-26T20:00:00Z').getTime()
+  const MINUTE = 60_000
+  const movies = { id: 'e1', name: 'Movies', number: 1, streamUrl: '/e1', logoUrl: '', group: '' }
+  const onNow = (startOffsetMin: number, stopOffsetMin: number) => ({
+    id: 'p1',
+    channelId: 'e1',
+    title: 'Evening News',
+    start: new Date(NOW + startOffsetMin * MINUTE).toISOString(),
+    stop: new Date(NOW + stopOffsetMin * MINUTE).toISOString(),
+  })
+  // The bar's fill sits in the track just before the time-left label
+  const fillBefore = (label: HTMLElement) => label.previousElementSibling?.firstElementChild as HTMLElement
+
+  beforeEach(() => {
+    // Only the clock: the channel fetch and waitFor still run on real timers
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+    matchOnly('(max-width: 768px)')
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([movies])
+    useErsatztvStore.setState({ loadAllProgrammes: vi.fn().mockResolvedValue(undefined) })
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    window.matchMedia = originalMatchMedia
+    useErsatztvStore.setState({ programmesByChannel: {} })
+  })
+
+  it("shows the time left and fills the bar by the share that's been on", async () => {
+    // 30 of 95 minutes in, 65 to go
+    useErsatztvStore.setState({ programmesByChannel: { e1: [onNow(-30, 65)] } })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+
+    const label = await screen.findByText('1h 5m left')
+    expect(label.closest('button')).toHaveTextContent('Evening News')
+    expect(parseFloat(fillBefore(label).style.width)).toBeCloseTo((30 / 95) * 100, 5)
+  })
+
+  it('shows whole hours without minutes', async () => {
+    useErsatztvStore.setState({ programmesByChannel: { e1: [onNow(-60, 120)] } })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+
+    const label = await screen.findByText('2h left')
+    expect(parseFloat(fillBefore(label).style.width)).toBeCloseTo((60 / 180) * 100, 5)
+  })
+})

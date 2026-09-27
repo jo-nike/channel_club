@@ -196,15 +196,24 @@ useChannelStore.subscribe((state) => {
   const currentChannel = state.currentChannel
   // Only react if the channel actually changed
   if (currentChannel !== previousChannel) {
+    const liveChannelSwitched = !!currentChannel && currentChannel.id !== previousChannel?.id
     previousChannel = currentChannel
     const { selectedChannel, loadLiveEPG } = useTVStore.getState()
 
-    // If currently viewing Channel 0, update the EPG
+    // If currently viewing Channel 0, follow it to the new channel
     if (selectedChannel?.type === 'live') {
       useTVStore.setState({ selectedChannel: useTVStore.getState().getUnifiedChannels()[0] })
+    }
+
+    if (liveChannelSwitched) {
+      // A different channel is on live TV: drop the old one's programme now, so
+      // row 0 never shows it under the new channel, and look the new one up
+      // straight away, whichever channel this viewer is watching
+      useTVStore.setState({ liveEPG: null, liveEPGStatus: 'loading' })
       loadLiveEPG()
-    } else if (!currentChannel) {
-      // Live TV stopped: drop its guide state (and any lookup in flight)
+    } else if (selectedChannel?.type === 'live' || !currentChannel) {
+      // Same channel with new details, or live TV stopped (which drops its
+      // guide state and any lookup in flight)
       loadLiveEPG()
     }
 

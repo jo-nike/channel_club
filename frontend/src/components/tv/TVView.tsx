@@ -6,6 +6,7 @@ import { useEscapeKey } from '@/hooks/useEscapeKey'
 import { useTVMode } from '@/hooks/useTVMode'
 import { useChannelZap } from '@/hooks/useChannelZap'
 import { getRemoteAction, isKeyForFocusedControl } from '@/lib/remoteKeys'
+import { calculateProgress, formatRemaining } from '@/lib/programmes'
 import { useProgrammeClock } from '@/hooks/useProgrammeClock'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
@@ -640,27 +641,6 @@ function MobileChannelList({ onChannelSelect, liveEPGTitle, onPickLive }: Mobile
     return onPickLive ? 'Nothing on yet' : 'Waiting for someone to put something on'
   }
 
-  // Calculate progress and time remaining
-  const formatTimeRemaining = (programme: ErsatzTVProgramme): string => {
-    const stopTime = new Date(programme.stop).getTime()
-    const remainingMs = stopTime - currentTime
-    if (remainingMs <= 0) return 'Ending...'
-    const remainingMinutes = Math.ceil(remainingMs / (1000 * 60))
-    if (remainingMinutes < 60) return `${remainingMinutes}m left`
-    const hours = Math.floor(remainingMinutes / 60)
-    const minutes = remainingMinutes % 60
-    return minutes === 0 ? `${hours}h left` : `${hours}h ${minutes}m left`
-  }
-
-  const calculateProgress = (programme: ErsatzTVProgramme): number => {
-    const startTime = new Date(programme.start).getTime()
-    const stopTime = new Date(programme.stop).getTime()
-    const totalDuration = stopTime - startTime
-    const elapsed = currentTime - startTime
-    if (totalDuration <= 0) return 0
-    return Math.min(100, Math.max(0, (elapsed / totalDuration) * 100))
-  }
-
   return (
     <div className="space-y-2 p-4">
       <h2 className="text-lg font-semibold">Channels</h2>
@@ -731,11 +711,17 @@ function MobileChannelList({ onChannelSelect, liveEPGTitle, onPickLive }: Mobile
                     <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
                       <div
                         className="h-full rounded-full bg-primary/60 transition-all duration-300"
-                        style={{ width: `${calculateProgress(currentProgramme)}%` }}
+                        style={{
+                          width: `${calculateProgress(
+                            new Date(currentProgramme.start).getTime(),
+                            new Date(currentProgramme.stop).getTime(),
+                            currentTime
+                          )}%`,
+                        }}
                       />
                     </div>
                     <span className="shrink-0 text-[10px] text-muted-foreground">
-                      {formatTimeRemaining(currentProgramme)}
+                      {formatRemaining(new Date(currentProgramme.stop).getTime(), currentTime)}
                     </span>
                   </div>
                 )}

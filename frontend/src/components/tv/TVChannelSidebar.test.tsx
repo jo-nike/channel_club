@@ -4,7 +4,12 @@ import { TVChannelSidebar } from './TVChannelSidebar'
 import { useChannelStore } from '@/stores/channelStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore } from '@/stores/tvStore'
+import { fetchErsatzTVCurrentProgramme } from '@/services/ersatztvApi'
 import type { ErsatzTVProgramme } from '@/types'
+
+// Putting a channel on live TV starts a guide lookup; leave it unanswered so
+// each test sets the live guide state itself
+vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn(() => new Promise(() => {})) }))
 
 vi.mock('@/services/ersatztvApi', () => ({
   fetchErsatzTVCurrentProgramme: vi.fn().mockResolvedValue({ current: null, nextUp: null }),
@@ -253,6 +258,111 @@ describe('TVChannelSidebar collapsed rail tiles', () => {
   })
 })
 
+describe('TVChannelSidebar collapsed live tile', () => {
+  const liveTile = () => screen.getByRole('button', { name: 'Live Channel' })
+  // Plain background utilities only (hover:bg-* is a separate state)
+  const backgrounds = (element: HTMLElement) =>
+    Array.from(element.classList).filter((name) => name.startsWith('bg-'))
+
+  async function openLiveTooltip() {
+    await act(async () => {
+      liveTile().focus()
+    })
+    return screen.findByRole('tooltip')
+  }
+
+  beforeEach(() => {
+    // The rail scrolls the selected tile into view; jsdom has no scrollIntoView
+    Element.prototype.scrollIntoView = vi.fn()
+    useErsatztvStore.setState({
+      channels: [{ id: 'etv1', name: 'Movies', streamUrl: '', logoUrl: '', number: 1, group: 'Films' }],
+    })
+  })
+
+  afterEach(() => {
+    cleanup()
+    delete (Element.prototype as Partial<Element>).scrollIntoView
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels: [] })
+    useTVStore.setState({ selectedChannel: null, liveEPG: null, liveEPGStatus: 'idle' })
+  })
+
+  it("tells people who can pick a channel that nothing's on yet", async () => {
+    useChannelStore.setState({ currentChannel: null })
+    render(<TVChannelSidebar isCollapsed onPickLive={vi.fn()} />)
+    await act(async () => {})
+
+    const tooltip = await openLiveTooltip()
+    expect(tooltip).toHaveTextContent('Nothing on yet')
+    expect(tooltip).not.toHaveTextContent('Awaiting broadcast')
+  })
+
+  it("tells everyone else they're waiting for someone to put something on", async () => {
+    useChannelStore.setState({ currentChannel: null })
+    render(<TVChannelSidebar isCollapsed />)
+    await act(async () => {})
+
+    const tooltip = await openLiveTooltip()
+    expect(tooltip).toHaveTextContent('Waiting for someone to put something on')
+    expect(tooltip).not.toHaveTextContent('Awaiting broadcast')
+  })
+
+  it.each([
+    ['unavailable', 'Guide unavailable'],
+    ['empty', 'No guide info'],
+  ] as const)("says why there's no title when live TV is on and the guide is %s", async (liveEPGStatus, copy) => {
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1' },
+    })
+    useTVStore.setState({ liveEPG: null, liveEPGStatus })
+    render(<TVChannelSidebar isCollapsed />)
+    await act(async () => {})
+
+    const tooltip = await openLiveTooltip()
+    expect(tooltip).toHaveTextContent('0 Club')
+    expect(tooltip).toHaveTextContent(copy)
+    expect(tooltip).not.toHaveTextContent('Now')
+  })
+
+  it('tints the live tile and its icon with the live token rather than destructive', async () => {
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1' },
+    })
+    render(<TVChannelSidebar isCollapsed />)
+    await act(async () => {})
+
+    expect(liveTile()).toHaveClass('bg-live/20', 'text-live')
+    expect(liveTile().className).not.toMatch(/destructive/)
+    const icon = liveTile().querySelector('svg')
+    expect(icon).toHaveClass('lucide-radio', 'text-live')
+    expect(icon).not.toHaveClass('text-destructive')
+  })
+
+  it('gives a selected live tile one background, the live tint, with the selection ring', async () => {
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1' },
+    })
+    useTVStore.setState({ selectedChannel: useTVStore.getState().getUnifiedChannels()[0] })
+    render(<TVChannelSidebar isCollapsed />)
+    await act(async () => {})
+
+    expect(backgrounds(liveTile())).toEqual(['bg-live/20'])
+    expect(liveTile()).toHaveClass('ring-2', 'ring-primary')
+  })
+
+  it('gives a selected channel tile one background, the selection tint', async () => {
+    useTVStore.setState({ selectedChannel: useTVStore.getState().getUnifiedChannels()[1] })
+    render(<TVChannelSidebar isCollapsed />)
+    await act(async () => {})
+
+    const tile = screen.getByRole('button', { name: '1 Movies' })
+    expect(backgrounds(tile)).toEqual(['bg-primary/10'])
+    expect(tile).toHaveClass('ring-2', 'ring-primary')
+    // Unselected tiles stay muted
+    expect(backgrounds(liveTile())).toEqual(['bg-muted'])
+  })
+})
+
 describe('TVChannelSidebar collapsed rail scrolling', () => {
   // jsdom has no layout scrolling, so there's no scrollIntoView to spy on
   const scrollIntoView = vi.fn()
@@ -402,5 +512,56 @@ describe('TVChannelSidebar empty live slot', () => {
     await act(async () => {})
 
     expect(screen.queryByRole('button', { name: 'Pick a channel' })).not.toBeInTheDocument()
+  })
+})
+
+describe('TVChannelSidebar programme progress', () => {
+  const NOW = new Date('2026-09-26T20:00:00Z').getTime()
+  const MINUTE = 60_000
+
+  function onNow(startOffsetMin: number, stopOffsetMin: number): ErsatzTVProgramme {
+    return {
+      id: 'p1',
+      channelId: 'etv1',
+      title: 'Evening News',
+      start: new Date(NOW + startOffsetMin * MINUTE).toISOString(),
+      stop: new Date(NOW + stopOffsetMin * MINUTE).toISOString(),
+    }
+  }
+
+  // The bar's fill sits in the track just before the time-left label
+  const fillBefore = (label: HTMLElement) => label.previousElementSibling?.firstElementChild as HTMLElement
+
+  beforeEach(() => {
+    // Only the clock: the programme fetch still resolves on real timers
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+    useErsatztvStore.setState({
+      channels: [{ id: 'etv1', name: 'Movies', streamUrl: '', logoUrl: '', number: 1, group: 'Films' }],
+    })
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+    vi.mocked(fetchErsatzTVCurrentProgramme).mockResolvedValue({ current: null, nextUp: null })
+    useErsatztvStore.setState({ channels: [] })
+  })
+
+  it("shows the time left and fills the bar by the share that's been on", async () => {
+    // 30 of 95 minutes in, 65 to go
+    vi.mocked(fetchErsatzTVCurrentProgramme).mockResolvedValue({ current: onNow(-30, 65), nextUp: null })
+    render(<TVChannelSidebar />)
+
+    const label = await screen.findByText('1h 5m left')
+    expect(parseFloat(fillBefore(label).style.width)).toBeCloseTo((30 / 95) * 100, 5)
+  })
+
+  it("says 'Ending...' with a full bar once the stop time has passed", async () => {
+    vi.mocked(fetchErsatzTVCurrentProgramme).mockResolvedValue({ current: onNow(-60, -1), nextUp: null })
+    render(<TVChannelSidebar />)
+
+    const label = await screen.findByText('Ending...')
+    expect(fillBefore(label).style.width).toBe('100%')
   })
 })

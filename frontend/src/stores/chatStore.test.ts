@@ -333,6 +333,29 @@ describe('useChatStore', () => {
       expect(useChatStore.getState().lastReadAt).toBe(ms(2))
     })
 
+    it("doesn't count your own messages from another tab or device as they arrive", () => {
+      useChatStore.setState({ lastReadAt: ms(1) })
+      useChatStore.getState().addMessage(message('2', 'me', 2))
+      expect(useChatStore.getState().unreadCount).toBe(0)
+      useChatStore.getState().addMessage(message('3', 'alice', 3))
+      expect(useChatStore.getState().unreadCount).toBe(1)
+      // Under a nickname, that's the name your messages carry
+      useChatStore.getState().setNickname('Nick')
+      useChatStore.getState().addMessage(message('4', 'Nick', 4))
+      expect(useChatStore.getState().unreadCount).toBe(1)
+    })
+
+    it('keeps the badge steady when a reconnect brings your own message back through history', () => {
+      useChatStore.setState({ lastReadAt: ms(1) })
+      const own = message('2', 'me', 2)
+      const theirs = message('3', 'alice', 3)
+      useChatStore.getState().addMessage(own)
+      useChatStore.getState().addMessage(theirs)
+      expect(useChatStore.getState().unreadCount).toBe(1)
+      useChatStore.getState().setMessages([message('1', 'bob', 1), own, theirs])
+      expect(useChatStore.getState().unreadCount).toBe(1)
+    })
+
     it('a message counted as it arrived is not counted again when history repeats it', () => {
       useChatStore.setState({ lastReadAt: ms(1) })
       const late = message('2', 'alice', 2)

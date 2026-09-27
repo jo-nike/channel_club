@@ -12,7 +12,6 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 
 export interface ChatPanelProps {
   onSendMessage: (content: string, clientMessageId: string) => Promise<ChatSendResult> | ChatSendResult
-  currentUsername?: string
   onSetNickname?: (nickname: string) => void
   // The chat socket's state; sends are held while it isn't connected
   status?: WebSocketStatus
@@ -50,6 +49,14 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
   const isConnected = status === 'connected'
   const isReconnecting = status === 'connecting' || status === 'reconnecting'
   const [showReconnecting, setShowReconnecting] = useState(false)
+  // Once the connection has been lost, the offline row stays until it's back.
+  // The slow retries pass through 'reconnecting' on every attempt, which would
+  // otherwise unmount the row each time, shifting the list and hiding Reconnect.
+  // (Adjusted while rendering, React's pattern for state that follows a prop.)
+  const [connectionLost, setConnectionLost] = useState(status === 'disconnected')
+  if (status === 'disconnected' && !connectionLost) setConnectionLost(true)
+  else if (status === 'connected' && connectionLost) setConnectionLost(false)
+  const showOfflineRow = status === 'disconnected' || (connectionLost && !isConnected)
 
   // Nobody has to pick a name: chat uses the sign-in name until they choose one
   const showNicknamePrompt = isEditingNickname
@@ -175,6 +182,23 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
     [handleSaveNickname]
   )
 
+  // Leave the editor without changing the name
+  const handleCancelNickname = useCallback(() => {
+    setIsEditingNickname(false)
+    setNicknameInput('')
+  }, [])
+
+  const handleEditorKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLDivElement>) => {
+      if (e.key !== 'Escape') return
+      // Escape backs out of the editor only; it must not also close the chat or leave theater
+      e.preventDefault()
+      e.stopPropagation()
+      handleCancelNickname()
+    },
+    [handleCancelNickname]
+  )
+
   const handleEditNickname = useCallback(() => {
     if (nickname) {
       setNicknameInput(nickname)
@@ -232,35 +256,42 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
         </Button>
       </div>
 
-      {showReconnecting && isReconnecting && (
+      {/* One row for both states, so switching between them never moves the list */}
+      {(showOfflineRow || (showReconnecting && isReconnecting)) && (
         <div role="status" className="flex h-8 shrink-0 items-center gap-2 border-b border-border px-4 text-sm text-muted-foreground">
-          <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden="true" />
-          Reconnecting…
-        </div>
-      )}
-      {status === 'disconnected' && (
-        <div role="status" className="flex h-8 shrink-0 items-center gap-2 border-b border-border px-4 text-sm text-muted-foreground">
-          <WifiOff className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-          <span className="flex-1">Chat is offline</span>
-          {onReconnect && (
-            <Button variant="ghost" size="sm" className="h-7" onClick={onReconnect}>
-              Reconnect
-            </Button>
+          {showOfflineRow ? (
+            <>
+              {/* The copy holds steady through retry attempts; only the icon says one is under way */}
+              {isReconnecting
+                ? <Loader2 className="h-3.5 w-3.5 shrink-0 motion-safe:animate-spin" aria-hidden="true" />
+                : <WifiOff className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+              <span className="flex-1">Chat is offline</span>
+              {onReconnect && (
+                <Button variant="ghost" size="sm" className="h-7" onClick={onReconnect}>
+                  Reconnect
+                </Button>
+              )}
+            </>
+          ) : (
+            <>
+              <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden="true" />
+              Reconnecting…
+            </>
           )}
         </div>
       )}
 
       {showNicknamePrompt ? (
-        /* Nickname Prompt */
-        <div className="flex-1 flex flex-col items-center justify-center p-6">
-          <p className="text-muted-foreground text-sm mb-4">Choose a display name</p>
+        /* Display name editor */
+        <div className="flex-1 flex flex-col items-center justify-center p-6" onKeyDown={handleEditorKeyDown}>
+          <h3 className="text-muted-foreground text-sm mb-4">Change display name</h3>
           <div className="flex gap-2 w-full max-w-xs">
             <Input
               ref={nicknameInputRef}
               value={nicknameInput}
               onChange={(e) => setNicknameInput(e.target.value)}
               onKeyDown={handleNicknameKeyDown}
-              placeholder="Enter display name..."
+              placeholder="Display name"
               className="flex-1"
               maxLength={30}
             />
@@ -271,11 +302,16 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
               Save
             </Button>
           </div>
-          {me && (
-            <Button variant="link" size="sm" onClick={handleUseSignInName} className="mt-2">
-              Use my sign-in name
+          <div className="mt-2 flex items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={handleCancelNickname}>
+              Cancel
             </Button>
-          )}
+            {me && (
+              <Button variant="link" size="sm" onClick={handleUseSignInName}>
+                Use my sign-in name
+              </Button>
+            )}
+          </div>
         </div>
       ) : (
         <>
