@@ -340,15 +340,14 @@
   padding-bottom: max(0.5rem, var(--couch-safe-y));
 }
 
-/* The idle live slot, legible from the sofa: 24px text and a bigger button */
+/* The idle live slot, legible from the sofa: 24px text. Its pick button goes:
+   a remote can't reach it, and OK opens the guide as the hints say */
 .couch .couch-view .live-slot-idle p {
   font-size: 1.5rem;
 }
 
 .couch .couch-view .live-slot-idle button {
-  height: 3.5rem;
-  font-size: 1.5rem;
-  padding-inline: 2rem;
+  display: none;
 }
 
 /* Focus from a remote, readable from the sofa: a thick outline in the brand
@@ -386,8 +385,8 @@
 }
 
 .couch [data-slot="dropdown-menu-content"] [data-highlighted] {
-  outline: 4px solid var(--couch-focus);
-  outline-offset: -4px;
+  outline: 5px solid var(--couch-focus);
+  outline-offset: -5px;
 }
 
 /* ============================
