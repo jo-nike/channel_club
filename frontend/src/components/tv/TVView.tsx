@@ -44,28 +44,25 @@ export function TVView() {
   // WebSocket for presence tracking and chat
   const { status, reconnect, sendChannelUpdate, sendChatMessage, sendSetNickname } = useWebSocket({ view: 'tv' })
 
-  // ErsatzTV store - for loading channels and programmes
-  const {
-    channels: ersatzTVChannels,
-    channelsLoading,
-    programmesLoading,
-    programmesByChannel,
-    error,
-    loadChannels,
-    loadAllProgrammes,
-  } = useErsatztvStore()
+  // ErsatzTV store - for loading channels and programmes. Field selectors,
+  // so unrelated store updates don't re-render the whole view
+  const ersatzTVChannels = useErsatztvStore((s) => s.channels)
+  const channelsLoading = useErsatztvStore((s) => s.channelsLoading)
+  const programmesLoading = useErsatztvStore((s) => s.programmesLoading)
+  const programmesByChannel = useErsatztvStore((s) => s.programmesByChannel)
+  const error = useErsatztvStore((s) => s.error)
+  const loadChannels = useErsatztvStore((s) => s.loadChannels)
+  const loadAllProgrammes = useErsatztvStore((s) => s.loadAllProgrammes)
 
   // Live channel from channel store
   const liveChannel = useChannelStore((s) => s.currentChannel)
 
   // TV store - unified channel management
-  const {
-    selectedChannel,
-    selectChannel,
-    liveEPG,
-    loadLiveEPG,
-    getUnifiedChannels,
-  } = useTVStore()
+  const selectedChannel = useTVStore((s) => s.selectedChannel)
+  const selectChannel = useTVStore((s) => s.selectChannel)
+  const liveEPG = useTVStore((s) => s.liveEPG)
+  const loadLiveEPG = useTVStore((s) => s.loadLiveEPG)
+  const getUnifiedChannels = useTVStore((s) => s.getUnifiedChannels)
 
   // UI state
   const setLastRoute = useUIStore((s) => s.setLastRoute)

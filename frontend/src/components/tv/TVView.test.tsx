@@ -15,7 +15,7 @@ const socket = vi.hoisted(() => ({ status: 'connected', reconnect: () => {} }))
 const chatProps = vi.hoisted(() => ({ last: null as null | { status?: string; onReconnect?: () => void } }))
 const auth = vi.hoisted(() => ({ isAdmin: false }))
 const appSettings = vi.hoisted(() => ({ userChannelSelection: false }))
-const playerProps = vi.hoisted(() => ({ onPickLive: undefined as undefined | (() => void) }))
+const playerProps = vi.hoisted(() => ({ onPickLive: undefined as undefined | (() => void), renders: 0 }))
 vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn() }))
 import type { UnifiedChannel } from '@/types'
 
@@ -28,6 +28,7 @@ vi.mock('@/components/LiveChannelPickerDialog', () => ({ LiveChannelPickerDialog
 ) }))
 vi.mock('@/components/tv/DualModeVideoPlayer', () => ({ DualModeVideoPlayer: ({ channel, onPickLive }: { channel: UnifiedChannel | null; onPickLive?: () => void }) => {
   playerProps.onPickLive = onPickLive
+  playerProps.renders += 1
   if (crash.player) throw new Error('player exploded')
   return <div data-testid="player">{channel?.streamUrl || 'No live broadcast'}</div>
 } }))
@@ -443,5 +444,23 @@ describe('programme progress on the phone list', () => {
 
     const label = await screen.findByText('2h left')
     expect(parseFloat(fillBefore(label).style.width)).toBeCloseTo((60 / 180) * 100, 5)
+  })
+})
+
+describe('B-08 store subscriptions', () => {
+  it("doesn't re-render the view for store fields it doesn't use", async () => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+
+    // The player is a child of the view, so it renders whenever the view does
+    const before = playerProps.renders
+    act(() => useTVStore.setState({ liveEPGLoading: true, epgRequestId: 99 }))
+    act(() => useErsatztvStore.setState({ loading: true, currentProgramme: null, programmes: [] }))
+    expect(playerProps.renders).toBe(before)
+
+    // A field it does use still re-renders it
+    act(() => useErsatztvStore.setState({ error: 'Guide failed' }))
+    expect(playerProps.renders).toBeGreaterThan(before)
   })
 })
