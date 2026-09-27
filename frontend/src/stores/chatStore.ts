@@ -136,7 +136,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     logger.debug('ChatStore', `New message from ${message.username}`)
     set((state) => {
       const newMessages = [...state.messages, message].slice(-MAX_MESSAGES)
-      if (!state.isOpen) return { messages: newMessages, unreadCount: state.unreadCount + 1 }
+      // Your own messages (say, sent from another tab or device) are never unread,
+      // matching the history recount, so a reconnect doesn't drop the badge
+      if (!state.isOpen) {
+        return { messages: newMessages, unreadCount: state.unreadCount + (isOwnMessage(message, state) ? 0 : 1) }
+      }
       // Seen as it arrives
       const lastReadAt = laterOf(state.lastReadAt, newestTimestamp([message]))
       saveLastRead(state.me, lastReadAt)
