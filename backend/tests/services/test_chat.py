@@ -222,6 +222,46 @@ class TestChatMessage:
 
         assert msg.to_dict()["kind"] == "user"
 
+    def test_to_dict_has_empty_channel_fields_without_a_stamp(self) -> None:
+        """A message posted without a visible channel carries null channel fields."""
+        msg = chat.add_message("testuser", "Hello")
+        assert msg is not None
+
+        msg_dict = msg.to_dict()
+        assert msg_dict["channelId"] is None
+        assert msg_dict["channelName"] is None
+        assert msg_dict["programme"] is None
+        assert msg_dict["view"] is None
+
+    def test_to_dict_emits_the_senders_channel(self) -> None:
+        """A stamped message carries the sender's channel, programme and view."""
+        stamp = chat.ChannelStamp(
+            channel_name="Cartoons", channel_id="etv-2", programme="Futurama", view="ersatztv"
+        )
+        msg = chat.add_message("maya", "lol", user_id="u_maya", channel=stamp)
+        assert msg is not None
+
+        msg_dict = msg.to_dict()
+        assert msg_dict["channelId"] == "etv-2"
+        assert msg_dict["channelName"] == "Cartoons"
+        assert msg_dict["programme"] == "Futurama"
+        assert msg_dict["view"] == "ersatztv"
+        # Stored with the stamp, so history can replay it
+        assert chat.get_history()[-1].channel == stamp
+
+    def test_to_dict_can_leave_the_channel_out(self) -> None:
+        """show_channel=False empties the channel fields but keeps the message."""
+        stamp = chat.ChannelStamp(channel_name="TSN 5", channel_id="42", view="live")
+        msg = chat.add_message("maya", "goal", channel=stamp)
+        assert msg is not None
+
+        msg_dict = msg.to_dict(show_channel=False)
+        assert msg_dict["content"] == "goal"
+        assert msg_dict["channelId"] is None
+        assert msg_dict["channelName"] is None
+        assert msg_dict["programme"] is None
+        assert msg_dict["view"] is None
+
     def test_to_dict_serializes_timestamp_as_iso(self) -> None:
         """Should serialize timestamp as ISO 8601 string."""
         msg = chat.add_message("testuser", "Hello")

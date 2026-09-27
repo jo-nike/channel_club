@@ -65,6 +65,27 @@ def _is_another_members_name(nickname: str, username: str) -> bool:
     )
 
 
+def _channel_stamp(client_id: str) -> chat.ChannelStamp | None:
+    """The sender's channel for a chat message, if others may see it.
+
+    Taken from the server's presence for this connection, never from the
+    client's message. None while presence is off, when the sender hides what
+    they watch, or before they have reported a channel.
+
+    Args:
+        client_id: The sender's connection (session) id.
+    """
+    user = presence_broadcast.shown_channel(client_id)
+    if user is None or user.current_channel is None:
+        return None
+    return chat.ChannelStamp(
+        channel_name=user.current_channel,
+        channel_id=user.current_channel_id,
+        programme=user.current_programme,
+        view=user.view,
+    )
+
+
 async def verify_websocket_token(token: str) -> dict | None:
     """Verify JWT token for WebSocket connection.
 
@@ -153,9 +174,16 @@ async def websocket_endpoint(
             # Send chat history if chat is enabled
             if settings.chat_enabled:
                 history = chat.get_history(limit=50)
+                # Channels stamped earlier follow today's privacy: none while
+                # presence is off, and none for a sender who now hides theirs
+                channels_visible = app_settings.presence_visible_enabled()
+                hidden = presence_broadcast.hidden_people()
                 history_message = {
                     "type": "chat_history",
-                    "messages": [msg.to_dict() for msg in history],
+                    "messages": [
+                        msg.to_dict(show_channel=channels_visible and msg.user_id not in hidden)
+                        for msg in history
+                    ],
                 }
                 await websocket.send_json(history_message)
 
@@ -300,7 +328,9 @@ async def handle_client_message(
         # Use nickname if set, otherwise fall back to auth username
         nickname_entry = _nickname_map.get(client_id)
         display_name = nickname_entry[1] if nickname_entry else username
-        chat_msg = chat.add_message(display_name, content, user_id=user_id)
+        chat_msg = chat.add_message(
+            display_name, content, user_id=user_id, channel=_channel_stamp(client_id)
+        )
 
         if chat_msg:
             if client_message_id:

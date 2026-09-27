@@ -93,6 +93,42 @@ def build_snapshot() -> list[PresenceEntry]:
     return entries
 
 
+def hidden_people() -> set[str]:
+    """Everyone who hides what they watch, on any of their connections.
+
+    Keyed like the snapshot: the opaque user id, or the username for a
+    connection without one.
+    """
+    return {
+        user.user_id or user.username
+        for user in presence.get_active_users().values()
+        if user.hide_activity
+    }
+
+
+def shown_channel(connection_id: str) -> UserPresence | None:
+    """A connection's presence, if others may see what it is watching.
+
+    The snapshot's rule: the admin shows what everyone is watching, and the
+    person doesn't hide it on any of their connections. None as well while
+    the connection has no channel.
+
+    Args:
+        connection_id: The connection (session) id.
+
+    Returns:
+        The connection's presence, or None if its channel stays private.
+    """
+    if not app_settings.presence_visible_enabled():
+        return None
+    user = presence.get_active_users().get(connection_id)
+    if user is None or user.current_channel is None:
+        return None
+    if (user.user_id or user.username) in hidden_people():
+        return None
+    return user
+
+
 # Changes within this window share one presence_update
 BROADCAST_DEBOUNCE_SECONDS = 1.0
 
