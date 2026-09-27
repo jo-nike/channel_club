@@ -41,7 +41,9 @@ export function HeaderAction({
           size="toolbar"
           aria-label={label}
           aria-pressed={pressed}
-          className={cn('relative', visibleLabel && 'lg:w-auto lg:px-3', className)}
+          // A mouse's 36px toolbar size is a pointer-fine rule, which Tailwind emits after
+          // the plain breakpoints, so the label's auto width needs a pointer-fine twin
+          className={cn('relative', visibleLabel && 'lg:w-auto pointer-fine:lg:w-auto lg:px-3', className)}
           {...props}
         >
           {icon}
