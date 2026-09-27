@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type Ref } from 'react'
 import { ChevronLeft, ChevronRight, Radio } from 'lucide-react'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore } from '@/stores/tvStore'
 import { getErsatzTVLogoUrl, fetchErsatzTVCurrentProgramme } from '@/services/ersatztvApi'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useProgrammeClock } from '@/hooks/useProgrammeClock'
+import { findOnAir, getProgrammeState } from '@/lib/programmes'
 import type { UnifiedChannel, ErsatzTVProgramme } from '@/types'
 
 interface TVChannelSidebarProps {
@@ -59,6 +61,15 @@ export function TVChannelSidebar({
     }
   }, [ersatzTVChannels])
 
+  // Keep the selected tile in view when the rail collapses or the selection
+  // changes while collapsed
+  const tileRefs = useRef(new Map<string, HTMLButtonElement>())
+  const selectedChannelId = selectedChannel?.id
+  useEffect(() => {
+    if (!isCollapsed || !selectedChannelId) return
+    tileRefs.current.get(selectedChannelId)?.scrollIntoView({ block: 'nearest' })
+  }, [isCollapsed, selectedChannelId])
+
   const handleChannelClick = (channel: UnifiedChannel) => {
     selectChannel(channel)
   }
@@ -66,7 +77,7 @@ export function TVChannelSidebar({
   // Collapsed state
   if (isCollapsed) {
     return (
-      <aside className="flex h-full w-12 flex-col items-center border-r bg-card py-2 rounded-r-lg overflow-hidden">
+      <aside className="flex h-full w-16 flex-col items-center border-r bg-card py-2 rounded-r-lg overflow-hidden">
         <button
           onClick={onToggleCollapse}
           className="flex h-10 w-10 items-center justify-center rounded-md hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -74,10 +85,16 @@ export function TVChannelSidebar({
         >
           <ChevronRight className="h-5 w-5" />
         </button>
-        <div className="mt-2 flex flex-1 flex-col items-center gap-1 overflow-y-auto pt-1">
+        {/* No scrollbar: a classic 15px one would widen the list past the 64px rail
+            and push the tiles off-centre. Wheel, touch and keyboard focus still scroll it. */}
+        <div className="mt-2 flex w-full flex-1 flex-col items-center gap-1.5 overflow-y-auto px-3 pt-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {unifiedChannels.map((channel) => (
             <CollapsedChannelButton
               key={channel.id}
+              ref={(tile) => {
+                if (tile) tileRefs.current.set(channel.id, tile)
+                else tileRefs.current.delete(channel.id)
+              }}
               channel={channel}
               isSelected={selectedChannel?.id === channel.id}
               hasLiveChannel={hasLiveChannel}
@@ -133,6 +150,7 @@ export function TVChannelSidebar({
 // ============================================================================
 
 interface CollapsedChannelButtonProps {
+  ref?: Ref<HTMLButtonElement>
   channel: UnifiedChannel
   isSelected: boolean
   hasLiveChannel: boolean
@@ -140,6 +158,7 @@ interface CollapsedChannelButtonProps {
 }
 
 function CollapsedChannelButton({
+  ref,
   channel,
   isSelected,
   hasLiveChannel,
@@ -151,11 +170,12 @@ function CollapsedChannelButton({
     <Tooltip>
       <TooltipTrigger asChild>
         <button
+          ref={ref}
           onClick={() => onSelect(channel)}
           className={`
-            flex h-8 items-center justify-center rounded text-xs font-medium overflow-hidden
+            relative flex h-10 shrink-0 scroll-my-1 items-center justify-center rounded-lg text-xs font-medium overflow-hidden
             hover:bg-foreground/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring
-            ${isLive ? 'w-auto min-w-8 px-1' : 'w-8'}
+            ${isLive ? 'w-auto min-w-10 px-1' : 'w-10'}
             ${isSelected ? 'ring-2 ring-primary bg-primary/10' : ''}
             ${isLive && hasLiveChannel ? 'bg-destructive/20 text-destructive' : 'bg-muted'}
           `}
@@ -169,23 +189,81 @@ function CollapsedChannelButton({
               '0'
             )
           ) : channel.logoUrl ? (
-            <img
-              src={getErsatzTVLogoUrl(channel.id)}
-              alt=""
-              className="h-full w-full object-contain"
-              onError={(e) => {
-                ;(e.target as HTMLImageElement).style.display = 'none'
-              }}
-            />
+            <>
+              <img
+                src={getErsatzTVLogoUrl(channel.id)}
+                alt=""
+                className="h-full w-full object-contain"
+                onError={(e) => {
+                  ;(e.target as HTMLImageElement).style.display = 'none'
+                }}
+              />
+              {/* The aria-label already carries the number */}
+              <span
+                aria-hidden="true"
+                className="absolute bottom-0 right-0 flex h-4 min-w-4 items-center justify-center rounded-tl-md bg-background/85 px-0.5 text-[10px] font-semibold leading-none tabular-nums text-foreground"
+              >
+                {channel.number}
+              </span>
+            </>
           ) : (
             channel.number
           )}
         </button>
       </TooltipTrigger>
       <TooltipContent side="right">
-        <p>{channel.name}</p>
+        <ChannelTooltipBody channel={channel} hasLiveChannel={hasLiveChannel} />
       </TooltipContent>
     </Tooltip>
+  )
+}
+
+// Radix mounts tooltip content only while it's open, so the clock and the
+// store reads below run only for the tile being hovered or focused.
+function ChannelTooltipBody({
+  channel,
+  hasLiveChannel,
+}: {
+  channel: UnifiedChannel
+  hasLiveChannel: boolean
+}) {
+  const now = useProgrammeClock()
+  const programmes = useErsatztvStore((s) => s.programmesByChannel[channel.id])
+  const liveEPG = useTVStore((s) => s.liveEPG)
+
+  const isLive = channel.type === 'live'
+  let nowTitle: string | undefined
+  let nextTitle: string | undefined
+  if (isLive) {
+    nowTitle = liveEPG?.currentProgram?.title
+    nextTitle = liveEPG?.nextProgram?.title
+  } else if (programmes) {
+    nowTitle = findOnAir(programmes, now)?.title
+    nextTitle = programmes.find((p) => getProgrammeState(p, now) === 'future')?.title
+  }
+
+  return (
+    <div className="max-w-56 space-y-0.5">
+      <p className="font-medium">
+        <span className="tabular-nums">{channel.number}</span> {channel.name}
+      </p>
+      {isLive && !hasLiveChannel ? (
+        <p className="text-muted-foreground">Awaiting broadcast...</p>
+      ) : (
+        <>
+          {nowTitle && (
+            <p className="truncate">
+              <span className="text-muted-foreground">Now</span> {nowTitle}
+            </p>
+          )}
+          {nextTitle && (
+            <p className="truncate">
+              <span className="text-muted-foreground">Next</span> {nextTitle}
+            </p>
+          )}
+        </>
+      )}
+    </div>
   )
 }
 
