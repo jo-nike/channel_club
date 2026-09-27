@@ -68,7 +68,15 @@ describe('HeaderAction', () => {
 
   it('shows a count badge on destructive, capped at 9+, and none at zero', () => {
     const { rerender } = render(<HeaderAction icon={<LayoutList />} label="Chat" badge={3} />)
-    expect(screen.getByText('3')).toHaveClass('bg-destructive', 'text-destructive-foreground', 'dark:bg-destructive/60')
+    const badge = screen.getByText('3')
+    expect(badge).toHaveClass(
+      'bg-destructive',
+      'text-destructive-foreground',
+      'dark:bg-[color-mix(in_oklab,var(--destructive)_60%,var(--background))]'
+    )
+    // Opaque, and ringed in the background colour so it stands off a filled button
+    expect(badge.className).not.toMatch(/bg-destructive\//)
+    expect(badge).toHaveClass('ring-2', 'ring-background')
 
     rerender(<HeaderAction icon={<LayoutList />} label="Chat" badge={12} />)
     expect(screen.getByText('9+')).toBeInTheDocument()
