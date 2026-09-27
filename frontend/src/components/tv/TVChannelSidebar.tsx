@@ -13,11 +13,13 @@ import { useChannelPrefsStore } from '@/stores/channelPrefsStore'
 import { ChannelFilterBar, NoChannelsMatch } from '@/components/tv/ChannelFilterBar'
 import { LivePill } from '@/components/LivePill'
 import { ChannelLogo } from '@/components/ChannelLogo'
+import { ChannelPresenceSpace, ChannelPresenceStack } from '@/components/tv/ChannelPresenceStack'
+import { usePresenceByChannel } from '@/hooks/usePresenceByChannel'
 import { calculateProgress, findOnAir, formatRemaining, getProgrammeState } from '@/lib/programmes'
 import { buildProgrammeIndex, findCurrentAndNext, type IndexedProgramme } from '@/lib/programmeIndex'
 import { favouritesFirst } from '@/lib/channelSearch'
 import { cn } from '@/lib/utils'
-import type { UnifiedChannel } from '@/types'
+import type { PresenceEntry, UnifiedChannel } from '@/types'
 
 const getChannelId = (channel: UnifiedChannel) => channel.id
 
@@ -77,6 +79,8 @@ export function TVChannelSidebar({
   const { channels: filteredChannels, isFiltering } = useFilteredChannels(unifiedChannels, programmesByChannel)
   const favouriteChannelIds = useChannelPrefsStore((s) => s.favouriteChannelIds)
   const toggleFavourite = useChannelPrefsStore((s) => s.toggleFavourite)
+  // Who else is on each row; empty unless this viewer sees channels
+  const presenceByChannel = usePresenceByChannel()
   const listedChannels = isCollapsed ? favouritesFirst(unifiedChannels, favouriteChannelIds) : filteredChannels
 
   // '/' on the rail: expand it, and the search box in the list takes focus
@@ -202,6 +206,7 @@ export function TVChannelSidebar({
               currentTime={now}
               hasLiveChannel={hasLiveChannel}
               onPickLive={onPickLive}
+              people={presenceByChannel.get(channel.id)}
             />
           )
         })}
@@ -403,6 +408,8 @@ interface ChannelItemProps {
   currentTime: number
   hasLiveChannel: boolean
   onPickLive?: () => void
+  // Who else is on the channel (usePresenceByChannel)
+  people?: PresenceEntry[]
 }
 
 function ChannelItem({
@@ -421,6 +428,7 @@ function ChannelItem({
   currentTime,
   hasLiveChannel,
   onPickLive,
+  people,
 }: ChannelItemProps) {
   const isLive = channel.type === 'live'
   const progress = onAir ? calculateProgress(onAir.startMs, onAir.stopMs, currentTime) : 0
@@ -431,6 +439,8 @@ function ChannelItem({
   // Every channel but the live slot, which is always the first row anyway,
   // can be starred. The star is the row's sibling, since buttons can't nest.
   const showStar = !isLive
+  // The people on the channel, but never on the empty live slot
+  const presence = people && people.length > 0 && (!isLive || hasLiveChannel) ? people : null
 
   return (
     // One background per row: the live row's tint is on the item, so it runs
@@ -438,7 +448,7 @@ function ChannelItem({
     <li
       className={cn(
         isLive && 'bg-live/5',
-        showPickLive ? 'flex items-center pr-3' : showStar && 'relative'
+        showPickLive ? 'flex items-center pr-3' : (showStar || presence) && 'relative'
       )}
     >
       {/* scroll-mt clears the sticky Channels header and filter when the row is scrolled into view */}
@@ -518,7 +528,21 @@ function ChannelItem({
             />
           </div>
         )}
+        {/* Room for the people on the channel, laid over it below */}
+        {presence && <ChannelPresenceSpace people={presence} />}
       </button>
+      {presence && (
+        // Over its room: centred like it, at the button's right padding. It
+        // shares the row's tab stop, like the star.
+        <ChannelPresenceStack
+          people={presence}
+          channelName={channel.name}
+          isWatching={isSelected}
+          onJoin={() => onSelect(channel)}
+          tabIndex={tabIndex}
+          className={cn('absolute top-1/2 -translate-y-1/2', showStar ? 'right-12' : 'right-3')}
+        />
+      )}
       {showPickLive && (
         <Button size="sm" onClick={onPickLive}>
           Pick a channel

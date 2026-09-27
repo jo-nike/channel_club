@@ -6,6 +6,8 @@ import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { Button } from '@/components/ui/button'
 import { LivePill } from '@/components/LivePill'
 import { ChannelLogo } from '@/components/ChannelLogo'
+import { ChannelPresenceSpace, ChannelPresenceStack } from '@/components/tv/ChannelPresenceStack'
+import { usePresenceByChannel } from '@/hooks/usePresenceByChannel'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useProgrammeClock } from '@/hooks/useProgrammeClock'
 import { useScrollViewport } from '@/hooks/useScrollViewport'
@@ -36,7 +38,7 @@ import {
   type ProgrammeState,
 } from '@/lib/programmes'
 import { cn } from '@/lib/utils'
-import type { UnifiedChannel, ErsatzTVProgramme, EPGResponse } from '@/types'
+import type { UnifiedChannel, ErsatzTVProgramme, EPGResponse, PresenceEntry } from '@/types'
 
 // Grid constants
 const SLOT_WIDTH = 150 // pixels per 30 minutes
@@ -110,6 +112,10 @@ export function TVEPGGrid({
   // shows them above the grid. Row 0 always stays.
   const { channels: unifiedChannels, isFiltering } = useFilteredChannels(allChannels, programmesByChannel)
   const hasLiveChannel = liveChannel !== null
+  // Who else is on each row; empty unless this viewer sees channels. Each
+  // row's list keeps its identity until the snapshot changes, so the
+  // memoised rows skip it.
+  const presenceByChannel = usePresenceByChannel()
 
   // Calculate time range - start 30 min before current rounded time
   const startTime = useMemo(() => {
@@ -470,6 +476,7 @@ export function TVEPGGrid({
                 onChannelClick={onChannelClick}
                 onPickLive={onPickLive}
                 onCellFocus={handleCellFocus}
+                people={presenceByChannel.get(channel.id)}
               />
             )
           })}
@@ -510,6 +517,8 @@ interface ChannelRowProps {
   onChannelClick?: (channel: UnifiedChannel) => void
   onPickLive?: () => void
   onCellFocus?: (channelId: string, programmeId: string | null) => void
+  // Who else is on the channel (usePresenceByChannel)
+  people?: PresenceEntry[]
 }
 
 // Memoised: its props are primitives or objects that keep their identity
@@ -532,6 +541,7 @@ const ChannelRow = memo(function ChannelRow({
   onChannelClick,
   onPickLive,
   onCellFocus,
+  people,
 }: ChannelRowProps) {
   const isLive = channel.type === 'live'
   // Sorted, with start and stop parsed once per programme refresh
@@ -557,6 +567,8 @@ const ChannelRow = memo(function ChannelRow({
         isTabStop={tabStopBlockId === null}
         onChannelClick={onChannelClick}
         onFocus={onCellFocus}
+        // Never on the empty live slot
+        people={isLive && !hasLiveChannel ? undefined : people}
       />
 
       {/* Programme boxes */}
@@ -648,6 +660,8 @@ interface ChannelLabelProps {
   isTabStop: boolean
   onChannelClick?: (channel: UnifiedChannel) => void
   onFocus?: (channelId: string, programmeId: null) => void
+  // Who else is on the channel
+  people?: PresenceEntry[]
 }
 
 // The sticky channel column: number, logo, name, LIVE on an active live row,
@@ -661,10 +675,12 @@ function ChannelLabel({
   isTabStop,
   onChannelClick,
   onFocus,
+  people,
 }: ChannelLabelProps) {
   const isLive = channel.type === 'live'
   const now = useProgrammeClock()
   const { current: onAir } = findCurrentAndNext(programmeIndex, channel.id, now)
+  const presence = people && people.length > 0 ? people : null
 
   return (
     // The row header sticks, holding the button: a button given the
@@ -722,7 +738,22 @@ function ChannelLabel({
             </span>
           )}
         </span>
+        {/* Room for the people on the channel, laid over it below */}
+        {presence && <ChannelPresenceSpace people={presence} />}
       </button>
+      {presence && (
+        // Over its room: centred like it, at the label's right padding. Out
+        // of the grid's keyboard order (the label beside it tunes the same
+        // channel), so the guide stays one tab stop.
+        <ChannelPresenceStack
+          people={presence}
+          channelName={channel.name}
+          isWatching={isWatching}
+          onJoin={() => onChannelClick?.(channel)}
+          tabIndex={-1}
+          className="absolute top-1/2 right-2 -translate-y-1/2"
+        />
+      )}
     </div>
   )
 }

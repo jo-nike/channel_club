@@ -8,8 +8,11 @@ import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore, LIVE_CHANNEL_ID, toLiveProgramme } from '@/stores/tvStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useChannelPrefsStore } from '@/stores/channelPrefsStore'
+import { usePresenceStore } from '@/stores/presenceStore'
+import { useSettingsStore } from '@/stores/settingsStore'
+import { useChatStore } from '@/stores/chatStore'
 import { SEARCH_DEBOUNCE_MS } from '@/hooks/useFilteredChannels'
-import type { EPGResponse, ErsatzTVProgramme } from '@/types'
+import type { EPGResponse, ErsatzTVProgramme, PresenceEntry, UnifiedChannel } from '@/types'
 
 // Putting a channel on live TV starts guide and schedule lookups; leave them
 // unanswered so each test sets the live guide state itself
@@ -1497,5 +1500,137 @@ describe('TVEPGGrid channel filter', () => {
     useChannelPrefsStore.setState({ filter: { query: 'zzz', mode: 'all' } })
     render(<TVEPGGrid programmesByChannel={{}} liveEPG={liveEPG} />)
     expect(screen.queryByText('No channels match')).toBeNull()
+  })
+})
+
+describe('TVEPGGrid presence stacks', () => {
+  const person = (overrides: Partial<PresenceEntry> & Pick<PresenceEntry, 'displayName'>): PresenceEntry => ({
+    userId: `u_${overrides.displayName}`,
+    channelId: null,
+    channelName: null,
+    programme: null,
+    view: null,
+    since: null,
+    ...overrides,
+  })
+  const onCartoons = (displayName: string) =>
+    person({ displayName, view: 'ersatztv', channelId: 'etv2', channelName: 'Cartoons' })
+  // Live TV reports the Dispatcharr id, not the live slot's
+  const maya = person({ displayName: 'maya', view: 'live', channelId: '42', channelName: 'TSN 5' })
+  const me = person({ displayName: 'jonike', view: 'ersatztv', channelId: 'etv1', channelName: 'Movies' })
+  const movies = { id: 'etv1', name: 'Movies', streamUrl: '/etv1', logoUrl: '', number: 1, group: 'Films' }
+  const cartoons = { id: 'etv2', name: 'Cartoons', streamUrl: '/etv2', logoUrl: '', number: 2, group: 'Kids' }
+
+  const joinButtons = () => screen.queryAllByRole('button', { name: /^Join / })
+  const labelFor = (name: string) => screen.getByRole('button', { name: new RegExp(`^Switch to \\d+ ${name}$`) })
+
+  beforeEach(() => {
+    useChannelStore.setState({ currentChannel: { id: '42', name: 'TSN 5', streamUrl: '/live/42', guideId: 'tsn5' } })
+    useErsatztvStore.setState({ channels: [movies, cartoons] })
+    usePresenceStore.setState({ entries: [maya, me, onCartoons('dev'), onCartoons('sam'), onCartoons('kim')] })
+    useSettingsStore.setState({ presenceVisible: true })
+    useUIStore.setState({ hideMyActivity: false })
+    useChatStore.setState({ nickname: null, me: { username: 'jonike', userId: 'u_jonike' } })
+  })
+
+  afterEach(() => {
+    cleanup()
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels: [] })
+    useTVStore.setState({ selectedChannel: null })
+    usePresenceStore.setState({ entries: [] })
+    useSettingsStore.setState({ presenceVisible: false })
+    useUIStore.setState({ hideMyActivity: false })
+    useChatStore.setState({ nickname: null, me: null })
+  })
+
+  it("stacks the viewers' avatars in the channel's label cell, beside its button", () => {
+    render(<TVEPGGrid programmesByChannel={{}} />)
+
+    const join = screen.getByRole('button', { name: 'Join dev and 2 others on Cartoons' })
+    const stack = join.querySelector('[data-slot="presence-stack"]')!
+    expect(Array.from(stack.children).map((avatar) => avatar.textContent)).toEqual(['D', 'S', 'K'])
+    const label = labelFor('Cartoons')
+    expect(label.contains(join)).toBe(false)
+    expect(join.closest('[role="rowheader"]')).toBe(label.closest('[role="rowheader"]'))
+    // The label keeps its width; the stack sits over room held inside it
+    expect(label).toHaveStyle({ width: '208px' })
+  })
+
+  it('tunes to the channel when the stack is clicked', () => {
+    const onChannelClick = vi.fn()
+    render(<TVEPGGrid programmesByChannel={{}} onChannelClick={onChannelClick} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Join dev and 2 others on Cartoons' }))
+
+    expect(onChannelClick).toHaveBeenCalledTimes(1)
+    expect(onChannelClick).toHaveBeenCalledWith(expect.objectContaining({ id: 'etv2', type: 'ersatztv' }))
+  })
+
+  it('joins people on live TV on the live row', () => {
+    const onChannelClick = vi.fn()
+    render(<TVEPGGrid programmesByChannel={{}} onChannelClick={onChannelClick} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Join maya on TSN 5' }))
+
+    expect(onChannelClick).toHaveBeenCalledWith(expect.objectContaining({ id: LIVE_CHANNEL_ID, backendId: '42' }))
+  })
+
+  it("leaves this viewer out, and keeps the stacks out of the grid's one tab stop", () => {
+    render(<TVEPGGrid programmesByChannel={{}} />)
+
+    const joins = joinButtons()
+    expect(joins.map((button) => button.getAttribute('aria-label'))).toEqual([
+      'Join maya on TSN 5',
+      'Join dev and 2 others on Cartoons',
+    ])
+    joins.forEach((button) => expect(button.tabIndex).toBe(-1))
+  })
+
+  it('only says who is with you on the channel you are watching', () => {
+    useTVStore.setState({ selectedChannel: { ...cartoons, type: 'ersatztv' } })
+    const onChannelClick = vi.fn()
+    render(<TVEPGGrid programmesByChannel={{}} onChannelClick={onChannelClick} />)
+
+    expect(screen.queryByRole('button', { name: /on Cartoons$/ })).toBeNull()
+    const watching = screen.getByRole('button', { name: 'Watching with dev and 2 others' })
+    expect(watching).toHaveAttribute('aria-disabled', 'true')
+    fireEvent.click(watching)
+    expect(onChannelClick).not.toHaveBeenCalled()
+  })
+
+  it('keeps focus on the stack once Join tunes the channel', () => {
+    const onChannelClick = vi.fn((channel: UnifiedChannel) => useTVStore.setState({ selectedChannel: channel }))
+    render(<TVEPGGrid programmesByChannel={{}} onChannelClick={onChannelClick} />)
+
+    const join = screen.getByRole('button', { name: 'Join dev and 2 others on Cartoons' })
+    join.focus()
+    act(() => join.click())
+
+    // The same button, now naming who you're with, so focus doesn't drop to the page
+    expect(onChannelClick).toHaveBeenCalledTimes(1)
+    expect(document.activeElement).toBe(join)
+    expect(join).toHaveAccessibleName('Watching with dev and 2 others')
+  })
+
+  it('shows no stack on the empty live slot', () => {
+    useChannelStore.setState({ currentChannel: null })
+    render(<TVEPGGrid programmesByChannel={{}} />)
+
+    expect(screen.queryByRole('button', { name: /^Join maya/ })).toBeNull()
+  })
+
+  it('renders no stacks while the admin setting is off or the viewer hides what they watch', () => {
+    useSettingsStore.setState({ presenceVisible: false })
+    render(<TVEPGGrid programmesByChannel={{}} />)
+    expect(joinButtons()).toEqual([])
+    expect(document.querySelector('[data-slot="presence-stack"]')).toBeNull()
+    cleanup()
+
+    useSettingsStore.setState({ presenceVisible: true })
+    useUIStore.setState({ hideMyActivity: true })
+    render(<TVEPGGrid programmesByChannel={{}} />)
+    expect(joinButtons()).toEqual([])
+    expect(document.querySelector('[data-slot="presence-stack"]')).toBeNull()
   })
 })
