@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 from app.models.epg import Program
-from app.services.epg_service import EPGService, EPGServiceError
+from app.services.epg_service import EPGService, EPGServiceError, normalise_channel_name
 
 
 class TestParseXmltvDatetime:
@@ -60,7 +60,7 @@ class TestParseXmltv:
         </tv>
         """
 
-        result = service._parse_xmltv(xml_content)
+        result, _ = service._parse_xmltv(xml_content)
 
         assert "uuid-abc123" in result
         assert len(result["uuid-abc123"]) == 1
@@ -82,7 +82,7 @@ class TestParseXmltv:
         </tv>
         """
 
-        result = service._parse_xmltv(xml_content)
+        result, _ = service._parse_xmltv(xml_content)
 
         assert len(result["uuid-abc123"]) == 2
         # Programs should be sorted by start time
@@ -103,7 +103,7 @@ class TestParseXmltv:
         </tv>
         """
 
-        result = service._parse_xmltv(xml_content)
+        result, _ = service._parse_xmltv(xml_content)
 
         assert "channel-1" in result
         assert "channel-2" in result
@@ -121,7 +121,7 @@ class TestParseXmltv:
         </tv>
         """
 
-        result = service._parse_xmltv(xml_content)
+        result, _ = service._parse_xmltv(xml_content)
 
         assert result["uuid-abc123"][0].description is None
 
@@ -133,7 +133,7 @@ class TestParseXmltv:
         </tv>
         """
 
-        result = service._parse_xmltv(xml_content)
+        result, _ = service._parse_xmltv(xml_content)
 
         assert result == {}
 
@@ -155,7 +155,7 @@ class TestParseXmltv:
         </tv>
         """
 
-        result = service._parse_xmltv(xml_content)
+        result, _ = service._parse_xmltv(xml_content)
 
         assert result == {}
 
@@ -427,6 +427,131 @@ class TestGetNowPlaying:
 
             with pytest.raises(EPGServiceError, match="EPG service unavailable"):
                 await service.get_now_playing("channel-1")
+
+
+def _on_air(title: str, now: datetime) -> list[Program]:
+    return [
+        Program(
+            title=title,
+            start_time=now - timedelta(minutes=30),
+            end_time=now + timedelta(minutes=30),
+        )
+    ]
+
+
+class TestChannelNameFallback:
+    """Tests for matching a channel name to XMLTV display names when the guide id misses."""
+
+    def test_normalise_channel_name_casefolds_and_collapses_whitespace(self) -> None:
+        assert normalise_channel_name("  CA-S:\tTSN   5 ") == "ca-s: tsn 5"
+
+    def test_parse_builds_display_name_map(self) -> None:
+        """Every display name maps to its channel id; the first channel wins a shared name."""
+        service = EPGService("http://test:9191")
+        xml_content = """<?xml version="1.0" encoding="UTF-8"?>
+        <tv>
+          <channel id="28">
+            <display-name>CA-S: TSN  5</display-name>
+            <display-name>TSN5</display-name>
+          </channel>
+          <channel id="29">
+            <display-name>ca-s: tsn 5</display-name>
+            <display-name>Sportsnet</display-name>
+          </channel>
+          <channel>
+            <display-name>No Id</display-name>
+          </channel>
+          <channel id="30">
+            <display-name>   </display-name>
+          </channel>
+        </tv>
+        """
+
+        _, channel_names = service._parse_xmltv(xml_content)
+
+        assert channel_names == {"ca-s: tsn 5": "28", "tsn5": "28", "sportsnet": "29"}
+
+    @pytest.mark.asyncio
+    async def test_name_fallback_returns_that_channels_programmes(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A guide id missing from the feed resolves through the display name."""
+        now = datetime.now(UTC)
+        start = (now - timedelta(minutes=30)).strftime("%Y%m%d%H%M%S")
+        stop = (now + timedelta(minutes=30)).strftime("%Y%m%d%H%M%S")
+        later = (now + timedelta(minutes=90)).strftime("%Y%m%d%H%M%S")
+        xml_response = f"""<?xml version="1.0" encoding="UTF-8"?>
+        <tv>
+          <channel id="tsn5.ca"><display-name>CA-S: TSN 5</display-name></channel>
+          <channel id="cbc.ca"><display-name>CBC</display-name></channel>
+          <programme start="{start} +0000" stop="{stop} +0000" channel="tsn5.ca">
+            <title>Hockey Night</title>
+          </programme>
+          <programme start="{stop} +0000" stop="{later} +0000" channel="tsn5.ca">
+            <title>Post-game</title>
+          </programme>
+          <programme start="{start} +0000" stop="{stop} +0000" channel="cbc.ca">
+            <title>The National</title>
+          </programme>
+        </tv>
+        """
+        _patch_upstream(
+            monkeypatch, _Upstream(lambda request: httpx.Response(200, text=xml_response))
+        )
+        service = EPGService("http://dispatcharr.synthetic:9191")
+
+        result = await service.get_now_playing("28", channel_name="CA-S: TSN 5")
+
+        assert result.channel_id == "28"
+        assert result.current_program is not None
+        assert result.current_program.title == "Hockey Night"
+        assert result.next_program is not None
+        assert result.next_program.title == "Post-game"
+
+    @pytest.mark.asyncio
+    async def test_exact_guide_id_wins_over_name(self) -> None:
+        """The name map is only consulted when the guide id has no programmes."""
+        service = EPGService("http://test:9191")
+        now = datetime.now(UTC)
+        service._cache = {"28": _on_air("By Id", now), "tsn5.ca": _on_air("By Name", now)}
+        service._channel_names = {"ca-s: tsn 5": "tsn5.ca"}
+        service._cache_expires = now + timedelta(hours=1)
+
+        result = await service.get_now_playing("28", channel_name="CA-S: TSN 5")
+
+        assert result.current_program is not None
+        assert result.current_program.title == "By Id"
+
+    @pytest.mark.asyncio
+    async def test_name_is_matched_after_normalisation(self) -> None:
+        """Case and spacing differences between the catalogue and XMLTV still match."""
+        service = EPGService("http://test:9191")
+        now = datetime.now(UTC)
+        service._cache = {"tsn5.ca": _on_air("By Name", now)}
+        service._channel_names = {"ca-s: tsn 5": "tsn5.ca"}
+        service._cache_expires = now + timedelta(hours=1)
+
+        result = await service.get_now_playing("28", channel_name="  ca-s:  TSN 5 ")
+
+        assert result.current_program is not None
+        assert result.current_program.title == "By Name"
+
+    @pytest.mark.asyncio
+    async def test_unknown_name_or_no_name_returns_no_programmes(self) -> None:
+        """Without a matching name, a missed guide id still returns empty."""
+        service = EPGService("http://test:9191")
+        now = datetime.now(UTC)
+        service._cache = {"tsn5.ca": _on_air("By Name", now)}
+        service._channel_names = {"ca-s: tsn 5": "tsn5.ca"}
+        service._cache_expires = now + timedelta(hours=1)
+
+        unknown = await service.get_now_playing("28", channel_name="Some Other Channel")
+        no_name = await service.get_now_playing("28")
+
+        assert unknown.current_program is None
+        assert unknown.next_program is None
+        assert no_name.current_program is None
+        assert no_name.next_program is None
 
 
 class TestGetNowPlayingBulk:

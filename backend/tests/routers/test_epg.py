@@ -199,7 +199,41 @@ class TestGetNowPlaying:
                 headers=auth_header,
             )
 
-        mock_service.get_now_playing.assert_called_once_with("test-uuid-456")
+        mock_service.get_now_playing.assert_called_once_with("test-uuid-456", channel_name=None)
+
+    def test_passes_channel_name_to_service(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """The optional channel name is forwarded for the display-name fallback."""
+        mock_response = EPGResponse(channel_id="28", current_program=None)
+
+        with patch("app.routers.epg.get_epg_service") as mock_get_service:
+            mock_service = AsyncMock()
+            mock_service.get_now_playing.return_value = mock_response
+            mock_get_service.return_value = mock_service
+
+            response = client.get(
+                "/api/epg/now-playing",
+                params={"channel_id": "28", "channel_name": "CA-S: TSN 5"},
+                headers=auth_header,
+            )
+
+        assert response.status_code == 200
+        mock_service.get_now_playing.assert_called_once_with("28", channel_name="CA-S: TSN 5")
+
+    def test_rejects_overlong_channel_name(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """A channel name over 256 characters is rejected before reaching the service."""
+        with patch("app.routers.epg.get_epg_service") as mock_get_service:
+            response = client.get(
+                "/api/epg/now-playing",
+                params={"channel_id": "28", "channel_name": "x" * 257},
+                headers=auth_header,
+            )
+
+        assert response.status_code == 422
+        mock_get_service.assert_not_called()
 
     def test_invalid_token_returns_401(self, client: TestClient) -> None:
         """Request with invalid token returns 401."""

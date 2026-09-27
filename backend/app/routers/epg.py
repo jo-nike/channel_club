@@ -49,6 +49,11 @@ async def get_now_playing_all(
 @router.get("/epg/now-playing", response_model=EPGResponse)
 async def get_now_playing(
     channel_id: str = Query(..., description="Channel UUID to get EPG data for"),
+    channel_name: str | None = Query(
+        None,
+        max_length=256,
+        description="Channel name, matched to an XMLTV display name when the id has no data",
+    ),
     current_user: TokenPayload = Depends(get_current_user),
 ) -> EPGResponse:
     """Get current and next program for a channel.
@@ -58,6 +63,7 @@ async def get_now_playing(
 
     Args:
         channel_id: UUID of the channel to look up.
+        channel_name: Optional channel name to fall back on.
         current_user: Authenticated user from JWT token.
 
     Returns:
@@ -70,7 +76,7 @@ async def get_now_playing(
     epg_service = get_epg_service()
 
     try:
-        result = await epg_service.get_now_playing(channel_id)
+        result = await epg_service.get_now_playing(channel_id, channel_name=channel_name)
         log.debug("EPG response data returned for channel: {}", channel_id)
         return result
     except EPGServiceError:
