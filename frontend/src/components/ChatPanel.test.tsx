@@ -158,8 +158,8 @@ describe('ChatPanel', () => {
 
     it('goes straight to chat without asking for a display name', () => {
       render(<ChatPanel onSendMessage={mockOnSendMessage} />)
-      expect(screen.queryByText('Choose a display name')).not.toBeInTheDocument()
-      expect(screen.queryByPlaceholderText('Enter display name...')).not.toBeInTheDocument()
+      expect(screen.queryByRole('heading', { name: 'Change display name' })).not.toBeInTheDocument()
+      expect(screen.queryByPlaceholderText('Display name')).not.toBeInTheDocument()
       expect(screen.getByPlaceholderText('Type a message...')).toBeInTheDocument()
     })
 
@@ -226,14 +226,14 @@ describe('ChatPanel', () => {
       )
 
       fireEvent.click(screen.getByRole('button', { name: 'Edit nickname' }))
-      const input = screen.getByPlaceholderText('Enter display name...')
+      const input = screen.getByPlaceholderText('Display name')
       fireEvent.change(input, { target: { value: 'TestNick' } })
       fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
       expect(mockSetNickname).toHaveBeenCalledWith('TestNick')
       expect(useChatStore.getState().nickname).toBe('TestNick')
       expect(localStorage.getItem('chat_nickname:testuser')).toBe('TestNick')
-      expect(screen.queryByPlaceholderText('Enter display name...')).not.toBeInTheDocument()
+      expect(screen.queryByPlaceholderText('Display name')).not.toBeInTheDocument()
       expect(screen.getByText('Chatting as TestNick')).toBeInTheDocument()
     })
 
@@ -243,7 +243,7 @@ describe('ChatPanel', () => {
 
       fireEvent.click(screen.getByRole('button', { name: 'Edit nickname' }))
 
-      expect(screen.getByPlaceholderText('Enter display name...')).toHaveValue('TestNick')
+      expect(screen.getByPlaceholderText('Display name')).toHaveValue('TestNick')
     })
 
     it('goes back to the sign-in name with an empty set_nickname', () => {
@@ -264,6 +264,61 @@ describe('ChatPanel', () => {
       expect(localStorage.getItem('chat_nickname:testuser')).toBeNull()
       expect(screen.getByText('Chatting as testuser')).toBeInTheDocument()
       expect(screen.getByPlaceholderText('Type a message...')).toBeInTheDocument()
+    })
+
+    it('reads as changing a name, not a gate to pass', () => {
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Edit nickname' }))
+
+      expect(screen.getByRole('heading', { name: 'Change display name' })).toBeInTheDocument()
+      expect(screen.getByPlaceholderText('Display name')).toBeInTheDocument()
+      expect(screen.queryByText('Choose a display name')).not.toBeInTheDocument()
+    })
+
+    it('Cancel closes the editor and keeps the current nickname, discarding the edit', () => {
+      const mockSetNickname = vi.fn()
+      useChatStore.getState().setNickname('TestNick')
+      render(<ChatPanel onSendMessage={mockOnSendMessage} onSetNickname={mockSetNickname} />)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Edit nickname' }))
+      fireEvent.change(screen.getByPlaceholderText('Display name'), { target: { value: 'Other' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+      expect(screen.queryByPlaceholderText('Display name')).not.toBeInTheDocument()
+      expect(screen.getByPlaceholderText('Type a message...')).toBeInTheDocument()
+      expect(screen.getByText('Chatting as TestNick')).toBeInTheDocument()
+      expect(mockSetNickname).not.toHaveBeenCalled()
+      expect(useChatStore.getState().nickname).toBe('TestNick')
+      expect(localStorage.getItem('chat_nickname:testuser')).toBe('TestNick')
+
+      // Reopening starts from the saved name, not the abandoned edit
+      fireEvent.click(screen.getByRole('button', { name: 'Edit nickname' }))
+      expect(screen.getByPlaceholderText('Display name')).toHaveValue('TestNick')
+    })
+
+    it('Escape closes the editor without changing anything and without reaching the rest of the page', () => {
+      const mockSetNickname = vi.fn()
+      const pageKeyDown = vi.fn()
+      window.addEventListener('keydown', pageKeyDown)
+      try {
+        render(<ChatPanel onSendMessage={mockOnSendMessage} onSetNickname={mockSetNickname} />)
+
+        fireEvent.click(screen.getByRole('button', { name: 'Edit nickname' }))
+        const input = screen.getByPlaceholderText('Display name')
+        fireEvent.change(input, { target: { value: 'Other' } })
+        fireEvent.keyDown(input, { key: 'Escape' })
+
+        expect(screen.queryByPlaceholderText('Display name')).not.toBeInTheDocument()
+        expect(useChatStore.getState().isOpen).toBe(true)
+        expect(screen.getByText('Chatting as testuser')).toBeInTheDocument()
+        expect(mockSetNickname).not.toHaveBeenCalled()
+        expect(useChatStore.getState().nickname).toBeNull()
+        // Page-level Escape handlers (theater, and any close-chat shortcut) never see it
+        expect(pageKeyDown).not.toHaveBeenCalled()
+      } finally {
+        window.removeEventListener('keydown', pageKeyDown)
+      }
     })
   })
   it('FE-11 preserves failed drafts and clears only after matching acknowledgement', async () => {

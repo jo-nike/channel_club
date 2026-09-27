@@ -12,7 +12,6 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 
 export interface ChatPanelProps {
   onSendMessage: (content: string, clientMessageId: string) => Promise<ChatSendResult> | ChatSendResult
-  currentUsername?: string
   onSetNickname?: (nickname: string) => void
   // The chat socket's state; sends are held while it isn't connected
   status?: WebSocketStatus
@@ -175,6 +174,23 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
     [handleSaveNickname]
   )
 
+  // Leave the editor without changing the name
+  const handleCancelNickname = useCallback(() => {
+    setIsEditingNickname(false)
+    setNicknameInput('')
+  }, [])
+
+  const handleEditorKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLDivElement>) => {
+      if (e.key !== 'Escape') return
+      // Escape backs out of the editor only; it must not also close the chat or leave theater
+      e.preventDefault()
+      e.stopPropagation()
+      handleCancelNickname()
+    },
+    [handleCancelNickname]
+  )
+
   const handleEditNickname = useCallback(() => {
     if (nickname) {
       setNicknameInput(nickname)
@@ -251,16 +267,16 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
       )}
 
       {showNicknamePrompt ? (
-        /* Nickname Prompt */
-        <div className="flex-1 flex flex-col items-center justify-center p-6">
-          <p className="text-muted-foreground text-sm mb-4">Choose a display name</p>
+        /* Display name editor */
+        <div className="flex-1 flex flex-col items-center justify-center p-6" onKeyDown={handleEditorKeyDown}>
+          <h3 className="text-muted-foreground text-sm mb-4">Change display name</h3>
           <div className="flex gap-2 w-full max-w-xs">
             <Input
               ref={nicknameInputRef}
               value={nicknameInput}
               onChange={(e) => setNicknameInput(e.target.value)}
               onKeyDown={handleNicknameKeyDown}
-              placeholder="Enter display name..."
+              placeholder="Display name"
               className="flex-1"
               maxLength={30}
             />
@@ -271,11 +287,16 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
               Save
             </Button>
           </div>
-          {me && (
-            <Button variant="link" size="sm" onClick={handleUseSignInName} className="mt-2">
-              Use my sign-in name
+          <div className="mt-2 flex items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={handleCancelNickname}>
+              Cancel
             </Button>
-          )}
+            {me && (
+              <Button variant="link" size="sm" onClick={handleUseSignInName}>
+                Use my sign-in name
+              </Button>
+            )}
+          </div>
         </div>
       ) : (
         <>
