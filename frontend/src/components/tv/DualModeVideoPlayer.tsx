@@ -431,6 +431,15 @@ function HLSVideoPlayerWrapper({
 
   return (
     <div ref={containerRef} className="relative h-full w-full bg-black flex items-center justify-center">
+      {/* Video filter overlays. Before MediaPlayer: it creates no stacking
+          context, so the z-10 control bar inside it paints above these z-10
+          filters only if it comes later in the DOM. */}
+      <RetroTVFilter isActive={isRetroTVActive} />
+      <FilmGrainFilter isActive={isFilmGrainActive} />
+      <NoirFilter isActive={isNoirActive} />
+      <GrindhouseFilter isActive={isGrindhouseActive} />
+      <SportsHDFilter isActive={isSportsHDActive} />
+
       <MediaPlayer
         key={retryKey}
         src={streamUrl}
@@ -458,13 +467,6 @@ function HLSVideoPlayerWrapper({
           onTheaterModeToggle={onTheaterModeToggle}
         />
       </MediaPlayer>
-
-      {/* Video filter overlays */}
-      <RetroTVFilter isActive={isRetroTVActive} />
-      <FilmGrainFilter isActive={isFilmGrainActive} />
-      <NoirFilter isActive={isNoirActive} />
-      <GrindhouseFilter isActive={isGrindhouseActive} />
-      <SportsHDFilter isActive={isSportsHDActive} />
 
       {/* Buffering overlay */}
       {(isBuffering || status === 'retrying') && (
