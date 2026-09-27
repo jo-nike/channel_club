@@ -11,6 +11,7 @@ describe('uiStore', () => {
       epgHeightPercent: 50,
       isChannelSidebarCollapsed: false,
       notificationsEnabled: false,
+      hideMyActivity: false,
     })
     localStorage.clear()
   })
@@ -323,6 +324,29 @@ describe('uiStore', () => {
       const partialize = useUIStore.persist.getOptions().partialize!
       expect('guideFocusRequested' in partialize(useUIStore.getState())).toBe(false)
       useUIStore.setState({ guideFocusRequested: false })
+    })
+  })
+
+  describe('hideMyActivity', () => {
+    it('shares what you watch by default', () => {
+      expect(useUIStore.getInitialState().hideMyActivity).toBe(false)
+    })
+
+    it('is saved, so hiding survives a reload', () => {
+      useUIStore.getState().setHideMyActivity(true)
+
+      const saved = JSON.parse(localStorage.getItem('ui-storage') ?? 'null')
+      expect(saved.state.hideMyActivity).toBe(true)
+      // A new field, filled from the default on merge, so no version bump
+      expect(saved.version).toBe(2)
+    })
+
+    it('comes back from a saved choice', async () => {
+      localStorage.setItem('ui-storage', JSON.stringify({ state: { hideMyActivity: true }, version: 2 }))
+
+      await useUIStore.persist.rehydrate()
+
+      expect(useUIStore.getState().hideMyActivity).toBe(true)
     })
   })
 

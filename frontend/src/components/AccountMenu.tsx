@@ -69,6 +69,10 @@ export function AccountMenu({ onOpenChannelPicker, onOpenAdmin, onReload, isMobi
   const tvLayoutLabelId = useId()
   const notificationsEnabled = useUIStore((s) => s.notificationsEnabled)
   const setNotificationsEnabled = useUIStore((s) => s.setNotificationsEnabled)
+  const hideMyActivity = useUIStore((s) => s.hideMyActivity)
+  const setHideMyActivity = useUIStore((s) => s.setHideMyActivity)
+  const hideActivityLabelId = useId()
+  const hideActivityHintId = useId()
   const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
   const setNHLOverlayVisible = useUIStore((s) => s.setNHLOverlayVisible)
   const initial = initialOf(username)
@@ -150,7 +154,20 @@ export function AccountMenu({ onOpenChannelPicker, onOpenAdmin, onReload, isMobi
           >
             Pop-up when the live channel changes
           </DropdownMenuCheckboxItem>
-          {/* 'Chat previews' (W3) and 'Hide what I'm watching' (W3-presence-client) go here */}
+          <DropdownMenuCheckboxItem
+            checked={hideMyActivity}
+            onCheckedChange={setHideMyActivity}
+            aria-labelledby={hideActivityLabelId}
+            aria-describedby={hideActivityHintId}
+          >
+            <span className="flex flex-col">
+              <span id={hideActivityLabelId}>Hide what I'm watching</span>
+              <span id={hideActivityHintId} className="text-xs text-muted-foreground">
+                Others see only your name. Admins still see it.
+              </span>
+            </span>
+          </DropdownMenuCheckboxItem>
+          {/* 'Chat previews' (W3) goes here */}
           <DropdownMenuItem onSelect={() => setAppearanceOpen(true)}>
             <Palette />
             Appearance…
