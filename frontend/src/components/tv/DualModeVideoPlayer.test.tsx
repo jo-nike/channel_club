@@ -48,7 +48,7 @@ const vidstack = vi.hoisted(() => {
     mediaPlayer: vi.fn<(props: Record<string, unknown>) => void>(),
     mounted: vi.fn(),
     // Vidstack reports a placeholder volume of 1 until can-play
-    state: { paused: false, volume: 1, muted: false, fullscreen: false } as Record<string, unknown>,
+    state: { paused: false, volume: 1, muted: false, fullscreen: false, canPlay: false } as Record<string, unknown>,
     remote,
     // What the MediaPlayer ref exposes
     player: {
@@ -220,7 +220,7 @@ beforeEach(() => {
   localStorage.clear()
   useAudioStore.setState({ volume: 1, muted: false, savedMuteNotice: false, previewHolds: 0 })
   useFilterStore.setState({ activeFilters: [] })
-  vidstack.state = { paused: false, volume: 1, muted: false, fullscreen: false }
+  vidstack.state = { paused: false, volume: 1, muted: false, fullscreen: false, canPlay: false }
   vidstack.mediaPlayer.mockClear()
   vidstack.mounted.mockClear()
   Object.values(vidstack.remote).forEach((fn) => fn.mockClear())
@@ -438,6 +438,74 @@ describe('DualModeVideoPlayer live controls (PlayerChrome)', () => {
   })
 })
 
+describe('DualModeVideoPlayer ErsatzTV controls (PlayerChrome)', () => {
+  it("Play and Pause drive Vidstack and follow its paused state", () => {
+    vidstack.state.paused = true
+    const { rerender } = renderPlayer(hlsChannel('1', 1))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Play' }))
+    expect(vidstack.remote.togglePaused).toHaveBeenCalledTimes(1)
+
+    vidstack.state.paused = false
+    rerender(<DualModeVideoPlayer channel={hlsChannel('1', 1)} isTheaterMode={false} onTheaterModeToggle={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Pause' }))
+    expect(vidstack.remote.togglePaused).toHaveBeenCalledTimes(2)
+  })
+
+  it('Theater switches the page layout the player was given', () => {
+    const onTheaterModeToggle = vi.fn()
+    const { rerender } = render(
+      <DualModeVideoPlayer channel={hlsChannel('1', 1)} isTheaterMode={false} onTheaterModeToggle={onTheaterModeToggle} />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Theater mode' }))
+    expect(onTheaterModeToggle).toHaveBeenCalledTimes(1)
+
+    rerender(
+      <DualModeVideoPlayer channel={hlsChannel('1', 1)} isTheaterMode={true} onTheaterModeToggle={onTheaterModeToggle} />
+    )
+    expect(screen.getByRole('button', { name: 'Exit theater mode' })).toBeInTheDocument()
+  })
+
+  it('T switches theater from the keyboard', () => {
+    const onTheaterModeToggle = vi.fn()
+    render(<DualModeVideoPlayer channel={hlsChannel('1', 1)} isTheaterMode={false} onTheaterModeToggle={onTheaterModeToggle} />)
+
+    fireEvent.keyDown(window, { key: 't' })
+
+    expect(onTheaterModeToggle).toHaveBeenCalledTimes(1)
+  })
+
+  it('casts the ErsatzTV stream as HLS', () => {
+    localStorage.setItem('token', 'fixture-token')
+    renderPlayer(hlsChannel('7', 7))
+
+    expect(castProps.current).toMatchObject({
+      channelId: '7',
+      streamType: 'hls',
+      streamUrl: expect.stringMatching(/\/ersatztv\/stream\/7\?token=fixture-token$/),
+      channelName: 'Channel 7',
+    })
+  })
+
+  it('opens the clip editor on the ErsatzTV channel from the bar', () => {
+    highlight.enabled = true
+    renderPlayer(hlsChannel('7', 7))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Capture clip' }))
+
+    expect(useClipStore.getState().session).toEqual({ channelId: '7', channelName: 'Channel 7' })
+  })
+
+  it('renders one control bar, inside MediaPlayer', () => {
+    renderPlayer(hlsChannel('1', 1))
+
+    const bars = screen.getAllByRole('toolbar', { name: 'Video controls' })
+    expect(bars).toHaveLength(1)
+    expect(bars[0].closest('[data-media-player]')).not.toBeNull()
+  })
+})
+
 describe('DualModeVideoPlayer audio: ErsatzTV channel (Vidstack)', () => {
   it('keeps 30% and mute across ErsatzTV channels', () => {
     const { switchTo } = renderPlayer(hlsChannel('1', 1))
@@ -453,7 +521,41 @@ describe('DualModeVideoPlayer audio: ErsatzTV channel (Vidstack)', () => {
 
     expect(vidstack.mounted).toHaveBeenCalledTimes(1)
     expect(lastPlayerProps()).toMatchObject({ volume: 0.3, muted: true, keyDisabled: true })
-    expect(screen.getByRole('button', { name: 'Unmute' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Unmute (30%)' })).toBeInTheDocument()
+  })
+
+  it('while muted, the slider keeps the saved level, dimmed', () => {
+    useAudioStore.setState({ volume: 0.3, muted: false })
+    renderPlayer(hlsChannel('1', 1))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mute' }))
+
+    expect(screen.getByRole('slider', { name: 'Volume' })).toHaveValue('0.3')
+    expect(screen.getByRole('slider', { name: 'Volume' })).toHaveClass('opacity-50')
+  })
+
+  it("the bar's slider and Mute save to the audio store, never to Vidstack's own volume", () => {
+    renderPlayer(hlsChannel('1', 1))
+
+    fireEvent.change(screen.getByRole('slider', { name: 'Volume' }), { target: { value: '0.5' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Mute' }))
+
+    expect(useAudioStore.getState()).toMatchObject({ volume: 0.5, muted: true })
+    expect(lastPlayerProps()).toMatchObject({ volume: 0.5, muted: true })
+    expect(vidstack.remote.changeVolume).not.toHaveBeenCalled()
+    expect(vidstack.remote.toggleMuted).not.toHaveBeenCalled()
+  })
+
+  it('a mute only the element has shows Unmute, which asks Vidstack to unmute and saves nothing new', () => {
+    useAudioStore.setState({ volume: 0.6, muted: false })
+    vidstack.state.muted = true
+    renderPlayer(hlsChannel('1', 1))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unmute (60%)' }))
+
+    expect(vidstack.remote.unmute).toHaveBeenCalledTimes(1)
+    expect(useAudioStore.getState()).toMatchObject({ volume: 0.6, muted: false })
+    expect(lastPlayerProps().muted).toBe(false)
   })
 
   it('keeps 30% and mute across engine types', () => {
@@ -524,7 +626,7 @@ describe('DualModeVideoPlayer audio: ErsatzTV channel (Vidstack)', () => {
     useAudioStore.setState({ volume: 0.3, muted: true })
     renderPlayer(hlsChannel('1', 1))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Unmute' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Unmute (30%)' }))
 
     expect(useAudioStore.getState().muted).toBe(false)
     expect(lastPlayerProps().muted).toBe(false)
@@ -682,6 +784,45 @@ describe('DualModeVideoPlayer fullscreen state', () => {
     setFullscreenElement(shell())
     expect(screen.getByRole('button', { name: 'Exit fullscreen' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Theater mode' })).not.toBeInTheDocument()
+
+    setFullscreenElement(null)
+    expect(screen.getByRole('button', { name: 'Fullscreen' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Theater mode' })).toBeInTheDocument()
+  })
+
+  // Vidstack only reports its own MediaPlayer element as fullscreen, never the shell
+  it("ErsatzTV: the bar ignores Vidstack's own fullscreen state", () => {
+    vidstack.state.fullscreen = true
+    renderPlayer(hlsChannel('1', 1))
+
+    expect(screen.getByRole('button', { name: 'Fullscreen' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Theater mode' })).toBeInTheDocument()
+
+    setFullscreenElement(shell())
+    expect(screen.getByRole('button', { name: 'Exit fullscreen' })).toBeInTheDocument()
+  })
+
+  it.each([
+    ['live', liveChannel('https://fixture/a')],
+    ['ErsatzTV', hlsChannel('1', 1)],
+  ])('%s: on a TV that looks like a touch device, Theater and Fullscreen stay, and Fullscreen fullscreens the shell', (_engine, channel) => {
+    // webOS pointer mode can report pointer:coarse, so TV mode must win
+    localStorage.setItem('tv-mode', 'true')
+    matchMediaQueries(['(pointer: coarse)'])
+    const original = HTMLElement.prototype.requestFullscreen
+    const requestFullscreen = vi.fn(() => Promise.resolve())
+    HTMLElement.prototype.requestFullscreen = requestFullscreen
+    try {
+      renderPlayer(channel)
+
+      expect(screen.getByRole('button', { name: 'Theater mode' })).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Fullscreen' }))
+
+      expect(requestFullscreen).toHaveBeenCalledTimes(1)
+      expect(requestFullscreen.mock.contexts[0]).toBe(shell())
+    } finally {
+      HTMLElement.prototype.requestFullscreen = original
+    }
   })
 
   it.each([
@@ -741,8 +882,11 @@ describe('DualModeVideoPlayer fullscreen state', () => {
       expect(requestFullscreen).toHaveBeenCalledTimes(1)
     })
 
-    it('live: the Fullscreen button enters on the shell while another element is fullscreen', () => {
-      renderPlayer(liveChannel('https://fixture/a'))
+    it.each([
+      ['live', liveChannel('https://fixture/a')],
+      ['ErsatzTV', hlsChannel('1', 1)],
+    ])('%s: the Fullscreen button enters on the shell while another element is fullscreen', (_engine, channel) => {
+      renderPlayer(channel)
 
       setFullscreenElement(document.createElement('div'))
       fireEvent.click(screen.getByRole('button', { name: 'Fullscreen' }))
@@ -1392,7 +1536,7 @@ describe('DualModeVideoPlayer: a page load that starts from a saved mute', () =>
     startPlayback()
     expect(soundOffNotice()).toBeInTheDocument()
 
-    // The live bar also names the level ('Unmute (30%)')
+    // Both bars name the level ('Unmute (30%)')
     fireEvent.click(screen.getByRole('button', { name: /^Unmute/ }))
     expect(soundOffNotice()).not.toBeInTheDocument()
 

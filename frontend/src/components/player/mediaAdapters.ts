@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type RefObject } from 'react'
+import { useMediaRemote, useMediaState } from '@vidstack/react'
 
 /**
  * What PlayerChrome needs from a playback engine. Volume and the viewer's
@@ -74,5 +75,28 @@ export function useLiveAdapter(videoRef: RefObject<HTMLVideoElement | null>): Pl
   return useMemo(
     () => ({ isPlaying, elementMuted, canPlay, togglePaused, unmuteElement, streamType: 'mpegts' as const }),
     [isPlaying, elementMuted, canPlay, togglePaused, unmuteElement]
+  )
+}
+
+/**
+ * The ErsatzTV (Vidstack) engine's adapter, read from the nearest MediaPlayer,
+ * so it must be called inside one. Vidstack's own volume is never read: it
+ * reports 100% until the stream can play, and the audio store is the level.
+ */
+export function useVidstackAdapter(): PlayerMediaAdapter {
+  const paused = useMediaState('paused')
+  const elementMuted = useMediaState('muted')
+  const canPlay = useMediaState('canPlay')
+  // The same controller for the player's lifetime
+  const remote = useMediaRemote()
+
+  const togglePaused = useCallback(() => remote.togglePaused(), [remote])
+  // Asks Vidstack directly: a mute only the element has (an autoplay
+  // fallback) leaves the muted prop, which follows the saved mute, unchanged
+  const unmuteElement = useCallback(() => remote.unmute(), [remote])
+
+  return useMemo(
+    () => ({ isPlaying: !paused, elementMuted, canPlay, togglePaused, unmuteElement, streamType: 'hls' as const }),
+    [paused, elementMuted, canPlay, togglePaused, unmuteElement]
   )
 }
