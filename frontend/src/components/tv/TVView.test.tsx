@@ -488,6 +488,24 @@ describe('B-06 guide mode', () => {
     expect(wrapper).not.toHaveClass('overflow-y-auto')
     expect(wrapper).toHaveStyle({ flex: `0 0 ${useUIStore.getState().epgHeightPercent}%` })
   })
+
+  it.each([false, true])('hides the channel sidebar while the guide is open and brings it back as it was (collapsed: %s)', async (collapsed) => {
+    useUIStore.setState({ isChannelSidebarCollapsed: collapsed })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+    const sidebarToggle = () => screen.queryByRole('button', { name: collapsed ? 'Expand channel sidebar' : 'Collapse channel sidebar' })
+    expect(sidebarToggle()).toBeInTheDocument()
+
+    act(() => useUIStore.setState({ isEPGVisible: true }))
+    expect(screen.queryByRole('heading', { name: 'Channels' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /channel sidebar/ })).not.toBeInTheDocument()
+    expect(screen.getByTestId('tv-epg-grid')).toBeInTheDocument()
+    expect(useUIStore.getState().isChannelSidebarCollapsed).toBe(collapsed)
+
+    act(() => useUIStore.setState({ isEPGVisible: false }))
+    expect(sidebarToggle()).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Channels' }) !== null).toBe(!collapsed)
+  })
 })
 
 describe('B-08 store subscriptions', () => {

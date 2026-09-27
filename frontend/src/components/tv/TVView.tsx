@@ -340,8 +340,11 @@ export function TVView() {
 
       {/* Main content */}
       <div ref={containerRef} className="flex flex-1 min-h-0 overflow-hidden">
-        {/* Desktop: Collapsible Sidebar - hidden in theater mode/landscape */}
-        {!isMobile && !isTheaterMode && !isMobileLandscape && (
+        {/* Desktop: Collapsible Sidebar - hidden in theater mode/landscape, and
+            while the guide is open, whose channel column is then the one
+            channel list. Its collapsed state stays in the store for when the
+            guide closes. */}
+        {!isMobile && !isTheaterMode && !isMobileLandscape && !isEPGVisible && (
           <TVChannelSidebar
             isCollapsed={isChannelSidebarCollapsed}
             onToggleCollapse={toggleChannelSidebar}
