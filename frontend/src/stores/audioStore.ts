@@ -69,12 +69,31 @@ const legacySeed = readLegacySeed()
 
 // persist writes after every set(), even one that changes nothing it saves
 // (the preview hold); skip those so audio-storage only changes with the levels.
+// Blocked site storage (locked-down TV browsers) throws on every access, and
+// persist doesn't catch a throwing setItem, so each call is guarded: the levels
+// then last for the page, and volume and mute keep working.
 const storage = createJSONStorage<AudioLevels>(() => ({
-  getItem: (name: string) => localStorage.getItem(name),
-  setItem: (name: string, value: string) => {
-    if (localStorage.getItem(name) !== value) localStorage.setItem(name, value)
+  getItem: (name: string) => {
+    try {
+      return localStorage.getItem(name)
+    } catch {
+      return null
+    }
   },
-  removeItem: (name: string) => localStorage.removeItem(name),
+  setItem: (name: string, value: string) => {
+    try {
+      if (localStorage.getItem(name) !== value) localStorage.setItem(name, value)
+    } catch {
+      // Blocked storage: nothing to save to
+    }
+  },
+  removeItem: (name: string) => {
+    try {
+      localStorage.removeItem(name)
+    } catch {
+      // Blocked storage: nothing to remove
+    }
+  },
 }))
 
 /**
