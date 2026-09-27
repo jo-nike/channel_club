@@ -13,6 +13,10 @@ from app.models.epg import EPGResponse, Program
 # Module-level logger with service context
 log = logger.bind(service="epg")
 
+# Failed XMLTV refreshes back off from 30s, doubling per consecutive failure, up to 5 min
+RETRY_BASE_SECONDS = 30
+RETRY_MAX_SECONDS = 300
+
 
 class EPGServiceError(Exception):
     """Raised when EPG service encounters an error."""
@@ -31,6 +35,7 @@ class EPGService:
         # A single in-flight lock prevents thundering herd on expiry
         self._refresh_lock = asyncio.Lock()
         self._retry_at: datetime | None = None
+        self._consecutive_failures = 0
 
     def _is_cache_valid(self) -> bool:
         """Check if cache is still valid."""
@@ -44,6 +49,14 @@ class EPGService:
         else:
             log.debug("Cache miss: expired")
         return is_valid
+
+    def _retry_delay(self) -> timedelta:
+        """Wait before the next refresh after the current run of failures.
+
+        30s after the first failure, doubling each time, capped at 5 minutes.
+        """
+        exponent = min(max(self._consecutive_failures - 1, 0), 4)
+        return timedelta(seconds=min(RETRY_BASE_SECONDS * 2**exponent, RETRY_MAX_SECONDS))
 
     def _parse_xmltv_datetime(self, dt_str: str) -> datetime:
         """Parse XMLTV datetime format (YYYYMMDDHHmmss +ZZZZ).
@@ -192,7 +205,12 @@ class EPGService:
                     return
                 raise EPGServiceError("EPG service unavailable; retry later")
             refresh_success = await self.refresh_cache()
-            self._retry_at = None if refresh_success else datetime.now(UTC) + timedelta(seconds=5)
+            if refresh_success:
+                self._consecutive_failures = 0
+                self._retry_at = None
+            else:
+                self._consecutive_failures += 1
+                self._retry_at = datetime.now(UTC) + self._retry_delay()
 
         if not refresh_success:
             # If refresh failed but we have stale cache, use it
