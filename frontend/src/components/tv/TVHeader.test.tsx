@@ -6,18 +6,21 @@ import { useUIStore } from '@/stores/uiStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { useChatStore } from '@/stores/chatStore'
 
-const auth = vi.hoisted(() => ({ isAdmin: false, logout: () => {} }))
+const auth = vi.hoisted(() => ({ isAdmin: false }))
 const appSettings = vi.hoisted(() => ({ userChannelSelection: false }))
-const settingsMenu = vi.hoisted(() => ({ onLogout: undefined as undefined | (() => void) }))
+const accountMenu = vi.hoisted(() => ({
+  props: undefined as
+    | undefined
+    | { onOpenChannelPicker: () => void; onOpenAdmin: () => void; onReload: () => void; isMobile: boolean },
+}))
 
 vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn(() => new Promise(() => {})) }))
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => auth }))
 vi.mock('@/hooks/useAppSettings', () => ({ useAppSettings: () => appSettings }))
 vi.mock('@/hooks/useChatEnabled', () => ({ useChatEnabled: () => true }))
-vi.mock('@/components/FeedbackButton', () => ({ FeedbackButton: () => <div data-testid="feedback" /> }))
-vi.mock('@/components/UserSettingsMenu', () => ({ UserSettingsMenu: ({ onLogout }: { onLogout: () => void }) => {
-  settingsMenu.onLogout = onLogout
-  return <div data-testid="settings-menu" />
+vi.mock('@/components/AccountMenu', () => ({ AccountMenu: (props: NonNullable<typeof accountMenu.props>) => {
+  accountMenu.props = props
+  return <div data-testid="account-menu" />
 } }))
 
 const movies = { id: 'e1', name: 'Movies', number: 1, streamUrl: '/e1', type: 'ersatztv' as const, group: '' }
@@ -38,9 +41,8 @@ function renderHeader(overrides: Partial<Parameters<typeof TVHeader>[0]> = {}) {
 
 beforeEach(() => {
   auth.isAdmin = false
-  auth.logout = vi.fn()
   appSettings.userChannelSelection = false
-  settingsMenu.onLogout = undefined
+  accountMenu.props = undefined
   useChannelStore.setState({ currentChannel: null })
   useTVStore.setState({ selectedChannel: null, liveEPG: null })
   useUIStore.setState({ isEPGVisible: true, isNHLOverlayVisible: false })
@@ -128,8 +130,12 @@ describe('TVHeader', () => {
       'Open chat',
       'Refresh video',
     ])
-    expect(within(nav).getByTestId('feedback')).toBeInTheDocument()
-    expect(within(nav).getByTestId('settings-menu')).toBeInTheDocument()
+    // The account menu comes last and replaces the feedback icon and settings popover
+    expect(within(nav).getByTestId('account-menu')).toBeInTheDocument()
+    expect(within(nav).getByRole('button', { name: 'Refresh video' }).compareDocumentPosition(
+      within(nav).getByTestId('account-menu'),
+    ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Send feedback' })).not.toBeInTheDocument()
   })
 
   it('labels Guide and Chat from lg, with Chat as the one filled action', () => {
@@ -170,7 +176,7 @@ describe('TVHeader', () => {
     expect(screen.getByRole('button', { name: 'Refresh video' })).toBeVisible()
   })
 
-  it('keeps Host, Chat, Refresh and Settings on a phone, all 44px, and drops Feedback', () => {
+  it('keeps Host, Chat, Refresh and the account menu on a phone, all 44px', () => {
     auth.isAdmin = true
     renderHeader({ isMobile: true })
 
@@ -182,8 +188,9 @@ describe('TVHeader', () => {
       'Refresh video',
     ])
     for (const action of actions) expect(action).toHaveClass('size-11', 'md:size-9')
-    expect(within(nav).getByTestId('settings-menu')).toBeInTheDocument()
-    expect(screen.queryByTestId('feedback')).not.toBeInTheDocument()
+    expect(within(nav).getByTestId('account-menu')).toBeInTheDocument()
+    // The menu carries NHL scores on a phone
+    expect(accountMenu.props?.isMobile).toBe(true)
     // Tighter gaps so the 44px targets leave room for the title
     expect(nav).toHaveClass('gap-1', 'md:gap-2')
   })
@@ -242,12 +249,17 @@ describe('TVHeader', () => {
     expect(props.onOpenChannelPicker).not.toHaveBeenCalled()
   })
 
-  it('keeps feedback, chat and the settings menu, which signs out through auth', () => {
-    renderHeader()
-    expect(screen.getByTestId('feedback')).toBeInTheDocument()
+  it("keeps chat, and wires the account menu to the header's picker, admin and reload", () => {
+    const props = renderHeader()
     fireEvent.click(screen.getByRole('button', { name: 'Open chat' }))
     expect(useChatStore.getState().isOpen).toBe(true)
-    expect(screen.getByTestId('settings-menu')).toBeInTheDocument()
-    expect(settingsMenu.onLogout).toBe(auth.logout)
+
+    expect(screen.getByTestId('account-menu')).toBeInTheDocument()
+    expect(accountMenu.props).toEqual({
+      onOpenChannelPicker: props.onOpenChannelPicker,
+      onOpenAdmin: props.onOpenAdmin,
+      onReload: props.onReload,
+      isMobile: false,
+    })
   })
 })

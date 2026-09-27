@@ -4,8 +4,7 @@ import { useAppSettings } from '@/hooks/useAppSettings'
 import type { WebSocketStatus } from '@/hooks/useWebSocket'
 import { useUIStore } from '@/stores/uiStore'
 import { ChatToggleButton } from '@/components/ChatToggleButton'
-import { FeedbackButton } from '@/components/FeedbackButton'
-import { UserSettingsMenu } from '@/components/UserSettingsMenu'
+import { AccountMenu } from '@/components/AccountMenu'
 import { ConnectionStatus } from '@/components/ConnectionStatus'
 import { NowWatching } from '@/components/tv/NowWatching'
 import { HeaderAction } from '@/components/HeaderAction'
@@ -29,7 +28,7 @@ export function TVHeader({
   onReload,
   isMobile,
 }: TVHeaderProps) {
-  const { logout, isAdmin } = useAuth()
+  const { isAdmin } = useAuth()
   // Admin-controlled: lets non-admins change the live channel for everyone
   const { userChannelSelection } = useAppSettings()
   const isEPGVisible = useUIStore((s) => s.isEPGVisible)
@@ -46,7 +45,7 @@ export function TVHeader({
         <NowWatching isMobile={isMobile} />
       </div>
 
-      {/* Phones keep Host or Change live, Chat, Refresh and Settings as 44px targets */}
+      {/* Phones keep Host or Change live, Chat, Refresh and the account menu as 44px targets */}
       <nav aria-label="Watch controls" className="flex shrink-0 items-center gap-1 md:gap-2">
         {/* Guide toggle - desktop only */}
         {!isMobile && (
@@ -94,12 +93,15 @@ export function TVHeader({
         )}
         {/* Chat toggle, the one filled action */}
         <ChatToggleButton />
-        {/* Feedback (hidden unless the server is configured for it) - desktop only */}
-        {!isMobile && <FeedbackButton />}
-        {/* Refresh video: remounts the player */}
+        {/* Refresh video: remounts the player. Stays until the player has its own reload. */}
         <HeaderAction icon={<RefreshCw />} label="Refresh video" onClick={onReload} />
-        {/* User settings (theme + notifications + logout) */}
-        <UserSettingsMenu onLogout={logout} />
+        {/* Account menu: live channel, admin, reload, feedback, pop-ups, theme, sign out */}
+        <AccountMenu
+          onOpenChannelPicker={onOpenChannelPicker}
+          onOpenAdmin={onOpenAdmin}
+          onReload={onReload}
+          isMobile={isMobile}
+        />
       </nav>
     </header>
   )

@@ -50,8 +50,7 @@ vi.mock('@/components/ChatPanel', async () => {
   } }
 })
 vi.mock('@/components/ersatztv/ProgrammeDetailsModal', () => ({ ProgrammeDetailsModal: () => null }))
-vi.mock('@/components/UserSettingsMenu', () => ({ UserSettingsMenu: () => null }))
-vi.mock('@/components/FeedbackButton', () => ({ FeedbackButton: () => null }))
+vi.mock('@/components/AccountMenu', () => ({ AccountMenu: () => null }))
 vi.mock('@/components/AdminModal', () => ({ AdminModal: () => null }))
 
 beforeEach(() => {
