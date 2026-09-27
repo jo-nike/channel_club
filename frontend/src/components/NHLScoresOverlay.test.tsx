@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@/test/utils'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, fireEvent, within, act } from '@/test/utils'
 import { NHLScoresOverlay } from './NHLScoresOverlay'
-import type { NHLScoresResponse } from '@/types/nhl'
+import type { NHLGame, NHLScoresResponse } from '@/types/nhl'
 
 // Mock the useNHLScores hook
 vi.mock('@/hooks/useNHLScores', () => ({
@@ -383,8 +383,8 @@ describe('NHLScoresOverlay', () => {
 
     render(<NHLScoresOverlay isVisible={true} />)
 
-    // Find the backdrop (the dialog element)
-    const backdrop = screen.getByRole('dialog')
+    // Find the backdrop (the region element)
+    const backdrop = screen.getByRole('region', { name: 'NHL scores' })
 
     // Click on the backdrop itself
     fireEvent.click(backdrop)
@@ -413,7 +413,7 @@ describe('NHLScoresOverlay', () => {
     expect(mockToggleNHLOverlay).not.toHaveBeenCalled()
   })
 
-  it('should have proper accessibility attributes', () => {
+  it('is a labelled region, not a modal dialog', () => {
     mockUseNHLScores.mockReturnValue({
       data: {
         games: [],
@@ -427,12 +427,10 @@ describe('NHLScoresOverlay', () => {
 
     render(<NHLScoresOverlay isVisible={true} />)
 
-    const dialog = screen.getByRole('dialog')
-    expect(dialog).toHaveAttribute('aria-modal', 'true')
-    expect(dialog).toHaveAttribute('aria-labelledby', 'nhl-scores-title')
-
-    const title = screen.getByRole('heading', { name: 'NHL' })
-    expect(title).toHaveAttribute('id', 'nhl-scores-title')
+    const region = screen.getByRole('region', { name: 'NHL scores' })
+    expect(region).not.toHaveAttribute('aria-modal')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(within(region).getByRole('heading', { name: 'NHL' })).toBeInTheDocument()
   })
 
   it('sits at the top of the player, and moves under the info rail while the rail is up', () => {
@@ -444,12 +442,175 @@ describe('NHLScoresOverlay', () => {
     })
     const railOffset = 'top-[calc(3.75rem+var(--player-inset-top,0px))]'
 
+    const ticker = () => screen.getByRole('region', { name: 'NHL scores' })
+
     const { rerender } = render(<NHLScoresOverlay isVisible={true} />)
-    expect(screen.getByRole('dialog')).toHaveClass('top-0')
-    expect(screen.getByRole('dialog')).not.toHaveClass(railOffset)
+    expect(ticker()).toHaveClass('top-0')
+    expect(ticker()).not.toHaveClass(railOffset)
 
     rerender(<NHLScoresOverlay isVisible={true} belowRail />)
-    expect(screen.getByRole('dialog')).toHaveClass(railOffset)
-    expect(screen.getByRole('dialog')).not.toHaveClass('top-0')
+    expect(ticker()).toHaveClass(railOffset)
+    expect(ticker()).not.toHaveClass('top-0')
+  })
+})
+
+describe('NHLScoresOverlay: the row of games', () => {
+  // jsdom has no layout scrolling, so there's no scrollBy to spy on, and every
+  // size reads 0 until the test sets one
+  const scrollBy = vi.fn()
+  const originalMatchMedia = window.matchMedia
+  let scrollLeft = 0
+
+  const game = (id: number): NHLGame => ({
+    id,
+    status: 'scheduled',
+    homeTeam: { name: `Home ${id}`, abbreviation: `H${id}`, score: 0, logo: '', logoDark: '' },
+    awayTeam: { name: `Away ${id}`, abbreviation: `A${id}`, score: 0, logo: '', logoDark: '' },
+    startTime: '2026-01-15T00:00:00Z',
+    gameCenterLink: 'https://nhl.com/gamecenter/test',
+    broadcasts: [],
+  })
+
+  // Twelve games in a row 300px wide that holds about three
+  function renderRow({ scrollWidth = 1200, clientWidth = 300 } = {}) {
+    vi.spyOn(Element.prototype, 'scrollWidth', 'get').mockReturnValue(scrollWidth)
+    vi.spyOn(Element.prototype, 'clientWidth', 'get').mockReturnValue(clientWidth)
+    vi.spyOn(Element.prototype, 'scrollLeft', 'get').mockImplementation(() => scrollLeft)
+    mockUseNHLScores.mockReturnValue({
+      data: { games: Array.from({ length: 12 }, (_, i) => game(i + 1)), date: '2026-01-15', liveGameCount: 0 },
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    render(<NHLScoresOverlay isVisible={true} />)
+    return screen.getByRole('group', { name: "Today's games" })
+  }
+
+  // Where the row is scrolled to, as a scroll event reports it
+  const scrollTo = (row: HTMLElement, left: number) => {
+    scrollLeft = left
+    fireEvent.scroll(row)
+  }
+
+  const left = () => screen.queryByRole('button', { name: 'Scroll games left' })
+  const right = () => screen.queryByRole('button', { name: 'Scroll games right' })
+
+  function mockReducedMotion(reduce: boolean) {
+    window.matchMedia = vi.fn((query: string) => ({
+      matches: reduce && query === '(prefers-reduced-motion: reduce)',
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }))
+  }
+
+  beforeEach(() => {
+    scrollLeft = 0
+    Element.prototype.scrollBy = scrollBy
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.useRealTimers()
+    scrollBy.mockReset()
+    delete (Element.prototype as Partial<Element>).scrollBy
+    window.matchMedia = originalMatchMedia
+  })
+
+  it('shows a chevron only on a side with more games to see', () => {
+    const row = renderRow()
+    expect(left()).not.toBeInTheDocument()
+    expect(right()).toBeInTheDocument()
+
+    scrollTo(row, 400)
+    expect(left()).toBeInTheDocument()
+    expect(right()).toBeInTheDocument()
+
+    // The end: 900 + 300 = 1200
+    scrollTo(row, 900)
+    expect(left()).toBeInTheDocument()
+    expect(right()).not.toBeInTheDocument()
+  })
+
+  it('has no chevrons when every game fits', () => {
+    renderRow({ scrollWidth: 300, clientWidth: 300 })
+
+    expect(left()).not.toBeInTheDocument()
+    expect(right()).not.toBeInTheDocument()
+  })
+
+  it('the chevrons scroll the row by most of its width, smoothly', () => {
+    mockReducedMotion(false)
+    const row = renderRow()
+
+    fireEvent.click(right() as HTMLElement)
+    expect(scrollBy).toHaveBeenLastCalledWith({ left: 240, behavior: 'smooth' })
+
+    scrollTo(row, 240)
+    fireEvent.click(left() as HTMLElement)
+    expect(scrollBy).toHaveBeenLastCalledWith({ left: -240, behavior: 'smooth' })
+    expect(scrollBy.mock.contexts).toEqual([row, row])
+  })
+
+  it('jumps instead of gliding under reduced motion', () => {
+    mockReducedMotion(true)
+    renderRow()
+
+    fireEvent.click(right() as HTMLElement)
+
+    expect(scrollBy).toHaveBeenCalledWith({ left: 240, behavior: 'auto' })
+  })
+
+  it('the chevrons stay out of the tab order; the row itself takes focus', () => {
+    const row = renderRow()
+
+    expect(row).toHaveAttribute('tabindex', '0')
+    expect(right()).toHaveAttribute('tabindex', '-1')
+  })
+
+  it('the arrow keys scroll the focused row, and are not also volume keys', () => {
+    mockReducedMotion(false)
+    const row = renderRow()
+    row.focus()
+
+    // fireEvent returns false when the handler prevented the default, which
+    // the player's shortcuts skip
+    expect(fireEvent.keyDown(row, { key: 'ArrowRight' })).toBe(false)
+    expect(scrollBy).toHaveBeenLastCalledWith({ left: 160, behavior: 'smooth' })
+
+    expect(fireEvent.keyDown(row, { key: 'ArrowLeft' })).toBe(false)
+    expect(scrollBy).toHaveBeenLastCalledWith({ left: -160, behavior: 'smooth' })
+
+    // Other keys go on to the player
+    expect(fireEvent.keyDown(row, { key: 'm' })).toBe(true)
+    expect(scrollBy).toHaveBeenCalledTimes(2)
+  })
+
+  it('never scrolls by itself', () => {
+    vi.useFakeTimers()
+    const frame = vi.spyOn(window, 'requestAnimationFrame')
+    const setScrollLeft = vi.spyOn(Element.prototype, 'scrollLeft', 'set')
+    renderRow()
+
+    act(() => {
+      vi.advanceTimersByTime(30_000)
+    })
+
+    expect(frame).not.toHaveBeenCalled()
+    expect(setScrollLeft).not.toHaveBeenCalled()
+    expect(scrollBy).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('snaps each game into place', () => {
+    const row = renderRow()
+
+    expect(row).toHaveClass('overflow-x-auto', 'snap-x', 'snap-mandatory')
+    const pill = screen.getByLabelText('Away 1 vs Home 1')
+    expect(pill).toHaveClass('snap-start')
   })
 })

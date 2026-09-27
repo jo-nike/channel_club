@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useRef, useState } from 'react'
-import { RefreshCw, AlertCircle } from 'lucide-react'
+import { RefreshCw, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useNHLScores } from '@/hooks/useNHLScores'
 
 /**
@@ -35,6 +35,7 @@ function NHLLogo({ className }: { className?: string }) {
 }
 import { useUIStore } from '@/stores/uiStore'
 import { cn } from '@/lib/utils'
+import { scrollBehavior } from '@/lib/motion'
 import type { NHLGame, NHLTeam } from '@/types/nhl'
 
 interface NHLScoresOverlayProps {
@@ -48,6 +49,7 @@ interface NHLScoresOverlayProps {
  * Positioned over the video player with transparent backdrop.
  *
  * Accessibility features:
+ * - A labelled region, not a dialog: it is not modal
  * - Escape key closes the overlay
  * - Clicking outside (on backdrop) closes the overlay
  * - aria-live region announces score updates to screen readers
@@ -89,14 +91,16 @@ export function NHLScoresOverlay({ isVisible, belowRail = false }: NHLScoresOver
   return (
     <div
       className={cn(
-        'absolute inset-x-0 z-20 p-2',
+        // video-controls: a tap here uses the ticker rather than toggling the
+        // player controls, and a swipe that starts here is not a channel change
+        'video-controls absolute inset-x-0 z-20 p-2',
         // The rail's height: 0.75rem above its 3rem row, plus the shell's top inset
         belowRail ? 'top-[calc(3.75rem+var(--player-inset-top,0px))]' : 'top-0'
       )}
       onClick={handleBackdropClick}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="nhl-scores-title"
+      // A strip over the video, not a modal: the player stays usable under it
+      role="region"
+      aria-label="NHL scores"
     >
       <div className="w-full p-3 rounded-lg bg-background/95 border shadow-lg">
         {/* Header row with title and content inline */}
@@ -104,7 +108,7 @@ export function NHLScoresOverlay({ isVisible, belowRail = false }: NHLScoresOver
           {/* Title section */}
           <div className="flex items-center gap-2 shrink-0">
             <NHLLogo className="h-5 w-5" />
-            <h2 id="nhl-scores-title" className="text-sm font-semibold">
+            <h2 className="text-sm font-semibold">
               NHL
             </h2>
             {data?.liveGameCount ? (
@@ -174,109 +178,106 @@ function EmptyStateCompact() {
   )
 }
 
+// A chevron moves the row by most of its width, keeping a pill of context
+const PAGE_FRACTION = 0.8
+// An arrow key moves it by about one pill; the snap settles it on the next one
+const KEY_STEP_PX = 160
+
 /**
- * Auto-scrolling ticker for games.
- * Scrolls slowly when content overflows, pauses on hover.
- * Live games are shown first and get more screen time.
+ * The games in a row that scrolls by hand: swipe, wheel, the chevrons, or the
+ * arrow keys once it has focus. It never moves by itself. The ends fade, with
+ * a chevron, only while there is more that way.
  */
 function TickerScroll({ games }: { games: NHLGame[] }) {
-  const containerRef = useRef<HTMLDivElement>(null)
+  const scrollerRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
-  const [isOverflowing, setIsOverflowing] = useState(false)
-  const [isPaused, setIsPaused] = useState(false)
-  const scrollPosRef = useRef(0)
-  const pauseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [more, setMore] = useState({ before: false, after: false })
 
-  // Check if content overflows
+  // Whether there is more to see on either side, re-read on scroll and when
+  // the row or its games change size
   useEffect(() => {
-    const checkOverflow = () => {
-      if (containerRef.current && contentRef.current) {
-        setIsOverflowing(contentRef.current.scrollWidth > containerRef.current.clientWidth)
-      }
-    }
-    checkOverflow()
-    window.addEventListener('resize', checkOverflow)
-    return () => window.removeEventListener('resize', checkOverflow)
-  }, [games])
-
-  // Auto-scroll animation
-  useEffect(() => {
-    if (!isOverflowing || isPaused) return
-
-    const container = containerRef.current
+    const scroller = scrollerRef.current
     const content = contentRef.current
-    if (!container || !content) return
+    if (!scroller || !content) return
 
-    const scrollWidth = content.scrollWidth
-    const containerWidth = container.clientWidth
-    const maxScroll = scrollWidth - containerWidth
-
-    // Find where live games end (to pause there longer)
-    const liveGamesCount = games.filter((g) => g.status === 'live').length
-    const pauseAtStart = liveGamesCount > 0
-
-    let animationId: number
-    let lastTime = 0
-    const scrollSpeed = 0.02 // pixels per millisecond (slow)
-
-    // Initial pause on live games (3 seconds)
-    if (pauseAtStart && scrollPosRef.current === 0) {
-      pauseTimeoutRef.current = setTimeout(() => {
-        pauseTimeoutRef.current = null
-      }, 3000)
+    const update = () => {
+      const before = scroller.scrollLeft > 1
+      const after = scroller.scrollLeft + scroller.clientWidth < scroller.scrollWidth - 1
+      setMore((current) =>
+        current.before === before && current.after === after ? current : { before, after }
+      )
     }
 
-    const animate = (time: number) => {
-      if (pauseTimeoutRef.current) {
-        animationId = requestAnimationFrame(animate)
-        lastTime = time
-        return
-      }
-
-      if (lastTime === 0) lastTime = time
-      const delta = time - lastTime
-      lastTime = time
-
-      scrollPosRef.current += delta * scrollSpeed
-
-      // Reset to start when reaching end (with a small pause)
-      if (scrollPosRef.current >= maxScroll) {
-        scrollPosRef.current = 0
-        // Pause at start to show live games
-        if (pauseAtStart) {
-          pauseTimeoutRef.current = setTimeout(() => {
-            pauseTimeoutRef.current = null
-          }, 3000)
-        }
-      }
-
-      container.scrollLeft = scrollPosRef.current
-      animationId = requestAnimationFrame(animate)
-    }
-
-    animationId = requestAnimationFrame(animate)
-
+    update()
+    scroller.addEventListener('scroll', update, { passive: true })
+    const observer = new ResizeObserver(update)
+    observer.observe(scroller)
+    observer.observe(content)
     return () => {
-      cancelAnimationFrame(animationId)
-      if (pauseTimeoutRef.current) {
-        clearTimeout(pauseTimeoutRef.current)
-        pauseTimeoutRef.current = null
-      }
+      scroller.removeEventListener('scroll', update)
+      observer.disconnect()
     }
-  }, [isOverflowing, isPaused, games])
+  }, [])
+
+  const scrollRow = (left: number) => {
+    scrollerRef.current?.scrollBy({ left, behavior: scrollBehavior() })
+  }
+  const scrollPage = (direction: 1 | -1) => {
+    const width = scrollerRef.current?.clientWidth ?? 0
+    scrollRow(direction * width * PAGE_FRACTION)
+  }
+
+  // The arrows scroll the row rather than change the volume
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+    e.preventDefault()
+    scrollRow(e.key === 'ArrowRight' ? KEY_STEP_PX : -KEY_STEP_PX)
+  }
 
   return (
-    <div
-      ref={containerRef}
-      className="overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
-      onMouseEnter={() => setIsPaused(true)}
-      onMouseLeave={() => setIsPaused(false)}
-    >
-      <div ref={contentRef} className="flex gap-3">
-        {games.map((game) => (
-          <GameCardCompact key={game.id} game={game} />
-        ))}
+    <div className="relative">
+      <div
+        ref={scrollerRef}
+        tabIndex={0}
+        role="group"
+        aria-label="Today's games"
+        onKeyDown={handleKeyDown}
+        className="overflow-x-auto snap-x snap-mandatory scroll-px-8 rounded [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+      >
+        <div ref={contentRef} className="flex w-max gap-3">
+          {games.map((game) => (
+            <GameCardCompact key={game.id} game={game} />
+          ))}
+        </div>
       </div>
+      {/* Keyboard users scroll the focused row with the arrows, so the chevrons
+          stay out of the tab order: one would vanish under focus at the end */}
+      {more.before && (
+        <div className="pointer-events-none absolute inset-y-0 left-0 flex w-12 items-center bg-linear-to-r from-background via-background/80 to-transparent">
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-label="Scroll games left"
+            onClick={() => scrollPage(-1)}
+            className="pointer-events-auto flex h-7 w-7 items-center justify-center rounded-full border bg-background shadow-sm hover:bg-accent"
+          >
+            <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
+      )}
+      {more.after && (
+        <div className="pointer-events-none absolute inset-y-0 right-0 flex w-12 items-center justify-end bg-linear-to-l from-background via-background/80 to-transparent">
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-label="Scroll games right"
+            onClick={() => scrollPage(1)}
+            className="pointer-events-auto flex h-7 w-7 items-center justify-center rounded-full border bg-background shadow-sm hover:bg-accent"
+          >
+            <ChevronRight className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -320,7 +321,7 @@ function GameCardCompact({ game }: { game: NHLGame }) {
   return (
     <div
       className={cn(
-        'flex items-center gap-2 px-2 py-1 rounded border shrink-0',
+        'flex items-center gap-2 px-2 py-1 rounded border shrink-0 snap-start',
         isLive && 'border-green-500 bg-green-500/5'
       )}
       aria-label={`${game.awayTeam.name} vs ${game.homeTeam.name}`}

@@ -73,7 +73,7 @@ const renderOverlay = (channel: UnifiedChannel | null, shell: Partial<PlayerShel
 const rail = () => screen.getByTestId('player-info-rail')
 const queryRail = () => screen.queryByTestId('player-info-rail')
 const nhlToggle = () => screen.getByRole('button', { name: /NHL Scores/ })
-const ticker = () => screen.queryByRole('dialog', { name: 'NHL' })
+const ticker = () => screen.queryByRole('region', { name: 'NHL scores' })
 const TICKER_BELOW_RAIL = 'top-[calc(3.75rem+var(--player-inset-top,0px))]'
 const advance = (ms: number) =>
   act(() => {
