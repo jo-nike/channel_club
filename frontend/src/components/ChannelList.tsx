@@ -129,6 +129,9 @@ export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
   }
 
   const hasChannels = filteredGroups.length > 0 || filteredUngrouped.length > 0
+  // The group holding the live channel starts open, so it's in view without hunting
+  const containsCurrentChannel = (channels: Channel[]) =>
+    currentChannel !== null && channels.some((ch) => ch.id === currentChannel.id)
   const totalChannels = groupedData
     ? groupedData.groups.reduce((sum, g) => sum + g.channels.length, 0) + groupedData.ungrouped.length
     : 0
@@ -183,6 +186,7 @@ export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
             nowPlaying={nowPlaying}
             onSelectChannel={handleSelectChannel}
             forceOpen={expandedGroupIds.has(group.id)}
+            defaultOpen={containsCurrentChannel(group.channels)}
           />
         ))}
 
@@ -200,6 +204,7 @@ export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
             nowPlaying={nowPlaying}
             onSelectChannel={handleSelectChannel}
             forceOpen={searchQuery.length > 0}
+            defaultOpen={containsCurrentChannel(filteredUngrouped)}
           />
         )}
       </div>

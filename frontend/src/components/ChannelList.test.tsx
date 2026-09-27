@@ -474,6 +474,43 @@ describe('ChannelList', () => {
     })
   })
 
+  describe('Group holding the live channel', () => {
+    it('should start open, with the other groups collapsed', async () => {
+      vi.mocked(api.fetchGroupedChannels).mockResolvedValueOnce(mockGroupedResponse)
+      // CNN is in News
+      useChannelStore.setState({ currentChannel: mockGroupedResponse.groups[1].channels[0] })
+
+      render(<ChannelList />)
+
+      expect(await screen.findByText('CNN')).toBeInTheDocument()
+      expect(screen.getByText('Now Playing')).toBeInTheDocument()
+      expect(screen.queryByText('TSN')).not.toBeInTheDocument()
+      expect(screen.queryByText('CBC')).not.toBeInTheDocument()
+    })
+
+    it('should open the Ungrouped section when it holds the live channel', async () => {
+      vi.mocked(api.fetchGroupedChannels).mockResolvedValueOnce(mockGroupedResponse)
+      useChannelStore.setState({ currentChannel: mockGroupedResponse.ungrouped[0] })
+
+      render(<ChannelList />)
+
+      expect(await screen.findByText('CBC')).toBeInTheDocument()
+      expect(screen.queryByText('CNN')).not.toBeInTheDocument()
+    })
+
+    it('should still let the group be collapsed', async () => {
+      vi.mocked(api.fetchGroupedChannels).mockResolvedValueOnce(mockGroupedResponse)
+      useChannelStore.setState({ currentChannel: mockGroupedResponse.groups[1].channels[0] })
+
+      render(<ChannelList />)
+
+      expect(await screen.findByText('CNN')).toBeInTheDocument()
+      fireEvent.click(screen.getByText('News'))
+
+      expect(screen.queryByText('CNN')).not.toBeInTheDocument()
+    })
+  })
+
   describe('Current channel indicator', () => {
     it('should show "Now Playing" for current channel when group is expanded', async () => {
       vi.mocked(api.fetchGroupedChannels).mockResolvedValueOnce(mockGroupedResponse)
@@ -485,9 +522,7 @@ describe('ChannelList', () => {
         expect(screen.getByText('Sports')).toBeInTheDocument()
       })
 
-      // Expand the group containing the current channel
-      fireEvent.click(screen.getByText('Sports'))
-
+      // The group containing the current channel starts expanded
       expect(screen.getByText('Now Playing')).toBeInTheDocument()
     })
   })
