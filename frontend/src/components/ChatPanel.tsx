@@ -2,7 +2,7 @@ import { Fragment, useRef, useEffect, useLayoutEffect, useEffectEvent, useMemo, 
 import { createPortal } from 'react-dom'
 import { X, Send, Pencil, Loader2, AlertCircle, WifiOff, ArrowDown, MessageCircle, Tv } from 'lucide-react'
 import type { ChatSendResult, WebSocketStatus } from '@/hooks/useWebSocket'
-import { findMessageChannel, hidingUserIds, isOwnPresence, useSeesPresenceChannels } from '@/hooks/usePresenceByChannel'
+import { findMessageChannel, hidingUserIds, presenceNames, useOthersHere, useSeesPresenceChannels } from '@/hooks/usePresenceByChannel'
 import { createClientMessageId } from '@/lib/messageId'
 import { scrollBehavior } from '@/lib/motion'
 import { useChatStore, isOwnMessage, isSystemMessage, countsAsUnread } from '@/stores/chatStore'
@@ -10,7 +10,7 @@ import { useChannelStore } from '@/stores/channelStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { usePresenceStore } from '@/stores/presenceStore'
 import { useTVStore, buildUnifiedChannels } from '@/stores/tvStore'
-import type { ChatMessage as ChatMessageData, PresenceEntry } from '@/types'
+import type { ChatMessage as ChatMessageData } from '@/types'
 import { useNow } from '@/hooks/useNow'
 import { cn } from '@/lib/utils'
 import { ChatMessage, type MessageChannel } from './ChatMessage'
@@ -116,13 +116,8 @@ interface SendFailure {
 // stray tap on a phone never posts. No 'Come watch': Share covers that.
 const STARTERS = ['Hi everyone 👋', "What's everyone watching?", 'Anything good on tonight?']
 
-/** 'maya is here', 'maya and dev are here', or 'maya and 2 others are here'. */
-function hereLine(people: readonly PresenceEntry[]): string {
-  const [first, second] = people
-  if (people.length === 1) return `${first.displayName} is here`
-  if (people.length === 2) return `${first.displayName} and ${second.displayName} are here`
-  return `${first.displayName} and ${people.length - 1} others are here`
-}
+// The empty room's line: 'maya is here', 'maya and 2 others are here'
+const HERE = { one: 'is here', many: 'are here' }
 
 // Which channel a message's chip shows, to compare neighbours; null for none
 function chipKey(message: ChatMessageData, channel: MessageChannel | undefined): string | null {
@@ -203,10 +198,7 @@ export function ChatPanel({ onSendMessage, onShare, onSetNickname, status = 'con
   const presenceEntries = usePresenceStore((s) => s.entries)
   const hiding = useMemo(() => hidingUserIds(presenceEntries), [presenceEntries])
   // Everyone else here, for the empty room (names show whatever the setting)
-  const othersHere = useMemo(
-    () => presenceEntries.filter((entry) => !isOwnPresence(entry, { nickname, me })),
-    [presenceEntries, nickname, me]
-  )
+  const othersHere = useOthersHere()
   const liveChannel = useChannelStore((s) => s.currentChannel)
   const ersatzTVChannels = useErsatztvStore((s) => s.channels)
   const channelRows = useMemo(() => buildUnifiedChannels(liveChannel, ersatzTVChannels), [liveChannel, ersatzTVChannels])
@@ -668,7 +660,7 @@ export function ChatPanel({ onSendMessage, onShare, onSetNickname, status = 'con
                       <MessageCircle className="size-5" />
                     </span>
                     {othersHere.length > 0 && (
-                      <p className="text-sm font-semibold">{hereLine(othersHere)}</p>
+                      <p className="text-sm font-semibold">{presenceNames(othersHere, HERE)}</p>
                     )}
                     <p className="text-sm font-medium">No messages yet. Say hello!</p>
                     <p className="max-w-60 text-xs text-muted-foreground">

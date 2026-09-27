@@ -67,12 +67,26 @@ export function findMessageChannel(message: ChatMessage, channels: UnifiedChanne
   return channel
 }
 
-/** 'maya', 'maya and dev', or 'maya and 2 others'. */
-export function presenceNames(people: readonly PresenceEntry[]): string {
+/** A verb to follow the names, as it agrees with one person or several. */
+export interface PresenceVerb {
+  one: string
+  many: string
+}
+
+/**
+ * 'maya', 'maya and dev', or 'maya and 2 others'. With a verb it follows
+ * them: 'maya is here', 'maya and dev are here'.
+ */
+export function presenceNames(people: readonly PresenceEntry[], verb?: PresenceVerb): string {
   const [first, second] = people
-  if (people.length === 1) return first.displayName
-  if (people.length === 2) return `${first.displayName} and ${second.displayName}`
-  return `${first.displayName} and ${people.length - 1} others`
+  const names =
+    people.length === 1
+      ? first.displayName
+      : people.length === 2
+        ? `${first.displayName} and ${second.displayName}`
+        : `${first.displayName} and ${people.length - 1} others`
+  if (!verb) return names
+  return `${names} ${people.length === 1 ? verb.one : verb.many}`
 }
 
 /**
