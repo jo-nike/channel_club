@@ -3,6 +3,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ProgrammeDetailsModal } from './ProgrammeDetailsModal'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore, LIVE_CHANNEL_ID, toLiveProgramme } from '@/stores/tvStore'
+import { useReminderStore } from '@/stores/reminderStore'
+import { useChannelStore } from '@/stores/channelStore'
 import type { ErsatzTVProgramme, ErsatzTVChannel, UnifiedChannel } from '@/types'
 
 describe('ProgrammeDetailsModal', () => {
@@ -58,6 +60,8 @@ describe('ProgrammeDetailsModal', () => {
     vi.setSystemTime(DURING)
     useTVStore.setState({ selectedChannel: null, liveProgrammes: [] })
     useErsatztvStore.setState({ programmesByChannel: {} })
+    useReminderStore.setState({ reminders: [] })
+    useChannelStore.setState({ currentChannel: null })
   })
 
   afterEach(() => {
@@ -213,6 +217,131 @@ describe('ProgrammeDetailsModal', () => {
         vi.advanceTimersByTime(30_000)
       })
       expect(screen.getByRole('button', { name: 'Watch now' })).toBeInTheDocument()
+    })
+  })
+
+  describe('reminders', () => {
+    const BEFORE = new Date('2026-01-03T12:12:00Z')
+
+    it('upcoming: Remind me sets a reminder for this programme and shows it is set', () => {
+      vi.setSystemTime(BEFORE)
+      render(<ProgrammeDetailsModal {...defaultProps} />)
+
+      const remind = screen.getByRole('button', { name: /^Remind me at / })
+      expect(remind).toHaveAttribute('aria-pressed', 'false')
+      fireEvent.click(remind)
+
+      expect(useReminderStore.getState().reminders).toEqual([
+        {
+          programmeId: 'p1',
+          channelId: 'ch1',
+          channelName: 'Comedy Classics',
+          title: 'Test Movie',
+          startMs: new Date('2026-01-03T14:00:00Z').getTime(),
+        },
+      ])
+      const set = screen.getByRole('button', { name: 'Reminder set' })
+      expect(set).toHaveAttribute('aria-pressed', 'true')
+    })
+
+    it('upcoming: Reminder set clears the reminder again', () => {
+      vi.setSystemTime(BEFORE)
+      render(<ProgrammeDetailsModal {...defaultProps} />)
+
+      fireEvent.click(screen.getByRole('button', { name: /^Remind me at / }))
+      fireEvent.click(screen.getByRole('button', { name: 'Reminder set' }))
+
+      expect(useReminderStore.getState().reminders).toEqual([])
+      expect(screen.getByRole('button', { name: /^Remind me at / })).toBeInTheDocument()
+    })
+
+    it('shows a reminder set earlier as set', () => {
+      vi.setSystemTime(BEFORE)
+      useReminderStore.getState().add({
+        programmeId: 'p1',
+        channelId: 'ch1',
+        channelName: 'Comedy Classics',
+        title: 'Test Movie',
+        startMs: new Date('2026-01-03T14:00:00Z').getTime(),
+      })
+      render(<ProgrammeDetailsModal {...defaultProps} />)
+
+      expect(screen.getByRole('button', { name: 'Reminder set' })).toBeInTheDocument()
+    })
+
+    it('says the reminder only shows while a tab is open, not as a push notification', () => {
+      vi.setSystemTime(BEFORE)
+      render(<ProgrammeDetailsModal {...defaultProps} />)
+
+      const remind = screen.getByRole('button', { name: /^Remind me at / })
+      expect(remind).toHaveAccessibleDescription(/as long as Channel Club is open in a tab/)
+      expect(screen.queryByText(/notif|push/i)).not.toBeInTheDocument()
+    })
+
+    it('upcoming on the channel you are watching still offers Remind me', () => {
+      vi.setSystemTime(BEFORE)
+      useTVStore.setState({ selectedChannel: watching })
+      render(<ProgrammeDetailsModal {...defaultProps} />)
+
+      expect(screen.getByRole('button', { name: /^Remind me at / })).toBeInTheDocument()
+    })
+
+    it.each([
+      ['on now', '2026-01-03T15:00:00Z'],
+      ['ended', '2026-01-03T16:10:00Z'],
+    ])('%s: offers no reminder', (_state, at) => {
+      vi.setSystemTime(new Date(at))
+      render(<ProgrammeDetailsModal {...defaultProps} />)
+
+      expect(screen.queryByRole('button', { name: /remind/i })).not.toBeInTheDocument()
+      expect(screen.queryByText(/A reminder pops up/)).not.toBeInTheDocument()
+    })
+
+    it('a live-row programme is reminded on the live slot, with the live channel it is on', () => {
+      vi.setSystemTime(BEFORE)
+      useChannelStore.setState({ currentChannel: { id: '7', name: 'CA-S: TSN 5', streamUrl: '/live', guideId: 'tsn5' } })
+      const hockey = toLiveProgramme({ title: 'Hockey Night', startTime: '2026-01-03T13:00:00Z', endTime: '2026-01-03T16:00:00Z' })
+      render(
+        <ProgrammeDetailsModal {...defaultProps} programme={hockey} channel={{ id: LIVE_CHANNEL_ID, name: 'CA-S: TSN 5' }} />
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: /^Remind me at / }))
+
+      expect(useReminderStore.getState().reminders).toEqual([
+        {
+          programmeId: hockey.id,
+          channelId: LIVE_CHANNEL_ID,
+          channelName: 'CA-S: TSN 5',
+          liveChannelId: '7',
+          title: 'Hockey Night',
+          startMs: new Date('2026-01-03T13:00:00Z').getTime(),
+        },
+      ])
+    })
+
+    it("a live-row reminder isn't shown as set once the live slot carries another channel", () => {
+      vi.setSystemTime(BEFORE)
+      useReminderStore.getState().add({
+        programmeId: 'live-2026-01-03T13:00:00Z',
+        channelId: LIVE_CHANNEL_ID,
+        channelName: 'CA-S: TSN 5',
+        liveChannelId: '7',
+        title: 'Hockey Night',
+        startMs: new Date('2026-01-03T13:00:00Z').getTime(),
+      })
+      // The admin has put CNN on the live slot; its 13:00 programme has the same id
+      useChannelStore.setState({ currentChannel: { id: '9', name: 'CNN', streamUrl: '/cnn', guideId: 'cnn' } })
+      const ac360 = toLiveProgramme({ title: 'AC360', startTime: '2026-01-03T13:00:00Z', endTime: '2026-01-03T14:00:00Z' })
+      render(<ProgrammeDetailsModal {...defaultProps} programme={ac360} channel={{ id: LIVE_CHANNEL_ID, name: 'CNN' }} />)
+
+      const remind = screen.getByRole('button', { name: /^Remind me at / })
+      expect(remind).toHaveAttribute('aria-pressed', 'false')
+      fireEvent.click(remind)
+
+      expect(useReminderStore.getState().reminders.map((r) => [r.title, r.liveChannelId])).toEqual([
+        ['Hockey Night', '7'],
+        ['AC360', '9'],
+      ])
     })
   })
 

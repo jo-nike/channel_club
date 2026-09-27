@@ -7,9 +7,13 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { Bell, BellRing } from 'lucide-react'
 import { useProgrammeClock } from '@/hooks/useProgrammeClock'
 import { findOnAir, formatRemaining, formatStartsIn, getProgrammeState } from '@/lib/programmes'
+import { APP_NAME } from '@/lib/appInfo'
+import { useChannelStore } from '@/stores/channelStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
+import { useHasReminder, useReminderStore } from '@/stores/reminderStore'
 import { useTVStore, LIVE_CHANNEL_ID } from '@/stores/tvStore'
 import type { ErsatzTVProgramme } from '@/types'
 
@@ -43,6 +47,12 @@ export function ProgrammeDetailsModal({
     channel && !isLiveSlot ? s.programmesByChannel[channel.id] : undefined
   )
   const channelProgrammes = liveProgrammes ?? ersatzProgrammes
+  // A live-slot reminder is for the live channel on the slot now: the admin can
+  // change it, and another channel's programme can have the same id
+  const liveChannelId = useChannelStore((s) => (isLiveSlot ? s.currentChannel?.id : undefined))
+  const hasReminder = useHasReminder(channel?.id, programme?.id, liveChannelId)
+  const addReminder = useReminderStore((s) => s.add)
+  const removeReminder = useReminderStore((s) => s.remove)
 
   if (!programme || !channel) return null
 
@@ -59,6 +69,21 @@ export function ProgrammeDetailsModal({
   const handleWatch = () => {
     onWatch(channel)
     onOpenChange(false)
+  }
+
+  const toggleReminder = () => {
+    if (hasReminder) {
+      removeReminder(channel.id, programme.id, liveChannelId)
+    } else {
+      addReminder({
+        programmeId: programme.id,
+        channelId: channel.id,
+        channelName: channel.name,
+        liveChannelId,
+        title: programme.title,
+        startMs: startTime.getTime(),
+      })
+    }
   }
 
   const formatTime = (date: Date): string => {
@@ -111,6 +136,12 @@ export function ProgrammeDetailsModal({
               No description available
             </p>
           )}
+          {state === 'future' && (
+            // Reminders are in-app toasts: nothing reaches a closed tab or the device
+            <p id="programme-reminder-hint" className="mt-3 text-xs text-muted-foreground">
+              A reminder pops up here when it starts, as long as {APP_NAME} is open in a tab.
+            </p>
+          )}
         </div>
 
         <DialogFooter className="gap-2 sm:items-center">
@@ -121,7 +152,8 @@ export function ProgrammeDetailsModal({
               <Button onClick={handleWatch}>Watch now</Button>
             )
           ) : (
-            // Upcoming or ended: the only honest action is the channel as it is now.
+            // Upcoming or ended: the honest actions are the channel as it is now and,
+            // for upcoming, a reminder at the start.
             <>
               {onAirNow && (
                 <p className="text-sm text-muted-foreground sm:mr-auto">
@@ -133,6 +165,17 @@ export function ProgrammeDetailsModal({
               ) : (
                 <Button variant="ghost" onClick={handleWatch}>
                   Watch {channel.name} now
+                </Button>
+              )}
+              {state === 'future' && (
+                <Button
+                  variant={hasReminder ? 'secondary' : 'default'}
+                  aria-pressed={hasReminder}
+                  aria-describedby="programme-reminder-hint"
+                  onClick={toggleReminder}
+                >
+                  {hasReminder ? <BellRing aria-hidden="true" /> : <Bell aria-hidden="true" />}
+                  {hasReminder ? 'Reminder set' : `Remind me at ${formatTime(startTime)}`}
                 </Button>
               )}
             </>
