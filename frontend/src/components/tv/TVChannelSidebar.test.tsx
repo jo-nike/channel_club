@@ -6,6 +6,7 @@ import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore } from '@/stores/tvStore'
 import { fetchErsatzTVCurrentProgramme } from '@/services/ersatztvApi'
 import type { ErsatzTVProgramme } from '@/types'
+import { focusOverrides } from '@/test/focus'
 
 // Putting a channel on live TV starts a guide lookup; leave it unanswered so
 // each test sets the live guide state itself
@@ -563,5 +564,34 @@ describe('TVChannelSidebar programme progress', () => {
 
     const label = await screen.findByText('Ending...')
     expect(fillBefore(label).style.width).toBe('100%')
+  })
+})
+
+describe('TVChannelSidebar focus', () => {
+  beforeEach(() => {
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1' },
+    })
+    useErsatztvStore.setState({
+      channels: [
+        { id: 'etv1', name: 'Movies', streamUrl: '', logoUrl: '', number: 1, group: 'Films' },
+      ],
+    })
+  })
+
+  afterEach(() => {
+    cleanup()
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels: [] })
+  })
+
+  it('leaves the collapse and expand buttons to the global outline', async () => {
+    const { rerender } = render(<TVChannelSidebar />)
+    await act(async () => {})
+    expect(focusOverrides(screen.getByRole('button', { name: 'Collapse channel sidebar' }))).toEqual([])
+
+    rerender(<TVChannelSidebar isCollapsed />)
+    await act(async () => {})
+    expect(focusOverrides(screen.getByRole('button', { name: 'Expand channel sidebar' }))).toEqual([])
   })
 })

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@/test/utils'
 import { FilterMenu } from './FilterMenu'
+import { focusOverrides } from '@/test/focus'
 import { useFilterStore, FILTER_REGISTRY } from '@/stores/filterStore'
 
 // Mock useMediaQuery hook
@@ -130,5 +131,12 @@ describe('FilterMenu', () => {
     render(<FilterMenu isVisible={true} />)
     const button = screen.getByRole('button', { name: /video filters/i })
     expect(button).toHaveAttribute('aria-haspopup', 'dialog')
+  })
+
+  it('marks keyboard focus with the over-video ring, not a blue ring or a click-time one', () => {
+    render(<FilterMenu isVisible={true} />)
+    const button = screen.getByRole('button', { name: /video filters/i })
+    expect(button).toHaveClass('focus-ring-media')
+    expect(focusOverrides(button)).toEqual([])
   })
 })

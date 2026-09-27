@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@/test/utils'
 import { HighlightButton } from './HighlightButton'
+import { focusOverrides } from '@/test/focus'
 import type { HighlightStatusResponse } from '@/services/api'
 
 const defaultStatus: HighlightStatusResponse = {
@@ -151,6 +152,22 @@ describe('HighlightButton', () => {
       const button = screen.getByRole('button')
       expect(button).toHaveClass('min-h-[48px]')
       expect(button).toHaveClass('min-w-[48px]')
+    })
+  })
+
+  describe('Focus', () => {
+    it('marks keyboard focus with the over-video ring, not a blue ring', () => {
+      render(
+        <HighlightButton
+          channelId="channel-1"
+          isVisible={true}
+          highlightStatus={defaultStatus}
+        />
+      )
+
+      const button = screen.getByRole('button')
+      expect(button).toHaveClass('focus-ring-media')
+      expect(focusOverrides(button)).toEqual([])
     })
   })
 })

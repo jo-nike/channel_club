@@ -1,6 +1,7 @@
 import { render, screen, fireEvent } from '@/test/utils'
 import { describe, it, expect, vi } from 'vitest'
 import { PlexLoginButton } from './PlexLoginButton'
+import { focusOverrides } from '@/test/focus'
 
 describe('PlexLoginButton', () => {
   it('renders with Plex branding', () => {
@@ -29,5 +30,10 @@ describe('PlexLoginButton', () => {
     render(<PlexLoginButton onClick={vi.fn()} isLoading={false} />)
     const button = screen.getByRole('button')
     expect(button).toHaveClass('bg-[#E5A00D]')
+  })
+
+  it('leaves focus to the global outline, so a click draws no ring', () => {
+    render(<PlexLoginButton onClick={vi.fn()} isLoading={false} />)
+    expect(focusOverrides(screen.getByRole('button'))).toEqual([])
   })
 })

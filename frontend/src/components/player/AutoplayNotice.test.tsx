@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@/test/utils'
 import { AutoplayNotice } from './AutoplayNotice'
+import { focusOverrides } from '@/test/focus'
 
 // Script volume detection (false on iOS/iPadOS Safari)
 const volumeSupport = vi.hoisted(() => ({ canSet: true }))
@@ -66,6 +67,17 @@ describe('AutoplayNotice', () => {
       render(<AutoplayNotice mode={mode} volume={1} onUnmute={vi.fn()} onPlay={vi.fn()} />)
 
       expect(screen.getByRole('button')).toHaveClass('video-controls')
+    }
+  )
+
+  it.each(['sound-off', 'tap-to-play'] as const)(
+    "'%s' marks keyboard focus with the over-video ring, which shows on any picture",
+    (mode) => {
+      render(<AutoplayNotice mode={mode} volume={1} onUnmute={vi.fn()} onPlay={vi.fn()} />)
+
+      const button = screen.getByRole('button')
+      expect(button).toHaveClass('focus-ring-media')
+      expect(focusOverrides(button)).toEqual([])
     }
   )
 })

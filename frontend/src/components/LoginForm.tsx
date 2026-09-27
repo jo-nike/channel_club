@@ -168,7 +168,7 @@ export function LoginForm() {
                 required
                 disabled={isLoading}
                 autoComplete="username"
-                className="h-14 text-2xl px-4 focus:ring-2 focus:ring-offset-2"
+                className="h-14 text-2xl px-4"
               />
             </div>
 
@@ -185,14 +185,14 @@ export function LoginForm() {
                 required
                 disabled={isLoading}
                 autoComplete="current-password"
-                className="h-14 text-2xl px-4 focus:ring-2 focus:ring-offset-2"
+                className="h-14 text-2xl px-4"
               />
             </div>
 
             <Button
               type="submit"
               disabled={isLoading || plexLoading}
-              className="h-14 text-2xl px-8 w-full focus:ring-2 focus:ring-offset-2"
+              className="h-14 text-2xl px-8 w-full"
             >
               {isLoading ? 'Signing in...' : 'Sign In'}
             </Button>

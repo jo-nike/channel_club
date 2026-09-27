@@ -202,7 +202,7 @@ export function GifPicker({ onSelect, onClose }: GifPickerProps) {
                 <button
                   key={gif.id}
                   onClick={() => handleSelect(gif)}
-                  className="aspect-square overflow-hidden rounded-md hover:ring-2 ring-primary transition-all focus:outline-none focus:ring-2 focus:ring-primary bg-accent/30"
+                  className="aspect-square overflow-hidden rounded-md hover:ring-2 ring-primary transition-all bg-accent/30"
                   title={gif.title || 'GIF'}
                 >
                   <img

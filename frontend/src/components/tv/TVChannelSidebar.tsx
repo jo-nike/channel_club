@@ -85,7 +85,7 @@ export function TVChannelSidebar({
       <aside className="flex h-full w-16 flex-col items-center border-r bg-card py-2 rounded-r-lg overflow-hidden">
         <button
           onClick={onToggleCollapse}
-          className="flex h-10 w-10 items-center justify-center rounded-md hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex h-10 w-10 items-center justify-center rounded-md hover:bg-accent"
           aria-label="Expand channel sidebar"
         >
           <ChevronRight className="h-5 w-5" />
@@ -119,7 +119,7 @@ export function TVChannelSidebar({
         <h2 className="text-lg font-semibold">Channels</h2>
         <button
           onClick={onToggleCollapse}
-          className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-accent"
           aria-label="Collapse channel sidebar"
         >
           <ChevronLeft className="h-5 w-5" />

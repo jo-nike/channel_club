@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
+import { focusOverrides } from './focus'
 
 // jsdom can't evaluate :focus-visible, so these pin the global rule and the
 // over-video utility. The real check is a browser pass: Tab through the
@@ -42,13 +43,6 @@ describe('focus outline', () => {
     )
   })
 })
-
-/** Classes that would hide or restyle the global outline on focus. */
-function focusOverrides(el: Element): string[] {
-  return Array.from(el.classList).filter(
-    (c) => /^outline-(none|hidden)$/.test(c) || /^(\w+:)*focus(-visible)?:(ring|outline)/.test(c),
-  )
-}
 
 describe('ui primitives rely on the global focus outline', () => {
   it('buttons, including destructive ones, add no outline or ring of their own', () => {

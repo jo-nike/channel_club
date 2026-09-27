@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@/test/utils'
 import { LoginForm } from './LoginForm'
+import { focusOverrides } from '@/test/focus'
 import { useAuthStore } from '@/stores/authStore'
 import * as api from '@/services/api'
 import * as plexAuth from '@/services/plexAuth'
@@ -652,5 +653,14 @@ describe('LoginForm', () => {
       const { container } = render(<LoginForm />)
       expect(container.firstChild).toHaveClass('min-h-screen', ...safe)
     })
+  })
+
+  it('leaves focus on the fields and the sign-in button to the global outline', async () => {
+    render(<LoginForm />)
+    const username = await screen.findByLabelText(/username/i)
+
+    for (const el of [username, screen.getByLabelText(/password/i), screen.getByRole('button', { name: /sign in/i })]) {
+      expect(focusOverrides(el)).toEqual([])
+    }
   })
 })
