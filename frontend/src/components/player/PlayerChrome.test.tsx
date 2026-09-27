@@ -14,14 +14,14 @@ const highlight = vi.hoisted(() => ({ enabled: false }))
 vi.mock('@/hooks/useHighlightFeature', () => ({
   useHighlightFeature: () => ({ isEnabled: highlight.enabled, isLoading: false }),
 }))
-const clipStatus = vi.hoisted(() => ({ loaded: true, recording: true }))
+const clipStatus = vi.hoisted(() => ({ loaded: true, recording: true, seconds: 60 }))
 vi.mock('@/hooks/useHighlightStatus', () => ({
   useHighlightStatus: () => ({
     status: {
       enabled: true,
       recording: clipStatus.recording,
       ready: clipStatus.recording,
-      bufferSeconds: clipStatus.recording ? 60 : 0,
+      bufferSeconds: clipStatus.recording ? clipStatus.seconds : 0,
       maxBufferSeconds: 60,
     },
     loaded: clipStatus.loaded,
@@ -587,6 +587,7 @@ describe('PlayerChrome', () => {
       highlight.enabled = true
       clipStatus.loaded = true
       clipStatus.recording = true
+      clipStatus.seconds = 60
       useClipStore.setState({ session: null, clipping: false, buffer: null })
     })
 
@@ -677,6 +678,30 @@ describe('PlayerChrome', () => {
         update({})
 
         expect(useClipStore.getState().buffer).toEqual({ channelId: '42', state: 'unavailable', label: 'Clip unavailable' })
+      })
+
+      it('updates the seconds a poll reports without clearing the buffer in between', () => {
+        const { update } = renderChrome({ props: { channelId: '42', channelName: 'Sportsnet' } })
+        const published: unknown[] = []
+        const unsubscribe = useClipStore.subscribe((state) => published.push(state.buffer))
+
+        clipStatus.seconds = 45
+        update({})
+        unsubscribe()
+
+        expect(published).toEqual([{ channelId: '42', state: 'ready', label: 'Capture clip · 45s available' }])
+      })
+
+      it('moves to the new channel when the channel changes', () => {
+        const { update } = renderChrome({ props: { channelId: '42', channelName: 'Sportsnet' } })
+
+        update({ props: { channelId: '7', channelName: 'TSN' } })
+
+        expect(useClipStore.getState().buffer).toEqual({
+          channelId: '7',
+          state: 'ready',
+          label: 'Capture clip · 60s available',
+        })
       })
 
       it('is cleared when the control bar unmounts', () => {
