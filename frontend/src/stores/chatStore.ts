@@ -104,28 +104,40 @@ const saveNickname = (me: ChatIdentity | null, nickname: string | null) => {
   else localStorage.removeItem(nicknameStorageKey(me.username))
 }
 
+/** A line the server posts about a shared event (someone changing Live), not a member's message. */
+export const isSystemMessage = (message: Pick<ChatMessage, 'kind'>): boolean => message.kind === 'system'
+
 /**
  * Whether a message was sent by this user. The server stamps each message with
  * the sender's userId, so renaming yourself keeps your earlier messages yours
  * and someone else picking your name doesn't make theirs yours. Without ids
  * (older servers, or before connection_ack), its name matches the nickname, or
  * the sign-in name when no nickname is set (the server posts under it then).
+ * System lines are nobody's, whatever name they carry.
  */
 export const isOwnMessage = (
-  message: Pick<ChatMessage, 'username' | 'userId'>,
+  message: Pick<ChatMessage, 'username' | 'userId' | 'kind'>,
   state: Pick<ChatState, 'nickname' | 'me'>
 ): boolean => {
+  if (isSystemMessage(message)) return false
   if (message.userId && state.me?.userId) return message.userId === state.me.userId
   const ownName = state.nickname ?? state.me?.username
   return ownName ? message.username === ownName : false
 }
+
+/**
+ * Whether a message counts towards unread: someone else's message. System
+ * lines don't; they report a change on Live rather than anyone talking.
+ */
+export const countsAsUnread = (message: ChatMessage, state: Pick<ChatState, 'nickname' | 'me'>): boolean =>
+  !isSystemMessage(message) && !isOwnMessage(message, state)
 
 /** Other people's messages newer than a read time. */
 const countUnreadSince = (
   messages: ChatMessage[],
   since: number,
   state: Pick<ChatState, 'nickname' | 'me'>
-): number => messages.filter((m) => Date.parse(m.timestamp) > since && !isOwnMessage(m, state)).length
+): number => messages.filter((m) => Date.parse(m.timestamp) > since && countsAsUnread(m, state)).length
 
 /**
  * Open or close the panel. Opening marks where unread starts (for the 'New'
@@ -163,10 +175,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     logger.debug('ChatStore', `New message from ${message.username}`)
     set((state) => {
       const newMessages = [...state.messages, message].slice(-MAX_MESSAGES)
-      // Your own messages (say, sent from another tab or device) are never unread,
-      // matching the history recount, so a reconnect doesn't drop the badge
+      // Your own messages (say, sent from another tab or device) and system lines
+      // are never unread, matching the history recount, so a reconnect doesn't drop the badge
       if (!state.isOpen) {
-        return { messages: newMessages, unreadCount: state.unreadCount + (isOwnMessage(message, state) ? 0 : 1) }
+        return { messages: newMessages, unreadCount: state.unreadCount + (countsAsUnread(message, state) ? 1 : 0) }
       }
       // Seen as it arrives
       const lastReadAt = laterOf(state.lastReadAt, newestTimestamp([message]))

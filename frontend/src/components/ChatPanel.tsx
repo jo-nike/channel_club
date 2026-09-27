@@ -3,7 +3,9 @@ import { X, Send, Pencil, Loader2, AlertCircle, WifiOff, ArrowDown, MessageCircl
 import type { ChatSendResult, WebSocketStatus } from '@/hooks/useWebSocket'
 import { createClientMessageId } from '@/lib/messageId'
 import { scrollBehavior } from '@/lib/motion'
-import { useChatStore, isOwnMessage } from '@/stores/chatStore'
+import { useChatStore, isOwnMessage, isSystemMessage, countsAsUnread } from '@/stores/chatStore'
+import { useChannelStore } from '@/stores/channelStore'
+import { useTVStore } from '@/stores/tvStore'
 import type { ChatMessage as ChatMessageData } from '@/types'
 import { useNow } from '@/hooks/useNow'
 import { cn } from '@/lib/utils'
@@ -67,10 +69,12 @@ const GROUP_GAP_MS = 3 * 60_000
 /**
  * Whether a message carries on its sender's group from the one before it. The
  * sender is their account id where the server sends one, so two people who
- * picked the same name never merge; older servers only give the name.
+ * picked the same name never merge; older servers only give the name. A system
+ * line stands alone and breaks the group around it.
  */
 function continuesGroup(previous: ChatMessageData | undefined, message: ChatMessageData): boolean {
-  if (!previous || (previous.userId ?? previous.username) !== (message.userId ?? message.username)) return false
+  if (!previous || isSystemMessage(previous) || isSystemMessage(message)) return false
+  if ((previous.userId ?? previous.username) !== (message.userId ?? message.username)) return false
   const previousAt = new Date(previous.timestamp)
   const at = new Date(message.timestamp)
   const gap = at.getTime() - previousAt.getTime()
@@ -147,8 +151,18 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
 
   // Unread starts at the first message from someone else newer than what was read before opening
   const firstUnreadId = readMarker === null ? undefined : messages.find(
-    (msg) => Date.parse(msg.timestamp) > readMarker && !isOwnMessage(msg, { nickname, me })
+    (msg) => Date.parse(msg.timestamp) > readMarker && countsAsUnread(msg, { nickname, me })
   )?.messageId
+
+  // The newest system line offers Watch (channel 0) while Live has something on
+  // and the viewer is elsewhere. Older lines describe what Live used to show.
+  const liveIsOn = useChannelStore((s) => s.currentChannel !== null)
+  const watchingLive = useTVStore((s) => s.selectedChannel?.type === 'live')
+  const watchLineId = liveIsOn && !watchingLive ? messages.filter(isSystemMessage).at(-1)?.messageId : undefined
+  const handleWatchLive = useCallback(() => {
+    const tv = useTVStore.getState()
+    tv.selectChannel(tv.getUnifiedChannels()[0])
+  }, [])
 
   // The list is on screen: the panel is open and the name editor isn't covering it
   const listVisible = isOpen && !showNicknamePrompt
@@ -603,6 +617,7 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
                         now={now}
                         isFirstInGroup={startsGroup[index]}
                         isLastInGroup={startsGroup[index + 1] ?? true}
+                        onWatch={msg.messageId === watchLineId ? handleWatchLive : undefined}
                       />
                     </Fragment>
                   ))

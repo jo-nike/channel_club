@@ -32,6 +32,7 @@ interface WebSocketMessage {
   userId?: string
   content?: string
   timestamp?: string
+  kind?: ChatMessage['kind']
   messages?: ChatMessage[]
   // error: what went wrong, and for nickname_taken the refused nickname
   code?: string
@@ -229,6 +230,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
               userId: message.userId,
               content: message.content,
               timestamp: message.timestamp,
+              kind: message.kind,
             })
           }
           break

@@ -77,6 +77,44 @@ describe('useChatStore', () => {
     })
   })
 
+  describe('system lines', () => {
+    const systemLine = (id: string, timestamp = new Date().toISOString()): ChatMessage => ({
+      messageId: id,
+      username: 'Live TV',
+      userId: '',
+      content: 'jon switched Live to TSN 5',
+      timestamp,
+      kind: 'system',
+    })
+
+    it('adds them to the list without counting them as unread', () => {
+      useChatStore.setState({ isOpen: false })
+      useChatStore.getState().addMessage(systemLine('s1'))
+      useChatStore.getState().addMessage(createMessage('1'))
+      expect(useChatStore.getState().messages.map((m) => m.messageId)).toEqual(['s1', '1'])
+      expect(useChatStore.getState().unreadCount).toBe(1)
+    })
+
+    it('leaves them out of the unread recount a history does', () => {
+      useChatStore.getState().setIdentity({ username: 'me' })
+      useChatStore.setState({ lastReadAt: Date.parse('2026-09-26T20:00:01Z') })
+      useChatStore.getState().setMessages([
+        systemLine('s1', '2026-09-26T20:00:02Z'),
+        { ...createMessage('1', 'alice'), timestamp: '2026-09-26T20:00:03Z' },
+        systemLine('s2', '2026-09-26T20:00:04Z'),
+      ])
+      expect(useChatStore.getState().unreadCount).toBe(1)
+    })
+
+    it("don't set a 'New' marker when they are all that came in", () => {
+      useChatStore.getState().setIdentity({ username: 'me' })
+      useChatStore.setState({ lastReadAt: Date.parse('2026-09-26T20:00:01Z') })
+      useChatStore.getState().addMessage(systemLine('s1', '2026-09-26T20:00:02Z'))
+      useChatStore.getState().setOpen(true)
+      expect(useChatStore.getState().readMarker).toBeNull()
+    })
+  })
+
   describe('setMessages', () => {
     it('sets messages (for history)', () => {
       const messages = [createMessage('1'), createMessage('2')]
@@ -594,6 +632,12 @@ describe('useChatStore', () => {
       const state = { nickname: null, me: { username: 'alice' } }
       expect(isOwnMessage({ username: 'alice' }, state)).toBe(true)
       expect(isOwnMessage({ username: 'bob' }, state)).toBe(false)
+    })
+
+    it('never owns a system line, even under a matching nickname', () => {
+      const state = { nickname: 'Live TV', me: { username: 'alice', userId: 'u_alice' } }
+      expect(isOwnMessage({ username: 'Live TV', userId: '', kind: 'system' }, state)).toBe(false)
+      expect(isOwnMessage({ username: 'Live TV', userId: '' }, state)).toBe(true)
     })
 
     it('owns nothing while the identity is unknown', () => {
