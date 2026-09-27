@@ -1,0 +1,81 @@
+import { describe, it, expect, vi } from 'vitest'
+import { LayoutList } from 'lucide-react'
+import { render, screen, fireEvent, act } from '@/test/utils'
+import { HeaderAction } from './HeaderAction'
+
+describe('HeaderAction', () => {
+  it('is a toolbar button named by its label, and runs its action', () => {
+    const onClick = vi.fn()
+    render(<HeaderAction icon={<LayoutList />} label="Refresh video" onClick={onClick} />)
+
+    const button = screen.getByRole('button', { name: 'Refresh video' })
+    expect(button).toHaveAttribute('data-variant', 'toolbar')
+    expect(button).toHaveAttribute('data-size', 'toolbar')
+    expect(button).toHaveAttribute('type', 'button')
+    // A plain action is not a toggle
+    expect(button).not.toHaveAttribute('aria-pressed')
+
+    fireEvent.click(button)
+    expect(onClick).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports its toggle state through aria-pressed', () => {
+    const { rerender } = render(<HeaderAction icon={<LayoutList />} label="Guide" pressed />)
+    expect(screen.getByRole('button', { name: 'Guide' })).toHaveAttribute('aria-pressed', 'true')
+
+    rerender(<HeaderAction icon={<LayoutList />} label="Guide" pressed={false} />)
+    expect(screen.getByRole('button', { name: 'Guide' })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('shows its label in a tooltip on keyboard focus', async () => {
+    render(<HeaderAction icon={<LayoutList />} label="Open admin panel" visibleLabel="Host" />)
+    expect(screen.queryByRole('tooltip')).toBeNull()
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Open admin panel' }).focus()
+    })
+
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Open admin panel')
+  })
+
+  it('shows a short visible label from lg and widens to fit it', () => {
+    render(<HeaderAction icon={<LayoutList />} label="Hide guide" visibleLabel="Guide" />)
+
+    const button = screen.getByRole('button', { name: 'Hide guide' })
+    expect(screen.getByText('Guide')).toHaveClass('hidden', 'lg:inline')
+    expect(button).toHaveClass('lg:w-auto', 'lg:px-3')
+  })
+
+  it('stays a square icon button without a visible label', () => {
+    render(<HeaderAction icon={<LayoutList />} label="Refresh video" />)
+
+    const button = screen.getByRole('button', { name: 'Refresh video' })
+    expect(button.textContent).toBe('')
+    expect(button).not.toHaveClass('lg:w-auto')
+  })
+
+  it('shows a count badge on destructive, capped at 9+, and none at zero', () => {
+    const { rerender } = render(<HeaderAction icon={<LayoutList />} label="Chat" badge={3} />)
+    expect(screen.getByText('3')).toHaveClass('bg-destructive', 'text-destructive-foreground', 'dark:bg-destructive/60')
+
+    rerender(<HeaderAction icon={<LayoutList />} label="Chat" badge={12} />)
+    expect(screen.getByText('9+')).toBeInTheDocument()
+
+    rerender(<HeaderAction icon={<LayoutList />} label="Chat" badge={0} />)
+    expect(screen.getByRole('button', { name: 'Chat' }).textContent).toBe('')
+  })
+
+  it('can be the filled primary action', () => {
+    render(<HeaderAction icon={<LayoutList />} label="Open chat" variant="default" />)
+    const button = screen.getByRole('button', { name: 'Open chat' })
+    expect(button).toHaveClass('bg-primary', 'text-primary-foreground')
+    expect(button).toHaveAttribute('data-size', 'toolbar')
+  })
+
+  it('passes other button attributes through', () => {
+    render(<HeaderAction icon={<LayoutList />} label="Open chat" aria-expanded={false} aria-controls="chat-panel" />)
+    const button = screen.getByRole('button', { name: 'Open chat' })
+    expect(button).toHaveAttribute('aria-expanded', 'false')
+    expect(button).toHaveAttribute('aria-controls', 'chat-panel')
+  })
+})
