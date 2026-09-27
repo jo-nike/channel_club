@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen, cleanup } from '@/test/utils'
+import { render, screen, cleanup, fireEvent } from '@/test/utils'
 import { NowWatching } from './NowWatching'
 import { useChannelStore } from '@/stores/channelStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore } from '@/stores/tvStore'
+import { useUIStore } from '@/stores/uiStore'
 import type { UnifiedChannel } from '@/types'
 
 vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn(() => new Promise(() => {})) }))
@@ -25,6 +26,7 @@ describe('NowWatching', () => {
       { id: 'p1', channelId: 'e', title: 'The Lord of the Rings: The War of the Rohirrim', start: '2026-09-06T11:00:00Z', stop: '2026-09-06T12:32:00Z' },
     ] } })
     useTVStore.setState({ selectedChannel: null, liveEPG: null, liveEPGStatus: 'idle' })
+    useUIStore.setState({ isChannelSidebarCollapsed: false })
   })
 
   afterEach(() => {
@@ -37,7 +39,7 @@ describe('NowWatching', () => {
 
   it('shows the programme, then the channel number, name and time left', () => {
     useTVStore.setState({ selectedChannel: cinema })
-    render(<NowWatching />)
+    render(<NowWatching isMobile={false} />)
 
     expect(screen.getByText('The Lord of the Rings: The War of the Rohirrim')).toHaveClass('truncate', 'font-medium')
     expect(screen.getByText('CH 4 · Cinema · 32m left')).toHaveClass('truncate', 'text-xs', 'text-muted-foreground')
@@ -46,7 +48,7 @@ describe('NowWatching', () => {
 
   it('lets both lines shrink and truncate instead of growing the header', () => {
     useTVStore.setState({ selectedChannel: cinema })
-    render(<NowWatching />)
+    render(<NowWatching isMobile={false} />)
 
     const block = screen.getByTestId('now-watching')
     expect(block).toHaveClass('min-w-0', 'flex-1')
@@ -58,7 +60,7 @@ describe('NowWatching', () => {
   it('falls back to the channel name when the schedule has nothing on', () => {
     useErsatztvStore.setState({ programmesByChannel: {} })
     useTVStore.setState({ selectedChannel: cinema })
-    render(<NowWatching />)
+    render(<NowWatching isMobile={false} />)
 
     expect(screen.getByText('Cinema')).toHaveClass('font-medium')
     expect(screen.getByText('CH 4')).toBeInTheDocument()
@@ -73,7 +75,7 @@ describe('NowWatching', () => {
         title: 'CFL Football: Stampeders at Redblacks', startTime: '2026-09-06T11:00:00Z', endTime: '2026-09-06T13:05:00Z',
       } },
     })
-    render(<NowWatching />)
+    render(<NowWatching isMobile={false} />)
 
     expect(screen.getByText('CFL Football: Stampeders at Redblacks')).toBeInTheDocument()
     expect(screen.getByText('Live')).toHaveClass('bg-live', 'text-live-foreground')
@@ -88,7 +90,7 @@ describe('NowWatching', () => {
   ] as const)('names the live channel and says why there is no programme when the guide is %s', (status, copy) => {
     setLiveChannel(true)
     useTVStore.setState({ selectedChannel: liveSlot, liveEPG: null, liveEPGStatus: status })
-    render(<NowWatching />)
+    render(<NowWatching isMobile={false} />)
 
     expect(screen.getByText('CA-S: TSN 5')).toHaveClass('font-medium')
     expect(screen.getByText(`Club channel · ${copy}`)).toBeInTheDocument()
@@ -98,7 +100,7 @@ describe('NowWatching', () => {
 
   it('shows channel 0 without the LIVE pill while nothing is on live TV', () => {
     useTVStore.setState({ selectedChannel: emptyLiveSlot })
-    render(<NowWatching />)
+    render(<NowWatching isMobile={false} />)
 
     // Line 1 is the empty slot's name, as in the channel list
     expect(screen.getByText('Live')).toHaveClass('font-medium')
@@ -108,11 +110,71 @@ describe('NowWatching', () => {
   })
 
   it("shows a 'Tuning in...' skeleton before a channel is picked", () => {
-    render(<NowWatching />)
+    render(<NowWatching isMobile={false} />)
 
     expect(screen.getByText('Tuning in...')).toBeInTheDocument()
     expect(screen.getByTestId('now-watching-skeleton')).toHaveClass('animate-pulse')
     expect(screen.getByTestId('now-watching')).toHaveAttribute('aria-busy', 'true')
     expect(screen.queryByText('Select a channel')).not.toBeInTheDocument()
+  })
+
+  describe("'Live now · Join' chip", () => {
+    const joinChip = () => screen.queryByRole('button', { name: /Live now: CA-S: TSN 5/ })
+
+    it('on a phone, replaces line 2 while live TV is on and you are elsewhere', () => {
+      setLiveChannel(true)
+      useTVStore.setState({ selectedChannel: cinema })
+      render(<NowWatching isMobile />)
+
+      expect(joinChip()).toHaveTextContent('Live now: CA-S: TSN 5·Join')
+      expect(screen.getByText('The Lord of the Rings: The War of the Rohirrim')).toBeInTheDocument()
+      expect(screen.queryByText('CH 4 · Cinema · 32m left')).not.toBeInTheDocument()
+    })
+
+    it('on desktop, shows beside the block only while the channel sidebar is collapsed', () => {
+      setLiveChannel(true)
+      useTVStore.setState({ selectedChannel: cinema })
+      render(<NowWatching isMobile={false} />)
+      // Row 0 of the open sidebar is already one click away
+      expect(joinChip()).not.toBeInTheDocument()
+      cleanup()
+
+      useUIStore.setState({ isChannelSidebarCollapsed: true })
+      render(<NowWatching isMobile={false} />)
+      expect(joinChip()).toBeInTheDocument()
+      // Line 2 stays
+      expect(screen.getByText('CH 4 · Cinema · 32m left')).toBeInTheDocument()
+    })
+
+    it('stays hidden with nothing on live TV, or when already on channel 0', () => {
+      useTVStore.setState({ selectedChannel: cinema })
+      render(<NowWatching isMobile />)
+      expect(screen.queryByRole('button')).not.toBeInTheDocument()
+      expect(screen.getByText('CH 4 · Cinema · 32m left')).toBeInTheDocument()
+      cleanup()
+
+      setLiveChannel(true)
+      useTVStore.setState({ selectedChannel: liveSlot, liveEPG: null, liveEPGStatus: 'empty' })
+      render(<NowWatching isMobile />)
+      expect(screen.queryByRole('button')).not.toBeInTheDocument()
+      cleanup()
+
+      useTVStore.setState({ selectedChannel: null })
+      render(<NowWatching isMobile />)
+      expect(screen.queryByRole('button')).not.toBeInTheDocument()
+    })
+
+    it('tunes to channel 0 when tapped', () => {
+      setLiveChannel(true)
+      useTVStore.setState({ selectedChannel: cinema })
+      render(<NowWatching isMobile />)
+
+      fireEvent.click(joinChip() as HTMLElement)
+
+      expect(useTVStore.getState().selectedChannel).toEqual(useTVStore.getState().getUnifiedChannels()[0])
+      expect(useTVStore.getState().selectedChannel).toMatchObject({ type: 'live', number: 0, name: 'CA-S: TSN 5', streamUrl: '/a' })
+      expect(joinChip()).not.toBeInTheDocument()
+      expect(screen.getByText('Live')).toHaveClass('bg-live')
+    })
   })
 })

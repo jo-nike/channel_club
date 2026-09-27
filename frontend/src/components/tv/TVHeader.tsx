@@ -43,7 +43,7 @@ export function TVHeader({
         {/* Connection status indicator */}
         <ConnectionStatus status={status} onReconnect={onReconnect} />
         {/* What's on: two truncating lines, so a long title can't push the video down */}
-        <NowWatching />
+        <NowWatching isMobile={isMobile} />
       </div>
 
       <div className="flex items-center gap-2">

@@ -3,6 +3,7 @@ import { render, screen, fireEvent, cleanup, within } from '@/test/utils'
 import { TVHeader } from './TVHeader'
 import { useTVStore } from '@/stores/tvStore'
 import { useUIStore } from '@/stores/uiStore'
+import { useChannelStore } from '@/stores/channelStore'
 import { useChatStore } from '@/stores/chatStore'
 
 const auth = vi.hoisted(() => ({ isAdmin: false, logout: () => {} }))
@@ -40,6 +41,7 @@ beforeEach(() => {
   auth.logout = vi.fn()
   appSettings.userChannelSelection = false
   settingsMenu.onLogout = undefined
+  useChannelStore.setState({ currentChannel: null })
   useTVStore.setState({ selectedChannel: null, liveEPG: null })
   useUIStore.setState({ isEPGVisible: true, isNHLOverlayVisible: false })
   useChatStore.setState({ isOpen: false, unreadCount: 0 })
@@ -74,6 +76,15 @@ describe('TVHeader', () => {
     // The connection status stays to the left of the block
     const reconnect = screen.getByRole('button', { name: 'Reconnect' })
     expect(reconnect.compareDocumentPosition(block) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it("offers 'Live now · Join' on a phone while live TV is on elsewhere", () => {
+    useChannelStore.setState({ currentChannel: { id: 'a', name: 'Sports', streamUrl: '/a', guideId: 'g' } })
+    useTVStore.setState({ selectedChannel: movies })
+    renderHeader({ isMobile: true })
+
+    fireEvent.click(screen.getByRole('button', { name: /Live now: Sports/ }))
+    expect(useTVStore.getState().selectedChannel).toMatchObject({ type: 'live', name: 'Sports' })
   })
 
   it('reports the connection and reconnects from it', () => {
