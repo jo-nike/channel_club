@@ -1,12 +1,17 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, act, waitFor } from '@/test/utils'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { render, screen, act } from '@/test/utils'
 import { OfflineFallback } from './OfflineFallback'
+
+const MESSAGE = "You're offline. Chat and the guide will catch up when you reconnect."
 
 describe('OfflineFallback', () => {
   const originalNavigator = window.navigator
 
+  const setOnline = (onLine: boolean) => {
+    Object.defineProperty(window.navigator, 'onLine', { value: onLine, writable: true })
+  }
+
   beforeEach(() => {
-    // Reset navigator.onLine mock
     Object.defineProperty(window, 'navigator', {
       value: { ...originalNavigator, onLine: true },
       writable: true,
@@ -20,105 +25,54 @@ describe('OfflineFallback', () => {
     })
   })
 
-  it('should not render when online', () => {
-    Object.defineProperty(window.navigator, 'onLine', {
-      value: true,
-      writable: true,
-    })
-
+  it('renders nothing when online', () => {
+    setOnline(true)
     const { container } = render(<OfflineFallback />)
     expect(container.firstChild).toBeNull()
   })
 
-  it('should render offline message when offline', () => {
-    Object.defineProperty(window.navigator, 'onLine', {
-      value: false,
-      writable: true,
-    })
-
+  it('shows a slim status bar across the top when offline', () => {
+    setOnline(false)
     render(<OfflineFallback />)
 
-    expect(screen.getByText('Network Unavailable')).toBeInTheDocument()
-    expect(screen.getByText('Please check your connection')).toBeInTheDocument()
+    const banner = screen.getByRole('status')
+    expect(banner).toHaveTextContent(MESSAGE)
+    // A bar pinned to the top, clear of the status bar, not a full-screen blocker
+    expect(banner).toHaveClass('fixed', 'inset-x-0', 'top-0', 'pt-safe')
+    expect(banner).not.toHaveClass('inset-0')
+    expect(banner.firstElementChild).toHaveClass('min-h-8')
   })
 
-  it('should render retry button when offline', () => {
-    Object.defineProperty(window.navigator, 'onLine', {
-      value: false,
-      writable: true,
-    })
-
+  it("has no reload button: the app catches up by itself", () => {
+    setOnline(false)
     render(<OfflineFallback />)
-
-    const retryButton = screen.getByRole('button', { name: /retry/i })
-    expect(retryButton).toBeInTheDocument()
+    expect(screen.queryByRole('button')).toBeNull()
   })
 
-  it('should reload page when retry button is clicked', () => {
-    Object.defineProperty(window.navigator, 'onLine', {
-      value: false,
-      writable: true,
-    })
-
-    const reloadMock = vi.fn()
-    Object.defineProperty(window, 'location', {
-      value: { reload: reloadMock },
-      writable: true,
-    })
-
-    render(<OfflineFallback />)
-
-    const retryButton = screen.getByRole('button', { name: /retry/i })
-    fireEvent.click(retryButton)
-
-    expect(reloadMock).toHaveBeenCalled()
-  })
-
-  it('should show component when going offline', async () => {
-    Object.defineProperty(window.navigator, 'onLine', {
-      value: true,
-      writable: true,
-    })
-
+  it('appears when the browser goes offline', async () => {
+    setOnline(true)
     const { container } = render(<OfflineFallback />)
     expect(container.firstChild).toBeNull()
 
-    // Simulate going offline
-    Object.defineProperty(window.navigator, 'onLine', {
-      value: false,
-      writable: true,
-    })
-
+    setOnline(false)
     await act(async () => {
       window.dispatchEvent(new Event('offline'))
     })
 
-    // Component should now be visible
-    expect(screen.getByText('Network Unavailable')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent(MESSAGE)
   })
 
-  it('should hide component when going online', async () => {
-    Object.defineProperty(window.navigator, 'onLine', {
-      value: false,
-      writable: true,
-    })
-
+  it('hides when the browser comes back online', async () => {
+    setOnline(false)
     render(<OfflineFallback />)
-    expect(screen.getByText('Network Unavailable')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toBeInTheDocument()
 
-    // Simulate going online
-    Object.defineProperty(window.navigator, 'onLine', {
-      value: true,
-      writable: true,
-    })
-
+    setOnline(true)
     await act(async () => {
       window.dispatchEvent(new Event('online'))
     })
 
-    // Wait for state update - component should disappear
-    await waitFor(() => {
-      expect(screen.queryByText('Network Unavailable')).not.toBeInTheDocument()
-    })
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(screen.queryByText(MESSAGE)).toBeNull()
   })
 })
