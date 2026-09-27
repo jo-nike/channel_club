@@ -11,6 +11,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { AccountMenu } from '@/components/AccountMenu'
 import { Button } from '@/components/ui/button'
 import { CouchGuide } from './CouchGuide'
+import { RoomPanel } from './RoomPanel'
 
 interface CouchViewProps {
   /** Opens the live TV switcher; only for people allowed to change live TV */
@@ -82,7 +83,9 @@ function requestPageFullscreen() {
  * Otherwise OK, with nothing focused, opens the guide, as does the remote's
  * Guide or Info key; the first also takes the page fullscreen (a browser
  * only allows that from a key press or a click, so it can't happen on load).
- * The open guide has the keys until it hides. Back leaves fullscreen, and is
+ * The open guide has the keys until it hides. The remote's green key shows
+ * who else is here (RoomPanel, names only unless the admin shows channels),
+ * which likewise has the keys until it hides. Back leaves fullscreen, and is
  * otherwise the browser's. Play/pause is the player's own (remotePlayPause
  * in its shortcuts). The pointer, and the account menu with it, hide after
  * 3s at rest.
@@ -111,6 +114,9 @@ export function CouchView({ onPickLive, onOpenChannelPicker, onOpenAdmin }: Couc
 
   const [isGuideOpen, setGuideOpen] = useState(false)
   const closeGuide = useCallback(() => setGuideOpen(false), [])
+
+  const [isRoomOpen, setRoomOpen] = useState(false)
+  const closeRoom = useCallback(() => setRoomOpen(false), [])
 
   useEffect(() => {
     // The guide, and the page fullscreen if it isn't yet: this key press is
@@ -150,6 +156,11 @@ export function CouchView({ onPickLive, onOpenChannelPicker, onOpenAdmin }: Couc
         e.preventDefault()
         e.stopPropagation()
         openGuide()
+      } else if (action === 'room') {
+        // The open panel has focus, so it takes the key that hides it
+        e.preventDefault()
+        e.stopPropagation()
+        setRoomOpen(true)
       } else if (action === 'back' && getFullscreenElement()) {
         // Stops webOS Back (461) and Backspace from also navigating history
         e.preventDefault()
@@ -198,6 +209,7 @@ export function CouchView({ onPickLive, onOpenChannelPicker, onOpenAdmin }: Couc
         liveChange={zapPending ? null : liveChange}
       />
       {isGuideOpen && <CouchGuide onClose={closeGuide} canPickLive={!!onPickLive} />}
+      {isRoomOpen && <RoomPanel onClose={closeRoom} />}
       {/* Without it, a TV layout switched On would have no way back: it shows
           while the pointer moves, so a Magic Remote or mouse can reach it, and
           while it has keyboard focus, and fades with the idle pointer so it

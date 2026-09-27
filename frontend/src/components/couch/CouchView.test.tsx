@@ -5,7 +5,10 @@ import { CouchView } from './CouchView'
 import { useChannelStore } from '@/stores/channelStore'
 import { useTVStore } from '@/stores/tvStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
-import type { ErsatzTVChannel, UnifiedChannel } from '@/types'
+import { usePresenceStore } from '@/stores/presenceStore'
+import { useSettingsStore } from '@/stores/settingsStore'
+import { useChatStore } from '@/stores/chatStore'
+import type { ErsatzTVChannel, PresenceEntry, UnifiedChannel } from '@/types'
 import type { ChannelZap } from '@/hooks/useChannelZap'
 import { useTVMode } from '@/hooks/useTVMode'
 
@@ -407,6 +410,84 @@ describe('CouchView: guide', () => {
     act(() => screen.getByRole('button', { name: 'Account menu' }).focus())
 
     expect(guide()).not.toBeInTheDocument()
+  })
+})
+
+describe('CouchView: who is here', () => {
+  const panel = () => screen.queryByRole('listbox', { name: 'Here now' })
+  const focusedRow = () => document.activeElement!
+  const green = (target: Element = document.body) => press('ColorF1Green', { keyCode: 404 }, target)
+  const person = (overrides: Partial<PresenceEntry> & Pick<PresenceEntry, 'displayName'>): PresenceEntry => ({
+    userId: null, channelId: null, channelName: null, programme: null, view: null, since: null, ...overrides,
+  })
+  const me = person({ userId: 'u_me', displayName: 'jonike', view: 'ersatztv', channelId: 'e1', channelName: 'Movies' })
+  const sam = person({ userId: 'u_sam', displayName: 'sam', view: 'ersatztv', channelId: 'e2', channelName: 'Cartoons' })
+
+  beforeEach(() => {
+    useChatStore.setState({ nickname: null, me: { username: 'jonike', userId: 'u_me' } })
+    usePresenceStore.setState({ entries: [me, sam] })
+  })
+
+  afterEach(() => {
+    usePresenceStore.setState({ entries: [] })
+    useSettingsStore.setState({ presenceVisible: false })
+  })
+
+  it("opens on the remote's green key and hides on it again, keeping the key from the page", () => {
+    renderCouch()
+    expect(panel()).not.toBeInTheDocument()
+    const bubble = vi.fn()
+    window.addEventListener('keydown', bubble)
+
+    expect(green()).toBe(false)
+    expect(panel()).toBeInTheDocument()
+    expect(focusedRow()).toHaveAttribute('role', 'option')
+
+    expect(green(focusedRow())).toBe(false)
+    window.removeEventListener('keydown', bubble)
+    expect(panel()).not.toBeInTheDocument()
+    expect(bubble).not.toHaveBeenCalled()
+
+    // A remote whose green key has no name
+    press('Unidentified', { keyCode: 404 })
+    expect(panel()).toBeInTheDocument()
+  })
+
+  it('shows names only while the admin keeps channels hidden, with nothing to join', () => {
+    usePresenceStore.setState({ entries: [me, person({ userId: 'u_sam', displayName: 'sam' })] })
+    renderCouch()
+
+    green()
+    press('Enter', { keyCode: 13 }, focusedRow())
+
+    expect(panel()).toHaveTextContent('sam')
+    expect(panel()).not.toHaveTextContent('Cartoons')
+    expect(panel()).not.toHaveTextContent('Join')
+    expect(selectedId()).toBe('e1')
+  })
+
+  it("joins a friend's channel on OK once the admin shows channels, and hides the panel", () => {
+    useSettingsStore.setState({ presenceVisible: true })
+    renderCouch()
+
+    green()
+    expect(panel()).toHaveTextContent('Cartoons')
+    press('Enter', { keyCode: 13 }, focusedRow())
+
+    expect(selectedId()).toBe('e2')
+    expect(panel()).not.toBeInTheDocument()
+    expect(screen.getByTestId('player')).toHaveTextContent('/e2')
+  })
+
+  it("opens nothing while nobody else is here, and doesn't spring open when a friend arrives", () => {
+    usePresenceStore.setState({ entries: [me] })
+    renderCouch()
+
+    green()
+    expect(panel()).not.toBeInTheDocument()
+
+    act(() => usePresenceStore.setState({ entries: [me, sam] }))
+    expect(panel()).not.toBeInTheDocument()
   })
 })
 
