@@ -1,6 +1,7 @@
 import { Play, VolumeX } from 'lucide-react'
 import { useCanSetVolume } from '@/hooks/useCanSetVolume'
 import { cn } from '@/lib/utils'
+import { useUIStore } from '@/stores/uiStore'
 
 export type AutoplayNoticeMode = 'sound-off' | 'tap-to-play'
 
@@ -29,6 +30,8 @@ interface AutoplayNoticeProps {
  */
 export function AutoplayNotice({ mode, volume, onUnmute, onPlay, belowRail = false }: AutoplayNoticeProps) {
   const canSetVolume = useCanSetVolume()
+  // The NHL strip takes the same top band (under the rail, or at the top)
+  const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
 
   if (mode === 'tap-to-play') {
     return (
@@ -50,8 +53,16 @@ export function AutoplayNotice({ mode, volume, onUnmute, onPlay, belowRail = fal
       className={cn(
         // Top-centre, clear of the rail's channel block and the bottom control bar
         'video-controls absolute left-1/2 z-30 flex w-max max-w-[calc(100%-2rem)] -translate-x-1/2 min-h-[44px] items-center gap-3 rounded-full border border-white/15 bg-black/80 py-2 pl-3 pr-4 text-left text-base font-bold text-white shadow-lg backdrop-blur-md transition-colors hover:bg-black/90 focus-ring-media',
-        // The rail's height (0.75rem above its 3rem row, plus the shell's top inset) and a gap
-        belowRail ? 'top-[calc(4.25rem+var(--player-inset-top,0px))]' : 'top-4'
+        // The rail's height (0.75rem above its 3rem row, plus the shell's top inset) and a gap.
+        // With the NHL strip open, also its height (about 4.5rem: NHLScoresOverlay's 0.5rem
+        // wrapper padding, a padded card around a 2rem row), so the pill sits under it
+        belowRail
+          ? isNHLOverlayVisible
+            ? 'top-[calc(8.75rem+var(--player-inset-top,0px))]'
+            : 'top-[calc(4.25rem+var(--player-inset-top,0px))]'
+          : isNHLOverlayVisible
+            ? 'top-[5rem]'
+            : 'top-4'
       )}
     >
       <VolumeX className="h-6 w-6 shrink-0 text-primary" aria-hidden="true" />

@@ -17,7 +17,10 @@ export function InstallPrompt() {
 
   // While the banner shows, publish the room it takes at the bottom of the
   // screen (its height plus its offset) as --install-prompt-h on <html>, so
-  // the phone channel list can scroll its last row clear of it
+  // the phone channel list can scroll its last row clear of it. The offset is
+  // read from the computed style, not the class: a portrait tablet gets the
+  // phone list together with the raised md+ offset. (The computed bottom is
+  // unaffected by the slide-in transform, unlike getBoundingClientRect.)
   useLayoutEffect(() => {
     const banner = bannerRef.current
     if (!visible || !banner) return
@@ -25,7 +28,7 @@ export function InstallPrompt() {
     const publish = () =>
       root.style.setProperty(
         '--install-prompt-h',
-        `calc(${banner.offsetHeight}px + max(1rem, env(safe-area-inset-bottom)))`,
+        `calc(${banner.offsetHeight}px + ${getComputedStyle(banner).bottom})`,
       )
     publish()
     // The copy wraps on narrow screens, so follow the banner's height
@@ -44,12 +47,15 @@ export function InstallPrompt() {
     dismiss()
   }
 
+  // From md up the banner is a corner card that can land on the player's
+  // control bar (a landscape tablet's player fills the screen), so it sits
+  // 4.5rem higher, above the bar's 48px buttons, rather than over Fullscreen
   return (
     <>
       {visible && (
         <div
           ref={bannerRef}
-          className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-4 right-4 md:left-auto md:right-4 md:w-96
+          className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] md:bottom-[calc(4.5rem+max(1rem,env(safe-area-inset-bottom)))] left-4 right-4 md:left-auto md:right-4 md:w-96
                      bg-card text-card-foreground border border-border rounded-lg shadow-lg p-4
                      flex items-center gap-4 z-40 animate-in slide-in-from-bottom duration-300"
           role="dialog"

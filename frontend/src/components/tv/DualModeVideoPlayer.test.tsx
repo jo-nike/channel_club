@@ -2514,6 +2514,51 @@ describe('DualModeVideoPlayer arrival card', () => {
     expect(screen.getByTestId('arrival-card')).toHaveTextContent('Channel 0 is the club channel')
   })
 
+  it('on a phone in portrait sits in the page under the player, clear of the picture and the rail', () => {
+    vi.spyOn(Element.prototype, 'clientHeight', 'get').mockReturnValue(211)
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    render(
+      <DualModeVideoPlayer
+        channel={hlsChannel('1', 1)}
+        isTheaterMode={false}
+        onTheaterModeToggle={vi.fn()}
+        arrivalHost={host}
+      />
+    )
+
+    const card = arrivalCard()
+    expect(host).toContainElement(card)
+    expect(shell()).not.toContainElement(card)
+    expect(card).not.toHaveClass('absolute')
+    expect(card).toHaveTextContent('Channel 0 is the club channel')
+    // The rail's NHL button is in the shell, so nothing covers it
+    expect(shell()).toContainElement(screen.getByRole('button', { name: /NHL/ }))
+    host.remove()
+  })
+
+  it("under the player it still waits while 'Sound is off' is up", () => {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    useAudioStore.setState({ volume: 0.3, muted: true, savedMuteNotice: true })
+    render(
+      <DualModeVideoPlayer
+        channel={hlsChannel('1', 1)}
+        isTheaterMode={false}
+        onTheaterModeToggle={vi.fn()}
+        arrivalHost={host}
+      />
+    )
+    act(() => lastPlayerProps().onPlaying?.())
+
+    expect(soundOffNotice()).toBeInTheDocument()
+    expect(arrivalCard()).toBeEmptyDOMElement()
+    fireEvent.click(soundOffNotice()!)
+    expect(arrivalCard()).toHaveTextContent('Channel 0 is the club channel')
+    expect(host).toContainElement(arrivalCard())
+    host.remove()
+  })
+
   it.each([
     ['live', liveChannel('https://fixture/a'), () => act(() => video().dispatchEvent(new Event('playing')))],
     ['ErsatzTV', hlsChannel('1', 1), () => act(() => lastPlayerProps().onPlaying?.())],

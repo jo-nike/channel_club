@@ -248,6 +248,8 @@ export function TVView() {
   const isMobile = layoutMode === 'phone'
   const isMobileLandscape = useMobileLandscape()
   const isPhonePortrait = isMobile && !isTheaterMode && !isMobileLandscape
+  // Phone portrait: the element under the player the arrival card portals into
+  const [arrivalHost, setArrivalHost] = useState<HTMLDivElement | null>(null)
   // Phone portrait: Channels | Chat tabs under the pinned player, so the
   // picture stays in view while chatting. The selected tab is chatStore's
   // isOpen, so the header chat button selects Chat and opening it still
@@ -579,9 +581,14 @@ export function TVView() {
                 zap={zap}
                 onFocusSearch={canSearchChannels ? requestSearchFocus : undefined}
                 isStrip={isVideoStrip}
+                arrivalHost={isPhonePortrait ? arrivalHost : null}
               />
             </ErrorBoundary>
           </div>
+
+          {/* Phone portrait: the arrival card, portalled here by the player,
+              sits under the picture rather than over most of it */}
+          {isPhonePortrait && <div ref={setArrivalHost} data-testid="arrival-host" className="flex-none" />}
 
           {/* Resize handle - only on desktop when EPG visible, hidden in theater/landscape */}
           {!isMobile && isEPGVisible && !isTheaterMode && !isMobileLandscape && (

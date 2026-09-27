@@ -4,11 +4,13 @@ import { X } from 'lucide-react'
 import { PresenceStack } from '@/components/PresenceStack'
 import { Button } from '@/components/ui/button'
 import { usePlayerShell } from '@/components/player/PlayerShellContext'
+import { useLayoutMode } from '@/hooks/useLayoutMode'
 import { usePresenceByChannel } from '@/hooks/usePresenceByChannel'
 import { useTVMode } from '@/hooks/useTVMode'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
 import { useChannelStore } from '@/stores/channelStore'
+import { useChatStore } from '@/stores/chatStore'
 import { LIVE_CHANNEL_ID, useTVStore } from '@/stores/tvStore'
 import { useUIStore } from '@/stores/uiStore'
 import type { UnifiedChannel } from '@/types'
@@ -54,6 +56,12 @@ type Phase = 'waiting' | 'welcome' | 'friends' | 'done'
 interface ArrivalCardProps {
   /** The channel the player is on; null before the TV store has one */
   channel: UnifiedChannel | null
+  /**
+   * 'overlay' (the default): over the top-left of the picture. 'inline': in
+   * the page flow under the player (a phone in portrait, whose 16:9 picture
+   * it would mostly cover), full width, never moving for the rail.
+   */
+  placement?: 'overlay' | 'inline'
 }
 
 /** Whether the player shell is tall enough for the card under the info rail */
@@ -84,7 +92,7 @@ function useFitsUnderRail(): boolean {
  * The first visit (until the welcome is closed) greets the viewer by name and
  * says what channel 0 is, with 'Join live' while live TV has something on
  * (and the viewer isn't on it already) and 'Browse channels', which opens the
- * guide. Join is hidden where the browser can't play the live stream (no MSE,
+ * guide (on a phone, the Channels tab). Join is hidden where the browser can't play the live stream (no MSE,
  * as on iPhone Safari). Closing the welcome in any of those ways marks it
  * seen; letting it time out doesn't, so it comes back next session.
  *
@@ -109,11 +117,17 @@ function useFitsUnderRail(): boolean {
  * phone's or a laptop's with the guide open, it stays where it is, over the
  * rail. Not on the TV layout, whose channel banner has that corner and whose
  * remote can't reach it.
+ *
+ * On a phone in portrait the player portals it under the picture instead
+ * (placement 'inline'), so the picture and the rail's NHL button stay clear;
+ * it keeps the shell's context there, so it still waits for the notice.
  */
-export function ArrivalCard({ channel }: ArrivalCardProps) {
+export function ArrivalCard({ channel, placement = 'overlay' }: ArrivalCardProps) {
   const { isInfoRailVisible, isAutoplayNoticeShown } = usePlayerShell()
   const fitsUnderRail = useFitsUnderRail()
   const isTVMode = useTVMode()
+  const isPhone = useLayoutMode() === 'phone'
+  const isInline = placement === 'inline'
   const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
   const hasSeenWelcome = useUIStore((s) => s.hasSeenWelcome)
   const setHasSeenWelcome = useUIStore((s) => s.setHasSeenWelcome)
@@ -158,7 +172,7 @@ export function ArrivalCard({ channel }: ArrivalCardProps) {
   // Clear of the sound-off pill
   const isDeferred = isAutoplayNoticeShown
   // Clear of the control bar on a short player
-  const isUnderRail = isInfoRailVisible && fitsUnderRail
+  const isUnderRail = !isInline && isInfoRailVisible && fitsUnderRail
   const isVisible = isShowing && !isNHLOverlayVisible && !isDeferred
 
   // Hidden under the pointer or with focus in it, it never hears them leave
@@ -192,12 +206,19 @@ export function ArrivalCard({ channel }: ArrivalCardProps) {
     close()
   }
 
-  // As the header's Guide button: the guide takes focus when opened from the keyboard
   const browseChannels = (e: MouseEvent<HTMLButtonElement>) => {
-    const ui = useUIStore.getState()
-    if (!ui.isEPGVisible) {
-      ui.setGuideFocusRequested(e.detail === 0)
-      ui.setEPGVisible(true)
+    if (isPhone) {
+      // A phone has no guide: its channel list is the Channels tab, which
+      // chat's isOpen selects. Leave the guide flag alone, or it would carry
+      // over to a tablet or desktop layout.
+      useChatStore.getState().setOpen(false)
+    } else {
+      // As the header's Guide button: the guide takes focus when opened from the keyboard
+      const ui = useUIStore.getState()
+      if (!ui.isEPGVisible) {
+        ui.setGuideFocusRequested(e.detail === 0)
+        ui.setEPGVisible(true)
+      }
     }
     close()
   }
@@ -215,9 +236,14 @@ export function ArrivalCard({ channel }: ArrivalCardProps) {
       role="status"
       data-testid="arrival-card"
       className={cn(
-        'pointer-events-none absolute left-[max(1rem,env(safe-area-inset-left))] z-30 w-80 max-w-[calc(100%-2rem)] motion-safe:transition-[top] motion-safe:duration-300',
-        // The rail's height (0.75rem above its 3rem row, plus the shell's top inset) and a gap
-        isUnderRail ? 'top-[calc(4.25rem+var(--player-inset-top,0px))]' : 'top-[calc(1rem+var(--player-inset-top,0px))]'
+        isInline
+          ? // In the page flow, taking no room until the card fills in
+            cn('pointer-events-none', isVisible && 'mx-4 mt-3')
+          : cn(
+              'pointer-events-none absolute left-[max(1rem,env(safe-area-inset-left))] z-30 w-80 max-w-[calc(100%-2rem)] motion-safe:transition-[top] motion-safe:duration-300',
+              // The rail's height (0.75rem above its 3rem row, plus the shell's top inset) and a gap
+              isUnderRail ? 'top-[calc(4.25rem+var(--player-inset-top,0px))]' : 'top-[calc(1rem+var(--player-inset-top,0px))]'
+            )
       )}
     >
       {isVisible && (

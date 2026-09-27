@@ -21,7 +21,7 @@ const auth = vi.hoisted(() => ({ isAdmin: false }))
 const appSettings = vi.hoisted(() => ({ userChannelSelection: false }))
 // Chat is a build-time flag, off in tests unless a test turns it on
 const chatFlag = vi.hoisted(() => ({ enabled: false }))
-const playerProps = vi.hoisted(() => ({ onPickLive: undefined as undefined | (() => void), renders: 0, reloadKey: undefined as undefined | number, mounts: 0, zap: undefined as undefined | ChannelZap, onFocusSearch: undefined as undefined | (() => void), isStrip: undefined as undefined | boolean }))
+const playerProps = vi.hoisted(() => ({ onPickLive: undefined as undefined | (() => void), renders: 0, reloadKey: undefined as undefined | number, mounts: 0, zap: undefined as undefined | ChannelZap, onFocusSearch: undefined as undefined | (() => void), isStrip: undefined as undefined | boolean, arrivalHost: undefined as undefined | HTMLElement | null }))
 const guide = vi.hoisted(() => ({ onProgrammeClick: undefined as undefined | ((programme: ErsatzTVProgramme, channel: UnifiedChannel) => void) }))
 const modal = vi.hoisted(() => ({ last: null as null | { programme: ErsatzTVProgramme | null; channel: { id: string; name: string } | null; open: boolean; onWatch: (channel: { id: string; name: string }) => void } }))
 vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn(), fetchLiveProgrammes: vi.fn(async () => ({ channelId: '', programmes: [] })) }))
@@ -40,8 +40,9 @@ vi.mock('@/components/LiveSwitcherSheet', () => ({ LiveSwitcherSheet: ({ open, o
 } }))
 vi.mock('@/components/tv/DualModeVideoPlayer', async () => {
   const { useEffect } = await import('react')
-  return { DualModeVideoPlayer: ({ channel, onPickLive, reloadKey, zap, onFocusSearch, isStrip }: { channel: UnifiedChannel | null; onPickLive?: () => void; reloadKey?: number; zap?: ChannelZap; onFocusSearch?: () => void; isStrip?: boolean }) => {
+  return { DualModeVideoPlayer: ({ channel, onPickLive, reloadKey, zap, onFocusSearch, isStrip, arrivalHost }: { channel: UnifiedChannel | null; onPickLive?: () => void; reloadKey?: number; zap?: ChannelZap; onFocusSearch?: () => void; isStrip?: boolean; arrivalHost?: HTMLElement | null }) => {
     playerProps.onPickLive = onPickLive
+    playerProps.arrivalHost = arrivalHost
     playerProps.isStrip = isStrip
     playerProps.onFocusSearch = onFocusSearch
     playerProps.reloadKey = reloadKey
@@ -414,6 +415,28 @@ describe('G-03 phone portrait layout', () => {
     const list = screen.getByRole('heading', { name: 'Channels' }).closest('.epg-scroll') as HTMLElement
     expect(list).toHaveClass('min-h-0', 'overflow-y-auto')
     expect(list).toHaveStyle({ flex: '1 1 0%' })
+  })
+
+  it('gives the player a place under the picture for the arrival card, before the channel list', async () => {
+    matchOnly('(max-width: 768px)')
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(playerProps.arrivalHost).toBe(screen.getByTestId('arrival-host')))
+
+    const video = screen.getByTestId('player').closest('.bg-black') as HTMLElement
+    const host = screen.getByTestId('arrival-host')
+    // Outside the player box (so not over the picture), straight after it
+    expect(video).not.toContainElement(host)
+    expect(video.nextElementSibling).toBe(host)
+    const list = screen.getByRole('heading', { name: 'Channels' })
+    expect(host.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('keeps the arrival card over the picture off a phone', async () => {
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+
+    expect(screen.queryByTestId('arrival-host')).not.toBeInTheDocument()
+    expect(playerProps.arrivalHost).toBeNull()
   })
 
   it('keeps the desktop player growing into the full height', async () => {
@@ -1054,10 +1077,11 @@ describe('G-07/E-02 Channels and Chat tabs on a phone', () => {
     expect(panel).toHaveAttribute('aria-labelledby', tab('Channels').id)
     expect(within(panel).getByRole('heading', { name: 'Channels' })).toBeVisible()
     expect(panel).toHaveClass('epg-scroll', 'min-h-0', 'flex-1', 'overflow-y-auto')
-    // The strip comes after the 16:9 video, in the same column
+    // The strip comes after the 16:9 video (and the arrival card's place), in the same column
     const video = screen.getByTestId('player').closest('.bg-black') as HTMLElement
     expect(video).toHaveClass('aspect-video')
-    expect(video.nextElementSibling).toContainElement(tablist)
+    expect(video.nextElementSibling).toBe(screen.getByTestId('arrival-host'))
+    expect(video.nextElementSibling?.nextElementSibling).toContainElement(tablist)
     expect(screen.queryByTestId('chat')).not.toBeInTheDocument()
   })
 
