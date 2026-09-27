@@ -25,7 +25,7 @@ import {
   type IndexedProgramme,
   type ProgrammeIndex,
 } from '@/lib/programmeIndex'
-import { calculateProgress, formatRemaining, type ProgrammeState } from '@/lib/programmes'
+import { calculateProgress, formatRemaining, formatRemainingSpoken, type ProgrammeState } from '@/lib/programmes'
 import { cn } from '@/lib/utils'
 import type { UnifiedChannel, ErsatzTVProgramme, EPGResponse } from '@/types'
 
@@ -587,6 +587,7 @@ const ChannelRow = memo(function ChannelRow({
                 // before the grid does
                 progressPct={isNow ? calculateProgress(Math.max(startMs, gridStartMs), stopMs, now) : undefined}
                 timeLeft={isNow ? formatRemaining(stopMs, now) : undefined}
+                spokenTimeLeft={isNow ? formatRemainingSpoken(stopMs, now) : undefined}
                 isWatching={isNow && isWatching}
                 isTabStop={tabStopBlockId === programme.id}
                 onClick={onProgrammeClick}
@@ -753,9 +754,11 @@ interface ProgrammeBoxProps {
   // The programme's times, epoch ms
   startMs: number
   stopMs: number
-  // Only for the block on now: elapsed share of the drawn block (0-100) and '32m left'
+  // Only for the block on now: elapsed share of the drawn block (0-100),
+  // '32m left', and '32 minutes left' for its accessible name
   progressPct?: number
   timeLeft?: string
+  spokenTimeLeft?: string
   // On now on the channel being watched
   isWatching: boolean
   // Holds the grid's one tab stop
@@ -778,13 +781,20 @@ const ProgrammeBox = memo(function ProgrammeBox({
   stopMs,
   progressPct,
   timeLeft,
+  spokenTimeLeft,
   isWatching,
   isTabStop,
   onClick,
   onFocus,
 }: ProgrammeBoxProps) {
   const showsText = width >= PROGRAMME_TEXT_MIN_WIDTH
-  const meta = state === 'now' ? timeLeft : `${formatTime(startMs)} - ${formatTime(stopMs)}`
+  const startText = state === 'now' ? '' : formatTime(startMs)
+  const stopText = state === 'now' ? '' : formatTime(stopMs)
+  const meta = state === 'now' ? timeLeft : `${startText} - ${stopText}`
+  // Read out of the grid, a block needs its channel, and when it's on in words
+  const when =
+    state === 'now' ? `on now, ${spokenTimeLeft}` : state === 'future' ? `starts ${startText}` : `ended ${stopText}`
+  const name = `${programme.title}, ${channel.number} ${channel.name}, ${when}`
 
   const block = (
     <button
@@ -811,7 +821,7 @@ const ProgrammeBox = memo(function ProgrammeBox({
       data-grid-row={channel.id}
       data-grid-block={programme.id}
       tabIndex={isTabStop ? 0 : -1}
-      aria-label={showsText ? undefined : `${programme.title}, ${meta}`}
+      aria-label={name}
       onClick={() => onClick?.(programme, channel)}
       onFocus={() => onFocus?.(channel.id, programme.id)}
     >

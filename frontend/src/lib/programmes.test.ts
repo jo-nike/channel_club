@@ -3,6 +3,7 @@ import {
   calculateProgress,
   findOnAir,
   formatRemaining,
+  formatRemainingSpoken,
   formatStartsIn,
   getProgrammeState,
 } from './programmes'
@@ -102,6 +103,22 @@ describe('formatRemaining', () => {
 
   it('formats hours and minutes', () => {
     expect(formatRemaining(now + 65 * MINUTE, now)).toBe('1h 5m left')
+  })
+})
+
+describe('formatRemainingSpoken', () => {
+  const now = at('2026-01-03T19:00:00Z')
+
+  it('spells the units out, singular for one', () => {
+    expect(formatRemainingSpoken(now + 32 * MINUTE, now)).toBe('32 minutes left')
+    expect(formatRemainingSpoken(now + 1, now)).toBe('1 minute left')
+    expect(formatRemainingSpoken(now + 60 * MINUTE, now)).toBe('1 hour left')
+    expect(formatRemainingSpoken(now + 65 * MINUTE, now)).toBe('1 hour 5 minutes left')
+    expect(formatRemainingSpoken(now + 121 * MINUTE, now)).toBe('2 hours 1 minute left')
+  })
+
+  it('says ending at or after the stop', () => {
+    expect(formatRemainingSpoken(now, now)).toBe('ending')
   })
 })
 

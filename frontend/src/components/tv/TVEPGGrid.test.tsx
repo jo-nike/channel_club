@@ -673,11 +673,11 @@ describe('TVEPGGrid programme states', () => {
     expect(screen.getByRole('tooltip')).toHaveTextContent('Station Ident')
   })
 
-  it('names a narrow block on now by its title and time left', () => {
+  it('names a narrow block on now by its title, channel and time left', () => {
     const ending = { etv1: [{ id: 'ending', channelId: 'etv1', title: 'Promo', start: at(-5), stop: at(4) }] }
     render(<TVEPGGrid programmesByChannel={ending} />)
 
-    expect(screen.getByRole('button', { name: 'Promo, 4m left' })).toHaveAttribute('data-state', 'now')
+    expect(screen.getByRole('button', { name: 'Promo, 1 Movies, on now, 4 minutes left' })).toHaveAttribute('data-state', 'now')
   })
 
   it('keeps the live tint on the live row while its programme is on', () => {
@@ -1235,6 +1235,23 @@ describe('TVEPGGrid keyboard grid', () => {
     expect(pick.closest('[role="gridcell"]')).not.toBeNull()
     press('Enter')
     expect(onPickLive).toHaveBeenCalledTimes(1)
+  })
+
+  it('names each programme with its channel and whether it is on now, starts or ended', () => {
+    const timeFormat = new Intl.DateTimeFormat([], { hour: 'numeric', minute: '2-digit' })
+    render(<TVEPGGrid programmesByChannel={schedule} />)
+
+    // 19:20-20:30, 30 minutes to go
+    expect(block('Cartoon Hour')).toHaveAccessibleName('Cartoon Hour, 2 Kids, on now, 30 minutes left')
+    expect(block('Nature')).toHaveAccessibleName(`Nature, 2 Kids, starts ${timeFormat.format(new Date(NOW + 30 * MINUTE))}`)
+    expect(block('Early News')).toHaveAccessibleName('Early News, 1 News, on now, 10 minutes left')
+    expect(block('Quiz')).toHaveAccessibleName(`Quiz, 1 News, starts ${timeFormat.format(new Date(NOW + 10 * MINUTE))}`)
+
+    // The time left follows the clock, and a finished programme says when it ended
+    act(() => vi.advanceTimersByTime(10 * MINUTE))
+    expect(block('Cartoon Hour')).toHaveAccessibleName('Cartoon Hour, 2 Kids, on now, 20 minutes left')
+    expect(block('Early News')).toHaveAccessibleName(`Early News, 1 News, ended ${timeFormat.format(new Date(NOW + 10 * MINUTE))}`)
+    expect(block('Quiz')).toHaveAccessibleName('Quiz, 1 News, on now, 50 minutes left')
   })
 
   it('leaves other keys and keys with modifiers to the page', () => {
