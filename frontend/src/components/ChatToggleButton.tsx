@@ -6,7 +6,11 @@ import { withKey } from '@/lib/keyHints'
 
 export function ChatToggleButton() {
   const chatEnabled = useChatEnabled()
-  const { toggleOpen, unreadCount, isOpen } = useChatStore()
+  // Field selectors: the button re-renders for its count and state, not on
+  // every message
+  const toggleOpen = useChatStore((s) => s.toggleOpen)
+  const unreadCount = useChatStore((s) => s.unreadCount)
+  const isOpen = useChatStore((s) => s.isOpen)
 
   // Don't render if chat is disabled
   if (!chatEnabled) {

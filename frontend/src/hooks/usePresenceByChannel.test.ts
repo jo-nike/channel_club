@@ -6,7 +6,9 @@ import {
   hidingUserIds,
   isOwnPresence,
   mapPresenceByChannel,
+  presenceNames,
   presenceRowId,
+  useOthersHere,
   usePresenceByChannel,
   useSeesPresenceChannels,
 } from './usePresenceByChannel'
@@ -99,6 +101,21 @@ describe('findMessageChannel', () => {
 
   it('finds nothing for an unstamped message', () => {
     expect(findMessageChannel(message({}), channels)).toBeNull()
+  })
+})
+
+describe('presenceNames', () => {
+  it('names one or two people, and counts the rest after the first', () => {
+    expect(presenceNames([maya])).toBe('maya')
+    expect(presenceNames([maya, dev])).toBe('maya and dev')
+    expect(presenceNames([maya, dev, sam])).toBe('maya and 2 others')
+  })
+
+  it('adds the verb that agrees with one person or several', () => {
+    const here = { one: 'is here', many: 'are here' }
+    expect(presenceNames([maya], here)).toBe('maya is here')
+    expect(presenceNames([maya, dev], here)).toBe('maya and dev are here')
+    expect(presenceNames([maya, dev, sam], here)).toBe('maya and 2 others are here')
   })
 })
 
@@ -197,5 +214,34 @@ describe('useSeesPresenceChannels', () => {
     })
     rerender()
     expect(result.current).toBe(false)
+  })
+})
+
+describe('useOthersHere', () => {
+  beforeEach(() => {
+    usePresenceStore.setState({ entries: [maya, me, kim] })
+    useChatStore.setState({ nickname: null, me: { username: 'jonike', userId: 'u_me' } })
+  })
+
+  it('lists everyone but this viewer in snapshot order, with or without a channel', () => {
+    const { result } = renderHook(() => useOthersHere())
+    expect(result.current).toEqual([maya, kim])
+  })
+
+  it('shows names whatever the presence settings', () => {
+    useSettingsStore.setState({ presenceVisible: false })
+    useUIStore.setState({ hideMyActivity: true })
+    const { result } = renderHook(() => useOthersHere())
+    expect(result.current).toEqual([maya, kim])
+  })
+
+  it('follows a new snapshot and keeps the same list until something changes', () => {
+    const { result, rerender } = renderHook(() => useOthersHere())
+    const first = result.current
+    rerender()
+    expect(result.current).toBe(first)
+
+    act(() => usePresenceStore.getState().setEntries([me, sam]))
+    expect(result.current).toEqual([sam])
   })
 })

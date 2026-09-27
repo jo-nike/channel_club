@@ -4,7 +4,8 @@ import { useProgrammeClock } from '@/hooks/useProgrammeClock'
 import { buildProgrammeIndex, findCurrentAndNext, findInRange, type CurrentAndNext } from '@/lib/programmeIndex'
 import { calculateProgress, formatRemaining } from '@/lib/programmes'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
-import { useTVStore, describeLiveGuide, LIVE_CHANNEL_ID } from '@/stores/tvStore'
+import { useTVStore, buildUnifiedChannels, describeLiveGuide, LIVE_CHANNEL_ID } from '@/stores/tvStore'
+import { useChannelStore } from '@/stores/channelStore'
 import { Button } from '@/components/ui/button'
 import { LivePill } from '@/components/LivePill'
 import { ChannelLogo } from '@/components/ChannelLogo'
@@ -37,8 +38,13 @@ export function MobileChannelList({
   liveEPGTitle,
   onPickLive,
 }: MobileChannelListProps) {
-  const { getUnifiedChannels, isLiveChannelActive, selectedChannel, liveEPGStatus } = useTVStore()
-  const { programmesByChannel } = useErsatztvStore()
+  // Field selectors: the list re-renders for what it shows, not on every
+  // update to the stores it reads
+  const ersatzTVChannels = useErsatztvStore((s) => s.channels)
+  const programmesByChannel = useErsatztvStore((s) => s.programmesByChannel)
+  const selectedChannel = useTVStore((s) => s.selectedChannel)
+  const liveEPGStatus = useTVStore((s) => s.liveEPGStatus)
+  const liveChannel = useChannelStore((s) => s.currentChannel)
   // The live channel's schedule, for the live row's Next line and schedule
   const liveProgrammes = useTVStore((s) => s.liveProgrammes)
   // Shared 30s clock for the current programme, progress and time remaining
@@ -48,8 +54,13 @@ export function MobileChannelList({
   const [expandedChannelId, setExpandedChannelId] = useState<string | null>(null)
   const scheduleIdPrefix = useId()
 
-  const unifiedChannels = getUnifiedChannels()
-  const hasLiveChannel = isLiveChannelActive()
+  // The unified list, built from the two stores it comes from, so the live
+  // slot follows live TV
+  const unifiedChannels = useMemo(
+    () => buildUnifiedChannels(liveChannel, ersatzTVChannels),
+    [liveChannel, ersatzTVChannels]
+  )
+  const hasLiveChannel = liveChannel !== null
   // Who else is on each card; empty unless this viewer sees channels
   const presenceByChannel = usePresenceByChannel()
 

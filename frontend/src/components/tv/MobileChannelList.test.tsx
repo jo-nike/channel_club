@@ -56,6 +56,25 @@ describe('MobileChannelList', () => {
     expect(onChannelSelect).toHaveBeenCalledWith(expect.objectContaining({ type: 'live', name: 'Club' }))
   })
 
+  it('follows the channel list and live TV while it is open', () => {
+    render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={vi.fn()} />)
+    expect(screen.queryByText('News')).toBeNull()
+
+    act(() =>
+      useErsatztvStore.setState({
+        channels: [
+          ...useErsatztvStore.getState().channels,
+          { id: 'etv3', name: 'News', streamUrl: '/etv3', logoUrl: '', number: 3, group: 'Current affairs' },
+        ],
+      })
+    )
+    expect(screen.getByText('News')).toBeInTheDocument()
+
+    act(() => useChannelStore.setState({ currentChannel: null }))
+    expect(screen.queryByText('Club')).toBeNull()
+    expect(screen.getByText('Live')).toBeInTheDocument()
+  })
+
   it('numbers every row, including channels with a logo and the live slot', () => {
     useErsatztvStore.setState({
       channels: [
