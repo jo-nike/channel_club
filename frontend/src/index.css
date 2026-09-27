@@ -308,6 +308,52 @@
 }
 
 /* ============================
+   COUCH (10-FOOT) VIEW
+   ============================ */
+
+/* TVView sets html.couch while a TV browser has the couch view (CouchView).
+   Its tokens are read only by the couch rules below and the couch view's
+   own components (the channel banner's placement). The root font size stays
+   as it is, so dialogs and the player controls reused here keep their sizes.
+   - --couch-safe-x/y: the title-safe margin, clear of a TV's overscan
+   - --couch-focus: remote focus, in the brand colour (Club Night's amber) */
+.couch {
+  --couch-safe-x: 5vw;
+  --couch-safe-y: 5vh;
+  --couch-focus: var(--primary);
+}
+
+/* Tooltips follow a hovering pointer, which a remote hasn't got: under a
+   Magic Remote's pointer they would only cover the picture. */
+.couch [data-slot="tooltip-content"] {
+  display: none;
+}
+
+/* The control bar runs edge to edge along the bottom of the screen, so on a
+   TV its buttons keep inside the title-safe area */
+.couch .couch-view .video-controls.px-3 {
+  padding-left: max(0.75rem, var(--couch-safe-x));
+  padding-right: max(0.75rem, var(--couch-safe-x));
+}
+
+.couch .couch-view .video-controls.pb-2 {
+  padding-bottom: max(0.5rem, var(--couch-safe-y));
+}
+
+/* Focus from a remote, readable from the sofa: a thick outline in the brand
+   colour, and a focused button grows a little, so focus never rests on
+   colour alone. Unlayered, so it wins over focus-ring-media's white outline
+   (whose dark band stays). */
+.couch .couch-view :focus-visible {
+  outline: 4px solid var(--couch-focus);
+  outline-offset: 3px;
+}
+
+.couch .couch-view :is(button, [role="button"]):focus-visible {
+  transform: scale(1.1);
+}
+
+/* ============================
    PROJECTOR BEAM LOADER
    ============================ */
 

@@ -465,12 +465,22 @@ describe('PlayerChrome', () => {
 
   describe('TV browsers', () => {
     // webOS pointer mode can report pointer:coarse, so TV mode must win over isMobile
-    it('renders Theater and Fullscreen on a TV that looks like a touch device', () => {
+    it('renders Fullscreen on a TV that looks like a touch device', () => {
       tv.mode = true
       renderChrome({ props: { isMobile: true } })
 
-      expect(screen.getByRole('button', { name: 'Theater mode' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Fullscreen' })).toBeInTheDocument()
+    })
+
+    // The couch layout always fills the screen: there is no theater to switch
+    it('offers no theater button on a TV, in or out of theater', () => {
+      tv.mode = true
+      const { unmount } = renderChrome()
+      expect(screen.queryByRole('button', { name: /theater/i })).not.toBeInTheDocument()
+      unmount()
+
+      renderChrome({ shell: { isTheaterMode: true } })
+      expect(screen.queryByRole('button', { name: /theater/i })).not.toBeInTheDocument()
     })
 
     it('the TV fullscreen button toggles the shell fullscreen', () => {

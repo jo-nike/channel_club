@@ -11,12 +11,21 @@ import type { ErsatzTVChannel, UnifiedChannel } from '@/types'
 import type { ChannelZap } from '@/hooks/useChannelZap'
 
 const tv = vi.hoisted(() => ({ mode: true }))
+const socket = vi.hoisted(() => ({ opened: vi.fn(), sendChannelUpdate: vi.fn() }))
 const player = vi.hoisted(() => ({ onFocusSearch: undefined as undefined | (() => void) }))
 vi.mock('@/hooks/useTVMode', () => ({ useTVMode: () => tv.mode }))
 vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn() }))
 vi.mock('@/services/ersatztvApi', () => ({ fetchErsatzTVChannels: vi.fn(), fetchErsatzTVCurrentProgramme: vi.fn(), getErsatzTVLogoUrl: vi.fn() }))
-vi.mock('@/hooks/useWebSocket', () => ({ useWebSocket: () => ({ status: 'connected', sendChannelUpdate: vi.fn(), sendChatMessage: vi.fn(), sendSetNickname: vi.fn() }) }))
-vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ isAdmin: false, logout: vi.fn() }) }))
+vi.mock('@/hooks/useWebSocket', async () => {
+  const { useEffect } = await import('react')
+  return { useWebSocket: (options: { view: string }) => {
+    // Counts sockets opened, not renders
+    useEffect(() => { socket.opened(options.view) }, [options.view])
+    return { status: 'connected', sendChannelUpdate: socket.sendChannelUpdate, sendChatMessage: vi.fn(), sendSetNickname: vi.fn() }
+  } }
+})
+const auth = vi.hoisted(() => ({ isAdmin: false }))
+vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ isAdmin: auth.isAdmin, logout: vi.fn() }) }))
 vi.mock('@/hooks/useAppSettings', () => ({ useAppSettings: () => ({ userChannelSelection: false }) }))
 // The real shell's channel keys, so digits and Enter reach the page's zap as they do in the app
 vi.mock('@/components/tv/DualModeVideoPlayer', async () => {
@@ -33,12 +42,16 @@ vi.mock('@/components/tv/DualModeVideoPlayer', async () => {
     return <div data-testid="player">{channel?.streamUrl || 'No live broadcast'}</div>
   } }
 })
-vi.mock('@/components/tv/TVEPGGrid', () => ({ TVEPGGrid: () => null }))
-vi.mock('@/components/tv/TVChannelSidebar', () => ({ TVChannelSidebar: () => null }))
-vi.mock('@/components/ChatPanel', () => ({ ChatPanel: () => null }))
+vi.mock('@/components/tv/TVEPGGrid', () => ({ TVEPGGrid: () => <div data-testid="tv-epg-grid" /> }))
+vi.mock('@/components/tv/TVChannelSidebar', () => ({ TVChannelSidebar: () => <div data-testid="tv-channel-sidebar" /> }))
+vi.mock('@/components/ChatPanel', () => ({ ChatPanel: () => <div data-testid="chat-panel" /> }))
 vi.mock('@/components/ersatztv/ProgrammeDetailsModal', () => ({ ProgrammeDetailsModal: () => null }))
-vi.mock('@/components/AccountMenu', () => ({ AccountMenu: () => null }))
-vi.mock('@/components/AdminModal', () => ({ AdminModal: () => null }))
+vi.mock('@/components/AccountMenu', () => ({
+  AccountMenu: ({ onOpenAdmin }: { onOpenAdmin: () => void }) => <button type="button" onClick={onOpenAdmin}>Account menu</button>,
+}))
+vi.mock('@/components/AdminModal', () => ({
+  AdminModal: ({ open }: { open: boolean }) => (open ? <div role="dialog" aria-label="Admin panel" /> : null),
+}))
 
 // Unified order: slot 0 (live), then ErsatzTV 1 and 2
 const ersatz: ErsatzTVChannel[] = [
@@ -48,25 +61,19 @@ const ersatz: ErsatzTVChannel[] = [
 
 const selectedId = () => useTVStore.getState().selectedChannel?.id
 const isTheater = () => useUIStore.getState().isTheaterMode
-const press = (key: string, init: { keyCode?: number } = {}, target: Element = document.body) =>
-  fireEvent.keyDown(target, { key, ...init })
+const isCouch = () => document.documentElement.classList.contains('couch')
+const press = (key: string, init: { keyCode?: number } = {}) => fireEvent.keyDown(document.body, { key, ...init })
 
 function renderTV() {
-  render(<MemoryRouter><TVView /></MemoryRouter>)
-}
-
-// Elements outside the app (a text field, a focusable button), removed after each test
-const extras: Element[] = []
-function addToPage<K extends keyof HTMLElementTagNameMap>(tag: K): HTMLElementTagNameMap[K] {
-  const element = document.createElement(tag)
-  document.body.appendChild(element)
-  extras.push(element)
-  return element
+  return render(<MemoryRouter><TVView /></MemoryRouter>)
 }
 
 beforeEach(() => {
   vi.useFakeTimers()
   tv.mode = true
+  auth.isAdmin = false
+  socket.opened.mockClear()
+  socket.sendChannelUpdate.mockClear()
   useChatStore.setState({ isOpen: false })
   useTVStore.setState({ selectedChannel: null, liveEPG: null })
   useErsatztvStore.setState({
@@ -76,289 +83,114 @@ beforeEach(() => {
     loadChannels: vi.fn().mockResolvedValue(undefined),
     loadAllProgrammes: vi.fn().mockResolvedValue(undefined),
   })
-  useUIStore.setState({ lastTVChannelId: 'e1', isTheaterMode: false, isChannelSidebarCollapsed: false })
+  useUIStore.setState({ lastTVChannelId: 'e1', isTheaterMode: false, isChannelSidebarCollapsed: false, isEPGVisible: true })
   useChannelStore.getState().setCurrentChannel({ id: 'a', name: 'Sports', streamUrl: 'https://fixture/a', guideId: '' })
 })
 
 afterEach(() => {
   vi.useRealTimers()
-  extras.splice(0).forEach((element) => element.remove())
 })
 
-describe('TV browsers: theater and zapping', () => {
-  it('starts in theater mode', () => {
+describe('TV browsers: the couch view', () => {
+  it('renders the couch view: the player, with no header, guide grid, channel list or chat', () => {
     renderTV()
 
-    expect(isTheater()).toBe(true)
-    expect(selectedId()).toBe('e1')
+    expect(screen.getByTestId('player')).toHaveTextContent('/e1')
+    expect(screen.getByTestId('player').closest('.couch-view')).not.toBeNull()
+    expect(screen.queryByRole('banner')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('tv-epg-grid')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('tv-channel-sidebar')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('chat-panel')).not.toBeInTheDocument()
+    expect(screen.queryByRole('separator')).not.toBeInTheDocument()
   })
 
-  it('does not force theater, or zap, off a TV', () => {
+  it('renders the page layout off a TV', () => {
     tv.mode = false
     renderTV()
 
-    expect(isTheater()).toBe(false)
-    act(() => useUIStore.getState().setTheaterMode(true))
+    expect(screen.getByRole('banner')).toBeInTheDocument()
+    expect(screen.getByTestId('tv-epg-grid')).toBeInTheDocument()
+    expect(screen.getByTestId('player').closest('.couch-view')).toBeNull()
+  })
+
+  it('opens one WebSocket and sends presence for the channel playing', () => {
+    renderTV()
+
+    expect(socket.opened).toHaveBeenCalledTimes(1)
+    expect(socket.opened).toHaveBeenCalledWith('tv')
+    expect(socket.sendChannelUpdate).toHaveBeenLastCalledWith('Movies', null, 'ersatztv', 'e1')
+
     press('ArrowUp')
     act(() => { vi.advanceTimersByTime(700) })
 
-    expect(selectedId()).toBe('e1')
+    expect(socket.opened).toHaveBeenCalledTimes(1)
+    expect(socket.sendChannelUpdate).toHaveBeenLastCalledWith('Cartoons', null, 'ersatztv', 'e2')
   })
 
-  it('tunes to the next channel 700ms after ArrowUp', () => {
+  it('marks html.couch while it is up, and clears it when it goes', () => {
+    const { unmount } = renderTV()
+    expect(isCouch()).toBe(true)
+
+    unmount()
+    expect(isCouch()).toBe(false)
+  })
+
+  it('does not mark html.couch off a TV', () => {
+    tv.mode = false
+    renderTV()
+
+    expect(isCouch()).toBe(false)
+  })
+
+  it('leaves theater alone: the couch view fills the screen without it', () => {
+    renderTV()
+
+    expect(isTheater()).toBe(false)
+  })
+
+  it('zaps from the remote: ArrowUp tunes the next channel 700ms later', () => {
     renderTV()
 
     press('ArrowUp')
-    act(() => { vi.advanceTimersByTime(699) })
-    expect(selectedId()).toBe('e1')
+    act(() => { vi.advanceTimersByTime(700) })
 
-    act(() => { vi.advanceTimersByTime(1) })
     expect(selectedId()).toBe('e2')
     expect(screen.getByTestId('player')).toHaveTextContent('/e2')
   })
 
-  it('tunes once to where a burst of presses lands, wrapping through slot 0', () => {
-    renderTV()
-    const tune = vi.spyOn(useTVStore.getState(), 'selectChannel')
-
-    press('ArrowUp') // 2
-    press('ArrowUp') // wraps to 0
-    press('PageUp', { keyCode: 33 }) // webOS CH+: 1
-    press('PageDown', { keyCode: 34 }) // webOS CH-: 0
-    act(() => { vi.advanceTimersByTime(700) })
-
-    expect(selectedId()).toBe('live-channel-0')
-    expect(tune).toHaveBeenCalledTimes(1)
-  })
-
-  it('shows a banner for the channel being zapped to, then hides it 3s after the last change', () => {
-    renderTV()
-    const banner = screen.getByRole('status')
-    // Entering theater shows the playing channel and the hint
-    expect(banner).toHaveTextContent('CH 1 · Movies')
-    expect(banner).toHaveTextContent('▲▼ change channel · Back for menu')
-
-    act(() => { vi.advanceTimersByTime(2000) })
-    press('ArrowUp')
-    expect(banner).toHaveTextContent('CH 2 · Cartoons')
-
-    act(() => { vi.advanceTimersByTime(2999) })
-    expect(banner).toHaveTextContent('CH 2 · Cartoons')
-    act(() => { vi.advanceTimersByTime(1) })
-    expect(banner).toBeEmptyDOMElement()
-  })
-
-  it('keeps zap keys from the player and page handlers', () => {
-    renderTV()
-    const bubble = vi.fn()
-    window.addEventListener('keydown', bubble)
-
-    const notPrevented = press('ArrowDown')
-
-    window.removeEventListener('keydown', bubble)
-    expect(notPrevented).toBe(false)
-    expect(bubble).not.toHaveBeenCalled()
-  })
-
-  it('ignores zap keys typed into an input', () => {
-    renderTV()
-    const input = addToPage('input')
-
-    const notPrevented = press('ArrowUp', {}, input)
-    act(() => { vi.advanceTimersByTime(700) })
-
-    expect(notPrevented).toBe(true)
-    expect(selectedId()).toBe('e1')
-  })
-
-  it('shows the digits typed while they match no channel, then No channel 99 when entered, and does not tune', () => {
-    renderTV()
-    const banner = screen.getByRole('status')
-
-    press('9')
-    expect(banner).toHaveTextContent('CH 9')
-    expect(banner).not.toHaveTextContent('Movies')
-    press('9')
-    expect(banner).toHaveTextContent('CH 99')
-    press('Enter', { keyCode: 13 })
-
-    expect(banner).toHaveTextContent('No channel 99')
-    expect(banner).not.toHaveTextContent('Movies')
-    act(() => { vi.advanceTimersByTime(1500) })
-    expect(selectedId()).toBe('e1')
-  })
-
-  it('shows the channel a typed number matches, and tunes it 1.5s after the last digit', () => {
-    renderTV()
-    const banner = screen.getByRole('status')
-
-    press('2')
-    expect(banner).toHaveTextContent('CH 2 · Cartoons')
-    expect(selectedId()).toBe('e1')
-
-    act(() => { vi.advanceTimersByTime(1500) })
-    expect(selectedId()).toBe('e2')
-    expect(banner).toHaveTextContent('CH 2 · Cartoons')
-  })
-
-  it('leaves arrows alone outside theater', () => {
-    renderTV()
-    act(() => useUIStore.getState().setTheaterMode(false))
-
-    const notPrevented = press('ArrowUp')
-    act(() => { vi.advanceTimersByTime(700) })
-
-    expect(notPrevented).toBe(true)
-    expect(selectedId()).toBe('e1')
-    expect(screen.queryByText(/change channel/)).not.toBeInTheDocument()
-  })
-})
-
-describe('TV browsers: Back and OK', () => {
-  afterEach(() => {
-    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null })
-  })
-
-  it.each([
-    ['webOS Back', 'Unidentified', 461],
-    ['Tizen Return', 'Unidentified', 10009],
-    ['GoBack', 'GoBack', 0],
-    ['Backspace', 'Backspace', 8],
-  ])('%s leaves theater and cancels the browser default', (_label, key, keyCode) => {
-    renderTV()
-
-    const notPrevented = press(key, { keyCode })
-
-    expect(notPrevented).toBe(false)
-    expect(isTheater()).toBe(false)
-  })
-
-  it('Escape still leaves theater', () => {
-    renderTV()
-
-    press('Escape', { keyCode: 27 })
-
-    expect(isTheater()).toBe(false)
-  })
-
-  it('Back exits fullscreen before leaving theater', () => {
-    renderTV()
-    const exitFullscreen = vi.fn(() => Promise.resolve())
-    Object.defineProperty(document, 'exitFullscreen', { configurable: true, value: exitFullscreen })
-    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: document.body })
-
-    press('Unidentified', { keyCode: 461 })
-
-    expect(exitFullscreen).toHaveBeenCalledTimes(1)
-    expect(isTheater()).toBe(true)
-  })
-
-  it('Backspace in an input stays with the input', () => {
-    renderTV()
-    const input = addToPage('input')
-
-    const notPrevented = press('Backspace', { keyCode: 8 }, input)
-
-    expect(notPrevented).toBe(true)
-    expect(isTheater()).toBe(true)
-  })
-
-  it('leaves Back to the browser outside theater', () => {
-    renderTV()
-    act(() => useUIStore.getState().setTheaterMode(false))
-
-    expect(press('Unidentified', { keyCode: 461 })).toBe(true)
-  })
-
-  it('OK with nothing focused returns to theater', () => {
-    renderTV()
-    press('Unidentified', { keyCode: 461 })
-    expect(isTheater()).toBe(false)
-
-    press('Enter', { keyCode: 13 })
-
-    expect(isTheater()).toBe(true)
-  })
-
-  it('OK on a focused button presses the button instead', () => {
-    renderTV()
-    act(() => useUIStore.getState().setTheaterMode(false))
-    const button = addToPage('button')
-    button.focus()
-
-    press('Enter', { keyCode: 13 }, button)
-
-    expect(isTheater()).toBe(false)
-  })
-
-  it.each([
-    ['webOS Back', 'Unidentified', 461],
-    ['Tizen Return', 'Unidentified', 10009],
-    ['Escape', 'Escape', 27],
-  ])('%s closes chat before leaving theater', (_label, key, keyCode) => {
-    renderTV()
-    act(() => useChatStore.setState({ isOpen: true }))
-
-    press(key, { keyCode })
-    expect(useChatStore.getState().isOpen).toBe(false)
-    expect(isTheater()).toBe(true)
-
-    press(key, { keyCode })
-    expect(isTheater()).toBe(false)
-  })
-
-  it('Back outside theater closes open chat instead of navigating', () => {
-    renderTV()
-    act(() => {
-      useUIStore.getState().setTheaterMode(false)
-      useChatStore.setState({ isOpen: true })
-    })
-
-    const notPrevented = press('Unidentified', { keyCode: 461 })
-
-    expect(notPrevented).toBe(false)
-    expect(useChatStore.getState().isOpen).toBe(false)
-  })
-
-  it("Back from chat's message field closes chat, while Backspace there edits the text", () => {
-    renderTV()
-    act(() => useChatStore.setState({ isOpen: true }))
-    const panel = addToPage('div')
-    panel.id = 'chat-panel'
-    const field = document.createElement('input')
-    panel.appendChild(field)
-
-    expect(press('Backspace', { keyCode: 8 }, field)).toBe(true)
-    expect(useChatStore.getState().isOpen).toBe(true)
-
-    expect(press('Unidentified', { keyCode: 461 }, field)).toBe(false)
-    expect(useChatStore.getState().isOpen).toBe(false)
-    expect(isTheater()).toBe(true)
-  })
-
-  it('does not handle Back or OK off a TV', () => {
+  it('does not zap on arrows off a TV, even in theater', () => {
     tv.mode = false
     renderTV()
     act(() => useUIStore.getState().setTheaterMode(true))
 
-    expect(press('Unidentified', { keyCode: 461 })).toBe(true)
-    expect(isTheater()).toBe(true)
+    press('ArrowUp')
+    act(() => { vi.advanceTimersByTime(700) })
+
+    expect(selectedId()).toBe('e1')
   })
-})
 
-describe("TV browsers: '/'", () => {
-  it('offers no channel search focus on a TV, even out of theater, as a remote has no /', () => {
+  it('leaves Escape to the couch view: theater and chat are untouched', () => {
+    useUIStore.setState({ isTheaterMode: true })
+    act(() => useChatStore.setState({ isOpen: true }))
     renderTV()
-    act(() => useUIStore.getState().setTheaterMode(false))
 
-    expect(isTheater()).toBe(false)
+    press('Escape', { keyCode: 27 })
+
+    expect(isTheater()).toBe(true)
+    expect(useChatStore.getState().isOpen).toBe(true)
+  })
+
+  it("offers the player no channel search, as a remote has no '/'", () => {
+    renderTV()
     expect(player.onFocusSearch).toBeUndefined()
   })
 
-  it('offers it off a TV, out of theater', () => {
-    tv.mode = false
+  it('keeps the account menu, the way back to the page layout, and its admin panel', () => {
+    auth.isAdmin = true
     renderTV()
 
-    expect(player.onFocusSearch).toBeInstanceOf(Function)
+    fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
+
+    expect(screen.getByRole('dialog', { name: 'Admin panel' })).toBeInTheDocument()
   })
 })

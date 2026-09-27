@@ -1,5 +1,6 @@
 import { useEffect, useCallback } from 'react'
 import type { RefObject } from 'react'
+import { getRemoteAction } from '@/lib/remoteKeys'
 
 /**
  * Every action is optional, so the playback keys can live with the engine
@@ -38,6 +39,8 @@ interface UseVideoKeyboardShortcutsOptions {
   onFocusSearch?: () => void
   /** Leave ArrowUp/ArrowDown alone (TV mode, where they belong to channel changes) */
   ignoreVerticalArrows?: boolean
+  /** A remote's play/pause key (MediaPlayPause) toggles playback too (TV mode) */
+  remotePlayPause?: boolean
 }
 
 const VOLUME_STEP = 0.1
@@ -79,6 +82,7 @@ export function useVideoKeyboardShortcuts({
   onNHLToggle,
   onFocusSearch,
   ignoreVerticalArrows = false,
+  remotePlayPause = false,
 }: UseVideoKeyboardShortcutsOptions) {
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -90,6 +94,16 @@ export function useVideoKeyboardShortcuts({
 
       if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey ||
         focusMatches(NATIVE_KEYS_SELECTOR) || focusMatches('[role="dialog"]')) return
+
+      // Only on a TV, whose remote's play/pause key reaches the page as a
+      // keydown (webOS and Tizen send key codes only). A desktop browser may
+      // already act on a keyboard's media keys, and would pause twice.
+      if (remotePlayPause && getRemoteAction(e) === 'playPause') {
+        if (!onPlayPause) return
+        e.preventDefault()
+        onPlayPause()
+        return
+      }
 
       // Space and the arrows only with focus in the player container or on
       // nothing (body)
@@ -224,6 +238,7 @@ export function useVideoKeyboardShortcuts({
       onNHLToggle,
       onFocusSearch,
       ignoreVerticalArrows,
+      remotePlayPause,
     ]
   )
 

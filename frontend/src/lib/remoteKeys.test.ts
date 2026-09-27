@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { getRemoteAction, isKeyForFocusedControl, type RemoteAction } from './remoteKeys'
+import { getRemoteAction, getRemoteDigit, isKeyForFocusedControl, type RemoteAction } from './remoteKeys'
 
 const press = (key: string, keyCode = 0) => new KeyboardEvent('keydown', { key, keyCode })
 
@@ -16,6 +16,11 @@ describe('getRemoteAction', () => {
     ['GoBack', 0, 'back'],
     ['BrowserBack', 0, 'back'],
     ['Enter', 13, 'ok'],
+    ['MediaPlayPause', 179, 'playPause'],
+    ['0', 48, 'digit'],
+    ['7', 55, 'digit'],
+    ['9', 105, 'digit'], // number pad
+    ['!', 49, null], // Shift+1
     ['a', 65, null],
     ['ArrowLeft', 37, null],
     [' ', 32, null],
@@ -31,8 +36,29 @@ describe('getRemoteAction', () => {
     [38, 'channelUp'],
     [40, 'channelDown'],
     [13, 'ok'],
+    [179, 'playPause'],
+    [10252, 'playPause'], // Tizen play/pause
+    [49, 'digit'],
+    [96, 'digit'], // number pad 0
   ])('maps keyCode %i with an unidentified key to %s', (keyCode, action) => {
     expect(getRemoteAction(press('Unidentified', keyCode))).toBe(action)
+  })
+})
+
+describe('getRemoteDigit', () => {
+  it.each<[string, number, string | null]>([
+    ['0', 48, '0'],
+    ['5', 53, '5'],
+    ['3', 99, '3'], // number pad
+    ['Unidentified', 50, '2'], // a remote's number key with no name
+    ['Unidentified', 105, '9'], // the number pad's, with no name
+    ['', 52, '4'],
+    ['!', 49, null], // Shift+1 shares the 1 key's code
+    ['@', 50, null],
+    ['Enter', 13, null],
+    ['Unidentified', 461, null],
+  ])('reads key %s (keyCode %i) as %s', (key, keyCode, digit) => {
+    expect(getRemoteDigit(press(key, keyCode))).toBe(digit)
   })
 })
 

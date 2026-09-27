@@ -177,6 +177,54 @@ describe('useVideoKeyboardShortcuts', () => {
     expect(mockProps.onVolumeChange).toHaveBeenCalledWith(0.4)
   })
 
+  describe("a remote's play/pause key", () => {
+    const pressPlayPause = (init: KeyboardEventInit) => {
+      const event = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init })
+      window.dispatchEvent(event)
+      return event
+    }
+
+    it.each([
+      ['MediaPlayPause', { key: 'MediaPlayPause', keyCode: 179 }],
+      ['webOS, by key code', { key: 'Unidentified', keyCode: 179 }],
+      ['Tizen, by key code', { key: 'Unidentified', keyCode: 10252 }],
+    ])('plays and pauses on a TV (%s)', (_label, init) => {
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, remotePlayPause: true }))
+
+      const event = pressPlayPause(init)
+
+      expect(mockProps.onPlayPause).toHaveBeenCalledTimes(1)
+      expect(event.defaultPrevented).toBe(true)
+    })
+
+    it('works with focus outside the player, like the other single keys', () => {
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, remotePlayPause: true }))
+      const button = document.createElement('button')
+      document.body.appendChild(button)
+      button.focus()
+
+      button.dispatchEvent(new KeyboardEvent('keydown', { key: 'MediaPlayPause', bubbles: true }))
+
+      expect(mockProps.onPlayPause).toHaveBeenCalledTimes(1)
+      button.remove()
+    })
+
+    it('is left to the browser off a TV', () => {
+      renderHook(() => useVideoKeyboardShortcuts(mockProps))
+
+      const event = pressPlayPause({ key: 'MediaPlayPause', keyCode: 179 })
+
+      expect(mockProps.onPlayPause).not.toHaveBeenCalled()
+      expect(event.defaultPrevented).toBe(false)
+    })
+
+    it('is left alone where playback has no toggle (casting)', () => {
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onPlayPause: undefined, remotePlayPause: true }))
+
+      expect(pressPlayPause({ key: 'MediaPlayPause' }).defaultPrevented).toBe(false)
+    })
+  })
+
   it('does not exceed volume of 1', () => {
     mockProps.volume = 0.95
     renderHook(() => useVideoKeyboardShortcuts(mockProps))
