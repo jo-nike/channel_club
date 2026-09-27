@@ -8,7 +8,8 @@ import type { PresenceEntry } from '@/types'
  * Server state pushed over the WebSocket (connection_ack and presence_update),
  * so it is not persisted. Each snapshot replaces the last one whole. The
  * server leaves the channel fields empty unless the admin lets members see
- * what everyone is watching, and for anyone who hides it.
+ * what everyone is watching (settingsStore.presenceVisible), and for anyone
+ * who hides it.
  */
 interface PresenceState {
   entries: PresenceEntry[]

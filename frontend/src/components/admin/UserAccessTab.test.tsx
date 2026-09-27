@@ -12,8 +12,8 @@ vi.mock('@/services/api', () => ({
 describe('UserAccessTab', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useSettingsStore.setState({ userChannelSelection: false })
-    vi.mocked(api.fetchAppSettings).mockResolvedValue({ userChannelSelection: false })
+    useSettingsStore.setState({ userChannelSelection: false, presenceVisible: false })
+    vi.mocked(api.fetchAppSettings).mockResolvedValue({ userChannelSelection: false, presenceVisible: false })
   })
 
   // Let the mount fetch land first, so it can't overwrite the toggle mid-test
@@ -21,6 +21,8 @@ describe('UserAccessTab', () => {
 
   const liveChannelSwitch = () =>
     screen.getByRole('switch', { name: 'Users can set the live channel' })
+  const presenceSwitch = () =>
+    screen.getByRole('switch', { name: 'Show what everyone is watching' })
 
   it('renders the live channel selection setting as a switch', async () => {
     render(<UserAccessTab />)
@@ -105,5 +107,84 @@ describe('UserAccessTab', () => {
     expect(liveChannelSwitch()).toHaveAttribute('aria-checked', 'false')
     expect(liveChannelSwitch()).toBeEnabled()
     expect(useSettingsStore.getState().userChannelSelection).toBe(false)
+  })
+
+  describe('Show what everyone is watching', () => {
+    it('reflects the setting fetched from the server', async () => {
+      vi.mocked(api.fetchAppSettings).mockResolvedValue({ userChannelSelection: false, presenceVisible: true })
+
+      render(<UserAccessTab />)
+
+      await waitFor(() => {
+        expect(presenceSwitch()).toHaveAttribute('aria-checked', 'true')
+      })
+      expect(useSettingsStore.getState().presenceVisible).toBe(true)
+    })
+
+    it('reads a server without the setting as off', async () => {
+      useSettingsStore.setState({ presenceVisible: true })
+      vi.mocked(api.fetchAppSettings).mockResolvedValue({ userChannelSelection: false })
+
+      render(<UserAccessTab />)
+
+      await waitFor(() => {
+        expect(presenceSwitch()).toHaveAttribute('aria-checked', 'false')
+      })
+    })
+
+    it('turns off again when switched off', async () => {
+      vi.mocked(api.fetchAppSettings).mockResolvedValue({ userChannelSelection: false, presenceVisible: true })
+      vi.mocked(api.updateAppSettings).mockResolvedValue({ userChannelSelection: false, presenceVisible: false })
+
+      render(<UserAccessTab />)
+      await waitFor(() => {
+        expect(presenceSwitch()).toHaveAttribute('aria-checked', 'true')
+      })
+      fireEvent.click(presenceSwitch())
+
+      await waitFor(() => {
+        expect(vi.mocked(api.updateAppSettings)).toHaveBeenCalledWith({ presenceVisible: false })
+      })
+      expect(presenceSwitch()).toHaveAttribute('aria-checked', 'false')
+      expect(useSettingsStore.getState().presenceVisible).toBe(false)
+    })
+
+    it('locks both switches while one is saving', async () => {
+      let resolveUpdate: (value: { userChannelSelection: boolean; presenceVisible: boolean }) => void = () => {}
+      vi.mocked(api.updateAppSettings).mockReturnValue(
+        new Promise((resolve) => {
+          resolveUpdate = resolve
+        })
+      )
+
+      render(<UserAccessTab />)
+      await settled()
+
+      fireEvent.click(presenceSwitch())
+
+      expect(presenceSwitch()).toBeDisabled()
+      expect(liveChannelSwitch()).toBeDisabled()
+
+      await act(async () => resolveUpdate({ userChannelSelection: false, presenceVisible: true }))
+
+      expect(presenceSwitch()).toBeEnabled()
+      expect(liveChannelSwitch()).toBeEnabled()
+    })
+
+    it('reverts only this switch, with the error on its own card, when the update fails', async () => {
+      vi.mocked(api.updateAppSettings).mockRejectedValue(new Error('Only admins can change settings'))
+
+      render(<UserAccessTab />)
+      await settled()
+
+      fireEvent.click(presenceSwitch())
+
+      const error = await screen.findByText('Only admins can change settings')
+      expect(presenceSwitch()).toHaveAttribute('aria-checked', 'false')
+      expect(useSettingsStore.getState().presenceVisible).toBe(false)
+      // Shown in the presence card, next to the switch that failed
+      expect(error.closest('[data-slot="card"]')).toContainElement(presenceSwitch())
+      expect(error.closest('[data-slot="card"]')).not.toContainElement(liveChannelSwitch())
+    })
   })
 })

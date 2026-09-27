@@ -110,6 +110,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   const setChatIdentity = useChatStore((s) => s.setIdentity)
   const rejectChatNickname = useChatStore((s) => s.rejectNickname)
   const setUserChannelSelection = useSettingsStore((s) => s.setUserChannelSelection)
+  const setPresenceVisible = useSettingsStore((s) => s.setPresenceVisible)
   const setPresence = usePresenceStore((s) => s.setEntries)
   const clearPresence = usePresenceStore((s) => s.clear)
 
@@ -158,6 +159,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           setCurrentChannel(message.currentChannel ?? null)
           if (message.settings) {
             setUserChannelSelection(message.settings.userChannelSelection)
+            setPresenceVisible(message.settings.presenceVisible ?? false)
           }
           if (typeof message.you?.username === 'string') {
             // Loads this user's own nickname, replacing whoever chatted here before
@@ -186,6 +188,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           logger.debug('WebSocket', 'Received settings_update', message)
           if (message.settings) {
             setUserChannelSelection(message.settings.userChannelSelection)
+            setPresenceVisible(message.settings.presenceVisible ?? false)
           }
           break
 
@@ -242,7 +245,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           logger.warn('WebSocket', `Unknown message type: ${message.type}`, message)
       }
     },
-    [setCurrentChannel, setLastChange, chatEnabled, addChatMessage, setChatMessages, setChatIdentity, rejectChatNickname, setUserChannelSelection, setPresence]
+    [setCurrentChannel, setLastChange, chatEnabled, addChatMessage, setChatMessages, setChatIdentity, rejectChatNickname, setUserChannelSelection, setPresenceVisible, setPresence]
   )
 
   const connect = useCallback(

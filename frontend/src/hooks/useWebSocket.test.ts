@@ -11,6 +11,7 @@ import { useChatStore } from '@/stores/chatStore'
 import { useTVStore, LIVE_CHANNEL_ID } from '@/stores/tvStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { usePresenceStore } from '@/stores/presenceStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { fetchNowPlaying } from '@/services/api'
 import type { PresenceEntry, UnifiedChannel } from '@/types'
 
@@ -121,6 +122,7 @@ describe('useWebSocket', () => {
       nicknameRejection: null,
     })
     usePresenceStore.setState({ entries: [] })
+    useSettingsStore.setState({ userChannelSelection: false, presenceVisible: false })
     vi.mocked(toast).mockClear()
   })
 
@@ -1459,6 +1461,33 @@ describe('useWebSocket', () => {
       act(() => oldSocket.simulateMessage({ type: 'presence_update', presence: [jon] }))
 
       expect(usePresenceStore.getState().entries).toEqual([mia])
+    })
+
+    test('takes the admin presence setting from connection_ack and follows settings_update', () => {
+      const { ws } = connect()
+
+      act(() => ws.simulateMessage({
+        type: 'connection_ack',
+        currentChannel: null,
+        settings: { userChannelSelection: false, presenceVisible: true },
+      }))
+      expect(useSettingsStore.getState().presenceVisible).toBe(true)
+
+      act(() => ws.simulateMessage({
+        type: 'settings_update',
+        settings: { userChannelSelection: true, presenceVisible: false },
+      }))
+      expect(useSettingsStore.getState().presenceVisible).toBe(false)
+      expect(useSettingsStore.getState().userChannelSelection).toBe(true)
+    })
+
+    test('treats settings from an older server without the presence setting as off', () => {
+      useSettingsStore.setState({ presenceVisible: true })
+      const { ws } = connect()
+
+      act(() => ws.simulateMessage({ type: 'settings_update', settings: { userChannelSelection: false } }))
+
+      expect(useSettingsStore.getState().presenceVisible).toBe(false)
     })
 
     test('forgets who is here on sign-out or unmount', () => {

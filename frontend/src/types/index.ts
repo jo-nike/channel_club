@@ -68,6 +68,8 @@ export interface NowPlayingBulkResponse {
 /** Runtime settings an admin can toggle for all users. */
 export interface AppSettings {
   userChannelSelection: boolean
+  // Members see what everyone is watching (off: names only). Absent from older servers
+  presenceVisible?: boolean
 }
 
 // ErsatzTV types
