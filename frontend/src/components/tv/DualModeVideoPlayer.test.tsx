@@ -656,6 +656,18 @@ describe('DualModeVideoPlayer filters', () => {
       expect(filter.compareDocumentPosition(toolbar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     }
   })
+
+  it('renders each filter once in the shell, and keeps it across a channel switch', () => {
+    useFilterStore.setState({ activeFilters: ['noir'] })
+    const { switchTo } = renderPlayer(liveChannel('https://fixture/a'))
+    const noir = document.querySelector('.noir-filter')
+    expect(noir?.parentElement).toBe(shell())
+
+    switchTo(hlsChannel('1', 1))
+
+    expect(document.querySelectorAll('.noir-filter')).toHaveLength(1)
+    expect(document.querySelector('.noir-filter')).toBe(noir)
+  })
 })
 
 describe('DualModeVideoPlayer audio: browsers that ignore script volume (iOS/iPadOS)', () => {

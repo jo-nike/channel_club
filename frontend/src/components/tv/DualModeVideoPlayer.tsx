@@ -22,12 +22,7 @@ import { ProjectorBeamLoader } from '@/components/ProjectorBeamLoader'
 import { Button } from '@/components/ui/button'
 import { AutoplayNotice } from '@/components/player/AutoplayNotice'
 import { PlayerShellContext, usePlayerShell } from '@/components/player/PlayerShellContext'
-import { RetroTVFilter } from '@/components/filters/RetroTVFilter'
-import { FilmGrainFilter } from '@/components/filters/FilmGrainFilter'
-import { NoirFilter } from '@/components/filters/NoirFilter'
-import { GrindhouseFilter } from '@/components/filters/GrindhouseFilter'
-import { SportsHDFilter } from '@/components/filters/SportsHDFilter'
-import { useFilterStore } from '@/stores/filterStore'
+import { FilterLayer } from '@/components/player/FilterLayer'
 import { useAudioStore, unmutedVolume } from '@/stores/audioStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { getErsatzTVStreamUrl } from '@/services/ersatztvApi'
@@ -115,6 +110,8 @@ export function DualModeVideoPlayer({
   return (
     <PlayerShellContext value={shell}>
       <div ref={containerRef} className="video-player-container relative h-full w-full bg-black">
+        {/* Before the engine, so its control bar paints above the filters */}
+        <FilterLayer />
         {engine}
       </div>
     </PlayerShellContext>
@@ -233,13 +230,6 @@ function LiveVideoPlayer({
   const isSystemMuted = isSystemMutedState && !isStoreMuted
   const isSavedMuteNotice = useSavedMuteNotice(hasStarted, isStoreMuted)
   const canSetVolume = useCanSetVolume()
-
-  // Video filter state
-  const isRetroTVActive = useFilterStore((s) => s.isFilterActive('retro-tv'))
-  const isFilmGrainActive = useFilterStore((s) => s.isFilterActive('film-grain'))
-  const isNoirActive = useFilterStore((s) => s.isFilterActive('noir'))
-  const isGrindhouseActive = useFilterStore((s) => s.isFilterActive('grindhouse'))
-  const isSportsHDActive = useFilterStore((s) => s.isFilterActive('sports-hd'))
 
   // Auto-hide controls; a tap on the picture toggles them
   const { isVisible } = useAutoHide({
@@ -406,13 +396,6 @@ function LiveVideoPlayer({
     <div className={`relative h-full w-full ${!isVisible && isPlaying ? 'cursor-none' : ''}`}>
       <video ref={videoRef} autoPlay className="h-full w-full object-contain" />
 
-      {/* Video filter overlays */}
-      <RetroTVFilter isActive={isRetroTVActive} />
-      <FilmGrainFilter isActive={isFilmGrainActive} />
-      <NoirFilter isActive={isNoirActive} />
-      <GrindhouseFilter isActive={isGrindhouseActive} />
-      <SportsHDFilter isActive={isSportsHDActive} />
-
       <VideoControls
         videoRef={videoRef}
         containerRef={containerRef}
@@ -498,13 +481,6 @@ function HLSVideoPlayerWrapper({
   const [playBlockedKey, setPlayBlockedKey] = useState<number | null>(null)
   const isSystemMuted = systemMutedKey === retryKey && !muted
   const isPlayBlocked = playBlockedKey === retryKey
-
-  // Video filter state
-  const isRetroTVActive = useFilterStore((s) => s.isFilterActive('retro-tv'))
-  const isFilmGrainActive = useFilterStore((s) => s.isFilterActive('film-grain'))
-  const isNoirActive = useFilterStore((s) => s.isFilterActive('noir'))
-  const isGrindhouseActive = useFilterStore((s) => s.isFilterActive('grindhouse'))
-  const isSportsHDActive = useFilterStore((s) => s.isFilterActive('sports-hd'))
 
   const onPlaying = useCallback(() => {
     setIsBuffering(false)
@@ -604,15 +580,6 @@ function HLSVideoPlayerWrapper({
 
   return (
     <div className="relative h-full w-full bg-black flex items-center justify-center">
-      {/* Video filter overlays. Before MediaPlayer: it creates no stacking
-          context, so the z-10 control bar inside it paints above these z-10
-          filters only if it comes later in the DOM. */}
-      <RetroTVFilter isActive={isRetroTVActive} />
-      <FilmGrainFilter isActive={isFilmGrainActive} />
-      <NoirFilter isActive={isNoirActive} />
-      <GrindhouseFilter isActive={isGrindhouseActive} />
-      <SportsHDFilter isActive={isSportsHDActive} />
-
       <MediaPlayer
         key={retryKey}
         ref={playerRef}
