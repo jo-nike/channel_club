@@ -12,7 +12,7 @@ import { ErsatzTVVideoControls } from './ErsatzTVVideoControls'
 import { useAutoHide } from '@/hooks/useAutoHide'
 import { useOrientationFullscreen } from '@/hooks/useOrientationFullscreen'
 import { useHLSRetry } from '@/hooks/useHLSRetry'
-import { useUIStore } from '@/stores/uiStore'
+import { useAudioStore } from '@/stores/audioStore'
 
 interface HLSVideoPlayerProps {
   streamUrl: string
@@ -62,7 +62,7 @@ function PlayerControlsWrapper({
   const [isHoveringControls, setIsHoveringControls] = useState(false)
 
   // Volume persistence - persist changes from keyboard shortcuts
-  const setStoredVolume = useUIStore((s) => s.setVolume)
+  const setStoredVolume = useAudioStore((s) => s.setVolume)
 
   const changeVolumeAndPersist = useCallback((newVolume: number) => {
     remote.changeVolume(newVolume)
