@@ -156,8 +156,9 @@ export function PlayerChrome({
   const muteLabel = isMuted ? unmuteLabel(volume, canSetVolume) : 'Mute'
   const theaterLabel = isTheaterMode ? 'Exit theater mode' : 'Theater mode'
   const fullscreenLabel = isFullscreen ? 'Exit fullscreen' : 'Fullscreen'
-  // Named like the header's chat button: a disclosure (aria-expanded)
-  const chatLabel = unreadCount > 0 ? `Open chat (${unreadCount} new)` : 'Open chat'
+  // Named like the header's chat button: a disclosure (aria-expanded) whose
+  // name stays 'Chat' open or closed, so it reads "Chat, expanded"
+  const chatLabel = unreadCount > 0 ? `Chat, ${unreadCount} new` : 'Chat'
   const tabIndex = isVisible ? 0 : -1
 
   // A full-width strip on a gradient scrim rather than a boxed card: it

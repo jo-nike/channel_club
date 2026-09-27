@@ -171,7 +171,8 @@ function InfoRail({ channel, isVisible, liveChange, behindLive, isPauseHint }: I
       : isLive
         ? 'Nothing on yet'
         : 'No guide info'
-  const nhlLabel = isNHLOverlayVisible ? 'Hide NHL Scores' : 'NHL Scores'
+  // A fixed name, as in the header: aria-pressed says whether it is on
+  const nhlLabel = 'NHL scores'
   // Empty unless presence shows channels to this viewer; people who hide
   // theirs have no channel, so they are never on one
   const watchingWith = usePresenceByChannel().get(channel.id) ?? []
