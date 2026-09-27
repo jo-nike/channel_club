@@ -614,12 +614,15 @@ describe('TVEPGGrid programme states', () => {
     expect(meta(next)).not.toHaveTextContent('left')
   })
 
-  it('marks the block on now on the watched channel, and only that one', () => {
+  it('marks the block on now on the watched channel, and only that one, without a focus-coloured outline', () => {
     useTVStore.setState({ selectedChannel: { ...movies, type: 'ersatztv' } })
     render(<TVEPGGrid programmesByChannel={schedule} />)
 
     expect(block('Current Film')).toHaveAttribute('data-watching', 'true')
-    expect(block('Current Film')).toHaveClass('border-primary')
+    // Keyboard focus is the only amber outline in the grid; watching is
+    // marked on the channel label
+    expect(block('Current Film')).not.toHaveClass('border-primary')
+    expect(block('Current Film')).toHaveClass('border-border')
     for (const other of ['Earlier Film', 'Later Film', 'Long Cartoon']) {
       expect(block(other)).not.toHaveAttribute('data-watching')
       expect(block(other)).not.toHaveClass('border-primary')

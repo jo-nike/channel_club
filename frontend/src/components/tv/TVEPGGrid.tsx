@@ -873,8 +873,9 @@ const ProgrammeBox = memo(function ProgrammeBox({
         state === 'now' && (isLive
           ? 'bg-live/15 border-live/40 shadow-[inset_3px_0_0_var(--live)]'
           : 'bg-guide-now border-border shadow-[inset_3px_0_0_var(--primary)]'),
-        state === 'future' && (isLive ? 'bg-live/15 border-live/40 text-foreground' : 'bg-guide-future border-border text-foreground'),
-        isWatching && 'border-primary'
+        state === 'future' && (isLive ? 'bg-live/15 border-live/40 text-foreground' : 'bg-guide-future border-border text-foreground')
+        // No outline for the watched block: the channel label marks it, so
+        // keyboard focus is the only amber outline in the grid
       )}
       style={{ left, width }}
       data-state={state}
