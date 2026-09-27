@@ -9,6 +9,7 @@ import { useUIStore } from '@/stores/uiStore'
 import { useClipStore } from '@/stores/clipStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore } from '@/stores/tvStore'
+import { useChannelZap, type ChannelZap } from '@/hooks/useChannelZap'
 import type { UnifiedChannel } from '@/types'
 import type { PlayerShell } from '@/components/player/PlayerShellContext'
 
@@ -779,6 +780,33 @@ describe('DualModeVideoPlayer audio: keyboard', () => {
     fireEvent.keyDown(mute, { key: 'm' })
 
     expect(useAudioStore.getState()).toMatchObject({ volume: 0.2, muted: true })
+  })
+
+  it.each([
+    ['live', liveChannel('https://fixture/a')],
+    ['ErsatzTV', hlsChannel('1', 1)],
+  ])('%s: M and T work after picking a channel in the sidebar, the arrows stay with the list', (_engine, channel) => {
+    useAudioStore.setState({ volume: 0.3, muted: false })
+    const onTheaterModeToggle = vi.fn()
+    render(
+      <>
+        <ul>
+          <li>
+            <button type="button">Channel 2</button>
+          </li>
+        </ul>
+        <DualModeVideoPlayer channel={channel} isTheaterMode={false} onTheaterModeToggle={onTheaterModeToggle} />
+      </>
+    )
+    const row = screen.getByRole('button', { name: 'Channel 2' })
+    row.focus()
+
+    fireEvent.keyDown(row, { key: 'ArrowDown' })
+    fireEvent.keyDown(row, { key: 'm' })
+    fireEvent.keyDown(row, { key: 't' })
+
+    expect(useAudioStore.getState()).toMatchObject({ volume: 0.3, muted: true })
+    expect(onTheaterModeToggle).toHaveBeenCalledTimes(1)
   })
 
   it('leaves Up/Down to channel changes in TV mode', () => {
@@ -2243,5 +2271,208 @@ describe('DualModeVideoPlayer empty live slot', () => {
     renderEmptySlot()
 
     expect(screen.queryByText(/stopped live TV/)).not.toBeInTheDocument()
+  })
+})
+
+describe('DualModeVideoPlayer channel keys', () => {
+  const fakeZap = (pending: UnifiedChannel | null = null): ChannelZap => ({
+    pending,
+    step: vi.fn(),
+    tuneLast: vi.fn(),
+    entry: null,
+    missing: null,
+    digit: vi.fn(),
+    commitDigits: vi.fn(() => true),
+  })
+
+  it.each([
+    ['live', liveChannel('https://fixture/a')],
+    ['ErsatzTV', hlsChannel('1', 1)],
+    ['the empty live slot', liveChannel('')],
+  ])('%s: PageUp/PageDown and ]/[ step the channel and L goes back', (_what, channel) => {
+    const zap = fakeZap()
+    render(<DualModeVideoPlayer channel={channel} isTheaterMode={false} onTheaterModeToggle={vi.fn()} zap={zap} />)
+
+    for (const key of ['PageUp', 'PageDown', ']', '[']) fireEvent.keyDown(window, { key })
+    fireEvent.keyDown(window, { key: 'l' })
+
+    expect(vi.mocked(zap.step).mock.calls).toEqual([[1], [-1], [1], [-1]])
+    expect(zap.tuneLast).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['live', liveChannel('https://fixture/a')],
+    ['ErsatzTV', hlsChannel('1', 1)],
+    ['the empty live slot', liveChannel('')],
+  ])('%s: digits build a channel number and Enter commits it', (_what, channel) => {
+    const zap = fakeZap()
+    render(<DualModeVideoPlayer channel={channel} isTheaterMode={false} onTheaterModeToggle={vi.fn()} zap={zap} />)
+
+    fireEvent.keyDown(window, { key: '1' })
+    fireEvent.keyDown(window, { key: '2' })
+    fireEvent.keyDown(window, { key: 'Enter' })
+
+    expect(vi.mocked(zap.digit).mock.calls).toEqual([['1'], ['2']])
+    expect(zap.commitDigits).toHaveBeenCalledTimes(1)
+  })
+
+  it("says 'No channel 99' in the info rail", () => {
+    render(
+      <DualModeVideoPlayer
+        channel={hlsChannel('1', 1)}
+        isTheaterMode={false}
+        onTheaterModeToggle={vi.fn()}
+        zap={{ ...fakeZap(), missing: '99' }}
+      />
+    )
+
+    expect(screen.getByTestId('player-info-rail')).toHaveTextContent('No channel 99')
+    expect(shell()).toContainElement(screen.getByTestId('player-info-rail'))
+  })
+
+  it('a channel key is one step, however many engines have come and gone', () => {
+    const zap = fakeZap()
+    const { rerender } = render(
+      <DualModeVideoPlayer channel={liveChannel('https://fixture/a')} isTheaterMode={false} onTheaterModeToggle={vi.fn()} zap={zap} />
+    )
+    rerender(<DualModeVideoPlayer channel={hlsChannel('1', 1)} isTheaterMode={false} onTheaterModeToggle={vi.fn()} zap={zap} />)
+
+    fireEvent.keyDown(window, { key: 'PageDown' })
+
+    expect(zap.step).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the channel being stepped to in the info rail', () => {
+    render(
+      <DualModeVideoPlayer
+        channel={hlsChannel('1', 1)}
+        isTheaterMode={false}
+        onTheaterModeToggle={vi.fn()}
+        zap={fakeZap({ ...hlsChannel('4', 4), name: 'Cartoons' })}
+      />
+    )
+
+    expect(screen.getByTestId('player-info-rail')).toHaveTextContent('Cartoons')
+  })
+
+  describe('with the page\'s zap and TV store', () => {
+    const lineup = [1, 2, 3, 4, 5].map((n) => ({
+      id: `e${n}`,
+      name: `Channel ${n}`,
+      number: n,
+      streamUrl: `/e${n}`,
+      logoUrl: '',
+      group: '',
+    }))
+    const tunes: string[] = []
+
+    function Page() {
+      const selected = useTVStore((s) => s.selectedChannel)
+      const previousId = useTVStore((s) => s.previousChannelId)
+      const selectChannel = useTVStore((s) => s.selectChannel)
+      const getChannels = useTVStore((s) => s.getUnifiedChannels)
+      const zap = useChannelZap({
+        getChannels,
+        selected,
+        previousId,
+        onTune: (channel) => {
+          tunes.push(channel.id)
+          selectChannel(channel)
+        },
+      })
+      return <DualModeVideoPlayer channel={selected} isTheaterMode={false} onTheaterModeToggle={vi.fn()} zap={zap} />
+    }
+
+    let fullscreenElement: Element | null = null
+    beforeEach(() => {
+      vi.useFakeTimers()
+      tunes.length = 0
+      useChannelStore.setState({ currentChannel: null, lastChange: null })
+      useErsatztvStore.setState({ channels: lineup })
+      useTVStore.setState({ selectedChannel: { ...hlsChannel('e5', 5), streamUrl: '/e5' }, previousChannelId: null })
+      Object.defineProperty(document, 'fullscreenElement', { configurable: true, get: () => fullscreenElement })
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+      fullscreenElement = null
+      Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null })
+    })
+
+    it('PageDown x3 in fullscreen tunes once, three channels down, and stays in fullscreen', () => {
+      render(<Page />)
+      const fullscreen = shell()
+      act(() => {
+        fullscreenElement = fullscreen
+        document.dispatchEvent(new Event('fullscreenchange'))
+      })
+
+      for (let i = 0; i < 3; i++) fireEvent.keyDown(window, { key: 'PageDown' })
+      expect(screen.getByTestId('player-info-rail')).toHaveTextContent('Channel 2')
+      expect(tunes).toEqual([])
+
+      act(() => {
+        vi.advanceTimersByTime(700)
+      })
+
+      expect(tunes).toEqual(['e2'])
+      expect(useTVStore.getState().selectedChannel?.id).toBe('e2')
+      expect(shell()).toBe(fullscreen)
+      expect(fullscreen.isConnected).toBe(true)
+      expect(screen.getByRole('button', { name: 'Exit fullscreen' })).toBeInTheDocument()
+    })
+
+    it('L goes back to the channel before, and L again returns', () => {
+      render(<Page />)
+      fireEvent.keyDown(window, { key: ']' })
+      act(() => {
+        vi.advanceTimersByTime(700)
+      })
+      // 5 wraps round to the live slot, 0
+      expect(useTVStore.getState().selectedChannel?.number).toBe(0)
+
+      fireEvent.keyDown(window, { key: 'l' })
+      expect(useTVStore.getState().selectedChannel?.id).toBe('e5')
+
+      fireEvent.keyDown(window, { key: 'L' })
+      expect(useTVStore.getState().selectedChannel?.number).toBe(0)
+      expect(tunes).toEqual(['live-channel-0', 'e5', 'live-channel-0'])
+    })
+
+    it("typing 2 tunes channel 2 after 1.5s, and Enter doesn't wait", () => {
+      render(<Page />)
+
+      fireEvent.keyDown(window, { key: '2' })
+      expect(screen.getByTestId('player-info-rail')).toHaveTextContent('Channel 2')
+      act(() => {
+        vi.advanceTimersByTime(1499)
+      })
+      expect(tunes).toEqual([])
+      act(() => {
+        vi.advanceTimersByTime(1)
+      })
+      expect(useTVStore.getState().selectedChannel?.id).toBe('e2')
+
+      fireEvent.keyDown(window, { key: '4' })
+      fireEvent.keyDown(window, { key: 'Enter' })
+      expect(useTVStore.getState().selectedChannel?.id).toBe('e4')
+      expect(tunes).toEqual(['e2', 'e4'])
+    })
+
+    it("an unknown number stays on the channel and says 'No channel 99'", () => {
+      render(<Page />)
+
+      fireEvent.keyDown(window, { key: '9' })
+      fireEvent.keyDown(window, { key: '9' })
+      fireEvent.keyDown(window, { key: 'Enter' })
+
+      expect(tunes).toEqual([])
+      expect(useTVStore.getState().selectedChannel?.id).toBe('e5')
+      expect(screen.getByTestId('player-info-rail')).toHaveTextContent('No channel 99')
+
+      act(() => {
+        vi.advanceTimersByTime(3000)
+      })
+      expect(screen.getByTestId('player-info-rail')).toHaveTextContent('Channel 5')
+    })
   })
 })

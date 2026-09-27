@@ -16,9 +16,23 @@ const TUNE_BANNER_MS = 4000
 /** How long a change to the shared live channel is announced */
 const LIVE_CHANGE_BANNER_MS = 5000
 
+const RAIL_CLASS = cn(
+  'pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-4 bg-linear-to-b from-black/80 via-black/40 to-transparent pb-6 text-white transition-opacity duration-300',
+  // Clear of the notch and status bar in landscape, theater and
+  // fullscreen; the shell sets the top inset only when it is at the top
+  'pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-[calc(0.75rem+var(--player-inset-top,0px))]'
+)
+const RAIL_NUMBER_CLASS = 'font-display text-4xl font-black leading-none tabular-nums'
+
 interface PlayerInfoOverlayProps {
   /** The channel the player is on; null before the TV store has one */
   channel: UnifiedChannel | null
+  /** A channel stepped to, or typed, with the channel keys but not tuned yet */
+  pending?: UnifiedChannel | null
+  /** The digits of a channel number being typed */
+  entry?: string | null
+  /** A number just typed that no channel has */
+  missing?: string | null
 }
 
 /**
@@ -34,8 +48,13 @@ interface PlayerInfoOverlayProps {
  * rail: the ticker and the engine's sound-off pill move down while the rail is
  * up, so they never overlap it. TV theater has its own channel banner
  * (ZapBanner) in that corner, so the rail stays out of it there.
+ *
+ * While the viewer steps through channels, the rail shows the channel they
+ * are heading for at once; the tune itself waits until they stop pressing.
+ * A typed number shows the channel it matches, just the digits while it
+ * matches none, and 'No channel 99' when it is entered and no channel has it.
  */
-export function PlayerInfoOverlay({ channel }: PlayerInfoOverlayProps) {
+export function PlayerInfoOverlay({ channel, pending = null, entry = null, missing = null }: PlayerInfoOverlayProps) {
   const { controlsVisible, isTheaterMode, setInfoRailVisible } = usePlayerShell()
   const isTVMode = useTVMode()
   const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
@@ -84,8 +103,12 @@ export function PlayerInfoOverlay({ channel }: PlayerInfoOverlayProps) {
     return () => clearTimeout(timer)
   }, [liveChange])
 
-  const hasRail = channel !== null && !(isTVMode && isTheaterMode)
-  const isRailVisible = hasRail && (controlsVisible || isTuneBanner || liveChange !== null)
+  const railChannel = pending ?? channel
+  // Digits with no channel to show for them
+  const railNumber = missing ?? (entry !== null && pending === null ? entry : null)
+  const isPreview = pending !== null || railNumber !== null
+  const hasRail = (railNumber !== null || railChannel !== null) && !(isTVMode && isTheaterMode)
+  const isRailVisible = hasRail && (controlsVisible || isTuneBanner || liveChange !== null || isPreview)
 
   // The engine's sound-off pill moves under the rail while it is up
   useEffect(() => {
@@ -95,7 +118,18 @@ export function PlayerInfoOverlay({ channel }: PlayerInfoOverlayProps) {
 
   return (
     <>
-      {hasRail && <InfoRail channel={channel} isVisible={isRailVisible} liveChange={liveChange} />}
+      {/* A live change is about the channel playing, not one being previewed */}
+      {hasRail && railNumber !== null ? (
+        <NumberRail number={railNumber} isMissing={missing !== null} />
+      ) : (
+        hasRail && railChannel && (
+          <InfoRail
+            channel={railChannel}
+            isVisible={isRailVisible}
+            liveChange={pending ? null : liveChange}
+          />
+        )
+      )}
       <NHLScoresOverlay isVisible={isNHLOverlayVisible} belowRail={isRailVisible} />
     </>
   )
@@ -132,16 +166,10 @@ function InfoRail({ channel, isVisible, liveChange }: InfoRailProps) {
   return (
     <div
       data-testid="player-info-rail"
-      className={cn(
-        'pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-4 bg-linear-to-b from-black/80 via-black/40 to-transparent pb-6 text-white transition-opacity duration-300',
-        // Clear of the notch and status bar in landscape, theater and
-        // fullscreen; the shell sets the top inset only when it is at the top
-        'pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-[calc(0.75rem+var(--player-inset-top,0px))]',
-        isVisible ? 'opacity-100' : 'opacity-0'
-      )}
+      className={cn(RAIL_CLASS, isVisible ? 'opacity-100' : 'opacity-0')}
     >
       <div className="flex min-h-12 min-w-0 items-center gap-3">
-        <span className="font-display text-4xl font-black leading-none tabular-nums">{channel.number}</span>
+        <span className={RAIL_NUMBER_CLASS}>{channel.number}</span>
         {logoChannel && <ChannelLogo channel={logoChannel} />}
         <div className="min-w-0">
           <p className="flex min-w-0 items-center gap-2 text-base font-bold leading-tight">
@@ -195,6 +223,20 @@ function InfoRail({ channel, isVisible, liveChange }: InfoRailProps) {
             <p>{nhlLabel}</p>
           </TooltipContent>
         </Tooltip>
+      </div>
+    </div>
+  )
+}
+
+/** The rail while a typed number matches no channel: the digits, then 'No channel 99' once entered */
+function NumberRail({ number, isMissing }: { number: string; isMissing: boolean }) {
+  return (
+    <div data-testid="player-info-rail" className={cn(RAIL_CLASS, 'opacity-100')}>
+      <div className="flex min-h-12 min-w-0 items-center gap-3">
+        <span className={RAIL_NUMBER_CLASS}>{number}</span>
+        <p role="status" className="truncate text-base font-bold leading-tight">
+          {isMissing && `No channel ${number}`}
+        </p>
       </div>
     </div>
   )

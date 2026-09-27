@@ -8,6 +8,7 @@ import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
 import type { ErsatzTVChannel, UnifiedChannel } from '@/types'
+import type { ChannelZap } from '@/hooks/useChannelZap'
 
 const tv = vi.hoisted(() => ({ mode: true }))
 vi.mock('@/hooks/useTVMode', () => ({ useTVMode: () => tv.mode }))
@@ -16,9 +17,20 @@ vi.mock('@/services/ersatztvApi', () => ({ fetchErsatzTVChannels: vi.fn(), fetch
 vi.mock('@/hooks/useWebSocket', () => ({ useWebSocket: () => ({ status: 'connected', sendChannelUpdate: vi.fn(), sendChatMessage: vi.fn(), sendSetNickname: vi.fn() }) }))
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ isAdmin: false, logout: vi.fn() }) }))
 vi.mock('@/hooks/useAppSettings', () => ({ useAppSettings: () => ({ userChannelSelection: false }) }))
-vi.mock('@/components/tv/DualModeVideoPlayer', () => ({ DualModeVideoPlayer: ({ channel }: { channel: UnifiedChannel | null }) => (
-  <div data-testid="player">{channel?.streamUrl || 'No live broadcast'}</div>
-) }))
+// The real shell's channel keys, so digits and Enter reach the page's zap as they do in the app
+vi.mock('@/components/tv/DualModeVideoPlayer', async () => {
+  const { useVideoKeyboardShortcuts } = await import('@/hooks/useVideoKeyboardShortcuts')
+  return { DualModeVideoPlayer: ({ channel, zap }: { channel: UnifiedChannel | null; zap?: ChannelZap }) => {
+    useVideoKeyboardShortcuts({
+      containerRef: { current: null },
+      onChannelStep: zap?.step,
+      onLastChannel: zap?.tuneLast,
+      onDigit: zap?.digit,
+      onDigitCommit: zap?.commitDigits,
+    })
+    return <div data-testid="player">{channel?.streamUrl || 'No live broadcast'}</div>
+  } }
+})
 vi.mock('@/components/tv/TVEPGGrid', () => ({ TVEPGGrid: () => null }))
 vi.mock('@/components/tv/TVChannelSidebar', () => ({ TVChannelSidebar: () => null }))
 vi.mock('@/components/ChatPanel', () => ({ ChatPanel: () => null }))
@@ -155,6 +167,36 @@ describe('TV browsers: theater and zapping', () => {
 
     expect(notPrevented).toBe(true)
     expect(selectedId()).toBe('e1')
+  })
+
+  it('shows the digits typed while they match no channel, then No channel 99 when entered, and does not tune', () => {
+    renderTV()
+    const banner = screen.getByRole('status')
+
+    press('9')
+    expect(banner).toHaveTextContent('CH 9')
+    expect(banner).not.toHaveTextContent('Movies')
+    press('9')
+    expect(banner).toHaveTextContent('CH 99')
+    press('Enter', { keyCode: 13 })
+
+    expect(banner).toHaveTextContent('No channel 99')
+    expect(banner).not.toHaveTextContent('Movies')
+    act(() => { vi.advanceTimersByTime(1500) })
+    expect(selectedId()).toBe('e1')
+  })
+
+  it('shows the channel a typed number matches, and tunes it 1.5s after the last digit', () => {
+    renderTV()
+    const banner = screen.getByRole('status')
+
+    press('2')
+    expect(banner).toHaveTextContent('CH 2 · Cartoons')
+    expect(selectedId()).toBe('e1')
+
+    act(() => { vi.advanceTimersByTime(1500) })
+    expect(selectedId()).toBe('e2')
+    expect(banner).toHaveTextContent('CH 2 · Cartoons')
   })
 
   it('leaves arrows alone outside theater', () => {

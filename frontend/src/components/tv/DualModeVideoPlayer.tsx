@@ -29,6 +29,7 @@ import { useAudioStore, unmutedVolume } from '@/stores/audioStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { useClipStore } from '@/stores/clipStore'
 import { getErsatzTVStreamUrl } from '@/services/ersatztvApi'
+import type { ChannelZap } from '@/hooks/useChannelZap'
 import type { UnifiedChannel } from '@/types'
 
 interface DualModeVideoPlayerProps {
@@ -40,6 +41,9 @@ interface DualModeVideoPlayerProps {
   onPickLive?: () => void
   // Bumped by the page's Refresh: re-initialises the engine, keeps the shell
   reloadKey?: number
+  // The page's channel zapping: the channel keys drive it and the info rail
+  // shows where it is heading
+  zap?: ChannelZap
 }
 
 // Main component - switches between live (mpegts) and ersatztv (HLS) players.
@@ -57,6 +61,7 @@ export function DualModeVideoPlayer({
   onTheaterModeToggle,
   onPickLive,
   reloadKey: pageReloadKey = 0,
+  zap,
 }: DualModeVideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   // The shell element again, as state: the clip editor portals into it
@@ -131,6 +136,18 @@ export function DualModeVideoPlayer({
     ]
   )
 
+  // Channel keys (PageUp/PageDown, ]/[, L, digits, Enter) belong to the
+  // shell, not the engine: they must work on the empty live slot too, which
+  // has no engine. The shell stays mounted across the tune, so fullscreen
+  // survives it.
+  useVideoKeyboardShortcuts({
+    containerRef,
+    onChannelStep: zap?.step,
+    onLastChannel: zap?.tuneLast,
+    onDigit: zap?.digit,
+    onDigitCommit: zap?.commitDigits,
+  })
+
   // What this viewer's player shows now, for the clip editor's notice: null
   // while live TV is stopped, nothing before a channel is selected
   const playingChannel = !channel
@@ -189,7 +206,12 @@ export function DualModeVideoPlayer({
         {engine}
         {/* The info rail and NHL ticker: in the shell, so they show in
             fullscreen and stay put while the engine is swapped */}
-        <PlayerInfoOverlay channel={channel} />
+        <PlayerInfoOverlay
+          channel={channel}
+          pending={zap?.pending ?? null}
+          entry={zap?.entry ?? null}
+          missing={zap?.missing ?? null}
+        />
       </div>
       {/* One editor for every engine, keyed by the capture's channel, not the one playing */}
       <HighlightModal

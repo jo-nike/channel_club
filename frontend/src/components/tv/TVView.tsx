@@ -67,6 +67,7 @@ export function TVView() {
 
   // TV store - unified channel management
   const selectedChannel = useTVStore((s) => s.selectedChannel)
+  const previousChannelId = useTVStore((s) => s.previousChannelId)
   const selectChannel = useTVStore((s) => s.selectChannel)
   const liveEPG = useTVStore((s) => s.liveEPG)
   const loadLiveEPG = useTVStore((s) => s.loadLiveEPG)
@@ -116,12 +117,15 @@ export function TVView() {
     if (isTVMode) setTheaterMode(true)
   }, [isTVMode, setTheaterMode])
 
-  // CH+/CH- and Up/Down zap in TV theater. Tuning waits for the presses to stop.
-  const { pending: zapPending, step: zapStep } = useChannelZap({
+  // CH+/CH- and Up/Down zap in TV theater, and the player's channel keys
+  // everywhere else. Tuning waits for the presses to stop.
+  const zap = useChannelZap({
     getChannels: getUnifiedChannels,
     selected: selectedChannel,
+    previousId: previousChannelId,
     onTune: selectChannel,
   })
+  const { pending: zapPending, step: zapStep } = zap
   const isTVTheater = isTVMode && isTheaterMode
 
   useEffect(() => {
@@ -471,10 +475,19 @@ export function TVView() {
                 onTheaterModeToggle={toggleTheaterMode}
                 onPickLive={onPickLive}
                 reloadKey={videoRefreshKey}
+                zap={zap}
               />
             </ErrorBoundary>
-            {/* Channel banner while zapping in TV theater */}
-            {isTVTheater && <ZapBanner channel={zapPending ?? selectedChannel} />}
+            {/* Channel banner while zapping in TV theater, where the info
+                rail stays away. A typed number shows its channel once it
+                matches one, and its digits until then. */}
+            {isTVTheater && (
+              <ZapBanner
+                channel={zapPending ?? selectedChannel}
+                entry={zapPending ? null : zap.entry}
+                missing={zap.missing}
+              />
+            )}
           </div>
 
           {/* Resize handle - only on desktop when EPG visible, hidden in theater/landscape */}
