@@ -1,4 +1,4 @@
-import { Fragment, useRef, useEffect, useState, useCallback, type KeyboardEvent, type UIEvent } from 'react'
+import { Fragment, useRef, useEffect, useLayoutEffect, useState, useCallback, type KeyboardEvent, type UIEvent } from 'react'
 import { X, Send, Pencil, Loader2, AlertCircle, WifiOff, ArrowDown } from 'lucide-react'
 import type { ChatSendResult, WebSocketStatus } from '@/hooks/useWebSocket'
 import { createClientMessageId } from '@/lib/messageId'
@@ -6,6 +6,7 @@ import { scrollBehavior } from '@/lib/motion'
 import { useChatStore, isOwnMessage } from '@/stores/chatStore'
 import type { ChatMessage as ChatMessageData } from '@/types'
 import { useNow } from '@/hooks/useNow'
+import { useFocusTrap } from '@/hooks/useFocusTrap'
 import { ChatMessage } from './ChatMessage'
 import { GifButton } from './GifButton'
 import { Button } from '@/components/ui/button'
@@ -116,6 +117,7 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
   const lastScrollTop = useRef(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const nicknameInputRef = useRef<HTMLInputElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
   const isConnected = status === 'connected'
   const isReconnecting = status === 'connecting' || status === 'reconnecting'
   const [showReconnecting, setShowReconnecting] = useState(false)
@@ -232,6 +234,28 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
       return () => clearTimeout(timer)
     }
   }, [isOpen, showNicknamePrompt])
+
+  // Closing chat returns focus to where it was when chat opened (usually the
+  // chat toggle), instead of dropping it on the page. Recorded before the
+  // composer takes focus. A viewer who has since moved focus elsewhere keeps it.
+  useLayoutEffect(() => {
+    if (!isOpen) return
+    const opener = document.activeElement
+    const panel = panelRef.current
+    return () => {
+      const active = document.activeElement
+      const focusWasInChat = !active || active === document.body || (panel?.contains(active) ?? false)
+      if (opener instanceof HTMLElement && opener !== document.body && opener.isConnected && focusWasInChat) {
+        opener.focus()
+      }
+    }
+  }, [isOpen])
+
+  // The phone takeover covers the whole screen, so it is a modal dialog and
+  // Tab stays inside it. The GIF picker's dialog is portalled out and keeps
+  // its own trap. Focus return is handled above for every variant.
+  const isDialog = variant === 'takeover'
+  useFocusTrap(panelRef, { enabled: isOpen && isDialog, restoreFocus: false })
 
   // Say 'Reconnecting…' only once a reconnect has taken a while
   // (state is only set from the timer and the cleanup, never in the effect body)
@@ -371,22 +395,26 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
   })
 
   // Docked and sheet sit in the page beside the header's controls, so they're
-  // a complementary landmark rather than a layer over everything. The role is
-  // an attribute on one element type: swapping the element when theater
-  // switches the variant would remount the list and drop its scroll and focus
+  // a complementary landmark rather than a layer over everything; the phone
+  // takeover is a modal dialog (see isDialog). The role is an attribute on one
+  // element type: swapping the element when theater switches the variant
+  // would remount the list and drop its scroll and focus
   const isLandmark = variant === 'docked' || variant === 'sheet'
 
   return (
     <div
+      ref={panelRef}
       id="chat-panel"
-      role={isLandmark ? 'complementary' : undefined}
+      role={isLandmark ? 'complementary' : isDialog ? 'dialog' : undefined}
       aria-label={isLandmark ? 'Chat' : undefined}
+      aria-modal={isDialog ? true : undefined}
+      aria-labelledby={isDialog ? 'chat-panel-title' : undefined}
       className={PANEL_CLASSES[variant]}
     >
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">
-          <h2 className="text-lg font-semibold">Chat</h2>
+          <h2 id="chat-panel-title" className="text-lg font-semibold">Chat</h2>
           {me && !isEditingNickname && (
             <>
               <span className="truncate text-sm text-muted-foreground">Chatting as {displayName}</span>

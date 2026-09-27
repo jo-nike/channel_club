@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react'
 import type { RefObject } from 'react'
 
+// Disabled controls can't take focus, so one can't be the trap's first or last stop
 const FOCUSABLE_SELECTOR =
-  'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 interface UseFocusTrapOptions {
   enabled?: boolean
@@ -30,9 +31,10 @@ export function useFocusTrap<T extends HTMLElement>(
       return container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
     }
 
-    // Focus the first focusable element
+    // Focus the first focusable element, unless focus is already inside
+    // (a panel that becomes a trap while the viewer is typing keeps the caret)
     const focusableElements = getFocusableElements()
-    if (focusableElements.length > 0) {
+    if (focusableElements.length > 0 && !container.contains(document.activeElement)) {
       focusableElements[0].focus()
     }
 

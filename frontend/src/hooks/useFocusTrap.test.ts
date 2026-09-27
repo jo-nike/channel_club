@@ -57,6 +57,16 @@ describe('useFocusTrap', () => {
     expect(document.activeElement).toBe(button1)
   })
 
+  it('keeps focus where it is when it is already inside the container', () => {
+    button2.focus()
+
+    renderHook(() =>
+      useFocusTrap({ current: container }, { enabled: true })
+    )
+
+    expect(document.activeElement).toBe(button2)
+  })
+
   it('does not focus first element when disabled', () => {
     outsideButton.focus()
     expect(document.activeElement).toBe(outsideButton)
@@ -94,6 +104,18 @@ describe('useFocusTrap', () => {
 
     // Focus should wrap to last element
     expect(document.activeElement).toBe(button3)
+  })
+
+  it('wraps from the last enabled control when the last button is disabled', () => {
+    button3.disabled = true
+    renderHook(() =>
+      useFocusTrap({ current: container }, { enabled: true })
+    )
+
+    button2.focus()
+    fireTabKey(container)
+
+    expect(document.activeElement).toBe(button1)
   })
 
   it('restores focus on unmount when restoreFocus is true', () => {

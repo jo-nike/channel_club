@@ -1167,6 +1167,99 @@ describe('ChatPanel', () => {
     })
   })
 
+  describe('focus and dialog semantics', () => {
+    afterEach(() => {
+      document.querySelectorAll('[data-testid="opener"]').forEach((element) => element.remove())
+    })
+
+    const addOpener = () => {
+      const opener = document.createElement('button')
+      opener.dataset.testid = 'opener'
+      document.body.appendChild(opener)
+      opener.focus()
+      return opener
+    }
+
+    it.each(['docked', 'sheet', 'overlay', 'takeover'] as const)('returns focus to the %s chat opener on close', (variant) => {
+      useChatStore.setState({ isOpen: false })
+      const opener = addOpener()
+      render(<ChatPanel onSendMessage={mockOnSendMessage} variant={variant} />)
+
+      act(() => useChatStore.setState({ isOpen: true }))
+      screen.getByPlaceholderText('Type a message...').focus()
+      act(() => useChatStore.setState({ isOpen: false }))
+
+      expect(opener).toHaveFocus()
+    })
+
+    it('leaves focus alone on close when the viewer has moved it out of chat', () => {
+      useChatStore.setState({ isOpen: false })
+      addOpener()
+      const elsewhere = document.createElement('input')
+      elsewhere.dataset.testid = 'opener'
+      document.body.appendChild(elsewhere)
+      render(<ChatPanel onSendMessage={mockOnSendMessage} variant="docked" />)
+
+      act(() => useChatStore.setState({ isOpen: true }))
+      elsewhere.focus()
+      act(() => useChatStore.setState({ isOpen: false }))
+
+      expect(elsewhere).toHaveFocus()
+    })
+
+    it('makes the phone takeover a modal dialog named by its heading', () => {
+      render(<ChatPanel onSendMessage={mockOnSendMessage} variant="takeover" />)
+      const dialog = screen.getByRole('dialog', { name: 'Chat' })
+      expect(dialog).toHaveAttribute('id', 'chat-panel')
+      expect(dialog).toHaveAttribute('aria-modal', 'true')
+    })
+
+    it.each(['docked', 'sheet', 'overlay'] as const)('keeps the %s panel non-modal', (variant) => {
+      render(<ChatPanel onSendMessage={mockOnSendMessage} variant={variant} />)
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(document.getElementById('chat-panel')).not.toHaveAttribute('aria-modal')
+    })
+
+    it('keeps Tab inside the takeover, skipping the disabled Send button', () => {
+      render(<ChatPanel onSendMessage={mockOnSendMessage} variant="takeover" />)
+      const close = screen.getByRole('button', { name: 'Close chat' })
+      const gif = screen.getByRole('button', { name: 'Send GIF' })
+      expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled()
+
+      gif.focus()
+      expect(fireEvent.keyDown(gif, { key: 'Tab' })).toBe(false)
+      expect(close).toHaveFocus()
+
+      expect(fireEvent.keyDown(close, { key: 'Tab', shiftKey: true })).toBe(false)
+      expect(gif).toHaveFocus()
+    })
+
+    // A phone rotating to portrait (or a window dragged narrow) turns an open
+    // overlay into the takeover; the viewer mid-message keeps the composer
+    it('keeps the composer focused when an open overlay becomes the takeover', () => {
+      useChatStore.setState({ me: { username: 'TestUser' } })
+      const { rerender } = render(<ChatPanel onSendMessage={mockOnSendMessage} variant="overlay" />)
+      const input = screen.getByPlaceholderText('Type a message...')
+      fireEvent.change(input, { target: { value: 'half typed' } })
+      input.focus()
+
+      rerender(<ChatPanel onSendMessage={mockOnSendMessage} variant="takeover" />)
+
+      expect(screen.getByRole('dialog', { name: 'Chat' })).toContainElement(input)
+      expect(input).toHaveValue('half typed')
+      expect(input).toHaveFocus()
+    })
+
+    it('does not trap Tab in the docked panel', () => {
+      render(<ChatPanel onSendMessage={mockOnSendMessage} variant="docked" />)
+      const gif = screen.getByRole('button', { name: 'Send GIF' })
+      gif.focus()
+
+      expect(fireEvent.keyDown(gif, { key: 'Tab' })).toBe(true)
+      expect(gif).toHaveFocus()
+    })
+  })
+
   describe('iOS safe area', () => {
     it('keeps the full-screen phone panel clear of the status bar and home indicator', () => {
       render(<ChatPanel onSendMessage={mockOnSendMessage} variant="takeover" />)
