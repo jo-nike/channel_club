@@ -212,6 +212,15 @@ def format_channel_number(value: float | None) -> str | None:
     return str(value)
 
 
+def channel_logo_path(logo_id: int) -> str:
+    """Our logo route for a Dispatcharr logo id (see routers/channels.py).
+
+    Browsers only ever see this path: the upstream URL is rebuilt from the
+    configured Dispatcharr origin and the integer id, never taken from a payload.
+    """
+    return f"/api/channels/logos/{logo_id}"
+
+
 async def _build_grouped_channels() -> GroupedChannelsResponse:
     # Fetch groups and channels concurrently
     groups, channels = await asyncio.gather(get_channel_groups(), get_channels_with_groups())
@@ -236,6 +245,7 @@ async def _build_grouped_channels() -> GroupedChannelsResponse:
             # Dispatcharr's XMLTV (default tvg_id_source) and HDHR Guide_ID key a
             # channel by its number, falling back to the database id without one
             guide_id=format_channel_number(ch.channel_number) or str(ch.id),
+            logo_url=channel_logo_path(ch.logo_id) if ch.logo_id is not None else None,
         )
 
         if ch.channel_group_id and ch.channel_group_id in groups_map:

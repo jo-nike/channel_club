@@ -345,3 +345,53 @@ class TestBuildGroupedChannels:
         )
 
         assert self._guide_ids(response) == {"Unnumbered": "42"}
+
+    @pytest.mark.asyncio
+    async def test_logo_id_becomes_our_logo_route(self) -> None:
+        """A channel's Dispatcharr logo id maps to our proxy route, exposed as logoUrl."""
+        response = await self._build(
+            [
+                {
+                    "id": 101,
+                    "name": "TSN 5",
+                    "channel_number": 28,
+                    "channel_group_id": 1,
+                    "uuid": "uuid-28",
+                    "logo_id": 17,
+                },
+                {
+                    "id": 102,
+                    "name": "CBC",
+                    "channel_number": 7,
+                    "channel_group_id": None,
+                    "uuid": "uuid-7",
+                    "logo_id": None,
+                },
+            ]
+        )
+
+        channels = {c.name: c for g in response.groups for c in g.channels}
+        channels.update({c.name: c for c in response.ungrouped})
+        assert channels["TSN 5"].logo_url == "/api/channels/logos/17"
+        assert channels["TSN 5"].model_dump(by_alias=True)["logoUrl"] == "/api/channels/logos/17"
+        assert channels["CBC"].logo_url is None
+
+    @pytest.mark.asyncio
+    async def test_logo_url_is_never_taken_from_the_payload(self) -> None:
+        """Only the integer logo id is read; URL-like fields in the payload are ignored."""
+        response = await self._build(
+            [
+                {
+                    "id": 101,
+                    "name": "TSN 5",
+                    "channel_number": 28,
+                    "channel_group_id": 1,
+                    "uuid": "uuid-28",
+                    "logo_url": "http://evil.invalid/logo.png",
+                    "logoUrl": "http://evil.invalid/logo.png",
+                    "logo": "http://evil.invalid/logo.png",
+                }
+            ]
+        )
+
+        assert response.groups[0].channels[0].logo_url is None
