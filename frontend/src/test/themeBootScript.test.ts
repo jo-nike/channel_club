@@ -13,6 +13,9 @@ const metaMatch = /<meta name="theme-color" content="([^"]*)">/.exec(html)
 if (!metaMatch) throw new Error('index.html has no static theme-color meta')
 const [metaTag, staticThemeColor] = metaMatch
 
+/** Club Night's background, written out so a change to it shows up here */
+const CLUB_NIGHT_BACKGROUND = 'oklch(0.17 0.02 275)'
+
 /** Minimal stand-in for a <meta> element */
 class FakeMeta {
   attributes = new Map<string, string>()
@@ -121,11 +124,11 @@ describe('index.html theme boot script', () => {
     expect(result.vars.get('--background')).toBe(getTheme('dracula').colors.background)
   })
 
-  it('falls back to dark with the default (Mocha) background when nothing is cached', () => {
+  it('falls back to dark with the default (Club Night) background when nothing is cached', () => {
     const result = boot(() => null)
 
     expect(result.dark).toBe(true)
-    expect(result.vars.get('--background')).toBe('oklch(0.19 0.022 265)')
+    expect(result.vars.get('--background')).toBe(CLUB_NIGHT_BACKGROUND)
   })
 
   it('keeps its fallback in step with the default theme', () => {
@@ -143,14 +146,14 @@ describe('index.html theme boot script', () => {
       result = boot(() => '{not json')
     }).not.toThrow()
     expect(result?.dark).toBe(true)
-    expect(result?.vars.get('--background')).toBe('oklch(0.19 0.022 265)')
+    expect(result?.vars.get('--background')).toBe(CLUB_NIGHT_BACKGROUND)
   })
 
   it('falls back on a snapshot from an unknown version', () => {
     const result = boot(() => JSON.stringify({ v: 2, dark: false, vars: { '--background': 'white' } }))
 
     expect(result.dark).toBe(true)
-    expect(result.vars.get('--background')).toBe('oklch(0.19 0.022 265)')
+    expect(result.vars.get('--background')).toBe(CLUB_NIGHT_BACKGROUND)
   })
 
   it('does not throw when storage is blocked', () => {

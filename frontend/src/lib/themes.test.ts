@@ -14,22 +14,23 @@ const lightThemes = Object.values(themes).filter((t) => t.mode === 'light')
 
 describe('themes', () => {
   describe('theme definitions', () => {
-    it('should have 14 themes defined', () => {
-      expect(Object.keys(themes)).toHaveLength(14)
+    it('should have 16 themes defined', () => {
+      expect(Object.keys(themes)).toHaveLength(16)
     })
 
-    it('should have 11 dark themes', () => {
+    it('should have 12 dark themes', () => {
       const darkThemes = Object.values(themes).filter((t) => t.mode === 'dark')
-      expect(darkThemes).toHaveLength(11)
+      expect(darkThemes).toHaveLength(12)
     })
 
-    it('should have 3 light themes', () => {
+    it('should have 4 light themes', () => {
       const lightThemes = Object.values(themes).filter((t) => t.mode === 'light')
-      expect(lightThemes).toHaveLength(3)
+      expect(lightThemes).toHaveLength(4)
     })
 
     it('should have all required dark themes', () => {
       const expectedDarkThemes: ThemeId[] = [
+        'club-night',
         'teal-city',
         'catppuccin-frappe',
         'catppuccin-macchiato',
@@ -50,6 +51,7 @@ describe('themes', () => {
 
     it('should have all required light themes', () => {
       const expectedLightThemes: ThemeId[] = [
+        'club-day',
         'catppuccin-latte',
         'peachy',
         'zebra',
@@ -149,6 +151,34 @@ describe('themes', () => {
         ).toBeGreaterThanOrEqual(4.5)
       }
     )
+
+    it('Club Night: muted text on a card is at least 4.5:1', () => {
+      const { colors } = themes['club-night']
+      expect(contrast(colors.mutedForeground, colors.card)).toBeGreaterThanOrEqual(4.5)
+    })
+
+    it('Club Night: ink on the amber primary is at least 4.5:1', () => {
+      const { colors } = themes['club-night']
+      expect(colors.primary).toBe('oklch(0.82 0.14 78)')
+      expect(colors.primaryForeground).toBe('oklch(0.22 0.03 60)')
+      expect(contrast(colors.primaryForeground, colors.primary)).toBeGreaterThanOrEqual(4.5)
+    })
+
+    it('Club Night: overrides only the muted and primary foregrounds', () => {
+      const { colors } = themes['club-night']
+      expect(colors.mutedForeground).toBe('oklch(0.74 0.02 275)')
+      // Everything else still comes from the dark generator
+      expect(colors.background).toBe('oklch(0.17 0.02 275)')
+      expect(colors.foreground).toBe(themes['catppuccin-mocha'].colors.foreground)
+      expect(colors.ring).toBe(colors.primary)
+    })
+
+    it('Club Day: white text on its burnt-amber primary is at least 4.5:1', () => {
+      const { colors } = themes['club-day']
+      expect(colors.primaryForeground).toBe('oklch(0.985 0 0)')
+      expect(contrast(colors.primaryForeground, colors.primary)).toBeGreaterThanOrEqual(4.5)
+      expect(contrast(colors.mutedForeground, colors.card)).toBeGreaterThanOrEqual(4.5)
+    })
 
     it('gives Camouflage dark text on its mid-green primary', () => {
       expect(themes.camouflage.colors.primaryForeground).toBe('oklch(0.2 0 0)')
@@ -270,15 +300,21 @@ describe('themes', () => {
 
     it('should have correct number of themes in each category', () => {
       const categories = getThemeCategories()
-      expect(categories[0].themes).toHaveLength(11) // dark
-      expect(categories[1].themes).toHaveLength(3) // light
+      expect(categories[0].themes).toHaveLength(12) // dark
+      expect(categories[1].themes).toHaveLength(4) // light
+    })
+
+    it('lists the Club themes first in each category', () => {
+      const [dark, light] = getThemeCategories()
+      expect(dark.themes[0].id).toBe('club-night')
+      expect(light.themes[0].id).toBe('club-day')
     })
   })
 
   describe('getAllThemeIds', () => {
-    it('should return all 14 theme IDs', () => {
+    it('should return all 16 theme IDs', () => {
       const ids = getAllThemeIds()
-      expect(ids).toHaveLength(14)
+      expect(ids).toHaveLength(16)
     })
 
     it('should return valid theme IDs', () => {
@@ -290,8 +326,8 @@ describe('themes', () => {
   })
 
   describe('DEFAULT_THEME_ID', () => {
-    it('should be catppuccin-mocha', () => {
-      expect(DEFAULT_THEME_ID).toBe('catppuccin-mocha')
+    it('should be club-night', () => {
+      expect(DEFAULT_THEME_ID).toBe('club-night')
     })
 
     it('should be a valid theme ID', () => {

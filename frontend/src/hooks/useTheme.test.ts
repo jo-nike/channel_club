@@ -35,7 +35,7 @@ describe('useTheme', () => {
 
       expect(result.current.theme).toBeDefined()
       expect(result.current.theme.id).toBe(DEFAULT_THEME_ID)
-      expect(result.current.theme.name).toBe('Catppuccin Mocha')
+      expect(result.current.theme.name).toBe('Club Night')
     })
 
     it('should return isDark as true for default dark theme', () => {
