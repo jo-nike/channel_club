@@ -250,19 +250,95 @@ describe('useVideoKeyboardShortcuts', () => {
     expect(mockProps.onVolumeChange).toHaveBeenNthCalledWith(2, 0.4)
   })
 
-  it('ignores a focused button outside the player', () => {
+  it('letters work with focus on a button outside the player (a sidebar channel just clicked); Space and arrows do not', () => {
+    const sidebar = document.createElement('ul')
     const button = document.createElement('button')
-    document.body.appendChild(button)
+    sidebar.append(button)
+    document.body.appendChild(sidebar)
     button.focus()
     renderHook(() => useVideoKeyboardShortcuts(mockProps))
 
-    for (const key of ['m', 'ArrowUp', 'ArrowLeft']) {
+    for (const key of ['m', 'f', 't', 'r']) {
       button.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
     }
-    expect(mockProps.onMuteToggle).not.toHaveBeenCalled()
+    expect(mockProps.onMuteToggle).toHaveBeenCalledTimes(1)
+    expect(mockProps.onFullscreenToggle).toHaveBeenCalledTimes(1)
+    expect(mockProps.onTheaterModeToggle).toHaveBeenCalledTimes(1)
+    expect(mockProps.onRetry).toHaveBeenCalledTimes(1)
+
+    for (const key of [' ', 'Enter', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']) {
+      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+      button.dispatchEvent(event)
+      expect(event.defaultPrevented).toBe(false)
+    }
+    expect(mockProps.onPlayPause).not.toHaveBeenCalled()
     expect(mockProps.onVolumeChange).not.toHaveBeenCalled()
 
-    document.body.removeChild(button)
+    document.body.removeChild(sidebar)
+  })
+
+  it('letters work with focus on any other non-text element outside the player', () => {
+    const panel = document.createElement('div')
+    panel.tabIndex = 0
+    document.body.appendChild(panel)
+    panel.focus()
+    renderHook(() => useVideoKeyboardShortcuts(mockProps))
+
+    panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', bubbles: true }))
+    panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }))
+
+    expect(mockProps.onMuteToggle).toHaveBeenCalledTimes(1)
+    expect(mockProps.onVolumeChange).not.toHaveBeenCalled()
+
+    document.body.removeChild(panel)
+  })
+
+  it.each(['grid', 'listbox', 'menu', 'tablist', 'tree'])('leaves every key to a focused %s (composite widgets move focus with keys)', (role) => {
+    const widget = document.createElement('div')
+    widget.setAttribute('role', role)
+    const item = document.createElement('div')
+    item.tabIndex = 0
+    widget.append(item)
+    document.body.appendChild(widget)
+    item.focus()
+    renderHook(() => useVideoKeyboardShortcuts(mockProps))
+
+    for (const key of ['m', 'f', 't', 'r']) {
+      item.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
+    }
+    expect(mockProps.onMuteToggle).not.toHaveBeenCalled()
+    expect(mockProps.onFullscreenToggle).not.toHaveBeenCalled()
+    expect(mockProps.onTheaterModeToggle).not.toHaveBeenCalled()
+    expect(mockProps.onRetry).not.toHaveBeenCalled()
+
+    document.body.removeChild(widget)
+  })
+
+  it('ignores letters in a text field outside the player', () => {
+    const input = document.createElement('textarea')
+    document.body.appendChild(input)
+    input.focus()
+    renderHook(() => useVideoKeyboardShortcuts(mockProps))
+
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', bubbles: true }))
+
+    expect(mockProps.onMuteToggle).not.toHaveBeenCalled()
+    document.body.removeChild(input)
+  })
+
+  it('ignores letters in a dialog outside the player', () => {
+    const dialog = document.createElement('div')
+    dialog.setAttribute('role', 'dialog')
+    const button = document.createElement('button')
+    dialog.append(button)
+    document.body.appendChild(dialog)
+    button.focus()
+    renderHook(() => useVideoKeyboardShortcuts(mockProps))
+
+    button.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', bubbles: true }))
+
+    expect(mockProps.onFullscreenToggle).not.toHaveBeenCalled()
+    document.body.removeChild(dialog)
   })
 
   it('ignores keys from inside a dialog, even within the player', () => {

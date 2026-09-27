@@ -21,12 +21,18 @@ interface UseVideoKeyboardShortcutsOptions {
 
 const VOLUME_STEP = 0.1
 
-// Focus on these keeps every key: text entry, sliders, links and composite widgets
+// Focus on these keeps every key: text entry, sliders, links and composite
+// widgets (their items, and the containers that move focus between them)
 const NATIVE_KEYS_SELECTOR =
-  'a[href], input, textarea, select, summary, [contenteditable]:not([contenteditable="false"]), [role="slider"], [role="menuitem"], [role="option"], [role="tab"], [role="checkbox"], [role="switch"], [role="textbox"], [role="combobox"], [role="spinbutton"]'
+  'a[href], input, textarea, select, summary, [contenteditable]:not([contenteditable="false"]), [role="slider"], [role="menuitem"], [role="option"], [role="tab"], [role="checkbox"], [role="switch"], [role="textbox"], [role="combobox"], [role="spinbutton"], [role="grid"], [role="treegrid"], [role="listbox"], [role="menu"], [role="menubar"], [role="radiogroup"], [role="tablist"], [role="tree"]'
 // Buttons keep Space and Enter for activation; other shortcuts still apply
 const BUTTON_SELECTOR = 'button, [role="button"]'
 const ACTIVATION_KEYS = new Set([' ', 'Enter'])
+// Space and the arrows act on the player itself, so they need focus in the
+// player or on nothing: elsewhere they scroll the page or move focus in a list.
+// Every other shortcut is a single letter that nothing else on the page uses,
+// so it also works with focus on a channel button just clicked.
+const PLAYER_KEYS = new Set([' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
 
 function matches(target: EventTarget | null, selector: string) {
   return target instanceof Element && Boolean(target.closest(selector))
@@ -47,8 +53,6 @@ export function useVideoKeyboardShortcuts({
 }: UseVideoKeyboardShortcutsOptions) {
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      // Only handle shortcuts when video player container or its children are focused
-      // or when no specific element is focused (body)
       const container = containerRef.current
       const activeElement = document.activeElement
 
@@ -58,13 +62,14 @@ export function useVideoKeyboardShortcuts({
       if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey ||
         focusMatches(NATIVE_KEYS_SELECTOR) || focusMatches('[role="dialog"]')) return
 
-      // Check if event target is within video container or is the body
+      // Space and the arrows only with focus in the player container or on
+      // nothing (body)
       const isWithinContainer =
         container?.contains(activeElement) || activeElement === document.body
 
-      if (!isWithinContainer) return
+      if (PLAYER_KEYS.has(e.key) && !isWithinContainer) return
 
-      // A focused player button keeps its native Space/Enter activation
+      // A focused button keeps its native Space/Enter activation
       if (ACTIVATION_KEYS.has(e.key) && focusMatches(BUTTON_SELECTOR)) return
 
       if (ignoreVerticalArrows && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) return

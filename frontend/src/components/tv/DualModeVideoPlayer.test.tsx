@@ -781,6 +781,33 @@ describe('DualModeVideoPlayer audio: keyboard', () => {
     expect(useAudioStore.getState()).toMatchObject({ volume: 0.2, muted: true })
   })
 
+  it.each([
+    ['live', liveChannel('https://fixture/a')],
+    ['ErsatzTV', hlsChannel('1', 1)],
+  ])('%s: M and T work after picking a channel in the sidebar, the arrows stay with the list', (_engine, channel) => {
+    useAudioStore.setState({ volume: 0.3, muted: false })
+    const onTheaterModeToggle = vi.fn()
+    render(
+      <>
+        <ul>
+          <li>
+            <button type="button">Channel 2</button>
+          </li>
+        </ul>
+        <DualModeVideoPlayer channel={channel} isTheaterMode={false} onTheaterModeToggle={onTheaterModeToggle} />
+      </>
+    )
+    const row = screen.getByRole('button', { name: 'Channel 2' })
+    row.focus()
+
+    fireEvent.keyDown(row, { key: 'ArrowDown' })
+    fireEvent.keyDown(row, { key: 'm' })
+    fireEvent.keyDown(row, { key: 't' })
+
+    expect(useAudioStore.getState()).toMatchObject({ volume: 0.3, muted: true })
+    expect(onTheaterModeToggle).toHaveBeenCalledTimes(1)
+  })
+
   it('leaves Up/Down to channel changes in TV mode', () => {
     localStorage.setItem('tv-mode', 'true')
     useAudioStore.setState({ volume: 0.3, muted: false })
