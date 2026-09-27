@@ -329,9 +329,9 @@ describe('TVHeader', () => {
     appSettings.userChannelSelection = true
     const props = renderHeader({ isMobile: true })
 
-    const picker = screen.getByRole('button', { name: 'Change live channel' })
-    expect(picker).toHaveClass('size-11')
-    fireEvent.click(picker)
+    const changeLive = screen.getByRole('button', { name: 'Change live channel' })
+    expect(changeLive).toHaveClass('size-11')
+    fireEvent.click(changeLive)
     expect(props.onOpenChannelPicker).toHaveBeenCalledTimes(1)
   })
 
@@ -372,9 +372,9 @@ describe('TVHeader', () => {
 
     appSettings.userChannelSelection = true
     const allowed = renderHeader()
-    const picker = screen.getByRole('button', { name: 'Change live channel' })
-    expect(within(picker).getByText('Change live')).toHaveClass('hidden', 'lg:inline')
-    fireEvent.click(picker)
+    const changeLive = screen.getByRole('button', { name: 'Change live channel' })
+    expect(within(changeLive).getByText('Change live')).toHaveClass('hidden', 'lg:inline')
+    fireEvent.click(changeLive)
     expect(allowed.onOpenChannelPicker).toHaveBeenCalledTimes(1)
     expect(props.onOpenChannelPicker).not.toHaveBeenCalled()
   })

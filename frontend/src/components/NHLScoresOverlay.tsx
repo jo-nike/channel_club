@@ -13,7 +13,7 @@ import { useChannelStore } from '@/stores/channelStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useNhlMappingStore } from '@/stores/nhlMappingStore'
 import { useSettingsStore } from '@/stores/settingsStore'
-import { cn } from '@/lib/utils'
+import { cn, formatClockTime } from '@/lib/utils'
 import { scrollBehavior } from '@/lib/motion'
 import { channelsOf, liveGameId, matchGames, type GameRow } from '@/lib/nhlWatch'
 import { reportSuggestion } from '@/lib/suggestion'
@@ -725,9 +725,6 @@ function getStatusDisplay(game: NHLGame): string {
  * @returns Localized time string (e.g., "7:00 PM")
  */
 function formatLocalTime(isoString: string): string {
-  return new Date(isoString).toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  })
+  // The app's one clock format, in the viewer's locale like every other time
+  return formatClockTime(new Date(isoString))
 }

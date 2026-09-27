@@ -84,6 +84,13 @@ describe('AppearancePicker Dark and Light', () => {
     expect(group('Light')).toBeNull()
   })
 
+  it('keeps the mode segments 44px on touch screens, 36px only for a mouse from md', () => {
+    render(<AppearancePicker />)
+
+    expect(mode('Dark')).toHaveClass('h-11', 'pointer-fine:md:h-9')
+    expect(mode('Dark')).not.toHaveClass('md:h-9')
+  })
+
   it('switches to the remembered light pick and lists the light themes', () => {
     useThemeStore.setState({ lightThemeId: 'peachy' })
     render(<AppearancePicker />)

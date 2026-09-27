@@ -9,7 +9,7 @@ import type { Channel } from '@/types'
 
 /**
  * Puts a channel on live TV (channel 0) for everyone. The store switches
- * straight away so the picker responds at once; if the server refuses, the
+ * straight away so the live switcher responds at once; if the server refuses, the
  * previous live channel comes back and a toast says why. Resolves to whether
  * the switch went through. Only a switch the server accepted is remembered in
  * the signed-in person's recent live channels, which the admin On air card
@@ -21,7 +21,7 @@ import type { Channel } from '@/types'
  * may want to stay on their own channel.
  *
  * The optimistic switch happens synchronously, before the returned promise
- * first yields, so callers can close their picker right after calling it.
+ * first yields, so callers can close their switcher right after calling it.
  */
 export function useSetLiveChannel({ tuneActor = false }: { tuneActor?: boolean } = {}) {
   const setCurrentChannel = useChannelStore((s) => s.setCurrentChannel)

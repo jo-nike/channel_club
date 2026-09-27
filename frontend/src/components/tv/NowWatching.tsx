@@ -50,7 +50,8 @@ export function NowWatching({ isMobile }: { isMobile: boolean }) {
     <button
       type="button"
       onClick={() => selectChannel(getUnifiedChannels()[0])}
-      className="inline-flex min-h-6 min-w-0 max-w-xs items-center gap-1.5 rounded-full bg-live-surface px-2 text-xs leading-tight text-foreground hover:bg-live/20"
+      // A 44px touch area around the 24px chip, so the header keeps its height
+      className="relative inline-flex min-h-6 min-w-0 max-w-xs items-center gap-1.5 rounded-full bg-live-surface px-2 text-xs leading-tight text-foreground hover:bg-live/20 pointer-coarse:before:absolute pointer-coarse:before:inset-x-0 pointer-coarse:before:-inset-y-2.5"
     >
       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-live" aria-hidden="true" />
       {/* On phones the prefix is for screen readers only, so who's here beside

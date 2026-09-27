@@ -238,6 +238,8 @@ describe('ChatPanel', () => {
   it('closes panel when close button is clicked', () => {
     render(<ChatPanel onSendMessage={mockOnSendMessage} />)
     const closeButton = screen.getByRole('button', { name: 'Close chat' })
+    // 44px to tap on a touch screen
+    expect(closeButton).toHaveClass('pointer-coarse:size-11')
 
     fireEvent.click(closeButton)
 

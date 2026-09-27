@@ -556,7 +556,7 @@ export function ChatPanel({ onSendMessage, onShare, onSetNickname, status = 'con
               size="icon"
               onClick={handleClose}
               aria-label="Close chat"
-              className="h-8 w-8"
+              className="h-8 w-8 pointer-coarse:size-11"
             >
               <X className="h-5 w-5" />
             </Button>

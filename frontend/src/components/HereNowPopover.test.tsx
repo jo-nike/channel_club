@@ -64,6 +64,13 @@ describe('HereNowPopover', () => {
     expect(Array.from(stack.children).map((a) => a.textContent)).toEqual(['D', 'M', 'S'])
   })
 
+  it('keeps the header trigger 44px on touch screens, 36px only for a mouse from md', () => {
+    render(<HereNowPopover variant="header" />)
+    const trigger = screen.getByRole('button', { name: '3 here' })
+    expect(trigger).toHaveClass('h-11', 'pointer-fine:md:h-9')
+    expect(trigger).not.toHaveClass('md:h-9')
+  })
+
   it("lists each person with their channel and programme, Live on live TV", () => {
     render(<HereNowPopover />)
     const list = within(openList()).getAllByRole('listitem')

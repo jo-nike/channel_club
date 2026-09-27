@@ -128,6 +128,8 @@ describe('NowWatching', () => {
       render(<NowWatching isMobile />)
 
       expect(joinChip()).toHaveTextContent('Live now: CA-S: TSN 5·Join')
+      // A 44px touch area around the 24px chip, without growing the header
+      expect(joinChip()).toHaveClass('min-h-6', 'relative', 'pointer-coarse:before:absolute', 'pointer-coarse:before:-inset-y-2.5')
       expect(screen.getByText('The Lord of the Rings: The War of the Rohirrim')).toBeInTheDocument()
       expect(screen.queryByText('CH 4 · Cinema · 32m left')).not.toBeInTheDocument()
     })

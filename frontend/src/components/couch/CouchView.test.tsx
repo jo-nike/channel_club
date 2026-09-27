@@ -169,6 +169,17 @@ describe('CouchView: zapping', () => {
     expect(selectedId()).toBe('e1')
   })
 
+  it('hides the channel banner while the guide is open, so it never covers the guide', () => {
+    renderCouch()
+    const hint = '▲▼ change channel · 0-9 channel number · OK guide'
+    expect(screen.getByText(hint)).toBeInTheDocument()
+
+    press('Enter', { keyCode: 13 })
+
+    expect(screen.getByRole('listbox', { name: 'Channels' })).toBeInTheDocument()
+    expect(screen.queryByText(hint)).not.toBeInTheDocument()
+  })
+
   it('shows a banner for the channel being zapped to, then hides it 3s after the last change', () => {
     renderCouch()
     const banner = screen.getByRole('status')
@@ -308,7 +319,7 @@ describe('CouchView: OK and fullscreen', () => {
     expect(requestFullscreen).not.toHaveBeenCalled()
   })
 
-  it('picks a channel for everyone on OK on the idle live slot, instead of opening the guide', () => {
+  it('opens the guide and goes fullscreen on OK on the idle live slot, also for someone who can pick', () => {
     useChannelStore.getState().setCurrentChannel(null)
     useTVStore.setState({ selectedChannel: channel('live-channel-0') })
     const onPickLive = vi.fn()
@@ -316,8 +327,10 @@ describe('CouchView: OK and fullscreen', () => {
 
     expect(press('Enter', { keyCode: 13 })).toBe(false)
 
-    expect(onPickLive).toHaveBeenCalledTimes(1)
-    expect(screen.queryByRole('listbox', { name: 'Channels' })).not.toBeInTheDocument()
+    // The hints say OK opens the guide; the desktop live switcher isn't made for a remote
+    expect(onPickLive).not.toHaveBeenCalled()
+    expect(screen.getByRole('listbox', { name: 'Channels' })).toBeInTheDocument()
+    expect(requestFullscreen).toHaveBeenCalledTimes(1)
   })
 
   it('opens the guide on OK on channel 0 while something is live', () => {
@@ -773,7 +786,7 @@ describe('couch styles', () => {
     expect(rule(menu)).toBe('min-width: 24rem;')
     expect(rule(`${menu} :is([role^="menuitem"], [data-slot="dropdown-menu-label"])`)).toBe('font-size: 1.5rem;\n  padding-block: 0.5rem;')
     expect(rule(`${menu} .text-xs`)).toBe('font-size: 1.125rem;')
-    expect(rule(`${menu} [data-highlighted]`)).toBe('outline: 4px solid var(--couch-focus);\n  outline-offset: -4px;')
+    expect(rule(`${menu} [data-highlighted]`)).toBe('outline: 5px solid var(--couch-focus);\n  outline-offset: -5px;')
   })
 
   it('shows remote focus in the couch focus colour with a non-colour cue: a thick outline and a scale', () => {
@@ -781,9 +794,9 @@ describe('couch styles', () => {
     expect(rule('.couch .couch-view :is(button, [role="button"]):focus-visible')).toBe('transform: scale(1.1);')
   })
 
-  it('sizes the idle live slot for the TV: 24px text and a bigger button', () => {
+  it('sizes the idle live slot for the TV and hides the pick button a remote cannot reach', () => {
     expect(rule('.couch .couch-view .live-slot-idle p')).toBe('font-size: 1.5rem;')
-    expect(rule('.couch .couch-view .live-slot-idle button')).toBe('height: 3.5rem;\n  font-size: 1.5rem;\n  padding-inline: 2rem;')
+    expect(rule('.couch .couch-view .live-slot-idle button')).toBe('display: none;')
   })
 
   it('keeps the control bar inside the title-safe area', () => {

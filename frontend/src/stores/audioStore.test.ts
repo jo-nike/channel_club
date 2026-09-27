@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { useAudioStore, unmutedVolume } from './audioStore'
 
 const readSaved = () => JSON.parse(localStorage.getItem('audio-storage') ?? 'null')
@@ -8,6 +8,31 @@ describe('audioStore', () => {
     localStorage.clear()
     useAudioStore.setState({ volume: 1, muted: false, savedMuteNotice: false, previewHolds: 0 })
     localStorage.clear()
+  })
+
+  describe('with site storage blocked', () => {
+    const realStorage = window.localStorage
+    const blocked = () => {
+      throw new DOMException('The operation is insecure.', 'SecurityError')
+    }
+
+    beforeEach(() => {
+      Object.defineProperty(window, 'localStorage', {
+        value: { getItem: blocked, setItem: blocked, removeItem: blocked, clear: blocked },
+        writable: true,
+      })
+    })
+
+    afterEach(() => {
+      Object.defineProperty(window, 'localStorage', { value: realStorage, writable: true })
+    })
+
+    it('keeps volume, mute and the preview hold working for the page', () => {
+      expect(() => useAudioStore.getState().setVolume(0.4)).not.toThrow()
+      expect(() => useAudioStore.getState().setMuted(true)).not.toThrow()
+      expect(() => useAudioStore.getState().acquirePreview()).not.toThrow()
+      expect(useAudioStore.getState()).toMatchObject({ volume: 0.4, muted: true, previewHolds: 1 })
+    })
   })
 
   describe('setVolume', () => {

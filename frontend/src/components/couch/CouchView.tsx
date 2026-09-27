@@ -82,8 +82,6 @@ function requestPageFullscreen() {
  *
  * CH+/CH- and Up/Down zap, tuning once the presses stop. The number keys
  * type a channel number, tuned 1.5s after the last digit or at once on OK.
- * On channel 0 with nothing live, OK picks a channel for everyone instead,
- * for those allowed to (the idle slot's button, which a remote can't focus).
  * Otherwise OK, with nothing focused, opens the guide, as does the remote's
  * Guide or Info key; the first also takes the page fullscreen (a browser
  * only allows that from a key press or a click, so it can't happen on load).
@@ -167,13 +165,7 @@ export function CouchView({
           // Otherwise a focused control keeps OK to press it
           e.preventDefault()
           e.stopPropagation()
-          // The idle live slot, the same test as the player's placeholder
-          const selected = useTVStore.getState().selectedChannel
-          if (selected?.type === 'live' && !selected.streamUrl && onPickLive) {
-            onPickLive()
-          } else {
-            openGuide()
-          }
+          openGuide()
         }
       } else if (action === 'guide') {
         e.preventDefault()
@@ -203,7 +195,7 @@ export function CouchView({
     }
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [zapStep, zapDigit, commitDigits, openRoom, onPickLive])
+  }, [zapStep, zapDigit, commitDigits, openRoom])
 
   const isCursorIdle = useIdleCursor()
 
@@ -234,13 +226,16 @@ export function CouchView({
         />
       </ErrorBoundary>
       {/* A typed number shows its channel once it matches one, and its
-          digits until then */}
-      <ZapBanner
-        channel={zapPending ?? selectedChannel}
-        entry={zapPending ? null : zap.entry}
-        missing={zap.missing}
-        liveChange={zapPending ? null : liveChange}
-      />
+          digits until then. The open guide lists the channel itself, and
+          the banner would sit on its heading, so it waits for the guide */}
+      {!isGuideOpen && (
+        <ZapBanner
+          channel={zapPending ?? selectedChannel}
+          entry={zapPending ? null : zap.entry}
+          missing={zap.missing}
+          liveChange={zapPending ? null : liveChange}
+        />
+      )}
       {isGuideOpen && <CouchGuide onClose={closeGuide} canPickLive={!!onPickLive} onOpenRoom={openRoom} />}
       {isRoomOpen && <RoomPanel onClose={closeRoom} />}
       {/* Without it, a TV layout switched On would have no way back: it shows

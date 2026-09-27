@@ -65,6 +65,9 @@ describe('HeaderAction', () => {
     const button = screen.getByRole('button', { name: 'Change live channel' })
     expect(screen.getByText('Change live')).toHaveClass('hidden', 'lg:inline')
     expect(button).toHaveClass('lg:w-auto', 'lg:px-3')
+    // With a mouse the toolbar size is pointer-fine:md:size-9, emitted after lg:w-auto,
+    // so the label also needs the pointer-fine width or it spills out of a 36px box
+    expect(button).toHaveClass('pointer-fine:md:size-9', 'pointer-fine:lg:w-auto')
   })
 
   it('stays a square icon button without a visible label', () => {
