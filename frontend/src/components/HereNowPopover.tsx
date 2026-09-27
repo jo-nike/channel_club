@@ -4,14 +4,12 @@ import { Button } from '@/components/ui/button'
 import { MemberAvatar } from '@/components/MemberAvatar'
 import { LivePill } from '@/components/LivePill'
 import { PresenceStack } from '@/components/PresenceStack'
-import { isOwnPresence, presenceRowId, useSeesPresenceChannels } from '@/hooks/usePresenceByChannel'
-import { usePresenceStore } from '@/stores/presenceStore'
-import { useChatStore } from '@/stores/chatStore'
+import { findPresenceChannel, presenceRowId, useOthersHere, useSeesPresenceChannels } from '@/hooks/usePresenceByChannel'
 import { useChannelStore } from '@/stores/channelStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore, buildUnifiedChannels } from '@/stores/tvStore'
 import { cn } from '@/lib/utils'
-import type { PresenceEntry, UnifiedChannel } from '@/types'
+import type { PresenceEntry } from '@/types'
 
 /**
  * Where the trigger sits:
@@ -30,32 +28,6 @@ const TRIGGER_CLASSES: Record<HereNowVariant, string> = {
 
 // Avatars before '+n' in each place
 const STACK_MAX: Record<HereNowVariant, number> = { chat: 3, header: 4, phone: 2 }
-
-/** Everyone here but this viewer, in snapshot order (names only or not). */
-function useOthersHere(): PresenceEntry[] {
-  const entries = usePresenceStore((s) => s.entries)
-  const nickname = useChatStore((s) => s.nickname)
-  const me = useChatStore((s) => s.me)
-  return useMemo(() => entries.filter((entry) => !isOwnPresence(entry, { nickname, me })), [entries, nickname, me])
-}
-
-/**
- * The channel row a person is on, to join them: live TV is row 0; an
- * ErsatzTV channel is the row whose backendId ?? id is theirs. Null when
- * the row isn't in this viewer's list (or live TV has nothing on).
- */
-function findPresenceChannel(entry: PresenceEntry, channels: UnifiedChannel[]): UnifiedChannel | null {
-  if (presenceRowId(entry) === null) return null
-  if (entry.view === 'live') {
-    const live = channels[0]
-    return live?.type === 'live' && live.streamUrl ? live : null
-  }
-  // Only ErsatzTV rows: their ids and Dispatcharr's are separate number spaces
-  return (
-    channels.find((channel) => channel.type === 'ersatztv' && (channel.backendId ?? channel.id) === entry.channelId) ??
-    null
-  )
-}
 
 interface HereNowListProps {
   people: PresenceEntry[]

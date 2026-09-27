@@ -4,7 +4,7 @@ import { useSettingsStore } from '@/stores/settingsStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useChatStore, isOwnMessage, type ChatIdentity } from '@/stores/chatStore'
 import { LIVE_CHANNEL_ID } from '@/stores/tvStore'
-import type { PresenceEntry } from '@/types'
+import type { PresenceEntry, UnifiedChannel } from '@/types'
 
 /** Who this viewer is, as the chat knows them (chatStore's nickname and me). */
 export interface OwnIdentity {
@@ -32,6 +32,24 @@ export function presenceRowId(entry: PresenceEntry): string | null {
   if (entry.view === 'live') return LIVE_CHANNEL_ID
   if (entry.view === 'ersatztv' && entry.channelId) return entry.channelId
   return null
+}
+
+/**
+ * The channel row a person is on, to join them: live TV is row 0; an
+ * ErsatzTV channel is the row whose backendId ?? id is theirs. Null when
+ * the row isn't in this viewer's list (or live TV has nothing on).
+ */
+export function findPresenceChannel(entry: PresenceEntry, channels: UnifiedChannel[]): UnifiedChannel | null {
+  if (presenceRowId(entry) === null) return null
+  if (entry.view === 'live') {
+    const live = channels[0]
+    return live?.type === 'live' && live.streamUrl ? live : null
+  }
+  // Only ErsatzTV rows: their ids and Dispatcharr's are separate number spaces
+  return (
+    channels.find((channel) => channel.type === 'ersatztv' && (channel.backendId ?? channel.id) === entry.channelId) ??
+    null
+  )
 }
 
 /**
@@ -78,4 +96,12 @@ export function usePresenceByChannel(): ReadonlyMap<string, PresenceEntry[]> {
     () => (seesChannels ? mapPresenceByChannel(entries, { nickname, me }) : NOBODY),
     [seesChannels, entries, nickname, me]
   )
+}
+
+/** Everyone here but this viewer, in snapshot order (names only or not). */
+export function useOthersHere(): PresenceEntry[] {
+  const entries = usePresenceStore((s) => s.entries)
+  const nickname = useChatStore((s) => s.nickname)
+  const me = useChatStore((s) => s.me)
+  return useMemo(() => entries.filter((entry) => !isOwnPresence(entry, { nickname, me })), [entries, nickname, me])
 }
