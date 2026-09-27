@@ -32,14 +32,10 @@ export function detectTVMode(): boolean {
  * 2. WebOS user agent detection
  * 3. Tizen user agent detection
  *
- * @returns boolean indicating if TV mode should be active
+ * There is no global `tv-mode` stylesheet or body class: couch (10-foot)
+ * sizing lives in the components that read this hook.
  *
- * @example
- * const isTVMode = useTVMode()
- * // Apply tv-mode class to body for CSS targeting
- * useEffect(() => {
- *   document.body.classList.toggle('tv-mode', isTVMode)
- * }, [isTVMode])
+ * @returns boolean indicating if TV mode should be active
  */
 export function useTVMode(): boolean {
   const [isTVMode, setIsTVMode] = useState(() => detectTVMode())
