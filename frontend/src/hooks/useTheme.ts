@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { useThemeStore } from '@/stores/themeStore'
+import { activeThemeId, useThemeStore } from '@/stores/themeStore'
 import { getTheme } from '@/lib/themes'
 import { colorToCSSVar, createThemeBoot, saveThemeBoot } from '@/lib/themeBoot'
 import type { ThemeId, ThemeColors } from '@/types/theme'
@@ -52,7 +52,7 @@ function applyThemeColorMeta(hex: string): void {
  * @returns Object containing current theme info and setTheme function
  */
 export function useTheme() {
-  const themeId = useThemeStore((s) => s.themeId)
+  const themeId = useThemeStore(activeThemeId)
   const setThemeId = useThemeStore((s) => s.setTheme)
 
   // Get the full theme object

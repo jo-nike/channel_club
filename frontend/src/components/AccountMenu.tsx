@@ -29,7 +29,7 @@ import { FeedbackDialog } from '@/components/FeedbackDialog'
 import { useAuth } from '@/hooks/useAuth'
 import { useAppSettings } from '@/hooks/useAppSettings'
 import { useFeedbackFeature } from '@/hooks/useFeedbackFeature'
-import { useThemeStore } from '@/stores/themeStore'
+import { activeThemeId, useThemeStore } from '@/stores/themeStore'
 import { useUIStore } from '@/stores/uiStore'
 import { getThemeCategories, getTheme } from '@/lib/themes'
 import type { ThemeId } from '@/types/theme'
@@ -59,7 +59,7 @@ export function AccountMenu({ onOpenChannelPicker, onOpenAdmin, onReload, isMobi
   const setNotificationsEnabled = useUIStore((s) => s.setNotificationsEnabled)
   const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
   const setNHLOverlayVisible = useUIStore((s) => s.setNHLOverlayVisible)
-  const themeId = useThemeStore((s) => s.themeId)
+  const themeId = useThemeStore(activeThemeId)
   const setTheme = useThemeStore((s) => s.setTheme)
   const initial = initialOf(username)
   const canChangeLive = isAdmin || userChannelSelection

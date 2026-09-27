@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor, within } from '@/test/utils'
 import { AccountMenu } from './AccountMenu'
-import { useThemeStore } from '@/stores/themeStore'
+import { activeThemeId, useThemeStore } from '@/stores/themeStore'
 import { useUIStore } from '@/stores/uiStore'
-import { DEFAULT_THEME_ID, getTheme } from '@/lib/themes'
+import { getTheme } from '@/lib/themes'
 
 const auth = vi.hoisted(() => ({
   username: 'jon' as string | null,
@@ -58,7 +58,7 @@ beforeEach(() => {
   appSettings.userChannelSelection = false
   feedback.isEnabled = false
   useUIStore.setState({ notificationsEnabled: true, isNHLOverlayVisible: false })
-  useThemeStore.setState({ themeId: DEFAULT_THEME_ID })
+  useThemeStore.setState(useThemeStore.getInitialState())
 })
 
 afterEach(() => {
@@ -199,7 +199,7 @@ describe('AccountMenu theme submenu', () => {
   it('sets the theme from a row', () => {
     openThemes()
     fireEvent.click(themeRow('Catppuccin Latte'))
-    expect(useThemeStore.getState().themeId).toBe('catppuccin-latte')
+    expect(activeThemeId(useThemeStore.getState())).toBe('catppuccin-latte')
   })
 
   it('marks the selected row readable on the accent surface with a primary check', () => {

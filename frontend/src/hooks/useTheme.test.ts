@@ -10,7 +10,7 @@ import type { ThemeId } from '@/types/theme'
 describe('useTheme', () => {
   beforeEach(() => {
     // Reset store to initial state
-    useThemeStore.setState({ themeId: DEFAULT_THEME_ID })
+    useThemeStore.setState(useThemeStore.getInitialState())
 
     // Clean up document root classes and styles
     document.documentElement.classList.remove('dark')
