@@ -3,6 +3,7 @@ import { render, screen, cleanup } from '@/test/utils'
 import { TVEPGGrid } from './TVEPGGrid'
 import { useChannelStore } from '@/stores/channelStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
+import { useTVStore } from '@/stores/tvStore'
 import type { EPGResponse, ErsatzTVProgramme } from '@/types'
 
 const hour = 60 * 60 * 1000
@@ -57,5 +58,40 @@ describe('TVEPGGrid colours', () => {
     const label = liveRow.querySelector('button')
     expect(label).toHaveClass('bg-live-surface')
     expect(label?.className).not.toMatch(/rose/)
+  })
+})
+
+describe('TVEPGGrid live row without a programme', () => {
+  beforeEach(() => {
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1' },
+    })
+    useErsatztvStore.setState({ channels: [] })
+  })
+
+  afterEach(() => {
+    cleanup()
+    useChannelStore.setState({ currentChannel: null })
+    useTVStore.setState({ liveEPGStatus: 'idle' })
+  })
+
+  it.each([
+    ['unavailable', 'Guide unavailable'],
+    ['empty', 'No guide info'],
+  ] as const)('says the guide is %s instead of leaving the row blank', (liveEPGStatus, copy) => {
+    useTVStore.setState({ liveEPGStatus })
+    render(<TVEPGGrid programmesByChannel={{}} liveEPG={null} />)
+
+    const [liveRow] = screen.getAllByTestId('channel-row')
+    expect(liveRow).toHaveTextContent(copy)
+  })
+
+  it('draws the programme rather than the guide copy when there is one', () => {
+    useTVStore.setState({ liveEPGStatus: 'ok' })
+    render(<TVEPGGrid programmesByChannel={{}} liveEPG={liveEPG} />)
+
+    const [liveRow] = screen.getAllByTestId('channel-row')
+    expect(liveRow).toHaveTextContent('Club Broadcast')
+    expect(liveRow).not.toHaveTextContent('No guide info')
   })
 })

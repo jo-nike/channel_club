@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type Ref } from 'react'
 import { ChevronLeft, ChevronRight, Radio } from 'lucide-react'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
-import { useTVStore } from '@/stores/tvStore'
+import { useTVStore, describeLiveGuide } from '@/stores/tvStore'
 import { getErsatzTVLogoUrl, fetchErsatzTVCurrentProgramme } from '@/services/ersatztvApi'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useProgrammeClock } from '@/hooks/useProgrammeClock'
@@ -20,7 +20,7 @@ export function TVChannelSidebar({
   liveEPGTitle,
 }: TVChannelSidebarProps) {
   const { channels: ersatzTVChannels, channelsLoading, error, loadChannels } = useErsatztvStore()
-  const { selectedChannel, selectChannel, getUnifiedChannels, isLiveChannelActive } = useTVStore()
+  const { selectedChannel, selectChannel, getUnifiedChannels, isLiveChannelActive, liveEPGStatus } = useTVStore()
 
   const [channelProgrammes, setChannelProgrammes] = useState<Record<string, ErsatzTVProgramme>>({})
   const [currentTime, setCurrentTime] = useState(() => Date.now())
@@ -133,7 +133,9 @@ export function TVChannelSidebar({
             isSelected={selectedChannel?.id === channel.id}
             onSelect={handleChannelClick}
             currentProgramme={
-              channel.type === 'live' ? liveEPGTitle : channelProgrammes[channel.id]?.title
+              channel.type === 'live'
+                ? liveEPGTitle || describeLiveGuide(liveEPGStatus)
+                : channelProgrammes[channel.id]?.title
             }
             programme={channel.type === 'live' ? undefined : channelProgrammes[channel.id]}
             currentTime={currentTime}
@@ -379,7 +381,7 @@ function ChannelItem({
           <p className="truncate text-sm text-muted-foreground">
             {isLive
               ? hasLiveChannel
-                ? currentProgramme || 'Now broadcasting...'
+                ? currentProgramme
                 : 'Awaiting broadcast...'
               : currentProgramme || 'Now playing...'}
           </p>

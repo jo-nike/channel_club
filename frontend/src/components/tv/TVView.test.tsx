@@ -47,7 +47,7 @@ beforeEach(() => {
   crash.player = false
   crash.chat = false
   useChatStore.setState({ isOpen: false })
-  useTVStore.setState({ selectedChannel: null, liveEPG: null })
+  useTVStore.setState({ selectedChannel: null, liveEPG: null, liveEPGStatus: 'idle' })
   useErsatztvStore.setState({ channels: [], channelsLoading: false, error: null })
   useUIStore.setState({ lastTVChannelId: null, isTheaterMode: false, isChannelSidebarCollapsed: false })
   useChannelStore.getState().setCurrentChannel({ id: 'a', name: 'A', streamUrl: 'https://fixture/a' })
@@ -178,20 +178,21 @@ describe('E-V1 chat connection state', () => {
   })
 })
 
+const originalMatchMedia = window.matchMedia
+function matchOnly(match: string) {
+  window.matchMedia = vi.fn((query: string) => ({
+    matches: query === match,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }))
+}
+
 describe('G-03 phone portrait layout', () => {
-  const originalMatchMedia = window.matchMedia
-  function matchOnly(match: string) {
-    window.matchMedia = vi.fn((query: string) => ({
-      matches: query === match,
-      media: query,
-      onchange: null,
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    }))
-  }
   beforeEach(() => vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([]))
   afterEach(() => { window.matchMedia = originalMatchMedia })
 
@@ -250,5 +251,30 @@ describe('A-V2 iOS safe area', () => {
     const header = screen.getByRole('banner')
     expect(header).toHaveClass('pt-header-safe', 'pb-2')
     expect(header).not.toHaveClass('py-2')
+  })
+})
+
+describe('B-V1 live guide copy on the phone card', () => {
+  beforeEach(() => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
+    matchOnly('(max-width: 768px)')
+  })
+  afterEach(() => { window.matchMedia = originalMatchMedia })
+
+  it("says 'Guide unavailable' when the guide lookup fails", async () => {
+    vi.mocked(fetchNowPlaying).mockRejectedValue(new Error('Failed to fetch EPG'))
+    useChannelStore.getState().setCurrentChannel({ id: 'a', name: 'Sports', streamUrl: '/a', guideId: 'guide-a' })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+
+    expect(await screen.findByText('Guide unavailable')).toBeVisible()
+    expect(screen.queryByText('Broadcasting...')).not.toBeInTheDocument()
+  })
+
+  it("says 'No guide info' when the guide has nothing on now", async () => {
+    vi.mocked(fetchNowPlaying).mockResolvedValue({ channelId: 'guide-a', currentProgram: null })
+    useChannelStore.getState().setCurrentChannel({ id: 'a', name: 'Sports', streamUrl: '/a', guideId: 'guide-a' })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+
+    expect(await screen.findByText('No guide info')).toBeVisible()
   })
 })

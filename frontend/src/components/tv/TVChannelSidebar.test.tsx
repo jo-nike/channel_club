@@ -254,3 +254,42 @@ describe('TVChannelSidebar collapsed rail scrolling', () => {
     )
   })
 })
+
+describe('TVChannelSidebar live row guide copy', () => {
+  beforeEach(() => {
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1' },
+    })
+    useErsatztvStore.setState({ channels: [] })
+  })
+
+  afterEach(() => {
+    cleanup()
+    useChannelStore.setState({ currentChannel: null })
+    useTVStore.setState({ liveEPG: null, liveEPGStatus: 'idle' })
+  })
+
+  const liveRow = () => screen.getByRole('button', { name: 'Live Channel' })
+
+  it.each([
+    ['unavailable', 'Guide unavailable'],
+    ['empty', 'No guide info'],
+    ['loading', 'Loading guide...'],
+  ] as const)("says why there's no title when the guide is %s", async (liveEPGStatus, copy) => {
+    useTVStore.setState({ liveEPG: null, liveEPGStatus })
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+
+    expect(liveRow()).toHaveTextContent(copy)
+    expect(liveRow()).not.toHaveTextContent('Now broadcasting')
+  })
+
+  it('shows the programme title when the guide has one', async () => {
+    useTVStore.setState({ liveEPGStatus: 'ok' })
+    render(<TVChannelSidebar liveEPGTitle="Hockey Night" />)
+    await act(async () => {})
+
+    expect(liveRow()).toHaveTextContent('Hockey Night')
+    expect(liveRow()).not.toHaveTextContent('No guide info')
+  })
+})

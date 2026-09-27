@@ -20,6 +20,13 @@ export const LIVE_CHANNEL_ID = 'live-channel-0'
  */
 export type LiveEPGStatus = 'idle' | 'loading' | 'ok' | 'empty' | 'unavailable'
 
+/** What to show for a live channel in place of a programme title. */
+export function describeLiveGuide(status: LiveEPGStatus): string {
+  if (status === 'unavailable') return 'Guide unavailable'
+  if (status === 'idle' || status === 'loading') return 'Loading guide...'
+  return 'No guide info'
+}
+
 interface TVState {
   // Selected channel (can be Channel 0 or ErsatzTV channel)
   selectedChannel: UnifiedChannel | null

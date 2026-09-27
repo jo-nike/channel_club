@@ -10,7 +10,7 @@ import { useProgrammeClock } from '@/hooks/useProgrammeClock'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useChannelStore } from '@/stores/channelStore'
-import { useTVStore, initializeTVStore } from '@/stores/tvStore'
+import { useTVStore, initializeTVStore, describeLiveGuide } from '@/stores/tvStore'
 import { getErsatzTVLogoUrl } from '@/services/ersatztvApi'
 import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
@@ -600,7 +600,7 @@ interface MobileChannelListProps {
 }
 
 function MobileChannelList({ onChannelSelect, liveEPGTitle }: MobileChannelListProps) {
-  const { getUnifiedChannels, isLiveChannelActive, selectedChannel } = useTVStore()
+  const { getUnifiedChannels, isLiveChannelActive, selectedChannel, liveEPGStatus } = useTVStore()
   const { programmesByChannel } = useErsatztvStore()
   const [currentTime, setCurrentTime] = useState(() => Date.now())
 
@@ -626,7 +626,7 @@ function MobileChannelList({ onChannelSelect, liveEPGTitle }: MobileChannelListP
 
   // Helper to get live programme title
   const getLiveProgrammeTitle = (): string => {
-    return liveEPGTitle ?? (hasLiveChannel ? 'Broadcasting...' : 'Awaiting broadcast...')
+    return liveEPGTitle ?? (hasLiveChannel ? describeLiveGuide(liveEPGStatus) : 'Awaiting broadcast...')
   }
 
   // Calculate progress and time remaining
