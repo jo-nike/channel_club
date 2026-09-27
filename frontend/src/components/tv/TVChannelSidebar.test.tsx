@@ -4,6 +4,7 @@ import { TVChannelSidebar } from './TVChannelSidebar'
 import { useChannelStore } from '@/stores/channelStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore } from '@/stores/tvStore'
+import { fetchErsatzTVCurrentProgramme } from '@/services/ersatztvApi'
 import type { ErsatzTVProgramme } from '@/types'
 
 vi.mock('@/services/ersatztvApi', () => ({
@@ -507,5 +508,56 @@ describe('TVChannelSidebar empty live slot', () => {
     await act(async () => {})
 
     expect(screen.queryByRole('button', { name: 'Pick a channel' })).not.toBeInTheDocument()
+  })
+})
+
+describe('TVChannelSidebar programme progress', () => {
+  const NOW = new Date('2026-09-26T20:00:00Z').getTime()
+  const MINUTE = 60_000
+
+  function onNow(startOffsetMin: number, stopOffsetMin: number): ErsatzTVProgramme {
+    return {
+      id: 'p1',
+      channelId: 'etv1',
+      title: 'Evening News',
+      start: new Date(NOW + startOffsetMin * MINUTE).toISOString(),
+      stop: new Date(NOW + stopOffsetMin * MINUTE).toISOString(),
+    }
+  }
+
+  // The bar's fill sits in the track just before the time-left label
+  const fillBefore = (label: HTMLElement) => label.previousElementSibling?.firstElementChild as HTMLElement
+
+  beforeEach(() => {
+    // Only the clock: the programme fetch still resolves on real timers
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+    useErsatztvStore.setState({
+      channels: [{ id: 'etv1', name: 'Movies', streamUrl: '', logoUrl: '', number: 1, group: 'Films' }],
+    })
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+    vi.mocked(fetchErsatzTVCurrentProgramme).mockResolvedValue({ current: null, nextUp: null })
+    useErsatztvStore.setState({ channels: [] })
+  })
+
+  it("shows the time left and fills the bar by the share that's been on", async () => {
+    // 30 of 95 minutes in, 65 to go
+    vi.mocked(fetchErsatzTVCurrentProgramme).mockResolvedValue({ current: onNow(-30, 65), nextUp: null })
+    render(<TVChannelSidebar />)
+
+    const label = await screen.findByText('1h 5m left')
+    expect(parseFloat(fillBefore(label).style.width)).toBeCloseTo((30 / 95) * 100, 5)
+  })
+
+  it("says 'Ending...' with a full bar once the stop time has passed", async () => {
+    vi.mocked(fetchErsatzTVCurrentProgramme).mockResolvedValue({ current: onNow(-60, -1), nextUp: null })
+    render(<TVChannelSidebar />)
+
+    const label = await screen.findByText('Ending...')
+    expect(fillBefore(label).style.width).toBe('100%')
   })
 })

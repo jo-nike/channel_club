@@ -6,7 +6,7 @@ import { getErsatzTVLogoUrl, fetchErsatzTVCurrentProgramme } from '@/services/er
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
 import { useProgrammeClock } from '@/hooks/useProgrammeClock'
-import { findOnAir, getProgrammeState } from '@/lib/programmes'
+import { calculateProgress, findOnAir, formatRemaining, getProgrammeState } from '@/lib/programmes'
 import { cn } from '@/lib/utils'
 import type { UnifiedChannel, ErsatzTVProgramme } from '@/types'
 
@@ -306,39 +306,6 @@ interface ChannelItemProps {
   onPickLive?: () => void
 }
 
-function formatTimeRemaining(programme: ErsatzTVProgramme, currentTime: number): string {
-  const stopTime = new Date(programme.stop).getTime()
-  const remainingMs = stopTime - currentTime
-
-  if (remainingMs <= 0) return 'Ending...'
-
-  const remainingMinutes = Math.ceil(remainingMs / (1000 * 60))
-
-  if (remainingMinutes < 60) {
-    return `${remainingMinutes}m left`
-  }
-
-  const hours = Math.floor(remainingMinutes / 60)
-  const minutes = remainingMinutes % 60
-
-  if (minutes === 0) {
-    return `${hours}h left`
-  }
-
-  return `${hours}h ${minutes}m left`
-}
-
-function calculateProgress(programme: ErsatzTVProgramme, currentTime: number): number {
-  const startTime = new Date(programme.start).getTime()
-  const stopTime = new Date(programme.stop).getTime()
-  const totalDuration = stopTime - startTime
-  const elapsed = currentTime - startTime
-
-  if (totalDuration <= 0) return 0
-
-  return Math.min(100, Math.max(0, (elapsed / totalDuration) * 100))
-}
-
 function ChannelItem({
   channel,
   isSelected,
@@ -350,8 +317,10 @@ function ChannelItem({
   onPickLive,
 }: ChannelItemProps) {
   const isLive = channel.type === 'live'
-  const progress = programme ? calculateProgress(programme, currentTime) : 0
-  const timeRemaining = programme ? formatTimeRemaining(programme, currentTime) : null
+  const startMs = programme ? new Date(programme.start).getTime() : 0
+  const stopMs = programme ? new Date(programme.stop).getTime() : 0
+  const progress = programme ? calculateProgress(startMs, stopMs, currentTime) : 0
+  const timeRemaining = programme ? formatRemaining(stopMs, currentTime) : null
   // The empty live slot offers the picker next to the row (a sibling, since
   // buttons can't nest)
   const showPickLive = isLive && !hasLiveChannel && !!onPickLive
