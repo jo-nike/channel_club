@@ -1,16 +1,20 @@
 import { useCallback } from 'react'
-import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Expand, Shrink, RotateCw } from 'lucide-react'
+import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Expand, Shrink, RotateCw, MessageCircle } from 'lucide-react'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
+import { useMobileLandscape } from '@/hooks/useMobileLandscape'
+import { useChatEnabled } from '@/hooks/useChatEnabled'
 import { useHighlightFeature } from '@/hooks/useHighlightFeature'
 import { useHighlightStatus } from '@/hooks/useHighlightStatus'
 import { useTVMode } from '@/hooks/useTVMode'
 import { HighlightButton } from '@/components/HighlightButton'
 import { CastButton } from '@/components/CastButton'
 import { FilterMenu } from '@/components/FilterMenu'
+import { UnreadBadge } from '@/components/UnreadBadge'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { withKey } from '@/lib/keyHints'
 import { unmutedVolume } from '@/stores/audioStore'
 import { useClipStore } from '@/stores/clipStore'
+import { useChatStore } from '@/stores/chatStore'
 import { ChannelRocker } from './ChannelRocker'
 import { usePlayerShell } from './PlayerShellContext'
 import { usePlayerAudio } from './usePlayerAudio'
@@ -64,6 +68,18 @@ export function PlayerChrome({
 
   const showTheaterButton = (isTVMode || !isMobile) && !isFullscreen
 
+  // Chat, where the page header and its chat button are gone: theater,
+  // fullscreen on a desktop and a phone held sideways. Not on a phone in
+  // portrait fullscreen, where the bar has no room for another button, and
+  // not on a TV until couch mode gives chat a remote-friendly home.
+  const chatEnabled = useChatEnabled()
+  const isMobileLandscape = useMobileLandscape()
+  const isChatOpen = useChatStore((s) => s.isOpen)
+  const unreadCount = useChatStore((s) => s.unreadCount)
+  const toggleChat = useChatStore((s) => s.toggleOpen)
+  const showChatButton =
+    chatEnabled && !isTVMode && (isTheaterMode || isMobileLandscape || (isFullscreen && !isMobile))
+
   // The bar is already full at 640-768px: the channel rocker comes in at
   // 1024px, or in theater and fullscreen, where the sidebar and guide are gone.
   // Never below 768px, even there: the bar doesn't wrap or shrink, so on a
@@ -77,8 +93,11 @@ export function PlayerChrome({
   // while the bar is narrower than every control plus the rocker needs. With
   // Cast and clip on that is about 742px inside the padding, or 678px without
   // the Theater button (measured in Chrome); the thresholds leave some slack
-  // for the CH label's fallback fonts.
-  const rockerFitClass = showTheaterButton ? '@max-[48rem]:hidden' : '@max-[44rem]:hidden'
+  // for the CH label's fallback fonts. The Chat button takes another 64px
+  // (48px and the gap), so with it each threshold moves up by 4rem.
+  const rockerFitClass = showTheaterButton
+    ? showChatButton ? '@max-[52rem]:hidden' : '@max-[48rem]:hidden'
+    : showChatButton ? '@max-[48rem]:hidden' : '@max-[44rem]:hidden'
 
   // Check if highlight feature is enabled (server-side feature flag)
   const { isEnabled: highlightEnabled } = useHighlightFeature()
@@ -97,10 +116,19 @@ export function PlayerChrome({
     if (channelId) openClip(channelId, channelName ?? channelId)
   }, [channelId, channelName, openClip])
 
+  // The chat panel is drawn outside the player shell, so in fullscreen it
+  // would open hidden behind it: opening chat there leaves fullscreen first.
+  const handleChatToggle = useCallback(() => {
+    if (isFullscreen && !isChatOpen) toggleFullscreen()
+    toggleChat()
+  }, [isFullscreen, isChatOpen, toggleFullscreen, toggleChat])
+
   const playLabel = adapter.isPlaying ? 'Pause' : 'Play'
   const muteLabel = isMuted ? unmuteLabel(volume, canSetVolume) : 'Mute'
   const theaterLabel = isTheaterMode ? 'Exit theater mode' : 'Theater mode'
   const fullscreenLabel = isFullscreen ? 'Exit fullscreen' : 'Fullscreen'
+  // Named like the header's chat button: a disclosure (aria-expanded)
+  const chatLabel = unreadCount > 0 ? `Open chat (${unreadCount} new)` : 'Open chat'
   const tabIndex = isVisible ? 0 : -1
 
   // A full-width strip on a gradient scrim rather than a boxed card: it
@@ -217,6 +245,30 @@ export function PlayerChrome({
 
       {/* Filter Menu, portalled into the shell so it shows in fullscreen */}
       <FilterMenu isVisible={isVisible} containerRef={containerRef} />
+
+      {/* Chat, with the unread count the hidden header would show */}
+      {showChatButton && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              tabIndex={tabIndex}
+              onClick={handleChatToggle}
+              aria-label={chatLabel}
+              aria-expanded={isChatOpen}
+              aria-controls="chat-panel"
+              aria-keyshortcuts="C"
+              className={`${CONTROL_BUTTON} relative`}
+            >
+              <MessageCircle className="h-6 w-6 text-white" />
+              <UnreadBadge count={unreadCount} className="absolute top-1 right-1" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>{withKey(chatLabel, 'C')}</p>
+          </TooltipContent>
+        </Tooltip>
+      )}
 
       {/* Spacer */}
       <div className="flex-1" />

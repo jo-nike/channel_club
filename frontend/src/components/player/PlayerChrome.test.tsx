@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent } from '@/test/utils'
+import { render, screen, fireEvent, act } from '@/test/utils'
 import { PlayerChrome, type PlayerChromeProps } from './PlayerChrome'
 import { PlayerShellContext, type PlayerShell } from './PlayerShellContext'
 import type { PlayerMediaAdapter } from './mediaAdapters'
 import { focusOverrides } from '@/test/focus'
 import { useAudioStore } from '@/stores/audioStore'
 import { useClipStore } from '@/stores/clipStore'
+import { useChatStore } from '@/stores/chatStore'
 
 // Mock the highlight feature hook - disabled by default
 const highlight = vi.hoisted(() => ({ enabled: false }))
@@ -34,6 +35,10 @@ vi.mock('@/hooks/useCanSetVolume', () => ({ useCanSetVolume: () => volumeSupport
 
 const tv = vi.hoisted(() => ({ mode: false }))
 vi.mock('@/hooks/useTVMode', () => ({ useTVMode: () => tv.mode }))
+
+// VITE_CHAT_ENABLED: off unless a test turns it on
+const chatFeature = vi.hoisted(() => ({ enabled: false }))
+vi.mock('@/hooks/useChatEnabled', () => ({ useChatEnabled: () => chatFeature.enabled }))
 
 // A stand-in engine: the chrome only sees this interface
 const fakeAdapter = (overrides: Partial<PlayerMediaAdapter> = {}): PlayerMediaAdapter => ({
@@ -88,6 +93,8 @@ describe('PlayerChrome', () => {
     volumeSupport.canSet = true
     tv.mode = false
     highlight.enabled = false
+    chatFeature.enabled = false
+    useChatStore.setState({ isOpen: false, unreadCount: 0 })
     cast.props = null
     useAudioStore.setState({ volume: 1, muted: false, savedMuteNotice: false, previewHolds: 0 })
   })
@@ -650,6 +657,179 @@ describe('PlayerChrome', () => {
 
       expect(screen.getByRole('button', { name: 'Channel up' })).toHaveAttribute('tabindex', '-1')
       expect(screen.getByRole('button', { name: 'Channel down' })).toHaveAttribute('tabindex', '-1')
+    })
+  })
+
+  describe('chat', () => {
+    const LANDSCAPE = '(pointer: coarse) and (orientation: landscape) and (max-height: 500px)'
+    const COARSE = '(pointer: coarse)'
+    const WIDE = '(min-width: 1024px)'
+    const setupMatchMedia = window.matchMedia
+    // setup.ts answers every media query with false; this reports the given ones as matching
+    const matchMediaQueries = (matching: string[]) => {
+      Object.defineProperty(window, 'matchMedia', {
+        writable: true,
+        configurable: true,
+        value: (query: string) => ({
+          matches: matching.includes(query),
+          media: query,
+          onchange: null,
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+          dispatchEvent: vi.fn(() => true),
+        }),
+      })
+    }
+    beforeEach(() => {
+      chatFeature.enabled = true
+    })
+    afterEach(() => {
+      Object.defineProperty(window, 'matchMedia', { writable: true, configurable: true, value: setupMatchMedia })
+    })
+    const chatButton = () => screen.queryByRole('button', { name: /chat/i })
+
+    it.each([
+      ['theater', { isTheaterMode: true }],
+      ['fullscreen', { isFullscreen: true }],
+    ])('is in the bar in %s, with the unread count', (_mode, shell) => {
+      useChatStore.setState({ unreadCount: 3 })
+      renderChrome({ shell })
+
+      const button = screen.getByRole('button', { name: 'Open chat (3 new)' })
+      expect(toolbar()).toContainElement(button)
+      expect(button).toHaveTextContent('3')
+      expect(button).toHaveClass('min-h-[48px]', 'min-w-[48px]', 'focus-ring-media')
+      expect(button).toHaveAttribute('aria-controls', 'chat-panel')
+      expect(button).toHaveAttribute('aria-keyshortcuts', 'C')
+    })
+
+    it('is on a phone held sideways, where the header is gone', () => {
+      matchMediaQueries([LANDSCAPE, COARSE])
+      renderChrome({ props: { isMobile: true } })
+
+      expect(screen.getByRole('button', { name: 'Open chat' })).toBeInTheDocument()
+    })
+
+    it('shows no badge with nothing unread', () => {
+      renderChrome({ shell: { isTheaterMode: true } })
+
+      expect(screen.getByRole('button', { name: 'Open chat' }).textContent).toBe('')
+    })
+
+    it('caps the badge at 9+', () => {
+      useChatStore.setState({ unreadCount: 12 })
+      renderChrome({ shell: { isTheaterMode: true } })
+
+      expect(screen.getByRole('button', { name: 'Open chat (12 new)' })).toHaveTextContent('9+')
+    })
+
+    it('follows new messages', () => {
+      renderChrome({ shell: { isTheaterMode: true } })
+
+      act(() => useChatStore.setState({ unreadCount: 2 }))
+
+      expect(screen.getByRole('button', { name: 'Open chat (2 new)' })).toHaveTextContent('2')
+    })
+
+    it('is left out of the normal layout, where the header has the chat button', () => {
+      renderChrome()
+
+      expect(chatButton()).not.toBeInTheDocument()
+    })
+
+    it('is left out of fullscreen on a phone in portrait, where the bar has no room', () => {
+      renderChrome({ shell: { isFullscreen: true }, props: { isMobile: true } })
+
+      expect(chatButton()).not.toBeInTheDocument()
+    })
+
+    it.each([
+      ['theater', { isTheaterMode: true }],
+      ['fullscreen', { isFullscreen: true }],
+    ])('is not offered on a TV in %s', (_mode, shell) => {
+      tv.mode = true
+      renderChrome({ shell })
+
+      expect(chatButton()).not.toBeInTheDocument()
+    })
+
+    it('is not offered while chat is turned off', () => {
+      chatFeature.enabled = false
+      renderChrome({ shell: { isTheaterMode: true } })
+
+      expect(chatButton()).not.toBeInTheDocument()
+    })
+
+    it('opens and closes chat, which clears the unread count', () => {
+      useChatStore.setState({ unreadCount: 3 })
+      renderChrome({ shell: { isTheaterMode: true } })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Open chat (3 new)' }))
+      expect(useChatStore.getState()).toMatchObject({ isOpen: true, unreadCount: 0 })
+      expect(screen.getByRole('button', { name: 'Open chat' })).toHaveAttribute('aria-expanded', 'true')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Open chat' }))
+      expect(useChatStore.getState().isOpen).toBe(false)
+      expect(screen.getByRole('button', { name: 'Open chat' })).toHaveAttribute('aria-expanded', 'false')
+    })
+
+    it('stays in theater when opening chat there', () => {
+      const { shell } = renderChrome({ shell: { isTheaterMode: true } })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Open chat' }))
+
+      expect(shell.toggleTheaterMode).not.toHaveBeenCalled()
+      expect(shell.toggleFullscreen).not.toHaveBeenCalled()
+    })
+
+    // The panel is outside the shell, so it would open hidden behind fullscreen
+    it('leaves fullscreen to open chat', () => {
+      const { shell } = renderChrome({ shell: { isFullscreen: true } })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Open chat' }))
+
+      expect(shell.toggleFullscreen).toHaveBeenCalledTimes(1)
+      expect(useChatStore.getState().isOpen).toBe(true)
+    })
+
+    it('closes chat in fullscreen without leaving it', () => {
+      useChatStore.setState({ isOpen: true })
+      const { shell } = renderChrome({ shell: { isFullscreen: true } })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Open chat' }))
+
+      expect(shell.toggleFullscreen).not.toHaveBeenCalled()
+      expect(useChatStore.getState().isOpen).toBe(false)
+    })
+
+    it('the tooltip names the key', async () => {
+      renderChrome({ shell: { isTheaterMode: true } })
+
+      fireEvent.focus(screen.getByRole('button', { name: 'Open chat' }))
+
+      expect(await screen.findByRole('tooltip')).toHaveTextContent('Open chat (C)')
+    })
+
+    it.each([
+      [true, '0'],
+      [false, '-1'],
+    ])('with the controls showing: %s, its tabIndex is %s', (controlsVisible, tabIndex) => {
+      renderChrome({ shell: { isTheaterMode: true, controlsVisible } })
+
+      expect(screen.getByRole('button', { name: 'Open chat' })).toHaveAttribute('tabindex', tabIndex)
+    })
+
+    // It takes another 64px of the bar, so the rocker needs a wider bar
+    it.each([
+      ['theater', { isTheaterMode: true }, '@max-[52rem]:hidden'],
+      ['fullscreen', { isFullscreen: true }, '@max-[48rem]:hidden'],
+    ])('leaves the channel rocker a wider bar to fit in %s', (_mode, shell, fitClass) => {
+      matchMediaQueries([WIDE])
+      renderChrome({ shell: { ...shell, stepChannel: vi.fn() } })
+
+      expect(screen.getByRole('group', { name: 'Channel' })).toHaveClass(fitClass)
     })
   })
 
