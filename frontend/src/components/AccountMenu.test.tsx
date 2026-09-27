@@ -3,7 +3,6 @@ import { render, screen, fireEvent, waitFor, within } from '@/test/utils'
 import { AccountMenu } from './AccountMenu'
 import { activeThemeId, useThemeStore } from '@/stores/themeStore'
 import { useUIStore } from '@/stores/uiStore'
-import { getTheme } from '@/lib/themes'
 
 const auth = vi.hoisted(() => ({
   username: 'jon' as string | null,
@@ -39,16 +38,6 @@ function trigger() {
 function openMenu() {
   fireEvent.keyDown(trigger(), { key: 'Enter' })
   return screen.getByRole('menu')
-}
-
-function openThemes() {
-  renderMenu()
-  openMenu()
-  fireEvent.keyDown(screen.getByRole('menuitem', { name: 'Theme' }), { key: 'ArrowRight' })
-}
-
-function themeRow(name: string) {
-  return screen.getByRole('menuitemradio', { name })
 }
 
 beforeEach(() => {
@@ -187,47 +176,42 @@ describe('AccountMenu NHL scores', () => {
   })
 })
 
-describe('AccountMenu theme submenu', () => {
-  it('lists the themes by category as a radio group with the current one checked', () => {
-    openThemes()
-    expect(screen.getByRole('group', { name: 'Dark Themes' })).toContainElement(themeRow('Club Night'))
-    expect(screen.getByRole('group', { name: 'Light Themes' })).toContainElement(themeRow('Catppuccin Latte'))
-    expect(themeRow('Club Night')).toHaveAttribute('aria-checked', 'true')
-    expect(themeRow('Dracula')).toHaveAttribute('aria-checked', 'false')
+describe('AccountMenu appearance', () => {
+  function openAppearance() {
+    renderMenu()
+    openMenu()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Appearance…' }))
+    return screen.getByRole('dialog', { name: 'Appearance' })
+  }
+
+  it('opens the appearance picker in a dialog and closes the menu', () => {
+    const dialog = openAppearance()
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    expect(within(dialog).getByRole('group', { name: 'Appearance' })).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Club Night' })).toHaveAttribute('aria-pressed', 'true')
   })
 
-  it('sets the theme from a row', () => {
-    openThemes()
-    fireEvent.click(themeRow('Catppuccin Latte'))
-    expect(activeThemeId(useThemeStore.getState())).toBe('catppuccin-latte')
+  it('sets the theme from a tile in the dialog', () => {
+    const dialog = openAppearance()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Dracula' }))
+
+    expect(activeThemeId(useThemeStore.getState())).toBe('dracula')
+    expect(within(dialog).getByRole('button', { name: 'Dracula' })).toHaveAttribute('aria-pressed', 'true')
   })
 
-  it('marks the selected row readable on the accent surface with a primary check', () => {
-    openThemes()
+  it('scrolls inside the screen and becomes a bottom sheet on phones', () => {
+    const dialog = openAppearance()
 
-    const selected = themeRow('Club Night')
-    expect(selected).toHaveClass(
-      'data-[state=checked]:bg-accent',
-      'data-[state=checked]:text-accent-foreground',
-    )
-    expect(selected).toHaveAttribute('data-state', 'checked')
-    expect(selected.querySelector('svg.text-primary')).not.toBeNull()
-
-    const other = themeRow('Dracula')
-    expect(other).toHaveAttribute('data-state', 'unchecked')
-    expect(other.querySelector('svg.text-primary')).toBeNull()
+    expect(dialog).toHaveClass('max-h-[85dvh]', 'overflow-y-auto', 'max-sm:bottom-0', 'max-sm:top-auto')
   })
 
-  it('shows background, card and primary swatches for each theme', () => {
-    openThemes()
-
-    const { colors } = getTheme('dracula')
-    const swatches = themeRow('Dracula').querySelectorAll<HTMLElement>('span[aria-hidden="true"] > span')
-    expect(Array.from(swatches, (s) => s.getAttribute('style'))).toEqual([
-      `background-color: ${colors.background};`,
-      `background-color: ${colors.card};`,
-      `background-color: ${colors.primary};`,
-    ])
+  it('no longer has a theme submenu', () => {
+    renderMenu()
+    openMenu()
+    expect(screen.queryByRole('menuitem', { name: 'Theme' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitemradio')).not.toBeInTheDocument()
   })
 })
 
