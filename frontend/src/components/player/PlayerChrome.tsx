@@ -1,67 +1,62 @@
-import { useCallback, type RefObject } from 'react'
+import { useCallback } from 'react'
 import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Expand, Shrink } from 'lucide-react'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useHighlightFeature } from '@/hooks/useHighlightFeature'
 import { useHighlightStatus } from '@/hooks/useHighlightStatus'
-import { useCanSetVolume } from '@/hooks/useCanSetVolume'
-import { HighlightButton } from './HighlightButton'
-import { CastButton } from './CastButton'
-import { FilterMenu } from './FilterMenu'
+import { useTVMode } from '@/hooks/useTVMode'
+import { HighlightButton } from '@/components/HighlightButton'
+import { CastButton } from '@/components/CastButton'
+import { FilterMenu } from '@/components/FilterMenu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { unmutedVolume } from '@/stores/audioStore'
 import { useClipStore } from '@/stores/clipStore'
+import { usePlayerShell } from './PlayerShellContext'
+import { usePlayerAudio } from './usePlayerAudio'
+import type { PlayerMediaAdapter } from './mediaAdapters'
 
-export interface VideoControlsProps {
-  /** Container ref for portal rendering (needed for fullscreen popover support) */
-  containerRef?: RefObject<HTMLElement | null>
-  isPlaying: boolean
-  volume: number
-  isMuted: boolean
-  isTheaterMode: boolean
-  isFullscreen: boolean
-  isVisible: boolean
-  isMobile?: boolean
-  isTVMode?: boolean
+export interface PlayerChromeProps {
+  /** The engine playing in the shell */
+  adapter: PlayerMediaAdapter
   channelId?: string
   /** Stream URL for casting (optional - resolved by backend if not provided) */
   streamUrl?: string
-  /** Channel name for Chromecast display */
+  /** Channel name for Chromecast display and the clip editor */
   channelName?: string
-  onPlayPause: () => void
-  onVolumeChange: (volume: number) => void
-  onMuteToggle: () => void
-  onFullscreenToggle: () => void
-  onTheaterModeToggle: () => void
-  onMouseEnter?: () => void
-  onMouseLeave?: () => void
+  isMobile?: boolean
 }
 
-export function VideoControls({
-  containerRef,
-  isPlaying,
-  volume,
-  isMuted,
-  isTheaterMode,
-  isFullscreen,
-  isVisible,
-  isMobile: isMobileProp = false,
-  isTVMode = false,
+const CONTROL_BUTTON =
+  'control-button flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-ring-media'
+
+/**
+ * The player's control bar, the same for every engine: playback through the
+ * engine's adapter, volume and mute through the audio store, fullscreen,
+ * theater and its auto-hide visibility through the player shell.
+ */
+export function PlayerChrome({
+  adapter,
   channelId,
   streamUrl,
   channelName,
-  onPlayPause,
-  onVolumeChange,
-  onMuteToggle,
-  onFullscreenToggle,
-  onTheaterModeToggle,
-  onMouseEnter,
-  onMouseLeave,
-}: VideoControlsProps) {
+  isMobile: isMobileProp = false,
+}: PlayerChromeProps) {
+  const {
+    containerRef,
+    isFullscreen,
+    toggleFullscreen,
+    isTheaterMode,
+    toggleTheaterMode,
+    controlsVisible: isVisible,
+    setHoveringControls,
+  } = usePlayerShell()
+  const { volume, isStoreMuted, isMuted, canSetVolume, changeVolume, toggleMute } = usePlayerAudio(adapter)
+  const isTVMode = useTVMode()
+
   // Use local media query for reliable mobile/touch detection
   // Check for touch device (pointer: coarse) to hide theater button on all phones/tablets
   const isTouchDevice = useMediaQuery('(pointer: coarse)')
   const isMobileQuery = useMediaQuery('(max-width: 768px)')
   const isMobile = isMobileProp || isMobileQuery || isTouchDevice
-  const canSetVolume = useCanSetVolume()
 
   // Check if highlight feature is enabled (server-side feature flag)
   const { isEnabled: highlightEnabled } = useHighlightFeature()
@@ -78,12 +73,18 @@ export function VideoControls({
     if (channelId) openClip(channelId, channelName ?? channelId)
   }, [channelId, channelName, openClip])
 
+  const playLabel = adapter.isPlaying ? 'Pause' : 'Play'
+  const muteLabel = isMuted ? unmuteLabel(volume, canSetVolume) : 'Mute'
+  const theaterLabel = isTheaterMode ? 'Exit theater mode' : 'Theater mode'
+  const fullscreenLabel = isFullscreen ? 'Exit fullscreen' : 'Fullscreen'
+  const tabIndex = isVisible ? 0 : -1
+
   return (
     <div
       role="toolbar"
       aria-label="Video controls"
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
+      onMouseEnter={() => setHoveringControls(true)}
+      onMouseLeave={() => setHoveringControls(false)}
       className={`video-controls absolute bottom-4 left-4 right-4 z-10 flex items-center gap-2 rounded-lg bg-black/70 p-2 sm:gap-4 sm:p-4 transition-opacity duration-300 ${
         isVisible ? 'opacity-100' : 'pointer-events-none opacity-0'
       }`}
@@ -93,12 +94,12 @@ export function VideoControls({
         <TooltipTrigger asChild>
           <button
             type="button"
-            tabIndex={isVisible ? 0 : -1}
-            onClick={onPlayPause}
-            aria-label={isPlaying ? 'Pause' : 'Play'}
-            className="control-button flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-400/80"
+            tabIndex={tabIndex}
+            onClick={adapter.togglePaused}
+            aria-label={playLabel}
+            className={CONTROL_BUTTON}
           >
-            {isPlaying ? (
+            {adapter.isPlaying ? (
               <Pause className="h-6 w-6 text-white" />
             ) : (
               <Play className="h-6 w-6 text-white" />
@@ -106,7 +107,7 @@ export function VideoControls({
           </button>
         </TooltipTrigger>
         <TooltipContent>
-          <p>{isPlaying ? 'Pause' : 'Play'}</p>
+          <p>{playLabel}</p>
         </TooltipContent>
       </Tooltip>
 
@@ -116,10 +117,10 @@ export function VideoControls({
           <TooltipTrigger asChild>
             <button
               type="button"
-              tabIndex={isVisible ? 0 : -1}
-              onClick={onMuteToggle}
-              aria-label={isMuted ? 'Unmute' : 'Mute'}
-              className="control-button flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-400/80"
+              tabIndex={tabIndex}
+              onClick={toggleMute}
+              aria-label={muteLabel}
+              className={CONTROL_BUTTON}
             >
               {isMuted ? (
                 <VolumeX className="h-6 w-6 text-white" />
@@ -129,21 +130,25 @@ export function VideoControls({
             </button>
           </TooltipTrigger>
           <TooltipContent>
-            <p>{isMuted ? 'Unmute' : 'Mute'}</p>
+            <p>{muteLabel}</p>
           </TooltipContent>
         </Tooltip>
-        {/* No slider where the browser ignores script volume (iOS/iPadOS); Mute still works */}
+        {/* No slider where the browser ignores script volume (iOS/iPadOS); Mute
+            still works. While muted it keeps the saved level, dimmed: the level
+            unmuting brings back, not a 0 that looks like a lost setting. */}
         {canSetVolume && (
           <input
             type="range"
-            tabIndex={isVisible ? 0 : -1}
+            tabIndex={tabIndex}
             min="0"
             max="1"
             step="0.05"
-            value={isMuted ? 0 : volume}
-            onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
+            value={volume}
+            onChange={(e) => changeVolume(parseFloat(e.target.value))}
             aria-label="Volume"
-            className="hidden h-2 w-24 cursor-pointer sm:block appearance-none rounded-full bg-white/30 accent-white"
+            className={`hidden h-2 w-24 cursor-pointer sm:block appearance-none rounded-full bg-white/30 accent-white ${
+              isStoreMuted ? 'opacity-50' : ''
+            }`}
           />
         )}
       </div>
@@ -162,14 +167,14 @@ export function VideoControls({
       {channelId && (
         <CastButton
           channelId={channelId}
-          streamType="mpegts"
+          streamType={adapter.streamType}
           streamUrl={streamUrl}
           channelName={channelName}
           isVisible={isVisible}
         />
       )}
 
-      {/* Filter Menu */}
+      {/* Filter Menu, portalled into the shell so it shows in fullscreen */}
       <FilterMenu isVisible={isVisible} containerRef={containerRef} />
 
       {/* Spacer */}
@@ -182,10 +187,10 @@ export function VideoControls({
           <TooltipTrigger asChild>
             <button
               type="button"
-              tabIndex={isVisible ? 0 : -1}
-              onClick={onTheaterModeToggle}
-              aria-label={isTheaterMode ? 'Exit theater mode' : 'Theater mode'}
-              className="control-button flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-400/80"
+              tabIndex={tabIndex}
+              onClick={toggleTheaterMode}
+              aria-label={theaterLabel}
+              className={CONTROL_BUTTON}
             >
               {isTheaterMode ? (
                 <Shrink className="h-6 w-6 text-white" />
@@ -195,20 +200,20 @@ export function VideoControls({
             </button>
           </TooltipTrigger>
           <TooltipContent>
-            <p>{isTheaterMode ? 'Exit theater mode' : 'Theater mode'}</p>
+            <p>{theaterLabel}</p>
           </TooltipContent>
         </Tooltip>
       )}
 
-      {/* Fullscreen Button */}
+      {/* Fullscreen Button, on every device including TVs */}
       <Tooltip>
         <TooltipTrigger asChild>
           <button
             type="button"
-            tabIndex={isVisible ? 0 : -1}
-            onClick={onFullscreenToggle}
-            aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-            className="control-button flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-400/80"
+            tabIndex={tabIndex}
+            onClick={toggleFullscreen}
+            aria-label={fullscreenLabel}
+            className={CONTROL_BUTTON}
           >
             {isFullscreen ? (
               <Minimize className="h-6 w-6 text-white" />
@@ -218,9 +223,15 @@ export function VideoControls({
           </button>
         </TooltipTrigger>
         <TooltipContent>
-          <p>{isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}</p>
+          <p>{fullscreenLabel}</p>
         </TooltipContent>
       </Tooltip>
     </div>
   )
+}
+
+// Name the level unmuting brings back, as the Sound is off notice does, but
+// only where the browser honours script volume (iOS/iPadOS ignore it)
+function unmuteLabel(volume: number, canSetVolume: boolean): string {
+  return canSetVolume ? `Unmute (${Math.round(unmutedVolume(volume) * 100)}%)` : 'Unmute'
 }

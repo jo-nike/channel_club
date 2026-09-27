@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, type RefObject } from 'react'
+import { useState, type RefObject } from 'react'
 import { SlidersHorizontal } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -71,28 +71,12 @@ export function FilterMenu({ isVisible, containerRef }: FilterMenuProps) {
 
   const hasActiveFilters = activeFilters.length > 0
 
-  // Where the menu portals to: the fullscreen element when we are in fullscreen,
-  // otherwise the player container. Neither is a render-time value, so this is
-  // only ever called from an event handler.
-  const resolvePortalContainer = useCallback(
-    () =>
-      (document.fullscreenElement as HTMLElement | null) ?? containerRef?.current ?? undefined,
-    [containerRef]
-  )
-
-  // Keep the portal target in sync when entering or leaving fullscreen
-  useEffect(() => {
-    const handleFullscreenChange = () => {
-      setPortalContainer(resolvePortalContainer())
-    }
-    document.addEventListener('fullscreenchange', handleFullscreenChange)
-    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
-  }, [resolvePortalContainer])
-
-  // Resolve the container as the menu opens, when the ref is guaranteed populated
+  // The menu portals into the player container, which is also the element the
+  // player fullscreens, so it shows in and out of fullscreen alike. Refs are
+  // not render-time values: resolve it as the menu opens, when it is populated.
   const handleOpenChange = (open: boolean) => {
     if (open) {
-      setPortalContainer(resolvePortalContainer())
+      setPortalContainer(containerRef?.current ?? undefined)
     }
     setIsOpen(open)
   }

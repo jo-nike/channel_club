@@ -11,7 +11,6 @@ import {
   type MediaVolumeChange,
 } from '@vidstack/react'
 import '@vidstack/react/player/styles/default/theme.css'
-import { VideoControls } from '@/components/VideoControls'
 import { ErsatzTVVideoControls } from '@/components/ersatztv/ErsatzTVVideoControls'
 import { useAutoHide } from '@/hooks/useAutoHide'
 import { useTVMode } from '@/hooks/useTVMode'
@@ -22,8 +21,11 @@ import { useHLSRetry } from '@/hooks/useHLSRetry'
 import { ProjectorBeamLoader } from '@/components/ProjectorBeamLoader'
 import { Button } from '@/components/ui/button'
 import { AutoplayNotice } from '@/components/player/AutoplayNotice'
-import { PlayerShellContext, usePlayerShell } from '@/components/player/PlayerShellContext'
+import { PlayerShellContext, usePlayerShell, useShellPlayback } from '@/components/player/PlayerShellContext'
 import { FilterLayer } from '@/components/player/FilterLayer'
+import { PlayerChrome } from '@/components/player/PlayerChrome'
+import { useLiveAdapter } from '@/components/player/mediaAdapters'
+import { usePlayerAudio } from '@/components/player/usePlayerAudio'
 import { NHLScoresOverlay } from '@/components/NHLScoresOverlay'
 import { HighlightModal } from '@/components/HighlightModal'
 import { useAudioStore, unmutedVolume } from '@/stores/audioStore'
@@ -76,16 +78,28 @@ export function DualModeVideoPlayer({
   // The editor belongs to this player: it closes when the player goes away
   useEffect(() => closeClip, [closeClip])
 
+  // The same test as the button's state: exit only when the shell itself is
+  // fullscreen. Another element in fullscreen means the shell should enter.
   const toggleFullscreen = useCallback(() => {
     const container = containerRef.current
     if (!container) return
 
-    if (document.fullscreenElement) {
+    if (isFullscreen) {
       document.exitFullscreen().catch(() => {})
     } else {
       container.requestFullscreen().catch(() => {})
     }
-  }, [])
+  }, [isFullscreen])
+
+  // One auto-hide for every engine: the engine reports whether it plays, the
+  // control bar whether the pointer is over it
+  const [isEnginePlaying, setEnginePlaying] = useState(false)
+  const [isHoveringControls, setHoveringControls] = useState(false)
+  const { isVisible: controlsVisible } = useAutoHide({
+    isPlaying: isEnginePlaying,
+    containerRef,
+    isHoveringControls,
+  })
 
   // Both counters only grow, so their sum changes on every reload
   const [shellReloads, setShellReloads] = useState(0)
@@ -93,8 +107,19 @@ export function DualModeVideoPlayer({
   const reload = useCallback(() => setShellReloads((n) => n + 1), [])
 
   const shell = useMemo(
-    () => ({ containerRef, isFullscreen, toggleFullscreen, reload, reloadKey }),
-    [isFullscreen, toggleFullscreen, reload, reloadKey]
+    () => ({
+      containerRef,
+      isFullscreen,
+      toggleFullscreen,
+      isTheaterMode,
+      toggleTheaterMode: onTheaterModeToggle,
+      controlsVisible,
+      setPlaying: setEnginePlaying,
+      setHoveringControls,
+      reload,
+      reloadKey,
+    }),
+    [isFullscreen, toggleFullscreen, isTheaterMode, onTheaterModeToggle, controlsVisible, reload, reloadKey]
   )
 
   // What this viewer's player shows now, for the clip editor's notice: null
@@ -122,9 +147,7 @@ export function DualModeVideoPlayer({
         streamUrl={channel.streamUrl}
         channelName={channel.name}
         channelNumber={channel.number}
-        isTheaterMode={isTheaterMode}
         isMobile={isMobile}
-        onTheaterModeToggle={onTheaterModeToggle}
       />
     )
   } else {
@@ -240,101 +263,47 @@ interface LiveVideoPlayerProps {
   streamUrl: string
   channelName: string
   channelNumber: number
-  isTheaterMode: boolean
   isMobile: boolean
-  onTheaterModeToggle: () => void
 }
 
 function LiveVideoPlayer({
   channelId,
   streamUrl,
   channelName,
-  isTheaterMode,
   isMobile,
-  onTheaterModeToggle,
 }: LiveVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
-  const { containerRef, isFullscreen, toggleFullscreen } = usePlayerShell()
+  const { containerRef, toggleFullscreen, toggleTheaterMode, controlsVisible } = usePlayerShell()
   const playerRef = useRef<mpegts.Player | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isBuffering, setIsBuffering] = useState(false)
-  // Video state
-  const [isPlaying, setIsPlaying] = useState(false)
+  // Playing and the element's own mute, for the chrome and the auto-hide
+  const adapter = useLiveAdapter(videoRef)
+  const { isPlaying, unmuteElement } = adapter
   const [hasStarted, setHasStarted] = useState(false)
-  // Muted by something other than the viewer (e.g. the clip preview hold); display only
-  const [isElementMuted, setIsElementMuted] = useState(false)
   // Autoplay fallbacks: the browser only allowed muted playback, or none
   const [isSystemMutedState, setIsSystemMuted] = useState(false)
   const [isPlayBlocked, setIsPlayBlocked] = useState(false)
-  const [isHoveringControls, setIsHoveringControls] = useState(false)
 
   // Detect TV mode
   const isTVMode = useTVMode()
 
-  // Saved volume and mute (shared by every player); only user actions write them
-  const volume = useAudioStore((s) => s.volume)
-  const isStoreMuted = useAudioStore((s) => s.muted)
-  const setStoredVolume = useAudioStore((s) => s.setVolume)
-  const setStoredMuted = useAudioStore((s) => s.setMuted)
+  // Saved volume and mute (shared by every player); only user actions write
+  // them, through the same handlers as the control bar
+  const { volume, isStoreMuted, isMuted, changeVolume, toggleMute, unmute } = usePlayerAudio(adapter)
   // The clip editor is previewing: keep the element silent, the saved mute as it is
   const isPreviewHeld = useAudioStore((s) => s.previewHolds > 0)
-  const isMuted = isStoreMuted || isElementMuted
   const isSystemMuted = isSystemMutedState && !isStoreMuted
   const isSavedMuteNotice = useSavedMuteNotice(hasStarted, isStoreMuted)
-  const canSetVolume = useCanSetVolume()
 
-  // Auto-hide controls; a tap on the picture toggles them
-  const { isVisible } = useAutoHide({
-    isPlaying,
-    containerRef,
-    isHoveringControls,
-  })
-
-  // Control handlers
-  const handlePlayPause = useCallback(() => {
-    const video = videoRef.current
-    if (!video) return
-
-    if (video.paused) {
-      video.play().catch(() => {})
-    } else {
-      video.pause()
-    }
-  }, [])
-
-  const handleVolumeChange = useCallback((newVolume: number) => {
-    // A level the browser ignores (iOS/iPadOS) would only save a meaningless value
-    if (!canSetVolume) return
-    setStoredVolume(newVolume)
-
-    // Choosing an audible level also clears a mute that only the element had
-    const video = videoRef.current
-    if (video && !useAudioStore.getState().muted) video.muted = false
-  }, [canSetVolume, setStoredVolume])
-
-  const handleMuteToggle = useCallback(() => {
-    const video = videoRef.current
-    if (!video) return
-
-    const next = !(useAudioStore.getState().muted || video.muted)
-    setStoredMuted(next)
-    if (!next) video.muted = false
-  }, [setStoredMuted])
+  // The shell's auto-hide follows this engine; a tap on the picture toggles it
+  useShellPlayback(isPlaying)
 
   // The tap is a user gesture, so the browser lets the element unmute
   const handleSoundOn = useCallback(() => {
-    const video = videoRef.current
-    if (!video) return
-    video.muted = false
+    unmuteElement()
     setIsSystemMuted(false)
-  }, [])
-
-  // Clears the saved mute; the store brings back the saved level
-  const handleRestoreSound = useCallback(() => {
-    setStoredMuted(false)
-    const video = videoRef.current
-    if (video) video.muted = false
-  }, [setStoredMuted])
+  }, [unmuteElement])
 
   const handleStartPlayback = useCallback(() => {
     const video = videoRef.current
@@ -347,12 +316,12 @@ function LiveVideoPlayer({
   // Keyboard shortcuts
   useVideoKeyboardShortcuts({
     containerRef,
-    onPlayPause: handlePlayPause,
-    onMuteToggle: handleMuteToggle,
+    onPlayPause: adapter.togglePaused,
+    onMuteToggle: toggleMute,
     onFullscreenToggle: toggleFullscreen,
-    onTheaterModeToggle,
-    onVolumeChange: handleVolumeChange,
-    onUnmute: handleRestoreSound,
+    onTheaterModeToggle: toggleTheaterMode,
+    onVolumeChange: changeVolume,
+    onUnmute: unmute,
     volume,
     isMuted,
     ignoreVerticalArrows: isTVMode,
@@ -409,12 +378,9 @@ function LiveVideoPlayer({
     const handlePlaying = () => {
       setIsBuffering(false)
       setError(null)
-      setIsPlaying(true)
       setHasStarted(true)
       setIsPlayBlocked(false)
     }
-    const handlePause = () => setIsPlaying(false)
-    const handlePlay = () => setIsPlaying(true)
     const handleError = () => setError('Stream unavailable')
     // Never saved: element-only mutes (the clip preview hold) must not stick
     const handleVolumeChangeEvent = () => {
@@ -424,23 +390,18 @@ function LiveVideoPlayer({
         video.muted = true
         return
       }
-      setIsElementMuted(video.muted)
       // Any unmute (the notice, Mute button, M key, slider) ends the system mute
       if (!video.muted) setIsSystemMuted(false)
     }
 
     video.addEventListener('waiting', handleWaiting)
     video.addEventListener('playing', handlePlaying)
-    video.addEventListener('pause', handlePause)
-    video.addEventListener('play', handlePlay)
     video.addEventListener('error', handleError)
     video.addEventListener('volumechange', handleVolumeChangeEvent)
 
     return () => {
       video.removeEventListener('waiting', handleWaiting)
       video.removeEventListener('playing', handlePlaying)
-      video.removeEventListener('pause', handlePause)
-      video.removeEventListener('play', handlePlay)
       video.removeEventListener('error', handleError)
       video.removeEventListener('volumechange', handleVolumeChangeEvent)
 
@@ -452,29 +413,15 @@ function LiveVideoPlayer({
   }, [streamUrl]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className={`relative h-full w-full ${!isVisible && isPlaying ? 'cursor-none' : ''}`}>
+    <div className={`relative h-full w-full ${!controlsVisible && isPlaying ? 'cursor-none' : ''}`}>
       <video ref={videoRef} autoPlay className="h-full w-full object-contain" />
 
-      <VideoControls
-        containerRef={containerRef}
-        isPlaying={isPlaying}
-        volume={volume}
-        isMuted={isMuted}
-        isTheaterMode={isTheaterMode}
-        isFullscreen={isFullscreen}
-        isVisible={isVisible}
-        isMobile={isMobile}
-        isTVMode={isTVMode}
+      <PlayerChrome
+        adapter={adapter}
         channelId={channelId}
         streamUrl={streamUrl}
         channelName={channelName}
-        onPlayPause={handlePlayPause}
-        onVolumeChange={handleVolumeChange}
-        onMuteToggle={handleMuteToggle}
-        onFullscreenToggle={toggleFullscreen}
-        onTheaterModeToggle={onTheaterModeToggle}
-        onMouseEnter={() => setIsHoveringControls(true)}
-        onMouseLeave={() => setIsHoveringControls(false)}
+        isMobile={isMobile}
       />
 
       {isBuffering && <ProjectorBeamLoader />}
@@ -483,7 +430,7 @@ function LiveVideoPlayer({
         <AutoplayNotice
           mode={isPlayBlocked ? 'tap-to-play' : 'sound-off'}
           volume={isSystemMuted ? volume : unmutedVolume(volume)}
-          onUnmute={isSystemMuted ? handleSoundOn : handleRestoreSound}
+          onUnmute={isSystemMuted ? handleSoundOn : unmute}
           onPlay={handleStartPlayback}
         />
       )}
@@ -714,8 +661,7 @@ function HLSControlsWrapper({
   const paused = useMediaState('paused')
   const isElementMuted = useMediaState('muted')
   const remote = useMediaRemote()
-  const { containerRef, toggleFullscreen } = usePlayerShell()
-  const [isHoveringControls, setIsHoveringControls] = useState(false)
+  const { containerRef, toggleFullscreen, controlsVisible, setHoveringControls } = usePlayerShell()
 
   // Detect TV mode
   const isTVMode = useTVMode()
@@ -753,12 +699,8 @@ function HLSControlsWrapper({
 
   const isPlaying = !paused
 
-  // A tap on the picture toggles the controls
-  const { isVisible } = useAutoHide({
-    isPlaying,
-    containerRef,
-    isHoveringControls,
-  })
+  // The shell's auto-hide follows this engine; a tap on the picture toggles it
+  useShellPlayback(isPlaying)
 
   useVideoKeyboardShortcuts({
     containerRef,
@@ -777,15 +719,15 @@ function HLSControlsWrapper({
     <ErsatzTVVideoControls
       containerRef={containerRef}
       isTheaterMode={isTheaterMode}
-      isVisible={isVisible}
+      isVisible={controlsVisible}
       isMobile={isMobile}
       isTVMode={isTVMode}
       channelId={channelId}
       streamUrl={streamUrl}
       channelName={channelName}
       onTheaterModeToggle={onTheaterModeToggle}
-      onMouseEnter={() => setIsHoveringControls(true)}
-      onMouseLeave={() => setIsHoveringControls(false)}
+      onMouseEnter={() => setHoveringControls(true)}
+      onMouseLeave={() => setHoveringControls(false)}
     />
   )
 }
