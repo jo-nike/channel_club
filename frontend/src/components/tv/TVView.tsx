@@ -20,10 +20,11 @@ import { ZapBanner } from '@/components/tv/ZapBanner'
 import { MobileChannelList } from '@/components/tv/MobileChannelList'
 import { TVHeader } from '@/components/tv/TVHeader'
 import { ProgrammeDetailsModal, type ProgrammeDetailsChannel } from '@/components/ersatztv/ProgrammeDetailsModal'
-import { ChatPanel } from '@/components/ChatPanel'
+import { ChatPanel, type ChatPanelVariant } from '@/components/ChatPanel'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { Button } from '@/components/ui/button'
 import { ResizeDragHandle } from '@/components/ui/ResizeDragHandle'
+import { useLayoutMode } from '@/hooks/useLayoutMode'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useResizable } from '@/hooks/useResizable'
 import { useMobileLandscape } from '@/hooks/useMobileLandscape'
@@ -201,9 +202,40 @@ export function TVView() {
   const isChatOpen = useChatStore((s) => s.isOpen)
 
   // Responsive
-  const isMobile = useMediaQuery('(max-width: 768px)')
+  const layoutMode = useLayoutMode()
+  const isMobile = layoutMode === 'phone'
   const isMobileLandscape = useMobileLandscape()
   const isPhonePortrait = isMobile && !isTheaterMode && !isMobileLandscape
+  // Chat takes the whole screen on a phone. Where the player fills the screen
+  // (theater, phone landscape) it slides over the side; otherwise it docks
+  // beside the player on a desktop and opens as a sheet below the header on
+  // a tablet, so the header's controls stay reachable.
+  const chatVariant: ChatPanelVariant = isMobile
+    ? 'takeover'
+    : isTheaterMode || isMobileLandscape
+      ? 'overlay'
+      : layoutMode === 'desktop'
+        ? 'docked'
+        : 'sheet'
+
+  // Between 1024 and 1279px a full channel list, the player and docked chat
+  // don't fit side by side, so the list folds to its rail while chat is open.
+  // The fold is never written to the persisted collapsed flag: a reload with
+  // chat open must not leave the list collapsed for good. Expanding the rail
+  // lifts the fold until chat next closes.
+  const isNarrowDesktop = useMediaQuery('(min-width: 1024px) and (max-width: 1279px)')
+  const [railOverride, setRailOverride] = useState(false)
+  // (Adjusted while rendering, React's pattern for state that follows a prop.)
+  if (!isChatOpen && railOverride) setRailOverride(false)
+  const forcedRail = isChatOpen && chatVariant === 'docked' && isNarrowDesktop && !railOverride
+  const handleToggleSidebar = useCallback(() => {
+    if (forcedRail) {
+      setRailOverride(true)
+      // Folded only by chat: expanding shows the list as the viewer left it
+      if (!isChannelSidebarCollapsed) return
+    }
+    toggleChannelSidebar()
+  }, [forcedRail, isChannelSidebarCollapsed, toggleChannelSidebar])
 
   // Load channels on mount
   useEffect(() => {
@@ -359,16 +391,16 @@ export function TVView() {
         />
       )}
 
-      {/* Main content */}
-      <div ref={containerRef} className="flex flex-1 min-h-0 overflow-hidden">
+      {/* Main content (relative: the tablet chat sheet is placed in it) */}
+      <div ref={containerRef} className="relative flex flex-1 min-h-0 overflow-hidden">
         {/* Desktop: Collapsible Sidebar - hidden in theater mode/landscape, and
             while the guide is open, whose channel column is then the one
             channel list. Its collapsed state stays in the store for when the
             guide closes. */}
         {!isMobile && !isTheaterMode && !isMobileLandscape && !isEPGVisible && (
           <TVChannelSidebar
-            isCollapsed={isChannelSidebarCollapsed}
-            onToggleCollapse={toggleChannelSidebar}
+            isCollapsed={isChannelSidebarCollapsed || forcedRail}
+            onToggleCollapse={handleToggleSidebar}
             liveEPGTitle={liveEPGTitle}
             onPickLive={onPickLive}
           />
@@ -471,6 +503,32 @@ export function TVView() {
             </div>
           )}
         </main>
+
+        {/* Chat Panel. Always rendered here, after <main>: docked it is the
+            row's third column and the player reflows beside it; the sheet is
+            placed over the row, below the header; overlay and takeover are
+            fixed to the viewport. One place, so switching variant (entering
+            theater, say) keeps the draft and scroll position. */}
+        <ErrorBoundary
+          name="Chat"
+          resetKey={isChatOpen}
+          fallback={() => (
+            <div role="alert" className="fixed top-4 right-4 z-50 flex items-center gap-3 rounded-lg border bg-card p-4 text-card-foreground shadow-lg">
+              <p className="text-sm">Chat hit an error</p>
+              <Button size="sm" variant="outline" onClick={() => useChatStore.getState().setOpen(false)}>
+                Close
+              </Button>
+            </div>
+          )}
+        >
+          <ChatPanel
+            onSendMessage={sendChatMessage}
+            onSetNickname={sendSetNickname}
+            status={status}
+            onReconnect={reconnect}
+            variant={chatVariant}
+          />
+        </ErrorBoundary>
       </div>
 
       {/* Programme details modal */}
@@ -495,26 +553,6 @@ export function TVView() {
         />
       )}
 
-      {/* Chat Panel */}
-      <ErrorBoundary
-        name="Chat"
-        resetKey={isChatOpen}
-        fallback={() => (
-          <div role="alert" className="fixed top-4 right-4 z-50 flex items-center gap-3 rounded-lg border bg-card p-4 text-card-foreground shadow-lg">
-            <p className="text-sm">Chat hit an error</p>
-            <Button size="sm" variant="outline" onClick={() => useChatStore.getState().setOpen(false)}>
-              Close
-            </Button>
-          </div>
-        )}
-      >
-        <ChatPanel
-          onSendMessage={sendChatMessage}
-          onSetNickname={sendSetNickname}
-          status={status}
-          onReconnect={reconnect}
-        />
-      </ErrorBoundary>
     </div>
   )
 }

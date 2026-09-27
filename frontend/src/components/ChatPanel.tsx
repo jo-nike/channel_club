@@ -5,7 +5,6 @@ import { createClientMessageId } from '@/lib/messageId'
 import { scrollBehavior } from '@/lib/motion'
 import { useChatStore, isOwnMessage } from '@/stores/chatStore'
 import type { ChatMessage as ChatMessageData } from '@/types'
-import { useBreakpoint } from '@/hooks/useBreakpoint'
 import { useNow } from '@/hooks/useNow'
 import { ChatMessage } from './ChatMessage'
 import { GifButton } from './GifButton'
@@ -13,12 +12,31 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 
+/**
+ * Where the panel sits, chosen by the view from its layout:
+ * - docked: a column beside the player that the picture shrinks for (desktop)
+ * - sheet: over the right of the content, below the header (tablets)
+ * - overlay: a drawer over the right edge (theater, phone landscape)
+ * - takeover: the whole screen (phones)
+ */
+export type ChatPanelVariant = 'docked' | 'sheet' | 'overlay' | 'takeover'
+
+const PANEL_CLASSES: Record<ChatPanelVariant, string> = {
+  docked: 'relative flex h-full w-80 shrink-0 flex-col border-l border-border bg-card animate-in fade-in-0 duration-200',
+  sheet: 'absolute inset-y-0 right-0 z-40 flex w-80 flex-col border-l border-border bg-background shadow-lg animate-in fade-in-0 slide-in-from-right-4 duration-200',
+  overlay: 'fixed top-0 right-0 h-full w-80 z-50 bg-background border-l border-border flex flex-col shadow-lg animate-in fade-in-0 slide-in-from-right-4 duration-200',
+  // Full-screen on phones: keep the header clear of the status bar and the
+  // composer above the home indicator
+  takeover: 'fixed inset-0 z-50 bg-background flex flex-col pt-safe pb-safe animate-in fade-in-0 slide-in-from-bottom-4 duration-200',
+}
+
 export interface ChatPanelProps {
   onSendMessage: (content: string, clientMessageId: string) => Promise<ChatSendResult> | ChatSendResult
   onSetNickname?: (nickname: string) => void
   // The chat socket's state; sends are held while it isn't connected
   status?: WebSocketStatus
   onReconnect?: () => void
+  variant?: ChatPanelVariant
 }
 
 // Quick reconnects (including the first connect) finish before the row would flicker in
@@ -64,13 +82,11 @@ interface SendFailure {
   clientMessageId: string
 }
 
-export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', onReconnect }: ChatPanelProps) {
+export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', onReconnect, variant = 'overlay' }: ChatPanelProps) {
   const {
     messages, isOpen, setOpen, nickname, me, readMarker, historyReset, nicknameRejection,
     setNickname, clearNickname, clearNicknameRejection,
   } = useChatStore()
-  const breakpoint = useBreakpoint()
-  const isMobile = breakpoint === 'mobile'
   // One shared tick for every message's relative time
   const now = useNow(30_000)
 
@@ -354,19 +370,19 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
     return dayLabel(sentAt, now)
   })
 
-  // Panel styles based on viewport
-  // Full-screen on phones: keep the header clear of the status bar and the
-  // composer above the home indicator
-  const panelClasses = isMobile
-    ? 'fixed inset-0 z-50 bg-background flex flex-col pt-safe pb-safe'
-    : 'fixed top-0 right-0 h-full w-80 z-50 bg-background border-l border-border flex flex-col shadow-lg'
-
-  const animationClasses = isMobile
-    ? 'animate-in fade-in-0 slide-in-from-bottom-4 duration-200'
-    : 'animate-in fade-in-0 slide-in-from-right-4 duration-200'
+  // Docked and sheet sit in the page beside the header's controls, so they're
+  // a complementary landmark rather than a layer over everything. The role is
+  // an attribute on one element type: swapping the element when theater
+  // switches the variant would remount the list and drop its scroll and focus
+  const isLandmark = variant === 'docked' || variant === 'sheet'
 
   return (
-    <div id="chat-panel" className={`${panelClasses} ${animationClasses}`}>
+    <div
+      id="chat-panel"
+      role={isLandmark ? 'complementary' : undefined}
+      aria-label={isLandmark ? 'Chat' : undefined}
+      className={PANEL_CLASSES[variant]}
+    >
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">

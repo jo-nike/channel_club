@@ -10,10 +10,11 @@ import { useChatStore } from '@/stores/chatStore'
 import * as api from '@/services/ersatztvApi'
 import { fetchLiveProgrammes, fetchNowPlaying } from '@/services/api'
 import { toast } from 'sonner'
+import { mockViewport } from '@/test/viewport'
 const presence = vi.hoisted(() => vi.fn())
 const crash = vi.hoisted(() => ({ player: false, chat: false }))
 const socket = vi.hoisted(() => ({ status: 'connected', reconnect: () => {} }))
-const chatProps = vi.hoisted(() => ({ last: null as null | { status?: string; onReconnect?: () => void } }))
+const chatProps = vi.hoisted(() => ({ last: null as null | { status?: string; onReconnect?: () => void; variant?: string } }))
 const auth = vi.hoisted(() => ({ isAdmin: false }))
 const appSettings = vi.hoisted(() => ({ userChannelSelection: false }))
 const playerProps = vi.hoisted(() => ({ onPickLive: undefined as undefined | (() => void), renders: 0, reloadKey: undefined as undefined | number, mounts: 0 }))
@@ -47,11 +48,11 @@ vi.mock('@/components/tv/TVEPGGrid', () => ({ TVEPGGrid: ({ onProgrammeClick }: 
 vi.mock('@/components/ChatPanel', async () => {
   const { useChatStore } = await import('@/stores/chatStore')
   // Like the real panel, renders nothing (and so can't throw) while closed
-  return { ChatPanel: (props: { status?: string; onReconnect?: () => void }) => {
+  return { ChatPanel: (props: { status?: string; onReconnect?: () => void; variant?: string }) => {
     chatProps.last = props
     const isOpen = useChatStore((s) => s.isOpen)
     if (crash.chat && isOpen) throw new Error('chat exploded')
-    return null
+    return isOpen ? <div data-testid="chat" data-variant={props.variant} /> : null
   } }
 })
 vi.mock('@/components/ersatztv/ProgrammeDetailsModal', () => ({ ProgrammeDetailsModal: (props: NonNullable<typeof modal.last>) => {
@@ -695,5 +696,134 @@ describe('A-06 ErsatzTV errors', () => {
 
     toastError.mockRestore()
     toastDismiss.mockRestore()
+  })
+})
+
+describe('E-01 chat placement', () => {
+  beforeEach(() => vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([]))
+  afterEach(() => {
+    window.matchMedia = originalMatchMedia
+    useChatStore.setState({ isOpen: false })
+  })
+
+  const openChat = async () => {
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+    act(() => useChatStore.setState({ isOpen: true }))
+    return screen.getByTestId('chat')
+  }
+
+  it.each([390, 768])('takes over the screen on a %ipx phone, agreeing with the phone layout at the edge', async (width) => {
+    mockViewport({ width, height: 900, pointer: 'coarse' })
+    const chat = await openChat()
+    expect(chat).toHaveAttribute('data-variant', 'takeover')
+    // The same width lays the view out as a phone: the stacked channel list
+    expect(screen.getByRole('heading', { name: 'Channels' }).closest('.epg-scroll')).not.toBeNull()
+  })
+
+  it('docks beside the player at 1440px, with the header and its controls still there', async () => {
+    mockViewport({ width: 1440 })
+    const chat = await openChat()
+    expect(chat).toHaveAttribute('data-variant', 'docked')
+
+    const main = screen.getByRole('main')
+    expect(chat.parentElement).toBe(main.parentElement)
+    expect(main.nextElementSibling).toBe(chat)
+    expect(screen.getByRole('banner')).not.toContainElement(chat)
+    expect(within(screen.getByRole('banner')).getByRole('button', { name: 'Refresh video' })).toBeVisible()
+  })
+
+  it('opens as a sheet inside the content row on a 900px tablet, so it starts below the header', async () => {
+    mockViewport({ width: 900 })
+    const chat = await openChat()
+    expect(chat).toHaveAttribute('data-variant', 'sheet')
+
+    const row = screen.getByRole('main').parentElement as HTMLElement
+    expect(chat.parentElement).toBe(row)
+    expect(row).toHaveClass('relative')
+    expect(screen.getByRole('banner')).toBeVisible()
+  })
+
+  // This covers TVView's half, the panel's place in the tree. That ChatPanel
+  // keeps its own DOM across the switch is tested in ChatPanel.test.tsx
+  it('keeps the panel mounted in place when theater switches it from docked to overlay', async () => {
+    mockViewport({ width: 1440 })
+    const chat = await openChat()
+    expect(chat).toHaveAttribute('data-variant', 'docked')
+
+    act(() => useUIStore.setState({ isTheaterMode: true }))
+    expect(screen.getByTestId('chat')).toBe(chat)
+    expect(chat).toHaveAttribute('data-variant', 'overlay')
+  })
+
+  it('slides over the side in theater', async () => {
+    mockViewport({ width: 1440 })
+    useUIStore.setState({ isTheaterMode: true })
+    const chat = await openChat()
+    expect(chat).toHaveAttribute('data-variant', 'overlay')
+  })
+})
+
+describe('E-01 channel list folds to its rail beside docked chat at 1024-1279px', () => {
+  beforeEach(() => vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([]))
+  afterEach(() => {
+    window.matchMedia = originalMatchMedia
+    useChatStore.setState({ isOpen: false })
+  })
+
+  const expandButton = () => screen.queryByRole('button', { name: 'Expand channel sidebar' })
+  const collapseButton = () => screen.queryByRole('button', { name: 'Collapse channel sidebar' })
+  const renderView = async () => {
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+  }
+
+  it('folds at 1100px while chat is open and unfolds on close, never writing the saved flag', async () => {
+    mockViewport({ width: 1100 })
+    await renderView()
+    expect(collapseButton()).toBeInTheDocument()
+
+    act(() => useChatStore.setState({ isOpen: true }))
+    expect(screen.getByTestId('chat')).toHaveAttribute('data-variant', 'docked')
+    expect(expandButton()).toBeInTheDocument()
+    expect(useUIStore.getState().isChannelSidebarCollapsed).toBe(false)
+
+    act(() => useChatStore.setState({ isOpen: false }))
+    expect(collapseButton()).toBeInTheDocument()
+    expect(useUIStore.getState().isChannelSidebarCollapsed).toBe(false)
+  })
+
+  it('lets the viewer expand the folded rail for this chat without saving it, and folds again next time', async () => {
+    mockViewport({ width: 1100 })
+    await renderView()
+    act(() => useChatStore.setState({ isOpen: true }))
+
+    fireEvent.click(expandButton()!)
+    expect(collapseButton()).toBeInTheDocument()
+    expect(useUIStore.getState().isChannelSidebarCollapsed).toBe(false)
+
+    act(() => useChatStore.setState({ isOpen: false }))
+    act(() => useChatStore.setState({ isOpen: true }))
+    expect(expandButton()).toBeInTheDocument()
+    expect(useUIStore.getState().isChannelSidebarCollapsed).toBe(false)
+  })
+
+  it('expands a list the viewer had collapsed themselves, saving that choice', async () => {
+    mockViewport({ width: 1100 })
+    useUIStore.setState({ isChannelSidebarCollapsed: true })
+    await renderView()
+    act(() => useChatStore.setState({ isOpen: true }))
+
+    fireEvent.click(expandButton()!)
+    expect(collapseButton()).toBeInTheDocument()
+    expect(useUIStore.getState().isChannelSidebarCollapsed).toBe(false)
+  })
+
+  it.each([1440, 1280])('leaves the list alone at %ipx, where everything fits', async (width) => {
+    mockViewport({ width })
+    await renderView()
+    act(() => useChatStore.setState({ isOpen: true }))
+    expect(screen.getByTestId('chat')).toHaveAttribute('data-variant', 'docked')
+    expect(collapseButton()).toBeInTheDocument()
   })
 })

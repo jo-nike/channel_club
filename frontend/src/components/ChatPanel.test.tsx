@@ -1,14 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, render, screen, fireEvent, waitFor } from '@/test/utils'
 import { ChatPanel } from './ChatPanel'
-import { useBreakpoint } from '@/hooks/useBreakpoint'
 import { useChatStore } from '@/stores/chatStore'
 import type { ChatMessage } from '@/types'
-
-// Mock useBreakpoint
-vi.mock('@/hooks/useBreakpoint', () => ({
-  useBreakpoint: vi.fn(() => 'desktop'),
-}))
 
 // Stand-in for the GIF picker, which fetches its feature flag: a click picks one fixed GIF
 const GIF_URL = 'https://media.example/cat.gif'
@@ -1111,12 +1105,71 @@ describe('ChatPanel', () => {
     })
   })
 
-  describe('iOS safe area', () => {
-    afterEach(() => vi.mocked(useBreakpoint).mockReturnValue('desktop'))
+  describe('variants', () => {
+    it('docks as a complementary landmark named Chat that sits in the layout', () => {
+      render(<ChatPanel onSendMessage={mockOnSendMessage} variant="docked" />)
+      const panel = screen.getByRole('complementary', { name: 'Chat' })
+      expect(panel).toHaveAttribute('id', 'chat-panel')
+      expect(panel).toHaveClass('relative', 'h-full', 'w-80', 'shrink-0', 'border-l', 'bg-card')
+      expect(panel).not.toHaveClass('fixed')
+      expect(panel).not.toHaveClass('absolute')
+      expect(panel).not.toHaveClass('shadow-lg')
+    })
 
-    it('keeps the full-screen phone panel clear of the status bar and home indicator', () => {
-      vi.mocked(useBreakpoint).mockReturnValue('mobile')
+    it('opens the tablet sheet over its container rather than the viewport', () => {
+      render(<ChatPanel onSendMessage={mockOnSendMessage} variant="sheet" />)
+      const panel = screen.getByRole('complementary', { name: 'Chat' })
+      expect(panel).toHaveAttribute('id', 'chat-panel')
+      expect(panel).toHaveClass('absolute', 'inset-y-0', 'right-0', 'z-40', 'w-80', 'shadow-lg')
+      expect(panel).not.toHaveClass('fixed')
+    })
+
+    it.each([
+      ['overlay', ['fixed', 'top-0', 'right-0', 'h-full', 'w-80', 'z-50']],
+      ['takeover', ['fixed', 'inset-0', 'z-50']],
+    ] as const)('keeps the %s variant fixed to the viewport', (variant, classes) => {
+      render(<ChatPanel onSendMessage={mockOnSendMessage} variant={variant} />)
+      expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
+      const panel = document.getElementById('chat-panel')
+      expect(panel).toContainElement(screen.getByRole('heading', { name: 'Chat' }))
+      expect(panel).toHaveClass(...classes)
+    })
+
+    it('is the overlay drawer when no variant is given', () => {
       render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(document.getElementById('chat-panel')).toHaveClass('fixed', 'right-0', 'w-80')
+    })
+
+    // Theater turns docked (desktop) or sheet (a narrow fine-pointer window)
+    // into overlay. The panel must stay the same DOM, or the list would
+    // remount at its oldest messages and focus would leave the composer
+    it.each(['docked', 'sheet'] as const)('keeps its list, composer and focus when %s becomes overlay', (from) => {
+      useChatStore.setState({ messages: [createMessage('1'), createMessage('2')] })
+      const { rerender } = render(<ChatPanel onSendMessage={mockOnSendMessage} variant={from} />)
+      const panel = document.getElementById('chat-panel')
+      const viewport = document.querySelector('[data-radix-scroll-area-viewport]')
+      const message = screen.getByText('Message 2')
+      const input = screen.getByPlaceholderText('Type a message...')
+      fireEvent.change(input, { target: { value: 'half typed' } })
+      input.focus()
+
+      rerender(<ChatPanel onSendMessage={mockOnSendMessage} variant="overlay" />)
+
+      expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
+      expect(document.getElementById('chat-panel')).toBe(panel)
+      expect(panel).toHaveClass('fixed')
+      expect(viewport).not.toBeNull()
+      expect(document.querySelector('[data-radix-scroll-area-viewport]')).toBe(viewport)
+      expect(screen.getByText('Message 2')).toBe(message)
+      expect(screen.getByPlaceholderText('Type a message...')).toBe(input)
+      expect(input).toHaveValue('half typed')
+      expect(input).toHaveFocus()
+    })
+  })
+
+  describe('iOS safe area', () => {
+    it('keeps the full-screen phone panel clear of the status bar and home indicator', () => {
+      render(<ChatPanel onSendMessage={mockOnSendMessage} variant="takeover" />)
       const panel = screen.getByRole('heading', { name: 'Chat' }).closest('.fixed')
       expect(panel).toHaveClass('inset-0', 'pt-safe', 'pb-safe')
     })
