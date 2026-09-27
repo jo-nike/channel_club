@@ -135,11 +135,13 @@ export interface ChatMessage {
   timestamp: string // ISO8601
   // 'system' is a line the server posts about a shared event (someone changing
   // Live), with the whole sentence as content; 'share' is a member's
-  // now-playing card, its content the same in words. Absent from older servers: 'user'
-  kind?: 'user' | 'system' | 'share'
+  // now-playing card, its content the same in words; 'suggestion' is a member
+  // asking for a channel on live TV, likewise. Absent from older servers: 'user'
+  kind?: 'user' | 'system' | 'share' | 'suggestion'
   // Where the sender was watching when they posted, stamped by the server from
   // presence (as in PresenceEntry). Null unless the admin shows what everyone
-  // is watching and the sender doesn't hide it; absent from older servers
+  // is watching and the sender doesn't hide it; absent from older servers. On
+  // a suggestion, channelId and channelName are the channel suggested
   channelId?: string | null
   channelName?: string | null
   programme?: string | null

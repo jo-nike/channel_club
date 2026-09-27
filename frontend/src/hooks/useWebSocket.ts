@@ -102,6 +102,8 @@ interface UseWebSocketReturn {
   sendChatMessage: (content: string, clientMessageId?: string) => Promise<ChatSendResult>
   // Post a card of what this viewer is watching; the server fills in the channel
   sendShare: (clientMessageId?: string) => Promise<ChatSendResult>
+  // Suggest a channel for live TV in chat; the server looks the channel up by id
+  sendSuggest: (channelId: string, clientMessageId?: string) => Promise<ChatSendResult>
   sendSetNickname: (nickname: string) => void
 }
 
@@ -467,7 +469,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     []
   )
 
-  // A chat send the server acknowledges by clientMessageId (a message or a share)
+  // A chat send the server acknowledges by clientMessageId (a message, a share or a suggestion)
   const sendAcknowledged = useCallback(
     (payload: Record<string, unknown>, clientMessageId: string): Promise<ChatSendResult> => {
       const socket = wsRef.current
@@ -504,6 +506,14 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     [sendAcknowledged]
   )
 
+  // Only the id is sent: the server names the channel from its catalogue, so
+  // a card can't put a name on a channel that isn't what it says
+  const sendSuggest = useCallback(
+    (channelId: string, clientMessageId: string = createClientMessageId()): Promise<ChatSendResult> =>
+      sendAcknowledged({ type: 'suggest', channelId }, clientMessageId),
+    [sendAcknowledged]
+  )
+
   const sendSetNickname = useCallback((nicknameValue: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(
@@ -526,5 +536,5 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     return () => disconnect()
   }, [token, connect, disconnect])
 
-  return { status, reconnect, sendChannelUpdate, sendChatMessage, sendShare, sendSetNickname }
+  return { status, reconnect, sendChannelUpdate, sendChatMessage, sendShare, sendSuggest, sendSetNickname }
 }

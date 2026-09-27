@@ -16,17 +16,24 @@ interface ChannelListProps {
   onChannelSelected?: () => void
   /** Tune the person who picked to channel 0 once the switch goes through (the Live TV switcher) */
   tuneActor?: boolean
+  /**
+   * Called with the picked channel instead of putting it on live TV (the
+   * switcher's Suggest, for viewers who can't switch). Rows can be picked
+   * whatever the viewer's permission.
+   */
+  onPick?: (channel: Channel) => void
 }
 
-export function ChannelList({ onChannelSelected, tuneActor = false }: ChannelListProps = {}) {
+export function ChannelList({ onChannelSelected, tuneActor = false, onPick }: ChannelListProps = {}) {
   const { currentChannel } = useChannelStore()
   const { role } = useAuthStore()
   const userChannelSelection = useSettingsStore((s) => s.userChannelSelection)
   const setSidebarOpen = useUIStore((s) => s.setSidebarOpen)
   const setLiveChannel = useSetLiveChannel({ tuneActor })
   const isAdmin = role === 'admin'
-  // Admins always may; everyone else only when the admin has opened it up
-  const canSelect = isAdmin || userChannelSelection
+  // Admins always may; everyone else only when the admin has opened it up,
+  // or to suggest a channel instead
+  const canSelect = isAdmin || userChannelSelection || onPick !== undefined
 
   const [groupedData, setGroupedData] = useState<GroupedChannelsResponse | null>(null)
   const [nowPlaying, setNowPlaying] = useState<Record<string, Program>>({})
@@ -76,8 +83,9 @@ export function ChannelList({ onChannelSelected, tuneActor = false }: ChannelLis
   const handleSelectChannel = useCallback(async (channel: Channel) => {
     if (!canSelect) return
 
-    // Switches the store straight away; the request settles below
-    const switching = setLiveChannel(channel)
+    // Switches the store straight away (the request settles below), unless
+    // the caller takes the pick
+    const switching = onPick ? onPick(channel) : setLiveChannel(channel)
 
     // If callback provided (modal context), call it
     // Otherwise use existing sidebar close behavior
@@ -88,7 +96,7 @@ export function ChannelList({ onChannelSelected, tuneActor = false }: ChannelLis
     }
 
     await switching
-  }, [canSelect, setLiveChannel, setSidebarOpen, onChannelSelected])
+  }, [canSelect, onPick, setLiveChannel, setSidebarOpen, onChannelSelected])
 
   useEffect(() => {
     loadGroupedChannels()

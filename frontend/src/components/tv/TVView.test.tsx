@@ -14,7 +14,7 @@ import { toast } from 'sonner'
 import { mockViewport } from '@/test/viewport'
 const presence = vi.hoisted(() => vi.fn())
 const crash = vi.hoisted(() => ({ player: false, chat: false }))
-const socket = vi.hoisted(() => ({ status: 'connected', reconnect: () => {} }))
+const socket = vi.hoisted(() => ({ status: 'connected', reconnect: () => {}, sendSuggest: vi.fn() }))
 const chatProps = vi.hoisted(() => ({ last: null as null | { status?: string; onReconnect?: () => void; variant?: string; translucent?: boolean; onComposerFocusChange?: (focused: boolean) => void } }))
 const auth = vi.hoisted(() => ({ isAdmin: false }))
 const appSettings = vi.hoisted(() => ({ userChannelSelection: false }))
@@ -28,13 +28,15 @@ import type { ErsatzTVProgramme, UnifiedChannel } from '@/types'
 import type { ChannelZap } from '@/hooks/useChannelZap'
 
 vi.mock('@/services/ersatztvApi', () => ({ fetchErsatzTVChannels: vi.fn(), fetchErsatzTVCurrentProgramme: vi.fn(), getErsatzTVLogoUrl: vi.fn() }))
-vi.mock('@/hooks/useWebSocket', () => ({ useWebSocket: () => ({ status: socket.status, reconnect: socket.reconnect, sendChannelUpdate: presence, sendChatMessage: vi.fn(), sendSetNickname: vi.fn() }) }))
+vi.mock('@/hooks/useWebSocket', () => ({ useWebSocket: () => ({ status: socket.status, reconnect: socket.reconnect, sendChannelUpdate: presence, sendChatMessage: vi.fn(), sendSuggest: socket.sendSuggest, sendSetNickname: vi.fn() }) }))
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ isAdmin: auth.isAdmin, logout: vi.fn() }) }))
 vi.mock('@/hooks/useChatEnabled', () => ({ useChatEnabled: () => chatFlag.enabled }))
 vi.mock('@/hooks/useAppSettings', () => ({ useAppSettings: () => ({ userChannelSelection: appSettings.userChannelSelection }) }))
-vi.mock('@/components/LiveSwitcherSheet', () => ({ LiveSwitcherSheet: ({ open }: { open: boolean }) => (
-  <div data-testid="live-switcher" data-open={String(open)} />
-) }))
+const switcherProps = vi.hoisted(() => ({ onSuggest: undefined as undefined | ((channel: { id: string; name: string }) => unknown) }))
+vi.mock('@/components/LiveSwitcherSheet', () => ({ LiveSwitcherSheet: ({ open, onSuggest }: { open: boolean; onSuggest?: (channel: { id: string; name: string }) => unknown }) => {
+  switcherProps.onSuggest = onSuggest
+  return <div data-testid="live-switcher" data-open={String(open)} />
+} }))
 vi.mock('@/components/tv/DualModeVideoPlayer', async () => {
   const { useEffect } = await import('react')
   return { DualModeVideoPlayer: ({ channel, onPickLive, reloadKey, zap, onFocusSearch }: { channel: UnifiedChannel | null; onPickLive?: () => void; reloadKey?: number; zap?: ChannelZap; onFocusSearch?: () => void }) => {
@@ -554,6 +556,29 @@ describe('B-V2 picking a channel from the empty live slot', () => {
     expect(picker()).toHaveAttribute('data-open', 'false')
     fireEvent.click(screen.getByRole('button', { name: 'Change live channel' }))
     expect(picker()).toHaveAttribute('data-open', 'true')
+  })
+
+  it('gives a viewer without permission Suggest a channel while chat is on, posting through the socket', async () => {
+    chatFlag.enabled = true
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('No live broadcast'))
+
+    expect(picker()).toHaveAttribute('data-open', 'false')
+    fireEvent.click(screen.getByRole('button', { name: 'Suggest a channel' }))
+    expect(picker()).toHaveAttribute('data-open', 'true')
+    switcherProps.onSuggest?.({ id: '42', name: 'TSN 5' })
+    expect(socket.sendSuggest).toHaveBeenCalledWith('42')
+    // The empty live slot still only waits: suggesting is from the header
+    expect(playerProps.onPickLive).toBeUndefined()
+  })
+
+  it('offers no suggestions while chat is off', async () => {
+    appSettings.userChannelSelection = true
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('No live broadcast'))
+
+    expect(picker()).toBeInTheDocument()
+    expect(switcherProps.onSuggest).toBeUndefined()
   })
 
   it("shows a viewer without permission the wait copy and no picker", async () => {

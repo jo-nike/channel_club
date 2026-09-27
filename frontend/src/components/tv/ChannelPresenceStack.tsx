@@ -1,4 +1,5 @@
 import { PresenceStack } from '@/components/PresenceStack'
+import { presenceNames } from '@/hooks/usePresenceByChannel'
 import { cn } from '@/lib/utils'
 import type { PresenceEntry } from '@/types'
 
@@ -7,14 +8,6 @@ const STACK_MAX = 3
 
 // The box the stack sits in: 24px tall, a target big enough to click
 const STACK_BOX = 'inline-flex shrink-0 items-center rounded-full p-0.5'
-
-/** 'maya', 'maya and dev', or 'maya and 2 others'. */
-function presenceNames(people: readonly PresenceEntry[]): string {
-  const [first, second] = people
-  if (people.length === 1) return first.displayName
-  if (people.length === 2) return `${first.displayName} and ${second.displayName}`
-  return `${first.displayName} and ${people.length - 1} others`
-}
 
 interface ChannelPresenceStackProps {
   // Who else is on the channel (usePresenceByChannel), at least one

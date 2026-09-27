@@ -8,15 +8,18 @@ from io import StringIO
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from loguru import logger
 from starlette.websockets import WebSocketDisconnect
 
 from app.config import settings
 from app.main import app
+from app.models.channel import Channel
 from app.routers import websocket as websocket_router
 from app.services import app_settings, channel_state, chat, presence, presence_broadcast
 from app.services.auth import create_access_token
+from app.services.media_source import MediaChannel
 
 # Captured at import, before conftest swaps it for a no-op in every test
 REAL_SCHEDULE_BROADCAST = presence_broadcast.schedule_broadcast
@@ -1299,6 +1302,173 @@ class TestShareMessage:
             [card] = ws.receive_json()["messages"]
 
         assert card["kind"] == "share"
+        assert card["channelName"] == "TSN 5"
+
+
+class TestSuggestMessage:
+    """'Suggest' posts a card for a channel the server resolves from its catalogue."""
+
+    TSN5 = Channel(id="42", name="TSN 5", streamUrl="http://streams/42", guideId="tsn5")
+
+    @pytest.fixture(autouse=True)
+    def chat_on(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(settings, "chat_enabled", True)
+
+    @pytest.fixture(autouse=True)
+    def catalogue(self, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        """Only TSN 5 (id 42) is in the catalogue; records each id looked up."""
+        looked_up: list[str] = []
+
+        async def resolve(channel_id: str) -> MediaChannel:
+            looked_up.append(channel_id)
+            if channel_id != self.TSN5.id:
+                raise HTTPException(404, "Channel not found")
+            return MediaChannel(self.TSN5, "mpegts")
+
+        monkeypatch.setattr(websocket_router, "resolve_media_channel", resolve)
+        return looked_up
+
+    @staticmethod
+    def open_chat(ws) -> None:
+        ws.receive_json()  # connection_ack
+        ws.receive_json()  # chat_history
+
+    @staticmethod
+    def assert_nothing_broadcast(ws) -> None:
+        ws.send_json({"type": "ping"})
+        assert ws.receive_json()["type"] == "pong"
+
+    def test_suggestion_is_broadcast_with_the_catalogues_channel(
+        self, client: TestClient, valid_token: str, admin_token: str, catalogue: list[str]
+    ):
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws1:
+            self.open_chat(ws1)
+            with client.websocket_connect(f"/api/ws?token={admin_token}") as ws2:
+                self.open_chat(ws2)
+
+                ws1.send_json({"type": "suggest", "channelId": "42", "clientMessageId": "g-1"})
+                card = ws2.receive_json()
+                own = ws1.receive_json()
+                ack = ws1.receive_json()
+
+        assert catalogue == ["42"]
+        assert card["type"] == "chat_message"
+        assert card["kind"] == "suggestion"
+        assert card["username"] == "testuser"
+        assert card["userId"] == expected_user_id("local:testuser")
+        assert card["channelId"] == "42"
+        assert card["channelName"] == "TSN 5"
+        assert card["view"] is None
+        # Clients that predate suggestion cards show the same thing as text
+        assert card["content"] == "Suggests putting TSN 5 on live TV"
+        assert own["messageId"] == card["messageId"]
+        assert ack == {
+            "type": "chat_ack",
+            "clientMessageId": "g-1",
+            "accepted": True,
+            "messageId": card["messageId"],
+        }
+        [stored] = chat.get_history()
+        assert stored.kind == "suggestion"
+
+    def test_client_sent_names_are_ignored(self, client: TestClient, valid_token: str):
+        """The card names the channel the catalogue has, whatever the client claims."""
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            self.open_chat(ws)
+
+            ws.send_json(
+                {
+                    "type": "suggest",
+                    "channelId": "42",
+                    "channelName": "Fake",
+                    "content": "spoof",
+                }
+            )
+            card = ws.receive_json()
+
+        assert card["channelName"] == "TSN 5"
+        assert card["content"] == "Suggests putting TSN 5 on live TV"
+
+    def test_refused_for_a_channel_not_in_the_catalogue(self, client: TestClient, valid_token: str):
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            self.open_chat(ws)
+
+            ws.send_json({"type": "suggest", "channelId": "666", "clientMessageId": "g-1"})
+            ack = ws.receive_json()
+            self.assert_nothing_broadcast(ws)
+
+        assert ack == {"type": "chat_ack", "clientMessageId": "g-1", "accepted": False}
+        assert chat.get_history() == []
+
+    def test_refused_while_chat_is_off(
+        self,
+        client: TestClient,
+        valid_token: str,
+        monkeypatch: pytest.MonkeyPatch,
+        catalogue: list[str],
+    ):
+        monkeypatch.setattr(settings, "chat_enabled", False)
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            ws.receive_json()  # connection_ack
+
+            ws.send_json({"type": "suggest", "channelId": "42", "clientMessageId": "g-1"})
+            ack = ws.receive_json()
+
+        assert ack["accepted"] is False
+        assert catalogue == []
+        assert chat.get_history() == []
+
+    def test_retried_suggestion_is_acknowledged_without_reposting(
+        self, client: TestClient, valid_token: str
+    ):
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            self.open_chat(ws)
+            ws.send_json({"type": "suggest", "channelId": "42", "clientMessageId": "g-1"})
+            card = ws.receive_json()
+            ws.receive_json()  # chat_ack
+
+            ws.send_json({"type": "suggest", "channelId": "42", "clientMessageId": "g-1"})
+            ack = ws.receive_json()
+            self.assert_nothing_broadcast(ws)
+
+        assert ack["messageId"] == card["messageId"]
+        assert len(chat.get_history()) == 1
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            {"type": "suggest"},
+            {"type": "suggest", "channelId": 42},
+            {"type": "suggest", "channelId": "4" * 513},
+            {"type": "suggest", "channelId": "42", "clientMessageId": 7},
+        ],
+    )
+    def test_invalid_suggestion_is_rejected(
+        self, client: TestClient, valid_token: str, message: dict[str, object], catalogue: list[str]
+    ):
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            self.open_chat(ws)
+
+            ws.send_json(message)
+
+            assert ws.receive_json() == {"type": "error", "code": "invalid_message"}
+        assert catalogue == []
+
+    def test_history_keeps_the_suggested_channel_while_presence_is_off(
+        self, client: TestClient, valid_token: str
+    ):
+        """Presence privacy is about where people are, not the channel they suggest."""
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            self.open_chat(ws)
+            ws.send_json({"type": "suggest", "channelId": "42"})
+            ws.receive_json()  # the card
+
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            ws.receive_json()  # connection_ack
+            [card] = ws.receive_json()["messages"]
+
+        assert card["kind"] == "suggestion"
+        assert card["channelId"] == "42"
         assert card["channelName"] == "TSN 5"
 
 

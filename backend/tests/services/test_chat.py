@@ -314,6 +314,43 @@ class TestAddShare:
         assert msg.to_dict(show_channel=False)["channelName"] == "TSN 5"
 
 
+class TestAddSuggestion:
+    """Tests for add_suggestion, a member asking for a channel on live TV."""
+
+    def test_stores_a_suggestion_with_the_channel(self) -> None:
+        msg = chat.add_suggestion("maya", "42", "TSN 5", user_id="u_maya")
+
+        assert msg.kind == "suggestion"
+        assert msg.username == "maya"
+        assert msg.user_id == "u_maya"
+        assert chat.get_history() == [msg]
+        msg_dict = msg.to_dict()
+        assert msg_dict["kind"] == "suggestion"
+        assert msg_dict["channelId"] == "42"
+        assert msg_dict["channelName"] == "TSN 5"
+        # The channel suggested, not where the sender is watching
+        assert msg_dict["view"] is None
+        assert msg_dict["programme"] is None
+
+    def test_content_says_what_is_suggested_for_older_clients(self) -> None:
+        msg = chat.add_suggestion("maya", "42", "TSN 5")
+
+        assert msg.content == "Suggests putting TSN 5 on live TV"
+
+    def test_content_is_capped_like_a_message(self) -> None:
+        msg = chat.add_suggestion("maya", "42", "x" * 600)
+
+        assert len(msg.content) == chat.MAX_MESSAGE_LENGTH
+
+    def test_keeps_its_channel_when_channels_are_left_out(self) -> None:
+        """Presence privacy blanks where senders are, not the channel they suggest."""
+        msg = chat.add_suggestion("maya", "42", "TSN 5")
+
+        msg_dict = msg.to_dict(show_channel=False)
+        assert msg_dict["channelId"] == "42"
+        assert msg_dict["channelName"] == "TSN 5"
+
+
 class TestSystemMessage:
     """Tests for system_message, the ephemeral lines about shared events."""
 

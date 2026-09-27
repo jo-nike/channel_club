@@ -1198,6 +1198,29 @@ describe('useWebSocket', () => {
       expect(useChatStore.getState().messages[0]).toMatchObject({ kind: 'share', channelName: 'TSN 5', view: 'live' })
     })
 
+    test('keeps a suggestion with the channel suggested', () => {
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({
+          type: 'chat_message',
+          messageId: 'suggestion-1',
+          username: 'maya',
+          content: 'Suggests putting TSN 5 on live TV',
+          timestamp: '2026-01-08T12:00:00Z',
+          kind: 'suggestion',
+          channelId: '42',
+          channelName: 'TSN 5',
+          programme: null,
+          view: null,
+        })
+      })
+
+      expect(useChatStore.getState().messages[0]).toMatchObject({ kind: 'suggestion', channelId: '42', channelName: 'TSN 5' })
+    })
+
     test('ignores chat_message when missing required fields', () => {
       renderHook(() => useWebSocket())
       const ws = MockWebSocket.instances[0]
@@ -1336,6 +1359,51 @@ describe('useWebSocket', () => {
       const ws = MockWebSocket.instances[0]
 
       await expect(result.current.sendShare()).resolves.toBe('not-sent')
+      expect(ws.send).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('sendSuggest', () => {
+    test("sends only the channel's id with its clientMessageId", () => {
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+      act(() => ws.simulateOpen())
+
+      act(() => {
+        result.current.sendSuggest('42', 'suggest-id-1')
+      })
+
+      expect(JSON.parse(ws.send.mock.calls.at(-1)![0])).toEqual({ type: 'suggest', channelId: '42', clientMessageId: 'suggest-id-1' })
+    })
+
+    test('resolves acknowledged when the server posts it', async () => {
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+      act(() => ws.simulateOpen())
+
+      const suggesting = result.current.sendSuggest('42')
+      const { clientMessageId } = JSON.parse(ws.send.mock.calls.at(-1)![0])
+      act(() => ws.simulateMessage({ type: 'chat_ack', clientMessageId, accepted: true, messageId: 'server-id' }))
+
+      await expect(suggesting).resolves.toBe('acknowledged')
+    })
+
+    test('resolves not-sent when the server refuses it (a channel it does not have)', async () => {
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+      act(() => ws.simulateOpen())
+
+      const suggesting = result.current.sendSuggest('666', 'suggest-id-2')
+      act(() => ws.simulateMessage({ type: 'chat_ack', clientMessageId: 'suggest-id-2', accepted: false }))
+
+      await expect(suggesting).resolves.toBe('not-sent')
+    })
+
+    test('does not send when not connected', async () => {
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      await expect(result.current.sendSuggest('42')).resolves.toBe('not-sent')
       expect(ws.send).not.toHaveBeenCalled()
     })
   })

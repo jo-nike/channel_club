@@ -1,5 +1,11 @@
-import { useMemo, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { useSetLiveChannel } from '@/hooks/useSetLiveChannel'
+import { fetchGroupedChannels } from '@/services/api'
+import { useAuthStore } from '@/stores/authStore'
+import { useChannelStore } from '@/stores/channelStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 import type { ChatMessage as ChatMessageType } from '@/types'
 import { detectMediaUrls } from '@/lib/mediaDetection'
 import { MEMBER_COLOR_CLASS, memberColorStyle, memberKey } from '@/lib/memberColor'
@@ -100,6 +106,68 @@ function ShareCard({ channel, sender, isOwn }: { channel: MessageChannel; sender
         >
           Watch
         </Button>
+      )}
+    </div>
+  )
+}
+
+/**
+ * A member's suggestion for live TV, with 'Put it on' for anyone allowed to
+ * change live TV (not the admin panel's tune-in: they stay where they are,
+ * and the Live line in chat offers Watch). The channel is looked up in the
+ * catalogue on the click, so live TV gets its stream as the catalogue has it
+ * now, not just a name. Once it's on air, the card says so instead.
+ */
+function SuggestionCard({ channelId, channelName, isOwn }: { channelId: string; channelName: string; isOwn: boolean }) {
+  const isAdmin = useAuthStore((s) => s.role === 'admin')
+  const canSwitch = useSettingsStore((s) => isAdmin || s.userChannelSelection)
+  const onAir = useChannelStore((s) => s.currentChannel?.id === channelId)
+  const setLiveChannel = useSetLiveChannel()
+  const [putting, setPutting] = useState(false)
+
+  async function putOn() {
+    setPutting(true)
+    try {
+      const { groups, ungrouped } = await fetchGroupedChannels()
+      const channel = [...groups.flatMap((group) => group.channels), ...ungrouped].find((c) => c.id === channelId)
+      if (channel) {
+        // Says itself why, if the switch is refused
+        await setLiveChannel(channel)
+      } else {
+        toast.error(`Could not put ${channelName} on`, { description: "It's no longer in the channel list" })
+      }
+    } catch {
+      toast.error(`Could not put ${channelName} on`, { description: 'Please try again' })
+    } finally {
+      setPutting(false)
+    }
+  }
+
+  return (
+    <div
+      data-slot="suggestion-card"
+      className="flex w-60 max-w-[85%] flex-col gap-1 rounded-lg border border-border bg-card px-3 py-2.5 text-card-foreground"
+    >
+      <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+        {isOwn ? 'You suggested for live TV' : 'Suggests for live TV'}
+      </p>
+      <p className="truncate text-sm font-semibold">{channelName}</p>
+      {onAir ? (
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <LivePill /> On live TV now
+        </p>
+      ) : (
+        canSwitch && (
+          <Button
+            size="sm"
+            className="mt-1 self-start"
+            aria-label={`Put ${channelName} on live TV`}
+            disabled={putting}
+            onClick={putOn}
+          >
+            Put it on
+          </Button>
+        )
       )}
     </div>
   )
@@ -211,8 +279,13 @@ export function ChatMessage({
   }
 
   const shareCard = message.kind === 'share' && channel
+  // A suggestion names the channel suggested, never where the sender is
+  const suggestion =
+    message.kind === 'suggestion' && message.channelId && message.channelName
+      ? { channelId: message.channelId, channelName: message.channelName }
+      : null
   // The chip heads the sender's group (a new channel starts a new group)
-  const chip = !shareCard && channel && isFirstInGroup ? channel : undefined
+  const chip = !shareCard && !suggestion && channel && isFirstInGroup ? channel : undefined
 
   // Other people's names and faces, and your own bubble, take the sender's member colour
   return (
@@ -245,6 +318,8 @@ export function ChatMessage({
         )}
         {shareCard ? (
           <ShareCard channel={shareCard} sender={message.username} isOwn={isOwn} />
+        ) : suggestion ? (
+          <SuggestionCard {...suggestion} isOwn={isOwn} />
         ) : (
           /* Your own bubble is tinted with your colour */
           <div

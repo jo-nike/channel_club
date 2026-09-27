@@ -1,6 +1,7 @@
 import { useId, useState } from 'react'
 import {
   Download,
+  Lightbulb,
   LogOut,
   MessageSquarePlus,
   Palette,
@@ -34,6 +35,7 @@ import { IosInstallDialog } from '@/components/IosInstallDialog'
 import { AppearancePicker } from '@/components/theme/AppearancePicker'
 import { useAuth } from '@/hooks/useAuth'
 import { useAppSettings } from '@/hooks/useAppSettings'
+import { useChatEnabled } from '@/hooks/useChatEnabled'
 import { useFeedbackFeature } from '@/hooks/useFeedbackFeature'
 import { useInstallPrompt } from '@/hooks/useInstallPrompt'
 import { readTVModeOverride, setTVModeOverride, type TVModeOverride } from '@/hooks/useTVMode'
@@ -58,6 +60,7 @@ function initialOf(username: string | null): string | null {
 export function AccountMenu({ onOpenChannelPicker, onOpenAdmin, onReload, isMobile }: AccountMenuProps) {
   const { username, isAdmin, logout } = useAuth()
   const { userChannelSelection } = useAppSettings()
+  const chatEnabled = useChatEnabled()
   const { isEnabled: feedbackEnabled } = useFeedbackFeature()
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [appearanceOpen, setAppearanceOpen] = useState(false)
@@ -77,6 +80,8 @@ export function AccountMenu({ onOpenChannelPicker, onOpenAdmin, onReload, isMobi
   const setNHLOverlayVisible = useUIStore((s) => s.setNHLOverlayVisible)
   const initial = initialOf(username)
   const canChangeLive = isAdmin || userChannelSelection
+  // Everyone else may suggest a channel in chat, while chat is on
+  const canSuggestLive = !canChangeLive && chatEnabled
 
   return (
     <>
@@ -111,6 +116,12 @@ export function AccountMenu({ onOpenChannelPicker, onOpenAdmin, onReload, isMobi
             <DropdownMenuItem onSelect={onOpenChannelPicker}>
               <Tv />
               Change live channel…
+            </DropdownMenuItem>
+          )}
+          {canSuggestLive && (
+            <DropdownMenuItem onSelect={onOpenChannelPicker}>
+              <Lightbulb />
+              Suggest a channel…
             </DropdownMenuItem>
           )}
           {isAdmin && (

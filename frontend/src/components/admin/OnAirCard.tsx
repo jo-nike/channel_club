@@ -3,8 +3,10 @@ import { toast } from 'sonner'
 import { Square } from 'lucide-react'
 import { useChannelStore } from '@/stores/channelStore'
 import { useAuthStore } from '@/stores/authStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { useRecentLiveChannelIds } from '@/stores/recentLiveStore'
 import { useActiveUsers } from '@/hooks/useActiveUsers'
+import { presenceNames, usePresenceByChannel } from '@/hooks/usePresenceByChannel'
 import { useChannelCatalogue } from '@/hooks/useChannelCatalogue'
 import { useSetLiveChannel } from '@/hooks/useSetLiveChannel'
 import { fetchNowPlaying, clearCurrentChannel as clearCurrentChannelApi } from '@/services/api'
@@ -12,6 +14,8 @@ import { Button } from '@/components/ui/button'
 import { StopLiveTVDialog } from '@/components/StopLiveTVDialog'
 import { ChannelLogo } from '@/components/ChannelLogo'
 import { LivePill } from '@/components/LivePill'
+import { PresenceStack } from '@/components/PresenceStack'
+import { LIVE_CHANNEL_ID } from '@/stores/tvStore'
 import type { Channel } from '@/types'
 
 interface OnAirCardProps {
@@ -29,17 +33,21 @@ interface OnAirCardProps {
 }
 
 /**
- * What's on live TV for everyone and the programme on it. On the admin
- * Channels tab it also has how many people are watching, one-tap recents and
- * the (confirmed) Stop live TV; the Live TV switcher shows it to everyone
- * allowed to change live TV, and the watching count (from an admin-only
- * endpoint) and Stop are for admins only. Sticky at the top of its scroll
- * container, with the page background so the channel list scrolls underneath.
+ * What's on live TV for everyone and the programme on it, and who else is
+ * on it while the admin lets members see what everyone is watching. On the
+ * admin Channels tab it also has how many people are watching, one-tap
+ * recents and the (confirmed) Stop live TV; the Live TV switcher shows it to
+ * everyone allowed to change live TV, and the watching count (from an
+ * admin-only endpoint) and Stop are for admins only. Sticky at the top of
+ * its scroll container, with the page background so the channel list
+ * scrolls underneath.
  */
 export function OnAirCard({ onHeightChange, showRecents = true }: OnAirCardProps) {
   const currentChannel = useChannelStore((s) => s.currentChannel)
   const setCurrentChannel = useChannelStore((s) => s.setCurrentChannel)
   const isAdmin = useAuthStore((s) => s.role === 'admin')
+  // Everyone else sees the card in the switcher's Suggest a channel
+  const canSwitch = useSettingsStore((s) => isAdmin || s.userChannelSelection)
 
   const cardRef = useRef<HTMLElement>(null)
   useEffect(() => {
@@ -93,6 +101,7 @@ export function OnAirCard({ onHeightChange, showRecents = true }: OnAirCardProps
                 </p>
                 {/* Remounted per channel so the last channel's programme never shows */}
                 <CurrentProgramme key={currentChannel.id} channel={currentChannel} />
+                <WatchingWith />
                 {isAdmin && <WatchingCount />}
               </div>
             </div>
@@ -110,7 +119,9 @@ export function OnAirCard({ onHeightChange, showRecents = true }: OnAirCardProps
           <div>
             <p className="text-lg font-semibold leading-tight">Nothing on live TV</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Pick a channel from the list below to put it on for everyone.
+              {canSwitch
+                ? 'Pick a channel from the list below to put it on for everyone.'
+                : 'Pick a channel from the list below to suggest it in chat.'}
             </p>
           </div>
         )}
@@ -184,6 +195,26 @@ function CurrentProgramme({ channel }: { channel: Channel }) {
 
   if (!title) return null
   return <p className="mt-1 truncate text-sm text-foreground/80">{title}</p>
+}
+
+/**
+ * Who else is on live TV ('maya and dev are watching'), from the presence
+ * snapshot. Nothing while this viewer doesn't see what everyone is watching
+ * (the admin's setting is off, or they hide their own), or nobody else is on
+ * it. Unlike the watching count, anyone who sees the card sees it.
+ */
+function WatchingWith() {
+  const people = usePresenceByChannel().get(LIVE_CHANNEL_ID)
+  if (!people || people.length === 0) return null
+
+  return (
+    <p className="mt-1.5 flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
+      <PresenceStack people={people} max={3} className="shrink-0" />
+      <span className="truncate">
+        {presenceNames(people)} {people.length === 1 ? 'is' : 'are'} watching
+      </span>
+    </p>
+  )
 }
 
 /**

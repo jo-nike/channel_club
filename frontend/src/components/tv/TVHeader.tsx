@@ -1,6 +1,7 @@
-import { ShieldCheck, LayoutList, Tv } from 'lucide-react'
+import { ShieldCheck, LayoutList, Lightbulb, Tv } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useAppSettings } from '@/hooks/useAppSettings'
+import { useChatEnabled } from '@/hooks/useChatEnabled'
 import type { WebSocketStatus } from '@/hooks/useWebSocket'
 import { useUIStore } from '@/stores/uiStore'
 import { ChatToggleButton } from '@/components/ChatToggleButton'
@@ -15,7 +16,8 @@ interface TVHeaderProps {
   status: WebSocketStatus
   onReconnect: () => void
   onOpenAdmin: () => void
-  // Opens the Live TV switcher (the button shows only for non-admins the admin allows)
+  // Opens the Live TV switcher (the button shows only for non-admins the admin
+  // allows), or for other non-admins while chat is on, Suggest a channel
   onOpenChannelPicker: () => void
   // Reloads the video player (the account menu's Reload stream)
   onReload: () => void
@@ -33,6 +35,8 @@ export function TVHeader({
   const { isAdmin } = useAuth()
   // Admin-controlled: lets non-admins change the live channel for everyone
   const { userChannelSelection } = useAppSettings()
+  // Without it, a viewer who can't change live TV can suggest a channel in chat
+  const chatEnabled = useChatEnabled()
   const isEPGVisible = useUIStore((s) => s.isEPGVisible)
   const toggleEPG = useUIStore((s) => s.toggleEPG)
   const setGuideFocusRequested = useUIStore((s) => s.setGuideFocusRequested)
@@ -91,7 +95,8 @@ export function TVHeader({
             onClick={toggleNHLOverlay}
           />
         )}
-        {/* Host tools for admins; the Live TV switcher for non-admins the admin allows */}
+        {/* Host tools for admins; the Live TV switcher for non-admins the
+            admin allows; Suggest for everyone else while chat is on */}
         {isAdmin ? (
           <HeaderAction
             icon={<ShieldCheck />}
@@ -99,12 +104,19 @@ export function TVHeader({
             visibleLabel="Host"
             onClick={onOpenAdmin}
           />
+        ) : userChannelSelection ? (
+          <HeaderAction
+            icon={<Tv />}
+            label="Change live channel"
+            visibleLabel="Change live"
+            onClick={onOpenChannelPicker}
+          />
         ) : (
-          userChannelSelection && (
+          chatEnabled && (
             <HeaderAction
-              icon={<Tv />}
-              label="Change live channel"
-              visibleLabel="Change live"
+              icon={<Lightbulb />}
+              label="Suggest a channel"
+              visibleLabel="Suggest"
               onClick={onOpenChannelPicker}
             />
           )

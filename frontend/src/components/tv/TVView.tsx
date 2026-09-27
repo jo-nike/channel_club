@@ -37,7 +37,7 @@ import { LiveSwitcherSheet } from '@/components/LiveSwitcherSheet'
 import { CouchView } from '@/components/couch/CouchView'
 import { getProgrammeState } from '@/lib/programmes'
 import { cn } from '@/lib/utils'
-import type { ErsatzTVProgramme, UnifiedChannel } from '@/types'
+import type { Channel, ErsatzTVProgramme, UnifiedChannel } from '@/types'
 
 // Refresh interval for programme data (120 minutes)
 const REFRESH_INTERVAL = 120 * 60 * 1000
@@ -89,7 +89,7 @@ export function TVView() {
   const { userChannelSelection } = useAppSettings()
 
   // WebSocket for presence tracking and chat
-  const { status, reconnect, sendChannelUpdate, sendChatMessage, sendShare, sendSetNickname } = useWebSocket({ view: 'tv' })
+  const { status, reconnect, sendChannelUpdate, sendChatMessage, sendShare, sendSuggest, sendSetNickname } = useWebSocket({ view: 'tv' })
 
   // ErsatzTV store - for loading channels and programmes. Field selectors,
   // so unrelated store updates don't re-render the whole view
@@ -223,6 +223,10 @@ export function TVView() {
   const isChatOpen = useChatStore((s) => s.isOpen)
   const setChatOpen = useChatStore((s) => s.setOpen)
   const chatEnabled = useChatEnabled()
+  // Everyone who can't change live TV gets the switcher as Suggest a channel
+  // while chat is on (the sheet only suggests for them)
+  const canSuggest = !canControl && chatEnabled
+  const suggestChannel = useCallback((channel: Channel) => sendSuggest(channel.id), [sendSuggest])
   // The unread count in the tab title and on the installed app's icon
   useUnreadTitleBadge()
 
@@ -444,10 +448,11 @@ export function TVView() {
         {isAdmin && (
           <AdminModal open={adminModalOpen} onOpenChange={setAdminModalOpen} />
         )}
-        {canControl && (
+        {(canControl || canSuggest) && (
           <LiveSwitcherSheet
             open={channelPickerOpen}
             onOpenChange={setChannelPickerOpen}
+            onSuggest={chatEnabled ? suggestChannel : undefined}
           />
         )}
       </>
@@ -679,11 +684,13 @@ export function TVView() {
         <AdminModal open={adminModalOpen} onOpenChange={setAdminModalOpen} />
       )}
 
-      {/* Live TV switcher (Stop live TV is on its On-air card, for admins only) */}
-      {canControl && (
+      {/* Live TV switcher (Stop live TV is on its On-air card, for admins
+          only), or Suggest a channel for everyone else while chat is on */}
+      {(canControl || canSuggest) && (
         <LiveSwitcherSheet
           open={channelPickerOpen}
           onOpenChange={setChannelPickerOpen}
+          onSuggest={chatEnabled ? suggestChannel : undefined}
         />
       )}
 

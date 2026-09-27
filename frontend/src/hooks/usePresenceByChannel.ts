@@ -67,6 +67,14 @@ export function findMessageChannel(message: ChatMessage, channels: UnifiedChanne
   return channel
 }
 
+/** 'maya', 'maya and dev', or 'maya and 2 others'. */
+export function presenceNames(people: readonly PresenceEntry[]): string {
+  const [first, second] = people
+  if (people.length === 1) return first.displayName
+  if (people.length === 2) return `${first.displayName} and ${second.displayName}`
+  return `${first.displayName} and ${people.length - 1} others`
+}
+
 /**
  * The people who share no channel while channels are shown: they hide what
  * they watch. Keyed by userId (names can repeat), for dropping their chips.

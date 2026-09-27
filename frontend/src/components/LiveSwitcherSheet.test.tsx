@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { toast } from 'sonner'
 import { act, render, screen, fireEvent, waitFor, within } from '@/test/utils'
 import { LiveSwitcherSheet } from './LiveSwitcherSheet'
 import { useChannelStore } from '@/stores/channelStore'
@@ -7,9 +8,15 @@ import { useSettingsStore } from '@/stores/settingsStore'
 import { useRecentLiveStore } from '@/stores/recentLiveStore'
 import { useNhlMappingStore } from '@/stores/nhlMappingStore'
 import { useTVStore, LIVE_CHANNEL_ID } from '@/stores/tvStore'
+import { usePresenceStore } from '@/stores/presenceStore'
+import { useChatStore } from '@/stores/chatStore'
+import { useUIStore } from '@/stores/uiStore'
 import * as api from '@/services/api'
-import type { Channel, GroupedChannelsResponse, UnifiedChannel } from '@/types'
+import type { ChatSendResult } from '@/hooks/useWebSocket'
+import type { Channel, GroupedChannelsResponse, PresenceEntry, UnifiedChannel } from '@/types'
 import type { GameStatus, NHLBroadcast, NHLGame, NHLScoresResponse } from '@/types/nhl'
+
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }))
 
 vi.mock('@/services/api', () => ({
   fetchGroupedChannels: vi.fn(),
@@ -73,12 +80,25 @@ function renderSheet() {
 
 const section = (name: string) => screen.getByRole('region', { name })
 
+const here = (userId: string, displayName: string, view: PresenceEntry['view'], channelName: string | null = null): PresenceEntry => ({
+  userId,
+  displayName,
+  channelId: null,
+  channelName,
+  programme: null,
+  view,
+  since: null,
+})
+
 describe('LiveSwitcherSheet', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useChannelStore.setState({ currentChannel: cbc })
     useAuthStore.setState({ token: 'test-token', role: 'viewer', username: 'sam', isAuthenticated: true })
-    useSettingsStore.setState({ userChannelSelection: true })
+    useSettingsStore.setState({ userChannelSelection: true, presenceVisible: false })
+    useUIStore.setState({ hideMyActivity: false })
+    usePresenceStore.setState({ entries: [] })
+    useChatStore.setState({ nickname: null, me: { username: 'sam', userId: 'u_sam' } })
     useRecentLiveStore.setState({ byUser: {} })
     useNhlMappingStore.setState({ overrides: {} })
     // The person opening the switcher is watching an ErsatzTV channel
@@ -221,6 +241,177 @@ describe('LiveSwitcherSheet', () => {
 
     await screen.findByRole('region', { name: 'Sports on now' })
     expect(within(section('On air')).getByRole('button', { name: /stop live tv/i })).toBeInTheDocument()
+  })
+
+  describe('Suggest a channel, for a viewer who cannot change live TV', () => {
+    const onSuggest = vi.fn<(channel: Channel) => Promise<ChatSendResult>>(async () => 'acknowledged')
+
+    function renderSuggest() {
+      const onOpenChange = vi.fn()
+      render(<LiveSwitcherSheet open onOpenChange={onOpenChange} onSuggest={onSuggest} />)
+      return onOpenChange
+    }
+
+    beforeEach(() => {
+      useSettingsStore.setState({ userChannelSelection: false })
+    })
+
+    it('says it suggests rather than switches', async () => {
+      renderSuggest()
+
+      await screen.findByRole('region', { name: 'Sports on now' })
+      expect(screen.getByRole('dialog', { name: 'Suggest a channel' })).toBeInTheDocument()
+      expect(screen.getByText(/suggest in chat/)).toBeInTheDocument()
+    })
+
+    it('suggests a game from its chip instead of switching, closes and confirms it once posted', async () => {
+      const onOpenChange = renderSuggest()
+
+      const sports = await screen.findByRole('region', { name: 'Sports on now' })
+      const chip = within(sports).getByRole('button', { name: 'TSN 5' })
+      expect(chip).toHaveAttribute('title', 'Suggest TSN 5 in chat')
+      fireEvent.click(chip)
+
+      expect(onSuggest).toHaveBeenCalledWith(tsn5)
+      expect(api.setCurrentChannel).not.toHaveBeenCalled()
+      expect(useChannelStore.getState().currentChannel).toEqual(cbc)
+      expect(onOpenChange).toHaveBeenCalledWith(false)
+      await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Suggested TSN 5 in chat'))
+      // Nobody is tuned anywhere by a suggestion
+      expect(useTVStore.getState().selectedChannel).toEqual(movies)
+    })
+
+    it('suggests a channel from the full lineup, closing once', async () => {
+      const onOpenChange = renderSuggest()
+
+      const all = section('All channels')
+      fireEvent.click(await within(all).findByText('News'))
+      fireEvent.click(within(all).getByText('CNN'))
+
+      expect(onSuggest).toHaveBeenCalledWith(cnn)
+      expect(api.setCurrentChannel).not.toHaveBeenCalled()
+      expect(onOpenChange).toHaveBeenCalledTimes(1)
+      expect(onOpenChange).toHaveBeenCalledWith(false)
+    })
+
+    it('says so when the suggestion is not posted', async () => {
+      onSuggest.mockResolvedValueOnce('not-sent')
+      renderSuggest()
+
+      const sports = await screen.findByRole('region', { name: 'Sports on now' })
+      fireEvent.click(within(sports).getByRole('button', { name: 'TSN 5' }))
+
+      await waitFor(() =>
+        expect(toast.error).toHaveBeenCalledWith('Could not suggest TSN 5', { description: 'Please try again' })
+      )
+      expect(toast.success).not.toHaveBeenCalled()
+    })
+
+    it('warns when the server never confirmed it', async () => {
+      onSuggest.mockResolvedValueOnce('unconfirmed')
+      renderSuggest()
+
+      const sports = await screen.findByRole('region', { name: 'Sports on now' })
+      fireEvent.click(within(sports).getByRole('button', { name: 'TSN 5' }))
+
+      await waitFor(() => expect(toast.warning).toHaveBeenCalledTimes(1))
+      expect(toast.success).not.toHaveBeenCalled()
+    })
+
+    it('points to suggesting when nothing is on live TV', async () => {
+      useChannelStore.setState({ currentChannel: null })
+      renderSuggest()
+
+      expect(await within(section('On air')).findByText(/suggest it in chat/)).toBeInTheDocument()
+    })
+
+    it('switches as usual for a viewer the admin allows, even with Suggest on offer', async () => {
+      useSettingsStore.setState({ userChannelSelection: true })
+      renderSuggest()
+
+      const sports = await screen.findByRole('region', { name: 'Sports on now' })
+      fireEvent.click(within(sports).getByRole('button', { name: 'TSN 5' }))
+
+      expect(screen.queryByRole('dialog', { name: 'Suggest a channel' })).not.toBeInTheDocument()
+      expect(api.setCurrentChannel).toHaveBeenCalledWith(tsn5)
+      expect(onSuggest).not.toHaveBeenCalled()
+    })
+
+    it('switches as usual for an admin', async () => {
+      useAuthStore.setState({ role: 'admin', username: 'jon' })
+      renderSuggest()
+
+      const sports = await screen.findByRole('region', { name: 'Sports on now' })
+      fireEvent.click(within(sports).getByRole('button', { name: 'TSN 5' }))
+
+      expect(api.setCurrentChannel).toHaveBeenCalledWith(tsn5)
+      expect(onSuggest).not.toHaveBeenCalled()
+    })
+  })
+
+  describe("who's watching", () => {
+    beforeEach(() => {
+      usePresenceStore.setState({
+        entries: [
+          here('u_sam', 'sam', 'live', 'CBC'),
+          here('u_maya', 'maya', 'live', 'CBC'),
+          here('u_dev', 'dev', 'live', 'CBC'),
+          here('u_ali', 'ali', 'ersatztv', 'Movies'),
+        ],
+      })
+    })
+
+    it('names the others on live TV while presence is visible', async () => {
+      useSettingsStore.setState({ presenceVisible: true })
+      renderSheet()
+
+      await screen.findByRole('region', { name: 'Sports on now' })
+      // Not the person looking, nor someone on another channel
+      expect(within(section('On air')).getByText('maya and dev are watching')).toBeInTheDocument()
+      expect(within(section('On air')).queryByText(/ali/)).not.toBeInTheDocument()
+    })
+
+    it('says "is" for one person', async () => {
+      useSettingsStore.setState({ presenceVisible: true })
+      usePresenceStore.setState({ entries: [here('u_maya', 'maya', 'live', 'CBC')] })
+      renderSheet()
+
+      expect(await within(section('On air')).findByText('maya is watching')).toBeInTheDocument()
+    })
+
+    it('names nobody while the admin keeps what everyone watches private', async () => {
+      renderSheet()
+
+      await screen.findByRole('region', { name: 'Sports on now' })
+      expect(within(section('On air')).queryByText(/watching/)).not.toBeInTheDocument()
+    })
+
+    it('names nobody to someone who hides what they watch', async () => {
+      useSettingsStore.setState({ presenceVisible: true })
+      useUIStore.setState({ hideMyActivity: true })
+      renderSheet()
+
+      await screen.findByRole('region', { name: 'Sports on now' })
+      expect(within(section('On air')).queryByText(/watching/)).not.toBeInTheDocument()
+    })
+
+    it('has no line while nobody else is on live TV', async () => {
+      useSettingsStore.setState({ presenceVisible: true })
+      usePresenceStore.setState({ entries: [here('u_sam', 'sam', 'live', 'CBC'), here('u_ali', 'ali', 'ersatztv', 'Movies')] })
+      renderSheet()
+
+      await screen.findByRole('region', { name: 'Sports on now' })
+      expect(within(section('On air')).queryByText(/watching/)).not.toBeInTheDocument()
+    })
+
+    it('follows the presence snapshot as people come and go', async () => {
+      useSettingsStore.setState({ presenceVisible: true })
+      renderSheet()
+
+      expect(await within(section('On air')).findByText('maya and dev are watching')).toBeInTheDocument()
+      act(() => usePresenceStore.setState({ entries: [here('u_dev', 'dev', 'live', 'CBC')] }))
+      expect(within(section('On air')).getByText('dev is watching')).toBeInTheDocument()
+    })
   })
 
   it('loads nothing while closed', async () => {

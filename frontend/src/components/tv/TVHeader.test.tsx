@@ -10,6 +10,7 @@ import type { PresenceEntry } from '@/types'
 
 const auth = vi.hoisted(() => ({ isAdmin: false }))
 const appSettings = vi.hoisted(() => ({ userChannelSelection: false }))
+const chatFlag = vi.hoisted(() => ({ enabled: true }))
 const accountMenu = vi.hoisted(() => ({
   props: undefined as
     | undefined
@@ -19,7 +20,7 @@ const accountMenu = vi.hoisted(() => ({
 vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn(() => new Promise(() => {})) }))
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => auth }))
 vi.mock('@/hooks/useAppSettings', () => ({ useAppSettings: () => appSettings }))
-vi.mock('@/hooks/useChatEnabled', () => ({ useChatEnabled: () => true }))
+vi.mock('@/hooks/useChatEnabled', () => ({ useChatEnabled: () => chatFlag.enabled }))
 vi.mock('@/components/AccountMenu', () => ({ AccountMenu: (props: NonNullable<typeof accountMenu.props>) => {
   accountMenu.props = props
   return <div data-testid="account-menu" />
@@ -44,6 +45,7 @@ function renderHeader(overrides: Partial<Parameters<typeof TVHeader>[0]> = {}) {
 beforeEach(() => {
   auth.isAdmin = false
   appSettings.userChannelSelection = false
+  chatFlag.enabled = true
   accountMenu.props = undefined
   useChannelStore.setState({ currentChannel: null })
   useTVStore.setState({ selectedChannel: null, liveEPG: null })
@@ -375,6 +377,33 @@ describe('TVHeader', () => {
     fireEvent.click(picker)
     expect(allowed.onOpenChannelPicker).toHaveBeenCalledTimes(1)
     expect(props.onOpenChannelPicker).not.toHaveBeenCalled()
+  })
+
+  it('gives any other viewer Suggest, which opens the picker, while chat is on', () => {
+    const props = renderHeader()
+
+    const suggest = screen.getByRole('button', { name: 'Suggest a channel' })
+    expect(within(suggest).getByText('Suggest')).toHaveClass('hidden', 'lg:inline')
+    fireEvent.click(suggest)
+    expect(props.onOpenChannelPicker).toHaveBeenCalledTimes(1)
+  })
+
+  it('has no Suggest while chat is off, nor for anyone who can change live TV', () => {
+    chatFlag.enabled = false
+    renderHeader()
+    expect(screen.queryByRole('button', { name: 'Suggest a channel' })).not.toBeInTheDocument()
+    cleanup()
+
+    chatFlag.enabled = true
+    appSettings.userChannelSelection = true
+    renderHeader()
+    expect(screen.queryByRole('button', { name: 'Suggest a channel' })).not.toBeInTheDocument()
+    cleanup()
+
+    appSettings.userChannelSelection = false
+    auth.isAdmin = true
+    renderHeader()
+    expect(screen.queryByRole('button', { name: 'Suggest a channel' })).not.toBeInTheDocument()
   })
 
   it("keeps chat, and wires the account menu to the header's picker, admin and reload", () => {

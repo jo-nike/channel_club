@@ -5,15 +5,17 @@ import json
 import time
 from uuid import uuid4
 
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 from jose import JWTError
 from loguru import logger
 from pydantic import ValidationError
 
 from app.config import settings
+from app.models.channel import Channel
 from app.models.websocket import MAX_MESSAGE_BYTES, client_message_adapter
 from app.services import app_settings, channel_state, chat, presence, presence_broadcast
 from app.services.auth import verify_token
+from app.services.media_source import resolve_media_channel
 
 router = APIRouter()
 log = logger.bind(router="websocket")
@@ -84,6 +86,22 @@ def _channel_stamp(client_id: str) -> chat.ChannelStamp | None:
         programme=user.current_programme,
         view=user.view,
     )
+
+
+async def _suggested_channel(channel_id: str) -> Channel | None:
+    """The channel a suggestion names, from the server's own catalogue.
+
+    Resolved the way PUT /channels/current resolves a switch, so a suggestion
+    that is posted can be put on. None for an id nobody can switch to (not in
+    the catalogue, malformed, or the catalogue is unavailable).
+
+    Args:
+        channel_id: The channel id the client suggested.
+    """
+    try:
+        return (await resolve_media_channel(channel_id)).channel
+    except HTTPException:
+        return None
 
 
 async def _ack_chat(
@@ -265,6 +283,7 @@ async def handle_client_message(
             "set_presence_prefs",
             "chat_message",
             "share",
+            "suggest",
         }
     ):
         return
@@ -322,7 +341,7 @@ async def handle_client_message(
         presence_broadcast.schedule_broadcast()
         log.debug("Presence prefs from client {}: hide={}", client_id, validated["hideActivity"])
 
-    elif msg_type in ("chat_message", "share"):
+    elif msg_type in ("chat_message", "share", "suggest"):
         client_message_id = validated.get("clientMessageId")
         # Handle chat messages only if chat is enabled
         if not settings.chat_enabled:
@@ -346,6 +365,14 @@ async def handle_client_message(
             # Refused (None) while the sender's channel is private or unknown
             stamp = _channel_stamp(client_id)
             chat_msg = chat.add_share(display_name, stamp, user_id=user_id) if stamp else None
+        elif msg_type == "suggest":
+            # Refused (None) for a channel the catalogue doesn't have
+            suggested = await _suggested_channel(validated["channelId"])
+            chat_msg = (
+                chat.add_suggestion(display_name, suggested.id, suggested.name, user_id=user_id)
+                if suggested
+                else None
+            )
         else:
             content = validated.get("content", "")
             chat_msg = chat.add_message(
