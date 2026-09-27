@@ -69,7 +69,7 @@ describe('TVChannelSidebar colours', () => {
 
     render(<TVChannelSidebar />)
     await act(async () => {})
-    const row = screen.getByRole('button', { name: /Movies/ })
+    const row = screen.getByRole('button', { name: '1 Movies' })
     expect(within(row).getByText('1')).toHaveClass('font-display', 'font-extrabold', 'tabular-nums')
   })
 
@@ -908,11 +908,11 @@ describe('TVChannelSidebar keyboard and screen reader', () => {
     useTVStore.setState({ selectedChannel: useTVStore.getState().getUnifiedChannels()[index] })
   }
 
-  // The channels' own buttons: not the search's, the collapse toggle or Pick a channel
+  // The channels' own buttons: not the search's, the stars, the collapse toggle or Pick a channel
   const channelButtons = () =>
     screen.getAllByRole('button').filter((button) =>
       !button.closest('[role="search"]') &&
-      !/channel sidebar|Pick a channel/.test(button.getAttribute('aria-label') ?? button.textContent ?? ''))
+      !/channel sidebar|Pick a channel|^Favourite /.test(button.getAttribute('aria-label') ?? button.textContent ?? ''))
 
   it.each([false, true])('names the live slot with its channel and programme (rail: %s)', async (isCollapsed) => {
     useTVStore.setState({ liveEPGStatus: 'ok' })
@@ -1217,5 +1217,103 @@ describe('TVChannelSidebar search and filter chips', () => {
 
     expect(screen.queryByRole('search')).toBeNull()
     expect(railTiles()).toHaveLength(5)
+  })
+})
+
+describe('TVChannelSidebar favourites', () => {
+  const CHANNELS = [
+    { id: 'etv1', name: 'Movies', streamUrl: '', logoUrl: '', number: 1, group: 'Films' },
+    { id: 'etv2', name: 'Cartoons', streamUrl: '', logoUrl: '', number: 2, group: 'Kids' },
+    { id: 'etv3', name: 'News', streamUrl: '', logoUrl: '', number: 3, group: 'News' },
+  ]
+
+  beforeEach(() => {
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'TSN 5', streamUrl: 'http://x/live', guideId: 'g1' },
+    })
+    useErsatztvStore.setState({ channels: CHANNELS })
+  })
+
+  afterEach(() => {
+    cleanup()
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels: [] })
+    useTVStore.setState({ selectedChannel: null })
+    useChannelPrefsStore.setState({ favouriteChannelIds: [], recentChannelIds: [], filter: { query: '', mode: 'all' } })
+  })
+
+  it('stars a channel with a toggle beside its row, without tuning to it', async () => {
+    const selectChannel = vi.spyOn(useTVStore.getState(), 'selectChannel')
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+
+    const star = screen.getByRole('button', { name: 'Favourite Cartoons' })
+    expect(star).toHaveAttribute('aria-pressed', 'false')
+
+    fireEvent.click(star)
+
+    expect(star).toHaveAttribute('aria-pressed', 'true')
+    expect(useChannelPrefsStore.getState().favouriteChannelIds).toEqual(['etv2'])
+    expect(selectChannel).not.toHaveBeenCalled()
+    expect(useTVStore.getState().selectedChannel).toBeNull()
+
+    fireEvent.click(star)
+    expect(star).toHaveAttribute('aria-pressed', 'false')
+    expect(useChannelPrefsStore.getState().favouriteChannelIds).toEqual([])
+    selectChannel.mockRestore()
+  })
+
+  it("puts the star beside the row's button, not inside it, and none on the live row", async () => {
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+
+    const row = screen.getByRole('button', { name: '2 Cartoons' })
+    const star = screen.getByRole('button', { name: 'Favourite Cartoons' })
+    expect(row.contains(star)).toBe(false)
+    expect(star.parentElement).toBe(row.parentElement)
+    expect(row.parentElement?.tagName).toBe('LI')
+    expect(screen.getAllByRole('button', { name: /^Favourite / })).toHaveLength(3)
+  })
+
+  it("shares the row's tab stop, so the list stays one Tab stop long", async () => {
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+
+    await act(async () => {
+      screen.getByRole('button', { name: '2 Cartoons' }).focus()
+    })
+
+    const stars = screen.getAllByRole('button', { name: /^Favourite / })
+    expect(stars.filter((star) => star.tabIndex === 0)).toEqual([screen.getByRole('button', { name: 'Favourite Cartoons' })])
+  })
+
+  it('puts the favourites first on the collapsed rail, after the live slot, and marks them', async () => {
+    useChannelPrefsStore.setState({ favouriteChannelIds: ['etv3', 'etv2'] })
+    render(<TVChannelSidebar isCollapsed />)
+    await act(async () => {})
+
+    expect(railTiles().map((tile) => tile.getAttribute('aria-label'))).toEqual([
+      expect.stringMatching(/^0 Live: /),
+      '2 Cartoons, favourite',
+      '3 News, favourite',
+      '1 Movies',
+    ])
+    expect(screen.getAllByTestId('favourite-mark')).toHaveLength(2)
+  })
+
+  it('keeps the expanded list in channel order', async () => {
+    useChannelPrefsStore.setState({ favouriteChannelIds: ['etv3'] })
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+
+    const rows = within(screen.getByRole('list'))
+      .getAllByRole('button')
+      .filter((button) => !/^Favourite /.test(button.getAttribute('aria-label') ?? ''))
+    expect(rows.map((row) => row.getAttribute('aria-label'))).toEqual([
+      expect.stringMatching(/^0 Live: /),
+      '1 Movies',
+      '2 Cartoons',
+      '3 News',
+    ])
   })
 })

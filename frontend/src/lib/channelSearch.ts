@@ -122,3 +122,19 @@ export function filterChannels(
 
   return [...live, ...rest.filter((channel) => matchChannel(channel, filter.query, titleIndex, nowMs))]
 }
+
+/**
+ * The collapsed rail's order: the live slot, then the favourites, then the
+ * rest, each in channel order. With no favourites the list comes back as it
+ * was given.
+ */
+export function favouritesFirst(channels: UnifiedChannel[], favouriteChannelIds: readonly string[]): UnifiedChannel[] {
+  if (favouriteChannelIds.length === 0) return channels
+  const favourites = new Set(favouriteChannelIds)
+  const isFavourite = (channel: UnifiedChannel) => channel.type !== 'live' && favourites.has(channel.id)
+  return [
+    ...channels.filter((channel) => channel.type === 'live'),
+    ...channels.filter(isFavourite),
+    ...channels.filter((channel) => channel.type !== 'live' && !isFavourite(channel)),
+  ]
+}

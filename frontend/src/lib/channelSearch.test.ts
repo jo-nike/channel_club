@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildTitleIndex,
+  favouritesFirst,
   filterChannels,
   isFilterActive,
   matchChannel,
@@ -163,5 +164,19 @@ describe('filterChannels', () => {
     )
 
     expect(ids(result)).toEqual(['live-channel-0', 'etv30'])
+  })
+})
+
+describe('favouritesFirst', () => {
+  const channels = [live, movies, cartoons, news, sports]
+
+  it('puts the favourites after the live slot, then the rest, each in channel order', () => {
+    const result = favouritesFirst(channels, ['etv30', 'etv2'])
+
+    expect(result.map((c) => c.id)).toEqual(['live-channel-0', 'etv2', 'etv30', 'etv1', 'etv3'])
+  })
+
+  it('returns the list untouched with no favourites', () => {
+    expect(favouritesFirst(channels, [])).toBe(channels)
   })
 })
