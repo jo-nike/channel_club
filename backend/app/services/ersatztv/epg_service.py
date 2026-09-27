@@ -131,24 +131,28 @@ def get_programmes_by_channel(channel_id: str, hours: int = 6) -> list[Programme
     """
     Get programmes for a channel within time window.
 
+    The window opens an hour before now, so the guide grid (which starts up
+    to an hour early) can draw the programmes that just finished.
+
     Args:
         channel_id: Channel identifier
         hours: Number of hours to look ahead (default: 6)
 
     Returns:
-        List of programmes sorted by start time
+        List of programmes that overlap [now - 1 hour, now + hours), sorted
+        by start time
     """
     programmes = _programmes_for_channel(channel_id)
     now = datetime.now(UTC)
+    window_start = now - timedelta(hours=1)
     end_time = now + timedelta(hours=hours)
 
-    # Include currently airing + upcoming within window
+    # Include anything on air at some point in the window
     result = []
     for prog in programmes:
         if prog.channel_id != channel_id:
             continue
-        # Include if: currently airing OR starts within window
-        if (prog.start <= now < prog.stop) or (now <= prog.start < end_time):
+        if prog.start < end_time and prog.stop > window_start:
             result.append(prog)
 
     return sorted(result, key=lambda p: p.start)
