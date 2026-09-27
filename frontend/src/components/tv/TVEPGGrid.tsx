@@ -1,12 +1,15 @@
-import { useEffect, useRef, useState, useMemo, useCallback, type ReactNode } from 'react'
+import { memo, useEffect, useRef, useMemo, useCallback, useState, type ReactNode, type UIEvent } from 'react'
 import { ChevronLeft, ChevronRight, Radio } from 'lucide-react'
-import { useTVStore, LIVE_CHANNEL_ID, describeLiveGuide } from '@/stores/tvStore'
+import { useTVStore, LIVE_CHANNEL_ID, buildUnifiedChannels, describeLiveGuide } from '@/stores/tvStore'
+import { useChannelStore } from '@/stores/channelStore'
+import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { getErsatzTVLogoUrl } from '@/services/ersatztvApi'
 import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useProgrammeClock } from '@/hooks/useProgrammeClock'
 import { scrollBehavior } from '@/lib/motion'
 import { buildProgrammeIndex, findCurrentAndNext, type ProgrammeIndex } from '@/lib/programmeIndex'
-import { calculateProgress, formatRemaining } from '@/lib/programmes'
+import { calculateProgress, formatRemaining, getProgrammeState, type ProgrammeState } from '@/lib/programmes'
 import { cn } from '@/lib/utils'
 import type { UnifiedChannel, ErsatzTVProgramme, EPGResponse } from '@/types'
 
@@ -17,6 +20,14 @@ const ROW_HEIGHT = 64 // pixels per channel row
 // Wide enough for the channel name: with the guide open it's the only channel list
 const CHANNEL_LABEL_WIDTH = 208
 const PROGRAMME_GAP = 3 // pixels between programme boxes
+// Where block titles and header time labels stick while they scroll under the channel column
+const STICKY_TEXT_LEFT = CHANNEL_LABEL_WIDTH + 8
+// Narrower blocks show no text; a tooltip and their accessible name carry it
+const PROGRAMME_TEXT_MIN_WIDTH = 48
+// The grid's horizontal scroll, kept as a CSS variable on the scroller so
+// sticky text can fit the part of its box right of the channel column
+// without a render per scroll
+const SCROLL_X_VAR = '--guide-scroll-x'
 
 interface TVEPGGridProps {
   hours?: number
@@ -38,12 +49,20 @@ export function TVEPGGrid({
   onChannelClick,
   onPickLive,
 }: TVEPGGridProps) {
-  const { getUnifiedChannels, isLiveChannelActive, liveEPGStatus, selectedChannel } = useTVStore()
+  const { isLiveChannelActive, liveEPGStatus, selectedChannel } = useTVStore()
   const containerRef = useRef<HTMLDivElement>(null)
   const headerRef = useRef<HTMLDivElement>(null)
-  const [currentTime, setCurrentTime] = useState(new Date())
+  // The shared programme clock: the now marker and the blocks' past/now/future
+  const now = useProgrammeClock()
 
-  const unifiedChannels = getUnifiedChannels()
+  // Kept stable between clock ticks so the memoised programme blocks, which
+  // get their channel, can skip re-rendering
+  const liveChannel = useChannelStore((s) => s.currentChannel)
+  const ersatzTVChannels = useErsatztvStore((s) => s.channels)
+  const unifiedChannels = useMemo(
+    () => buildUnifiedChannels(liveChannel, ersatzTVChannels),
+    [liveChannel, ersatzTVChannels]
+  )
   const hasLiveChannel = isLiveChannelActive()
 
   // Calculate time range - start 30 min before current rounded time
@@ -62,6 +81,18 @@ export function TVEPGGrid({
 
   const gridWidth = hours * HOUR_WIDTH
 
+  // The day at the left edge of the programmes, for the header's day label.
+  // Held as that day's midnight, so scrolling only re-renders across a day.
+  const [leftEdgeDay, setLeftEdgeDay] = useState(() => startOfDay(startTime.getTime()))
+  const handleScroll = useCallback(
+    (event: UIEvent<HTMLDivElement>) => {
+      syncScrollX(event.currentTarget)
+      const leftEdgeMs = startTime.getTime() + (event.currentTarget.scrollLeft / SLOT_WIDTH) * 30 * 60 * 1000
+      setLeftEdgeDay(startOfDay(leftEdgeMs))
+    },
+    [startTime]
+  )
+
   // Generate time slots for header
   const timeSlots = useMemo(() => {
     const slots: Date[] = []
@@ -73,19 +104,13 @@ export function TVEPGGrid({
     return slots
   }, [startTime, endTime])
 
-  // Update current time every minute for now marker
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentTime(new Date())
-    }, 60000)
-    return () => clearInterval(interval)
-  }, [])
-
   // Auto-scroll to current time on load
   useEffect(() => {
     if (containerRef.current && !loading && Object.keys(programmesByChannel).length > 0) {
       const nowOffset = calculateTimeOffset(new Date(), startTime)
       containerRef.current.scrollLeft = Math.max(0, nowOffset - 100)
+      // Its scroll event comes later; the sticky titles need the offset now
+      syncScrollX(containerRef.current)
     }
   }, [loading, startTime, programmesByChannel])
 
@@ -107,8 +132,8 @@ export function TVEPGGrid({
 
   // Calculate now marker position
   const nowMarkerOffset = useMemo(() => {
-    return calculateTimeOffset(currentTime, startTime)
-  }, [currentTime, startTime])
+    return calculateTimeOffset(new Date(now), startTime)
+  }, [now, startTime])
 
   // Navigation functions
   const scrollByHours = useCallback((hoursToScroll: number) => {
@@ -162,6 +187,7 @@ export function TVEPGGrid({
       // horizontal scrollbar sits at the bottom of the visible guide
       className="epg-scroll relative h-full overflow-auto"
       data-testid="tv-epg-grid"
+      onScroll={handleScroll}
     >
       {/* Time header - sticky top, scrolls horizontally with grid. It layers
           above the sticky channel labels (z-20), which scroll up under it */}
@@ -175,6 +201,10 @@ export function TVEPGGrid({
           className="sticky left-0 z-30 flex shrink-0 items-center justify-center gap-0.5 bg-card px-1"
           style={{ width: CHANNEL_LABEL_WIDTH }}
         >
+          {/* Which day the programmes in view are on */}
+          <span data-testid="guide-day" className="mr-auto pl-2 text-xs font-semibold text-foreground">
+            {formatDay(leftEdgeDay, now)}
+          </span>
           <button
             onClick={() => scrollByHours(-2)}
             className="flex h-6 w-6 items-center justify-center rounded hover:bg-accent"
@@ -197,17 +227,54 @@ export function TVEPGGrid({
             <ChevronRight className="h-4 w-4" />
           </button>
         </div>
-        {/* Time slots */}
-        <div className="flex">
-          {timeSlots.map((slot, i) => (
-            <div
-              key={i}
-              className="shrink-0 border-l px-2 py-2 text-sm text-muted-foreground"
-              style={{ width: SLOT_WIDTH }}
+        {/* Time slots. Each label sticks just right of the channel column
+            while its slot scrolls under it, so the first one stays readable;
+            overflow-clip rather than hidden keeps the slot from becoming the
+            label's scroll container. Once the part of the slot in view is
+            narrower than its label, the label hides rather than showing a
+            fragment such as '0 PM'. */}
+        <div className="relative flex">
+          {timeSlots.map((slot, i) => {
+            const isMidnight = slot.getHours() === 0 && slot.getMinutes() === 0
+            return (
+              <div
+                key={i}
+                className={cn(
+                  'shrink-0 overflow-clip border-l px-2 py-2 text-sm text-muted-foreground',
+                  isMidnight && 'border-l-foreground/40'
+                )}
+                style={{ width: SLOT_WIDTH }}
+              >
+                <span
+                  className="sticky block h-[1lh] w-fit overflow-clip"
+                  style={{ left: STICKY_TEXT_LEFT, maxWidth: visiblePartWidth(i * SLOT_WIDTH) }}
+                >
+                  {/* A label too wide for that width wraps after the
+                      zero-width space onto a second line, which the one-line
+                      height clips */}
+                  {'\u200B'}
+                  <span className="inline-block whitespace-nowrap tabular-nums">
+                    {isMidnight && (
+                      <span data-testid="day-marker" className="mr-1.5 font-semibold text-foreground">
+                        {dayFormat.format(slot)}
+                      </span>
+                    )}
+                    {formatTime(slot)}
+                  </span>
+                </span>
+              </div>
+            )
+          })}
+          {/* Live time pill on the now marker */}
+          {nowMarkerOffset > 0 && nowMarkerOffset < gridWidth && (
+            <span
+              data-testid="now-pill"
+              className="absolute top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded bg-destructive px-1.5 py-0.5 text-xs font-bold leading-none tabular-nums text-destructive-foreground"
+              style={{ left: nowMarkerOffset }}
             >
-              {formatTime(slot)}
-            </div>
-          ))}
+              {formatTime(new Date(now))}
+            </span>
+          )}
         </div>
       </div>
 
@@ -240,6 +307,7 @@ export function TVEPGGrid({
                 : programmesByChannel[channel.id] || []
             }
             startTime={startTime}
+            now={now}
             gridWidth={gridWidth}
             rowIndex={rowIndex}
             programmeIndex={channel.type === 'live' ? liveProgrammeIndex : programmeIndex}
@@ -260,6 +328,8 @@ interface ChannelRowProps {
   channel: UnifiedChannel
   programmes: ErsatzTVProgramme[]
   startTime: Date
+  // The shared programme clock, epoch ms
+  now: number
   gridWidth: number
   rowIndex: number
   programmeIndex: ProgrammeIndex
@@ -277,6 +347,7 @@ function ChannelRow({
   channel,
   programmes,
   startTime,
+  now,
   gridWidth,
   rowIndex,
   programmeIndex,
@@ -321,16 +392,31 @@ function ChannelRow({
         ) : isLive && programmes.length === 0 ? (
           <LiveRowPlaceholder>{liveGuideText}</LiveRowPlaceholder>
         ) : (
-          programmes.map((programme) => (
-            <ProgrammeBox
-              key={programme.id}
-              programme={programme}
-              channel={channel}
-              startTime={startTime}
-              isLive={isLive}
-              onClick={onProgrammeClick}
-            />
-          ))
+          programmes.map((programme) => {
+            // Each block gets its state as primitives, so a clock tick
+            // re-renders only the blocks whose state or progress changed
+            const state = getProgrammeState(programme, now)
+            const isNow = state === 'now'
+            const startMs = new Date(programme.start).getTime()
+            const stopMs = new Date(programme.stop).getTime()
+            return (
+              <ProgrammeBox
+                key={programme.id}
+                programme={programme}
+                channel={channel}
+                startTime={startTime}
+                isLive={isLive}
+                state={state}
+                // Elapsed across the part of the block that's drawn, so the
+                // line ends at the now marker even when the block starts
+                // before the grid does
+                progressPct={isNow ? calculateProgress(Math.max(startMs, startTime.getTime()), stopMs, now) : undefined}
+                timeLeft={isNow ? formatRemaining(stopMs, now) : undefined}
+                isWatching={isNow && isWatching}
+                onClick={onProgrammeClick}
+              />
+            )
+          })
         )}
       </div>
     </div>
@@ -347,8 +433,7 @@ interface ChannelLabelProps {
 
 // The sticky channel column: number, logo, name, LIVE on an active live row,
 // and the on-air programme's progress and time left, which the sidebar shows
-// when the guide is closed. It reads the shared programme clock itself, so a
-// tick re-renders the labels, not the programme blocks.
+// when the guide is closed. It reads the shared programme clock itself.
 function ChannelLabel({ channel, programmeIndex, isWatching, showLiveHighlight, onChannelClick }: ChannelLabelProps) {
   const isLive = channel.type === 'live'
   const now = useProgrammeClock()
@@ -450,14 +535,26 @@ interface ProgrammeBoxProps {
   channel: UnifiedChannel
   startTime: Date
   isLive: boolean
+  state: ProgrammeState
+  // Only for the block on now: elapsed share of the drawn block (0-100) and '32m left'
+  progressPct?: number
+  timeLeft?: string
+  // On now on the channel being watched
+  isWatching: boolean
   onClick?: (programme: ErsatzTVProgramme, channel: UnifiedChannel) => void
 }
 
-function ProgrammeBox({
+// Memoised on primitive state props, so a clock tick skips blocks that stay
+// past or future
+const ProgrammeBox = memo(function ProgrammeBox({
   programme,
   channel,
   startTime,
   isLive,
+  state,
+  progressPct,
+  timeLeft,
+  isWatching,
   onClick,
 }: ProgrammeBoxProps) {
   const progStart = new Date(programme.start)
@@ -469,38 +566,96 @@ function ProgrammeBox({
   // Skip if programme ends before grid starts
   if (left + width < 0) return null
 
-  // Calculate if the programme is clipped (started before grid start)
-  const isClipped = left < 0
+  // A programme that started before the grid is drawn from the grid's start
   const visualLeft = Math.max(0, left)
-  const visualWidth = Math.max(60, width - (isClipped ? -left : 0) - PROGRAMME_GAP)
+  // True to its duration: short fillers no longer grow over their neighbours
+  const visualWidth = Math.max(0, width - (visualLeft - left) - PROGRAMME_GAP)
+  const showsText = visualWidth >= PROGRAMME_TEXT_MIN_WIDTH
+  const meta = state === 'now' ? timeLeft : `${formatTime(progStart)} - ${formatTime(progEnd)}`
 
-  return (
+  const block = (
     <button
-      className={`
-        absolute top-1 bottom-1 z-0 overflow-hidden rounded border
-        px-2 py-1 text-sm flex flex-col justify-center
-        hover:opacity-80 focus-visible:-outline-offset-2
-        transition-colors
-        ${
-          isLive
-            ? 'bg-live/15 border-live/40 text-foreground'
-            : 'bg-guide-future text-foreground border-border'
-        }
-        ${isClipped ? 'text-right' : 'text-left'}
-      `}
+      // overflow-clip, not overflow-hidden: hidden would make the block the
+      // title's scroll container, and the title couldn't stick to the grid
+      className={cn(
+        'absolute top-1 bottom-1 z-0 overflow-clip rounded border text-left',
+        'px-2 py-1 text-sm flex flex-col justify-center',
+        'hover:opacity-80 focus-visible:-outline-offset-2',
+        'transition-colors',
+        // Past: recedes. Now: the one tinted block, with a bar at its start.
+        // Future: quiet. The live row keeps its live tint while it's on.
+        state === 'past' && 'bg-transparent border-border text-muted-foreground',
+        state === 'now' && 'text-foreground',
+        state === 'now' && (isLive
+          ? 'bg-live/15 border-live/40 shadow-[inset_3px_0_0_var(--live)]'
+          : 'bg-guide-now border-border shadow-[inset_3px_0_0_var(--primary)]'),
+        state === 'future' && (isLive ? 'bg-live/15 border-live/40 text-foreground' : 'bg-guide-future border-border text-foreground'),
+        isWatching && 'border-primary'
+      )}
       style={{
         left: visualLeft,
         width: visualWidth,
       }}
+      data-state={state}
+      data-watching={isWatching || undefined}
+      aria-label={showsText ? undefined : `${programme.title}, ${meta}`}
       onClick={() => onClick?.(programme, channel)}
     >
-      <p className="truncate font-medium">{programme.title}</p>
-      <p className="truncate text-xs opacity-75">
-        {formatTime(progStart)} - {formatTime(progEnd)}
-      </p>
+      {showsText && (
+        // Sticks just right of the channel column, so the start of the title
+        // stays readable while the block scrolls under it. It's only as wide
+        // as its text, and no wider than the part of the block still in
+        // view, so it has room to move and truncates at the column edge.
+        <div
+          data-testid="programme-text"
+          className="sticky w-fit"
+          style={{ left: STICKY_TEXT_LEFT, maxWidth: visiblePartWidth(visualLeft) }}
+        >
+          <p
+            className={cn(
+              'truncate',
+              state === 'past' && 'font-normal',
+              state === 'now' && 'font-semibold',
+              state === 'future' && 'font-medium'
+            )}
+          >
+            {programme.title}
+          </p>
+          <p
+            className={cn(
+              'truncate text-xs tabular-nums',
+              // Muted text on guide-now is only 3.39-5.20:1, so the meta stays on the foreground
+              state === 'now' ? 'text-foreground' : 'text-muted-foreground'
+            )}
+          >
+            {meta}
+          </p>
+        </div>
+      )}
+      {state === 'now' && progressPct !== undefined && (
+        <span
+          aria-hidden="true"
+          data-testid="programme-elapsed"
+          className={cn('absolute bottom-0 left-0 h-0.5', isLive ? 'bg-live' : 'bg-primary')}
+          style={{ width: `${progressPct}%` }}
+        />
+      )}
     </button>
   )
-}
+
+  if (showsText) return block
+
+  // Too narrow for its text: the tooltip shows it on hover and keyboard focus
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{block}</TooltipTrigger>
+      <TooltipContent>
+        <p className="font-medium">{programme.title}</p>
+        <p className="text-xs tabular-nums">{meta}</p>
+      </TooltipContent>
+    </Tooltip>
+  )
+})
 
 // Helper functions
 function calculateTimeOffset(time: Date, startTime: Date): number {
@@ -513,8 +668,46 @@ function calculateDurationWidth(start: Date, end: Date): number {
   return (diffMinutes / 30) * SLOT_WIDTH
 }
 
+// Writes the grid's horizontal scroll to SCROLL_X_VAR. Skipped when it hasn't
+// changed, as on a vertical scroll, since a change restyles every block.
+function syncScrollX(scroller: HTMLElement) {
+  const value = `${scroller.scrollLeft}px`
+  if (scroller.style.getPropertyValue(SCROLL_X_VAR) !== value) {
+    scroller.style.setProperty(SCROLL_X_VAR, value)
+  }
+}
+
+// Max width for sticky text in a box that starts `left` px into the
+// programmes: the box less the part scrolled under the channel column. A
+// sticky element can't leave its box, so text wider than the part in view
+// would stop short of the column edge and stay cut on the left.
+function visiblePartWidth(left: number): string {
+  return `calc(100% - max(0px, var(${SCROLL_X_VAR}, 0px) - ${left}px))`
+}
+
+// Built once: creating a formatter per call is slow across ~1,400 blocks
+const timeFormat = new Intl.DateTimeFormat([], { hour: 'numeric', minute: '2-digit' })
+const dayFormat = new Intl.DateTimeFormat([], { weekday: 'short', day: 'numeric' })
+
 function formatTime(date: Date): string {
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return timeFormat.format(date)
+}
+
+// Local midnight of the day ms falls on
+function startOfDay(ms: number): number {
+  const day = new Date(ms)
+  day.setHours(0, 0, 0, 0)
+  return day.getTime()
+}
+
+// 'Today', 'Tomorrow', or 'Mon 28' for the day starting at dayStartMs
+function formatDay(dayStartMs: number, nowMs: number): string {
+  const today = startOfDay(nowMs)
+  if (dayStartMs === today) return 'Today'
+  const tomorrow = new Date(today)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  if (dayStartMs === tomorrow.getTime()) return 'Tomorrow'
+  return dayFormat.format(dayStartMs)
 }
 
 function EPGGridSkeleton() {

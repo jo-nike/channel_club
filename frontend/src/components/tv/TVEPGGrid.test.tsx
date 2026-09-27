@@ -43,11 +43,11 @@ describe('TVEPGGrid colours', () => {
     useErsatztvStore.setState({ channels: [] })
   })
 
-  it('paints ErsatzTV programmes on the guide-future token with a border, not the accent', () => {
+  it('paints the ErsatzTV programme on now on the guide-now token with a border, not the accent', () => {
     render(<TVEPGGrid programmesByChannel={programmesByChannel} liveEPG={liveEPG} />)
 
     const block = screen.getByText('Movie Night').closest('button')
-    expect(block).toHaveClass('bg-guide-future', 'text-foreground', 'border', 'border-border')
+    expect(block).toHaveClass('bg-guide-now', 'text-foreground', 'border', 'border-border')
     expect(block).not.toHaveClass('bg-accent')
   })
 
@@ -417,5 +417,299 @@ describe('TVEPGGrid navigation scrolling', () => {
 
     expect(scrollBy).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'smooth' }))
     expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'smooth' }))
+  })
+})
+
+describe('TVEPGGrid programme states', () => {
+  // The grid starts at 19:30, 30 minutes before the half hour now falls in
+  const NOW = new Date('2026-09-26T20:00:00Z').getTime()
+  const MINUTE = 60_000
+  const at = (minutes: number) => new Date(NOW + minutes * MINUTE).toISOString()
+  const movies = { id: 'etv1', name: 'Movies', streamUrl: '/etv1', logoUrl: '', number: 1, group: 'Films' }
+  const cartoons = { id: 'etv2', name: 'Cartoons', streamUrl: '/etv2', logoUrl: '', number: 2, group: 'Kids' }
+  const schedule: Record<string, ErsatzTVProgramme[]> = {
+    etv1: [
+      { id: 'past', channelId: 'etv1', title: 'Earlier Film', start: at(-60), stop: at(-15) },
+      // 15 of 45 minutes in, 30 to go
+      { id: 'now', channelId: 'etv1', title: 'Current Film', start: at(-15), stop: at(30) },
+      { id: 'next', channelId: 'etv1', title: 'Later Film', start: at(30), stop: at(120) },
+    ],
+    etv2: [
+      // Started 90 minutes ago, an hour before the grid does
+      { id: 'long', channelId: 'etv2', title: 'Long Cartoon', start: at(-90), stop: at(30) },
+    ],
+  }
+  const block = (title: string) => screen.getByText(title).closest('button')!
+  const [title, meta] = [0, 1].map((i) => (el: HTMLElement) => el.querySelectorAll('p')[i])
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    vi.setSystemTime(NOW)
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels: [movies, cartoons] })
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+    useErsatztvStore.setState({ channels: [] })
+    useTVStore.setState({ selectedChannel: null })
+  })
+
+  it('marks blocks before, around and after now as past, now and future', () => {
+    render(<TVEPGGrid programmesByChannel={schedule} />)
+
+    expect(block('Earlier Film')).toHaveAttribute('data-state', 'past')
+    expect(block('Current Film')).toHaveAttribute('data-state', 'now')
+    expect(block('Later Film')).toHaveAttribute('data-state', 'future')
+  })
+
+  it('lets past blocks recede: no fill, a border and muted regular-weight text', () => {
+    render(<TVEPGGrid programmesByChannel={schedule} />)
+
+    const past = block('Earlier Film')
+    expect(past).toHaveClass('bg-transparent', 'border', 'border-border', 'text-muted-foreground')
+    expect(past).not.toHaveClass('bg-guide-future')
+    expect(title(past)).toHaveClass('font-normal')
+    expect(past.querySelector('[data-testid="programme-elapsed"]')).toBeNull()
+  })
+
+  it("puts the block on now on guide-now with a primary start bar, a semibold title and the time left", () => {
+    render(<TVEPGGrid programmesByChannel={schedule} />)
+
+    const now = block('Current Film')
+    expect(now).toHaveClass('bg-guide-now', 'shadow-[inset_3px_0_0_var(--primary)]', 'text-foreground')
+    expect(title(now)).toHaveClass('font-semibold')
+    expect(meta(now)).toHaveTextContent('30m left')
+    // The meta stays on the foreground: muted text on guide-now is too faint
+    expect(meta(now)).toHaveClass('text-foreground')
+    expect(meta(now)).not.toHaveClass('text-muted-foreground')
+  })
+
+  it('draws a primary elapsed line across the block on now, ending at the now marker', () => {
+    render(<TVEPGGrid programmesByChannel={schedule} />)
+
+    const elapsed = block('Current Film').querySelector('[data-testid="programme-elapsed"]') as HTMLElement
+    expect(elapsed).toHaveClass('h-0.5', 'bg-primary')
+    expect(parseFloat(elapsed.style.width)).toBeCloseTo((15 / 45) * 100, 5)
+    // Drawn from the grid's start at 19:30: 30 of the 60 visible minutes
+    const clipped = block('Long Cartoon').querySelector('[data-testid="programme-elapsed"]') as HTMLElement
+    expect(parseFloat(clipped.style.width)).toBeCloseTo(50, 5)
+  })
+
+  it('keeps future blocks quiet: guide-future, medium weight, the time range muted', () => {
+    render(<TVEPGGrid programmesByChannel={schedule} />)
+
+    const next = block('Later Film')
+    expect(next).toHaveClass('bg-guide-future', 'border-border', 'text-foreground')
+    expect(title(next)).toHaveClass('font-medium')
+    expect(meta(next)).toHaveClass('text-muted-foreground')
+    expect(meta(next)).not.toHaveTextContent('left')
+  })
+
+  it('marks the block on now on the watched channel, and only that one', () => {
+    useTVStore.setState({ selectedChannel: { ...movies, type: 'ersatztv' } })
+    render(<TVEPGGrid programmesByChannel={schedule} />)
+
+    expect(block('Current Film')).toHaveAttribute('data-watching', 'true')
+    expect(block('Current Film')).toHaveClass('border-primary')
+    for (const other of ['Earlier Film', 'Later Film', 'Long Cartoon']) {
+      expect(block(other)).not.toHaveAttribute('data-watching')
+      expect(block(other)).not.toHaveClass('border-primary')
+    }
+  })
+
+  it('moves a block from future to now when the clock reaches its start', () => {
+    const soon = { etv1: [{ id: 'soon', channelId: 'etv1', title: 'Soon Film', start: at(1), stop: at(31) }] }
+    render(<TVEPGGrid programmesByChannel={soon} />)
+    expect(block('Soon Film')).toHaveAttribute('data-state', 'future')
+
+    act(() => vi.advanceTimersByTime(MINUTE))
+
+    expect(block('Soon Film')).toHaveAttribute('data-state', 'now')
+    expect(meta(block('Soon Film'))).toHaveTextContent('30m left')
+  })
+
+  it('keeps each title sticky just right of the channel column, clipping rather than scrolling the block', () => {
+    render(<TVEPGGrid programmesByChannel={schedule} />)
+
+    for (const title of ['Earlier Film', 'Current Film', 'Later Film', 'Long Cartoon']) {
+      const el = block(title)
+      // overflow: hidden would make the block the sticky title's scroll container
+      expect(el).toHaveClass('overflow-clip', 'text-left')
+      expect(el).not.toHaveClass('overflow-hidden')
+      expect(el).not.toHaveClass('text-right')
+      const text = el.querySelector('[data-testid="programme-text"]') as HTMLElement
+      // The 208px channel column plus 8px
+      expect(text).toHaveClass('sticky', 'w-fit')
+      expect(text).toHaveStyle({ left: '216px' })
+      expect(text.querySelectorAll('p')).toHaveLength(2)
+      text.querySelectorAll('p').forEach((p) => expect(p).toHaveClass('truncate'))
+    }
+  })
+
+  it('narrows each title to the part of its block right of the channel column, so it truncates at the column edge', () => {
+    render(<TVEPGGrid programmesByChannel={schedule} />)
+    const grid = screen.getByTestId('tv-epg-grid')
+    const width = (title: string) =>
+      (block(title).querySelector('[data-testid="programme-text"]') as HTMLElement).style.maxWidth
+
+    // The block less what has scrolled past its left edge, from the block's
+    // own offset into the programmes: 0px from 19:30, 300px from 20:30
+    expect(width('Long Cartoon')).toBe('calc(100% - max(0px, var(--guide-scroll-x, 0px) - 0px))')
+    expect(width('Later Film')).toBe('calc(100% - max(0px, var(--guide-scroll-x, 0px) - 300px))')
+
+    // Opening scrolls now 100px right of the column: 20:00 is 150px in
+    expect(grid.style.getPropertyValue('--guide-scroll-x')).toBe('50px')
+    grid.scrollLeft = 120
+    fireEvent.scroll(grid)
+    expect(grid.style.getPropertyValue('--guide-scroll-x')).toBe('120px')
+  })
+
+  it('draws a block that started before the grid from the grid start, left-aligned', () => {
+    render(<TVEPGGrid programmesByChannel={schedule} />)
+
+    // 19:30 to 20:30 at 150px per half hour, less the 3px gap
+    const long = block('Long Cartoon')
+    expect(long).toHaveStyle({ left: '0px', width: '297px' })
+    expect(long).not.toHaveClass('text-right')
+  })
+
+  it('draws short programmes at their true width, with a tooltip and an accessible name instead of text', () => {
+    const shorts = {
+      etv1: [
+        { id: 'short', channelId: 'etv1', title: 'Station Ident', start: at(30), stop: at(35) },
+        { id: 'after', channelId: 'etv1', title: 'Later Film', start: at(35), stop: at(120) },
+      ],
+    }
+    render(<TVEPGGrid programmesByChannel={shorts} />)
+
+    const short = screen.getByRole('button', { name: /^Station Ident, / })
+    // Five minutes: 25px less the gap, no 60px minimum spilling over the next block
+    expect(short).toHaveStyle({ width: '22px' })
+    const next = block('Later Film')
+    expect(parseFloat(short.style.left) + parseFloat(short.style.width)).toBeLessThanOrEqual(parseFloat(next.style.left))
+    expect(short).toHaveAttribute('data-state', 'future')
+    expect(short).toHaveTextContent('')
+    expect(short.querySelector('[data-testid="programme-text"]')).toBeNull()
+
+    fireEvent.focus(short)
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Station Ident')
+  })
+
+  it('names a narrow block on now by its title and time left', () => {
+    const ending = { etv1: [{ id: 'ending', channelId: 'etv1', title: 'Promo', start: at(-5), stop: at(4) }] }
+    render(<TVEPGGrid programmesByChannel={ending} />)
+
+    expect(screen.getByRole('button', { name: 'Promo, 4m left' })).toHaveAttribute('data-state', 'now')
+  })
+
+  it('keeps the live tint on the live row while its programme is on', () => {
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1' },
+    })
+    const live: EPGResponse = {
+      channelId: 'live',
+      currentProgram: { title: 'Club Broadcast', startTime: at(-10), endTime: at(20) },
+    }
+    render(<TVEPGGrid programmesByChannel={{}} liveEPG={live} />)
+
+    const onAir = block('Club Broadcast')
+    expect(onAir).toHaveAttribute('data-state', 'now')
+    expect(onAir).toHaveClass('bg-live/15', 'shadow-[inset_3px_0_0_var(--live)]')
+    expect(onAir.querySelector('[data-testid="programme-elapsed"]')).toHaveClass('bg-live')
+  })
+})
+
+describe('TVEPGGrid time header', () => {
+  // 8 PM local on Saturday 26 September: the 48-hour grid starts at 7:30 PM
+  // and crosses midnight into Sunday 27 and Monday 28
+  const NOW = new Date(2026, 8, 26, 20, 0).getTime()
+  const dayFormat = new Intl.DateTimeFormat([], { weekday: 'short', day: 'numeric' })
+  const timeFormat = new Intl.DateTimeFormat([], { hour: 'numeric', minute: '2-digit' })
+  const slotOffset = (date: Date) => ((date.getTime() - new Date(2026, 8, 26, 19, 30).getTime()) / (30 * 60_000)) * 150
+  const timeLabels = () => {
+    const header = screen.getByRole('button', { name: 'Scroll to now' }).parentElement!.parentElement!
+    return Array.from(header.lastElementChild!.children).filter((el) => el.tagName === 'DIV') as HTMLElement[]
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels: [] })
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+  })
+
+  it('keeps each time label sticky just right of the channel column, so the first clears the nav cell', () => {
+    render(<TVEPGGrid hours={48} programmesByChannel={{}} />)
+
+    const [first] = timeLabels()
+    expect(first).toHaveClass('overflow-clip')
+    expect(first).not.toHaveClass('overflow-hidden')
+    const label = first.firstElementChild as HTMLElement
+    expect(label).toHaveClass('sticky')
+    expect(label).toHaveStyle({ left: '216px' })
+    expect(label).toHaveTextContent(timeFormat.format(new Date(2026, 8, 26, 19, 30)))
+  })
+
+  it('hides a time label once the part of its slot in view is narrower than the label, rather than cutting it', () => {
+    render(<TVEPGGrid hours={48} programmesByChannel={{}} />)
+
+    const labels = timeLabels().map((slot) => slot.firstElementChild as HTMLElement)
+    // Each label is no wider than its slot less what has scrolled under the
+    // channel column, from the slot's own offset: 150px per slot
+    expect(labels[0].style.maxWidth).toBe('calc(100% - max(0px, var(--guide-scroll-x, 0px) - 0px))')
+    expect(labels[2].style.maxWidth).toBe('calc(100% - max(0px, var(--guide-scroll-x, 0px) - 300px))')
+    // One line tall: a label that doesn't fit wraps after the zero-width
+    // space onto a clipped second line
+    expect(labels[0]).toHaveClass('h-[1lh]', 'overflow-clip')
+    expect(labels[0].firstChild?.textContent).toBe('\u200B')
+    expect(labels[0].lastElementChild).toHaveClass('inline-block', 'whitespace-nowrap')
+  })
+
+  it('marks each midnight slot with its weekday and date', () => {
+    render(<TVEPGGrid hours={48} programmesByChannel={{}} />)
+
+    const markers = screen.getAllByTestId('day-marker')
+    expect(markers.map((m) => m.textContent)).toEqual([
+      dayFormat.format(new Date(2026, 8, 27)),
+      dayFormat.format(new Date(2026, 8, 28)),
+    ])
+    const sunday = markers[0].closest('div')!
+    expect(sunday).toHaveTextContent(timeFormat.format(new Date(2026, 8, 27, 0, 0)))
+    expect(timeLabels().indexOf(sunday)).toBe(9)
+  })
+
+  it('names the day in view next to the Now button, following the scroll across midnight', () => {
+    render(<TVEPGGrid hours={48} programmesByChannel={{}} />)
+    const grid = screen.getByTestId('tv-epg-grid')
+    const day = screen.getByTestId('guide-day')
+    expect(day).toHaveTextContent('Today')
+
+    grid.scrollLeft = slotOffset(new Date(2026, 8, 27, 1, 0))
+    fireEvent.scroll(grid)
+    expect(day).toHaveTextContent('Tomorrow')
+
+    grid.scrollLeft = slotOffset(new Date(2026, 8, 28, 9, 0))
+    fireEvent.scroll(grid)
+    expect(day).toHaveTextContent(dayFormat.format(new Date(2026, 8, 28)))
+
+    grid.scrollLeft = 0
+    fireEvent.scroll(grid)
+    expect(day).toHaveTextContent('Today')
+  })
+
+  it('shows the current time in a pill on the now marker', () => {
+    render(<TVEPGGrid hours={48} programmesByChannel={{}} />)
+
+    const pill = screen.getByTestId('now-pill')
+    expect(pill).toHaveTextContent(timeFormat.format(new Date(NOW)))
+    // Half an hour into the grid: one slot
+    expect(pill).toHaveStyle({ left: '150px' })
   })
 })

@@ -5,7 +5,7 @@ import { useChannelStore } from './channelStore'
 import { useErsatztvStore } from './ersatztvStore'
 import { useUIStore } from './uiStore'
 import { fetchNowPlaying } from '@/services/api'
-import type { UnifiedChannel, ErsatzTVChannel, EPGResponse } from '@/types'
+import type { Channel, UnifiedChannel, ErsatzTVChannel, EPGResponse } from '@/types'
 
 // Constants
 export const LIVE_CHANNEL_ID = 'live-channel-0'
@@ -58,6 +58,36 @@ function ersatzTVToUnified(channel: ErsatzTVChannel): UnifiedChannel {
     logoUrl: channel.logoUrl,
     group: channel.group,
   }
+}
+
+/**
+ * Channel 0 (the live slot, present even with nothing on live TV) followed by
+ * the ErsatzTV channels. Pure, so a component can memoise the list on the two
+ * store values it's built from.
+ */
+export function buildUnifiedChannels(
+  liveChannel: Channel | null,
+  ersatzTVChannels: ErsatzTVChannel[]
+): UnifiedChannel[] {
+  const unified: UnifiedChannel[] = []
+
+  // Channel 0 (Live) - always present as a slot, even if no live channel selected
+  unified.push({
+    id: LIVE_CHANNEL_ID,
+    name: liveChannel?.name || 'Live',
+    number: 0,
+    streamUrl: liveChannel?.streamUrl || '',
+    type: 'live',
+    guideId: liveChannel?.guideId,
+    backendId: liveChannel?.id, // Real backend ID for highlight recording
+  })
+
+  // ErsatzTV channels (1+)
+  ersatzTVChannels.forEach((ch) => {
+    unified.push(ersatzTVToUnified(ch))
+  })
+
+  return unified
 }
 
 export const useTVStore = create<TVState>()(
@@ -131,30 +161,8 @@ export const useTVStore = create<TVState>()(
       }
     },
 
-    getUnifiedChannels: () => {
-      const liveChannel = useChannelStore.getState().currentChannel
-      const ersatzTVChannels = useErsatztvStore.getState().channels
-
-      const unified: UnifiedChannel[] = []
-
-      // Channel 0 (Live) - always present as a slot, even if no live channel selected
-      unified.push({
-        id: LIVE_CHANNEL_ID,
-        name: liveChannel?.name || 'Live',
-        number: 0,
-        streamUrl: liveChannel?.streamUrl || '',
-        type: 'live',
-        guideId: liveChannel?.guideId,
-        backendId: liveChannel?.id, // Real backend ID for highlight recording
-      })
-
-      // ErsatzTV channels (1+)
-      ersatzTVChannels.forEach((ch) => {
-        unified.push(ersatzTVToUnified(ch))
-      })
-
-      return unified
-    },
+    getUnifiedChannels: () =>
+      buildUnifiedChannels(useChannelStore.getState().currentChannel, useErsatztvStore.getState().channels),
 
     isLiveChannelActive: () => {
       const liveChannel = useChannelStore.getState().currentChannel
