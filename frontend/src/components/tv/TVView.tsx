@@ -11,7 +11,7 @@ import { useWebSocket } from '@/hooks/useWebSocket'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { useTVStore, initializeTVStore } from '@/stores/tvStore'
-import { useUIStore } from '@/stores/uiStore'
+import { useUIStore, EPG_HEIGHT_MIN, EPG_HEIGHT_MAX } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
 import { DualModeVideoPlayer } from '@/components/tv/DualModeVideoPlayer'
 import { TVEPGGrid } from '@/components/tv/TVEPGGrid'
@@ -167,8 +167,8 @@ export function TVView() {
   // Resize hook for EPG
   const { isDragging, handleMouseDown } = useResizable({
     initialHeightPercent: epgHeightPercent,
-    minHeightPercent: 15,
-    maxHeightPercent: 50,
+    minHeightPercent: EPG_HEIGHT_MIN,
+    maxHeightPercent: EPG_HEIGHT_MAX,
     containerRef,
     onHeightChange: setEPGHeightPercent,
   })

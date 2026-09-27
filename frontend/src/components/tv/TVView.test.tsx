@@ -476,7 +476,10 @@ describe('programme progress on the phone list', () => {
 
 describe('B-06 guide mode', () => {
   beforeEach(() => vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([]))
-  afterEach(() => useUIStore.setState({ isEPGVisible: false }))
+  afterEach(() => {
+    useUIStore.setState({ isEPGVisible: false, epgHeightPercent: 50 })
+    vi.restoreAllMocks()
+  })
 
   it('leaves the scrolling to the guide grid on desktop, so its time header can stick', async () => {
     useUIStore.setState({ isEPGVisible: true })
@@ -505,6 +508,27 @@ describe('B-06 guide mode', () => {
     act(() => useUIStore.setState({ isEPGVisible: false }))
     expect(sidebarToggle()).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Channels' }) !== null).toBe(!collapsed)
+  })
+
+  it('lets the guide be dragged between 30% and 75% of the height', async () => {
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(1000)
+    useUIStore.setState({ isEPGVisible: true, epgHeightPercent: 50 })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+    const handle = screen.getByRole('separator', { name: 'Resize EPG section' })
+
+    // Up 400px of 1000: 50% + 40% stops at 75%
+    fireEvent.mouseDown(handle, { clientY: 500 })
+    fireEvent.mouseMove(document, { clientY: 100 })
+    fireEvent.mouseUp(document)
+    expect(useUIStore.getState().epgHeightPercent).toBe(75)
+    expect(screen.getByTestId('tv-epg-grid').parentElement).toHaveStyle({ flex: '0 0 75%' })
+
+    // Down 600px: 75% - 60% stops at 30%
+    fireEvent.mouseDown(handle, { clientY: 100 })
+    fireEvent.mouseMove(document, { clientY: 700 })
+    fireEvent.mouseUp(document)
+    expect(useUIStore.getState().epgHeightPercent).toBe(30)
   })
 })
 
