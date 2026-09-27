@@ -579,6 +579,41 @@ describe('CouchView: account menu', () => {
     expect(corner()).not.toHaveClass('opacity-0')
   })
 
+  it('keeps it on screen while its menu is open, which portals outside the corner', () => {
+    renderCouch()
+    act(() => { vi.advanceTimersByTime(3000) })
+    // The open menu hides the rest of the page from the accessibility tree
+    const button = avatar()
+    const wrapper = corner()
+    expect(wrapper.matches(':has([aria-expanded=true])')).toBe(false)
+
+    openMenu()
+
+    // jsdom applies no CSS: the class that wins over opacity-0 matches the open trigger
+    expect(wrapper).toHaveClass('opacity-0', 'has-[[aria-expanded=true]]:opacity-100')
+    expect(button).toHaveAttribute('aria-expanded', 'true')
+    expect(wrapper.matches(':has([aria-expanded=true])')).toBe(true)
+  })
+
+  it.each([
+    ['Escape', 'Escape', 27],
+    ['webOS Back', 'Unidentified', 461],
+  ])('lets go of the avatar on %s after the menu closes, so the next OK opens the guide', (_label, key, keyCode) => {
+    renderCouch()
+    openMenu()
+    press('Escape', { keyCode: 27 }, screen.getByRole('menu'))
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    // Radix hands focus back to the avatar, where OK would open the menu again
+    act(() => avatar().focus())
+
+    expect(press(key, { keyCode }, avatar())).toBe(false)
+    expect(document.activeElement).toBe(document.body)
+
+    press('Enter', { keyCode: 13 })
+    expect(screen.getByRole('listbox', { name: 'Channels' })).toBeInTheDocument()
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  })
+
   it('opens the menu on OK from the avatar, instead of going fullscreen', () => {
     const requestFullscreen = vi.fn(() => Promise.resolve())
     Object.defineProperty(document.documentElement, 'requestFullscreen', { configurable: true, value: requestFullscreen })
@@ -634,6 +669,22 @@ describe('CouchView: Back', () => {
     expect(exitFullscreen).toHaveBeenCalledTimes(1)
   })
 
+  it('lets go of a focused button first, then leaves fullscreen on the next Back', () => {
+    const exitFullscreen = vi.fn(() => Promise.resolve())
+    Object.defineProperty(document, 'exitFullscreen', { configurable: true, value: exitFullscreen })
+    setFullscreenElement(document.documentElement)
+    renderCouch()
+    const button = addToPage('button')
+    button.focus()
+
+    expect(press('Unidentified', { keyCode: 461 }, button)).toBe(false)
+    expect(document.activeElement).toBe(document.body)
+    expect(exitFullscreen).not.toHaveBeenCalled()
+
+    expect(press('Unidentified', { keyCode: 461 })).toBe(false)
+    expect(exitFullscreen).toHaveBeenCalledTimes(1)
+  })
+
   it('leaves Back to the browser when nothing is fullscreen', () => {
     renderCouch()
 
@@ -673,7 +724,18 @@ describe('couch styles', () => {
   it('never changes the root font size, which would rescale every dialog', () => {
     const couchRules = [...css.matchAll(/^([^\n{}]*\.couch[^\n{}]*)\{([^}]*)\}/gm)]
     expect(couchRules.length).toBeGreaterThan(0)
-    for (const [, , body] of couchRules) expect(body).not.toMatch(/font-size/)
+    // Only the account menu's own rules size its text
+    for (const [, selector, body] of couchRules) {
+      if (!selector.startsWith('.couch [data-slot="dropdown-menu-content"] ')) expect(body).not.toMatch(/font-size/)
+    }
+  })
+
+  it('sizes the portalled account menu for the couch, with focus shown by an outline, not colour alone', () => {
+    const menu = '.couch [data-slot="dropdown-menu-content"]'
+    expect(rule(menu)).toBe('min-width: 24rem;')
+    expect(rule(`${menu} :is([role^="menuitem"], [data-slot="dropdown-menu-label"])`)).toBe('font-size: 1.5rem;\n  padding-block: 0.5rem;')
+    expect(rule(`${menu} .text-xs`)).toBe('font-size: 1.125rem;')
+    expect(rule(`${menu} [data-highlighted]`)).toBe('outline: 4px solid var(--couch-focus);\n  outline-offset: -4px;')
   })
 
   it('shows remote focus in the couch focus colour with a non-colour cue: a thick outline and a scale', () => {

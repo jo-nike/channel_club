@@ -214,6 +214,8 @@ export function DualModeVideoPlayer({
   const [isShortcutSheetOpen, setShortcutSheetOpen] = useState(false)
   const openShortcutSheet = useCallback(() => setShortcutSheetOpen(true), [])
   const chatEnabled = useChatEnabled()
+  // The 10-foot TV layout has its own remote keys, which the sheet lists there
+  const isTVMode = useTVMode()
   const toggleChat = useChatStore((s) => s.toggleOpen)
   // In theater and fullscreen, where the chat over the video can take a
   // reply, C opens its composer instead of the panel. Each press is a new
@@ -242,7 +244,9 @@ export function DualModeVideoPlayer({
     onDigit: zap?.digit,
     onDigitCommit: zap?.commitDigits,
     onShortcutSheet: openShortcutSheet,
-    onChatToggle: chatEnabled ? (canReply ? openComposer : toggleChat) : undefined,
+    // Not on the TV layout, which has no chat to show: C would open the panel
+    // unseen, to spring open once the layout is turned off
+    onChatToggle: chatEnabled && !isTVMode ? (canReply ? openComposer : toggleChat) : undefined,
     onNHLToggle: toggleNHLOverlay,
     onClipThat: clipThat,
     onFocusSearch: focusSearch,
@@ -356,6 +360,7 @@ export function DualModeVideoPlayer({
         canSearch={focusSearch !== undefined}
         canClip={clipThat !== undefined}
         canReply={canReply}
+        tvMode={isTVMode}
       />
     </PlayerShellContext>
   )

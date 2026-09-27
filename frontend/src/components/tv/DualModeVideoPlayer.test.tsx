@@ -1820,6 +1820,18 @@ describe('DualModeVideoPlayer chat over the video', () => {
     })
   })
 
+  // The couch has no chat: C would open a hidden panel that springs open,
+  // composer focused, once the TV layout is turned off
+  it('C does nothing on the TV layout, leaving no chat open for later', () => {
+    localStorage.setItem('tv-mode', 'true')
+    render(<DualModeVideoPlayer channel={liveChannel('https://fixture/a')} isTheaterMode onTheaterModeToggle={vi.fn()} />)
+
+    fireEvent.keyDown(window, { key: 'c' })
+
+    expect(useChatStore.getState().isOpen).toBe(false)
+    expect(screen.queryByRole('textbox', { name: 'Message the club' })).not.toBeInTheDocument()
+  })
+
   it('is not drawn in the page layout', () => {
     renderPlayer(liveChannel('https://fixture/a'))
     act(() => useChatStore.getState().addMessage({ messageId: 'm1', username: 'maya', content: 'goal!', timestamp: new Date().toISOString() }))
@@ -3054,6 +3066,20 @@ describe('DualModeVideoPlayer panel keys', () => {
     switchTo(hlsChannel('1', 1))
 
     expect(sheet()).toBeInTheDocument()
+  })
+
+  it("the sheet lists the remote's keys on a TV: ↑↓ change channel, OK opens the guide", () => {
+    chatFeature.enabled = true
+    localStorage.setItem('tv-mode', 'true')
+    renderPlayer(hlsChannel('1', 1))
+
+    fireEvent.keyDown(window, { key: '?' })
+
+    const dialog = within(sheet()!)
+    expect(dialog.getByText('Guide', { selector: 'dt' })).toBeInTheDocument()
+    expect(dialog.getByText("Who's here", { selector: 'dt' })).toBeInTheDocument()
+    expect(dialog.queryByText('Theater mode')).not.toBeInTheDocument()
+    expect(dialog.queryByText('Open or close chat')).not.toBeInTheDocument()
   })
 
   it('C opens and closes chat', () => {

@@ -16,6 +16,9 @@ interface ShortcutSheetProps {
    * panel (theater or fullscreen with 'Show chat over the video' on, on a
    * fine pointer; see useChatOverlayMode) */
   canReply?: boolean
+  /** The 10-foot TV layout (useTVMode), where ↑/↓ change channel, OK opens
+   * the guide and there is no chat or theater mode (see CouchView) */
+  tvMode?: boolean
 }
 
 interface Shortcut {
@@ -29,37 +32,47 @@ interface ShortcutGroup {
   shortcuts: Shortcut[]
 }
 
-// The map useVideoKeyboardShortcuts implements. Letters are shown in capitals,
-// as on the keycaps; they work either way.
-const player = (canClip: boolean): ShortcutGroup => ({
+// The map useVideoKeyboardShortcuts implements, and on a TV CouchView's remote
+// keys. Letters are shown in capitals, as on the keycaps; they work either way.
+const player = (canClip: boolean, tvMode: boolean): ShortcutGroup => ({
   title: 'Player',
   shortcuts: [
     { keys: [['Space']], action: 'Play or pause' },
     { keys: [['M']], action: 'Mute or unmute' },
-    { keys: [['↑', '↓'], ['→', '←']], action: 'Volume up or down' },
+    { keys: tvMode ? [['→', '←']] : [['↑', '↓'], ['→', '←']], action: 'Volume up or down' },
     { keys: [['F']], action: 'Fullscreen' },
-    { keys: [['T']], action: 'Theater mode' },
+    ...(tvMode ? [] : [{ keys: [['T']], action: 'Theater mode' }]),
     { keys: [['R']], action: 'Reload the stream' },
     ...(canClip ? [{ keys: [['X']], action: 'Clip that: post the last 20s to chat' }] : []),
   ],
 })
 
-const channels = (canSearch: boolean): ShortcutGroup => ({
+const channels = (canSearch: boolean, tvMode: boolean): ShortcutGroup => ({
   title: 'Channels',
   shortcuts: [
-    { keys: [['PgUp', 'PgDn'], [']', '[']], action: 'Channel up or down' },
+    {
+      keys: tvMode ? [['↑', '↓'], ['PgUp', 'PgDn'], [']', '[']] : [['PgUp', 'PgDn'], [']', '[']],
+      action: 'Channel up or down',
+    },
     { keys: [['0–9']], action: 'Type a channel number' },
-    { keys: [['Enter']], action: 'Tune the number now' },
+    { keys: tvMode ? [['OK'], ['Enter']] : [['Enter']], action: 'Tune the number now' },
     { keys: [['L']], action: 'Last channel' },
     ...(canSearch ? [{ keys: [['/']], action: 'Search channels' }] : []),
   ],
 })
 
-const panels = (chatEnabled: boolean, canReply: boolean): ShortcutGroup => ({
+// No chat on the TV layout, so no C there
+const panels = (chatEnabled: boolean, canReply: boolean, tvMode: boolean): ShortcutGroup => ({
   title: 'Panels',
   shortcuts: [
-    ...(chatEnabled
+    ...(chatEnabled && !tvMode
       ? [{ keys: [['C']], action: canReply ? 'Write in the chat over the video' : 'Open or close chat' }]
+      : []),
+    ...(tvMode
+      ? [
+          { keys: [['OK'], ['Guide']], action: 'Guide' },
+          { keys: [['Green'], ['W']], action: "Who's here" },
+        ]
       : []),
     { keys: [['N']], action: 'NHL scores' },
     { keys: [['?']], action: 'This list' },
@@ -79,10 +92,11 @@ export function ShortcutSheet({
   canSearch = false,
   canClip = false,
   canReply = false,
+  tvMode = false,
 }: ShortcutSheetProps) {
   const id = useId()
   const chatEnabled = useChatEnabled()
-  const groups = [player(canClip), channels(canSearch), panels(chatEnabled, canReply)]
+  const groups = [player(canClip, tvMode), channels(canSearch, tvMode), panels(chatEnabled, canReply, tvMode)]
   // A key opens the sheet, not a trigger Radix could return focus to: go back
   // to whatever had focus (a channel button just clicked), or the page
   const returnFocus = useReturnFocus()

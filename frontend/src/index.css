@@ -353,6 +353,32 @@
   transform: scale(1.1);
 }
 
+/* The account menu portals to <body>, outside .couch-view: 10-foot type and
+   a non-colour focus cue for it too. Unlayered, so the min-width wins over
+   the menu's w-64. */
+.couch [data-slot="dropdown-menu-content"] {
+  min-width: 24rem;
+}
+
+.couch [data-slot="dropdown-menu-content"] :is([role^="menuitem"], [data-slot="dropdown-menu-label"]) {
+  font-size: 1.5rem;
+  padding-block: 0.5rem;
+}
+
+.couch [data-slot="dropdown-menu-content"] .text-xs {
+  font-size: 1.125rem;
+}
+
+.couch [data-slot="dropdown-menu-content"] [role^="menuitem"] > svg {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.couch [data-slot="dropdown-menu-content"] [data-highlighted] {
+  outline: 4px solid var(--couch-focus);
+  outline-offset: -4px;
+}
+
 /* ============================
    PROJECTOR BEAM LOADER
    ============================ */

@@ -174,4 +174,17 @@ describe('ShortcutSheet', () => {
     expect(screen.queryByText('Open or close chat')).not.toBeInTheDocument()
     expect(keysFor('NHL scores')).toEqual(['N'])
   })
+
+  it("lists the remote's keys on the TV layout: ↑↓ change channel, OK opens the guide, no chat or theater", () => {
+    render(<ShortcutSheet open onOpenChange={vi.fn()} container={document.body} tvMode />)
+
+    expect(keysFor('Volume up or down')).toEqual(['→', '←'])
+    expect(keysFor('Channel up or down')).toEqual(['↑', '↓', 'PgUp', 'PgDn', ']', '['])
+    expect(keysFor('Tune the number now')).toEqual(['OK', 'Enter'])
+    expect(keysFor('Guide')).toEqual(['OK', 'Guide'])
+    expect(keysFor("Who's here")).toEqual(['Green', 'W'])
+    expect(screen.queryByText('Theater mode')).not.toBeInTheDocument()
+    expect(screen.queryByText('Open or close chat')).not.toBeInTheDocument()
+    expect(screen.queryByText('Write in the chat over the video')).not.toBeInTheDocument()
+  })
 })
