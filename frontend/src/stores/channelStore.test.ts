@@ -7,6 +7,7 @@ describe('channelStore', () => {
     useChannelStore.setState({
       channels: [],
       currentChannel: null,
+      lastChange: null,
       isLoading: false,
       error: null,
     })
@@ -120,6 +121,29 @@ describe('channelStore', () => {
 
       const state = useChannelStore.getState()
       expect(state.error).toBeNull()
+    })
+  })
+
+  describe('setLastChange', () => {
+    it('has no last change initially', () => {
+      expect(useChannelStore.getState().lastChange).toBeNull()
+    })
+
+    it('records who changed the live channel, when, and to what', () => {
+      useChannelStore.getState().setLastChange({ by: 'alice', at: 1000, channelName: 'ESPN' })
+
+      expect(useChannelStore.getState().lastChange).toEqual({ by: 'alice', at: 1000, channelName: 'ESPN' })
+    })
+
+    it('replaces the previous change and leaves the current channel alone', () => {
+      const channel = { id: '1', name: 'ESPN', streamUrl: 'http://stream1.m3u8' }
+      useChannelStore.setState({ currentChannel: channel })
+      useChannelStore.getState().setLastChange({ by: 'alice', at: 1000, channelName: 'ESPN' })
+
+      useChannelStore.getState().setLastChange({ by: 'bob', at: 2000, channelName: null })
+
+      expect(useChannelStore.getState().lastChange).toEqual({ by: 'bob', at: 2000, channelName: null })
+      expect(useChannelStore.getState().currentChannel).toEqual(channel)
     })
   })
 })

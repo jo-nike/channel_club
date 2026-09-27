@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { useUIStore } from './uiStore'
 
 describe('uiStore', () => {
@@ -174,9 +174,8 @@ describe('uiStore', () => {
   })
 
   describe('notificationsEnabled', () => {
-    it('defaults to false', () => {
-      const state = useUIStore.getState()
-      expect(state.notificationsEnabled).toBe(false)
+    it('defaults to true', () => {
+      expect(useUIStore.getInitialState().notificationsEnabled).toBe(true)
     })
 
     it('can be set to true', () => {
@@ -201,6 +200,52 @@ describe('uiStore', () => {
       useUIStore.getState().setNotificationsEnabled(true)
       useUIStore.getState().toggleNotifications()
       expect(useUIStore.getState().notificationsEnabled).toBe(false)
+    })
+  })
+
+  describe('ui-storage migration', () => {
+    afterEach(() => {
+      useUIStore.setState({ lastTVChannelId: null })
+    })
+
+    it('saves at version 1', () => {
+      expect(useUIStore.persist.getOptions().version).toBe(1)
+      useUIStore.getState().setSidebarOpen(true)
+      expect(JSON.parse(localStorage.getItem('ui-storage') ?? 'null').version).toBe(1)
+    })
+
+    it('turns live-change pop-ups on once for a version 0 save that had them off', async () => {
+      localStorage.setItem(
+        'ui-storage',
+        JSON.stringify({ state: { notificationsEnabled: false, lastTVChannelId: 'ersatz-7' }, version: 0 })
+      )
+
+      await useUIStore.persist.rehydrate()
+
+      expect(useUIStore.getState().notificationsEnabled).toBe(true)
+      expect(useUIStore.getState().lastTVChannelId).toBe('ersatz-7')
+      // The migrated state is saved at the new version, so this runs only once
+      expect(JSON.parse(localStorage.getItem('ui-storage') ?? 'null')).toMatchObject({
+        state: { notificationsEnabled: true },
+        version: 1,
+      })
+    })
+
+    it('keeps pop-ups off when they were switched off after the migration', async () => {
+      localStorage.setItem('ui-storage', JSON.stringify({ state: { notificationsEnabled: false }, version: 1 }))
+
+      await useUIStore.persist.rehydrate()
+
+      expect(useUIStore.getState().notificationsEnabled).toBe(false)
+    })
+
+    it('leaves the legacy volume in place for the audio store', () => {
+      const migrate = useUIStore.persist.getOptions().migrate
+      expect(migrate).toBeDefined()
+
+      const migrated = migrate?.({ volume: 0.3, notificationsEnabled: false }, 0)
+
+      expect(migrated).toEqual({ volume: 0.3, notificationsEnabled: true })
     })
   })
 

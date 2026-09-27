@@ -8,6 +8,10 @@ import { useChannelStore } from '@/stores/channelStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
+import { useTVStore, LIVE_CHANNEL_ID } from '@/stores/tvStore'
+import { useErsatztvStore } from '@/stores/ersatztvStore'
+import { fetchNowPlaying } from '@/services/api'
+import type { UnifiedChannel } from '@/types'
 
 // Mock useChatEnabled hook
 vi.mock('./useChatEnabled', () => ({
@@ -17,6 +21,12 @@ vi.mock('./useChatEnabled', () => ({
 // Mock sonner toast
 vi.mock('sonner', () => ({
   toast: vi.fn(),
+}))
+
+// Selecting channel 0 from the toast's Watch action loads its EPG
+vi.mock('@/services/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/services/api')>()),
+  fetchNowPlaying: vi.fn(),
 }))
 
 // Mock WebSocket - simple version without auto-open
@@ -84,14 +94,17 @@ describe('useWebSocket', () => {
     useAuthStore.setState({
       token: 'test-jwt-token',
       role: 'viewer',
+      username: null,
       isAuthenticated: true,
     })
     useChannelStore.setState({
       channels: [],
       currentChannel: null,
+      lastChange: null,
       isLoading: false,
       error: null,
     })
+    useTVStore.setState({ selectedChannel: null })
     useUIStore.setState({
       notificationsEnabled: false,
     })
@@ -809,68 +822,229 @@ describe('useWebSocket', () => {
   })
 
   describe('channel change notifications', () => {
-    test('does not show toast on channel_update when notifications disabled', () => {
-      useUIStore.setState({ notificationsEnabled: false })
+    const ersatzChannel: UnifiedChannel = {
+      id: 'ersatz-1',
+      name: 'PopCorn Movies',
+      number: 1,
+      streamUrl: 'http://ersatz/1',
+      type: 'ersatztv',
+    }
+    const liveSlot: UnifiedChannel = {
+      id: LIVE_CHANNEL_ID,
+      name: 'Live',
+      number: 0,
+      streamUrl: '',
+      type: 'live',
+    }
+    const espn = { id: '2', name: 'ESPN', streamUrl: 'http://stream.url/espn', guideId: 'espn.guide' }
+
+    function connect() {
       renderHook(() => useWebSocket())
       const ws = MockWebSocket.instances[0]
-
       act(() => {
         ws.simulateOpen()
-        ws.simulateMessage({
-          type: 'channel_update',
-          channel: { id: '2', name: 'ESPN', streamUrl: 'http://stream.url/espn' },
-        })
+      })
+      return ws
+    }
+
+    function lastToastOptions() {
+      const call = vi.mocked(toast).mock.calls.at(-1)
+      return call?.[1] as { id?: string; duration?: number; action?: { label: string; onClick: () => void } }
+    }
+
+    beforeEach(() => {
+      useUIStore.setState({ notificationsEnabled: true })
+      useTVStore.setState({ selectedChannel: ersatzChannel })
+      vi.mocked(fetchNowPlaying).mockReset()
+      vi.mocked(fetchNowPlaying).mockResolvedValue({ channelId: 'espn.guide', currentProgram: null })
+    })
+
+    test('does not show toast on channel_update when notifications disabled', () => {
+      useUIStore.setState({ notificationsEnabled: false })
+      const ws = connect()
+
+      act(() => {
+        ws.simulateMessage({ type: 'channel_update', channel: espn, changedBy: 'alice' })
       })
 
       expect(toast).not.toHaveBeenCalled()
     })
 
-    test('shows toast on channel_update when notifications enabled', () => {
-      useUIStore.setState({ notificationsEnabled: true })
-      renderHook(() => useWebSocket())
-      const ws = MockWebSocket.instances[0]
+    test('names who put the channel on, with a Watch action, for a viewer on another channel', () => {
+      const ws = connect()
 
       act(() => {
-        ws.simulateOpen()
-        ws.simulateMessage({
-          type: 'channel_update',
-          channel: { id: '2', name: 'ESPN', streamUrl: 'http://stream.url/espn' },
-        })
+        ws.simulateMessage({ type: 'channel_update', channel: espn, changedBy: 'alice' })
       })
 
-      expect(toast).toHaveBeenCalledWith('Live channel set to: ESPN', { id: 'channel-update-2', duration: 5000 })
+      expect(toast).toHaveBeenCalledTimes(1)
+      expect(vi.mocked(toast).mock.calls[0][0]).toBe('alice put on ESPN')
+      const options = lastToastOptions()
+      expect(options.id).toBe('live-channel-change')
+      expect(options.duration).toBe(5000)
+      expect(options.action?.label).toBe('Watch')
     })
 
-    test('toast includes channel name in message', () => {
-      useUIStore.setState({ notificationsEnabled: true })
-      renderHook(() => useWebSocket())
-      const ws = MockWebSocket.instances[0]
+    test('Watch tunes the viewer to channel 0', () => {
+      const ws = connect()
 
       act(() => {
-        ws.simulateOpen()
+        ws.simulateMessage({ type: 'channel_update', channel: espn, changedBy: 'alice' })
+      })
+      act(() => {
+        lastToastOptions().action?.onClick()
+      })
+
+      const selected = useTVStore.getState().selectedChannel
+      expect(selected?.id).toBe(LIVE_CHANNEL_ID)
+      expect(selected?.type).toBe('live')
+      expect(selected?.name).toBe('ESPN')
+      expect(fetchNowPlaying).toHaveBeenCalledWith('espn.guide')
+    })
+
+    test('Watch selects the first unified channel even when ErsatzTV channels are loaded', () => {
+      useErsatztvStore.setState({
+        channels: [{ id: 'ersatz-1', name: 'PopCorn Movies', streamUrl: '', logoUrl: '', number: 1, group: '' }],
+      })
+      const ws = connect()
+
+      act(() => {
+        ws.simulateMessage({ type: 'channel_update', channel: espn, changedBy: 'alice' })
+      })
+      act(() => {
+        lastToastOptions().action?.onClick()
+      })
+
+      expect(useTVStore.getState().selectedChannel?.id).toBe(useTVStore.getState().getUnifiedChannels()[0].id)
+      expect(useTVStore.getState().selectedChannel?.type).toBe('live')
+      useErsatztvStore.setState({ channels: [] })
+    })
+
+    test('does not show a toast to a viewer already on channel 0', () => {
+      useTVStore.setState({ selectedChannel: liveSlot })
+      const ws = connect()
+
+      act(() => {
+        ws.simulateMessage({ type: 'channel_update', channel: espn, changedBy: 'alice' })
+      })
+
+      expect(toast).not.toHaveBeenCalled()
+    })
+
+    test('does not show a toast to the person who made the change', () => {
+      useAuthStore.setState({ username: 'alice' })
+      const ws = connect()
+
+      act(() => {
+        ws.simulateMessage({ type: 'channel_update', channel: espn, changedBy: 'alice' })
+      })
+
+      expect(toast).not.toHaveBeenCalled()
+    })
+
+    test('falls back to unattributed copy, still with Watch, when changedBy is missing', () => {
+      const ws = connect()
+
+      act(() => {
+        ws.simulateMessage({ type: 'channel_update', channel: espn })
+      })
+
+      expect(vi.mocked(toast).mock.calls[0][0]).toBe('Live channel set to ESPN')
+      expect(lastToastOptions().id).toBe('live-channel-change')
+      expect(lastToastOptions().action?.label).toBe('Watch')
+    })
+
+    test('names who stopped live TV, without an action', () => {
+      const ws = connect()
+
+      act(() => {
+        ws.simulateMessage({ type: 'channel_update', channel: null, changedBy: 'alice' })
+      })
+
+      expect(toast).toHaveBeenCalledWith('alice stopped live TV', { id: 'live-channel-change', duration: 5000 })
+    })
+
+    test('a stop replacing a visible put-on toast clears its Watch action', () => {
+      const ws = connect()
+
+      act(() => {
+        ws.simulateMessage({ type: 'channel_update', channel: espn, changedBy: 'alice' })
+        ws.simulateMessage({ type: 'channel_update', channel: null, changedBy: 'alice' })
+      })
+
+      const calls = vi.mocked(toast).mock.calls
+      expect(calls.map((c) => c[0])).toEqual(['alice put on ESPN', 'alice stopped live TV'])
+      const clearOptions = calls[1][1] as { id: string; action?: unknown }
+      expect(clearOptions.id).toBe('live-channel-change')
+      // Sonner spreads the update over the existing toast, so the key must be
+      // present (as undefined) to remove the earlier Watch button.
+      expect(Object.hasOwn(clearOptions, 'action')).toBe(true)
+      expect(clearOptions.action).toBeUndefined()
+    })
+
+    test('shows nothing for an unattributed clear', () => {
+      const ws = connect()
+
+      act(() => {
+        ws.simulateMessage({ type: 'channel_update', channel: null })
+      })
+
+      expect(toast).not.toHaveBeenCalled()
+    })
+
+    test('rapid switches reuse one toast id so they replace each other', () => {
+      const ws = connect()
+
+      act(() => {
+        ws.simulateMessage({ type: 'channel_update', channel: espn, changedBy: 'alice' })
         ws.simulateMessage({
           type: 'channel_update',
-          channel: { id: '3', name: 'TSN Sports Network', streamUrl: 'http://stream.url/tsn' },
+          channel: { id: '3', name: 'TSN', streamUrl: 'http://stream.url/tsn' },
+          changedBy: 'bob',
         })
       })
 
-      expect(toast).toHaveBeenCalledWith('Live channel set to: TSN Sports Network', { id: 'channel-update-3', duration: 5000 })
+      const calls = vi.mocked(toast).mock.calls
+      expect(calls.map((c) => c[0])).toEqual(['alice put on ESPN', 'bob put on TSN'])
+      expect(calls.map((c) => (c[1] as { id: string }).id)).toEqual(['live-channel-change', 'live-channel-change'])
+    })
+
+    test('stores the last change even when pop-ups are off', () => {
+      useUIStore.setState({ notificationsEnabled: false })
+      vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000)
+      const ws = connect()
+
+      act(() => {
+        ws.simulateMessage({ type: 'channel_update', channel: espn, changedBy: 'alice' })
+      })
+
+      expect(useChannelStore.getState().lastChange).toEqual({
+        by: 'alice',
+        at: 1_700_000_000_000,
+        channelName: 'ESPN',
+      })
+
+      act(() => {
+        ws.simulateMessage({ type: 'channel_update', channel: null })
+      })
+
+      expect(useChannelStore.getState().lastChange).toEqual({
+        by: null,
+        at: 1_700_000_000_000,
+        channelName: null,
+      })
     })
 
     test('respects notification preference change during session', () => {
       useUIStore.setState({ notificationsEnabled: false })
-      renderHook(() => useWebSocket())
-      const ws = MockWebSocket.instances[0]
-
-      act(() => {
-        ws.simulateOpen()
-      })
+      const ws = connect()
 
       // First update with notifications disabled
       act(() => {
         ws.simulateMessage({
           type: 'channel_update',
           channel: { id: '1', name: 'Channel 1', streamUrl: 'http://stream.url/1' },
+          changedBy: 'alice',
         })
       })
 
@@ -886,10 +1060,11 @@ describe('useWebSocket', () => {
         ws.simulateMessage({
           type: 'channel_update',
           channel: { id: '2', name: 'Channel 2', streamUrl: 'http://stream.url/2' },
+          changedBy: 'alice',
         })
       })
 
-      expect(toast).toHaveBeenCalledWith('Live channel set to: Channel 2', { id: 'channel-update-2', duration: 5000 })
+      expect(vi.mocked(toast).mock.calls[0][0]).toBe('alice put on Channel 2')
     })
   })
 

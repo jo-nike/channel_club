@@ -144,5 +144,5 @@ async def clear_current_channel(
         Status confirmation dict.
     """
     log.info("Admin {} clearing current channel", current_user.sub)
-    await channel_state.clear_current_channel_async()
+    await channel_state.clear_current_channel_async(user=current_user.sub)
     return {"status": "cleared"}

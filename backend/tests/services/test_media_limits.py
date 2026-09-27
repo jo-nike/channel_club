@@ -179,6 +179,6 @@ async def test_channel_selection_broadcasts_even_when_highlights_unavailable(fai
                 result = await channel_state.set_current_channel(channel, user="alice")
             assert result == channel
             assert channel_state.get_current_channel() == channel
-            broadcast.assert_awaited_once_with(channel)
+            broadcast.assert_awaited_once_with(channel, changed_by="alice")
     finally:
         channel_state.clear_current_channel()

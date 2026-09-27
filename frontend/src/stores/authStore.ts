@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { logger } from '@/lib/logger'
+import { getTokenSubject } from '@/lib/jwt'
 
 interface AuthState {
   generation: number
@@ -29,7 +30,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (username) {
       localStorage.setItem('username', username)
     }
-    set({ generation: get().generation + 1, token, role, username: username ?? null, isAuthenticated: true })
+    // Plex logins pass no username; the token's subject is the username then
+    set({
+      generation: get().generation + 1,
+      token,
+      role,
+      username: username || getTokenSubject(token),
+      isAuthenticated: true,
+    })
   },
 
   logout: () => {
@@ -45,9 +53,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     logger.debug('Auth', 'Initializing auth state from localStorage')
     const token = localStorage.getItem('token')
     const role = localStorage.getItem('role') as 'admin' | 'viewer' | null
-    const username = localStorage.getItem('username')
     if (token && role) {
       logger.debug('Auth', `Restored session for role: ${role}`)
+      const username = localStorage.getItem('username') || getTokenSubject(token)
       set({ generation: get().generation + 1, token, role, username, isAuthenticated: true, isInitializing: false })
     } else {
       logger.debug('Auth', 'No existing session found')

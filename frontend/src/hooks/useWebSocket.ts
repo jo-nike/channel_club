@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/authStore'
 import { useChannelStore } from '@/stores/channelStore'
+import { useTVStore } from '@/stores/tvStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useSettingsStore } from '@/stores/settingsStore'
@@ -13,6 +14,8 @@ import type { AppSettings, Channel, ChatMessage } from '@/types'
 interface WebSocketMessage {
   type: string
   channel?: Channel | null
+  // Username of whoever changed the live channel (channel_update); absent from older servers
+  changedBy?: string | null
   currentChannel?: Channel | null
   settings?: AppSettings
   // Chat message fields
@@ -35,6 +38,42 @@ const MAX_BACKOFF = 10000 // 10 seconds
 const SLOW_RETRY_INTERVAL = 30000 // 30 seconds
 const SLOW_RETRY_JITTER = 5000 // up to 5 seconds
 
+// One fixed id, so rapid live-channel switches replace the toast instead of stacking
+const LIVE_CHANGE_TOAST_ID = 'live-channel-change'
+const LIVE_CHANGE_TOAST_DURATION = 5000
+
+/**
+ * Tell the viewer someone changed the live channel (channel 0), naming who.
+ * Skipped for the person who made the change and for viewers already on
+ * channel 0, who see the change happen in the player.
+ */
+function notifyLiveChange(channel: Channel | null, changedBy: string | null) {
+  if (changedBy && changedBy === useAuthStore.getState().username) return
+  if (useTVStore.getState().selectedChannel?.type === 'live') return
+
+  if (channel) {
+    toast(changedBy ? `${changedBy} put on ${channel.name}` : `Live channel set to ${channel.name}`, {
+      id: LIVE_CHANGE_TOAST_ID,
+      duration: LIVE_CHANGE_TOAST_DURATION,
+      action: {
+        label: 'Watch',
+        onClick: () => {
+          const tv = useTVStore.getState()
+          tv.selectChannel(tv.getUnifiedChannels()[0])
+        },
+      },
+    })
+  } else if (changedBy) {
+    // Sonner merges an update into a visible toast with the same id, so an
+    // omitted action would keep the previous 'put on' toast's Watch button.
+    toast(`${changedBy} stopped live TV`, {
+      id: LIVE_CHANGE_TOAST_ID,
+      duration: LIVE_CHANGE_TOAST_DURATION,
+      action: undefined,
+    })
+  }
+}
+
 interface UseWebSocketOptions {
   view?: 'live' | 'ersatztv' | 'tv'
 }
@@ -53,6 +92,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   const { view = 'live' } = options
   const token = useAuthStore((s) => s.token)
   const setCurrentChannel = useChannelStore((s) => s.setCurrentChannel)
+  const setLastChange = useChannelStore((s) => s.setLastChange)
   const notificationsEnabled = useUIStore((s) => s.notificationsEnabled)
   const chatEnabled = useChatEnabled()
   const addChatMessage = useChatStore((s) => s.addMessage)
@@ -114,19 +154,18 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           }
           break
 
-        case 'channel_update':
+        case 'channel_update': {
           logger.debug('WebSocket', `Channel update: ${message.channel?.name || 'null'}`)
           // A null channel means the channel was cleared - propagate it too
-          setCurrentChannel(message.channel ?? null)
-          // Show notification toast if enabled
-          if (message.channel && notificationsEnabledRef.current) {
-            const channelName = message.channel.name
-            toast(`Live channel set to: ${channelName}`, {
-              id: `channel-update-${message.channel.id}`,
-              duration: 5000,
-            })
+          const channel = message.channel ?? null
+          const changedBy = message.changedBy ?? null
+          setCurrentChannel(channel)
+          setLastChange({ by: changedBy, at: Date.now(), channelName: channel?.name ?? null })
+          if (notificationsEnabledRef.current) {
+            notifyLiveChange(channel, changedBy)
           }
           break
+        }
 
         case 'pong':
           // Ping acknowledged, connection healthy
@@ -157,7 +196,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           logger.warn('WebSocket', `Unknown message type: ${message.type}`, message)
       }
     },
-    [setCurrentChannel, chatEnabled, addChatMessage, setChatMessages, setUserChannelSelection]
+    [setCurrentChannel, setLastChange, chatEnabled, addChatMessage, setChatMessages, setUserChannelSelection]
   )
 
   const connect = useCallback(
