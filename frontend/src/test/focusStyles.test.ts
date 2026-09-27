@@ -91,14 +91,11 @@ describe('ui primitives rely on the global focus outline', () => {
 })
 
 // Component sources that later packages rewrite or delete, so they keep their
-// old focus classes until then: the header actions (W2-header-actions), the
-// old account menu and feedback button (W2-account-menu) and the old player
-// control bars (W2-chrome-*). Paths that no longer exist are simply absent
-// from the glob, so deleting one needs no edit here.
+// old focus classes until then: the old account menu and feedback button
+// (W2-account-menu) and the old player control bars (W2-chrome-*). Paths that
+// no longer exist are simply absent from the glob, so deleting one needs no
+// edit here.
 const ALLOWLIST = new Set([
-  '/src/components/tv/TVView.tsx',
-  '/src/components/tv/TVHeader.tsx',
-  '/src/components/ChatToggleButton.tsx',
   '/src/components/FeedbackButton.tsx',
   '/src/components/UserSettingsMenu.tsx',
   '/src/components/VideoControls.tsx',
@@ -124,7 +121,15 @@ describe('component focus styles', () => {
 
   it('scans the component sources', () => {
     expect(checked.length).toBeGreaterThan(20)
-    expect(checked.map(([path]) => path)).toContain('/src/components/ui/button.tsx')
+    expect(checked.map(([path]) => path)).toEqual(
+      expect.arrayContaining([
+        '/src/components/ui/button.tsx',
+        '/src/components/HeaderAction.tsx',
+        '/src/components/ChatToggleButton.tsx',
+        '/src/components/tv/TVHeader.tsx',
+        '/src/components/tv/TVView.tsx',
+      ]),
+    )
   })
 
   it.each(checked)('%s uses no click-time or low-contrast focus utilities', (_path, source) => {
