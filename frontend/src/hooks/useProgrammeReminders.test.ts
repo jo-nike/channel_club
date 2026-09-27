@@ -269,6 +269,34 @@ describe('useProgrammeReminders', () => {
     expect(lastToast()[0]).toBe('Futurama starts now on Cartoons')
   })
 
+  it('waits for a programme more than 24.8 days out instead of firing in a loop', () => {
+    const DAY = 24 * 60 * 60_000
+    // Past the longest delay setTimeout can hold (2^31-1 ms)
+    useReminderStore.getState().add({ ...futurama, startMs: NOW + 30 * DAY })
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout')
+    renderHook(() => useProgrammeReminders())
+    expect(setTimeoutSpy).toHaveBeenCalledTimes(1)
+
+    act(() => {
+      vi.advanceTimersByTime(60_000)
+    })
+    // An overflowing delay would have fired after 1 ms and rescheduled itself every ms since
+    expect(setTimeoutSpy).toHaveBeenCalledTimes(1)
+    expect(toast).not.toHaveBeenCalled()
+
+    act(() => {
+      vi.advanceTimersByTime(30 * DAY - 60_000 - 1)
+    })
+    expect(toast).not.toHaveBeenCalled()
+    expect(reminderIds()).toEqual(['ch2_1'])
+
+    act(() => {
+      vi.advanceTimersByTime(1)
+    })
+    expect(lastToast()[0]).toBe('Futurama starts now on Cartoons')
+    setTimeoutSpy.mockRestore()
+  })
+
   it('picks up a reminder added while it is running', () => {
     renderHook(() => useProgrammeReminders())
     act(() => {
