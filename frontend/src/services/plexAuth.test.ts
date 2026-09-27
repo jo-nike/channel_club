@@ -388,6 +388,57 @@ describe('plexAuth', () => {
     })
   })
 
+  describe('with site storage blocked', () => {
+    const realSessionStorage = window.sessionStorage
+    const originalLocation = window.location
+    let assign: ReturnType<typeof vi.fn>
+    const blocked = () => {
+      throw new DOMException('The operation is insecure.', 'SecurityError')
+    }
+
+    beforeEach(() => {
+      assign = vi.fn()
+      Object.defineProperty(window, 'location', {
+        value: { ...originalLocation, origin: 'https://club.example', assign },
+        writable: true,
+        configurable: true,
+      })
+      Object.defineProperty(window, 'sessionStorage', {
+        value: { getItem: blocked, setItem: blocked, removeItem: blocked, clear: blocked },
+        writable: true,
+        configurable: true,
+      })
+    })
+
+    afterEach(() => {
+      Object.defineProperty(window, 'location', {
+        value: originalLocation,
+        writable: true,
+        configurable: true,
+      })
+      Object.defineProperty(window, 'sessionStorage', {
+        value: realSessionStorage,
+        writable: true,
+        configurable: true,
+      })
+    })
+
+    it('reports no pending PIN instead of throwing', () => {
+      expect(hasPendingPlexPin()).toBe(false)
+      expect(takePendingPlexPin()).toBeNull()
+    })
+
+    it('rejects pin_failed and stays on the page when the PIN cannot be remembered', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(pinResponse())
+
+      await expect(authenticateWithPlexRedirect()).rejects.toMatchObject({
+        name: 'PlexAuthError',
+        code: 'pin_failed',
+      })
+      expect(assign).not.toHaveBeenCalled()
+    })
+  })
+
   describe('pending redirect PIN', () => {
     beforeEach(() => sessionStorage.clear())
     afterEach(() => sessionStorage.clear())
