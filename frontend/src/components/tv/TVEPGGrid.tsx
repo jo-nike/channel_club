@@ -28,7 +28,13 @@ import {
   type IndexedProgramme,
   type ProgrammeIndex,
 } from '@/lib/programmeIndex'
-import { calculateProgress, formatRemaining, formatRemainingSpoken, type ProgrammeState } from '@/lib/programmes'
+import {
+  calculateProgress,
+  formatRemaining,
+  formatRemainingSpoken,
+  getProgrammeStateAt,
+  type ProgrammeState,
+} from '@/lib/programmes'
 import { cn } from '@/lib/utils'
 import type { UnifiedChannel, ErsatzTVProgramme, EPGResponse } from '@/types'
 
@@ -584,7 +590,7 @@ const ChannelRow = memo(function ChannelRow({
             const visualLeft = Math.max(0, left)
             // Each block gets its state and geometry as primitives, so a clock
             // tick re-renders only the blocks whose state or progress changed
-            const state = stateAt(startMs, stopMs, now)
+            const state = getProgrammeStateAt(startMs, stopMs, now)
             const isNow = state === 'now'
             return (
               <ProgrammeBox
@@ -908,13 +914,6 @@ function findCellElement(container: HTMLElement, cell: GridCell): HTMLElement | 
     if (element.dataset.gridRow === cell.rowId && (element.dataset.gridBlock ?? null) === cell.blockId) return element
   }
   return null
-}
-
-// Where a programme sits relative to now: start is inclusive, stop is exclusive
-function stateAt(startMs: number, stopMs: number, nowMs: number): ProgrammeState {
-  if (nowMs < startMs) return 'future'
-  if (nowMs < stopMs) return 'now'
-  return 'past'
 }
 
 const NO_ENTRIES: readonly IndexedProgramme[] = []

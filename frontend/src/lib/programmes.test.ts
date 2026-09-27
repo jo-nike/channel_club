@@ -6,6 +6,7 @@ import {
   formatRemainingSpoken,
   formatStartsIn,
   getProgrammeState,
+  getProgrammeStateAt,
 } from './programmes'
 
 const MINUTE = 60_000
@@ -28,6 +29,34 @@ describe('getProgrammeState', () => {
 
   it('is past at the stop instant (stop is exclusive)', () => {
     expect(getProgrammeState(programme, at('2026-01-03T19:47:00Z'))).toBe('past')
+  })
+})
+
+describe('getProgrammeStateAt', () => {
+  const startMs = at('2026-01-03T19:22:00Z')
+  const stopMs = at('2026-01-03T19:47:00Z')
+
+  it('is future before the start', () => {
+    expect(getProgrammeStateAt(startMs, stopMs, startMs - 1)).toBe('future')
+  })
+
+  it('is now from the start instant (start is inclusive)', () => {
+    expect(getProgrammeStateAt(startMs, stopMs, startMs)).toBe('now')
+  })
+
+  it('is now until just before the stop', () => {
+    expect(getProgrammeStateAt(startMs, stopMs, stopMs - 1)).toBe('now')
+  })
+
+  it('is past at the stop instant (stop is exclusive)', () => {
+    expect(getProgrammeStateAt(startMs, stopMs, stopMs)).toBe('past')
+  })
+
+  it('agrees with getProgrammeState on the same programme at every edge', () => {
+    const programme = { start: '2026-01-03T19:22:00Z', stop: '2026-01-03T19:47:00Z' }
+    for (const nowMs of [startMs - MINUTE, startMs - 1, startMs, startMs + MINUTE, stopMs - 1, stopMs, stopMs + MINUTE]) {
+      expect(getProgrammeStateAt(startMs, stopMs, nowMs)).toBe(getProgrammeState(programme, nowMs))
+    }
   })
 })
 

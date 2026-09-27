@@ -623,6 +623,18 @@ describe('TVEPGGrid programme states', () => {
     }
   })
 
+  it('counts a block on now from its start instant and past from its stop instant', () => {
+    const edges = { etv1: [
+      { id: 'ending', channelId: 'etv1', title: 'Ending Film', start: at(-30), stop: at(0) },
+      { id: 'starting', channelId: 'etv1', title: 'Starting Film', start: at(0), stop: at(30) },
+    ] }
+    render(<TVEPGGrid programmesByChannel={edges} />)
+
+    // Start is inclusive, stop is exclusive, as getProgrammeState has it
+    expect(block('Ending Film')).toHaveAttribute('data-state', 'past')
+    expect(block('Starting Film')).toHaveAttribute('data-state', 'now')
+  })
+
   it('moves a block from future to now when the clock reaches its start', () => {
     const soon = { etv1: [{ id: 'soon', channelId: 'etv1', title: 'Soon Film', start: at(1), stop: at(31) }] }
     render(<TVEPGGrid programmesByChannel={soon} />)
