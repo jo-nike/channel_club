@@ -23,6 +23,7 @@ import { GrindhouseFilter } from '@/components/filters/GrindhouseFilter'
 import { SportsHDFilter } from '@/components/filters/SportsHDFilter'
 import { useFilterStore } from '@/stores/filterStore'
 import { useUIStore } from '@/stores/uiStore'
+import { useAudioStore } from '@/stores/audioStore'
 import { getErsatzTVStreamUrl } from '@/services/ersatztvApi'
 import type { UnifiedChannel } from '@/types'
 
@@ -156,16 +157,20 @@ function LiveVideoPlayer({
   const [isBuffering, setIsBuffering] = useState(false)
   // Video state
   const [isPlaying, setIsPlaying] = useState(false)
-  const [volume, setVolume] = useState(() => getInitialVolume())
-  const [isMuted, setIsMuted] = useState(false)
+  // Muted by something other than the viewer (e.g. the clip preview duck); display only
+  const [isElementMuted, setIsElementMuted] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [isHoveringControls, setIsHoveringControls] = useState(false)
 
   // Detect TV mode
   const isTVMode = useTVMode()
 
-  // Volume persistence (shared with the HLS player via uiStore)
-  const setStoredVolume = useUIStore((s) => s.setVolume)
+  // Saved volume and mute (shared by every player); only user actions write them
+  const volume = useAudioStore((s) => s.volume)
+  const isStoreMuted = useAudioStore((s) => s.muted)
+  const setStoredVolume = useAudioStore((s) => s.setVolume)
+  const setStoredMuted = useAudioStore((s) => s.setMuted)
+  const isMuted = isStoreMuted || isElementMuted
 
   // Video filter state
   const isRetroTVActive = useFilterStore((s) => s.isFilterActive('retro-tv'))
@@ -212,27 +217,21 @@ function LiveVideoPlayer({
   }, [])
 
   const handleVolumeChange = useCallback((newVolume: number) => {
+    setStoredVolume(newVolume)
+
+    // Choosing an audible level also clears a mute that only the element had
     const video = videoRef.current
-    if (!video) return
-
-    const clampedVolume = Math.max(0, Math.min(1, newVolume))
-    video.volume = clampedVolume
-    setVolume(clampedVolume)
-    setStoredVolume(clampedVolume)
-
-    if (video.muted && clampedVolume > 0) {
-      video.muted = false
-      setIsMuted(false)
-    }
+    if (video && !useAudioStore.getState().muted) video.muted = false
   }, [setStoredVolume])
 
   const handleMuteToggle = useCallback(() => {
     const video = videoRef.current
     if (!video) return
 
-    video.muted = !video.muted
-    setIsMuted(video.muted)
-  }, [])
+    const next = !(useAudioStore.getState().muted || video.muted)
+    setStoredMuted(next)
+    if (!next) video.muted = false
+  }, [setStoredMuted])
 
   const handleFullscreenToggle = useCallback(() => {
     const container = containerRef.current
@@ -253,7 +252,7 @@ function LiveVideoPlayer({
     onFullscreenToggle: handleFullscreenToggle,
     onTheaterModeToggle,
     onVolumeChange: handleVolumeChange,
-    volume,
+    volume: isMuted ? 0 : volume,
   })
 
   // Auto-fullscreen on mobile landscape
@@ -275,13 +274,20 @@ function LiveVideoPlayer({
   // Check mpegts.js support
   const isMpegtsSupported = mpegts.isSupported()
 
+  // Apply the saved volume and mute to the element. Declared before the
+  // mpegts effect so a new stream starts at the viewer's level.
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+
+    video.volume = volume
+    video.muted = isStoreMuted
+  }, [volume, isStoreMuted])
+
   // Setup mpegts.js player
   useEffect(() => {
     const video = videoRef.current
     if (!video || !isMpegtsSupported) return
-
-    video.volume = volume
-    video.muted = isMuted
 
     const player = mpegts.createPlayer({
       type: 'mpegts',
@@ -308,9 +314,9 @@ function LiveVideoPlayer({
     const handlePause = () => setIsPlaying(false)
     const handlePlay = () => setIsPlaying(true)
     const handleError = () => setError('Stream unavailable')
+    // Never saved: element-only mutes (the clip preview duck) must not stick
     const handleVolumeChangeEvent = () => {
-      setVolume(video.volume)
-      setIsMuted(video.muted)
+      setIsElementMuted(video.muted)
     }
 
     video.addEventListener('waiting', handleWaiting)

@@ -8,6 +8,7 @@ import { HighlightModal } from './HighlightModal'
 import { CastButton } from './CastButton'
 import { FilterMenu } from './FilterMenu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useAudioStore } from '@/stores/audioStore'
 
 export interface VideoControlsProps {
   videoRef: RefObject<HTMLVideoElement | null>
@@ -81,9 +82,9 @@ export function VideoControls({
   const acquirePreviewAudio = useCallback(() => {
     const player = videoRef.current
     if (!player) return () => {}
-    const wasMuted = player.muted
     player.muted = true
-    return () => { player.muted = wasMuted }
+    // Restore the viewer's saved choice, which may have changed during the preview
+    return () => { player.muted = useAudioStore.getState().muted }
   }, [videoRef])
 
   return (
