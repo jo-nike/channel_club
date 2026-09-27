@@ -19,6 +19,7 @@ export function ChatToggleButton() {
 
   // A disclosure for the chat panel (aria-expanded), not a pressed toggle.
   // Its name stays 'Chat' open or closed, so it reads "Chat, expanded".
+  // The filled button gets a ring while open, so the state shows as well.
   const label = unreadCount > 0 ? `Chat, ${unreadCount} new` : 'Chat'
   return (
     <HeaderAction
@@ -31,6 +32,7 @@ export function ChatToggleButton() {
       aria-expanded={isOpen}
       aria-controls="chat-panel"
       aria-keyshortcuts="C"
+      className="aria-expanded:ring-2 aria-expanded:ring-primary aria-expanded:ring-offset-2 aria-expanded:ring-offset-background"
       onClick={toggleOpen}
     />
   )

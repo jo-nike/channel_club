@@ -132,6 +132,20 @@ describe('NowWatching', () => {
       expect(screen.queryByText('CH 4 · Cinema · 32m left')).not.toBeInTheDocument()
     })
 
+    it("on a phone, leaves the room to the channel name: 'Live now:' is for screen readers below md", () => {
+      setLiveChannel(true)
+      useTVStore.setState({ selectedChannel: cinema })
+      render(<NowWatching isMobile />)
+
+      expect(joinChip()).toHaveAccessibleName(/Live now: CA-S: TSN 5/)
+      const prefix = screen.getByText('Live now:', { exact: false, selector: 'span.sr-only' })
+      expect(prefix).toHaveClass('sr-only', 'md:not-sr-only', 'md:whitespace-nowrap')
+      // Shown at md, it still never wraps after 'Live'
+      // Only the name truncates; the prefix can't take its room
+      expect(prefix.parentElement).toHaveClass('truncate')
+      expect(prefix.parentElement).toHaveTextContent('Live now: CA-S: TSN 5')
+    })
+
     it('on desktop, shows beside the block only while the channel sidebar is collapsed', () => {
       setLiveChannel(true)
       useTVStore.setState({ selectedChannel: cinema })

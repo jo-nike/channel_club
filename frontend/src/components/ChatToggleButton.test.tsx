@@ -68,11 +68,34 @@ describe('ChatToggleButton', () => {
     useChatStore.setState({ unreadCount: 5 })
     render(<ChatToggleButton />)
 
-    expect(screen.getByText('5')).toHaveClass(
+    const badge = screen.getByText('5')
+    expect(badge).toHaveClass(
       'bg-destructive',
       'text-destructive-foreground',
-      'dark:bg-destructive/60'
+      'dark:bg-[color-mix(in_oklab,var(--destructive)_60%,var(--background))]',
+      'ring-2',
+      'ring-background'
     )
+    // Opaque: a translucent fill would composite with the amber button under it
+    expect(badge.className).not.toMatch(/bg-destructive\//)
+  })
+
+  it('shows a ring while chat is open, so open and closed look different', () => {
+    render(<ChatToggleButton />)
+    const button = screen.getByRole('button', { name: 'Chat' })
+    // The ring keys on aria-expanded, so it is only drawn in the open state
+    expect(button).toHaveClass(
+      'aria-expanded:ring-2',
+      'aria-expanded:ring-primary',
+      'aria-expanded:ring-offset-2',
+      'aria-expanded:ring-offset-background'
+    )
+    expect(button).toHaveAttribute('aria-expanded', 'false')
+
+    act(() => {
+      useChatStore.setState({ isOpen: true })
+    })
+    expect(button).toHaveAttribute('aria-expanded', 'true')
   })
 
   it('shows 9+ when unread count exceeds 9', () => {

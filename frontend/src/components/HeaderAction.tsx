@@ -14,7 +14,8 @@ interface HeaderActionProps extends Omit<ComponentProps<'button'>, 'children'> {
   visibleLabel?: string
   // Toggle state (aria-pressed); leave undefined for plain actions
   pressed?: boolean
-  // Count shown on the corner, capped at 9+; hidden at 0
+  // Count shown on the corner, capped at 9+; hidden at 0. A background ring
+  // keeps it apart from a filled button
   badge?: number
   // 'default' is the filled primary button, for the one main action
   variant?: 'toolbar' | 'default'
@@ -45,7 +46,7 @@ export function HeaderAction({
         >
           {icon}
           {visibleLabel && <span className="hidden lg:inline">{visibleLabel}</span>}
-          {badge !== undefined && <UnreadBadge count={badge} className="absolute -top-1.5 -right-1.5" />}
+          {badge !== undefined && <UnreadBadge count={badge} className="absolute -top-1.5 -right-1.5 ring-2 ring-background" />}
         </Button>
       </TooltipTrigger>
       <TooltipContent>

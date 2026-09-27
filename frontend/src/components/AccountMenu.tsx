@@ -191,7 +191,7 @@ export function AccountMenu({
             <span className="flex flex-col">
               <span id={hideActivityLabelId}>Hide what I'm watching</span>
               <span id={hideActivityHintId} className="text-xs text-muted-foreground">
-                Others see only your name. Admins still see it.
+                Others see only your name, and you won't see their channels. Admins still see yours.
               </span>
             </span>
           </DropdownMenuCheckboxItem>
