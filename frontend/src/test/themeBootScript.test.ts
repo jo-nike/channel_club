@@ -27,8 +27,13 @@ class FakeMeta {
 /**
  * Run the boot script against a fake document and localStorage. The head
  * holds the static theme-color meta from index.html unless `withMeta` is false.
+ * `prefersDark` sets what matchMedia('(prefers-color-scheme: dark)') reports;
+ * left undefined, there is no matchMedia at all.
  */
-function boot(getItem: (key: string) => string | null, { withMeta = true } = {}) {
+function boot(
+  getItem: (key: string) => string | null,
+  { withMeta = true, prefersDark }: { withMeta?: boolean; prefersDark?: boolean } = {}
+) {
   const vars = new Map<string, string>()
   const classes = new Set<string>()
   const head: FakeMeta[] = []
@@ -53,7 +58,11 @@ function boot(getItem: (key: string) => string | null, { withMeta = true } = {})
         ? (head.find((el) => el.attributes.get('name') === 'theme-color') ?? null)
         : null,
   }
-  runInNewContext(script, { document, localStorage: { getItem } })
+  const matchMedia =
+    prefersDark === undefined
+      ? undefined
+      : (query: string) => ({ matches: query === '(prefers-color-scheme: dark)' && prefersDark })
+  runInNewContext(script, { document, localStorage: { getItem }, matchMedia })
   const metas = head.filter((el) => el.attributes.get('name') === 'theme-color')
   return {
     vars,
@@ -122,6 +131,43 @@ describe('index.html theme boot script', () => {
 
     expect(result.dark).toBe(true)
     expect(result.vars.get('--background')).toBe(getTheme('dracula').colors.background)
+  })
+
+  describe('a snapshot that follows the system', () => {
+    const dracula = getTheme('dracula')
+    const latte = getTheme('catppuccin-latte')
+    // Written on a dark device, so the top level is Dracula
+    const auto = JSON.stringify(createThemeBoot(dracula, { dark: dracula, light: latte }))
+
+    it('applies the light pick when the device is light now', () => {
+      const result = boot(() => auto, { prefersDark: false })
+
+      expect(result.dark).toBe(false)
+      expect(Object.fromEntries(result.vars)).toEqual(createThemeBoot(latte).vars)
+      expect(result.themeColor).toBe(toHex(latte.colors.background))
+    })
+
+    it('applies the dark pick when the device is dark', () => {
+      const result = boot(() => auto, { prefersDark: true })
+
+      expect(result.dark).toBe(true)
+      expect(Object.fromEntries(result.vars)).toEqual(createThemeBoot(dracula).vars)
+      expect(result.themeColor).toBe(toHex(dracula.colors.background))
+    })
+
+    it('applies the theme it was written with where matchMedia is missing', () => {
+      const result = boot(() => auto)
+
+      expect(result.dark).toBe(true)
+      expect(result.vars.get('--background')).toBe(dracula.colors.background)
+    })
+
+    it('ignores the scheme for a snapshot that does not follow the system', () => {
+      const result = boot(() => JSON.stringify(createThemeBoot(dracula)), { prefersDark: false })
+
+      expect(result.dark).toBe(true)
+      expect(result.vars.get('--background')).toBe(dracula.colors.background)
+    })
   })
 
   it('falls back to dark with the default (Club Night) background when nothing is cached', () => {

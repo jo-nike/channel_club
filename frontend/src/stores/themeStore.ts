@@ -30,6 +30,15 @@ export function activeThemeId(state: ThemeChoice): ThemeId {
   return state.mode === 'dark' ? state.darkThemeId : state.lightThemeId
 }
 
+/**
+ * The theme on screen: in Auto, the dark or light pick to match the
+ * device's colour scheme; otherwise the pick for the chosen mode
+ */
+export function resolveThemeId(state: ThemeChoice, systemPrefersDark: boolean): ThemeId {
+  if (!state.followSystem) return activeThemeId(state)
+  return systemPrefersDark ? state.darkThemeId : state.lightThemeId
+}
+
 /** v0 saved a single themeId; v1 keeps it in the slot for its mode */
 function fromThemeId(themeId: unknown): ThemeChoice {
   const theme = getTheme(themeId as ThemeId)
