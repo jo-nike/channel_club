@@ -113,6 +113,7 @@ export function TVView() {
   const liveEPG = useTVStore((s) => s.liveEPG)
   const loadLiveEPG = useTVStore((s) => s.loadLiveEPG)
   const loadLiveProgrammes = useTVStore((s) => s.loadLiveProgrammes)
+  const loadLiveGuideOnce = useTVStore((s) => s.loadLiveGuideOnce)
   const getUnifiedChannels = useTVStore((s) => s.getUnifiedChannels)
 
   // UI state
@@ -387,12 +388,12 @@ export function TVView() {
     }
   }, [ersatzTVChannels.length, channelsLoading])
 
-  // Load live EPG when live channel changes
+  // The live channel's now-playing and schedule when the view opens. The
+  // store looks them up again itself whenever live TV changes, so this only
+  // fetches what it hasn't already: each change is one request of each.
   useEffect(() => {
-    if (liveChannel) {
-      loadLiveEPG()
-    }
-  }, [liveChannel, loadLiveEPG])
+    loadLiveGuideOnce()
+  }, [loadLiveGuideOnce])
 
   // Refresh live metadata at its boundary, with a one-minute fallback even
   // when the optional catalogue is unavailable or the upstream EPG fails.
@@ -411,11 +412,10 @@ export function TVView() {
     return () => { active = false; clearTimeout(timer) }
   }, [liveChannel?.guideId, liveEPG, loadLiveEPG])
 
-  // The live channel's schedule for the guide: now, then every 30 minutes.
-  // The store reloads it itself when live TV switches, and a lookup with
-  // nothing on live TV fetches nothing.
+  // The live channel's schedule for the guide, every 30 minutes after the
+  // first lookup above. The store reloads it itself when live TV switches,
+  // and a lookup with nothing on live TV fetches nothing.
   useEffect(() => {
-    loadLiveProgrammes()
     const interval = setInterval(loadLiveProgrammes, LIVE_SCHEDULE_REFRESH_INTERVAL)
     return () => clearInterval(interval)
   }, [loadLiveProgrammes])

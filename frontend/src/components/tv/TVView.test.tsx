@@ -89,7 +89,8 @@ beforeEach(() => {
   crash.player = false
   crash.chat = false
   useChatStore.setState({ isOpen: false, unreadCount: 0 })
-  useTVStore.setState({ selectedChannel: null, liveEPG: null, liveEPGStatus: 'idle' })
+  // Forget earlier tests' lookups, so each test's live channel is looked up afresh
+  useTVStore.setState({ selectedChannel: null, liveEPG: null, liveEPGStatus: 'idle', epgLookupGuideId: null, programmesLookupGuideId: null })
   useErsatztvStore.setState({ channels: [], channelsLoading: false, error: null })
   useUIStore.setState({ lastTVChannelId: null, isTheaterMode: false, isChannelSidebarCollapsed: false })
   useChannelStore.getState().setCurrentChannel({ id: 'a', name: 'A', streamUrl: 'https://fixture/a' })
@@ -183,6 +184,69 @@ describe('B-01 live channel schedule', () => {
     expect(fetchLiveProgrammes).toHaveBeenCalledTimes(1)
     await act(() => vi.advanceTimersByTimeAsync(60 * 1000))
     expect(fetchLiveProgrammes).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('B-09 one live guide request per change', () => {
+  const tsn = { id: 'tsn', name: 'TSN 5', streamUrl: '/tsn', guideId: 'guide-tsn' }
+  const sportsnet = { id: 'sn', name: 'Sportsnet', streamUrl: '/sn', guideId: 'guide-sn' }
+
+  beforeEach(() => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
+    vi.mocked(fetchNowPlaying).mockReset().mockResolvedValue({ channelId: 'guide-tsn', currentProgram: null })
+    vi.mocked(fetchLiveProgrammes).mockReset().mockResolvedValue({ channelId: 'guide-tsn', programmes: [] })
+  })
+
+  const counts = () => ({
+    nowPlaying: vi.mocked(fetchNowPlaying).mock.calls.length,
+    schedule: vi.mocked(fetchLiveProgrammes).mock.calls.length,
+  })
+
+  it('looks the live channel up once when it arrives after the view opens (page load)', async () => {
+    act(() => useChannelStore.getState().setCurrentChannel(null))
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await act(async () => {})
+    expect(counts()).toEqual({ nowPlaying: 0, schedule: 0 })
+
+    act(() => useChannelStore.getState().setCurrentChannel(tsn))
+    await act(async () => {})
+
+    expect(counts()).toEqual({ nowPlaying: 1, schedule: 1 })
+    expect(fetchNowPlaying).toHaveBeenCalledWith('guide-tsn', 'TSN 5')
+    expect(fetchLiveProgrammes).toHaveBeenCalledWith('guide-tsn', 'TSN 5')
+  })
+
+  it('looks the live channel up once when it was already on before the view opened', async () => {
+    act(() => useChannelStore.getState().setCurrentChannel(tsn))
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await act(async () => {})
+
+    expect(counts()).toEqual({ nowPlaying: 1, schedule: 1 })
+  })
+
+  it('looks a live channel up on opening when nothing has yet', async () => {
+    // The same channel as before (so no live switch), now with a guide id
+    act(() => useChannelStore.getState().setCurrentChannel({ id: 'a', name: 'A', streamUrl: '/a', guideId: 'guide-a' }))
+    expect(counts()).toEqual({ nowPlaying: 0, schedule: 0 })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await act(async () => {})
+
+    expect(counts()).toEqual({ nowPlaying: 1, schedule: 1 })
+    expect(fetchNowPlaying).toHaveBeenCalledWith('guide-a', 'A')
+  })
+
+  it('sends one now-playing and one schedule request per live switch', async () => {
+    act(() => useChannelStore.getState().setCurrentChannel(tsn))
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await act(async () => {})
+    vi.mocked(fetchNowPlaying).mockClear()
+    vi.mocked(fetchLiveProgrammes).mockClear()
+
+    act(() => useChannelStore.getState().setCurrentChannel(sportsnet))
+    await act(async () => {})
+
+    expect(counts()).toEqual({ nowPlaying: 1, schedule: 1 })
+    expect(fetchNowPlaying).toHaveBeenCalledWith('guide-sn', 'Sportsnet')
   })
 })
 

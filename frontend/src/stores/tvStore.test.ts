@@ -448,3 +448,82 @@ describe('buildUnifiedChannels logos', () => {
     expect(withoutLogo.logoUrl).toBeUndefined()
   })
 })
+
+describe('tvStore loadLiveGuideOnce', () => {
+  const sportsnet: Channel = { id: '31', name: 'CA-S: Sportsnet ONE', streamUrl: 'http://x/31', guideId: '9' }
+
+  beforeEach(() => {
+    vi.mocked(fetchNowPlaying).mockReset().mockResolvedValue(onNow)
+    vi.mocked(fetchLiveProgrammes).mockReset().mockResolvedValue({ channelId: '5', programmes: [] })
+    useChannelStore.setState({ currentChannel: null })
+    useTVStore.setState({ selectedChannel: null, epgLookupGuideId: null, programmesLookupGuideId: null })
+    vi.mocked(fetchNowPlaying).mockClear()
+    vi.mocked(fetchLiveProgrammes).mockClear()
+  })
+
+  it('skips a live channel the live switch already looked up', () => {
+    useChannelStore.getState().setCurrentChannel(sportsnet)
+    expect(fetchNowPlaying).toHaveBeenCalledTimes(1)
+    expect(fetchLiveProgrammes).toHaveBeenCalledTimes(1)
+
+    useTVStore.getState().loadLiveGuideOnce()
+
+    expect(fetchNowPlaying).toHaveBeenCalledTimes(1)
+    expect(fetchLiveProgrammes).toHaveBeenCalledTimes(1)
+  })
+
+  it('looks up a live channel nothing has looked up yet, once', () => {
+    // Put on with no guide id, so there's nothing to look up yet
+    useChannelStore.getState().setCurrentChannel({ ...sportsnet, guideId: '' })
+    // The same channel again with its guide id: not a switch, so no lookup
+    useChannelStore.getState().setCurrentChannel(sportsnet)
+    expect(fetchNowPlaying).not.toHaveBeenCalled()
+    expect(fetchLiveProgrammes).not.toHaveBeenCalled()
+
+    useTVStore.getState().loadLiveGuideOnce()
+    useTVStore.getState().loadLiveGuideOnce()
+
+    expect(fetchNowPlaying).toHaveBeenCalledTimes(1)
+    expect(fetchNowPlaying).toHaveBeenCalledWith('9', 'CA-S: Sportsnet ONE')
+    expect(fetchLiveProgrammes).toHaveBeenCalledTimes(1)
+    expect(fetchLiveProgrammes).toHaveBeenCalledWith('9', 'CA-S: Sportsnet ONE')
+  })
+
+  it("tunes to the live slot without a second lookup of a programme it's already looking up", () => {
+    useChannelStore.getState().setCurrentChannel(sportsnet)
+    expect(fetchNowPlaying).toHaveBeenCalledTimes(1)
+
+    useTVStore.getState().selectChannel(useTVStore.getState().getUnifiedChannels()[0])
+
+    expect(fetchNowPlaying).toHaveBeenCalledTimes(1)
+  })
+
+  it('looks the programme up on tuning to the live slot when nothing has yet', () => {
+    useChannelStore.getState().setCurrentChannel({ ...sportsnet, guideId: '' })
+    useChannelStore.getState().setCurrentChannel(sportsnet)
+    expect(fetchNowPlaying).not.toHaveBeenCalled()
+
+    useTVStore.getState().selectChannel(useTVStore.getState().getUnifiedChannels()[0])
+
+    expect(fetchNowPlaying).toHaveBeenCalledTimes(1)
+    expect(fetchNowPlaying).toHaveBeenCalledWith('9', 'CA-S: Sportsnet ONE')
+  })
+
+  it('looks nothing up with nothing on live TV', () => {
+    useTVStore.getState().loadLiveGuideOnce()
+
+    expect(fetchNowPlaying).not.toHaveBeenCalled()
+    expect(fetchLiveProgrammes).not.toHaveBeenCalled()
+  })
+
+  it('looks a channel up again after live TV stopped and it came back', () => {
+    useChannelStore.getState().setCurrentChannel(sportsnet)
+    useChannelStore.getState().setCurrentChannel(null)
+    useChannelStore.getState().setCurrentChannel(sportsnet)
+    expect(fetchNowPlaying).toHaveBeenCalledTimes(2)
+
+    useTVStore.getState().loadLiveGuideOnce()
+
+    expect(fetchNowPlaying).toHaveBeenCalledTimes(2)
+  })
+})

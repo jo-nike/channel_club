@@ -66,10 +66,19 @@ interface TVState {
   // Monotonic id used to discard out-of-order loadLiveProgrammes responses (internal)
   programmesRequestId: number
 
+  // The guide id the latest now-playing and schedule lookups were started
+  // for, null for none (internal): loadLiveGuideOnce skips a channel
+  // that's already been looked up
+  epgLookupGuideId: string | null
+  programmesLookupGuideId: string | null
+
   // Actions
   selectChannel: (channel: UnifiedChannel) => void
   loadLiveEPG: () => Promise<void>
   loadLiveProgrammes: () => Promise<void>
+  // The first lookups for the live channel on air, each only if it hasn't
+  // been looked up yet
+  loadLiveGuideOnce: () => void
 
   // Helpers
   getUnifiedChannels: () => UnifiedChannel[]
@@ -133,6 +142,8 @@ export const useTVStore = create<TVState>()(
     epgRequestId: 0,
     liveProgrammes: NO_PROGRAMMES,
     programmesRequestId: 0,
+    epgLookupGuideId: null,
+    programmesLookupGuideId: null,
 
     selectChannel: (channel: UnifiedChannel) => {
       logger.debug('TVStore', `Selected channel: ${channel.name} (${channel.type})`)
@@ -153,16 +164,19 @@ export const useTVStore = create<TVState>()(
         useUIStore.getState().setLastTVChannelId(LIVE_CHANNEL_ID)
       }
 
-      // If selecting live channel, load EPG
+      // Tuning to the live slot looks its programme up if nothing has yet.
+      // After that the live-switch subscription and the view's refresh keep
+      // it current, so this doesn't send a second request for the same one.
       if (channel.type === 'live') {
-        get().loadLiveEPG()
+        const guideId = useChannelStore.getState().currentChannel?.guideId || null
+        if (get().epgLookupGuideId !== guideId) get().loadLiveEPG()
       }
     },
 
     loadLiveEPG: async () => {
       const liveChannel = useChannelStore.getState().currentChannel
       const requestId = get().epgRequestId + 1
-      set({ epgRequestId: requestId })
+      set({ epgRequestId: requestId, epgLookupGuideId: liveChannel?.guideId || null })
 
       if (!liveChannel) {
         set({ liveEPG: null, liveEPGLoading: false, liveEPGStatus: 'idle' })
@@ -209,7 +223,7 @@ export const useTVStore = create<TVState>()(
       // Its own request id: the one-minute now-playing refreshes would
       // otherwise discard every schedule lookup in flight
       const requestId = get().programmesRequestId + 1
-      set({ programmesRequestId: requestId })
+      set({ programmesRequestId: requestId, programmesLookupGuideId: liveChannel?.guideId || null })
 
       // Nothing on live TV, or a channel without a guide id: no schedule
       if (!liveChannel?.guideId) {
@@ -234,6 +248,18 @@ export const useTVStore = create<TVState>()(
         if (isStale()) return
         set({ liveProgrammes: NO_PROGRAMMES })
       }
+    },
+
+    // The live-switch subscription below looks each new live channel up as
+    // it arrives, which can be before the view that shows it mounts; this
+    // covers a channel it didn't (the same channel coming back with a guide
+    // id), without a second request for one it did
+    loadLiveGuideOnce: () => {
+      const guideId = useChannelStore.getState().currentChannel?.guideId
+      if (!guideId) return
+      const { epgLookupGuideId, programmesLookupGuideId, loadLiveEPG, loadLiveProgrammes } = get()
+      if (epgLookupGuideId !== guideId) loadLiveEPG()
+      if (programmesLookupGuideId !== guideId) loadLiveProgrammes()
     },
 
     getUnifiedChannels: () =>
