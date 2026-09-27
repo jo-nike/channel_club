@@ -424,7 +424,7 @@ export function TVView() {
     return () => clearInterval(interval)
   }, [ersatzTVChannels.length, loadAllProgrammes, loadLiveEPG, selectedChannel?.type])
 
-  // Handle programme click from grid
+  // Handle programme click from the grid or the phone list's schedules
   const handleProgrammeClick = useCallback(
     (programme: ErsatzTVProgramme, channel: UnifiedChannel) => {
       // An ErsatzTV programme opens its details, if its channel is still listed
@@ -610,6 +610,7 @@ export function TVView() {
               <TabsContent value="channels" forceMount hidden={isChatOpen} className="epg-scroll min-h-0 flex-1 overflow-y-auto rounded-none">
                 <MobileChannelList
                   onChannelSelect={handleChannelSelect}
+                  onProgrammeClick={handleProgrammeClick}
                   liveEPGTitle={liveEPGTitle}
                   onPickLive={onPickLive}
                 />
@@ -637,6 +638,7 @@ export function TVView() {
               {isMobile ? (
                 <MobileChannelList
                   onChannelSelect={handleChannelSelect}
+                  onProgrammeClick={handleProgrammeClick}
                   liveEPGTitle={liveEPGTitle}
                   onPickLive={onPickLive}
                 />

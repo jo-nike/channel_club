@@ -405,6 +405,11 @@ describe('ProgrammeDetailsModal', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 
+  it('caps its height and scrolls inside, so a long synopsis fits a phone screen', () => {
+    render(<ProgrammeDetailsModal {...defaultProps} />)
+    expect(screen.getByRole('dialog')).toHaveClass('max-h-[85dvh]', 'overflow-y-auto')
+  })
+
   it('closes modal on X button click', () => {
     const onOpenChange = vi.fn()
     render(<ProgrammeDetailsModal {...defaultProps} onOpenChange={onOpenChange} />)
