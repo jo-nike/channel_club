@@ -2727,6 +2727,14 @@ describe('DualModeVideoPlayer empty live slot', () => {
     expect(screen.queryByText('Waiting for someone to put something on')).not.toBeInTheDocument()
   })
 
+  it('carries the hook the couch sizes it by', () => {
+    renderEmptySlot(vi.fn())
+
+    expect(screen.getByText('No live broadcast').closest('.live-slot-idle')).toContainElement(
+      screen.getByRole('button', { name: 'Pick a channel for everyone' })
+    )
+  })
+
   it('tells everyone else they are waiting, without blaming the admin', () => {
     renderEmptySlot()
 

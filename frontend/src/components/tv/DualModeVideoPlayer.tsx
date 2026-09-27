@@ -431,7 +431,8 @@ function NoLiveChannelPlaceholder({ onPickLive }: { onPickLive?: () => void }) {
   )
 
   return (
-    <div className="flex h-full w-full items-center justify-center bg-black">
+    // live-slot-idle: the couch sizes it for the TV (index.css)
+    <div className="live-slot-idle flex h-full w-full items-center justify-center bg-black">
       <div className="text-center">
         <p className="text-lg text-muted-foreground">No live broadcast</p>
         {stoppedBy && (
