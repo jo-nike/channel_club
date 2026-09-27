@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act } from '@/test/utils'
 import { useInstallPrompt } from './useInstallPrompt'
+import { logger } from '@/lib/logger'
 
 // Mock BeforeInstallPromptEvent
 interface MockBeforeInstallPromptEvent extends Event {
@@ -101,6 +102,25 @@ describe('useInstallPrompt', () => {
     })
   })
 
+  describe('TV mode', () => {
+    it('ignores beforeinstallprompt when tv-mode is on', () => {
+      localStorage.setItem('tv-mode', 'true')
+      const addEventListenerSpy = vi.spyOn(window, 'addEventListener')
+
+      const { result } = renderHook(() => useInstallPrompt())
+
+      const event = createMockPromptEvent()
+      act(() => {
+        window.dispatchEvent(event)
+      })
+
+      expect(result.current.canInstall).toBe(false)
+      expect(addEventListenerSpy).not.toHaveBeenCalledWith('beforeinstallprompt', expect.any(Function))
+
+      addEventListenerSpy.mockRestore()
+    })
+  })
+
   describe('install function', () => {
     it('calls prompt() on the deferred event', async () => {
       const { result } = renderHook(() => useInstallPrompt())
@@ -147,6 +167,76 @@ describe('useInstallPrompt', () => {
       })
 
       expect(installResult).toBe(false)
+      expect(result.current.canInstall).toBe(false)
+
+      const state = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
+      expect(state.dismissed).toBe(true)
+      expect(typeof state.dismissedAt).toBe('number')
+    })
+
+    it('does not prompt again after the native dialog is dismissed', async () => {
+      const { result } = renderHook(() => useInstallPrompt())
+
+      const mockEvent = createMockPromptEvent('dismissed')
+      act(() => {
+        window.dispatchEvent(mockEvent)
+      })
+
+      await act(async () => {
+        await result.current.install()
+      })
+
+      let secondResult: boolean = true
+      await act(async () => {
+        secondResult = await result.current.install()
+      })
+
+      expect(secondResult).toBe(false)
+      expect(mockEvent.prompt).toHaveBeenCalledTimes(1)
+    })
+
+    it('resolves false and hides the prompt when prompt() rejects', async () => {
+      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
+      const { result } = renderHook(() => useInstallPrompt())
+
+      const mockEvent = createMockPromptEvent('accepted')
+      mockEvent.prompt = vi.fn().mockRejectedValue(new DOMException('already prompted', 'InvalidStateError'))
+      act(() => {
+        window.dispatchEvent(mockEvent)
+      })
+
+      let installPromise: Promise<boolean> = Promise.resolve(true)
+      await act(async () => {
+        installPromise = result.current.install()
+        await installPromise.catch(() => undefined)
+      })
+
+      await expect(installPromise).resolves.toBe(false)
+      expect(result.current.canInstall).toBe(false)
+      expect(warnSpy).toHaveBeenCalled()
+
+      warnSpy.mockRestore()
+    })
+
+    it('keeps the banner hidden on a remount within 7 days of a native dismissal', async () => {
+      const first = renderHook(() => useInstallPrompt())
+
+      act(() => {
+        window.dispatchEvent(createMockPromptEvent('dismissed'))
+      })
+
+      await act(async () => {
+        await first.result.current.install()
+      })
+      first.unmount()
+
+      const { result } = renderHook(() => useInstallPrompt())
+
+      act(() => {
+        window.dispatchEvent(createMockPromptEvent())
+      })
+
+      expect(result.current.canInstall).toBe(false)
     })
 
     it('sets installed state in localStorage when accepted', async () => {

@@ -9,19 +9,19 @@ export function InstallPrompt() {
 
   return (
     <div
-      className="fixed bottom-4 left-4 right-4 md:left-auto md:right-4 md:w-96
-                 bg-slate-800 border border-slate-700 rounded-lg shadow-lg p-4
+      className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-4 right-4 md:left-auto md:right-4 md:w-96
+                 bg-card text-card-foreground border border-border rounded-lg shadow-lg p-4
                  flex items-center gap-4 z-40 animate-in slide-in-from-bottom duration-300"
       role="dialog"
       aria-labelledby="install-prompt-title"
     >
-      <Download className="h-8 w-8 text-blue-400 flex-shrink-0" />
+      <Download className="h-8 w-8 text-primary flex-shrink-0" />
 
       <div className="flex-1 min-w-0">
-        <h3 id="install-prompt-title" className="font-semibold text-white">
+        <h3 id="install-prompt-title" className="font-semibold text-foreground">
           Install App
         </h3>
-        <p className="text-sm text-slate-400 truncate">
+        <p className="text-sm text-muted-foreground">
           Add to home screen for quick access
         </p>
       </div>
@@ -39,7 +39,7 @@ export function InstallPrompt() {
         <Button
           size="sm"
           onClick={install}
-          className="bg-blue-600 hover:bg-blue-700 min-w-11 min-h-11"
+          className="min-w-11 min-h-11"
         >
           Install
         </Button>
