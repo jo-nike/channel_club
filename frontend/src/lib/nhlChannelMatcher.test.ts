@@ -84,7 +84,7 @@ describe('matchNetworkToChannels', () => {
       expect(ids('ROOT-NW', channels)).toEqual(['2'])
     })
 
-    it('matches nothing for a code that is empty once country tags are ignored ("USA")', () => {
+    it('matches nothing for "USA": the country tag is dropped from every channel name, "USA Network" included', () => {
       const channels = [ch('1', 'US: ESPN'), ch('2', 'USA Network'), ch('3', 'CA-S: TSN 1')]
       expect(ids('USA', channels)).toEqual([])
     })
