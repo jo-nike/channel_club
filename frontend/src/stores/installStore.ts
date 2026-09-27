@@ -32,8 +32,13 @@ function getStoredState(): StoredInstallState {
   }
 }
 
+/** Remember the install state; where storage is blocked or full it holds for this session only. */
 function setStoredState(state: StoredInstallState): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+  } catch {
+    // The caller still snoozes the banner in memory
+  }
 }
 
 /** Count this browser session once and return the running total (0 when storage is unavailable). */
