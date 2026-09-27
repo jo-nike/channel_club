@@ -132,3 +132,19 @@ export interface ChatMessage {
   content: string
   timestamp: string // ISO8601
 }
+
+// Presence types
+// One person who is here (from the presence_update snapshot). The channel
+// fields are null unless the admin shows what everyone is watching and the
+// person doesn't hide it.
+export interface PresenceEntry {
+  // Same opaque id as ChatMessage.userId; null for connections without one
+  userId: string | null
+  // Chat nickname, or the sign-in name
+  displayName: string
+  channelId: string | null
+  channelName: string | null
+  programme: string | null
+  view: 'live' | 'ersatztv' | null
+  since: string | null // ISO8601, when they started this channel
+}

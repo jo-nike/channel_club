@@ -6,11 +6,12 @@ import { useTVStore } from '@/stores/tvStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { usePresenceStore } from '@/stores/presenceStore'
 import { logger } from '@/lib/logger'
 import { getSessionId } from '@/lib/sessionId'
 import { createClientMessageId } from '@/lib/messageId'
 import { useChatEnabled } from './useChatEnabled'
-import type { AppSettings, Channel, ChatMessage } from '@/types'
+import type { AppSettings, Channel, ChatMessage, PresenceEntry } from '@/types'
 
 interface WebSocketMessage {
   type: string
@@ -21,6 +22,8 @@ interface WebSocketMessage {
   settings?: AppSettings
   // Who this socket is signed in as (connection_ack); absent from older servers
   you?: { username: string; userId?: string }
+  // Who is here (connection_ack and presence_update); absent from older servers
+  presence?: PresenceEntry[]
   // Chat message fields
   clientMessageId?: string
   accepted?: boolean
@@ -107,6 +110,8 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   const setChatIdentity = useChatStore((s) => s.setIdentity)
   const rejectChatNickname = useChatStore((s) => s.rejectNickname)
   const setUserChannelSelection = useSettingsStore((s) => s.setUserChannelSelection)
+  const setPresence = usePresenceStore((s) => s.setEntries)
+  const clearPresence = usePresenceStore((s) => s.clear)
 
   const pendingChat = useRef(new Map<string, { finish: (result: ChatSendResult) => void; timer: ReturnType<typeof setTimeout> }>())
   const clearPendingChat = useCallback(() => {
@@ -164,6 +169,16 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
               socket.send(JSON.stringify({ type: 'set_nickname', nickname: storedNickname }))
               logger.debug('WebSocket', `Sent nickname after connection_ack: ${storedNickname}`)
             }
+          }
+          if (Array.isArray(message.presence)) {
+            setPresence(message.presence)
+          }
+          break
+
+        case 'presence_update':
+          logger.debug('WebSocket', 'Received presence_update', message)
+          if (Array.isArray(message.presence)) {
+            setPresence(message.presence)
           }
           break
 
@@ -227,7 +242,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           logger.warn('WebSocket', `Unknown message type: ${message.type}`, message)
       }
     },
-    [setCurrentChannel, setLastChange, chatEnabled, addChatMessage, setChatMessages, setChatIdentity, rejectChatNickname, setUserChannelSelection]
+    [setCurrentChannel, setLastChange, chatEnabled, addChatMessage, setChatMessages, setChatIdentity, rejectChatNickname, setUserChannelSelection, setPresence]
   )
 
   const connect = useCallback(
@@ -372,8 +387,11 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       ws.close()
       wsRef.current = null
     }
+    // Signed out or unmounted: nobody is known to be here any more. (A drop
+    // that reconnects keeps the list until the next connection_ack replaces it.)
+    clearPresence()
     setStatus('disconnected')
-  }, [clearTimers, clearPendingChat])
+  }, [clearTimers, clearPendingChat, clearPresence])
 
   const reconnect = useCallback(() => {
     retryCountRef.current = 0

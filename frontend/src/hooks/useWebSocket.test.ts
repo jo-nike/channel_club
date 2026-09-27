@@ -10,8 +10,9 @@ import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useTVStore, LIVE_CHANNEL_ID } from '@/stores/tvStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
+import { usePresenceStore } from '@/stores/presenceStore'
 import { fetchNowPlaying } from '@/services/api'
-import type { UnifiedChannel } from '@/types'
+import type { PresenceEntry, UnifiedChannel } from '@/types'
 
 // Mock useChatEnabled hook
 vi.mock('./useChatEnabled', () => ({
@@ -119,6 +120,7 @@ describe('useWebSocket', () => {
       revertNickname: null,
       nicknameRejection: null,
     })
+    usePresenceStore.setState({ entries: [] })
     vi.mocked(toast).mockClear()
   })
 
@@ -1384,6 +1386,91 @@ describe('useWebSocket', () => {
       expect(ws.send).not.toHaveBeenCalled()
     })
   })
+
+  describe('presence', () => {
+    const jon: PresenceEntry = {
+      userId: 'u_0123456789abcdef',
+      displayName: 'Jon',
+      channelId: '12',
+      channelName: 'TSN 1',
+      programme: 'Hockey Night',
+      view: 'live',
+      since: '2026-09-27T01:00:00+00:00',
+    }
+    const mia: PresenceEntry = {
+      userId: 'u_fedcba9876543210',
+      displayName: 'Mia',
+      channelId: null,
+      channelName: null,
+      programme: null,
+      view: null,
+      since: null,
+    }
+
+    function connect() {
+      const hook = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+      act(() => ws.simulateOpen())
+      return { ...hook, ws }
+    }
+
+    test('fills the presence store from the snapshot in connection_ack', () => {
+      const { ws } = connect()
+
+      act(() => ws.simulateMessage({ type: 'connection_ack', currentChannel: null, presence: [jon, mia] }))
+
+      expect(usePresenceStore.getState().entries).toEqual([jon, mia])
+    })
+
+    test('presence_update replaces who is here', () => {
+      const { ws } = connect()
+      act(() => ws.simulateMessage({ type: 'connection_ack', currentChannel: null, presence: [jon, mia] }))
+
+      act(() => ws.simulateMessage({ type: 'presence_update', presence: [mia] }))
+
+      expect(usePresenceStore.getState().entries).toEqual([mia])
+    })
+
+    test('presence_update with nobody here empties the list', () => {
+      const { ws } = connect()
+      act(() => ws.simulateMessage({ type: 'presence_update', presence: [jon] }))
+
+      act(() => ws.simulateMessage({ type: 'presence_update', presence: [] }))
+
+      expect(usePresenceStore.getState().entries).toEqual([])
+    })
+
+    test('an ack from an older server without presence leaves the list alone', () => {
+      usePresenceStore.setState({ entries: [jon] })
+      const { ws } = connect()
+
+      act(() => ws.simulateMessage({ type: 'connection_ack', currentChannel: null }))
+
+      expect(usePresenceStore.getState().entries).toEqual([jon])
+    })
+
+    test('ignores a presence_update from a socket that has been replaced', () => {
+      const { result, ws: oldSocket } = connect()
+      act(() => result.current.reconnect())
+      const newSocket = MockWebSocket.instances[1]
+      act(() => newSocket.simulateOpen())
+      act(() => newSocket.simulateMessage({ type: 'presence_update', presence: [mia] }))
+
+      act(() => oldSocket.simulateMessage({ type: 'presence_update', presence: [jon] }))
+
+      expect(usePresenceStore.getState().entries).toEqual([mia])
+    })
+
+    test('forgets who is here on sign-out or unmount', () => {
+      const { ws, unmount } = connect()
+      act(() => ws.simulateMessage({ type: 'presence_update', presence: [jon, mia] }))
+
+      unmount()
+
+      expect(usePresenceStore.getState().entries).toEqual([])
+    })
+  })
+
   describe('focus recovery', () => {
     test('reconnects on window focus when the socket is closed', () => {
       vi.useFakeTimers()
