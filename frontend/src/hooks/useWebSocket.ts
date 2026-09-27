@@ -25,12 +25,15 @@ interface WebSocketMessage {
   messages?: ChatMessage[]
 }
 
-type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
+export type WebSocketStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
 
 const PING_INTERVAL = 30000
 const MAX_RETRIES = 5
 const INITIAL_BACKOFF = 1000 // 1 second
 const MAX_BACKOFF = 10000 // 10 seconds
+// After the fast retries run out, keep trying slowly; jitter spreads clients out after a server restart
+const SLOW_RETRY_INTERVAL = 30000 // 30 seconds
+const SLOW_RETRY_JITTER = 5000 // up to 5 seconds
 
 interface UseWebSocketOptions {
   view?: 'live' | 'ersatztv' | 'tv'
@@ -39,7 +42,7 @@ interface UseWebSocketOptions {
 export type ChatSendResult = 'acknowledged' | 'not-sent' | 'unconfirmed'
 
 interface UseWebSocketReturn {
-  status: ConnectionStatus
+  status: WebSocketStatus
   reconnect: () => void
   sendChannelUpdate: (channelName: string | null, programmeTitle?: string | null, viewType?: 'live' | 'ersatztv', channelId?: string | null) => void
   sendChatMessage: (content: string) => Promise<ChatSendResult>
@@ -76,7 +79,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     notificationsEnabledRef.current = notificationsEnabled
   }, [notificationsEnabled])
 
-  const [status, setStatus] = useState<ConnectionStatus>('disconnected')
+  const [status, setStatus] = useState<WebSocketStatus>('disconnected')
 
   const getBackoffDelay = useCallback(() => {
     return Math.min(INITIAL_BACKOFF * Math.pow(2, retryCountRef.current), MAX_BACKOFF)
@@ -278,8 +281,14 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
             connectRef.current?.(true)
           }, delay)
         } else {
-          logger.warn('WebSocket', 'Max reconnection attempts reached')
+          // Never give up: a restart longer than the fast retries must not strand the tab
+          const delay = SLOW_RETRY_INTERVAL + Math.random() * SLOW_RETRY_JITTER
+          logger.warn('WebSocket', `Fast reconnection attempts exhausted, retrying in ${Math.round(delay)}ms`)
           setStatus('disconnected')
+
+          reconnectTimeoutRef.current = window.setTimeout(() => {
+            connectRef.current?.(true)
+          }, delay)
         }
       }
     },
@@ -315,9 +324,12 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     }
     const onVisible = () => { if (document.visibilityState === 'visible') recover() }
     window.addEventListener('online', recover)
+    // Foreground tabs and TVs never fire online or visibilitychange, but they do regain focus
+    window.addEventListener('focus', recover)
     document.addEventListener('visibilitychange', onVisible)
     return () => {
       window.removeEventListener('online', recover)
+      window.removeEventListener('focus', recover)
       document.removeEventListener('visibilitychange', onVisible)
     }
   }, [reconnect])
