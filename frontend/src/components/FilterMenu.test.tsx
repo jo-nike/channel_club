@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent } from '@/test/utils'
 import { FilterMenu } from './FilterMenu'
 import { focusOverrides } from '@/test/focus'
@@ -125,6 +125,37 @@ describe('FilterMenu', () => {
     const heading = await screen.findByText('Video Filters')
     const content = heading.closest('[data-slot="popover-content"]')
     expect(content).toHaveAttribute('data-align', 'start')
+  })
+
+  describe('portal', () => {
+    const setFullscreenElement = (element: Element | null) =>
+      Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: element })
+    const added: Element[] = []
+    const addToPage = () => {
+      const element = document.body.appendChild(document.createElement('div'))
+      added.push(element)
+      return element
+    }
+
+    afterEach(() => {
+      setFullscreenElement(null)
+      added.splice(0).forEach((element) => element.remove())
+    })
+
+    // The player container is the element the player fullscreens, so it is
+    // the one place the menu shows both in and out of fullscreen
+    it.each([
+      ['nothing', () => null],
+      ['another element', addToPage],
+    ])('opens inside the player container while %s is fullscreen', async (_what, fullscreenElement) => {
+      const container = addToPage()
+      setFullscreenElement(fullscreenElement())
+      render(<FilterMenu isVisible={true} containerRef={{ current: container }} />)
+
+      fireEvent.click(screen.getByRole('button', { name: /video filters/i }))
+
+      expect(container).toContainElement(await screen.findByText('Video Filters'))
+    })
   })
 
   it('should have aria-haspopup on trigger button', () => {

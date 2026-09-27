@@ -630,6 +630,55 @@ describe('DualModeVideoPlayer fullscreen state', () => {
       HTMLElement.prototype.requestFullscreen = original
     }
   })
+
+  // The toggle asks the same question as the button's state: is the shell
+  // itself the fullscreen element?
+  describe('toggle', () => {
+    const original = HTMLElement.prototype.requestFullscreen
+    const requestFullscreen = vi.fn(() => Promise.resolve())
+    const exitFullscreen = vi.fn(() => Promise.resolve())
+
+    beforeEach(() => {
+      requestFullscreen.mockClear()
+      exitFullscreen.mockClear()
+      HTMLElement.prototype.requestFullscreen = requestFullscreen
+      Object.defineProperty(document, 'exitFullscreen', { configurable: true, value: exitFullscreen })
+    })
+
+    afterEach(() => {
+      HTMLElement.prototype.requestFullscreen = original
+      Reflect.deleteProperty(document, 'exitFullscreen')
+    })
+
+    it.each([
+      ['live', liveChannel('https://fixture/a')],
+      ['ErsatzTV', hlsChannel('1', 1)],
+    ])('%s: F enters on the shell while another element is fullscreen, and exits only the shell', (_engine, channel) => {
+      renderPlayer(channel)
+
+      setFullscreenElement(document.createElement('div'))
+      fireEvent.keyDown(window, { key: 'f' })
+      expect(requestFullscreen).toHaveBeenCalledTimes(1)
+      expect(requestFullscreen.mock.contexts[0]).toBe(shell())
+      expect(exitFullscreen).not.toHaveBeenCalled()
+
+      setFullscreenElement(shell())
+      fireEvent.keyDown(window, { key: 'f' })
+      expect(exitFullscreen).toHaveBeenCalledTimes(1)
+      expect(requestFullscreen).toHaveBeenCalledTimes(1)
+    })
+
+    it('live: the Fullscreen button enters on the shell while another element is fullscreen', () => {
+      renderPlayer(liveChannel('https://fixture/a'))
+
+      setFullscreenElement(document.createElement('div'))
+      fireEvent.click(screen.getByRole('button', { name: 'Fullscreen' }))
+
+      expect(requestFullscreen).toHaveBeenCalledTimes(1)
+      expect(requestFullscreen.mock.contexts[0]).toBe(shell())
+      expect(exitFullscreen).not.toHaveBeenCalled()
+    })
+  })
 })
 
 describe('DualModeVideoPlayer shell: fullscreen survives engine swaps', () => {

@@ -76,16 +76,18 @@ export function DualModeVideoPlayer({
   // The editor belongs to this player: it closes when the player goes away
   useEffect(() => closeClip, [closeClip])
 
+  // The same test as the button's state: exit only when the shell itself is
+  // fullscreen. Another element in fullscreen means the shell should enter.
   const toggleFullscreen = useCallback(() => {
     const container = containerRef.current
     if (!container) return
 
-    if (document.fullscreenElement) {
+    if (isFullscreen) {
       document.exitFullscreen().catch(() => {})
     } else {
       container.requestFullscreen().catch(() => {})
     }
-  }, [])
+  }, [isFullscreen])
 
   // Both counters only grow, so their sum changes on every reload
   const [shellReloads, setShellReloads] = useState(0)
