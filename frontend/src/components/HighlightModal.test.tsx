@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, within } from '@/test/utils'
+import { render, screen, fireEvent, waitFor, within, act } from '@/test/utils'
 import { HighlightModal } from './HighlightModal'
 import * as api from '@/services/api'
 import { useAudioStore } from '@/stores/audioStore'
@@ -411,13 +411,109 @@ describe('Clip editor', () => {
     render(<HighlightModal {...props} />)
     await ready()
     fireEvent.click(screen.getByRole('button', { name: '30s' }))
-    fireEvent.click(screen.getByText('Download clip')); fireEvent.click(screen.getByText('Download clip'))
+    const download = screen.getByRole('button', { name: 'Download clip' })
+    fireEvent.click(download); fireEvent.click(download)
+    // The button becomes Cancel while the export runs, so it cannot start a second one, and the
+    // second click that lands on it straight away does not cancel the first
+    expect(screen.queryByText('Download clip')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
     expect(api.exportHighlight).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(api.exportHighlight).mock.calls[0][3]!.aborted).toBe(false)
     reject(new Error('Encoder timed out'))
     expect(await screen.findByRole('alert')).toHaveTextContent('Encoder timed out')
     expect(shown('Start')).toBe('30.0s')
     fireEvent.click(screen.getByText('Download clip'))
     await waitFor(() => expect(api.exportHighlight).toHaveBeenCalledTimes(2))
+  })
+
+  it('keeps the actions, progress and errors in the footer outside the scrolling body', async () => {
+    let reject!: (error: Error) => void
+    vi.mocked(api.exportHighlight).mockImplementationOnce(() => new Promise((_, fail) => { reject = fail }))
+    render(<HighlightModal {...props} />)
+    await ready()
+    const footer = screen.getByRole('group', { name: 'Export' })
+    expect(within(footer).getByLabelText('Format')).toBeInTheDocument()
+    fireEvent.click(within(footer).getByRole('button', { name: 'Download clip' }))
+    expect(within(footer).getByRole('status')).toHaveTextContent('Preparing your clip…')
+    // The body scrolls on its own; the footer is not inside it.
+    expect(screen.getByLabelText('Highlight preview').parentElement!.contains(footer)).toBe(false)
+    reject(new Error('Encoder timed out'))
+    expect(await within(footer).findByRole('alert')).toHaveTextContent('Encoder timed out')
+  })
+
+  it('counts the seconds on the busy button and Cancel stops only the export', async () => {
+    const exports: AbortSignal[] = []
+    vi.mocked(api.exportHighlight).mockImplementation((_id, _format, _trim, signal) => new Promise((_, fail) => {
+      exports.push(signal!)
+      signal!.addEventListener('abort', () => fail(new DOMException('Aborted', 'AbortError')))
+    }))
+    render(<HighlightModal {...props} />)
+    await ready()
+    vi.useFakeTimers()
+    try {
+      fireEvent.click(screen.getByRole('button', { name: 'Download clip' }))
+      const cancel = screen.getByRole('button', { name: 'Cancel' })
+      expect(cancel).toHaveTextContent('0s')
+      act(() => { vi.advanceTimersByTime(3000) })
+      expect(cancel).toHaveTextContent('3s')
+      act(() => { vi.advanceTimersByTime(1000) })
+      expect(cancel).toHaveTextContent('4s')
+
+      fireEvent.click(cancel)
+      expect(exports[0].aborted).toBe(true)
+      await act(async () => {})
+      // The session and its capture are kept: nothing is deleted and the selection stays
+      expect(vi.mocked(api.createHighlightCapture).mock.calls[0][1]!.aborted).toBe(false)
+      expect(api.deleteHighlightCapture).not.toHaveBeenCalled()
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(screen.queryByText('Preparing your clip…')).not.toBeInTheDocument()
+      expect(shown('Start')).toBe('40.0s')
+      expect(screen.getByRole('button', { name: 'Download clip' })).toBeEnabled()
+
+      // A new export starts its count again
+      fireEvent.click(screen.getByRole('button', { name: 'Download clip' }))
+      expect(screen.getByRole('button', { name: 'Cancel' })).toHaveTextContent('0s')
+      expect(exports).toHaveLength(2)
+      expect(exports[1].aborted).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('finishes the export a double-click on Download clip started, however slow the double-click', async () => {
+    let finish!: (blob: Blob) => void
+    vi.mocked(api.exportHighlight).mockImplementationOnce(() => new Promise(done => { finish = done }))
+    render(<HighlightModal {...props} />)
+    await ready()
+    vi.useFakeTimers()
+    try {
+      fireEvent.click(screen.getByRole('button', { name: '30s' }))
+      const download = screen.getByRole('button', { name: 'Download clip' })
+      fireEvent.click(download, { detail: 1 })
+      // The second click of the pair lands on the same button, now Cancel, after the guard window
+      act(() => { vi.advanceTimersByTime(600) })
+      expect(download).toHaveAccessibleName(/^Cancel/)
+      fireEvent.click(download, { detail: 2 })
+      const signal = vi.mocked(api.exportHighlight).mock.calls[0][3]!
+      expect(signal.aborted).toBe(false)
+      await act(async () => { finish(prepared) })
+      expect(URL.createObjectURL).toHaveBeenCalledExactlyOnceWith(prepared)
+      expect(HTMLAnchorElement.prototype.click).toHaveBeenCalledTimes(1)
+      expect(api.exportHighlight).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('stops a running export when the editor closes', async () => {
+    vi.mocked(api.exportHighlight).mockImplementationOnce(() => new Promise(() => {}))
+    const { rerender } = render(<HighlightModal {...props} />)
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: 'Download clip' }))
+    const signal = vi.mocked(api.exportHighlight).mock.calls[0][3]!
+    expect(signal.aborted).toBe(false)
+    rerender(<HighlightModal {...props} isOpen={false} />)
+    expect(signal.aborted).toBe(true)
   })
 
   it('restores audio, aborts requests and starts a fresh session after reopening', async () => {

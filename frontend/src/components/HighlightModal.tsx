@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useId } from 'react'
+import { useState, useEffect, useRef, useCallback, useId, type MouseEvent, type ReactNode } from 'react'
 import { Download, Upload, Play, Pause, RotateCcw, Loader2, Copy, ExternalLink, X, Pencil } from 'lucide-react'
 import { toast } from 'sonner'
 import { createHighlightCapture, highlightCaptureUrl, fetchHighlightCapture, deleteHighlightCapture, exportHighlight, uploadHighlight, getHighlightFeatures, type HighlightFormat, type UploadedHighlight } from '@/services/api'
@@ -17,6 +17,12 @@ function pressRange(duration: number, press: number): [number, number] {
   const end = Math.min(duration, Math.max(Math.min(duration, 0.1), press))
   return [Math.max(0, end - DEFAULT_CLIP_SECONDS), end]
 }
+
+/**
+ * The action's button turns into Cancel under the pointer as soon as it is clicked, so the second click
+ * of a double-click would land on Cancel. Clicks this soon after the export starts are not a cancel.
+ */
+const CANCEL_GUARD_MS = 500
 
 /** Lengths offered in the segmented control, each ending where the user pressed */
 const LENGTHS = [10, 20, 30] as const
@@ -70,6 +76,9 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
   const [playing, setPlaying] = useState(false)
   const [format, setFormat] = useState<HighlightFormat>('mp4')
   const [stage, setStage] = useState<'preparing' | 'uploading' | null>(null)
+  // The action whose button turns into Cancel while it runs, and how long it has been running
+  const [task, setTask] = useState<'download' | 'zipline' | null>(null)
+  const [elapsed, setElapsed] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [captureError, setCaptureError] = useState<string | null>(null)
   const [uploaded, setUploaded] = useState<UploadedHighlight | null>(null)
@@ -82,6 +91,10 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
   const uploadResult = useRef<HTMLDivElement>(null)
   const closeButton = useRef<HTMLButtonElement>(null)
   const controller = useRef<AbortController | null>(null)
+  // Each export has its own controller, so Cancel stops the export and leaves the session and capture alone.
+  const exportRequest = useRef<AbortController | null>(null)
+  // When the running export started (ms), so a double-click on its button does not cancel it
+  const exportStarted = useRef(0)
   const busy = useRef(false)
   const autoplayed = useRef(false)
   // A re-capture replaces the capture (the server keeps one per user); this carries the original
@@ -109,6 +122,13 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
     return releasePreview
   }, [])
   useEffect(() => { if (uploaded) uploadResult.current?.scrollIntoView?.({ block: 'nearest' }) }, [uploaded])
+  // Slow encodes show that they are still going; output() resets the count when an export starts.
+  const working = stage !== null
+  useEffect(() => {
+    if (!working) return
+    const timer = setInterval(() => setElapsed(seconds => seconds + 1), 1000)
+    return () => clearInterval(timer)
+  }, [working])
   useEffect(() => {
     const request = new AbortController()
     controller.current = request
@@ -176,8 +196,15 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
   async function output(destination: 'download' | 'zipline') {
     if (!ready || !source || busy.current) return
     busy.current = true
-    setStage('preparing'); setError(null)
-    const signal = controller.current!.signal
+    const request = new AbortController()
+    const session = controller.current!.signal
+    // Closing the editor still stops whatever is running.
+    const stop = () => request.abort()
+    session.addEventListener('abort', stop, { once: true })
+    exportRequest.current = request
+    exportStarted.current = Date.now()
+    const signal = request.signal
+    setTask(destination); setStage('preparing'); setError(null); setElapsed(0)
     const key = `${start}:${end}:${format}`
     try {
       let blob = cache.current?.key === key ? cache.current.blob : null
@@ -206,9 +233,25 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
     } catch (err) {
       if (!signal.aborted) setError(err instanceof Error ? err.message : 'Export failed. Please try again.')
     } finally {
+      session.removeEventListener('abort', stop)
       busy.current = false
-      if (!signal.aborted) setStage(null)
+      exportRequest.current = null
+      if (!session.aborted) { setStage(null); setTask(null) }
     }
+  }
+
+  function cancelExport(event: MouseEvent) {
+    // The rest of the click (or double-click) that started the export, not a request to cancel it
+    if (event.detail > 1 || Date.now() - exportStarted.current < CANCEL_GUARD_MS) return
+    exportRequest.current?.abort()
+  }
+
+  /** The action's button; while it runs it shows the elapsed time and cancels the export. */
+  function actionButton(destination: 'download' | 'zipline', idle: ReactNode, variant: 'default' | 'outline', disabled = false) {
+    if (task === destination) return <Button variant="outline" onClick={cancelExport}>
+      <Loader2 className="animate-spin" />Cancel<span aria-hidden="true" className="min-w-8 tabular-nums text-muted-foreground">{elapsed}s</span>
+    </Button>
+    return <Button variant={variant} disabled={disabled || stage !== null} onClick={() => void output(destination)}>{idle}</Button>
   }
 
   /** The `seconds` that end where the user pressed, or as much of them as the capture holds */
@@ -252,7 +295,9 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
 
   return (
     <Dialog open onOpenChange={open => { if (!open) onClose() }}>
-      <DialogContent container={container} showCloseButton={false} className="max-h-[92dvh] max-w-[min(48rem,calc(100%-2rem))] overflow-y-auto" onKeyDown={event => event.stopPropagation()}
+      {/* The header and footer stay put; only the body between them scrolls, so the actions and their
+          progress are always on screen, including in phone landscape inside the fullscreen player. */}
+      <DialogContent container={container} showCloseButton={false} className="flex max-h-[92dvh] max-w-[min(48rem,calc(100%-2rem))] flex-col gap-0 overflow-hidden p-0" onKeyDown={event => event.stopPropagation()}
         // Radix sees Escape on the document before a field does; let the field revert its draft instead.
         onEscapeKeyDown={event => {
           if ((event.target as HTMLElement | null)?.closest?.('input,select,textarea')) { event.preventDefault(); return }
@@ -260,51 +305,51 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
         }}
         // Closing deletes the capture, so a stray press outside must not discard a ready one.
         onInteractOutside={event => { if (ready) event.preventDefault() }}>
-        <DialogHeader className="sticky -top-6 z-20 -mx-6 -mt-6 border-b bg-background p-6 pr-14">
+        <DialogHeader className="relative shrink-0 border-b p-6 pr-14">
           <Button ref={closeButton} variant="ghost" size="icon" aria-label="Close editor" onClick={requestClose} className="absolute right-3 top-3"><X /></Button>
           <DialogTitle>Create clip</DialogTitle>
           <DialogDescription>Choose the moment to keep, preview your selection, then export it.</DialogDescription>
         </DialogHeader>
-        {liveChange && <p role="status" className="rounded-md border bg-muted px-3 py-2 text-sm">{liveChange} Your clip from {channelName} is kept.</p>}
-        {captureError ? <div role="alert" className="space-y-3 py-8 text-center">
-          <p>{captureError}</p><Button variant="outline" onClick={retryCapture}>Capture again</Button>
-        </div> : !source ? <div role="status" className="flex items-center justify-center gap-3 py-16"><Loader2 className="animate-spin" />Capturing recent footage…</div> : (
-          <video ref={video} src={source.url} playsInline preload="auto" aria-label="Highlight preview"
-            className="max-h-[28dvh] w-full rounded-lg bg-black object-contain"
-            onLoadedMetadata={() => {
-              const length = video.current?.duration ?? 0
-              if (!Number.isFinite(length) || length < 0.1) { setCaptureError('This capture has no usable duration. Capture again once more footage is available.'); return }
-              // The capture's last frame was recorded at endsAt, so the press is that far before its end.
-              // Not clamped: the ruler and the kept selection count from the real press, even past the end.
-              const pressOffset = length - (source.endsAt - source.pressedAt)
-              // Not select(): its clamp reads the duration state, which is still 0 here.
-              let [defaultStart, defaultEnd] = pressRange(length, pressOffset)
-              if (keep.current) {
-                defaultStart = Math.max(0, Math.min(length - 0.1, pressOffset + keep.current.start))
-                defaultEnd = Math.min(length, Math.max(defaultStart + 0.1, pressOffset + keep.current.end))
-                keep.current = null
-              }
-              setDuration(length); setPress(pressOffset); setRange([defaultStart, defaultEnd])
-              if (video.current) video.current.currentTime = defaultStart
-              setPlayhead(defaultStart)
-              // Play the selection once on open. This runs after the async capture, outside the Clip
-              // press's user activation, so iOS may refuse it; the editor then stays paused and ready.
-              if (video.current && !autoplayed.current) {
-                autoplayed.current = true
-                video.current.play().catch(() => {})
-              }
-            }}
-            onError={() => setCaptureError('This capture could not be played. Capture again to retry.')}
-            onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}
-            onTimeUpdate={() => {
-              const player = video.current
-              if (!player) return
-              if (!player.paused && player.currentTime >= end) { player.pause(); player.currentTime = end }
-              setPlayhead(player.currentTime)
-            }} />
-        )}
-        {ready && source && <>
-          <fieldset disabled={stage !== null} className="min-w-0 space-y-4 disabled:opacity-70">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-6">
+          {liveChange && <p role="status" className="rounded-md border bg-muted px-3 py-2 text-sm">{liveChange} Your clip from {channelName} is kept.</p>}
+          {captureError ? <div role="alert" className="space-y-3 py-8 text-center">
+            <p>{captureError}</p><Button variant="outline" onClick={retryCapture}>Capture again</Button>
+          </div> : !source ? <div role="status" className="flex items-center justify-center gap-3 py-16"><Loader2 className="animate-spin" />Capturing recent footage…</div> : (
+            <video ref={video} src={source.url} playsInline preload="auto" aria-label="Highlight preview"
+              className="max-h-[28dvh] w-full rounded-lg bg-black object-contain"
+              onLoadedMetadata={() => {
+                const length = video.current?.duration ?? 0
+                if (!Number.isFinite(length) || length < 0.1) { setCaptureError('This capture has no usable duration. Capture again once more footage is available.'); return }
+                // The capture's last frame was recorded at endsAt, so the press is that far before its end.
+                // Not clamped: the ruler and the kept selection count from the real press, even past the end.
+                const pressOffset = length - (source.endsAt - source.pressedAt)
+                // Not select(): its clamp reads the duration state, which is still 0 here.
+                let [defaultStart, defaultEnd] = pressRange(length, pressOffset)
+                if (keep.current) {
+                  defaultStart = Math.max(0, Math.min(length - 0.1, pressOffset + keep.current.start))
+                  defaultEnd = Math.min(length, Math.max(defaultStart + 0.1, pressOffset + keep.current.end))
+                  keep.current = null
+                }
+                setDuration(length); setPress(pressOffset); setRange([defaultStart, defaultEnd])
+                if (video.current) video.current.currentTime = defaultStart
+                setPlayhead(defaultStart)
+                // Play the selection once on open. This runs after the async capture, outside the Clip
+                // press's user activation, so iOS may refuse it; the editor then stays paused and ready.
+                if (video.current && !autoplayed.current) {
+                  autoplayed.current = true
+                  video.current.play().catch(() => {})
+                }
+              }}
+              onError={() => setCaptureError('This capture could not be played. Capture again to retry.')}
+              onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}
+              onTimeUpdate={() => {
+                const player = video.current
+                if (!player) return
+                if (!player.paused && player.currentTime >= end) { player.pause(); player.currentTime = end }
+                setPlayhead(player.currentTime)
+              }} />
+          )}
+          {ready && source && <fieldset disabled={stage !== null} className="min-w-0 space-y-4 disabled:opacity-70">
             <legend className="sr-only">Clip selection</legend>
             {missing >= 0.5 && <div role="status" className="flex flex-wrap items-center gap-3 rounded-md border bg-muted px-3 py-2 text-sm">
               <span>This capture ends {missing.toFixed(1)}s before you pressed.</span>
@@ -346,29 +391,33 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
               </Popover>
               <Button variant="ghost" onClick={() => select(...pressRange(duration, press))}><RotateCcw />Reset</Button>
             </div>
-          </fieldset>
-          <div className="flex flex-wrap items-end gap-3 border-t pt-4">
+          </fieldset>}
+          {uploaded && <div ref={uploadResult} className="space-y-2 rounded-lg border p-3" role="status">
+            <p className="text-sm font-medium">Uploaded to Zipline</p>
+            <input readOnly aria-label="Uploaded clip link" value={uploaded.url} className="w-full rounded border bg-background p-2 text-sm" onFocus={e => e.target.select()} />
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={async () => {
+                try { await navigator.clipboard.writeText(uploaded.url); toast.success('Link copied') }
+                catch { setError('Could not copy automatically. Select and copy the link above.') }
+              }}><Copy />Copy link</Button>
+              <Button variant="outline" size="sm" asChild><a href={uploaded.url} target="_blank" rel="noopener noreferrer"><ExternalLink />Open</a></Button>
+            </div>
+          </div>}
+        </div>
+        {ready && source && <div role="group" aria-label="Export" className="shrink-0 space-y-2 border-t bg-background px-6 py-4">
+          <div className="flex flex-wrap items-end gap-3">
             <label className="flex flex-col gap-1 text-sm">Format
               <select value={format} disabled={stage !== null} onChange={e => { setFormat(e.target.value as HighlightFormat); setUploaded(null) }} className="h-10 rounded-md border bg-background px-3">
                 <option value="mp4">MP4</option><option value="webm">WebM</option>
               </select>
             </label>
-            <Button disabled={stage !== null} onClick={() => void output('download')}><Download />Download clip</Button>
-            {zipline && <Button variant="outline" disabled={stage !== null || uploaded !== null} onClick={() => void output('zipline')}><Upload />{uploaded ? 'Uploaded to Zipline' : 'Upload to Zipline'}</Button>}
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              {zipline && actionButton('zipline', <><Upload />{uploaded ? 'Uploaded to Zipline' : 'Upload to Zipline'}</>, 'outline', uploaded !== null)}
+              {actionButton('download', <><Download />Download clip</>, 'default')}
+            </div>
           </div>
-        </>}
-        {stage && <p role="status" className="flex items-center gap-2 text-sm"><Loader2 className="h-4 w-4 animate-spin" />{stage === 'preparing' ? 'Preparing your clip…' : 'Uploading to Zipline…'}</p>}
-        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-        {uploaded && <div ref={uploadResult} className="space-y-2 rounded-lg border p-3" role="status">
-          <p className="text-sm font-medium">Uploaded to Zipline</p>
-          <input readOnly aria-label="Uploaded clip link" value={uploaded.url} className="w-full rounded border bg-background p-2 text-sm" onFocus={e => e.target.select()} />
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={async () => {
-              try { await navigator.clipboard.writeText(uploaded.url); toast.success('Link copied') }
-              catch { setError('Could not copy automatically. Select and copy the link above.') }
-            }}><Copy />Copy link</Button>
-            <Button variant="outline" size="sm" asChild><a href={uploaded.url} target="_blank" rel="noopener noreferrer"><ExternalLink />Open</a></Button>
-          </div>
+          {stage && <p role="status" className="flex items-center gap-2 text-sm"><Loader2 className="h-4 w-4 animate-spin" />{stage === 'preparing' ? 'Preparing your clip…' : 'Uploading to Zipline…'}</p>}
+          {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         </div>}
         {/* Same container as the editor so the question also shows in fullscreen. */}
         <Dialog open={confirmDiscard} onOpenChange={setConfirmDiscard}>
