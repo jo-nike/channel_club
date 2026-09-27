@@ -50,6 +50,20 @@ export interface ThemeColors {
   accent: OklchColor
   accentForeground: OklchColor
   destructive: OklchColor
+  destructiveForeground: OklchColor
+  // On-air red for LIVE badges and the guide's live row
+  live: OklchColor
+  liveForeground: OklchColor
+  // Guide programme blocks (airing now / later)
+  guideNow: OklchColor
+  guideFuture: OklchColor
+  // Status colours (connection dots, notices)
+  success: OklchColor
+  successForeground: OklchColor
+  warning: OklchColor
+  warningForeground: OklchColor
+  info: OklchColor
+  infoForeground: OklchColor
   border: OklchColor
   input: OklchColor
   ring: OklchColor
