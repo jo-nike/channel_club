@@ -1584,6 +1584,71 @@ describe('ChatPanel', () => {
       }
     })
 
+    describe('on a touch screen', () => {
+      const setupMatchMedia = window.matchMedia
+      beforeEach(() => {
+        window.matchMedia = vi.fn((query: string) => ({
+          matches: query === '(pointer: coarse)',
+          media: query,
+          onchange: null,
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+          dispatchEvent: vi.fn(),
+        }))
+      })
+      afterEach(() => {
+        window.matchMedia = setupMatchMedia
+      })
+
+      // The tablet sheet and a phone's landscape overlay: the soft keyboard
+      // would come up over the picture every time chat opens
+      it.each(['sheet', 'overlay'] as const)("doesn't focus the %s composer after opening", (variant) => {
+        vi.useFakeTimers()
+        try {
+          useChatStore.setState({ isOpen: false })
+          const opener = addOpener()
+          render(<ChatPanel onSendMessage={mockOnSendMessage} variant={variant} />)
+          act(() => useChatStore.setState({ isOpen: true }))
+
+          act(() => { vi.advanceTimersByTime(150) })
+          expect(screen.getByPlaceholderText('Message the club…')).not.toHaveFocus()
+          expect(opener).toHaveFocus()
+        } finally {
+          vi.useRealTimers()
+        }
+      })
+
+      it('still focuses the name field when the viewer edits their name', () => {
+        vi.useFakeTimers()
+        try {
+          useChatStore.setState({ me: { username: 'TestUser' } })
+          render(<ChatPanel onSendMessage={mockOnSendMessage} variant="sheet" />)
+
+          fireEvent.click(screen.getByRole('button', { name: 'Edit nickname' }))
+          act(() => { vi.advanceTimersByTime(150) })
+          expect(screen.getByPlaceholderText('Display name')).toHaveFocus()
+        } finally {
+          vi.useRealTimers()
+        }
+      })
+    })
+
+    it.each(['docked', 'sheet'] as const)('focuses the %s composer after opening with a mouse', (variant) => {
+      vi.useFakeTimers()
+      try {
+        useChatStore.setState({ isOpen: false })
+        render(<ChatPanel onSendMessage={mockOnSendMessage} variant={variant} />)
+        act(() => useChatStore.setState({ isOpen: true }))
+
+        act(() => { vi.advanceTimersByTime(150) })
+        expect(screen.getByPlaceholderText('Message the club…')).toHaveFocus()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
     it('still focuses the name field inline when the viewer edits their name', () => {
       vi.useFakeTimers()
       try {

@@ -12,6 +12,7 @@ import { usePresenceStore } from '@/stores/presenceStore'
 import { useTVStore, buildUnifiedChannels } from '@/stores/tvStore'
 import type { ChatMessage as ChatMessageData } from '@/types'
 import { useNow } from '@/hooks/useNow'
+import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { cn } from '@/lib/utils'
 import { ChatMessage, type MessageChannel } from './ChatMessage'
 import { GifButton } from './GifButton'
@@ -320,15 +321,19 @@ export function ChatPanel({ onSendMessage, onShare, onSetNickname, status = 'con
     messagesEndRef.current?.scrollIntoView({ behavior: scrollBehavior() })
   }, [])
 
-  // Focus input when panel opens. Not inline: picking the phone's Chat tab
-  // would raise the keyboard over the messages it just opened. The name
-  // editor still takes focus there, since the viewer asked for it. Only
-  // opening counts: a phone turning sideways moves the open panel from the
-  // Chat tab to the overlay, and that mustn't raise the keyboard either.
+  // Focus input when panel opens. Not inline, and not on any touch screen:
+  // there focusing the composer would raise the soft keyboard over the
+  // messages (the phone's Chat tab) or the picture (the tablet sheet, the
+  // overlay on a phone held sideways), so the viewer taps the composer
+  // instead. The name editor still takes focus, since the viewer asked for
+  // it. Only opening counts: a phone turning sideways moves the open panel
+  // from the Chat tab to the overlay, and that mustn't raise the keyboard
+  // either.
+  const isCoarsePointer = useMediaQuery('(pointer: coarse)')
   const focusOnOpen = useEffectEvent(() => {
     if (showNicknamePrompt) {
       nicknameInputRef.current?.focus()
-    } else if (variant !== 'inline') {
+    } else if (variant !== 'inline' && !isCoarsePointer) {
       inputRef.current?.focus()
     }
   })
