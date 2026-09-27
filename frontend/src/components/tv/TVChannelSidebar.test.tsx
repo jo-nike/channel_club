@@ -197,3 +197,60 @@ describe('TVChannelSidebar collapsed rail tiles', () => {
     expect(tooltip).toHaveTextContent('Next Post-game')
   })
 })
+
+describe('TVChannelSidebar collapsed rail scrolling', () => {
+  // jsdom has no layout scrolling, so there's no scrollIntoView to spy on
+  const scrollIntoView = vi.fn()
+
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = scrollIntoView
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1' },
+    })
+    useErsatztvStore.setState({ channels: RAIL_CHANNELS })
+    const selected = useTVStore.getState().getUnifiedChannels().find((c) => c.id === 'etv30')
+    useTVStore.setState({ selectedChannel: selected ?? null })
+  })
+
+  afterEach(() => {
+    cleanup()
+    scrollIntoView.mockReset()
+    delete (Element.prototype as Partial<Element>).scrollIntoView
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels: [] })
+    useTVStore.setState({ selectedChannel: null })
+  })
+
+  it('scrolls the selected tile into view when the rail collapses', async () => {
+    const { rerender } = render(<TVChannelSidebar />)
+    await act(async () => {})
+    expect(scrollIntoView).not.toHaveBeenCalled()
+
+    rerender(<TVChannelSidebar isCollapsed />)
+    await act(async () => {})
+
+    expect(scrollIntoView).toHaveBeenCalledTimes(1)
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
+    const tile = screen.getByRole('button', { name: '30 Channel 30' })
+    expect(scrollIntoView.mock.contexts[0]).toBe(tile)
+    // 'nearest' aligns the tile's border box with the list edge; the scroll
+    // margin leaves room for its 2px selection ring
+    expect(tile).toHaveClass('scroll-my-1')
+  })
+
+  it('follows the selection to its tile while collapsed', async () => {
+    render(<TVChannelSidebar isCollapsed />)
+    await act(async () => {})
+    scrollIntoView.mockClear()
+
+    const next = useTVStore.getState().getUnifiedChannels().find((c) => c.id === 'etv5')
+    await act(async () => {
+      useTVStore.setState({ selectedChannel: next ?? null })
+    })
+
+    expect(scrollIntoView).toHaveBeenCalledTimes(1)
+    expect(scrollIntoView.mock.contexts[0]).toBe(
+      screen.getByRole('button', { name: '5 Channel 5' })
+    )
+  })
+})

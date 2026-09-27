@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type Ref } from 'react'
 import { ChevronLeft, ChevronRight, Radio } from 'lucide-react'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore } from '@/stores/tvStore'
@@ -61,6 +61,15 @@ export function TVChannelSidebar({
     }
   }, [ersatzTVChannels])
 
+  // Keep the selected tile in view when the rail collapses or the selection
+  // changes while collapsed
+  const tileRefs = useRef(new Map<string, HTMLButtonElement>())
+  const selectedChannelId = selectedChannel?.id
+  useEffect(() => {
+    if (!isCollapsed || !selectedChannelId) return
+    tileRefs.current.get(selectedChannelId)?.scrollIntoView({ block: 'nearest' })
+  }, [isCollapsed, selectedChannelId])
+
   const handleChannelClick = (channel: UnifiedChannel) => {
     selectChannel(channel)
   }
@@ -82,6 +91,10 @@ export function TVChannelSidebar({
           {unifiedChannels.map((channel) => (
             <CollapsedChannelButton
               key={channel.id}
+              ref={(tile) => {
+                if (tile) tileRefs.current.set(channel.id, tile)
+                else tileRefs.current.delete(channel.id)
+              }}
               channel={channel}
               isSelected={selectedChannel?.id === channel.id}
               hasLiveChannel={hasLiveChannel}
@@ -137,6 +150,7 @@ export function TVChannelSidebar({
 // ============================================================================
 
 interface CollapsedChannelButtonProps {
+  ref?: Ref<HTMLButtonElement>
   channel: UnifiedChannel
   isSelected: boolean
   hasLiveChannel: boolean
@@ -144,6 +158,7 @@ interface CollapsedChannelButtonProps {
 }
 
 function CollapsedChannelButton({
+  ref,
   channel,
   isSelected,
   hasLiveChannel,
@@ -155,9 +170,10 @@ function CollapsedChannelButton({
     <Tooltip>
       <TooltipTrigger asChild>
         <button
+          ref={ref}
           onClick={() => onSelect(channel)}
           className={`
-            relative flex h-10 shrink-0 items-center justify-center rounded-lg text-xs font-medium overflow-hidden
+            relative flex h-10 shrink-0 scroll-my-1 items-center justify-center rounded-lg text-xs font-medium overflow-hidden
             hover:bg-foreground/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring
             ${isLive ? 'w-auto min-w-10 px-1' : 'w-10'}
             ${isSelected ? 'ring-2 ring-primary bg-primary/10' : ''}
