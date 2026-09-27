@@ -237,9 +237,9 @@ export async function clearCurrentChannel(): Promise<void> {
       statusText: response.statusText,
     })
     if (response.status === 403) {
-      throw new Error('Only admins can clear the channel')
+      throw new Error('Only admins can stop live TV')
     }
-    throw new Error('Failed to clear channel')
+    throw new Error('Could not stop live TV')
   }
 
   logger.info('API', 'Channel cleared')

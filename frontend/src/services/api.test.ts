@@ -305,6 +305,24 @@ describe('api service', () => {
     })
   })
 
+  describe('clearCurrentChannel', () => {
+    it.each([
+      [403, 'Only admins can stop live TV'],
+      [500, 'Could not stop live TV'],
+    ])('says a %i failure in the words of stopping live TV', async (status, message) => {
+      vi.mocked(localStorage.getItem).mockReturnValue('test-token')
+
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: false,
+        status,
+        json: () => Promise.resolve({ detail: 'Error' }),
+      } as Response)
+
+      const { clearCurrentChannel } = await import('./api')
+      await expect(clearCurrentChannel()).rejects.toThrow(message)
+    })
+  })
+
   describe('fetchCurrentChannel', () => {
     it('should GET /channels/current and return channel', async () => {
       vi.mocked(localStorage.getItem).mockReturnValue('test-token')
