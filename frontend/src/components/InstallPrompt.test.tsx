@@ -111,6 +111,36 @@ describe('InstallPrompt', () => {
       expect(mockDismiss).toHaveBeenCalled()
     })
 
+    describe('styling', () => {
+      it('uses theme tokens instead of hard-coded slate and blue', () => {
+        render(<InstallPrompt />)
+        const dialog = screen.getByRole('dialog')
+        expect(dialog).toHaveClass('bg-card', 'text-card-foreground', 'border-border')
+
+        const classes = [dialog, ...dialog.querySelectorAll('*')]
+          .map((el) => el.getAttribute('class') ?? '')
+          .join(' ')
+        expect(classes).not.toMatch(/\b(?:[\w-]+:)*[\w-]+-(?:slate|blue)-\d+/)
+      })
+
+      it('uses the default primary Install button', () => {
+        render(<InstallPrompt />)
+        const installButton = screen.getByRole('button', { name: 'Install' })
+        expect(installButton).toHaveClass('bg-primary', 'text-primary-foreground')
+        expect(installButton.className).not.toMatch(/bg-blue/)
+      })
+
+      it('lets the description wrap instead of truncating it', () => {
+        render(<InstallPrompt />)
+        expect(screen.getByText(/Add to home screen/i)).not.toHaveClass('truncate')
+      })
+
+      it('sits above the home indicator', () => {
+        render(<InstallPrompt />)
+        expect(screen.getByRole('dialog')).toHaveClass('bottom-[max(1rem,env(safe-area-inset-bottom))]')
+      })
+    })
+
     describe('accessibility', () => {
       it('has role="dialog"', () => {
         render(<InstallPrompt />)
