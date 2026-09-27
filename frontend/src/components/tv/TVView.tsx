@@ -302,12 +302,12 @@ export function TVView() {
   // Where the player fills the screen (theater, phone landscape) chat slides
   // over the side; otherwise it docks beside the player on a desktop and
   // opens as a sheet below the header on a tablet, so the header's controls
-  // stay reachable. Phone portrait has it in the Chat tab (inline); the
-  // takeover is only left for a phone without chat, which can't open it.
+  // stay reachable. Phone portrait has it in the Chat tab (inline); a phone
+  // without chat has no tab and no way to open it.
   const chatVariant: ChatPanelVariant = isTheaterMode || isMobileLandscape
     ? 'overlay'
     : isMobile
-      ? 'takeover'
+      ? 'inline'
       : layoutMode === 'desktop'
         ? 'docked'
         : 'sheet'
@@ -671,8 +671,8 @@ export function TVView() {
 
         {/* Chat Panel. Always rendered here, after <main>: docked it is the
             row's third column and the player reflows beside it; the sheet is
-            placed over the row, below the header; overlay and takeover are
-            fixed to the viewport. In phone portrait with chat it is inline,
+            placed over the row, below the header; the overlay is fixed to
+            the viewport. In phone portrait with chat it is inline,
             under <main>'s tab strip, and this slot is the Chat tab's panel;
             elsewhere the slot has no box of its own (display: contents). One
             place, so switching variant (entering theater, a phone turning
@@ -701,7 +701,7 @@ export function TVView() {
               onSetNickname={sendSetNickname}
               status={status}
               onReconnect={reconnect}
-              variant={showPhoneTabs ? 'inline' : chatVariant}
+              variant={chatVariant}
               translucent={!showPhoneTabs && isChatOverPicture}
               onComposerFocusChange={setComposerFocused}
             />

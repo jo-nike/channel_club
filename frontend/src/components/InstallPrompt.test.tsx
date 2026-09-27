@@ -101,6 +101,14 @@ describe('InstallPrompt', () => {
       })
     })
 
+    it('says what Show me opens, under the same Install app title', () => {
+      render(<InstallPrompt />)
+      expect(screen.getByRole('dialog', { name: 'Install app' })).toHaveTextContent(
+        'Add Channel Club to your Home Screen',
+      )
+      expect(screen.queryByText(/quick access/)).not.toBeInTheDocument()
+    })
+
     it('offers the Add to Home Screen steps instead of an Install button', () => {
       render(<InstallPrompt />)
       expect(screen.queryByRole('button', { name: 'Install' })).not.toBeInTheDocument()
@@ -159,9 +167,10 @@ describe('InstallPrompt', () => {
       expect(screen.getByRole('dialog')).toBeInTheDocument()
     })
 
-    it('renders the install prompt banner', () => {
+    it('renders the install prompt banner, titled in sentence case', () => {
       render(<InstallPrompt />)
-      expect(screen.getByText('Install App')).toBeInTheDocument()
+      expect(screen.getByRole('dialog', { name: 'Install app' })).toBeInTheDocument()
+      expect(screen.queryByText('Install App')).not.toBeInTheDocument()
     })
 
     it('shows install description text', () => {

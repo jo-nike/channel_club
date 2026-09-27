@@ -143,6 +143,24 @@ describe('NHLGamesTab', () => {
     expect(cardOrder()).toEqual(['TOR', 'LAK', 'UTA', 'SCH', 'FIN'])
   })
 
+  it('marks live games with the theme live colour, not a fixed green', async () => {
+    setGames([
+      {
+        ...game(1, 'TOR', 'MTL', 'live', '2026-10-11T23:00:00Z', []),
+        period: '2nd',
+        timeRemaining: '12:34',
+      },
+      game(2, 'EDM', 'CGY', 'scheduled', '2026-10-12T02:00:00Z', []),
+    ])
+    await renderTab()
+
+    const [live, scheduled] = Array.from(document.querySelectorAll('[data-slot="card"]'))
+    expect(live).toHaveClass('border-live')
+    expect(live.className).not.toMatch(/green/)
+    expect(screen.getByText('2nd 12:34')).toHaveClass('text-live')
+    expect(scheduled).not.toHaveClass('border-live')
+  })
+
   it('folds networks not in your lineup behind a toggle that still reaches their pin', async () => {
     setGames([
       game(1, 'TOR', 'MTL', 'live', '2026-10-11T23:00:00Z', [

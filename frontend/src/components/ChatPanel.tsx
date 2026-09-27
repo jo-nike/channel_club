@@ -6,7 +6,6 @@ import { scrollBehavior } from '@/lib/motion'
 import { useChatStore, isOwnMessage } from '@/stores/chatStore'
 import type { ChatMessage as ChatMessageData } from '@/types'
 import { useNow } from '@/hooks/useNow'
-import { useFocusTrap } from '@/hooks/useFocusTrap'
 import { cn } from '@/lib/utils'
 import { ChatMessage } from './ChatMessage'
 import { GifButton } from './GifButton'
@@ -19,19 +18,15 @@ import { ScrollArea } from '@/components/ui/scroll-area'
  * - docked: a column beside the player that the picture shrinks for (desktop)
  * - sheet: over the right of the content, below the header (tablets)
  * - overlay: a drawer over the right edge (theater, phone landscape)
- * - takeover: the whole screen (a phone without the Chat tab)
  * - inline: the phone's Chat tab under the pinned player, filling the tab
  *   panel; the tab strip opens and closes it
  */
-export type ChatPanelVariant = 'docked' | 'sheet' | 'overlay' | 'takeover' | 'inline'
+export type ChatPanelVariant = 'docked' | 'sheet' | 'overlay' | 'inline'
 
 const PANEL_CLASSES: Record<ChatPanelVariant, string> = {
   docked: 'relative flex h-full w-80 shrink-0 flex-col border-l border-border bg-card animate-in fade-in-0 duration-200',
   sheet: 'absolute inset-y-0 right-0 z-40 flex w-80 flex-col border-l border-border bg-background shadow-lg animate-in fade-in-0 slide-in-from-right-4 duration-200',
   overlay: 'fixed top-0 right-0 h-full w-80 z-50 bg-background border-l border-border flex flex-col shadow-lg animate-in fade-in-0 slide-in-from-right-4 duration-200',
-  // Full-screen on phones: keep the header clear of the status bar and the
-  // composer above the home indicator
-  takeover: 'fixed inset-0 z-50 bg-background flex flex-col pt-safe pb-safe animate-in fade-in-0 slide-in-from-bottom-4 duration-200',
   // In the page's flow, at the bottom of the screen: the composer stays
   // above the home indicator
   inline: 'flex h-full min-h-0 flex-col bg-background pb-safe',
@@ -103,8 +98,8 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
     messages, isOpen, setOpen, nickname, me, readMarker, historyReset, nicknameRejection,
     setNickname, clearNickname, clearNicknameRejection,
   } = useChatStore()
-  // One shared tick for every message's relative time
-  const now = useNow(30_000)
+  // One shared tick for every message's relative time, only while they show
+  const now = useNow(30_000, isOpen)
 
   const [inputValue, setInputValue] = useState('')
   // Screen readers only: the message bubble is the visible confirmation
@@ -291,12 +286,6 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
     }
   }, [isOpen])
 
-  // The phone takeover covers the whole screen, so it is a modal dialog and
-  // Tab stays inside it. The GIF picker's dialog is portalled out and keeps
-  // its own trap. Focus return is handled above for every variant.
-  const isDialog = variant === 'takeover'
-  useFocusTrap(panelRef, { enabled: isOpen && isDialog, restoreFocus: false })
-
   // Say 'Reconnecting…' only once a reconnect has taken a while
   // (state is only set from the timer and the cleanup, never in the effect body)
   useEffect(() => {
@@ -434,27 +423,25 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
     return dayLabel(sentAt, now)
   })
 
-  // Docked and sheet sit in the page beside the header's controls, so they're
-  // a complementary landmark rather than a layer over everything; the phone
-  // takeover is a modal dialog (see isDialog). The role is an attribute on one
-  // element type: swapping the element when theater switches the variant
-  // would remount the list and drop its scroll and focus
-  const isLandmark = variant === 'docked' || variant === 'sheet'
+  // Docked, sheet and overlay sit beside or over the page without taking it
+  // over, so each is a complementary landmark named Chat. Inline is the
+  // phone's Chat tab panel, which the tab already names. The role is an
+  // attribute on one element type: swapping the element when theater switches
+  // the variant would remount the list and drop its scroll and focus
+  const isLandmark = variant !== 'inline'
 
   return (
     <div
       ref={panelRef}
       id="chat-panel"
-      role={isLandmark ? 'complementary' : isDialog ? 'dialog' : undefined}
+      role={isLandmark ? 'complementary' : undefined}
       aria-label={isLandmark ? 'Chat' : undefined}
-      aria-modal={isDialog ? true : undefined}
-      aria-labelledby={isDialog ? 'chat-panel-title' : undefined}
       className={cn(PANEL_CLASSES[variant], translucent && 'bg-background/85 backdrop-blur')}
     >
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">
-          <h2 id="chat-panel-title" className="text-lg font-semibold">Chat</h2>
+          <h2 className="text-lg font-semibold">Chat</h2>
           {me && !isEditingNickname && (
             <>
               <span className="truncate text-sm text-muted-foreground">Chatting as {displayName}</span>

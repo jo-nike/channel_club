@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { IosInstallDialog } from '@/components/IosInstallDialog'
 import { useInstallPrompt } from '@/hooks/useInstallPrompt'
 import { useChatStore } from '@/stores/chatStore'
+import { APP_NAME } from '@/lib/appInfo'
 
 export function InstallPrompt() {
   const { shouldPromote, variant, install, dismiss } = useInstallPrompt()
@@ -37,7 +38,7 @@ export function InstallPrompt() {
   }, [visible])
 
   // iOS has no install dialog to open: show the instructions, and retire the
-  // banner (the account menu keeps 'Add to Home Screen')
+  // banner (the account menu keeps 'Install app')
   const showIosHelp = () => {
     setIosHelpOpen(true)
     dismiss()
@@ -58,10 +59,11 @@ export function InstallPrompt() {
 
           <div className="flex-1 min-w-0">
             <h3 id="install-prompt-title" className="font-semibold text-foreground">
-              Install App
+              Install app
             </h3>
             <p className="text-sm text-muted-foreground">
-              Add to home screen for quick access
+              {/* On iOS, what 'Show me' opens: the Add to Home Screen steps */}
+              {isIOS ? `Add ${APP_NAME} to your Home Screen` : 'Add to home screen for quick access'}
             </p>
           </div>
 

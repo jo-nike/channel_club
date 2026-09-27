@@ -3,10 +3,14 @@ import { toast } from 'sonner'
 import { Square } from 'lucide-react'
 import { useChannelStore } from '@/stores/channelStore'
 import { useAuthStore } from '@/stores/authStore'
-import { useRecentLiveChannels } from '@/stores/recentLiveStore'
+import { useRecentLiveChannelIds, useRecentLiveStore } from '@/stores/recentLiveStore'
 import { useActiveUsers } from '@/hooks/useActiveUsers'
 import { useSetLiveChannel } from '@/hooks/useSetLiveChannel'
-import { fetchNowPlaying, clearCurrentChannel as clearCurrentChannelApi } from '@/services/api'
+import {
+  fetchGroupedChannels,
+  fetchNowPlaying,
+  clearCurrentChannel as clearCurrentChannelApi,
+} from '@/services/api'
 import { Button } from '@/components/ui/button'
 import { StopLiveTVDialog } from '@/components/StopLiveTVDialog'
 import { ChannelLogo } from '@/components/ChannelLogo'
@@ -32,7 +36,8 @@ export function OnAirCard({ onHeightChange }: OnAirCardProps) {
   const currentChannel = useChannelStore((s) => s.currentChannel)
   const setCurrentChannel = useChannelStore((s) => s.setCurrentChannel)
   const username = useAuthStore((s) => s.username)
-  const recents = useRecentLiveChannels(username)
+  const recentIds = useRecentLiveChannelIds(username)
+  const catalogue = useChannelCatalogue()
   const setLiveChannel = useSetLiveChannel()
 
   const cardRef = useRef<HTMLElement>(null)
@@ -45,8 +50,13 @@ export function OnAirCard({ onHeightChange }: OnAirCardProps) {
     return () => observer.disconnect()
   }, [onHeightChange])
 
-  // The channel on air already has the card's headline; recents are the others
-  const otherRecents = recents.filter((channel) => channel.id !== currentChannel?.id)
+  // Each recent id as the catalogue has it now (its current name and stream),
+  // leaving out channels that are gone and, as it already has the card's
+  // headline, the channel on air. None until the catalogue has loaded.
+  const otherRecents = recentIds.flatMap((id) => {
+    const channel = catalogue?.get(id)
+    return channel && channel.id !== currentChannel?.id ? [channel] : []
+  })
 
   async function stopLiveTV() {
     const previousChannel = useChannelStore.getState().currentChannel
@@ -132,6 +142,37 @@ export function OnAirCard({ onHeightChange }: OnAirCardProps) {
       </div>
     </section>
   )
+}
+
+/**
+ * The grouped channel catalogue by channel id, loaded once per mount; null
+ * while loading or when it can't be loaded. Once loaded, recent channels that
+ * are no longer in it are forgotten.
+ */
+function useChannelCatalogue(): Map<string, Channel> | null {
+  const [catalogue, setCatalogue] = useState<Map<string, Channel> | null>(null)
+  const pruneRecents = useRecentLiveStore((s) => s.prune)
+
+  useEffect(() => {
+    let cancelled = false
+    fetchGroupedChannels().then(
+      ({ groups, ungrouped }) => {
+        if (cancelled) return
+        const channels = [...groups.flatMap((group) => group.channels), ...ungrouped]
+        const byId = new Map(channels.map((channel) => [channel.id, channel]))
+        setCatalogue(byId)
+        pruneRecents(new Set(byId.keys()))
+      },
+      () => {
+        // Non-fatal: the card just goes without the Recent row
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [pruneRecents])
+
+  return catalogue
 }
 
 /** The programme on the live channel now; nothing while loading, without guide data or on error. */

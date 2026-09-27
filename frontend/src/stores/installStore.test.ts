@@ -368,6 +368,58 @@ describe('installStore', () => {
     })
   })
 
+  describe('blocked storage', () => {
+    /** The next localStorage write throws, as in a private window or with a full quota. */
+    function blockNextWrite() {
+      vi.mocked(localStorage.setItem).mockImplementationOnce(() => {
+        throw new DOMException('The quota has been exceeded.', 'QuotaExceededError')
+      })
+    }
+
+    it('dismiss() still hides the banner for this session', () => {
+      offer()
+      blockNextWrite()
+
+      expect(() => {
+        act(() => {
+          useInstallStore.getState().dismiss()
+        })
+      }).not.toThrow()
+
+      expect(localStorage.getItem(STORAGE_KEY)).toBeNull()
+      expect(shouldPromote()).toBe(false)
+    })
+
+    it('an accepted install still resolves true and hides the banner', async () => {
+      offer('accepted')
+      blockNextWrite()
+
+      let result = false
+      await act(async () => {
+        result = await useInstallStore.getState().install()
+      })
+
+      expect(result).toBe(true)
+      expect(localStorage.getItem(STORAGE_KEY)).toBeNull()
+      expect(shouldPromote()).toBe(false)
+    })
+
+    it('appinstalled still drops the offer', () => {
+      offer()
+      blockNextWrite()
+
+      expect(() => {
+        act(() => {
+          window.dispatchEvent(new Event('appinstalled'))
+        })
+      }).not.toThrow()
+
+      expect(localStorage.getItem(STORAGE_KEY)).toBeNull()
+      expect(canInstall()).toBe(false)
+      expect(shouldPromote()).toBe(false)
+    })
+  })
+
   // A fresh copy of the module, imported without ever calling initInstallStore:
   // only the import itself can have registered its listener
   describe('app startup', () => {

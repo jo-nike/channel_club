@@ -6,6 +6,11 @@ import { useTVStore, LIVE_CHANNEL_ID } from '@/stores/tvStore'
 // Long enough to notice while watching something else
 const REMINDER_TOAST_DURATION = 20_000
 
+// setTimeout fires at once for a delay over 2^31-1 ms (about 24.8 days), so a
+// reminder further out than that would go off in a loop. Wait at most a day,
+// then schedule again.
+const MAX_TIMER_DELAY_MS = 24 * 60 * 60_000
+
 /**
  * The unified channel a reminder is for, as it is now. The live slot counts
  * only while it still carries the live channel the reminder was set on: once
@@ -59,7 +64,8 @@ function fireDueReminders() {
 /**
  * Goes off at the start of each programme with a reminder set, as an in-app
  * toast. It only runs while a tab is open: there are no push notifications.
- * One timeout, to the next start, rescheduled whenever the reminders change.
+ * One timeout, to the next start (or a day, whichever is sooner), rescheduled
+ * whenever the reminders change.
  */
 export function useProgrammeReminders() {
   const reminders = useReminderStore((s) => s.reminders)
@@ -75,7 +81,7 @@ export function useProgrammeReminders() {
         // A timer can fire a moment before the wall clock reaches the start,
         // leaving nothing due and the reminders unchanged: wait again
         schedule()
-      }, Math.max(0, nextStartMs - Date.now()))
+      }, Math.min(MAX_TIMER_DELAY_MS, Math.max(0, nextStartMs - Date.now())))
     }
     schedule()
     return () => clearTimeout(timer)

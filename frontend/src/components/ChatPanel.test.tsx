@@ -177,6 +177,36 @@ describe('ChatPanel', () => {
     }
   })
 
+  it('runs the shared clock only while open, and is current as soon as it reopens', () => {
+    vi.useFakeTimers()
+    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval')
+    try {
+      const sentAt = new Date('2026-01-08T12:00:00Z')
+      vi.setSystemTime(sentAt)
+      useChatStore.setState({
+        isOpen: false,
+        messages: [{ ...createMessage('1', 'OtherUser'), timestamp: sentAt.toISOString() }],
+      })
+      const clockTicks = () => setIntervalSpy.mock.calls.filter(([, ms]) => ms === 30_000).length
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(clockTicks()).toBe(0)
+
+      // Closed for ten minutes: nothing ticks
+      act(() => { vi.advanceTimersByTime(10 * 60_000) })
+      expect(clockTicks()).toBe(0)
+
+      act(() => useChatStore.setState({ isOpen: true }))
+      act(() => { vi.advanceTimersByTime(0) })
+      expect(clockTicks()).toBe(1)
+      const clock = sentAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      expect(screen.queryByText('just now')).not.toBeInTheDocument()
+      expect(screen.getByText(clock)).toBeInTheDocument()
+    } finally {
+      setIntervalSpy.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
   it('has max length on input', () => {
     render(<ChatPanel onSendMessage={mockOnSendMessage} />)
     const input = screen.getByPlaceholderText('Message the club…')
@@ -1137,15 +1167,12 @@ describe('ChatPanel', () => {
       expect(panel).not.toHaveClass('fixed')
     })
 
-    it.each([
-      ['overlay', ['fixed', 'top-0', 'right-0', 'h-full', 'w-80', 'z-50']],
-      ['takeover', ['fixed', 'inset-0', 'z-50']],
-    ] as const)('keeps the %s variant fixed to the viewport', (variant, classes) => {
-      render(<ChatPanel onSendMessage={mockOnSendMessage} variant={variant} />)
-      expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
-      const panel = document.getElementById('chat-panel')
+    it('keeps the overlay fixed to the viewport, as a complementary landmark named Chat', () => {
+      render(<ChatPanel onSendMessage={mockOnSendMessage} variant="overlay" />)
+      const panel = screen.getByRole('complementary', { name: 'Chat' })
+      expect(panel).toHaveAttribute('id', 'chat-panel')
       expect(panel).toContainElement(screen.getByRole('heading', { name: 'Chat' }))
-      expect(panel).toHaveClass(...classes)
+      expect(panel).toHaveClass('fixed', 'top-0', 'right-0', 'h-full', 'w-80', 'z-50')
     })
 
     it("fills the phone's Chat tab in the page flow, with no close button and the composer above the home indicator", () => {
@@ -1196,8 +1223,8 @@ describe('ChatPanel', () => {
 
       rerender(<ChatPanel onSendMessage={mockOnSendMessage} variant="overlay" />)
 
-      expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
-      expect(document.getElementById('chat-panel')).toBe(panel)
+      // Still the same element, and still the Chat landmark
+      expect(screen.getByRole('complementary', { name: 'Chat' })).toBe(panel)
       expect(panel).toHaveClass('fixed')
       expect(viewport).not.toBeNull()
       expect(document.querySelector('[data-radix-scroll-area-viewport]')).toBe(viewport)
@@ -1272,7 +1299,7 @@ describe('ChatPanel', () => {
       return opener
     }
 
-    it.each(['docked', 'sheet', 'overlay', 'takeover', 'inline'] as const)('returns focus to the %s chat opener on close', (variant) => {
+    it.each(['docked', 'sheet', 'overlay', 'inline'] as const)('returns focus to the %s chat opener on close', (variant) => {
       useChatStore.setState({ isOpen: false })
       const opener = addOpener()
       render(<ChatPanel onSendMessage={mockOnSendMessage} variant={variant} />)
@@ -1365,51 +1392,31 @@ describe('ChatPanel', () => {
       expect(elsewhere).toHaveFocus()
     })
 
-    it('makes the phone takeover a modal dialog named by its heading', () => {
-      render(<ChatPanel onSendMessage={mockOnSendMessage} variant="takeover" />)
-      const dialog = screen.getByRole('dialog', { name: 'Chat' })
-      expect(dialog).toHaveAttribute('id', 'chat-panel')
-      expect(dialog).toHaveAttribute('aria-modal', 'true')
-    })
-
     it.each(['docked', 'sheet', 'overlay', 'inline'] as const)('keeps the %s panel non-modal', (variant) => {
       render(<ChatPanel onSendMessage={mockOnSendMessage} variant={variant} />)
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
       expect(document.getElementById('chat-panel')).not.toHaveAttribute('aria-modal')
     })
 
-    it('keeps Tab inside the takeover, skipping the disabled Send button', () => {
-      render(<ChatPanel onSendMessage={mockOnSendMessage} variant="takeover" />)
-      const close = screen.getByRole('button', { name: 'Close chat' })
-      const gif = screen.getByRole('button', { name: 'Send GIF' })
-      expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled()
-
-      gif.focus()
-      expect(fireEvent.keyDown(gif, { key: 'Tab' })).toBe(false)
-      expect(close).toHaveFocus()
-
-      expect(fireEvent.keyDown(close, { key: 'Tab', shiftKey: true })).toBe(false)
-      expect(gif).toHaveFocus()
-    })
-
-    // A phone rotating to portrait (or a window dragged narrow) turns an open
-    // overlay into the takeover; the viewer mid-message keeps the composer
-    it('keeps the composer focused when an open overlay becomes the takeover', () => {
+    // A phone rotating to portrait turns an open overlay into the Chat tab;
+    // the viewer mid-message keeps the composer, though the landmark role goes
+    it('keeps the composer focused when an open overlay becomes the inline Chat tab', () => {
       useChatStore.setState({ me: { username: 'TestUser' } })
       const { rerender } = render(<ChatPanel onSendMessage={mockOnSendMessage} variant="overlay" />)
       const input = screen.getByPlaceholderText('Message the club…')
       fireEvent.change(input, { target: { value: 'half typed' } })
       input.focus()
 
-      rerender(<ChatPanel onSendMessage={mockOnSendMessage} variant="takeover" />)
+      rerender(<ChatPanel onSendMessage={mockOnSendMessage} variant="inline" />)
 
-      expect(screen.getByRole('dialog', { name: 'Chat' })).toContainElement(input)
+      expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
+      expect(document.getElementById('chat-panel')).toContainElement(input)
       expect(input).toHaveValue('half typed')
       expect(input).toHaveFocus()
     })
 
-    it('does not trap Tab in the docked panel', () => {
-      render(<ChatPanel onSendMessage={mockOnSendMessage} variant="docked" />)
+    it.each(['docked', 'sheet', 'overlay', 'inline'] as const)('does not trap Tab in the %s panel', (variant) => {
+      render(<ChatPanel onSendMessage={mockOnSendMessage} variant={variant} />)
       const gif = screen.getByRole('button', { name: 'Send GIF' })
       gif.focus()
 
@@ -1451,12 +1458,6 @@ describe('ChatPanel', () => {
   })
 
   describe('iOS safe area', () => {
-    it('keeps the full-screen phone panel clear of the status bar and home indicator', () => {
-      render(<ChatPanel onSendMessage={mockOnSendMessage} variant="takeover" />)
-      const panel = screen.getByRole('heading', { name: 'Chat' }).closest('.fixed')
-      expect(panel).toHaveClass('inset-0', 'pt-safe', 'pb-safe')
-    })
-
     it('leaves the desktop side panel unpadded', () => {
       render(<ChatPanel onSendMessage={mockOnSendMessage} />)
       const panel = screen.getByRole('heading', { name: 'Chat' }).closest('.fixed')

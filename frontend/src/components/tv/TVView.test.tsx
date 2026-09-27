@@ -840,12 +840,14 @@ describe('E-01 chat placement', () => {
     return screen.getByTestId('chat')
   }
 
-  it.each([390, 768])('takes over the screen on a %ipx phone, agreeing with the phone layout at the edge', async (width) => {
+  it.each([390, 768])('opens in the Chat tab on a %ipx phone, agreeing with the phone layout at the edge', async (width) => {
+    chatFlag.enabled = true
     mockViewport({ width, height: 900, pointer: 'coarse' })
     const chat = await openChat()
-    expect(chat).toHaveAttribute('data-variant', 'takeover')
-    // The same width lays the view out as a phone: the stacked channel list
-    expect(screen.getByRole('heading', { name: 'Channels' }).closest('.epg-scroll')).not.toBeNull()
+    expect(chat).toHaveAttribute('data-variant', 'inline')
+    // The same width lays the view out as a phone: the Channels | Chat strip
+    expect(screen.getByRole('tablist', { name: 'Channels and chat' })).toBeInTheDocument()
+    expect(screen.getByRole('tabpanel')).toContainElement(chat)
   })
 
   it('docks beside the player at 1440px, with the header and its controls still there', async () => {
