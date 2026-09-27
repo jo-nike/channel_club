@@ -6,6 +6,10 @@ import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore } from '@/stores/tvStore'
 import type { EPGResponse, ErsatzTVProgramme } from '@/types'
 
+// Putting a channel on live TV starts a guide lookup; leave it unanswered so
+// each test sets the live guide state itself
+vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn(() => new Promise(() => {})) }))
+
 const hour = 60 * 60 * 1000
 const start = new Date(Date.now() - hour / 2).toISOString()
 const stop = new Date(Date.now() + hour / 2).toISOString()

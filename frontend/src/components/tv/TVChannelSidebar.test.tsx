@@ -7,6 +7,10 @@ import { useTVStore } from '@/stores/tvStore'
 import { fetchErsatzTVCurrentProgramme } from '@/services/ersatztvApi'
 import type { ErsatzTVProgramme } from '@/types'
 
+// Putting a channel on live TV starts a guide lookup; leave it unanswered so
+// each test sets the live guide state itself
+vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn(() => new Promise(() => {})) }))
+
 vi.mock('@/services/ersatztvApi', () => ({
   fetchErsatzTVCurrentProgramme: vi.fn().mockResolvedValue({ current: null, nextUp: null }),
   getErsatzTVLogoUrl: vi.fn((id: string) => `/api/ersatztv/logo/${id}`),

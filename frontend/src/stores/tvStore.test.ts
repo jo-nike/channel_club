@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { useTVStore } from './tvStore'
+import { useTVStore, LIVE_CHANNEL_ID } from './tvStore'
 import { useChannelStore } from './channelStore'
 import { fetchNowPlaying } from '@/services/api'
 import type { Channel, EPGResponse } from '@/types'
@@ -26,9 +26,17 @@ const status = () => useTVStore.getState().liveEPGStatus
 
 describe('tvStore live guide status', () => {
   beforeEach(() => {
-    vi.mocked(fetchNowPlaying).mockReset()
-    useTVStore.setState({ selectedChannel: null, liveEPG: null, liveEPGLoading: false, liveEPGStatus: 'idle' })
+    // Put the channel on first: switching live TV starts a lookup, which the
+    // reset below then discards (a newer request id makes it stale)
     useChannelStore.setState({ currentChannel: tsn })
+    vi.mocked(fetchNowPlaying).mockReset()
+    useTVStore.setState({
+      selectedChannel: null,
+      liveEPG: null,
+      liveEPGLoading: false,
+      liveEPGStatus: 'idle',
+      epgRequestId: useTVStore.getState().epgRequestId + 1,
+    })
   })
 
   it('looks the programme up by guide id and sends the channel name for the fallback', async () => {
@@ -123,5 +131,80 @@ describe('tvStore live guide status', () => {
 
     expect(status()).toBe('idle')
     expect(useTVStore.getState().liveEPG).toBeNull()
+  })
+
+  describe('when the live channel switches', () => {
+    const sportsnet: Channel = { id: '31', name: 'CA-S: Sportsnet ONE', streamUrl: 'http://x/31', guideId: '9' }
+    const onSportsnet: EPGResponse = {
+      channelId: '9',
+      currentProgram: { title: 'Blue Jays Baseball', startTime: '2026-09-26T23:00:00Z', endTime: '2026-09-27T02:00:00Z' },
+    }
+
+    beforeEach(async () => {
+      vi.mocked(fetchNowPlaying).mockResolvedValue(onNow)
+      await useTVStore.getState().loadLiveEPG()
+      expect(useTVStore.getState().liveEPG).toEqual(onNow)
+      vi.mocked(fetchNowPlaying).mockClear()
+    })
+
+    it("drops the old programme at once and looks the new one up, even while watching another channel", async () => {
+      const pending = deferred<EPGResponse>()
+      vi.mocked(fetchNowPlaying).mockReturnValue(pending.promise)
+
+      useChannelStore.getState().setCurrentChannel(sportsnet)
+
+      // Nothing of TSN's is left to show under Sportsnet while the lookup runs
+      expect(useTVStore.getState().liveEPG).toBeNull()
+      expect(status()).toBe('loading')
+      expect(fetchNowPlaying).toHaveBeenCalledTimes(1)
+      expect(fetchNowPlaying).toHaveBeenCalledWith('9', 'CA-S: Sportsnet ONE')
+
+      pending.resolve(onSportsnet)
+      await vi.waitFor(() => expect(status()).toBe('ok'))
+      expect(useTVStore.getState().liveEPG).toEqual(onSportsnet)
+    })
+
+    it('does the same while watching the live slot, which follows the new channel', async () => {
+      useTVStore.setState({ selectedChannel: useTVStore.getState().getUnifiedChannels()[0] })
+      const pending = deferred<EPGResponse>()
+      vi.mocked(fetchNowPlaying).mockReturnValue(pending.promise)
+
+      useChannelStore.getState().setCurrentChannel(sportsnet)
+
+      expect(useTVStore.getState().selectedChannel).toMatchObject({ id: LIVE_CHANNEL_ID, name: 'CA-S: Sportsnet ONE' })
+      expect(useTVStore.getState().liveEPG).toBeNull()
+      expect(status()).toBe('loading')
+      expect(fetchNowPlaying).toHaveBeenCalledTimes(1)
+
+      pending.resolve(onSportsnet)
+      await vi.waitFor(() => expect(status()).toBe('ok'))
+      expect(useTVStore.getState().liveEPG).toEqual(onSportsnet)
+    })
+
+    it("ignores the old channel's answer if it lands after the switch", async () => {
+      const slowTSN = deferred<EPGResponse>()
+      const sportsnetLookup = deferred<EPGResponse>()
+      vi.mocked(fetchNowPlaying).mockReturnValueOnce(slowTSN.promise).mockReturnValueOnce(sportsnetLookup.promise)
+      const tsnRefresh = useTVStore.getState().loadLiveEPG()
+
+      useChannelStore.getState().setCurrentChannel(sportsnet)
+      slowTSN.resolve(onNow)
+      await tsnRefresh
+
+      expect(useTVStore.getState().liveEPG).toBeNull()
+      expect(status()).toBe('loading')
+
+      sportsnetLookup.resolve(onSportsnet)
+      await vi.waitFor(() => expect(status()).toBe('ok'))
+      expect(useTVStore.getState().liveEPG).toEqual(onSportsnet)
+    })
+
+    it('keeps the programme when the same channel comes through again with new details', () => {
+      useChannelStore.getState().setCurrentChannel({ ...tsn, streamUrl: 'http://x/28?v=2' })
+
+      expect(useTVStore.getState().liveEPG).toEqual(onNow)
+      expect(status()).toBe('ok')
+      expect(fetchNowPlaying).not.toHaveBeenCalled()
+    })
   })
 })
