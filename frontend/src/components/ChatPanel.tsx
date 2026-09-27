@@ -43,6 +43,9 @@ export interface ChatPanelProps {
 // Quick reconnects (including the first connect) finish before the row would flicker in
 const RECONNECTING_ROW_DELAY = 2000
 
+// How long the message log stays busy after a history replaces it
+const HISTORY_BUSY_MS = 250
+
 // Within this many pixels of the bottom, the reader is following the conversation
 const AT_BOTTOM_THRESHOLD = 80
 
@@ -171,6 +174,26 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
       }
     }
   }
+
+  // A history (the first load, every reconnect) replaces the whole list rather
+  // than adding a message to it. The log is busy while that renders, so a
+  // screen reader doesn't read the history out as new messages. A new message
+  // is an append: the one before it was the last message.
+  const [loggedMessages, setLoggedMessages] = useState(messages)
+  const [isLogBusy, setIsLogBusy] = useState(false)
+  // (Adjusted while rendering, like connectionLost above.)
+  if (messages !== loggedMessages) {
+    setLoggedMessages(messages)
+    const isAppend = lastId !== loggedMessages.at(-1)?.messageId &&
+      messages.at(-2)?.messageId === loggedMessages.at(-1)?.messageId
+    if (!isAppend) setIsLogBusy(true)
+  }
+  // (state is only set from the timer, never in the effect body)
+  useEffect(() => {
+    if (!isLogBusy) return
+    const timer = setTimeout(() => setIsLogBusy(false), HISTORY_BUSY_MS)
+    return () => clearTimeout(timer)
+  }, [isLogBusy, loggedMessages])
 
   // Show the 'New' divider, or the bottom, once the list is on screen
   useEffect(() => {
@@ -510,7 +533,15 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
           {/* Messages */}
           <div className="relative flex min-h-0 flex-1 flex-col">
             <ScrollArea className="flex-1" viewportRef={viewportRef} onViewportScroll={handleViewportScroll}>
-              <div className="py-2">
+              {/* New messages are read out politely; a replaced history isn't (aria-busy) */}
+              <div
+                role="log"
+                aria-label="Chat messages"
+                aria-live="polite"
+                aria-relevant="additions"
+                aria-busy={isLogBusy || undefined}
+                className="py-2"
+              >
                 {historyReset && (
                   <p className="px-4 py-2 text-center text-xs text-muted-foreground">
                     Chat history was cleared (server restart or an admin cleared it)

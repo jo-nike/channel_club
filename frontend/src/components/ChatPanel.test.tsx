@@ -1167,6 +1167,42 @@ describe('ChatPanel', () => {
     })
   })
 
+  describe('message log', () => {
+    afterEach(() => vi.useRealTimers())
+
+    it('is a polite log that announces additions', () => {
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      const log = screen.getByRole('log', { name: 'Chat messages' })
+      expect(log).toHaveAttribute('aria-live', 'polite')
+      expect(log).toHaveAttribute('aria-relevant', 'additions')
+      expect(log).not.toHaveAttribute('aria-busy')
+    })
+
+    it('stays live when a new message arrives', () => {
+      useChatStore.setState({ messages: [createMessage('1')] })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+
+      act(() => useChatStore.getState().addMessage(createMessage('2', 'Other')))
+
+      expect(screen.getByText('Message 2')).toBeInTheDocument()
+      expect(screen.getByRole('log')).not.toHaveAttribute('aria-busy')
+    })
+
+    it('is busy while a reconnect history replaces the list, then live again', () => {
+      vi.useFakeTimers()
+      useChatStore.setState({ messages: [createMessage('1')] })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+
+      act(() => useChatStore.getState().setMessages([createMessage('1'), createMessage('2'), createMessage('3')]))
+
+      expect(screen.getByText('Message 3')).toBeInTheDocument()
+      expect(screen.getByRole('log')).toHaveAttribute('aria-busy', 'true')
+
+      act(() => { vi.advanceTimersByTime(250) })
+      expect(screen.getByRole('log')).not.toHaveAttribute('aria-busy')
+    })
+  })
+
   describe('focus and dialog semantics', () => {
     afterEach(() => {
       document.querySelectorAll('[data-testid="opener"]').forEach((element) => element.remove())
