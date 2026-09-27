@@ -43,12 +43,13 @@ function NHLLogo({ className }: { className?: string }) {
 }
 import { useUIStore } from '@/stores/uiStore'
 import { useAuthStore } from '@/stores/authStore'
+import { useChannelStore } from '@/stores/channelStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useNhlMappingStore } from '@/stores/nhlMappingStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { cn } from '@/lib/utils'
 import { scrollBehavior } from '@/lib/motion'
-import { askGroupMessage, channelsOf, matchGames, type GameRow } from '@/lib/nhlWatch'
+import { askGroupMessage, channelsOf, liveGameId, matchGames, type GameRow } from '@/lib/nhlWatch'
 import type { Channel } from '@/types'
 import type { NHLGame, NHLTeam } from '@/types/nhl'
 
@@ -204,8 +205,9 @@ const KEY_STEP_PX = 160
  *
  * Each game opens what you can do about it, so the channel lineup loads while
  * the row is up (any signed-in viewer can read it) to match each game's
- * broadcasts to channels, pins first, as the Live TV switcher does. If the
- * lineup can't be loaded, the games say so rather than wait for it.
+ * broadcasts to channels, pins first, as the Live TV switcher does. The game
+ * on the shared live channel is marked 'On Live'. If the lineup can't be
+ * loaded, the games say so rather than wait for it.
  */
 function TickerScroll({ games }: { games: NHLGame[] }) {
   const scrollerRef = useRef<HTMLDivElement>(null)
@@ -213,16 +215,16 @@ function TickerScroll({ games }: { games: NHLGame[] }) {
   const [more, setMore] = useState({ before: false, after: false })
   const { catalogue, failed: lineupFailed } = useChannelCatalogueLoad()
   const overrides = useNhlMappingStore((s) => s.overrides)
+  const liveChannelId = useChannelStore((s) => s.currentChannel?.id ?? null)
 
   const sorted = useMemo(() => sortGames(games), [games])
-  // Each game's broadcasts on your channels, by game id; null until the lineup loads
-  const rows = useMemo(
-    () =>
-      catalogue
-        ? new Map(matchGames(games, [...catalogue.values()], overrides).map((row) => [row.game.id, row]))
-        : null,
+  // Each game's broadcasts on your channels; null until the lineup loads
+  const matched = useMemo(
+    () => (catalogue ? matchGames(games, [...catalogue.values()], overrides) : null),
     [games, catalogue, overrides]
   )
+  const rows = useMemo(() => matched && new Map(matched.map((row) => [row.game.id, row])), [matched])
+  const onLiveId = matched ? liveGameId(matched, liveChannelId) : null
 
   // Whether there is more to see on either side, re-read on scroll and when
   // the row or its games change size
@@ -279,7 +281,13 @@ function TickerScroll({ games }: { games: NHLGame[] }) {
       >
         <div ref={contentRef} className="flex w-max gap-3">
           {sorted.map((game) => (
-            <GameCardCompact key={game.id} game={game} row={rows?.get(game.id)} lineupFailed={lineupFailed} />
+            <GameCardCompact
+              key={game.id}
+              game={game}
+              row={rows?.get(game.id)}
+              lineupFailed={lineupFailed}
+              onLive={game.id === onLiveId}
+            />
           ))}
         </div>
       </div>
@@ -348,12 +356,15 @@ function GameCardCompact({
   game,
   row,
   lineupFailed,
+  onLive,
 }: {
   game: NHLGame
   /** The game's broadcasts matched to your channels; undefined until the lineup loads */
   row: GameRow | undefined
   /** The lineup couldn't be loaded, so row never comes */
   lineupFailed: boolean
+  /** The game is on the shared live channel */
+  onLive: boolean
 }) {
   const shell = useContext(PlayerShellContext)
   const [isOpen, setIsOpen] = useState(false)
@@ -383,7 +394,7 @@ function GameCardCompact({
             'flex items-center gap-2 px-2 py-1 rounded border shrink-0 snap-start text-left transition-colors hover:bg-accent focus-visible:-outline-offset-2',
             isLive && 'border-green-500 bg-green-500/5'
           )}
-          aria-label={gameLabel(game, !!showPowerPlay)}
+          aria-label={gameLabel(game, !!showPowerPlay, onLive)}
         >
           {/* Away team */}
           <TeamBadge
@@ -407,6 +418,7 @@ function GameCardCompact({
             <GameStatusBadge game={game} />
             {showPowerPlay && <PowerPlayIndicator />}
           </span>
+          {onLive && <OnLiveBadge />}
         </button>
       </PopoverTrigger>
       {/* video-controls: a tap in here uses the popover rather than toggling
@@ -419,22 +431,41 @@ function GameCardCompact({
         aria-label={`${game.awayTeam.abbreviation} @ ${game.homeTeam.abbreviation}`}
         onEscapeKeyDown={(e) => e.stopPropagation()}
       >
-        <GameActions game={game} row={row} lineupFailed={lineupFailed} onDone={() => setIsOpen(false)} />
+        <GameActions
+          game={game}
+          row={row}
+          lineupFailed={lineupFailed}
+          onLive={onLive}
+          onDone={() => setIsOpen(false)}
+        />
       </PopoverContent>
     </Popover>
   )
 }
 
+/** Marks the game on the shared live channel, in the LIVE pill's look. */
+function OnLiveBadge() {
+  return (
+    <span
+      aria-hidden="true"
+      className="shrink-0 rounded bg-live px-1.5 py-1 font-display text-[11px] font-extrabold uppercase leading-none tracking-[0.12em] text-live-foreground"
+    >
+      On Live
+    </span>
+  )
+}
+
 /**
- * The game's button name: the teams with their scores, the status and any
- * power play, as the pill shows them. A button's label replaces its content
- * for assistive tech, so all of it goes in here.
+ * The game's button name: the teams with their scores, the status, any power
+ * play and the On Live mark, as the pill shows them. A button's label
+ * replaces its content for assistive tech, so all of it goes in here.
  */
-function gameLabel(game: NHLGame, powerPlay: boolean): string {
+function gameLabel(game: NHLGame, powerPlay: boolean, onLive: boolean): string {
   const scored = game.status !== 'scheduled'
   const team = (t: NHLTeam) => (scored ? `${t.name} ${t.score}` : t.name)
   const parts = [`${team(game.awayTeam)} at ${team(game.homeTeam)}`, getStatusDisplay(game)]
   if (powerPlay) parts.push('power play')
+  if (onLive) parts.push('On Live')
   return parts.filter(Boolean).join(', ')
 }
 
@@ -461,20 +492,24 @@ async function reportAsk(sending: Promise<ChatSendResult>) {
  * for everyone when the admin lets viewers change live TV. Everyone else can
  * 'Ask the group' in chat instead, with the game and its channels filled in;
  * that needs chat, so with chat off it is disabled and says why. A game that
- * is over, or on none of your channels, has nothing to do. When the lineup
- * can't be loaded it says so, and those who can't switch can still ask for
- * the game by name.
+ * is over, or on none of your channels, has nothing to do, and one already on
+ * Live has nothing to ask for; the channel on Live can't be put on again.
+ * When the lineup can't be loaded it says so, and those who can't switch can
+ * still ask for the game by name.
  */
 function GameActions({
   game,
   row,
   lineupFailed,
+  onLive,
   onDone,
 }: {
   game: NHLGame
   row: GameRow | undefined
   /** The lineup couldn't be loaded, so row never comes */
   lineupFailed: boolean
+  /** The game is on the shared live channel */
+  onLive: boolean
   /** Close the popover */
   onDone: () => void
 }) {
@@ -483,6 +518,7 @@ function GameActions({
   const chatEnabled = useChatEnabled()
   const sendMessage = useChatStore((s) => s.sendMessage)
   const setLiveChannel = useSetLiveChannel({ tuneActor: true })
+  const liveChannelId = useChannelStore((s) => s.currentChannel?.id ?? null)
   const canSwitch = isAdmin || userChannelSelection
   const hintId = useId()
 
@@ -540,18 +576,26 @@ function GameActions({
         {channels.map((channel) => (
           <li key={channel.id} className="flex items-center justify-between gap-2">
             <span className="min-w-0 truncate text-sm">{channel.name}</span>
-            <Button
-              size="sm"
-              className="shrink-0"
-              aria-label={`Watch together on ${channel.name}`}
-              onClick={() => watch(channel)}
-            >
-              Watch together
-            </Button>
+            {channel.id === liveChannelId ? (
+              <Button size="sm" variant="secondary" className="shrink-0" disabled aria-label={`${channel.name} is on Live`}>
+                On Live
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                className="shrink-0"
+                aria-label={`Watch together on ${channel.name}`}
+                onClick={() => watch(channel)}
+              >
+                Watch together
+              </Button>
+            )}
           </li>
         ))}
       </ul>
     )
+  } else if (onLive) {
+    body = <p className="text-sm text-muted-foreground">It's on Live now.</p>
   } else {
     body = askTheGroup(`On ${channels.map((c) => c.name).join(', ')}`)
   }

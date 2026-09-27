@@ -752,7 +752,7 @@ describe('NHLScoresOverlay: watching a game together', () => {
 
   // The game's button, then its popover once the lineup has matched it
   async function openGame(name: string | RegExp = /^Toronto Maple Leafs 2 at Montreal Canadiens 2,/) {
-    fireEvent.click(screen.getByRole('button', { name }))
+    fireEvent.click(await screen.findByRole('button', { name }))
     const popover = await screen.findByRole('dialog', { name: 'TOR @ MTL' })
     await waitFor(() => expect(within(popover).queryByText(/Finding it/)).not.toBeInTheDocument())
     return popover
@@ -883,12 +883,12 @@ describe('NHLScoresOverlay: watching a game together', () => {
 
   it('uses your pinned channel for a network', async () => {
     useAuthStore.setState({ role: 'admin' })
-    useNhlMappingStore.setState({ overrides: { Scripps: cbc.id } })
+    useNhlMappingStore.setState({ overrides: { Scripps: sportsnet.id } })
     renderTicker([game(1, 'live', [broadcast('Scripps')])])
 
     const popover = await openGame()
 
-    expect(within(popover).getByRole('button', { name: 'Watch together on CBC' })).toBeInTheDocument()
+    expect(within(popover).getByRole('button', { name: 'Watch together on Sportsnet' })).toBeInTheDocument()
   })
 
   describe("when your channels can't be loaded", () => {
@@ -932,6 +932,69 @@ describe('NHLScoresOverlay: watching a game together', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(mockToggleNHLOverlay).not.toHaveBeenCalled()
     expect(screen.getByRole('region', { name: 'NHL scores' })).toBeInTheDocument()
+  })
+
+  describe('the game on Live', () => {
+    function otherGame(id: number, status: GameStatus, broadcasts: NHLBroadcast[]): NHLGame {
+      return {
+        ...game(id, status, broadcasts),
+        awayTeam: team('EDM', 'Edmonton Oilers'),
+        homeTeam: team('CGY', 'Calgary Flames'),
+      }
+    }
+
+    it("marks the game on the shared live channel 'On Live', and no other", async () => {
+      useChannelStore.setState({ currentChannel: tsn5 })
+      renderTicker([game(1, 'live', [broadcast('TSN5')]), otherGame(2, 'live', [broadcast('SN')])])
+
+      const onLive = await screen.findByRole('button', { name: 'Toronto Maple Leafs 2 at Montreal Canadiens 2, 3RD 4:32, On Live' })
+      expect(within(onLive).getByText('On Live')).toBeInTheDocument()
+      const other = screen.getByRole('button', { name: 'Edmonton Oilers 2 at Calgary Flames 2, 3RD 4:32' })
+      expect(within(other).queryByText('On Live')).not.toBeInTheDocument()
+    })
+
+    it('moves the mark when live TV changes', async () => {
+      useChannelStore.setState({ currentChannel: tsn5 })
+      renderTicker([game(1, 'live', [broadcast('TSN5')]), otherGame(2, 'live', [broadcast('SN')])])
+      await screen.findByRole('button', { name: /Toronto.*, On Live/ })
+
+      act(() => useChannelStore.setState({ currentChannel: sportsnet }))
+
+      expect(screen.getByRole('button', { name: 'Edmonton Oilers 2 at Calgary Flames 2, 3RD 4:32, On Live' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Toronto Maple Leafs 2 at Montreal Canadiens 2, 3RD 4:32' })).toBeInTheDocument()
+    })
+
+    it('marks nothing for a game over, or not started, on the live channel', async () => {
+      useChannelStore.setState({ currentChannel: tsn5 })
+      renderTicker([game(1, 'final', [broadcast('TSN5')]), otherGame(2, 'scheduled', [broadcast('TSN5')])])
+      // Once the lineup has matched them
+      await openGame()
+
+      expect(screen.queryByText('On Live')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /On Live/ })).not.toBeInTheDocument()
+    })
+
+    it('shows the channel on Live as on, and offers the others', async () => {
+      useAuthStore.setState({ role: 'admin' })
+      useChannelStore.setState({ currentChannel: tsn5 })
+      renderTicker([game(1, 'live', [broadcast('TSN5'), broadcast('SN')])])
+
+      const popover = await openGame('Toronto Maple Leafs 2 at Montreal Canadiens 2, 3RD 4:32, On Live')
+
+      expect(within(popover).getByRole('button', { name: 'TSN 5 is on Live' })).toBeDisabled()
+      fireEvent.click(within(popover).getByRole('button', { name: 'Watch together on Sportsnet' }))
+      expect(api.setCurrentChannel).toHaveBeenCalledWith(sportsnet)
+    })
+
+    it('has nothing to ask for when the game is already on Live', async () => {
+      useChannelStore.setState({ currentChannel: tsn5 })
+      renderTicker([game(1, 'live', [broadcast('TSN5')])])
+
+      const popover = await openGame('Toronto Maple Leafs 2 at Montreal Canadiens 2, 3RD 4:32, On Live')
+
+      expect(within(popover).getByText("It's on Live now.")).toBeInTheDocument()
+      expect(within(popover).queryByRole('button', { name: 'Ask the group' })).not.toBeInTheDocument()
+    })
   })
 
   it('opens inside the player shell, so it shows in fullscreen', async () => {

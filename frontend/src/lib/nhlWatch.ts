@@ -74,6 +74,20 @@ export function channelsOf(broadcasts: readonly BroadcastMatch[]): Channel[] {
   return [...byId.values()]
 }
 
+/**
+ * The game on the shared live channel: the first live game (in matchGames
+ * order) with a broadcast on that channel. Games not started or over are
+ * never on it, even when their channel is; null with nothing on live TV.
+ */
+export function liveGameId(rows: readonly GameRow[], liveChannelId: string | null): number | null {
+  if (liveChannelId === null) return null
+  const row = rows.find(
+    ({ game, broadcasts }) =>
+      game.status === 'live' && broadcasts.some((b) => b.result.matched.some((c) => c.id === liveChannelId)),
+  )
+  return row ? row.game.id : null
+}
+
 // Channels named in an 'Ask the group' message; the rest go unnamed, so a
 // game on many feeds still makes a short message
 const ASK_CHANNELS_NAMED = 3
