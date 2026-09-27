@@ -8,6 +8,9 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useProgrammeClock } from '@/hooks/useProgrammeClock'
 import { useRovingTabIndex } from '@/hooks/useRovingTabIndex'
+import { useFilteredChannels } from '@/hooks/useFilteredChannels'
+import { useChannelPrefsStore } from '@/stores/channelPrefsStore'
+import { ChannelFilterBar } from '@/components/tv/ChannelFilterBar'
 import { calculateProgress, findOnAir, formatRemaining, getProgrammeState } from '@/lib/programmes'
 import { buildProgrammeIndex, findCurrentAndNext, type IndexedProgramme } from '@/lib/programmeIndex'
 import { cn } from '@/lib/utils'
@@ -50,6 +53,12 @@ export function TVChannelSidebar({
   const hasLiveChannel = isLiveChannelActive()
   const liveProgramme = liveEPGTitle || describeLiveGuide(liveEPGStatus)
 
+  // The expanded list goes through the search and chips; the rail, which
+  // has no search box, lists every channel
+  const { channels: filteredChannels, isFiltering } = useFilteredChannels(unifiedChannels)
+  const clearFilter = useChannelPrefsStore((s) => s.clearFilter)
+  const listedChannels = isCollapsed ? unifiedChannels : filteredChannels
+
   // One tab stop for the channels: arrow keys, Home and End move between
   // them. The list and the rail share it (only one is mounted), and the tab
   // stop follows whichever channel was last focused.
@@ -58,7 +67,7 @@ export function TVChannelSidebar({
     listRef.current = element
   }
   const { getTabIndex, handleKeyDown, setFocusedIndex, itemRefs } = useRovingTabIndex({
-    items: unifiedChannels,
+    items: listedChannels,
     getItemId: getChannelId,
     containerRef: listRef,
   })
@@ -101,7 +110,7 @@ export function TVChannelSidebar({
           onKeyDown={handleKeyDown}
           className="mt-2 flex w-full flex-1 flex-col items-center gap-1.5 overflow-y-auto px-3 pt-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
-          {unifiedChannels.map((channel, index) => (
+          {listedChannels.map((channel, index) => (
             <CollapsedChannelButton
               key={channel.id}
               ref={setChannelRef(channel.id, index)}
@@ -123,19 +132,24 @@ export function TVChannelSidebar({
   // Expanded state
   return (
     <aside className="epg-scroll h-full w-72 overflow-y-auto border-r bg-card rounded-r-lg">
-      <div className="sticky top-0 flex items-center justify-between border-b bg-card/95 p-4 backdrop-blur">
-        <h2 className="text-lg font-semibold">Channels</h2>
-        <button
-          onClick={onToggleCollapse}
-          className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-accent"
-          aria-label="Collapse channel sidebar"
-        >
-          <ChevronLeft className="h-5 w-5" />
-        </button>
+      {/* The header and the filter stick together, so the search stays in
+          reach however far the list is scrolled */}
+      <div className="sticky top-0 z-10 bg-card/95 backdrop-blur">
+        <div className="flex items-center justify-between border-b p-4">
+          <h2 className="text-lg font-semibold">Channels</h2>
+          <button
+            onClick={onToggleCollapse}
+            className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-accent"
+            aria-label="Collapse channel sidebar"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+        </div>
+        <ChannelFilterBar className="border-b p-3" />
       </div>
 
       <ul ref={setListRef} onKeyDown={handleKeyDown} className="divide-y" role="list">
-        {unifiedChannels.map((channel, index) => {
+        {listedChannels.map((channel, index) => {
           const { current: onAir, next } =
             channel.type === 'live'
               ? { current: null, next: null }
@@ -160,6 +174,15 @@ export function TVChannelSidebar({
           )
         })}
       </ul>
+      {/* Row 0 always stays, so nothing matching means nothing after it */}
+      {isFiltering && listedChannels.length <= 1 && ersatzTVChannels.length > 0 && (
+        <div className="flex flex-col items-center gap-3 p-6 text-center">
+          <p className="text-sm text-muted-foreground">No channels match</p>
+          <Button variant="outline" size="sm" onClick={clearFilter}>
+            Clear
+          </Button>
+        </div>
+      )}
       {/* The live row above doesn't wait for ErsatzTV */}
       {channelsLoading && ersatzTVChannels.length === 0 && <SidebarSkeleton />}
       {/* The error's details are in the toast TVView shows; this keeps a retry where the channels would be */}
@@ -371,14 +394,14 @@ function ChannelItem({
 
   return (
     <li className={showPickLive ? 'flex items-center bg-destructive/5 pr-3' : undefined}>
-      {/* scroll-mt clears the sticky Channels header when the row is scrolled into view */}
+      {/* scroll-mt clears the sticky Channels header and filter when the row is scrolled into view */}
       <button
         ref={ref}
         onClick={() => onSelect(channel)}
         onFocus={onFocus}
         tabIndex={tabIndex}
         className={`
-          flex ${showPickLive ? 'min-w-0 flex-1' : 'w-full'} scroll-mt-17 items-center gap-3 p-3 text-left transition-colors
+          flex ${showPickLive ? 'min-w-0 flex-1' : 'w-full'} scroll-mt-41 items-center gap-3 p-3 text-left transition-colors
           hover:bg-accent focus-visible:-outline-offset-2
           ${isSelected ? 'bg-primary/10 border-l-4 border-primary' : ''}
           ${isLive ? 'bg-destructive/5' : ''}
