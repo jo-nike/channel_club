@@ -2,16 +2,20 @@ import { useEffect, useRef, useState, useMemo, useCallback, type ReactNode } fro
 import { ChevronLeft, ChevronRight, Radio } from 'lucide-react'
 import { useTVStore, LIVE_CHANNEL_ID, describeLiveGuide } from '@/stores/tvStore'
 import { getErsatzTVLogoUrl } from '@/services/ersatztvApi'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
+import { useProgrammeClock } from '@/hooks/useProgrammeClock'
 import { scrollBehavior } from '@/lib/motion'
+import { buildProgrammeIndex, findCurrentAndNext, type ProgrammeIndex } from '@/lib/programmeIndex'
+import { calculateProgress, formatRemaining } from '@/lib/programmes'
+import { cn } from '@/lib/utils'
 import type { UnifiedChannel, ErsatzTVProgramme, EPGResponse } from '@/types'
 
 // Grid constants
 const SLOT_WIDTH = 150 // pixels per 30 minutes
 const HOUR_WIDTH = SLOT_WIDTH * 2
 const ROW_HEIGHT = 64 // pixels per channel row
-const CHANNEL_LABEL_WIDTH = 80
+// Wide enough for the channel name: with the guide open it's the only channel list
+const CHANNEL_LABEL_WIDTH = 208
 const PROGRAMME_GAP = 3 // pixels between programme boxes
 
 interface TVEPGGridProps {
@@ -34,7 +38,7 @@ export function TVEPGGrid({
   onChannelClick,
   onPickLive,
 }: TVEPGGridProps) {
-  const { getUnifiedChannels, isLiveChannelActive, liveEPGStatus } = useTVStore()
+  const { getUnifiedChannels, isLiveChannelActive, liveEPGStatus, selectedChannel } = useTVStore()
   const containerRef = useRef<HTMLDivElement>(null)
   const [currentTime, setCurrentTime] = useState(new Date())
 
@@ -119,6 +123,15 @@ export function TVEPGGrid({
       },
     ]
   }, [liveEPG])
+
+  // What's on now, for the channel labels' progress and time left. The
+  // ErsatzTV index is cached per programmesByChannel and shared with the
+  // sidebar; the live row gets its own from the live guide.
+  const programmeIndex = buildProgrammeIndex(programmesByChannel)
+  const liveProgrammeIndex = useMemo(
+    () => buildProgrammeIndex({ [LIVE_CHANNEL_ID]: liveProgrammes }),
+    [liveProgrammes]
+  )
 
   if (loading) {
     return <EPGGridSkeleton />
@@ -211,6 +224,8 @@ export function TVEPGGrid({
             startTime={startTime}
             gridWidth={gridWidth}
             rowIndex={rowIndex}
+            programmeIndex={channel.type === 'live' ? liveProgrammeIndex : programmeIndex}
+            isWatching={selectedChannel?.id === channel.id}
             hasLiveChannel={hasLiveChannel}
             liveGuideText={describeLiveGuide(liveEPGStatus)}
             onProgrammeClick={onProgrammeClick}
@@ -229,6 +244,9 @@ interface ChannelRowProps {
   startTime: Date
   gridWidth: number
   rowIndex: number
+  programmeIndex: ProgrammeIndex
+  // The channel playing in the player
+  isWatching: boolean
   hasLiveChannel: boolean
   // Shown in the live row when there's no programme to draw
   liveGuideText: string
@@ -243,6 +261,8 @@ function ChannelRow({
   startTime,
   gridWidth,
   rowIndex,
+  programmeIndex,
+  isWatching,
   hasLiveChannel,
   liveGuideText,
   onProgrammeClick,
@@ -260,39 +280,13 @@ function ChannelRow({
       style={{ top: rowIndex * ROW_HEIGHT, height: ROW_HEIGHT }}
       data-testid="channel-row"
     >
-      {/* Channel label with logo - clickable */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            onClick={() => onChannelClick?.(channel)}
-            className={`sticky left-0 z-20 flex flex-shrink-0 items-center gap-1.5 px-2 text-sm font-medium border-r hover:bg-accent transition-colors focus-visible:-outline-offset-2 ${
-              showLiveHighlight ? 'bg-live-surface' : 'bg-card'
-            }`}
-            style={{ width: CHANNEL_LABEL_WIDTH }}
-          >
-            {isLive ? (
-              <div className="h-8 w-8 flex-shrink-0 rounded bg-destructive/20 flex items-center justify-center">
-                <Radio className="h-4 w-4 text-destructive" />
-              </div>
-            ) : channel.logoUrl ? (
-              <img
-                src={getErsatzTVLogoUrl(channel.id)}
-                alt=""
-                className="h-8 w-8 flex-shrink-0 rounded object-contain"
-                onError={(e) => {
-                  ;(e.target as HTMLImageElement).style.display = 'none'
-                }}
-              />
-            ) : (
-              <div className="h-8 w-8 flex-shrink-0 rounded bg-muted" />
-            )}
-            <span className="truncate font-display text-lg font-extrabold tabular-nums">{channel.number}</span>
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>
-          <p>Switch to {channel.name}</p>
-        </TooltipContent>
-      </Tooltip>
+      <ChannelLabel
+        channel={channel}
+        programmeIndex={programmeIndex}
+        isWatching={isWatching}
+        showLiveHighlight={showLiveHighlight}
+        onChannelClick={onChannelClick}
+      />
 
       {/* Programme boxes */}
       <div className="relative" style={{ width: gridWidth }}>
@@ -322,6 +316,91 @@ function ChannelRow({
         )}
       </div>
     </div>
+  )
+}
+
+interface ChannelLabelProps {
+  channel: UnifiedChannel
+  programmeIndex: ProgrammeIndex
+  isWatching: boolean
+  showLiveHighlight: boolean
+  onChannelClick?: (channel: UnifiedChannel) => void
+}
+
+// The sticky channel column: number, logo, name, LIVE on an active live row,
+// and the on-air programme's progress and time left, which the sidebar shows
+// when the guide is closed. It reads the shared programme clock itself, so a
+// tick re-renders the labels, not the programme blocks.
+function ChannelLabel({ channel, programmeIndex, isWatching, showLiveHighlight, onChannelClick }: ChannelLabelProps) {
+  const isLive = channel.type === 'live'
+  const now = useProgrammeClock()
+  const { current: onAir } = findCurrentAndNext(programmeIndex, channel.id, now)
+
+  return (
+    <button
+      onClick={() => onChannelClick?.(channel)}
+      className={cn(
+        'sticky left-0 z-20 flex shrink-0 items-center gap-2 border-r pl-3 pr-2 text-left text-sm transition-colors hover:bg-accent focus-visible:-outline-offset-2',
+        showLiveHighlight ? 'bg-live-surface' : 'bg-card'
+      )}
+      style={{ width: CHANNEL_LABEL_WIDTH }}
+      // The name is visible now, so no tooltip; the label keeps the action
+      aria-label={`Switch to ${channel.number} ${channel.name}`}
+      aria-current={isWatching ? 'true' : undefined}
+    >
+      {/* Watching marker */}
+      {isWatching && (
+        <span aria-hidden="true" data-testid="watching-bar" className="absolute inset-y-0 left-0 w-1 bg-primary" />
+      )}
+      <span
+        className={cn(
+          'w-5 shrink-0 text-right font-display text-lg font-extrabold leading-none tabular-nums',
+          isWatching ? 'text-primary' : 'text-muted-foreground'
+        )}
+      >
+        {channel.number}
+      </span>
+      {isLive ? (
+        <div className="h-8 w-8 flex-shrink-0 rounded bg-destructive/20 flex items-center justify-center">
+          <Radio className="h-4 w-4 text-destructive" />
+        </div>
+      ) : channel.logoUrl ? (
+        <img
+          src={getErsatzTVLogoUrl(channel.id)}
+          alt=""
+          className="h-8 w-8 flex-shrink-0 rounded object-contain"
+          onError={(e) => {
+            ;(e.target as HTMLImageElement).style.display = 'none'
+          }}
+        />
+      ) : (
+        <div className="h-8 w-8 flex-shrink-0 rounded bg-muted" />
+      )}
+      <span className="flex min-w-0 flex-1 flex-col gap-1">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate font-medium">{channel.name}</span>
+          {showLiveHighlight && (
+            <span className="shrink-0 rounded bg-live px-1 py-0.5 text-[11px] font-bold uppercase leading-none text-live-foreground">
+              Live
+            </span>
+          )}
+        </span>
+        {onAir && (
+          <span className="flex items-center gap-1.5">
+            <span className="h-0.5 flex-1 overflow-hidden rounded-full bg-muted">
+              <span
+                data-testid="label-progress"
+                className={cn('block h-full rounded-full', isLive ? 'bg-live' : 'bg-primary/60')}
+                style={{ width: `${calculateProgress(onAir.startMs, onAir.stopMs, now)}%` }}
+              />
+            </span>
+            <span className="shrink-0 text-xs leading-none tabular-nums text-muted-foreground">
+              {formatRemaining(onAir.stopMs, now)}
+            </span>
+          </span>
+        )}
+      </span>
+    </button>
   )
 }
 

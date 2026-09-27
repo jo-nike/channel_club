@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen, cleanup, fireEvent } from '@/test/utils'
+import { render, screen, cleanup, fireEvent, within } from '@/test/utils'
 import { TVEPGGrid } from './TVEPGGrid'
 import { focusOverrides } from '@/test/focus'
 import { useChannelStore } from '@/stores/channelStore'
@@ -150,6 +150,99 @@ describe('TVEPGGrid empty live slot', () => {
     render(<TVEPGGrid programmesByChannel={{}} liveEPG={liveEPG} onPickLive={vi.fn()} />)
 
     expect(screen.queryByRole('button', { name: 'Pick a channel for everyone' })).not.toBeInTheDocument()
+  })
+})
+
+describe('TVEPGGrid channel column', () => {
+  const NOW = new Date('2026-09-26T20:00:00Z').getTime()
+  const MINUTE = 60_000
+  const movies = { id: 'etv1', name: 'Movies', streamUrl: '/etv1', logoUrl: '', number: 1, group: 'Films' }
+  const cartoons = { id: 'etv2', name: 'Cartoons', streamUrl: '/etv2', logoUrl: '', number: 2, group: 'Kids' }
+  // 30 of 95 minutes in, 65 to go
+  const onNow: Record<string, ErsatzTVProgramme[]> = {
+    etv1: [{
+      id: 'p1',
+      channelId: 'etv1',
+      title: 'Movie Night',
+      start: new Date(NOW - 30 * MINUTE).toISOString(),
+      stop: new Date(NOW + 65 * MINUTE).toISOString(),
+    }],
+  }
+  const labelFor = (name: string) => screen.getByRole('button', { name: new RegExp(`^Switch to \\d+ ${name}$`) })
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels: [movies, cartoons] })
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels: [] })
+    useTVStore.setState({ selectedChannel: null })
+  })
+
+  it('shows each channel by number and name, with the old tooltip text kept as the label', () => {
+    render(<TVEPGGrid programmesByChannel={{}} />)
+
+    const label = labelFor('Cartoons')
+    expect(label).toHaveAccessibleName('Switch to 2 Cartoons')
+    expect(label).toHaveTextContent('2')
+    expect(label).toHaveTextContent('Cartoons')
+    expect(label).toHaveStyle({ width: '208px' })
+    fireEvent.focus(label)
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
+  })
+
+  it("shows the on-air programme's progress and time left", () => {
+    render(<TVEPGGrid programmesByChannel={onNow} />)
+
+    const label = labelFor('Movies')
+    expect(label).toHaveTextContent('1h 5m left')
+    const fill = label.querySelector('[data-testid="label-progress"]') as HTMLElement
+    expect(parseFloat(fill.style.width)).toBeCloseTo((30 / 95) * 100, 5)
+    // Nothing on air, nothing to show
+    expect(labelFor('Cartoons').querySelector('[data-testid="label-progress"]')).toBeNull()
+    expect(labelFor('Cartoons')).not.toHaveTextContent('left')
+  })
+
+  it('marks the channel being watched with aria-current and a primary bar', () => {
+    useTVStore.setState({ selectedChannel: { ...cartoons, type: 'ersatztv' } })
+    render(<TVEPGGrid programmesByChannel={onNow} />)
+
+    const watched = labelFor('Cartoons')
+    expect(watched).toHaveAttribute('aria-current', 'true')
+    expect(watched.querySelector('[data-testid="watching-bar"]')).toHaveClass('bg-primary')
+    const other = labelFor('Movies')
+    expect(other).not.toHaveAttribute('aria-current')
+    expect(other.querySelector('[data-testid="watching-bar"]')).toBeNull()
+  })
+
+  it("badges the live row LIVE, with its programme's time left, only while something is on", () => {
+    const { unmount } = render(<TVEPGGrid programmesByChannel={{}} />)
+    const [emptyLiveRow] = screen.getAllByTestId('channel-row')
+    expect(within(emptyLiveRow.querySelector('button')!).queryByText('Live', { selector: '.bg-live' })).toBeNull()
+    unmount()
+
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1' },
+    })
+    const live: EPGResponse = {
+      channelId: 'live',
+      currentProgram: {
+        title: 'Club Broadcast',
+        startTime: new Date(NOW - 10 * MINUTE).toISOString(),
+        endTime: new Date(NOW + 20 * MINUTE).toISOString(),
+      },
+    }
+    render(<TVEPGGrid programmesByChannel={{}} liveEPG={live} />)
+
+    const label = labelFor('Club')
+    expect(within(label).getByText('Live')).toHaveClass('bg-live', 'text-live-foreground')
+    expect(label).toHaveTextContent('20m left')
   })
 })
 
