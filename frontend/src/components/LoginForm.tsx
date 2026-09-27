@@ -11,11 +11,16 @@ import { useAuthStore } from '@/stores/authStore'
 import { useTVMode } from '@/hooks/useTVMode'
 import { logger } from '@/lib/logger'
 import { cn } from '@/lib/utils'
+import { isIOS, isStandalone } from '@/lib/platform'
 import { login, getAuthConfig, loginWithPlex, type AuthConfig } from '@/services/api'
 import {
   authenticateWithPlex,
+  authenticateWithPlexRedirect,
+  finishPlexRedirect,
+  hasPendingPlexPin,
   openPlexAuthWindow,
   PlexAuthError,
+  takePendingPlexPin,
   type PlexAuthErrorCode,
 } from '@/services/plexAuth'
 
@@ -36,12 +41,16 @@ export function LoginForm() {
   // A message, or a Plex popup failure (shown with Try again / Sign in with a code)
   const [error, setError] = useState<string | PlexAuthError>('')
   const [isLoading, setIsLoading] = useState(false)
-  const [plexLoading, setPlexLoading] = useState(false)
+  // Back from Plex's redirect sign-in: waiting until the PIN is checked
+  const [plexLoading, setPlexLoading] = useState(hasPendingPlexPin)
   const [authConfig, setAuthConfig] = useState<AuthConfig | null>(null)
   const [configLoading, setConfigLoading] = useState(true)
   const [plexAuthMode, setPlexAuthMode] = useState<PlexAuthMode>('select')
-  // Aborts the popup flow in progress (Cancel); null when none is running
+  // Aborts the Plex flow in progress (Cancel); null when none is running
   const plexAbortRef = useRef<AbortController | null>(null)
+  // The redirect PIN being finished. Taken from storage once, so a reload
+  // never retries it; kept here for StrictMode's second effect run.
+  const pendingPinRef = useRef<number | null>(null)
   const setAuth = useAuthStore((state) => state.setAuth)
   const isTVMode = useTVMode()
   // The TV opens on the code screen once; leaving it doesn't bring it back
@@ -82,10 +91,76 @@ export function LoginForm() {
     }
   }
 
+  /**
+   * Show a Plex failure in the callout. Cancel, closing the Plex window or
+   * coming back from Plex without signing in is not an error.
+   */
+  const reportPlexFailure = (err: unknown, controller: AbortController) => {
+    const cancelled = controller.signal.aborted
+      || (err instanceof PlexAuthError && err.code === 'cancelled')
+    if (err instanceof Error && !cancelled) {
+      setError(err instanceof PlexAuthError ? err : err.message)
+    }
+  }
+
+  /** Hand the Plex button back, unless a cancelled flow already has. */
+  const releasePlexFlow = (controller: AbortController) => {
+    if (plexAbortRef.current === controller) {
+      plexAbortRef.current = null
+      setPlexLoading(false)
+    }
+  }
+
+  /** Sign in with the token a Plex flow (popup or redirect return) resolves to. */
+  const completePlexSignIn = async (controller: AbortController, plexToken: Promise<string>) => {
+    try {
+      const authToken = await plexToken
+      const response = await loginWithPlex(authToken)
+      if (controller.signal.aborted) return
+      setAuth(response.accessToken, response.role)
+    } catch (err) {
+      reportPlexFailure(err, controller)
+    } finally {
+      releasePlexFlow(controller)
+    }
+  }
+
+  // Back from Plex's redirect sign-in (iPhone, iPad, installed app): finish it
+  const resumePlexRedirect = useEffectEvent((pinId: number, controller: AbortController) => {
+    plexAbortRef.current = controller
+    void completePlexSignIn(controller, finishPlexRedirect(pinId, controller.signal))
+  })
+
+  useEffect(() => {
+    const pinId = pendingPinRef.current ?? takePendingPlexPin()
+    if (pinId === null) return
+    pendingPinRef.current = pinId
+    const controller = new AbortController()
+    resumePlexRedirect(pinId, controller)
+    return () => controller.abort()
+  }, [])
+
   const handlePlexLogin = async () => {
     // On TV, default to QR mode
     if (isTVMode) {
       setPlexAuthMode('qr')
+      return
+    }
+    // iPhone, iPad and installed apps: a popup is unreliable there, so the
+    // whole page goes to Plex and the sign-in finishes when it comes back.
+    // Plain Android browsers keep the popup, which works there.
+    if (isIOS() || isStandalone()) {
+      setError('')
+      const controller = new AbortController()
+      plexAbortRef.current = controller
+      setPlexLoading(true)
+      try {
+        await authenticateWithPlexRedirect(controller.signal)
+        // The page is leaving for Plex: stay on "Waiting for Plex..."
+      } catch (err) {
+        reportPlexFailure(err, controller)
+        releasePlexFlow(controller)
+      }
       return
     }
     // On desktop, use popup mode. Open the window before any await so the
@@ -100,25 +175,7 @@ export function LoginForm() {
     const controller = new AbortController()
     plexAbortRef.current = controller
     setPlexLoading(true)
-    try {
-      const authToken = await authenticateWithPlex(popup, controller.signal)
-      const response = await loginWithPlex(authToken)
-      if (controller.signal.aborted) return
-      setAuth(response.accessToken, response.role)
-    } catch (err) {
-      // Cancel pressed, or the user closed the Plex window: not an error
-      const cancelled = controller.signal.aborted
-        || (err instanceof PlexAuthError && err.code === 'cancelled')
-      if (err instanceof Error && !cancelled) {
-        setError(err instanceof PlexAuthError ? err : err.message)
-      }
-    } finally {
-      // A cancelled flow has already handed the button back
-      if (plexAbortRef.current === controller) {
-        plexAbortRef.current = null
-        setPlexLoading(false)
-      }
-    }
+    await completePlexSignIn(controller, authenticateWithPlex(popup, controller.signal))
   }
 
   const handlePlexCancel = () => {

@@ -6,6 +6,10 @@
  * 2. Open auth URL in popup with the PIN code
  * 3. Poll PIN status until user authenticates
  * 4. Return auth token for use with our backend
+ *
+ * iPhones, iPads and installed apps use the redirect variant instead: the
+ * whole page goes to Plex, which forwards it back here, and the sign-in
+ * finishes on return with the PIN id kept in sessionStorage.
  */
 
 import { logger } from '@/lib/logger'
@@ -78,11 +82,14 @@ export async function createPlexPin(strong = true): Promise<PlexPin> {
 
 /**
  * Get the Plex auth URL for a given PIN.
+ * @param forwardUrl - Where Plex sends the page once the user has signed in
+ *                     (the redirect flow). Without it, Plex stays put (the popup flow).
  */
-export function getPlexAuthUrl(pin: PlexPin): string {
+export function getPlexAuthUrl(pin: PlexPin, forwardUrl?: string): string {
   const params = new URLSearchParams({
     clientID: PLEX_CLIENT_ID,
     code: pin.code,
+    ...(forwardUrl ? { forwardUrl } : {}),
     'context[device][product]': PLEX_PRODUCT,
   })
   return `https://app.plex.tv/auth#?${params}`
@@ -208,5 +215,106 @@ export async function authenticateWithPlex(popup: Window, signal?: AbortSignal):
       logger.error('Plex', 'Authentication timed out after 5 minutes')
       reject(new PlexAuthError('timeout', 'Authentication timed out'))
     }, 5 * 60 * 1000)
+  })
+}
+
+/** sessionStorage key holding the PIN id while the page is away at Plex. */
+export const PLEX_PENDING_PIN_KEY = 'plex-pending-pin'
+
+/** How many times the returning page checks the PIN, and how far apart. */
+const REDIRECT_PIN_CHECKS = 5
+const REDIRECT_PIN_CHECK_INTERVAL_MS = 1000
+
+/**
+ * Redirect sign-in for iPhones, iPads and installed apps, where a popup is
+ * unreliable: creates a PIN, remembers its id for this tab and sends the whole
+ * page to Plex, which forwards it back to the app root once the user signs in.
+ *
+ * The id lives in sessionStorage rather than a query parameter so the router
+ * never sees it. The returned promise settles once navigation has started.
+ *
+ * @throws PlexAuthError if the PIN can't be created, or 'cancelled' if
+ *         `signal` aborts first (nothing is stored and the page stays)
+ */
+export async function authenticateWithPlexRedirect(signal?: AbortSignal): Promise<void> {
+  logger.debug('Plex', 'Starting Plex redirect flow')
+  const pin = await createPlexPin()
+
+  if (signal?.aborted) {
+    logger.info('Plex', 'Authentication cancelled by user')
+    throw new PlexAuthError('cancelled', 'Authentication cancelled')
+  }
+
+  sessionStorage.setItem(PLEX_PENDING_PIN_KEY, String(pin.id))
+  window.location.assign(getPlexAuthUrl(pin, `${window.location.origin}/`))
+}
+
+/** The stored PIN id, or null when there is none or it isn't a PIN id. */
+function readPendingPlexPin(): number | null {
+  const stored = sessionStorage.getItem(PLEX_PENDING_PIN_KEY)
+  const pinId = Number(stored)
+  return stored !== null && Number.isSafeInteger(pinId) && pinId > 0 ? pinId : null
+}
+
+/** True when this tab left for Plex's redirect sign-in and hasn't finished it. */
+export function hasPendingPlexPin(): boolean {
+  return readPendingPlexPin() !== null
+}
+
+/**
+ * Take (read and remove) the PIN id left by authenticateWithPlexRedirect(),
+ * so a reload never retries it. Null when there is none.
+ */
+export function takePendingPlexPin(): number | null {
+  const pinId = readPendingPlexPin()
+  sessionStorage.removeItem(PLEX_PENDING_PIN_KEY)
+  return pinId
+}
+
+/**
+ * Finish the redirect sign-in after Plex forwards the page back: check the PIN
+ * a few times (Plex may take a moment to mark it authorised) and return the
+ * auth token.
+ *
+ * @throws PlexAuthError 'cancelled' if the PIN never got a token (the user came
+ *         back without signing in) or `signal` aborts; the error itself
+ *         (e.g. 'rate_limited') when the last check failed
+ */
+export async function finishPlexRedirect(pinId: number, signal?: AbortSignal): Promise<string> {
+  let lastError: unknown = null
+  for (let check = 0; check < REDIRECT_PIN_CHECKS; check++) {
+    if (check > 0) await abortableDelay(REDIRECT_PIN_CHECK_INTERVAL_MS, signal)
+    if (signal?.aborted) break
+    try {
+      const authToken = await checkPlexPin(pinId)
+      lastError = null
+      if (signal?.aborted) break
+      if (authToken) {
+        logger.info('Plex', 'OAuth token acquired after redirect')
+        return authToken
+      }
+    } catch (err) {
+      lastError = err
+    }
+  }
+  if (lastError && !signal?.aborted) throw lastError
+  logger.info('Plex', 'Plex redirect returned without a sign-in')
+  throw new PlexAuthError('cancelled', 'Authentication cancelled')
+}
+
+/** Resolves after `ms`, or straight away when `signal` aborts. */
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve()
+      return
+    }
+    const done = () => {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', done)
+      resolve()
+    }
+    const timer = setTimeout(done, ms)
+    signal?.addEventListener('abort', done, { once: true })
   })
 }
