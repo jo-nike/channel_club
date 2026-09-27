@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { ImageIcon } from 'lucide-react'
-import { useBreakpoint } from '@/hooks/useBreakpoint'
+import { useLayoutMode } from '@/hooks/useLayoutMode'
 import { getGifFeatureEnabled } from '@/services/gifApi'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -22,8 +22,7 @@ export function GifButton({ onSelect, disabled }: GifButtonProps) {
   const [serverEnabled, setServerEnabled] = useState<boolean | null>(
     GIF_FEATURE_ENABLED ? null : false
   )
-  const breakpoint = useBreakpoint()
-  const isMobile = breakpoint === 'mobile'
+  const isMobile = useLayoutMode() === 'phone'
 
   // Check if server has GIF feature enabled (only if build-time flag is true)
   useEffect(() => {

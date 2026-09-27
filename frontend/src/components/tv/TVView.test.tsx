@@ -10,10 +10,11 @@ import { useChatStore } from '@/stores/chatStore'
 import * as api from '@/services/ersatztvApi'
 import { fetchLiveProgrammes, fetchNowPlaying } from '@/services/api'
 import { toast } from 'sonner'
+import { mockViewport } from '@/test/viewport'
 const presence = vi.hoisted(() => vi.fn())
 const crash = vi.hoisted(() => ({ player: false, chat: false }))
 const socket = vi.hoisted(() => ({ status: 'connected', reconnect: () => {} }))
-const chatProps = vi.hoisted(() => ({ last: null as null | { status?: string; onReconnect?: () => void } }))
+const chatProps = vi.hoisted(() => ({ last: null as null | { status?: string; onReconnect?: () => void; variant?: string } }))
 const auth = vi.hoisted(() => ({ isAdmin: false }))
 const appSettings = vi.hoisted(() => ({ userChannelSelection: false }))
 const playerProps = vi.hoisted(() => ({ onPickLive: undefined as undefined | (() => void), renders: 0, reloadKey: undefined as undefined | number, mounts: 0 }))
@@ -47,11 +48,11 @@ vi.mock('@/components/tv/TVEPGGrid', () => ({ TVEPGGrid: ({ onProgrammeClick }: 
 vi.mock('@/components/ChatPanel', async () => {
   const { useChatStore } = await import('@/stores/chatStore')
   // Like the real panel, renders nothing (and so can't throw) while closed
-  return { ChatPanel: (props: { status?: string; onReconnect?: () => void }) => {
+  return { ChatPanel: (props: { status?: string; onReconnect?: () => void; variant?: string }) => {
     chatProps.last = props
     const isOpen = useChatStore((s) => s.isOpen)
     if (crash.chat && isOpen) throw new Error('chat exploded')
-    return null
+    return isOpen ? <div data-testid="chat" data-variant={props.variant} /> : null
   } }
 })
 vi.mock('@/components/ersatztv/ProgrammeDetailsModal', () => ({ ProgrammeDetailsModal: (props: NonNullable<typeof modal.last>) => {
@@ -695,5 +696,35 @@ describe('A-06 ErsatzTV errors', () => {
 
     toastError.mockRestore()
     toastDismiss.mockRestore()
+  })
+})
+
+describe('E-01 chat placement', () => {
+  beforeEach(() => vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([]))
+  afterEach(() => {
+    window.matchMedia = originalMatchMedia
+    useChatStore.setState({ isOpen: false })
+  })
+
+  const openChat = async () => {
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+    act(() => useChatStore.setState({ isOpen: true }))
+    return screen.getByTestId('chat')
+  }
+
+  it.each([390, 768])('takes over the screen on a %ipx phone, agreeing with the phone layout at the edge', async (width) => {
+    mockViewport({ width, height: 900, pointer: 'coarse' })
+    const chat = await openChat()
+    expect(chat).toHaveAttribute('data-variant', 'takeover')
+    // The same width lays the view out as a phone: the stacked channel list
+    expect(screen.getByRole('heading', { name: 'Channels' }).closest('.epg-scroll')).not.toBeNull()
+  })
+
+  it('slides over the side in theater', async () => {
+    mockViewport({ width: 1440 })
+    useUIStore.setState({ isTheaterMode: true })
+    const chat = await openChat()
+    expect(chat).toHaveAttribute('data-variant', 'overlay')
   })
 })

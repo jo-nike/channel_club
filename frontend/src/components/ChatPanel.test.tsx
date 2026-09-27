@@ -1,14 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, render, screen, fireEvent, waitFor } from '@/test/utils'
 import { ChatPanel } from './ChatPanel'
-import { useBreakpoint } from '@/hooks/useBreakpoint'
 import { useChatStore } from '@/stores/chatStore'
 import type { ChatMessage } from '@/types'
-
-// Mock useBreakpoint
-vi.mock('@/hooks/useBreakpoint', () => ({
-  useBreakpoint: vi.fn(() => 'desktop'),
-}))
 
 // Stand-in for the GIF picker, which fetches its feature flag: a click picks one fixed GIF
 const GIF_URL = 'https://media.example/cat.gif'
@@ -1112,11 +1106,8 @@ describe('ChatPanel', () => {
   })
 
   describe('iOS safe area', () => {
-    afterEach(() => vi.mocked(useBreakpoint).mockReturnValue('desktop'))
-
     it('keeps the full-screen phone panel clear of the status bar and home indicator', () => {
-      vi.mocked(useBreakpoint).mockReturnValue('mobile')
-      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      render(<ChatPanel onSendMessage={mockOnSendMessage} variant="takeover" />)
       const panel = screen.getByRole('heading', { name: 'Chat' }).closest('.fixed')
       expect(panel).toHaveClass('inset-0', 'pt-safe', 'pb-safe')
     })

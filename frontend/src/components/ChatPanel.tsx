@@ -5,7 +5,6 @@ import { createClientMessageId } from '@/lib/messageId'
 import { scrollBehavior } from '@/lib/motion'
 import { useChatStore, isOwnMessage } from '@/stores/chatStore'
 import type { ChatMessage as ChatMessageData } from '@/types'
-import { useBreakpoint } from '@/hooks/useBreakpoint'
 import { useNow } from '@/hooks/useNow'
 import { ChatMessage } from './ChatMessage'
 import { GifButton } from './GifButton'
@@ -13,12 +12,20 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 
+/**
+ * Where the panel sits, chosen by the view from its layout:
+ * - overlay: a drawer over the right edge (theater, phone landscape)
+ * - takeover: the whole screen (phones)
+ */
+export type ChatPanelVariant = 'overlay' | 'takeover'
+
 export interface ChatPanelProps {
   onSendMessage: (content: string, clientMessageId: string) => Promise<ChatSendResult> | ChatSendResult
   onSetNickname?: (nickname: string) => void
   // The chat socket's state; sends are held while it isn't connected
   status?: WebSocketStatus
   onReconnect?: () => void
+  variant?: ChatPanelVariant
 }
 
 // Quick reconnects (including the first connect) finish before the row would flicker in
@@ -64,13 +71,11 @@ interface SendFailure {
   clientMessageId: string
 }
 
-export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', onReconnect }: ChatPanelProps) {
+export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', onReconnect, variant = 'overlay' }: ChatPanelProps) {
   const {
     messages, isOpen, setOpen, nickname, me, readMarker, historyReset, nicknameRejection,
     setNickname, clearNickname, clearNicknameRejection,
   } = useChatStore()
-  const breakpoint = useBreakpoint()
-  const isMobile = breakpoint === 'mobile'
   // One shared tick for every message's relative time
   const now = useNow(30_000)
 
@@ -354,14 +359,13 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
     return dayLabel(sentAt, now)
   })
 
-  // Panel styles based on viewport
   // Full-screen on phones: keep the header clear of the status bar and the
   // composer above the home indicator
-  const panelClasses = isMobile
+  const panelClasses = variant === 'takeover'
     ? 'fixed inset-0 z-50 bg-background flex flex-col pt-safe pb-safe'
     : 'fixed top-0 right-0 h-full w-80 z-50 bg-background border-l border-border flex flex-col shadow-lg'
 
-  const animationClasses = isMobile
+  const animationClasses = variant === 'takeover'
     ? 'animate-in fade-in-0 slide-in-from-bottom-4 duration-200'
     : 'animate-in fade-in-0 slide-in-from-right-4 duration-200'
 

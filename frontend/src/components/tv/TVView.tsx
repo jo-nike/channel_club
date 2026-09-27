@@ -20,11 +20,11 @@ import { ZapBanner } from '@/components/tv/ZapBanner'
 import { MobileChannelList } from '@/components/tv/MobileChannelList'
 import { TVHeader } from '@/components/tv/TVHeader'
 import { ProgrammeDetailsModal, type ProgrammeDetailsChannel } from '@/components/ersatztv/ProgrammeDetailsModal'
-import { ChatPanel } from '@/components/ChatPanel'
+import { ChatPanel, type ChatPanelVariant } from '@/components/ChatPanel'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { Button } from '@/components/ui/button'
 import { ResizeDragHandle } from '@/components/ui/ResizeDragHandle'
-import { useMediaQuery } from '@/hooks/useMediaQuery'
+import { useLayoutMode } from '@/hooks/useLayoutMode'
 import { useResizable } from '@/hooks/useResizable'
 import { useMobileLandscape } from '@/hooks/useMobileLandscape'
 import { AdminModal } from '@/components/AdminModal'
@@ -201,9 +201,12 @@ export function TVView() {
   const isChatOpen = useChatStore((s) => s.isOpen)
 
   // Responsive
-  const isMobile = useMediaQuery('(max-width: 768px)')
+  const layoutMode = useLayoutMode()
+  const isMobile = layoutMode === 'phone'
   const isMobileLandscape = useMobileLandscape()
   const isPhonePortrait = isMobile && !isTheaterMode && !isMobileLandscape
+  // Chat takes the whole screen on a phone and slides over the side anywhere else
+  const chatVariant: ChatPanelVariant = isMobile ? 'takeover' : 'overlay'
 
   // Load channels on mount
   useEffect(() => {
@@ -513,6 +516,7 @@ export function TVView() {
           onSetNickname={sendSetNickname}
           status={status}
           onReconnect={reconnect}
+          variant={chatVariant}
         />
       </ErrorBoundary>
     </div>
