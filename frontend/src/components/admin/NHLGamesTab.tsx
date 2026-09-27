@@ -177,8 +177,8 @@ function GameCard({ game, broadcasts, channels }: GameCardProps) {
   )
 
   return (
-    <Card className={cn(game.status === 'live' && 'border-green-500')}>
-      <CardContent className="p-4 space-y-3">
+    <Card className={cn('gap-0 py-0', game.status === 'live' && 'border-green-500')}>
+      <CardContent className="p-3 space-y-2">
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-4 min-w-0">
             <TeamLine
