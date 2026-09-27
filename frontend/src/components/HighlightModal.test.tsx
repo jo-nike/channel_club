@@ -60,6 +60,20 @@ describe('Clip editor', () => {
     expect(video).toHaveAttribute('src', '/api/highlight/capture/capture-1?token=t')
   })
 
+  it('selects the last 20 seconds by default and Reset returns there', async () => {
+    render(<HighlightModal {...props} />)
+    const video = await ready()
+    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(40)
+    expect(screen.getByLabelText('End (seconds)')).toHaveValue(60)
+    expect(video.currentTime).toBe(40)
+    expect(screen.getByText('Selected: 20.0s')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Full clip'))
+    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(0)
+    fireEvent.click(screen.getByText('Reset'))
+    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(40)
+    expect(screen.getByLabelText('End (seconds)')).toHaveValue(60)
+  })
+
   it('supports keyboard boundary adjustment, clamped fields, short buffers and reset', async () => {
     render(<HighlightModal {...props} />)
     const video = await ready(8)
@@ -107,6 +121,7 @@ describe('Clip editor', () => {
   it('downloads the original untrimmed snapshot without encoding', async () => {
     render(<HighlightModal {...props} />)
     await ready()
+    fireEvent.click(screen.getByText('Full clip'))
     fireEvent.click(screen.getByText('Download clip'))
     await waitFor(() => expect(HTMLAnchorElement.prototype.click).toHaveBeenCalled())
     expect(api.exportHighlight).not.toHaveBeenCalled()
@@ -164,7 +179,7 @@ describe('Clip editor', () => {
     expect(api.deleteHighlightCapture).toHaveBeenCalledExactlyOnceWith('capture-1')
     rerender(<HighlightModal {...props} acquirePreviewAudio={acquirePreviewAudio} />)
     await ready()
-    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(0)
+    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(40)
   })
 
   it('ignores a late capture response after switching channels', async () => {
@@ -261,7 +276,7 @@ describe('Clip editor', () => {
     // Without the field guard, Escape would open the confirm, which also keeps onClose uncalled.
     expect(screen.queryByRole('dialog', { name: 'Discard this clip?' })).not.toBeInTheDocument()
     expect(screen.getByRole('dialog', { name: 'Create clip' })).toBeInTheDocument()
-    expect(field).toHaveValue(0)
+    expect(field).toHaveValue(40)
     expect(props.onClose).not.toHaveBeenCalled()
     expect(api.deleteHighlightCapture).not.toHaveBeenCalled()
   })

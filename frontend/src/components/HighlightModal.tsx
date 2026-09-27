@@ -7,6 +7,9 @@ import { Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogD
 import { ClipTimeline } from './ClipTimeline'
 import { ClipTimeField } from './ClipTimeField'
 
+/** The editor opens on the most recent stretch, which is short enough to share. */
+const DEFAULT_CLIP_SECONDS = 20
+
 export interface HighlightModalProps {
   isOpen: boolean
   onClose: () => void
@@ -184,7 +187,11 @@ function ClipSession({ channelId, onClose, acquirePreviewAudio, container }: Omi
             onLoadedMetadata={() => {
               const length = video.current?.duration ?? 0
               if (!Number.isFinite(length) || length < 0.1) { setCaptureError('This capture has no usable duration. Capture again once more footage is available.'); return }
-              setDuration(length); setRange([0, length])
+              // Not select(): its clamp reads the duration state, which is still 0 here.
+              const defaultStart = Math.max(0, length - DEFAULT_CLIP_SECONDS)
+              setDuration(length); setRange([defaultStart, length])
+              if (video.current) video.current.currentTime = defaultStart
+              setPlayhead(defaultStart)
             }}
             onError={() => setCaptureError('This capture could not be played. Capture again to retry.')}
             onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}
@@ -211,7 +218,7 @@ function ClipSession({ channelId, onClose, acquirePreviewAudio, container }: Omi
                 onCommit={value => select(value, end)} />
               <ClipTimeField label="End (seconds)" value={end} min={start + 0.1} max={duration}
                 onCommit={value => select(start, value, value)} />
-              <Button variant="ghost" onClick={() => select(0, duration)}><RotateCcw />Reset</Button>
+              <Button variant="ghost" onClick={() => select(Math.max(0, duration - DEFAULT_CLIP_SECONDS), duration)}><RotateCcw />Reset</Button>
               <span className="ml-auto pb-2 text-sm font-semibold tabular-nums">Selected: {(end - start).toFixed(1)}s</span>
             </div>
             <Button variant="outline" onClick={() => void playSelection()}>{playing ? <Pause /> : <Play />}{playing ? 'Pause preview' : 'Play selection'}</Button>
