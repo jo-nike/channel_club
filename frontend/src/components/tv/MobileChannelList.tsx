@@ -156,7 +156,7 @@ export function MobileChannelList({
                 {/* One line per name, however long, so rows keep one height */}
                 <div className="flex min-w-0 items-center gap-2">
                   <p className="truncate font-medium">
-                    {isLive ? (hasLiveChannel ? channel.name : 'Live') : channel.name}
+                    {channelName}
                   </p>
                   {isLive && hasLiveChannel && <LivePill />}
                 </div>
