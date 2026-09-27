@@ -1,7 +1,11 @@
 """Tests for chat service."""
 
+import hashlib
+import hmac
+
 import pytest
 
+from app.config import settings
 from app.services import chat
 
 
@@ -80,6 +84,19 @@ class TestAddMessage:
         result = chat.add_message("testuser", "<b>bold</b>")
         assert result is not None
         assert result.content == "<b>bold</b>"
+
+    def test_stores_the_sender_user_id(self) -> None:
+        """Should keep the sender's stable id alongside the display name."""
+        result = chat.add_message("Nick", "Hello!", user_id="u_0123456789abcdef")
+        assert result is not None
+        assert result.user_id == "u_0123456789abcdef"
+        assert chat.get_history()[-1].user_id == "u_0123456789abcdef"
+
+    def test_user_id_defaults_to_empty(self) -> None:
+        """Callers that don't pass a user id still work."""
+        result = chat.add_message("testuser", "Hello!")
+        assert result is not None
+        assert result.user_id == ""
 
     def test_generates_unique_message_ids(self) -> None:
         """Should generate unique message IDs for each message."""
@@ -187,8 +204,16 @@ class TestChatMessage:
         msg_dict = msg.to_dict()
         assert "messageId" in msg_dict
         assert "username" in msg_dict
+        assert "userId" in msg_dict
         assert "content" in msg_dict
         assert "timestamp" in msg_dict
+
+    def test_to_dict_includes_user_id(self) -> None:
+        """Should emit the sender's stable id as userId."""
+        msg = chat.add_message("Nick", "Hello", user_id="u_0123456789abcdef")
+        assert msg is not None
+
+        assert msg.to_dict()["userId"] == "u_0123456789abcdef"
 
     def test_to_dict_serializes_timestamp_as_iso(self) -> None:
         """Should serialize timestamp as ISO 8601 string."""
@@ -199,6 +224,46 @@ class TestChatMessage:
         timestamp = msg_dict["timestamp"]
         assert isinstance(timestamp, str)
         assert "T" in timestamp  # ISO format includes T separator
+
+
+class TestUserIdFor:
+    """Tests for user_id_for, the opaque chat id of an account."""
+
+    @staticmethod
+    def _expected(account: str) -> str:
+        digest = hmac.new(settings.jwt_secret.encode(), account.encode(), hashlib.sha256)
+        return "u_" + digest.hexdigest()[:16]
+
+    def test_plex_account_is_keyed_on_the_plex_id(self) -> None:
+        """A Plex sign-in's id is the HMAC of its account id, not its username."""
+        assert chat.user_id_for("plexuser", "12345") == self._expected("plex:12345")
+
+    def test_plex_rename_keeps_the_id(self) -> None:
+        """Renaming the Plex account (new sub, same plex_id) keeps the same id."""
+        assert chat.user_id_for("oldname", "12345") == chat.user_id_for("newname", "12345")
+
+    def test_local_account_is_keyed_on_the_username(self) -> None:
+        """A local sign-in's id is the HMAC of its username."""
+        assert chat.user_id_for("testuser", None) == self._expected("local:testuser")
+        assert chat.user_id_for("testuser", None) != chat.user_id_for("other", None)
+
+    def test_plex_and_local_ids_never_collide(self) -> None:
+        """A local username equal to someone's Plex id is a different account."""
+        assert chat.user_id_for("12345", None) != chat.user_id_for("someone", "12345")
+
+    def test_id_is_opaque(self) -> None:
+        """The id has a fixed shape and doesn't expose the raw Plex id."""
+        user_id = chat.user_id_for("plexuser", "987654321")
+        assert len(user_id) == 18
+        assert user_id.startswith("u_")
+        int(user_id[2:], 16)  # hex
+        assert "987654321" not in user_id
+
+    def test_id_depends_on_the_server_secret(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Another deployment's secret gives different ids, so they can't be precomputed."""
+        before = chat.user_id_for("plexuser", "12345")
+        monkeypatch.setattr(settings, "jwt_secret", "a-different-secret-that-is-long-enough")
+        assert chat.user_id_for("plexuser", "12345") != before
 
 
 class TestClearHistory:

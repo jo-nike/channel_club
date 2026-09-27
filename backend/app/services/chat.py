@@ -5,12 +5,16 @@ Messages are broadcast to all connected clients via WebSocket.
 The history resets on server restart (acceptable for this use case).
 """
 
+import hashlib
+import hmac
 from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from loguru import logger
+
+from app.config import settings
 
 # Module-level logger with service context
 log = logger.bind(service="chat")
@@ -32,6 +36,8 @@ class ChatMessage:
     message_id: str
     username: str
     content: str
+    # Stable id of the sender's account (see user_id_for); the display name can change
+    user_id: str = ""
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def to_dict(self) -> dict:
@@ -39,6 +45,7 @@ class ChatMessage:
         return {
             "messageId": self.message_id,
             "username": self.username,
+            "userId": self.user_id,
             "content": self.content,
             "timestamp": self.timestamp.isoformat(),
         }
@@ -53,6 +60,26 @@ _chat_history: deque[ChatMessage] = deque(maxlen=MAX_HISTORY_SIZE)
 # clearing one clears the other.
 _recent_sends: OrderedDict[tuple[str, str], str] = OrderedDict()
 MAX_RECENT_SENDS = 256
+
+
+def user_id_for(username: str, plex_id: str | None) -> str:
+    """Derive the opaque chat id for a signed-in account.
+
+    Plex accounts are keyed on their account id, which survives a Plex rename;
+    local accounts on their username. The id is an HMAC under the JWT secret,
+    so it is stable across sessions and restarts but never exposes the raw Plex
+    account id to other members' browsers.
+
+    Args:
+        username: The authenticated username (JWT sub).
+        plex_id: The Plex account id, or None for a local sign-in.
+
+    Returns:
+        'u_' followed by 16 hex characters.
+    """
+    account = f"plex:{plex_id}" if plex_id else f"local:{username}"
+    digest = hmac.new(settings.jwt_secret.encode(), account.encode(), hashlib.sha256)
+    return "u_" + digest.hexdigest()[:16]
 
 
 def _prune_expired() -> None:
@@ -104,7 +131,7 @@ def sanitize_message(content: str) -> str | None:
     return sanitized
 
 
-def add_message(username: str, content: str) -> ChatMessage | None:
+def add_message(username: str, content: str, user_id: str = "") -> ChatMessage | None:
     """Add a new chat message to the history.
 
     The content will be sanitized before adding. If the content is empty
@@ -113,6 +140,7 @@ def add_message(username: str, content: str) -> ChatMessage | None:
     Args:
         username: The username of the message sender.
         content: The raw message content.
+        user_id: The sender's stable chat id (see user_id_for).
 
     Returns:
         The created ChatMessage, or None if the message was rejected.
@@ -127,6 +155,7 @@ def add_message(username: str, content: str) -> ChatMessage | None:
         message_id=str(uuid4()),
         username=username,
         content=sanitized_content,
+        user_id=user_id,
     )
 
     _prune_expired()

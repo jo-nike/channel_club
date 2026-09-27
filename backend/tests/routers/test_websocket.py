@@ -1,5 +1,7 @@
 """Tests for WebSocket router."""
 
+import hashlib
+import hmac
 from collections.abc import Iterator
 from datetime import UTC
 from io import StringIO
@@ -15,6 +17,12 @@ from app.main import app
 from app.routers import websocket as websocket_router
 from app.services import channel_state, chat, presence
 from app.services.auth import create_access_token
+
+
+def expected_user_id(account: str) -> str:
+    """The chat id the server should derive for an account key ('plex:<id>' or 'local:<sub>')."""
+    digest = hmac.new(settings.jwt_secret.encode(), account.encode(), hashlib.sha256)
+    return "u_" + digest.hexdigest()[:16]
 
 
 @pytest.fixture
@@ -142,7 +150,21 @@ class TestConnectionAck:
         with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
             data = ws.receive_json()
             assert data["type"] == "connection_ack"
-            assert data["you"] == {"username": "testuser"}
+            assert data["you"] == {
+                "username": "testuser",
+                "userId": expected_user_id("local:testuser"),
+            }
+
+    def test_connection_ack_gives_plex_sign_ins_a_plex_derived_id(self, client: TestClient):
+        """A Plex token's id comes from its account id, and the raw id isn't sent."""
+        token = create_access_token({"sub": "plexuser", "role": "viewer", "plex_id": "12345"})
+        with client.websocket_connect(f"/api/ws?token={token}") as ws:
+            data = ws.receive_json()
+            assert data["you"] == {
+                "username": "plexuser",
+                "userId": expected_user_id("plex:12345"),
+            }
+            assert "12345" not in str(data["you"])
 
 
 class TestPingPong:
@@ -507,11 +529,42 @@ class TestChatMessages:
                 assert msg1["type"] == "chat_message"
                 assert msg1["content"] == "Hello everyone!"
                 assert msg1["username"] == "testuser"
+                assert msg1["userId"] == expected_user_id("local:testuser")
                 assert "messageId" in msg1
                 assert "timestamp" in msg1
 
                 assert msg2["type"] == "chat_message"
                 assert msg2["content"] == "Hello everyone!"
+
+    def test_chat_message_from_plex_sign_in_carries_plex_derived_id(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Messages from a Plex sign-in are stamped with the id derived from plex_id."""
+        monkeypatch.setattr(settings, "chat_enabled", True)
+        token = create_access_token({"sub": "plexuser", "role": "viewer", "plex_id": "12345"})
+
+        with client.websocket_connect(f"/api/ws?token={token}") as ws:
+            ws.receive_json()  # connection_ack
+            ws.receive_json()  # chat_history
+
+            ws.send_json({"type": "chat_message", "content": "Hi"})
+            msg = ws.receive_json()
+
+            assert msg["userId"] == expected_user_id("plex:12345")
+
+    def test_chat_history_carries_user_ids(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """History sent on connect keeps each message's userId."""
+        monkeypatch.setattr(settings, "chat_enabled", True)
+        chat.add_message("someone", "Earlier", user_id="u_0123456789abcdef")
+
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            ws.receive_json()  # connection_ack
+            history = ws.receive_json()
+
+            assert history["type"] == "chat_history"
+            assert history["messages"][0]["userId"] == "u_0123456789abcdef"
 
     def test_chat_message_ignored_when_disabled(
         self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
@@ -646,6 +699,26 @@ class TestChatNickname:
             assert msg["type"] == "chat_message"
             assert msg["username"] == "CoolUser"
             assert msg["content"] == "Hello!"
+
+    def test_renaming_keeps_the_user_id(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Messages sent before and after a rename carry the same userId."""
+        monkeypatch.setattr(settings, "chat_enabled", True)
+
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            ws.receive_json()  # connection_ack
+            ws.receive_json()  # chat_history
+
+            ws.send_json({"type": "chat_message", "content": "Before"})
+            before = ws.receive_json()
+            ws.send_json({"type": "set_nickname", "nickname": "NewName"})
+            ws.send_json({"type": "chat_message", "content": "After"})
+            after = ws.receive_json()
+
+            assert before["username"] == "testuser"
+            assert after["username"] == "NewName"
+            assert before["userId"] == after["userId"] == expected_user_id("local:testuser")
 
     def test_set_nickname_trims_whitespace(
         self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
@@ -897,7 +970,7 @@ async def test_sec07_failed_broadcast_closes_and_cleans_endpoint(monkeypatch, va
         if channel_state.get_connection_count():
             break
     await websocket_router.handle_client_message(
-        ws, {"type": "set_nickname", "nickname": "temp"}, "failed", "user"
+        ws, {"type": "set_nickname", "nickname": "temp"}, "failed", "user", "u_0123456789abcdef"
     )
     healthy = MagicMock()
     healthy.application_state = WebSocketState.CONNECTED

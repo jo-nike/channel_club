@@ -99,6 +99,7 @@ async def websocket_endpoint(
         return
 
     log.info("WebSocket connected: client {} (user={})", client_id, payload.get("sub"))
+    user_id = chat.user_id_for(payload["sub"], payload.get("plex_id"))
 
     # Track the accepted connection
     await channel_state.connect(websocket, owner=asyncio.current_task())
@@ -121,8 +122,9 @@ async def websocket_endpoint(
                 "currentChannel": current.model_dump(by_alias=True) if current else None,
                 "settings": app_settings.get_app_settings().model_dump(by_alias=True),
                 # Tell the client who it is signed in as, so chat can default
-                # to the sign-in name (Plex logins don't store a username).
-                "you": {"username": payload["sub"]},
+                # to the sign-in name (Plex logins don't store a username), and
+                # the id its own messages carry whatever name they show.
+                "you": {"username": payload["sub"], "userId": user_id},
             }
             await websocket.send_json(ack_message)
 
@@ -146,7 +148,7 @@ async def websocket_endpoint(
                     return
                 try:
                     message = json.loads(data)
-                    await handle_client_message(websocket, message, client_id, username)
+                    await handle_client_message(websocket, message, client_id, username, user_id)
                 except json.JSONDecodeError:
                     log.debug("Malformed JSON from client {}", client_id)
     except TimeoutError:
@@ -167,7 +169,7 @@ async def websocket_endpoint(
 
 
 async def handle_client_message(
-    websocket: WebSocket, message: object, client_id: str, username: str
+    websocket: WebSocket, message: object, client_id: str, username: str, user_id: str
 ) -> None:
     """Handle incoming client messages.
 
@@ -176,6 +178,7 @@ async def handle_client_message(
         message: Parsed JSON message from client.
         client_id: Unique client identifier for logging.
         username: Authenticated username of the client.
+        user_id: The client's stable chat id (chat.user_id_for).
     """
     # Preserve forward compatibility for unknown types, but never store unchecked data.
     if (
@@ -256,7 +259,7 @@ async def handle_client_message(
         # Use nickname if set, otherwise fall back to auth username
         nickname_entry = _nickname_map.get(client_id)
         display_name = nickname_entry[1] if nickname_entry else username
-        chat_msg = chat.add_message(display_name, content)
+        chat_msg = chat.add_message(display_name, content, user_id=user_id)
 
         if chat_msg:
             if client_message_id:
