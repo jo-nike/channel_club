@@ -47,7 +47,10 @@ beforeEach(() => {
   useChatStore.setState({ isOpen: false, unreadCount: 0 })
 })
 
-afterEach(() => cleanup())
+afterEach(() => {
+  cleanup()
+  vi.useRealTimers()
+})
 
 describe('TVHeader', () => {
   it('is the page banner, padded below the status bar', () => {
@@ -70,11 +73,14 @@ describe('TVHeader', () => {
       selectedChannel: { id: 'live-channel-0', name: 'Sports', number: 0, streamUrl: '/a', type: 'live' },
       liveEPG: { channelId: 'a', currentProgram: { title: 'Big Game', startTime: '2026-09-06T11:00:00Z', endTime: '2099-01-01T00:00:00Z' } },
     })
+    vi.useFakeTimers()
     renderHeader({ status: 'disconnected' })
+    // The connection status shows once the socket has been down for 3s
+    act(() => { vi.advanceTimersByTime(3000) })
     const block = within(screen.getByRole('banner')).getByTestId('now-watching')
     expect(within(block).getByText('Big Game')).toHaveClass('truncate')
     // The connection status stays to the left of the block
-    const reconnect = screen.getByRole('button', { name: 'Reconnect' })
+    const reconnect = screen.getByRole('button', { name: 'Retry' })
     expect(reconnect.compareDocumentPosition(block) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
@@ -88,8 +94,11 @@ describe('TVHeader', () => {
   })
 
   it('reports the connection and reconnects from it', () => {
+    vi.useFakeTimers()
     const props = renderHeader({ status: 'disconnected' })
-    fireEvent.click(screen.getByRole('button', { name: 'Reconnect' }))
+    act(() => { vi.advanceTimersByTime(3000) })
+    expect(screen.getByRole('status')).toHaveTextContent('Chat offline')
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
     expect(props.onReconnect).toHaveBeenCalledTimes(1)
   })
 

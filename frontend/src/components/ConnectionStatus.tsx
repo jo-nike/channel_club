@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 type ConnectionState = 'connected' | 'connecting' | 'reconnecting' | 'disconnected'
@@ -9,63 +10,85 @@ interface ConnectionStatusProps {
   status: ConnectionState
 }
 
-const statusConfig = {
-  connected: {
-    color: 'bg-success',
-    text: 'Connected',
-    pulse: false,
-  },
-  connecting: {
-    color: 'bg-warning',
-    text: 'Connecting...',
-    pulse: true,
-  },
-  reconnecting: {
-    color: 'bg-warning',
-    text: 'Reconnecting...',
-    pulse: true,
-  },
-  disconnected: {
-    color: 'bg-destructive',
-    text: 'Disconnected',
-    pulse: false,
-  },
-} as const
+// A blip shorter than this, including the first connect after a page load
+// (the socket starts out 'disconnected'), shows nothing at all
+const SHOW_AFTER_MS = 3000
 
+/**
+ * The chat socket's health, shown only when it's degraded. The socket
+ * carries chat, presence and live-channel sync, not the video.
+ */
 export function ConnectionStatus({ status, onReconnect }: ConnectionStatusProps) {
-  const [isHidden, setIsHidden] = useState(false)
-  const config = statusConfig[status]
+  const isDegraded = status !== 'connected'
+  const [isShown, setIsShown] = useState(false)
 
-  const handleClick = () => {
-    setIsHidden((prev) => !prev)
+  // Once the socket has given up, the offline pill stays until it's back.
+  // The slow retries pass through 'reconnecting' on every attempt, which would
+  // otherwise flip the pill to amber and hide Retry each time. Only a change
+  // into 'disconnected' counts, so the initial 'disconnected' before the first
+  // connect doesn't. (Adjusted while rendering, React's pattern for state that
+  // follows a prop.)
+  const [prevStatus, setPrevStatus] = useState(status)
+  const [connectionLost, setConnectionLost] = useState(false)
+  if (status !== prevStatus) {
+    setPrevStatus(status)
+    if (status === 'disconnected') setConnectionLost(true)
+    else if (status === 'connected') setConnectionLost(false)
   }
 
-  const tooltipText = isHidden
-    ? `${config.text} (hidden)`
-    : config.text
+  // Keyed on being degraded rather than on the status, so moving between the
+  // degraded states neither restarts the delay nor hides a pill already shown
+  // (state is only set from the timer and the cleanup, never in the effect body)
+  useEffect(() => {
+    if (!isDegraded) return
+    const timer = setTimeout(() => setIsShown(true), SHOW_AFTER_MS)
+    return () => {
+      clearTimeout(timer)
+      setIsShown(false)
+    }
+  }, [isDegraded])
 
-  if (status === 'disconnected' && onReconnect) {
-    return <button type="button" onClick={onReconnect} className="text-sm text-destructive">Reconnect</button>
-  }
+  if (!isDegraded || !isShown) return null
+
+  const isOffline = status === 'disconnected' || connectionLost
+  const isTrying = status === 'connecting' || status === 'reconnecting'
+  const label = isOffline ? 'Chat offline' : status === 'connecting' ? 'Connecting...' : 'Reconnecting...'
+  const state = isOffline ? 'offline' : status === 'connecting' ? 'connecting' : 'reconnecting'
 
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={handleClick}
-          className={cn(
-            'h-3 w-3 rounded-full cursor-pointer transition-colors',
-            isHidden ? 'bg-background' : config.color,
-            !isHidden && config.pulse && 'motion-safe:animate-pulse'
-          )}
-          role="status"
-          aria-label={isHidden ? `${config.text} (hidden - click to show)` : `${config.text} (click to hide)`}
-        />
-      </TooltipTrigger>
-      <TooltipContent>
-        <p>{tooltipText}</p>
-      </TooltipContent>
-    </Tooltip>
+    <span role="status" aria-live="polite" className="inline-flex shrink-0 items-center gap-1">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          {/* Focusable so keyboard users can reach the explanation too */}
+          <span
+            tabIndex={0}
+            className={cn(
+              'inline-flex h-6 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 text-xs font-medium',
+              isOffline ? 'bg-destructive/15 text-destructive' : 'bg-warning/15 text-warning'
+            )}
+          >
+            {/* Pulses while an attempt is under way, including the slow ones behind 'Chat offline' */}
+            <span
+              aria-hidden="true"
+              data-testid="connection-dot"
+              className={cn(
+                'h-2 w-2 shrink-0 rounded-full',
+                isOffline ? 'bg-destructive' : 'bg-warning',
+                isTrying && 'motion-safe:animate-pulse'
+              )}
+            />
+            {label}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>
+          <p>Chat and live-channel sync are {state}. Video is not affected.</p>
+        </TooltipContent>
+      </Tooltip>
+      {isOffline && onReconnect && (
+        <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={onReconnect}>
+          Retry
+        </Button>
+      )}
+    </span>
   )
 }
