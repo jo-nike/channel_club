@@ -1,11 +1,12 @@
-import { Fragment, useRef, useEffect, useState, useCallback, type KeyboardEvent, type UIEvent } from 'react'
-import { X, Send, Pencil, Loader2, AlertCircle, WifiOff, ArrowDown } from 'lucide-react'
+import { Fragment, useRef, useEffect, useLayoutEffect, useState, useCallback, type KeyboardEvent, type UIEvent } from 'react'
+import { X, Send, Pencil, Loader2, AlertCircle, WifiOff, ArrowDown, MessageCircle } from 'lucide-react'
 import type { ChatSendResult, WebSocketStatus } from '@/hooks/useWebSocket'
 import { createClientMessageId } from '@/lib/messageId'
 import { scrollBehavior } from '@/lib/motion'
 import { useChatStore, isOwnMessage } from '@/stores/chatStore'
 import type { ChatMessage as ChatMessageData } from '@/types'
 import { useNow } from '@/hooks/useNow'
+import { useFocusTrap } from '@/hooks/useFocusTrap'
 import { ChatMessage } from './ChatMessage'
 import { GifButton } from './GifButton'
 import { Button } from '@/components/ui/button'
@@ -41,6 +42,9 @@ export interface ChatPanelProps {
 
 // Quick reconnects (including the first connect) finish before the row would flicker in
 const RECONNECTING_ROW_DELAY = 2000
+
+// How long the message log stays busy after a history replaces it
+const HISTORY_BUSY_MS = 250
 
 // Within this many pixels of the bottom, the reader is following the conversation
 const AT_BOTTOM_THRESHOLD = 80
@@ -116,6 +120,7 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
   const lastScrollTop = useRef(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const nicknameInputRef = useRef<HTMLInputElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
   const isConnected = status === 'connected'
   const isReconnecting = status === 'connecting' || status === 'reconnecting'
   const [showReconnecting, setShowReconnecting] = useState(false)
@@ -169,6 +174,26 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
       }
     }
   }
+
+  // A history (the first load, every reconnect) replaces the whole list rather
+  // than adding a message to it. The log is busy while that renders, so a
+  // screen reader doesn't read the history out as new messages. A new message
+  // is an append: the one before it was the last message.
+  const [loggedMessages, setLoggedMessages] = useState(messages)
+  const [isLogBusy, setIsLogBusy] = useState(false)
+  // (Adjusted while rendering, like connectionLost above.)
+  if (messages !== loggedMessages) {
+    setLoggedMessages(messages)
+    const isAppend = lastId !== loggedMessages.at(-1)?.messageId &&
+      messages.at(-2)?.messageId === loggedMessages.at(-1)?.messageId
+    if (!isAppend) setIsLogBusy(true)
+  }
+  // (state is only set from the timer, never in the effect body)
+  useEffect(() => {
+    if (!isLogBusy) return
+    const timer = setTimeout(() => setIsLogBusy(false), HISTORY_BUSY_MS)
+    return () => clearTimeout(timer)
+  }, [isLogBusy, loggedMessages])
 
   // Show the 'New' divider, or the bottom, once the list is on screen
   useEffect(() => {
@@ -232,6 +257,28 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
       return () => clearTimeout(timer)
     }
   }, [isOpen, showNicknamePrompt])
+
+  // Closing chat returns focus to where it was when chat opened (usually the
+  // chat toggle), instead of dropping it on the page. Recorded before the
+  // composer takes focus. A viewer who has since moved focus elsewhere keeps it.
+  useLayoutEffect(() => {
+    if (!isOpen) return
+    const opener = document.activeElement
+    const panel = panelRef.current
+    return () => {
+      const active = document.activeElement
+      const focusWasInChat = !active || active === document.body || (panel?.contains(active) ?? false)
+      if (opener instanceof HTMLElement && opener !== document.body && opener.isConnected && focusWasInChat) {
+        opener.focus()
+      }
+    }
+  }, [isOpen])
+
+  // The phone takeover covers the whole screen, so it is a modal dialog and
+  // Tab stays inside it. The GIF picker's dialog is portalled out and keeps
+  // its own trap. Focus return is handled above for every variant.
+  const isDialog = variant === 'takeover'
+  useFocusTrap(panelRef, { enabled: isOpen && isDialog, restoreFocus: false })
 
   // Say 'Reconnecting…' only once a reconnect has taken a while
   // (state is only set from the timer and the cleanup, never in the effect body)
@@ -371,22 +418,26 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
   })
 
   // Docked and sheet sit in the page beside the header's controls, so they're
-  // a complementary landmark rather than a layer over everything. The role is
-  // an attribute on one element type: swapping the element when theater
-  // switches the variant would remount the list and drop its scroll and focus
+  // a complementary landmark rather than a layer over everything; the phone
+  // takeover is a modal dialog (see isDialog). The role is an attribute on one
+  // element type: swapping the element when theater switches the variant
+  // would remount the list and drop its scroll and focus
   const isLandmark = variant === 'docked' || variant === 'sheet'
 
   return (
     <div
+      ref={panelRef}
       id="chat-panel"
-      role={isLandmark ? 'complementary' : undefined}
+      role={isLandmark ? 'complementary' : isDialog ? 'dialog' : undefined}
       aria-label={isLandmark ? 'Chat' : undefined}
+      aria-modal={isDialog ? true : undefined}
+      aria-labelledby={isDialog ? 'chat-panel-title' : undefined}
       className={PANEL_CLASSES[variant]}
     >
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">
-          <h2 className="text-lg font-semibold">Chat</h2>
+          <h2 id="chat-panel-title" className="text-lg font-semibold">Chat</h2>
           {me && !isEditingNickname && (
             <>
               <span className="truncate text-sm text-muted-foreground">Chatting as {displayName}</span>
@@ -482,16 +533,32 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
           {/* Messages */}
           <div className="relative flex min-h-0 flex-1 flex-col">
             <ScrollArea className="flex-1" viewportRef={viewportRef} onViewportScroll={handleViewportScroll}>
-              <div className="py-2">
+              {/* New messages are read out politely; a replaced history isn't (aria-busy) */}
+              <div
+                role="log"
+                aria-label="Chat messages"
+                aria-live="polite"
+                aria-relevant="additions"
+                aria-busy={isLogBusy || undefined}
+                className="py-2"
+              >
                 {historyReset && (
                   <p className="px-4 py-2 text-center text-xs text-muted-foreground">
                     Chat history was cleared (server restart or an admin cleared it)
                   </p>
                 )}
                 {messages.length === 0 ? (
-                  <p className="text-center text-muted-foreground text-sm py-8">
-                    No messages yet. Say hello!
-                  </p>
+                  // Says what the room is: one chat for the whole club, kept in
+                  // server memory (backend/app/services/chat.py), so it doesn't last
+                  <div className="flex flex-col items-center gap-2 px-6 py-8 text-center">
+                    <span className="flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground" aria-hidden="true">
+                      <MessageCircle className="size-5" />
+                    </span>
+                    <p className="text-sm font-medium">No messages yet. Say hello!</p>
+                    <p className="max-w-60 text-xs text-muted-foreground">
+                      Everyone signed in shares this chat. Messages clear after 24 hours or when the server restarts.
+                    </p>
+                  </div>
                 ) : (
                   messages.map((msg, index) => (
                     <Fragment key={msg.messageId}>
@@ -566,14 +633,16 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
                 value={inputValue}
                 onChange={(e) => { draftVersion.current += 1; setFailure(null); setInputValue(e.target.value) }}
                 onKeyDown={handleKeyDown}
-                placeholder="Type a message..."
+                placeholder="Message the club…"
                 className="flex-1"
                 maxLength={500}
               />
               <GifButton onSelect={async (url) => (await send(url)) === 'acknowledged'} disabled={isSending || !isConnected} />
+              {/* Filled only once there is something to send */}
               <Button
                 onClick={handleSend}
                 disabled={!inputValue.trim() || isSending || !isConnected}
+                variant={inputValue.trim() ? 'default' : 'ghost'}
                 size="icon"
                 aria-label="Send message"
               >

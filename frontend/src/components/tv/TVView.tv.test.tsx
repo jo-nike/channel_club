@@ -247,6 +247,51 @@ describe('TV browsers: Back and OK', () => {
     expect(isTheater()).toBe(false)
   })
 
+  it.each([
+    ['webOS Back', 'Unidentified', 461],
+    ['Tizen Return', 'Unidentified', 10009],
+    ['Escape', 'Escape', 27],
+  ])('%s closes chat before leaving theater', (_label, key, keyCode) => {
+    renderTV()
+    act(() => useChatStore.setState({ isOpen: true }))
+
+    press(key, { keyCode })
+    expect(useChatStore.getState().isOpen).toBe(false)
+    expect(isTheater()).toBe(true)
+
+    press(key, { keyCode })
+    expect(isTheater()).toBe(false)
+  })
+
+  it('Back outside theater closes open chat instead of navigating', () => {
+    renderTV()
+    act(() => {
+      useUIStore.getState().setTheaterMode(false)
+      useChatStore.setState({ isOpen: true })
+    })
+
+    const notPrevented = press('Unidentified', { keyCode: 461 })
+
+    expect(notPrevented).toBe(false)
+    expect(useChatStore.getState().isOpen).toBe(false)
+  })
+
+  it("Back from chat's message field closes chat, while Backspace there edits the text", () => {
+    renderTV()
+    act(() => useChatStore.setState({ isOpen: true }))
+    const panel = addToPage('div')
+    panel.id = 'chat-panel'
+    const field = document.createElement('input')
+    panel.appendChild(field)
+
+    expect(press('Backspace', { keyCode: 8 }, field)).toBe(true)
+    expect(useChatStore.getState().isOpen).toBe(true)
+
+    expect(press('Unidentified', { keyCode: 461 }, field)).toBe(false)
+    expect(useChatStore.getState().isOpen).toBe(false)
+    expect(isTheater()).toBe(true)
+  })
+
   it('does not handle Back or OK off a TV', () => {
     tv.mode = false
     renderTV()

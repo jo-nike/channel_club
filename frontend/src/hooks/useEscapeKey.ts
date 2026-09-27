@@ -1,7 +1,8 @@
 import { useEffect, useCallback } from 'react'
 
 interface UseEscapeKeyOptions {
-  onEscape: () => void
+  // Receives the keydown, so a handler can skip one another layer already handled
+  onEscape: (e: KeyboardEvent) => void
   enabled?: boolean
 }
 
@@ -9,7 +10,7 @@ export function useEscapeKey({ onEscape, enabled = true }: UseEscapeKeyOptions) 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onEscape()
+        onEscape(e)
       }
     },
     [onEscape]

@@ -21,6 +21,18 @@ describe('useEscapeKey', () => {
     expect(onEscape).toHaveBeenCalledTimes(1)
   })
 
+  it('passes the keydown event to onEscape', () => {
+    const onEscape = vi.fn()
+    renderHook(() => useEscapeKey({ onEscape }))
+    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    event.preventDefault()
+
+    window.dispatchEvent(event)
+
+    expect(onEscape).toHaveBeenCalledWith(event)
+    expect(onEscape.mock.calls[0][0].defaultPrevented).toBe(true)
+  })
+
   it('does not call onEscape for other keys', () => {
     const onEscape = vi.fn()
     renderHook(() => useEscapeKey({ onEscape }))

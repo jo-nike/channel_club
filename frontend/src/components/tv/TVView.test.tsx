@@ -830,3 +830,54 @@ describe('E-01 channel list folds to its rail beside docked chat at 1024-1279px'
     expect(collapseButton()).toBeInTheDocument()
   })
 })
+
+describe('E-10 Escape closes chat before leaving theater', () => {
+  beforeEach(() => vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([]))
+  afterEach(() => {
+    useChatStore.setState({ isOpen: false })
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null })
+  })
+
+  const renderInTheaterWithChat = async () => {
+    useUIStore.setState({ isTheaterMode: true })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+    act(() => useChatStore.setState({ isOpen: true }))
+  }
+
+  it('closes chat and keeps theater, then leaves theater on a second Escape', async () => {
+    await renderInTheaterWithChat()
+
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    expect(useChatStore.getState().isOpen).toBe(false)
+    expect(useUIStore.getState().isTheaterMode).toBe(true)
+
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    expect(useUIStore.getState().isTheaterMode).toBe(false)
+  })
+
+  it('ignores an Escape a layer already handled, like the GIF popover closing', async () => {
+    await renderInTheaterWithChat()
+    // Radix's dismissable layer listens in the capture phase and marks the event
+    const layer = (e: KeyboardEvent) => e.preventDefault()
+    document.addEventListener('keydown', layer, true)
+
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    document.removeEventListener('keydown', layer, true)
+
+    expect(useChatStore.getState().isOpen).toBe(true)
+    expect(useUIStore.getState().isTheaterMode).toBe(true)
+  })
+
+  it('leaves fullscreen first when chat is hidden behind it', async () => {
+    await renderInTheaterWithChat()
+    const exitFullscreen = vi.fn(() => Promise.resolve())
+    Object.defineProperty(document, 'exitFullscreen', { configurable: true, value: exitFullscreen })
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: screen.getByTestId('player') })
+
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+
+    expect(exitFullscreen).toHaveBeenCalledTimes(1)
+    expect(useChatStore.getState().isOpen).toBe(true)
+  })
+})
