@@ -205,8 +205,17 @@ export function TVView() {
   const isMobile = layoutMode === 'phone'
   const isMobileLandscape = useMobileLandscape()
   const isPhonePortrait = isMobile && !isTheaterMode && !isMobileLandscape
-  // Chat takes the whole screen on a phone and slides over the side anywhere else
-  const chatVariant: ChatPanelVariant = isMobile ? 'takeover' : 'overlay'
+  // Chat takes the whole screen on a phone. Where the player fills the screen
+  // (theater, phone landscape) it slides over the side; otherwise it docks
+  // beside the player on a desktop and opens as a sheet below the header on
+  // a tablet, so the header's controls stay reachable.
+  const chatVariant: ChatPanelVariant = isMobile
+    ? 'takeover'
+    : isTheaterMode || isMobileLandscape
+      ? 'overlay'
+      : layoutMode === 'desktop'
+        ? 'docked'
+        : 'sheet'
 
   // Load channels on mount
   useEffect(() => {
@@ -362,8 +371,8 @@ export function TVView() {
         />
       )}
 
-      {/* Main content */}
-      <div ref={containerRef} className="flex flex-1 min-h-0 overflow-hidden">
+      {/* Main content (relative: the tablet chat sheet is placed in it) */}
+      <div ref={containerRef} className="relative flex flex-1 min-h-0 overflow-hidden">
         {/* Desktop: Collapsible Sidebar - hidden in theater mode/landscape, and
             while the guide is open, whose channel column is then the one
             channel list. Its collapsed state stays in the store for when the
@@ -474,6 +483,32 @@ export function TVView() {
             </div>
           )}
         </main>
+
+        {/* Chat Panel. Always rendered here, after <main>: docked it is the
+            row's third column and the player reflows beside it; the sheet is
+            placed over the row, below the header; overlay and takeover are
+            fixed to the viewport. One place, so switching variant (entering
+            theater, say) keeps the draft and scroll position. */}
+        <ErrorBoundary
+          name="Chat"
+          resetKey={isChatOpen}
+          fallback={() => (
+            <div role="alert" className="fixed top-4 right-4 z-50 flex items-center gap-3 rounded-lg border bg-card p-4 text-card-foreground shadow-lg">
+              <p className="text-sm">Chat hit an error</p>
+              <Button size="sm" variant="outline" onClick={() => useChatStore.getState().setOpen(false)}>
+                Close
+              </Button>
+            </div>
+          )}
+        >
+          <ChatPanel
+            onSendMessage={sendChatMessage}
+            onSetNickname={sendSetNickname}
+            status={status}
+            onReconnect={reconnect}
+            variant={chatVariant}
+          />
+        </ErrorBoundary>
       </div>
 
       {/* Programme details modal */}
@@ -498,27 +533,6 @@ export function TVView() {
         />
       )}
 
-      {/* Chat Panel */}
-      <ErrorBoundary
-        name="Chat"
-        resetKey={isChatOpen}
-        fallback={() => (
-          <div role="alert" className="fixed top-4 right-4 z-50 flex items-center gap-3 rounded-lg border bg-card p-4 text-card-foreground shadow-lg">
-            <p className="text-sm">Chat hit an error</p>
-            <Button size="sm" variant="outline" onClick={() => useChatStore.getState().setOpen(false)}>
-              Close
-            </Button>
-          </div>
-        )}
-      >
-        <ChatPanel
-          onSendMessage={sendChatMessage}
-          onSetNickname={sendSetNickname}
-          status={status}
-          onReconnect={reconnect}
-          variant={chatVariant}
-        />
-      </ErrorBoundary>
     </div>
   )
 }

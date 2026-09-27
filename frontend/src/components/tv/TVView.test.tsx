@@ -721,6 +721,41 @@ describe('E-01 chat placement', () => {
     expect(screen.getByRole('heading', { name: 'Channels' }).closest('.epg-scroll')).not.toBeNull()
   })
 
+  it('docks beside the player at 1440px, with the header and its controls still there', async () => {
+    mockViewport({ width: 1440 })
+    const chat = await openChat()
+    expect(chat).toHaveAttribute('data-variant', 'docked')
+
+    const main = screen.getByRole('main')
+    expect(chat.parentElement).toBe(main.parentElement)
+    expect(main.nextElementSibling).toBe(chat)
+    expect(screen.getByRole('banner')).not.toContainElement(chat)
+    expect(within(screen.getByRole('banner')).getByRole('button', { name: 'Refresh video' })).toBeVisible()
+  })
+
+  it('opens as a sheet inside the content row on a 900px tablet, so it starts below the header', async () => {
+    mockViewport({ width: 900 })
+    const chat = await openChat()
+    expect(chat).toHaveAttribute('data-variant', 'sheet')
+
+    const row = screen.getByRole('main').parentElement as HTMLElement
+    expect(chat.parentElement).toBe(row)
+    expect(row).toHaveClass('relative')
+    expect(screen.getByRole('banner')).toBeVisible()
+  })
+
+  // This covers TVView's half, the panel's place in the tree. That ChatPanel
+  // keeps its own DOM across the switch is tested in ChatPanel.test.tsx
+  it('keeps the panel mounted in place when theater switches it from docked to overlay', async () => {
+    mockViewport({ width: 1440 })
+    const chat = await openChat()
+    expect(chat).toHaveAttribute('data-variant', 'docked')
+
+    act(() => useUIStore.setState({ isTheaterMode: true }))
+    expect(screen.getByTestId('chat')).toBe(chat)
+    expect(chat).toHaveAttribute('data-variant', 'overlay')
+  })
+
   it('slides over the side in theater', async () => {
     mockViewport({ width: 1440 })
     useUIStore.setState({ isTheaterMode: true })
