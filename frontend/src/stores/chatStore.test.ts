@@ -21,6 +21,7 @@ describe('useChatStore', () => {
       me: null,
       lastReadAt: null,
       readMarker: null,
+      historyReset: false,
     })
   })
 
@@ -400,6 +401,41 @@ describe('useChatStore', () => {
       useChatStore.getState().setIdentity({ username: 'me' })
       expect(useChatStore.getState().readMarker).toBe(ms(1))
       expect(useChatStore.getState().lastReadAt).toBe(ms(2))
+    })
+  })
+
+  describe('historyReset', () => {
+    it('is raised when an empty history replaces messages', () => {
+      useChatStore.getState().setMessages([createMessage('1'), createMessage('2')])
+      useChatStore.getState().setMessages([])
+      expect(useChatStore.getState().historyReset).toBe(true)
+      expect(useChatStore.getState().messages).toHaveLength(0)
+    })
+
+    it('is not raised by an empty first history', () => {
+      useChatStore.getState().setMessages([])
+      expect(useChatStore.getState().historyReset).toBe(false)
+    })
+
+    it('stays up while new messages arrive, and another empty history keeps it', () => {
+      useChatStore.getState().setMessages([createMessage('1')])
+      useChatStore.getState().setMessages([])
+      useChatStore.getState().addMessage(createMessage('2'))
+      expect(useChatStore.getState().historyReset).toBe(true)
+      useChatStore.setState({ messages: [] })
+      useChatStore.getState().setMessages([])
+      expect(useChatStore.getState().historyReset).toBe(true)
+    })
+
+    it('is cleared by a history with messages and by clearMessages', () => {
+      useChatStore.getState().setMessages([createMessage('1')])
+      useChatStore.getState().setMessages([])
+      useChatStore.getState().setMessages([createMessage('2')])
+      expect(useChatStore.getState().historyReset).toBe(false)
+
+      useChatStore.getState().setMessages([])
+      useChatStore.getState().clearMessages()
+      expect(useChatStore.getState().historyReset).toBe(false)
     })
   })
 

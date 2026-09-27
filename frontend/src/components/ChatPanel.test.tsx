@@ -42,6 +42,7 @@ describe('ChatPanel', () => {
       me: null,
       lastReadAt: null,
       readMarker: null,
+      historyReset: false,
     })
     mockOnSendMessage.mockReset().mockReturnValue('acknowledged')
   })
@@ -301,6 +302,32 @@ describe('ChatPanel', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent("Couldn't confirm it was sent."))
     expect(input).toHaveValue('Uncertain')
+  })
+
+  describe('history reset', () => {
+    const notice = 'Chat history was cleared (server restart or an admin cleared it)'
+
+    it('says so when the server sends an empty history over earlier messages', () => {
+      useChatStore.getState().setMessages([createMessage('1', 'OtherUser')])
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.queryByText(notice)).not.toBeInTheDocument()
+
+      act(() => useChatStore.getState().setMessages([]))
+      expect(screen.getByText(notice)).toBeInTheDocument()
+      expect(screen.queryByText('Message 1')).not.toBeInTheDocument()
+
+      // It stays above messages posted after the reset
+      act(() => useChatStore.getState().addMessage(createMessage('2', 'OtherUser')))
+      expect(screen.getByText(notice)).toBeInTheDocument()
+      expect(screen.getByText('Message 2')).toBeInTheDocument()
+    })
+
+    it('says nothing on an empty first history', () => {
+      useChatStore.getState().setMessages([])
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.queryByText(notice)).not.toBeInTheDocument()
+      expect(screen.getByText('No messages yet. Say hello!')).toBeInTheDocument()
+    })
   })
 
   describe("'New' divider", () => {

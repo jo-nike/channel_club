@@ -31,7 +31,7 @@ interface SendFailure {
 }
 
 export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', onReconnect }: ChatPanelProps) {
-  const { messages, isOpen, setOpen, nickname, me, readMarker, setNickname, clearNickname } = useChatStore()
+  const { messages, isOpen, setOpen, nickname, me, readMarker, historyReset, setNickname, clearNickname } = useChatStore()
   const breakpoint = useBreakpoint()
   const isMobile = breakpoint === 'mobile'
 
@@ -280,6 +280,11 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
           {/* Messages */}
           <ScrollArea className="flex-1">
             <div className="py-2">
+              {historyReset && (
+                <p className="px-4 py-2 text-center text-xs text-muted-foreground">
+                  Chat history was cleared (server restart or an admin cleared it)
+                </p>
+              )}
               {messages.length === 0 ? (
                 <p className="text-center text-muted-foreground text-sm py-8">
                   No messages yet. Say hello!

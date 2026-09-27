@@ -26,6 +26,8 @@ interface ChatState {
   lastReadAt: number | null
   // While open: lastReadAt from before opening, if anything unread was newer
   readMarker: number | null
+  // The server sent an empty history over a non-empty list (restart or cleared)
+  historyReset: boolean
   addMessage: (message: ChatMessage) => void
   setMessages: (messages: ChatMessage[]) => void
   toggleOpen: () => void
@@ -122,6 +124,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   me: null,
   lastReadAt: null,
   readMarker: null,
+  historyReset: false,
 
   addMessage: (message) => {
     // Deduplicate by messageId (prevents double-adds from React StrictMode)
@@ -145,15 +148,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
     logger.debug('ChatStore', `Setting ${messages.length} messages (history)`)
     set((state) => {
       const history = messages.slice(-MAX_MESSAGES)
+      // History lives in server memory: an empty one after messages means it was wiped
+      const historyReset = history.length === 0 ? state.historyReset || state.messages.length > 0 : false
       if (state.lastReadAt === null || state.isOpen) {
         // A first load counts nothing (no '9+' for newcomers); an open panel has read it all.
         // An empty first history still counts as seen: read up to the epoch, so anything after it is unread
         const lastReadAt = laterOf(state.lastReadAt, newestTimestamp(history)) ?? 0
         saveLastRead(state.me, lastReadAt)
-        return { messages: history, lastReadAt }
+        return { messages: history, lastReadAt, historyReset }
       }
       // Recount rather than add, so messages addMessage already counted aren't counted twice
-      return { messages: history, unreadCount: countUnreadSince(history, state.lastReadAt, state) }
+      return { messages: history, unreadCount: countUnreadSince(history, state.lastReadAt, state), historyReset }
     })
   },
 
@@ -172,7 +177,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   clearMessages: () => {
     logger.debug('ChatStore', 'Clearing messages')
-    set({ messages: [], unreadCount: 0 })
+    set({ messages: [], unreadCount: 0, historyReset: false })
   },
 
   setNickname: (nickname: string) => {
