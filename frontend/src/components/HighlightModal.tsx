@@ -3,7 +3,7 @@ import { Download, Upload, Play, Pause, RotateCcw, Loader2, Copy, ExternalLink, 
 import { toast } from 'sonner'
 import { createHighlightCapture, highlightCaptureUrl, fetchHighlightCapture, deleteHighlightCapture, exportHighlight, uploadHighlight, getHighlightFeatures, type HighlightFormat, type UploadedHighlight } from '@/services/api'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { ClipTimeline } from './ClipTimeline'
 import { ClipTimeField } from './ClipTimeField'
 
@@ -34,14 +34,23 @@ function ClipSession({ channelId, onClose, acquirePreviewAudio, container }: Omi
   const [uploaded, setUploaded] = useState<UploadedHighlight | null>(null)
   const [zipline, setZipline] = useState(false)
   const [attempt, setAttempt] = useState(0)
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
+  // The selection last downloaded or uploaded; closing after that loses nothing the user asked for.
+  const [delivered, setDelivered] = useState<string | null>(null)
   const video = useRef<HTMLVideoElement>(null)
   const uploadResult = useRef<HTMLDivElement>(null)
+  const closeButton = useRef<HTMLButtonElement>(null)
   const controller = useRef<AbortController | null>(null)
   const busy = useRef(false)
   const cache = useRef<{ key: string; blob: Blob } | null>(null)
   const [acquireAudio] = useState(() => acquirePreviewAudio)
   const [start, end] = range
   const ready = duration >= 0.1 && source !== null && !captureError
+  const needsConfirm = ready && delivered !== `${start}:${end}:${format}`
+
+  function requestClose() {
+    if (needsConfirm) setConfirmDiscard(true); else onClose()
+  }
 
   useEffect(() => acquireAudio?.(), [acquireAudio])
   useEffect(() => { if (uploaded) uploadResult.current?.scrollIntoView?.({ block: 'nearest' }) }, [uploaded])
@@ -126,7 +135,7 @@ function ClipSession({ channelId, onClose, acquirePreviewAudio, container }: Omi
       if (destination === 'zipline') {
         setStage('uploading')
         const result = await uploadHighlight(blob, format, signal)
-        if (!signal.aborted) setUploaded(result)
+        if (!signal.aborted) { setUploaded(result); setDelivered(key) }
       } else {
         const url = URL.createObjectURL(blob)
         const link = document.createElement('a')
@@ -135,6 +144,7 @@ function ClipSession({ channelId, onClose, acquirePreviewAudio, container }: Omi
         document.body.appendChild(link); link.click(); link.remove()
         // Give the browser time to start consuming the download URL.
         setTimeout(() => URL.revokeObjectURL(url), 1000)
+        setDelivered(key)
         toast.success(`Download started · ${(end - start).toFixed(1)}s ${format.toUpperCase()}`)
       }
     } catch (err) {
@@ -155,11 +165,14 @@ function ClipSession({ channelId, onClose, acquirePreviewAudio, container }: Omi
     <Dialog open onOpenChange={open => { if (!open) onClose() }}>
       <DialogContent container={container} showCloseButton={false} className="max-h-[92dvh] max-w-[min(48rem,calc(100%-2rem))] overflow-y-auto" onKeyDown={event => event.stopPropagation()}
         // Radix sees Escape on the document before a field does; let the field revert its draft instead.
-        onEscapeKeyDown={event => { if ((event.target as HTMLElement | null)?.closest?.('input,select,textarea')) event.preventDefault() }}
+        onEscapeKeyDown={event => {
+          if ((event.target as HTMLElement | null)?.closest?.('input,select,textarea')) { event.preventDefault(); return }
+          if (needsConfirm) { event.preventDefault(); setConfirmDiscard(true) }
+        }}
         // Closing deletes the capture, so a stray press outside must not discard a ready one.
         onInteractOutside={event => { if (ready) event.preventDefault() }}>
         <DialogHeader className="sticky -top-6 z-20 -mx-6 -mt-6 border-b bg-background p-6 pr-14">
-          <Button variant="ghost" size="icon" aria-label="Close editor" onClick={onClose} className="absolute right-3 top-3"><X /></Button>
+          <Button ref={closeButton} variant="ghost" size="icon" aria-label="Close editor" onClick={requestClose} className="absolute right-3 top-3"><X /></Button>
           <DialogTitle>Create clip</DialogTitle>
           <DialogDescription>Choose the moment to keep, preview your selection, then export it.</DialogDescription>
         </DialogHeader>
@@ -226,6 +239,22 @@ function ClipSession({ channelId, onClose, acquirePreviewAudio, container }: Omi
             <Button variant="outline" size="sm" asChild><a href={uploaded.url} target="_blank" rel="noopener noreferrer"><ExternalLink />Open</a></Button>
           </div>
         </div>}
+        {/* Same container as the editor so the question also shows in fullscreen. */}
+        <Dialog open={confirmDiscard} onOpenChange={setConfirmDiscard}>
+          {/* The confirm has no trigger, so Radix would leave focus on <body>, where the live
+              player's window shortcuts take keys. Return it to X instead. */}
+          <DialogContent container={container} showCloseButton={false} className="max-w-sm"
+            onCloseAutoFocus={event => { event.preventDefault(); closeButton.current?.focus() }}>
+            <DialogHeader>
+              <DialogTitle>Discard this clip?</DialogTitle>
+              <DialogDescription>Closing deletes the capture. Once it leaves the 60-second buffer it can't be captured again.</DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" autoFocus onClick={() => setConfirmDiscard(false)}>Keep editing</Button>
+              <Button variant="destructive" onClick={onClose}>Discard</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </DialogContent>
     </Dialog>
   )
