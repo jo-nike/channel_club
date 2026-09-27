@@ -136,8 +136,9 @@ describe('AdminModal', () => {
       expect(screen.getByRole('tab', { name: /active users/i })).toBeInTheDocument()
       expect(screen.getByRole('tab', { name: /user access/i })).toBeInTheDocument()
       expect(screen.getByRole('tab', { name: /chat/i })).toBeInTheDocument()
-      expect(screen.getByRole('tab', { name: /plugins/i })).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: /nhl/i })).toBeInTheDocument()
       expect(screen.getByRole('tab', { name: /status/i })).toBeInTheDocument()
+      expect(screen.queryByRole('tab', { name: /plugins/i })).not.toBeInTheDocument()
     })
 
     it('all tabs are always visible regardless of context', () => {
@@ -145,8 +146,8 @@ describe('AdminModal', () => {
       render(<AdminModal {...defaultProps} />)
 
       const tabs = screen.getAllByRole('tab')
-      expect(tabs).toHaveLength(7)
-      expect(tabs.map(t => t.textContent)).toEqual(['Channels', 'Active Users', 'User Access', 'Chat', 'NHL', 'Plugins', 'Status'])
+      expect(tabs).toHaveLength(6)
+      expect(tabs.map(t => t.textContent)).toEqual(['Channels', 'Active Users', 'User Access', 'Chat', 'NHL', 'Status'])
     })
   })
 
@@ -206,7 +207,7 @@ describe('AdminModal', () => {
       render(<AdminModal {...defaultProps} />)
 
       const tabs = screen.getAllByRole('tab')
-      expect(tabs.length).toBe(7)
+      expect(tabs.length).toBe(6)
 
       // Each tab should have aria-selected attribute
       tabs.forEach(tab => {
@@ -392,7 +393,7 @@ describe('AdminModal', () => {
     })
   })
 
-  describe('Placeholder content (Story 11.7)', () => {
+  describe('Tab content (Story 11.7)', () => {
     it('shows the live channel selection toggle for the User Access tab', () => {
       render(<AdminModal {...defaultProps} />)
 
@@ -400,16 +401,6 @@ describe('AdminModal', () => {
 
       expect(screen.getByText('Live Channel Selection')).toBeInTheDocument()
       expect(screen.getByRole('button', { name: /disabled/i })).toBeInTheDocument()
-    })
-
-    it('shows placeholder content for Plugins tab (AC #2)', () => {
-      render(<AdminModal {...defaultProps} />)
-
-      fireEvent.click(screen.getByRole('tab', { name: /plugins/i }))
-      // Check for the placeholder message which is unique
-      expect(screen.getByText('Plugins management coming soon')).toBeInTheDocument()
-      // Check for the description text
-      expect(screen.getByText(/Extend functionality/)).toBeInTheDocument()
     })
 
     it('shows StatusTab content for Status tab (Story 12.2)', () => {
@@ -421,15 +412,6 @@ describe('AdminModal', () => {
       expect(screen.getByText('Dispatcharr')).toBeInTheDocument()
       // Check for status header
       expect(screen.getByText('System Status')).toBeInTheDocument()
-    })
-
-    it('shows icon in placeholder tabs', () => {
-      render(<AdminModal {...defaultProps} />)
-
-      fireEvent.click(screen.getByRole('tab', { name: /plugins/i }))
-      // Look for the SVG icon inside tabpanel
-      const tabpanel = screen.getByRole('tabpanel')
-      expect(tabpanel.querySelector('svg')).toBeInTheDocument()
     })
   })
 })
