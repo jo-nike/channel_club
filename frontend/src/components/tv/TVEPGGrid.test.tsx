@@ -7,6 +7,8 @@ import { useChannelStore } from '@/stores/channelStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore, LIVE_CHANNEL_ID, toLiveProgramme } from '@/stores/tvStore'
 import { useUIStore } from '@/stores/uiStore'
+import { useChannelPrefsStore } from '@/stores/channelPrefsStore'
+import { SEARCH_DEBOUNCE_MS } from '@/hooks/useFilteredChannels'
 import type { EPGResponse, ErsatzTVProgramme } from '@/types'
 
 // Putting a channel on live TV starts guide and schedule lookups; leave them
@@ -329,7 +331,9 @@ describe('TVEPGGrid scrolling', () => {
     render(<TVEPGGrid programmesByChannel={programmesByChannel} liveEPG={liveEPG} />)
 
     const grid = screen.getByTestId('tv-epg-grid')
-    expect(grid).toHaveClass('h-full', 'overflow-auto')
+    // It fills what the search bar above it leaves
+    expect(grid).toHaveClass('min-h-0', 'flex-1', 'overflow-auto')
+    expect(grid.parentElement).toHaveClass('flex', 'h-full', 'flex-col')
     expect(grid).not.toHaveClass('overflow-y-hidden')
     const header = screen.getByRole('button', { name: 'Scroll to now' }).parentElement!.parentElement!
     expect(header).toHaveClass('sticky', 'top-0')
@@ -1329,5 +1333,93 @@ describe('TVEPGGrid keyboard grid', () => {
       press('ArrowDown')
       expect(block('Now Show')).toHaveFocus()
     })
+  })
+})
+
+describe('TVEPGGrid channel filter', () => {
+  const MINUTE = 60_000
+  const at = (minutes: number) => new Date(Date.now() + minutes * MINUTE).toISOString()
+  const channels = [
+    { id: 'etv1', name: 'News', streamUrl: '/etv1', logoUrl: '', number: 1, group: '' },
+    { id: 'etv2', name: 'Cartoons', streamUrl: '/etv2', logoUrl: '', number: 2, group: '' },
+    { id: 'etv3', name: 'Drama', streamUrl: '/etv3', logoUrl: '', number: 3, group: '' },
+    { id: 'etv4', name: 'Classics', streamUrl: '/etv4', logoUrl: '', number: 4, group: '' },
+  ]
+  const schedule: Record<string, ErsatzTVProgramme[]> = {
+    etv1: [{ id: 'n1', channelId: 'etv1', title: 'Evening News', start: at(-10), stop: at(20) }],
+    etv2: [{ id: 'c1', channelId: 'etv2', title: 'The Simpsons', start: at(-10), stop: at(20) }],
+    etv3: [{ id: 'd1', channelId: 'etv3', title: 'Drama Hour', start: at(-10), stop: at(50) }],
+    etv4: [{ id: 'k1', channelId: 'etv4', title: 'Simpsons Classics', start: at(120), stop: at(150) }],
+  }
+  const grid = () => screen.getByRole('grid', { name: 'Guide' })
+  // Each row's channel, from its label's accessible name
+  const rowChannels = () =>
+    within(grid())
+      .getAllByRole('rowheader')
+      .map((header) => within(header).getByRole('button').getAttribute('aria-label')?.replace(/^Switch to /, ''))
+
+  beforeEach(() => {
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'TSN 5', streamUrl: 'http://x/live', guideId: 'g1' },
+    })
+    useErsatztvStore.setState({ channels })
+  })
+
+  afterEach(() => {
+    cleanup()
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels: [] })
+    useChannelPrefsStore.setState({ favouriteChannelIds: [], recentChannelIds: [], filter: { query: '', mode: 'all' } })
+  })
+
+  it("draws only row 0 and the matching channels, with the grid's row count to match", () => {
+    useChannelPrefsStore.setState({ filter: { query: 'simpsons', mode: 'all' } })
+    render(<TVEPGGrid programmesByChannel={schedule} liveEPG={liveEPG} />)
+
+    expect(rowChannels()).toEqual([expect.stringMatching(/^0 /), '2 Cartoons', '4 Classics'])
+    expect(grid()).toHaveAttribute('aria-rowcount', '3')
+    expect(screen.getAllByTestId('channel-row').map((row) => row.style.top)).toEqual(['0px', '64px', '128px'])
+  })
+
+  it('draws the favourites with the Favourites chip on', () => {
+    useChannelPrefsStore.setState({ favouriteChannelIds: ['etv3'], filter: { query: '', mode: 'favourites' } })
+    render(<TVEPGGrid programmesByChannel={schedule} liveEPG={liveEPG} />)
+
+    expect(rowChannels()).toEqual([expect.stringMatching(/^0 /), '3 Drama'])
+    expect(screen.getByRole('button', { name: 'Favourites' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('has its own search box above the grid, since the sidebar is hidden while the guide is open', async () => {
+    render(<TVEPGGrid programmesByChannel={schedule} liveEPG={liveEPG} />)
+    expect(rowChannels()).toHaveLength(5)
+
+    const search = screen.getByRole('textbox', { name: 'Search channels and shows' })
+    expect(grid().contains(search)).toBe(false)
+    fireEvent.change(search, { target: { value: 'drama' } })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, SEARCH_DEBOUNCE_MS + 20))
+    })
+
+    expect(rowChannels()).toEqual([expect.stringMatching(/^0 /), '3 Drama'])
+  })
+
+  it("takes focus in its search box when '/' asks for the search", () => {
+    render(<TVEPGGrid programmesByChannel={schedule} liveEPG={liveEPG} />)
+
+    act(() => useChannelPrefsStore.getState().requestSearchFocus())
+
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Search channels and shows' }))
+    expect(useChannelPrefsStore.getState().searchFocusRequested).toBe(false)
+  })
+
+  it('moves the arrow keys between the rows left', () => {
+    useChannelPrefsStore.setState({ filter: { query: 'simpsons', mode: 'all' } })
+    render(<TVEPGGrid programmesByChannel={schedule} liveEPG={liveEPG} />)
+
+    const cartoons = screen.getByRole('button', { name: /^Switch to 2 Cartoons/ })
+    act(() => cartoons.focus())
+    fireEvent.keyDown(cartoons, { key: 'ArrowDown' })
+
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: /^Switch to 4 Classics/ }))
   })
 })

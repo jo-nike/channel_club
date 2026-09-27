@@ -11,6 +11,7 @@ import type { ErsatzTVChannel, UnifiedChannel } from '@/types'
 import type { ChannelZap } from '@/hooks/useChannelZap'
 
 const tv = vi.hoisted(() => ({ mode: true }))
+const player = vi.hoisted(() => ({ onFocusSearch: undefined as undefined | (() => void) }))
 vi.mock('@/hooks/useTVMode', () => ({ useTVMode: () => tv.mode }))
 vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn() }))
 vi.mock('@/services/ersatztvApi', () => ({ fetchErsatzTVChannels: vi.fn(), fetchErsatzTVCurrentProgramme: vi.fn(), getErsatzTVLogoUrl: vi.fn() }))
@@ -20,7 +21,8 @@ vi.mock('@/hooks/useAppSettings', () => ({ useAppSettings: () => ({ userChannelS
 // The real shell's channel keys, so digits and Enter reach the page's zap as they do in the app
 vi.mock('@/components/tv/DualModeVideoPlayer', async () => {
   const { useVideoKeyboardShortcuts } = await import('@/hooks/useVideoKeyboardShortcuts')
-  return { DualModeVideoPlayer: ({ channel, zap }: { channel: UnifiedChannel | null; zap?: ChannelZap }) => {
+  return { DualModeVideoPlayer: ({ channel, zap, onFocusSearch }: { channel: UnifiedChannel | null; zap?: ChannelZap; onFocusSearch?: () => void }) => {
+    player.onFocusSearch = onFocusSearch
     useVideoKeyboardShortcuts({
       containerRef: { current: null },
       onChannelStep: zap?.step,
@@ -341,5 +343,22 @@ describe('TV browsers: Back and OK', () => {
 
     expect(press('Unidentified', { keyCode: 461 })).toBe(true)
     expect(isTheater()).toBe(true)
+  })
+})
+
+describe("TV browsers: '/'", () => {
+  it('offers no channel search focus on a TV, even out of theater, as a remote has no /', () => {
+    renderTV()
+    act(() => useUIStore.getState().setTheaterMode(false))
+
+    expect(isTheater()).toBe(false)
+    expect(player.onFocusSearch).toBeUndefined()
+  })
+
+  it('offers it off a TV, out of theater', () => {
+    tv.mode = false
+    renderTV()
+
+    expect(player.onFocusSearch).toBeInstanceOf(Function)
   })
 })

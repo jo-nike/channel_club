@@ -7,6 +7,8 @@ interface ShortcutSheetProps {
   onOpenChange: (open: boolean) => void
   /** The player shell, so the sheet shows in fullscreen too */
   container: HTMLElement | null
+  /** Whether '/' has a channel search to focus here */
+  canSearch?: boolean
 }
 
 interface Shortcut {
@@ -34,15 +36,16 @@ const PLAYER: ShortcutGroup = {
   ],
 }
 
-const CHANNELS: ShortcutGroup = {
+const channels = (canSearch: boolean): ShortcutGroup => ({
   title: 'Channels',
   shortcuts: [
     { keys: [['PgUp', 'PgDn'], [']', '[']], action: 'Channel up or down' },
     { keys: [['0–9']], action: 'Type a channel number' },
     { keys: [['Enter']], action: 'Tune the number now' },
     { keys: [['L']], action: 'Last channel' },
+    ...(canSearch ? [{ keys: [['/']], action: 'Search channels' }] : []),
   ],
-}
+})
 
 const panels = (chatEnabled: boolean): ShortcutGroup => ({
   title: 'Panels',
@@ -59,10 +62,10 @@ const panels = (chatEnabled: boolean): ShortcutGroup => ({
  * player shell, so it shows in fullscreen, where anything on the page is
  * hidden behind the shell.
  */
-export function ShortcutSheet({ open, onOpenChange, container }: ShortcutSheetProps) {
+export function ShortcutSheet({ open, onOpenChange, container, canSearch = false }: ShortcutSheetProps) {
   const id = useId()
   const chatEnabled = useChatEnabled()
-  const groups = [PLAYER, CHANNELS, panels(chatEnabled)]
+  const groups = [PLAYER, channels(canSearch), panels(chatEnabled)]
   // A key opens the sheet, not a trigger Radix could return focus to: go back
   // to whatever had focus (a channel button just clicked), or the page
   const returnFocusRef = useRef<Element | null>(null)

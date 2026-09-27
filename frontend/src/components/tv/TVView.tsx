@@ -13,6 +13,7 @@ import { useChannelStore } from '@/stores/channelStore'
 import { useTVStore, initializeTVStore } from '@/stores/tvStore'
 import { useUIStore, EPG_HEIGHT_MIN, EPG_HEIGHT_MAX } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
+import { useChannelPrefsStore } from '@/stores/channelPrefsStore'
 import { DualModeVideoPlayer } from '@/components/tv/DualModeVideoPlayer'
 import { TVEPGGrid } from '@/components/tv/TVEPGGrid'
 import { TVChannelSidebar } from '@/components/tv/TVChannelSidebar'
@@ -321,6 +322,13 @@ export function TVView() {
   // (Adjusted while rendering, React's pattern for state that follows a prop.)
   if (!isChatOpen && railOverride) setRailOverride(false)
   const forcedRail = isChatOpen && chatVariant === 'docked' && isNarrowDesktop && !railOverride
+  // '/' focuses the channel search: the sidebar's, or the guide's while it
+  // is open. Only where one is on screen: not in theater (or a phone
+  // turned sideways), whose player covers the page, not on the phone
+  // layout, which has no search, and not on a TV, where a remote has no '/'
+  const requestSearchFocus = useChannelPrefsStore((s) => s.requestSearchFocus)
+  const canSearchChannels = !isMobile && !isTheaterMode && !isMobileLandscape && !isTVMode
+
   const handleToggleSidebar = useCallback(() => {
     if (forcedRail) {
       setRailOverride(true)
@@ -553,6 +561,7 @@ export function TVView() {
                 onPickLive={onPickLive}
                 reloadKey={videoRefreshKey}
                 zap={zap}
+                onFocusSearch={canSearchChannels ? requestSearchFocus : undefined}
               />
             </ErrorBoundary>
             {/* Channel banner while zapping in TV theater, where the info

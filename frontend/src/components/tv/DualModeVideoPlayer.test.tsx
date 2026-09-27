@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { ReactNode, Ref } from 'react'
-import { render, screen, fireEvent, act, waitFor } from '@/test/utils'
+import { render, screen, fireEvent, act, waitFor, within } from '@/test/utils'
 import { DualModeVideoPlayer } from './DualModeVideoPlayer'
 import { useAudioStore } from '@/stores/audioStore'
 import { useFilterStore } from '@/stores/filterStore'
@@ -2588,6 +2588,52 @@ describe('DualModeVideoPlayer panel keys', () => {
     expect(useChatStore.getState().isOpen).toBe(true)
     expect(useUIStore.getState().isNHLOverlayVisible).toBe(true)
     sidebarButton.remove()
+  })
+
+  describe('/', () => {
+    let fullscreenElement: Element | null = null
+    beforeEach(() => {
+      Object.defineProperty(document, 'fullscreenElement', { configurable: true, get: () => fullscreenElement })
+    })
+    afterEach(() => {
+      fullscreenElement = null
+      Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null })
+    })
+
+    it('focuses the channel search, and the sheet lists it', () => {
+      const onFocusSearch = vi.fn()
+      render(<DualModeVideoPlayer channel={liveChannel('')} isTheaterMode={false} onTheaterModeToggle={vi.fn()} onFocusSearch={onFocusSearch} />)
+
+      fireEvent.keyDown(window, { key: '/' })
+      expect(onFocusSearch).toHaveBeenCalledTimes(1)
+
+      fireEvent.keyDown(window, { key: '?' })
+      expect(within(sheet()!).getByText('Search channels')).toBeInTheDocument()
+    })
+
+    it("does nothing in fullscreen, where the page's search is hidden, and the sheet leaves it out", () => {
+      const onFocusSearch = vi.fn()
+      render(<DualModeVideoPlayer channel={liveChannel('')} isTheaterMode={false} onTheaterModeToggle={vi.fn()} onFocusSearch={onFocusSearch} />)
+      const element = shell()
+      act(() => {
+        fullscreenElement = element
+        document.dispatchEvent(new Event('fullscreenchange'))
+      })
+
+      fireEvent.keyDown(window, { key: '/' })
+      expect(onFocusSearch).not.toHaveBeenCalled()
+
+      fireEvent.keyDown(window, { key: '?' })
+      expect(within(sheet()!).queryByText('Search channels')).not.toBeInTheDocument()
+    })
+
+    it('is not in the sheet where the page has no search', () => {
+      renderPlayer(liveChannel(''))
+
+      fireEvent.keyDown(window, { key: '?' })
+
+      expect(within(sheet()!).queryByText('Search channels')).not.toBeInTheDocument()
+    })
   })
 
   it('one press is one toggle, whichever engine is playing', () => {

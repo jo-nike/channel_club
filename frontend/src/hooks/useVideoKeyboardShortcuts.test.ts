@@ -619,6 +619,63 @@ describe('useVideoKeyboardShortcuts', () => {
     })
   })
 
+  describe('channel search key', () => {
+    const press = (target: EventTarget, key: string, init: KeyboardEventInit = {}) => {
+      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init })
+      target.dispatchEvent(event)
+      return event
+    }
+
+    it("/ focuses the channel search, and isn't typed or sent to the browser's quick find", () => {
+      const onFocusSearch = vi.fn()
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onFocusSearch }))
+
+      const event = press(window, '/')
+
+      expect(onFocusSearch).toHaveBeenCalledTimes(1)
+      expect(event.defaultPrevented).toBe(true)
+    })
+
+    it('works with focus on a sidebar channel button', () => {
+      const onFocusSearch = vi.fn()
+      const button = document.createElement('button')
+      document.body.appendChild(button)
+      button.focus()
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onFocusSearch }))
+
+      press(button, '/')
+
+      expect(onFocusSearch).toHaveBeenCalledTimes(1)
+      document.body.removeChild(button)
+    })
+
+    it('is left to text fields (the search box itself, chat) and dialogs', () => {
+      const onFocusSearch = vi.fn()
+      const input = document.createElement('input')
+      const dialog = document.createElement('div')
+      dialog.setAttribute('role', 'dialog')
+      const inDialog = document.createElement('button')
+      dialog.append(inDialog)
+      document.body.append(input, dialog)
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onFocusSearch }))
+
+      for (const target of [input, inDialog]) {
+        target.focus()
+        expect(press(target, '/').defaultPrevented).toBe(false)
+      }
+
+      expect(onFocusSearch).not.toHaveBeenCalled()
+      document.body.removeChild(input)
+      document.body.removeChild(dialog)
+    })
+
+    it('is left to the browser where there is no search to focus', () => {
+      renderHook(() => useVideoKeyboardShortcuts(mockProps))
+
+      expect(press(window, '/').defaultPrevented).toBe(false)
+    })
+  })
+
   it('FE-09 respects an already handled player-surface event', () => {
     renderHook(() => useVideoKeyboardShortcuts(mockProps))
     const event = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true })

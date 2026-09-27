@@ -1,5 +1,5 @@
 import { useEffect, useRef, type Ref } from 'react'
-import { AudioLines, ChevronLeft, ChevronRight, Radio } from 'lucide-react'
+import { AudioLines, ChevronLeft, ChevronRight, Radio, Star } from 'lucide-react'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore, describeLiveGuide } from '@/stores/tvStore'
 import { getErsatzTVLogoUrl } from '@/services/ersatztvApi'
@@ -8,8 +8,12 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useProgrammeClock } from '@/hooks/useProgrammeClock'
 import { useRovingTabIndex } from '@/hooks/useRovingTabIndex'
+import { useFilteredChannels } from '@/hooks/useFilteredChannels'
+import { useChannelPrefsStore } from '@/stores/channelPrefsStore'
+import { ChannelFilterBar } from '@/components/tv/ChannelFilterBar'
 import { calculateProgress, findOnAir, formatRemaining, getProgrammeState } from '@/lib/programmes'
 import { buildProgrammeIndex, findCurrentAndNext, type IndexedProgramme } from '@/lib/programmeIndex'
+import { favouritesFirst } from '@/lib/channelSearch'
 import { cn } from '@/lib/utils'
 import type { UnifiedChannel } from '@/types'
 
@@ -50,6 +54,21 @@ export function TVChannelSidebar({
   const hasLiveChannel = isLiveChannelActive()
   const liveProgramme = liveEPGTitle || describeLiveGuide(liveEPGStatus)
 
+  // The expanded list goes through the search and chips; the rail, which
+  // has no search box, lists every channel with the favourites first
+  const { channels: filteredChannels, isFiltering } = useFilteredChannels(unifiedChannels, programmesByChannel)
+  const clearFilter = useChannelPrefsStore((s) => s.clearFilter)
+  const favouriteChannelIds = useChannelPrefsStore((s) => s.favouriteChannelIds)
+  const toggleFavourite = useChannelPrefsStore((s) => s.toggleFavourite)
+  const listedChannels = isCollapsed ? favouritesFirst(unifiedChannels, favouriteChannelIds) : filteredChannels
+
+  // '/' on the rail: expand it, and the search box in the list takes focus
+  // once it's there
+  const searchFocusRequested = useChannelPrefsStore((s) => s.searchFocusRequested)
+  useEffect(() => {
+    if (isCollapsed && searchFocusRequested) onToggleCollapse?.()
+  }, [isCollapsed, searchFocusRequested, onToggleCollapse])
+
   // One tab stop for the channels: arrow keys, Home and End move between
   // them. The list and the rail share it (only one is mounted), and the tab
   // stop follows whichever channel was last focused.
@@ -58,7 +77,7 @@ export function TVChannelSidebar({
     listRef.current = element
   }
   const { getTabIndex, handleKeyDown, setFocusedIndex, itemRefs } = useRovingTabIndex({
-    items: unifiedChannels,
+    items: listedChannels,
     getItemId: getChannelId,
     containerRef: listRef,
   })
@@ -101,13 +120,14 @@ export function TVChannelSidebar({
           onKeyDown={handleKeyDown}
           className="mt-2 flex w-full flex-1 flex-col items-center gap-1.5 overflow-y-auto px-3 pt-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
-          {unifiedChannels.map((channel, index) => (
+          {listedChannels.map((channel, index) => (
             <CollapsedChannelButton
               key={channel.id}
               ref={setChannelRef(channel.id, index)}
               channel={channel}
               label={channelLabel(channel, hasLiveChannel, liveProgramme)}
               isSelected={selectedChannel?.id === channel.id}
+              isFavourite={channel.type !== 'live' && favouriteChannelIds.includes(channel.id)}
               hasLiveChannel={hasLiveChannel}
               canPickLive={!!onPickLive}
               onSelect={handleChannelClick}
@@ -123,19 +143,24 @@ export function TVChannelSidebar({
   // Expanded state
   return (
     <aside className="epg-scroll h-full w-72 overflow-y-auto border-r bg-card rounded-r-lg">
-      <div className="sticky top-0 flex items-center justify-between border-b bg-card/95 p-4 backdrop-blur">
-        <h2 className="text-lg font-semibold">Channels</h2>
-        <button
-          onClick={onToggleCollapse}
-          className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-accent"
-          aria-label="Collapse channel sidebar"
-        >
-          <ChevronLeft className="h-5 w-5" />
-        </button>
+      {/* The header and the filter stick together, so the search stays in
+          reach however far the list is scrolled */}
+      <div className="sticky top-0 z-10 bg-card/95 backdrop-blur">
+        <div className="flex items-center justify-between border-b p-4">
+          <h2 className="text-lg font-semibold">Channels</h2>
+          <button
+            onClick={onToggleCollapse}
+            className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-accent"
+            aria-label="Collapse channel sidebar"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+        </div>
+        <ChannelFilterBar className="border-b p-3" />
       </div>
 
       <ul ref={setListRef} onKeyDown={handleKeyDown} className="divide-y" role="list">
-        {unifiedChannels.map((channel, index) => {
+        {listedChannels.map((channel, index) => {
           const { current: onAir, next } =
             channel.type === 'live'
               ? { current: null, next: null }
@@ -148,6 +173,8 @@ export function TVChannelSidebar({
               label={channelLabel(channel, hasLiveChannel, liveProgramme)}
               isSelected={selectedChannel?.id === channel.id}
               onSelect={handleChannelClick}
+              isFavourite={favouriteChannelIds.includes(channel.id)}
+              onToggleFavourite={toggleFavourite}
               tabIndex={getTabIndex(index)}
               onFocus={() => setFocusedIndex(index)}
               currentProgramme={channel.type === 'live' ? liveProgramme : onAir?.programme.title}
@@ -160,6 +187,15 @@ export function TVChannelSidebar({
           )
         })}
       </ul>
+      {/* Row 0 always stays, so nothing matching means nothing after it */}
+      {isFiltering && listedChannels.length <= 1 && ersatzTVChannels.length > 0 && (
+        <div className="flex flex-col items-center gap-3 p-6 text-center">
+          <p className="text-sm text-muted-foreground">No channels match</p>
+          <Button variant="outline" size="sm" onClick={clearFilter}>
+            Clear
+          </Button>
+        </div>
+      )}
       {/* The live row above doesn't wait for ErsatzTV */}
       {channelsLoading && ersatzTVChannels.length === 0 && <SidebarSkeleton />}
       {/* The error's details are in the toast TVView shows; this keeps a retry where the channels would be */}
@@ -184,6 +220,7 @@ interface CollapsedChannelButtonProps {
   channel: UnifiedChannel
   label: string
   isSelected: boolean
+  isFavourite: boolean
   hasLiveChannel: boolean
   // Whether this viewer may put something on live TV (changes the empty-slot copy)
   canPickLive: boolean
@@ -198,6 +235,7 @@ function CollapsedChannelButton({
   channel,
   label,
   isSelected,
+  isFavourite,
   hasLiveChannel,
   canPickLive,
   onSelect,
@@ -223,9 +261,17 @@ function CollapsedChannelButton({
             // One background: the live tint wins (the ring marks selection), then selection, then muted
             isLiveOn ? 'bg-live/20 text-live' : isSelected ? 'bg-primary/10' : 'bg-muted'
           )}
-          aria-label={label}
+          // The favourites lead the rail; the label says why this one is up there
+          aria-label={isFavourite ? `${label}, favourite` : label}
           aria-current={isSelected ? 'true' : undefined}
         >
+          {isFavourite && (
+            <Star
+              aria-hidden="true"
+              data-testid="favourite-mark"
+              className="absolute top-0.5 left-0.5 z-10 h-2.5 w-2.5 fill-current text-primary"
+            />
+          )}
           {isLive ? (
             hasLiveChannel ? (
               <Radio className="h-4 w-4 text-live" />
@@ -334,6 +380,8 @@ interface ChannelItemProps {
   label: string
   isSelected: boolean
   onSelect: (channel: UnifiedChannel) => void
+  isFavourite: boolean
+  onToggleFavourite: (channelId: string) => void
   // Roving focus: 0 on the one tab stop, -1 on the rest
   tabIndex: 0 | -1
   onFocus: () => void
@@ -353,6 +401,8 @@ function ChannelItem({
   label,
   isSelected,
   onSelect,
+  isFavourite,
+  onToggleFavourite,
   tabIndex,
   onFocus,
   currentProgramme,
@@ -368,17 +418,20 @@ function ChannelItem({
   // The empty live slot offers the picker next to the row (a sibling, since
   // buttons can't nest)
   const showPickLive = isLive && !hasLiveChannel && !!onPickLive
+  // Every channel but the live slot, which is always the first row anyway,
+  // can be starred. The star is the row's sibling, since buttons can't nest.
+  const showStar = !isLive
 
   return (
-    <li className={showPickLive ? 'flex items-center bg-destructive/5 pr-3' : undefined}>
-      {/* scroll-mt clears the sticky Channels header when the row is scrolled into view */}
+    <li className={showPickLive ? 'flex items-center bg-destructive/5 pr-3' : showStar ? 'relative' : undefined}>
+      {/* scroll-mt clears the sticky Channels header and filter when the row is scrolled into view */}
       <button
         ref={ref}
         onClick={() => onSelect(channel)}
         onFocus={onFocus}
         tabIndex={tabIndex}
         className={`
-          flex ${showPickLive ? 'min-w-0 flex-1' : 'w-full'} scroll-mt-17 items-center gap-3 p-3 text-left transition-colors
+          flex ${showPickLive ? 'min-w-0 flex-1' : 'w-full'} scroll-mt-41 items-center gap-3 p-3 ${showStar ? 'pr-12' : ''} text-left transition-colors
           hover:bg-accent focus-visible:-outline-offset-2
           ${isSelected ? 'bg-primary/10 border-l-4 border-primary' : ''}
           ${isLive ? 'bg-destructive/5' : ''}
@@ -467,6 +520,23 @@ function ChannelItem({
         <Button size="sm" onClick={onPickLive}>
           Pick a channel
         </Button>
+      )}
+      {showStar && (
+        // The row's tab stop covers its star too, so Tab goes from a row to
+        // its star and the list stays one stop long
+        <button
+          type="button"
+          onClick={() => onToggleFavourite(channel.id)}
+          tabIndex={tabIndex}
+          aria-pressed={isFavourite}
+          aria-label={`Favourite ${channel.name}`}
+          className={cn(
+            'absolute top-1/2 right-2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md hover:bg-accent focus-visible:-outline-offset-2',
+            isFavourite ? 'text-primary' : 'text-muted-foreground/60 hover:text-foreground'
+          )}
+        >
+          <Star aria-hidden="true" className={cn('h-4 w-4', isFavourite && 'fill-current')} />
+        </button>
       )}
     </li>
   )

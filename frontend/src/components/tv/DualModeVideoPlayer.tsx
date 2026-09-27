@@ -48,6 +48,8 @@ interface DualModeVideoPlayerProps {
   // The page's channel zapping: the channel keys drive it and the info rail
   // shows where it is heading
   zap?: ChannelZap
+  // Focuses the channel search ('/'); only where the page shows one
+  onFocusSearch?: () => void
 }
 
 // Main component - switches between live (mpegts) and ersatztv (HLS) players.
@@ -66,6 +68,7 @@ export function DualModeVideoPlayer({
   onPickLive,
   reloadKey: pageReloadKey = 0,
   zap,
+  onFocusSearch,
 }: DualModeVideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   // The shell element again, as state: the clip editor portals into it
@@ -150,8 +153,11 @@ export function DualModeVideoPlayer({
   const toggleChat = useChatStore((s) => s.toggleOpen)
   const toggleNHLOverlay = useUIStore((s) => s.toggleNHLOverlay)
 
-  // Channel keys (PageUp/PageDown, ]/[, L, digits, Enter) and the panel keys
-  // (?, C, N) belong to the shell, not the engine: they must work on the
+  // In fullscreen the page's search is hidden behind the shell
+  const focusSearch = isFullscreen ? undefined : onFocusSearch
+
+  // Channel keys (PageUp/PageDown, ]/[, L, digits, Enter, /) and the panel
+  // keys (?, C, N) belong to the shell, not the engine: they must work on the
   // empty live slot too, which has no engine. The shell stays mounted across
   // the tune, so fullscreen survives it.
   useVideoKeyboardShortcuts({
@@ -163,6 +169,7 @@ export function DualModeVideoPlayer({
     onShortcutSheet: openShortcutSheet,
     onChatToggle: chatEnabled ? toggleChat : undefined,
     onNHLToggle: toggleNHLOverlay,
+    onFocusSearch: focusSearch,
   })
 
   // What this viewer's player shows now, for the clip editor's notice: null
@@ -239,7 +246,12 @@ export function DualModeVideoPlayer({
         playingChannel={playingChannel}
         container={shellElement}
       />
-      <ShortcutSheet open={isShortcutSheetOpen} onOpenChange={setShortcutSheetOpen} container={shellElement} />
+      <ShortcutSheet
+        open={isShortcutSheetOpen}
+        onOpenChange={setShortcutSheetOpen}
+        container={shellElement}
+        canSearch={focusSearch !== undefined}
+      />
     </PlayerShellContext>
   )
 }
