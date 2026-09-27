@@ -31,6 +31,8 @@ class UserPresence:
     connection_id: str
     username: str
     view: View
+    user_id: str | None = None  # Opaque chat id (chat.user_id_for), safe to show others
+    nickname: str | None = None  # Chat display name, None means the username
     current_channel: str | None = None
     current_channel_id: str | None = None
     current_programme: str | None = None
@@ -98,6 +100,7 @@ def track_user(
     username: str,
     view: View,
     websocket: WebSocket | None = None,
+    user_id: str | None = None,
 ) -> UserPresence:
     """Track a new user connection.
 
@@ -106,6 +109,7 @@ def track_user(
         username: The authenticated username.
         view: The view type ("live" or "ersatztv").
         websocket: Optional WebSocket reference for future use.
+        user_id: The account's opaque chat id, used to group a person's connections.
 
     Returns:
         The created UserPresence object.
@@ -127,6 +131,7 @@ def track_user(
         username=username,
         view=view,
         websocket=websocket,
+        user_id=user_id,
     )
     _active_users[connection_id] = user_presence
     _emit(
@@ -215,6 +220,17 @@ def update_user_channel(
             channel_id=channel_id,
             programme=programme_title,
         )
+
+
+def set_nickname(connection_id: str, nickname: str | None) -> None:
+    """Record the chat display name a connection uses.
+
+    Args:
+        connection_id: The connection ID to update.
+        nickname: The accepted nickname, or None to fall back to the username.
+    """
+    if connection_id in _active_users:
+        _active_users[connection_id].nickname = nickname
 
 
 def get_active_users() -> dict[str, UserPresence]:

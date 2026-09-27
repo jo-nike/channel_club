@@ -211,6 +211,33 @@ class TestUpdateUserChannel:
         assert presence._active_users["abc123"].view == "ersatztv"
 
 
+class TestUserIdAndNickname:
+    """Tests for the id and display name kept per connection."""
+
+    def test_tracks_user_id_when_given(self) -> None:
+        """The opaque chat id is stored so a person's connections can be grouped."""
+        result = presence.track_user("c1", "jon", "live", user_id="u_0123456789abcdef")
+
+        assert result.user_id == "u_0123456789abcdef"
+        assert result.nickname is None
+
+    def test_set_nickname_updates_the_connection(self) -> None:
+        """A nickname is recorded, and None clears it."""
+        presence.track_user("c1", "jon", "live")
+
+        presence.set_nickname("c1", "Jonny")
+        assert presence._active_users["c1"].nickname == "Jonny"
+
+        presence.set_nickname("c1", None)
+        assert presence._active_users["c1"].nickname is None
+
+    def test_set_nickname_for_unknown_connection_is_safe(self) -> None:
+        """Nothing is created for a connection that isn't tracked."""
+        presence.set_nickname("nobody", "Ghost")
+
+        assert presence._active_users == {}
+
+
 class TestGetActiveUsers:
     """Tests for get_active_users function."""
 

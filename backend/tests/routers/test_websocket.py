@@ -479,6 +479,50 @@ class TestPresenceTracking:
             users = list(presence._active_users.values())
             assert users[0].view == "live"
 
+    def test_connection_tracked_with_its_user_id(self, client: TestClient, valid_token: str):
+        """Presence records the opaque id, so a person's tabs can be grouped."""
+        with client.websocket_connect(f"/api/ws?token={valid_token}&session_id=s1") as ws:
+            ws.receive_json()  # Consume connection_ack
+
+            assert presence._active_users["s1"].user_id == expected_user_id("local:testuser")
+
+    def test_nickname_is_recorded_in_presence(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """An accepted nickname is shown in presence; clearing it restores the username."""
+        monkeypatch.setattr(settings, "chat_enabled", False)
+        with client.websocket_connect(f"/api/ws?token={valid_token}&session_id=s1") as ws:
+            ws.receive_json()  # Consume connection_ack
+            ws.send_json({"type": "set_nickname", "nickname": "  Jonny  "})
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json()["type"] == "pong"
+
+            assert presence._active_users["s1"].nickname == "Jonny"
+
+            ws.send_json({"type": "set_nickname", "nickname": ""})
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json()["type"] == "pong"
+
+            assert presence._active_users["s1"].nickname is None
+
+    def test_refused_nickname_is_not_recorded_in_presence(
+        self,
+        client: TestClient,
+        valid_token: str,
+        admin_token: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Another member's sign-in name never reaches presence either."""
+        monkeypatch.setattr(settings, "chat_enabled", False)
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws1:
+            ws1.receive_json()  # connection_ack
+            with client.websocket_connect(f"/api/ws?token={admin_token}&session_id=a1") as ws2:
+                ws2.receive_json()  # connection_ack
+                ws2.send_json({"type": "set_nickname", "nickname": "testuser"})
+                assert ws2.receive_json()["code"] == "nickname_taken"
+
+                assert presence._active_users["a1"].nickname is None
+
     def test_multiple_users_tracked(self, client: TestClient, valid_token: str, admin_token: str):
         """Multiple users should be tracked separately."""
         with client.websocket_connect(f"/api/ws?token={valid_token}&view=live") as ws1:

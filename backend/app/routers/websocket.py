@@ -129,6 +129,7 @@ async def websocket_endpoint(
         username=payload["sub"],  # Key guaranteed by verify_websocket_token
         view=view_type,
         websocket=websocket,
+        user_id=user_id,
     )
 
     try:
@@ -242,10 +243,12 @@ async def handle_client_message(
             )
         elif nickname:
             _nickname_map[client_id] = (websocket, nickname)
+            presence.set_nickname(client_id, nickname)
             log.debug("Nickname set for client {}: {}", client_id, nickname)
         else:
             # Empty nickname - remove from map (fall back to auth username)
             _clear_nickname(client_id, websocket)
+            presence.set_nickname(client_id, None)
             log.debug("Nickname cleared for client {}", client_id)
 
     elif msg_type == "chat_message":
