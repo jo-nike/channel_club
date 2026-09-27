@@ -4,6 +4,7 @@ import { logger } from '@/lib/logger'
 import { useChannelStore } from './channelStore'
 import { useErsatztvStore } from './ersatztvStore'
 import { useUIStore } from './uiStore'
+import { useChannelPrefsStore } from './channelPrefsStore'
 import { fetchLiveProgrammes, fetchNowPlaying } from '@/services/api'
 import type { Channel, UnifiedChannel, ErsatzTVChannel, ErsatzTVProgramme, EPGResponse, Program } from '@/types'
 
@@ -141,6 +142,8 @@ export const useTVStore = create<TVState>()(
       // Save to UI store for persistence
       if (channel.type === 'ersatztv') {
         useUIStore.getState().setLastTVChannelId(channel.id)
+        // The live slot isn't a recent: it's always the list's first row
+        useChannelPrefsStore.getState().pushRecent(channel.id)
       } else {
         // For live channel, save special marker
         useUIStore.getState().setLastTVChannelId(LIVE_CHANNEL_ID)

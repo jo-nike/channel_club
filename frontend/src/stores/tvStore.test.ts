@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useTVStore, LIVE_CHANNEL_ID } from './tvStore'
 import { useChannelStore } from './channelStore'
+import { useChannelPrefsStore } from './channelPrefsStore'
 import { fetchLiveProgrammes, fetchNowPlaying } from '@/services/api'
 import type { Channel, EPGProgrammesResponse, EPGResponse, UnifiedChannel } from '@/types'
 
@@ -390,5 +391,34 @@ describe('tvStore previous channel', () => {
 
     expect(useTVStore.getState().selectedChannel).toMatchObject({ id: LIVE_CHANNEL_ID, name: 'CA-S: Sportsnet ONE' })
     expect(useTVStore.getState().previousChannelId).toBe('e2')
+  })
+})
+
+describe('tvStore recent channels', () => {
+  const cartoons: UnifiedChannel = { id: 'e2', name: 'Cartoons', number: 2, streamUrl: '/e2', type: 'ersatztv' }
+  const movies: UnifiedChannel = { id: 'e3', name: 'Movies', number: 3, streamUrl: '/e3', type: 'ersatztv' }
+  const recents = () => useChannelPrefsStore.getState().recentChannelIds
+
+  beforeEach(() => {
+    vi.mocked(fetchNowPlaying).mockReset().mockResolvedValue(onNow)
+    vi.mocked(fetchLiveProgrammes).mockReset().mockResolvedValue({ channelId: '5', programmes: [] })
+    useChannelStore.setState({ currentChannel: tsn })
+    useTVStore.setState({ selectedChannel: null, previousChannelId: null })
+    useChannelPrefsStore.setState({ recentChannelIds: [] })
+  })
+
+  it('records each channel picked, most recent first', () => {
+    useTVStore.getState().selectChannel(cartoons)
+    useTVStore.getState().selectChannel(movies)
+    useTVStore.getState().selectChannel(cartoons)
+
+    expect(recents()).toEqual(['e2', 'e3'])
+  })
+
+  it("doesn't record the live slot, which is always the first row", () => {
+    useTVStore.getState().selectChannel(cartoons)
+    useTVStore.getState().selectChannel(useTVStore.getState().getUnifiedChannels()[0])
+
+    expect(recents()).toEqual(['e2'])
   })
 })
