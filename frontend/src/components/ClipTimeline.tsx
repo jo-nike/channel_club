@@ -12,6 +12,8 @@ interface Props {
   press: number
   onChange: (start: number, end: number, boundary: number) => void
   onSeek: (time: number) => void
+  /** Space on the timeline: play the selection, or pause it while it plays */
+  onPlaySelection: () => void
   disabled: boolean
 }
 
@@ -35,7 +37,7 @@ function fromPress(offset: number) {
   return `${Math.abs(offset).toFixed(1)} seconds ${offset < 0 ? 'before' : 'after'} you pressed`
 }
 
-export function ClipTimeline({ url, duration, start, end, playhead, press, onChange, onSeek, disabled }: Props) {
+export function ClipTimeline({ url, duration, start, end, playhead, press, onChange, onSeek, onPlaySelection, disabled }: Props) {
   const { frames, loading } = useClipThumbnails(url, duration)
   // A capture that stops short of the press labels it at that edge, with how far past it the press was
   const shownPress = Math.max(0, Math.min(duration, press))
@@ -82,8 +84,22 @@ export function ClipTimeline({ url, duration, start, end, playhead, press, onCha
     if (!disabled) onSeek(Math.max(0, Math.min(duration, target)))
   }
 
+  // Editing keys work only while the playhead or a handle has focus: elsewhere in the editor
+  // Space belongs to buttons and letters to the time fields.
+  function editingKey(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.ctrlKey || event.metaKey || event.altKey) return
+    const key = event.key.toLowerCase()
+    if (key !== 'i' && key !== 'o' && key !== ' ') return
+    event.preventDefault(); event.stopPropagation()
+    if (disabled) return
+    // Setting one end past the other pushes that one along, so the selection never inverts.
+    if (key === 'i') onChange(playhead, Math.max(end, playhead + 0.1), playhead)
+    else if (key === 'o') onChange(Math.min(start, playhead - 0.1), playhead, playhead)
+    else if (!event.repeat) onPlaySelection()
+  }
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-3" onKeyDown={editingKey}>
       <div className="relative px-3 pt-6">
         <Slider.Root value={[start, end]} min={0} max={duration} step={0.1} minStepsBetweenThumbs={1}
           disabled={disabled} onValueChange={([nextStart, nextEnd]) => onChange(nextStart, nextEnd, nextStart !== start ? nextStart : nextEnd)}
@@ -99,11 +115,11 @@ export function ClipTimeline({ url, duration, start, end, playhead, press, onCha
             {Math.abs(beyond) < 0.05 && <div aria-hidden="true" data-testid="press-marker" className="pointer-events-none absolute inset-y-0 -translate-x-1/2 border-l-2 border-dashed border-white" style={{ left: `${pressPercent}%` }} />}
             {/* No z-index: the handles come later in the DOM, so they paint above and stay draggable. */}
             <div role="slider" aria-label="Playhead" aria-valuemin={0} aria-valuemax={duration} aria-valuenow={playhead}
-              aria-valuetext={`${playhead.toFixed(1)} seconds, ${fromPress(playhead - press)}`} aria-disabled={disabled || undefined} tabIndex={disabled ? undefined : 0}
+              aria-valuetext={`${playhead.toFixed(1)} seconds, ${fromPress(playhead - press)}`} aria-disabled={disabled || undefined} tabIndex={disabled ? undefined : 0} aria-keyshortcuts="I O Space"
               onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerEnd} onPointerCancel={pointerEnd} onKeyDown={keyDown}
               className="absolute inset-0 cursor-pointer rounded-md focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring" />
           </Slider.Track>
-          {['Start', 'End'].map(label => <Slider.Thumb key={label} aria-label={`${label} boundary`}
+          {['Start', 'End'].map(label => <Slider.Thumb key={label} aria-label={`${label} boundary`} aria-keyshortcuts="I O Space"
             className="relative flex h-24 w-6 cursor-ew-resize items-center justify-center rounded-md border-2 border-primary bg-primary text-primary-foreground shadow focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring">
             <span aria-hidden="true">Ⅱ</span><span className="absolute -top-6 text-xs font-semibold text-foreground">{label}</span>
           </Slider.Thumb>)}
@@ -125,9 +141,17 @@ export function ClipTimeline({ url, duration, start, end, playhead, press, onCha
           </span>
         </div>
       </div>
-      <p className="flex items-center gap-3 text-sm text-muted-foreground">
-        Playhead <span className="w-14 tabular-nums">{playhead.toFixed(1)}s</span>
-      </p>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+        <p>Playhead <span className="inline-block w-14 tabular-nums">{playhead.toFixed(1)}s</span></p>
+        {/* Keys only help where there is a keyboard */}
+        <p className="ml-auto text-xs pointer-coarse:hidden">
+          On the timeline: <Key>I</Key> start, <Key>O</Key> end, <Key>Space</Key> play, <Key>←</Key> <Key>→</Key> move 0.1 s
+        </p>
+      </div>
     </div>
   )
+}
+
+function Key({ children }: { children: string }) {
+  return <kbd className="rounded border border-b-2 border-border bg-muted px-1 font-mono font-semibold text-foreground">{children}</kbd>
 }

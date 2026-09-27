@@ -198,6 +198,33 @@ describe('Clip editor', () => {
     expect(screen.getByLabelText('End (seconds)')).toHaveValue(60)
   })
 
+  it('plays the selection with Space and marks the start with I while the timeline has focus', async () => {
+    render(<HighlightModal {...props} />)
+    const video = await ready()
+    const playhead = screen.getByRole('slider', { name: 'Playhead' })
+    expect(await screen.findByText('Pause preview')).toBeInTheDocument()
+    fireEvent.keyDown(playhead, { key: ' ' })
+    expect(video.paused).toBe(true)
+    fireEvent.keyDown(playhead, { key: ' ' })
+    expect(await screen.findByText('Pause preview')).toBeInTheDocument()
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(2)
+    expect(video.currentTime).toBe(40)
+    for (let i = 0; i < 5; i++) fireEvent.keyDown(playhead, { key: 'ArrowRight', shiftKey: true })
+    expect(video.currentTime).toBe(45)
+    fireEvent.keyDown(playhead, { key: 'i' })
+    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(45)
+    expect(screen.getByLabelText('End (seconds)')).toHaveValue(60)
+    fireEvent.keyDown(playhead, { key: 'ArrowRight', shiftKey: true })
+    fireEvent.keyDown(playhead, { key: 'o' })
+    expect(screen.getByLabelText('End (seconds)')).toHaveValue(46)
+    // Elsewhere in the editor the letters and Space are left to the focused control
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Download clip' }), { key: 'i' })
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Download clip' }), { key: ' ' })
+    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(45)
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(2)
+    expect(props.onClose).not.toHaveBeenCalled()
+  })
+
   it('supports keyboard boundary adjustment, clamped fields, short buffers and reset', async () => {
     render(<HighlightModal {...props} />)
     const video = await ready(8)

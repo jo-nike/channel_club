@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@/test/utils'
+import { render, screen, fireEvent, cleanup } from '@/test/utils'
 import { ClipTimeline } from './ClipTimeline'
 import { useClipThumbnails } from '@/hooks/useClipThumbnails'
 
@@ -7,10 +7,11 @@ vi.mock('@/hooks/useClipThumbnails', () => ({ useClipThumbnails: vi.fn() }))
 
 const onChange = vi.fn()
 const onSeek = vi.fn()
+const onPlaySelection = vi.fn()
 
 function renderTimeline(overrides: Partial<Parameters<typeof ClipTimeline>[0]> = {}) {
   render(<ClipTimeline url="/clip.mp4" duration={60} start={30} end={50} playhead={12} press={50}
-    onChange={onChange} onSeek={onSeek} disabled={false} {...overrides} />)
+    onChange={onChange} onSeek={onSeek} onPlaySelection={onPlaySelection} disabled={false} {...overrides} />)
   return screen.getByRole('slider', { name: 'Playhead' })
 }
 
@@ -83,8 +84,57 @@ describe('ClipTimeline', () => {
     expect(playhead).toHaveAttribute('aria-disabled', 'true')
     fireEvent.pointerDown(playhead, { clientX: 250, pointerId: 1, button: 0 })
     fireEvent.keyDown(playhead, { key: 'ArrowRight' })
+    fireEvent.keyDown(playhead, { key: 'i' })
+    fireEvent.keyDown(playhead, { key: ' ' })
     expect(onSeek).not.toHaveBeenCalled()
     expect(onChange).not.toHaveBeenCalled()
+    expect(onPlaySelection).not.toHaveBeenCalled()
+  })
+
+  it('sets the start with I and the end with O at the playhead, from the playhead or a handle', () => {
+    const playhead = renderTimeline({ playhead: 45 })
+    fireEvent.keyDown(playhead, { key: 'i' })
+    expect(onChange).toHaveBeenLastCalledWith(45, 50, 45)
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Start boundary' }), { key: 'O' })
+    expect(onChange).toHaveBeenLastCalledWith(30, 45, 45)
+    expect(onChange).toHaveBeenCalledTimes(2)
+    expect(onSeek).not.toHaveBeenCalled()
+  })
+
+  it('pushes the other end along rather than inverting the selection', () => {
+    const playhead = renderTimeline({ playhead: 55 })
+    fireEvent.keyDown(playhead, { key: 'i' })
+    expect(onChange).toHaveBeenLastCalledWith(55, expect.closeTo(55.1, 5), 55)
+    cleanup()
+    fireEvent.keyDown(renderTimeline({ playhead: 12 }), { key: 'o' })
+    expect(onChange).toHaveBeenLastCalledWith(expect.closeTo(11.9, 5), 12, 12)
+  })
+
+  it('plays the selection with Space on the timeline, once per press', () => {
+    const playhead = renderTimeline()
+    // Handled, so the page does not scroll
+    expect(fireEvent.keyDown(playhead, { key: ' ' })).toBe(false)
+    fireEvent.keyDown(playhead, { key: ' ', repeat: true })
+    expect(onPlaySelection).toHaveBeenCalledTimes(1)
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'End boundary' }), { key: ' ' })
+    expect(onPlaySelection).toHaveBeenCalledTimes(2)
+    expect(onChange).not.toHaveBeenCalled()
+    expect(onSeek).not.toHaveBeenCalled()
+  })
+
+  it('leaves I, O and Space alone outside the timeline and with a modifier held', () => {
+    render(<>
+      <button type="button">Download clip</button>
+      <ClipTimeline url="/clip.mp4" duration={60} start={30} end={50} playhead={45} press={50}
+        onChange={onChange} onSeek={onSeek} onPlaySelection={onPlaySelection} disabled={false} />
+    </>)
+    const button = screen.getByRole('button', { name: 'Download clip' })
+    for (const key of ['i', 'o', ' ']) expect(fireEvent.keyDown(button, { key })).toBe(true)
+    fireEvent.keyDown(document.body, { key: 'i' })
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Playhead' }), { key: 'i', ctrlKey: true })
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Playhead' }), { key: 'o', metaKey: true })
+    expect(onChange).not.toHaveBeenCalled()
+    expect(onPlaySelection).not.toHaveBeenCalled()
   })
 
   it('draws the playhead line after the handles so it stays visible over them', () => {
@@ -98,14 +148,14 @@ describe('ClipTimeline', () => {
   it('shows frames as they arrive and pulses the empty slots while loading', () => {
     vi.mocked(useClipThumbnails).mockReturnValue({ frames: ['data:frame-0', null, ...Array(8).fill(null)], loading: true })
     const { container } = render(<ClipTimeline url="/clip.mp4" duration={60} start={0} end={60} playhead={0} press={60}
-      onChange={onChange} onSeek={onSeek} disabled={false} />)
+      onChange={onChange} onSeek={onSeek} onPlaySelection={onPlaySelection} disabled={false} />)
     expect(container.querySelectorAll('img')).toHaveLength(1)
     expect(container.querySelectorAll('.motion-safe\\:animate-pulse')).toHaveLength(9)
   })
 
   it('stops pulsing once generation has finished', () => {
     const { container } = render(<ClipTimeline url="/clip.mp4" duration={60} start={0} end={60} playhead={0} press={60}
-      onChange={onChange} onSeek={onSeek} disabled={false} />)
+      onChange={onChange} onSeek={onSeek} onPlaySelection={onPlaySelection} disabled={false} />)
     expect(container.querySelectorAll('.motion-safe\\:animate-pulse')).toHaveLength(0)
   })
 

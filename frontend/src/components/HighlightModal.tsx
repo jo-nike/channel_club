@@ -269,7 +269,7 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
               <span className="ml-auto text-sm text-muted-foreground">{duration.toFixed(1)}s captured</span>
             </div>
             <ClipTimeline url={source.url} duration={duration} start={start} end={end} playhead={playhead} press={press}
-              onChange={select} onSeek={seek} disabled={stage !== null} />
+              onChange={select} onSeek={seek} onPlaySelection={() => void playSelection()} disabled={stage !== null} />
             <div className="flex flex-wrap items-end gap-3">
               <ClipTimeField label="Start (seconds)" value={start} min={0} max={end - 0.1}
                 onCommit={value => select(value, end)} />
