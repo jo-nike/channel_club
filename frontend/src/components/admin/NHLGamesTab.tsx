@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { toast } from 'sonner'
+import { useEffect, useMemo, useState } from 'react'
 import { Pin, PinOff, RefreshCw } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -9,27 +8,15 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Skeleton } from '@/components/ui/skeleton'
 
 import { useNHLScores } from '@/hooks/useNHLScores'
-import { useChannelStore } from '@/stores/channelStore'
+import { useSetLiveChannel } from '@/hooks/useSetLiveChannel'
 import { useNhlMappingStore } from '@/stores/nhlMappingStore'
-import { fetchGroupedChannels, setCurrentChannel as setCurrentChannelApi } from '@/services/api'
-import { matchNetworkToChannels, type MatcherResult } from '@/lib/nhlChannelMatcher'
+import { fetchGroupedChannels } from '@/services/api'
+import type { MatcherResult } from '@/lib/nhlChannelMatcher'
+import { matchGames, type BroadcastMatch } from '@/lib/nhlWatch'
 import { cn } from '@/lib/utils'
 import { logger } from '@/lib/logger'
 import type { Channel } from '@/types'
 import type { NHLBroadcast, NHLGame } from '@/types/nhl'
-
-interface BroadcastMatch {
-  broadcast: NHLBroadcast
-  result: MatcherResult
-}
-
-interface GameRow {
-  game: NHLGame
-  /** Broadcasts in display order, each resolved against the channel list. */
-  broadcasts: BroadcastMatch[]
-  /** True when at least one broadcast resolves to a channel in the lineup. */
-  playable: boolean
-}
 
 export function NHLGamesTab() {
   const { data, isLoading, error, refetch } = useNHLScores(true)
@@ -56,22 +43,7 @@ export function NHLGamesTab() {
     }
   }, [])
 
-  const games = useMemo(() => {
-    const all = data?.games ?? []
-    return all
-      .map((game): GameRow => {
-        const broadcasts = [...game.broadcasts].sort(sortBroadcasts).map((broadcast) => ({
-          broadcast,
-          result: matchNetworkToChannels(broadcast.network, channels, overrides),
-        }))
-        return {
-          game,
-          broadcasts,
-          playable: broadcasts.some((b) => b.result.matched.length > 0),
-        }
-      })
-      .sort(sortGames)
-  }, [data, channels, overrides])
+  const games = useMemo(() => matchGames(data?.games ?? [], channels, overrides), [data, channels, overrides])
   const playableCount = games.filter((g) => g.playable).length
 
   if (isLoading || channelsLoading) {
@@ -122,27 +94,6 @@ export function NHLGamesTab() {
       )}
     </div>
   )
-}
-
-// Sort: live -> scheduled -> final; within each status, games on your
-// channels first; then by start time.
-function sortGames(a: GameRow, b: GameRow): number {
-  const statusOrder = { live: 0, scheduled: 1, final: 2 } as const
-  const diff = statusOrder[a.game.status] - statusOrder[b.game.status]
-  if (diff !== 0) return diff
-  if (a.playable !== b.playable) return a.playable ? -1 : 1
-  return a.game.startTime.localeCompare(b.game.startTime)
-}
-
-// Sort broadcasts: CA first, then US; national markets before regional; then alpha.
-function sortBroadcasts(a: NHLBroadcast, b: NHLBroadcast): number {
-  const countryRank = (c: string) => (c === 'CA' ? 0 : c === 'US' ? 1 : 2)
-  const marketRank = (m: string) => (m === 'N' ? 0 : 1)
-  const c = countryRank(a.countryCode) - countryRank(b.countryCode)
-  if (c !== 0) return c
-  const m = marketRank(a.market) - marketRank(b.market)
-  if (m !== 0) return m
-  return a.network.localeCompare(b.network)
 }
 
 function formatStatus(game: NHLGame): string {
@@ -259,23 +210,7 @@ interface BroadcastChipProps {
 }
 
 function BroadcastChip({ broadcast, result, channels }: BroadcastChipProps) {
-  const { setCurrentChannel } = useChannelStore()
-
-  const playChannel = useCallback(
-    async (channel: Channel) => {
-      const previous = useChannelStore.getState().currentChannel
-      setCurrentChannel(channel)
-      try {
-        await setCurrentChannelApi(channel)
-      } catch (e) {
-        setCurrentChannel(previous)
-        toast.error('Failed to change channel', {
-          description: e instanceof Error ? e.message : 'Please try again',
-        })
-      }
-    },
-    [setCurrentChannel],
-  )
+  const playChannel = useSetLiveChannel()
 
   const countryLabel = broadcast.countryCode
   const isNational = broadcast.market === 'N'
