@@ -5,6 +5,9 @@ import {
   MediaProvider,
   useMediaState,
   useMediaRemote,
+  type MediaAutoPlayFailEventDetail,
+  type MediaPlayerInstance,
+  type MediaVolumeChange,
 } from '@vidstack/react'
 import '@vidstack/react/player/styles/default/theme.css'
 import { VideoControls } from '@/components/VideoControls'
@@ -17,6 +20,7 @@ import { useOrientationFullscreen } from '@/hooks/useOrientationFullscreen'
 import { useFullscreenState } from '@/hooks/useFullscreenState'
 import { useHLSRetry } from '@/hooks/useHLSRetry'
 import { ProjectorBeamLoader } from '@/components/ProjectorBeamLoader'
+import { AutoplayNotice } from '@/components/player/AutoplayNotice'
 import { RetroTVFilter } from '@/components/filters/RetroTVFilter'
 import { FilmGrainFilter } from '@/components/filters/FilmGrainFilter'
 import { NoirFilter } from '@/components/filters/NoirFilter'
@@ -83,6 +87,12 @@ export function DualModeVideoPlayer({
   )
 }
 
+// Browsers refuse unmuted playback that no user gesture started, but always
+// allow it muted
+function isAutoplayPolicyError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'name' in error && error.name === 'NotAllowedError'
+}
+
 // ============================================================================
 // Placeholders
 // ============================================================================
@@ -139,6 +149,9 @@ function LiveVideoPlayer({
   const [isPlaying, setIsPlaying] = useState(false)
   // Muted by something other than the viewer (e.g. the clip preview duck); display only
   const [isElementMuted, setIsElementMuted] = useState(false)
+  // Autoplay fallbacks: the browser only allowed muted playback, or none
+  const [isSystemMutedState, setIsSystemMuted] = useState(false)
+  const [isPlayBlocked, setIsPlayBlocked] = useState(false)
   const [isHoveringControls, setIsHoveringControls] = useState(false)
 
   // Detect TV mode
@@ -150,6 +163,7 @@ function LiveVideoPlayer({
   const setStoredVolume = useAudioStore((s) => s.setVolume)
   const setStoredMuted = useAudioStore((s) => s.setMuted)
   const isMuted = isStoreMuted || isElementMuted
+  const isSystemMuted = isSystemMutedState && !isStoreMuted
   const canSetVolume = useCanSetVolume()
 
   // Video filter state
@@ -159,30 +173,12 @@ function LiveVideoPlayer({
   const isGrindhouseActive = useFilterStore((s) => s.isFilterActive('grindhouse'))
   const isSportsHDActive = useFilterStore((s) => s.isFilterActive('sports-hd'))
 
-  // Auto-hide controls
-  const { isVisible, toggleControls } = useAutoHide({
+  // Auto-hide controls; a tap on the picture toggles them
+  const { isVisible } = useAutoHide({
     isPlaying,
     containerRef,
     isHoveringControls,
   })
-
-  // Detect touch device
-  const isTouchDevice = useCallback(() => {
-    return window.matchMedia('(pointer: coarse)').matches
-  }, [])
-
-  // Handle video area click for touch devices
-  const handleVideoAreaClick = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      const target = e.target as HTMLElement
-      if (target.closest('.video-controls')) return
-
-      if (isTouchDevice()) {
-        toggleControls()
-      }
-    },
-    [isTouchDevice, toggleControls]
-  )
 
   // Control handlers
   const handlePlayPause = useCallback(() => {
@@ -214,6 +210,22 @@ function LiveVideoPlayer({
     setStoredMuted(next)
     if (!next) video.muted = false
   }, [setStoredMuted])
+
+  // The tap is a user gesture, so the browser lets the element unmute
+  const handleSoundOn = useCallback(() => {
+    const video = videoRef.current
+    if (!video) return
+    video.muted = false
+    setIsSystemMuted(false)
+  }, [])
+
+  const handleStartPlayback = useCallback(() => {
+    const video = videoRef.current
+    if (!video) return
+    if (!useAudioStore.getState().muted) video.muted = false
+    setIsPlayBlocked(false)
+    video.play().catch(() => setIsPlayBlocked(true))
+  }, [])
 
   const handleFullscreenToggle = useCallback(() => {
     const container = containerRef.current
@@ -277,7 +289,19 @@ function LiveVideoPlayer({
     player.on(mpegts.Events.ERROR, () => setError('Stream unavailable'))
     player.on(mpegts.Events.LOADING_COMPLETE, () => setIsBuffering(false))
 
-    video.play().catch(() => {})
+    // A policy refusal retries muted (element only, the saved mute is
+    // untouched) with a 'Sound is off' notice; anything else, or a refusal
+    // while already muted, gets a centre Play button
+    video.play().catch((error: unknown) => {
+      setIsBuffering(false)
+      if (!isAutoplayPolicyError(error) || video.muted) {
+        setIsPlayBlocked(true)
+        return
+      }
+      video.muted = true
+      setIsSystemMuted(true)
+      video.play().catch(() => setIsPlayBlocked(true))
+    })
     playerRef.current = player
 
     // Video element events
@@ -286,6 +310,7 @@ function LiveVideoPlayer({
       setIsBuffering(false)
       setError(null)
       setIsPlaying(true)
+      setIsPlayBlocked(false)
     }
     const handlePause = () => setIsPlaying(false)
     const handlePlay = () => setIsPlaying(true)
@@ -293,6 +318,8 @@ function LiveVideoPlayer({
     // Never saved: element-only mutes (the clip preview duck) must not stick
     const handleVolumeChangeEvent = () => {
       setIsElementMuted(video.muted)
+      // Any unmute (the notice, Mute button, M key, slider) ends the system mute
+      if (!video.muted) setIsSystemMuted(false)
     }
 
     video.addEventListener('waiting', handleWaiting)
@@ -320,7 +347,6 @@ function LiveVideoPlayer({
   return (
     <div
       ref={containerRef}
-      onClick={handleVideoAreaClick}
       className={`video-player-container relative bg-black ${
         isTheaterMode ? 'h-full w-full' : 'h-full w-full max-w-full'
       } ${!isVisible && isPlaying ? 'cursor-none' : ''}`}
@@ -359,6 +385,15 @@ function LiveVideoPlayer({
 
       {isBuffering && <ProjectorBeamLoader />}
 
+      {(isPlayBlocked || isSystemMuted) && (
+        <AutoplayNotice
+          mode={isPlayBlocked ? 'tap-to-play' : 'sound-off'}
+          volume={volume}
+          onUnmute={handleSoundOn}
+          onPlay={handleStartPlayback}
+        />
+      )}
+
       {!isMpegtsSupported && <ErrorOverlay message="MPEG-TS playback not supported" />}
       {error && isMpegtsSupported && <ErrorOverlay message={error} />}
     </div>
@@ -388,6 +423,7 @@ function HLSVideoPlayerWrapper({
   onTheaterModeToggle,
 }: HLSVideoPlayerWrapperProps) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const playerRef = useRef<MediaPlayerInstance>(null)
   const [isBuffering, setIsBuffering] = useState(true)
 
   // Saved volume and mute, passed as controlled props: Vidstack queues each
@@ -400,6 +436,14 @@ function HLSVideoPlayerWrapper({
     streamUrl,
   })
 
+  // Autoplay fallbacks, recorded against the MediaPlayer mount (retryKey) they
+  // happened on, so a retry remount starts clean. They mute the element only:
+  // the muted prop keeps the saved preference.
+  const [systemMutedKey, setSystemMutedKey] = useState<number | null>(null)
+  const [playBlockedKey, setPlayBlockedKey] = useState<number | null>(null)
+  const isSystemMuted = systemMutedKey === retryKey && !muted
+  const isPlayBlocked = playBlockedKey === retryKey
+
   // Video filter state
   const isRetroTVActive = useFilterStore((s) => s.isFilterActive('retro-tv'))
   const isFilmGrainActive = useFilterStore((s) => s.isFilterActive('film-grain'))
@@ -411,12 +455,80 @@ function HLSVideoPlayerWrapper({
 
   const onPlaying = useCallback(() => {
     setIsBuffering(false)
+    setPlayBlockedKey(null)
     handlePlaying()
   }, [handlePlaying])
 
   const handleWaiting = useCallback(() => {
     setIsBuffering(true)
   }, [])
+
+  // A refused play() leaves the player paused: never leave the loader over
+  // it. Policy refusals retry muted with a 'Sound is off' notice; anything
+  // else, or a refusal while already muted, gets a centre Play button.
+  const handleRefusedPlay = useCallback(
+    (error: unknown, wasMuted: boolean) => {
+      setIsBuffering(false)
+      if (!isAutoplayPolicyError(error) || wasMuted) {
+        setPlayBlockedKey(retryKey)
+        return
+      }
+      playerRef.current?.remoteControl.mute()
+      setSystemMutedKey(retryKey)
+      setTimeout(() => {
+        playerRef.current?.play().catch(() => {
+          setIsBuffering(false)
+          setPlayBlockedKey(retryKey)
+        })
+      }, 0)
+    },
+    [retryKey]
+  )
+
+  const onPlainPlayFail = useCallback(
+    (error: unknown) => {
+      handleRefusedPlay(error, playerRef.current?.state.muted ?? false)
+    },
+    [handleRefusedPlay]
+  )
+
+  const onAutoPlayFail = useCallback(
+    (detail: MediaAutoPlayFailEventDetail) => {
+      // Vidstack refuses every autoplay request under Reduce Motion. Picking a
+      // channel is consent to play, and a plain play() is not an autoplay
+      // request, but it has to wait a tick: autoPlaying is reset only after
+      // this event has dispatched.
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        setIsBuffering(false)
+        setTimeout(() => {
+          playerRef.current?.play().catch(onPlainPlayFail)
+        }, 0)
+        return
+      }
+      handleRefusedPlay(detail.error, detail.muted)
+    },
+    [handleRefusedPlay, onPlainPlayFail]
+  )
+
+  // Any unmute of the element (the notice, Mute button, M key, slider) ends
+  // the system mute
+  const onVolumeChange = useCallback((detail: MediaVolumeChange) => {
+    if (!detail.muted) setSystemMutedKey(null)
+  }, [])
+
+  // The tap is a user gesture, so the browser lets the element unmute
+  const handleSoundOn = useCallback(() => {
+    playerRef.current?.remoteControl.unmute()
+    setSystemMutedKey(null)
+  }, [])
+
+  const handleStartPlayback = useCallback(() => {
+    const player = playerRef.current
+    if (!player) return
+    if (!useAudioStore.getState().muted) player.remoteControl.unmute()
+    setPlayBlockedKey(null)
+    player.play().catch(() => setPlayBlockedKey(retryKey))
+  }, [retryKey])
 
   if (status === 'failed') {
     return (
@@ -442,6 +554,7 @@ function HLSVideoPlayerWrapper({
 
       <MediaPlayer
         key={retryKey}
+        ref={playerRef}
         src={streamUrl}
         title={title}
         autoPlay
@@ -454,6 +567,8 @@ function HLSVideoPlayerWrapper({
         className="h-full w-full max-h-full max-w-full [&_video]:object-contain"
         onWaiting={handleWaiting}
         onPlaying={onPlaying}
+        onAutoPlayFail={onAutoPlayFail}
+        onVolumeChange={onVolumeChange}
         onError={handleError}
       >
         <MediaProvider />
@@ -472,6 +587,15 @@ function HLSVideoPlayerWrapper({
       {(isBuffering || status === 'retrying') && (
         <ProjectorBeamLoader
           text={status === 'retrying' ? `Stream starting... (${retryCount + 1}/5)` : undefined}
+        />
+      )}
+
+      {(isPlayBlocked || isSystemMuted) && (
+        <AutoplayNotice
+          mode={isPlayBlocked ? 'tap-to-play' : 'sound-off'}
+          volume={volume}
+          onUnmute={handleSoundOn}
+          onPlay={handleStartPlayback}
         />
       )}
     </div>
@@ -532,35 +656,12 @@ function HLSControlsWrapper({
 
   const isPlaying = !paused
 
-  const { isVisible, toggleControls } = useAutoHide({
+  // A tap on the picture toggles the controls
+  const { isVisible } = useAutoHide({
     isPlaying,
     containerRef,
     isHoveringControls,
   })
-
-  // Detect touch device
-  const isTouchDevice = useCallback(() => {
-    return window.matchMedia('(pointer: coarse)').matches
-  }, [])
-
-  // Handle video area click for touch devices - toggle controls visibility
-  useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
-
-    const handleClick = (e: MouseEvent) => {
-      const target = e.target as HTMLElement
-      // Don't toggle if clicking on controls
-      if (target.closest('.video-controls')) return
-
-      if (isTouchDevice()) {
-        toggleControls()
-      }
-    }
-
-    container.addEventListener('click', handleClick)
-    return () => container.removeEventListener('click', handleClick)
-  }, [containerRef, isTouchDevice, toggleControls])
 
   useVideoKeyboardShortcuts({
     containerRef,
