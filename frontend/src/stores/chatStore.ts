@@ -13,6 +13,14 @@ const lastReadStorageKey = (username: string) => `chat_last_read:${username}`
 
 export interface ChatIdentity {
   username: string
+  // Stable id the server stamps on this account's messages (absent from older servers)
+  userId?: string
+}
+
+// A nickname the server refused because it is another connected member's sign-in name.
+// A new object per refusal, so refusing the same name twice still registers
+export interface NicknameRejection {
+  nickname: string
 }
 
 interface ChatState {
@@ -22,6 +30,10 @@ interface ChatState {
   nickname: string | null
   // Who the server says this socket is signed in as (from connection_ack)
   me: ChatIdentity | null
+  // The nickname to go back to if the server refuses the one just set
+  revertNickname: string | null
+  // The last nickname the server refused, until the person saves another, cancels or goes back to the sign-in name
+  nicknameRejection: NicknameRejection | null
   // Newest message timestamp this user has seen (ms); null until the first history
   lastReadAt: number | null
   // While open: lastReadAt from before opening, if anything unread was newer
@@ -38,6 +50,8 @@ interface ChatState {
   clearNickname: () => void
   setIdentity: (me: ChatIdentity) => void
   resetIdentity: () => void
+  rejectNickname: (nickname: string) => void
+  clearNicknameRejection: () => void
 }
 
 const MAX_MESSAGES = 100
@@ -83,14 +97,25 @@ const newestTimestamp = (messages: ChatMessage[]): number | null =>
     return Number.isNaN(at) ? newest : laterOf(newest, at)
   }, null)
 
+/** Store this user's nickname, or remove it when there is none; without a known identity there is no key. */
+const saveNickname = (me: ChatIdentity | null, nickname: string | null) => {
+  if (!me) return
+  if (nickname) localStorage.setItem(nicknameStorageKey(me.username), nickname)
+  else localStorage.removeItem(nicknameStorageKey(me.username))
+}
+
 /**
- * Whether a message was sent by this user: its name matches the nickname, or
+ * Whether a message was sent by this user. The server stamps each message with
+ * the sender's userId, so renaming yourself keeps your earlier messages yours
+ * and someone else picking your name doesn't make theirs yours. Without ids
+ * (older servers, or before connection_ack), its name matches the nickname, or
  * the sign-in name when no nickname is set (the server posts under it then).
  */
 export const isOwnMessage = (
-  message: Pick<ChatMessage, 'username'>,
+  message: Pick<ChatMessage, 'username' | 'userId'>,
   state: Pick<ChatState, 'nickname' | 'me'>
 ): boolean => {
+  if (message.userId && state.me?.userId) return message.userId === state.me.userId
   const ownName = state.nickname ?? state.me?.username
   return ownName ? message.username === ownName : false
 }
@@ -122,6 +147,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // Unknown until connection_ack says who we are; setIdentity loads it
   nickname: null,
   me: null,
+  revertNickname: null,
+  nicknameRejection: null,
   lastReadAt: null,
   readMarker: null,
   historyReset: false,
@@ -195,7 +222,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     } else {
       // Without a known identity there is no key to store it under; keep it in memory
       if (me) localStorage.setItem(nicknameStorageKey(me.username), trimmed)
-      set({ nickname: trimmed })
+      // Applied at once; the server only answers if it refuses the name
+      set((state) => ({ nickname: trimmed, revertNickname: state.nickname }))
       logger.debug('ChatStore', `Nickname set to: ${trimmed}`)
     }
   },
@@ -216,8 +244,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const sameUser = state.me?.username === me.username
       const stored = loadLastRead(me.username)
       return {
-        me: { username: me.username },
+        me: { username: me.username, userId: me.userId },
         nickname,
+        // A new socket starts on the sign-in name, so a refused stored nickname falls back to it
+        revertNickname: null,
+        nicknameRejection: sameUser ? state.nicknameRejection : null,
         lastReadAt: sameUser ? laterOf(state.lastReadAt, stored) : stored,
         readMarker: sameUser ? state.readMarker : null,
       }
@@ -226,8 +257,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   resetIdentity: () => {
     logger.debug('ChatStore', 'Identity reset')
-    set({ me: null, nickname: null, lastReadAt: null, readMarker: null })
+    set({ me: null, nickname: null, revertNickname: null, nicknameRejection: null, lastReadAt: null, readMarker: null })
   },
+
+  rejectNickname: (refused) => {
+    const state = get()
+    // Already moved on to another name: the server kept that one, nothing to undo
+    if (state.nickname !== refused) {
+      logger.debug('ChatStore', `Ignoring refusal of a nickname no longer in use: ${refused}`)
+      return
+    }
+    logger.debug('ChatStore', `Nickname refused: ${refused}`)
+    // Go back to the name the server still uses, here and in storage
+    saveNickname(state.me, state.revertNickname)
+    set({ nickname: state.revertNickname, revertNickname: null, nicknameRejection: { nickname: refused } })
+  },
+
+  clearNicknameRejection: () => set({ nicknameRejection: null }),
 }))
 
 // Signed out: forget who chat thinks we are, so the next person to sign in on

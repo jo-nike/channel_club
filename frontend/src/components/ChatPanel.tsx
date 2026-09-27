@@ -30,7 +30,10 @@ interface SendFailure {
 }
 
 export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', onReconnect }: ChatPanelProps) {
-  const { messages, isOpen, setOpen, nickname, me, readMarker, historyReset, setNickname, clearNickname } = useChatStore()
+  const {
+    messages, isOpen, setOpen, nickname, me, readMarker, historyReset, nicknameRejection,
+    setNickname, clearNickname, clearNicknameRejection,
+  } = useChatStore()
   const breakpoint = useBreakpoint()
   const isMobile = breakpoint === 'mobile'
 
@@ -43,6 +46,17 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
   const draftVersion = useRef(0)
   const [nicknameInput, setNicknameInput] = useState('')
   const [isEditingNickname, setIsEditingNickname] = useState(false)
+  // The server refused a name (it's another member's sign-in name): the store has
+  // already gone back to the old one, so reopen the editor on the refused name
+  // with the reason. (Adjusted while rendering, like connectionLost below.)
+  const [shownRejection, setShownRejection] = useState<typeof nicknameRejection>(null)
+  if (nicknameRejection !== shownRejection) {
+    setShownRejection(nicknameRejection)
+    if (nicknameRejection) {
+      setIsEditingNickname(true)
+      setNicknameInput(nicknameRejection.nickname)
+    }
+  }
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const nicknameInputRef = useRef<HTMLInputElement>(null)
@@ -158,19 +172,21 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
     const trimmed = nicknameInput.trim()
     if (!trimmed) return
 
+    clearNicknameRejection()
     setNickname(trimmed)
     onSetNickname?.(trimmed)
     setIsEditingNickname(false)
     setNicknameInput('')
-  }, [nicknameInput, setNickname, onSetNickname])
+  }, [nicknameInput, setNickname, onSetNickname, clearNicknameRejection])
 
   const handleUseSignInName = useCallback(() => {
     // An empty set_nickname makes the server post under the sign-in name again
+    clearNicknameRejection()
     clearNickname()
     onSetNickname?.('')
     setIsEditingNickname(false)
     setNicknameInput('')
-  }, [clearNickname, onSetNickname])
+  }, [clearNickname, onSetNickname, clearNicknameRejection])
 
   const handleNicknameKeyDown = useCallback(
     (e: KeyboardEvent<HTMLInputElement>) => {
@@ -184,9 +200,10 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
 
   // Leave the editor without changing the name
   const handleCancelNickname = useCallback(() => {
+    clearNicknameRejection()
     setIsEditingNickname(false)
     setNicknameInput('')
-  }, [])
+  }, [clearNicknameRejection])
 
   const handleEditorKeyDown = useCallback(
     (e: KeyboardEvent<HTMLDivElement>) => {
@@ -294,6 +311,8 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
               placeholder="Display name"
               className="flex-1"
               maxLength={30}
+              aria-invalid={nicknameRejection ? true : undefined}
+              aria-describedby={nicknameRejection ? 'chat-nickname-error' : undefined}
             />
             <Button
               onClick={handleSaveNickname}
@@ -302,6 +321,11 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
               Save
             </Button>
           </div>
+          {nicknameRejection && (
+            <p id="chat-nickname-error" role="alert" className="mt-2 w-full max-w-xs text-sm text-destructive">
+              “{nicknameRejection.nickname}” is another member's sign-in name. Choose a different name.
+            </p>
+          )}
           <div className="mt-2 flex items-center gap-2">
             <Button variant="ghost" size="sm" onClick={handleCancelNickname}>
               Cancel

@@ -41,6 +41,8 @@ describe('ChatPanel', () => {
       unreadCount: 0,
       nickname: 'TestUser',
       me: null,
+      revertNickname: null,
+      nicknameRejection: null,
       lastReadAt: null,
       readMarker: null,
       historyReset: false,
@@ -295,6 +297,84 @@ describe('ChatPanel', () => {
       // Reopening starts from the saved name, not the abandoned edit
       fireEvent.click(screen.getByRole('button', { name: 'Edit nickname' }))
       expect(screen.getByPlaceholderText('Display name')).toHaveValue('TestNick')
+    })
+
+    it('keeps your earlier messages on your side after a rename, and someone else under your new name on theirs', () => {
+      useChatStore.setState({
+        me: { username: 'testuser', userId: 'u_me' },
+        messages: [
+          { ...createMessage('1', 'testuser'), userId: 'u_me' },
+          { ...createMessage('2', 'TestNick'), userId: 'u_other' },
+        ],
+      })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} onSetNickname={vi.fn()} />)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Edit nickname' }))
+      fireEvent.change(screen.getByPlaceholderText('Display name'), { target: { value: 'TestNick' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+      expect(screen.getByText('Chatting as TestNick')).toBeInTheDocument()
+      // Own messages show no name, other people's do
+      expect(screen.queryByText('testuser')).not.toBeInTheDocument()
+      expect(screen.getByText('TestNick')).toBeInTheDocument()
+    })
+
+    it('reopens the editor on a refused name, says why, and keeps the old name', () => {
+      const mockSetNickname = vi.fn()
+      useChatStore.getState().setNickname('Ace')
+      render(<ChatPanel onSendMessage={mockOnSendMessage} onSetNickname={mockSetNickname} />)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Edit nickname' }))
+      fireEvent.change(screen.getByPlaceholderText('Display name'), { target: { value: 'Jon' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+      expect(mockSetNickname).toHaveBeenCalledWith('Jon')
+      expect(screen.queryByPlaceholderText('Display name')).not.toBeInTheDocument()
+
+      // The server answers nickname_taken
+      act(() => {
+        useChatStore.getState().rejectNickname('Jon')
+      })
+
+      const input = screen.getByPlaceholderText('Display name')
+      expect(input).toHaveValue('Jon')
+      expect(input).toHaveAttribute('aria-invalid', 'true')
+      expect(screen.getByRole('alert')).toHaveTextContent("“Jon” is another member's sign-in name")
+      expect(input).toHaveAccessibleDescription(/another member's sign-in name/)
+      expect(useChatStore.getState().nickname).toBe('Ace')
+      expect(localStorage.getItem('chat_nickname:testuser')).toBe('Ace')
+
+      // Cancel keeps the old name and drops the error
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+      expect(screen.getByText('Chatting as Ace')).toBeInTheDocument()
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(useChatStore.getState().nicknameRejection).toBeNull()
+    })
+
+    it('saving a different name after a refusal clears the error', () => {
+      const mockSetNickname = vi.fn()
+      render(<ChatPanel onSendMessage={mockOnSendMessage} onSetNickname={mockSetNickname} />)
+      fireEvent.click(screen.getByRole('button', { name: 'Edit nickname' }))
+      fireEvent.change(screen.getByPlaceholderText('Display name'), { target: { value: 'Jon' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+      act(() => {
+        useChatStore.getState().rejectNickname('Jon')
+      })
+
+      fireEvent.change(screen.getByPlaceholderText('Display name'), { target: { value: 'Jonny' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+      expect(mockSetNickname).toHaveBeenLastCalledWith('Jonny')
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(screen.getByText('Chatting as Jonny')).toBeInTheDocument()
+    })
+
+    it('shows a refusal that arrived before the panel was opened', () => {
+      // A stored nickname refused on connect: the sign-in name is in use again
+      useChatStore.setState({ nickname: null, nicknameRejection: { nickname: 'Jon' } })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+
+      expect(screen.getByPlaceholderText('Display name')).toHaveValue('Jon')
+      expect(screen.getByRole('alert')).toHaveTextContent("“Jon” is another member's sign-in name")
     })
 
     it('Escape closes the editor without changing anything and without reaching the rest of the page', () => {

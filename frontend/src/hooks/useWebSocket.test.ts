@@ -114,6 +114,8 @@ describe('useWebSocket', () => {
       unreadCount: 0,
       nickname: null,
       me: null,
+      revertNickname: null,
+      nicknameRejection: null,
     })
     vi.mocked(toast).mockClear()
   })
@@ -1096,6 +1098,25 @@ describe('useWebSocket', () => {
       })
     })
 
+    test('passes the sender userId through to the store', () => {
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({
+          type: 'chat_message',
+          messageId: 'msg-1',
+          username: 'TestUser',
+          userId: 'u_0123456789abcdef',
+          content: 'Hello world!',
+          timestamp: '2026-01-08T12:00:00Z',
+        })
+      })
+
+      expect(useChatStore.getState().messages[0].userId).toBe('u_0123456789abcdef')
+    })
+
     test('ignores chat_message when missing required fields', () => {
       renderHook(() => useWebSocket())
       const ws = MockWebSocket.instances[0]
@@ -1222,6 +1243,59 @@ describe('useWebSocket', () => {
           nickname: 'TestNick',
         })
       )
+    })
+
+    test('records the userId from connection_ack', () => {
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({
+          type: 'connection_ack',
+          currentChannel: null,
+          you: { username: 'testuser', userId: 'u_0123456789abcdef' },
+        })
+      })
+
+      expect(useChatStore.getState().me).toEqual({ username: 'testuser', userId: 'u_0123456789abcdef' })
+    })
+
+    test('nickname_taken puts back the name the server still uses and records the refusal', () => {
+      localStorage.setItem('chat_nickname:testuser', 'Jon')
+
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({ type: 'connection_ack', currentChannel: null, you: { username: 'testuser' } })
+      })
+      expect(useChatStore.getState().nickname).toBe('Jon')
+
+      act(() => {
+        ws.simulateMessage({ type: 'error', code: 'nickname_taken', nickname: 'Jon' })
+      })
+
+      // The server kept the sign-in name for this new socket
+      expect(useChatStore.getState().nickname).toBeNull()
+      expect(localStorage.getItem('chat_nickname:testuser')).toBeNull()
+      expect(useChatStore.getState().nicknameRejection).toEqual({ nickname: 'Jon' })
+    })
+
+    test('other server errors leave the nickname alone', () => {
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({ type: 'connection_ack', currentChannel: null, you: { username: 'testuser' } })
+        useChatStore.getState().setNickname('TestNick')
+        ws.simulateMessage({ type: 'error', code: 'invalid_message' })
+      })
+
+      expect(useChatStore.getState().nickname).toBe('TestNick')
+      expect(useChatStore.getState().nicknameRejection).toBeNull()
     })
 
     test('does not send set_nickname after connection_ack when that user has none stored', () => {

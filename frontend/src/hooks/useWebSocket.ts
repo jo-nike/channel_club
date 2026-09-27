@@ -20,15 +20,19 @@ interface WebSocketMessage {
   currentChannel?: Channel | null
   settings?: AppSettings
   // Who this socket is signed in as (connection_ack); absent from older servers
-  you?: { username: string }
+  you?: { username: string; userId?: string }
   // Chat message fields
   clientMessageId?: string
   accepted?: boolean
   messageId?: string
   username?: string
+  userId?: string
   content?: string
   timestamp?: string
   messages?: ChatMessage[]
+  // error: what went wrong, and for nickname_taken the refused nickname
+  code?: string
+  nickname?: string
 }
 
 export type WebSocketStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
@@ -101,6 +105,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   const addChatMessage = useChatStore((s) => s.addMessage)
   const setChatMessages = useChatStore((s) => s.setMessages)
   const setChatIdentity = useChatStore((s) => s.setIdentity)
+  const rejectChatNickname = useChatStore((s) => s.rejectNickname)
   const setUserChannelSelection = useSettingsStore((s) => s.setUserChannelSelection)
 
   const pendingChat = useRef(new Map<string, { finish: (result: ChatSendResult) => void; timer: ReturnType<typeof setTimeout> }>())
@@ -193,6 +198,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
             addChatMessage({
               messageId: message.messageId,
               username: message.username,
+              userId: message.userId,
               content: message.content,
               timestamp: message.timestamp,
             })
@@ -206,12 +212,22 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           }
           break
 
+        case 'error':
+          if (message.code === 'nickname_taken' && typeof message.nickname === 'string') {
+            // Another member signed in under that name; go back to the name the server still uses
+            logger.info('WebSocket', `Nickname refused: ${message.nickname}`)
+            rejectChatNickname(message.nickname)
+          } else {
+            logger.warn('WebSocket', `Server error: ${message.code ?? 'unknown'}`, message)
+          }
+          break
+
         default:
           // Unknown message type - log but don't crash
           logger.warn('WebSocket', `Unknown message type: ${message.type}`, message)
       }
     },
-    [setCurrentChannel, setLastChange, chatEnabled, addChatMessage, setChatMessages, setChatIdentity, setUserChannelSelection]
+    [setCurrentChannel, setLastChange, chatEnabled, addChatMessage, setChatMessages, setChatIdentity, rejectChatNickname, setUserChannelSelection]
   )
 
   const connect = useCallback(
