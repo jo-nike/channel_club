@@ -5,13 +5,16 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useNowPlaying } from '@/hooks/useNowPlaying'
 import { useTVMode } from '@/hooks/useTVMode'
 import { cn } from '@/lib/utils'
-import { useChannelStore } from '@/stores/channelStore'
+import { useAuthStore } from '@/stores/authStore'
+import { useChannelStore, type LiveChannelChange } from '@/stores/channelStore'
 import { useUIStore } from '@/stores/uiStore'
 import type { UnifiedChannel } from '@/types'
 import { usePlayerShell } from './PlayerShellContext'
 
 /** How long the rail stays up after a tune */
 const TUNE_BANNER_MS = 4000
+/** How long a change to the shared live channel is announced */
+const LIVE_CHANGE_BANNER_MS = 5000
 
 interface PlayerInfoOverlayProps {
   /** The channel the player is on; null before the TV store has one */
@@ -25,8 +28,10 @@ interface PlayerInfoOverlayProps {
  * fullscreen (where the page header is gone) and survives engine swaps.
  *
  * The rail shows and hides with the control bar, and for 4s after every tune,
- * like a cable box's channel banner. It is the one top rail: the
- * ticker moves down while the rail is up, so the two never overlap. TV
+ * like a cable box's channel banner. When someone changes the shared live
+ * channel under a viewer on channel 0, the rail says so for 5s and names who
+ * did it (those viewers get this instead of the toast). It is the one top
+ * rail: the ticker moves down while the rail is up, so the two never overlap. TV
  * theater has its own channel banner (ZapBanner) in that corner, so the rail
  * stays out of it there.
  */
@@ -53,18 +58,51 @@ export function PlayerInfoOverlay({ channel }: PlayerInfoOverlayProps) {
     return () => clearTimeout(timer)
   }, [isTuneBanner, tunedId])
 
+  // A change to the shared live channel while this viewer is on it. Only
+  // changes that arrive while on channel 0 count, not the last one before;
+  // your own change and live TV stopping (the player says so) aren't announced.
+  const isLive = channel?.type === 'live'
+  const [liveChange, setLiveChange] = useState<LiveChannelChange | null>(null)
+  useEffect(() => {
+    if (!isLive) return
+    const unsubscribe = useChannelStore.subscribe((state, prev) => {
+      const change = state.lastChange
+      if (change === prev.lastChange) return
+      const isOwn = change?.by != null && change.by === useAuthStore.getState().username
+      setLiveChange(change?.channelName && !isOwn ? change : null)
+    })
+    return () => {
+      unsubscribe()
+      setLiveChange(null)
+    }
+  }, [isLive])
+
+  // Keyed on the change, so a second change restarts the 5s
+  useEffect(() => {
+    if (!liveChange) return
+    const timer = setTimeout(() => setLiveChange(null), LIVE_CHANGE_BANNER_MS)
+    return () => clearTimeout(timer)
+  }, [liveChange])
+
   const hasRail = channel !== null && !(isTVMode && isTheaterMode)
-  const isRailVisible = hasRail && (controlsVisible || isTuneBanner)
+  const isRailVisible = hasRail && (controlsVisible || isTuneBanner || liveChange !== null)
 
   return (
     <>
-      {hasRail && <InfoRail channel={channel} isVisible={isRailVisible} />}
+      {hasRail && <InfoRail channel={channel} isVisible={isRailVisible} liveChange={liveChange} />}
       <NHLScoresOverlay isVisible={isNHLOverlayVisible} belowRail={isRailVisible} />
     </>
   )
 }
 
-function InfoRail({ channel, isVisible }: { channel: UnifiedChannel; isVisible: boolean }) {
+interface InfoRailProps {
+  channel: UnifiedChannel
+  isVisible: boolean
+  /** A live-channel change to announce, while on channel 0 */
+  liveChange: LiveChannelChange | null
+}
+
+function InfoRail({ channel, isVisible, liveChange }: InfoRailProps) {
   const { setHoveringControls } = usePlayerShell()
   const { title, timeLeft, isLive, hasLiveChannel } = useNowPlaying(channel)
   // The live slot's logo is the live channel's, which the slot doesn't carry
@@ -108,7 +146,16 @@ function InfoRail({ channel, isVisible }: { channel: UnifiedChannel; isVisible: 
               </span>
             )}
           </p>
-          <p className="mt-0.5 truncate text-sm leading-tight text-white/80">{details}</p>
+          {!liveChange && <p className="mt-0.5 truncate text-sm leading-tight text-white/80">{details}</p>}
+          {/* Always there on channel 0, so screen readers hear the change.
+              Empty between announcements, which takes no height; never
+              display:none, which would take it out of the accessibility tree
+              and make each change a new region that screen readers skip */}
+          {isLive && (
+            <p role="status" className="mt-0.5 truncate text-sm font-semibold leading-tight empty:mt-0">
+              {liveChange && describeLiveChange(liveChange)}
+            </p>
+          )}
         </div>
       </div>
 
@@ -145,4 +192,9 @@ function InfoRail({ channel, isVisible }: { channel: UnifiedChannel; isVisible: 
       </div>
     </div>
   )
+}
+
+// 'Live changed to TSN 5 by Jon', or without the name for a system change
+function describeLiveChange({ channelName, by }: LiveChannelChange): string {
+  return by ? `Live changed to ${channelName} by ${by}` : `Live changed to ${channelName}`
 }

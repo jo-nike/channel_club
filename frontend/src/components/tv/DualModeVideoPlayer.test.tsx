@@ -1276,6 +1276,18 @@ describe('DualModeVideoPlayer info rail', () => {
     }
   })
 
+  it('announces a live-channel change inside the shell, across the engine swap it causes', () => {
+    const { switchTo } = renderPlayer({ ...liveChannel('https://fixture/a'), name: 'TSN 5' })
+
+    act(() => useChannelStore.getState().setLastChange({ by: 'jon', at: Date.now(), channelName: 'Sportsnet One' }))
+    switchTo({ ...liveChannel('https://fixture/b'), name: 'Sportsnet One' })
+
+    const status = screen.getByRole('status')
+    expect(shell()).toContainElement(status)
+    expect(status).toHaveTextContent('Live changed to Sportsnet One by jon')
+    act(() => useChannelStore.setState({ lastChange: null }))
+  })
+
   it('follows the shell\'s control visibility', () => {
     vi.useFakeTimers()
     try {

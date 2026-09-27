@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, act } from '@/test/utils'
 import { PlayerInfoOverlay } from './PlayerInfoOverlay'
 import { PlayerShellContext, type PlayerShell } from './PlayerShellContext'
+import { useAuthStore } from '@/stores/authStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore } from '@/stores/tvStore'
@@ -102,6 +103,7 @@ beforeEach(() => {
     lastChange: null,
   })
   useUIStore.setState({ isNHLOverlayVisible: false })
+  useAuthStore.setState({ username: 'maya' })
 })
 
 // Stores are reset before each test, not after: the overlay is still mounted
@@ -291,6 +293,115 @@ describe('PlayerInfoOverlay: channel banner on every tune', () => {
 
     waitOutTuneBanner()
     expect(ticker()).toHaveClass('top-0')
+  })
+})
+
+describe('PlayerInfoOverlay: shared live-channel changes', () => {
+  const hidden = { controlsVisible: false }
+  const status = () => screen.getByRole('status')
+  // What useWebSocket does with a channel_update
+  const liveChangedTo = (channelName: string | null, by: string | null) =>
+    act(() => {
+      useChannelStore.setState({
+        currentChannel: channelName
+          ? { id: channelName, name: channelName, streamUrl: `https://fixture/${channelName}`, guideId: '' }
+          : null,
+      })
+      useChannelStore.getState().setLastChange({ by, at: Date.now(), channelName })
+    })
+
+  it('says the live channel changed and who changed it, for 5s, as a status', () => {
+    const { update } = renderOverlay(liveSlot('TSN 5'), hidden)
+    waitOutTuneBanner()
+    expect(status()).toBeEmptyDOMElement()
+    // Empty but still rendered: a display:none region isn't announced
+    expect(status()).not.toHaveClass('hidden')
+    expect(status()).not.toHaveClass('empty:hidden')
+    expect(rail()).toHaveClass('opacity-0')
+
+    liveChangedTo('Sportsnet One', 'jon')
+    update(liveSlot('Sportsnet One', 'https://fixture/sn1'), hidden)
+
+    expect(status()).toHaveTextContent('Live changed to Sportsnet One by jon')
+    // The whole rail comes up with it, showing the new channel
+    expect(rail()).toHaveClass('opacity-100')
+    expect(rail()).toHaveTextContent('Sportsnet One')
+
+    advance(4999)
+    expect(status()).toHaveTextContent('Live changed to Sportsnet One by jon')
+
+    advance(1)
+    expect(status()).toBeEmptyDOMElement()
+    expect(rail()).toHaveClass('opacity-0')
+    // The programme line is back
+    expect(rail()).toHaveTextContent('Live · no guide info')
+  })
+
+  it('names nobody for a system change', () => {
+    renderOverlay(liveSlot(), hidden)
+
+    liveChangedTo('TSN 3', null)
+
+    expect(status()).toHaveTextContent(/^Live changed to TSN 3$/)
+  })
+
+  it('a second change restarts the 5s', () => {
+    renderOverlay(liveSlot(), hidden)
+    liveChangedTo('TSN 3', 'jon')
+    advance(3000)
+
+    liveChangedTo('TSN 4', 'dev')
+    expect(status()).toHaveTextContent('Live changed to TSN 4 by dev')
+
+    advance(4999)
+    expect(status()).toHaveTextContent('Live changed to TSN 4 by dev')
+    advance(1)
+    expect(status()).toBeEmptyDOMElement()
+  })
+
+  it("doesn't announce your own change", () => {
+    renderOverlay(liveSlot(), hidden)
+
+    liveChangedTo('TSN 3', 'maya')
+
+    expect(status()).toBeEmptyDOMElement()
+  })
+
+  it('stopping live TV ends the announcement; the player says who stopped it', () => {
+    renderOverlay(liveSlot(), hidden)
+    liveChangedTo('TSN 3', 'jon')
+
+    liveChangedTo(null, 'jon')
+
+    expect(status()).toBeEmptyDOMElement()
+  })
+
+  it('is absent on channels 1-36, which get the toast instead', () => {
+    renderOverlay(cinema, hidden)
+
+    liveChangedTo('TSN 3', 'jon')
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(rail()).not.toHaveTextContent(/Live changed/)
+  })
+
+  it('does not announce a change made before tuning to channel 0', () => {
+    const { update } = renderOverlay(cinema, hidden)
+    liveChangedTo('TSN 3', 'jon')
+
+    update(liveSlot('TSN 3'), hidden)
+
+    expect(status()).toBeEmptyDOMElement()
+  })
+
+  it('leaving channel 0 drops the announcement', () => {
+    const { update } = renderOverlay(liveSlot(), hidden)
+    liveChangedTo('TSN 3', 'jon')
+
+    update(cinema, hidden)
+    update(liveSlot('TSN 3'), hidden)
+
+    expect(status()).toBeEmptyDOMElement()
   })
 })
 
