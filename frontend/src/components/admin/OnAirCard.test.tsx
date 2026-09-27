@@ -11,6 +11,8 @@ import type { Channel, GroupedChannelsResponse } from '@/types'
 vi.mock('@/services/api', () => ({
   fetchGroupedChannels: vi.fn(),
   fetchNowPlaying: vi.fn(),
+  // The TV store's schedule lookup for channel 0 (loaded by the live switch)
+  fetchLiveProgrammes: vi.fn(async () => ({ channelId: 'x', programmes: [] })),
   setCurrentChannel: vi.fn(),
   clearCurrentChannel: vi.fn(),
 }))
@@ -184,9 +186,43 @@ describe('OnAirCard', () => {
     expect(screen.queryByText(/watching/)).not.toBeInTheDocument()
   })
 
+  describe('for a viewer allowed to change live TV (in the switcher)', () => {
+    beforeEach(() => {
+      useAuthStore.setState({ token: 'test-token', role: 'viewer', username: 'sam', isAuthenticated: true })
+    })
+
+    it('names the channel on air without Stop live TV', () => {
+      render(<OnAirCard showRecents={false} />)
+
+      expect(screen.getByText('TSN')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /stop live tv/i })).not.toBeInTheDocument()
+    })
+
+    it('does not poll the admin-only presence for a watching count', () => {
+      render(<OnAirCard showRecents={false} />)
+
+      expect(mockUseActiveUsers).not.toHaveBeenCalled()
+      expect(screen.queryByText(/watching/)).not.toBeInTheDocument()
+    })
+  })
+
+  it('leaves its Recent row out, without loading the catalogue, when the switcher lists recents itself', async () => {
+    vi.mocked(api.fetchGroupedChannels).mockResolvedValue(catalogue(tsn, sportsnet, cnn))
+    useRecentLiveStore.getState().record('jon', cnn.id)
+
+    render(<OnAirCard showRecents={false} />)
+
+    expect(await screen.findByRole('button', { name: /stop live tv/i })).toBeInTheDocument()
+    expect(api.fetchGroupedChannels).not.toHaveBeenCalled()
+    expect(screen.queryByRole('group', { name: 'Recent live channels' })).not.toBeInTheDocument()
+  })
+
   describe('Nothing on live TV', () => {
     beforeEach(() => {
       useChannelStore.setState({ currentChannel: null })
+      // Putting TSN on above had the TV store look its programme up for
+      // channel 0; only the card's own lookups count here
+      vi.mocked(api.fetchNowPlaying).mockClear()
     })
 
     it('says so and points to the list', () => {

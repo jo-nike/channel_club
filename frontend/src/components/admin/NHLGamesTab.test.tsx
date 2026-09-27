@@ -1,7 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@/test/utils'
+import { render, screen, fireEvent, waitFor } from '@/test/utils'
+import { toast } from 'sonner'
 import { NHLGamesTab } from './NHLGamesTab'
 import { useNhlMappingStore } from '@/stores/nhlMappingStore'
+import { useChannelStore } from '@/stores/channelStore'
+import { useAuthStore } from '@/stores/authStore'
+import { useRecentLiveStore } from '@/stores/recentLiveStore'
+import * as api from '@/services/api'
 import type { Channel, GroupedChannelsResponse } from '@/types'
 import type { GameStatus, NHLBroadcast, NHLGame, NHLScoresResponse } from '@/types/nhl'
 
@@ -194,5 +199,37 @@ describe('NHLGamesTab', () => {
     expect(useNhlMappingStore.getState().overrides).toEqual({ 'KCOP-13': 'nhln' })
     expect(screen.getByTitle('Play US: NHL Network')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /1 not in your lineup/ })).toBeInTheDocument()
+  })
+
+  it('puts a broadcast on live TV through the shared switch, remembered in the admin recents', async () => {
+    useAuthStore.setState({ username: 'jon', role: 'admin' })
+    useRecentLiveStore.setState({ byUser: {} })
+    useChannelStore.setState({ currentChannel: null })
+    vi.mocked(api.setCurrentChannel).mockImplementation(async (channel) => channel)
+    setGames([game(1, 'TOR', 'MTL', 'live', '2026-10-11T23:00:00Z', [broadcast('TSN5')])])
+    await renderTab()
+
+    fireEvent.click(screen.getByTitle('Play CA-S: TSN 5'))
+
+    expect(api.setCurrentChannel).toHaveBeenCalledWith(CHANNELS[0])
+    expect(useChannelStore.getState().currentChannel).toEqual(CHANNELS[0])
+    await waitFor(() => expect(useRecentLiveStore.getState().byUser.jon).toEqual(['tsn5']))
+  })
+
+  it('brings the previous live channel back and says why when the switch is refused', async () => {
+    const toastError = vi.spyOn(toast, 'error')
+    const previous = ch('cbc', 'CBC')
+    useChannelStore.setState({ currentChannel: previous })
+    vi.mocked(api.setCurrentChannel).mockRejectedValueOnce(new Error('Only admins can change the channel'))
+    setGames([game(1, 'TOR', 'MTL', 'live', '2026-10-11T23:00:00Z', [broadcast('TSN5')])])
+    await renderTab()
+
+    fireEvent.click(screen.getByTitle('Play CA-S: TSN 5'))
+
+    await waitFor(() => expect(useChannelStore.getState().currentChannel).toEqual(previous))
+    expect(toastError).toHaveBeenCalledWith('Failed to change channel', {
+      description: 'Only admins can change the channel',
+    })
+    toastError.mockRestore()
   })
 })
