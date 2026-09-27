@@ -243,6 +243,17 @@ describe('LiveSwitcherSheet', () => {
     expect(within(section('On air')).getByRole('button', { name: /stop live tv/i })).toBeInTheDocument()
   })
 
+  it("opens with focus on the dialog, not an admin's Stop live TV", async () => {
+    useAuthStore.setState({ role: 'admin', username: 'jon' })
+    renderSheet()
+
+    await screen.findByRole('region', { name: 'Sports on now' })
+    const stop = within(section('On air')).getByRole('button', { name: /stop live tv/i })
+    const dialog = screen.getByRole('dialog', { name: 'Live TV' })
+    expect(document.activeElement).toBe(dialog)
+    expect(stop).not.toHaveFocus()
+  })
+
   describe('Suggest a channel, for a viewer who cannot change live TV', () => {
     const onSuggest = vi.fn<(channel: Channel) => Promise<ChatSendResult>>(async () => 'acknowledged')
 

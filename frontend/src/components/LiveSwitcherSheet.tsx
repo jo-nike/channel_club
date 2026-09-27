@@ -51,7 +51,15 @@ export function LiveSwitcherSheet({ open, onOpenChange, onSuggest }: LiveSwitche
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[90dvh] w-[95vw] max-w-2xl flex-col gap-0 overflow-hidden p-0 max-sm:top-auto max-sm:bottom-0 max-sm:w-full max-sm:max-w-full max-sm:translate-y-0 max-sm:rounded-b-none max-sm:pb-safe sm:w-[85vw]">
+      <DialogContent
+        className="flex max-h-[90dvh] w-[95vw] max-w-2xl flex-col gap-0 overflow-hidden p-0 max-sm:top-auto max-sm:bottom-0 max-sm:w-full max-sm:max-w-full max-sm:translate-y-0 max-sm:rounded-b-none max-sm:pb-safe sm:w-[85vw]"
+        // Start on the dialog, not its first control: for an admin that is
+        // 'Stop live TV…', which Enter or Space would then set off
+        onOpenAutoFocus={(event) => {
+          event.preventDefault()
+          ;(event.currentTarget as HTMLElement).focus()
+        }}
+      >
         <DialogHeader className="px-4 pt-4 pr-12 text-left">
           <DialogTitle>{suggest ? 'Suggest a channel' : 'Live TV'}</DialogTitle>
           <DialogDescription>
