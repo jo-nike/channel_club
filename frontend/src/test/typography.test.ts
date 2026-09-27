@@ -68,3 +68,60 @@ describe('brand fonts', () => {
     expect(screen.getByRole('heading', { name: 'Title' })).toHaveAttribute('data-slot', 'dialog-title')
   })
 })
+
+// Nothing renders below 12px except caps badges, which may use 11px (bold
+// uppercase reads larger). 10px and 9px text failed at arm's length on a
+// phone and at couch distance (H-08), so arbitrary sizes under 11px fail here.
+const MIN_PX = 11
+
+/** Arbitrary font sizes (text-[10px], text-[0.625rem], font-size: 9px) below MIN_PX in `source`. */
+function tooSmall(source: string): string[] {
+  const sizes = [
+    ...source.matchAll(/text-\[(\d*\.?\d+)(px|rem)\]/g),
+    ...source.matchAll(/font-size:\s*(\d*\.?\d+)(px|rem)/g),
+  ]
+  return sizes
+    .filter(([, value, unit]) => Number(value) * (unit === 'rem' ? 16 : 1) < MIN_PX)
+    .map(([match]) => match)
+}
+
+const sources = import.meta.glob<string>(['/src/**/*.{ts,tsx}', '!/src/**/*.test.{ts,tsx}', '!/src/test/**'], {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+})
+
+describe('minimum text size', () => {
+  const checked = Object.entries(sources)
+
+  it('scans the app sources', () => {
+    expect(checked.length).toBeGreaterThan(50)
+    expect(checked.map(([path]) => path)).toEqual(
+      expect.arrayContaining([
+        '/src/components/HeaderAction.tsx',
+        '/src/components/NHLScoresOverlay.tsx',
+        '/src/components/admin/NHLGamesTab.tsx',
+        '/src/components/tv/TVChannelSidebar.tsx',
+        '/src/components/tv/MobileChannelList.tsx',
+      ]),
+    )
+  })
+
+  it('catches the sizes it guards against', () => {
+    expect(tooSmall('text-[10px] text-[9px] text-[0.625rem] font-size: 10px')).toEqual([
+      'text-[10px]',
+      'text-[9px]',
+      'text-[0.625rem]',
+      'font-size: 10px',
+    ])
+    expect(tooSmall('text-xs text-[11px] text-[12px] font-size: 16px')).toEqual([])
+  })
+
+  it('index.css sets no font size under 11px', () => {
+    expect(tooSmall(css)).toEqual([])
+  })
+
+  it.each(checked)('%s uses no text under 11px', (_path, source) => {
+    expect(tooSmall(source)).toEqual([])
+  })
+})

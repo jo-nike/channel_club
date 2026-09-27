@@ -359,7 +359,7 @@ function BroadcastChip({ broadcast, result, channels }: BroadcastChipProps) {
 function NetworkLabel({ broadcast }: { broadcast: NHLBroadcast }) {
   const marketBadge =
     broadcast.market === 'N' ? null : (
-      <span className="text-[10px] uppercase text-muted-foreground">
+      <span className="text-[11px] uppercase text-muted-foreground">
         {broadcast.market === 'H' ? 'home' : 'away'}
       </span>
     )

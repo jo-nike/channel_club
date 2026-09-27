@@ -202,7 +202,7 @@ function CollapsedChannelButton({
               {/* The aria-label already carries the number */}
               <span
                 aria-hidden="true"
-                className="absolute bottom-0 right-0 flex h-4 min-w-4 items-center justify-center rounded-tl-md bg-background/85 px-0.5 text-[10px] leading-none text-foreground"
+                className="absolute bottom-0 right-0 flex h-4 min-w-4 items-center justify-center rounded-tl-md bg-background/85 px-0.5 text-xs leading-none text-foreground"
               >
                 {channel.number}
               </span>
@@ -364,7 +364,7 @@ function ChannelItem({
               {isLive ? (hasLiveChannel ? channel.name : 'Live') : channel.name}
             </span>
             {isLive && hasLiveChannel && (
-              <span className="rounded bg-live px-1.5 py-0.5 text-[10px] font-bold uppercase text-live-foreground">
+              <span className="rounded bg-live px-1.5 py-0.5 text-[11px] font-bold uppercase text-live-foreground">
                 Live
               </span>
             )}
@@ -387,7 +387,7 @@ function ChannelItem({
                   style={{ width: `${progress}%` }}
                 />
               </div>
-              <span className="shrink-0 text-[10px] text-muted-foreground">
+              <span className="shrink-0 text-xs text-muted-foreground">
                 {timeRemaining}
               </span>
             </div>
