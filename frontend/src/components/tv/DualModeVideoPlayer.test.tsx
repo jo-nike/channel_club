@@ -132,6 +132,13 @@ const video = () => {
   return element
 }
 
+// The stable player shell: the fullscreen element around the engine
+const shell = () => {
+  const element = document.querySelector<HTMLElement>('.video-player-container')
+  if (!element) throw new Error('no player shell')
+  return element
+}
+
 const lastPlayerProps = () => {
   const props = vidstack.mediaPlayer.mock.lastCall?.[0]
   if (!props) throw new Error('MediaPlayer was not rendered')
@@ -515,23 +522,120 @@ describe('DualModeVideoPlayer fullscreen state', () => {
     Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null })
   })
 
-  // The element each engine's fullscreen button sends fullscreen
-  const liveContainer = () => document.querySelector('.video-player-container')
-  const hlsContainer = () => document.querySelector('[data-media-player]')?.parentElement ?? null
-
   it.each([
-    ['live', liveChannel('https://fixture/a'), liveContainer],
-    ['ErsatzTV', hlsChannel('1', 1), hlsContainer],
-  ])('%s: Exit fullscreen and no Theater only while its container is fullscreen', (_engine, channel, container) => {
+    ['live', liveChannel('https://fixture/a')],
+    ['ErsatzTV', hlsChannel('1', 1)],
+  ])('%s: Exit fullscreen and no Theater only while the shell is fullscreen', (_engine, channel) => {
     renderPlayer(channel)
 
     setFullscreenElement(document.createElement('div'))
     expect(screen.getByRole('button', { name: 'Fullscreen' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Theater mode' })).toBeInTheDocument()
 
-    setFullscreenElement(container())
+    setFullscreenElement(shell())
     expect(screen.getByRole('button', { name: 'Exit fullscreen' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Theater mode' })).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['live', liveChannel('https://fixture/a')],
+    ['ErsatzTV', hlsChannel('1', 1)],
+  ])('%s: the Fullscreen button and F key fullscreen the shell', (_engine, channel) => {
+    const original = HTMLElement.prototype.requestFullscreen
+    const requestFullscreen = vi.fn(() => Promise.resolve())
+    HTMLElement.prototype.requestFullscreen = requestFullscreen
+    try {
+      renderPlayer(channel)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Fullscreen' }))
+      fireEvent.keyDown(window, { key: 'f' })
+
+      expect(requestFullscreen).toHaveBeenCalledTimes(2)
+      for (const target of requestFullscreen.mock.contexts) expect(target).toBe(shell())
+    } finally {
+      HTMLElement.prototype.requestFullscreen = original
+    }
+  })
+})
+
+describe('DualModeVideoPlayer shell: fullscreen survives engine swaps', () => {
+  // A getter, so the stub always reports the element the test captured
+  let fullscreenElement: Element | null = null
+  beforeEach(() => {
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, get: () => fullscreenElement })
+  })
+  afterEach(() => {
+    fullscreenElement = null
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null })
+  })
+
+  const enterFullscreen = () => {
+    const element = shell()
+    act(() => {
+      fullscreenElement = element
+      document.dispatchEvent(new Event('fullscreenchange'))
+    })
+    return element
+  }
+
+  it('a new live stream re-initialises only the engine', () => {
+    const { switchTo } = renderPlayer(liveChannel('https://fixture/a'))
+    const fullscreen = enterFullscreen()
+    const firstVideo = video()
+
+    switchTo(liveChannel('https://fixture/b'))
+
+    expect(video()).not.toBe(firstVideo)
+    expect(shell()).toBe(fullscreen)
+    expect(fullscreen.isConnected).toBe(true)
+    expect(fullscreen).toContainElement(video())
+    expect(screen.getByRole('button', { name: 'Exit fullscreen' })).toBeInTheDocument()
+  })
+
+  it('a new ErsatzTV channel re-initialises only the engine', () => {
+    const { switchTo } = renderPlayer(hlsChannel('1', 1))
+    const fullscreen = enterFullscreen()
+    vidstack.mounted.mockClear()
+
+    switchTo(hlsChannel('2', 2))
+
+    expect(vidstack.mounted).toHaveBeenCalledTimes(1)
+    expect(shell()).toBe(fullscreen)
+    expect(fullscreen.isConnected).toBe(true)
+    expect(screen.getByRole('button', { name: 'Exit fullscreen' })).toBeInTheDocument()
+  })
+
+  it('switching between engine types keeps the shell', () => {
+    const { switchTo } = renderPlayer(liveChannel('https://fixture/a'))
+    const fullscreen = enterFullscreen()
+
+    switchTo(hlsChannel('1', 1))
+    expect(shell()).toBe(fullscreen)
+    expect(fullscreen).toContainElement(document.querySelector<HTMLElement>('[data-media-player]'))
+
+    switchTo(liveChannel(''))
+    expect(shell()).toBe(fullscreen)
+    expect(fullscreen).toHaveTextContent('No live broadcast')
+  })
+
+  it('the ErsatzTV failed state renders inside the shell', async () => {
+    vi.useFakeTimers()
+    try {
+      renderPlayer(hlsChannel('1', 1))
+      const fullscreen = enterFullscreen()
+
+      // useHLSRetry gives up after its retries
+      for (let i = 0; i < 10 && !screen.queryByText('Stream unavailable'); i++) {
+        act(() => lastPlayerProps().onError?.())
+        await act(() => vi.advanceTimersByTimeAsync(5000))
+      }
+
+      expect(screen.getByText('Stream unavailable')).toBeInTheDocument()
+      expect(shell()).toBe(fullscreen)
+      expect(fullscreen).toContainElement(screen.getByText('Stream unavailable'))
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

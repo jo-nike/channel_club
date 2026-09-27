@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react'
 import mpegts from 'mpegts.js'
 import {
   MediaPlayer,
@@ -21,6 +21,7 @@ import { useHLSRetry } from '@/hooks/useHLSRetry'
 import { ProjectorBeamLoader } from '@/components/ProjectorBeamLoader'
 import { Button } from '@/components/ui/button'
 import { AutoplayNotice } from '@/components/player/AutoplayNotice'
+import { PlayerShellContext, usePlayerShell } from '@/components/player/PlayerShellContext'
 import { RetroTVFilter } from '@/components/filters/RetroTVFilter'
 import { FilmGrainFilter } from '@/components/filters/FilmGrainFilter'
 import { NoirFilter } from '@/components/filters/NoirFilter'
@@ -41,7 +42,12 @@ interface DualModeVideoPlayerProps {
   onPickLive?: () => void
 }
 
-// Main component - switches between live (mpegts) and ersatztv (HLS) players
+// Main component - switches between live (mpegts) and ersatztv (HLS) players.
+// The shell div stays mounted across channel changes and is the fullscreen
+// element, so only the keyed engine inside it re-initialises and a viewer in
+// fullscreen stays there. (Removing the fullscreen element exits fullscreen;
+// Vidstack's own exit on unmount is a no-op unless MediaPlayer itself is the
+// fullscreen element.)
 export function DualModeVideoPlayer({
   channel,
   isTheaterMode,
@@ -49,20 +55,36 @@ export function DualModeVideoPlayer({
   onTheaterModeToggle,
   onPickLive,
 }: DualModeVideoPlayerProps) {
-  // No channel selected
+  const containerRef = useRef<HTMLDivElement>(null)
+  const isFullscreen = useFullscreenState(containerRef)
+
+  const toggleFullscreen = useCallback(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {})
+    } else {
+      container.requestFullscreen().catch(() => {})
+    }
+  }, [])
+
+  const shell = useMemo(
+    () => ({ containerRef, isFullscreen, toggleFullscreen }),
+    [isFullscreen, toggleFullscreen]
+  )
+
+  let engine: ReactNode
   if (!channel) {
-    return <NoChannelPlaceholder />
-  }
-
-  // Live channel (Channel 0) with no stream (admin hasn't selected)
-  if (channel.type === 'live' && !channel.streamUrl) {
-    return <NoLiveChannelPlaceholder onPickLive={onPickLive} />
-  }
-
-  // Live channel - use mpegts.js player
-  // Use backendId for highlight recording (real Dispatcharr ID), fallback to id
-  if (channel.type === 'live') {
-    return (
+    // No channel selected
+    engine = <NoChannelPlaceholder />
+  } else if (channel.type === 'live' && !channel.streamUrl) {
+    // Live channel (Channel 0) with no stream (admin hasn't selected)
+    engine = <NoLiveChannelPlaceholder onPickLive={onPickLive} />
+  } else if (channel.type === 'live') {
+    // Live channel - use mpegts.js player
+    // Use backendId for highlight recording (real Dispatcharr ID), fallback to id
+    engine = (
       <LiveVideoPlayer
         key={`live-${channel.streamUrl}`}
         channelId={channel.backendId || channel.id}
@@ -74,20 +96,28 @@ export function DualModeVideoPlayer({
         onTheaterModeToggle={onTheaterModeToggle}
       />
     )
+  } else {
+    // ErsatzTV channel - use HLS Vidstack player with proxied stream URL
+    engine = (
+      <HLSVideoPlayerWrapper
+        key={`hls-${channel.id}`}
+        channelId={channel.id}
+        channelNumber={channel.number}
+        streamUrl={getErsatzTVStreamUrl(channel.id)}
+        title={channel.name}
+        isTheaterMode={isTheaterMode}
+        isMobile={isMobile}
+        onTheaterModeToggle={onTheaterModeToggle}
+      />
+    )
   }
 
-  // ErsatzTV channel - use HLS Vidstack player with proxied stream URL
   return (
-    <HLSVideoPlayerWrapper
-      key={`hls-${channel.id}`}
-      channelId={channel.id}
-      channelNumber={channel.number}
-      streamUrl={getErsatzTVStreamUrl(channel.id)}
-      title={channel.name}
-      isTheaterMode={isTheaterMode}
-      isMobile={isMobile}
-      onTheaterModeToggle={onTheaterModeToggle}
-    />
+    <PlayerShellContext value={shell}>
+      <div ref={containerRef} className="video-player-container relative h-full w-full bg-black">
+        {engine}
+      </div>
+    </PlayerShellContext>
   )
 }
 
@@ -177,7 +207,7 @@ function LiveVideoPlayer({
   onTheaterModeToggle,
 }: LiveVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
+  const { containerRef, isFullscreen, toggleFullscreen } = usePlayerShell()
   const playerRef = useRef<mpegts.Player | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isBuffering, setIsBuffering] = useState(false)
@@ -272,23 +302,12 @@ function LiveVideoPlayer({
     video.play().catch(() => setIsPlayBlocked(true))
   }, [])
 
-  const handleFullscreenToggle = useCallback(() => {
-    const container = containerRef.current
-    if (!container) return
-
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {})
-    } else {
-      container.requestFullscreen().catch(() => {})
-    }
-  }, [])
-
   // Keyboard shortcuts
   useVideoKeyboardShortcuts({
     containerRef,
     onPlayPause: handlePlayPause,
     onMuteToggle: handleMuteToggle,
-    onFullscreenToggle: handleFullscreenToggle,
+    onFullscreenToggle: toggleFullscreen,
     onTheaterModeToggle,
     onVolumeChange: handleVolumeChange,
     onUnmute: handleRestoreSound,
@@ -296,9 +315,6 @@ function LiveVideoPlayer({
     isMuted,
     ignoreVerticalArrows: isTVMode,
   })
-
-  // Fullscreen only when this player's container is the fullscreen element
-  const isFullscreen = useFullscreenState(containerRef)
 
   // Check mpegts.js support
   const isMpegtsSupported = mpegts.isSupported()
@@ -387,12 +403,7 @@ function LiveVideoPlayer({
   }, [streamUrl]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div
-      ref={containerRef}
-      className={`video-player-container relative bg-black ${
-        isTheaterMode ? 'h-full w-full' : 'h-full w-full max-w-full'
-      } ${!isVisible && isPlaying ? 'cursor-none' : ''}`}
-    >
+    <div className={`relative h-full w-full ${!isVisible && isPlaying ? 'cursor-none' : ''}`}>
       <video ref={videoRef} autoPlay className="h-full w-full object-contain" />
 
       {/* Video filter overlays */}
@@ -419,7 +430,7 @@ function LiveVideoPlayer({
         onPlayPause={handlePlayPause}
         onVolumeChange={handleVolumeChange}
         onMuteToggle={handleMuteToggle}
-        onFullscreenToggle={handleFullscreenToggle}
+        onFullscreenToggle={toggleFullscreen}
         onTheaterModeToggle={onTheaterModeToggle}
         onMouseEnter={() => setIsHoveringControls(true)}
         onMouseLeave={() => setIsHoveringControls(false)}
@@ -464,7 +475,6 @@ function HLSVideoPlayerWrapper({
   isMobile,
   onTheaterModeToggle,
 }: HLSVideoPlayerWrapperProps) {
-  const containerRef = useRef<HTMLDivElement>(null)
   const playerRef = useRef<MediaPlayerInstance>(null)
   const [isBuffering, setIsBuffering] = useState(true)
   const [hasStarted, setHasStarted] = useState(false)
@@ -593,7 +603,7 @@ function HLSVideoPlayerWrapper({
   }
 
   return (
-    <div ref={containerRef} className="relative h-full w-full bg-black flex items-center justify-center">
+    <div className="relative h-full w-full bg-black flex items-center justify-center">
       {/* Video filter overlays. Before MediaPlayer: it creates no stacking
           context, so the z-10 control bar inside it paints above these z-10
           filters only if it comes later in the DOM. */}
@@ -624,7 +634,6 @@ function HLSVideoPlayerWrapper({
       >
         <MediaProvider />
         <HLSControlsWrapper
-          containerRef={containerRef}
           isTheaterMode={isTheaterMode}
           isMobile={isMobile}
           channelId={channelId}
@@ -655,7 +664,6 @@ function HLSVideoPlayerWrapper({
 
 // HLS Controls with Vidstack context
 function HLSControlsWrapper({
-  containerRef,
   isTheaterMode,
   isMobile,
   channelId,
@@ -663,7 +671,6 @@ function HLSControlsWrapper({
   channelName,
   onTheaterModeToggle,
 }: {
-  containerRef: React.RefObject<HTMLDivElement | null>
   isTheaterMode: boolean
   isMobile: boolean
   channelId: string
@@ -674,6 +681,7 @@ function HLSControlsWrapper({
   const paused = useMediaState('paused')
   const isElementMuted = useMediaState('muted')
   const remote = useMediaRemote()
+  const { containerRef, toggleFullscreen } = usePlayerShell()
   const [isHoveringControls, setIsHoveringControls] = useState(false)
 
   // Detect TV mode
@@ -723,10 +731,7 @@ function HLSControlsWrapper({
     containerRef,
     onPlayPause: () => remote.togglePaused(),
     onMuteToggle: handleMuteToggle,
-    onFullscreenToggle: () => {
-      if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
-      else containerRef.current?.requestFullscreen().catch(() => {})
-    },
+    onFullscreenToggle: toggleFullscreen,
     onTheaterModeToggle,
     onVolumeChange: handleVolumeChange,
     onUnmute: handleUnmute,
