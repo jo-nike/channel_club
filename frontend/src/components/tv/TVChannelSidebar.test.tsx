@@ -38,7 +38,6 @@ describe('TVChannelSidebar colours', () => {
 
   it('hovers collapsed rail tiles with a foreground tint, which stays visible on bg-muted', async () => {
     render(<TVChannelSidebar isCollapsed />)
-    // Let the current-programme fetch settle
     await act(async () => {})
 
     const tile = screen.getByRole('button', { name: '1 Movies' })
@@ -520,22 +519,23 @@ describe('TVChannelSidebar programme progress', () => {
   const NOW = new Date('2026-09-26T20:00:00Z').getTime()
   const MINUTE = 60_000
 
-  function onNow(startOffsetMin: number, stopOffsetMin: number): ErsatzTVProgramme {
+  function programme(id: string, title: string, startOffsetMin: number, stopOffsetMin: number): ErsatzTVProgramme {
     return {
-      id: 'p1',
+      id,
       channelId: 'etv1',
-      title: 'Evening News',
+      title,
       start: new Date(NOW + startOffsetMin * MINUTE).toISOString(),
       stop: new Date(NOW + stopOffsetMin * MINUTE).toISOString(),
     }
   }
 
+  const row = () => screen.getByRole('button', { name: '1 Movies' })
   // The bar's fill sits in the track just before the time-left label
   const fillBefore = (label: HTMLElement) => label.previousElementSibling?.firstElementChild as HTMLElement
 
   beforeEach(() => {
-    // Only the clock: the programme fetch still resolves on real timers
-    vi.useFakeTimers({ toFake: ['Date'] })
+    // The clock and its 30s interval, so the tick can be stepped
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
     vi.setSystemTime(NOW)
     useErsatztvStore.setState({
       channels: [{ id: 'etv1', name: 'Movies', streamUrl: '', logoUrl: '', number: 1, group: 'Films' }],
@@ -545,25 +545,77 @@ describe('TVChannelSidebar programme progress', () => {
   afterEach(() => {
     cleanup()
     vi.useRealTimers()
-    vi.mocked(fetchErsatzTVCurrentProgramme).mockResolvedValue({ current: null, nextUp: null })
-    useErsatztvStore.setState({ channels: [] })
+    vi.mocked(fetchErsatzTVCurrentProgramme).mockClear()
+    useErsatztvStore.setState({ channels: [], programmesByChannel: {} })
   })
 
-  it("shows the time left and fills the bar by the share that's been on", async () => {
+  it("shows the title and time left from the guide's programmes and fills the bar by the share that's been on", async () => {
     // 30 of 95 minutes in, 65 to go
-    vi.mocked(fetchErsatzTVCurrentProgramme).mockResolvedValue({ current: onNow(-30, 65), nextUp: null })
+    useErsatztvStore.setState({ programmesByChannel: { etv1: [programme('p1', 'Evening News', -30, 65)] } })
     render(<TVChannelSidebar />)
+    await act(async () => {})
 
-    const label = await screen.findByText('1h 5m left')
+    expect(row()).toHaveTextContent('Evening News')
+    const label = screen.getByText('1h 5m left')
     expect(parseFloat(fillBefore(label).style.width)).toBeCloseTo((30 / 95) * 100, 5)
   })
 
-  it("says 'Ending...' with a full bar once the stop time has passed", async () => {
-    vi.mocked(fetchErsatzTVCurrentProgramme).mockResolvedValue({ current: onNow(-60, -1), nextUp: null })
+  it('never asks the backend for current programmes, even as the clock ticks', async () => {
+    useErsatztvStore.setState({ programmesByChannel: { etv1: [programme('p1', 'Evening News', -30, 65)] } })
     render(<TVChannelSidebar />)
+    await act(async () => {})
+    await act(() => vi.advanceTimersByTimeAsync(5 * MINUTE))
 
-    const label = await screen.findByText('Ending...')
-    expect(fillBefore(label).style.width).toBe('100%')
+    expect(fetchErsatzTVCurrentProgramme).not.toHaveBeenCalled()
+  })
+
+  it('counts down on the 30s tick and moves to the next programme at its start', async () => {
+    useErsatztvStore.setState({
+      programmesByChannel: {
+        etv1: [programme('p1', 'Evening News', -30, 1), programme('p2', 'Late Movie', 1, 91)],
+      },
+    })
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+    expect(row()).toHaveTextContent('Evening News')
+    expect(row()).toHaveTextContent('1m left')
+
+    // 30s later the news has 30s to go, which still rounds up to a minute
+    await act(() => vi.advanceTimersByTimeAsync(30_000))
+    expect(row()).toHaveTextContent('Evening News')
+    expect(row()).toHaveTextContent('1m left')
+
+    // The next tick lands on the stop instant, where the movie takes over
+    await act(() => vi.advanceTimersByTimeAsync(30_000))
+    expect(row()).toHaveTextContent('Late Movie')
+    expect(row()).not.toHaveTextContent('Evening News')
+    expect(row()).toHaveTextContent('1h 30m left')
+  })
+
+  it('shows no bar in a gap between programmes', async () => {
+    useErsatztvStore.setState({
+      programmesByChannel: {
+        etv1: [programme('p1', 'Evening News', -60, -5), programme('p2', 'Late Movie', 10, 100)],
+      },
+    })
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+
+    expect(row()).not.toHaveTextContent('Evening News')
+    expect(screen.queryByText(/ left$/)).toBeNull()
+  })
+
+  it('follows a refresh of the guide programmes', async () => {
+    useErsatztvStore.setState({ programmesByChannel: { etv1: [programme('p1', 'Evening News', -30, 65)] } })
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+
+    await act(async () => {
+      useErsatztvStore.setState({ programmesByChannel: { etv1: [programme('p9', 'Breaking News', -5, 25)] } })
+    })
+
+    expect(row()).toHaveTextContent('Breaking News')
+    expect(row()).toHaveTextContent('25m left')
   })
 })
 
