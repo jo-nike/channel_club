@@ -8,6 +8,7 @@ import { HighlightButton } from '@/components/HighlightButton'
 import { CastButton } from '@/components/CastButton'
 import { FilterMenu } from '@/components/FilterMenu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { withKey } from '@/lib/keyHints'
 import { unmutedVolume } from '@/stores/audioStore'
 import { useClipStore } from '@/stores/clipStore'
 import { usePlayerShell } from './PlayerShellContext'
@@ -104,6 +105,7 @@ export function PlayerChrome({
             tabIndex={tabIndex}
             onClick={adapter.togglePaused}
             aria-label={playLabel}
+            aria-keyshortcuts="Space"
             className={CONTROL_BUTTON}
           >
             {adapter.isPlaying ? (
@@ -114,7 +116,7 @@ export function PlayerChrome({
           </button>
         </TooltipTrigger>
         <TooltipContent>
-          <p>{playLabel}</p>
+          <p>{withKey(playLabel, 'Space')}</p>
         </TooltipContent>
       </Tooltip>
 
@@ -127,6 +129,7 @@ export function PlayerChrome({
               tabIndex={tabIndex}
               onClick={toggleMute}
               aria-label={muteLabel}
+              aria-keyshortcuts="M"
               className={CONTROL_BUTTON}
             >
               {isMuted ? (
@@ -137,7 +140,7 @@ export function PlayerChrome({
             </button>
           </TooltipTrigger>
           <TooltipContent>
-            <p>{muteLabel}</p>
+            <p>{withKey(muteLabel, 'M')}</p>
           </TooltipContent>
         </Tooltip>
         {/* No slider where the browser ignores script volume (iOS/iPadOS); Mute
@@ -199,13 +202,14 @@ export function PlayerChrome({
             tabIndex={tabIndex}
             onClick={reload}
             aria-label="Reload stream"
+            aria-keyshortcuts="R"
             className={`${CONTROL_BUTTON} max-[399px]:hidden`}
           >
             <RotateCw className="h-6 w-6 text-white" />
           </button>
         </TooltipTrigger>
         <TooltipContent>
-          <p>Reload stream (R)</p>
+          <p>{withKey('Reload stream', 'R')}</p>
         </TooltipContent>
       </Tooltip>
 
@@ -219,6 +223,7 @@ export function PlayerChrome({
               tabIndex={tabIndex}
               onClick={toggleTheaterMode}
               aria-label={theaterLabel}
+              aria-keyshortcuts="T"
               className={CONTROL_BUTTON}
             >
               {isTheaterMode ? (
@@ -229,7 +234,7 @@ export function PlayerChrome({
             </button>
           </TooltipTrigger>
           <TooltipContent>
-            <p>{theaterLabel}</p>
+            <p>{withKey(theaterLabel, 'T')}</p>
           </TooltipContent>
         </Tooltip>
       )}
@@ -242,6 +247,7 @@ export function PlayerChrome({
             tabIndex={tabIndex}
             onClick={toggleFullscreen}
             aria-label={fullscreenLabel}
+            aria-keyshortcuts="F"
             className={CONTROL_BUTTON}
           >
             {isFullscreen ? (
@@ -252,7 +258,7 @@ export function PlayerChrome({
           </button>
         </TooltipTrigger>
         <TooltipContent>
-          <p>{fullscreenLabel}</p>
+          <p>{withKey(fullscreenLabel, 'F')}</p>
         </TooltipContent>
       </Tooltip>
     </div>

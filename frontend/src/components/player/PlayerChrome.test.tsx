@@ -158,6 +158,35 @@ describe('PlayerChrome', () => {
     })
   })
 
+  describe('key hints', () => {
+    it.each([
+      ['Play', 'Play (Space)', 'Space', {}],
+      ['Pause', 'Pause (Space)', 'Space', { adapter: { isPlaying: true } }],
+      ['Mute', 'Mute (M)', 'M', {}],
+      ['Reload stream', 'Reload stream (R)', 'R', {}],
+      ['Theater mode', 'Theater mode (T)', 'T', {}],
+      ['Exit theater mode', 'Exit theater mode (T)', 'T', { shell: { isTheaterMode: true } }],
+      ['Fullscreen', 'Fullscreen (F)', 'F', {}],
+      ['Exit fullscreen', 'Exit fullscreen (F)', 'F', { shell: { isFullscreen: true } }],
+    ] as const)('%s: the tooltip reads %s', async (name, tooltip, key, setup: Setup) => {
+      renderChrome(setup)
+      const button = screen.getByRole('button', { name })
+
+      fireEvent.focus(button)
+
+      expect(await screen.findByRole('tooltip')).toHaveTextContent(tooltip)
+      expect(button).toHaveAttribute('aria-keyshortcuts', key)
+    })
+
+    it('keeps the key out of the button names', () => {
+      renderChrome()
+
+      for (const name of ['Play', 'Mute', 'Reload stream', 'Theater mode', 'Fullscreen']) {
+        expect(screen.getByRole('button', { name })).toHaveAccessibleName(name)
+      }
+    })
+  })
+
   describe('volume', () => {
     it('shows the muted icon and Unmute while the saved mute is on', () => {
       useAudioStore.setState({ volume: 1, muted: true })
@@ -237,13 +266,13 @@ describe('PlayerChrome', () => {
       expect(screen.getByRole('button', { name: 'Unmute (25%)' })).toBeInTheDocument()
     })
 
-    it('the tooltip says the same as the button', async () => {
+    it('the tooltip says the same as the button, with its key', async () => {
       useAudioStore.setState({ volume: 0.8, muted: true })
       renderChrome()
 
       fireEvent.focus(screen.getByRole('button', { name: 'Unmute (80%)' }))
 
-      expect(await screen.findByRole('tooltip')).toHaveTextContent('Unmute (80%)')
+      expect(await screen.findByRole('tooltip')).toHaveTextContent('Unmute (80%) (M)')
     })
 
     it('the slider follows the saved mute: an element-only mute leaves it undimmed', () => {
