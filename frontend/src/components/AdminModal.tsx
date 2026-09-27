@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
 import { APP_NAME, APP_VERSION } from '@/lib/appInfo'
 import {
   Dialog,
@@ -9,6 +9,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ChannelList } from '@/components/ChannelList'
 import { ChatTab } from '@/components/admin/ChatTab'
+import { OnAirCard } from '@/components/admin/OnAirCard'
 import { NHLGamesTab } from '@/components/admin/NHLGamesTab'
 import { PeopleTab } from '@/components/admin/PeopleTab'
 import { StatusTab } from '@/components/admin/StatusTab'
@@ -29,13 +30,38 @@ const tabs: { id: TabType; label: string }[] = [
   { id: 'status', label: 'Status' },
 ]
 
+/**
+ * The On-air card sticks to the top of the tab's scroll container, over the
+ * channel list. Browsers scroll a newly focused row to the scrollport's edge
+ * and ignore sticky overlays, so every element in the list gets a scroll
+ * margin of the card's measured height (it changes with the programme, count
+ * and recents rows). Keyboard and d-pad focus then lands below the card, not
+ * under it. The margin sits on the list only: the card's own buttons stay
+ * where they are when focused.
+ */
+function ChannelsTab() {
+  const [onAirHeight, setOnAirHeight] = useState(0)
+
+  return (
+    <>
+      <OnAirCard onHeightChange={setOnAirHeight} />
+      <div
+        className="**:scroll-mt-(--on-air-height)"
+        style={{ '--on-air-height': `${onAirHeight}px` } as CSSProperties}
+      >
+        <ChannelList />
+      </div>
+    </>
+  )
+}
+
 export function AdminModal({ open, onOpenChange }: AdminModalProps) {
   const [activeTab, setActiveTab] = useState<TabType>('channels')
 
   const renderTabContent = (tabId: TabType) => {
     switch (tabId) {
       case 'channels':
-        return <ChannelList />
+        return <ChannelsTab />
       case 'people':
         return <PeopleTab />
       case 'chat':

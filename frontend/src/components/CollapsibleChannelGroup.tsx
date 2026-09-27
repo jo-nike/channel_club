@@ -10,7 +10,10 @@ interface CollapsibleChannelGroupProps {
   currentChannelId: string | null
   canSelect: boolean
   onSelectChannel: (channel: Channel) => void
+  /** Keeps the group open while true (search results); it can't be collapsed meanwhile. */
   forceOpen?: boolean
+  /** Starts the group open. Only the first render reads it, so the group can still be collapsed. */
+  defaultOpen?: boolean
   /** Current programme per channel, keyed by Channel.guideId. */
   nowPlaying?: Record<string, Program>
 }
@@ -21,11 +24,11 @@ export interface CollapsibleChannelGroupHandle {
 
 export const CollapsibleChannelGroup = forwardRef<CollapsibleChannelGroupHandle, CollapsibleChannelGroupProps>(
   function CollapsibleChannelGroup(
-    { group, currentChannelId, canSelect, onSelectChannel, forceOpen = false, nowPlaying },
+    { group, currentChannelId, canSelect, onSelectChannel, forceOpen = false, defaultOpen = false, nowPlaying },
     ref
   ) {
-    const [isOpen, setIsOpen] = useState(forceOpen)
-    const [hasOpened, setHasOpened] = useState(forceOpen)
+    const [isOpen, setIsOpen] = useState(forceOpen || defaultOpen)
+    const [hasOpened, setHasOpened] = useState(forceOpen || defaultOpen)
 
     // Expose setOpen method to parent
     useImperativeHandle(ref, () => ({

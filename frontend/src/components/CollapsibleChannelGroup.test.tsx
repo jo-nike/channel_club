@@ -137,6 +137,53 @@ describe('CollapsibleChannelGroup', () => {
     })
   })
 
+  describe('defaultOpen prop', () => {
+    it('should start expanded', () => {
+      render(
+        <CollapsibleChannelGroup
+          group={mockGroup}
+          currentChannelId="1"
+          canSelect={true}
+          onSelectChannel={vi.fn()}
+          defaultOpen
+        />
+      )
+
+      expect(screen.getByText('TSN')).toBeInTheDocument()
+      expect(screen.getByText('Sportsnet')).toBeInTheDocument()
+    })
+
+    it('should still collapse when the header is clicked, and stay collapsed on re-render', () => {
+      const { rerender } = render(
+        <CollapsibleChannelGroup
+          group={mockGroup}
+          currentChannelId="1"
+          canSelect={true}
+          onSelectChannel={vi.fn()}
+          defaultOpen
+        />
+      )
+
+      fireEvent.click(screen.getByText('Sports'))
+      expect(screen.queryByText('TSN')).not.toBeInTheDocument()
+
+      // Only the first render reads defaultOpen
+      rerender(
+        <CollapsibleChannelGroup
+          group={mockGroup}
+          currentChannelId="1"
+          canSelect={true}
+          onSelectChannel={vi.fn()}
+          defaultOpen
+        />
+      )
+      expect(screen.queryByText('TSN')).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByText('Sports'))
+      expect(screen.getByText('TSN')).toBeInTheDocument()
+    })
+  })
+
   describe('Channel selection', () => {
     it('should call onSelectChannel when admin clicks a channel', () => {
       const onSelectChannel = vi.fn()

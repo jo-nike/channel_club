@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor, act } from '@/test/utils'
+import { render, screen, fireEvent, waitFor, act, within } from '@/test/utils'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { AdminModal } from './AdminModal'
 import { focusOverrides } from '@/test/focus'
@@ -9,6 +9,7 @@ import * as api from '@/services/api'
 vi.mock('@/services/api', () => ({
   fetchGroupedChannels: vi.fn(),
   fetchNowPlayingAll: vi.fn(),
+  fetchNowPlaying: vi.fn(),
   setCurrentChannel: vi.fn(),
   clearCurrentChannel: vi.fn(),
   fetchAppSettings: vi.fn(),
@@ -125,6 +126,7 @@ describe('AdminModal', () => {
     })
     vi.mocked(api.fetchGroupedChannels).mockResolvedValue(mockGroupedChannelsResponse)
     vi.mocked(api.fetchNowPlayingAll).mockResolvedValue({})
+    vi.mocked(api.fetchNowPlaying).mockResolvedValue({ channelId: '1', currentProgram: null })
     vi.mocked(api.fetchAppSettings).mockResolvedValue({ userChannelSelection: false })
     vi.mocked(api.updateAppSettings).mockResolvedValue({ userChannelSelection: true })
   })
@@ -352,6 +354,68 @@ describe('AdminModal', () => {
       fireEvent.click(screen.getByText('Sports'))
       expect(screen.getByText('Channel 1')).toBeInTheDocument()
       expect(screen.getByText('Channel 2')).toBeInTheDocument()
+    })
+
+    it('opens on the On-air card, above the channel list', async () => {
+      useChannelStore.setState({ currentChannel: mockChannels[0] })
+
+      render(<AdminModal {...defaultProps} />)
+
+      const panel = screen.getByRole('tabpanel')
+      const card = within(panel).getByRole('region', { name: 'On air' })
+      expect(within(card).getByText('Channel 1')).toBeInTheDocument()
+      expect(within(card).getByText('1 watching')).toBeInTheDocument()
+
+      const list = await within(panel).findByRole('listbox', { name: 'Channel list' })
+      // The card comes first in the scroll container
+      expect(card.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    })
+
+    it("keeps focused rows clear of the sticky card with a scroll margin of the card's height", async () => {
+      // jsdom has no layout: capture the card's observer so the test can drive it
+      let resize: () => void = () => {}
+      class CapturingResizeObserver implements ResizeObserver {
+        constructor(callback: ResizeObserverCallback) {
+          resize = () => callback([], this)
+        }
+        observe(): void {}
+        unobserve(): void {}
+        disconnect(): void {}
+      }
+      vi.stubGlobal('ResizeObserver', CapturingResizeObserver)
+      useChannelStore.setState({ currentChannel: mockChannels[0] })
+
+      try {
+        render(<AdminModal {...defaultProps} />)
+
+        const panel = screen.getByRole('tabpanel')
+        const card = within(panel).getByRole('region', { name: 'On air' })
+        const list = await within(panel).findByRole('listbox', { name: 'Channel list' })
+        const underCard = list.closest<HTMLElement>('.\\*\\*\\:scroll-mt-\\(--on-air-height\\)')
+        expect(underCard).not.toBeNull()
+        // Only the list: the card's own buttons don't move when focused
+        expect(underCard).not.toContainElement(card)
+
+        Object.defineProperty(card, 'offsetHeight', { configurable: true, value: 152 })
+        act(() => resize())
+        expect(underCard!.style.getPropertyValue('--on-air-height')).toBe('152px')
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
+
+    it('says nothing is on live TV when no channel is selected', () => {
+      render(<AdminModal {...defaultProps} />)
+
+      expect(within(screen.getByRole('region', { name: 'On air' })).getByText('Nothing on live TV')).toBeInTheDocument()
+    })
+
+    it('shows the On-air card only on the Channels tab', () => {
+      render(<AdminModal {...defaultProps} />)
+
+      fireEvent.mouseDown(screen.getByRole('tab', { name: /status/i }))
+
+      expect(screen.queryByRole('region', { name: 'On air' })).not.toBeInTheDocument()
     })
 
     it('shows Stop live TV when a channel is selected (AC #1)', async () => {

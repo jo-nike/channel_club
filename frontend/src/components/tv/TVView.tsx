@@ -451,7 +451,7 @@ export function TVView() {
         <AdminModal open={adminModalOpen} onOpenChange={setAdminModalOpen} />
       )}
 
-      {/* Live channel picker (admins also get Stop live TV in it) */}
+      {/* Live channel picker (Stop live TV is on the admin panel's On-air card) */}
       {canControl && (
         <LiveChannelPickerDialog
           open={channelPickerOpen}
