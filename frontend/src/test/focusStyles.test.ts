@@ -90,18 +90,6 @@ describe('ui primitives rely on the global focus outline', () => {
   })
 })
 
-// Component sources that later packages rewrite or delete, so they keep their
-// old focus classes until then: the old account menu and feedback button
-// (W2-account-menu) and the old player control bars (W2-chrome-*). Paths that
-// no longer exist are simply absent from the glob, so deleting one needs no
-// edit here.
-const ALLOWLIST = new Set([
-  '/src/components/FeedbackButton.tsx',
-  '/src/components/UserSettingsMenu.tsx',
-  '/src/components/VideoControls.tsx',
-  '/src/components/ersatztv/ErsatzTVVideoControls.tsx',
-])
-
 // focus: variants fire on mouse clicks too; ring/50 falls below 3:1 on dark
 // themes; blue rings ignore the theme. Use the global :focus-visible outline
 // (index.css), focus-visible:-outline-offset-2 inside scroll containers, or
@@ -115,9 +103,7 @@ const sources = import.meta.glob<string>('/src/components/**/*.tsx', {
 })
 
 describe('component focus styles', () => {
-  const checked = Object.entries(sources).filter(
-    ([path]) => !/\.test\.tsx$/.test(path) && !ALLOWLIST.has(path),
-  )
+  const checked = Object.entries(sources).filter(([path]) => !/\.test\.tsx$/.test(path))
 
   it('scans the component sources', () => {
     expect(checked.length).toBeGreaterThan(20)
