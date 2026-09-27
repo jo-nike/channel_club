@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
+import { focusOverrides } from '@/test/focus'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './tabs'
 
 function renderTabs(onValueChange?: (value: string) => void) {
@@ -58,15 +59,15 @@ describe('Tabs', () => {
     expect(channels).toHaveAttribute('tabindex', '-1')
   })
 
-  it('uses focus-visible rings only, never :focus styles', () => {
+  it('relies on the global focus outline, with no ring or :focus styles of its own', () => {
     renderTabs()
 
-    for (const el of [
-      screen.getByRole('tab', { name: 'Channels' }),
-      screen.getByRole('tabpanel'),
-    ]) {
-      expect(el.className).toContain('focus-visible:ring-[3px]')
+    const tab = screen.getByRole('tab', { name: 'Channels' })
+    const panel = screen.getByRole('tabpanel')
+    for (const el of [tab, panel]) {
+      expect(focusOverrides(el)).toEqual([])
       expect(el.className).not.toMatch(/(^|\s)focus:/)
     }
+    expect(tab).toHaveClass('focus-visible:border-ring')
   })
 })
