@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor, within } from '@/test/utils'
 import { LoginForm } from './LoginForm'
 import { focusOverrides } from '@/test/focus'
@@ -545,6 +545,108 @@ describe('LoginForm', () => {
 
         expect(await screen.findByRole('button', { name: 'Sign in with Plex' })).toBeDisabled()
         expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument()
+      })
+    })
+
+    describe('redirect sign-in on iPhone, iPad and installed apps', () => {
+      const IPHONE =
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1'
+      const ANDROID =
+        'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36'
+      const originalLocation = window.location
+      const originalMatchMedia = window.matchMedia
+      let assign: ReturnType<typeof vi.fn>
+
+      function userAgent(ua: string) {
+        Object.defineProperty(navigator, 'userAgent', { value: ua, configurable: true })
+      }
+
+      beforeEach(() => {
+        vi.mocked(api.getAuthConfig).mockResolvedValue({
+          localAuthEnabled: true,
+          plexAuthEnabled: true,
+        })
+        assign = vi.fn()
+        Object.defineProperty(window, 'location', {
+          value: { ...originalLocation, origin: 'https://club.example', assign },
+          writable: true,
+          configurable: true,
+        })
+        // The real redirect flow runs; only Plex's API is faked
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve({ id: 42, code: 'PINCODE', authToken: null }),
+        } as Response))
+        sessionStorage.clear()
+      })
+
+      afterEach(() => {
+        Object.defineProperty(window, 'location', {
+          value: originalLocation,
+          writable: true,
+          configurable: true,
+        })
+        window.matchMedia = originalMatchMedia
+        Reflect.deleteProperty(navigator, 'userAgent')
+        vi.unstubAllGlobals()
+        sessionStorage.clear()
+      })
+
+      async function expectSentToPlex() {
+        await waitFor(() => expect(assign).toHaveBeenCalledTimes(1))
+        const url = new URL(assign.mock.calls[0][0] as string)
+        expect(url.origin + url.pathname).toBe('https://app.plex.tv/auth')
+        expect(new URLSearchParams(url.hash.slice(2)).get('forwardUrl')).toBe('https://club.example/')
+        expect(sessionStorage.getItem(plexAuth.PLEX_PENDING_PIN_KEY)).toBe('42')
+        expect(plexAuth.openPlexAuthWindow).not.toHaveBeenCalled()
+        expect(plexAuth.authenticateWithPlex).not.toHaveBeenCalled()
+      }
+
+      it('sends the whole page to Plex with forwardUrl on an iPhone, opening no window', async () => {
+        userAgent(IPHONE)
+        render(<LoginForm />)
+        fireEvent.click(await screen.findByText('Sign in with Plex'))
+
+        await expectSentToPlex()
+        // Stays waiting while the page leaves
+        expect(screen.getByRole('button', { name: 'Waiting for Plex...' })).toBeDisabled()
+      })
+
+      it('sends the whole page to Plex from an installed app (standalone display mode)', async () => {
+        window.matchMedia = vi.fn((query: string) => ({
+          ...originalMatchMedia(query),
+          matches: query === '(display-mode: standalone)',
+        }))
+        render(<LoginForm />)
+        fireEvent.click(await screen.findByText('Sign in with Plex'))
+
+        await expectSentToPlex()
+      })
+
+      it('keeps the popup in an Android browser', async () => {
+        userAgent(ANDROID)
+        vi.mocked(plexAuth.authenticateWithPlex).mockReturnValueOnce(new Promise(() => {}))
+        render(<LoginForm />)
+        fireEvent.click(await screen.findByText('Sign in with Plex'))
+
+        expect(plexAuth.openPlexAuthWindow).toHaveBeenCalledTimes(1)
+        expect(plexAuth.authenticateWithPlex).toHaveBeenCalledWith(plexWindow, expect.any(AbortSignal))
+        expect(assign).not.toHaveBeenCalled()
+        expect(sessionStorage.getItem(plexAuth.PLEX_PENDING_PIN_KEY)).toBeNull()
+      })
+
+      it('shows the callout and stays on the page when Plex refuses the PIN', async () => {
+        userAgent(IPHONE)
+        vi.mocked(fetch).mockResolvedValueOnce({ ok: false, status: 429 } as Response)
+        render(<LoginForm />)
+        fireEvent.click(await screen.findByText('Sign in with Plex'))
+
+        const alert = await screen.findByRole('alert')
+        expect(alert).toHaveTextContent('Too many attempts, wait a minute.')
+        expect(within(alert).getByRole('button', { name: 'Try again' })).toBeInTheDocument()
+        expect(within(alert).getByRole('button', { name: 'Sign in with a code' })).toBeInTheDocument()
+        expect(assign).not.toHaveBeenCalled()
+        expect(screen.getByRole('button', { name: 'Sign in with Plex' })).toBeEnabled()
       })
     })
 
