@@ -29,7 +29,7 @@ describe('UserSettingsMenu theme options', () => {
   it('marks the selected theme row as pressed and readable on the accent surface', () => {
     openMenu()
 
-    const selected = themeRow('Catppuccin Mocha')
+    const selected = themeRow('Club Night')
     expect(selected).toHaveAttribute('aria-pressed', 'true')
     expect(selected).toHaveClass('bg-accent', 'text-accent-foreground')
   })
@@ -37,7 +37,7 @@ describe('UserSettingsMenu theme options', () => {
   it('shows a primary check only on the selected row', () => {
     openMenu()
 
-    expect(themeRow('Catppuccin Mocha').querySelector('svg.text-primary')).not.toBeNull()
+    expect(themeRow('Club Night').querySelector('svg.text-primary')).not.toBeNull()
 
     const other = themeRow('Dracula')
     expect(other).toHaveAttribute('aria-pressed', 'false')
@@ -52,7 +52,7 @@ describe('UserSettingsMenu theme options', () => {
 
     expect(themeRow('Catppuccin Latte')).toHaveAttribute('aria-pressed', 'true')
     expect(themeRow('Catppuccin Latte')).toHaveClass('text-accent-foreground')
-    expect(themeRow('Catppuccin Mocha')).toHaveAttribute('aria-pressed', 'false')
+    expect(themeRow('Club Night')).toHaveAttribute('aria-pressed', 'false')
   })
 
   it('shows background, card and primary swatches for each theme', () => {

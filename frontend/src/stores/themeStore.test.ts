@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useThemeStore } from './themeStore'
 import { DEFAULT_THEME_ID } from '@/lib/themes'
 
@@ -16,9 +16,34 @@ describe('themeStore', () => {
       expect(themeId).toBe(DEFAULT_THEME_ID)
     })
 
-    it('should have catppuccin-mocha as default theme', () => {
+    it('should have club-night as default theme', () => {
       const { themeId } = useThemeStore.getState()
-      expect(themeId).toBe('catppuccin-mocha')
+      expect(themeId).toBe('club-night')
+    })
+  })
+
+  describe('default for new and existing devices', () => {
+    /** Load a fresh copy of the store, as a new page load would */
+    async function loadStore() {
+      vi.resetModules()
+      const { useThemeStore: fresh } = await import('./themeStore')
+      return fresh
+    }
+
+    it('starts a device that never chose a theme on Club Night', async () => {
+      const fresh = await loadStore()
+      expect(fresh.getState().themeId).toBe('club-night')
+    })
+
+    it('keeps the theme a device already chose, including the old Mocha default', async () => {
+      localStorage.setItem(
+        'theme-storage',
+        JSON.stringify({ state: { themeId: 'catppuccin-mocha' }, version: 0 })
+      )
+
+      const fresh = await loadStore()
+
+      expect(fresh.getState().themeId).toBe('catppuccin-mocha')
     })
   })
 

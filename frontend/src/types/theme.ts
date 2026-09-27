@@ -1,11 +1,12 @@
 /**
  * Theme type definitions for Glance-inspired color themes
- * Supports 14 themes organized into dark and light categories
+ * Supports 16 themes organized into dark and light categories
  */
 
 // Union type of all available theme IDs
 export type ThemeId =
-  // Dark themes (11)
+  // Dark themes (12)
+  | 'club-night'
   | 'teal-city'
   | 'catppuccin-frappe'
   | 'catppuccin-macchiato'
@@ -17,7 +18,8 @@ export type ThemeId =
   | 'dracula'
   | 'shades-of-purple'
   | 'neon-pink'
-  // Light themes (3)
+  // Light themes (4)
+  | 'club-day'
   | 'catppuccin-latte'
   | 'peachy'
   | 'zebra'

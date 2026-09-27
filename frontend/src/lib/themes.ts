@@ -30,7 +30,8 @@ function readableOn(background: string, dark: string, light: string): string {
  */
 function createDarkThemeColors(
   background: string,
-  primary: string
+  primary: string,
+  overrides: Partial<Theme['colors']> = {}
 ): Theme['colors'] {
   // Parse L value from background to derive other colors
   const bgParts = background.split(' ')
@@ -98,12 +99,14 @@ function createDarkThemeColors(
     sidebarAccentForeground: 'oklch(0.985 0 0)',
     sidebarBorder: 'oklch(1 0 0 / 10%)',
     sidebarRing: `oklch(${primary})`,
+    ...overrides,
   }
 }
 
 function createLightThemeColors(
   background: string,
-  primary: string
+  primary: string,
+  overrides: Partial<Theme['colors']> = {}
 ): Theme['colors'] {
   const bgParts = background.split(' ')
   const bgL = parseFloat(bgParts[0])
@@ -165,18 +168,37 @@ function createLightThemeColors(
     sidebarAccentForeground: 'oklch(0.205 0 0)',
     sidebarBorder: `oklch(${borderL} ${bgC * 0.2} ${bgH})`,
     sidebarRing: `oklch(${primary})`,
+    ...overrides,
   }
 }
 
 /**
- * All available themes - 14 Glance themes
+ * All available themes: the Club Night and Club Day house themes plus 14
+ * Glance themes
  *
  * HSL to OKLCH approximate conversions:
  * HSL(240, 21%, 15%) → oklch(0.19 0.022 265) - Catppuccin Mocha bg
  * HSL(217, 92%, 83%) → oklch(0.85 0.14 250)  - Catppuccin Mocha primary
  */
 export const themes: Record<ThemeId, Theme> = {
-  // === DARK THEMES (11) ===
+  // === DARK THEMES (12) ===
+
+  // House theme: ink background, marquee-amber primary. The derived muted and
+  // primary foregrounds are neutral; these warmer, tuned ones keep muted text
+  // above 7:1 on cards and ink on amber above 9:1.
+  'club-night': {
+    id: 'club-night',
+    name: 'Club Night',
+    mode: 'dark',
+    colors: createDarkThemeColors(
+      '0.17 0.02 275', // Ink
+      '0.82 0.14 78', // Marquee amber
+      {
+        mutedForeground: 'oklch(0.74 0.02 275)',
+        primaryForeground: 'oklch(0.22 0.03 60)',
+      }
+    ),
+  },
 
   'teal-city': {
     id: 'teal-city',
@@ -288,7 +310,19 @@ export const themes: Record<ThemeId, Theme> = {
     ),
   },
 
-  // === LIGHT THEMES (3) ===
+  // === LIGHT THEMES (4) ===
+
+  // Light pair to Club Night: warm paper background, burnt-amber primary dark
+  // enough to carry white text.
+  'club-day': {
+    id: 'club-day',
+    name: 'Club Day',
+    mode: 'light',
+    colors: createLightThemeColors(
+      '0.975 0.008 85', // Warm paper
+      '0.50 0.13 55' // Burnt amber
+    ),
+  },
 
   'catppuccin-latte': {
     id: 'catppuccin-latte',
@@ -349,6 +383,7 @@ export function getAllThemeIds(): ThemeId[] {
 }
 
 /**
- * Default theme ID
+ * Default theme ID. The store persists the chosen themeId, so this only
+ * applies to devices that have never saved one.
  */
-export const DEFAULT_THEME_ID: ThemeId = 'catppuccin-mocha'
+export const DEFAULT_THEME_ID: ThemeId = 'club-night'
