@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta, timezone
 
 import httpx
@@ -9,6 +10,7 @@ from defusedxml import ElementTree
 from loguru import logger
 
 from app.config import settings
+from app.models.channel import Channel
 from app.models.epg import EPGResponse, Program
 from app.models.status import EPGHealthStatus
 
@@ -327,6 +329,28 @@ class EPGService:
 
         return current_program, next_program
 
+    def _resolve_programs(
+        self, channel_id: str, channel_name: str | None
+    ) -> tuple[list[Program], str | None]:
+        """Find a channel's programmes by guide id, then by name when the id has none.
+
+        Args:
+            channel_id: Guide id of the channel.
+            channel_name: Optional channel name to match against XMLTV display names.
+
+        Returns:
+            Tuple of (programmes, XMLTV id matched by name). The XMLTV id is None
+            unless the name fallback was used.
+        """
+        programs = self._cache.get(channel_id, [])
+        if programs or not channel_name:
+            return programs, None
+
+        xmltv_id = self._channel_names.get(normalise_channel_name(channel_name))
+        if xmltv_id is None:
+            return programs, None
+        return self._cache.get(xmltv_id, []), xmltv_id
+
     async def get_now_playing(
         self, channel_id: str, channel_name: str | None = None
     ) -> EPGResponse:
@@ -349,19 +373,14 @@ class EPGService:
         """
         await self._ensure_cache()
 
-        # Look up programs for channel
-        programs = self._cache.get(channel_id, [])
-
-        if not programs and channel_name:
-            xmltv_id = self._channel_names.get(normalise_channel_name(channel_name))
-            if xmltv_id is not None:
-                programs = self._cache.get(xmltv_id, [])
-                log.debug(
-                    "Guide id {} missed; matched channel name {!r} to XMLTV id {}",
-                    channel_id,
-                    channel_name,
-                    xmltv_id,
-                )
+        programs, xmltv_id = self._resolve_programs(channel_id, channel_name)
+        if xmltv_id is not None:
+            log.debug(
+                "Guide id {} missed; matched channel name {!r} to XMLTV id {}",
+                channel_id,
+                channel_name,
+                xmltv_id,
+            )
 
         if not programs:
             return EPGResponse(
@@ -378,15 +397,23 @@ class EPGService:
             next_program=next_program,
         )
 
-    async def get_now_playing_bulk(self) -> dict[str, Program]:
+    async def get_now_playing_bulk(self, channels: Iterable[Channel] = ()) -> dict[str, Program]:
         """Get the on-air program for every channel in the EPG cache.
 
         The whole XMLTV feed is already cached in memory, so this is a scan over
         local data rather than one upstream call per channel.
 
+        Each of the given catalogue channels is also resolved the way
+        get_now_playing resolves it (guide id first, then its name against the
+        XMLTV display names), so a feed keyed differently from the guide ids
+        still yields an entry under each channel's guide id.
+
+        Args:
+            channels: Catalogue channels to key by guide id.
+
         Returns:
-            Mapping of channel_id to its current program. Channels with nothing
-            on air are omitted.
+            Mapping of XMLTV channel id, and of each given channel's guide id, to
+            its current program. Channels with nothing on air are omitted.
 
         Raises:
             EPGServiceError: If cache is empty and refresh fails.
@@ -400,6 +427,16 @@ class EPGService:
             current_program, _ = self._find_current_and_next(programs, now)
             if current_program is not None:
                 now_playing[channel_id] = current_program
+
+        for channel in channels:
+            if channel.guide_id in now_playing:
+                continue
+            programs, xmltv_id = self._resolve_programs(channel.guide_id, channel.name)
+            if xmltv_id is None:
+                continue
+            current_program, _ = self._find_current_and_next(programs, now)
+            if current_program is not None:
+                now_playing[channel.guide_id] = current_program
 
         log.debug("Bulk now-playing: {} of {} channels on air", len(now_playing), len(self._cache))
         return now_playing

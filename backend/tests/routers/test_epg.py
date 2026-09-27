@@ -1,5 +1,6 @@
 """Tests for EPG router."""
 
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from io import StringIO
 from unittest.mock import AsyncMock, patch
@@ -9,8 +10,10 @@ from fastapi.testclient import TestClient
 from loguru import logger
 
 from app.main import app
+from app.models.channel import Channel, ChannelGroupWithChannels, GroupedChannelsResponse
 from app.models.epg import EPGResponse, Program
 from app.services.auth import create_access_token
+from app.services.dispatcharr import DispatchrrUnavailableError
 from app.services.epg_service import EPGServiceError
 
 
@@ -299,8 +302,23 @@ class TestEPGLogging:
             logger.remove(handler_id)
 
 
+def _channel(guide_id: str, name: str) -> Channel:
+    return Channel(
+        id=f"uuid-{guide_id}", name=name, stream_url="http://stream.test/x", guide_id=guide_id
+    )
+
+
 class TestGetNowPlayingAll:
     """Tests for GET /api/epg/now-playing/all endpoint."""
+
+    @pytest.fixture(autouse=True)
+    def grouped_channels(self) -> Iterator[AsyncMock]:
+        """Stub the channel catalogue so no test reaches Dispatcharr."""
+        with patch(
+            "app.routers.epg.get_grouped_channels",
+            new=AsyncMock(return_value=GroupedChannelsResponse()),
+        ) as mock_grouped:
+            yield mock_grouped
 
     def test_requires_authentication(self, client: TestClient) -> None:
         """Unauthenticated request returns 401."""
@@ -361,3 +379,47 @@ class TestGetNowPlayingAll:
 
         assert response.status_code == 503
         assert response.json() == {"detail": "EPG service unavailable"}
+
+    def test_passes_catalogue_channels_to_service(
+        self, client: TestClient, auth_header: dict[str, str], grouped_channels: AsyncMock
+    ) -> None:
+        """Grouped and ungrouped channels are handed over for guide-id resolution."""
+        tsn = _channel("28", "CA-S: TSN 5")
+        cbc = _channel("29", "CBC")
+        grouped_channels.return_value = GroupedChannelsResponse(
+            groups=[ChannelGroupWithChannels(id=1, name="Sports", channel_count=1, channels=[tsn])],
+            ungrouped=[cbc],
+        )
+
+        with patch("app.routers.epg.get_epg_service") as mock_get_service:
+            mock_service = AsyncMock()
+            mock_service.get_now_playing_bulk.return_value = {}
+            mock_get_service.return_value = mock_service
+
+            response = client.get("/api/epg/now-playing/all", headers=auth_header)
+
+        assert response.status_code == 200
+        mock_service.get_now_playing_bulk.assert_awaited_once_with([tsn, cbc])
+
+    def test_catalogue_outage_still_returns_xmltv_keyed_programmes(
+        self, client: TestClient, auth_header: dict[str, str], grouped_channels: AsyncMock
+    ) -> None:
+        """A Dispatcharr outage drops the guide-id keys but not the whole response."""
+        grouped_channels.side_effect = DispatchrrUnavailableError("down")
+        now = datetime.now(UTC)
+        on_air = Program(
+            title="Test Show",
+            start_time=now - timedelta(minutes=30),
+            end_time=now + timedelta(minutes=30),
+        )
+
+        with patch("app.routers.epg.get_epg_service") as mock_get_service:
+            mock_service = AsyncMock()
+            mock_service.get_now_playing_bulk.return_value = {"tsn5.ca": on_air}
+            mock_get_service.return_value = mock_service
+
+            response = client.get("/api/epg/now-playing/all", headers=auth_header)
+
+        assert response.status_code == 200
+        assert response.json()["nowPlaying"]["tsn5.ca"]["title"] == "Test Show"
+        mock_service.get_now_playing_bulk.assert_awaited_once_with([])

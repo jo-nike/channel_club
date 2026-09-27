@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
+from app.models.channel import Channel
 from app.models.epg import Program
 from app.services.epg_service import EPGService, EPGServiceError, normalise_channel_name
 
@@ -639,6 +640,111 @@ class TestGetNowPlayingBulk:
             pytest.raises(EPGServiceError),
         ):
             await service.get_now_playing_bulk()
+
+
+def _catalogue_channel(guide_id: str, name: str) -> Channel:
+    return Channel(
+        id=f"uuid-{guide_id}", name=name, stream_url="http://stream.test/x", guide_id=guide_id
+    )
+
+
+class TestGetNowPlayingBulkNameFallback:
+    """Bulk lookups key catalogue channels by guide id, resolved like the single lookup."""
+
+    @pytest.mark.asyncio
+    async def test_guide_id_missing_from_feed_resolves_through_display_name(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A feed keyed by tvg_id still yields an entry under each channel's guide id."""
+        now = datetime.now(UTC)
+        start = (now - timedelta(minutes=30)).strftime("%Y%m%d%H%M%S")
+        stop = (now + timedelta(minutes=30)).strftime("%Y%m%d%H%M%S")
+        xml_response = f"""<?xml version="1.0" encoding="UTF-8"?>
+        <tv>
+          <channel id="tsn5.ca"><display-name>CA-S: TSN 5</display-name></channel>
+          <channel id="cbc.ca"><display-name>CBC</display-name></channel>
+          <programme start="{start} +0000" stop="{stop} +0000" channel="tsn5.ca">
+            <title>Hockey Night</title>
+          </programme>
+          <programme start="{start} +0000" stop="{stop} +0000" channel="cbc.ca">
+            <title>The National</title>
+          </programme>
+        </tv>
+        """
+        _patch_upstream(
+            monkeypatch, _Upstream(lambda request: httpx.Response(200, text=xml_response))
+        )
+        service = EPGService("http://dispatcharr.synthetic:9191")
+
+        result = await service.get_now_playing_bulk(
+            [
+                _catalogue_channel("28", "ca-s:  tsn 5"),
+                _catalogue_channel("29", "CBC"),
+                _catalogue_channel("30", "Not In The Feed"),
+            ]
+        )
+
+        assert result["28"].title == "Hockey Night"
+        assert result["29"].title == "The National"
+        assert "30" not in result
+        # The XMLTV-keyed entries are still there, so the response shape is unchanged
+        assert result["tsn5.ca"].title == "Hockey Night"
+
+    @pytest.mark.asyncio
+    async def test_exact_guide_id_wins_over_name(self) -> None:
+        """The name map is only consulted when the guide id has no programmes."""
+        service = EPGService("http://test:9191")
+        now = datetime.now(UTC)
+        service._cache = {"28": _on_air("By Id", now), "tsn5.ca": _on_air("By Name", now)}
+        service._channel_names = {"ca-s: tsn 5": "tsn5.ca"}
+        service._cache_expires = now + timedelta(hours=1)
+
+        result = await service.get_now_playing_bulk([_catalogue_channel("28", "CA-S: TSN 5")])
+
+        assert result["28"].title == "By Id"
+
+    @pytest.mark.asyncio
+    async def test_guide_id_with_nothing_on_air_does_not_fall_back(self) -> None:
+        """Like the single lookup, a guide id with programmes is never replaced by a name match."""
+        service = EPGService("http://test:9191")
+        now = datetime.now(UTC)
+        service._cache = {
+            "28": [
+                Program(
+                    title="Later",
+                    start_time=now + timedelta(hours=2),
+                    end_time=now + timedelta(hours=3),
+                )
+            ],
+            "tsn5.ca": _on_air("By Name", now),
+        }
+        service._channel_names = {"ca-s: tsn 5": "tsn5.ca"}
+        service._cache_expires = now + timedelta(hours=1)
+
+        result = await service.get_now_playing_bulk([_catalogue_channel("28", "CA-S: TSN 5")])
+
+        assert "28" not in result
+
+    @pytest.mark.asyncio
+    async def test_name_match_with_nothing_on_air_is_omitted(self) -> None:
+        """A matched XMLTV channel with nothing airing adds no entry."""
+        service = EPGService("http://test:9191")
+        now = datetime.now(UTC)
+        service._cache = {
+            "tsn5.ca": [
+                Program(
+                    title="Later",
+                    start_time=now + timedelta(hours=2),
+                    end_time=now + timedelta(hours=3),
+                )
+            ]
+        }
+        service._channel_names = {"ca-s: tsn 5": "tsn5.ca"}
+        service._cache_expires = now + timedelta(hours=1)
+
+        result = await service.get_now_playing_bulk([_catalogue_channel("28", "CA-S: TSN 5")])
+
+        assert result == {}
 
 
 class TestCacheValidity:
