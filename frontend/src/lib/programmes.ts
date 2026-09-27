@@ -43,6 +43,23 @@ export function formatRemaining(stopMs: number, nowMs: number): string {
   return `${formatMinutes(Math.ceil(remainingMs / 60_000))} left`
 }
 
+const plural = (count: number, unit: string) => `${count} ${unit}${count === 1 ? '' : 's'}`
+
+/**
+ * formatRemaining in words, for accessible names, where '32m' would be read
+ * as metres: '32 minutes left', '1 hour 5 minutes left', '2 hours left', or
+ * 'ending' once the stop time has passed.
+ */
+export function formatRemainingSpoken(stopMs: number, nowMs: number): string {
+  const remainingMs = stopMs - nowMs
+  if (remainingMs <= 0) return 'ending'
+  const totalMinutes = Math.ceil(remainingMs / 60_000)
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  const parts = [hours > 0 && plural(hours, 'hour'), minutes > 0 && plural(minutes, 'minute')].filter(Boolean)
+  return `${parts.join(' ')} left`
+}
+
 /** How far through the programme nowMs is, clamped to 0..100. */
 export function calculateProgress(startMs: number, stopMs: number, nowMs: number): number {
   const totalDuration = stopMs - startMs

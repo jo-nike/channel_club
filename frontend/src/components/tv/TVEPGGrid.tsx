@@ -8,6 +8,15 @@ import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useProgrammeClock } from '@/hooks/useProgrammeClock'
 import { useScrollViewport } from '@/hooks/useScrollViewport'
+import {
+  useGridNavigation,
+  UNBOUNDED_TIME_WINDOW,
+  type GridCell,
+  type GridMoveAxis,
+  type GridRow,
+  type TimeWindow,
+} from '@/hooks/useGridNavigation'
+import { useUIStore } from '@/stores/uiStore'
 import { scrollBehavior } from '@/lib/motion'
 import {
   buildProgrammeIndex,
@@ -16,7 +25,7 @@ import {
   type IndexedProgramme,
   type ProgrammeIndex,
 } from '@/lib/programmeIndex'
-import { calculateProgress, formatRemaining, type ProgrammeState } from '@/lib/programmes'
+import { calculateProgress, formatRemaining, formatRemainingSpoken, type ProgrammeState } from '@/lib/programmes'
 import { cn } from '@/lib/utils'
 import type { UnifiedChannel, ErsatzTVProgramme, EPGResponse } from '@/types'
 
@@ -42,6 +51,10 @@ const ROW_OVERSCAN = 4
 const SLOT_MS = 30 * 60 * 1000
 const OVERSCAN_BEFORE_MS = 60 * 60 * 1000
 const OVERSCAN_AFTER_MS = 2 * 60 * 60 * 1000
+// The grid cell id of the live row's "Pick a channel for everyone" action
+const PICK_LIVE_CELL = 'pick-live'
+// The live row's message or action sits this many half hours in (~1 hour mark)
+const LIVE_ROW_SLOT_LEFT_SLOTS = 2
 
 interface TVEPGGridProps {
   hours?: number
@@ -188,15 +201,120 @@ export function TVEPGGrid({
     [liveProgrammes]
   )
 
-  // The cell that last had focus: a channel label (programmeId null) or a
-  // block. Its row and block stay rendered however far the guide scrolls, so
-  // focus, and a roving tab stop, never lose their element.
-  const [focusedCell, setFocusedCell] = useState<FocusedCell | null>(null)
-  const handleCellFocus = useCallback((channelId: string, programmeId: string | null) => {
-    setFocusedCell((current) =>
-      current?.channelId === channelId && current.programmeId === programmeId ? current : { channelId, programmeId }
-    )
+  const gridStartMs = startTime.getTime()
+  const gridEndMs = endTime.getTime()
+
+  // The keyboard grid: each row's label, then the blocks drawn in the grid,
+  // in time order. The live row's only block, while nothing is on, is its
+  // Pick a channel action, timed as the half hour where LiveRowSlot draws it.
+  const canPickLive = onPickLive !== undefined
+  const navRows = useMemo(
+    (): GridRow[] =>
+      unifiedChannels.map((channel) => {
+        if (channel.type === 'live' && !hasLiveChannel) {
+          const pickStartMs = gridStartMs + LIVE_ROW_SLOT_LEFT_SLOTS * SLOT_MS
+          return {
+            id: channel.id,
+            blocks: canPickLive ? [{ id: PICK_LIVE_CELL, startMs: pickStartMs, stopMs: pickStartMs + SLOT_MS }] : [],
+          }
+        }
+        const index = channel.type === 'live' ? liveProgrammeIndex : programmeIndex
+        const blocks = (index.get(channel.id) ?? NO_ENTRIES)
+          .filter((entry) => entry.stopMs > gridStartMs && entry.startMs < gridEndMs)
+          .map((entry) => ({ id: entry.programme.id, startMs: entry.startMs, stopMs: entry.stopMs }))
+        return { id: channel.id, blocks }
+      }),
+    [unifiedChannels, hasLiveChannel, canPickLive, liveProgrammeIndex, programmeIndex, gridStartMs, gridEndMs]
+  )
+
+  // Until a cell is focused, the tab stop is the watched row's programme on
+  // now (or its label when nothing is), so Tab and a keyboard-opened guide
+  // land on what's playing
+  const initialRow = unifiedChannels[Math.max(0, selectedRowIndex)]
+  const initialRowId = initialRow?.id
+  const initialBlockId = initialRow
+    ? (findCurrentAndNext(
+        initialRow.type === 'live' ? liveProgrammeIndex : programmeIndex,
+        initialRow.id,
+        now
+      ).current?.programme.id ?? null)
+    : null
+  const initialCell = useMemo(
+    (): GridCell | null => (initialRowId === undefined ? null : { rowId: initialRowId, blockId: initialBlockId }),
+    [initialRowId, initialBlockId]
+  )
+
+  // The time in view right of the channel column
+  const getTimeWindow = useCallback((): TimeWindow => {
+    const container = containerRef.current
+    if (!container || container.clientWidth === 0) return UNBOUNDED_TIME_WINDOW
+    const fromMs = gridStartMs + pixelsToMs(container.scrollLeft)
+    return { fromMs, toMs: fromMs + pixelsToMs(Math.max(0, container.clientWidth - CHANNEL_LABEL_WIDTH)) }
+  }, [gridStartMs])
+
+  // After a key move: scroll the cell into view below the time header and,
+  // for a block, right of the channel column, then focus it. Moves along a
+  // row show the block's start; moves between rows scroll sideways only when
+  // the block is out of view, so the time the arrows keep to stays put.
+  const handleMove = useCallback(
+    (cell: GridCell, axis: GridMoveAxis) => {
+      const container = containerRef.current
+      const element = container && findCellElement(container, cell)
+      if (!container || !element) return
+      if (container.clientHeight > 0) {
+        const rowTop = unifiedChannels.findIndex((c) => c.id === cell.rowId) * ROW_HEIGHT
+        const visibleHeight = container.clientHeight - (headerRef.current?.offsetHeight ?? 0)
+        if (rowTop < container.scrollTop) container.scrollTop = rowTop
+        else if (rowTop + ROW_HEIGHT > container.scrollTop + visibleHeight) {
+          container.scrollTop = rowTop + ROW_HEIGHT - visibleHeight
+        }
+      }
+      const block = navRows.find((row) => row.id === cell.rowId)?.blocks.find((b) => b.id === cell.blockId)
+      if (block && container.clientWidth > 0) {
+        const left = Math.max(0, msToPixels(block.startMs - gridStartMs))
+        const right = msToPixels(block.stopMs - gridStartMs)
+        const viewLeft = container.scrollLeft
+        const viewRight = viewLeft + container.clientWidth - CHANNEL_LABEL_WIDTH
+        const startHidden = left < viewLeft || left > viewRight - PROGRAMME_TEXT_MIN_WIDTH
+        const outOfView = right <= viewLeft || left >= viewRight
+        if (axis === 'column' ? startHidden : outOfView) {
+          container.scrollLeft = left
+          syncScrollX(container)
+        }
+      }
+      // The scroll above already placed it; the browser's own would put it
+      // under the sticky header or channel column
+      element.focus({ preventScroll: true })
+    },
+    [unifiedChannels, navRows, gridStartMs]
+  )
+
+  // Enter and Space: the cell's own click
+  const handleActivate = useCallback((cell: GridCell) => {
+    const container = containerRef.current
+    if (container) findCellElement(container, cell)?.click()
   }, [])
+
+  const { tabStop, handleKeyDown, handleCellFocus } = useGridNavigation({
+    rows: navRows,
+    initialCell,
+    now,
+    getTimeWindow,
+    onMove: handleMove,
+    onActivate: handleActivate,
+  })
+
+  // Opened from the keyboard: focus goes to the watched row's programme on
+  // now, so a remote's D-pad moves through the guide rather than changing
+  // the volume
+  const guideFocusRequested = useUIStore((s) => s.guideFocusRequested)
+  const setGuideFocusRequested = useUIStore((s) => s.setGuideFocusRequested)
+  useEffect(() => {
+    const container = containerRef.current
+    if (loading || !guideFocusRequested || !container || !tabStop) return
+    setGuideFocusRequested(false)
+    findCellElement(container, tabStop)?.focus({ preventScroll: true })
+  }, [loading, guideFocusRequested, tabStop, setGuideFocusRequested])
 
   // Rows in the viewport plus overscan. A scroller with no height (not laid
   // out) renders every row.
@@ -206,7 +324,6 @@ export function TVEPGGrid({
   // The programmes' time range, from the viewport's edges widened to whole
   // half hours, so a row re-renders when the range crosses a slot rather
   // than on every scrolled pixel. No width (not laid out): every programme.
-  const gridStartMs = startTime.getTime()
   const timeWindowed = viewport.width > 0
   const fromMs = timeWindowed
     ? gridStartMs + Math.floor(viewport.scrollLeft / SLOT_WIDTH) * SLOT_MS - OVERSCAN_BEFORE_MS
@@ -288,17 +405,24 @@ export function TVEPGGrid({
         </div>
       </div>
 
-      {/* Grid container */}
+      {/* Grid container: the keyboard grid. The rows alone, not the time
+          header, whose buttons a grid can't hold. Rows off screen aren't
+          rendered, so each row carries its index out of the total. */}
       <div
+        role="grid"
+        aria-label="Guide"
+        aria-rowcount={unifiedChannels.length}
         className="relative"
         style={{
           height: unifiedChannels.length * ROW_HEIGHT,
           width: CHANNEL_LABEL_WIDTH + gridWidth,
         }}
+        onKeyDown={handleKeyDown}
       >
         {/* Now marker */}
         {nowMarkerOffset > 0 && nowMarkerOffset < gridWidth && (
           <div
+            aria-hidden="true"
             className="absolute top-0 bottom-0 z-10 w-0.5 bg-destructive"
             style={{ left: CHANNEL_LABEL_WIDTH + nowMarkerOffset }}
           >
@@ -306,12 +430,12 @@ export function TVEPGGrid({
           </div>
         )}
 
-        {/* Channel rows near the viewport, plus the watched row and the
-            focused cell's, which are always rendered */}
+        {/* Channel rows near the viewport, plus the watched row and the tab
+            stop's (the focused cell's), which are always rendered */}
         {unifiedChannels.map((channel, rowIndex) => {
-          const isFocusedRow = focusedCell?.channelId === channel.id
+          const isTabStopRow = tabStop?.rowId === channel.id
           const inView = !rowsWindowed || (rowIndex >= firstRow && rowIndex <= lastRow)
-          if (!inView && rowIndex !== selectedRowIndex && !isFocusedRow) return null
+          if (!inView && rowIndex !== selectedRowIndex && !isTabStopRow) return null
           return (
             <ChannelRow
               key={channel.id}
@@ -323,7 +447,7 @@ export function TVEPGGrid({
               programmeIndex={channel.type === 'live' ? liveProgrammeIndex : programmeIndex}
               fromMs={fromMs}
               toMs={toMs}
-              pinnedProgrammeId={isFocusedRow ? focusedCell.programmeId : null}
+              tabStopBlockId={isTabStopRow ? tabStop.blockId : undefined}
               isWatching={selectedChannelId === channel.id}
               hasLiveChannel={hasLiveChannel}
               liveGuideText={describeLiveGuide(liveEPGStatus)}
@@ -339,12 +463,6 @@ export function TVEPGGrid({
   )
 }
 
-interface FocusedCell {
-  channelId: string
-  // null for the channel label
-  programmeId: string | null
-}
-
 interface ChannelRowProps {
   channel: UnifiedChannel
   // Where the programmes start, epoch ms
@@ -357,8 +475,10 @@ interface ChannelRowProps {
   // Only programmes on air in [fromMs, toMs) are rendered, epoch ms
   fromMs: number
   toMs: number
-  // A block rendered wherever it is, as it holds (or last held) focus
-  pinnedProgrammeId: string | null
+  // The row's cell with the grid's one tab stop: null for the label, a block
+  // id, or undefined when it's in another row. Its block is rendered wherever
+  // it is, as it holds (or last held) focus.
+  tabStopBlockId: string | null | undefined
   // The channel playing in the player
   isWatching: boolean
   hasLiveChannel: boolean
@@ -382,7 +502,7 @@ const ChannelRow = memo(function ChannelRow({
   programmeIndex,
   fromMs,
   toMs,
-  pinnedProgrammeId,
+  tabStopBlockId,
   isWatching,
   hasLiveChannel,
   liveGuideText,
@@ -394,13 +514,15 @@ const ChannelRow = memo(function ChannelRow({
   const isLive = channel.type === 'live'
   // Sorted, with start and stop parsed once per programme refresh
   const entries = programmeIndex.get(channel.id) ?? NO_ENTRIES
-  const drawn = programmesToDraw(programmeIndex, channel.id, fromMs, toMs, pinnedProgrammeId)
+  const drawn = programmesToDraw(programmeIndex, channel.id, fromMs, toMs, tabStopBlockId ?? null)
 
   // Only show red background when live channel has active broadcast
   const showLiveHighlight = isLive && hasLiveChannel
 
   return (
     <div
+      role="row"
+      aria-rowindex={rowIndex + 1}
       className={`absolute left-0 flex ${showLiveHighlight ? 'bg-live/5' : ''}`}
       style={{ top: rowIndex * ROW_HEIGHT, height: ROW_HEIGHT }}
       data-testid="channel-row"
@@ -410,16 +532,24 @@ const ChannelRow = memo(function ChannelRow({
         programmeIndex={programmeIndex}
         isWatching={isWatching}
         showLiveHighlight={showLiveHighlight}
+        isTabStop={tabStopBlockId === null}
         onChannelClick={onChannelClick}
         onFocus={onCellFocus}
       />
 
       {/* Programme boxes */}
-      <div className="relative" style={{ width: gridWidth }}>
+      <div role="presentation" className="relative" style={{ width: gridWidth }}>
         {isLive && !hasLiveChannel ? (
           onPickLive ? (
             <LiveRowSlot>
-              <Button size="sm" onClick={onPickLive}>
+              <Button
+                size="sm"
+                onClick={onPickLive}
+                tabIndex={tabStopBlockId === PICK_LIVE_CELL ? 0 : -1}
+                data-grid-row={channel.id}
+                data-grid-block={PICK_LIVE_CELL}
+                onFocus={() => onCellFocus?.(channel.id, PICK_LIVE_CELL)}
+              >
                 Pick a channel for everyone
               </Button>
             </LiveRowSlot>
@@ -457,7 +587,9 @@ const ChannelRow = memo(function ChannelRow({
                 // before the grid does
                 progressPct={isNow ? calculateProgress(Math.max(startMs, gridStartMs), stopMs, now) : undefined}
                 timeLeft={isNow ? formatRemaining(stopMs, now) : undefined}
+                spokenTimeLeft={isNow ? formatRemainingSpoken(stopMs, now) : undefined}
                 isWatching={isNow && isWatching}
+                isTabStop={tabStopBlockId === programme.id}
                 onClick={onProgrammeClick}
                 onFocus={onCellFocus}
               />
@@ -490,6 +622,8 @@ interface ChannelLabelProps {
   programmeIndex: ProgrammeIndex
   isWatching: boolean
   showLiveHighlight: boolean
+  // Holds the grid's one tab stop
+  isTabStop: boolean
   onChannelClick?: (channel: UnifiedChannel) => void
   onFocus?: (channelId: string, programmeId: null) => void
 }
@@ -497,77 +631,91 @@ interface ChannelLabelProps {
 // The sticky channel column: number, logo, name, LIVE on an active live row,
 // and the on-air programme's progress and time left, which the sidebar shows
 // when the guide is closed. It reads the shared programme clock itself.
-function ChannelLabel({ channel, programmeIndex, isWatching, showLiveHighlight, onChannelClick, onFocus }: ChannelLabelProps) {
+function ChannelLabel({
+  channel,
+  programmeIndex,
+  isWatching,
+  showLiveHighlight,
+  isTabStop,
+  onChannelClick,
+  onFocus,
+}: ChannelLabelProps) {
   const isLive = channel.type === 'live'
   const now = useProgrammeClock()
   const { current: onAir } = findCurrentAndNext(programmeIndex, channel.id, now)
 
   return (
-    <button
-      onClick={() => onChannelClick?.(channel)}
-      onFocus={() => onFocus?.(channel.id, null)}
-      className={cn(
-        'sticky left-0 z-20 flex shrink-0 items-center gap-2 border-r pl-3 pr-2 text-left text-sm transition-colors hover:bg-accent focus-visible:-outline-offset-2',
-        showLiveHighlight ? 'bg-live-surface' : 'bg-card'
-      )}
-      style={{ width: CHANNEL_LABEL_WIDTH }}
-      // The name is visible now, so no tooltip; the label keeps the action
-      aria-label={`Switch to ${channel.number} ${channel.name}`}
-      aria-current={isWatching ? 'true' : undefined}
-    >
-      {/* Watching marker */}
-      {isWatching && (
-        <span aria-hidden="true" data-testid="watching-bar" className="absolute inset-y-0 left-0 w-1 bg-primary" />
-      )}
-      <span
+    // The row header sticks, holding the button: a button given the
+    // rowheader role would stop being a button
+    <div role="rowheader" className="sticky left-0 z-20 flex shrink-0">
+      <button
+        onClick={() => onChannelClick?.(channel)}
+        onFocus={() => onFocus?.(channel.id, null)}
+        tabIndex={isTabStop ? 0 : -1}
+        data-grid-row={channel.id}
         className={cn(
-          'w-5 shrink-0 text-right font-display text-lg font-extrabold leading-none tabular-nums',
-          isWatching ? 'text-primary' : 'text-muted-foreground'
+          'relative flex shrink-0 items-center gap-2 border-r pl-3 pr-2 text-left text-sm transition-colors hover:bg-accent focus-visible:-outline-offset-2',
+          showLiveHighlight ? 'bg-live-surface' : 'bg-card'
         )}
+        style={{ width: CHANNEL_LABEL_WIDTH }}
+        // The name is visible now, so no tooltip; the label keeps the action
+        aria-label={`Switch to ${channel.number} ${channel.name}`}
+        aria-current={isWatching ? 'true' : undefined}
       >
-        {channel.number}
-      </span>
-      {isLive ? (
-        <div className="h-8 w-8 flex-shrink-0 rounded bg-destructive/20 flex items-center justify-center">
-          <Radio className="h-4 w-4 text-destructive" />
-        </div>
-      ) : channel.logoUrl ? (
-        <img
-          src={getErsatzTVLogoUrl(channel.id)}
-          alt=""
-          className="h-8 w-8 flex-shrink-0 rounded object-contain"
-          onError={(e) => {
-            ;(e.target as HTMLImageElement).style.display = 'none'
-          }}
-        />
-      ) : (
-        <div className="h-8 w-8 flex-shrink-0 rounded bg-muted" />
-      )}
-      <span className="flex min-w-0 flex-1 flex-col gap-1">
-        <span className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate font-medium">{channel.name}</span>
-          {showLiveHighlight && (
-            <span className="shrink-0 rounded bg-live px-1 py-0.5 text-[11px] font-bold uppercase leading-none text-live-foreground">
-              Live
+        {/* Watching marker */}
+        {isWatching && (
+          <span aria-hidden="true" data-testid="watching-bar" className="absolute inset-y-0 left-0 w-1 bg-primary" />
+        )}
+        <span
+          className={cn(
+            'w-5 shrink-0 text-right font-display text-lg font-extrabold leading-none tabular-nums',
+            isWatching ? 'text-primary' : 'text-muted-foreground'
+          )}
+        >
+          {channel.number}
+        </span>
+        {isLive ? (
+          <div className="h-8 w-8 flex-shrink-0 rounded bg-destructive/20 flex items-center justify-center">
+            <Radio className="h-4 w-4 text-destructive" />
+          </div>
+        ) : channel.logoUrl ? (
+          <img
+            src={getErsatzTVLogoUrl(channel.id)}
+            alt=""
+            className="h-8 w-8 flex-shrink-0 rounded object-contain"
+            onError={(e) => {
+              ;(e.target as HTMLImageElement).style.display = 'none'
+            }}
+          />
+        ) : (
+          <div className="h-8 w-8 flex-shrink-0 rounded bg-muted" />
+        )}
+        <span className="flex min-w-0 flex-1 flex-col gap-1">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate font-medium">{channel.name}</span>
+            {showLiveHighlight && (
+              <span className="shrink-0 rounded bg-live px-1 py-0.5 text-[11px] font-bold uppercase leading-none text-live-foreground">
+                Live
+              </span>
+            )}
+          </span>
+          {onAir && (
+            <span className="flex items-center gap-1.5">
+              <span className="h-0.5 flex-1 overflow-hidden rounded-full bg-muted">
+                <span
+                  data-testid="label-progress"
+                  className={cn('block h-full rounded-full', isLive ? 'bg-live' : 'bg-primary/60')}
+                  style={{ width: `${calculateProgress(onAir.startMs, onAir.stopMs, now)}%` }}
+                />
+              </span>
+              <span className="shrink-0 text-xs leading-none tabular-nums text-muted-foreground">
+                {formatRemaining(onAir.stopMs, now)}
+              </span>
             </span>
           )}
         </span>
-        {onAir && (
-          <span className="flex items-center gap-1.5">
-            <span className="h-0.5 flex-1 overflow-hidden rounded-full bg-muted">
-              <span
-                data-testid="label-progress"
-                className={cn('block h-full rounded-full', isLive ? 'bg-live' : 'bg-primary/60')}
-                style={{ width: `${calculateProgress(onAir.startMs, onAir.stopMs, now)}%` }}
-              />
-            </span>
-            <span className="shrink-0 text-xs leading-none tabular-nums text-muted-foreground">
-              {formatRemaining(onAir.stopMs, now)}
-            </span>
-          </span>
-        )}
-      </span>
-    </button>
+      </button>
+    </div>
   )
 }
 
@@ -576,8 +724,9 @@ function ChannelLabel({ channel, programmeIndex, isWatching, showLiveHighlight, 
 function LiveRowSlot({ children }: { children: ReactNode }) {
   return (
     <div
+      role="gridcell"
       className="absolute top-1 bottom-1 flex items-center z-0"
-      style={{ left: SLOT_WIDTH * 2 }}
+      style={{ left: SLOT_WIDTH * LIVE_ROW_SLOT_LEFT_SLOTS }}
     >
       {children}
     </div>
@@ -605,11 +754,15 @@ interface ProgrammeBoxProps {
   // The programme's times, epoch ms
   startMs: number
   stopMs: number
-  // Only for the block on now: elapsed share of the drawn block (0-100) and '32m left'
+  // Only for the block on now: elapsed share of the drawn block (0-100),
+  // '32m left', and '32 minutes left' for its accessible name
   progressPct?: number
   timeLeft?: string
+  spokenTimeLeft?: string
   // On now on the channel being watched
   isWatching: boolean
+  // Holds the grid's one tab stop
+  isTabStop: boolean
   onClick?: (programme: ErsatzTVProgramme, channel: UnifiedChannel) => void
   onFocus?: (channelId: string, programmeId: string) => void
 }
@@ -628,12 +781,20 @@ const ProgrammeBox = memo(function ProgrammeBox({
   stopMs,
   progressPct,
   timeLeft,
+  spokenTimeLeft,
   isWatching,
+  isTabStop,
   onClick,
   onFocus,
 }: ProgrammeBoxProps) {
   const showsText = width >= PROGRAMME_TEXT_MIN_WIDTH
-  const meta = state === 'now' ? timeLeft : `${formatTime(startMs)} - ${formatTime(stopMs)}`
+  const startText = state === 'now' ? '' : formatTime(startMs)
+  const stopText = state === 'now' ? '' : formatTime(stopMs)
+  const meta = state === 'now' ? timeLeft : `${startText} - ${stopText}`
+  // Read out of the grid, a block needs its channel, and when it's on in words
+  const when =
+    state === 'now' ? `on now, ${spokenTimeLeft}` : state === 'future' ? `starts ${startText}` : `ended ${stopText}`
+  const name = `${programme.title}, ${channel.number} ${channel.name}, ${when}`
 
   const block = (
     <button
@@ -657,7 +818,10 @@ const ProgrammeBox = memo(function ProgrammeBox({
       style={{ left, width }}
       data-state={state}
       data-watching={isWatching || undefined}
-      aria-label={showsText ? undefined : `${programme.title}, ${meta}`}
+      data-grid-row={channel.id}
+      data-grid-block={programme.id}
+      tabIndex={isTabStop ? 0 : -1}
+      aria-label={name}
       onClick={() => onClick?.(programme, channel)}
       onFocus={() => onFocus?.(channel.id, programme.id)}
     >
@@ -703,17 +867,22 @@ const ProgrammeBox = memo(function ProgrammeBox({
     </button>
   )
 
-  if (showsText) return block
+  // The cell holds the button (a button given the gridcell role would stop
+  // being a button). It's left unpositioned, so the block still places
+  // itself in the row.
+  if (showsText) return <div role="gridcell">{block}</div>
 
   // Too narrow for its text: the tooltip shows it on hover and keyboard focus
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>{block}</TooltipTrigger>
-      <TooltipContent>
-        <p className="font-medium">{programme.title}</p>
-        <p className="text-xs tabular-nums">{meta}</p>
-      </TooltipContent>
-    </Tooltip>
+    <div role="gridcell">
+      <Tooltip>
+        <TooltipTrigger asChild>{block}</TooltipTrigger>
+        <TooltipContent>
+          <p className="font-medium">{programme.title}</p>
+          <p className="text-xs tabular-nums">{meta}</p>
+        </TooltipContent>
+      </Tooltip>
+    </div>
   )
 })
 
@@ -725,6 +894,18 @@ function calculateTimeOffset(time: Date, startTime: Date): number {
 
 function msToPixels(ms: number): number {
   return (ms / (30 * 60 * 1000)) * SLOT_WIDTH
+}
+
+function pixelsToMs(px: number): number {
+  return (px / SLOT_WIDTH) * SLOT_MS
+}
+
+// The rendered element of a grid cell: its label, block or live action
+function findCellElement(container: HTMLElement, cell: GridCell): HTMLElement | null {
+  for (const element of container.querySelectorAll<HTMLElement>('[data-grid-row]')) {
+    if (element.dataset.gridRow === cell.rowId && (element.dataset.gridBlock ?? null) === cell.blockId) return element
+  }
+  return null
 }
 
 // Where a programme sits relative to now: start is inclusive, stop is exclusive

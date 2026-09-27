@@ -33,6 +33,7 @@ export function TVHeader({
   const { userChannelSelection } = useAppSettings()
   const isEPGVisible = useUIStore((s) => s.isEPGVisible)
   const toggleEPG = useUIStore((s) => s.toggleEPG)
+  const setGuideFocusRequested = useUIStore((s) => s.setGuideFocusRequested)
   const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
   const toggleNHLOverlay = useUIStore((s) => s.toggleNHLOverlay)
 
@@ -54,7 +55,13 @@ export function TVHeader({
             label={isEPGVisible ? 'Hide guide' : 'Show guide'}
             visibleLabel="Guide"
             pressed={isEPGVisible}
-            onClick={toggleEPG}
+            onClick={(e) => {
+              // Opened from the keyboard (a click with no pointer presses, as
+              // Enter, Space and a remote's OK give): the guide takes focus,
+              // so the arrows move through it rather than change the volume
+              setGuideFocusRequested(!isEPGVisible && e.detail === 0)
+              toggleEPG()
+            }}
           />
         )}
         {/* NHL scores toggle - desktop only. The glyph is the word itself. */}

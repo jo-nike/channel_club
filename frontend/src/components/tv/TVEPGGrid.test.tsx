@@ -6,6 +6,7 @@ import { focusOverrides } from '@/test/focus'
 import { useChannelStore } from '@/stores/channelStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore, LIVE_CHANNEL_ID, toLiveProgramme } from '@/stores/tvStore'
+import { useUIStore } from '@/stores/uiStore'
 import type { EPGResponse, ErsatzTVProgramme } from '@/types'
 
 // Putting a channel on live TV starts guide and schedule lookups; leave them
@@ -672,11 +673,11 @@ describe('TVEPGGrid programme states', () => {
     expect(screen.getByRole('tooltip')).toHaveTextContent('Station Ident')
   })
 
-  it('names a narrow block on now by its title and time left', () => {
+  it('names a narrow block on now by its title, channel and time left', () => {
     const ending = { etv1: [{ id: 'ending', channelId: 'etv1', title: 'Promo', start: at(-5), stop: at(4) }] }
     render(<TVEPGGrid programmesByChannel={ending} />)
 
-    expect(screen.getByRole('button', { name: 'Promo, 4m left' })).toHaveAttribute('data-state', 'now')
+    expect(screen.getByRole('button', { name: 'Promo, 1 Movies, on now, 4 minutes left' })).toHaveAttribute('data-state', 'now')
   })
 
   it('keeps the live tint on the live row while its programme is on', () => {
@@ -1008,6 +1009,63 @@ describe('TVEPGGrid windowing', () => {
     expect(label(6)).not.toBeInTheDocument()
   })
 
+  it('PageDown jumps five rows, rendering, scrolling to and focusing a row that was off screen', () => {
+    render(<TVEPGGrid hours={48} programmesByChannel={schedule} />)
+    // 20:00 on channel 3; the view starts at 19:40
+    act(() => block('Show 3-1')!.focus())
+
+    fireEvent.keyDown(document.activeElement!, { key: 'PageDown' })
+    expect(document.activeElement).toBe(block('Show 8-1'))
+    expect(label(13)).not.toBeInTheDocument()
+
+    fireEvent.keyDown(document.activeElement!, { key: 'PageDown' })
+    expect(document.activeElement).toBe(block('Show 13-1'))
+    // Row 13 (832-896px) scrolled up to the bottom of the 400px view
+    expect(grid().scrollTop).toBe(896 - 400)
+
+    fireEvent.keyDown(document.activeElement!, { key: 'PageUp' })
+    expect(document.activeElement).toBe(block('Show 8-1'))
+    // Row 8 (512-576px) is still in view: no scroll
+    expect(grid().scrollTop).toBe(896 - 400)
+  })
+
+  it('scrolls a block reached along the row so it starts just right of the channel column', () => {
+    render(<TVEPGGrid hours={48} programmesByChannel={schedule} />)
+    // Opening scrolls 50px in: 992px of programmes (19:40 to 23:00) show
+    expect(grid().scrollLeft).toBe(50)
+    // 22:00-22:30, 900px into the programmes
+    act(() => block('Show 1-6')!.focus())
+
+    // 22:30 starts at 1050px, past the right edge (1042px)
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowRight' })
+    expect(document.activeElement).toBe(block('Show 1-7'))
+    expect(grid().scrollLeft).toBe(1050)
+    expect(grid().style.getPropertyValue('--guide-scroll-x')).toBe('1050px')
+
+    // Back to 22:00, now left of the view
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowLeft' })
+    expect(document.activeElement).toBe(block('Show 1-6'))
+    expect(grid().scrollLeft).toBe(900)
+
+    // Moving down keeps the view where it is while the block is in it
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' })
+    expect(document.activeElement).toBe(block('Show 2-6'))
+    expect(grid().scrollLeft).toBe(900)
+  })
+
+  it('moves down to the block on air at the start of one scrolled off to the left', () => {
+    render(<TVEPGGrid hours={48} programmesByChannel={schedule} />)
+    // Scrolled to 21:00: Show 1-3 (21:00-21:30) is the first block in view
+    scrollGrid(450, 0)
+    act(() => label(1)!.focus())
+
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowRight' })
+    // Now (20:00) is out of view, so Right enters at the view's left edge
+    expect(document.activeElement).toBe(block('Show 1-3'))
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' })
+    expect(document.activeElement).toBe(block('Show 2-3'))
+  })
+
   it('renders everything when the scroller has no size, as before layout', () => {
     vi.spyOn(Element.prototype, 'clientWidth', 'get').mockReturnValue(0)
     vi.spyOn(Element.prototype, 'clientHeight', 'get').mockReturnValue(0)
@@ -1020,5 +1078,256 @@ describe('TVEPGGrid windowing', () => {
     expect(screen.getAllByTestId('channel-row')).toHaveLength(37)
     expect(blocks()).toHaveLength(36 * 12)
     expect(block('Show 36-88')).toBeInTheDocument()
+  })
+})
+
+describe('TVEPGGrid keyboard grid', () => {
+  // The grid starts at 19:30, 30 minutes before the half hour now falls in
+  const NOW = new Date('2026-09-26T20:00:00Z').getTime()
+  const MINUTE = 60_000
+  const at = (minutes: number) => new Date(NOW + minutes * MINUTE).toISOString()
+  const channels = [
+    { id: 'etv1', name: 'News', streamUrl: '/etv1', logoUrl: '', number: 1, group: '' },
+    { id: 'etv2', name: 'Kids', streamUrl: '/etv2', logoUrl: '', number: 2, group: '' },
+    { id: 'etv3', name: 'Drama', streamUrl: '/etv3', logoUrl: '', number: 3, group: '' },
+  ]
+  const programme = (channelId: string, id: string, title: string, from: number, to: number): ErsatzTVProgramme => ({
+    id, channelId, title, start: at(from), stop: at(to),
+  })
+  const schedule: Record<string, ErsatzTVProgramme[]> = {
+    etv1: [
+      programme('etv1', 'news-early', 'Early News', -30, 10),
+      programme('etv1', 'quiz', 'Quiz', 10, 60),
+      programme('etv1', 'film', 'Film One', 60, 120),
+    ],
+    etv2: [
+      programme('etv2', 'cartoons', 'Cartoon Hour', -40, 30),
+      programme('etv2', 'nature', 'Nature', 30, 90),
+    ],
+    etv3: [
+      programme('etv3', 'soap', 'Soap', -20, 45),
+      programme('etv3', 'late', 'Late Show', 45, 100),
+    ],
+  }
+  const grid = () => screen.getByRole('grid', { name: 'Guide' })
+  const block = (title: string) => within(grid()).getByText(title).closest('button')!
+  const label = (name: string) => screen.getByRole('button', { name: new RegExp(`^Switch to \\d+ ${name}$`) })
+  const press = (key: string) => fireEvent.keyDown(document.activeElement!, { key })
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    vi.setSystemTime(NOW)
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels })
+    useTVStore.setState({ selectedChannel: { ...channels[1], type: 'ersatztv' } })
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+    useErsatztvStore.setState({ channels: [] })
+    useTVStore.setState({ selectedChannel: null })
+    useUIStore.setState({ guideFocusRequested: false })
+  })
+
+  it('is a grid of rows, each a row header holding the channel button and grid cells holding programme buttons', () => {
+    render(<TVEPGGrid programmesByChannel={schedule} />)
+
+    expect(grid()).toHaveAttribute('aria-rowcount', '4')
+    // Rows off screen aren't rendered, so each row says where it sits
+    const rows = within(grid()).getAllByRole('row')
+    expect(rows.map((row) => row.getAttribute('aria-rowindex'))).toEqual(['1', '2', '3', '4'])
+    const header = within(rows[2]).getByRole('rowheader')
+    expect(within(header).getByRole('button')).toBe(label('Kids'))
+    // The buttons keep their button role inside their cells
+    const cells = within(rows[2]).getAllByRole('gridcell')
+    expect(cells.map((cell) => within(cell).getByRole('button'))).toEqual([block('Cartoon Hour'), block('Nature')])
+    // The time header's buttons aren't in the grid
+    expect(within(grid()).queryByRole('button', { name: 'Scroll to now' })).not.toBeInTheDocument()
+  })
+
+  it("has one tab stop, the watched channel's programme on now, which follows focus", () => {
+    render(<TVEPGGrid programmesByChannel={schedule} />)
+
+    const tabStops = () => Array.from(grid().querySelectorAll('[tabindex="0"]'))
+    expect(tabStops()).toEqual([block('Cartoon Hour')])
+    // Every other cell is reached with the arrows
+    expect(grid().querySelectorAll('button[tabindex="-1"]')).toHaveLength(4 + 7 - 1)
+
+    act(() => block('Late Show').focus())
+    expect(tabStops()).toEqual([block('Late Show')])
+  })
+
+  it('starts the tab stop on the first channel label when nothing on the watched channel is on', () => {
+    useTVStore.setState({ selectedChannel: null })
+    render(<TVEPGGrid programmesByChannel={schedule} />)
+
+    expect(grid().querySelectorAll('[tabindex="0"]')).toHaveLength(1)
+    expect(label('Live')).toHaveAttribute('tabindex', '0')
+  })
+
+  it('moves down and up to the programme on at the same time in the next row', () => {
+    render(<TVEPGGrid programmesByChannel={schedule} />)
+    // 20:10-21:00
+    act(() => block('Quiz').focus())
+
+    // Cartoon Hour is on at 20:10
+    expect(press('ArrowDown')).toBe(false)
+    expect(block('Cartoon Hour')).toHaveFocus()
+    // Still 20:10, not Cartoon Hour's 19:20 start: Soap
+    press('ArrowDown')
+    expect(block('Soap')).toHaveFocus()
+    press('ArrowUp')
+    press('ArrowUp')
+    expect(block('Quiz')).toHaveFocus()
+    // The live row has nothing on: its label
+    press('ArrowUp')
+    expect(label('Live')).toHaveFocus()
+    expect(grid().querySelectorAll('[tabindex="0"]')).toHaveLength(1)
+  })
+
+  it('moves along a row with Left and Right, from the first programme to the label, and Home and End', () => {
+    render(<TVEPGGrid programmesByChannel={schedule} />)
+    act(() => block('Quiz').focus())
+
+    press('ArrowRight')
+    expect(block('Film One')).toHaveFocus()
+    press('Home')
+    expect(block('Early News')).toHaveFocus()
+    press('ArrowLeft')
+    expect(label('News')).toHaveFocus()
+    // Into the programmes at what's on now
+    press('ArrowRight')
+    expect(block('Early News')).toHaveFocus()
+    press('End')
+    expect(block('Film One')).toHaveFocus()
+  })
+
+  it('opens the focused programme with Enter or Space, and tunes from a label', () => {
+    const onProgrammeClick = vi.fn()
+    const onChannelClick = vi.fn()
+    render(<TVEPGGrid programmesByChannel={schedule} onProgrammeClick={onProgrammeClick} onChannelClick={onChannelClick} />)
+    act(() => block('Nature').focus())
+
+    expect(press('Enter')).toBe(false)
+    expect(onProgrammeClick).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'nature', title: 'Nature' }),
+      expect.objectContaining({ id: 'etv2', type: 'ersatztv' })
+    )
+    press(' ')
+    expect(onProgrammeClick).toHaveBeenCalledTimes(2)
+
+    press('ArrowLeft')
+    press('ArrowLeft')
+    press('Enter')
+    expect(onChannelClick).toHaveBeenCalledWith(expect.objectContaining({ id: 'etv2' }))
+    expect(onProgrammeClick).toHaveBeenCalledTimes(2)
+  })
+
+  it('reaches Pick a channel for everyone in the empty live row and opens the picker from the keyboard', () => {
+    const onPickLive = vi.fn()
+    render(<TVEPGGrid programmesByChannel={schedule} onPickLive={onPickLive} />)
+    act(() => block('Quiz').focus())
+
+    press('ArrowUp')
+    const pick = screen.getByRole('button', { name: 'Pick a channel for everyone' })
+    expect(pick).toHaveFocus()
+    expect(pick.closest('[role="gridcell"]')).not.toBeNull()
+    press('Enter')
+    expect(onPickLive).toHaveBeenCalledTimes(1)
+  })
+
+  it('names each programme with its channel and whether it is on now, starts or ended', () => {
+    const timeFormat = new Intl.DateTimeFormat([], { hour: 'numeric', minute: '2-digit' })
+    render(<TVEPGGrid programmesByChannel={schedule} />)
+
+    // 19:20-20:30, 30 minutes to go
+    expect(block('Cartoon Hour')).toHaveAccessibleName('Cartoon Hour, 2 Kids, on now, 30 minutes left')
+    expect(block('Nature')).toHaveAccessibleName(`Nature, 2 Kids, starts ${timeFormat.format(new Date(NOW + 30 * MINUTE))}`)
+    expect(block('Early News')).toHaveAccessibleName('Early News, 1 News, on now, 10 minutes left')
+    expect(block('Quiz')).toHaveAccessibleName(`Quiz, 1 News, starts ${timeFormat.format(new Date(NOW + 10 * MINUTE))}`)
+
+    // The time left follows the clock, and a finished programme says when it ended
+    act(() => vi.advanceTimersByTime(10 * MINUTE))
+    expect(block('Cartoon Hour')).toHaveAccessibleName('Cartoon Hour, 2 Kids, on now, 20 minutes left')
+    expect(block('Early News')).toHaveAccessibleName(`Early News, 1 News, ended ${timeFormat.format(new Date(NOW + 10 * MINUTE))}`)
+    expect(block('Quiz')).toHaveAccessibleName('Quiz, 1 News, on now, 50 minutes left')
+  })
+
+  it('leaves other keys and keys with modifiers to the page', () => {
+    render(<TVEPGGrid programmesByChannel={schedule} />)
+    act(() => block('Quiz').focus())
+
+    expect(press('Tab')).toBe(true)
+    expect(press('m')).toBe(true)
+    expect(fireEvent.keyDown(block('Quiz'), { key: 'ArrowDown', altKey: true })).toBe(true)
+    expect(block('Quiz')).toHaveFocus()
+  })
+
+  it("focuses the watched channel's programme on now when the guide was opened from the keyboard", () => {
+    useUIStore.setState({ guideFocusRequested: true })
+    render(<TVEPGGrid programmesByChannel={schedule} />)
+
+    expect(block('Cartoon Hour')).toHaveFocus()
+    // Once
+    expect(useUIStore.getState().guideFocusRequested).toBe(false)
+  })
+
+  it('waits for the programmes before taking focus, and leaves focus alone when opened by pointer', () => {
+    useUIStore.setState({ guideFocusRequested: true })
+    const { rerender } = render(<TVEPGGrid programmesByChannel={schedule} loading />)
+    expect(useUIStore.getState().guideFocusRequested).toBe(true)
+
+    rerender(<TVEPGGrid programmesByChannel={schedule} />)
+    expect(block('Cartoon Hour')).toHaveFocus()
+    cleanup()
+
+    render(<TVEPGGrid programmesByChannel={schedule} />)
+    expect(document.body).toHaveFocus()
+  })
+
+  describe('laid out, with now well into a long programme', () => {
+    // Now 20:40; the grid starts at 20:00 and opens scrolled to 20:20
+    const LATE = NOW + 40 * MINUTE
+    const late = (channelId: string, id: string, title: string, from: number, to: number) =>
+      programme(channelId, id, title, from + 40, to + 40)
+    const lateSchedule: Record<string, ErsatzTVProgramme[]> = {
+      // Watched: on since 20:00
+      etv1: [late('etv1', 'film', 'Long Film', -40, 20)],
+      etv2: [late('etv2', 'ended', 'Ended Show', -40, -10), late('etv2', 'now-show', 'Now Show', -10, 20)],
+    }
+    const isScroller = (el: Element) => el instanceof HTMLElement && el.dataset.testid === 'tv-epg-grid'
+
+    beforeEach(() => {
+      vi.setSystemTime(LATE)
+      useTVStore.setState({ selectedChannel: { ...channels[0], type: 'ersatztv' } })
+      // jsdom has no layout: give the grid a 1200 x 400 viewport
+      vi.spyOn(Element.prototype, 'clientWidth', 'get').mockImplementation(function (this: Element) {
+        return isScroller(this) ? 1200 : 0
+      })
+      vi.spyOn(Element.prototype, 'clientHeight', 'get').mockImplementation(function (this: Element) {
+        return isScroller(this) ? 400 : 0
+      })
+    })
+
+    afterEach(() => {
+      cleanup()
+      vi.restoreAllMocks()
+    })
+
+    it("moves down from the programme on now to the one on now next door, from a keyboard-opened guide or Tab", () => {
+      useUIStore.setState({ guideFocusRequested: true })
+      render(<TVEPGGrid programmesByChannel={lateSchedule} />)
+      expect(screen.getByTestId('tv-epg-grid').scrollLeft).toBe(100)
+      expect(block('Long Film')).toHaveFocus()
+
+      // Not Ended Show, on at 20:20, where the view starts
+      press('ArrowDown')
+      expect(block('Now Show')).toHaveFocus()
+
+      act(() => block('Long Film').focus())
+      press('ArrowDown')
+      expect(block('Now Show')).toHaveFocus()
+    })
   })
 })

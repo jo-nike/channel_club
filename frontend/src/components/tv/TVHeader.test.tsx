@@ -118,6 +118,24 @@ describe('TVHeader', () => {
     expect(screen.getByRole('button', { name: 'Hide NHL Scores' })).toHaveAttribute('aria-pressed', 'true')
   })
 
+  it('asks the guide to take focus only when it is opened from the keyboard', () => {
+    useUIStore.setState({ isEPGVisible: false, guideFocusRequested: false })
+    renderHeader()
+
+    // A pointer click counts its presses in detail
+    fireEvent.click(screen.getByRole('button', { name: 'Show guide' }), { detail: 1 })
+    expect(useUIStore.getState()).toMatchObject({ isEPGVisible: true, guideFocusRequested: false })
+    fireEvent.click(screen.getByRole('button', { name: 'Hide guide' }), { detail: 1 })
+
+    // Enter, Space and a remote's OK click with detail 0
+    fireEvent.click(screen.getByRole('button', { name: 'Show guide' }), { detail: 0 })
+    expect(useUIStore.getState()).toMatchObject({ isEPGVisible: true, guideFocusRequested: true })
+
+    // Closing withdraws a request the guide hasn't taken up
+    fireEvent.click(screen.getByRole('button', { name: 'Hide guide' }), { detail: 0 })
+    expect(useUIStore.getState()).toMatchObject({ isEPGVisible: false, guideFocusRequested: false })
+  })
+
   it('groups the actions in a Watch controls landmark, in order', () => {
     auth.isAdmin = true
     renderHeader()
