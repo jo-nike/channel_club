@@ -637,4 +637,20 @@ describe('LoginForm', () => {
       expect(screen.queryByTestId('qr-plex-login')).not.toBeInTheDocument()
     })
   })
+
+  describe('iOS safe area', () => {
+    const safe = ['p-4', 'pt-[max(1rem,env(safe-area-inset-top))]', 'pb-[max(1rem,env(safe-area-inset-bottom))]']
+
+    it('keeps the sign-in screen at least 1rem clear of the status bar and home indicator', async () => {
+      render(<LoginForm />)
+      const heading = await screen.findByRole('heading', { name: 'Channel Club' })
+      expect(heading.closest('.min-h-screen')).toHaveClass(...safe)
+    })
+
+    it('pads the loading skeleton the same way', () => {
+      vi.mocked(api.getAuthConfig).mockReturnValue(new Promise(() => {}))
+      const { container } = render(<LoginForm />)
+      expect(container.firstChild).toHaveClass('min-h-screen', ...safe)
+    })
+  })
 })

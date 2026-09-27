@@ -190,8 +190,10 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
   )?.messageId
 
   // Panel styles based on viewport
+  // Full-screen on phones: keep the header clear of the status bar and the
+  // composer above the home indicator
   const panelClasses = isMobile
-    ? 'fixed inset-0 z-50 bg-background flex flex-col'
+    ? 'fixed inset-0 z-50 bg-background flex flex-col pt-safe pb-safe'
     : 'fixed top-0 right-0 h-full w-80 z-50 bg-background border-l border-border flex flex-col shadow-lg'
 
   const animationClasses = isMobile

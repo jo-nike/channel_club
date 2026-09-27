@@ -217,6 +217,7 @@ export function TVView() {
   // Responsive
   const isMobile = useMediaQuery('(max-width: 768px)')
   const isMobileLandscape = useMobileLandscape()
+  const isPhonePortrait = isMobile && !isTheaterMode && !isMobileLandscape
 
   // Load channels on mount
   useEffect(() => {
@@ -321,15 +322,17 @@ export function TVView() {
   const liveEPGTitle = liveEPG?.currentProgram?.title ?? null
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-background">
+    // 100vh where dvh is unsupported (older webOS/Tizen), the dynamic viewport
+    // elsewhere, so Safari's toolbar doesn't hide the bottom of the list
+    <div className="flex h-screen supports-[height:100dvh]:h-dvh flex-col overflow-hidden bg-background">
       {/* Header - hidden in theater mode or mobile landscape */}
       {!isTheaterMode && !isMobileLandscape && (
-        <header className="flex justify-between items-center px-4 py-2 bg-background border-b rounded-b-lg">
-          <div className="flex items-center gap-4">
+        <header className="flex justify-between items-center px-4 pt-header-safe pb-2 bg-background border-b rounded-b-lg">
+          <div className="flex min-w-0 flex-1 items-center gap-4">
             {/* Connection status indicator */}
             <ConnectionStatus status={status} onReconnect={reconnect} />
-            {/* Current channel/programme info */}
-            <span className="text-muted-foreground text-sm">
+            {/* Current channel/programme info: one line, so a long title can't push the video down */}
+            <span className="truncate text-muted-foreground text-sm">
               {selectedChannel?.name && currentProgrammeTitle
                 ? `${selectedChannel.name} - ${currentProgrammeTitle}`
                 : selectedChannel?.name || 'Select a channel'}
@@ -454,17 +457,19 @@ export function TVView() {
 
         {/* Content area */}
         <main className="flex flex-1 flex-col min-h-0 overflow-hidden">
-          {/* Video player - fixed full viewport in theater mode or mobile landscape */}
+          {/* Video player - fixed full viewport in theater mode or mobile landscape,
+              a full-width 16:9 box in phone portrait */}
           <div
             className={cn(
               'relative w-full min-h-0 overflow-hidden bg-black',
               (isTheaterMode || isMobileLandscape) && 'fixed inset-0 z-50',
-              !isTheaterMode && !isMobileLandscape && 'rounded-lg'
+              isPhonePortrait && 'aspect-video flex-none',
+              !isTheaterMode && !isMobileLandscape && !isMobile && 'rounded-lg'
             )}
             style={
               !isTheaterMode && !isMobileLandscape && isEPGVisible && !isMobile
                 ? { flex: `1 1 ${100 - epgHeightPercent}%` }
-                : !isTheaterMode && !isMobileLandscape
+                : !isTheaterMode && !isMobileLandscape && !isMobile
                 ? { flex: '1 1 100%' }
                 : undefined
             }
@@ -510,7 +515,9 @@ export function TVView() {
               style={
                 !isMobile && isEPGVisible
                   ? { flex: `0 0 ${epgHeightPercent}%` }
-                  : { flex: '1 1 auto' }
+                  // Phone: a zero basis, so the list takes what the 16:9 video
+                  // leaves and scrolls, however many channels there are
+                  : { flex: '1 1 0%' }
               }
             >
               {isMobile ? (

@@ -177,3 +177,78 @@ describe('E-V1 chat connection state', () => {
     expect(chatProps.last?.onReconnect).toBe(socket.reconnect)
   })
 })
+
+describe('G-03 phone portrait layout', () => {
+  const originalMatchMedia = window.matchMedia
+  function matchOnly(match: string) {
+    window.matchMedia = vi.fn((query: string) => ({
+      matches: query === match,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }))
+  }
+  beforeEach(() => vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([]))
+  afterEach(() => { window.matchMedia = originalMatchMedia })
+
+  it('gives the player a fixed full-width 16:9 box and the channel list the rest of the height', async () => {
+    matchOnly('(max-width: 768px)')
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+
+    const video = screen.getByTestId('player').closest('.bg-black') as HTMLElement
+    expect(video).toHaveClass('aspect-video', 'w-full', 'flex-none')
+    expect(video).not.toHaveClass('rounded-lg')
+    expect(video.style.flex).toBe('')
+
+    const list = screen.getByRole('heading', { name: 'Channels' }).closest('.epg-scroll') as HTMLElement
+    expect(list).toHaveClass('min-h-0', 'overflow-y-auto')
+    expect(list).toHaveStyle({ flex: '1 1 0%' })
+  })
+
+  it('keeps the desktop player growing into the full height', async () => {
+    useUIStore.setState({ isEPGVisible: false })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+
+    const video = screen.getByTestId('player').closest('.bg-black') as HTMLElement
+    expect(video).not.toHaveClass('aspect-video')
+    expect(video).toHaveClass('rounded-lg')
+    expect(video).toHaveStyle({ flex: '1 1 100%' })
+  })
+})
+
+describe('G-08 viewport height and header title', () => {
+  beforeEach(() => vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([]))
+
+  it('sizes the app to the dynamic viewport, keeping 100vh where dvh is unsupported', () => {
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    const root = screen.getByRole('banner').parentElement!
+    expect(root).toHaveClass('h-screen', 'supports-[height:100dvh]:h-dvh')
+    expect(root).not.toHaveClass('h-dvh')
+  })
+
+  it('keeps a long programme title on one truncated line', async () => {
+    const title = 'The Lord of the Rings: The War of the Rohirrim'
+    vi.mocked(fetchNowPlaying).mockResolvedValue({ channelId: 'a', currentProgram: { title, startTime: '2026-09-06T11:00:00Z', endTime: '2099-01-01T00:00:00Z' } })
+    useChannelStore.getState().setCurrentChannel({ id: 'a', name: 'PopCorn Movies', streamUrl: '/a', guideId: 'guide-a' })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    const titleEl = await screen.findByText(`PopCorn Movies - ${title}`)
+    expect(titleEl).toHaveClass('truncate')
+    expect(titleEl.parentElement).toHaveClass('min-w-0', 'flex-1')
+  })
+})
+
+describe('A-V2 iOS safe area', () => {
+  it('pads the header below the status bar', () => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    const header = screen.getByRole('banner')
+    expect(header).toHaveClass('pt-header-safe', 'pb-2')
+    expect(header).not.toHaveClass('py-2')
+  })
+})

@@ -159,6 +159,42 @@
 }
 
 /* ============================
+   iOS SAFE AREA
+   ============================ */
+
+/* viewport-fit=cover (index.html) with the black-translucent status bar
+   draws the page under the status bar, notch and home indicator. These keep
+   content clear of them; env() resolves to 0 where there are no insets. */
+@utility pt-header-safe {
+  padding-top: calc(0.5rem + env(safe-area-inset-top, 0px));
+}
+
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Player controls pinned 1rem from an edge (the VideoControls and
+   ErsatzTVVideoControls bars) stay 1rem clear of the notch and home
+   indicator in landscape. Unlayered, so these win over bottom-4, left-4 and
+   right-4. Keyed on those classes because .video-controls also marks
+   controls placed elsewhere, such as the centred tap-to-play button. */
+.video-controls.bottom-4 {
+  bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+.video-controls.left-4 {
+  left: max(1rem, env(safe-area-inset-left));
+}
+
+.video-controls.right-4 {
+  right: max(1rem, env(safe-area-inset-right));
+}
+
+/* ============================
    VIDSTACK VIDEO PLAYER
    ============================ */
 
