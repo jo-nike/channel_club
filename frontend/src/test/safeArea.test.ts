@@ -30,15 +30,17 @@ describe('iOS safe area', () => {
     expect(rule('@utility pb-safe')).toBe('padding-bottom: env(safe-area-inset-bottom, 0px);')
   })
 
-  it('moves only the edge-pinned player controls in from the insets, outside any layer', () => {
-    expect(rule('.video-controls.bottom-4')).toBe('bottom: max(1rem, env(safe-area-inset-bottom));')
-    expect(rule('.video-controls.left-4')).toBe('left: max(1rem, env(safe-area-inset-left));')
-    expect(rule('.video-controls.right-4')).toBe('right: max(1rem, env(safe-area-inset-right));')
+  it('pads only the edge-to-edge player strip in from the insets, outside any layer', () => {
+    expect(rule('.video-controls.px-3')).toBe(
+      'padding-left: max(0.75rem, env(safe-area-inset-left));\n  padding-right: max(0.75rem, env(safe-area-inset-right));'
+    )
+    expect(rule('.video-controls.pb-2')).toBe('padding-bottom: max(0.5rem, env(safe-area-inset-bottom));')
     // Unlayered (after the only @layer block closes), so the rules beat the
-    // bottom-4/left-4/right-4 utilities
+    // px-3/pb-2 utilities
     expect(css.match(/@layer/g)).toHaveLength(1)
     const layerEnd = css.indexOf('\n}\n', css.indexOf('@layer base {'))
-    expect(css.indexOf('.video-controls.bottom-4')).toBeGreaterThan(layerEnd)
+    expect(css.indexOf('.video-controls.px-3')).toBeGreaterThan(layerEnd)
+    expect(css.indexOf('.video-controls.pb-2')).toBeGreaterThan(layerEnd)
     // A bare .video-controls rule would also move the centred tap-to-play button
     expect(css).not.toMatch(/\.video-controls\s*\{/)
   })

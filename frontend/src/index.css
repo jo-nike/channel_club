@@ -231,21 +231,19 @@
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
-/* Player controls pinned 1rem from an edge (the PlayerChrome bar) stay
-   1rem clear of the notch and home indicator in landscape. Unlayered, so
-   these win over bottom-4, left-4 and right-4. Keyed on those classes
-   because .video-controls also marks controls placed elsewhere, such as the
-   centred tap-to-play button. */
-.video-controls.bottom-4 {
-  bottom: max(1rem, env(safe-area-inset-bottom));
+/* The PlayerChrome strip runs edge to edge along the bottom of the player,
+   so its padding keeps the buttons clear of the notch and home indicator in
+   landscape, and never drops below the strip's own px-3/pb-2. Unlayered, so
+   these win over px-3 and pb-2. Keyed on those classes because
+   .video-controls also marks controls placed elsewhere, such as the centred
+   tap-to-play button. */
+.video-controls.px-3 {
+  padding-left: max(0.75rem, env(safe-area-inset-left));
+  padding-right: max(0.75rem, env(safe-area-inset-right));
 }
 
-.video-controls.left-4 {
-  left: max(1rem, env(safe-area-inset-left));
-}
-
-.video-controls.right-4 {
-  right: max(1rem, env(safe-area-inset-right));
+.video-controls.pb-2 {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
 }
 
 /* ============================

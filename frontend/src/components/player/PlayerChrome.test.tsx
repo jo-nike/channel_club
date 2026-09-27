@@ -12,8 +12,12 @@ const highlight = vi.hoisted(() => ({ enabled: false }))
 vi.mock('@/hooks/useHighlightFeature', () => ({
   useHighlightFeature: () => ({ isEnabled: highlight.enabled, isLoading: false }),
 }))
+const clipStatus = vi.hoisted(() => ({ loaded: true }))
 vi.mock('@/hooks/useHighlightStatus', () => ({
-  useHighlightStatus: () => ({ recording: true, ready: true, bufferSeconds: 60 }),
+  useHighlightStatus: () => ({
+    status: { enabled: true, recording: true, ready: true, bufferSeconds: 60, maxBufferSeconds: 60 },
+    loaded: clipStatus.loaded,
+  }),
 }))
 // Rendered once there is a channel; it would ask the server whether casting is on
 const cast = vi.hoisted(() => ({ props: null as Record<string, unknown> | null }))
@@ -362,21 +366,35 @@ describe('PlayerChrome', () => {
   })
 
   describe('control bar positioning', () => {
-    it('has consistent bottom-4 position regardless of theater mode', () => {
+    it('is a full-width strip along the bottom edge, not an inset card', () => {
+      renderChrome()
+
+      const bar = toolbar()
+      expect(bar).toHaveClass('absolute', 'inset-x-0', 'bottom-0')
+      expect(bar).not.toHaveClass('bottom-4', 'left-4', 'right-4', 'rounded-lg')
+    })
+
+    it('sits on a gradient scrim that fades up from black, not a solid box', () => {
+      renderChrome()
+
+      expect(toolbar()).toHaveClass('bg-gradient-to-t', 'from-black/80', 'to-transparent')
+      expect(toolbar()).not.toHaveClass('bg-black/70')
+    })
+
+    it('uses the padding classes index.css widens to clear the notch and home indicator', () => {
+      renderChrome()
+
+      expect(toolbar()).toHaveClass('px-3', 'pb-2')
+    })
+
+    it('keeps its position regardless of theater mode', () => {
       const { update } = renderChrome({ shell: { isTheaterMode: false } })
 
       const bar = toolbar()
-      expect(bar).toHaveClass('bottom-4')
+      expect(bar).toHaveClass('bottom-0')
 
       update({ shell: { isTheaterMode: true } })
-      expect(bar).toHaveClass('bottom-4')
-    })
-
-    it('does not change position between theater and non-theater modes', () => {
-      renderChrome({ shell: { isTheaterMode: false } })
-
-      expect(toolbar()).not.toHaveClass('bottom-12')
-      expect(toolbar()).not.toHaveClass('bottom-24')
+      expect(bar).toHaveClass('bottom-0', 'inset-x-0')
     })
   })
 
@@ -423,7 +441,15 @@ describe('PlayerChrome', () => {
   describe('clip capture', () => {
     beforeEach(() => {
       highlight.enabled = true
+      clipStatus.loaded = true
       useClipStore.setState({ session: null })
+    })
+
+    it('shows the clip control as checking until the first status poll answers', () => {
+      clipStatus.loaded = false
+      renderChrome({ props: { channelId: '42', channelName: 'Sportsnet' } })
+
+      expect(screen.getByRole('button', { name: 'Checking clip…' })).toBeDisabled()
     })
 
     it('opens the clip session on this channel and leaves the editor to the player shell', () => {

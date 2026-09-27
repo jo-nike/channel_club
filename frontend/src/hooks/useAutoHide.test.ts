@@ -428,6 +428,54 @@ describe('useAutoHide', () => {
       expect(result.current.isVisible).toBe(true)
     })
 
+    it('a mouse move of less than 4px does not bring hidden controls back; 4px or more does', () => {
+      const containerRef = createContainerRef()
+      const { result } = renderHook(() => useAutoHide({ isPlaying: true, containerRef }))
+      pointer(containerRef.current, 'pointermove', 'mouse', 50, 50)
+      hideByTimeout()
+      expect(result.current.isVisible).toBe(false)
+
+      pointer(containerRef.current, 'pointermove', 'mouse', 53, 50)
+      pointer(containerRef.current, 'pointermove', 'mouse', 52, 52)
+      expect(result.current.isVisible).toBe(false)
+
+      pointer(containerRef.current, 'pointermove', 'mouse', 54, 50)
+      expect(result.current.isVisible).toBe(true)
+    })
+
+    it('measures from where the mouse last showed the controls, so slow drift adds up', () => {
+      const containerRef = createContainerRef()
+      const { result } = renderHook(() => useAutoHide({ isPlaying: true, containerRef }))
+      pointer(containerRef.current, 'pointermove', 'mouse', 50, 50)
+      hideByTimeout()
+
+      pointer(containerRef.current, 'pointermove', 'mouse', 52, 50)
+      expect(result.current.isVisible).toBe(false)
+      pointer(containerRef.current, 'pointermove', 'mouse', 53, 53)
+      expect(result.current.isVisible).toBe(true)
+
+      // The show re-anchors at (53, 53): jitter around it is ignored again
+      hideByTimeout()
+      pointer(containerRef.current, 'pointermove', 'mouse', 55, 54)
+      expect(result.current.isVisible).toBe(false)
+    })
+
+    it('jitter while the controls are up does not keep them up', () => {
+      const containerRef = createContainerRef()
+      const { result } = renderHook(() => useAutoHide({ isPlaying: true, containerRef }))
+      pointer(containerRef.current, 'pointermove', 'mouse', 50, 50)
+
+      act(() => {
+        vi.advanceTimersByTime(2000)
+      })
+      pointer(containerRef.current, 'pointermove', 'mouse', 51, 51)
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
+
+      expect(result.current.isVisible).toBe(false)
+    })
+
     it('a mouse click on the picture does not toggle the controls', () => {
       const containerRef = createContainerRef()
       const { result } = renderHook(() => useAutoHide({ isPlaying: true, containerRef }))
