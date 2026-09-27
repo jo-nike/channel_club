@@ -14,6 +14,7 @@ import { useTVMode } from '@/hooks/useTVMode'
 import { useCanSetVolume } from '@/hooks/useCanSetVolume'
 import { useVideoKeyboardShortcuts } from '@/hooks/useVideoKeyboardShortcuts'
 import { useOrientationFullscreen } from '@/hooks/useOrientationFullscreen'
+import { useFullscreenState } from '@/hooks/useFullscreenState'
 import { useHLSRetry } from '@/hooks/useHLSRetry'
 import { ProjectorBeamLoader } from '@/components/ProjectorBeamLoader'
 import { RetroTVFilter } from '@/components/filters/RetroTVFilter'
@@ -138,7 +139,6 @@ function LiveVideoPlayer({
   const [isPlaying, setIsPlaying] = useState(false)
   // Muted by something other than the viewer (e.g. the clip preview duck); display only
   const [isElementMuted, setIsElementMuted] = useState(false)
-  const [isFullscreen, setIsFullscreen] = useState(false)
   const [isHoveringControls, setIsHoveringControls] = useState(false)
 
   // Detect TV mode
@@ -244,15 +244,8 @@ function LiveVideoPlayer({
     enabled: true,
   })
 
-  // Track fullscreen changes
-  useEffect(() => {
-    const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement)
-    }
-
-    document.addEventListener('fullscreenchange', handleFullscreenChange)
-    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
-  }, [])
+  // Fullscreen only when this player's container is the fullscreen element
+  const isFullscreen = useFullscreenState(containerRef)
 
   // Check mpegts.js support
   const isMpegtsSupported = mpegts.isSupported()

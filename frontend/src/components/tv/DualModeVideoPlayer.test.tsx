@@ -423,6 +423,38 @@ describe('DualModeVideoPlayer audio: keyboard', () => {
   })
 })
 
+describe('DualModeVideoPlayer fullscreen state', () => {
+  const setFullscreenElement = (element: Element | null) => {
+    act(() => {
+      Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: element })
+      document.dispatchEvent(new Event('fullscreenchange'))
+    })
+  }
+
+  afterEach(() => {
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null })
+  })
+
+  // The element each engine's fullscreen button sends fullscreen
+  const liveContainer = () => document.querySelector('.video-player-container')
+  const hlsContainer = () => document.querySelector('[data-media-player]')?.parentElement ?? null
+
+  it.each([
+    ['live', liveChannel('https://fixture/a'), liveContainer],
+    ['ErsatzTV', hlsChannel('1', 1), hlsContainer],
+  ])('%s: Exit fullscreen and no Theater only while its container is fullscreen', (_engine, channel, container) => {
+    renderPlayer(channel)
+
+    setFullscreenElement(document.createElement('div'))
+    expect(screen.getByRole('button', { name: 'Fullscreen' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Theater mode' })).toBeInTheDocument()
+
+    setFullscreenElement(container())
+    expect(screen.getByRole('button', { name: 'Exit fullscreen' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Theater mode' })).not.toBeInTheDocument()
+  })
+})
+
 describe('DualModeVideoPlayer audio: browsers that ignore script volume (iOS/iPadOS)', () => {
   it.each([
     ['live', liveChannel('https://fixture/a')],
