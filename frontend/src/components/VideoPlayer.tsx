@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import mpegts from 'mpegts.js'
 import { useChannelStore } from '@/stores/channelStore'
 import { useUIStore } from '@/stores/uiStore'
+import { useAudioStore } from '@/stores/audioStore'
 import { useFilterStore } from '@/stores/filterStore'
 import { VideoControls } from '@/components/VideoControls'
 import { useAutoHide } from '@/hooks/useAutoHide'
@@ -47,8 +48,8 @@ function VideoPlayerInner({ channelId, streamUrl }: VideoPlayerInnerProps) {
   const [isBuffering, setIsBuffering] = useState(false)
   // Video state
   const [isPlaying, setIsPlaying] = useState(false)
-  const volume = useUIStore((s) => s.volume)
-  const setVolume = useUIStore((s) => s.setVolume)
+  const volume = useAudioStore((s) => s.volume)
+  const setVolume = useAudioStore((s) => s.setVolume)
   const [isMuted, setIsMuted] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
 

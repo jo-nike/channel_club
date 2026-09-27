@@ -1,17 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@/test/utils'
 import { ErsatzTVVideoControls, ErsatzTVVideoControlsProps } from './ErsatzTVVideoControls'
+import { useAudioStore } from '@/stores/audioStore'
 
 // Mock the highlight feature hook - disabled by default for existing tests
 vi.mock('@/hooks/useHighlightFeature', () => ({
   useHighlightFeature: () => ({ isEnabled: false, isLoading: false }),
 }))
 
+// Script volume detection (false on iOS/iPadOS Safari)
+const volumeSupport = vi.hoisted(() => ({ canSet: true }))
+vi.mock('@/hooks/useCanSetVolume', () => ({ useCanSetVolume: () => volumeSupport.canSet }))
+
 // Mock Vidstack hooks
 const mockRemote = {
   togglePaused: vi.fn(),
   changeVolume: vi.fn(),
   toggleMuted: vi.fn(),
+  mute: vi.fn(),
+  unmute: vi.fn(),
   toggleFullscreen: vi.fn(),
 }
 
@@ -43,10 +50,13 @@ describe('ErsatzTVVideoControls', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    volumeSupport.canSet = true
     mockPaused = false
     mockVolume = 1
     mockMuted = false
     mockFullscreen = false
+    localStorage.clear()
+    useAudioStore.setState({ volume: 1, muted: false })
 
     defaultProps = {
       isTheaterMode: false,
@@ -115,7 +125,14 @@ describe('ErsatzTVVideoControls', () => {
   })
 
   describe('Volume Controls', () => {
-    it('shows muted icon when muted', () => {
+    it('shows muted icon when the saved state is muted', () => {
+      useAudioStore.setState({ muted: true })
+      render(<ErsatzTVVideoControls {...defaultProps} />)
+
+      expect(screen.getByRole('button', { name: /unmute/i })).toBeInTheDocument()
+    })
+
+    it('shows muted icon when only the element is muted', () => {
       mockMuted = true
       render(<ErsatzTVVideoControls {...defaultProps} />)
 
@@ -129,30 +146,67 @@ describe('ErsatzTVVideoControls', () => {
       expect(screen.getByRole('button', { name: /mute/i })).toBeInTheDocument()
     })
 
-    it('calls remote.toggleMuted when mute button is clicked', () => {
+    it('saves mute to the audio store when mute button is clicked', () => {
       render(<ErsatzTVVideoControls {...defaultProps} />)
 
       fireEvent.click(screen.getByRole('button', { name: /mute/i }))
 
-      expect(mockRemote.toggleMuted).toHaveBeenCalledTimes(1)
+      expect(useAudioStore.getState().muted).toBe(true)
+      expect(mockRemote.toggleMuted).not.toHaveBeenCalled()
     })
 
-    it('calls remote.changeVolume when slider is changed', () => {
+    it('saves unmute and asks Vidstack to unmute an element-only mute', () => {
+      mockMuted = true
+      render(<ErsatzTVVideoControls {...defaultProps} />)
+
+      fireEvent.click(screen.getByRole('button', { name: /unmute/i }))
+
+      expect(useAudioStore.getState().muted).toBe(false)
+      expect(mockRemote.unmute).toHaveBeenCalledTimes(1)
+    })
+
+    it('saves the slider level to the audio store', () => {
       render(<ErsatzTVVideoControls {...defaultProps} />)
 
       const slider = screen.getByRole('slider', { name: /volume/i })
       fireEvent.change(slider, { target: { value: '0.5' } })
 
-      expect(mockRemote.changeVolume).toHaveBeenCalledWith(0.5)
+      expect(useAudioStore.getState().volume).toBe(0.5)
+      expect(mockRemote.changeVolume).not.toHaveBeenCalled()
     })
 
     it('shows slider value as 0 when muted', () => {
-      mockMuted = true
-      mockVolume = 0.8
+      useAudioStore.setState({ volume: 0.8, muted: true })
       render(<ErsatzTVVideoControls {...defaultProps} />)
 
       const slider = screen.getByRole('slider', { name: /volume/i })
       expect(slider).toHaveValue('0')
+    })
+
+    it('shows the saved level, not Vidstack\'s placeholder 100% before can-play', () => {
+      useAudioStore.setState({ volume: 0.3, muted: false })
+      mockVolume = 1
+      render(<ErsatzTVVideoControls {...defaultProps} />)
+
+      const slider = screen.getByRole('slider', { name: /volume/i })
+      expect(slider).toHaveValue('0.3')
+    })
+  })
+
+  describe('Browsers that ignore script volume (iOS/iPadOS)', () => {
+    it('hides the volume slider and keeps Mute', () => {
+      volumeSupport.canSet = false
+      render(<ErsatzTVVideoControls {...defaultProps} />)
+
+      expect(screen.queryByRole('slider', { name: /volume/i })).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /mute/i })).toBeInTheDocument()
+    })
+
+    it('shows the volume slider where volume can be set', () => {
+      volumeSupport.canSet = true
+      render(<ErsatzTVVideoControls {...defaultProps} />)
+
+      expect(screen.getByRole('slider', { name: /volume/i })).toBeInTheDocument()
     })
   })
 

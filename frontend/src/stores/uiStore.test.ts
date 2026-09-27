@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useUIStore } from './uiStore'
 
 describe('uiStore', () => {
@@ -52,6 +52,25 @@ describe('uiStore', () => {
       // The persist middleware adds a `persist` property to the store
       expect(useUIStore.persist).toBeDefined()
       expect(useUIStore.persist.getOptions().name).toBe('ui-storage')
+    })
+
+    it('no longer persists volume (the audio store owns it)', () => {
+      useUIStore.getState().setSidebarOpen(true)
+      const saved = JSON.parse(localStorage.getItem('ui-storage') ?? 'null')
+      expect(saved.state.isSidebarOpen).toBe(true)
+      expect(saved.state).not.toHaveProperty('volume')
+      expect(useUIStore.getState()).not.toHaveProperty('setVolume')
+    })
+
+    it('lets the audio store seed from the legacy volume before ui-storage drops it', async () => {
+      localStorage.setItem('ui-storage', JSON.stringify({ state: { volume: 0.3 }, version: 0 }))
+      vi.resetModules()
+      const { useUIStore: freshUIStore } = await import('./uiStore')
+      freshUIStore.getState().setSidebarOpen(true)
+
+      expect(JSON.parse(localStorage.getItem('ui-storage') ?? 'null').state).not.toHaveProperty('volume')
+      const { useAudioStore } = await import('./audioStore')
+      expect(useAudioStore.getState()).toMatchObject({ volume: 0.3, muted: false })
     })
   })
 

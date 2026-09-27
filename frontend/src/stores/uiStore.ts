@@ -1,5 +1,8 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+// Evaluate the audio store first: its one-time seed reads the `volume` this
+// store used to persist, which the next write here drops.
+import './audioStore'
 
 interface UIState {
   isTheaterMode: boolean
@@ -30,9 +33,6 @@ interface UIState {
   notificationsEnabled: boolean
   setNotificationsEnabled: (value: boolean) => void
   toggleNotifications: () => void
-  // Volume persistence (shared across all players)
-  volume: number
-  setVolume: (value: number) => void
   // NHL scores overlay (ephemeral - not persisted)
   isNHLOverlayVisible: boolean
   setNHLOverlayVisible: (value: boolean) => void
@@ -70,9 +70,6 @@ export const useUIStore = create<UIState>()(
       notificationsEnabled: false,
       setNotificationsEnabled: (value) => set({ notificationsEnabled: value }),
       toggleNotifications: () => set((s) => ({ notificationsEnabled: !s.notificationsEnabled })),
-      // Volume persistence (shared across all players)
-      volume: 1,
-      setVolume: (value) => set({ volume: Math.max(0, Math.min(1, value)) }),
       // NHL scores overlay (ephemeral - not persisted)
       isNHLOverlayVisible: false,
       setNHLOverlayVisible: (value) => set({ isNHLOverlayVisible: value }),
@@ -89,7 +86,6 @@ export const useUIStore = create<UIState>()(
         lastErsatzTVChannelId: state.lastErsatzTVChannelId,
         lastTVChannelId: state.lastTVChannelId,
         notificationsEnabled: state.notificationsEnabled,
-        volume: state.volume,
       }),
     }
   )
