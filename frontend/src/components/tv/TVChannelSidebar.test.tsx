@@ -188,6 +188,25 @@ describe('TVChannelSidebar collapsed rail', () => {
       expect(tile).toHaveClass('w-10')
     }
   })
+
+  it('offers the expand button by default', async () => {
+    const onToggleCollapse = vi.fn()
+    render(<TVChannelSidebar isCollapsed onToggleCollapse={onToggleCollapse} />)
+    await act(async () => {})
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand channel sidebar' }))
+
+    expect(onToggleCollapse).toHaveBeenCalledTimes(1)
+  })
+
+  it('has no expand button where the layout holds it at the rail, but keeps every tile', async () => {
+    const { container } = render(<TVChannelSidebar isCollapsed canExpand={false} onToggleCollapse={vi.fn()} />)
+    await act(async () => {})
+
+    expect(container.querySelector('aside')).toHaveClass('w-16')
+    expect(screen.queryByRole('button', { name: 'Expand channel sidebar' })).toBeNull()
+    expect(railTiles()).toHaveLength(37)
+  })
 })
 
 describe('TVChannelSidebar collapsed rail tiles', () => {
@@ -1231,6 +1250,17 @@ describe('TVChannelSidebar search and filter chips', () => {
     act(() => useChannelPrefsStore.getState().requestSearchFocus())
 
     expect(onToggleCollapse).toHaveBeenCalledTimes(1)
+    act(() => useChannelPrefsStore.setState({ searchFocusRequested: false }))
+  })
+
+  it("doesn't expand a rail that can't, when '/' asks for the search", async () => {
+    const onToggleCollapse = vi.fn()
+    render(<TVChannelSidebar isCollapsed canExpand={false} onToggleCollapse={onToggleCollapse} />)
+    await act(async () => {})
+
+    act(() => useChannelPrefsStore.getState().requestSearchFocus())
+
+    expect(onToggleCollapse).not.toHaveBeenCalled()
     act(() => useChannelPrefsStore.setState({ searchFocusRequested: false }))
   })
 

@@ -4,6 +4,7 @@ import { PlayerChrome, type PlayerChromeProps } from './PlayerChrome'
 import { PlayerShellContext, type PlayerShell } from './PlayerShellContext'
 import type { PlayerMediaAdapter } from './mediaAdapters'
 import { focusOverrides } from '@/test/focus'
+import { mockViewport } from '@/test/viewport'
 import { useAudioStore } from '@/stores/audioStore'
 import { useClipStore } from '@/stores/clipStore'
 import { useChatStore } from '@/stores/chatStore'
@@ -409,6 +410,49 @@ describe('PlayerChrome', () => {
       renderChrome({ props: { isMobile: true } })
 
       expect(screen.queryByRole('button', { name: /theater/i })).not.toBeInTheDocument()
+    })
+
+    describe('on touch screens', () => {
+      const setupMatchMedia = window.matchMedia
+      afterEach(() => { window.matchMedia = setupMatchMedia })
+
+      it.each([
+        ['a tablet on its side', { width: 1024, height: 768 }],
+        ['an iPad Pro on its side', { width: 1366, height: 1024 }],
+      ])('offers theater on %s, where a tap brings the bar back', (_device, size) => {
+        mockViewport({ ...size, pointer: 'coarse' })
+        const { shell } = renderChrome()
+
+        fireEvent.click(screen.getByRole('button', { name: 'Theater mode' }))
+
+        expect(shell.toggleTheaterMode).toHaveBeenCalledTimes(1)
+      })
+
+      it('offers the way out of theater on a tablet', () => {
+        mockViewport({ width: 1024, height: 768, pointer: 'coarse' })
+        renderChrome({ shell: { isTheaterMode: true } })
+
+        expect(screen.getByRole('button', { name: 'Exit theater mode' })).toBeInTheDocument()
+      })
+
+      it('keeps the way out of theater when the tablet is turned upright', () => {
+        mockViewport({ width: 820, height: 1180, pointer: 'coarse' })
+        const { shell } = renderChrome({ shell: { isTheaterMode: true }, props: { isMobile: true } })
+
+        fireEvent.click(screen.getByRole('button', { name: 'Exit theater mode' }))
+
+        expect(shell.toggleTheaterMode).toHaveBeenCalledTimes(1)
+      })
+
+      it.each([
+        ['upright', { width: 390, height: 844 }],
+        ['on its side', { width: 844, height: 390 }],
+      ])('leaves theater out on a phone %s', (_orientation, size) => {
+        mockViewport({ ...size, pointer: 'coarse' })
+        renderChrome()
+
+        expect(screen.queryByRole('button', { name: /theater/i })).not.toBeInTheDocument()
+      })
     })
   })
 

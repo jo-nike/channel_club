@@ -1369,3 +1369,107 @@ describe("B-10 '/' focuses the channel search", () => {
     window.matchMedia = originalMatchMedia
   })
 })
+
+describe('G-09 tablet layout', () => {
+  beforeEach(() => vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([]))
+  afterEach(() => { window.matchMedia = originalMatchMedia })
+
+  const renderView = async () => {
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+  }
+  const video = () => screen.getByTestId('player').closest('.bg-black') as HTMLElement
+
+  it('stacks a 16:9 player over the channel list on a tablet held upright, like a phone', async () => {
+    mockViewport({ width: 820, height: 1180, pointer: 'coarse' })
+    await renderView()
+
+    expect(video()).toHaveClass('aspect-video', 'w-full', 'flex-none')
+    expect(screen.getByRole('heading', { name: 'Channels' }).closest('.epg-scroll')).not.toBeNull()
+    // No side list beside the picture
+    expect(screen.queryByRole('button', { name: /channel sidebar/ })).toBeNull()
+  })
+
+  describe('held sideways', () => {
+    afterEach(() => {
+      useUIStore.setState({ isEPGVisible: false, isChannelSidebarCollapsed: false })
+      useChatStore.setState({ isOpen: false })
+      useChannelPrefsStore.setState({ searchFocusRequested: false })
+    })
+    const rail = () => screen.getByRole('button', { name: /^0 Live: A/ }).closest('aside') as HTMLElement
+
+    it.each([
+      ['1024 x 768', { width: 1024, height: 768 }],
+      ['1180 x 820', { width: 1180, height: 820 }],
+    ])('shows the slim logo rail with no expand button at %s, never saving it as collapsed', async (_size, size) => {
+      mockViewport({ ...size, pointer: 'coarse' })
+      await renderView()
+
+      expect(rail()).toHaveClass('w-16')
+      expect(screen.queryByRole('heading', { name: 'Channels' })).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Expand channel sidebar' })).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Collapse channel sidebar' })).toBeNull()
+      expect(useUIStore.getState().isChannelSidebarCollapsed).toBe(false)
+    })
+
+    it('gives the full list back as the viewer left it on a desktop', async () => {
+      const viewport = mockViewport({ width: 1180, height: 820, pointer: 'coarse' })
+      await renderView()
+      expect(rail()).toHaveClass('w-16')
+
+      act(() => viewport.resize({ width: 1440, height: 900 }))
+
+      expect(screen.getByRole('heading', { name: 'Channels' })).toBeVisible()
+      expect(useUIStore.getState().isChannelSidebarCollapsed).toBe(false)
+    })
+
+    it('stacks like a phone again when turned upright', async () => {
+      const viewport = mockViewport({ width: 1180, height: 820, pointer: 'coarse' })
+      await renderView()
+      expect(rail()).toHaveClass('w-16')
+
+      act(() => viewport.resize({ width: 820, height: 1180, pointer: 'coarse' }))
+
+      expect(video()).toHaveClass('aspect-video')
+      expect(screen.getByRole('heading', { name: 'Channels' }).closest('.epg-scroll')).not.toBeNull()
+      expect(useUIStore.getState().isChannelSidebarCollapsed).toBe(false)
+    })
+
+    it('opens chat as a sheet below the header', async () => {
+      mockViewport({ width: 1180, height: 820, pointer: 'coarse' })
+      await renderView()
+
+      act(() => useChatStore.setState({ isOpen: true }))
+
+      expect(screen.getByTestId('chat')).toHaveAttribute('data-variant', 'sheet')
+      expect(rail()).toHaveClass('w-16')
+    })
+
+    it("leaves '/' to the guide's search, since the rail has none", async () => {
+      mockViewport({ width: 1180, height: 820, pointer: 'coarse' })
+      await renderView()
+      expect(playerProps.onFocusSearch).toBeUndefined()
+
+      act(() => useUIStore.setState({ isEPGVisible: true }))
+
+      expect(playerProps.onFocusSearch).toBeDefined()
+    })
+
+    // webOS pointer mode can report a coarse pointer
+    it('keeps the list a TV viewer chose', async () => {
+      localStorage.setItem('tv-mode', 'true')
+      try {
+        mockViewport({ width: 1280, height: 720, pointer: 'coarse' })
+        render(<MemoryRouter><TVView /></MemoryRouter>)
+        await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+        // TV mode starts in theater; leave it to see the page layout
+        act(() => useUIStore.setState({ isTheaterMode: false }))
+
+        expect(screen.getByRole('heading', { name: 'Channels' })).toBeVisible()
+      } finally {
+        localStorage.removeItem('tv-mode')
+        useUIStore.setState({ isTheaterMode: false })
+      }
+    })
+  })
+})

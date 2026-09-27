@@ -30,6 +30,9 @@ function channelLabel(channel: UnifiedChannel, hasLiveChannel: boolean, liveProg
 interface TVChannelSidebarProps {
   isCollapsed?: boolean
   onToggleCollapse?: () => void
+  // False where the layout holds the list at its rail (a tablet held
+  // sideways): the rail then has no expand button
+  canExpand?: boolean
   liveEPGTitle?: string | null
   // Opens the live channel picker; only for people allowed to change live TV
   onPickLive?: () => void
@@ -38,6 +41,7 @@ interface TVChannelSidebarProps {
 export function TVChannelSidebar({
   isCollapsed = false,
   onToggleCollapse,
+  canExpand = true,
   liveEPGTitle,
   onPickLive,
 }: TVChannelSidebarProps) {
@@ -66,8 +70,8 @@ export function TVChannelSidebar({
   // once it's there
   const searchFocusRequested = useChannelPrefsStore((s) => s.searchFocusRequested)
   useEffect(() => {
-    if (isCollapsed && searchFocusRequested) onToggleCollapse?.()
-  }, [isCollapsed, searchFocusRequested, onToggleCollapse])
+    if (isCollapsed && canExpand && searchFocusRequested) onToggleCollapse?.()
+  }, [isCollapsed, canExpand, searchFocusRequested, onToggleCollapse])
 
   // One tab stop for the channels: arrow keys, Home and End move between
   // them. The list and the rail share it (only one is mounted), and the tab
@@ -106,13 +110,15 @@ export function TVChannelSidebar({
   if (isCollapsed) {
     return (
       <aside className="flex h-full w-16 flex-col items-center border-r bg-card py-2 rounded-r-lg overflow-hidden">
-        <button
-          onClick={onToggleCollapse}
-          className="flex h-10 w-10 items-center justify-center rounded-md hover:bg-accent"
-          aria-label="Expand channel sidebar"
-        >
-          <ChevronRight className="h-5 w-5" />
-        </button>
+        {canExpand && (
+          <button
+            onClick={onToggleCollapse}
+            className="flex h-10 w-10 items-center justify-center rounded-md hover:bg-accent"
+            aria-label="Expand channel sidebar"
+          >
+            <ChevronRight className="h-5 w-5" />
+          </button>
+        )}
         {/* No scrollbar: a classic 15px one would widen the list past the 64px rail
             and push the tiles off-centre. Wheel, touch and keyboard focus still scroll it. */}
         <div

@@ -64,19 +64,24 @@ export function PlayerChrome({
   const isTVMode = useTVMode()
 
   // Use local media query for reliable mobile/touch detection
-  // Check for touch device (pointer: coarse) to hide theater button on all phones/tablets
   const isTouchDevice = useMediaQuery('(pointer: coarse)')
   const isMobileQuery = useMediaQuery('(max-width: 768px)')
   const isMobile = isMobileProp || isMobileQuery || isTouchDevice
+  const isMobileLandscape = useMobileLandscape()
 
-  const showTheaterButton = (isTVMode || !isMobile) && !isFullscreen
+  // Theater is left out only on phones: upright they have the stacked layout,
+  // and sideways the player already fills the screen. A touch tablet gets it,
+  // since a tap brings the bar and its Exit theater button back. Once theater
+  // is on the button stays, whatever the layout: an iPad turned upright in
+  // theater becomes a 'phone', and this button is its only way out.
+  const isPhone = isMobileProp || isMobileQuery || isMobileLandscape
+  const showTheaterButton = (isTVMode || !isPhone || isTheaterMode) && !isFullscreen
 
   // Chat, where the page header and its chat button are gone: theater,
   // fullscreen on a desktop and a phone held sideways. Not on a phone in
   // portrait fullscreen, where the bar has no room for another button, and
   // not on a TV until couch mode gives chat a remote-friendly home.
   const chatEnabled = useChatEnabled()
-  const isMobileLandscape = useMobileLandscape()
   // Sideways, a 390px-tall picture can't spare a 48px bar with room around
   // it: the bar tightens to 44px targets and a thin scrim
   const isCompact = isMobileLandscape
@@ -308,7 +313,7 @@ export function PlayerChrome({
         </TooltipContent>
       </Tooltip>
 
-      {/* Theater Mode Button - hidden on touch/small screens and in fullscreen. TV browsers
+      {/* Theater Mode Button - hidden on phones and in fullscreen. TV browsers
           always get it: webOS pointer mode can report pointer:coarse. */}
       {showTheaterButton && (
         <Tooltip>
