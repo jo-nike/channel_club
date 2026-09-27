@@ -128,6 +128,9 @@ export function CouchGuide({ onClose, canPickLive, onOpenRoom }: CouchGuideProps
   }, [initialIndex, itemRefs])
 
   const handleListKeyDown = (e: KeyboardEvent<HTMLElement>) => {
+    // A modified key belongs to the browser (Ctrl+W closes the tab), as in
+    // CouchView's own handler
+    if (e.altKey || e.ctrlKey || e.metaKey) return
     // A remote's Back arrives as keyCode 461 or 10009 with no key name, which
     // only getRemoteAction reads
     const action = getRemoteAction(e.nativeEvent)

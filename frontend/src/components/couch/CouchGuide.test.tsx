@@ -277,6 +277,25 @@ describe('CouchGuide: the remote', () => {
     expect(onClose).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ['Ctrl', { ctrlKey: true }],
+    ['Alt', { altKey: true }],
+    ['Meta', { metaKey: true }],
+  ])('leaves keys pressed with %s to the browser', (_label, modifier) => {
+    const selectChannel = spyOnSelectChannel()
+    const { onClose, onOpenRoom } = renderGuide()
+    const start = focused()
+
+    for (const [key, keyCode] of [['w', 87], ['Escape', 27], ['ArrowDown', 40], ['Enter', 13]] as const) {
+      expect(fireEvent.keyDown(focused(), { key, keyCode, ...modifier })).toBe(true)
+    }
+
+    expect(onOpenRoom).not.toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
+    expect(selectChannel).not.toHaveBeenCalled()
+    expect(focused()).toBe(start)
+  })
+
   it('tunes a row a Magic Remote pointer clicks', () => {
     const { onClose } = renderGuide()
 
