@@ -1,55 +1,9 @@
 import { useEffect } from 'react'
 import { useThemeStore } from '@/stores/themeStore'
 import { getTheme } from '@/lib/themes'
+import { toHex } from '@/lib/color'
+import { colorToCSSVar, createThemeBoot, saveThemeBoot } from '@/lib/themeBoot'
 import type { ThemeId, ThemeColors } from '@/types/theme'
-
-/**
- * Map of ThemeColors property names to CSS variable names
- */
-const colorToCSSVar: Record<keyof ThemeColors, string> = {
-  background: '--background',
-  foreground: '--foreground',
-  card: '--card',
-  cardForeground: '--card-foreground',
-  popover: '--popover',
-  popoverForeground: '--popover-foreground',
-  primary: '--primary',
-  primaryForeground: '--primary-foreground',
-  secondary: '--secondary',
-  secondaryForeground: '--secondary-foreground',
-  muted: '--muted',
-  mutedForeground: '--muted-foreground',
-  accent: '--accent',
-  accentForeground: '--accent-foreground',
-  destructive: '--destructive',
-  destructiveForeground: '--destructive-foreground',
-  live: '--live',
-  liveForeground: '--live-foreground',
-  guideNow: '--guide-now',
-  guideFuture: '--guide-future',
-  success: '--success',
-  successForeground: '--success-foreground',
-  warning: '--warning',
-  warningForeground: '--warning-foreground',
-  info: '--info',
-  infoForeground: '--info-foreground',
-  border: '--border',
-  input: '--input',
-  ring: '--ring',
-  chart1: '--chart-1',
-  chart2: '--chart-2',
-  chart3: '--chart-3',
-  chart4: '--chart-4',
-  chart5: '--chart-5',
-  sidebar: '--sidebar',
-  sidebarForeground: '--sidebar-foreground',
-  sidebarPrimary: '--sidebar-primary',
-  sidebarPrimaryForeground: '--sidebar-primary-foreground',
-  sidebarAccent: '--sidebar-accent',
-  sidebarAccentForeground: '--sidebar-accent-foreground',
-  sidebarBorder: '--sidebar-border',
-  sidebarRing: '--sidebar-ring',
-}
 
 /**
  * Apply theme colors to the document root element
@@ -80,6 +34,14 @@ function applyDarkModeClass(isDark: boolean): void {
 }
 
 /**
+ * Point the browser UI colour (status bar, PWA title bar) at the theme
+ * background
+ */
+function applyThemeColorMeta(background: string): void {
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', toHex(background))
+}
+
+/**
  * Hook to apply and manage the current theme
  *
  * Usage: Call this hook in your root App component to initialize theming.
@@ -104,6 +66,11 @@ export function useTheme() {
 
     // Apply all color CSS variables
     applyThemeColors(theme.colors)
+
+    applyThemeColorMeta(theme.colors.background)
+
+    // Remember the resolved theme so index.html can apply it before first paint
+    saveThemeBoot(createThemeBoot(theme))
   }, [theme])
 
   return {

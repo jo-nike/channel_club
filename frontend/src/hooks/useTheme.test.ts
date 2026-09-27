@@ -1,8 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { renderHook, act } from '@/test/utils'
 import { useTheme } from './useTheme'
 import { useThemeStore } from '@/stores/themeStore'
-import { DEFAULT_THEME_ID } from '@/lib/themes'
+import { DEFAULT_THEME_ID, getTheme, themes } from '@/lib/themes'
+import { toHex } from '@/lib/color'
+import { THEME_BOOT_KEY } from '@/lib/themeBoot'
+import type { ThemeId } from '@/types/theme'
 
 describe('useTheme', () => {
   beforeEach(() => {
@@ -148,6 +151,82 @@ describe('useTheme', () => {
 
       expect(document.documentElement.style.getPropertyValue('--sidebar')).toBeTruthy()
       expect(document.documentElement.style.getPropertyValue('--sidebar-foreground')).toBeTruthy()
+    })
+  })
+
+  describe('boot snapshot', () => {
+    beforeEach(() => {
+      localStorage.clear()
+    })
+
+    const readBoot = () => JSON.parse(localStorage.getItem(THEME_BOOT_KEY) ?? 'null')
+
+    it('writes the resolved selected theme for the pre-paint script', () => {
+      renderHook(() => useTheme())
+
+      const boot = readBoot()
+      expect(boot).toMatchObject({ v: 1, dark: true })
+      expect(boot.vars['--background']).toBe(getTheme(DEFAULT_THEME_ID).colors.background)
+      expect(boot.vars['--primary']).toBe(getTheme(DEFAULT_THEME_ID).colors.primary)
+    })
+
+    it('rewrites the snapshot when the theme changes', () => {
+      const { result } = renderHook(() => useTheme())
+
+      act(() => {
+        result.current.setTheme('catppuccin-latte')
+      })
+
+      const boot = readBoot()
+      expect(boot.dark).toBe(false)
+      expect(boot.vars['--background']).toBe(getTheme('catppuccin-latte').colors.background)
+    })
+
+    it('still applies the theme when storage is unavailable', () => {
+      vi.mocked(localStorage.setItem).mockImplementationOnce(() => {
+        throw new DOMException('QuotaExceededError')
+      })
+
+      renderHook(() => useTheme())
+
+      expect(readBoot()).toBeNull()
+      expect(document.documentElement.classList.contains('dark')).toBe(true)
+    })
+  })
+
+  describe('meta theme-color', () => {
+    let meta: HTMLMetaElement
+
+    beforeEach(() => {
+      meta = document.createElement('meta')
+      meta.name = 'theme-color'
+      meta.content = '#0f172a'
+      document.head.appendChild(meta)
+    })
+
+    afterEach(() => {
+      meta.remove()
+    })
+
+    it('follows the theme background as hex', () => {
+      const { result } = renderHook(() => useTheme())
+      expect(meta.content).toBe(toHex(getTheme(DEFAULT_THEME_ID).colors.background))
+
+      act(() => {
+        result.current.setTheme('catppuccin-latte')
+      })
+      expect(meta.content).toBe(toHex(getTheme('catppuccin-latte').colors.background))
+    })
+
+    it('produces a hex colour for every theme', () => {
+      const { result } = renderHook(() => useTheme())
+
+      for (const id of Object.keys(themes) as ThemeId[]) {
+        act(() => {
+          result.current.setTheme(id)
+        })
+        expect(meta.content).toMatch(/^#[0-9a-f]{6}$/)
+      }
     })
   })
 

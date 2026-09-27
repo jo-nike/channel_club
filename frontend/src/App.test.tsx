@@ -1,11 +1,15 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor } from '@/test/utils'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { act, render, screen, waitFor } from '@/test/utils'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
+import { toast } from 'sonner'
 import { App } from './App'
 import { TVView } from '@/components/tv/TVView'
 import { useAuthStore } from '@/stores/authStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { useUIStore } from '@/stores/uiStore'
+import { useThemeStore } from '@/stores/themeStore'
+import { DEFAULT_THEME_ID, getTheme } from '@/lib/themes'
+import { APP_NAME } from '@/lib/appInfo'
 import * as api from '@/services/api'
 
 vi.mock('@/services/api', () => ({
@@ -83,9 +87,38 @@ describe('App', () => {
       isSidebarOpen: false,
     })
     vi.mocked(api.fetchChannels).mockResolvedValue([])
+    useThemeStore.setState({ themeId: DEFAULT_THEME_ID })
+    document.documentElement.classList.remove('dark')
+    document.documentElement.style.cssText = ''
   })
 
   describe('unauthenticated state', () => {
+    it('applies the default dark theme to the sign-in screen', async () => {
+      renderWithRouter()
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/username/i)).toBeInTheDocument()
+      })
+      expect(document.documentElement.classList.contains('dark')).toBe(true)
+      expect(document.documentElement.style.getPropertyValue('--background')).toBe(
+        getTheme(DEFAULT_THEME_ID).colors.background
+      )
+    })
+
+    it('applies a stored light theme to the sign-in screen', async () => {
+      useThemeStore.setState({ themeId: 'catppuccin-latte' })
+
+      renderWithRouter()
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/username/i)).toBeInTheDocument()
+      })
+      expect(document.documentElement.classList.contains('dark')).toBe(false)
+      expect(document.documentElement.style.getPropertyValue('--background')).toBe(
+        getTheme('catppuccin-latte').colors.background
+      )
+    })
+
     it('should show LoginForm when not authenticated', async () => {
       renderWithRouter()
 
@@ -127,6 +160,48 @@ describe('App', () => {
       renderWithRouter()
 
       expect(screen.queryByLabelText(/username/i)).not.toBeInTheDocument()
+    })
+  })
+
+  describe('toasts', () => {
+    afterEach(() => {
+      act(() => {
+        toast.dismiss()
+      })
+    })
+
+    it.each([
+      ['catppuccin-latte', 'light'],
+      ['catppuccin-mocha', 'dark'],
+    ] as const)('follow the %s theme (%s)', async (themeId, mode) => {
+      useThemeStore.setState({ themeId })
+      renderWithRouter()
+
+      act(() => {
+        toast('Hello')
+      })
+
+      await waitFor(() => {
+        expect(document.querySelector('[data-sonner-toaster]')).toHaveAttribute('data-sonner-theme', mode)
+      })
+    })
+  })
+
+  describe('initializing state', () => {
+    it('applies the theme to the loading screen', () => {
+      const { initialize } = useAuthStore.getState()
+      // Hold the store in its initializing state
+      useAuthStore.setState({ isInitializing: true, initialize: vi.fn() })
+
+      try {
+        renderWithRouter()
+
+        expect(screen.getByRole('heading', { name: APP_NAME })).toBeInTheDocument()
+        expect(document.documentElement.classList.contains('dark')).toBe(true)
+        expect(document.documentElement.style.getPropertyValue('--background')).toContain('oklch')
+      } finally {
+        useAuthStore.setState({ initialize })
+      }
     })
   })
 

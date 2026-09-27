@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor } from '@/test/utils'
-import { createMemoryRouter, RouterProvider, Navigate } from 'react-router-dom'
+import { act, render, screen, waitFor } from '@/test/utils'
+import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { useAuthStore } from '@/stores/authStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { useUIStore } from '@/stores/uiStore'
@@ -51,41 +51,11 @@ const mockWindowWidth = (width: number) => {
   window.dispatchEvent(new Event('resize'))
 }
 
-// Lazy imports to avoid circular dependencies
+// Lazy import to avoid circular dependencies; uses the real route table
 const createRouter = async (initialEntries: string[]) => {
-  const { App } = await import('@/App')
-  const { TVView } = await import('@/components/tv/TVView')
-  const { ProtectedRoute } = await import('@/components/ProtectedRoute')
+  const { routes } = await import('@/router')
 
-  return createMemoryRouter(
-    [
-      {
-        path: '/',
-        element: <App />,
-        children: [
-          {
-            index: true,
-            element: (
-              <ProtectedRoute>
-                <TVView />
-              </ProtectedRoute>
-            ),
-          },
-          {
-            // Legacy route - redirect to root for backwards compatibility
-            path: 'tv',
-            element: <Navigate to="/" replace />,
-          },
-          {
-            // Legacy route - redirect to root for backwards compatibility
-            path: 'ersatztv',
-            element: <Navigate to="/" replace />,
-          },
-        ],
-      },
-    ],
-    { initialEntries }
-  )
+  return createMemoryRouter(routes, { initialEntries })
 }
 
 describe('Router', () => {
@@ -149,6 +119,50 @@ describe('Router', () => {
     expect(screen.getByRole('button', { name: /user settings/i })).toBeInTheDocument()
     // Verify we're at the root path after redirect
     expect(router.state.location.pathname).toBe('/')
+  })
+
+  it('redirects unknown paths to root when authenticated', async () => {
+    const router = await createRouter(['/admin'])
+
+    render(<RouterProvider router={router} />)
+
+    expect(screen.getByRole('button', { name: /user settings/i })).toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/')
+  })
+
+  it('redirects unknown paths to the sign-in screen when not authenticated', async () => {
+    useAuthStore.setState({
+      token: null,
+      role: null,
+      isAuthenticated: false,
+      isInitializing: false,
+    })
+
+    const router = await createRouter(['/does-not-exist'])
+
+    render(<RouterProvider router={router} />)
+
+    // App shows the sign-in screen in place of any child route
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument()
+    })
+    expect(screen.queryByText(/404 Not Found/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Unexpected Application Error/)).not.toBeInTheDocument()
+
+    // Once signed in, the unknown path lands on the root view
+    const payload = { exp: Math.floor(Date.now() / 1000) + 3600 }
+    act(() => {
+      useAuthStore.setState({
+        token: `header.${btoa(JSON.stringify(payload))}.signature`,
+        role: 'viewer',
+        isAuthenticated: true,
+      })
+    })
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe('/')
+    })
+    expect(screen.getByRole('button', { name: /user settings/i })).toBeInTheDocument()
   })
 
   it('shows login form when not authenticated', async () => {
