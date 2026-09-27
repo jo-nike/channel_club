@@ -43,6 +43,9 @@ export interface ChatPanelProps {
   status?: WebSocketStatus
   onReconnect?: () => void
   variant?: ChatPanelVariant
+  // Whether focus is in the composer (the message field, GIF and Send), so
+  // the view can make room above a soft keyboard
+  onComposerFocusChange?: (focused: boolean) => void
 }
 
 // Quick reconnects (including the first connect) finish before the row would flicker in
@@ -91,7 +94,7 @@ interface SendFailure {
   clientMessageId: string
 }
 
-export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', onReconnect, variant = 'overlay' }: ChatPanelProps) {
+export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', onReconnect, variant = 'overlay', onComposerFocusChange }: ChatPanelProps) {
   const {
     messages, isOpen, setOpen, nickname, me, readMarker, historyReset, nicknameRejection,
     setNickname, clearNickname, clearNicknameRejection,
@@ -640,7 +643,14 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
                 </Button>
               </div>
             )}
-            <div className="flex gap-2">
+            <div
+              className="flex gap-2"
+              onFocus={() => onComposerFocusChange?.(true)}
+              // Moving between the field, GIF and Send stays in the composer
+              onBlur={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget)) onComposerFocusChange?.(false)
+              }}
+            >
               <Input
                 ref={inputRef}
                 value={inputValue}

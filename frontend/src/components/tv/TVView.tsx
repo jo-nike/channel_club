@@ -31,6 +31,7 @@ import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useResizable } from '@/hooks/useResizable'
 import { useMobileLandscape } from '@/hooks/useMobileLandscape'
 import { useChatEnabled } from '@/hooks/useChatEnabled'
+import { useVisualViewportHeight } from '@/hooks/useVisualViewportHeight'
 import { AdminModal } from '@/components/AdminModal'
 import { LiveChannelPickerDialog } from '@/components/LiveChannelPickerDialog'
 import { getProgrammeState } from '@/lib/programmes'
@@ -278,6 +279,17 @@ export function TVView() {
   // isOpen, so the header chat button selects Chat and opening it still
   // clears the unread count. Without chat, the plain channel list.
   const showPhoneTabs = isPhonePortrait && chatEnabled
+
+  // While the chat composer has focus, the view follows the visual viewport
+  // (on coarse pointers, see the root), so the composer stays above an iOS
+  // soft keyboard. A closed panel can't report its blur, so closing resets
+  // it. (Adjusted while rendering, like railOverride below.)
+  const [isComposerFocused, setComposerFocused] = useState(false)
+  if (!isChatOpen && isComposerFocused) setComposerFocused(false)
+  useVisualViewportHeight(isComposerFocused)
+  // In the phone's Chat tab the video then shrinks to a strip, so the
+  // messages keep more than a sliver of the screen above the keyboard
+  const isVideoStrip = showPhoneTabs && isComposerFocused
   // Where the player fills the screen (theater, phone landscape) chat slides
   // over the side; otherwise it docks beside the player on a desktop and
   // opens as a sheet below the header on a tablet, so the header's controls
@@ -452,8 +464,10 @@ export function TVView() {
 
   return (
     // 100vh where dvh is unsupported (older webOS/Tizen), the dynamic viewport
-    // elsewhere, so Safari's toolbar doesn't hide the bottom of the list
-    <div className="flex h-screen supports-[height:100dvh]:h-dvh flex-col overflow-hidden bg-background">
+    // elsewhere, so Safari's toolbar doesn't hide the bottom of the list. On
+    // touch screens, the visual viewport while the chat composer has focus
+    // (--app-height, see isComposerFocused), so it stays above the keyboard.
+    <div className="flex h-screen supports-[height:100dvh]:h-dvh pointer-coarse:supports-[height:100dvh]:h-[var(--app-height,100dvh)] flex-col overflow-hidden bg-background">
       {/* Header - hidden in theater mode or mobile landscape */}
       {!isTheaterMode && !isMobileLandscape && (
         <TVHeader
@@ -493,7 +507,7 @@ export function TVView() {
             className={cn(
               'relative w-full min-h-0 overflow-hidden bg-black',
               (isTheaterMode || isMobileLandscape) && 'fixed inset-0 z-50',
-              isPhonePortrait && 'aspect-video flex-none',
+              isPhonePortrait && (isVideoStrip ? 'h-24 flex-none' : 'aspect-video flex-none'),
               !isTheaterMode && !isMobileLandscape && !isMobile && 'rounded-lg'
             )}
             style={
@@ -654,6 +668,7 @@ export function TVView() {
               status={status}
               onReconnect={reconnect}
               variant={showPhoneTabs ? 'inline' : chatVariant}
+              onComposerFocusChange={setComposerFocused}
             />
           </ErrorBoundary>
         </div>

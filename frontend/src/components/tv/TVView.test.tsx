@@ -14,7 +14,7 @@ import { mockViewport } from '@/test/viewport'
 const presence = vi.hoisted(() => vi.fn())
 const crash = vi.hoisted(() => ({ player: false, chat: false }))
 const socket = vi.hoisted(() => ({ status: 'connected', reconnect: () => {} }))
-const chatProps = vi.hoisted(() => ({ last: null as null | { status?: string; onReconnect?: () => void; variant?: string } }))
+const chatProps = vi.hoisted(() => ({ last: null as null | { status?: string; onReconnect?: () => void; variant?: string; onComposerFocusChange?: (focused: boolean) => void } }))
 const auth = vi.hoisted(() => ({ isAdmin: false }))
 const appSettings = vi.hoisted(() => ({ userChannelSelection: false }))
 // Chat is a build-time flag, off in tests unless a test turns it on
@@ -55,7 +55,7 @@ vi.mock('@/components/ChatPanel', async () => {
   const { useState } = await import('react')
   // Like the real panel, renders nothing (and so can't throw) while closed,
   // and keeps its draft in its own state
-  return { ChatPanel: (props: { status?: string; onReconnect?: () => void; variant?: string }) => {
+  return { ChatPanel: (props: { status?: string; onReconnect?: () => void; variant?: string; onComposerFocusChange?: (focused: boolean) => void }) => {
     chatProps.last = props
     const isOpen = useChatStore((s) => s.isOpen)
     const [draft, setDraft] = useState('')
@@ -940,6 +940,67 @@ describe('G-07/E-02 Channels and Chat tabs on a phone', () => {
     fireEvent.mouseDown(chatTab)
     expect(useChatStore.getState().unreadCount).toBe(0)
     expect(tab('Chat').textContent).toBe('Chat')
+  })
+
+  describe('with the keyboard open', () => {
+    // jsdom has no visualViewport: a stand-in whose height the keyboard moves
+    class FakeVisualViewport extends EventTarget {
+      height = 844
+    }
+    let viewport: FakeVisualViewport
+    const appHeight = () => document.documentElement.style.getPropertyValue('--app-height')
+    const video = () => screen.getByTestId('player').closest('.bg-black') as HTMLElement
+    const focusComposer = (focused: boolean) => act(() => chatProps.last?.onComposerFocusChange?.(focused))
+
+    beforeEach(() => {
+      viewport = new FakeVisualViewport()
+      Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport })
+    })
+    afterEach(() => {
+      Object.defineProperty(window, 'visualViewport', { configurable: true, value: undefined })
+      document.documentElement.style.removeProperty('--app-height')
+    })
+
+    it('sizes the view to the visual viewport on touch screens, keeping the dvh fallback', async () => {
+      await renderPhone()
+      const root = screen.getByRole('banner').parentElement!
+      expect(root).toHaveClass('h-screen', 'supports-[height:100dvh]:h-dvh', 'pointer-coarse:supports-[height:100dvh]:h-[var(--app-height,100dvh)]')
+    })
+
+    it('follows the visual viewport and shrinks the video to a strip while the composer has focus', async () => {
+      await renderPhone()
+      fireEvent.mouseDown(tab('Chat'))
+      expect(video()).toHaveClass('aspect-video')
+      expect(appHeight()).toBe('')
+
+      focusComposer(true)
+      expect(appHeight()).toBe('844px')
+      expect(video()).toHaveClass('h-24', 'flex-none')
+      expect(video()).not.toHaveClass('aspect-video')
+
+      viewport.height = 508
+      act(() => { viewport.dispatchEvent(new Event('resize')) })
+      expect(appHeight()).toBe('508px')
+
+      focusComposer(false)
+      expect(appHeight()).toBe('')
+      expect(video()).toHaveClass('aspect-video')
+    })
+
+    it('lets go when chat closes with the composer still focused', async () => {
+      await renderPhone()
+      fireEvent.mouseDown(tab('Chat'))
+      focusComposer(true)
+
+      fireEvent.mouseDown(tab('Channels'))
+      expect(appHeight()).toBe('')
+      expect(video()).toHaveClass('aspect-video')
+
+      // Reopening doesn't bring back a focus the panel never reported
+      fireEvent.mouseDown(tab('Chat'))
+      expect(appHeight()).toBe('')
+      expect(video()).toHaveClass('aspect-video')
+    })
   })
 
   it('keeps the plain channel list, with no tabs, when chat is off', async () => {

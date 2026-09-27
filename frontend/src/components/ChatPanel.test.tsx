@@ -1403,6 +1403,38 @@ describe('ChatPanel', () => {
     })
   })
 
+  describe('composer focus', () => {
+    it('reports focus entering and leaving the composer, not moves within it', () => {
+      const onComposerFocusChange = vi.fn()
+      render(<ChatPanel onSendMessage={mockOnSendMessage} variant="inline" onComposerFocusChange={onComposerFocusChange} />)
+      const input = screen.getByPlaceholderText('Message the club…')
+      const gif = screen.getByRole('button', { name: 'Send GIF' })
+
+      fireEvent.focus(input)
+      expect(onComposerFocusChange).toHaveBeenLastCalledWith(true)
+
+      // Field to GIF: still in the composer
+      onComposerFocusChange.mockClear()
+      fireEvent.blur(input, { relatedTarget: gif })
+      fireEvent.focus(gif)
+      expect(onComposerFocusChange).not.toHaveBeenCalledWith(false)
+
+      // Out of it (the keyboard closes)
+      fireEvent.blur(gif, { relatedTarget: null })
+      expect(onComposerFocusChange).toHaveBeenLastCalledWith(false)
+    })
+
+    it("doesn't report the name editor as the composer", () => {
+      const onComposerFocusChange = vi.fn()
+      useChatStore.setState({ me: { username: 'TestUser' } })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} variant="inline" onComposerFocusChange={onComposerFocusChange} />)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Edit nickname' }))
+      fireEvent.focus(screen.getByPlaceholderText('Display name'))
+      expect(onComposerFocusChange).not.toHaveBeenCalled()
+    })
+  })
+
   describe('iOS safe area', () => {
     it('keeps the full-screen phone panel clear of the status bar and home indicator', () => {
       render(<ChatPanel onSendMessage={mockOnSendMessage} variant="takeover" />)
