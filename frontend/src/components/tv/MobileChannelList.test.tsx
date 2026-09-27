@@ -223,7 +223,7 @@ describe('MobileChannelList', () => {
     const NOW = new Date('2026-09-06T12:00:00Z').getTime()
     const at = (minutes: number) => new Date(NOW + minutes * 60_000).toISOString()
     const clock = (minutes: number) =>
-      new Date(NOW + minutes * 60_000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      new Date(NOW + minutes * 60_000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
     const row = (name: string) => screen.getByText(name).closest('button') as HTMLElement
 
     beforeEach(() => {
@@ -273,6 +273,19 @@ describe('MobileChannelList', () => {
       expect(row('Club')).toHaveTextContent(`Next ${clock(30)} · Post-game`)
     })
 
+    it('writes the Next time without a leading zero, like the guide', () => {
+      // Local times, so the hour is 1 PM in any timezone
+      vi.setSystemTime(new Date(2026, 8, 6, 12, 0))
+      useErsatztvStore.setState({ programmesByChannel: { etv1: [
+        { id: 'p1', channelId: 'etv1', title: 'Evening News', start: new Date(2026, 8, 6, 11, 30).toISOString(), stop: new Date(2026, 8, 6, 13, 52).toISOString() },
+        { id: 'p2', channelId: 'etv1', title: 'Chappie', start: new Date(2026, 8, 6, 13, 52).toISOString(), stop: new Date(2026, 8, 6, 15, 52).toISOString() },
+      ] } })
+      render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={vi.fn()} />)
+
+      expect(row('Movies').textContent).toMatch(/Next 1:52\sPM · Chappie/)
+      expect(row('Movies')).not.toHaveTextContent('01:52')
+    })
+
     it('has no Next line on the empty live slot', () => {
       useChannelStore.setState({ currentChannel: null })
       render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={vi.fn()} />)
@@ -287,7 +300,7 @@ describe('MobileChannelList', () => {
     const NOW = new Date('2026-09-06T12:00:00Z').getTime()
     const at = (minutes: number) => new Date(NOW + minutes * 60_000).toISOString()
     const clock = (minutes: number) =>
-      new Date(NOW + minutes * 60_000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      new Date(NOW + minutes * 60_000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
     const chevron = (name: string) => screen.getByRole('button', { name: `Show schedule for ${name}` })
     const moviesSchedule = [
       { id: 'p0', channelId: 'etv1', title: 'Breakfast Show', start: at(-120), stop: at(-30) },

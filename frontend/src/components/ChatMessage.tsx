@@ -9,6 +9,7 @@ import { useSettingsStore } from '@/stores/settingsStore'
 import type { ChatMessage as ChatMessageType } from '@/types'
 import { detectMediaUrls } from '@/lib/mediaDetection'
 import { MEMBER_COLOR_CLASS, memberColorStyle, memberKey } from '@/lib/memberColor'
+import { formatClockTime } from '@/lib/utils'
 import { ChatMediaEmbed } from './ChatMediaEmbed'
 import { LivePill } from './LivePill'
 import { MemberAvatar } from './MemberAvatar'
@@ -186,7 +187,7 @@ function formatTimestamp(timestamp: string, now: number): string {
     return 'just now'
   }
 
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return formatClockTime(date)
 }
 
 /**

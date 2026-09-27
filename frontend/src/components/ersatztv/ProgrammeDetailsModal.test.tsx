@@ -140,6 +140,21 @@ describe('ProgrammeDetailsModal', () => {
     expect(closeButtons[0]).toHaveAttribute('data-slot', 'dialog-close')
   })
 
+  it('writes times without a leading zero, like the guide', () => {
+    // Local times, so the hours are 1 PM and 3 PM in any timezone
+    vi.setSystemTime(new Date(2026, 0, 3, 12, 0))
+    const upcoming = {
+      ...mockProgramme,
+      start: new Date(2026, 0, 3, 13, 52).toISOString(),
+      stop: new Date(2026, 0, 3, 15, 52).toISOString(),
+    }
+    render(<ProgrammeDetailsModal {...defaultProps} programme={upcoming} />)
+
+    expect(screen.getByText(/ \(120 min\) · /).textContent).toMatch(/1:52\sPM - 3:52\sPM/)
+    expect(screen.getByRole('button', { name: /^Remind me at 1:52\sPM$/ })).toBeInTheDocument()
+    expect(screen.queryByText(/01:52/)).toBeNull()
+  })
+
   describe('actions by programme state', () => {
     it('upcoming: says when it starts and offers the channel as it is now', () => {
       // 1h 48m before Test Movie starts at 14:00Z

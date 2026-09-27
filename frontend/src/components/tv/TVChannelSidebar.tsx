@@ -18,7 +18,7 @@ import { presenceNames, usePresenceByChannel } from '@/hooks/usePresenceByChanne
 import { calculateProgress, findOnAir, formatRemaining, getProgrammeState } from '@/lib/programmes'
 import { buildProgrammeIndex, findCurrentAndNext, type IndexedProgramme } from '@/lib/programmeIndex'
 import { favouritesFirst } from '@/lib/channelSearch'
-import { cn } from '@/lib/utils'
+import { cn, formatClockTime } from '@/lib/utils'
 import type { PresenceEntry, UnifiedChannel } from '@/types'
 
 const getChannelId = (channel: UnifiedChannel) => channel.id
@@ -408,9 +408,6 @@ function ChannelTooltipBody({
 // Expanded Channel Item
 // ============================================================================
 
-// Created once: the Next line formats a time on every row on every tick
-const nextTimeFormat = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' })
-
 interface ChannelItemProps {
   ref?: Ref<HTMLButtonElement>
   channel: UnifiedChannel
@@ -553,7 +550,7 @@ function ChannelItem({
           {/* The line is always there on ErsatzTV rows, so rows don't grow when the guide arrives */}
           {!isLive && (
             <p className="mt-1 h-4 truncate text-xs leading-4 text-muted-foreground">
-              {next && `Next ${nextTimeFormat.format(next.startMs)} · ${next.programme.title}`}
+              {next && `Next ${formatClockTime(next.startMs)} · ${next.programme.title}`}
             </p>
           )}
         </div>

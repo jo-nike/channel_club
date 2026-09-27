@@ -37,7 +37,7 @@ import {
   getProgrammeStateAt,
   type ProgrammeState,
 } from '@/lib/programmes'
-import { cn } from '@/lib/utils'
+import { cn, formatClockTime } from '@/lib/utils'
 import type { UnifiedChannel, ErsatzTVProgramme, EPGResponse, PresenceEntry } from '@/types'
 
 // Grid constants
@@ -441,7 +441,7 @@ export function TVEPGGrid({
                 className="absolute top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded bg-live px-1.5 py-0.5 text-xs font-bold leading-none tabular-nums text-live-foreground"
                 style={{ left: nowMarkerOffset }}
               >
-                {formatTime(new Date(now))}
+                {formatClockTime(new Date(now))}
               </span>
             )}
           </div>
@@ -858,8 +858,8 @@ const ProgrammeBox = memo(function ProgrammeBox({
   onFocus,
 }: ProgrammeBoxProps) {
   const showsText = width >= PROGRAMME_TEXT_MIN_WIDTH
-  const startText = state === 'now' ? '' : formatTime(startMs)
-  const stopText = state === 'now' ? '' : formatTime(stopMs)
+  const startText = state === 'now' ? '' : formatClockTime(startMs)
+  const stopText = state === 'now' ? '' : formatClockTime(stopMs)
   const meta = state === 'now' ? timeLeft : `${startText} - ${stopText}`
   // Read out of the grid, a block needs its channel, and when it's on in words
   const when =
@@ -998,13 +998,8 @@ function visiblePartWidth(left: number): string {
   return `calc(100% - max(0px, var(${SCROLL_X_VAR}, 0px) - ${left}px))`
 }
 
-// Built once: creating a formatter per call is slow across ~1,400 blocks
-const timeFormat = new Intl.DateTimeFormat([], { hour: 'numeric', minute: '2-digit' })
+// Built once: creating a formatter per call is slow
 const dayFormat = new Intl.DateTimeFormat([], { weekday: 'short', day: 'numeric' })
-
-function formatTime(date: Date | number): string {
-  return timeFormat.format(date)
-}
 
 // Local midnight of the day ms falls on
 function startOfDay(ms: number): number {
@@ -1063,7 +1058,7 @@ const TimeSlotLabels = memo(function TimeSlotLabels({ slots, coveredIndex }: Tim
                 {dayFormat.format(slot)}
               </span>
             )}
-            {formatTime(slot)}
+            {formatClockTime(slot)}
           </span>
         </span>
       </div>

@@ -12,6 +12,7 @@ import { useProgrammeClock } from '@/hooks/useProgrammeClock'
 import { useReturnFocus } from '@/hooks/useReturnFocus'
 import { findOnAir, formatRemaining, formatStartsIn, getProgrammeState } from '@/lib/programmes'
 import { APP_NAME } from '@/lib/appInfo'
+import { formatClockTime } from '@/lib/utils'
 import { useChannelStore } from '@/stores/channelStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useHasReminder, useReminderStore } from '@/stores/reminderStore'
@@ -90,19 +91,12 @@ export function ProgrammeDetailsModal({
     }
   }
 
-  const formatTime = (date: Date): string => {
-    return date.toLocaleTimeString([], {
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  }
-
   const status =
     state === 'future'
       ? formatStartsIn(startTime.getTime() - now)
       : state === 'now'
         ? formatRemaining(endTime.getTime(), now)
-        : `Ended at ${formatTime(endTime)}`
+        : `Ended at ${formatClockTime(endTime)}`
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -126,7 +120,7 @@ export function ProgrammeDetailsModal({
                 </p>
               )}
               <p className="text-muted-foreground">
-                {status} · {formatTime(startTime)} - {formatTime(endTime)} ({duration} min) · {channel.name}
+                {status} · {formatClockTime(startTime)} - {formatClockTime(endTime)} ({duration} min) · {channel.name}
               </p>
             </div>
           </DialogDescription>
@@ -190,7 +184,7 @@ export function ProgrammeDetailsModal({
                   onClick={toggleReminder}
                 >
                   {hasReminder ? <BellRing aria-hidden="true" /> : <Bell aria-hidden="true" />}
-                  {hasReminder ? 'Reminder set' : `Remind me at ${formatTime(startTime)}`}
+                  {hasReminder ? 'Reminder set' : `Remind me at ${formatClockTime(startTime)}`}
                 </Button>
               )}
             </>

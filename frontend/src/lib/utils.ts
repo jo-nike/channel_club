@@ -5,6 +5,19 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+// Built once: the guide formats a time for every one of its ~1,400 blocks
+const clockTimeFormat = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' })
+
+/**
+ * A clock time in the viewer's locale with no leading zero on the hour:
+ * '1:52 PM' in en-US, '13:52' in a 24-hour locale. Every clock time in the
+ * app uses this, so the guide, the channel lists, the programme dialog and
+ * chat all read the same.
+ */
+export function formatClockTime(time: Date | number): string {
+  return clockTimeFormat.format(time)
+}
+
 export function formatDuration(isoDate: string): string {
   const start = new Date(isoDate)
   const now = new Date()
