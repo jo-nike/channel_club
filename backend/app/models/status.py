@@ -98,5 +98,6 @@ class SystemStatusResponse(BaseModel):
 
     ersatztv: ErsatzTVStatus
     dispatcharr: DispatchrrStatus
+    epg: EPGHealthStatus
 
     model_config = {"populate_by_name": True}
