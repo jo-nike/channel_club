@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen, act, cleanup, within } from '@/test/utils'
+import { render, screen, act, cleanup, within, fireEvent } from '@/test/utils'
 import { TVChannelSidebar } from './TVChannelSidebar'
 import { useChannelStore } from '@/stores/channelStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
@@ -16,6 +16,9 @@ vi.mock('@/services/ersatztvApi', () => ({
   fetchErsatzTVCurrentProgramme: vi.fn().mockResolvedValue({ current: null, nextUp: null }),
   getErsatzTVLogoUrl: vi.fn((id: string) => `/api/ersatztv/logo/${id}`),
 }))
+
+// The live row or tile, whatever is on it (its full label is tested below)
+const LIVE_SLOT = /^(0 Live: |Live slot, nothing on$)/
 
 // The sidebar scrolls the selected channel into view. The scrolling tests
 // below install their own spy and delete it afterwards, which also removes
@@ -120,7 +123,7 @@ describe('TVChannelSidebar now-playing indicator', () => {
     await act(async () => {})
 
     const indicator = screen.getByTestId('now-playing-indicator')
-    expect(indicator.closest('button')).toBe(screen.getByRole('button', { name: 'Live Channel' }))
+    expect(indicator.closest('button')).toBe(screen.getByRole('button', { name: LIVE_SLOT }))
     expect(indicator).toHaveClass('text-live')
     expect(indicator).not.toHaveClass('text-primary')
   })
@@ -143,8 +146,8 @@ const RAIL_CHANNELS = Array.from({ length: 36 }, (_, i) => ({
 }))
 
 function railTiles() {
-  // Channel tiles carry aria-pressed; the expand button doesn't
-  return screen.getAllByRole('button').filter((button) => button.hasAttribute('aria-pressed'))
+  // Every button on the rail but the expand button is a channel tile
+  return screen.getAllByRole('button').filter((button) => button.getAttribute('aria-label') !== 'Expand channel sidebar')
 }
 
 describe('TVChannelSidebar collapsed rail', () => {
@@ -271,7 +274,7 @@ describe('TVChannelSidebar collapsed rail tiles', () => {
     await act(async () => {})
 
     await act(async () => {
-      screen.getByRole('button', { name: 'Live Channel' }).focus()
+      screen.getByRole('button', { name: LIVE_SLOT }).focus()
     })
 
     const tooltip = await screen.findByRole('tooltip')
@@ -282,7 +285,7 @@ describe('TVChannelSidebar collapsed rail tiles', () => {
 })
 
 describe('TVChannelSidebar collapsed live tile', () => {
-  const liveTile = () => screen.getByRole('button', { name: 'Live Channel' })
+  const liveTile = () => screen.getByRole('button', { name: LIVE_SLOT })
   // Plain background utilities only (hover:bg-* is a separate state)
   const backgrounds = (element: HTMLElement) =>
     Array.from(element.classList).filter((name) => name.startsWith('bg-'))
@@ -530,7 +533,7 @@ describe('TVChannelSidebar live row guide copy', () => {
     useTVStore.setState({ liveEPG: null, liveEPGStatus: 'idle' })
   })
 
-  const liveRow = () => screen.getByRole('button', { name: 'Live Channel' })
+  const liveRow = () => screen.getByRole('button', { name: LIVE_SLOT })
 
   it.each([
     ['unavailable', 'Guide unavailable'],
@@ -577,7 +580,7 @@ describe('TVChannelSidebar empty live slot', () => {
     await act(async () => {})
 
     const pick = screen.getByRole('button', { name: 'Pick a channel' })
-    const row = screen.getByRole('button', { name: 'Live Channel' })
+    const row = screen.getByRole('button', { name: LIVE_SLOT })
     // Siblings in the same list item, never a button inside a button
     expect(row).not.toContainElement(pick)
     expect(pick.parentElement).toBe(row.parentElement)
@@ -595,7 +598,7 @@ describe('TVChannelSidebar empty live slot', () => {
     await act(async () => {})
 
     expect(screen.queryByRole('button', { name: 'Pick a channel' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Live Channel' })).toHaveTextContent(
+    expect(screen.getByRole('button', { name: LIVE_SLOT })).toHaveTextContent(
       'Waiting for someone to put something on'
     )
   })
@@ -756,7 +759,7 @@ describe('TVChannelSidebar programme progress', () => {
     render(<TVChannelSidebar />)
     await act(async () => {})
 
-    expect(screen.getByRole('button', { name: 'Live Channel' })).not.toHaveTextContent('Next')
+    expect(screen.getByRole('button', { name: LIVE_SLOT })).not.toHaveTextContent('Next')
   })
 
   it('follows a refresh of the guide programmes', async () => {
@@ -805,7 +808,7 @@ describe('TVChannelSidebar focus', () => {
     render(<TVChannelSidebar />)
     await act(async () => {})
 
-    for (const name of ['Live Channel', '1 Movies']) {
+    for (const name of [LIVE_SLOT, '1 Movies']) {
       const row = screen.getByRole('button', { name })
       expect(row).toHaveClass('focus-visible:-outline-offset-2')
       expect(row).not.toHaveClass('focus:bg-accent')
@@ -850,7 +853,7 @@ describe('TVChannelSidebar loading and error states', () => {
     expect(loading.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThanOrEqual(6)
     expect(screen.queryByText(/Loading additional channels/)).toBeNull()
     // The live row doesn't wait for ErsatzTV
-    expect(screen.getByRole('button', { name: 'Live Channel' })).toBeVisible()
+    expect(screen.getByRole('button', { name: LIVE_SLOT })).toBeVisible()
   })
 
   it('shows no skeleton once channels are there, even during a reload', async () => {
@@ -875,5 +878,152 @@ describe('TVChannelSidebar loading and error states', () => {
     expect(retry).toHaveAttribute('data-variant', 'outline')
     act(() => retry.click())
     expect(loadChannels).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('TVChannelSidebar keyboard and screen reader', () => {
+  const CHANNELS = [
+    { id: 'etv1', name: 'Movies', streamUrl: '', logoUrl: '', number: 1, group: 'Films' },
+    { id: 'etv2', name: 'Cartoons', streamUrl: '', logoUrl: '', number: 2, group: 'Kids' },
+    { id: 'etv3', name: 'News', streamUrl: '', logoUrl: '', number: 3, group: 'News' },
+  ]
+
+  beforeEach(() => {
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'TSN 5', streamUrl: 'http://x/live', guideId: 'g1' },
+    })
+    useErsatztvStore.setState({ channels: CHANNELS })
+  })
+
+  afterEach(() => {
+    cleanup()
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels: [] })
+    useTVStore.setState({ selectedChannel: null, liveEPG: null, liveEPGStatus: 'idle' })
+  })
+
+  function select(index: number) {
+    useTVStore.setState({ selectedChannel: useTVStore.getState().getUnifiedChannels()[index] })
+  }
+
+  const channelButtons = () =>
+    screen.getAllByRole('button').filter((button) => !/channel sidebar|Pick a channel/.test(button.getAttribute('aria-label') ?? button.textContent ?? ''))
+
+  it.each([false, true])('names the live slot with its channel and programme (rail: %s)', async (isCollapsed) => {
+    useTVStore.setState({ liveEPGStatus: 'ok' })
+    render(<TVChannelSidebar isCollapsed={isCollapsed} liveEPGTitle="Hockey Night" />)
+    await act(async () => {})
+
+    expect(screen.getByRole('button', { name: '0 Live: TSN 5, Hockey Night' })).toBeInTheDocument()
+  })
+
+  it('says why there is no programme in the live label when the guide has none', async () => {
+    useTVStore.setState({ liveEPGStatus: 'unavailable' })
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+
+    expect(screen.getByRole('button', { name: '0 Live: TSN 5, Guide unavailable' })).toBeInTheDocument()
+  })
+
+  it.each([false, true])('names the empty live slot as such (rail: %s)', async (isCollapsed) => {
+    useChannelStore.setState({ currentChannel: null })
+    render(<TVChannelSidebar isCollapsed={isCollapsed} onPickLive={vi.fn()} />)
+    await act(async () => {})
+
+    expect(screen.getByRole('button', { name: 'Live slot, nothing on' })).toBeInTheDocument()
+  })
+
+  it.each([false, true])('marks the watched channel with aria-current instead of aria-pressed (rail: %s)', async (isCollapsed) => {
+    select(2)
+    render(<TVChannelSidebar isCollapsed={isCollapsed} />)
+    await act(async () => {})
+
+    const current = channelButtons().filter((button) => button.hasAttribute('aria-current'))
+    expect(current).toEqual([screen.getByRole('button', { name: '2 Cartoons' })])
+    expect(current[0]).toHaveAttribute('aria-current', 'true')
+    for (const button of channelButtons()) {
+      expect(button).not.toHaveAttribute('aria-pressed')
+    }
+  })
+
+  it.each([false, true])('gives the channels a single tab stop and moves focus with the arrow keys, Home and End (rail: %s)', async (isCollapsed) => {
+    render(<TVChannelSidebar isCollapsed={isCollapsed} />)
+    await act(async () => {})
+
+    const buttons = channelButtons()
+    expect(buttons).toHaveLength(4)
+    const tabStops = () => buttons.filter((button) => button.tabIndex === 0)
+    expect(tabStops()).toEqual([buttons[0]])
+
+    await act(async () => {
+      buttons[0].focus()
+    })
+    await act(async () => {
+      fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' })
+    })
+    expect(document.activeElement).toBe(buttons[1])
+    expect(tabStops()).toEqual([buttons[1]])
+
+    await act(async () => {
+      fireEvent.keyDown(document.activeElement!, { key: 'End' })
+    })
+    expect(document.activeElement).toBe(buttons[3])
+
+    await act(async () => {
+      fireEvent.keyDown(document.activeElement!, { key: 'ArrowUp' })
+    })
+    expect(document.activeElement).toBe(buttons[2])
+
+    await act(async () => {
+      fireEvent.keyDown(document.activeElement!, { key: 'Home' })
+    })
+    expect(document.activeElement).toBe(buttons[0])
+    expect(tabStops()).toEqual([buttons[0]])
+  })
+
+  it('moves the tab stop to a channel focused by other means, such as a click', async () => {
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+
+    const news = screen.getByRole('button', { name: '3 News' })
+    await act(async () => {
+      news.focus()
+    })
+
+    expect(news).toHaveAttribute('tabindex', '0')
+    expect(channelButtons().filter((button) => button.tabIndex === 0)).toEqual([news])
+  })
+
+  it('keeps the tab stop on the same channel when the list around it changes', async () => {
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+    await act(async () => {
+      screen.getByRole('button', { name: '2 Cartoons' }).focus()
+    })
+
+    // A channel is added before it, so it moves down a place
+    act(() => useErsatztvStore.setState({
+      channels: [{ id: 'etv4', name: 'Sports', streamUrl: '', logoUrl: '', number: 4, group: 'Sports' }, ...CHANNELS],
+    }))
+    await act(async () => {})
+
+    expect(screen.getByRole('button', { name: '2 Cartoons' })).toHaveAttribute('tabindex', '0')
+    expect(channelButtons().filter((button) => button.tabIndex === 0)).toHaveLength(1)
+  })
+
+  it('leaves Enter and Space to the focused row or Pick a channel button, which activate natively', async () => {
+    useChannelStore.setState({ currentChannel: null })
+    const onPickLive = vi.fn()
+    render(<TVChannelSidebar onPickLive={onPickLive} />)
+    await act(async () => {})
+
+    const pick = screen.getByRole('button', { name: 'Pick a channel' })
+    pick.focus()
+    for (const key of ['Enter', ' ']) {
+      // fireEvent returns false when a handler called preventDefault
+      expect(fireEvent.keyDown(pick, { key })).toBe(true)
+    }
+    const row = screen.getByRole('button', { name: '1 Movies' })
+    expect(fireEvent.keyDown(row, { key: 'Enter' })).toBe(true)
   })
 })

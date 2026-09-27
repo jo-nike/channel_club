@@ -3,28 +3,43 @@ import { GripHorizontal } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface ResizeDragHandleProps {
-  onMouseDown: (e: React.MouseEvent) => void
+  onPointerDown: (e: React.PointerEvent) => void
+  onKeyDown: (e: React.KeyboardEvent) => void
   isDragging: boolean
+  // The guide's share of the height, in percent, and its limits
+  valueNow: number
+  valueMin: number
+  valueMax: number
   className?: string
 }
 
 export function ResizeDragHandle({
-  onMouseDown,
+  onPointerDown,
+  onKeyDown,
   isDragging,
+  valueNow,
+  valueMin,
+  valueMax,
   className,
 }: ResizeDragHandleProps) {
   return (
     <div
       className={cn(
-        'group flex h-3 w-full cursor-ns-resize items-center justify-center',
+        // touch-none: a touch drag moves the splitter instead of scrolling the page
+        'group flex h-3 w-full cursor-ns-resize touch-none items-center justify-center focus-visible:-outline-offset-2',
         'border-t bg-muted/50 hover:bg-muted transition-colors rounded-t-lg',
         isDragging && 'bg-primary/20',
         className
       )}
-      onMouseDown={onMouseDown}
+      onPointerDown={onPointerDown}
+      onKeyDown={onKeyDown}
+      tabIndex={0}
       role="separator"
       aria-orientation="horizontal"
       aria-label="Resize EPG section"
+      aria-valuenow={Math.round(valueNow)}
+      aria-valuemin={valueMin}
+      aria-valuemax={valueMax}
     >
       <GripHorizontal
         className={cn(
