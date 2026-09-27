@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { useId, useRef, useState, type RefObject } from 'react'
 import {
   Download,
   Lightbulb,
@@ -39,6 +39,7 @@ import { useChatEnabled } from '@/hooks/useChatEnabled'
 import { useFeedbackFeature } from '@/hooks/useFeedbackFeature'
 import { useInstallPrompt } from '@/hooks/useInstallPrompt'
 import { readTVModeOverride, setTVModeOverride, useTVMode, type TVModeOverride } from '@/hooks/useTVMode'
+import { useReturnFocus } from '@/hooks/useReturnFocus'
 import { useUIStore } from '@/stores/uiStore'
 
 interface AccountMenuProps {
@@ -50,6 +51,9 @@ interface AccountMenuProps {
   onReload: () => void
   // Phones have no NHL toggle in the header, so the menu carries it
   isMobile: boolean
+  /** Set on the menu's trigger button, for a dialog opened from the menu but
+      rendered elsewhere (the Admin panel) to return focus to */
+  triggerRef?: RefObject<HTMLButtonElement | null>
 }
 
 /** First character of the username, uppercased; null when there is none. */
@@ -58,7 +62,13 @@ function initialOf(username: string | null): string | null {
   return first ? first.toUpperCase() : null
 }
 
-export function AccountMenu({ onOpenChannelPicker, onOpenAdmin, onReload, isMobile }: AccountMenuProps) {
+export function AccountMenu({
+  onOpenChannelPicker,
+  onOpenAdmin,
+  onReload,
+  isMobile,
+  triggerRef: triggerRefProp,
+}: AccountMenuProps) {
   const { username, isAdmin, logout } = useAuth()
   const { userChannelSelection } = useAppSettings()
   const chatEnabled = useChatEnabled()
@@ -87,6 +97,11 @@ export function AccountMenu({ onOpenChannelPicker, onOpenAdmin, onReload, isMobi
   const canChangeLive = isAdmin || userChannelSelection
   // Everyone else may suggest a channel in chat, while chat is on
   const canSuggestLive = !canChangeLive && chatEnabled
+  // The menu item that opens a dialog unmounts with the menu, so the dialogs
+  // below return focus to this menu's trigger instead
+  const ownTriggerRef = useRef<HTMLButtonElement>(null)
+  const triggerRef = triggerRefProp ?? ownTriggerRef
+  const appearanceReturnFocus = useReturnFocus(triggerRef)
 
   return (
     <>
@@ -94,7 +109,7 @@ export function AccountMenu({ onOpenChannelPicker, onOpenAdmin, onReload, isMobi
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
-              <Button type="button" variant="toolbar" size="toolbar" aria-label="Account menu">
+              <Button ref={triggerRef} type="button" variant="toolbar" size="toolbar" aria-label="Account menu">
                 <span
                   aria-hidden="true"
                   className="grid size-8 place-items-center rounded-full bg-primary text-sm font-bold leading-none text-primary-foreground md:size-7"
@@ -211,11 +226,16 @@ export function AccountMenu({ onOpenChannelPicker, onOpenAdmin, onReload, isMobi
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
-      {installVariant === 'ios' && <IosInstallDialog open={iosInstallOpen} onOpenChange={setIosInstallOpen} />}
+      <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} returnFocusTo={triggerRef} />
+      {installVariant === 'ios' && (
+        <IosInstallDialog open={iosInstallOpen} onOpenChange={setIosInstallOpen} returnFocusTo={triggerRef} />
+      )}
       <Dialog open={appearanceOpen} onOpenChange={setAppearanceOpen}>
         {/* A bottom sheet on phones, scrolling inside the screen; centred from sm */}
-        <DialogContent className="max-h-[85dvh] overflow-y-auto max-sm:top-auto max-sm:bottom-0 max-sm:max-w-full max-sm:translate-y-0 max-sm:rounded-b-none max-sm:pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] sm:max-w-lg">
+        <DialogContent
+          className="max-h-[85dvh] overflow-y-auto max-sm:top-auto max-sm:bottom-0 max-sm:max-w-full max-sm:translate-y-0 max-sm:rounded-b-none max-sm:pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] sm:max-w-lg"
+          {...appearanceReturnFocus}
+        >
           <DialogHeader>
             <DialogTitle>Appearance</DialogTitle>
             <DialogDescription>Choose how Channel Club looks on this device.</DialogDescription>

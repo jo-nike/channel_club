@@ -1,5 +1,6 @@
 import { render, screen, fireEvent, act } from '@/test/utils'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { useState } from 'react'
 import { ProgrammeDetailsModal } from './ProgrammeDetailsModal'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore, LIVE_CHANNEL_ID, toLiveProgramme } from '@/stores/tvStore'
@@ -208,6 +209,34 @@ describe('ProgrammeDetailsModal', () => {
       expect(screen.queryByRole('button', { name: /watch/i })).not.toBeInTheDocument()
     })
 
+    // jsdom has no layout, so these guard the classes that keep the footer inside the dialog
+    describe('upcoming footer layout', () => {
+      const longOnAir = { ...onAir, title: 'Mission: Impossible - Dead Reckoning Part One' }
+
+      beforeEach(() => {
+        vi.setSystemTime(new Date('2026-01-03T12:12:00Z'))
+        useErsatztvStore.setState({ programmesByChannel: { ch1: [longOnAir, mockProgramme] } })
+      })
+
+      it('wraps, with On now on a row of its own, instead of widening the dialog', () => {
+        render(<ProgrammeDetailsModal {...defaultProps} />)
+
+        const remind = screen.getByRole('button', { name: /Remind me at/ })
+        const footer = remind.closest('[data-slot="dialog-footer"]')
+        expect(footer).toHaveClass('sm:flex-wrap')
+        expect(screen.getByText(`On now: ${longOnAir.title}`)).toHaveClass('sm:basis-full')
+        expect(screen.getByRole('button', { name: 'Watch Comedy Classics now' })).toHaveClass('sm:mr-auto')
+      })
+
+      it('puts You are watching left of Remind me on the channel you are watching', () => {
+        useTVStore.setState({ selectedChannel: watching })
+        render(<ProgrammeDetailsModal {...defaultProps} />)
+
+        expect(screen.getByText(`On now: ${longOnAir.title}`)).toHaveClass('sm:basis-full')
+        expect(screen.getByText("You're watching Comedy Classics")).toHaveClass('sm:mr-auto')
+      })
+    })
+
     it('moves from upcoming to on now when the clock passes the start', () => {
       vi.setSystemTime(new Date('2026-01-03T13:59:45Z'))
       render(<ProgrammeDetailsModal {...defaultProps} />)
@@ -408,6 +437,56 @@ describe('ProgrammeDetailsModal', () => {
   it('caps its height and scrolls inside, so a long synopsis fits a phone screen', () => {
     render(<ProgrammeDetailsModal {...defaultProps} />)
     expect(screen.getByRole('dialog')).toHaveClass('max-h-[85dvh]', 'overflow-y-auto')
+  })
+
+  // The guide opens it by state from a programme cell, with no Radix trigger to return focus to
+  describe('focus on close', () => {
+    function Guide() {
+      const [open, setOpen] = useState(false)
+      return (
+        <>
+          <button type="button" tabIndex={0} onClick={() => setOpen(true)}>
+            Test Movie cell
+          </button>
+          <ProgrammeDetailsModal {...defaultProps} open={open} onOpenChange={setOpen} />
+        </>
+      )
+    }
+
+    // Radix moves focus on the next tick
+    const tick = () => act(() => vi.advanceTimersByTime(1))
+
+    it('returns focus to the programme cell that opened it when Escape closes it', () => {
+      render(<Guide />)
+      const cell = screen.getByRole('button', { name: 'Test Movie cell' })
+      cell.focus()
+      fireEvent.click(cell)
+      const dialog = screen.getByRole('dialog')
+      tick()
+      expect(cell).not.toHaveFocus()
+
+      fireEvent.keyDown(dialog, { key: 'Escape' })
+      tick()
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(cell).toHaveFocus()
+      expect(cell).toHaveAttribute('tabindex', '0')
+    })
+
+    it('returns focus to the programme cell when the Close button closes it', () => {
+      render(<Guide />)
+      const cell = screen.getByRole('button', { name: 'Test Movie cell' })
+      cell.focus()
+      fireEvent.click(cell)
+      tick()
+
+      fireEvent.click(
+        screen.getAllByRole('button', { name: /close/i }).find((btn) => btn.getAttribute('data-slot') === 'dialog-close')!
+      )
+      tick()
+
+      expect(cell).toHaveFocus()
+    })
   })
 
   it('closes modal on X button click', () => {

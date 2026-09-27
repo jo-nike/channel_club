@@ -217,6 +217,9 @@ export function TVView() {
   // Admin modal state
   const [adminModalOpen, setAdminModalOpen] = useState(false)
   const openAdmin = useCallback(() => setAdminModalOpen(true), [])
+  // The account menu's item that opens Admin unmounts with the menu, so the
+  // panel returns focus to the menu's button instead
+  const accountMenuTriggerRef = useRef<HTMLButtonElement>(null)
 
   // Live TV switcher: admins, and everyone else when the admin has enabled it
   const canControl = isAdmin || userChannelSelection
@@ -463,9 +466,14 @@ export function TVView() {
   if (isTVMode) {
     return (
       <>
-        <CouchView onPickLive={onPickLive} onOpenChannelPicker={openLivePicker} onOpenAdmin={openAdmin} />
+        <CouchView
+          onPickLive={onPickLive}
+          onOpenChannelPicker={openLivePicker}
+          onOpenAdmin={openAdmin}
+          accountMenuTriggerRef={accountMenuTriggerRef}
+        />
         {isAdmin && (
-          <AdminModal open={adminModalOpen} onOpenChange={setAdminModalOpen} />
+          <AdminModal open={adminModalOpen} onOpenChange={setAdminModalOpen} returnFocusTo={accountMenuTriggerRef} />
         )}
         {(canControl || canSuggest) && (
           <LiveSwitcherSheet
@@ -493,6 +501,7 @@ export function TVView() {
           onOpenChannelPicker={openLivePicker}
           onReload={reloadVideo}
           isMobile={isMobile}
+          accountMenuTriggerRef={accountMenuTriggerRef}
         />
       )}
 
@@ -701,7 +710,7 @@ export function TVView() {
 
       {/* Admin Modal */}
       {isAdmin && (
-        <AdminModal open={adminModalOpen} onOpenChange={setAdminModalOpen} />
+        <AdminModal open={adminModalOpen} onOpenChange={setAdminModalOpen} returnFocusTo={accountMenuTriggerRef} />
       )}
 
       {/* Live TV switcher (Stop live TV is on its On-air card, for admins

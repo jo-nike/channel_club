@@ -9,6 +9,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Bell, BellRing } from 'lucide-react'
 import { useProgrammeClock } from '@/hooks/useProgrammeClock'
+import { useReturnFocus } from '@/hooks/useReturnFocus'
 import { findOnAir, formatRemaining, formatStartsIn, getProgrammeState } from '@/lib/programmes'
 import { APP_NAME } from '@/lib/appInfo'
 import { useChannelStore } from '@/stores/channelStore'
@@ -53,6 +54,9 @@ export function ProgrammeDetailsModal({
   const hasReminder = useHasReminder(channel?.id, programme?.id, liveChannelId)
   const addReminder = useReminderStore((s) => s.add)
   const removeReminder = useReminderStore((s) => s.remove)
+  // Opened by state from the guide, not a trigger Radix could return focus to:
+  // go back to the programme cell (the grid's tab stop) or schedule row
+  const returnFocus = useReturnFocus()
 
   if (!programme || !channel) return null
 
@@ -104,7 +108,7 @@ export function ProgrammeDetailsModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* A long synopsis scrolls inside the dialog rather than pushing its
           title and actions off a phone screen */}
-      <DialogContent className="max-h-[85dvh] max-w-lg overflow-y-auto">
+      <DialogContent className="max-h-[85dvh] max-w-lg overflow-y-auto" {...returnFocus}>
         <DialogHeader>
           <DialogTitle className="text-2xl">{programme.title}</DialogTitle>
           <DialogDescription asChild>
@@ -146,7 +150,9 @@ export function ProgrammeDetailsModal({
           )}
         </div>
 
-        <DialogFooter className="gap-2 sm:items-center">
+        {/* Wraps from sm: the upcoming footer's hint and two nowrap buttons would
+            otherwise widen the dialog past max-w-lg and scroll it sideways */}
+        <DialogFooter className="gap-2 sm:flex-wrap sm:items-center">
           {state === 'now' ? (
             isWatching ? (
               <p className="text-sm font-medium">You're watching this</p>
@@ -155,17 +161,24 @@ export function ProgrammeDetailsModal({
             )
           ) : (
             // Upcoming or ended: the honest actions are the channel as it is now and,
-            // for upcoming, a reminder at the start.
+            // for upcoming, a reminder at the start. 'On now' takes a row of its own;
+            // the channel action sits left of Remind me on the row below.
             <>
               {onAirNow && (
-                <p className="text-sm text-muted-foreground sm:mr-auto">
+                <p className="text-sm text-muted-foreground sm:basis-full">
                   On now: {onAirNow.title}
                 </p>
               )}
               {isWatching ? (
-                <p className="text-sm font-medium">You're watching {channel.name}</p>
+                <p className={state === 'future' ? 'text-sm font-medium sm:mr-auto' : 'text-sm font-medium'}>
+                  You're watching {channel.name}
+                </p>
               ) : (
-                <Button variant="ghost" onClick={handleWatch}>
+                <Button
+                  variant="ghost"
+                  className={state === 'future' ? 'sm:mr-auto' : undefined}
+                  onClick={handleWatch}
+                >
                   Watch {channel.name} now
                 </Button>
               )}

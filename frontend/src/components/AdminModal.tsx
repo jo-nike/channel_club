@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react'
+import { useState, type CSSProperties, type RefObject } from 'react'
 import { APP_NAME, APP_VERSION } from '@/lib/appInfo'
 import {
   Dialog,
@@ -14,12 +14,16 @@ import { NHLGamesTab } from '@/components/admin/NHLGamesTab'
 import { PeopleTab } from '@/components/admin/PeopleTab'
 import { StatusTab } from '@/components/admin/StatusTab'
 import { cn } from '@/lib/utils'
+import { useReturnFocus } from '@/hooks/useReturnFocus'
 
 type TabType = 'channels' | 'people' | 'chat' | 'nhl' | 'status'
 
 interface AdminModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Where focus goes on close when the element that opened it has gone (the
+      account menu's item unmounts with the menu) */
+  returnFocusTo?: RefObject<HTMLElement | null>
 }
 
 const tabs: { id: TabType; label: string }[] = [
@@ -55,8 +59,11 @@ function ChannelsTab() {
   )
 }
 
-export function AdminModal({ open, onOpenChange }: AdminModalProps) {
+export function AdminModal({ open, onOpenChange, returnFocusTo }: AdminModalProps) {
   const [activeTab, setActiveTab] = useState<TabType>('channels')
+  // Opened by state (the Host button, the account menu), not a trigger Radix
+  // could return focus to
+  const returnFocus = useReturnFocus(returnFocusTo)
 
   const renderTabContent = (tabId: TabType) => {
     switch (tabId) {
@@ -81,6 +88,7 @@ export function AdminModal({ open, onOpenChange }: AdminModalProps) {
       <DialogContent
         className="top-4 sm:top-[5dvh] translate-y-0 h-[min(88dvh,780px)] w-[95vw] sm:w-[85vw] md:w-[75vw] max-w-5xl overflow-hidden flex flex-col"
         aria-describedby={undefined}
+        {...returnFocus}
       >
         <DialogHeader>
           <DialogTitle>Admin Panel</DialogTitle>
