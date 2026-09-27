@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { ChannelLogo } from '@/components/ChannelLogo'
 import { NHLScoresOverlay } from '@/components/NHLScoresOverlay'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -8,6 +9,9 @@ import { useChannelStore } from '@/stores/channelStore'
 import { useUIStore } from '@/stores/uiStore'
 import type { UnifiedChannel } from '@/types'
 import { usePlayerShell } from './PlayerShellContext'
+
+/** How long the rail stays up after a tune */
+const TUNE_BANNER_MS = 4000
 
 interface PlayerInfoOverlayProps {
   /** The channel the player is on; null before the TV store has one */
@@ -20,7 +24,8 @@ interface PlayerInfoOverlayProps {
  * under it. Rendered in the player shell, so it shows in theater and
  * fullscreen (where the page header is gone) and survives engine swaps.
  *
- * The rail shows and hides with the control bar. It is the one top rail: the
+ * The rail shows and hides with the control bar, and for 4s after every tune,
+ * like a cable box's channel banner. It is the one top rail: the
  * ticker moves down while the rail is up, so the two never overlap. TV
  * theater has its own channel banner (ZapBanner) in that corner, so the rail
  * stays out of it there.
@@ -30,8 +35,26 @@ export function PlayerInfoOverlay({ channel }: PlayerInfoOverlayProps) {
   const isTVMode = useTVMode()
   const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
 
+  // Each tune shows the rail for 4s: a new channel id, not a reload or a
+  // stream retry, which keep the id. (Adjusted while rendering, React's
+  // pattern for state that follows a prop.)
+  const channelId = channel?.id ?? null
+  const [tunedId, setTunedId] = useState(channelId)
+  const [isTuneBanner, setTuneBanner] = useState(channelId !== null)
+  if (channelId !== tunedId) {
+    setTunedId(channelId)
+    setTuneBanner(channelId !== null)
+  }
+
+  // Keyed on the channel too, so a tune during the banner gets its full 4s
+  useEffect(() => {
+    if (!isTuneBanner) return
+    const timer = setTimeout(() => setTuneBanner(false), TUNE_BANNER_MS)
+    return () => clearTimeout(timer)
+  }, [isTuneBanner, tunedId])
+
   const hasRail = channel !== null && !(isTVMode && isTheaterMode)
-  const isRailVisible = hasRail && controlsVisible
+  const isRailVisible = hasRail && (controlsVisible || isTuneBanner)
 
   return (
     <>

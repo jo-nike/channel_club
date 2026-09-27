@@ -72,6 +72,12 @@ const queryRail = () => screen.queryByTestId('player-info-rail')
 const nhlToggle = () => screen.getByRole('button', { name: /NHL Scores/ })
 const ticker = () => screen.queryByRole('dialog', { name: 'NHL' })
 const TICKER_BELOW_RAIL = 'top-[calc(3.75rem+var(--player-inset-top,0px))]'
+const advance = (ms: number) =>
+  act(() => {
+    vi.advanceTimersByTime(ms)
+  })
+// Every tune shows the rail for 4s, including the first
+const waitOutTuneBanner = () => advance(4000)
 
 beforeEach(() => {
   localStorage.clear()
@@ -198,6 +204,7 @@ describe('PlayerInfoOverlay: what the rail says', () => {
 describe('PlayerInfoOverlay: showing and hiding with the controls', () => {
   it('shows with the control bar and hides with it', () => {
     const { update } = renderOverlay(cinema, { controlsVisible: true })
+    waitOutTuneBanner()
     expect(rail()).toHaveClass('opacity-100')
     expect(nhlToggle()).toHaveAttribute('tabindex', '0')
 
@@ -220,6 +227,73 @@ describe('PlayerInfoOverlay: showing and hiding with the controls', () => {
   })
 })
 
+describe('PlayerInfoOverlay: channel banner on every tune', () => {
+  const hidden = { controlsVisible: false }
+  const channel2: UnifiedChannel = { ...cinema, id: 'e2', name: 'Cartoons', number: 2, logoUrl: undefined }
+
+  it('shows the rail for 4s after the first tune, with the controls hidden', () => {
+    renderOverlay(cinema, hidden)
+    expect(rail()).toHaveClass('opacity-100')
+    expect(nhlToggle()).toHaveAttribute('tabindex', '0')
+
+    advance(3999)
+    expect(rail()).toHaveClass('opacity-100')
+
+    advance(1)
+    expect(rail()).toHaveClass('opacity-0')
+    expect(nhlToggle()).toHaveAttribute('tabindex', '-1')
+  })
+
+  it('shows it again for 4s when the channel changes', () => {
+    const { update } = renderOverlay(cinema, hidden)
+    waitOutTuneBanner()
+    expect(rail()).toHaveClass('opacity-0')
+
+    update(channel2, hidden)
+    expect(rail()).toHaveClass('opacity-100')
+    expect(rail()).toHaveTextContent('Cartoons')
+
+    waitOutTuneBanner()
+    expect(rail()).toHaveClass('opacity-0')
+
+    // Back to the first channel is a tune too
+    update(cinema, hidden)
+    expect(rail()).toHaveClass('opacity-100')
+  })
+
+  it('a tune during the banner gets its own full 4s', () => {
+    const { update } = renderOverlay(cinema, hidden)
+    advance(3000)
+
+    update(channel2, hidden)
+    advance(3999)
+    expect(rail()).toHaveClass('opacity-100')
+
+    advance(1)
+    expect(rail()).toHaveClass('opacity-0')
+  })
+
+  it('a reload or stream retry on the same channel is not a tune', () => {
+    const { update } = renderOverlay(cinema, { ...hidden, reloadKey: 0 })
+    waitOutTuneBanner()
+
+    update(cinema, { ...hidden, reloadKey: 1 })
+    // The page hands over a fresh channel object on a refresh; the id is the same
+    update({ ...cinema }, { ...hidden, reloadKey: 2 })
+
+    expect(rail()).toHaveClass('opacity-0')
+  })
+
+  it('moves the NHL ticker under the rail while the banner is up', () => {
+    useUIStore.setState({ isNHLOverlayVisible: true })
+    renderOverlay(cinema, hidden)
+    expect(ticker()).toHaveClass(TICKER_BELOW_RAIL)
+
+    waitOutTuneBanner()
+    expect(ticker()).toHaveClass('top-0')
+  })
+})
+
 describe('PlayerInfoOverlay: NHL ticker', () => {
   it('the NHL button opens and closes the ticker, so it is reachable without the header', () => {
     renderOverlay(cinema)
@@ -239,6 +313,7 @@ describe('PlayerInfoOverlay: NHL ticker', () => {
   it('moves the ticker under the rail while the rail is up, and back to the top when it hides', () => {
     useUIStore.setState({ isNHLOverlayVisible: true })
     const { update } = renderOverlay(cinema, { controlsVisible: true })
+    waitOutTuneBanner()
     expect(ticker()).toHaveClass(TICKER_BELOW_RAIL)
 
     update(cinema, { controlsVisible: false })
