@@ -10,6 +10,7 @@ with bound fields, so viewing history can be queried from the log store
 (Loki: ``| json | record_extra_event="watch.stop"``) without a database.
 """
 
+import asyncio
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Literal
@@ -30,6 +31,9 @@ class UserPresence:
     connection_id: str
     username: str
     view: View
+    user_id: str | None = None  # Opaque chat id (chat.user_id_for), safe to show others
+    nickname: str | None = None  # Chat display name, None means the username
+    hide_activity: bool = False  # "Hide what I'm watching": others see the name only
     current_channel: str | None = None
     current_channel_id: str | None = None
     current_programme: str | None = None
@@ -97,6 +101,7 @@ def track_user(
     username: str,
     view: View,
     websocket: WebSocket | None = None,
+    user_id: str | None = None,
 ) -> UserPresence:
     """Track a new user connection.
 
@@ -105,6 +110,7 @@ def track_user(
         username: The authenticated username.
         view: The view type ("live" or "ersatztv").
         websocket: Optional WebSocket reference for future use.
+        user_id: The account's opaque chat id, used to group a person's connections.
 
     Returns:
         The created UserPresence object.
@@ -126,6 +132,7 @@ def track_user(
         username=username,
         view=view,
         websocket=websocket,
+        user_id=user_id,
     )
     _active_users[connection_id] = user_presence
     _emit(
@@ -216,6 +223,30 @@ def update_user_channel(
         )
 
 
+def set_nickname(connection_id: str, nickname: str | None) -> None:
+    """Record the chat display name a connection uses.
+
+    Args:
+        connection_id: The connection ID to update.
+        nickname: The accepted nickname, or None to fall back to the username.
+    """
+    if connection_id in _active_users:
+        _active_users[connection_id].nickname = nickname
+
+
+def set_hide_activity(connection_id: str, hide: bool) -> None:
+    """Record whether a connection's owner hides what they watch from others.
+
+    The admin Active Users list still shows the channel.
+
+    Args:
+        connection_id: The connection ID to update.
+        hide: True to show only the person's name to other members.
+    """
+    if connection_id in _active_users:
+        _active_users[connection_id].hide_activity = hide
+
+
 def get_active_users() -> dict[str, UserPresence]:
     """Get all active users.
 
@@ -254,6 +285,14 @@ def update_last_activity(connection_id: str) -> None:
 # Must be longer than client ping interval (30s) to avoid false positives
 STALE_USER_TIMEOUT_SECONDS = 60
 
+# How often the background task sweeps for stale users. With the 60s timeout a
+# tab that vanished without closing its socket is gone within about 90s.
+CLEANUP_INTERVAL_SECONDS = 30
+
+# Strong reference to the running cleanup task (the event loop only keeps a
+# weak one)
+_cleanup_task: asyncio.Task | None = None
+
 
 def cleanup_stale_users(timeout_seconds: int = STALE_USER_TIMEOUT_SECONDS) -> int:
     """Remove users who haven't sent a ping within the timeout period.
@@ -277,4 +316,40 @@ def cleanup_stale_users(timeout_seconds: int = STALE_USER_TIMEOUT_SECONDS) -> in
         user = _active_users.pop(cid, None)
         if user:
             _close_session(user, "stale")
+    if stale:
+        # Import here to avoid a circular dependency (presence_broadcast reads presence)
+        from app.services import presence_broadcast
+
+        presence_broadcast.schedule_broadcast()
     return len(stale)
+
+
+def start_cleanup_task() -> None:
+    """Start the background task that removes stale users every 30 seconds."""
+    global _cleanup_task
+    if _cleanup_task is None or _cleanup_task.done():
+        _cleanup_task = asyncio.create_task(_cleanup_loop())
+        log.debug("Started stale presence cleanup task")
+
+
+def stop_cleanup_task() -> None:
+    """Stop the background stale-user cleanup task."""
+    global _cleanup_task
+    if _cleanup_task and not _cleanup_task.done():
+        _cleanup_task.cancel()
+        _cleanup_task = None
+        log.debug("Stopped stale presence cleanup task")
+
+
+async def _cleanup_loop() -> None:
+    """Background loop that periodically removes stale users."""
+    while True:
+        try:
+            await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
+            removed = cleanup_stale_users()
+            if removed > 0:
+                log.info("Cleaned up {} stale users", removed)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            log.warning("Error in presence cleanup loop: {}", e)

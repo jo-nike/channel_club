@@ -5,7 +5,7 @@ import hmac
 from collections.abc import Iterator
 from datetime import UTC
 from io import StringIO
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -15,8 +15,11 @@ from starlette.websockets import WebSocketDisconnect
 from app.config import settings
 from app.main import app
 from app.routers import websocket as websocket_router
-from app.services import channel_state, chat, presence
+from app.services import app_settings, channel_state, chat, presence, presence_broadcast
 from app.services.auth import create_access_token
+
+# Captured at import, before conftest swaps it for a no-op in every test
+REAL_SCHEDULE_BROADCAST = presence_broadcast.schedule_broadcast
 
 
 def expected_user_id(account: str) -> str:
@@ -165,6 +168,168 @@ class TestConnectionAck:
                 "userId": expected_user_id("plex:12345"),
             }
             assert "12345" not in str(data["you"])
+
+
+class TestPresenceInAck:
+    """connection_ack carries the presence snapshot."""
+
+    def test_ack_lists_who_is_watching_names_only_by_default(
+        self, client: TestClient, valid_token: str, admin_token: str
+    ):
+        """Others are listed by name; channels stay private while visibility is off."""
+        with client.websocket_connect(f"/api/ws?token={admin_token}") as ws1:
+            ws1.receive_json()  # connection_ack
+            ws1.send_json({"type": "channel_update", "channel": "News", "channelId": "n1"})
+            ws1.send_json({"type": "ping"})
+            ws1.receive_json()  # pong
+
+            with client.websocket_connect(f"/api/ws?token={valid_token}") as ws2:
+                ack = ws2.receive_json()
+
+        assert ack["type"] == "connection_ack"
+        # The new connection has no channel yet, so only admin is listed
+        assert ack["presence"] == [
+            {
+                "userId": expected_user_id("local:admin"),
+                "displayName": "admin",
+                "channelId": None,
+                "channelName": None,
+                "programme": None,
+                "view": None,
+                "since": None,
+            }
+        ]
+
+    def test_ack_includes_channels_when_visible(
+        self,
+        client: TestClient,
+        valid_token: str,
+        admin_token: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        monkeypatch.setattr(app_settings, "_presence_visible", True)
+        with client.websocket_connect(f"/api/ws?token={admin_token}") as ws1:
+            ws1.receive_json()  # connection_ack
+            ws1.send_json(
+                {"type": "channel_update", "channel": "News", "channelId": "n1", "programme": "AM"}
+            )
+            ws1.send_json({"type": "ping"})
+            ws1.receive_json()  # pong
+
+            with client.websocket_connect(f"/api/ws?token={valid_token}") as ws2:
+                ack = ws2.receive_json()
+
+        [entry] = ack["presence"]
+        assert entry["channelName"] == "News"
+        assert entry["channelId"] == "n1"
+        assert entry["programme"] == "AM"
+        assert entry["view"] == "live"
+        assert entry["since"] is not None
+
+    def test_ack_presence_empty_when_nobody_watches(self, client: TestClient, valid_token: str):
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            assert ws.receive_json()["presence"] == []
+
+
+class TestPresenceBroadcastTriggers:
+    """Each presence change schedules a presence_update."""
+
+    @pytest.fixture
+    def schedule(self, monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+        mock = MagicMock()
+        monkeypatch.setattr(presence_broadcast, "schedule_broadcast", mock)
+        monkeypatch.setattr(settings, "chat_enabled", False)
+        return mock
+
+    @staticmethod
+    def roundtrip(ws) -> None:
+        """Wait until the server has handled everything sent so far."""
+        ws.send_json({"type": "ping"})
+        assert ws.receive_json()["type"] == "pong"
+
+    def test_connect_and_disconnect_schedule_broadcasts(
+        self, client: TestClient, valid_token: str, schedule: MagicMock
+    ):
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            ws.receive_json()  # connection_ack
+            assert schedule.call_count == 1
+
+        assert schedule.call_count == 2
+
+    def test_every_channel_update_schedules_a_broadcast(
+        self, client: TestClient, valid_token: str, schedule: MagicMock
+    ):
+        """Programme rollovers on the same channel are broadcast too."""
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            ws.receive_json()  # connection_ack
+            ws.send_json({"type": "channel_update", "channel": "News", "programme": "AM"})
+            ws.send_json({"type": "channel_update", "channel": "News", "programme": "PM"})
+            self.roundtrip(ws)
+
+            assert schedule.call_count == 3
+
+    def test_nickname_and_prefs_schedule_broadcasts(
+        self, client: TestClient, valid_token: str, schedule: MagicMock
+    ):
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            ws.receive_json()  # connection_ack
+            ws.send_json({"type": "set_nickname", "nickname": "Jonny"})
+            ws.send_json({"type": "set_nickname", "nickname": ""})
+            ws.send_json({"type": "set_presence_prefs", "hideActivity": True})
+            self.roundtrip(ws)
+
+            assert schedule.call_count == 4
+
+    def test_refused_or_invalid_messages_do_not_broadcast(
+        self, client: TestClient, valid_token: str, admin_token: str, schedule: MagicMock
+    ):
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws1:
+            ws1.receive_json()  # connection_ack
+            with client.websocket_connect(f"/api/ws?token={admin_token}") as ws2:
+                ws2.receive_json()  # connection_ack
+                schedule.reset_mock()
+                ws2.send_json({"type": "set_nickname", "nickname": "testuser"})
+                assert ws2.receive_json()["code"] == "nickname_taken"
+                ws2.send_json({"type": "set_presence_prefs", "hideActivity": "yes"})
+                assert ws2.receive_json()["code"] == "invalid_message"
+                self.roundtrip(ws2)
+
+                schedule.assert_not_called()
+
+
+class TestPresenceUpdateBroadcast:
+    """presence_update reaches connected clients."""
+
+    def test_channel_change_reaches_everyone(
+        self,
+        client: TestClient,
+        valid_token: str,
+        admin_token: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """A friend changing channel shows up in the others' presence within the debounce."""
+        monkeypatch.setattr(presence_broadcast, "schedule_broadcast", REAL_SCHEDULE_BROADCAST)
+        monkeypatch.setattr(presence_broadcast, "BROADCAST_DEBOUNCE_SECONDS", 0.05)
+        monkeypatch.setattr(presence_broadcast, "_pending", None)
+        monkeypatch.setattr(app_settings, "_presence_visible", True)
+        monkeypatch.setattr(settings, "chat_enabled", False)
+
+        def next_presence(ws) -> list[dict]:
+            for _ in range(5):
+                message = ws.receive_json()
+                if message["type"] == "presence_update" and message["presence"]:
+                    return message["presence"]
+            raise AssertionError("no presence_update with entries")
+
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws1:
+            ws1.receive_json()  # connection_ack
+            with client.websocket_connect(f"/api/ws?token={admin_token}") as ws2:
+                ws2.receive_json()  # connection_ack
+                ws2.send_json({"type": "channel_update", "channel": "Sports", "channelId": "s1"})
+
+                seen = next_presence(ws1)
+
+        assert [(e["displayName"], e["channelName"]) for e in seen] == [("admin", "Sports")]
 
 
 class TestPingPong:
@@ -478,6 +643,94 @@ class TestPresenceTracking:
 
             users = list(presence._active_users.values())
             assert users[0].view == "live"
+
+    def test_connection_tracked_with_its_user_id(self, client: TestClient, valid_token: str):
+        """Presence records the opaque id, so a person's tabs can be grouped."""
+        with client.websocket_connect(f"/api/ws?token={valid_token}&session_id=s1") as ws:
+            ws.receive_json()  # Consume connection_ack
+
+            assert presence._active_users["s1"].user_id == expected_user_id("local:testuser")
+
+    def test_nickname_is_recorded_in_presence(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """An accepted nickname is shown in presence; clearing it restores the username."""
+        monkeypatch.setattr(settings, "chat_enabled", False)
+        with client.websocket_connect(f"/api/ws?token={valid_token}&session_id=s1") as ws:
+            ws.receive_json()  # Consume connection_ack
+            ws.send_json({"type": "set_nickname", "nickname": "  Jonny  "})
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json()["type"] == "pong"
+
+            assert presence._active_users["s1"].nickname == "Jonny"
+
+            ws.send_json({"type": "set_nickname", "nickname": ""})
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json()["type"] == "pong"
+
+            assert presence._active_users["s1"].nickname is None
+
+    def test_refused_nickname_is_not_recorded_in_presence(
+        self,
+        client: TestClient,
+        valid_token: str,
+        admin_token: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Another member's sign-in name never reaches presence either."""
+        monkeypatch.setattr(settings, "chat_enabled", False)
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws1:
+            ws1.receive_json()  # connection_ack
+            with client.websocket_connect(f"/api/ws?token={admin_token}&session_id=a1") as ws2:
+                ws2.receive_json()  # connection_ack
+                ws2.send_json({"type": "set_nickname", "nickname": "testuser"})
+                assert ws2.receive_json()["code"] == "nickname_taken"
+
+                assert presence._active_users["a1"].nickname is None
+
+    def test_presence_prefs_set_hide_activity(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """set_presence_prefs records "Hide what I'm watching" for the connection."""
+        monkeypatch.setattr(settings, "chat_enabled", False)
+        with client.websocket_connect(f"/api/ws?token={valid_token}&session_id=s1") as ws:
+            ws.receive_json()  # Consume connection_ack
+            ws.send_json({"type": "set_presence_prefs", "hideActivity": True})
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json()["type"] == "pong"
+
+            assert presence._active_users["s1"].hide_activity is True
+
+            ws.send_json({"type": "set_presence_prefs", "hideActivity": False})
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json()["type"] == "pong"
+
+            assert presence._active_users["s1"].hide_activity is False
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            {"type": "set_presence_prefs"},
+            {"type": "set_presence_prefs", "hideActivity": "true"},
+            {"type": "set_presence_prefs", "hideActivity": 1},
+            {"type": "set_presence_prefs", "hideActivity": None},
+        ],
+    )
+    def test_invalid_presence_prefs_are_rejected(
+        self,
+        client: TestClient,
+        valid_token: str,
+        monkeypatch: pytest.MonkeyPatch,
+        message: dict[str, object],
+    ):
+        """A malformed prefs message gets invalid_message and changes nothing."""
+        monkeypatch.setattr(settings, "chat_enabled", False)
+        with client.websocket_connect(f"/api/ws?token={valid_token}&session_id=s1") as ws:
+            ws.receive_json()  # Consume connection_ack
+            ws.send_json(message)
+
+            assert ws.receive_json() == {"type": "error", "code": "invalid_message"}
+            assert presence._active_users["s1"].hide_activity is False
 
     def test_multiple_users_tracked(self, client: TestClient, valid_token: str, admin_token: str):
         """Multiple users should be tracked separately."""

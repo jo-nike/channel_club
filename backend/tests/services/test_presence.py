@@ -1,7 +1,9 @@
 """Tests for presence service."""
 
-from datetime import datetime
-from unittest.mock import MagicMock
+import asyncio
+from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -9,11 +11,12 @@ from app.services import presence
 
 
 @pytest.fixture(autouse=True)
-def reset_presence_state():
+def reset_presence_state() -> Iterator[None]:
     """Reset presence state before each test."""
     presence._active_users.clear()
     yield
     presence._active_users.clear()
+    presence.stop_cleanup_task()
 
 
 class TestTrackUser:
@@ -208,6 +211,49 @@ class TestUpdateUserChannel:
         assert presence._active_users["abc123"].view == "ersatztv"
 
 
+class TestUserIdAndNickname:
+    """Tests for the id and display name kept per connection."""
+
+    def test_tracks_user_id_when_given(self) -> None:
+        """The opaque chat id is stored so a person's connections can be grouped."""
+        result = presence.track_user("c1", "jon", "live", user_id="u_0123456789abcdef")
+
+        assert result.user_id == "u_0123456789abcdef"
+        assert result.nickname is None
+
+    def test_set_nickname_updates_the_connection(self) -> None:
+        """A nickname is recorded, and None clears it."""
+        presence.track_user("c1", "jon", "live")
+
+        presence.set_nickname("c1", "Jonny")
+        assert presence._active_users["c1"].nickname == "Jonny"
+
+        presence.set_nickname("c1", None)
+        assert presence._active_users["c1"].nickname is None
+
+    def test_hide_activity_defaults_off_and_can_be_set(self) -> None:
+        """A connection shares its channel until its owner hides it."""
+        user = presence.track_user("c1", "jon", "live")
+        assert user.hide_activity is False
+
+        presence.set_hide_activity("c1", True)
+        assert presence._active_users["c1"].hide_activity is True
+
+        presence.set_hide_activity("c1", False)
+        assert presence._active_users["c1"].hide_activity is False
+
+    def test_set_hide_activity_for_unknown_connection_is_safe(self) -> None:
+        presence.set_hide_activity("nobody", True)
+
+        assert presence._active_users == {}
+
+    def test_set_nickname_for_unknown_connection_is_safe(self) -> None:
+        """Nothing is created for a connection that isn't tracked."""
+        presence.set_nickname("nobody", "Ghost")
+
+        assert presence._active_users == {}
+
+
 class TestGetActiveUsers:
     """Tests for get_active_users function."""
 
@@ -301,3 +347,76 @@ class TestGetUsersByView:
         assert len(result) == 1
         assert result[0].username == "user2"
         assert result[0].view == "ersatztv"
+
+
+class TestCleanupTask:
+    """Tests for the background stale-user cleanup task."""
+
+    async def test_timer_removes_stale_users(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A tab that stopped pinging is removed without anyone polling Active Users."""
+        monkeypatch.setattr(presence, "CLEANUP_INTERVAL_SECONDS", 0.01)
+        presence.track_user(connection_id="gone", username="ghost", view="live")
+        presence.track_user(connection_id="here", username="friend", view="live")
+        presence._active_users["gone"].last_activity = datetime.now(UTC) - timedelta(
+            seconds=presence.STALE_USER_TIMEOUT_SECONDS + 1
+        )
+
+        presence.start_cleanup_task()
+        for _ in range(100):
+            await asyncio.sleep(0.01)
+            if "gone" not in presence._active_users:
+                break
+
+        assert "gone" not in presence._active_users
+        assert "here" in presence._active_users
+
+    async def test_keeps_running_after_a_sweep(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The loop sweeps repeatedly, not just once."""
+        monkeypatch.setattr(presence, "CLEANUP_INTERVAL_SECONDS", 0.01)
+        sweep = MagicMock(return_value=0)
+        monkeypatch.setattr(presence, "cleanup_stale_users", sweep)
+
+        presence.start_cleanup_task()
+        for _ in range(100):
+            await asyncio.sleep(0.01)
+            if sweep.call_count >= 2:
+                break
+
+        assert sweep.call_count >= 2
+
+    async def test_start_is_idempotent(self) -> None:
+        """Starting twice keeps the one running task."""
+        presence.start_cleanup_task()
+        first = presence._cleanup_task
+
+        presence.start_cleanup_task()
+
+        assert presence._cleanup_task is first
+
+    async def test_stop_cancels_the_task(self) -> None:
+        """Stopping cancels the running task and forgets it."""
+        presence.start_cleanup_task()
+        task = presence._cleanup_task
+        assert task is not None
+
+        presence.stop_cleanup_task()
+        await asyncio.sleep(0)
+
+        assert presence._cleanup_task is None
+        assert task.done()
+
+    def test_app_lifespan_starts_and_stops_the_task(self) -> None:
+        """The app runs the sweep for its whole lifetime."""
+        from fastapi.testclient import TestClient
+
+        from app.main import app
+
+        with (
+            patch("app.main.get_grouped_channels", new=AsyncMock(return_value=[])),
+            TestClient(app),
+        ):
+            task = presence._cleanup_task
+            assert task is not None
+            assert not task.done()
+
+        assert presence._cleanup_task is None

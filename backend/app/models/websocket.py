@@ -35,6 +35,11 @@ class NicknameMessage(ClientMessage):
     nickname: InputText = ""
 
 
+class PresencePrefsMessage(ClientMessage):
+    type: Literal["set_presence_prefs"]
+    hideActivity: bool
+
+
 class ChatMessage(ClientMessage):
     type: Literal["chat_message"]
     content: InputText = ""
@@ -43,7 +48,7 @@ class ChatMessage(ClientMessage):
 
 client_message_adapter = TypeAdapter(
     Annotated[
-        PingMessage | ChannelUpdateMessage | NicknameMessage | ChatMessage,
+        PingMessage | ChannelUpdateMessage | NicknameMessage | PresencePrefsMessage | ChatMessage,
         Field(discriminator="type"),
     ]
 )

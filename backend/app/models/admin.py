@@ -39,6 +39,8 @@ class AppSettings(BaseModel):
     """Runtime settings an admin can toggle for all users."""
 
     user_channel_selection: bool = Field(alias="userChannelSelection")
+    # Whether members see which channel everyone else is watching (off: names only)
+    presence_visible: bool = Field(alias="presenceVisible")
 
     model_config = {"populate_by_name": True}
 
@@ -47,5 +49,6 @@ class UpdateAppSettingsRequest(BaseModel):
     """Request body for PUT /api/settings. Omitted fields are left unchanged."""
 
     user_channel_selection: bool | None = Field(None, alias="userChannelSelection")
+    presence_visible: bool | None = Field(None, alias="presenceVisible")
 
     model_config = {"populate_by_name": True}

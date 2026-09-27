@@ -11,6 +11,7 @@ from app.services import app_settings
 def reset_settings(monkeypatch: pytest.MonkeyPatch):
     """Reset settings to defaults before each test."""
     monkeypatch.setattr(app_settings, "_user_channel_selection", False)
+    monkeypatch.setattr(app_settings, "_presence_visible", False)
 
 
 class TestGetAppSettings:
@@ -26,7 +27,7 @@ class TestGetAppSettings:
         """Settings serialize with camelCase aliases for the API."""
         dumped = app_settings.get_app_settings().model_dump(by_alias=True)
 
-        assert dumped == {"userChannelSelection": False}
+        assert dumped == {"userChannelSelection": False, "presenceVisible": False}
 
 
 class TestUserChannelSelectionEnabled:
@@ -73,6 +74,47 @@ class TestSetUserChannelSelection:
         mock_broadcast.assert_awaited_once_with(
             {
                 "type": "settings_update",
-                "settings": {"userChannelSelection": True},
+                "settings": {"userChannelSelection": True, "presenceVisible": False},
+            }
+        )
+
+
+class TestPresenceVisible:
+    """Tests for the "Show what everyone is watching" setting."""
+
+    def test_off_by_default(self) -> None:
+        """Presence ships dark: members see names only until an admin turns it on."""
+        assert app_settings.presence_visible_enabled() is False
+        assert app_settings.get_app_settings().presence_visible is False
+
+    async def test_can_be_turned_on_and_off(self) -> None:
+        """The setting toggles and the updated settings are returned."""
+        with patch.object(app_settings.channel_state, "broadcast", new=AsyncMock()):
+            on = await app_settings.set_presence_visible(True, user="admin")
+            assert on.presence_visible is True
+            assert app_settings.presence_visible_enabled() is True
+
+            off = await app_settings.set_presence_visible(False)
+            assert off.presence_visible is False
+            assert app_settings.presence_visible_enabled() is False
+
+    async def test_leaves_user_channel_selection_alone(self) -> None:
+        """Changing presence visibility doesn't touch the other setting."""
+        with patch.object(app_settings.channel_state, "broadcast", new=AsyncMock()):
+            result = await app_settings.set_presence_visible(True)
+
+        assert result.user_channel_selection is False
+
+    async def test_broadcasts_settings_update(self) -> None:
+        """Connected clients are told about the change."""
+        mock_broadcast = AsyncMock()
+
+        with patch.object(app_settings.channel_state, "broadcast", new=mock_broadcast):
+            await app_settings.set_presence_visible(True, user="admin")
+
+        mock_broadcast.assert_awaited_once_with(
+            {
+                "type": "settings_update",
+                "settings": {"userChannelSelection": False, "presenceVisible": True},
             }
         )

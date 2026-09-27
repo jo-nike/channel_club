@@ -15,6 +15,9 @@ log = logger.bind(service="app_settings")
 
 # In-memory state - resets on restart
 _user_channel_selection: bool = False
+# Presence ships dark: members see who is online, not what they watch, until an
+# admin turns this on (after asking the group)
+_presence_visible: bool = False
 
 
 def get_app_settings() -> AppSettings:
@@ -23,7 +26,10 @@ def get_app_settings() -> AppSettings:
     Returns:
         AppSettings with the current values.
     """
-    return AppSettings(user_channel_selection=_user_channel_selection)
+    return AppSettings(
+        user_channel_selection=_user_channel_selection,
+        presence_visible=_presence_visible,
+    )
 
 
 def user_channel_selection_enabled() -> bool:
@@ -52,6 +58,38 @@ async def set_user_channel_selection(enabled: bool, user: str | None = None) -> 
         log.info("User channel selection set to {} by user '{}'", enabled, user)
     else:
         log.info("User channel selection set to {}", enabled)
+
+    await broadcast_settings_update()
+
+    return get_app_settings()
+
+
+def presence_visible_enabled() -> bool:
+    """Check whether members may see which channel everyone else is watching.
+
+    Returns:
+        True if the presence snapshot includes channels, False for names only.
+    """
+    return _presence_visible
+
+
+async def set_presence_visible(enabled: bool, user: str | None = None) -> AppSettings:
+    """Set whether members see what everyone is watching, and broadcast it.
+
+    Args:
+        enabled: True to share each member's channel and programme with everyone.
+        user: Optional username of the admin making the change.
+
+    Returns:
+        The updated settings.
+    """
+    global _presence_visible
+    _presence_visible = enabled
+
+    if user:
+        log.info("Presence visibility set to {} by user '{}'", enabled, user)
+    else:
+        log.info("Presence visibility set to {}", enabled)
 
     await broadcast_settings_update()
 
