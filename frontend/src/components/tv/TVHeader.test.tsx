@@ -195,11 +195,11 @@ describe('TVHeader', () => {
       'Guide',
       'NHL scores',
       'Open admin panel',
-      'Open chat',
+      'Chat',
     ])
     // The account menu comes last and replaces the feedback icon and settings popover
     expect(within(nav).getByTestId('account-menu')).toBeInTheDocument()
-    expect(within(nav).getByRole('button', { name: 'Open chat' }).compareDocumentPosition(
+    expect(within(nav).getByRole('button', { name: 'Chat' }).compareDocumentPosition(
       within(nav).getByTestId('account-menu'),
     ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Send feedback' })).not.toBeInTheDocument()
@@ -212,7 +212,7 @@ describe('TVHeader', () => {
     expect(within(guide).getByText('Guide')).toHaveClass('hidden', 'lg:inline')
     expect(guide).toHaveAttribute('data-variant', 'toolbar')
 
-    const chat = screen.getByRole('button', { name: 'Open chat' })
+    const chat = screen.getByRole('button', { name: 'Chat' })
     expect(within(chat).getByText('Chat')).toHaveClass('hidden', 'lg:inline')
     expect(chat).toHaveAttribute('data-variant', 'default')
   })
@@ -240,7 +240,7 @@ describe('TVHeader', () => {
     renderHeader({ isMobile: true })
     expect(screen.queryByRole('button', { name: /guide/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /NHL scores/i })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Open chat' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Chat' })).toBeVisible()
   })
 
   it('keeps Host, Chat and the account menu on a phone, all 44px', () => {
@@ -251,7 +251,7 @@ describe('TVHeader', () => {
     const actions = within(nav).getAllByRole('button')
     expect(actions.map((b) => b.getAttribute('aria-label'))).toEqual([
       'Open admin panel',
-      'Open chat',
+      'Chat',
     ])
     for (const action of actions) expect(action).toHaveClass('size-11', 'md:size-9')
     expect(within(nav).getByTestId('account-menu')).toBeInTheDocument()
@@ -317,7 +317,7 @@ describe('TVHeader', () => {
 
   it("keeps chat, and wires the account menu to the header's picker, admin and reload", () => {
     const props = renderHeader()
-    fireEvent.click(screen.getByRole('button', { name: 'Open chat' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Chat' }))
     expect(useChatStore.getState().isOpen).toBe(true)
 
     expect(screen.getByTestId('account-menu')).toBeInTheDocument()

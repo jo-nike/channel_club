@@ -6,8 +6,10 @@ import { cn } from '@/lib/utils'
 
 interface HeaderActionProps extends Omit<ComponentProps<'button'>, 'children'> {
   icon: ReactNode
-  // Accessible name and tooltip
+  // Accessible name, and the tooltip unless one is given
   label: string
+  // Tooltip text when it adds to the name, e.g. a key hint 'Chat (C)'
+  tooltip?: string
   // Short visible text, shown from lg (1024px); icon only below that
   visibleLabel?: string
   // Toggle state (aria-pressed); leave undefined for plain actions
@@ -21,6 +23,7 @@ interface HeaderActionProps extends Omit<ComponentProps<'button'>, 'children'> {
 export function HeaderAction({
   icon,
   label,
+  tooltip,
   visibleLabel,
   pressed,
   badge,
@@ -46,7 +49,7 @@ export function HeaderAction({
         </Button>
       </TooltipTrigger>
       <TooltipContent>
-        <p>{label}</p>
+        <p>{tooltip ?? label}</p>
       </TooltipContent>
     </Tooltip>
   )
