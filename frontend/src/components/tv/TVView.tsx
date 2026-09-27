@@ -25,6 +25,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { Button } from '@/components/ui/button'
 import { ResizeDragHandle } from '@/components/ui/ResizeDragHandle'
 import { useLayoutMode } from '@/hooks/useLayoutMode'
+import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useResizable } from '@/hooks/useResizable'
 import { useMobileLandscape } from '@/hooks/useMobileLandscape'
 import { AdminModal } from '@/components/AdminModal'
@@ -217,6 +218,25 @@ export function TVView() {
         ? 'docked'
         : 'sheet'
 
+  // Between 1024 and 1279px a full channel list, the player and docked chat
+  // don't fit side by side, so the list folds to its rail while chat is open.
+  // The fold is never written to the persisted collapsed flag: a reload with
+  // chat open must not leave the list collapsed for good. Expanding the rail
+  // lifts the fold until chat next closes.
+  const isNarrowDesktop = useMediaQuery('(min-width: 1024px) and (max-width: 1279px)')
+  const [railOverride, setRailOverride] = useState(false)
+  // (Adjusted while rendering, React's pattern for state that follows a prop.)
+  if (!isChatOpen && railOverride) setRailOverride(false)
+  const forcedRail = isChatOpen && chatVariant === 'docked' && isNarrowDesktop && !railOverride
+  const handleToggleSidebar = useCallback(() => {
+    if (forcedRail) {
+      setRailOverride(true)
+      // Folded only by chat: expanding shows the list as the viewer left it
+      if (!isChannelSidebarCollapsed) return
+    }
+    toggleChannelSidebar()
+  }, [forcedRail, isChannelSidebarCollapsed, toggleChannelSidebar])
+
   // Load channels on mount
   useEffect(() => {
     loadChannels()
@@ -379,8 +399,8 @@ export function TVView() {
             guide closes. */}
         {!isMobile && !isTheaterMode && !isMobileLandscape && !isEPGVisible && (
           <TVChannelSidebar
-            isCollapsed={isChannelSidebarCollapsed}
-            onToggleCollapse={toggleChannelSidebar}
+            isCollapsed={isChannelSidebarCollapsed || forcedRail}
+            onToggleCollapse={handleToggleSidebar}
             liveEPGTitle={liveEPGTitle}
             onPickLive={onPickLive}
           />

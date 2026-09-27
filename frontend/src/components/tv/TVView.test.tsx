@@ -763,3 +763,67 @@ describe('E-01 chat placement', () => {
     expect(chat).toHaveAttribute('data-variant', 'overlay')
   })
 })
+
+describe('E-01 channel list folds to its rail beside docked chat at 1024-1279px', () => {
+  beforeEach(() => vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([]))
+  afterEach(() => {
+    window.matchMedia = originalMatchMedia
+    useChatStore.setState({ isOpen: false })
+  })
+
+  const expandButton = () => screen.queryByRole('button', { name: 'Expand channel sidebar' })
+  const collapseButton = () => screen.queryByRole('button', { name: 'Collapse channel sidebar' })
+  const renderView = async () => {
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+  }
+
+  it('folds at 1100px while chat is open and unfolds on close, never writing the saved flag', async () => {
+    mockViewport({ width: 1100 })
+    await renderView()
+    expect(collapseButton()).toBeInTheDocument()
+
+    act(() => useChatStore.setState({ isOpen: true }))
+    expect(screen.getByTestId('chat')).toHaveAttribute('data-variant', 'docked')
+    expect(expandButton()).toBeInTheDocument()
+    expect(useUIStore.getState().isChannelSidebarCollapsed).toBe(false)
+
+    act(() => useChatStore.setState({ isOpen: false }))
+    expect(collapseButton()).toBeInTheDocument()
+    expect(useUIStore.getState().isChannelSidebarCollapsed).toBe(false)
+  })
+
+  it('lets the viewer expand the folded rail for this chat without saving it, and folds again next time', async () => {
+    mockViewport({ width: 1100 })
+    await renderView()
+    act(() => useChatStore.setState({ isOpen: true }))
+
+    fireEvent.click(expandButton()!)
+    expect(collapseButton()).toBeInTheDocument()
+    expect(useUIStore.getState().isChannelSidebarCollapsed).toBe(false)
+
+    act(() => useChatStore.setState({ isOpen: false }))
+    act(() => useChatStore.setState({ isOpen: true }))
+    expect(expandButton()).toBeInTheDocument()
+    expect(useUIStore.getState().isChannelSidebarCollapsed).toBe(false)
+  })
+
+  it('expands a list the viewer had collapsed themselves, saving that choice', async () => {
+    mockViewport({ width: 1100 })
+    useUIStore.setState({ isChannelSidebarCollapsed: true })
+    await renderView()
+    act(() => useChatStore.setState({ isOpen: true }))
+
+    fireEvent.click(expandButton()!)
+    expect(collapseButton()).toBeInTheDocument()
+    expect(useUIStore.getState().isChannelSidebarCollapsed).toBe(false)
+  })
+
+  it.each([1440, 1280])('leaves the list alone at %ipx, where everything fits', async (width) => {
+    mockViewport({ width })
+    await renderView()
+    act(() => useChatStore.setState({ isOpen: true }))
+    expect(screen.getByTestId('chat')).toHaveAttribute('data-variant', 'docked')
+    expect(collapseButton()).toBeInTheDocument()
+  })
+})
