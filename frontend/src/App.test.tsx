@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor } from '@/test/utils'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { act, render, screen, waitFor } from '@/test/utils'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
+import { toast } from 'sonner'
 import { App } from './App'
 import { TVView } from '@/components/tv/TVView'
 import { useAuthStore } from '@/stores/authStore'
@@ -159,6 +160,30 @@ describe('App', () => {
       renderWithRouter()
 
       expect(screen.queryByLabelText(/username/i)).not.toBeInTheDocument()
+    })
+  })
+
+  describe('toasts', () => {
+    afterEach(() => {
+      act(() => {
+        toast.dismiss()
+      })
+    })
+
+    it.each([
+      ['catppuccin-latte', 'light'],
+      ['catppuccin-mocha', 'dark'],
+    ] as const)('follow the %s theme (%s)', async (themeId, mode) => {
+      useThemeStore.setState({ themeId })
+      renderWithRouter()
+
+      act(() => {
+        toast('Hello')
+      })
+
+      await waitFor(() => {
+        expect(document.querySelector('[data-sonner-toaster]')).toHaveAttribute('data-sonner-theme', mode)
+      })
     })
   })
 

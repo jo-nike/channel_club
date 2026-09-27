@@ -12,7 +12,8 @@ export function App() {
 
   // Apply the stored theme here, before the early returns, so the loading
   // and sign-in screens are themed too (not only the main view)
-  useTheme()
+  const { isDark } = useTheme()
+  const toastTheme = isDark ? 'dark' : 'light'
 
   // Show loading screen while checking auth state
   if (isInitializing) {
@@ -20,7 +21,7 @@ export function App() {
       <>
         <OfflineFallback />
         <AppLoadingScreen />
-        <Toaster />
+        <Toaster theme={toastTheme} />
       </>
     )
   }
@@ -32,7 +33,7 @@ export function App() {
         <div className="flex min-h-screen items-center justify-center bg-background">
           <LoginForm />
         </div>
-        <Toaster />
+        <Toaster theme={toastTheme} />
       </>
     )
   }
@@ -42,7 +43,7 @@ export function App() {
       <OfflineFallback />
       <Outlet />
       <InstallPrompt />
-      <Toaster />
+      <Toaster theme={toastTheme} />
     </>
   )
 }
