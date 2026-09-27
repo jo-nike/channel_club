@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { ShieldCheck, LayoutList, RefreshCw, Radio, Tv } from 'lucide-react'
+import { ShieldCheck, LayoutList, RefreshCw, Radio, Tv, AudioLines } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useAppSettings } from '@/hooks/useAppSettings'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
@@ -740,11 +740,12 @@ function MobileChannelList({ onChannelSelect, liveEPGTitle, onPickLive }: Mobile
                   </div>
                 )}
               </div>
+              {/* Static, so nothing blinks beside the video */}
               {selectedChannel?.id === channel.id && (
-                <span
-                  className={`h-3 w-3 animate-pulse rounded-full ${
-                    isLive ? 'bg-destructive' : 'bg-primary'
-                  }`}
+                <AudioLines
+                  className={`h-4 w-4 shrink-0 ${isLive ? 'text-live' : 'text-primary'}`}
+                  aria-hidden="true"
+                  data-testid="now-playing-indicator"
                 />
               )}
             </button>
