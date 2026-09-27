@@ -102,7 +102,7 @@ export function NHLScoresOverlay({ isVisible }: NHLScoresOverlayProps) {
               NHL
             </h2>
             {data?.liveGameCount ? (
-              <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-green-500/20 text-green-500 font-medium">
+              <span className="px-1.5 py-0.5 text-xs rounded-full bg-green-500/20 text-green-500 font-medium">
                 {data.liveGameCount} Live
               </span>
             ) : null}
@@ -327,7 +327,7 @@ function GameCardCompact({ game }: { game: NHLGame }) {
       />
 
       {/* VS / Score separator */}
-      <span className="text-[10px] text-muted-foreground">@</span>
+      <span className="text-xs text-muted-foreground">@</span>
 
       {/* Home team */}
       <TeamBadge
@@ -383,8 +383,8 @@ function TeamBadge({
       {score !== undefined && (
         <span
           className={cn(
-            'text-xs tabular-nums',
-            isWinner ? 'font-bold text-primary' : 'text-muted-foreground'
+            'font-display text-sm tabular-nums',
+            isWinner ? 'font-black text-primary' : 'font-bold text-muted-foreground'
           )}
         >
           {score}

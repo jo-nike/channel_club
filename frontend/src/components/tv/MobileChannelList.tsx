@@ -86,7 +86,7 @@ export function MobileChannelList({ onChannelSelect, liveEPGTitle, onPickLive }:
                     }}
                   />
                 ) : (
-                  <span className="text-sm font-medium">{channel.number}</span>
+                  <span className="font-display text-lg font-extrabold tabular-nums">{channel.number}</span>
                 )}
               </div>
               <div className="min-w-0 flex-1">
@@ -95,7 +95,7 @@ export function MobileChannelList({ onChannelSelect, liveEPGTitle, onPickLive }:
                     {isLive ? (hasLiveChannel ? channel.name : 'Live') : channel.name}
                   </p>
                   {isLive && hasLiveChannel && (
-                    <span className="rounded bg-live px-1.5 py-0.5 text-[10px] font-bold uppercase text-live-foreground">
+                    <span className="rounded bg-live px-1.5 py-0.5 text-[11px] font-bold uppercase text-live-foreground">
                       Live
                     </span>
                   )}
@@ -118,7 +118,7 @@ export function MobileChannelList({ onChannelSelect, liveEPGTitle, onPickLive }:
                         }}
                       />
                     </div>
-                    <span className="shrink-0 text-[10px] text-muted-foreground">
+                    <span className="shrink-0 text-xs text-muted-foreground">
                       {formatRemaining(new Date(currentProgramme.stop).getTime(), currentTime)}
                     </span>
                   </div>

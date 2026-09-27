@@ -3,6 +3,16 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Brand type (self-hosted from Fontsource in main.tsx, so the PWA works
+   offline). Figtree is the UI face and the default for all text; Big
+   Shoulders Display is the display face (font-display) for headings, channel
+   numbers, scores and the wordmark, at weights 600-900. The fallbacks keep a
+   condensed display face and the platform UI face while the fonts load. */
+@theme {
+  --font-sans: "Figtree Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Big Shoulders Display Variable", "Arial Narrow", "Roboto Condensed", Impact, sans-serif;
+}
+
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -169,6 +179,16 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+  /* Headings and dialog titles speak in the display face. Preflight resets
+     heading weight to inherit, so give them a display weight; a font-*
+     utility on the element still wins. */
+  h1,
+  h2,
+  h3,
+  [data-slot="dialog-title"] {
+    font-family: var(--font-display);
+    font-weight: 700;
   }
 }
 

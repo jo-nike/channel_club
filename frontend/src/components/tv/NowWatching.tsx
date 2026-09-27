@@ -67,7 +67,7 @@ export function NowWatching({ isMobile }: { isMobile: boolean }) {
         ) : (
           <p className="mt-0.5 truncate text-xs leading-tight text-muted-foreground">
             {isClubChannel && (
-              <span className="mr-1.5 rounded bg-live px-1.5 py-px align-middle text-[10px] font-bold uppercase leading-none text-live-foreground">
+              <span className="mr-1.5 rounded bg-live px-1.5 py-px align-middle text-[11px] font-bold uppercase leading-none text-live-foreground">
                 Live
               </span>
             )}

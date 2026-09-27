@@ -282,7 +282,7 @@ function ChannelRow({
             ) : (
               <div className="h-8 w-8 flex-shrink-0 rounded bg-muted" />
             )}
-            <span className="truncate">{channel.number}</span>
+            <span className="truncate font-display text-lg font-extrabold tabular-nums">{channel.number}</span>
           </button>
         </TooltipTrigger>
         <TooltipContent>

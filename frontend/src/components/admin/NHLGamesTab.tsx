@@ -247,7 +247,7 @@ function TeamLine({ abbr, name, score, logo, showScore }: TeamLineProps) {
       <span className="font-medium truncate" title={name}>
         {abbr}
       </span>
-      {showScore && <span className="text-sm tabular-nums">{score}</span>}
+      {showScore && <span className="font-display text-base font-extrabold tabular-nums">{score}</span>}
     </div>
   )
 }
@@ -359,7 +359,7 @@ function BroadcastChip({ broadcast, result, channels }: BroadcastChipProps) {
 function NetworkLabel({ broadcast }: { broadcast: NHLBroadcast }) {
   const marketBadge =
     broadcast.market === 'N' ? null : (
-      <span className="text-[10px] uppercase text-muted-foreground">
+      <span className="text-[11px] uppercase text-muted-foreground">
         {broadcast.market === 'H' ? 'home' : 'away'}
       </span>
     )
