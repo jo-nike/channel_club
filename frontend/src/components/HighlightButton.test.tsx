@@ -218,15 +218,19 @@ describe('HighlightButton', () => {
       expect(progress(container).filled).toBeCloseTo(0)
     })
 
-    it('turns primary when a clip is ready and stays white while buffering', () => {
+    it('draws a solid white arc when a clip is ready and a softer one while buffering, never the theme primary', () => {
       const { container, rerender } = render(
         <HighlightButton isVisible loaded highlightStatus={{ ...defaultStatus, ready: false }} />
       )
-      expect(progress(container).arc).toHaveClass('stroke-white')
+      expect(progress(container).arc).toHaveClass('stroke-white/60')
+      expect(progress(container).arc).not.toHaveClass('stroke-white')
       expect(progress(container).arc).not.toHaveClass('stroke-primary')
 
       rerender(<HighlightButton isVisible loaded highlightStatus={{ ...defaultStatus, ready: true }} />)
-      expect(progress(container).arc).toHaveClass('stroke-primary')
+      // The arc sits on dark video chrome; Zebra's primary is 1.16:1 on black
+      expect(progress(container).arc).toHaveClass('stroke-white')
+      expect(progress(container).arc).not.toHaveClass('stroke-white/60')
+      expect(progress(container).arc).not.toHaveClass('stroke-primary')
     })
 
     it('has no progress arc when the channel is not recording', () => {

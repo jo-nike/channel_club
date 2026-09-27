@@ -27,6 +27,15 @@ describe('HeaderAction', () => {
     expect(screen.getByRole('button', { name: 'Guide' })).toHaveAttribute('aria-pressed', 'false')
   })
 
+  it('draws a pressed label in the foreground colour on the primary tint', () => {
+    render(<HeaderAction icon={<LayoutList />} label="Guide" visibleLabel="Guide" pressed />)
+    const button = screen.getByRole('button', { name: 'Guide' })
+    // Primary text on its own 15% tint misses 4.5:1 in Latte, Peachy and
+    // Camouflage; the tint carries the state and the icon keeps the hue
+    expect(button).toHaveClass('aria-pressed:bg-primary/15', 'aria-pressed:text-foreground', 'aria-pressed:[&_svg]:text-primary')
+    expect(button).not.toHaveClass('aria-pressed:text-primary')
+  })
+
   it('shows its label in a tooltip on keyboard focus', async () => {
     render(<HeaderAction icon={<LayoutList />} label="Open admin panel" visibleLabel="Host" />)
     expect(screen.queryByRole('tooltip')).toBeNull()

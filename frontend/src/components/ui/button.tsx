@@ -19,10 +19,12 @@ const buttonVariants = cva(
         ghost:
           "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
         link: "text-primary underline-offset-4 hover:underline",
-        // Header and toolbar actions: quiet until hovered, and a toggle that
-        // is on (aria-pressed) gets a primary tint, not just a brighter icon
+        // Header and toolbar actions: quiet until hovered. A toggle that is on
+        // (aria-pressed) gets a primary tint, which carries the state; its
+        // label goes to full foreground (primary text on its own tint misses
+        // 4.5:1 in some themes) and its icon keeps the primary hue
         toolbar:
-          "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground aria-pressed:bg-primary/15 aria-pressed:text-primary",
+          "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground aria-pressed:bg-primary/15 aria-pressed:text-foreground aria-pressed:[&_svg]:text-primary",
       },
       size: {
         default: "h-9 px-4 py-2 has-[>svg]:px-3",

@@ -61,7 +61,8 @@ function createDarkThemeColors(
     secondary: `oklch(${mutedL} ${bgC * 0.5} ${bgH})`,
     secondaryForeground: 'oklch(0.985 0 0)',
     muted: `oklch(${mutedL} ${bgC * 0.5} ${bgH})`,
-    mutedForeground: 'oklch(0.708 0 0)',
+    // 0.74 keeps muted text above 4.5:1 on the muted surface at its 0.35 cap
+    mutedForeground: 'oklch(0.74 0 0)',
     // Accent is the quiet hover/selected surface (shadcn convention): a
     // low-chroma primary tint just above the card, so foreground stays above
     // 11:1, muted text above 4.5:1 and a primary check icon above 3.5:1.
@@ -119,6 +120,9 @@ function createLightThemeColors(
   const borderL = Math.max(bgL - 0.1, 0.85)
   const card = `oklch(${cardL} ${bgC * 0.5} ${bgH})`
   const muted = `oklch(${mutedL} ${bgC * 0.3} ${bgH})`
+  // Accent (hover/selected) sits a step off muted, on the side away from the
+  // card, so hovers show on muted surfaces, cards and popovers alike
+  const accentL = cardL > mutedL ? mutedL - 0.04 : mutedL + 0.04
 
   return {
     background: `oklch(${background})`,
@@ -133,7 +137,7 @@ function createLightThemeColors(
     secondaryForeground: 'oklch(0.205 0 0)',
     muted: `oklch(${mutedL} ${bgC * 0.3} ${bgH})`,
     mutedForeground: 'oklch(0.45 0 0)',
-    accent: `oklch(${mutedL} ${bgC * 0.3} ${bgH})`,
+    accent: `oklch(${accentL} ${bgC * 0.3} ${bgH})`,
     accentForeground: 'oklch(0.205 0 0)',
     destructive: 'oklch(0.577 0.245 27.325)',
     destructiveForeground: ON_SOLID,

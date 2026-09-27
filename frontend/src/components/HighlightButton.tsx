@@ -84,7 +84,9 @@ export function HighlightButton({ isVisible, highlightStatus, loaded, onOpenModa
                   strokeLinecap="round"
                   strokeDasharray={RING_CIRCUMFERENCE}
                   strokeDashoffset={RING_CIRCUMFERENCE * (1 - filled)}
-                  className={state === 'ready' ? 'stroke-primary' : 'stroke-white'}
+                  // Media chrome sits on dark video in every theme, so the arc
+                  // is white, not primary (Zebra's near-black primary vanished)
+                  className={state === 'ready' ? 'stroke-white' : 'stroke-white/60'}
                 />
               )}
             </svg>

@@ -235,6 +235,18 @@ export function AccountMenu({
         <DialogContent
           className="max-h-[85dvh] overflow-y-auto max-sm:top-auto max-sm:bottom-0 max-sm:max-w-full max-sm:translate-y-0 max-sm:rounded-b-none max-sm:pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] sm:max-w-lg"
           {...appearanceReturnFocus}
+          // Start on the selected mode rather than the first one (Auto), so the
+          // focus ring never sits on a mode that isn't chosen
+          onOpenAutoFocus={(event) => {
+            appearanceReturnFocus.onOpenAutoFocus()
+            const pressed = (event.currentTarget as HTMLElement).querySelector<HTMLElement>(
+              '[role="group"][aria-label="Appearance"] [aria-pressed="true"]'
+            )
+            if (pressed) {
+              event.preventDefault()
+              pressed.focus()
+            }
+          }}
         >
           <DialogHeader>
             <DialogTitle>Appearance</DialogTitle>
