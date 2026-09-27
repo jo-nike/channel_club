@@ -594,4 +594,26 @@ describe('TVChannelSidebar focus', () => {
     await act(async () => {})
     expect(focusOverrides(screen.getByRole('button', { name: 'Expand channel sidebar' }))).toEqual([])
   })
+
+  it('insets the keyboard outline on channel rows and marks focus without a click-time accent fill', async () => {
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+
+    for (const name of ['Live Channel', '1 Movies']) {
+      const row = screen.getByRole('button', { name })
+      expect(row).toHaveClass('focus-visible:-outline-offset-2')
+      expect(row).not.toHaveClass('focus:bg-accent')
+      expect(focusOverrides(row)).toEqual([])
+    }
+  })
+
+  it('insets the keyboard outline on collapsed rail tiles', async () => {
+    render(<TVChannelSidebar isCollapsed />)
+    await act(async () => {})
+
+    for (const tile of railTiles()) {
+      expect(tile).toHaveClass('focus-visible:-outline-offset-2')
+      expect(focusOverrides(tile)).toEqual([])
+    }
+  })
 })

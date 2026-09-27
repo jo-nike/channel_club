@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@/test/utils'
 import { TVEPGGrid } from './TVEPGGrid'
+import { focusOverrides } from '@/test/focus'
 import { useChannelStore } from '@/stores/channelStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore } from '@/stores/tvStore'
@@ -62,6 +63,17 @@ describe('TVEPGGrid colours', () => {
     const label = liveRow.querySelector('button')
     expect(label).toHaveClass('bg-live-surface')
     expect(label?.className).not.toMatch(/rose/)
+  })
+
+  it('insets the keyboard outline on channel labels and programme blocks so the guide does not clip it', () => {
+    render(<TVEPGGrid programmesByChannel={programmesByChannel} liveEPG={liveEPG} />)
+
+    const block = screen.getByText('Movie Night').closest('button')!
+    const label = screen.getAllByTestId('channel-row')[1].querySelector('button')!
+    for (const el of [block, label]) {
+      expect(el).toHaveClass('focus-visible:-outline-offset-2')
+      expect(focusOverrides(el)).toEqual([])
+    }
   })
 })
 

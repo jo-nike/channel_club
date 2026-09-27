@@ -83,7 +83,7 @@ export function AdminModal({ open, onOpenChange }: AdminModalProps) {
               onKeyDown={(e) => handleTabKeyDown(e, tab.id)}
               className={cn(
                 'px-4 py-3 border-b-2 transition-colors whitespace-nowrap shrink-0 min-h-[44px]',
-                'focus:outline-none focus-visible:ring-4 focus-visible:ring-primary focus-visible:ring-offset-2',
+                'focus-visible:-outline-offset-2',
                 'xl:text-lg xl:px-6 xl:py-4 xl:min-h-[56px]',
                 activeTab === tab.id
                   ? 'border-primary text-primary font-medium'

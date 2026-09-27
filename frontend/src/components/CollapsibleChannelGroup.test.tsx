@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@/test/utils'
 import { CollapsibleChannelGroup } from './CollapsibleChannelGroup'
+import { focusOverrides } from '@/test/focus'
 import type { ChannelGroupWithChannels } from '@/types'
 
 const mockGroup: ChannelGroupWithChannels = {
@@ -199,6 +200,30 @@ describe('CollapsibleChannelGroup', () => {
       const selectedChannel = screen.getByText('TSN').closest('[role="option"]')
       expect(selectedChannel?.className).toContain('border-primary')
     })
+  })
+
+  describe('Focus', () => {
+    it.each([true, false])(
+      'insets the keyboard outline on the header and channel rows (canSelect %s)',
+      (canSelect) => {
+        render(
+          <CollapsibleChannelGroup
+            group={mockGroup}
+            currentChannelId="1"
+            canSelect={canSelect}
+            onSelectChannel={vi.fn()}
+            forceOpen={true}
+          />
+        )
+
+        const header = screen.getByText('Sports').closest('button')!
+        const rows = screen.getAllByRole('option')
+        for (const el of [header, ...rows]) {
+          expect(el).toHaveClass('focus-visible:-outline-offset-2')
+          expect(focusOverrides(el)).toEqual([])
+        }
+      }
+    )
   })
 
   describe('Keyboard navigation', () => {

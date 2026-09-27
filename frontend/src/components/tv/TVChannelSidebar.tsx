@@ -187,7 +187,7 @@ function CollapsedChannelButton({
           onClick={() => onSelect(channel)}
           className={cn(
             'relative flex h-10 shrink-0 scroll-my-1 items-center justify-center rounded-lg text-xs font-medium overflow-hidden',
-            'hover:bg-foreground/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            'hover:bg-foreground/10 focus-visible:-outline-offset-2',
             isLive ? 'w-auto min-w-10 px-1' : 'w-10',
             isSelected && 'ring-2 ring-primary',
             // One background: the live tint wins (the ring marks selection), then selection, then muted
@@ -331,8 +331,7 @@ function ChannelItem({
         onClick={() => onSelect(channel)}
         className={`
           flex ${showPickLive ? 'min-w-0 flex-1' : 'w-full'} items-center gap-3 p-3 text-left transition-colors
-          hover:bg-accent focus:bg-accent focus:outline-none
-          focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring
+          hover:bg-accent focus-visible:-outline-offset-2
           ${isSelected ? 'bg-primary/10 border-l-4 border-primary' : ''}
           ${isLive ? 'bg-destructive/5' : ''}
         `}

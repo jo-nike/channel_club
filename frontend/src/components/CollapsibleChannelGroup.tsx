@@ -51,7 +51,7 @@ export const CollapsibleChannelGroup = forwardRef<CollapsibleChannelGroupHandle,
         <CollapsibleTrigger
           className={cn(
             'flex items-center justify-between w-full p-3 rounded-lg transition-colors',
-            'hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+            'hover:bg-accent focus-visible:-outline-offset-2',
             'text-left font-medium'
           )}
         >
@@ -128,9 +128,9 @@ function ChannelGroupItem({
       className={cn(
         'flex items-center gap-3 rounded-lg border p-3 transition-colors',
         'text-base',
-        'min-h-[48px]',
+        'min-h-[48px] focus-visible:-outline-offset-2',
         isSelected && 'border-primary bg-primary/10',
-        canSelect && !isSelecting && 'cursor-pointer hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+        canSelect && !isSelecting && 'cursor-pointer hover:bg-accent',
         canSelect && isSelecting && 'cursor-wait opacity-70',
         !canSelect && 'cursor-default'
       )}
