@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react'
 import { ChannelLogo } from '@/components/ChannelLogo'
 import { LivePill } from '@/components/LivePill'
 import { NHLScoresOverlay } from '@/components/NHLScoresOverlay'
+import { PresenceStack } from '@/components/PresenceStack'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useLiveChangeAnnouncement } from '@/hooks/useLiveChangeAnnouncement'
 import { useNowPlaying } from '@/hooks/useNowPlaying'
+import { presenceNames, usePresenceByChannel } from '@/hooks/usePresenceByChannel'
 import { useTVMode } from '@/hooks/useTVMode'
 import { withKey } from '@/lib/keyHints'
 import { cn } from '@/lib/utils'
@@ -24,6 +26,8 @@ const RAIL_CLASS = cn(
   'pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-[calc(0.75rem+var(--player-inset-top,0px))]'
 )
 const RAIL_NUMBER_CLASS = 'font-display text-4xl font-black leading-none tabular-nums'
+// Faces on this channel before the rest become '+n'
+const RAIL_PRESENCE_MAX = 4
 
 interface PlayerInfoOverlayProps {
   /** The channel the player is on; null before the TV store has one */
@@ -63,6 +67,10 @@ interface PlayerInfoOverlayProps {
  *
  * The first time the viewer pauses the shared live channel, the rail says
  * 'You'll fall behind the group' until they play again. Once per player.
+ *
+ * Who else is on this channel shows as a stack of faces beside the NHL
+ * toggle, only while this viewer sees what everyone is watching (the admin
+ * setting, and not hiding their own), and never for someone who hides theirs.
  */
 export function PlayerInfoOverlay({ channel, pending = null, entry = null, missing = null }: PlayerInfoOverlayProps) {
   const { controlsVisible, isTheaterMode, setInfoRailVisible, behindLive, isLivePaused } = usePlayerShell()
@@ -164,6 +172,9 @@ function InfoRail({ channel, isVisible, liveChange, behindLive, isPauseHint }: I
         ? 'Nothing on yet'
         : 'No guide info'
   const nhlLabel = isNHLOverlayVisible ? 'Hide NHL Scores' : 'NHL Scores'
+  // Empty unless presence shows channels to this viewer; people who hide
+  // theirs have no channel, so they are never on one
+  const watchingWith = usePresenceByChannel().get(channel.id) ?? []
 
   return (
     <div
@@ -201,10 +212,15 @@ function InfoRail({ channel, isVisible, liveChange, behindLive, isPauseHint }: I
       {/* The header's NHL toggle is gone in theater, fullscreen and on phones.
           video-controls: a tap here uses a control rather than hiding them. */}
       <div
-        className={cn('video-controls flex shrink-0 items-center', isVisible && 'pointer-events-auto')}
+        className={cn('video-controls flex shrink-0 items-center gap-2', isVisible && 'pointer-events-auto')}
         onMouseEnter={() => setHoveringControls(true)}
         onMouseLeave={() => setHoveringControls(false)}
       >
+        {watchingWith.length > 0 && (
+          <span role="img" aria-label={`Watching with ${presenceNames(watchingWith)}`} className="flex items-center">
+            <PresenceStack people={watchingWith} max={RAIL_PRESENCE_MAX} />
+          </span>
+        )}
         <Tooltip>
           <TooltipTrigger asChild>
             <button

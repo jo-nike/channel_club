@@ -4,10 +4,13 @@ import { PlayerInfoOverlay } from './PlayerInfoOverlay'
 import { PlayerShellContext, type PlayerShell } from './PlayerShellContext'
 import { useAuthStore } from '@/stores/authStore'
 import { useChannelStore } from '@/stores/channelStore'
+import { useChatStore } from '@/stores/chatStore'
+import { usePresenceStore } from '@/stores/presenceStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore } from '@/stores/tvStore'
 import { useUIStore } from '@/stores/uiStore'
-import type { UnifiedChannel } from '@/types'
+import type { PresenceEntry, UnifiedChannel } from '@/types'
 
 // The ticker's scores: a day with no games, so nothing is fetched
 vi.mock('@/hooks/useNHLScores', () => ({
@@ -108,8 +111,11 @@ beforeEach(() => {
     currentChannel: { id: '55', name: 'TSN 5', streamUrl: 'https://fixture/tsn5', guideId: 'tsn5.ca' },
     lastChange: null,
   })
-  useUIStore.setState({ isNHLOverlayVisible: false })
+  useUIStore.setState({ isNHLOverlayVisible: false, hideMyActivity: false })
   useAuthStore.setState({ username: 'maya' })
+  useSettingsStore.setState({ presenceVisible: false })
+  usePresenceStore.setState({ entries: [] })
+  useChatStore.setState({ nickname: null, me: null })
 })
 
 // Stores are reset before each test, not after: the overlay is still mounted
@@ -744,5 +750,77 @@ describe('PlayerInfoOverlay: pausing the shared live channel', () => {
     )
 
     expect(liveStatus()).toHaveTextContent(HINT)
+  })
+})
+
+describe("PlayerInfoOverlay: who's on this channel", () => {
+  const person = (displayName: string, overrides: Partial<PresenceEntry> = {}): PresenceEntry => ({
+    userId: `u_${displayName}`,
+    displayName,
+    channelId: 'e7',
+    channelName: 'Cinema',
+    programme: 'The Two Towers',
+    view: 'ersatztv',
+    since: null,
+    ...overrides,
+  })
+  const onLive = (displayName: string) => person(displayName, { channelId: '55', channelName: 'TSN 5', view: 'live' })
+  const watchingWith = () => screen.queryByRole('img', { name: /^Watching with/ })
+
+  beforeEach(() => {
+    useChatStore.setState({ me: { username: 'maya', userId: 'u_maya' } })
+    useSettingsStore.setState({ presenceVisible: true })
+  })
+
+  it('shows the faces of the others on this channel, named for screen readers', () => {
+    usePresenceStore.setState({ entries: [person('maya'), person('dev'), person('sam'), onLive('lee')] })
+    renderOverlay(cinema)
+
+    const stack = watchingWith()
+    expect(stack).toHaveAccessibleName('Watching with dev and sam')
+    expect(rail()).toContainElement(stack)
+    // You, and someone on another channel, are not in it
+    expect(stack?.querySelectorAll('[data-slot="presence-stack"] > *')).toHaveLength(2)
+  })
+
+  it("follows the live slot's viewers on channel 0", () => {
+    usePresenceStore.setState({ entries: [onLive('lee'), person('dev')] })
+    renderOverlay(liveSlot())
+
+    expect(watchingWith()).toHaveAccessibleName('Watching with lee')
+  })
+
+  it('shows nobody while the admin keeps what everyone watches private', () => {
+    useSettingsStore.setState({ presenceVisible: false })
+    usePresenceStore.setState({ entries: [person('dev')] })
+    renderOverlay(cinema)
+
+    expect(rail()).toBeInTheDocument()
+    expect(watchingWith()).not.toBeInTheDocument()
+  })
+
+  it('shows nobody to a viewer hiding their own', () => {
+    useUIStore.setState({ hideMyActivity: true })
+    usePresenceStore.setState({ entries: [person('dev')] })
+    renderOverlay(cinema)
+
+    expect(watchingWith()).not.toBeInTheDocument()
+  })
+
+  it('never shows someone who hides what they watch', () => {
+    // Hidden people come without a channel
+    usePresenceStore.setState({
+      entries: [person('dev'), person('sam', { channelId: null, channelName: null, programme: null, view: null })],
+    })
+    renderOverlay(cinema)
+
+    expect(watchingWith()).toHaveAccessibleName('Watching with dev')
+  })
+
+  it('is left out when nobody else is on the channel', () => {
+    usePresenceStore.setState({ entries: [person('maya'), onLive('lee')] })
+    renderOverlay(cinema)
+
+    expect(watchingWith()).not.toBeInTheDocument()
   })
 })
