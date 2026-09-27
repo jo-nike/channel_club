@@ -294,6 +294,17 @@ export function DualModeVideoPlayer({
 const STALL_CHECK_MS = 1000
 const STALL_TIMEOUT_MS = 8000
 
+// Gentle catch-up on the live stream: once the picture is more than 5s behind
+// the end of what it has buffered, it plays at 1.1x until it is 3s behind.
+// Small drifts (a stall, a slow buffer) close without a visible jump. Tune on
+// real streams: the thresholds are the finding's conservative starting point.
+const LIVE_SYNC_CONFIG: mpegts.Config = {
+  liveSync: true,
+  liveSyncMaxLatency: 5,
+  liveSyncTargetLatency: 3,
+  liveSyncPlaybackRate: 1.1,
+}
+
 // Browsers refuse unmuted playback that no user gesture started, but always
 // allow it muted
 function isAutoplayPolicyError(error: unknown): boolean {
@@ -486,11 +497,15 @@ function LiveVideoPlayer({
     const video = videoRef.current
     if (!video || !isMpegtsSupported || isStopped) return
 
-    const player = mpegts.createPlayer({
-      type: 'mpegts',
-      isLive: true,
-      url: streamUrl,
-    })
+    const player = mpegts.createPlayer(
+      {
+        type: 'mpegts',
+        isLive: true,
+        url: streamUrl,
+      },
+      // Not on a TV: playbackRate catch-up is untested on TV browsers
+      isTVMode ? undefined : LIVE_SYNC_CONFIG
+    )
 
     player.attachMediaElement(video)
     player.load()

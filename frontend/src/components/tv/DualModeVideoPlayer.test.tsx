@@ -31,7 +31,8 @@ const mpegtsHarness = vi.hoisted(() => {
     destroy: () => void
   }
   const players: StubPlayer[] = []
-  const createPlayer = vi.fn(() => {
+  // The media data source, and the config when there is one
+  const createPlayer = vi.fn<(source: unknown, config?: unknown) => StubPlayer>(() => {
     const handlers = new Map<string, () => void>()
     const player: StubPlayer = {
       handlers,
@@ -438,6 +439,28 @@ describe('DualModeVideoPlayer audio: live channel (mpegts)', () => {
 
     releasePreview()
     expect(video().muted).toBe(false)
+  })
+})
+
+describe('DualModeVideoPlayer live catch-up (mpegts liveSync)', () => {
+  it('plays a little faster to close small drifts outside TV mode', () => {
+    renderPlayer(liveChannel('https://fixture/a'))
+
+    expect(mpegtsHarness.createPlayer).toHaveBeenCalledTimes(1)
+    expect(mpegtsHarness.createPlayer.mock.lastCall).toEqual([
+      { type: 'mpegts', isLive: true, url: 'https://fixture/a' },
+      { liveSync: true, liveSyncMaxLatency: 5, liveSyncTargetLatency: 3, liveSyncPlaybackRate: 1.1 },
+    ])
+  })
+
+  it('leaves the playback rate alone in TV mode', () => {
+    localStorage.setItem('tv-mode', 'true')
+    renderPlayer(liveChannel('https://fixture/a'))
+
+    expect(mpegtsHarness.createPlayer).toHaveBeenCalledTimes(1)
+    const [source, config] = mpegtsHarness.createPlayer.mock.lastCall ?? []
+    expect(source).toEqual({ type: 'mpegts', isLive: true, url: 'https://fixture/a' })
+    expect(config).toBeUndefined()
   })
 })
 
