@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { StrictMode } from 'react'
-import { render as renderAtRoot } from '@testing-library/react'
+import { cleanup, render as renderAtRoot } from '@testing-library/react'
 import { render, screen, fireEvent, waitFor, within, act } from '@/test/utils'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { LoginForm } from './LoginForm'
@@ -686,6 +686,28 @@ describe('LoginForm', () => {
           await waitFor(() => expect(mockSetAuth).toHaveBeenCalledWith('jwt-token', 'viewer'))
           expect(fetch).toHaveBeenCalledWith('https://plex.tv/api/v2/pins/42', expect.anything())
           expect(sessionStorage.getItem(plexAuth.PLEX_PENDING_PIN_KEY)).toBeNull()
+        })
+
+        it('stops the PIN checks it started when the form goes away', async () => {
+          await waitingForPlex()
+          // Plex hasn't marked the PIN yet, so the checks would go on every second
+          vi.mocked(fetch).mockResolvedValue({
+            ok: true,
+            json: () => Promise.resolve({ authToken: null }),
+          } as Response)
+          vi.useFakeTimers()
+          try {
+            await restorePage()
+            await act(() => vi.advanceTimersByTimeAsync(0))
+            expect(fetch).toHaveBeenCalledTimes(1)
+
+            cleanup()
+            await act(() => vi.advanceTimersByTimeAsync(10_000))
+
+            expect(fetch).toHaveBeenCalledTimes(1)
+          } finally {
+            vi.useRealTimers()
+          }
         })
 
         it('stops waiting when no PIN is pending', async () => {

@@ -39,7 +39,8 @@ const PLEX_ERROR_COPY: Record<PlexAuthErrorCode, string> = {
 export function LoginForm() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
-  // A message, or a Plex popup failure (shown with Try again / Sign in with a code)
+  // A message, or a Plex sign-in failure from the popup or the redirect (shown
+  // with Try again / Sign in with a code)
   const [error, setError] = useState<string | PlexAuthError>('')
   const [isLoading, setIsLoading] = useState(false)
   // Back from Plex's redirect sign-in: waiting until the PIN is checked
@@ -161,7 +162,11 @@ export function LoginForm() {
   useEffect(() => {
     const onPageShow = (event: PageTransitionEvent) => handleRestoredPage(event)
     window.addEventListener('pageshow', onPageShow)
-    return () => window.removeEventListener('pageshow', onPageShow)
+    return () => {
+      window.removeEventListener('pageshow', onPageShow)
+      // A check the restored page started has no other owner to stop it
+      plexAbortRef.current?.abort()
+    }
   }, [])
 
   const handlePlexLogin = async () => {
