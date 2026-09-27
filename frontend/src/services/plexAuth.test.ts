@@ -2,6 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   authenticateWithPlex,
   authenticateWithPlexRedirect,
+  finishPlexRedirect,
+  hasPendingPlexPin,
+  takePendingPlexPin,
   openPlexAuthWindow,
   createPlexPin,
   getPlexAuthUrl,
@@ -382,6 +385,109 @@ describe('plexAuth', () => {
       expect(await outcome).toMatchObject({ name: 'PlexAuthError', code: 'cancelled' })
       expect(sessionStorage.getItem(PLEX_PENDING_PIN_KEY)).toBeNull()
       expect(assign).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('pending redirect PIN', () => {
+    beforeEach(() => sessionStorage.clear())
+    afterEach(() => sessionStorage.clear())
+
+    it('takes the stored PIN id once, so a reload never retries it', () => {
+      sessionStorage.setItem(PLEX_PENDING_PIN_KEY, '42')
+      expect(hasPendingPlexPin()).toBe(true)
+
+      expect(takePendingPlexPin()).toBe(42)
+
+      expect(sessionStorage.getItem(PLEX_PENDING_PIN_KEY)).toBeNull()
+      expect(hasPendingPlexPin()).toBe(false)
+      expect(takePendingPlexPin()).toBeNull()
+    })
+
+    it('ignores and clears a value that is not a PIN id', () => {
+      sessionStorage.setItem(PLEX_PENDING_PIN_KEY, 'not-a-pin')
+      expect(hasPendingPlexPin()).toBe(false)
+
+      expect(takePendingPlexPin()).toBeNull()
+      expect(sessionStorage.getItem(PLEX_PENDING_PIN_KEY)).toBeNull()
+    })
+  })
+
+  describe('finishPlexRedirect', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('checks the PIN and returns its token straight away when Plex has authorised it', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(tokenResponse('plex-token'))
+
+      await expect(finishPlexRedirect(42)).resolves.toBe('plex-token')
+      expect(fetch).toHaveBeenCalledTimes(1)
+      expect(fetch).toHaveBeenCalledWith('https://plex.tv/api/v2/pins/42', expect.anything())
+    })
+
+    it('checks again a second later while Plex catches up', async () => {
+      vi.useFakeTimers()
+      vi.mocked(fetch)
+        .mockResolvedValueOnce(tokenResponse(null))
+        .mockRejectedValueOnce(new Error('network'))
+        .mockResolvedValueOnce(tokenResponse('plex-token'))
+
+      const flow = finishPlexRedirect(42)
+      await vi.advanceTimersByTimeAsync(999)
+      expect(fetch).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(1001)
+
+      await expect(flow).resolves.toBe('plex-token')
+      expect(fetch).toHaveBeenCalledTimes(3)
+    })
+
+    it('rejects cancelled after five checks without a token (came back without signing in)', async () => {
+      vi.useFakeTimers()
+      vi.mocked(fetch).mockResolvedValue(tokenResponse(null))
+
+      const outcome = finishPlexRedirect(42).catch((e: unknown) => e)
+      await vi.advanceTimersByTimeAsync(10_000)
+
+      expect(await outcome).toMatchObject({ name: 'PlexAuthError', code: 'cancelled' })
+      expect(fetch).toHaveBeenCalledTimes(5)
+    })
+
+    it('rejects with the failure when the last check fails', async () => {
+      vi.useFakeTimers()
+      vi.mocked(fetch).mockResolvedValue({ ok: false, status: 429 } as Response)
+
+      const outcome = finishPlexRedirect(42).catch((e: unknown) => e)
+      await vi.advanceTimersByTimeAsync(10_000)
+
+      expect(await outcome).toMatchObject({ name: 'PlexAuthError', code: 'rate_limited' })
+      expect(fetch).toHaveBeenCalledTimes(5)
+    })
+
+    it('rejects cancelled and stops checking when the signal aborts', async () => {
+      vi.useFakeTimers()
+      vi.mocked(fetch).mockResolvedValue(tokenResponse(null))
+      const controller = new AbortController()
+
+      const outcome = finishPlexRedirect(42, controller.signal).catch((e: unknown) => e)
+      await vi.advanceTimersByTimeAsync(0)
+      controller.abort()
+
+      // Rejected without waiting out the delay before the next check
+      expect(await outcome).toMatchObject({ name: 'PlexAuthError', code: 'cancelled' })
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(fetch).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not return a token that arrives after the signal aborted', async () => {
+      let respond!: (r: Response) => void
+      vi.mocked(fetch).mockReturnValueOnce(new Promise<Response>((done) => { respond = done }))
+      const controller = new AbortController()
+
+      const outcome = finishPlexRedirect(42, controller.signal).catch((e: unknown) => e)
+      controller.abort()
+      respond(tokenResponse('plex-token'))
+
+      expect(await outcome).toMatchObject({ name: 'PlexAuthError', code: 'cancelled' })
     })
   })
 })

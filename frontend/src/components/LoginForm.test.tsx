@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor, within } from '@/test/utils'
+import { StrictMode } from 'react'
+import { render as renderAtRoot } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within, act } from '@/test/utils'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { LoginForm } from './LoginForm'
 import { focusOverrides } from '@/test/focus'
 import { useAuthStore } from '@/stores/authStore'
@@ -647,6 +650,136 @@ describe('LoginForm', () => {
         expect(within(alert).getByRole('button', { name: 'Sign in with a code' })).toBeInTheDocument()
         expect(assign).not.toHaveBeenCalled()
         expect(screen.getByRole('button', { name: 'Sign in with Plex' })).toBeEnabled()
+      })
+    })
+
+    describe('coming back from the Plex redirect', () => {
+      const originalLocation = window.location
+      let assign: ReturnType<typeof vi.fn>
+      let mockSetAuth: ReturnType<typeof vi.fn>
+
+      function pinStatus(authToken: string | null): Response {
+        return { ok: true, json: () => Promise.resolve({ authToken }) } as Response
+      }
+
+      beforeEach(() => {
+        vi.mocked(api.getAuthConfig).mockResolvedValue({
+          localAuthEnabled: true,
+          plexAuthEnabled: true,
+        })
+        vi.mocked(api.loginWithPlex).mockResolvedValue({
+          accessToken: 'jwt-token',
+          tokenType: 'bearer',
+          role: 'viewer',
+        })
+        mockSetAuth = vi.fn()
+        useAuthStore.setState({ setAuth: mockSetAuth } as unknown as Parameters<typeof useAuthStore.setState>[0])
+        assign = vi.fn()
+        Object.defineProperty(window, 'location', {
+          value: { ...originalLocation, assign },
+          writable: true,
+          configurable: true,
+        })
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(pinStatus('plex-token')))
+        sessionStorage.clear()
+        sessionStorage.setItem(plexAuth.PLEX_PENDING_PIN_KEY, '42')
+      })
+
+      afterEach(() => {
+        vi.useRealTimers()
+        Object.defineProperty(window, 'location', {
+          value: originalLocation,
+          writable: true,
+          configurable: true,
+        })
+        vi.unstubAllGlobals()
+        sessionStorage.clear()
+      })
+
+      it('checks the pending PIN, signs in with its token and clears the key', async () => {
+        render(<LoginForm />)
+
+        await waitFor(() => expect(mockSetAuth).toHaveBeenCalledWith('jwt-token', 'viewer'))
+        expect(fetch).toHaveBeenCalledWith('https://plex.tv/api/v2/pins/42', expect.anything())
+        expect(api.loginWithPlex).toHaveBeenCalledWith('plex-token')
+        expect(sessionStorage.getItem(plexAuth.PLEX_PENDING_PIN_KEY)).toBeNull()
+        // Finishing needs no new window and no second trip to Plex
+        expect(plexAuth.openPlexAuthWindow).not.toHaveBeenCalled()
+        expect(assign).not.toHaveBeenCalled()
+      })
+
+      it('signs in once under StrictMode, whose re-run effect finds the key already gone', async () => {
+        // StrictMode only re-runs effects when it is the root, as in main.tsx
+        renderAtRoot(
+          <StrictMode>
+            <TooltipProvider>
+              <LoginForm />
+            </TooltipProvider>
+          </StrictMode>
+        )
+
+        await waitFor(() => expect(mockSetAuth).toHaveBeenCalledTimes(1))
+        // Let StrictMode's aborted first run settle before counting logins
+        await new Promise((done) => setTimeout(done, 0))
+        expect(api.loginWithPlex).toHaveBeenCalledTimes(1)
+        expect(mockSetAuth).toHaveBeenCalledTimes(1)
+      })
+
+      it('removes the key before the check finishes and waits with a Cancel button', async () => {
+        vi.mocked(fetch).mockReturnValue(new Promise<Response>(() => {}))
+        render(<LoginForm />)
+
+        expect(await screen.findByRole('button', { name: 'Waiting for Plex...' })).toBeDisabled()
+        expect(sessionStorage.getItem(plexAuth.PLEX_PENDING_PIN_KEY)).toBeNull()
+
+        fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+        expect(await screen.findByRole('button', { name: 'Sign in with Plex' })).toBeEnabled()
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+        expect(api.loginWithPlex).not.toHaveBeenCalled()
+      })
+
+      it('shows the server error when the Plex login is refused', async () => {
+        vi.mocked(api.loginWithPlex).mockRejectedValueOnce(new Error('No access to Plex server'))
+        render(<LoginForm />)
+
+        expect(await screen.findByRole('alert')).toHaveTextContent('No access to Plex server')
+        expect(screen.getByRole('button', { name: 'Sign in with Plex' })).toBeEnabled()
+        expect(mockSetAuth).not.toHaveBeenCalled()
+      })
+
+      it('shows no error when the user came back without signing in', async () => {
+        vi.useFakeTimers()
+        vi.mocked(fetch).mockResolvedValue(pinStatus(null))
+        render(<LoginForm />)
+
+        await act(() => vi.advanceTimersByTimeAsync(10_000))
+
+        expect(fetch).toHaveBeenCalledTimes(5)
+        expect(screen.getByRole('button', { name: 'Sign in with Plex' })).toBeEnabled()
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+        expect(api.loginWithPlex).not.toHaveBeenCalled()
+      })
+
+      it('shows the actionable callout when Plex keeps refusing the check', async () => {
+        vi.useFakeTimers()
+        vi.mocked(fetch).mockResolvedValue({ ok: false, status: 429 } as Response)
+        render(<LoginForm />)
+
+        await act(() => vi.advanceTimersByTimeAsync(10_000))
+
+        const alert = screen.getByRole('alert')
+        expect(alert).toHaveTextContent('Too many attempts, wait a minute.')
+        expect(within(alert).getByRole('button', { name: 'Try again' })).toBeInTheDocument()
+        expect(within(alert).getByRole('button', { name: 'Sign in with a code' })).toBeInTheDocument()
+      })
+
+      it('checks nothing on mount without a pending PIN', async () => {
+        sessionStorage.clear()
+        render(<LoginForm />)
+
+        expect(await screen.findByRole('button', { name: 'Sign in with Plex' })).toBeEnabled()
+        expect(fetch).not.toHaveBeenCalled()
       })
     })
 
