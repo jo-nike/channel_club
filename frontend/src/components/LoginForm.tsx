@@ -1,13 +1,16 @@
-import { APP_NAME, APP_TAGLINE } from '@/lib/appInfo'
-import { useState, useEffect, useRef } from 'react'
+import { APP_TAGLINE } from '@/lib/appInfo'
+import { useState, useEffect, useEffectEvent, useRef } from 'react'
 import { AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { AppLoadingScreen } from '@/components/AppLoadingScreen'
+import { Wordmark } from '@/components/brand/Wordmark'
 import { PlexLoginButton } from '@/components/PlexLoginButton'
 import { QRPlexLogin } from '@/components/QRPlexLogin'
 import { useAuthStore } from '@/stores/authStore'
 import { useTVMode } from '@/hooks/useTVMode'
 import { logger } from '@/lib/logger'
+import { cn } from '@/lib/utils'
 import { login, getAuthConfig, loginWithPlex, type AuthConfig } from '@/services/api'
 import {
   authenticateWithPlex,
@@ -41,10 +44,22 @@ export function LoginForm() {
   const plexAbortRef = useRef<AbortController | null>(null)
   const setAuth = useAuthStore((state) => state.setAuth)
   const isTVMode = useTVMode()
+  // The TV opens on the code screen once; leaving it doesn't bring it back
+  const autoStartedRef = useRef(false)
+
+  // A TV with Plex goes straight to the code screen: no D-pad trip to the
+  // Plex button first. Set with the config, so the choice screen never flashes.
+  const applyAuthConfig = useEffectEvent((config: AuthConfig) => {
+    setAuthConfig(config)
+    if (isTVMode && config.plexAuthEnabled && !autoStartedRef.current) {
+      autoStartedRef.current = true
+      setPlexAuthMode('qr')
+    }
+  })
 
   useEffect(() => {
     getAuthConfig()
-      .then(setAuthConfig)
+      .then((config) => applyAuthConfig(config))
       .catch((err) => {
         logger.error('Auth', 'Failed to load auth config', err)
         setError('Failed to load authentication configuration')
@@ -139,20 +154,9 @@ export function LoginForm() {
     setError(err.message)
   }
 
-  // Loading state while fetching config
+  // While the config loads, carry on showing the app's loading screen
   if (configLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
-        <div className="w-full max-w-md p-8 border rounded-lg shadow-lg bg-card">
-          <div className="animate-pulse space-y-4">
-            <div className="h-8 bg-muted rounded w-3/4 mx-auto" />
-            <div className="h-12 bg-muted rounded" />
-            <div className="h-12 bg-muted rounded" />
-            <div className="h-12 bg-muted rounded" />
-          </div>
-        </div>
-      </div>
-    )
+    return <AppLoadingScreen />
   }
 
   // No auth methods configured
@@ -161,7 +165,9 @@ export function LoginForm() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
         <div className="w-full max-w-md p-8 border rounded-lg shadow-lg bg-card text-center">
-          <h1 className="text-3xl font-bold text-foreground mb-4">{APP_NAME}</h1>
+          <h1 className="flex justify-center text-foreground mb-4">
+            <Wordmark size="lg" />
+          </h1>
           <p className="mb-6 text-muted-foreground">{APP_TAGLINE}</p>
           <div
             role="alert"
@@ -180,42 +186,77 @@ export function LoginForm() {
   const showLocalAuth = authConfig?.localAuthEnabled === true
   const showPlexAuth = authConfig?.plexAuthEnabled === true
   const showSeparator = showLocalAuth && showPlexAuth
+  // Desktop-sized controls; room-sized on a TV
+  const labelClass = cn('block text-foreground', isTVMode ? 'text-xl' : 'text-sm')
+  const inputClass = isTVMode ? 'h-14 text-2xl px-4' : 'h-11 text-base md:text-base px-3'
+
+  const errorCallout = error && (
+    <div
+      role="alert"
+      className={cn(
+        'flex gap-3 p-4 text-foreground bg-destructive/10 border border-destructive rounded-md',
+        isTVMode ? 'text-2xl' : 'text-sm'
+      )}
+    >
+      <AlertCircle className="h-5 w-5 shrink-0 text-destructive" aria-hidden="true" />
+      <div className="space-y-3">
+        <p>{typeof error === 'string' ? error : PLEX_ERROR_COPY[error.code]}</p>
+        {error instanceof PlexAuthError && (
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" size="sm" onClick={handlePlexLogin}>
+              Try again
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={handleSignInWithCode}>
+              Sign in with a code
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+
+  // TV code screen: full width, large code and QR to read from the sofa
+  if (isTVMode && showPlexAuth && plexAuthMode === 'qr') {
+    return (
+      <div className="min-h-screen w-full flex items-center justify-center bg-background px-16 py-12">
+        <div className="w-full max-w-7xl space-y-12">
+          <div className="space-y-4">
+            <h1 className="text-foreground">
+              <Wordmark size="lg" className="gap-5 text-7xl" />
+            </h1>
+            <p className="text-3xl text-muted-foreground">{APP_TAGLINE}</p>
+          </div>
+
+          {errorCallout}
+
+          <QRPlexLogin
+            variant="tv"
+            autoRestart
+            cancelLabel={showLocalAuth ? 'Use another sign-in method' : 'Cancel'}
+            onSuccess={handleQRPlexSuccess}
+            onCancel={handleQRPlexCancel}
+            onError={handleQRPlexError}
+          />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
       <div className="w-full max-w-md space-y-6 p-8 border rounded-lg shadow-lg bg-card">
-        <h1 className="text-3xl font-bold text-center text-foreground">
-          {APP_NAME}
+        <h1 className="flex justify-center text-foreground">
+          <Wordmark size="lg" />
         </h1>
         <p className="text-center text-muted-foreground">{APP_TAGLINE}</p>
 
-        {error && (
-          <div
-            role="alert"
-            className="flex gap-3 p-4 text-sm text-foreground bg-destructive/10 border border-destructive rounded-md"
-          >
-            <AlertCircle className="h-5 w-5 shrink-0 text-destructive" aria-hidden="true" />
-            <div className="space-y-3">
-              <p>{typeof error === 'string' ? error : PLEX_ERROR_COPY[error.code]}</p>
-              {error instanceof PlexAuthError && (
-                <div className="flex flex-wrap gap-2">
-                  <Button type="button" size="sm" onClick={handlePlexLogin}>
-                    Try again
-                  </Button>
-                  <Button type="button" size="sm" variant="outline" onClick={handleSignInWithCode}>
-                    Sign in with a code
-                  </Button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+        {errorCallout}
 
         {/* Local Auth Form */}
         {showLocalAuth && (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <label htmlFor="username" className="block text-xl text-foreground">
+              <label htmlFor="username" className={labelClass}>
                 Username
               </label>
               <Input
@@ -227,12 +268,12 @@ export function LoginForm() {
                 required
                 disabled={isLoading}
                 autoComplete="username"
-                className="h-14 text-2xl px-4"
+                className={inputClass}
               />
             </div>
 
             <div className="space-y-2">
-              <label htmlFor="password" className="block text-xl text-foreground">
+              <label htmlFor="password" className={labelClass}>
                 Password
               </label>
               <Input
@@ -244,14 +285,16 @@ export function LoginForm() {
                 required
                 disabled={isLoading}
                 autoComplete="current-password"
-                className="h-14 text-2xl px-4"
+                className={inputClass}
               />
             </div>
 
+            {/* With Plex on, its button is the one call to action, so this steps back */}
             <Button
               type="submit"
+              variant={showPlexAuth ? 'secondary' : 'default'}
               disabled={isLoading || plexLoading}
-              className="h-14 text-2xl px-8 w-full"
+              className={cn('w-full', isTVMode ? 'h-14 text-2xl px-8' : 'h-12 text-base px-6')}
             >
               {isLoading ? 'Signing in...' : 'Sign In'}
             </Button>
@@ -278,6 +321,7 @@ export function LoginForm() {
               onCancel={handlePlexCancel}
               isLoading={plexLoading}
               disabled={isLoading}
+              tv={isTVMode}
             />
             {/* Show QR option link for desktop users */}
             {!isTVMode && (
