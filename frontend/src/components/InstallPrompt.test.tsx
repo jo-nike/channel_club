@@ -138,9 +138,7 @@ describe('InstallPrompt', () => {
     it('publishes the room it takes as --install-prompt-h only while it shows', () => {
       const root = document.documentElement
       const { unmount } = render(<InstallPrompt />)
-      expect(root.style.getPropertyValue('--install-prompt-h')).toMatch(
-        /^calc\(\d+px \+ max\(1rem, env\(safe-area-inset-bottom\)\)\)$/,
-      )
+      expect(root.style.getPropertyValue('--install-prompt-h')).toMatch(/^calc\(\d+px \+ .*\)$/)
 
       act(() => {
         useChatStore.setState({ isOpen: true })
@@ -154,6 +152,28 @@ describe('InstallPrompt', () => {
 
       unmount()
       expect(root.style.getPropertyValue('--install-prompt-h')).toBe('')
+    })
+
+    it('counts the offset it actually sits at, raised or not, in --install-prompt-h', () => {
+      // A portrait tablet gets the phone channel list and the raised md+
+      // banner, so the list must reserve the raised offset, not the phone one.
+      // jsdom has no stylesheet: stand in the browser's resolved bottom
+      const realGetComputedStyle = window.getComputedStyle.bind(window)
+      const spy = vi.spyOn(window, 'getComputedStyle').mockImplementation((el, pseudo) => {
+        const style = realGetComputedStyle(el, pseudo)
+        if (el.getAttribute('role') !== 'dialog') return style
+        return new Proxy(style, {
+          get: (target, prop) => (prop === 'bottom' ? '88px' : Reflect.get(target, prop)),
+        })
+      })
+      try {
+        render(<InstallPrompt />)
+        expect(document.documentElement.style.getPropertyValue('--install-prompt-h')).toMatch(
+          /^calc\(\d+px \+ 88px\)$/,
+        )
+      } finally {
+        spy.mockRestore()
+      }
     })
 
     it('stays hidden while chat is open and comes back when it closes', () => {
@@ -171,6 +191,15 @@ describe('InstallPrompt', () => {
       render(<InstallPrompt />)
       expect(screen.getByRole('dialog', { name: 'Install app' })).toBeInTheDocument()
       expect(screen.queryByText('Install App')).not.toBeInTheDocument()
+    })
+
+    it('sits above the player control bar from md up, and at the bottom edge on a phone', () => {
+      render(<InstallPrompt />)
+      const banner = screen.getByRole('dialog', { name: 'Install app' })
+      // Tablet and desktop: raised clear of the bar's 48px buttons
+      expect(banner).toHaveClass('md:bottom-[calc(4.5rem+max(1rem,env(safe-area-inset-bottom)))]')
+      // Phone: the player is not at the bottom of the screen, so it stays low
+      expect(banner).toHaveClass('bottom-[max(1rem,env(safe-area-inset-bottom))]')
     })
 
     it('shows install description text', () => {
