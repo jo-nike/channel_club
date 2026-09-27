@@ -60,6 +60,20 @@ describe('Clip editor', () => {
     expect(video).toHaveAttribute('src', '/api/highlight/capture/capture-1?token=t')
   })
 
+  it('selects the last 20 seconds by default and Reset returns there', async () => {
+    render(<HighlightModal {...props} />)
+    const video = await ready()
+    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(40)
+    expect(screen.getByLabelText('End (seconds)')).toHaveValue(60)
+    expect(video.currentTime).toBe(40)
+    expect(screen.getByText('Selected: 20.0s')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Full clip'))
+    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(0)
+    fireEvent.click(screen.getByText('Reset'))
+    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(40)
+    expect(screen.getByLabelText('End (seconds)')).toHaveValue(60)
+  })
+
   it('supports keyboard boundary adjustment, clamped fields, short buffers and reset', async () => {
     render(<HighlightModal {...props} />)
     const video = await ready(8)
@@ -107,6 +121,7 @@ describe('Clip editor', () => {
   it('downloads the original untrimmed snapshot without encoding', async () => {
     render(<HighlightModal {...props} />)
     await ready()
+    fireEvent.click(screen.getByText('Full clip'))
     fireEvent.click(screen.getByText('Download clip'))
     await waitFor(() => expect(HTMLAnchorElement.prototype.click).toHaveBeenCalled())
     expect(api.exportHighlight).not.toHaveBeenCalled()
@@ -164,7 +179,7 @@ describe('Clip editor', () => {
     expect(api.deleteHighlightCapture).toHaveBeenCalledExactlyOnceWith('capture-1')
     rerender(<HighlightModal {...props} acquirePreviewAudio={acquirePreviewAudio} />)
     await ready()
-    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(0)
+    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(40)
   })
 
   it('ignores a late capture response after switching channels', async () => {
@@ -178,7 +193,7 @@ describe('Clip editor', () => {
     expect(video).toHaveAttribute('src', '/api/highlight/capture/capture-1?token=t')
   })
 
-  it('offers capture retry on invalid metadata and closes on Escape', async () => {
+  it('offers capture retry on invalid metadata and asks before Escape discards the retried capture', async () => {
     render(<HighlightModal {...props} />)
     await ready(Infinity)
     expect(screen.getByRole('alert')).toHaveTextContent('no usable duration')
@@ -187,7 +202,96 @@ describe('Clip editor', () => {
     expect(api.createHighlightCapture).toHaveBeenCalledTimes(2)
     expect(api.deleteHighlightCapture).toHaveBeenCalledExactlyOnceWith('capture-1')
     fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
-    expect(props.onClose).toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: 'Discard this clip?' })).toBeInTheDocument()
+    expect(props.onClose).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
+    expect(props.onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('closes without asking while the capture is still being made', async () => {
+    vi.mocked(api.createHighlightCapture).mockImplementationOnce(() => new Promise(() => {}))
+    render(<HighlightModal {...props} />)
+    expect(await screen.findByText('Capturing recent footage…')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Close editor' }))
+    expect(props.onClose).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog', { name: 'Discard this clip?' })).not.toBeInTheDocument()
+  })
+
+  it('asks before X discards a ready capture; Keep editing keeps it and Discard closes', async () => {
+    render(<HighlightModal {...props} />)
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: 'Close editor' }))
+    const confirm = screen.getByRole('dialog', { name: 'Discard this clip?' })
+    expect(confirm).toHaveTextContent("Once it leaves the 60-second buffer it can't be captured again.")
+    expect(screen.getByRole('button', { name: 'Keep editing' })).toHaveFocus()
+    fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }))
+    expect(screen.queryByRole('dialog', { name: 'Discard this clip?' })).not.toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Create clip' })).toBeInTheDocument()
+    // With focus on <body>, the live player's window shortcuts would take the next key.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Close editor' })).toHaveFocus())
+    expect(props.onClose).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Close editor' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
+    expect(props.onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('opens the confirm on Escape from the dialog body, and Escape there only closes the confirm', async () => {
+    render(<HighlightModal {...props} />)
+    await ready()
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Download clip' }), { key: 'Escape' })
+    const confirm = screen.getByRole('dialog', { name: 'Discard this clip?' })
+    fireEvent.keyDown(confirm, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Discard this clip?' })).not.toBeInTheDocument())
+    expect(screen.getByRole('dialog', { name: 'Create clip' })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Close editor' })).toHaveFocus())
+    expect(props.onClose).not.toHaveBeenCalled()
+    expect(api.deleteHighlightCapture).not.toHaveBeenCalled()
+  })
+
+  it('closes directly after the current selection was downloaded, and asks again once it changes', async () => {
+    render(<HighlightModal {...props} />)
+    await ready()
+    fireEvent.click(screen.getByText('Last 10s'))
+    fireEvent.click(screen.getByText('Download clip'))
+    await waitFor(() => expect(HTMLAnchorElement.prototype.click).toHaveBeenCalled())
+    await waitFor(() => expect(screen.getByText('Download clip')).toBeEnabled())
+    fireEvent.click(screen.getByText('Last 15s'))
+    fireEvent.click(screen.getByRole('button', { name: 'Close editor' }))
+    expect(screen.getByRole('dialog', { name: 'Discard this clip?' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }))
+    fireEvent.click(screen.getByText('Last 10s'))
+    fireEvent.click(screen.getByRole('button', { name: 'Close editor' }))
+    expect(props.onClose).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog', { name: 'Discard this clip?' })).not.toBeInTheDocument()
+  })
+
+  it('lets Escape in a time field revert the typed value without closing or deleting the capture', async () => {
+    render(<HighlightModal {...props} />)
+    await ready()
+    const field = screen.getByLabelText('Start (seconds)')
+    fireEvent.focus(field)
+    fireEvent.change(field, { target: { value: '12.5' } })
+    expect(field).toHaveValue(12.5)
+    fireEvent.keyDown(field, { key: 'Escape' })
+    // Without the field guard, Escape would open the confirm, which also keeps onClose uncalled.
+    expect(screen.queryByRole('dialog', { name: 'Discard this clip?' })).not.toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Create clip' })).toBeInTheDocument()
+    expect(field).toHaveValue(40)
+    expect(props.onClose).not.toHaveBeenCalled()
+    expect(api.deleteHighlightCapture).not.toHaveBeenCalled()
+  })
+
+  it('ignores a pointer press on the overlay once the capture is ready', async () => {
+    render(<HighlightModal {...props} />)
+    await ready()
+    const overlay = document.querySelector('[data-slot="dialog-overlay"]')!
+    // Radix registers its outside-press listener on the next tick.
+    await new Promise(resolve => setTimeout(resolve, 0))
+    fireEvent.pointerDown(overlay)
+    fireEvent.click(overlay)
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(props.onClose).not.toHaveBeenCalled()
+    expect(api.deleteHighlightCapture).not.toHaveBeenCalled()
   })
 
   it('converts WebM with the same fractional selection', async () => {

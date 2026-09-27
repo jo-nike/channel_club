@@ -1,12 +1,17 @@
 """Immutable export inputs survive overlap, ring reuse and recorder shutdown."""
 
 import asyncio
+import json
+import os
 import subprocess
 import sys
+import time
+from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from loguru import logger
 
 from app.config import settings
 from app.services.highlight import ChannelRecorder
@@ -112,3 +117,33 @@ async def test_cancel_encoding_kills_and_reaps_actual_harmless_child(tmp_path):
         with pytest.raises(asyncio.CancelledError):
             await task
     assert children[0].poll() is not None
+
+
+def test_snapshot_logs_how_far_the_capture_ends_before_the_press(tmp_path):
+    recorder = ChannelRecorder("safe", "http://fixture")
+    recorder.segment_dir = tmp_path
+    now = time.time()
+    # seg_002 is still being written (it follows the last listed entry), so it stays out.
+    for name, age in [("seg_000.ts", 27.0), ("seg_001.ts", 7.0), ("seg_002.ts", 1.0)]:
+        (tmp_path / name).write_bytes(name.encode())
+        os.utime(tmp_path / name, (now - age, now - age))
+    (tmp_path / "segments.txt").write_text("seg_000.ts\nseg_001.ts\n")
+    recorder.process = MagicMock()
+    output = StringIO()
+    handler = logger.add(output, format="{message}", serialize=True, level="INFO")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    try:
+        with patch("os.killpg"), patch("os.waitpid", return_value=(123, 4991)):
+            recorder._snapshot(workspace)
+    finally:
+        logger.remove(handler)
+    records = [json.loads(line)["record"] for line in output.getvalue().splitlines()]
+    extra = next(r["extra"] for r in records if r["extra"].get("event") == "highlight.capture")
+    assert extra["channel_id"] == "safe"
+    assert extra["segments"] == 2
+    assert 7.0 <= extra["tail_gap_seconds"] < 8.0
+    assert sorted(path.name for path in workspace.glob("input_*.ts")) == [
+        "input_000.ts",
+        "input_001.ts",
+    ]
