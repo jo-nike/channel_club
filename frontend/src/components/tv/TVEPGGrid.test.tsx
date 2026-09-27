@@ -70,6 +70,11 @@ describe('TVEPGGrid colours', () => {
     const label = liveRow.querySelector('button')
     expect(label).toHaveClass('bg-live-surface')
     expect(label?.className).not.toMatch(/rose/)
+    // The live slot's icon box is on the live token too
+    const icon = label!.querySelector('.lucide-radio')!
+    expect(icon).toHaveClass('text-live')
+    expect(icon.parentElement).toHaveClass('bg-live/20')
+    expect(label!.innerHTML).not.toMatch(/destructive/)
   })
 
   it('insets the keyboard outline on channel labels and programme blocks so the guide does not clip it', () => {
@@ -275,6 +280,24 @@ describe('TVEPGGrid channel column', () => {
     expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
   })
 
+  it('shows each logo through our logo route, a monogram without one, and the live logo on row 0', () => {
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1', logoUrl: '/api/channels/logos/17' },
+    })
+    useErsatztvStore.setState({ channels: [{ ...movies, logoUrl: '/api/ersatztv/logos/etv1' }, cartoons] })
+    render(<TVEPGGrid programmesByChannel={{}} />)
+
+    const logo = (name: string) => labelFor(name).querySelector('[data-testid="channel-logo"]')!
+    expect(logo('Movies')).toHaveClass('size-8')
+    expect(logo('Movies').querySelector('img')).toHaveAttribute('src', '/api/ersatztv/logos/etv1')
+    expect(logo('Cartoons').querySelector('[data-monogram]')).toHaveAttribute('data-monogram', 'C')
+    expect(logo('Club').querySelector('img')).toHaveAttribute('src', '/api/channels/logos/17')
+
+    // A live logo that fails leaves the live icon, not an empty box
+    fireEvent.error(logo('Club').querySelector('img')!)
+    expect(logo('Club').querySelector('.lucide-radio')).toHaveClass('text-live')
+  })
+
   it("shows the on-air programme's progress and time left", () => {
     render(<TVEPGGrid programmesByChannel={onNow} />)
 
@@ -320,6 +343,7 @@ describe('TVEPGGrid channel column', () => {
 
     const label = labelFor('Club')
     expect(within(label).getByText('Live')).toHaveClass('bg-live', 'text-live-foreground')
+    expect(within(label).getByText('Live')).toBe(within(label).getByTestId('live-pill'))
     expect(label).toHaveTextContent('20m left')
   })
 })
@@ -597,6 +621,18 @@ describe('TVEPGGrid programme states', () => {
       expect(block(other)).not.toHaveAttribute('data-watching')
       expect(block(other)).not.toHaveClass('border-primary')
     }
+  })
+
+  it('counts a block on now from its start instant and past from its stop instant', () => {
+    const edges = { etv1: [
+      { id: 'ending', channelId: 'etv1', title: 'Ending Film', start: at(-30), stop: at(0) },
+      { id: 'starting', channelId: 'etv1', title: 'Starting Film', start: at(0), stop: at(30) },
+    ] }
+    render(<TVEPGGrid programmesByChannel={edges} />)
+
+    // Start is inclusive, stop is exclusive, as getProgrammeState has it
+    expect(block('Ending Film')).toHaveAttribute('data-state', 'past')
+    expect(block('Starting Film')).toHaveAttribute('data-state', 'now')
   })
 
   it('moves a block from future to now when the clock reaches its start', () => {
@@ -1421,5 +1457,45 @@ describe('TVEPGGrid channel filter', () => {
     fireEvent.keyDown(cartoons, { key: 'ArrowDown' })
 
     expect(document.activeElement).toBe(screen.getByRole('button', { name: /^Switch to 4 Classics/ }))
+  })
+
+  it('says when nothing matches, below row 0, and Clear brings every channel back', async () => {
+    useChannelPrefsStore.setState({ filter: { query: 'zzz', mode: 'all' } })
+    render(<TVEPGGrid programmesByChannel={schedule} liveEPG={liveEPG} />)
+
+    expect(rowChannels()).toEqual([expect.stringMatching(/^0 /)])
+    const message = screen.getByText('No channels match')
+    // In the scroller after the rows, not in the keyboard grid
+    expect(grid().contains(message)).toBe(false)
+    expect(screen.getByTestId('tv-epg-grid').contains(message)).toBe(true)
+    expect(message.parentElement).toHaveClass('sticky', 'left-0')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, SEARCH_DEBOUNCE_MS + 20))
+    })
+
+    expect(useChannelPrefsStore.getState().filter).toEqual({ query: '', mode: 'all' })
+    expect(screen.queryByText('No channels match')).toBeNull()
+    expect(rowChannels()).toHaveLength(5)
+  })
+
+  it('shows no empty state while a filter matches, with no filter, or with no ErsatzTV channels', () => {
+    useChannelPrefsStore.setState({ filter: { query: 'simpsons', mode: 'all' } })
+    const { unmount } = render(<TVEPGGrid programmesByChannel={schedule} liveEPG={liveEPG} />)
+    expect(screen.queryByText('No channels match')).toBeNull()
+    unmount()
+
+    // Row 0 alone because there's nothing else, not because of the filter
+    useChannelPrefsStore.setState({ filter: { query: '', mode: 'all' } })
+    useErsatztvStore.setState({ channels: [] })
+    const second = render(<TVEPGGrid programmesByChannel={{}} liveEPG={liveEPG} />)
+    expect(rowChannels()).toHaveLength(1)
+    expect(screen.queryByText('No channels match')).toBeNull()
+    second.unmount()
+
+    useChannelPrefsStore.setState({ filter: { query: 'zzz', mode: 'all' } })
+    render(<TVEPGGrid programmesByChannel={{}} liveEPG={liveEPG} />)
+    expect(screen.queryByText('No channels match')).toBeNull()
   })
 })

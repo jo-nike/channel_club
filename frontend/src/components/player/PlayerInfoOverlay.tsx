@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ChannelLogo } from '@/components/ChannelLogo'
+import { LivePill } from '@/components/LivePill'
 import { NHLScoresOverlay } from '@/components/NHLScoresOverlay'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useLiveChangeAnnouncement } from '@/hooks/useLiveChangeAnnouncement'
@@ -154,11 +155,7 @@ function InfoRail({ channel, isVisible, liveChange }: InfoRailProps) {
         <div className="min-w-0">
           <p className="flex min-w-0 items-center gap-2 text-base font-bold leading-tight">
             <span className="truncate">{channel.name}</span>
-            {isClubChannel && (
-              <span className="shrink-0 rounded bg-live px-1.5 py-px text-[11px] font-bold uppercase leading-none text-live-foreground">
-                Live
-              </span>
-            )}
+            {isClubChannel && <LivePill />}
           </p>
           {!liveChange && <p className="mt-0.5 truncate text-sm leading-tight text-white/80">{details}</p>}
           {/* Always there on channel 0, so screen readers hear the change.

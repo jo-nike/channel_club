@@ -3,6 +3,7 @@ import { useChannelStore } from '@/stores/channelStore'
 import { useTVStore, describeLiveGuide } from '@/stores/tvStore'
 import { useUIStore } from '@/stores/uiStore'
 import { Skeleton } from '@/components/ui/skeleton'
+import { LivePill } from '@/components/LivePill'
 
 /**
  * The header's "what am I watching" block. Line 1 is the programme, or the
@@ -66,11 +67,7 @@ export function NowWatching({ isMobile }: { isMobile: boolean }) {
           <div className="mt-0.5 flex min-w-0">{joinChip}</div>
         ) : (
           <p className="mt-0.5 truncate text-xs leading-tight text-muted-foreground">
-            {isClubChannel && (
-              <span className="mr-1.5 rounded bg-live px-1.5 py-px align-middle text-[11px] font-bold uppercase leading-none text-live-foreground">
-                Live
-              </span>
-            )}
+            {isClubChannel && <LivePill className="mr-1.5 align-middle" />}
             {details.join(' · ')}
           </p>
         )}

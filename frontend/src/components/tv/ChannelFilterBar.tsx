@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { Search, Star, X } from 'lucide-react'
 import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
 import { useChannelPrefsStore, type ChannelFilterMode } from '@/stores/channelPrefsStore'
 import { cn } from '@/lib/utils'
 
@@ -110,6 +111,23 @@ export function ChannelFilterBar({ layout = 'stacked', className }: ChannelFilte
           )
         })}
       </div>
+    </div>
+  )
+}
+
+/**
+ * Where the channels would be when the filter leaves none (row 0 always
+ * stays, so nothing after it): says so, with a Clear that resets the search
+ * and chips. Shared by the sidebar and the guide.
+ */
+export function NoChannelsMatch({ className }: { className?: string }) {
+  const clearFilter = useChannelPrefsStore((s) => s.clearFilter)
+  return (
+    <div className={cn('flex flex-col items-center gap-3 p-6 text-center', className)}>
+      <p className="text-sm text-muted-foreground">No channels match</p>
+      <Button variant="outline" size="sm" onClick={clearFilter}>
+        Clear
+      </Button>
     </div>
   )
 }

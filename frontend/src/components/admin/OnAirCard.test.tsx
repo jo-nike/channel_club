@@ -55,7 +55,7 @@ describe('OnAirCard', () => {
     const card = screen.getByRole('region', { name: 'On air' })
     expect(within(card).getByText('On air for everyone')).toBeInTheDocument()
     expect(within(card).getByText('TSN')).toBeInTheDocument()
-    expect(within(card).getByText('Live')).toBeInTheDocument()
+    expect(within(card).getByText('Live')).toBe(within(card).getByTestId('live-pill'))
   })
 
   it("shows the live channel's logo", () => {

@@ -1,3 +1,4 @@
+import { Profiler } from 'react'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, act, cleanup, within, fireEvent } from '@/test/utils'
 import { TVChannelSidebar } from './TVChannelSidebar'
@@ -80,6 +81,74 @@ describe('TVChannelSidebar colours', () => {
     const badge = screen.getByText('Live', { selector: 'span' })
     expect(badge).toHaveClass('bg-live', 'text-live-foreground')
     expect(badge).not.toHaveClass('bg-destructive')
+    // The shared pill, the same on every surface
+    expect(badge).toBe(screen.getByTestId('live-pill'))
+  })
+
+  describe('the expanded live row', () => {
+    // Plain background utilities only (hover:bg-* is a separate state)
+    const backgrounds = (element: Element) =>
+      Array.from(element.classList).filter((name) => name.startsWith('bg-'))
+    const liveRow = () => screen.getByRole('button', { name: LIVE_SLOT })
+
+    afterEach(() => {
+      useTVStore.setState({ selectedChannel: null })
+    })
+
+    it('tints the row, its icon box and its icon with the live token rather than destructive', async () => {
+      render(<TVChannelSidebar />)
+      await act(async () => {})
+
+      const item = liveRow().closest('li')!
+      expect(backgrounds(item)).toEqual(['bg-live/5'])
+      expect(item.innerHTML).not.toMatch(/destructive/)
+      const icon = liveRow().querySelector('.lucide-radio')!
+      expect(icon).toHaveClass('text-live')
+      expect(icon.parentElement).toHaveClass('bg-live/20')
+    })
+
+    it('gives a selected live row one background, the live tint, with the selection border', async () => {
+      useTVStore.setState({ selectedChannel: useTVStore.getState().getUnifiedChannels()[0] })
+      render(<TVChannelSidebar />)
+      await act(async () => {})
+
+      expect([...backgrounds(liveRow().closest('li')!), ...backgrounds(liveRow())]).toEqual(['bg-live/5'])
+      expect(liveRow()).toHaveClass('border-l-4', 'border-primary')
+    })
+
+    it('gives a selected channel row one background, the selection tint', async () => {
+      useTVStore.setState({ selectedChannel: useTVStore.getState().getUnifiedChannels()[1] })
+      render(<TVChannelSidebar />)
+      await act(async () => {})
+
+      const row = screen.getByRole('button', { name: '1 Movies' })
+      expect([...backgrounds(row.closest('li')!), ...backgrounds(row)]).toEqual(['bg-primary/10'])
+    })
+
+    it("shows the live channel's logo on the live row, and a monogram on a channel without one", async () => {
+      useChannelStore.setState({
+        currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1', logoUrl: '/api/channels/logos/17' },
+      })
+      render(<TVChannelSidebar />)
+      await act(async () => {})
+
+      const logo = (row: HTMLElement) => row.querySelector('[data-testid="channel-logo"]')!
+      expect(logo(liveRow())).toHaveClass('size-12', 'bg-live/20')
+      expect(logo(liveRow()).querySelector('img')).toHaveAttribute('src', '/api/channels/logos/17')
+      const movies = screen.getByRole('button', { name: '1 Movies' })
+      expect(logo(movies)).toHaveClass('size-12')
+      expect(logo(movies).querySelector('[data-monogram]')).toHaveAttribute('data-monogram', 'M')
+    })
+
+    it('keeps the live tint under the picker on the empty live slot', async () => {
+      useChannelStore.setState({ currentChannel: null })
+      render(<TVChannelSidebar onPickLive={vi.fn()} />)
+      await act(async () => {})
+
+      const item = liveRow().closest('li')!
+      expect(within(item).getByRole('button', { name: 'Pick a channel' })).toBeInTheDocument()
+      expect([...backgrounds(item), ...backgrounds(liveRow())]).toEqual(['bg-live/5'])
+    })
   })
 })
 
@@ -249,6 +318,9 @@ describe('TVChannelSidebar collapsed rail tiles', () => {
     expect(badge).toHaveClass('absolute', 'bottom-0', 'right-0', 'h-4', 'min-w-4')
     expect(logoTile).toHaveClass('relative')
 
+    // Through our logo route, whatever ErsatzTV's own URL for it is
+    expect(logoTile.querySelector('img')).toHaveAttribute('src', '/api/ersatztv/logos/etv3')
+
     const plainTile = screen.getByRole('button', { name: '4 Channel 4' })
     expect(plainTile.querySelector('img')).toBeNull()
     expect(plainTile).toHaveTextContent(/^4$/)
@@ -369,6 +441,22 @@ describe('TVChannelSidebar collapsed live tile', () => {
     expect(tooltip).toHaveTextContent('0 Club')
     expect(tooltip).toHaveTextContent(copy)
     expect(tooltip).not.toHaveTextContent('Now')
+  })
+
+  it("shows the live channel's logo on the live tile, and the live icon when it has none", async () => {
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1', logoUrl: '/api/channels/logos/17' },
+    })
+    render(<TVChannelSidebar isCollapsed />)
+    await act(async () => {})
+
+    expect(liveTile().querySelector('img')).toHaveAttribute('src', '/api/channels/logos/17')
+    expect(liveTile().querySelector('.lucide-radio')).toBeNull()
+
+    // A logo that fails to load leaves the icon
+    fireEvent.error(liveTile().querySelector('img')!)
+    expect(liveTile().querySelector('img')).toBeNull()
+    expect(liveTile().querySelector('.lucide-radio')).toHaveClass('text-live')
   })
 
   it('tints the live tile and its icon with the live token rather than destructive', async () => {
@@ -1369,5 +1457,88 @@ describe('TVChannelSidebar favourites', () => {
       '2 Cartoons',
       '3 News',
     ])
+  })
+})
+
+describe('TVChannelSidebar store subscriptions', () => {
+  beforeEach(() => {
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1' },
+    })
+    useErsatztvStore.setState({
+      channels: [{ id: 'etv1', name: 'Movies', streamUrl: '', logoUrl: '', number: 1, group: 'Films' }],
+    })
+  })
+
+  afterEach(() => {
+    cleanup()
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels: [], programmesLoading: false })
+    useTVStore.setState({ liveEPG: null, liveEPGLoading: false })
+  })
+
+  async function renderCounted(isCollapsed: boolean) {
+    const onRender = vi.fn()
+    render(
+      <Profiler id="sidebar" onRender={onRender}>
+        <TVChannelSidebar isCollapsed={isCollapsed} />
+      </Profiler>
+    )
+    await act(async () => {})
+    onRender.mockClear()
+    return onRender
+  }
+
+  it.each([false, true])(
+    "doesn't re-render for store fields it doesn't read (collapsed: %s)",
+    async (isCollapsed) => {
+      const onRender = await renderCounted(isCollapsed)
+
+      act(() => {
+        useTVStore.setState({ liveEPGLoading: true })
+        useTVStore.setState({ epgRequestId: useTVStore.getState().epgRequestId + 1 })
+        useErsatztvStore.setState({ programmesLoading: true })
+      })
+
+      expect(onRender).not.toHaveBeenCalled()
+    }
+  )
+
+  it('re-renders for the fields it shows: live TV changing, the selection and the channel list', async () => {
+    const onRender = await renderCounted(false)
+
+    act(() => {
+      useChannelStore.setState({
+        currentChannel: { id: 'live2', name: 'Arena', streamUrl: 'http://x/live2', guideId: 'g2' },
+      })
+    })
+    expect(onRender).toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: /^0 Live: Arena, / })).toBeInTheDocument()
+
+    onRender.mockClear()
+    act(() => {
+      useTVStore.setState({ selectedChannel: useTVStore.getState().getUnifiedChannels()[1] })
+    })
+    expect(onRender).toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: '1 Movies' })).toHaveAttribute('aria-current', 'true')
+
+    act(() => {
+      useErsatztvStore.setState({
+        channels: [
+          { id: 'etv1', name: 'Movies', streamUrl: '', logoUrl: '', number: 1, group: 'Films' },
+          { id: 'etv2', name: 'Cartoons', streamUrl: '', logoUrl: '', number: 2, group: 'Kids' },
+        ],
+      })
+    })
+    expect(screen.getByRole('button', { name: '2 Cartoons' })).toBeInTheDocument()
+    useTVStore.setState({ selectedChannel: null })
+  })
+
+  it('shows the empty live slot once live TV stops', async () => {
+    await renderCounted(false)
+
+    act(() => useChannelStore.setState({ currentChannel: null }))
+
+    expect(screen.getByRole('button', { name: 'Live slot, nothing on' })).toBeInTheDocument()
   })
 })

@@ -11,11 +11,20 @@ interface ProgrammeTimes {
   stop: string
 }
 
+/**
+ * Where a programme running from startMs to stopMs sits relative to nowMs:
+ * start is inclusive, stop is exclusive. For times already parsed, as in the
+ * guide's programme index.
+ */
+export function getProgrammeStateAt(startMs: number, stopMs: number, nowMs: number): ProgrammeState {
+  if (nowMs < startMs) return 'future'
+  if (nowMs < stopMs) return 'now'
+  return 'past'
+}
+
 /** Where a programme sits relative to now: start is inclusive, stop is exclusive. */
 export function getProgrammeState(programme: ProgrammeTimes, nowMs: number): ProgrammeState {
-  if (nowMs < new Date(programme.start).getTime()) return 'future'
-  if (nowMs < new Date(programme.stop).getTime()) return 'now'
-  return 'past'
+  return getProgrammeStateAt(new Date(programme.start).getTime(), new Date(programme.stop).getTime(), nowMs)
 }
 
 /** The programme on air at nowMs, or null when the schedule has a gap there. */

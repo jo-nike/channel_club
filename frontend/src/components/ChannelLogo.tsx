@@ -1,19 +1,23 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { apiAssetUrl } from '@/services/apiBase'
 import { cn } from '@/lib/utils'
 import type { Channel } from '@/types'
 
 interface ChannelLogoProps {
   channel: Pick<Channel, 'name' | 'logoUrl'>
+  // Sizes the box (40px by default), rounds it and sets its background
   className?: string
+  // Shown in place of the monogram when there's no logo to show, e.g. the
+  // live slot's icon
+  fallback?: ReactNode
 }
 
 /**
- * A 40px channel logo, or a monogram of the channel's name when it has no
- * logo or the logo fails to load. Decorative: the channel's name is always
- * shown next to it.
+ * A channel logo, or a monogram of the channel's name when it has no logo or
+ * the logo fails to load. Decorative: the channel's name is always shown
+ * next to it.
  */
-export function ChannelLogo({ channel, className }: ChannelLogoProps) {
+export function ChannelLogo({ channel, className, fallback }: ChannelLogoProps) {
   const src = channel.logoUrl ? apiAssetUrl(channel.logoUrl) : null
   // Remembers which URL failed, so a new logo URL gets its own try
   const [failedSrc, setFailedSrc] = useState<string | null>(null)
@@ -37,6 +41,8 @@ export function ChannelLogo({ channel, className }: ChannelLogoProps) {
           className="size-full object-contain"
           onError={() => setFailedSrc(src)}
         />
+      ) : fallback !== undefined ? (
+        fallback
       ) : (
         // Drawn by CSS from the attribute, so the monogram never becomes a second
         // text node repeating the name beside it ("TSN" next to "TSN")

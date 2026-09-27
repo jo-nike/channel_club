@@ -86,10 +86,10 @@ describe('MobileChannelList', () => {
     expect(row).toHaveClass('p-2')
     expect(row).not.toHaveClass('p-3')
     const logoBox = row.children[1]
-    expect(logoBox).toHaveClass('h-10', 'w-10')
+    expect(logoBox).toHaveClass('size-10')
   })
 
-  it('sets the LIVE badge and the time left at 12px', () => {
+  it('uses the shared LIVE pill and sets the time left at 12px', () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-09-06T12:00:00Z'))
     useErsatztvStore.setState({ programmesByChannel: { etv1: [
@@ -97,8 +97,80 @@ describe('MobileChannelList', () => {
     ] } })
     render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={vi.fn()} />)
 
-    expect(screen.getByText('Live', { selector: 'span' })).toHaveClass('text-xs')
+    const pill = screen.getByTestId('live-pill')
+    expect(pill).toHaveTextContent(/^Live$/)
+    expect(pill.closest('button')).toHaveTextContent('Club')
     expect(screen.getByText('30m left')).toHaveClass('text-xs')
+  })
+
+  describe('logos', () => {
+    const logo = (name: string) =>
+      (screen.getByText(name).closest('button') as HTMLElement).querySelector('[data-testid="channel-logo"]')!
+
+    it("shows a channel's logo through our logo route, and a monogram for one without", () => {
+      useErsatztvStore.setState({
+        channels: [
+          { id: 'etv1', name: 'Movies', streamUrl: '/etv1', logoUrl: '/api/ersatztv/logos/etv1', number: 1, group: 'Films' },
+          { id: 'etv2', name: 'Cartoons', streamUrl: '/etv2', logoUrl: '', number: 2, group: 'Kids' },
+        ],
+      })
+      render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={vi.fn()} />)
+
+      expect(logo('Movies').querySelector('img')).toHaveAttribute('src', '/api/ersatztv/logos/etv1')
+      expect(logo('Cartoons').querySelector('img')).toBeNull()
+      expect(logo('Cartoons').querySelector('[data-monogram]')).toHaveAttribute('data-monogram', 'C')
+    })
+
+    it("shows the live channel's logo on the live card, and the live icon when it has none", () => {
+      useChannelStore.setState({
+        currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1', logoUrl: '/api/channels/logos/17' },
+      })
+      const { unmount } = render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={vi.fn()} />)
+      expect(logo('Club').querySelector('img')).toHaveAttribute('src', '/api/channels/logos/17')
+      expect(logo('Club').querySelector('.lucide-radio')).toBeNull()
+      unmount()
+
+      useChannelStore.setState({
+        currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1' },
+      })
+      render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={vi.fn()} />)
+      expect(logo('Club').querySelector('img')).toBeNull()
+      expect(logo('Club').querySelector('.lucide-radio')).toHaveClass('text-live')
+    })
+  })
+
+  describe('live card colours', () => {
+    // Plain background utilities only (hover:bg-* is a separate state)
+    const backgrounds = (element: Element) =>
+      Array.from(element.classList).filter((name) => name.startsWith('bg-'))
+    const card = (name: string) => screen.getByText(name).closest('button')!.parentElement!.parentElement!
+
+    it('tints the live card, its icon box and its icon with the live token rather than destructive', () => {
+      render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={vi.fn()} />)
+
+      expect(backgrounds(card('Club'))).toEqual(['bg-live/5'])
+      const icon = card('Club').querySelector('.lucide-radio')!
+      expect(icon).toHaveClass('text-live')
+      expect(icon.parentElement).toHaveClass('bg-live/20')
+      expect(card('Club').innerHTML).not.toMatch(/destructive/)
+    })
+
+    it('gives a selected live card one background, the live tint, with the primary border', () => {
+      useTVStore.setState({ selectedChannel: useTVStore.getState().getUnifiedChannels()[0] })
+      render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={vi.fn()} />)
+
+      expect(backgrounds(card('Club'))).toEqual(['bg-live/5'])
+      expect(card('Club')).toHaveClass('border-primary')
+    })
+
+    it('gives a selected channel card one background, the selection tint', () => {
+      useTVStore.setState({ selectedChannel: useTVStore.getState().getUnifiedChannels()[1] })
+      render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={vi.fn()} />)
+
+      expect(backgrounds(card('Movies'))).toEqual(['bg-primary/10'])
+      expect(card('Movies')).toHaveClass('border-primary')
+      expect(backgrounds(card('Cartoons'))).toEqual([])
+    })
   })
 
   it("shows each channel's programme and time left, moving on with the programme clock", async () => {

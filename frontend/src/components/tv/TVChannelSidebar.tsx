@@ -1,8 +1,8 @@
-import { useEffect, useRef, type Ref } from 'react'
+import { useEffect, useMemo, useRef, type Ref } from 'react'
 import { AudioLines, ChevronLeft, ChevronRight, Radio, Star } from 'lucide-react'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
-import { useTVStore, describeLiveGuide } from '@/stores/tvStore'
-import { getErsatzTVLogoUrl } from '@/services/ersatztvApi'
+import { useTVStore, buildUnifiedChannels, describeLiveGuide } from '@/stores/tvStore'
+import { useChannelStore } from '@/stores/channelStore'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -10,7 +10,9 @@ import { useProgrammeClock } from '@/hooks/useProgrammeClock'
 import { useRovingTabIndex } from '@/hooks/useRovingTabIndex'
 import { useFilteredChannels } from '@/hooks/useFilteredChannels'
 import { useChannelPrefsStore } from '@/stores/channelPrefsStore'
-import { ChannelFilterBar } from '@/components/tv/ChannelFilterBar'
+import { ChannelFilterBar, NoChannelsMatch } from '@/components/tv/ChannelFilterBar'
+import { LivePill } from '@/components/LivePill'
+import { ChannelLogo } from '@/components/ChannelLogo'
 import { calculateProgress, findOnAir, formatRemaining, getProgrammeState } from '@/lib/programmes'
 import { buildProgrammeIndex, findCurrentAndNext, type IndexedProgramme } from '@/lib/programmeIndex'
 import { favouritesFirst } from '@/lib/channelSearch'
@@ -45,23 +47,34 @@ export function TVChannelSidebar({
   liveEPGTitle,
   onPickLive,
 }: TVChannelSidebarProps) {
-  const { channels: ersatzTVChannels, channelsLoading, error, loadChannels } = useErsatztvStore()
-  const { selectedChannel, selectChannel, getUnifiedChannels, isLiveChannelActive, liveEPGStatus } = useTVStore()
+  // Field selectors: the sidebar re-renders for what it shows, not on every
+  // update to the stores it reads
+  const ersatzTVChannels = useErsatztvStore((s) => s.channels)
+  const channelsLoading = useErsatztvStore((s) => s.channelsLoading)
+  const error = useErsatztvStore((s) => s.error)
+  const loadChannels = useErsatztvStore((s) => s.loadChannels)
+  const selectedChannel = useTVStore((s) => s.selectedChannel)
+  const selectChannel = useTVStore((s) => s.selectChannel)
+  const liveEPGStatus = useTVStore((s) => s.liveEPGStatus)
+  const liveChannel = useChannelStore((s) => s.currentChannel)
   // Now/next come from the guide's programmes, which TVView refreshes every
   // 2h, so a schedule edit in ErsatzTV shows here on that refresh
   const programmesByChannel = useErsatztvStore((s) => s.programmesByChannel)
   const now = useProgrammeClock()
   const programmeIndex = buildProgrammeIndex(programmesByChannel)
 
-  // Get unified channel list
-  const unifiedChannels = getUnifiedChannels()
-  const hasLiveChannel = isLiveChannelActive()
+  // The unified list, built from the two stores it comes from, so the live
+  // slot follows live TV and the search keeps its memo between renders
+  const unifiedChannels = useMemo(
+    () => buildUnifiedChannels(liveChannel, ersatzTVChannels),
+    [liveChannel, ersatzTVChannels]
+  )
+  const hasLiveChannel = liveChannel !== null
   const liveProgramme = liveEPGTitle || describeLiveGuide(liveEPGStatus)
 
   // The expanded list goes through the search and chips; the rail, which
   // has no search box, lists every channel with the favourites first
   const { channels: filteredChannels, isFiltering } = useFilteredChannels(unifiedChannels, programmesByChannel)
-  const clearFilter = useChannelPrefsStore((s) => s.clearFilter)
   const favouriteChannelIds = useChannelPrefsStore((s) => s.favouriteChannelIds)
   const toggleFavourite = useChannelPrefsStore((s) => s.toggleFavourite)
   const listedChannels = isCollapsed ? favouritesFirst(unifiedChannels, favouriteChannelIds) : filteredChannels
@@ -194,14 +207,7 @@ export function TVChannelSidebar({
         })}
       </ul>
       {/* Row 0 always stays, so nothing matching means nothing after it */}
-      {isFiltering && listedChannels.length <= 1 && ersatzTVChannels.length > 0 && (
-        <div className="flex flex-col items-center gap-3 p-6 text-center">
-          <p className="text-sm text-muted-foreground">No channels match</p>
-          <Button variant="outline" size="sm" onClick={clearFilter}>
-            Clear
-          </Button>
-        </div>
-      )}
+      {isFiltering && listedChannels.length <= 1 && ersatzTVChannels.length > 0 && <NoChannelsMatch />}
       {/* The live row above doesn't wait for ErsatzTV */}
       {channelsLoading && ersatzTVChannels.length === 0 && <SidebarSkeleton />}
       {/* The error's details are in the toast TVView shows; this keeps a retry where the channels would be */}
@@ -280,20 +286,18 @@ function CollapsedChannelButton({
           )}
           {isLive ? (
             hasLiveChannel ? (
-              <Radio className="h-4 w-4 text-live" />
+              // The live channel's logo on the tile's live tint, or the icon
+              <ChannelLogo
+                channel={channel}
+                className="size-8 bg-transparent"
+                fallback={<Radio className="h-4 w-4 text-live" />}
+              />
             ) : (
               '0'
             )
           ) : channel.logoUrl ? (
             <>
-              <img
-                src={getErsatzTVLogoUrl(channel.id)}
-                alt=""
-                className="h-full w-full object-contain"
-                onError={(e) => {
-                  ;(e.target as HTMLImageElement).style.display = 'none'
-                }}
-              />
+              <ChannelLogo channel={channel} className="size-full rounded-none bg-transparent" />
               {/* The aria-label already carries the number */}
               <span
                 aria-hidden="true"
@@ -429,41 +433,38 @@ function ChannelItem({
   const showStar = !isLive
 
   return (
-    <li className={showPickLive ? 'flex items-center bg-destructive/5 pr-3' : showStar ? 'relative' : undefined}>
+    // One background per row: the live row's tint is on the item, so it runs
+    // under the picker too; the selection tint is on the button
+    <li
+      className={cn(
+        isLive && 'bg-live/5',
+        showPickLive ? 'flex items-center pr-3' : showStar && 'relative'
+      )}
+    >
       {/* scroll-mt clears the sticky Channels header and filter when the row is scrolled into view */}
       <button
         ref={ref}
         onClick={() => onSelect(channel)}
         onFocus={onFocus}
         tabIndex={tabIndex}
-        className={`
-          flex ${showPickLive ? 'min-w-0 flex-1' : 'w-full'} scroll-mt-41 items-center gap-3 p-3 ${showStar ? 'pr-12' : ''} text-left transition-colors
-          hover:bg-accent focus-visible:-outline-offset-2
-          ${isSelected ? 'bg-primary/10 border-l-4 border-primary' : ''}
-          ${isLive ? 'bg-destructive/5' : ''}
-        `}
+        className={cn(
+          'flex scroll-mt-41 items-center gap-3 p-3 text-left transition-colors',
+          'hover:bg-accent focus-visible:-outline-offset-2',
+          showPickLive ? 'min-w-0 flex-1' : 'w-full',
+          showStar && 'pr-12',
+          // The live row's tint (on the item) wins; the border marks selection
+          isSelected && 'border-l-4 border-primary',
+          isSelected && !isLive && 'bg-primary/10'
+        )}
         aria-current={isSelected ? 'true' : undefined}
         aria-label={label}
       >
-        {/* Channel logo / icon */}
-        <div
-          className={`h-12 w-12 shrink-0 overflow-hidden rounded flex items-center justify-center ${
-            isLive ? 'bg-destructive/20' : 'bg-muted'
-          }`}
-        >
-          {isLive ? (
-            <Radio className="h-6 w-6 text-destructive" />
-          ) : channel.logoUrl ? (
-            <img
-              src={getErsatzTVLogoUrl(channel.id)}
-              alt={`${channel.name} logo`}
-              className="h-full w-full object-contain"
-              onError={(e) => {
-                ;(e.target as HTMLImageElement).style.display = 'none'
-              }}
-            />
-          ) : null}
-        </div>
+        {/* Channel logo, or the live slot's icon while it has none */}
+        <ChannelLogo
+          channel={channel}
+          className={cn('size-12 rounded', isLive && 'bg-live/20')}
+          fallback={isLive ? <Radio className="h-6 w-6 text-live" /> : undefined}
+        />
 
         {/* Channel info */}
         <div className="min-w-0 flex-1">
@@ -474,11 +475,7 @@ function ChannelItem({
             <span className="truncate font-medium">
               {isLive ? (hasLiveChannel ? channel.name : 'Live') : channel.name}
             </span>
-            {isLive && hasLiveChannel && (
-              <span className="rounded bg-live px-1.5 py-0.5 text-[11px] font-bold uppercase text-live-foreground">
-                Live
-              </span>
-            )}
+            {isLive && hasLiveChannel && <LivePill />}
           </div>
           <p className="truncate text-sm text-muted-foreground">
             {isLive

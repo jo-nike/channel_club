@@ -3,8 +3,9 @@ import { ChevronLeft, ChevronRight, Radio } from 'lucide-react'
 import { useTVStore, LIVE_CHANNEL_ID, buildUnifiedChannels, describeLiveGuide, toLiveProgramme } from '@/stores/tvStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
-import { getErsatzTVLogoUrl } from '@/services/ersatztvApi'
 import { Button } from '@/components/ui/button'
+import { LivePill } from '@/components/LivePill'
+import { ChannelLogo } from '@/components/ChannelLogo'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useProgrammeClock } from '@/hooks/useProgrammeClock'
 import { useScrollViewport } from '@/hooks/useScrollViewport'
@@ -18,7 +19,7 @@ import {
 } from '@/hooks/useGridNavigation'
 import { useUIStore } from '@/stores/uiStore'
 import { useFilteredChannels } from '@/hooks/useFilteredChannels'
-import { ChannelFilterBar } from '@/components/tv/ChannelFilterBar'
+import { ChannelFilterBar, NoChannelsMatch } from '@/components/tv/ChannelFilterBar'
 import { scrollBehavior } from '@/lib/motion'
 import {
   buildProgrammeIndex,
@@ -27,7 +28,13 @@ import {
   type IndexedProgramme,
   type ProgrammeIndex,
 } from '@/lib/programmeIndex'
-import { calculateProgress, formatRemaining, formatRemainingSpoken, type ProgrammeState } from '@/lib/programmes'
+import {
+  calculateProgress,
+  formatRemaining,
+  formatRemainingSpoken,
+  getProgrammeStateAt,
+  type ProgrammeState,
+} from '@/lib/programmes'
 import { cn } from '@/lib/utils'
 import type { UnifiedChannel, ErsatzTVProgramme, EPGResponse } from '@/types'
 
@@ -101,7 +108,7 @@ export function TVEPGGrid({
   // With the guide open its channel column is the one channel list, so it
   // takes the sidebar's search and chips (shared in channelPrefsStore), and
   // shows them above the grid. Row 0 always stays.
-  const { channels: unifiedChannels } = useFilteredChannels(allChannels, programmesByChannel)
+  const { channels: unifiedChannels, isFiltering } = useFilteredChannels(allChannels, programmesByChannel)
   const hasLiveChannel = liveChannel !== null
 
   // Calculate time range - start 30 min before current rounded time
@@ -467,6 +474,12 @@ export function TVEPGGrid({
             )
           })}
         </div>
+        {/* Row 0 always stays, so nothing matching means nothing after it.
+            A block in the scroller is as wide as its view, and sticks to its
+            left edge however far the guide is scrolled sideways. */}
+        {isFiltering && unifiedChannels.length <= 1 && ersatzTVChannels.length > 0 && (
+          <NoChannelsMatch className="sticky left-0" />
+        )}
       </div>
     </div>
   )
@@ -577,7 +590,7 @@ const ChannelRow = memo(function ChannelRow({
             const visualLeft = Math.max(0, left)
             // Each block gets its state and geometry as primitives, so a clock
             // tick re-renders only the blocks whose state or progress changed
-            const state = stateAt(startMs, stopMs, now)
+            const state = getProgrammeStateAt(startMs, stopMs, now)
             const isNow = state === 'now'
             return (
               <ProgrammeBox
@@ -683,30 +696,16 @@ function ChannelLabel({
         >
           {channel.number}
         </span>
-        {isLive ? (
-          <div className="h-8 w-8 flex-shrink-0 rounded bg-destructive/20 flex items-center justify-center">
-            <Radio className="h-4 w-4 text-destructive" />
-          </div>
-        ) : channel.logoUrl ? (
-          <img
-            src={getErsatzTVLogoUrl(channel.id)}
-            alt=""
-            className="h-8 w-8 flex-shrink-0 rounded object-contain"
-            onError={(e) => {
-              ;(e.target as HTMLImageElement).style.display = 'none'
-            }}
-          />
-        ) : (
-          <div className="h-8 w-8 flex-shrink-0 rounded bg-muted" />
-        )}
+        {/* The logo, or the live slot's icon while it has none */}
+        <ChannelLogo
+          channel={channel}
+          className={cn('size-8 rounded', isLive && 'bg-live/20')}
+          fallback={isLive ? <Radio className="h-4 w-4 text-live" /> : undefined}
+        />
         <span className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="flex min-w-0 items-center gap-1.5">
             <span className="truncate font-medium">{channel.name}</span>
-            {showLiveHighlight && (
-              <span className="shrink-0 rounded bg-live px-1 py-0.5 text-[11px] font-bold uppercase leading-none text-live-foreground">
-                Live
-              </span>
-            )}
+            {showLiveHighlight && <LivePill />}
           </span>
           {onAir && (
             <span className="flex items-center gap-1.5">
@@ -917,13 +916,6 @@ function findCellElement(container: HTMLElement, cell: GridCell): HTMLElement | 
   return null
 }
 
-// Where a programme sits relative to now: start is inclusive, stop is exclusive
-function stateAt(startMs: number, stopMs: number, nowMs: number): ProgrammeState {
-  if (nowMs < startMs) return 'future'
-  if (nowMs < stopMs) return 'now'
-  return 'past'
-}
-
 const NO_ENTRIES: readonly IndexedProgramme[] = []
 
 // Writes the grid's horizontal scroll to SCROLL_X_VAR. Skipped when it hasn't
@@ -1014,7 +1006,7 @@ function EPGGridSkeleton() {
       <div className="h-12 bg-muted border-b" />
       <div className="space-y-1 p-2">
         {/* Live channel row skeleton */}
-        <div className="h-16 rounded bg-destructive/10" />
+        <div className="h-16 rounded bg-live/10" />
         {/* Regular channel row skeletons */}
         {Array.from({ length: 5 }).map((_, i) => (
           <div key={i} className="h-16 rounded bg-muted" />
