@@ -11,6 +11,7 @@ from app.models.status import (
     DispatcharrClient,
     DispatcharrStream,
     DispatchrrStatus,
+    EPGHealthStatus,
     ErsatzTVSession,
     ErsatzTVStatus,
     SystemStatusResponse,
@@ -19,6 +20,7 @@ from app.services.dispatcharr import (
     DispatchrrUnavailableError,
     dispatcharr_auth_headers,
 )
+from app.services.epg_service import EPG_HEALTH_NAME, get_epg_service
 
 # Module-level logger with service context
 log = logger.bind(service="status")
@@ -379,18 +381,31 @@ async def get_dispatcharr_status() -> DispatchrrStatus:
         )
 
 
+async def get_epg_status() -> EPGHealthStatus:
+    """Get guide data (XMLTV) health.
+
+    Refreshes the EPG cache only when a refresh is due and the failure backoff
+    allows it, so status polls cannot hammer Dispatcharr.
+
+    Returns:
+        EPGHealthStatus for the cached guide data
+    """
+    return await get_epg_service().check_health()
+
+
 async def get_system_status() -> SystemStatusResponse:
     """Get combined status of all external services.
 
     Returns:
-        SystemStatusResponse with status for ErsatzTV and Dispatcharr
+        SystemStatusResponse with status for ErsatzTV, Dispatcharr and guide data
     """
     log.debug("Fetching system status for all services")
 
-    # Fetch both statuses concurrently
-    ersatztv_status, dispatcharr_status = await asyncio.gather(
+    # Fetch all statuses concurrently
+    ersatztv_status, dispatcharr_status, epg_status = await asyncio.gather(
         get_ersatztv_status(),
         get_dispatcharr_status(),
+        get_epg_status(),
         return_exceptions=True,
     )
 
@@ -406,5 +421,10 @@ async def get_system_status() -> SystemStatusResponse:
         if isinstance(dispatcharr_status, DispatchrrStatus)
         else DispatchrrStatus(
             name="Dispatcharr", online=False, last_checked=now, error="Status check failed"
+        ),
+        epg=epg_status
+        if isinstance(epg_status, EPGHealthStatus)
+        else EPGHealthStatus(
+            name=EPG_HEALTH_NAME, online=False, last_checked=now, error="Status check failed"
         ),
     )

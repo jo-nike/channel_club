@@ -9,7 +9,7 @@ import {
   CardTitle,
   CardDescription,
 } from '@/components/ui/card'
-import { RefreshCw, CheckCircle, XCircle, Activity, Tv, Clock, Wifi, Zap, Monitor } from 'lucide-react'
+import { RefreshCw, CheckCircle, XCircle, Activity, Tv, Clock, Wifi, Zap, Monitor, CalendarClock, TriangleAlert } from 'lucide-react'
 
 function formatLastUpdated(date: Date | null): string {
   if (!date) return ''
@@ -22,6 +22,16 @@ function formatLastUpdated(date: Date | null): string {
 function formatLastChecked(isoDate: string): string {
   const date = new Date(isoDate)
   return date.toLocaleTimeString()
+}
+
+function formatTimestamp(isoDate: string | null, fallback: string): string {
+  if (!isoDate) return fallback
+  return new Date(isoDate).toLocaleString()
+}
+
+function guideDataState(status: SystemStatusData['epg']): 'Online' | 'Stale' | 'Unavailable' {
+  if (!status.online) return 'Unavailable'
+  return status.stale ? 'Stale' : 'Online'
 }
 
 function formatUptime(seconds: number): string {
@@ -91,6 +101,7 @@ function ServiceStatus() {
       <div className="grid gap-4 md:grid-cols-2">
         <ErsatzTVCard status={data.ersatztv} />
         <DispatchrrCard status={data.dispatcharr} />
+        <GuideDataCard status={data.epg} />
       </div>
     </div>
   )
@@ -261,6 +272,48 @@ function DispatchrrCard({ status }: DispatchrrCardProps) {
               </div>
             ))}
           </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+interface GuideDataCardProps {
+  status: SystemStatusData['epg']
+}
+
+function GuideDataCard({ status }: GuideDataCardProps) {
+  const state = guideDataState(status)
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2">
+            <CalendarClock className="h-5 w-5" />
+            Guide data (XMLTV)
+          </CardTitle>
+          {state === 'Stale' ? (
+            <div className="flex items-center gap-1 text-amber-600">
+              <TriangleAlert className="h-5 w-5" />
+            </div>
+          ) : (
+            <StatusIndicator online={status.online} />
+          )}
+        </div>
+        <CardDescription>Programme guide feed from Dispatcharr</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <StatusRow
+          icon={<Activity className="h-4 w-4 text-muted-foreground" />}
+          label="Status"
+          value={state}
+        />
+        {status.error && <StatusRow label="Last Error" value={status.error} />}
+        <StatusRow label="Channels" value={status.channelCount.toString()} />
+        <StatusRow label="Programmes" value={status.programmeCount.toString()} />
+        <StatusRow label="Last Success" value={formatTimestamp(status.lastSuccessAt, 'Never')} />
+        {status.nextRetryAt && (
+          <StatusRow label="Next Retry" value={formatTimestamp(status.nextRetryAt, '')} />
         )}
       </CardContent>
     </Card>

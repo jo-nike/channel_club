@@ -8,7 +8,12 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.models.auth import TokenPayload
-from app.models.status import DispatchrrStatus, ErsatzTVStatus, SystemStatusResponse
+from app.models.status import (
+    DispatchrrStatus,
+    EPGHealthStatus,
+    ErsatzTVStatus,
+    SystemStatusResponse,
+)
 from app.services import presence
 
 
@@ -250,6 +255,14 @@ class TestGetSystemStatus:
                 active_streams=5,
                 total_viewers=10,
             ),
+            epg=EPGHealthStatus(
+                name="Guide data (XMLTV)",
+                online=True,
+                last_checked=now,
+                channel_count=109,
+                programme_count=5065,
+                last_success_at=now,
+            ),
         )
 
         with patch("app.routers.auth_deps.verify_token") as mock_verify:
@@ -272,6 +285,12 @@ class TestGetSystemStatus:
         assert data["dispatcharr"]["online"] is True
         assert data["dispatcharr"]["activeStreams"] == 5
         assert data["dispatcharr"]["totalViewers"] == 10
+        assert data["epg"]["online"] is True
+        assert data["epg"]["stale"] is False
+        assert data["epg"]["channelCount"] == 109
+        assert data["epg"]["programmeCount"] == 5065
+        assert data["epg"]["lastSuccessAt"] is not None
+        assert data["epg"]["nextRetryAt"] is None
 
     def test_returns_offline_status_for_unreachable_service(
         self,
@@ -294,6 +313,13 @@ class TestGetSystemStatus:
                 active_streams=0,
                 total_viewers=0,
             ),
+            epg=EPGHealthStatus(
+                name="Guide data (XMLTV)",
+                online=False,
+                last_checked=now,
+                error="HTTP 403",
+                next_retry_at=now,
+            ),
         )
 
         with patch("app.routers.auth_deps.verify_token") as mock_verify:
@@ -312,3 +338,6 @@ class TestGetSystemStatus:
         assert data["ersatztv"]["online"] is False
         assert data["ersatztv"]["error"] == "Connection refused"
         assert data["dispatcharr"]["online"] is True
+        assert data["epg"]["online"] is False
+        assert data["epg"]["error"] == "HTTP 403"
+        assert data["epg"]["nextRetryAt"] is not None
