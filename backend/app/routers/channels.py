@@ -1,6 +1,6 @@
 """Channels router for Channel Club API."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Response, status
 from loguru import logger
 
 from app.models.auth import TokenPayload
@@ -12,7 +12,13 @@ from app.models.channel import (
 )
 from app.routers.auth_deps import get_current_user, require_admin, require_channel_control
 from app.services import channel_state
-from app.services.dispatcharr import DispatchrrUnavailableError, get_grouped_channels, get_lineup
+from app.services.dispatcharr import (
+    ChannelLogoNotFoundError,
+    DispatchrrUnavailableError,
+    get_channel_logo,
+    get_grouped_channels,
+    get_lineup,
+)
 from app.services.media_source import resolve_media_channel
 
 router = APIRouter(tags=["channels"])
@@ -84,6 +90,42 @@ async def list_grouped_channels(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Channel service unavailable",
         ) from None
+
+
+@router.get("/channels/logos/{logo_id}")
+async def get_channel_logo_image(
+    logo_id: int = Path(..., ge=1),
+    # No auth required, like /api/ersatztv/logos: browser img tags can't send
+    # the JWT. Only logos used by a catalogue channel are served, and cached.
+) -> Response:
+    """Proxy a Dispatcharr channel logo as a checked raster image.
+
+    Args:
+        logo_id: Dispatcharr's integer logo id, as carried in Channel.logoUrl.
+
+    Returns:
+        The logo image.
+
+    Raises:
+        HTTPException: 404 if no channel uses this logo, 503 if it can't be served.
+    """
+    log.debug("GET /channels/logos/{} request", logo_id)
+    try:
+        body, content_type = await get_channel_logo(logo_id)
+    except ChannelLogoNotFoundError:
+        raise HTTPException(status_code=404, detail="No logo available") from None
+    except DispatchrrUnavailableError:
+        raise HTTPException(status_code=503, detail="Logo unavailable") from None
+
+    return Response(
+        body,
+        media_type=content_type,
+        headers={
+            "Cache-Control": "public, max-age=3600",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.get("/channels/current", response_model=CurrentChannelResponse)

@@ -9,6 +9,7 @@ import { useSetLiveChannel } from '@/hooks/useSetLiveChannel'
 import { fetchNowPlaying, clearCurrentChannel as clearCurrentChannelApi } from '@/services/api'
 import { Button } from '@/components/ui/button'
 import { StopLiveTVDialog } from '@/components/StopLiveTVDialog'
+import { ChannelLogo } from '@/components/ChannelLogo'
 import type { Channel } from '@/types'
 
 interface OnAirCardProps {
@@ -72,19 +73,23 @@ export function OnAirCard({ onHeightChange }: OnAirCardProps) {
       >
         {currentChannel ? (
           <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                On air for everyone
-              </p>
-              <p className="mt-1 flex min-w-0 items-center gap-2 text-lg font-semibold leading-tight">
-                <span className="truncate">{currentChannel.name}</span>
-                <span className="shrink-0 rounded bg-live px-1.5 py-0.5 text-[11px] font-bold uppercase leading-none tracking-wide text-live-foreground">
-                  Live
-                </span>
-              </p>
-              {/* Remounted per channel so the last channel's programme never shows */}
-              <CurrentProgramme key={currentChannel.id} channel={currentChannel} />
-              <WatchingCount />
+            <div className="flex min-w-0 flex-1 items-start gap-3">
+              {/* Keyed so a logo that failed on the last channel doesn't carry over */}
+              <ChannelLogo key={currentChannel.id} channel={currentChannel} className="mt-0.5" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  On air for everyone
+                </p>
+                <p className="mt-1 flex min-w-0 items-center gap-2 text-lg font-semibold leading-tight">
+                  <span className="truncate">{currentChannel.name}</span>
+                  <span className="shrink-0 rounded bg-live px-1.5 py-0.5 text-[11px] font-bold uppercase leading-none tracking-wide text-live-foreground">
+                    Live
+                  </span>
+                </p>
+                {/* Remounted per channel so the last channel's programme never shows */}
+                <CurrentProgramme key={currentChannel.id} channel={currentChannel} />
+                <WatchingCount />
+              </div>
             </div>
             {/* Keyed by channel so an open confirm is dropped when live TV stops or
                 changes elsewhere, instead of reopening when a channel is next picked */}

@@ -38,6 +38,8 @@ class Channel(BaseModel):
     name: str
     stream_url: str = Field(alias="streamUrl")
     guide_id: str = Field(alias="guideId")
+    # Our own logo route, never an upstream URL; None when the channel has no logo
+    logo_url: str | None = Field(default=None, alias="logoUrl")
 
     model_config = {"populate_by_name": True}
 
@@ -78,6 +80,9 @@ class DispatchrrFullChannel(BaseModel):
     channel_number: float | None = None
     channel_group_id: int | None = None
     uuid: str
+    # Primary key of the channel's Dispatcharr Logo; the image itself is served
+    # by Dispatcharr at /api/channels/logos/{logo_id}/cache/
+    logo_id: int | None = None
 
 
 class ChannelGroupWithChannels(BaseModel):

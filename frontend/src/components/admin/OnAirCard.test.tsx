@@ -58,6 +58,26 @@ describe('OnAirCard', () => {
     expect(within(card).getByText('Live')).toBeInTheDocument()
   })
 
+  it("shows the live channel's logo", () => {
+    useChannelStore.setState({ currentChannel: { ...tsn, logoUrl: '/api/channels/logos/17' } })
+    render(<OnAirCard />)
+
+    const slot = screen
+      .getByRole('region', { name: 'On air' })
+      .querySelector<HTMLElement>('[data-testid="channel-logo"]')!
+    expect(slot.querySelector('img')).toHaveAttribute('src', '/api/channels/logos/17')
+  })
+
+  it('shows a monogram for a live channel without a logo', () => {
+    render(<OnAirCard />)
+
+    const slot = screen
+      .getByRole('region', { name: 'On air' })
+      .querySelector<HTMLElement>('[data-testid="channel-logo"]')!
+    expect(slot.querySelector('img')).toBeNull()
+    expect(slot.querySelector('[data-monogram]')).toHaveAttribute('data-monogram', 'TSN')
+  })
+
   it('sticks to the top of the scrolling tab with an opaque background', () => {
     render(<OnAirCard />)
 

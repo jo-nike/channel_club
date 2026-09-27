@@ -11,14 +11,18 @@ from app.models.channel import (
     DispatchrrFullChannel,
     GroupedChannelsResponse,
 )
+from app.services import dispatcharr
 from app.services.dispatcharr import (
     DispatchrrUnavailableError,
     _build_grouped_channels,
+    _cached_logo,
+    _store_logo,
     dispatcharr_auth_headers,
     extract_uuid,
     format_channel_number,
     get_channel_groups,
     get_lineup,
+    invalidate_grouped_channels_cache,
 )
 
 
@@ -345,3 +349,83 @@ class TestBuildGroupedChannels:
         )
 
         assert self._guide_ids(response) == {"Unnumbered": "42"}
+
+    @pytest.mark.asyncio
+    async def test_logo_id_becomes_our_logo_route(self) -> None:
+        """A channel's Dispatcharr logo id maps to our proxy route, exposed as logoUrl."""
+        response = await self._build(
+            [
+                {
+                    "id": 101,
+                    "name": "TSN 5",
+                    "channel_number": 28,
+                    "channel_group_id": 1,
+                    "uuid": "uuid-28",
+                    "logo_id": 17,
+                },
+                {
+                    "id": 102,
+                    "name": "CBC",
+                    "channel_number": 7,
+                    "channel_group_id": None,
+                    "uuid": "uuid-7",
+                    "logo_id": None,
+                },
+            ]
+        )
+
+        channels = {c.name: c for g in response.groups for c in g.channels}
+        channels.update({c.name: c for c in response.ungrouped})
+        assert channels["TSN 5"].logo_url == "/api/channels/logos/17"
+        assert channels["TSN 5"].model_dump(by_alias=True)["logoUrl"] == "/api/channels/logos/17"
+        assert channels["CBC"].logo_url is None
+
+    @pytest.mark.asyncio
+    async def test_logo_url_is_never_taken_from_the_payload(self) -> None:
+        """Only the integer logo id is read; URL-like fields in the payload are ignored."""
+        response = await self._build(
+            [
+                {
+                    "id": 101,
+                    "name": "TSN 5",
+                    "channel_number": 28,
+                    "channel_group_id": 1,
+                    "uuid": "uuid-28",
+                    "logo_url": "http://evil.invalid/logo.png",
+                    "logoUrl": "http://evil.invalid/logo.png",
+                    "logo": "http://evil.invalid/logo.png",
+                }
+            ]
+        )
+
+        assert response.groups[0].channels[0].logo_url is None
+
+
+class TestChannelLogoCache:
+    """The logo cache is bounded by bytes and drops the least recently used first."""
+
+    def test_evicts_least_recently_used_over_the_byte_budget(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        invalidate_grouped_channels_cache()
+        monkeypatch.setattr(dispatcharr, "_LOGO_CACHE_MAX_BYTES", 25)
+        try:
+            _store_logo(1, b"a" * 10, "image/png")
+            _store_logo(2, b"b" * 10, "image/png")
+            assert _cached_logo(1) is not None  # 1 is now the most recently used
+            _store_logo(3, b"c" * 10, "image/png")
+
+            assert _cached_logo(2) is None
+            assert _cached_logo(1) == (b"a" * 10, "image/png")
+            assert _cached_logo(3) == (b"c" * 10, "image/png")
+        finally:
+            invalidate_grouped_channels_cache()
+
+    def test_expired_logo_is_not_served(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        invalidate_grouped_channels_cache()
+        monkeypatch.setattr(dispatcharr, "_LOGO_CACHE_TTL_SECONDS", -1)
+        try:
+            _store_logo(1, b"a" * 10, "image/png")
+            assert _cached_logo(1) is None
+        finally:
+            invalidate_grouped_channels_cache()
