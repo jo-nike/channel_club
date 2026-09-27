@@ -16,6 +16,8 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+# Frontend build that ./run.sh --prod copies in for the backend to serve
+backend/static/
 
 # IDE
 .idea/
