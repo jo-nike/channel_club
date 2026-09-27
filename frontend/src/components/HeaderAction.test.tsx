@@ -51,10 +51,10 @@ describe('HeaderAction', () => {
   })
 
   it('shows a short visible label from lg and widens to fit it', () => {
-    render(<HeaderAction icon={<LayoutList />} label="Hide guide" visibleLabel="Guide" />)
+    render(<HeaderAction icon={<LayoutList />} label="Change live channel" visibleLabel="Change live" />)
 
-    const button = screen.getByRole('button', { name: 'Hide guide' })
-    expect(screen.getByText('Guide')).toHaveClass('hidden', 'lg:inline')
+    const button = screen.getByRole('button', { name: 'Change live channel' })
+    expect(screen.getByText('Change live')).toHaveClass('hidden', 'lg:inline')
     expect(button).toHaveClass('lg:w-auto', 'lg:px-3')
   })
 
@@ -78,15 +78,15 @@ describe('HeaderAction', () => {
   })
 
   it('can be the filled primary action', () => {
-    render(<HeaderAction icon={<LayoutList />} label="Open chat" variant="default" />)
-    const button = screen.getByRole('button', { name: 'Open chat' })
+    render(<HeaderAction icon={<LayoutList />} label="Chat" variant="default" />)
+    const button = screen.getByRole('button', { name: 'Chat' })
     expect(button).toHaveClass('bg-primary', 'text-primary-foreground')
     expect(button).toHaveAttribute('data-size', 'toolbar')
   })
 
   it('passes other button attributes through', () => {
-    render(<HeaderAction icon={<LayoutList />} label="Open chat" aria-expanded={false} aria-controls="chat-panel" />)
-    const button = screen.getByRole('button', { name: 'Open chat' })
+    render(<HeaderAction icon={<LayoutList />} label="Chat" aria-expanded={false} aria-controls="chat-panel" />)
+    const button = screen.getByRole('button', { name: 'Chat' })
     expect(button).toHaveAttribute('aria-expanded', 'false')
     expect(button).toHaveAttribute('aria-controls', 'chat-panel')
   })

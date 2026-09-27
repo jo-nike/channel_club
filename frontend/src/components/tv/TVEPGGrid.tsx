@@ -74,7 +74,7 @@ interface TVEPGGridProps {
   liveEPG?: EPGResponse | null
   onProgrammeClick?: (programme: ErsatzTVProgramme, channel: UnifiedChannel) => void
   onChannelClick?: (channel: UnifiedChannel) => void
-  // Opens the live channel picker; only for people allowed to change live TV
+  // Opens the Live TV switcher; only for people allowed to change live TV
   onPickLive?: () => void
 }
 

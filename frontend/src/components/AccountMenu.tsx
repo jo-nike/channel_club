@@ -42,7 +42,8 @@ import { readTVModeOverride, setTVModeOverride, useTVMode, type TVModeOverride }
 import { useUIStore } from '@/stores/uiStore'
 
 interface AccountMenuProps {
-  // Opens the live channel picker (admins, and viewers the admin allows)
+  // Opens the Live TV switcher: Change live channel for admins and viewers the
+  // admin allows, Suggest a channel for other viewers while chat is on
   onOpenChannelPicker: () => void
   onOpenAdmin: () => void
   // Remounts the video player

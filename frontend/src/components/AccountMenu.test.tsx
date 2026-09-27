@@ -96,7 +96,7 @@ describe('AccountMenu trigger', () => {
 })
 
 describe('AccountMenu live channel and admin items', () => {
-  it('gives an admin the admin panel and the live channel picker', () => {
+  it('gives an admin the admin panel and Change live channel', () => {
     auth.isAdmin = true
     const props = renderMenu()
 
@@ -109,7 +109,7 @@ describe('AccountMenu live channel and admin items', () => {
     expect(props.onOpenChannelPicker).toHaveBeenCalledTimes(1)
   })
 
-  it('gives a permitted viewer the live channel picker only', () => {
+  it('gives a permitted viewer Change live channel only', () => {
     appSettings.userChannelSelection = true
     renderMenu()
     openMenu()
@@ -125,7 +125,7 @@ describe('AccountMenu live channel and admin items', () => {
     expect(screen.queryByRole('menuitem', { name: /Suggest a channel/ })).not.toBeInTheDocument()
   })
 
-  it('gives a plain viewer Suggest a channel while chat is on, opening the picker', () => {
+  it('gives a plain viewer Suggest a channel while chat is on, opening the switcher', () => {
     chatFlag.enabled = true
     const props = renderMenu()
     openMenu()
