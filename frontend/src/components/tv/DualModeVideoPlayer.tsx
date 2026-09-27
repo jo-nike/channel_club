@@ -14,6 +14,7 @@ import { useTVMode } from '@/hooks/useTVMode'
 import { useVideoKeyboardShortcuts } from '@/hooks/useVideoKeyboardShortcuts'
 import { useFullscreenState } from '@/hooks/useFullscreenState'
 import { useStreamRecovery } from '@/hooks/useStreamRecovery'
+import { useChatEnabled } from '@/hooks/useChatEnabled'
 import { ProjectorBeamLoader } from '@/components/ProjectorBeamLoader'
 import { Button } from '@/components/ui/button'
 import { AutoplayNotice } from '@/components/player/AutoplayNotice'
@@ -22,12 +23,15 @@ import { FilterLayer } from '@/components/player/FilterLayer'
 import { PlayerChrome } from '@/components/player/PlayerChrome'
 import { PlayerInfoOverlay } from '@/components/player/PlayerInfoOverlay'
 import { StreamStatusCard } from '@/components/player/StreamStatusCard'
+import { ShortcutSheet } from '@/components/player/ShortcutSheet'
 import { useLiveAdapter, useVidstackAdapter } from '@/components/player/mediaAdapters'
 import { usePlayerAudio } from '@/components/player/usePlayerAudio'
 import { HighlightModal } from '@/components/HighlightModal'
 import { useAudioStore, unmutedVolume } from '@/stores/audioStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { useClipStore } from '@/stores/clipStore'
+import { useChatStore } from '@/stores/chatStore'
+import { useUIStore } from '@/stores/uiStore'
 import { getErsatzTVStreamUrl } from '@/services/ersatztvApi'
 import type { ChannelZap } from '@/hooks/useChannelZap'
 import type { UnifiedChannel } from '@/types'
@@ -136,16 +140,26 @@ export function DualModeVideoPlayer({
     ]
   )
 
-  // Channel keys (PageUp/PageDown, ]/[, L, digits, Enter) belong to the
-  // shell, not the engine: they must work on the empty live slot too, which
-  // has no engine. The shell stays mounted across the tune, so fullscreen
-  // survives it.
+  // The keyboard map ('?'), in the shell so it shows in fullscreen
+  const [isShortcutSheetOpen, setShortcutSheetOpen] = useState(false)
+  const openShortcutSheet = useCallback(() => setShortcutSheetOpen(true), [])
+  const chatEnabled = useChatEnabled()
+  const toggleChat = useChatStore((s) => s.toggleOpen)
+  const toggleNHLOverlay = useUIStore((s) => s.toggleNHLOverlay)
+
+  // Channel keys (PageUp/PageDown, ]/[, L, digits, Enter) and the panel keys
+  // (?, C, N) belong to the shell, not the engine: they must work on the
+  // empty live slot too, which has no engine. The shell stays mounted across
+  // the tune, so fullscreen survives it.
   useVideoKeyboardShortcuts({
     containerRef,
     onChannelStep: zap?.step,
     onLastChannel: zap?.tuneLast,
     onDigit: zap?.digit,
     onDigitCommit: zap?.commitDigits,
+    onShortcutSheet: openShortcutSheet,
+    onChatToggle: chatEnabled ? toggleChat : undefined,
+    onNHLToggle: toggleNHLOverlay,
   })
 
   // What this viewer's player shows now, for the clip editor's notice: null
@@ -222,6 +236,7 @@ export function DualModeVideoPlayer({
         playingChannel={playingChannel}
         container={shellElement}
       />
+      <ShortcutSheet open={isShortcutSheetOpen} onOpenChange={setShortcutSheetOpen} container={shellElement} />
     </PlayerShellContext>
   )
 }

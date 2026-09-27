@@ -530,6 +530,95 @@ describe('useVideoKeyboardShortcuts', () => {
     })
   })
 
+  describe('panel keys', () => {
+    const press = (target: EventTarget, key: string, init: KeyboardEventInit = {}) => {
+      target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }))
+    }
+    const panelActions = () => ({ onShortcutSheet: vi.fn(), onChatToggle: vi.fn(), onNHLToggle: vi.fn() })
+
+    it('? opens the shortcut sheet', () => {
+      const actions = panelActions()
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, ...actions }))
+
+      // Shift+/ on a US layout
+      press(window, '?', { shiftKey: true })
+
+      expect(actions.onShortcutSheet).toHaveBeenCalledTimes(1)
+      expect(actions.onChatToggle).not.toHaveBeenCalled()
+      expect(actions.onNHLToggle).not.toHaveBeenCalled()
+    })
+
+    it.each(['c', 'C'])('%s toggles chat', (key) => {
+      const actions = panelActions()
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, ...actions }))
+
+      press(window, key)
+
+      expect(actions.onChatToggle).toHaveBeenCalledTimes(1)
+      expect(actions.onNHLToggle).not.toHaveBeenCalled()
+    })
+
+    it.each(['n', 'N'])('%s toggles the NHL scores', (key) => {
+      const actions = panelActions()
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, ...actions }))
+
+      press(window, key)
+
+      expect(actions.onNHLToggle).toHaveBeenCalledTimes(1)
+      expect(actions.onChatToggle).not.toHaveBeenCalled()
+    })
+
+    it('work with focus on a sidebar channel button outside the player', () => {
+      const actions = panelActions()
+      const button = document.createElement('button')
+      document.body.appendChild(button)
+      button.focus()
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, ...actions }))
+
+      for (const key of ['?', 'c', 'n']) press(button, key)
+
+      expect(actions.onShortcutSheet).toHaveBeenCalledTimes(1)
+      expect(actions.onChatToggle).toHaveBeenCalledTimes(1)
+      expect(actions.onNHLToggle).toHaveBeenCalledTimes(1)
+      document.body.removeChild(button)
+    })
+
+    it('are left to text fields (the chat composer) and dialogs (the sheet itself)', () => {
+      const actions = panelActions()
+      const input = document.createElement('textarea')
+      const dialog = document.createElement('div')
+      dialog.setAttribute('role', 'dialog')
+      const inDialog = document.createElement('button')
+      dialog.append(inDialog)
+      document.body.append(input, dialog)
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, ...actions }))
+
+      for (const target of [input, inDialog]) {
+        target.focus()
+        for (const key of ['?', 'c', 'n']) press(target, key)
+      }
+
+      expect(actions.onShortcutSheet).not.toHaveBeenCalled()
+      expect(actions.onChatToggle).not.toHaveBeenCalled()
+      expect(actions.onNHLToggle).not.toHaveBeenCalled()
+      document.body.removeChild(input)
+      document.body.removeChild(dialog)
+    })
+
+    it('ignore modifiers (Ctrl+C copies, Ctrl+N opens a window)', () => {
+      const actions = panelActions()
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, ...actions }))
+
+      press(window, 'c', { ctrlKey: true })
+      press(window, 'n', { metaKey: true })
+      press(window, '?', { altKey: true })
+
+      expect(actions.onShortcutSheet).not.toHaveBeenCalled()
+      expect(actions.onChatToggle).not.toHaveBeenCalled()
+      expect(actions.onNHLToggle).not.toHaveBeenCalled()
+    })
+  })
+
   it('FE-09 respects an already handled player-surface event', () => {
     renderHook(() => useVideoKeyboardShortcuts(mockProps))
     const event = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true })

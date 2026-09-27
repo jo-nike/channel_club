@@ -28,6 +28,12 @@ interface UseVideoKeyboardShortcutsOptions {
   onDigit?: (digit: string) => void
   /** Enter: commit the number being typed; returns false when none is */
   onDigitCommit?: () => boolean
+  /** Open the list of shortcuts (?) */
+  onShortcutSheet?: () => void
+  /** Open or close chat (C) */
+  onChatToggle?: () => void
+  /** Show or hide the NHL scores (N) */
+  onNHLToggle?: () => void
   /** Leave ArrowUp/ArrowDown alone (TV mode, where they belong to channel changes) */
   ignoreVerticalArrows?: boolean
 }
@@ -66,6 +72,9 @@ export function useVideoKeyboardShortcuts({
   onLastChannel,
   onDigit,
   onDigitCommit,
+  onShortcutSheet,
+  onChatToggle,
+  onNHLToggle,
   ignoreVerticalArrows = false,
 }: UseVideoKeyboardShortcutsOptions) {
   const handleKeyDown = useCallback(
@@ -167,6 +176,20 @@ export function useVideoKeyboardShortcuts({
           if (onDigitCommit?.()) e.preventDefault()
           break
 
+        case '?': // ? - The list of shortcuts
+          onShortcutSheet?.()
+          break
+
+        case 'c':
+        case 'C': // C - Chat
+          onChatToggle?.()
+          break
+
+        case 'n':
+        case 'N': // N - NHL scores
+          onNHLToggle?.()
+          break
+
         default:
           break
       }
@@ -186,6 +209,9 @@ export function useVideoKeyboardShortcuts({
       onLastChannel,
       onDigit,
       onDigitCommit,
+      onShortcutSheet,
+      onChatToggle,
+      onNHLToggle,
       ignoreVerticalArrows,
     ]
   )
