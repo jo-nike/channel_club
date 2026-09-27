@@ -221,7 +221,7 @@ export function PlayerChrome({
             value={volume}
             onChange={(e) => changeVolume(parseFloat(e.target.value))}
             aria-label="Volume"
-            className={`hidden h-2 w-24 cursor-pointer sm:block appearance-none rounded-full bg-white/30 accent-white ${
+            className={`hidden h-2 w-24 cursor-pointer sm:block appearance-none rounded-full bg-white/30 accent-white focus-ring-media ${
               isStoreMuted ? 'opacity-50' : ''
             }`}
           />
