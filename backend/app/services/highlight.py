@@ -32,6 +32,12 @@ from app.services.media_source import resolve_media_channel
 
 log = logger.bind(service="highlight")
 
+# A capture waits for the segment being written at the press to close, so the press is inside it.
+# The wait is one segment plus slack, capped so a long configured segment cannot stall the editor.
+TAIL_WAIT_SLACK_SECONDS = 2
+TAIL_WAIT_CAP_SECONDS = 12
+TAIL_POLL_SECONDS = 0.25
+
 
 def remove_recording_directory(directory: Path) -> None:
     """Delete only strict descendants of the configured recording root."""
@@ -261,8 +267,43 @@ class ChannelRecorder:
             elapsed = time.time() - self.started_at
             return min(elapsed, settings.highlight_buffer_seconds)
 
-    def _snapshot(self, workspace: Path) -> Path:
-        """Copy completed segments while producer is paused and lifecycle locked."""
+    def _newest_listed_segment(self) -> str | None:
+        """The segment muxer lists a segment only once it is closed."""
+        if not self.segment_dir:
+            return None
+        try:
+            entries = (self.segment_dir / "segments.txt").read_text().splitlines()
+        except OSError:
+            return None
+        return entries[-1] if entries else None
+
+    async def wait_for_current_segment(self) -> bool:
+        """Wait, bounded, until the segment being written now is closed and listed.
+
+        Returns False when the wait timed out (a stalled stream) or the recorder stopped;
+        the capture then ends at the last closed segment, as before.
+        """
+        listed = self._newest_listed_segment()
+        limit = min(
+            settings.highlight_segment_seconds + TAIL_WAIT_SLACK_SECONDS, TAIL_WAIT_CAP_SECONDS
+        )
+        deadline = time.monotonic() + limit
+        while time.monotonic() < deadline:
+            await asyncio.sleep(TAIL_POLL_SECONDS)
+            if not self.is_running:
+                return False
+            if self._newest_listed_segment() != listed:
+                return True
+        log.info(
+            "Capture on channel {} stopped waiting for a segment after {}s", self.channel_id, limit
+        )
+        return False
+
+    def _snapshot(self, workspace: Path) -> tuple[Path, float]:
+        """Copy completed segments while producer is paused and lifecycle locked.
+
+        Returns the concat list and the wall-clock time the newest copied segment ends.
+        """
         if not self.segment_dir or not self.process:
             raise ValueError("Recorder not running")
         producer_pid = self.process.pid
@@ -292,8 +333,10 @@ class ChannelRecorder:
             paths = [path for path in paths if path.stat().st_mtime >= cutoff]
             if not paths:
                 raise ValueError("No recent segments available")
-            # The segment being written is left out, so the capture ends this long before the press.
-            tail_gap = time.time() - paths[-1].stat().st_mtime
+            # The segment being written is left out, so the capture ends this long before the
+            # snapshot. Captures first wait for the segment written at the press to close.
+            ends_at = paths[-1].stat().st_mtime
+            tail_gap = time.time() - ends_at
             if sum(path.stat().st_size for path in paths) > settings.media_export_max_bytes:
                 raise ValueError("Highlight exceeds export size limit")
             names = []
@@ -309,23 +352,27 @@ class ChannelRecorder:
                 segments=len(paths),
                 tail_gap_seconds=round(tail_gap, 2),
             ).info(
-                "Highlight capture of {} segments ends {:.1f}s before the press",
+                "Highlight capture of {} segments ends {:.1f}s before the snapshot",
                 len(paths),
                 tail_gap,
             )
-            return concat
+            return concat, ends_at
         finally:
             with suppress(ProcessLookupError):
                 os.killpg(producer_pid, signal.SIGCONT)
 
-    async def capture(self, output: Path) -> None:
-        """Remux the private snapshot into an immutable MP4 the editor streams by URL."""
+    async def capture(self, output: Path) -> float:
+        """Remux the private snapshot into an immutable MP4 the editor streams by URL.
+
+        Returns the wall-clock time the capture ends (its newest segment's mtime).
+        """
         with tempfile.TemporaryDirectory(prefix="highlight-capture-") as directory:
             async with self._lock:
                 if not self.is_running or not self.segment_dir:
                     raise ValueError("Recorder not running")
-                concat = await owned_thread(self._snapshot, Path(directory))
+                concat, ends_at = await owned_thread(self._snapshot, Path(directory))
             await encode_file(concat, output, "mp4", None, None, concat=True)
+        return ends_at
 
     async def save_highlight(
         self,
@@ -340,7 +387,7 @@ class ChannelRecorder:
                 async with self._lock:
                     if not self.is_running or not self.segment_dir:
                         return None, "Recorder not running"
-                    concat = await owned_thread(self._snapshot, workspace)
+                    concat, _ = await owned_thread(self._snapshot, workspace)
                 video = await encode_file(
                     concat,
                     workspace / f"highlight.{format}",
@@ -377,6 +424,10 @@ class Capture:
     size: int
     duration: float
     created_at: float
+    # Server time of the request, and the wall-clock time the capture's last frame was recorded:
+    # the editor places the press at duration - (ends_at - pressed_at).
+    pressed_at: float
+    ends_at: float
 
     @property
     def expires_at(self) -> float:
@@ -389,7 +440,9 @@ class CaptureStore:
     def __init__(self):
         self.captures: dict[str, Capture] = {}
 
-    async def create(self, recorder: ChannelRecorder, owner: str, channel_id: str) -> Capture:
+    async def create(
+        self, recorder: ChannelRecorder, owner: str, channel_id: str, pressed_at: float
+    ) -> Capture:
         root = Path(settings.highlight_temp_dir) / "captures"
         root.mkdir(parents=True, exist_ok=True)
         capture_id = secrets.token_urlsafe(16)
@@ -397,7 +450,7 @@ class CaptureStore:
         directory.mkdir(mode=0o700)
         path = directory / "snapshot.mp4"
         try:
-            await recorder.capture(path)
+            ends_at = await recorder.capture(path)
             duration = await media_duration(path)
             size = await owned_thread(lambda: path.stat().st_size)
         except BaseException:
@@ -406,10 +459,21 @@ class CaptureStore:
         # One capture per owner bounds disk use to one export-sized file each.
         for previous in [item for item in self.captures.values() if item.owner == owner]:
             await self._remove(previous)
-        capture = Capture(capture_id, owner, channel_id, path, size, duration, time.time())
+        capture = Capture(
+            capture_id, owner, channel_id, path, size, duration, time.time(), pressed_at, ends_at
+        )
         self.captures[capture_id] = capture
-        log.info(
-            "Capture {} ready for {} ({:.1f}s, {:.1f} KB)", capture_id, owner, duration, size / 1024
+        log.bind(
+            event="highlight.capture_ready",
+            channel_id=channel_id,
+            ends_after_press_seconds=round(ends_at - pressed_at, 2),
+        ).info(
+            "Capture {} ready for {} ({:.1f}s, {:.1f} KB), ends {:+.1f}s after the press",
+            capture_id,
+            owner,
+            duration,
+            size / 1024,
+            ends_at - pressed_at,
         )
         return capture
 
@@ -705,14 +769,17 @@ class HighlightService:
         self, channel_id: str, owner: str
     ) -> tuple[Capture | None, str | None]:
         """Snapshot the channel into a server-held capture the owner can stream and export."""
+        pressed_at = time.time()
         if not settings.highlight_enabled:
             return None, "Highlight feature is disabled"
         if channel_id not in self._recorders:
             return None, "No recording active for this channel"
         recorder = self._recorders[channel_id]
+        # Waited outside the export slot: only two exist server-wide, and waiting encodes nothing.
+        await recorder.wait_for_current_segment()
         with export_budget.slot(owner):
             try:
-                return await self.captures.create(recorder, owner, channel_id), None
+                return await self.captures.create(recorder, owner, channel_id, pressed_at), None
             except TimeoutError:
                 return None, "Highlight creation timed out"
             except (OSError, ValueError) as exc:

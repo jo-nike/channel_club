@@ -11,7 +11,8 @@ vi.mock('@/services/api', () => ({
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 const preview = new Blob(['original snapshot'], { type: 'video/mp4' })
 const prepared = new Blob(['selected frames'], { type: 'video/mp4' })
-const capture = { id: 'capture-1', duration: 60, bytes: 17, expiresAt: 0 }
+// Pressed as the capture's last frame was recorded, so the press is at its end.
+const capture = { id: 'capture-1', duration: 60, bytes: 17, expiresAt: 0, pressedAt: 1_000, endsAt: 1_000 }
 const props = { isOpen: true, onClose: vi.fn(), channelId: 'channel-1' }
 
 async function ready(duration = 60) {
@@ -72,6 +73,128 @@ describe('Clip editor', () => {
     expect(screen.getByLabelText('Start (seconds)')).toHaveValue(0)
     fireEvent.click(screen.getByText('Reset'))
     expect(screen.getByLabelText('Start (seconds)')).toHaveValue(40)
+    expect(screen.getByLabelText('End (seconds)')).toHaveValue(60)
+  })
+
+  it('selects the 20 seconds ending where the user pressed, not the end of the capture', async () => {
+    // The capture waited for the segment being written, so it runs 5s past the press.
+    vi.mocked(api.createHighlightCapture).mockResolvedValue({ ...capture, pressedAt: 1_000, endsAt: 1_005 })
+    render(<HighlightModal {...props} />)
+    const video = await ready()
+    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(35)
+    expect(screen.getByLabelText('End (seconds)')).toHaveValue(55)
+    expect(video.currentTime).toBe(35)
+    expect(parseFloat(screen.getByText('You pressed').style.left)).toBeCloseTo(55 / 60 * 100)
+    fireEvent.click(screen.getByText('Last 10s'))
+    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(45)
+    expect(screen.getByLabelText('End (seconds)')).toHaveValue(55)
+    fireEvent.click(screen.getByText('Full clip'))
+    fireEvent.click(screen.getByText('Reset'))
+    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(35)
+    expect(screen.getByLabelText('End (seconds)')).toHaveValue(55)
+  })
+
+  it('plays the default selection once on open and stops at its end', async () => {
+    render(<HighlightModal {...props} />)
+    const video = await ready()
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(1)
+    expect(video.currentTime).toBe(40)
+    expect(await screen.findByText('Pause preview')).toBeInTheDocument()
+    video.currentTime = 60
+    fireEvent.timeUpdate(video)
+    expect(video.paused).toBe(true)
+    expect(screen.getByText('Play selection')).toBeInTheDocument()
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(1)
+  })
+
+  it('stays paused and ready when the browser refuses to play on open', async () => {
+    // iOS Safari rejects play() outside a user gesture; the capture resolves long after the press.
+    vi.mocked(HTMLMediaElement.prototype.play).mockImplementationOnce(() => Promise.reject(new DOMException('Not allowed', 'NotAllowedError')))
+    render(<HighlightModal {...props} />)
+    const video = await ready()
+    await waitFor(() => expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(1))
+    expect(screen.getByText('Play selection')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(video.currentTime).toBe(40)
+    fireEvent.click(screen.getByText('Play selection'))
+    expect(await screen.findByText('Pause preview')).toBeInTheDocument()
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(2)
+  })
+
+  it('re-captures to include the seconds missing before the press and keeps the selection around the press', async () => {
+    // The recorder had not closed the last 4s before the press (the wait for it timed out).
+    vi.mocked(api.createHighlightCapture)
+      .mockResolvedValueOnce({ ...capture, pressedAt: 1_000, endsAt: 996 })
+      .mockResolvedValueOnce({ ...capture, id: 'capture-2', pressedAt: 1_030, endsAt: 1_006 })
+    render(<HighlightModal {...props} />)
+    await ready()
+    expect(screen.getByRole('status')).toHaveTextContent('This capture ends 4.0s before you pressed.')
+    // The press is 4s past the capture, so the selection ends at the capture's end: 50-60 is 986-996.
+    fireEvent.click(screen.getByText('Last 10s'))
+    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(50)
+    fireEvent.click(screen.getByRole('button', { name: 'Include the last few seconds' }))
+    const video = await ready()
+    expect(video).toHaveAttribute('src', '/api/highlight/capture/capture-2?token=t')
+    expect(api.deleteHighlightCapture).toHaveBeenCalledExactlyOnceWith('capture-1')
+    // The new capture (946-1006) ends 6s after the original press (not the re-capture's own request
+    // time), so the press is at 54s. The selection still starts at 986 (40s in) and, since it ran to
+    // the old capture's end, now runs on to the press.
+    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(40)
+    expect(screen.getByLabelText('End (seconds)')).toHaveValue(54)
+    expect(video.currentTime).toBe(40)
+    expect(parseFloat(screen.getByText('You pressed').style.left)).toBeCloseTo(90)
+    expect(screen.queryByText(/before you pressed\./)).not.toBeInTheDocument()
+    // Played once on open only; the re-capture does not start playback again.
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps a hand-trimmed selection on the same footage after the re-capture', async () => {
+    vi.mocked(api.createHighlightCapture)
+      .mockResolvedValueOnce({ ...capture, pressedAt: 1_000, endsAt: 988 })
+      .mockResolvedValueOnce({ ...capture, id: 'capture-2', pressedAt: 1_030, endsAt: 1_002 })
+    render(<HighlightModal {...props} />)
+    await ready()
+    // The capture runs 928-988; 30-40 is 958-968, 42-32s before the press.
+    fireEvent.change(screen.getByLabelText('Start (seconds)'), { target: { value: '30' } })
+    fireEvent.blur(screen.getByLabelText('Start (seconds)'))
+    fireEvent.change(screen.getByLabelText('End (seconds)'), { target: { value: '40' } })
+    fireEvent.blur(screen.getByLabelText('End (seconds)'))
+    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(30)
+    expect(screen.getByLabelText('End (seconds)')).toHaveValue(40)
+    fireEvent.click(screen.getByRole('button', { name: 'Include the last few seconds' }))
+    await ready()
+    // The new capture runs 942-1002, so 958-968 is 16-26.
+    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(16)
+    expect(screen.getByLabelText('End (seconds)')).toHaveValue(26)
+  })
+
+  it('clamps a kept selection that falls outside the new capture', async () => {
+    vi.mocked(api.createHighlightCapture)
+      .mockResolvedValueOnce({ ...capture, pressedAt: 1_000, endsAt: 998 })
+      .mockResolvedValueOnce({ ...capture, id: 'capture-2', pressedAt: 1_020, endsAt: 1_020 })
+    render(<HighlightModal {...props} />)
+    await ready()
+    fireEvent.click(screen.getByText('Full clip'))
+    fireEvent.click(screen.getByRole('button', { name: 'Include the last few seconds' }))
+    await ready()
+    // The press is now 40s into the capture; 60s before it has left the buffer.
+    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(0)
+    expect(screen.getByLabelText('End (seconds)')).toHaveValue(40)
+  })
+
+  it('ends the default selection at the capture when it stops short of the press, still counting from the press', async () => {
+    // The wait for the segment being written timed out, so the capture ends 4s before the press.
+    vi.mocked(api.createHighlightCapture).mockResolvedValue({ ...capture, pressedAt: 1_000, endsAt: 996 })
+    render(<HighlightModal {...props} />)
+    await ready()
+    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(40)
+    expect(screen.getByLabelText('End (seconds)')).toHaveValue(60)
+    expect(screen.getByText('You pressed 4.0 s after the end')).toBeInTheDocument()
+    // 20s before the press is 44s into the capture, not 40s.
+    expect(parseFloat(screen.getByText('\u221220 s').style.left)).toBeCloseTo(44 / 60 * 100)
+    expect(screen.getByRole('slider', { name: 'Playhead' })).toHaveAttribute('aria-valuetext', '40.0 seconds, 24.0 seconds before you pressed')
+    fireEvent.click(screen.getByText('Last 10s'))
+    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(50)
     expect(screen.getByLabelText('End (seconds)')).toHaveValue(60)
   })
 
