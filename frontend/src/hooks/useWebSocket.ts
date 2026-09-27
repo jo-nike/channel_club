@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/authStore'
-import { useChannelStore } from '@/stores/channelStore'
+import { useChannelStore, describeLiveChange } from '@/stores/channelStore'
 import { useTVStore } from '@/stores/tvStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
@@ -59,7 +59,7 @@ function notifyLiveChange(channel: Channel | null, changedBy: string | null) {
   if (useTVStore.getState().selectedChannel?.type === 'live') return
 
   if (channel) {
-    toast(changedBy ? `${changedBy} put on ${channel.name}` : `Live channel set to ${channel.name}`, {
+    toast(describeLiveChange(channel.name, changedBy), {
       id: LIVE_CHANGE_TOAST_ID,
       duration: LIVE_CHANGE_TOAST_DURATION,
       action: {
@@ -73,7 +73,7 @@ function notifyLiveChange(channel: Channel | null, changedBy: string | null) {
   } else if (changedBy) {
     // Sonner merges an update into a visible toast with the same id, so an
     // omitted action would keep the previous 'put on' toast's Watch button.
-    toast(`${changedBy} stopped live TV`, {
+    toast(describeLiveChange(null, changedBy), {
       id: LIVE_CHANGE_TOAST_ID,
       duration: LIVE_CHANGE_TOAST_DURATION,
       action: undefined,

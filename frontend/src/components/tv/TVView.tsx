@@ -5,6 +5,7 @@ import { useAppSettings } from '@/hooks/useAppSettings'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
 import { useTVMode } from '@/hooks/useTVMode'
 import { useChannelZap } from '@/hooks/useChannelZap'
+import { useLiveChangeAnnouncement } from '@/hooks/useLiveChangeAnnouncement'
 import { getRemoteAction, isKeyForFocusedControl } from '@/lib/remoteKeys'
 import { useNowPlaying } from '@/hooks/useNowPlaying'
 import { useWebSocket } from '@/hooks/useWebSocket'
@@ -167,6 +168,9 @@ export function TVView() {
   })
   const { pending: zapPending, step: zapStep } = zap
   const isTVTheater = isTVMode && isTheaterMode
+  // The info rail stays out of TV theater: the channel banner tells a viewer
+  // on channel 0 who changed the live channel instead
+  const liveChange = useLiveChangeAnnouncement(isTVTheater && selectedChannel?.type === 'live')
 
   useEffect(() => {
     if (!isTVTheater) return
@@ -579,6 +583,7 @@ export function TVView() {
                 channel={zapPending ?? selectedChannel}
                 entry={zapPending ? null : zap.entry}
                 missing={zap.missing}
+                liveChange={zapPending ? null : liveChange}
               />
             )}
           </div>

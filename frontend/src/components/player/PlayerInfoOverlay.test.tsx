@@ -166,11 +166,31 @@ describe('PlayerInfoOverlay: what the rail says', () => {
     )
   })
 
-  it("says 'Live · no guide info' when the live channel has no guide data, never 'Now broadcasting'", () => {
-    renderOverlay(liveSlot())
+  it.each([
+    ['empty', 'No guide info'],
+    ['unavailable', 'Guide unavailable'],
+    ['loading', 'Loading guide...'],
+    ['idle', 'Loading guide...'],
+  ] as const)(
+    "says why the live channel has no programme when the guide is %s, as the header does, never 'Now broadcasting'",
+    (liveEPGStatus, text) => {
+      useTVStore.setState({ liveEPG: null, liveEPGStatus })
+      renderOverlay(liveSlot())
 
-    expect(rail()).toHaveTextContent('Live · no guide info')
-    expect(rail()).not.toHaveTextContent(/broadcasting/i)
+      expect(rail()).toHaveTextContent(text)
+      expect(rail()).not.toHaveTextContent(/broadcasting/i)
+    }
+  )
+
+  it('follows the guide from loading to unavailable', () => {
+    useTVStore.setState({ liveEPG: null, liveEPGStatus: 'loading' })
+    renderOverlay(liveSlot())
+    expect(rail()).toHaveTextContent('Loading guide...')
+
+    act(() => useTVStore.setState({ liveEPGStatus: 'unavailable' }))
+
+    expect(rail()).toHaveTextContent('Guide unavailable')
+    expect(rail()).not.toHaveTextContent('Loading guide...')
   })
 
   it('says there is no guide info for an ErsatzTV channel with a gap in its schedule', () => {
@@ -340,19 +360,19 @@ describe('PlayerInfoOverlay: shared live-channel changes', () => {
     liveChangedTo('Sportsnet One', 'jon')
     update(liveSlot('Sportsnet One', 'https://fixture/sn1'), hidden)
 
-    expect(status()).toHaveTextContent('Live changed to Sportsnet One by jon')
+    expect(status()).toHaveTextContent('jon put on Sportsnet One')
     // The whole rail comes up with it, showing the new channel
     expect(rail()).toHaveClass('opacity-100')
     expect(rail()).toHaveTextContent('Sportsnet One')
 
     advance(4999)
-    expect(status()).toHaveTextContent('Live changed to Sportsnet One by jon')
+    expect(status()).toHaveTextContent('jon put on Sportsnet One')
 
     advance(1)
     expect(status()).toBeEmptyDOMElement()
     expect(rail()).toHaveClass('opacity-0')
     // The programme line is back
-    expect(rail()).toHaveTextContent('Live · no guide info')
+    expect(rail()).toHaveTextContent('No guide info')
   })
 
   it('names nobody for a system change', () => {
@@ -360,7 +380,7 @@ describe('PlayerInfoOverlay: shared live-channel changes', () => {
 
     liveChangedTo('TSN 3', null)
 
-    expect(status()).toHaveTextContent(/^Live changed to TSN 3$/)
+    expect(status()).toHaveTextContent(/^Live channel set to TSN 3$/)
   })
 
   it('a second change restarts the 5s', () => {
@@ -369,10 +389,10 @@ describe('PlayerInfoOverlay: shared live-channel changes', () => {
     advance(3000)
 
     liveChangedTo('TSN 4', 'dev')
-    expect(status()).toHaveTextContent('Live changed to TSN 4 by dev')
+    expect(status()).toHaveTextContent('dev put on TSN 4')
 
     advance(4999)
-    expect(status()).toHaveTextContent('Live changed to TSN 4 by dev')
+    expect(status()).toHaveTextContent('dev put on TSN 4')
     advance(1)
     expect(status()).toBeEmptyDOMElement()
   })
@@ -400,7 +420,7 @@ describe('PlayerInfoOverlay: shared live-channel changes', () => {
     liveChangedTo('TSN 3', 'jon')
 
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
-    expect(rail()).not.toHaveTextContent(/Live changed/)
+    expect(rail()).not.toHaveTextContent(/put on/)
   })
 
   it('does not announce a change made before tuning to channel 0', () => {

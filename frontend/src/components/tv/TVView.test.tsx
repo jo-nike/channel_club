@@ -1473,3 +1473,43 @@ describe('G-09 tablet layout', () => {
     })
   })
 })
+
+describe('C-04 live changes in TV theater', () => {
+  beforeEach(() => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
+    localStorage.setItem('tv-mode', 'true')
+  })
+  afterEach(() => {
+    localStorage.removeItem('tv-mode')
+    useUIStore.setState({ isTheaterMode: false })
+  })
+
+  const liveChange = (name: string, by: string | null) =>
+    act(() => {
+      useChannelStore.getState().setCurrentChannel({ id: name, name, streamUrl: `https://fixture/${name}` })
+      useChannelStore.getState().setLastChange({ by, at: Date.now(), channelName: name })
+    })
+
+  it('names who changed the live channel in the channel banner, where the info rail stays away', async () => {
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+    expect(useUIStore.getState().isTheaterMode).toBe(true)
+
+    liveChange('TSN 5', 'jon')
+
+    expect(screen.getByText('jon put on TSN 5')).toBeVisible()
+    expect(screen.getByText('jon put on TSN 5').closest('[role="status"]')).toHaveTextContent('CH 0 · TSN 5')
+  })
+
+  it('announces nothing on other channels, which get the toast', async () => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([{ id: 'e', name: 'Cinema', number: 1, streamUrl: '/e', group: '' }])
+    vi.mocked(api.fetchErsatzTVCurrentProgramme).mockResolvedValue({ current: null, next: null })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(useTVStore.getState().getUnifiedChannels()).toHaveLength(2))
+    act(() => useTVStore.getState().selectChannel(useTVStore.getState().getUnifiedChannels()[1]))
+
+    liveChange('TSN 5', 'jon')
+
+    expect(screen.queryByText('jon put on TSN 5')).not.toBeInTheDocument()
+  })
+})

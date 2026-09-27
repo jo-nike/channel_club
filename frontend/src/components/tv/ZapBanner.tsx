@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { describeLiveChange, type LiveChannelChange } from '@/stores/channelStore'
 import type { UnifiedChannel } from '@/types'
 
 /** How long the banner stays up after the last channel change. */
@@ -11,6 +12,8 @@ interface ZapBannerProps {
   entry?: string | null
   /** A number just typed that no channel has */
   missing?: string | null
+  /** A change to the shared live channel to announce, while on channel 0 */
+  liveChange?: LiveChannelChange | null
 }
 
 /**
@@ -22,9 +25,18 @@ interface ZapBannerProps {
  * A typed number that matches no channel (yet) shows its digits instead of a
  * channel, and 'No channel 99' once it is entered, so the banner never
  * implies the number was taken.
+ *
+ * The info rail stays out of TV theater, so the banner also tells a viewer on
+ * channel 0 who changed the live channel, in the rail's and the toast's words
+ * ('jon put on TSN 5'), and comes up again for it.
  */
-export function ZapBanner({ channel, entry = null, missing = null }: ZapBannerProps) {
+export function ZapBanner({ channel, entry = null, missing = null, liveChange = null }: ZapBannerProps) {
   const number = missing ?? entry
+  // The last change announced: each one brings the banner back for its 3s,
+  // and the announcement ending doesn't. (Adjusted while rendering, React's
+  // pattern for state that follows a prop.)
+  const [announcedAt, setAnnouncedAt] = useState(liveChange?.at ?? null)
+  if (liveChange && liveChange.at !== announcedAt) setAnnouncedAt(liveChange.at)
   return (
     <div
       role="status"
@@ -42,7 +54,10 @@ export function ZapBanner({ channel, entry = null, missing = null }: ZapBannerPr
         </ZapBannerCard>
       ) : (
         channel && (
-          <ZapBannerCard key={`${channel.id}:${channel.name}`}>
+          <ZapBannerCard
+            key={`${channel.id}:${channel.name}:${announcedAt}`}
+            detail={liveChange && describeLiveChange(liveChange.channelName, liveChange.by)}
+          >
             <span className="font-display font-black tabular-nums">CH {channel.number}</span> · {channel.name}
           </ZapBannerCard>
         )
@@ -51,7 +66,7 @@ export function ZapBanner({ channel, entry = null, missing = null }: ZapBannerPr
   )
 }
 
-function ZapBannerCard({ children }: { children: ReactNode }) {
+function ZapBannerCard({ children, detail = null }: { children: ReactNode; detail?: string | null }) {
   const [visible, setVisible] = useState(true)
 
   useEffect(() => {
@@ -64,6 +79,7 @@ function ZapBannerCard({ children }: { children: ReactNode }) {
   return (
     <div className="rounded-2xl bg-black/70 px-8 py-6 text-white shadow-2xl">
       <p className="text-5xl font-bold">{children}</p>
+      {detail && <p className="mt-3 text-3xl font-semibold">{detail}</p>}
       <p className="mt-3 text-2xl text-white/80">▲▼ change channel · Back for menu</p>
     </div>
   )

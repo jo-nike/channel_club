@@ -300,9 +300,9 @@ describe('OnAirCard', () => {
       expect(screen.getByText('Nothing on live TV')).toBeInTheDocument()
     })
 
-    it('says it could not stop live TV and keeps the channel when stopping fails', async () => {
+    it('says it could not stop live TV, once, and keeps the channel when stopping fails', async () => {
       const toastError = vi.spyOn(toast, 'error')
-      vi.mocked(api.clearCurrentChannel).mockRejectedValueOnce(new Error('Failed to clear channel'))
+      vi.mocked(api.clearCurrentChannel).mockRejectedValueOnce(new Error('Could not stop live TV'))
 
       render(<OnAirCard />)
 
@@ -311,10 +311,27 @@ describe('OnAirCard', () => {
 
       await waitFor(() => {
         expect(toastError).toHaveBeenCalledWith('Could not stop live TV', {
-          description: 'Failed to clear channel',
+          description: 'Please try again',
         })
       })
       expect(useChannelStore.getState().currentChannel).toEqual(tsn)
+      toastError.mockRestore()
+    })
+
+    it('gives the reason under the title when there is one', async () => {
+      const toastError = vi.spyOn(toast, 'error')
+      vi.mocked(api.clearCurrentChannel).mockRejectedValueOnce(new Error('Only admins can stop live TV'))
+
+      render(<OnAirCard />)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Stop live TV…' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Stop live TV' }))
+
+      await waitFor(() => {
+        expect(toastError).toHaveBeenCalledWith('Could not stop live TV', {
+          description: 'Only admins can stop live TV',
+        })
+      })
       toastError.mockRestore()
     })
 

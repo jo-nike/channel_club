@@ -54,10 +54,13 @@ export function OnAirCard({ onHeightChange }: OnAirCardProps) {
     try {
       await clearCurrentChannelApi()
     } catch (e) {
-      // Revert on failure
+      // Revert on failure. The reason goes under the title only when it adds
+      // something: a plain failure's message is the title itself.
       setCurrentChannel(previousChannel)
-      toast.error('Could not stop live TV', {
-        description: e instanceof Error ? e.message : 'Please try again',
+      const title = 'Could not stop live TV'
+      const reason = e instanceof Error ? e.message : ''
+      toast.error(title, {
+        description: reason && reason !== title ? reason : 'Please try again',
       })
     }
   }

@@ -140,6 +140,13 @@ describe('PlayerChrome', () => {
         expect(focusOverrides(button)).toEqual([])
       }
     })
+
+    it('gives the volume slider the over-video focus ring too', () => {
+      renderChrome()
+
+      expect(slider()).toHaveClass('focus-ring-media')
+      expect(focusOverrides(slider())).toEqual([])
+    })
   })
 
   describe('play/pause', () => {

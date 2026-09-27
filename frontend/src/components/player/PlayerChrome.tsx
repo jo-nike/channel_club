@@ -77,10 +77,11 @@ export function PlayerChrome({
   const isPhone = isMobileProp || isMobileQuery || isMobileLandscape
   const showTheaterButton = (isTVMode || !isPhone || isTheaterMode) && !isFullscreen
 
-  // Chat, where the page header and its chat button are gone: theater,
-  // fullscreen on a desktop and a phone held sideways. Not on a phone in
-  // portrait fullscreen, where the bar has no room for another button, and
-  // not on a TV until couch mode gives chat a remote-friendly home.
+  // Chat, where the page header and its chat button are gone: theater, a
+  // phone held sideways, and fullscreen. In fullscreen only where isMobile is
+  // false (a fine pointer and a window wider than 768px): isMobile is also
+  // true for any coarse pointer, tablets included, and there the button is
+  // left out. Not on a TV until couch mode gives chat a remote-friendly home.
   const chatEnabled = useChatEnabled()
   // Sideways, a 390px-tall picture can't spare a 48px bar with room around
   // it: the bar tightens to 44px targets and a thin scrim
@@ -221,7 +222,7 @@ export function PlayerChrome({
             value={volume}
             onChange={(e) => changeVolume(parseFloat(e.target.value))}
             aria-label="Volume"
-            className={`hidden h-2 w-24 cursor-pointer sm:block appearance-none rounded-full bg-white/30 accent-white ${
+            className={`hidden h-2 w-24 cursor-pointer sm:block appearance-none rounded-full bg-white/30 accent-white focus-ring-media ${
               isStoreMuted ? 'opacity-50' : ''
             }`}
           />
@@ -241,7 +242,6 @@ export function PlayerChrome({
       {/* Highlight capture */}
       {showHighlightButton && (
         <HighlightButton
-          channelId={channelId}
           isVisible={isVisible}
           highlightStatus={highlightStatus}
           loaded={highlightLoaded}
@@ -313,8 +313,9 @@ export function PlayerChrome({
         </TooltipContent>
       </Tooltip>
 
-      {/* Theater Mode Button - hidden on phones and in fullscreen. TV browsers
-          always get it: webOS pointer mode can report pointer:coarse. */}
+      {/* Theater Mode Button - hidden on phones and in fullscreen (see
+          showTheaterButton). TV browsers always get it, whatever their
+          viewport or pointer. */}
       {showTheaterButton && (
         <Tooltip>
           <TooltipTrigger asChild>

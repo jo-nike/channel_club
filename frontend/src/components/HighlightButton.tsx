@@ -4,7 +4,6 @@ import { type HighlightStatusResponse } from '@/services/api'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 export interface HighlightButtonProps {
-  channelId: string
   isVisible: boolean
   highlightStatus: HighlightStatusResponse
   /** False until the first status poll answers: the status is a placeholder */

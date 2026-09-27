@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { useChannelStore } from './channelStore'
+import { describeLiveChange, useChannelStore } from './channelStore'
 
 describe('channelStore', () => {
   beforeEach(() => {
@@ -145,5 +145,16 @@ describe('channelStore', () => {
       expect(useChannelStore.getState().lastChange).toEqual({ by: 'bob', at: 2000, channelName: null })
       expect(useChannelStore.getState().currentChannel).toEqual(channel)
     })
+  })
+})
+
+describe('describeLiveChange', () => {
+  it.each([
+    ['TSN 5', 'jon', 'jon put on TSN 5'],
+    ['TSN 5', null, 'Live channel set to TSN 5'],
+    [null, 'jon', 'jon stopped live TV'],
+    [null, null, 'Live TV stopped'],
+  ] as const)('%s by %s reads "%s"', (channelName, by, text) => {
+    expect(describeLiveChange(channelName, by)).toBe(text)
   })
 })
