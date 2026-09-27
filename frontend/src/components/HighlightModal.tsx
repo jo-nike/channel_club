@@ -8,8 +8,14 @@ import { ClipTimeline } from './ClipTimeline'
 import { ClipTimeField } from './ClipTimeField'
 import { useAudioStore } from '@/stores/audioStore'
 
-/** The editor opens on the most recent stretch, which is short enough to share. */
+/** The editor opens on the stretch ending at the press, which is short enough to share. */
 const DEFAULT_CLIP_SECONDS = 20
+
+/** The default selection: the DEFAULT_CLIP_SECONDS that end where the user pressed, or at the capture's end if it stops short of the press. */
+function pressRange(duration: number, press: number): [number, number] {
+  const end = Math.min(duration, Math.max(Math.min(duration, 0.1), press))
+  return [Math.max(0, end - DEFAULT_CLIP_SECONDS), end]
+}
 
 export interface HighlightModalProps {
   isOpen: boolean
@@ -32,8 +38,10 @@ export function HighlightModal({ isOpen, ...props }: HighlightModalProps) {
 }
 
 function ClipSession({ channelId, channelName = channelId, playingChannel, onClose, container }: Omit<HighlightModalProps, 'isOpen'>) {
-  const [source, setSource] = useState<{ id: string; url: string } | null>(null)
+  const [source, setSource] = useState<{ id: string; url: string; pressedAt: number; endsAt: number } | null>(null)
   const [duration, setDuration] = useState(0)
+  // Where the user pressed Clip, in seconds into the capture; past its end when the capture stops short of the press
+  const [press, setPress] = useState(0)
   const [range, setRange] = useState<[number, number]>([0, 0])
   const [playhead, setPlayhead] = useState(0)
   const [playing, setPlaying] = useState(false)
@@ -80,7 +88,7 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
     void createHighlightCapture(channelId, request.signal).then(capture => {
       if (request.signal.aborted) { void deleteHighlightCapture(capture.id); return }
       captureId = capture.id
-      setSource({ id: capture.id, url: highlightCaptureUrl(capture.id) })
+      setSource({ id: capture.id, url: highlightCaptureUrl(capture.id), pressedAt: capture.pressedAt, endsAt: capture.endsAt })
     }).catch(err => {
       if (!request.signal.aborted) setCaptureError(err instanceof Error ? err.message : 'Could not capture clip')
     })
@@ -173,7 +181,7 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
   }
 
   function retryCapture() {
-    setSource(null); setCaptureError(null); setDuration(0); setRange([0, 0])
+    setSource(null); setCaptureError(null); setDuration(0); setPress(0); setRange([0, 0])
     setPlayhead(0); setPlaying(false); cache.current = null
     setAttempt(value => value + 1)
   }
@@ -202,9 +210,12 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
             onLoadedMetadata={() => {
               const length = video.current?.duration ?? 0
               if (!Number.isFinite(length) || length < 0.1) { setCaptureError('This capture has no usable duration. Capture again once more footage is available.'); return }
+              // The capture's last frame was recorded at endsAt, so the press is that far before its end.
+              // Not clamped: the ruler and the kept selection count from the real press, even past the end.
+              const pressOffset = length - (source.endsAt - source.pressedAt)
               // Not select(): its clamp reads the duration state, which is still 0 here.
-              const defaultStart = Math.max(0, length - DEFAULT_CLIP_SECONDS)
-              setDuration(length); setRange([defaultStart, length])
+              const [defaultStart, defaultEnd] = pressRange(length, pressOffset)
+              setDuration(length); setPress(pressOffset); setRange([defaultStart, defaultEnd])
               if (video.current) video.current.currentTime = defaultStart
               setPlayhead(defaultStart)
             }}
@@ -222,18 +233,18 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
             <legend className="sr-only">Clip selection</legend>
             <div className="flex flex-wrap items-center gap-2">
               {[10, 15, 30].map(seconds => <Button key={seconds} type="button" variant="outline" size="sm"
-                onClick={() => select(Math.max(0, duration - seconds), duration)}>Last {seconds}s</Button>)}
+                onClick={() => { const [, pressEnd] = pressRange(duration, press); select(Math.max(0, pressEnd - seconds), pressEnd) }}>Last {seconds}s</Button>)}
               <Button type="button" variant="outline" size="sm" onClick={() => select(0, duration)}>Full clip</Button>
               <span className="ml-auto text-sm text-muted-foreground">{duration.toFixed(1)}s captured</span>
             </div>
-            <ClipTimeline url={source.url} duration={duration} start={start} end={end} playhead={playhead}
+            <ClipTimeline url={source.url} duration={duration} start={start} end={end} playhead={playhead} press={press}
               onChange={select} onSeek={seek} disabled={stage !== null} />
             <div className="flex flex-wrap items-end gap-3">
               <ClipTimeField label="Start (seconds)" value={start} min={0} max={end - 0.1}
                 onCommit={value => select(value, end)} />
               <ClipTimeField label="End (seconds)" value={end} min={start + 0.1} max={duration}
                 onCommit={value => select(start, value, value)} />
-              <Button variant="ghost" onClick={() => select(Math.max(0, duration - DEFAULT_CLIP_SECONDS), duration)}><RotateCcw />Reset</Button>
+              <Button variant="ghost" onClick={() => select(...pressRange(duration, press))}><RotateCcw />Reset</Button>
               <span className="ml-auto pb-2 text-sm font-semibold tabular-nums">Selected: {(end - start).toFixed(1)}s</span>
             </div>
             <Button variant="outline" onClick={() => void playSelection()}>{playing ? <Pause /> : <Play />}{playing ? 'Pause preview' : 'Play selection'}</Button>

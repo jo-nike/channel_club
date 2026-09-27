@@ -11,7 +11,8 @@ vi.mock('@/services/api', () => ({
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 const preview = new Blob(['original snapshot'], { type: 'video/mp4' })
 const prepared = new Blob(['selected frames'], { type: 'video/mp4' })
-const capture = { id: 'capture-1', duration: 60, bytes: 17, expiresAt: 0 }
+// Pressed as the capture's last frame was recorded, so the press is at its end.
+const capture = { id: 'capture-1', duration: 60, bytes: 17, expiresAt: 0, pressedAt: 1_000, endsAt: 1_000 }
 const props = { isOpen: true, onClose: vi.fn(), channelId: 'channel-1' }
 
 async function ready(duration = 60) {
@@ -72,6 +73,40 @@ describe('Clip editor', () => {
     expect(screen.getByLabelText('Start (seconds)')).toHaveValue(0)
     fireEvent.click(screen.getByText('Reset'))
     expect(screen.getByLabelText('Start (seconds)')).toHaveValue(40)
+    expect(screen.getByLabelText('End (seconds)')).toHaveValue(60)
+  })
+
+  it('selects the 20 seconds ending where the user pressed, not the end of the capture', async () => {
+    // The capture waited for the segment being written, so it runs 5s past the press.
+    vi.mocked(api.createHighlightCapture).mockResolvedValue({ ...capture, pressedAt: 1_000, endsAt: 1_005 })
+    render(<HighlightModal {...props} />)
+    const video = await ready()
+    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(35)
+    expect(screen.getByLabelText('End (seconds)')).toHaveValue(55)
+    expect(video.currentTime).toBe(35)
+    expect(parseFloat(screen.getByText('You pressed').style.left)).toBeCloseTo(55 / 60 * 100)
+    fireEvent.click(screen.getByText('Last 10s'))
+    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(45)
+    expect(screen.getByLabelText('End (seconds)')).toHaveValue(55)
+    fireEvent.click(screen.getByText('Full clip'))
+    fireEvent.click(screen.getByText('Reset'))
+    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(35)
+    expect(screen.getByLabelText('End (seconds)')).toHaveValue(55)
+  })
+
+  it('ends the default selection at the capture when it stops short of the press, still counting from the press', async () => {
+    // The wait for the segment being written timed out, so the capture ends 4s before the press.
+    vi.mocked(api.createHighlightCapture).mockResolvedValue({ ...capture, pressedAt: 1_000, endsAt: 996 })
+    render(<HighlightModal {...props} />)
+    await ready()
+    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(40)
+    expect(screen.getByLabelText('End (seconds)')).toHaveValue(60)
+    expect(screen.getByText('You pressed 4.0 s after the end')).toBeInTheDocument()
+    // 20s before the press is 44s into the capture, not 40s.
+    expect(parseFloat(screen.getByText('\u221220 s').style.left)).toBeCloseTo(44 / 60 * 100)
+    expect(screen.getByRole('slider', { name: 'Playhead' })).toHaveAttribute('aria-valuetext', '40.0 seconds, 24.0 seconds before you pressed')
+    fireEvent.click(screen.getByText('Last 10s'))
+    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(50)
     expect(screen.getByLabelText('End (seconds)')).toHaveValue(60)
   })
 

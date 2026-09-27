@@ -457,6 +457,10 @@ export interface HighlightCapture {
   duration: number
   bytes: number
   expiresAt: number
+  /** Server time of the capture request (Unix seconds) */
+  pressedAt: number
+  /** When the capture's last frame was recorded (Unix seconds); the press is at duration - (endsAt - pressedAt) */
+  endsAt: number
 }
 
 /** Snapshot the recent buffer server-side; the editor streams it by URL instead of downloading it. */
