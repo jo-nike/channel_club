@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { logger } from '@/lib/logger'
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>
@@ -30,6 +31,16 @@ function getInstallState(): InstallState {
 
 function setInstallState(state: InstallState): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+}
+
+// Starts the 7-day snooze, whether the user closed the banner or cancelled
+// the browser's own install dialog.
+function recordDismissal(): void {
+  setInstallState({
+    installed: false,
+    dismissed: true,
+    dismissedAt: Date.now()
+  })
 }
 
 function isRecentlyDismissed(state: InstallState): boolean {
@@ -73,25 +84,33 @@ export function useInstallPrompt(): UseInstallPromptResult {
   const install = useCallback(async (): Promise<boolean> => {
     if (!deferredPrompt) return false
 
-    await deferredPrompt.prompt()
-    const { outcome } = await deferredPrompt.userChoice
+    // A BeforeInstallPromptEvent can only be prompted once; a second
+    // prompt() rejects, so drop it before awaiting anything.
+    const promptEvent = deferredPrompt
+    setDeferredPrompt(null)
 
-    if (outcome === 'accepted') {
-      setInstallState({ installed: true, dismissed: false })
+    try {
+      await promptEvent.prompt()
+      const { outcome } = await promptEvent.userChoice
+
+      if (outcome === 'accepted') {
+        setInstallState({ installed: true, dismissed: false })
+        setCanInstall(false)
+        return true
+      }
+
+      recordDismissal()
       setCanInstall(false)
-      setDeferredPrompt(null)
-      return true
+      return false
+    } catch (error) {
+      logger.warn('Install', 'Install prompt failed', error)
+      setCanInstall(false)
+      return false
     }
-
-    return false
   }, [deferredPrompt])
 
   const dismiss = useCallback(() => {
-    setInstallState({
-      installed: false,
-      dismissed: true,
-      dismissedAt: Date.now()
-    })
+    recordDismissal()
     setCanInstall(false)
   }, [])
 
