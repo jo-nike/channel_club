@@ -47,6 +47,24 @@ def _clear_nickname(client_id: str, websocket: WebSocket) -> None:
     _nickname_map.pop(client_id, None)
 
 
+def _is_another_members_name(nickname: str, username: str) -> bool:
+    """Whether a nickname is the sign-in name of another connected member.
+
+    Compared case-insensitively, so nobody can post as 'Jon' while jon is
+    here. Only members connected right now are known, so this is partial
+    protection: it can't reserve the names of people who are offline.
+
+    Args:
+        nickname: The requested nickname (already trimmed).
+        username: The requester's own sign-in name, which they may always use.
+    """
+    folded = nickname.casefold()
+    return any(
+        user.username != username and user.username.casefold() == folded
+        for user in presence.get_active_users().values()
+    )
+
+
 async def verify_websocket_token(token: str) -> dict | None:
     """Verify JWT token for WebSocket connection.
 
@@ -58,7 +76,12 @@ async def verify_websocket_token(token: str) -> dict | None:
     """
     try:
         payload = verify_token(token)
-        return {"sub": payload.sub, "role": payload.role, "exp": payload.exp.timestamp()}
+        return {
+            "sub": payload.sub,
+            "role": payload.role,
+            "exp": payload.exp.timestamp(),
+            "plex_id": payload.plex_id,
+        }
     except JWTError:
         return None
 
@@ -94,6 +117,7 @@ async def websocket_endpoint(
         return
 
     log.info("WebSocket connected: client {} (user={})", client_id, payload.get("sub"))
+    user_id = chat.user_id_for(payload["sub"], payload.get("plex_id"))
 
     # Track the accepted connection
     await channel_state.connect(websocket, owner=asyncio.current_task())
@@ -116,8 +140,9 @@ async def websocket_endpoint(
                 "currentChannel": current.model_dump(by_alias=True) if current else None,
                 "settings": app_settings.get_app_settings().model_dump(by_alias=True),
                 # Tell the client who it is signed in as, so chat can default
-                # to the sign-in name (Plex logins don't store a username).
-                "you": {"username": payload["sub"]},
+                # to the sign-in name (Plex logins don't store a username), and
+                # the id its own messages carry whatever name they show.
+                "you": {"username": payload["sub"], "userId": user_id},
             }
             await websocket.send_json(ack_message)
 
@@ -141,7 +166,7 @@ async def websocket_endpoint(
                     return
                 try:
                     message = json.loads(data)
-                    await handle_client_message(websocket, message, client_id, username)
+                    await handle_client_message(websocket, message, client_id, username, user_id)
                 except json.JSONDecodeError:
                     log.debug("Malformed JSON from client {}", client_id)
     except TimeoutError:
@@ -162,7 +187,7 @@ async def websocket_endpoint(
 
 
 async def handle_client_message(
-    websocket: WebSocket, message: object, client_id: str, username: str
+    websocket: WebSocket, message: object, client_id: str, username: str, user_id: str
 ) -> None:
     """Handle incoming client messages.
 
@@ -171,6 +196,7 @@ async def handle_client_message(
         message: Parsed JSON message from client.
         client_id: Unique client identifier for logging.
         username: Authenticated username of the client.
+        user_id: The client's stable chat id (chat.user_id_for).
     """
     # Preserve forward compatibility for unknown types, but never store unchecked data.
     if (
@@ -208,7 +234,13 @@ async def handle_client_message(
     elif msg_type == "set_nickname":
         # Handle nickname setting for chat display name
         nickname = validated.get("nickname", "").strip()[:MAX_NICKNAME_LENGTH]
-        if nickname:
+        if nickname and _is_another_members_name(nickname, username):
+            # Refused: the previous name (or the sign-in name) stays in use
+            log.debug("Nickname refused for client {}: another member's name", client_id)
+            await websocket.send_json(
+                {"type": "error", "code": "nickname_taken", "nickname": nickname}
+            )
+        elif nickname:
             _nickname_map[client_id] = (websocket, nickname)
             log.debug("Nickname set for client {}: {}", client_id, nickname)
         else:
@@ -251,7 +283,7 @@ async def handle_client_message(
         # Use nickname if set, otherwise fall back to auth username
         nickname_entry = _nickname_map.get(client_id)
         display_name = nickname_entry[1] if nickname_entry else username
-        chat_msg = chat.add_message(display_name, content)
+        chat_msg = chat.add_message(display_name, content, user_id=user_id)
 
         if chat_msg:
             if client_message_id:

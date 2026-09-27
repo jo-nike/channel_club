@@ -19,6 +19,8 @@ describe('useChatStore', () => {
       unreadCount: 0,
       nickname: null,
       me: null,
+      revertNickname: null,
+      nicknameRejection: null,
       lastReadAt: null,
       readMarker: null,
       historyReset: false,
@@ -208,6 +210,11 @@ describe('useChatStore', () => {
       useChatStore.getState().setIdentity({ username: 'alice' })
       expect(useChatStore.getState().me).toEqual({ username: 'alice' })
       expect(useChatStore.getState().nickname).toBe('Ally')
+    })
+
+    it('setIdentity records the userId the server gives this account', () => {
+      useChatStore.getState().setIdentity({ username: 'alice', userId: 'u_alice' })
+      expect(useChatStore.getState().me).toEqual({ username: 'alice', userId: 'u_alice' })
     })
 
     it('setIdentity leaves the nickname null when that user has none stored', () => {
@@ -462,7 +469,121 @@ describe('useChatStore', () => {
     })
   })
 
+  describe('nickname refused by the server', () => {
+    it('goes back to the previous nickname, in memory and in storage, and records the refusal', () => {
+      useChatStore.getState().setIdentity({ username: 'alice' })
+      useChatStore.getState().setNickname('Ally')
+      useChatStore.getState().setNickname('Bob')
+
+      useChatStore.getState().rejectNickname('Bob')
+
+      expect(useChatStore.getState().nickname).toBe('Ally')
+      expect(localStorage.getItem('chat_nickname:alice')).toBe('Ally')
+      expect(useChatStore.getState().nicknameRejection).toEqual({ nickname: 'Bob' })
+    })
+
+    it('goes back to the sign-in name when the refused name was the first one set', () => {
+      useChatStore.getState().setIdentity({ username: 'alice' })
+      useChatStore.getState().setNickname('Bob')
+
+      useChatStore.getState().rejectNickname('Bob')
+
+      expect(useChatStore.getState().nickname).toBeNull()
+      expect(localStorage.getItem('chat_nickname:alice')).toBeNull()
+    })
+
+    it('a stored nickname refused after connecting falls back to the sign-in name', () => {
+      useChatStore.getState().setIdentity({ username: 'alice' })
+      useChatStore.getState().setNickname('Ally')
+      // Reconnect: the new socket starts on the sign-in name, then sends the stored one
+      useChatStore.getState().setIdentity({ username: 'alice' })
+      expect(useChatStore.getState().nickname).toBe('Ally')
+
+      useChatStore.getState().rejectNickname('Ally')
+
+      expect(useChatStore.getState().nickname).toBeNull()
+      expect(localStorage.getItem('chat_nickname:alice')).toBeNull()
+      expect(useChatStore.getState().nicknameRejection).toEqual({ nickname: 'Ally' })
+    })
+
+    it('ignores the refusal of a name that is no longer in use', () => {
+      useChatStore.getState().setIdentity({ username: 'alice' })
+      useChatStore.getState().setNickname('Bob')
+      useChatStore.getState().setNickname('Carol')
+
+      useChatStore.getState().rejectNickname('Bob')
+
+      expect(useChatStore.getState().nickname).toBe('Carol')
+      expect(localStorage.getItem('chat_nickname:alice')).toBe('Carol')
+      expect(useChatStore.getState().nicknameRejection).toBeNull()
+    })
+
+    it('a new refusal of the same name is a new rejection', () => {
+      useChatStore.getState().setIdentity({ username: 'alice' })
+      useChatStore.getState().setNickname('Bob')
+      useChatStore.getState().rejectNickname('Bob')
+      const first = useChatStore.getState().nicknameRejection
+
+      useChatStore.getState().setNickname('Bob')
+      useChatStore.getState().rejectNickname('Bob')
+
+      expect(useChatStore.getState().nicknameRejection).toEqual({ nickname: 'Bob' })
+      expect(useChatStore.getState().nicknameRejection).not.toBe(first)
+    })
+
+    it('is cleared by clearNicknameRejection, by signing out and by another user signing in', () => {
+      useChatStore.getState().setIdentity({ username: 'alice' })
+      useChatStore.getState().setNickname('Bob')
+      useChatStore.getState().rejectNickname('Bob')
+      useChatStore.getState().clearNicknameRejection()
+      expect(useChatStore.getState().nicknameRejection).toBeNull()
+
+      useChatStore.getState().setNickname('Bob')
+      useChatStore.getState().rejectNickname('Bob')
+      useChatStore.getState().resetIdentity()
+      expect(useChatStore.getState().nicknameRejection).toBeNull()
+
+      useChatStore.getState().setIdentity({ username: 'alice' })
+      useChatStore.getState().setNickname('Bob')
+      useChatStore.getState().rejectNickname('Bob')
+      useChatStore.getState().setIdentity({ username: 'carol' })
+      expect(useChatStore.getState().nicknameRejection).toBeNull()
+    })
+  })
+
   describe('isOwnMessage', () => {
+    it('decides by userId when both the message and the identity have one', () => {
+      const state = { nickname: 'Ally', me: { username: 'alice', userId: 'u_alice' } }
+      // Sent before a rename: still yours
+      expect(isOwnMessage({ username: 'alice', userId: 'u_alice' }, state)).toBe(true)
+      // Someone else using your nickname: not yours
+      expect(isOwnMessage({ username: 'Ally', userId: 'u_bob' }, state)).toBe(false)
+    })
+
+    it('falls back to names for messages without a userId', () => {
+      const state = { nickname: 'Ally', me: { username: 'alice', userId: 'u_alice' } }
+      expect(isOwnMessage({ username: 'Ally' }, state)).toBe(true)
+      expect(isOwnMessage({ username: 'bob' }, state)).toBe(false)
+    })
+
+    it('falls back to names before the server has said who you are', () => {
+      expect(isOwnMessage({ username: 'Ally', userId: 'u_bob' }, { nickname: 'Ally', me: null })).toBe(true)
+    })
+
+    it('keeps your earlier messages yours after a rename, so they are not counted as unread', () => {
+      useChatStore.getState().setIdentity({ username: 'alice', userId: 'u_alice' })
+      const earlier = { ...createMessage('1', 'alice'), userId: 'u_alice' }
+      useChatStore.getState().addMessage(earlier)
+
+      useChatStore.getState().setNickname('Ally')
+
+      expect(isOwnMessage(earlier, useChatStore.getState())).toBe(true)
+      expect(useChatStore.getState().unreadCount).toBe(0)
+      // Someone else's message under your new name arrives: it is theirs, and unread
+      useChatStore.getState().addMessage({ ...createMessage('2', 'Ally'), userId: 'u_bob' })
+      expect(useChatStore.getState().unreadCount).toBe(1)
+    })
+
     it('matches the nickname when one is set', () => {
       const state = { nickname: 'Ally', me: { username: 'alice' } }
       expect(isOwnMessage({ username: 'Ally' }, state)).toBe(true)

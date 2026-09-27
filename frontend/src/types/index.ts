@@ -116,7 +116,11 @@ export interface UnifiedChannel {
 // Chat types
 export interface ChatMessage {
   messageId: string
+  // Display name at the time of sending (the nickname, or the sign-in name)
   username: string
+  // Stable, opaque id of the sender's account; unlike username it survives a rename.
+  // Absent from older servers
+  userId?: string
   content: string
   timestamp: string // ISO8601
 }
