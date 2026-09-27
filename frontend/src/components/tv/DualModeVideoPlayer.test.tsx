@@ -104,13 +104,16 @@ vi.mock('@/services/api', async (importOriginal) => ({
   ...clipApi,
   highlightCaptureUrl: (id: string) => `/api/highlight/capture/${id}`,
 }))
-// The cast button renders in both control bars, so it reports the shell it sits in
+// The cast button renders in both control bars, so it reports the shell it
+// sits in and what it would cast
 const shellProbe = vi.hoisted(() => ({ current: null as PlayerShell | null }))
+const castProps = vi.hoisted(() => ({ current: null as Record<string, unknown> | null }))
 vi.mock('@/components/CastButton', async () => {
   const { usePlayerShell } = await import('@/components/player/PlayerShellContext')
   return {
-    CastButton: () => {
+    CastButton: (props: Record<string, unknown>) => {
       shellProbe.current = usePlayerShell()
+      castProps.current = props
       return null
     },
   }
@@ -253,7 +256,17 @@ describe('DualModeVideoPlayer audio: live channel (mpegts)', () => {
     expect(video()).not.toBe(first)
     expect(video().volume).toBe(0.3)
     expect(video().muted).toBe(true)
-    expect(screen.getByRole('button', { name: 'Unmute' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Unmute (30%)' })).toBeInTheDocument()
+  })
+
+  it('while muted, the slider keeps the saved level, dimmed', () => {
+    useAudioStore.setState({ volume: 0.3, muted: false })
+    renderPlayer(liveChannel('https://fixture/a'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mute' }))
+
+    expect(screen.getByRole('slider', { name: 'Volume' })).toHaveValue('0.3')
+    expect(screen.getByRole('slider', { name: 'Volume' })).toHaveClass('opacity-50')
   })
 
   it('starts at the saved level and mute', () => {
@@ -273,7 +286,7 @@ describe('DualModeVideoPlayer audio: live channel (mpegts)', () => {
     expect(useAudioStore.getState()).toMatchObject({ volume: 0.3, muted: true })
     expect(video().muted).toBe(true)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Unmute' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Unmute (30%)' }))
     expect(video().muted).toBe(false)
     expect(video().volume).toBe(0.3)
   })
@@ -284,7 +297,7 @@ describe('DualModeVideoPlayer audio: live channel (mpegts)', () => {
     act(() => {
       video().muted = true
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Unmute' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Unmute (100%)' }))
 
     expect(video().muted).toBe(false)
     expect(useAudioStore.getState().muted).toBe(false)
@@ -362,6 +375,66 @@ describe('DualModeVideoPlayer audio: live channel (mpegts)', () => {
 
     releasePreview()
     expect(video().muted).toBe(false)
+  })
+})
+
+describe('DualModeVideoPlayer live controls (PlayerChrome)', () => {
+  it('Play and Pause drive the element and follow what it does', () => {
+    const pause = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
+    renderPlayer(liveChannel('https://fixture/a'))
+    const play = vi.mocked(HTMLMediaElement.prototype.play)
+    play.mockClear()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Play' }))
+    expect(play).toHaveBeenCalledTimes(1)
+
+    act(() => {
+      video().dispatchEvent(new Event('playing'))
+    })
+    // jsdom's element never leaves paused, so report it as playing
+    vi.spyOn(video(), 'paused', 'get').mockReturnValue(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Pause' }))
+    expect(pause).toHaveBeenCalledTimes(1)
+
+    act(() => {
+      video().dispatchEvent(new Event('pause'))
+    })
+    expect(screen.getByRole('button', { name: 'Play' })).toBeInTheDocument()
+  })
+
+  it('Theater switches the page layout the player was given', () => {
+    const onTheaterModeToggle = vi.fn()
+    const { rerender } = render(
+      <DualModeVideoPlayer channel={liveChannel('https://fixture/a')} isTheaterMode={false} onTheaterModeToggle={onTheaterModeToggle} />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Theater mode' }))
+    expect(onTheaterModeToggle).toHaveBeenCalledTimes(1)
+
+    rerender(
+      <DualModeVideoPlayer channel={liveChannel('https://fixture/a')} isTheaterMode={true} onTheaterModeToggle={onTheaterModeToggle} />
+    )
+    expect(screen.getByRole('button', { name: 'Exit theater mode' })).toBeInTheDocument()
+  })
+
+  it('casts the live stream as MPEG-TS', () => {
+    renderPlayer({ ...liveChannel('https://fixture/a'), backendId: '17' })
+
+    expect(castProps.current).toMatchObject({
+      channelId: '17',
+      streamType: 'mpegts',
+      streamUrl: 'https://fixture/a',
+      channelName: 'Live',
+    })
+  })
+
+  it('opens the clip editor on the live channel from the bar', () => {
+    highlight.enabled = true
+    renderPlayer({ ...liveChannel('https://fixture/a'), backendId: '17' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Capture clip' }))
+
+    expect(useClipStore.getState().session).toEqual({ channelId: '17', channelName: 'Live' })
   })
 })
 
@@ -1319,7 +1392,8 @@ describe('DualModeVideoPlayer: a page load that starts from a saved mute', () =>
     startPlayback()
     expect(soundOffNotice()).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Unmute' }))
+    // The live bar also names the level ('Unmute (30%)')
+    fireEvent.click(screen.getByRole('button', { name: /^Unmute/ }))
     expect(soundOffNotice()).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Mute' }))

@@ -231,7 +231,7 @@
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
-/* Player controls pinned 1rem from an edge (the VideoControls and
+/* Player controls pinned 1rem from an edge (the PlayerChrome and
    ErsatzTVVideoControls bars) stay 1rem clear of the notch and home
    indicator in landscape. Unlayered, so these win over bottom-4, left-4 and
    right-4. Keyed on those classes because .video-controls also marks
