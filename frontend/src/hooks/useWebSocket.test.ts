@@ -1167,6 +1167,18 @@ describe('useWebSocket', () => {
       expect(JSON.parse(ws.send.mock.calls.at(-1)![0])).toMatchObject({ type: 'chat_message', content: 'Hello everyone!', clientMessageId: expect.any(String) })
     })
 
+    test('sends the clientMessageId it is given, so a retry keeps its id', () => {
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+      act(() => ws.simulateOpen())
+
+      act(() => {
+        result.current.sendChatMessage('Hello again', 'retry-id-1')
+      })
+
+      expect(JSON.parse(ws.send.mock.calls.at(-1)![0])).toEqual({ type: 'chat_message', content: 'Hello again', clientMessageId: 'retry-id-1' })
+    })
+
     test('does not send when not connected', () => {
       const { result } = renderHook(() => useWebSocket())
       const ws = MockWebSocket.instances[0]

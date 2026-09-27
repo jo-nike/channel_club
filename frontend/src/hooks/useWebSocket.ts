@@ -8,6 +8,7 @@ import { useChatStore } from '@/stores/chatStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { logger } from '@/lib/logger'
 import { getSessionId } from '@/lib/sessionId'
+import { createClientMessageId } from '@/lib/messageId'
 import { useChatEnabled } from './useChatEnabled'
 import type { AppSettings, Channel, ChatMessage } from '@/types'
 
@@ -86,7 +87,7 @@ interface UseWebSocketReturn {
   status: WebSocketStatus
   reconnect: () => void
   sendChannelUpdate: (channelName: string | null, programmeTitle?: string | null, viewType?: 'live' | 'ersatztv', channelId?: string | null) => void
-  sendChatMessage: (content: string) => Promise<ChatSendResult>
+  sendChatMessage: (content: string, clientMessageId?: string) => Promise<ChatSendResult>
   sendSetNickname: (nickname: string) => void
 }
 
@@ -399,11 +400,9 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   )
 
   const sendChatMessage = useCallback(
-    (content: string): Promise<ChatSendResult> => {
+    (content: string, clientMessageId: string = createClientMessageId()): Promise<ChatSendResult> => {
       const socket = wsRef.current
       if (!chatEnabled || socket?.readyState !== WebSocket.OPEN || pendingChat.current.size >= 20) return Promise.resolve('not-sent')
-      // getRandomValues also works on the supported HTTP LAN development origin.
-      const clientMessageId = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, '0')).join('')
       return new Promise((finish) => {
         const timer = setTimeout(() => {
           pendingChat.current.delete(clientMessageId)

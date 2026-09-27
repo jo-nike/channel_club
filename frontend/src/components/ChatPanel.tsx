@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, useCallback, type KeyboardEvent } from 'react'
 import { X, Send, Pencil, Loader2, AlertCircle } from 'lucide-react'
 import type { ChatSendResult } from '@/hooks/useWebSocket'
+import { createClientMessageId } from '@/lib/messageId'
 import { useChatStore, isOwnMessage } from '@/stores/chatStore'
 import { useBreakpoint } from '@/hooks/useBreakpoint'
 import { ChatMessage } from './ChatMessage'
@@ -10,15 +11,17 @@ import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 
 export interface ChatPanelProps {
-  onSendMessage: (content: string) => Promise<ChatSendResult> | ChatSendResult
+  onSendMessage: (content: string, clientMessageId: string) => Promise<ChatSendResult> | ChatSendResult
   currentUsername?: string
   onSetNickname?: (nickname: string) => void
 }
 
-// A send that failed, kept so the row above the composer can describe it
+// A send that failed, kept whole so a retry resends exactly it (a GIF stays a
+// GIF) under the same id, which the server recognises instead of reposting
 interface SendFailure {
   kind: 'not-sent' | 'unconfirmed'
   content: string
+  clientMessageId: string
 }
 
 export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
@@ -71,20 +74,20 @@ export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
 
   // Note: nickname input is pre-filled in handleEditNickname callback below
 
-  const send = useCallback(async (content: string) => {
+  const send = useCallback(async (content: string, clientMessageId: string = createClientMessageId()) => {
     if (sending.current) return 'not-sent' as const
     sending.current = true
     setIsSending(true)
     setSendStatus('Sending…')
     let result: ChatSendResult
-    try { result = await onSendMessage(content) } catch { result = 'unconfirmed' }
+    try { result = await onSendMessage(content, clientMessageId) } catch { result = 'unconfirmed' }
     if (result === 'acknowledged') {
       setSendStatus('Message sent')
       setFailure(null)
     } else {
       // The alert row announces the failure
       setSendStatus('')
-      setFailure({ kind: result, content })
+      setFailure({ kind: result, content, clientMessageId })
     }
     sending.current = false
     setIsSending(false)
@@ -94,10 +97,21 @@ export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
   const handleSend = useCallback(async () => {
     const trimmed = inputValue.trim()
     if (!trimmed || sending.current) return
+    // Sending the unchanged draft again after a failure is a retry of it
+    const clientMessageId = failure?.content === trimmed ? failure.clientMessageId : undefined
     const version = draftVersion.current
-    const result = await send(trimmed)
+    const result = await send(trimmed, clientMessageId)
     if (result === 'acknowledged' && draftVersion.current === version) setInputValue('')
-  }, [inputValue, send])
+  }, [inputValue, failure, send])
+
+  const handleRetry = useCallback(async () => {
+    if (!failure || sending.current) return
+    // The row goes away when the draft changes, so a failed text send is still the draft
+    const isDraft = failure.content === inputValue.trim()
+    const version = draftVersion.current
+    const result = await send(failure.content, failure.clientMessageId)
+    if (result === 'acknowledged' && isDraft && draftVersion.current === version) setInputValue('')
+  }, [failure, inputValue, send])
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLInputElement>) => {
@@ -246,11 +260,14 @@ export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
             {failure && (
               <div role="alert" className="mb-2 flex h-8 items-center gap-2 text-sm">
                 <AlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" aria-hidden="true" />
-                <span className="min-w-0 truncate">
+                <span className="min-w-0 flex-1 truncate">
                   {failure.kind === 'not-sent'
                     ? "Not sent. You're offline or reconnecting."
-                    : "Couldn't confirm it was sent. Check the chat before sending again."}
+                    : "Couldn't confirm it was sent."}
                 </span>
+                <Button variant="ghost" size="sm" className="h-7" onClick={handleRetry} disabled={isSending}>
+                  {failure.kind === 'not-sent' ? 'Retry' : 'Send again'}
+                </Button>
               </div>
             )}
             <div className="flex gap-2">

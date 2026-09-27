@@ -9,10 +9,11 @@ vi.mock('@/hooks/useBreakpoint', () => ({
   useBreakpoint: vi.fn(() => 'desktop'),
 }))
 
-// Stand-in for the GIF picker, which fetches its feature flag; only its disabled state matters here
+// Stand-in for the GIF picker, which fetches its feature flag: a click picks one fixed GIF
+const GIF_URL = 'https://media.example/cat.gif'
 vi.mock('./GifButton', () => ({
-  GifButton: ({ disabled }: { disabled?: boolean }) => (
-    <button type="button" aria-label="Send GIF" disabled={disabled} />
+  GifButton: ({ disabled, onSelect }: { disabled?: boolean; onSelect: (url: string) => void }) => (
+    <button type="button" aria-label="Send GIF" disabled={disabled} onClick={() => onSelect(GIF_URL)} />
   ),
 }))
 
@@ -79,7 +80,7 @@ describe('ChatPanel', () => {
     fireEvent.change(input, { target: { value: 'Hello world!' } })
     fireEvent.keyDown(input, { key: 'Enter' })
 
-    expect(mockOnSendMessage).toHaveBeenCalledWith('Hello world!')
+    expect(mockOnSendMessage).toHaveBeenCalledWith('Hello world!', expect.stringMatching(/^[0-9a-f]{32}$/))
   })
 
   it('sends message on button click', () => {
@@ -90,7 +91,7 @@ describe('ChatPanel', () => {
     fireEvent.change(input, { target: { value: 'Hello world!' } })
     fireEvent.click(sendButton)
 
-    expect(mockOnSendMessage).toHaveBeenCalledWith('Hello world!')
+    expect(mockOnSendMessage).toHaveBeenCalledWith('Hello world!', expect.stringMatching(/^[0-9a-f]{32}$/))
   })
 
   it('clears input after sending', async () => {
@@ -338,6 +339,70 @@ describe('ChatPanel', () => {
       // The row sits right above the input, not above the panel header
       expect(alert.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
       expect(alert.compareDocumentPosition(screen.getByText('Chat')) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
+    })
+
+    it('Retry after a failed GIF resends the GIF with the same id and keeps the text draft', async () => {
+      mockOnSendMessage.mockReturnValueOnce('not-sent').mockReturnValueOnce('acknowledged')
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      const input = screen.getByPlaceholderText('Type a message...')
+      fireEvent.change(input, { target: { value: 'A half-typed thought' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Send GIF' }))
+      await screen.findByRole('alert')
+      const [[content, clientMessageId]] = mockOnSendMessage.mock.calls
+      expect(content).toBe(GIF_URL)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+      await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
+      expect(mockOnSendMessage).toHaveBeenLastCalledWith(GIF_URL, clientMessageId)
+      expect(input).toHaveValue('A half-typed thought')
+    })
+
+    it('Retry resends a failed text message with the same id and then clears the draft', async () => {
+      mockOnSendMessage.mockReturnValueOnce('not-sent').mockReturnValueOnce('acknowledged')
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      const input = screen.getByPlaceholderText('Type a message...')
+      fireEvent.change(input, { target: { value: 'Goal!' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      await screen.findByRole('alert')
+      const clientMessageId = mockOnSendMessage.mock.calls[0][1]
+
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+      await waitFor(() => expect(input).toHaveValue(''))
+      expect(mockOnSendMessage).toHaveBeenLastCalledWith('Goal!', clientMessageId)
+    })
+
+    it("offers 'Send again' with the same id when delivery couldn't be confirmed", async () => {
+      mockOnSendMessage.mockResolvedValueOnce('unconfirmed').mockResolvedValueOnce('acknowledged')
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      const input = screen.getByPlaceholderText('Type a message...')
+      fireEvent.change(input, { target: { value: 'Did this land?' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent("Couldn't confirm it was sent.")
+      expect(alert).not.toHaveTextContent(/check/i)
+      const clientMessageId = mockOnSendMessage.mock.calls[0][1]
+
+      fireEvent.click(screen.getByRole('button', { name: 'Send again' }))
+      await waitFor(() => expect(input).toHaveValue(''))
+      expect(mockOnSendMessage).toHaveBeenLastCalledWith('Did this land?', clientMessageId)
+    })
+
+    it('reuses the id when the unchanged draft is sent again, but not after an edit', async () => {
+      mockOnSendMessage.mockReturnValue('not-sent')
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      const input = screen.getByPlaceholderText('Type a message...')
+      fireEvent.change(input, { target: { value: 'Same words' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      await screen.findByRole('alert')
+      fireEvent.keyDown(input, { key: 'Enter' })
+      await waitFor(() => expect(mockOnSendMessage).toHaveBeenCalledTimes(2))
+      await screen.findByRole('alert')
+      fireEvent.change(input, { target: { value: 'Other words' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      await waitFor(() => expect(mockOnSendMessage).toHaveBeenCalledTimes(3))
+      const ids = mockOnSendMessage.mock.calls.map((call) => call[1])
+      expect(ids[1]).toBe(ids[0])
+      expect(ids[2]).not.toBe(ids[0])
     })
 
     it('clears the failure row when the draft changes', async () => {
