@@ -119,6 +119,24 @@ describe('FilterMenu', () => {
     }
   })
 
+  // A two-line description must not squeeze the switch: jsdom does no layout,
+  // so check the flex classes that keep every switch 44px wide and in line
+  async function expectFixedSwitches() {
+    for (const filter of FILTER_REGISTRY) {
+      const row = await screen.findByRole('button', { name: new RegExp(filter.name, 'i') })
+      const [text, track] = Array.from(row.children)
+      expect(text).toHaveClass('min-w-0', 'flex-1')
+      expect(track).toHaveClass('h-6', 'w-11', 'shrink-0')
+    }
+  }
+
+  it('keeps every filter switch its full size when the description wraps', async () => {
+    render(<FilterMenu isVisible={true} />)
+    fireEvent.click(screen.getByRole('button', { name: /video filters/i }))
+
+    await expectFixedSwitches()
+  })
+
   it('opens the popover from the start of the trigger, not centred over the picture', async () => {
     render(<FilterMenu isVisible={true} />)
     fireEvent.click(screen.getByRole('button', { name: /video filters/i }))
@@ -174,6 +192,14 @@ describe('FilterMenu', () => {
       fireEvent.click(screen.getByRole('button', { name: /video filters/i }))
 
       expect(await screen.findByRole('dialog', { name: 'Video Filters' })).toBeInTheDocument()
+    })
+
+    it('keeps every filter switch its full size in the sheet', async () => {
+      render(<FilterMenu isVisible={true} />)
+      fireEvent.click(screen.getByRole('button', { name: /video filters/i }))
+      await screen.findByRole('dialog', { name: 'Video Filters' })
+
+      await expectFixedSwitches()
     })
 
     it('returns focus to the Video filters button when Escape closes it', async () => {

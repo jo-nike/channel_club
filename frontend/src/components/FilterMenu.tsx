@@ -15,19 +15,21 @@ function FilterToggle({ filter }: { filter: (typeof FILTER_REGISTRY)[0] }) {
     <button
       type="button"
       onClick={() => toggleFilter(filter.id)}
-      className={`flex w-full items-center justify-between rounded-lg p-3 text-left transition-colors ${
+      className={`flex w-full items-center justify-between gap-3 rounded-lg p-3 text-left transition-colors ${
         isActive
           ? 'bg-primary/20 hover:bg-primary/30'
           : 'hover:bg-muted'
       }`}
       aria-pressed={isActive}
     >
-      <div className="flex flex-col items-start gap-0.5">
+      {/* The text takes the room that is left and wraps in it; the switch
+          keeps its size, so every switch lines up down the right edge */}
+      <div className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
         <span className="font-medium">{filter.name}</span>
         <span className="text-xs text-muted-foreground">{filter.description}</span>
       </div>
       <div
-        className={`h-6 w-11 rounded-full transition-colors ${
+        className={`h-6 w-11 shrink-0 rounded-full transition-colors ${
           isActive ? 'bg-primary' : 'bg-muted-foreground/30'
         } relative`}
       >
