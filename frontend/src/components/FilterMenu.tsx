@@ -105,7 +105,7 @@ export function FilterMenu({ isVisible, containerRef }: FilterMenuProps) {
       aria-label="Video filters"
       aria-haspopup="dialog"
       aria-expanded={isOpen}
-      className={`control-button relative flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-400/80 ${
+      className={`control-button relative flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-ring-media ${
         hasActiveFilters ? 'text-primary' : 'text-white'
       }`}
     >

@@ -33,7 +33,7 @@ export function AutoplayNotice({ mode, volume, onUnmute, onPlay }: AutoplayNotic
         type="button"
         onClick={onPlay}
         aria-label="Start playback"
-        className="video-controls absolute left-1/2 top-1/2 z-30 flex h-20 w-20 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-white/80"
+        className="video-controls absolute left-1/2 top-1/2 z-30 flex h-20 w-20 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105 focus-ring-media"
       >
         <Play className="ml-1 h-9 w-9" fill="currentColor" aria-hidden="true" />
       </button>
@@ -44,7 +44,7 @@ export function AutoplayNotice({ mode, volume, onUnmute, onPlay }: AutoplayNotic
     <button
       type="button"
       onClick={onUnmute}
-      className="video-controls absolute left-4 top-4 z-30 flex min-h-[44px] items-center gap-3 rounded-full border border-white/15 bg-black/80 py-2 pl-3 pr-4 text-left text-base font-bold text-white shadow-lg backdrop-blur-md transition-colors hover:bg-black/90 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/80"
+      className="video-controls absolute left-4 top-4 z-30 flex min-h-[44px] items-center gap-3 rounded-full border border-white/15 bg-black/80 py-2 pl-3 pr-4 text-left text-base font-bold text-white shadow-lg backdrop-blur-md transition-colors hover:bg-black/90 focus-ring-media"
     >
       <VolumeX className="h-6 w-6 shrink-0 text-primary" aria-hidden="true" />
       <span>Sound is off</span>

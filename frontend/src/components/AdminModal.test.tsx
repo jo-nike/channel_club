@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, waitFor } from '@/test/utils'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { AdminModal } from './AdminModal'
+import { focusOverrides } from '@/test/focus'
 import { useChannelStore } from '@/stores/channelStore'
 import { useAuthStore } from '@/stores/authStore'
 import * as api from '@/services/api'
@@ -213,6 +214,15 @@ describe('AdminModal', () => {
       tabs.forEach(tab => {
         expect(tab).toHaveAttribute('aria-selected')
       })
+    })
+
+    it('insets each tab\'s keyboard outline so the scrolling tab strip does not clip it', () => {
+      render(<AdminModal {...defaultProps} />)
+
+      for (const tab of screen.getAllByRole('tab')) {
+        expect(tab).toHaveClass('focus-visible:-outline-offset-2')
+        expect(focusOverrides(tab)).toEqual([])
+      }
     })
 
     it('tablist has proper role', () => {

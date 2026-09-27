@@ -122,7 +122,7 @@ export function CastButton({
           disabled={isStarting}
           aria-label={tooltipText}
           className={cn(
-            'control-button relative flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-400/80',
+            'control-button relative flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-ring-media',
             isStarting && 'opacity-50 cursor-wait'
           )}
         >

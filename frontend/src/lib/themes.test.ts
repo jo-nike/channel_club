@@ -167,6 +167,18 @@ describe('themes', () => {
     )
 
     it.each(Object.values(themes).map((t) => [t.id, t] as const))(
+      '%s: the focus ring is the primary colour and clears 3:1 on the page',
+      (_id, theme) => {
+        const { colors } = theme
+        expect(colors.ring).toBe(colors.primary)
+        expect(colors.sidebarRing).toBe(colors.primary)
+        // Non-text contrast (WCAG 1.4.11) for the keyboard focus outline
+        expect(contrast(colors.ring, colors.background)).toBeGreaterThanOrEqual(3)
+        expect(contrast(colors.sidebarRing, colors.sidebar)).toBeGreaterThanOrEqual(3)
+      }
+    )
+
+    it.each(Object.values(themes).map((t) => [t.id, t] as const))(
       '%s: live foreground on live is at least 4.5:1',
       (_id, theme) => {
         expect(contrast(theme.colors.liveForeground, theme.colors.live)).toBeGreaterThanOrEqual(4.5)

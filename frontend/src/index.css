@@ -151,7 +151,16 @@
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border;
+  }
+  /* The one focus indicator: a solid ring-colour (= primary) outline for
+     keyboard and D-pad focus only, so mouse clicks draw nothing. Utilities
+     beat this layer, so components drop their own focus:outline-none and
+     ring classes rather than override it; rows inside scroll containers add
+     focus-visible:-outline-offset-2 so the outline is not clipped. */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
   }
   /* Themed scrollbars for every scroll container (dialogs, chat, the guide).
      scrollbar-color inherits, so setting it on the root covers them all. */
@@ -217,6 +226,20 @@
 
 .video-controls.right-4 {
   right: max(1rem, env(safe-area-inset-right));
+}
+
+/* ============================
+   FOCUS OVER VIDEO
+   ============================ */
+
+/* Focus for controls drawn over video, where no theme colour is sure to
+   show: a white outline on a dark band reads on any picture. */
+@utility focus-ring-media {
+  &:focus-visible {
+    outline: 2px solid white;
+    outline-offset: 2px;
+    box-shadow: 0 0 0 4px rgb(0 0 0 / 0.6);
+  }
 }
 
 /* ============================

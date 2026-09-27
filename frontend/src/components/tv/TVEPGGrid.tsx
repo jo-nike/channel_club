@@ -261,7 +261,7 @@ function ChannelRow({
         <TooltipTrigger asChild>
           <button
             onClick={() => onChannelClick?.(channel)}
-            className={`sticky left-0 z-20 flex flex-shrink-0 items-center gap-1.5 px-2 text-sm font-medium border-r hover:bg-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${
+            className={`sticky left-0 z-20 flex flex-shrink-0 items-center gap-1.5 px-2 text-sm font-medium border-r hover:bg-accent transition-colors focus-visible:-outline-offset-2 ${
               showLiveHighlight ? 'bg-live-surface' : 'bg-card'
             }`}
             style={{ width: CHANNEL_LABEL_WIDTH }}
@@ -378,7 +378,7 @@ function ProgrammeBox({
       className={`
         absolute top-1 bottom-1 z-0 overflow-hidden rounded border
         px-2 py-1 text-sm flex flex-col justify-center
-        hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring
+        hover:opacity-80 focus-visible:-outline-offset-2
         transition-colors
         ${
           isLive
