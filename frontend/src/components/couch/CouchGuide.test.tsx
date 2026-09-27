@@ -156,6 +156,22 @@ describe('CouchGuide: the list', () => {
   })
 })
 
+// jsdom lays nothing out, so these pin the classes that size the guide
+describe('CouchGuide: layout', () => {
+  it('gives Now the larger flexible share and lets Next give way, so Now stays readable at 1280px', () => {
+    renderGuide()
+
+    for (const option of screen.getAllByRole('option')) {
+      const template = option.className.match(/grid-cols-\[([^\]]+)\]/)?.[1].split('_')
+      expect(template).toHaveLength(5)
+      const [, , , nowTrack, nextTrack] = template!
+      // Neither is capped at a fixed width that grid fills before sharing
+      expect(nowTrack).toBe('minmax(0,3fr)')
+      expect(nextTrack).toBe('minmax(0,2fr)')
+    }
+  })
+})
+
 describe('CouchGuide: the remote', () => {
   it('moves focus and the selection down and up with the arrows, stopping at the ends', () => {
     renderGuide()

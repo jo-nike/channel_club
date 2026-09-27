@@ -197,7 +197,7 @@ export function CouchGuide({ onClose, canPickLive, onOpenRoom }: CouchGuideProps
               onFocus={() => setFocusedIndex(index)}
               onClick={() => watch(channel)}
               className={cn(
-                'grid h-24 scroll-my-3 grid-cols-[4.5rem_4.75rem_minmax(0,18rem)_minmax(0,1fr)_minmax(0,28rem)] items-center gap-6 rounded-2xl px-6',
+                'grid h-24 scroll-my-3 grid-cols-[4.5rem_4.75rem_minmax(0,18rem)_minmax(0,3fr)_minmax(0,2fr)] items-center gap-6 rounded-2xl px-6',
                 'transition-transform duration-150 motion-reduce:transition-none',
                 // Focus shows by more than colour: the row lifts and scales
                 // (the couch's outline marks it too)
