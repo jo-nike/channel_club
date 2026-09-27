@@ -49,7 +49,7 @@ export function NowWatching({ isMobile }: { isMobile: boolean }) {
     <button
       type="button"
       onClick={() => selectChannel(getUnifiedChannels()[0])}
-      className="inline-flex min-h-6 min-w-0 max-w-xs items-center gap-1.5 rounded-full bg-live-surface px-2 text-xs leading-tight text-foreground hover:bg-live/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="inline-flex min-h-6 min-w-0 max-w-xs items-center gap-1.5 rounded-full bg-live-surface px-2 text-xs leading-tight text-foreground hover:bg-live/20"
     >
       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-live" aria-hidden="true" />
       <span className="truncate">Live now: {liveChannel.name}</span>
