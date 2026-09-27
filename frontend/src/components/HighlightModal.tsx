@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useId, type MouseEvent, type ReactNode } from 'react'
-import { Download, Upload, Play, Pause, RotateCcw, Loader2, Copy, ExternalLink, X, Pencil } from 'lucide-react'
+import { Download, Upload, Play, Pause, RotateCcw, Loader2, Copy, ExternalLink, X, Pencil, MessageSquare, Check } from 'lucide-react'
 import { toast } from 'sonner'
 import { createHighlightCapture, highlightCaptureUrl, fetchHighlightCapture, createCaptureDownloadUrl, deleteHighlightCapture, exportHighlight, uploadHighlight, getHighlightFeatures, type HighlightFormat, type UploadedHighlight } from '@/services/api'
 import { Button } from '@/components/ui/button'
@@ -9,6 +9,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { ClipTimeline } from './ClipTimeline'
 import { ClipTimeField } from './ClipTimeField'
 import { useAudioStore } from '@/stores/audioStore'
+import { useChatStore } from '@/stores/chatStore'
+import { useChatEnabled } from '@/hooks/useChatEnabled'
+import { createClientMessageId } from '@/lib/messageId'
+import type { ChatSendResult } from '@/hooks/useWebSocket'
 
 /** The editor opens on the stretch ending at the press, which is short enough to share. */
 const DEFAULT_CLIP_SECONDS = 20
@@ -30,6 +34,18 @@ const DOWNLOAD_HANDOFF_MS = 5000
  * of a double-click would land on Cancel. Clicks this soon after the export starts are not a cancel.
  */
 const CANCEL_GUARD_MS = 500
+
+/**
+ * Chat keeps the first 500 characters of a message, and the link comes last, so the caption is capped
+ * well short of that: a long caption must never cut the link off.
+ */
+const MAX_CAPTION = 200
+
+/** The chat message for a posted clip; chat plays a link ending in .mp4 or .webm inline. */
+function clipMessage(channelName: string, seconds: number, caption: string, url: string) {
+  const length = Number(seconds.toFixed(1))
+  return `Clip from ${channelName} (${length}s)${caption ? `: ${caption}` : ''} ${url}`
+}
 
 /** Lengths offered in the segmented control, each ending where the user pressed */
 const LENGTHS = [10, 20, 30] as const
@@ -82,14 +98,21 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
   const [playhead, setPlayhead] = useState(0)
   const [playing, setPlaying] = useState(false)
   const [format, setFormat] = useState<HighlightFormat>('mp4')
-  const [stage, setStage] = useState<'preparing' | 'uploading' | null>(null)
+  const [stage, setStage] = useState<'preparing' | 'uploading' | 'posting' | null>(null)
   // The action whose button turns into Cancel while it runs, and how long it has been running
-  const [task, setTask] = useState<'download' | 'zipline' | null>(null)
+  const [task, setTask] = useState<'download' | 'zipline' | 'chat' | null>(null)
   const [elapsed, setElapsed] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [captureError, setCaptureError] = useState<string | null>(null)
   const [uploaded, setUploaded] = useState<UploadedHighlight | null>(null)
   const [zipline, setZipline] = useState(false)
+  const chatEnabled = useChatEnabled()
+  const [caption, setCaption] = useState('')
+  // How the last Post to chat went; the uploaded link stays on screen whatever the outcome
+  const [posted, setPosted] = useState<ChatSendResult | null>(null)
+  // The last post that chat did not confirm: sending the same words again reuses its id, so the server
+  // confirms the first one instead of posting the clip twice.
+  const lastPost = useRef<{ content: string; id: string } | null>(null)
   const [attempt, setAttempt] = useState(0)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
   // The selection last downloaded or uploaded; closing after that loses nothing the user asked for.
@@ -113,6 +136,8 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
   const [start, end] = range
   const lengthLabel = useId()
   const ready = duration >= 0.1 && source !== null && !captureError
+  // Posting needs somewhere to host the clip (Zipline) and someone to post it to (chat).
+  const canPost = zipline && chatEnabled
   const needsConfirm = ready && delivered !== `${start}:${end}:${format}`
   // Seconds between the capture's last frame and the press: the recorder had not closed them yet
   const missing = source ? source.pressedAt - source.endsAt : 0
@@ -182,6 +207,7 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
     const safeEnd = Math.min(duration, Math.max(safeStart + 0.1, nextEnd))
     setRange([safeStart, safeEnd])
     setUploaded(null)
+    setPosted(null)
     setError(null)
     seek(Math.max(safeStart, Math.min(safeEnd, boundary)))
   }
@@ -211,7 +237,7 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
     try { await player.play() } catch { setError('Playback could not start. Try Play selection again.') }
   }
 
-  async function output(destination: 'download' | 'zipline') {
+  async function output(destination: 'download' | 'zipline' | 'chat') {
     if (!ready || !source || busy.current) return
     busy.current = true
     const request = new AbortController()
@@ -223,9 +249,15 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
     exportStarted.current = Date.now()
     const signal = request.signal
     setTask(destination); setStage('preparing'); setError(null); setElapsed(0)
+    if (destination === 'chat') setPosted(null)
     const key = `${start}:${end}:${format}`
     const trimmed = start > 0.001 || end < duration - 0.001
     try {
+      if (destination === 'chat' && uploaded) {
+        // This selection already has a link (Get share link, or a post chat did not confirm): post it again.
+        await post(uploaded.url, session)
+        return
+      }
       if (destination === 'download' && format === 'mp4' && !trimmed) {
         // The untrimmed MP4 is the capture itself: the browser downloads it straight from the server
         // instead of this page holding the whole file in memory first.
@@ -243,10 +275,12 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
         if (signal.aborted) return
         cache.current = { key, blob }
       }
-      if (destination === 'zipline') {
+      if (destination !== 'download') {
         setStage('uploading')
         const result = await uploadHighlight(blob, format, signal)
-        if (!signal.aborted) { setUploaded(result); setDelivered(key) }
+        if (signal.aborted) return
+        setUploaded(result); setDelivered(key)
+        if (destination === 'chat') await post(result.url, session)
       } else {
         const url = URL.createObjectURL(blob)
         save(url)
@@ -262,6 +296,16 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
       exportRequest.current = null
       if (!session.aborted) { setStage(null); setTask(null) }
     }
+  }
+
+  /** Posts the uploaded link to chat. A send cannot be taken back, so only closing the editor ignores its outcome. */
+  async function post(url: string, session: AbortSignal) {
+    setStage('posting')
+    const content = clipMessage(channelName, end - start, caption.trim(), url)
+    const id = lastPost.current?.content === content ? lastPost.current.id : createClientMessageId()
+    const result = await useChatStore.getState().sendMessage(content, id)
+    lastPost.current = result === 'acknowledged' ? null : { content, id }
+    if (!session.aborted) setPosted(result)
   }
 
   function save(href: string) {
@@ -282,9 +326,12 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
     exportRequest.current?.abort()
   }
 
-  /** The action's button; while it runs it shows the elapsed time and cancels the export. */
-  function actionButton(destination: 'download' | 'zipline', idle: ReactNode, variant: 'default' | 'outline', disabled = false) {
-    if (task === destination) return <Button variant="outline" onClick={cancelExport}>
+  /**
+   * The action's button; while it runs it shows the elapsed time and cancels the export. A chat message
+   * cannot be called back once sent, so Cancel stops working when the post starts.
+   */
+  function actionButton(destination: 'download' | 'zipline' | 'chat', idle: ReactNode, variant: 'default' | 'outline', disabled = false) {
+    if (task === destination) return <Button variant="outline" disabled={stage === 'posting'} onClick={cancelExport}>
       <Loader2 className="animate-spin" />Cancel<span aria-hidden="true" className="min-w-8 tabular-nums text-muted-foreground">{elapsed}s</span>
     </Button>
     return <Button variant={variant} disabled={disabled || stage !== null} onClick={() => void output(destination)}>{idle}</Button>
@@ -317,7 +364,7 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
   function retryCapture() {
     setSource(null); setCaptureError(null); setDuration(0); setPress(0); setRange([0, 0])
     setPlayhead(0); setPlaying(false); cache.current = null
-    setUploaded(null); setError(null); setDelivered(null)
+    setUploaded(null); setPosted(null); setError(null); setDelivered(null)
     setAttempt(value => value + 1)
   }
 
@@ -441,9 +488,13 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
           </div>}
         </div>
         {ready && source && <div role="group" aria-label="Export" className="shrink-0 space-y-2 border-t bg-background px-6 py-4">
+          {canPost && <label className="flex flex-col gap-1 text-sm">Caption (optional)
+            <input value={caption} maxLength={MAX_CAPTION} disabled={stage !== null} placeholder="Say something about it"
+              onChange={e => setCaption(e.target.value)} className="h-10 rounded-md border bg-background px-3" />
+          </label>}
           <div className="flex flex-wrap items-end gap-3">
             <label className="flex flex-col gap-1 text-sm">Format
-              <select value={format} disabled={stage !== null} onChange={e => { setFormat(e.target.value as HighlightFormat); setUploaded(null) }} className="h-10 rounded-md border bg-background px-3">
+              <select value={format} disabled={stage !== null} onChange={e => { setFormat(e.target.value as HighlightFormat); setUploaded(null); setPosted(null) }} className="h-10 rounded-md border bg-background px-3">
                 <option value="mp4">MP4</option><option value="webm">WebM</option>
               </select>
             </label>
@@ -453,10 +504,15 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
                 <TooltipTrigger asChild>{actionButton('zipline', <><Upload />{uploaded ? 'Share link ready' : 'Get share link'}</>, 'outline', uploaded !== null)}</TooltipTrigger>
                 <TooltipContent container={container}>Uploads to Zipline</TooltipContent>
               </Tooltip>)}
-              {actionButton('download', <><Download />Download clip</>, 'default')}
+              {actionButton('download', <><Download />Download clip</>, canPost ? 'outline' : 'default')}
+              {/* The primary action when there is a chat to post to: the clip was made to show the club */}
+              {canPost && actionButton('chat', posted === 'acknowledged' ? <><Check />Posted to chat</> : <><MessageSquare />Post to chat</>, 'default', posted === 'acknowledged')}
             </div>
           </div>
-          {stage && <p role="status" className="flex items-center gap-2 text-sm"><Loader2 className="h-4 w-4 animate-spin" />{stage === 'preparing' ? 'Preparing your clip…' : 'Uploading to Zipline…'}</p>}
+          {stage && <p role="status" className="flex items-center gap-2 text-sm"><Loader2 className="h-4 w-4 animate-spin" />{stage === 'preparing' ? 'Preparing your clip…' : stage === 'uploading' ? 'Uploading to Zipline…' : 'Posting to chat…'}</p>}
+          {posted === 'acknowledged' && <p role="status" className="flex items-center gap-2 text-sm"><Check className="h-4 w-4" />Posted to chat.</p>}
+          {posted === 'unconfirmed' && <p role="alert" className="text-sm text-destructive">Couldn't confirm it was posted. Posting again won't post it twice; the link is kept above.</p>}
+          {posted === 'not-sent' && <p role="alert" className="text-sm text-destructive">Not posted. You're offline or reconnecting. The link is kept above; post again or copy it.</p>}
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         </div>}
         {/* Same container as the editor so the question also shows in fullscreen. */}
