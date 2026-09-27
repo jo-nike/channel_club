@@ -8,6 +8,7 @@ import { AccountMenu } from '@/components/AccountMenu'
 import { ConnectionStatus } from '@/components/ConnectionStatus'
 import { NowWatching } from '@/components/tv/NowWatching'
 import { HeaderAction } from '@/components/HeaderAction'
+import { Wordmark } from '@/components/brand/Wordmark'
 
 interface TVHeaderProps {
   status: WebSocketStatus
@@ -38,8 +39,16 @@ export function TVHeader({
   const toggleNHLOverlay = useUIStore((s) => s.toggleNHLOverlay)
 
   return (
-    <header className="flex justify-between items-center gap-3 px-4 pt-header-safe pb-2 bg-background border-b rounded-b-lg">
+    <header className="flex justify-between items-center gap-3 px-4 pt-header-safe pb-2 bg-background border-b">
       <div className="flex min-w-0 flex-1 items-center gap-4">
+        {/* The wordmark and a thin rule lead the bar from tablet width up;
+            phones spend the room on the now-watching block */}
+        {!isMobile && (
+          <>
+            <Wordmark className="shrink-0" />
+            <span aria-hidden="true" data-slot="header-separator" className="h-7 w-px shrink-0 bg-border" />
+          </>
+        )}
         {/* Connection status indicator */}
         <ConnectionStatus status={status} onReconnect={onReconnect} />
         {/* What's on: two truncating lines, so a long title can't push the video down */}

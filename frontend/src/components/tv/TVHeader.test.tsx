@@ -60,6 +60,35 @@ describe('TVHeader', () => {
     expect(screen.getByRole('banner')).toHaveClass('pt-header-safe', 'pb-2')
   })
 
+  it('is a square-edged bar, since it is anchored to the top edge', () => {
+    renderHeader()
+    expect(screen.getByRole('banner').className).not.toMatch(/\brounded/)
+  })
+
+  it('leads with the wordmark and a thin rule before the now-watching block on desktop', () => {
+    renderHeader()
+    const banner = screen.getByRole('banner')
+    const wordmark = within(banner).getByRole('img', { name: 'Channel Club' })
+    expect(wordmark).toHaveClass('font-display', 'uppercase')
+    expect(wordmark).toHaveAttribute('data-size', 'md')
+
+    const rule = banner.querySelector('[data-slot="header-separator"]')
+    expect(rule).toHaveAttribute('aria-hidden', 'true')
+    expect(rule).toHaveClass('w-px', 'bg-border')
+
+    const block = within(banner).getByTestId('now-watching')
+    expect(wordmark.compareDocumentPosition(rule!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(rule!.compareDocumentPosition(block) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('leaves the wordmark out on a phone, where the title needs the room', () => {
+    renderHeader({ isMobile: true })
+    const banner = screen.getByRole('banner')
+    expect(within(banner).queryByRole('img', { name: 'Channel Club' })).not.toBeInTheDocument()
+    expect(banner.querySelector('[data-slot="header-separator"]')).toBeNull()
+    expect(within(banner).getByTestId('now-watching')).toBeInTheDocument()
+  })
+
   it('shows what is on in the now-watching block, right of the connection status', () => {
     renderHeader()
     expect(screen.getByText('Tuning in...')).toBeVisible()
