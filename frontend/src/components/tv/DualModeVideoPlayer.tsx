@@ -67,6 +67,8 @@ interface DualModeVideoPlayerProps {
   zap?: ChannelZap
   // Focuses the channel search ('/'); only where the page shows one
   onFocusSearch?: () => void
+  // Shrunk to a strip above the phone's chat composer: the chrome compacts
+  isStrip?: boolean
 }
 
 // Main component - switches between live (mpegts) and ersatztv (HLS) players.
@@ -86,6 +88,7 @@ export function DualModeVideoPlayer({
   reloadKey: pageReloadKey = 0,
   zap,
   onFocusSearch,
+  isStrip = false,
 }: DualModeVideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   // The shell element again, as state: the clip editor portals into it
@@ -160,6 +163,7 @@ export function DualModeVideoPlayer({
       toggleFullscreen,
       isTheaterMode,
       toggleTheaterMode: onTheaterModeToggle,
+      isStrip,
       controlsVisible,
       setPlaying: setEnginePlaying,
       setHoveringControls,
@@ -181,6 +185,7 @@ export function DualModeVideoPlayer({
       toggleFullscreen,
       isTheaterMode,
       onTheaterModeToggle,
+      isStrip,
       controlsVisible,
       isInfoRailVisible,
       behindLive,

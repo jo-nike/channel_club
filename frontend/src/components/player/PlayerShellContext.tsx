@@ -18,6 +18,11 @@ export interface PlayerShell {
   isTheaterMode: boolean
   toggleTheaterMode: () => void
   /**
+   * The player is the 96px strip above the phone's chat composer: room for a
+   * compact control bar only. Absent where the page never shrinks it.
+   */
+  isStrip?: boolean
+  /**
    * Whether the controls are showing: one auto-hide for the whole player, so
    * the control bar and any overlay that follows it agree
    */

@@ -1153,6 +1153,20 @@ describe('DualModeVideoPlayer shell: fullscreen survives engine swaps', () => {
     expect(screen.getByRole('button', { name: 'Exit fullscreen' })).toBeInTheDocument()
   })
 
+  // The page shrinks it to a strip above the phone's chat composer; the
+  // chrome inside reads that from the shell
+  it('tells the shell whether the page has shrunk it to a strip', () => {
+    const channel = liveChannel('https://fixture/a')
+    const { rerender } = render(
+      <DualModeVideoPlayer channel={channel} isTheaterMode={false} onTheaterModeToggle={vi.fn()} />
+    )
+    expect(shellProbe.current?.isStrip).toBe(false)
+
+    rerender(<DualModeVideoPlayer channel={channel} isTheaterMode={false} onTheaterModeToggle={vi.fn()} isStrip />)
+    expect(shellProbe.current?.isStrip).toBe(true)
+    expect(screen.getByRole('toolbar', { name: 'Video controls' })).toHaveClass('p-1.5')
+  })
+
   it.each([
     ['live', liveChannel('https://fixture/a')],
     ['ErsatzTV', hlsChannel('1', 1)],

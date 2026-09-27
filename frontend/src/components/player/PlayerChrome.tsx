@@ -64,6 +64,7 @@ export function PlayerChrome({
     toggleFullscreen,
     isTheaterMode,
     toggleTheaterMode,
+    isStrip = false,
     controlsVisible: isVisible,
     setHoveringControls,
     stepChannel,
@@ -95,14 +96,23 @@ export function PlayerChrome({
   // left out. Not on a TV until couch mode gives chat a remote-friendly home.
   const chatEnabled = useChatEnabled()
   // Sideways, a 390px-tall picture can't spare a 48px bar with room around
-  // it: the bar tightens to 44px targets and a thin scrim
-  const isCompact = isMobileLandscape
+  // it: the bar tightens to 44px targets and a thin scrim. So does the 96px
+  // strip above the phone's chat composer.
+  const isCompact = isMobileLandscape || isStrip
   const buttonClass = isCompact ? COMPACT_CONTROL_BUTTON : CONTROL_BUTTON
   const isChatOpen = useChatStore((s) => s.isOpen)
   const unreadCount = useChatStore((s) => s.unreadCount)
   const toggleChat = useChatStore((s) => s.toggleOpen)
   const showChatButton =
     chatEnabled && !isTVMode && (isTheaterMode || isMobileLandscape || (isFullscreen && !isMobile))
+  // Open chat is then drawn over the right 320px of the picture, except in
+  // theater on a desktop or tablet, where the picture stops short of it. The
+  // bar ends at the panel's edge, so Reload and Fullscreen stay reachable,
+  // and leaves out the volume slider to fit: Mute stays, and phones have
+  // volume keys. Not in fullscreen on a touch screen: chat stays outside the
+  // fullscreen player there (see TVView's chatHost), so nothing covers it.
+  const isChatOverPicture =
+    isChatOpen && showChatButton && (!isTheaterMode || isPhone || isFullscreen) && !(isFullscreen && isTouchDevice)
 
   // The bar is already full at 640-768px: the channel rocker comes in at
   // 1024px, or in theater and fullscreen, where the sidebar and guide are gone.
@@ -188,7 +198,7 @@ export function PlayerChrome({
       aria-label="Video controls"
       onMouseEnter={() => setHoveringControls(true)}
       onMouseLeave={() => setHoveringControls(false)}
-      className={`video-controls @container absolute inset-x-0 bottom-0 z-10 flex items-center bg-gradient-to-t from-black/80 via-black/50 to-transparent ${layoutClass} transition-opacity duration-300 ${
+      className={`video-controls @container absolute ${isChatOverPicture ? 'left-0 right-80' : 'inset-x-0'} bottom-0 z-10 flex items-center bg-gradient-to-t from-black/80 via-black/50 to-transparent ${layoutClass} transition-opacity duration-300 ${
         isVisible ? 'opacity-100' : 'pointer-events-none opacity-0'
       }`}
     >
@@ -251,7 +261,7 @@ export function PlayerChrome({
             value={volume}
             onChange={(e) => changeVolume(parseFloat(e.target.value))}
             aria-label="Volume"
-            className={`hidden h-2 w-24 cursor-pointer sm:block appearance-none rounded-full bg-white/30 accent-white focus-ring-media ${
+            className={`${isChatOverPicture ? 'hidden' : 'hidden sm:block'} h-2 w-24 cursor-pointer appearance-none rounded-full bg-white/30 accent-white focus-ring-media ${
               isStoreMuted ? 'opacity-50' : ''
             }`}
           />

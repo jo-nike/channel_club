@@ -290,6 +290,12 @@ export function TVView() {
   // no width to spare: there chat stays over the picture, see-through.
   const isTheaterDocked = isTheaterMode && isChatOpen && !isMobile && !isMobileLandscape
   const isChatOverPicture = chatVariant === 'overlay' && !isTheaterDocked
+  // The tablet sheet likewise keeps the player beside it, where there is room
+  // (a tablet held sideways): <main> gives up the sheet's 320px, so the
+  // player's Reload, Theater and Fullscreen aren't under it. Narrower, next to
+  // the channel list, the picture would be too small, and the sheet overlays.
+  const isWideTablet = useMediaQuery('(min-width: 1024px)')
+  const isSheetBeside = isChatOpen && chatVariant === 'sheet' && isWideTablet
 
   // Between 1024 and 1279px a full channel list, the player and docked chat
   // don't fit side by side, so the list folds to its rail while chat is open.
@@ -526,7 +532,7 @@ export function TVView() {
         {/* Content area */}
         {/* In the Chat tab it keeps only its own height (video and strip),
             leaving the rest to chat */}
-        <main className={cn('flex flex-col min-h-0 overflow-hidden', showPhoneTabs && isChatOpen ? 'flex-none' : 'flex-1')}>
+        <main className={cn('flex flex-col min-h-0 overflow-hidden', showPhoneTabs && isChatOpen ? 'flex-none' : 'flex-1', isSheetBeside && 'mr-80')}>
           {/* Video player - fixed full viewport in theater mode or mobile landscape
               (short of the chat column while it's docked in theater), a
               full-width 16:9 box in phone portrait */}
@@ -572,6 +578,7 @@ export function TVView() {
                 reloadKey={videoRefreshKey}
                 zap={zap}
                 onFocusSearch={canSearchChannels ? requestSearchFocus : undefined}
+                isStrip={isVideoStrip}
               />
             </ErrorBoundary>
           </div>
