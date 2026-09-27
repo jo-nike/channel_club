@@ -1,7 +1,11 @@
 """Tests for chat service."""
 
+import hashlib
+import hmac
+
 import pytest
 
+from app.config import settings
 from app.services import chat
 
 
@@ -80,6 +84,19 @@ class TestAddMessage:
         result = chat.add_message("testuser", "<b>bold</b>")
         assert result is not None
         assert result.content == "<b>bold</b>"
+
+    def test_stores_the_sender_user_id(self) -> None:
+        """Should keep the sender's stable id alongside the display name."""
+        result = chat.add_message("Nick", "Hello!", user_id="u_0123456789abcdef")
+        assert result is not None
+        assert result.user_id == "u_0123456789abcdef"
+        assert chat.get_history()[-1].user_id == "u_0123456789abcdef"
+
+    def test_user_id_defaults_to_empty(self) -> None:
+        """Callers that don't pass a user id still work."""
+        result = chat.add_message("testuser", "Hello!")
+        assert result is not None
+        assert result.user_id == ""
 
     def test_generates_unique_message_ids(self) -> None:
         """Should generate unique message IDs for each message."""
@@ -187,8 +204,63 @@ class TestChatMessage:
         msg_dict = msg.to_dict()
         assert "messageId" in msg_dict
         assert "username" in msg_dict
+        assert "userId" in msg_dict
         assert "content" in msg_dict
         assert "timestamp" in msg_dict
+
+    def test_to_dict_includes_user_id(self) -> None:
+        """Should emit the sender's stable id as userId."""
+        msg = chat.add_message("Nick", "Hello", user_id="u_0123456789abcdef")
+        assert msg is not None
+
+        assert msg.to_dict()["userId"] == "u_0123456789abcdef"
+
+    def test_to_dict_emits_kind_user_by_default(self) -> None:
+        """A member's message is kind 'user'."""
+        msg = chat.add_message("testuser", "Hello")
+        assert msg is not None
+
+        assert msg.to_dict()["kind"] == "user"
+
+    def test_to_dict_has_empty_channel_fields_without_a_stamp(self) -> None:
+        """A message posted without a visible channel carries null channel fields."""
+        msg = chat.add_message("testuser", "Hello")
+        assert msg is not None
+
+        msg_dict = msg.to_dict()
+        assert msg_dict["channelId"] is None
+        assert msg_dict["channelName"] is None
+        assert msg_dict["programme"] is None
+        assert msg_dict["view"] is None
+
+    def test_to_dict_emits_the_senders_channel(self) -> None:
+        """A stamped message carries the sender's channel, programme and view."""
+        stamp = chat.ChannelStamp(
+            channel_name="Cartoons", channel_id="etv-2", programme="Futurama", view="ersatztv"
+        )
+        msg = chat.add_message("maya", "lol", user_id="u_maya", channel=stamp)
+        assert msg is not None
+
+        msg_dict = msg.to_dict()
+        assert msg_dict["channelId"] == "etv-2"
+        assert msg_dict["channelName"] == "Cartoons"
+        assert msg_dict["programme"] == "Futurama"
+        assert msg_dict["view"] == "ersatztv"
+        # Stored with the stamp, so history can replay it
+        assert chat.get_history()[-1].channel == stamp
+
+    def test_to_dict_can_leave_the_channel_out(self) -> None:
+        """show_channel=False empties the channel fields but keeps the message."""
+        stamp = chat.ChannelStamp(channel_name="TSN 5", channel_id="42", view="live")
+        msg = chat.add_message("maya", "goal", channel=stamp)
+        assert msg is not None
+
+        msg_dict = msg.to_dict(show_channel=False)
+        assert msg_dict["content"] == "goal"
+        assert msg_dict["channelId"] is None
+        assert msg_dict["channelName"] is None
+        assert msg_dict["programme"] is None
+        assert msg_dict["view"] is None
 
     def test_to_dict_serializes_timestamp_as_iso(self) -> None:
         """Should serialize timestamp as ISO 8601 string."""
@@ -199,6 +271,160 @@ class TestChatMessage:
         timestamp = msg_dict["timestamp"]
         assert isinstance(timestamp, str)
         assert "T" in timestamp  # ISO format includes T separator
+
+
+class TestAddShare:
+    """Tests for add_share, the 'share what I'm watching' card."""
+
+    def test_stores_a_share_card_with_the_channel(self) -> None:
+        stamp = chat.ChannelStamp(
+            channel_name="TSN 5", channel_id="42", programme="CFL Football", view="live"
+        )
+
+        msg = chat.add_share("maya", stamp, user_id="u_maya")
+
+        assert msg.kind == "share"
+        assert msg.username == "maya"
+        assert msg.user_id == "u_maya"
+        assert msg.channel == stamp
+        assert chat.get_history() == [msg]
+        msg_dict = msg.to_dict()
+        assert msg_dict["kind"] == "share"
+        assert msg_dict["channelName"] == "TSN 5"
+        assert msg_dict["view"] == "live"
+
+    def test_content_says_what_is_shared_for_older_clients(self) -> None:
+        with_programme = chat.add_share(
+            "maya", chat.ChannelStamp(channel_name="TSN 5", programme="CFL Football")
+        )
+        without = chat.add_share("maya", chat.ChannelStamp(channel_name="Cartoons"))
+
+        assert with_programme.content == "Watching TSN 5 · CFL Football"
+        assert without.content == "Watching Cartoons"
+
+    def test_content_is_capped_like_a_message(self) -> None:
+        msg = chat.add_share("maya", chat.ChannelStamp(channel_name="x" * 512, programme="y" * 512))
+
+        assert len(msg.content) == chat.MAX_MESSAGE_LENGTH
+
+    def test_keeps_its_channel_when_channels_are_left_out(self) -> None:
+        """A share is the sender's own post: hiding stamps doesn't blank it."""
+        msg = chat.add_share("maya", chat.ChannelStamp(channel_name="TSN 5"))
+
+        assert msg.to_dict(show_channel=False)["channelName"] == "TSN 5"
+
+
+class TestAddSuggestion:
+    """Tests for add_suggestion, a member asking for a channel on live TV."""
+
+    def test_stores_a_suggestion_with_the_channel(self) -> None:
+        msg = chat.add_suggestion("maya", "42", "TSN 5", user_id="u_maya")
+
+        assert msg.kind == "suggestion"
+        assert msg.username == "maya"
+        assert msg.user_id == "u_maya"
+        assert chat.get_history() == [msg]
+        msg_dict = msg.to_dict()
+        assert msg_dict["kind"] == "suggestion"
+        assert msg_dict["channelId"] == "42"
+        assert msg_dict["channelName"] == "TSN 5"
+        # The channel suggested, not where the sender is watching
+        assert msg_dict["view"] is None
+        assert msg_dict["programme"] is None
+
+    def test_content_says_what_is_suggested_for_older_clients(self) -> None:
+        msg = chat.add_suggestion("maya", "42", "TSN 5")
+
+        assert msg.content == "Suggests putting TSN 5 on live TV"
+
+    def test_content_is_capped_like_a_message(self) -> None:
+        msg = chat.add_suggestion("maya", "42", "x" * 600)
+
+        assert len(msg.content) == chat.MAX_MESSAGE_LENGTH
+
+    def test_keeps_its_channel_when_channels_are_left_out(self) -> None:
+        """Presence privacy blanks where senders are, not the channel they suggest."""
+        msg = chat.add_suggestion("maya", "42", "TSN 5")
+
+        msg_dict = msg.to_dict(show_channel=False)
+        assert msg_dict["channelId"] == "42"
+        assert msg_dict["channelName"] == "TSN 5"
+
+
+class TestSystemMessage:
+    """Tests for system_message, the ephemeral lines about shared events."""
+
+    def test_builds_a_system_line_from_live_tv(self) -> None:
+        """The line is kind 'system', from 'Live TV', with the sentence as content."""
+        line = chat.system_message("jon put on TSN 5")
+
+        data = line.to_dict()
+        assert data["kind"] == "system"
+        assert data["username"] == "Live TV"
+        assert data["userId"] == ""
+        assert data["content"] == "jon put on TSN 5"
+        assert data["messageId"]
+
+    def test_is_not_stored_in_history(self) -> None:
+        """System lines never enter the history the chat buffer keeps."""
+        chat.add_message("testuser", "Hello")
+
+        chat.system_message("jon stopped live TV")
+
+        assert chat.get_history_count() == 1
+        assert [m.content for m in chat.get_history()] == ["Hello"]
+
+    def test_does_not_evict_messages_from_a_full_buffer(self) -> None:
+        """A run of system lines leaves a full buffer's oldest message in place."""
+        for i in range(chat.MAX_HISTORY_SIZE):
+            chat.add_message("testuser", f"Message {i}")
+
+        for _ in range(10):
+            chat.system_message("jon put on TSN 5")
+
+        history = chat.get_history(limit=chat.MAX_HISTORY_SIZE)
+        assert len(history) == chat.MAX_HISTORY_SIZE
+        assert history[0].content == "Message 0"
+
+
+class TestUserIdFor:
+    """Tests for user_id_for, the opaque chat id of an account."""
+
+    @staticmethod
+    def _expected(account: str) -> str:
+        digest = hmac.new(settings.jwt_secret.encode(), account.encode(), hashlib.sha256)
+        return "u_" + digest.hexdigest()[:16]
+
+    def test_plex_account_is_keyed_on_the_plex_id(self) -> None:
+        """A Plex sign-in's id is the HMAC of its account id, not its username."""
+        assert chat.user_id_for("plexuser", "12345") == self._expected("plex:12345")
+
+    def test_plex_rename_keeps_the_id(self) -> None:
+        """Renaming the Plex account (new sub, same plex_id) keeps the same id."""
+        assert chat.user_id_for("oldname", "12345") == chat.user_id_for("newname", "12345")
+
+    def test_local_account_is_keyed_on_the_username(self) -> None:
+        """A local sign-in's id is the HMAC of its username."""
+        assert chat.user_id_for("testuser", None) == self._expected("local:testuser")
+        assert chat.user_id_for("testuser", None) != chat.user_id_for("other", None)
+
+    def test_plex_and_local_ids_never_collide(self) -> None:
+        """A local username equal to someone's Plex id is a different account."""
+        assert chat.user_id_for("12345", None) != chat.user_id_for("someone", "12345")
+
+    def test_id_is_opaque(self) -> None:
+        """The id has a fixed shape and doesn't expose the raw Plex id."""
+        user_id = chat.user_id_for("plexuser", "987654321")
+        assert len(user_id) == 18
+        assert user_id.startswith("u_")
+        int(user_id[2:], 16)  # hex
+        assert "987654321" not in user_id
+
+    def test_id_depends_on_the_server_secret(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Another deployment's secret gives different ids, so they can't be precomputed."""
+        before = chat.user_id_for("plexuser", "12345")
+        monkeypatch.setattr(settings, "jwt_secret", "a-different-secret-that-is-long-enough")
+        assert chat.user_id_for("plexuser", "12345") != before
 
 
 class TestClearHistory:

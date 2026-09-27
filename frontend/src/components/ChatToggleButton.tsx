@@ -1,37 +1,39 @@
 import { MessageCircle } from 'lucide-react'
 import { useChatStore } from '@/stores/chatStore'
 import { useChatEnabled } from '@/hooks/useChatEnabled'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { HeaderAction } from '@/components/HeaderAction'
+import { withKey } from '@/lib/keyHints'
 
 export function ChatToggleButton() {
   const chatEnabled = useChatEnabled()
-  const { toggleOpen, unreadCount } = useChatStore()
+  // Field selectors: the button re-renders for its count and state, not on
+  // every message
+  const toggleOpen = useChatStore((s) => s.toggleOpen)
+  const unreadCount = useChatStore((s) => s.unreadCount)
+  const isOpen = useChatStore((s) => s.isOpen)
 
   // Don't render if chat is disabled
   if (!chatEnabled) {
     return null
   }
 
+  // A disclosure for the chat panel (aria-expanded), not a pressed toggle.
+  // Its name stays 'Chat' open or closed, so it reads "Chat, expanded".
+  // The filled button gets a ring while open, so the state shows as well.
+  const label = unreadCount > 0 ? `Chat, ${unreadCount} new` : 'Chat'
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={toggleOpen}
-          aria-label={unreadCount > 0 ? `Open chat (${unreadCount} new)` : 'Open chat'}
-          className="relative h-8 w-8 flex items-center justify-center bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-        >
-          <MessageCircle className="h-4 w-4 shrink-0" />
-          {unreadCount > 0 && (
-            <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground">
-              {unreadCount > 9 ? '9+' : unreadCount}
-            </span>
-          )}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent>
-        <p>{unreadCount > 0 ? `Chat (${unreadCount} new)` : 'Chat'}</p>
-      </TooltipContent>
-    </Tooltip>
+    <HeaderAction
+      variant="default"
+      icon={<MessageCircle />}
+      label={label}
+      tooltip={withKey(label, 'C')}
+      visibleLabel="Chat"
+      badge={unreadCount}
+      aria-expanded={isOpen}
+      aria-controls="chat-panel"
+      aria-keyshortcuts="C"
+      className="aria-expanded:ring-2 aria-expanded:ring-primary aria-expanded:ring-offset-2 aria-expanded:ring-offset-background"
+      onClick={toggleOpen}
+    />
   )
 }

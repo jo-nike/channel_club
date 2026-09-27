@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@/test/utils'
 import { CollapsibleChannelGroup } from './CollapsibleChannelGroup'
+import { focusOverrides } from '@/test/focus'
 import type { ChannelGroupWithChannels } from '@/types'
 
 const mockGroup: ChannelGroupWithChannels = {
@@ -136,6 +137,53 @@ describe('CollapsibleChannelGroup', () => {
     })
   })
 
+  describe('defaultOpen prop', () => {
+    it('should start expanded', () => {
+      render(
+        <CollapsibleChannelGroup
+          group={mockGroup}
+          currentChannelId="1"
+          canSelect={true}
+          onSelectChannel={vi.fn()}
+          defaultOpen
+        />
+      )
+
+      expect(screen.getByText('TSN')).toBeInTheDocument()
+      expect(screen.getByText('Sportsnet')).toBeInTheDocument()
+    })
+
+    it('should still collapse when the header is clicked, and stay collapsed on re-render', () => {
+      const { rerender } = render(
+        <CollapsibleChannelGroup
+          group={mockGroup}
+          currentChannelId="1"
+          canSelect={true}
+          onSelectChannel={vi.fn()}
+          defaultOpen
+        />
+      )
+
+      fireEvent.click(screen.getByText('Sports'))
+      expect(screen.queryByText('TSN')).not.toBeInTheDocument()
+
+      // Only the first render reads defaultOpen
+      rerender(
+        <CollapsibleChannelGroup
+          group={mockGroup}
+          currentChannelId="1"
+          canSelect={true}
+          onSelectChannel={vi.fn()}
+          defaultOpen
+        />
+      )
+      expect(screen.queryByText('TSN')).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByText('Sports'))
+      expect(screen.getByText('TSN')).toBeInTheDocument()
+    })
+  })
+
   describe('Channel selection', () => {
     it('should call onSelectChannel when admin clicks a channel', () => {
       const onSelectChannel = vi.fn()
@@ -201,6 +249,30 @@ describe('CollapsibleChannelGroup', () => {
     })
   })
 
+  describe('Focus', () => {
+    it.each([true, false])(
+      'insets the keyboard outline on the header and channel rows (canSelect %s)',
+      (canSelect) => {
+        render(
+          <CollapsibleChannelGroup
+            group={mockGroup}
+            currentChannelId="1"
+            canSelect={canSelect}
+            onSelectChannel={vi.fn()}
+            forceOpen={true}
+          />
+        )
+
+        const header = screen.getByText('Sports').closest('button')!
+        const rows = screen.getAllByRole('option')
+        for (const el of [header, ...rows]) {
+          expect(el).toHaveClass('focus-visible:-outline-offset-2')
+          expect(focusOverrides(el)).toEqual([])
+        }
+      }
+    )
+  })
+
   describe('Keyboard navigation', () => {
     it('should select channel when Enter is pressed', () => {
       const onSelectChannel = vi.fn()
@@ -236,6 +308,73 @@ describe('CollapsibleChannelGroup', () => {
       fireEvent.keyDown(channelItem!, { key: ' ' })
 
       expect(onSelectChannel).toHaveBeenCalledWith(mockGroup.channels[0])
+    })
+  })
+
+  describe('Logos', () => {
+    function renderRows(channels: ChannelGroupWithChannels['channels']) {
+      render(
+        <CollapsibleChannelGroup
+          group={{ id: 1, name: 'Sports', channelCount: channels.length, channels }}
+          currentChannelId={null}
+          canSelect={true}
+          onSelectChannel={vi.fn()}
+          forceOpen={true}
+        />
+      )
+    }
+
+    function logoSlot(name: string): HTMLElement {
+      const row = screen.getByText(name).closest<HTMLElement>('[role="option"]')!
+      return row.querySelector<HTMLElement>('[data-testid="channel-logo"]')!
+    }
+
+    it("shows the channel's logo through the API route", () => {
+      renderRows([
+        { id: '1', name: 'TSN 3', streamUrl: 'http://s1', guideId: '1', logoUrl: '/api/channels/logos/17' },
+      ])
+
+      const slot = logoSlot('TSN 3')
+      expect(slot).toHaveClass('size-10')
+      expect(slot).toHaveAttribute('aria-hidden', 'true')
+      expect(slot.querySelector('img')).toHaveAttribute('src', '/api/channels/logos/17')
+      expect(slot.querySelector('[data-monogram]')).toBeNull()
+    })
+
+    it('shows a monogram when the channel has no logo', () => {
+      renderRows([
+        { id: '1', name: 'TSN 3', streamUrl: 'http://s1', guideId: '1' },
+        { id: '2', name: 'Sportsnet One', streamUrl: 'http://s2', guideId: '2', logoUrl: null },
+        { id: '3', name: 'RDS', streamUrl: 'http://s3', guideId: '3' },
+      ])
+
+      expect(logoSlot('TSN 3').querySelector('img')).toBeNull()
+      expect(logoSlot('TSN 3').querySelector('[data-monogram]')).toHaveAttribute('data-monogram', 'TSN')
+      expect(logoSlot('Sportsnet One').querySelector('[data-monogram]')).toHaveAttribute(
+        'data-monogram',
+        'SO'
+      )
+      expect(logoSlot('RDS').querySelector('[data-monogram]')).toHaveAttribute('data-monogram', 'RDS')
+    })
+
+    it('falls back to the monogram when the logo fails to load', () => {
+      renderRows([
+        { id: '1', name: 'TSN 3', streamUrl: 'http://s1', guideId: '1', logoUrl: '/api/channels/logos/17' },
+      ])
+
+      fireEvent.error(logoSlot('TSN 3').querySelector('img')!)
+
+      expect(logoSlot('TSN 3').querySelector('img')).toBeNull()
+      expect(logoSlot('TSN 3').querySelector('[data-monogram]')).toHaveAttribute('data-monogram', 'TSN')
+    })
+
+    it('never loads a logo URL that is not one of our API paths', () => {
+      renderRows([
+        { id: '1', name: 'TSN 3', streamUrl: 'http://s1', guideId: '1', logoUrl: 'http://evil.invalid/x.png' },
+      ])
+
+      expect(logoSlot('TSN 3').querySelector('img')).toBeNull()
+      expect(logoSlot('TSN 3').querySelector('[data-monogram]')).toHaveAttribute('data-monogram', 'TSN')
     })
   })
 })

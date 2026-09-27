@@ -8,8 +8,9 @@ import {
 } from './ersatztvApi'
 import { fetchWithAuth } from '@/services/api'
 
-// Mock fetchWithAuth
-vi.mock('@/services/api', () => ({
+// Mock fetchWithAuth; the token reader stays real
+vi.mock('@/services/api', async (importOriginal) => ({
+  getAuthToken: (await importOriginal<typeof import('@/services/api')>()).getAuthToken,
   fetchWithAuth: vi.fn(),
 }))
 

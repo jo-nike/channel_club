@@ -1,17 +1,21 @@
 """Tests for channels router."""
 
+from collections.abc import Callable, Iterator
 from io import StringIO
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from loguru import logger
 
+from app.config import settings
 from app.main import app
 from app.models.channel import Channel, ChannelGroupWithChannels, GroupedChannelsResponse
 from app.services import app_settings, channel_state
 from app.services.auth import create_access_token
-from app.services.dispatcharr import DispatchrrUnavailableError
+from app.services.dispatcharr import DispatchrrUnavailableError, invalidate_grouped_channels_cache
 
 
 @pytest.fixture
@@ -557,6 +561,18 @@ class TestClearCurrentChannel:
         data = response.json()
         assert data["currentChannel"] is None
 
+    def test_clear_passes_the_admin_as_the_changer(
+        self, client: TestClient, admin_auth_header: dict[str, str]
+    ) -> None:
+        """Clearing names the admin so clients can say who stopped live TV."""
+        with patch.object(
+            channel_state, "clear_current_channel_async", new_callable=AsyncMock
+        ) as mock_clear:
+            response = client.delete("/api/channels/current", headers=admin_auth_header)
+
+        assert response.status_code == 200
+        mock_clear.assert_awaited_once_with(user="admin")
+
     def test_clear_when_no_channel_set(
         self, client: TestClient, admin_auth_header: dict[str, str]
     ) -> None:
@@ -885,3 +901,172 @@ class TestListGroupedChannels:
         data = response.json()
         assert data["groups"] == []
         assert len(data["ungrouped"]) == 2
+
+
+PNG_LOGO = b"\x89PNG\r\n\x1a\n" + b"synthetic-image-data"
+DISPATCHARR = "http://dispatcharr.test:9191"
+
+
+class TestGetChannelLogo:
+    """Tests for GET /api/channels/logos/{logo_id}."""
+
+    @pytest.fixture(autouse=True)
+    def dispatcharr(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+        """A catalogue whose TSN channel uses logo 17, and empty logo caches."""
+        monkeypatch.setattr(settings, "dispatcharr_url", DISPATCHARR)
+        monkeypatch.setattr(settings, "dispatcharr_api_key", "test-key")
+        catalogue = GroupedChannelsResponse(
+            groups=[
+                ChannelGroupWithChannels(
+                    id=1,
+                    name="Sports",
+                    channel_count=1,
+                    channels=[
+                        Channel(
+                            id="uuid-1",
+                            name="TSN",
+                            stream_url="https://streams.example.com/proxy/ts/stream/uuid-1",
+                            guide_id="1",
+                            logo_url="/api/channels/logos/17",
+                        )
+                    ],
+                )
+            ],
+            ungrouped=[
+                Channel(
+                    id="uuid-2",
+                    name="CBC",
+                    stream_url="https://streams.example.com/proxy/ts/stream/uuid-2",
+                    guide_id="2",
+                )
+            ],
+        )
+        invalidate_grouped_channels_cache()
+        with patch(
+            "app.services.dispatcharr.get_grouped_channels",
+            new=AsyncMock(return_value=catalogue),
+        ):
+            yield
+        invalidate_grouped_channels_cache()
+
+    @staticmethod
+    def _upstream(
+        monkeypatch: pytest.MonkeyPatch, handler: Callable[[httpx.Request], httpx.Response]
+    ) -> list[httpx.Request]:
+        """Route the service's httpx client to `handler`; returns the requests it saw."""
+        requests: list[httpx.Request] = []
+        real_client = httpx.AsyncClient
+
+        def record(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return handler(request)
+
+        def client_factory(**kwargs: Any) -> httpx.AsyncClient:
+            return real_client(transport=httpx.MockTransport(record), **kwargs)
+
+        monkeypatch.setattr("app.services.dispatcharr.httpx.AsyncClient", client_factory)
+        return requests
+
+    @staticmethod
+    def _png(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, headers={"content-type": "image/png"}, content=PNG_LOGO)
+
+    def test_serves_the_raster_logo_without_authentication(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """img tags can't send the JWT; the image comes from Dispatcharr's fixed logo URL."""
+        requests = self._upstream(monkeypatch, self._png)
+
+        response = client.get("/api/channels/logos/17")
+
+        assert response.status_code == 200
+        assert response.content == PNG_LOGO
+        assert response.headers["content-type"] == "image/png"
+        assert response.headers["x-content-type-options"] == "nosniff"
+        assert response.headers["content-security-policy"] == "default-src 'none'; sandbox"
+        assert [str(r.url) for r in requests] == [f"{DISPATCHARR}/api/channels/logos/17/cache/"]
+        assert requests[0].headers["authorization"] == "ApiKey test-key"
+
+    def test_serves_repeat_requests_from_the_cache(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        requests = self._upstream(monkeypatch, self._png)
+
+        first = client.get("/api/channels/logos/17")
+        second = client.get("/api/channels/logos/17")
+
+        assert first.status_code == second.status_code == 200
+        assert second.content == PNG_LOGO
+        assert len(requests) == 1
+
+    def test_404_for_a_logo_no_channel_uses(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Only catalogue logos are served, so the open route can't walk Dispatcharr's logos."""
+        requests = self._upstream(monkeypatch, lambda req: pytest.fail("upstream requested"))
+
+        response = client.get("/api/channels/logos/18")
+
+        assert response.status_code == 404
+        assert response.json() == {"detail": "No logo available"}
+        assert requests == []
+
+    @pytest.mark.parametrize("logo_id", ["0", "-1", "abc", "17.5", "..%2F..%2Fadmin"])
+    def test_rejects_anything_but_a_positive_integer_id(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch, logo_id: str
+    ) -> None:
+        requests = self._upstream(monkeypatch, lambda req: pytest.fail("upstream requested"))
+
+        response = client.get(f"/api/channels/logos/{logo_id}")
+
+        assert response.status_code in (404, 422)
+        assert requests == []
+
+    @pytest.mark.parametrize(
+        "content_type,body",
+        [
+            ("image/svg+xml", b'<svg onload="evil()"/>'),
+            ("text/html", b"<script>evil()</script>"),
+            ("image/png", b"<script>evil()</script>"),
+        ],
+    )
+    def test_503_for_a_non_raster_logo_and_the_failure_is_remembered(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch, content_type: str, body: bytes
+    ) -> None:
+        """Dispatcharr can serve SVG logos; those are refused, and not refetched right away."""
+        requests = self._upstream(
+            monkeypatch,
+            lambda req: httpx.Response(200, headers={"content-type": content_type}, content=body),
+        )
+
+        first = client.get("/api/channels/logos/17")
+        second = client.get("/api/channels/logos/17")
+
+        assert first.status_code == second.status_code == 503
+        assert first.json() == {"detail": "Logo unavailable"}
+        assert len(requests) == 1
+
+    def test_503_when_dispatcharr_redirects_off_its_origin(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        requests = self._upstream(
+            monkeypatch,
+            lambda req: httpx.Response(302, headers={"location": "http://evil.invalid/logo.png"}),
+        )
+
+        response = client.get("/api/channels/logos/17")
+
+        assert response.status_code == 503
+        assert [r.url.host for r in requests] == ["dispatcharr.test"]
+
+    def test_503_when_dispatcharr_is_unreachable(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def unreachable(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("Connection refused", request=request)
+
+        self._upstream(monkeypatch, unreachable)
+
+        response = client.get("/api/channels/logos/17")
+
+        assert response.status_code == 503

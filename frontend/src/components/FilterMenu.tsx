@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, type RefObject } from 'react'
+import { useState, type RefObject } from 'react'
 import { SlidersHorizontal } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useFilterStore, FILTER_REGISTRY } from '@/stores/filterStore'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
@@ -15,19 +15,21 @@ function FilterToggle({ filter }: { filter: (typeof FILTER_REGISTRY)[0] }) {
     <button
       type="button"
       onClick={() => toggleFilter(filter.id)}
-      className={`flex w-full items-center justify-between rounded-lg p-3 transition-colors ${
+      className={`flex w-full items-center justify-between gap-3 rounded-lg p-3 text-left transition-colors ${
         isActive
           ? 'bg-primary/20 hover:bg-primary/30'
           : 'hover:bg-muted'
       }`}
       aria-pressed={isActive}
     >
-      <div className="flex flex-col items-start gap-0.5">
+      {/* The text takes the room that is left and wraps in it; the switch
+          keeps its size, so every switch lines up down the right edge */}
+      <div className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
         <span className="font-medium">{filter.name}</span>
         <span className="text-xs text-muted-foreground">{filter.description}</span>
       </div>
       <div
-        className={`h-6 w-11 rounded-full transition-colors ${
+        className={`h-6 w-11 shrink-0 rounded-full transition-colors ${
           isActive ? 'bg-primary' : 'bg-muted-foreground/30'
         } relative`}
       >
@@ -71,28 +73,12 @@ export function FilterMenu({ isVisible, containerRef }: FilterMenuProps) {
 
   const hasActiveFilters = activeFilters.length > 0
 
-  // Where the menu portals to: the fullscreen element when we are in fullscreen,
-  // otherwise the player container. Neither is a render-time value, so this is
-  // only ever called from an event handler.
-  const resolvePortalContainer = useCallback(
-    () =>
-      (document.fullscreenElement as HTMLElement | null) ?? containerRef?.current ?? undefined,
-    [containerRef]
-  )
-
-  // Keep the portal target in sync when entering or leaving fullscreen
-  useEffect(() => {
-    const handleFullscreenChange = () => {
-      setPortalContainer(resolvePortalContainer())
-    }
-    document.addEventListener('fullscreenchange', handleFullscreenChange)
-    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
-  }, [resolvePortalContainer])
-
-  // Resolve the container as the menu opens, when the ref is guaranteed populated
+  // The menu portals into the player container, which is also the element the
+  // player fullscreens, so it shows in and out of fullscreen alike. Refs are
+  // not render-time values: resolve it as the menu opens, when it is populated.
   const handleOpenChange = (open: boolean) => {
     if (open) {
-      setPortalContainer(resolvePortalContainer())
+      setPortalContainer(containerRef?.current ?? undefined)
     }
     setIsOpen(open)
   }
@@ -105,7 +91,7 @@ export function FilterMenu({ isVisible, containerRef }: FilterMenuProps) {
       aria-label="Video filters"
       aria-haspopup="dialog"
       aria-expanded={isOpen}
-      className={`control-button relative flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-400/80 ${
+      className={`control-button relative flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-ring-media ${
         hasActiveFilters ? 'text-primary' : 'text-white'
       }`}
     >
@@ -124,7 +110,8 @@ export function FilterMenu({ isVisible, containerRef }: FilterMenuProps) {
         <Dialog open={isOpen} onOpenChange={handleOpenChange}>
           <Tooltip>
             <TooltipTrigger asChild>
-              <div onClick={() => handleOpenChange(true)}>{TriggerButton}</div>
+              {/* A Radix trigger, so closing the sheet returns focus to this button */}
+              <DialogTrigger asChild>{TriggerButton}</DialogTrigger>
             </TooltipTrigger>
             <TooltipContent>
               <p>Filters</p>
@@ -158,7 +145,7 @@ export function FilterMenu({ isVisible, containerRef }: FilterMenuProps) {
       <PopoverContent
         className="w-72"
         side="top"
-        align="center"
+        align="start"
         sideOffset={8}
         container={portalContainer}
       >

@@ -1,11 +1,33 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 
 const AUTO_HIDE_DELAY_MS = 3000
+// Touch viewers need longer to read the bar and reach for a control
+const TOUCH_AUTO_HIDE_DELAY_MS = 4000
+// A touch that moves further than this is a scroll or drag, not a tap
+const TAP_SLOP_PX = 10
+// A resting mouse can report tiny moves (sensor noise, a bumped desk); only a
+// move at least this far from where the mouse last showed the controls counts
+const MOUSE_JITTER_PX = 4
+
+// Read each time a timer is scheduled, so a device that changes pointer
+// (a tablet gaining a mouse) gets the right delay
+function autoHideDelay(): number {
+  return window.matchMedia('(pointer: coarse)').matches ? TOUCH_AUTO_HIDE_DELAY_MS : AUTO_HIDE_DELAY_MS
+}
 
 interface UseAutoHideOptions {
   isPlaying: boolean
   containerRef: React.RefObject<HTMLElement | null>
   isHoveringControls?: boolean
+  /**
+   * Only the pointer brings the controls up (the couch, driven from a remote
+   * whose keys can't reach the bar): they start hidden, a key press leaves
+   * them hidden, and neither playback starting nor stopping shows them. The
+   * shell's engine reports stopped on every zap, so showing on pause would
+   * put the bar up on each channel change. A bar the pointer brought up
+   * stays up while paused.
+   */
+  pointerOnly?: boolean
 }
 
 interface UseAutoHideResult {
@@ -15,20 +37,35 @@ interface UseAutoHideResult {
   toggleControls: () => void
 }
 
-export function useAutoHide({ isPlaying, containerRef, isHoveringControls = false }: UseAutoHideOptions): UseAutoHideResult {
-  const [isVisible, setIsVisible] = useState(true)
+export function useAutoHide({
+  isPlaying,
+  containerRef,
+  isHoveringControls = false,
+  pointerOnly = false,
+}: UseAutoHideOptions): UseAutoHideResult {
+  const [isVisible, setIsVisible] = useState(!pointerOnly)
+  // Read by toggleControls, so the listeners don't re-register on every show/hide
+  const visibleRef = useRef(!pointerOnly)
   const timeoutRef = useRef<number | undefined>(undefined)
+  const tapStartRef = useRef<{ x: number; y: number; pointerType: string } | null>(null)
+  // Where the mouse was when it last showed the controls
+  const mouseAnchorRef = useRef<{ x: number; y: number } | null>(null)
+
+  const setVisible = useCallback((visible: boolean) => {
+    visibleRef.current = visible
+    setIsVisible(visible)
+  }, [])
 
   const hideControls = useCallback(() => {
     if (timeoutRef.current) {
       window.clearTimeout(timeoutRef.current)
       timeoutRef.current = undefined
     }
-    setIsVisible(false)
-  }, [])
+    setVisible(false)
+  }, [setVisible])
 
   const showControls = useCallback(() => {
-    setIsVisible(true)
+    setVisible(true)
 
     // Clear any existing timeout
     if (timeoutRef.current) {
@@ -38,35 +75,75 @@ export function useAutoHide({ isPlaying, containerRef, isHoveringControls = fals
     // Only auto-hide when playing and not hovering over controls
     if (isPlaying && !isHoveringControls) {
       timeoutRef.current = window.setTimeout(() => {
-        setIsVisible(false)
-      }, AUTO_HIDE_DELAY_MS)
+        setVisible(false)
+      }, autoHideDelay())
     }
-  }, [isPlaying, isHoveringControls])
+  }, [isPlaying, isHoveringControls, setVisible])
 
-  // Toggle controls visibility (for touch devices)
+  // Toggle controls visibility (a tap on touch devices). A paused video keeps
+  // its controls, so a tap never leaves it with none.
   const toggleControls = useCallback(() => {
-    if (isVisible) {
+    if (visibleRef.current && isPlaying) {
       hideControls()
     } else {
       showControls()
     }
-  }, [isVisible, hideControls, showControls])
+  }, [isPlaying, hideControls, showControls])
 
-  // Handle activity events
+  // Handle activity events. Pointer events tell a mouse from a finger or pen:
+  // mouse movement shows the controls, a tap toggles them exactly once. The
+  // compatibility mouse events a tap fires afterwards are not pointer events,
+  // so they can't undo the toggle.
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
 
-    const handleActivity = () => showControls()
+    const handleMouseActivity = (e: PointerEvent) => {
+      if (e.pointerType !== 'mouse') return
+      const anchor = mouseAnchorRef.current
+      if (
+        e.type === 'pointermove' &&
+        anchor &&
+        Math.hypot(e.clientX - anchor.x, e.clientY - anchor.y) < MOUSE_JITTER_PX
+      ) {
+        return
+      }
+      mouseAnchorRef.current = { x: e.clientX, y: e.clientY }
+      showControls()
+    }
 
-    // Mouse events
-    container.addEventListener('mousemove', handleActivity)
-    container.addEventListener('mouseenter', handleActivity)
+    const handlePointerDown = (e: PointerEvent) => {
+      if (e.pointerType === 'mouse') return
+      tapStartRef.current = { x: e.clientX, y: e.clientY, pointerType: e.pointerType }
+    }
 
-    // Touch events
-    container.addEventListener('touchstart', handleActivity)
+    // A scroll or pan cancels the pointer
+    const handlePointerCancel = () => {
+      tapStartRef.current = null
+    }
 
-    // Keyboard events (global)
+    const handlePointerUp = (e: PointerEvent) => {
+      if (e.pointerType === 'mouse') return
+      const start = tapStartRef.current
+      tapStartRef.current = null
+      if (!start || start.pointerType !== e.pointerType) return
+      if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > TAP_SLOP_PX) return
+
+      // Using a control never dismisses the bar; it restarts the timer
+      if (e.target instanceof Element && e.target.closest('.video-controls')) {
+        showControls()
+      } else {
+        toggleControls()
+      }
+    }
+
+    container.addEventListener('pointermove', handleMouseActivity)
+    container.addEventListener('pointerenter', handleMouseActivity)
+    container.addEventListener('pointerdown', handlePointerDown)
+    container.addEventListener('pointerup', handlePointerUp)
+    container.addEventListener('pointercancel', handlePointerCancel)
+
+    // Keyboard events (global), except where only the pointer counts
     const handleKeyDown = () => {
       const activeElement = document.activeElement
       if (
@@ -78,26 +155,39 @@ export function useAutoHide({ isPlaying, containerRef, isHoveringControls = fals
       }
       showControls()
     }
-    window.addEventListener('keydown', handleKeyDown)
+    if (!pointerOnly) window.addEventListener('keydown', handleKeyDown)
 
     return () => {
-      container.removeEventListener('mousemove', handleActivity)
-      container.removeEventListener('mouseenter', handleActivity)
-      container.removeEventListener('touchstart', handleActivity)
+      container.removeEventListener('pointermove', handleMouseActivity)
+      container.removeEventListener('pointerenter', handleMouseActivity)
+      container.removeEventListener('pointerdown', handlePointerDown)
+      container.removeEventListener('pointerup', handlePointerUp)
+      container.removeEventListener('pointercancel', handlePointerCancel)
       window.removeEventListener('keydown', handleKeyDown)
 
       if (timeoutRef.current) {
         window.clearTimeout(timeoutRef.current)
       }
     }
-  }, [containerRef, showControls])
+  }, [containerRef, showControls, toggleControls, pointerOnly])
 
   // Show controls when paused, auto-hide when playing resumes
   useEffect(() => {
-    if (!isPlaying) {
+    if (pointerOnly) {
+      // Neither state change raises the bar. Paused, a bar that is up stays
+      // up; playing, it starts the hide timer.
+      if (!isPlaying) {
+        if (timeoutRef.current) {
+          window.clearTimeout(timeoutRef.current)
+          timeoutRef.current = undefined
+        }
+      } else if (visibleRef.current) {
+        showControls()
+      }
+    } else if (!isPlaying) {
       // When paused, always show controls (only update if not already visible to avoid setState in effect)
       if (!isVisible) {
-        setIsVisible(true)
+        setVisible(true)
       }
       if (timeoutRef.current) {
         window.clearTimeout(timeoutRef.current)
@@ -118,14 +208,14 @@ export function useAutoHide({ isPlaying, containerRef, isHoveringControls = fals
         window.clearTimeout(timeoutRef.current)
       }
       timeoutRef.current = window.setTimeout(() => {
-        setIsVisible(false)
-      }, AUTO_HIDE_DELAY_MS)
+        setVisible(false)
+      }, autoHideDelay())
     } else if (isHoveringControls && timeoutRef.current) {
       // Started hovering, cancel the hide timer
       window.clearTimeout(timeoutRef.current)
       timeoutRef.current = undefined
     }
-  }, [isHoveringControls, isPlaying, isVisible])
+  }, [isHoveringControls, isPlaying, isVisible, setVisible])
 
   return { isVisible, showControls, hideControls, toggleControls }
 }

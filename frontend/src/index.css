@@ -3,6 +3,16 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Brand type (self-hosted from Fontsource in main.tsx, so the PWA works
+   offline). Figtree is the UI face and the default for all text; Big
+   Shoulders Display is the display face (font-display) for headings, channel
+   numbers, scores and the wordmark, at weights 600-900. The fallbacks keep a
+   condensed display face and the platform UI face while the fonts load. */
+@theme {
+  --font-sans: "Figtree Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Big Shoulders Display Variable", "Arial Narrow", "Roboto Condensed", Impact, sans-serif;
+}
+
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -26,6 +36,22 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-live: var(--live);
+  --color-live-foreground: var(--live-foreground);
+  --color-live-surface: color-mix(in oklch, var(--live) 14%, var(--card));
+  /* Your own chat bubble: 18% of your member colour (lib/memberColor.ts) over
+     the card. Mixed in OKLab: the card's faint hue would drag an OKLCH mix
+     towards blue-violet for every member. */
+  --color-member-surface: color-mix(in oklab, var(--member) 18%, var(--card));
+  --color-guide-now: var(--guide-now);
+  --color-guide-future: var(--guide-future);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -45,6 +71,7 @@
 }
 
 :root {
+  color-scheme: light;
   --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -61,6 +88,17 @@
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0 0);
+  --live: oklch(0.55 0.22 27);
+  --live-foreground: oklch(0.985 0 0);
+  --guide-now: oklch(0.9046 0 0);
+  --guide-future: oklch(0.97 0 0);
+  --success: oklch(0.52 0.14 150);
+  --success-foreground: oklch(0.985 0 0);
+  --warning: oklch(0.53 0.13 60);
+  --warning-foreground: oklch(0.985 0 0);
+  --info: oklch(0.52 0.14 240);
+  --info-foreground: oklch(0.985 0 0);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
@@ -80,6 +118,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
@@ -95,6 +134,17 @@
   --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.985 0 0);
+  --live: oklch(0.55 0.22 27);
+  --live-foreground: oklch(0.985 0 0);
+  --guide-now: oklch(0.315 0 0);
+  --guide-future: oklch(0.225 0 0);
+  --success: oklch(0.72 0.17 150);
+  --success-foreground: oklch(0.2 0 0);
+  --warning: oklch(0.8 0.16 80);
+  --warning-foreground: oklch(0.2 0 0);
+  --info: oklch(0.72 0.13 235);
+  --info-foreground: oklch(0.2 0 0);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
@@ -115,175 +165,109 @@
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border;
+  }
+  /* The one focus indicator: a solid ring-colour (= primary) outline for
+     keyboard and D-pad focus only, so mouse clicks draw nothing. Utilities
+     beat this layer, so components drop their own focus:outline-none and
+     ring classes rather than override it; rows inside scroll containers add
+     focus-visible:-outline-offset-2 so the outline is not clipped. */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  /* Themed scrollbars for every scroll container (dialogs, chat, the guide).
+     scrollbar-color inherits, so setting it on the root covers them all. */
+  html {
+    scrollbar-color: color-mix(in oklch, var(--muted-foreground) 40%, transparent) transparent;
   }
   body {
     @apply bg-background text-foreground;
   }
+  /* Headings and dialog titles speak in the display face. Preflight resets
+     heading weight to inherit, so give them a display weight; a font-*
+     utility on the element still wins. */
+  h1,
+  h2,
+  h3,
+  [data-slot="dialog-title"] {
+    font-family: var(--font-display);
+    font-weight: 700;
+  }
 }
 
 /* ============================
-   10-FOOT TV UI MODE STYLES
+   REDUCED MOTION
    ============================ */
 
-/* TV Mode Variables and Base Styles */
-.tv-mode {
-  /* Typography - larger for viewing from couch (NFR13: 24px min body text) */
-  --tv-text-base: 24px;
-  --tv-text-lg: 28px;
-  --tv-text-xl: 32px;
-  --tv-text-2xl: 40px;
-  --tv-text-3xl: 48px;
-
-  /* Spacing - more generous for TV */
-  --tv-spacing-base: 1.5rem;
-
-  /* Focus ring - extra visible for 10-foot viewing (4px ring) */
-  --tv-focus-ring-width: 4px;
-  --tv-focus-ring-color: oklch(0.7 0.15 250);
-  --tv-focus-ring-offset: 4px;
-
-  /* Minimum touch/focus target (NFR12: 44px min, we use 48px for TV) */
-  --tv-min-target-size: 48px;
-}
-
-/* Apply TV mode typography to body */
-.tv-mode,
-.tv-mode body {
-  font-size: var(--tv-text-base, 24px);
-  line-height: 1.5;
-}
-
-/* Heading scales for TV mode */
-.tv-mode h1,
-.tv-mode .text-3xl {
-  font-size: var(--tv-text-3xl, 48px);
-}
-
-.tv-mode h2,
-.tv-mode .text-2xl {
-  font-size: var(--tv-text-2xl, 40px);
-}
-
-.tv-mode h3,
-.tv-mode .text-xl {
-  font-size: var(--tv-text-xl, 32px);
-}
-
-.tv-mode h4,
-.tv-mode .text-lg {
-  font-size: var(--tv-text-lg, 28px);
-}
-
-/* Ensure all text is at least 24px in TV mode */
-.tv-mode p,
-.tv-mode span,
-.tv-mode label,
-.tv-mode li {
-  font-size: max(var(--tv-text-base, 24px), inherit);
+/* Honour the OS "reduce motion" setting everywhere: animations run once,
+   near-instantly, and transitions and CSS smooth scrolling are skipped.
+   Unlayered and !important so it beats utilities and the animate-* rules
+   below. Spinners freeze too, so every loader needs a static cue (text). JS
+   smooth scrolling ignores this; use scrollBehavior() from lib/motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* ============================
-   FOCUS INDICATORS (NFR14)
+   iOS SAFE AREA
    ============================ */
 
-/* Enhanced focus states for TV - visible from 10 feet */
-.tv-mode *:focus-visible {
-  outline: var(--tv-focus-ring-width, 4px) solid var(--tv-focus-ring-color, oklch(0.7 0.15 250));
-  outline-offset: var(--tv-focus-ring-offset, 4px);
+/* viewport-fit=cover (index.html) with the black-translucent status bar
+   draws the page under the status bar, notch and home indicator. These keep
+   content clear of them; env() resolves to 0 where there are no insets. */
+@utility pt-header-safe {
+  padding-top: calc(0.5rem + env(safe-area-inset-top, 0px));
 }
 
-/* Scale transform on focus for interactive elements */
-.tv-mode button:focus-visible,
-.tv-mode [role="button"]:focus-visible,
-.tv-mode a:focus-visible {
-  transform: scale(1.02);
-  z-index: 1;
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* The PlayerChrome strip runs edge to edge along the bottom of the player,
+   so its padding keeps the buttons clear of the notch and home indicator in
+   landscape, and never drops below the strip's own px-3/pb-2 (p-1.5 for the
+   compact phone-landscape strip). Unlayered, so these win over the padding
+   utilities. Keyed on those classes because .video-controls also marks
+   controls placed elsewhere, such as the centred tap-to-play button. */
+.video-controls.px-3 {
+  padding-left: max(0.75rem, env(safe-area-inset-left));
+  padding-right: max(0.75rem, env(safe-area-inset-right));
+}
+
+.video-controls.pb-2 {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+.video-controls.p-1\.5 {
+  padding-left: max(0.375rem, env(safe-area-inset-left));
+  padding-right: max(0.375rem, env(safe-area-inset-right));
+  padding-bottom: max(0.375rem, env(safe-area-inset-bottom));
 }
 
 /* ============================
-   BUTTON & INTERACTIVE SIZING (NFR12)
+   FOCUS OVER VIDEO
    ============================ */
 
-/* Large buttons in TV mode - minimum 48px */
-.tv-mode button,
-.tv-mode [role="button"],
-.tv-mode input[type="submit"],
-.tv-mode input[type="button"] {
-  min-height: var(--tv-min-target-size, 48px);
-  min-width: var(--tv-min-target-size, 48px);
-  font-size: var(--tv-text-lg, 28px);
-  padding: 0.75rem 1.5rem;
-}
-
-/* Header buttons should stay compact even in TV mode */
-.tv-mode header button,
-.tv-mode header a {
-  min-height: auto;
-  min-width: auto;
-  font-size: 0.875rem; /* text-sm = 14px */
-  padding: 0 0.75rem; /* px-3 = 12px */
-}
-
-/* Popover content should stay compact in TV mode (rendered in portal outside header) */
-.tv-mode [data-slot="popover-content"] button,
-.tv-mode [data-slot="popover-content"] {
-  min-height: auto;
-  min-width: auto;
-  font-size: 0.875rem; /* text-sm = 14px */
-}
-
-.tv-mode [data-slot="popover-content"] button {
-  padding: 0.375rem 0.5rem; /* py-1.5 px-2 */
-}
-
-/* Dialog/Modal content should stay compact in TV mode (rendered in portal) */
-.tv-mode [data-slot="dialog-content"],
-.tv-mode [data-slot="dialog-content"] * {
-  font-size: revert;
-  min-height: revert;
-  min-width: revert;
-  padding: revert;
-}
-
-.tv-mode [data-slot="dialog-content"] button {
-  min-height: auto;
-  min-width: auto;
-  font-size: 0.875rem; /* text-sm = 14px */
-  padding: 0.5rem 1rem; /* py-2 px-4 */
-}
-
-.tv-mode [data-slot="dialog-content"] p,
-.tv-mode [data-slot="dialog-content"] span,
-.tv-mode [data-slot="dialog-content"] label {
-  font-size: inherit;
-}
-
-/* Input fields in TV mode */
-.tv-mode input[type="text"],
-.tv-mode input[type="password"],
-.tv-mode input[type="email"],
-.tv-mode select,
-.tv-mode textarea {
-  min-height: var(--tv-min-target-size, 48px);
-  font-size: var(--tv-text-base, 24px);
-  padding: 0.75rem 1rem;
-}
-
-/* ============================
-   CHANNEL LIST TV OPTIMIZATION
-   ============================ */
-
-/* Channel list items - larger for TV */
-.tv-mode .channel-item {
-  min-height: 64px;
-  padding: 1rem 1.5rem;
-  font-size: var(--tv-text-base, 24px);
-}
-
-.tv-mode .channel-item:focus-visible {
-  transform: scale(1.02);
-  z-index: 1;
+/* Focus for controls drawn over video, where no theme colour is sure to
+   show: a white outline on a dark band reads on any picture. */
+@utility focus-ring-media {
+  &:focus-visible {
+    outline: 2px solid white;
+    outline-offset: 2px;
+    box-shadow: 0 0 0 4px rgb(0 0 0 / 0.6);
+  }
 }
 
 /* ============================
@@ -315,21 +299,94 @@
 
   /* Better visibility on large screens */
   --media-font-size: 16px;
-
-  /* Focus visibility for keyboard/d-pad navigation */
-  --media-focus-ring: 0 0 0 4px rgb(78 156 246 / 0.8);
-}
-
-/* Ensure visible focus states for keyboard navigation */
-.video-player-container [data-media-button]:focus-visible {
-  outline: 2px solid rgb(78 156 246);
-  outline-offset: 2px;
 }
 
 /* Hide Playback and Accessibility menus from ErsatzTV player settings */
 .vds-playback-menu,
 .vds-accessibility-menu {
   display: none !important;
+}
+
+/* ============================
+   COUCH (10-FOOT) VIEW
+   ============================ */
+
+/* TVView sets html.couch while a TV browser has the couch view (CouchView).
+   Its tokens are read only by the couch rules below and the couch view's
+   own components (the channel banner's placement). The root font size stays
+   as it is, so dialogs and the player controls reused here keep their sizes.
+   - --couch-safe-x/y: the title-safe margin, clear of a TV's overscan
+   - --couch-focus: remote focus, in the brand colour (Club Night's amber) */
+.couch {
+  --couch-safe-x: 5vw;
+  --couch-safe-y: 5vh;
+  --couch-focus: var(--primary);
+}
+
+/* Tooltips follow a hovering pointer, which a remote hasn't got: under a
+   Magic Remote's pointer they would only cover the picture. */
+.couch [data-slot="tooltip-content"] {
+  display: none;
+}
+
+/* The control bar runs edge to edge along the bottom of the screen, so on a
+   TV its buttons keep inside the title-safe area */
+.couch .couch-view .video-controls.px-3 {
+  padding-left: max(0.75rem, var(--couch-safe-x));
+  padding-right: max(0.75rem, var(--couch-safe-x));
+}
+
+.couch .couch-view .video-controls.pb-2 {
+  padding-bottom: max(0.5rem, var(--couch-safe-y));
+}
+
+/* The idle live slot, legible from the sofa: 24px text. Its pick button goes:
+   a remote can't reach it, and OK opens the guide as the hints say */
+.couch .couch-view .live-slot-idle p {
+  font-size: 1.5rem;
+}
+
+.couch .couch-view .live-slot-idle button {
+  display: none;
+}
+
+/* Focus from a remote, readable from the sofa: a thick outline in the brand
+   colour, and a focused button grows a little, so focus never rests on
+   colour alone. Unlayered, so it wins over focus-ring-media's white outline
+   (whose dark band stays). */
+.couch .couch-view :focus-visible {
+  outline: 5px solid var(--couch-focus);
+  outline-offset: 3px;
+}
+
+.couch .couch-view :is(button, [role="button"]):focus-visible {
+  transform: scale(1.1);
+}
+
+/* The account menu portals to <body>, outside .couch-view: 10-foot type and
+   a non-colour focus cue for it too. Unlayered, so the min-width wins over
+   the menu's w-64. */
+.couch [data-slot="dropdown-menu-content"] {
+  min-width: 24rem;
+}
+
+.couch [data-slot="dropdown-menu-content"] :is([role^="menuitem"], [data-slot="dropdown-menu-label"]) {
+  font-size: 1.5rem;
+  padding-block: 0.5rem;
+}
+
+.couch [data-slot="dropdown-menu-content"] .text-xs {
+  font-size: 1.125rem;
+}
+
+.couch [data-slot="dropdown-menu-content"] [role^="menuitem"] > svg {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.couch [data-slot="dropdown-menu-content"] [data-highlighted] {
+  outline: 5px solid var(--couch-focus);
+  outline-offset: -5px;
 }
 
 /* ============================
@@ -398,9 +455,9 @@
    EPG MODERN SCROLLBAR
    ============================ */
 
+/* Colour comes from the global html rule in the base layer */
 .epg-scroll {
   scrollbar-width: thin;
-  scrollbar-color: color-mix(in oklch, var(--muted-foreground) 40%, transparent) transparent;
 }
 
 .epg-scroll::-webkit-scrollbar {

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act } from '@/test/utils'
 import { useRovingTabIndex } from './useRovingTabIndex'
 import type { KeyboardEvent } from 'react'
@@ -27,6 +27,22 @@ describe('useRovingTabIndex', () => {
     )
 
     expect(result.current.focusedIndex).toBe(0)
+  })
+
+  it('starts the tab stop on initialIndex, and moves on from there', () => {
+    const { result } = renderHook(() =>
+      useRovingTabIndex({ items: mockItems, initialIndex: 1 })
+    )
+
+    expect(result.current.focusedIndex).toBe(1)
+    expect(result.current.getTabIndex(1)).toBe(0)
+    expect(result.current.getTabIndex(0)).toBe(-1)
+
+    act(() => {
+      result.current.handleKeyDown(createKeyboardEvent('ArrowDown'))
+    })
+
+    expect(result.current.focusedIndex).toBe(2)
   })
 
   it('moves focus down on ArrowDown', () => {
@@ -263,6 +279,99 @@ describe('useRovingTabIndex', () => {
       })
 
       expect(onSelect).toHaveBeenCalledWith(mockItems[0], 0)
+    })
+  })
+
+  it('leaves Enter and Space to the focused element when there is no onSelect', () => {
+    const { result } = renderHook(() =>
+      useRovingTabIndex({ items: mockItems })
+    )
+
+    for (const key of ['Enter', ' ']) {
+      const event = createKeyboardEvent(key)
+      act(() => {
+        result.current.handleKeyDown(event)
+      })
+      expect(event.preventDefault).not.toHaveBeenCalled()
+    }
+  })
+
+  describe('containerRef option', () => {
+    // A plain list of buttons, as in the channel sidebar: no role="listbox"
+    let list: HTMLUListElement
+    let buttons: HTMLButtonElement[]
+    let outside: HTMLButtonElement
+
+    beforeEach(() => {
+      list = document.createElement('ul')
+      buttons = mockItems.map((item) => {
+        const li = document.createElement('li')
+        const button = document.createElement('button')
+        button.textContent = item.name
+        li.append(button)
+        list.append(li)
+        return button
+      })
+      outside = document.createElement('button')
+      document.body.append(list, outside)
+    })
+
+    afterEach(() => {
+      list.remove()
+      outside.remove()
+    })
+
+    function setup(withContainer: boolean) {
+      const containerRef = { current: list }
+      const hook = renderHook(() =>
+        useRovingTabIndex({ items: mockItems, containerRef: withContainer ? containerRef : undefined })
+      )
+      hook.result.current.itemRefs.current = buttons
+      return hook
+    }
+
+    it('moves DOM focus between items inside the container, with no listbox role', () => {
+      const { result } = setup(true)
+      buttons[0].focus()
+
+      act(() => {
+        result.current.handleKeyDown(createKeyboardEvent('ArrowDown'))
+      })
+      expect(document.activeElement).toBe(buttons[1])
+
+      act(() => {
+        result.current.handleKeyDown(createKeyboardEvent('End'))
+      })
+      expect(document.activeElement).toBe(buttons[2])
+
+      act(() => {
+        result.current.handleKeyDown(createKeyboardEvent('Home'))
+      })
+      expect(document.activeElement).toBe(buttons[0])
+    })
+
+    it("doesn't pull focus into the container when focus is elsewhere", () => {
+      const { result } = setup(true)
+      outside.focus()
+
+      act(() => {
+        result.current.setFocusedIndex(2)
+      })
+
+      expect(result.current.getTabIndex(2)).toBe(0)
+      expect(document.activeElement).toBe(outside)
+    })
+
+    it('without the option, moves the tab stop but not DOM focus outside a listbox', () => {
+      const { result } = setup(false)
+      buttons[0].focus()
+
+      act(() => {
+        result.current.handleKeyDown(createKeyboardEvent('ArrowDown'))
+      })
+
+      expect(result.current.focusedIndex).toBe(1)
+      expect(document.activeElement).toBe(buttons[0])
     })
   })
 })

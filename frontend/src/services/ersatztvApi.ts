@@ -1,4 +1,4 @@
-import { fetchWithAuth } from '@/services/api'
+import { fetchWithAuth, getAuthToken } from '@/services/api'
 import { logger } from '@/lib/logger'
 import type {
   ErsatzTVChannel,
@@ -70,7 +70,7 @@ export async function fetchErsatzTVCurrentProgramme(
 }
 
 export function getErsatzTVStreamUrl(channelId: string): string {
-  const token = localStorage.getItem('token')
+  const token = getAuthToken()
   // Return proxied stream URL with auth
   return `${API_URL}/ersatztv/stream/${channelId}?token=${token}`
 }

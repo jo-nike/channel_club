@@ -8,6 +8,12 @@ import { useChannelStore } from '@/stores/channelStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
+import { useTVStore, LIVE_CHANNEL_ID } from '@/stores/tvStore'
+import { useErsatztvStore } from '@/stores/ersatztvStore'
+import { usePresenceStore } from '@/stores/presenceStore'
+import { useSettingsStore } from '@/stores/settingsStore'
+import { fetchNowPlaying } from '@/services/api'
+import type { PresenceEntry, UnifiedChannel } from '@/types'
 
 // Mock useChatEnabled hook
 vi.mock('./useChatEnabled', () => ({
@@ -17,6 +23,14 @@ vi.mock('./useChatEnabled', () => ({
 // Mock sonner toast
 vi.mock('sonner', () => ({
   toast: vi.fn(),
+}))
+
+// Selecting channel 0 from the toast's Watch action loads its EPG, and a
+// live switch loads the channel's schedule
+vi.mock('@/services/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/services/api')>()),
+  fetchNowPlaying: vi.fn(),
+  fetchLiveProgrammes: vi.fn(async () => ({ channelId: '', programmes: [] })),
 }))
 
 // Mock WebSocket - simple version without auto-open
@@ -84,22 +98,32 @@ describe('useWebSocket', () => {
     useAuthStore.setState({
       token: 'test-jwt-token',
       role: 'viewer',
+      username: null,
       isAuthenticated: true,
     })
     useChannelStore.setState({
       channels: [],
       currentChannel: null,
+      lastChange: null,
       isLoading: false,
       error: null,
     })
+    useTVStore.setState({ selectedChannel: null })
     useUIStore.setState({
       notificationsEnabled: false,
+      hideMyActivity: false,
     })
     useChatStore.setState({
       messages: [],
       isOpen: false,
       unreadCount: 0,
+      nickname: null,
+      me: null,
+      revertNickname: null,
+      nicknameRejection: null,
     })
+    usePresenceStore.setState({ entries: [] })
+    useSettingsStore.setState({ userChannelSelection: false, presenceVisible: false })
     vi.mocked(toast).mockClear()
   })
 
@@ -415,40 +439,147 @@ describe('useWebSocket', () => {
       expect(MockWebSocket.instances).toHaveLength(3)
     })
 
-    test('stops reconnecting after max retries', async () => {
-      const { result } = renderHook(() => useWebSocket())
+    // Opens the first socket, drops it, then fails every fast retry so the hook reaches the slow-retry phase
+    const exhaustFastRetries = () => {
       const MAX_RETRIES = 5
-
-      // Initial connection that opens successfully then drops
       act(() => {
         MockWebSocket.instances[0].simulateOpen()
       })
       act(() => {
         MockWebSocket.instances[0].simulateClose(1006, 'Abnormal closure')
       })
-
-      // Now simulate MAX_RETRIES failed reconnection attempts
-      // Each reconnect attempt fails immediately (connection closes without opening)
       for (let i = 0; i < MAX_RETRIES; i++) {
-        // Advance timer to trigger reconnect
         const delay = Math.min(1000 * Math.pow(2, i), 10000)
         act(() => {
           vi.advanceTimersByTime(delay)
         })
-
-        // New connection created but fails immediately (simulating network failure)
-        const wsIdx = i + 1
-        expect(MockWebSocket.instances).toHaveLength(wsIdx + 1)
-
-        // Close without ever opening - simulates failed connection attempt
+        expect(MockWebSocket.instances).toHaveLength(i + 2)
         act(() => {
-          MockWebSocket.instances[wsIdx].simulateClose(1006, 'Connection failed')
+          MockWebSocket.instances[i + 1].simulateClose(1006, 'Connection failed')
         })
       }
-
-      // After max retries (5), status should be disconnected (no more reconnects)
-      expect(result.current.status).toBe('disconnected')
       expect(MockWebSocket.instances).toHaveLength(MAX_RETRIES + 1)
+    }
+
+    test('keeps retrying every 30s after the fast retries run out', () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0)
+      const { result } = renderHook(() => useWebSocket())
+
+      exhaustFastRetries()
+      expect(result.current.status).toBe('disconnected')
+
+      // No slow retry before 30s
+      act(() => {
+        vi.advanceTimersByTime(29999)
+      })
+      expect(MockWebSocket.instances).toHaveLength(6)
+      expect(result.current.status).toBe('disconnected')
+
+      // Slow retry at exactly 30s (jitter is 0)
+      act(() => {
+        vi.advanceTimersByTime(1)
+      })
+      expect(MockWebSocket.instances).toHaveLength(7)
+      expect(result.current.status).toBe('reconnecting')
+
+      // A failed slow attempt schedules another slow attempt, not a fast one
+      act(() => {
+        MockWebSocket.instances[6].simulateClose(1006, 'Connection failed')
+      })
+      expect(result.current.status).toBe('disconnected')
+      act(() => {
+        vi.advanceTimersByTime(29999)
+      })
+      expect(MockWebSocket.instances).toHaveLength(7)
+      act(() => {
+        vi.advanceTimersByTime(1)
+      })
+      expect(MockWebSocket.instances).toHaveLength(8)
+
+      // Success resets to the fast backoff
+      act(() => {
+        MockWebSocket.instances[7].simulateOpen()
+      })
+      expect(result.current.status).toBe('connected')
+      act(() => {
+        MockWebSocket.instances[7].simulateClose(1006, 'Abnormal closure')
+      })
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
+      expect(MockWebSocket.instances).toHaveLength(9)
+    })
+
+    test('adds up to 5s of jitter to the slow retry', () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0.999)
+      renderHook(() => useWebSocket())
+
+      exhaustFastRetries()
+
+      act(() => {
+        vi.advanceTimersByTime(34990)
+      })
+      expect(MockWebSocket.instances).toHaveLength(6)
+      act(() => {
+        vi.advanceTimersByTime(10)
+      })
+      expect(MockWebSocket.instances).toHaveLength(7)
+    })
+
+    test('stops slow retries after an auth error (code 4001)', () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0)
+      renderHook(() => useWebSocket())
+
+      exhaustFastRetries()
+      act(() => {
+        vi.advanceTimersByTime(30000)
+      })
+      expect(MockWebSocket.instances).toHaveLength(7)
+
+      // The slow attempt is rejected because the token expired
+      act(() => {
+        MockWebSocket.instances[6].simulateClose(4001, 'Token expired')
+      })
+
+      act(() => {
+        vi.advanceTimersByTime(120000)
+      })
+      expect(MockWebSocket.instances).toHaveLength(7)
+    })
+
+    test('unmount cancels the pending slow retry', () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0)
+      const { unmount } = renderHook(() => useWebSocket())
+
+      exhaustFastRetries()
+      unmount()
+
+      act(() => {
+        vi.advanceTimersByTime(120000)
+      })
+      expect(MockWebSocket.instances).toHaveLength(6)
+    })
+
+    test('a token change cancels the pending slow retry', () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0)
+      renderHook(() => useWebSocket())
+
+      exhaustFastRetries()
+
+      // New token: disconnect() clears the slow timer and a fresh connection starts at once
+      act(() => {
+        useAuthStore.setState({ token: 'refreshed-jwt-token' })
+      })
+      expect(MockWebSocket.instances).toHaveLength(7)
+      expect(MockWebSocket.instances[6].url).toContain('token=refreshed-jwt-token')
+
+      act(() => {
+        MockWebSocket.instances[6].simulateOpen()
+      })
+      act(() => {
+        vi.advanceTimersByTime(120000)
+      })
+      expect(MockWebSocket.instances).toHaveLength(7)
     })
 
     test('does not reconnect on intentional close (logout)', () => {
@@ -702,68 +833,229 @@ describe('useWebSocket', () => {
   })
 
   describe('channel change notifications', () => {
-    test('does not show toast on channel_update when notifications disabled', () => {
-      useUIStore.setState({ notificationsEnabled: false })
+    const ersatzChannel: UnifiedChannel = {
+      id: 'ersatz-1',
+      name: 'PopCorn Movies',
+      number: 1,
+      streamUrl: 'http://ersatz/1',
+      type: 'ersatztv',
+    }
+    const liveSlot: UnifiedChannel = {
+      id: LIVE_CHANNEL_ID,
+      name: 'Live',
+      number: 0,
+      streamUrl: '',
+      type: 'live',
+    }
+    const espn = { id: '2', name: 'ESPN', streamUrl: 'http://stream.url/espn', guideId: 'espn.guide' }
+
+    function connect() {
       renderHook(() => useWebSocket())
       const ws = MockWebSocket.instances[0]
-
       act(() => {
         ws.simulateOpen()
-        ws.simulateMessage({
-          type: 'channel_update',
-          channel: { id: '2', name: 'ESPN', streamUrl: 'http://stream.url/espn' },
-        })
+      })
+      return ws
+    }
+
+    function lastToastOptions() {
+      const call = vi.mocked(toast).mock.calls.at(-1)
+      return call?.[1] as { id?: string; duration?: number; action?: { label: string; onClick: () => void } }
+    }
+
+    beforeEach(() => {
+      useUIStore.setState({ notificationsEnabled: true })
+      useTVStore.setState({ selectedChannel: ersatzChannel })
+      vi.mocked(fetchNowPlaying).mockReset()
+      vi.mocked(fetchNowPlaying).mockResolvedValue({ channelId: 'espn.guide', currentProgram: null })
+    })
+
+    test('does not show toast on channel_update when notifications disabled', () => {
+      useUIStore.setState({ notificationsEnabled: false })
+      const ws = connect()
+
+      act(() => {
+        ws.simulateMessage({ type: 'channel_update', channel: espn, changedBy: 'alice' })
       })
 
       expect(toast).not.toHaveBeenCalled()
     })
 
-    test('shows toast on channel_update when notifications enabled', () => {
-      useUIStore.setState({ notificationsEnabled: true })
-      renderHook(() => useWebSocket())
-      const ws = MockWebSocket.instances[0]
+    test('names who put the channel on, with a Watch action, for a viewer on another channel', () => {
+      const ws = connect()
 
       act(() => {
-        ws.simulateOpen()
-        ws.simulateMessage({
-          type: 'channel_update',
-          channel: { id: '2', name: 'ESPN', streamUrl: 'http://stream.url/espn' },
-        })
+        ws.simulateMessage({ type: 'channel_update', channel: espn, changedBy: 'alice' })
       })
 
-      expect(toast).toHaveBeenCalledWith('Live channel set to: ESPN', { id: 'channel-update-2', duration: 5000 })
+      expect(toast).toHaveBeenCalledTimes(1)
+      expect(vi.mocked(toast).mock.calls[0][0]).toBe('alice put on ESPN')
+      const options = lastToastOptions()
+      expect(options.id).toBe('live-channel-change')
+      expect(options.duration).toBe(5000)
+      expect(options.action?.label).toBe('Watch')
     })
 
-    test('toast includes channel name in message', () => {
-      useUIStore.setState({ notificationsEnabled: true })
-      renderHook(() => useWebSocket())
-      const ws = MockWebSocket.instances[0]
+    test('Watch tunes the viewer to channel 0', () => {
+      const ws = connect()
 
       act(() => {
-        ws.simulateOpen()
+        ws.simulateMessage({ type: 'channel_update', channel: espn, changedBy: 'alice' })
+      })
+      act(() => {
+        lastToastOptions().action?.onClick()
+      })
+
+      const selected = useTVStore.getState().selectedChannel
+      expect(selected?.id).toBe(LIVE_CHANNEL_ID)
+      expect(selected?.type).toBe('live')
+      expect(selected?.name).toBe('ESPN')
+      expect(fetchNowPlaying).toHaveBeenCalledWith('espn.guide', 'ESPN')
+    })
+
+    test('Watch selects the first unified channel even when ErsatzTV channels are loaded', () => {
+      useErsatztvStore.setState({
+        channels: [{ id: 'ersatz-1', name: 'PopCorn Movies', streamUrl: '', logoUrl: '', number: 1, group: '' }],
+      })
+      const ws = connect()
+
+      act(() => {
+        ws.simulateMessage({ type: 'channel_update', channel: espn, changedBy: 'alice' })
+      })
+      act(() => {
+        lastToastOptions().action?.onClick()
+      })
+
+      expect(useTVStore.getState().selectedChannel?.id).toBe(useTVStore.getState().getUnifiedChannels()[0].id)
+      expect(useTVStore.getState().selectedChannel?.type).toBe('live')
+      useErsatztvStore.setState({ channels: [] })
+    })
+
+    test('does not show a toast to a viewer already on channel 0', () => {
+      useTVStore.setState({ selectedChannel: liveSlot })
+      const ws = connect()
+
+      act(() => {
+        ws.simulateMessage({ type: 'channel_update', channel: espn, changedBy: 'alice' })
+      })
+
+      expect(toast).not.toHaveBeenCalled()
+    })
+
+    test('does not show a toast to the person who made the change', () => {
+      useAuthStore.setState({ username: 'alice' })
+      const ws = connect()
+
+      act(() => {
+        ws.simulateMessage({ type: 'channel_update', channel: espn, changedBy: 'alice' })
+      })
+
+      expect(toast).not.toHaveBeenCalled()
+    })
+
+    test('falls back to unattributed copy, still with Watch, when changedBy is missing', () => {
+      const ws = connect()
+
+      act(() => {
+        ws.simulateMessage({ type: 'channel_update', channel: espn })
+      })
+
+      expect(vi.mocked(toast).mock.calls[0][0]).toBe('Live channel set to ESPN')
+      expect(lastToastOptions().id).toBe('live-channel-change')
+      expect(lastToastOptions().action?.label).toBe('Watch')
+    })
+
+    test('names who stopped live TV, without an action', () => {
+      const ws = connect()
+
+      act(() => {
+        ws.simulateMessage({ type: 'channel_update', channel: null, changedBy: 'alice' })
+      })
+
+      expect(toast).toHaveBeenCalledWith('alice stopped live TV', { id: 'live-channel-change', duration: 5000 })
+    })
+
+    test('a stop replacing a visible put-on toast clears its Watch action', () => {
+      const ws = connect()
+
+      act(() => {
+        ws.simulateMessage({ type: 'channel_update', channel: espn, changedBy: 'alice' })
+        ws.simulateMessage({ type: 'channel_update', channel: null, changedBy: 'alice' })
+      })
+
+      const calls = vi.mocked(toast).mock.calls
+      expect(calls.map((c) => c[0])).toEqual(['alice put on ESPN', 'alice stopped live TV'])
+      const clearOptions = calls[1][1] as { id: string; action?: unknown }
+      expect(clearOptions.id).toBe('live-channel-change')
+      // Sonner spreads the update over the existing toast, so the key must be
+      // present (as undefined) to remove the earlier Watch button.
+      expect(Object.hasOwn(clearOptions, 'action')).toBe(true)
+      expect(clearOptions.action).toBeUndefined()
+    })
+
+    test('shows nothing for an unattributed clear', () => {
+      const ws = connect()
+
+      act(() => {
+        ws.simulateMessage({ type: 'channel_update', channel: null })
+      })
+
+      expect(toast).not.toHaveBeenCalled()
+    })
+
+    test('rapid switches reuse one toast id so they replace each other', () => {
+      const ws = connect()
+
+      act(() => {
+        ws.simulateMessage({ type: 'channel_update', channel: espn, changedBy: 'alice' })
         ws.simulateMessage({
           type: 'channel_update',
-          channel: { id: '3', name: 'TSN Sports Network', streamUrl: 'http://stream.url/tsn' },
+          channel: { id: '3', name: 'TSN', streamUrl: 'http://stream.url/tsn' },
+          changedBy: 'bob',
         })
       })
 
-      expect(toast).toHaveBeenCalledWith('Live channel set to: TSN Sports Network', { id: 'channel-update-3', duration: 5000 })
+      const calls = vi.mocked(toast).mock.calls
+      expect(calls.map((c) => c[0])).toEqual(['alice put on ESPN', 'bob put on TSN'])
+      expect(calls.map((c) => (c[1] as { id: string }).id)).toEqual(['live-channel-change', 'live-channel-change'])
+    })
+
+    test('stores the last change even when pop-ups are off', () => {
+      useUIStore.setState({ notificationsEnabled: false })
+      vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000)
+      const ws = connect()
+
+      act(() => {
+        ws.simulateMessage({ type: 'channel_update', channel: espn, changedBy: 'alice' })
+      })
+
+      expect(useChannelStore.getState().lastChange).toEqual({
+        by: 'alice',
+        at: 1_700_000_000_000,
+        channelName: 'ESPN',
+      })
+
+      act(() => {
+        ws.simulateMessage({ type: 'channel_update', channel: null })
+      })
+
+      expect(useChannelStore.getState().lastChange).toEqual({
+        by: null,
+        at: 1_700_000_000_000,
+        channelName: null,
+      })
     })
 
     test('respects notification preference change during session', () => {
       useUIStore.setState({ notificationsEnabled: false })
-      renderHook(() => useWebSocket())
-      const ws = MockWebSocket.instances[0]
-
-      act(() => {
-        ws.simulateOpen()
-      })
+      const ws = connect()
 
       // First update with notifications disabled
       act(() => {
         ws.simulateMessage({
           type: 'channel_update',
           channel: { id: '1', name: 'Channel 1', streamUrl: 'http://stream.url/1' },
+          changedBy: 'alice',
         })
       })
 
@@ -779,10 +1071,11 @@ describe('useWebSocket', () => {
         ws.simulateMessage({
           type: 'channel_update',
           channel: { id: '2', name: 'Channel 2', streamUrl: 'http://stream.url/2' },
+          changedBy: 'alice',
         })
       })
 
-      expect(toast).toHaveBeenCalledWith('Live channel set to: Channel 2', { id: 'channel-update-2', duration: 5000 })
+      expect(vi.mocked(toast).mock.calls[0][0]).toBe('alice put on Channel 2')
     })
   })
 
@@ -810,6 +1103,122 @@ describe('useWebSocket', () => {
         content: 'Hello world!',
         timestamp: '2026-01-08T12:00:00Z',
       })
+    })
+
+    test('passes the sender userId through to the store', () => {
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({
+          type: 'chat_message',
+          messageId: 'msg-1',
+          username: 'TestUser',
+          userId: 'u_0123456789abcdef',
+          content: 'Hello world!',
+          timestamp: '2026-01-08T12:00:00Z',
+        })
+      })
+
+      expect(useChatStore.getState().messages[0].userId).toBe('u_0123456789abcdef')
+    })
+
+    test('passes the message kind through, so a system line reaches the store as one', () => {
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({
+          type: 'chat_message',
+          messageId: 'sys-1',
+          username: 'Live TV',
+          userId: '',
+          content: 'jon put on TSN 5',
+          timestamp: '2026-01-08T12:00:00Z',
+          kind: 'system',
+        })
+      })
+
+      const [line] = useChatStore.getState().messages
+      expect(line.kind).toBe('system')
+      expect(line.content).toBe('jon put on TSN 5')
+    })
+
+    test('passes the channel the server stamped through to the store', () => {
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({
+          type: 'chat_message',
+          messageId: 'msg-1',
+          username: 'maya',
+          userId: 'u_maya',
+          content: 'lol',
+          timestamp: '2026-01-08T12:00:00Z',
+          kind: 'user',
+          channelId: 'etv-2',
+          channelName: 'Cartoons',
+          programme: 'Futurama',
+          view: 'ersatztv',
+        })
+      })
+
+      expect(useChatStore.getState().messages[0]).toMatchObject({
+        channelId: 'etv-2',
+        channelName: 'Cartoons',
+        programme: 'Futurama',
+        view: 'ersatztv',
+      })
+    })
+
+    test('keeps a share card with its channel', () => {
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({
+          type: 'chat_message',
+          messageId: 'share-1',
+          username: 'maya',
+          content: 'Watching TSN 5 · CFL Football',
+          timestamp: '2026-01-08T12:00:00Z',
+          kind: 'share',
+          channelId: '42',
+          channelName: 'TSN 5',
+          programme: 'CFL Football',
+          view: 'live',
+        })
+      })
+
+      expect(useChatStore.getState().messages[0]).toMatchObject({ kind: 'share', channelName: 'TSN 5', view: 'live' })
+    })
+
+    test('keeps a suggestion with the channel suggested', () => {
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({
+          type: 'chat_message',
+          messageId: 'suggestion-1',
+          username: 'maya',
+          content: 'Suggests putting TSN 5 on live TV',
+          timestamp: '2026-01-08T12:00:00Z',
+          kind: 'suggestion',
+          channelId: '42',
+          channelName: 'TSN 5',
+          programme: null,
+          view: null,
+        })
+      })
+
+      expect(useChatStore.getState().messages[0]).toMatchObject({ kind: 'suggestion', channelId: '42', channelName: 'TSN 5' })
     })
 
     test('ignores chat_message when missing required fields', () => {
@@ -883,6 +1292,18 @@ describe('useWebSocket', () => {
       expect(JSON.parse(ws.send.mock.calls.at(-1)![0])).toMatchObject({ type: 'chat_message', content: 'Hello everyone!', clientMessageId: expect.any(String) })
     })
 
+    test('sends the clientMessageId it is given, so a retry keeps its id', () => {
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+      act(() => ws.simulateOpen())
+
+      act(() => {
+        result.current.sendChatMessage('Hello again', 'retry-id-1')
+      })
+
+      expect(JSON.parse(ws.send.mock.calls.at(-1)![0])).toEqual({ type: 'chat_message', content: 'Hello again', clientMessageId: 'retry-id-1' })
+    })
+
     test('does not send when not connected', () => {
       const { result } = renderHook(() => useWebSocket())
       const ws = MockWebSocket.instances[0]
@@ -897,9 +1318,103 @@ describe('useWebSocket', () => {
     })
   })
 
+  describe('sendShare', () => {
+    test('sends a share with only its clientMessageId, never a channel', () => {
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+      act(() => ws.simulateOpen())
+
+      act(() => {
+        result.current.sendShare('share-id-1')
+      })
+
+      expect(JSON.parse(ws.send.mock.calls.at(-1)![0])).toEqual({ type: 'share', clientMessageId: 'share-id-1' })
+    })
+
+    test('resolves acknowledged when the server accepts it', async () => {
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+      act(() => ws.simulateOpen())
+
+      const sharing = result.current.sendShare()
+      const { clientMessageId } = JSON.parse(ws.send.mock.calls.at(-1)![0])
+      act(() => ws.simulateMessage({ type: 'chat_ack', clientMessageId, accepted: true, messageId: 'server-id' }))
+
+      await expect(sharing).resolves.toBe('acknowledged')
+    })
+
+    test('resolves not-sent when the server refuses it (channel private)', async () => {
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+      act(() => ws.simulateOpen())
+
+      const sharing = result.current.sendShare('share-id-2')
+      act(() => ws.simulateMessage({ type: 'chat_ack', clientMessageId: 'share-id-2', accepted: false }))
+
+      await expect(sharing).resolves.toBe('not-sent')
+    })
+
+    test('does not send when not connected', async () => {
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      await expect(result.current.sendShare()).resolves.toBe('not-sent')
+      expect(ws.send).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('sendSuggest', () => {
+    test("sends only the channel's id with its clientMessageId", () => {
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+      act(() => ws.simulateOpen())
+
+      act(() => {
+        result.current.sendSuggest('42', 'suggest-id-1')
+      })
+
+      expect(JSON.parse(ws.send.mock.calls.at(-1)![0])).toEqual({ type: 'suggest', channelId: '42', clientMessageId: 'suggest-id-1' })
+    })
+
+    test('resolves acknowledged when the server posts it', async () => {
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+      act(() => ws.simulateOpen())
+
+      const suggesting = result.current.sendSuggest('42')
+      const { clientMessageId } = JSON.parse(ws.send.mock.calls.at(-1)![0])
+      act(() => ws.simulateMessage({ type: 'chat_ack', clientMessageId, accepted: true, messageId: 'server-id' }))
+
+      await expect(suggesting).resolves.toBe('acknowledged')
+    })
+
+    test('resolves not-sent when the server refuses it (a channel it does not have)', async () => {
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+      act(() => ws.simulateOpen())
+
+      const suggesting = result.current.sendSuggest('666', 'suggest-id-2')
+      act(() => ws.simulateMessage({ type: 'chat_ack', clientMessageId: 'suggest-id-2', accepted: false }))
+
+      await expect(suggesting).resolves.toBe('not-sent')
+    })
+
+    test('does not send when not connected', async () => {
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      await expect(result.current.sendSuggest('42')).resolves.toBe('not-sent')
+      expect(ws.send).not.toHaveBeenCalled()
+    })
+  })
+
   describe('nickname handling', () => {
-    test('sends set_nickname on connect when nickname is set', () => {
-      useChatStore.setState({ nickname: 'TestNick' })
+    beforeEach(() => {
+      localStorage.clear()
+    })
+
+    test('sends the stored nickname after connection_ack, not on open', () => {
+      localStorage.setItem('chat_nickname:testuser', 'TestNick')
 
       renderHook(() => useWebSocket())
       const ws = MockWebSocket.instances[0]
@@ -908,6 +1423,14 @@ describe('useWebSocket', () => {
         ws.simulateOpen()
       })
 
+      expect(ws.send).not.toHaveBeenCalledWith(expect.stringContaining('set_nickname'))
+
+      act(() => {
+        ws.simulateMessage({ type: 'connection_ack', currentChannel: null, you: { username: 'testuser' } })
+      })
+
+      expect(useChatStore.getState().me).toEqual({ username: 'testuser' })
+      expect(useChatStore.getState().nickname).toBe('TestNick')
       expect(ws.send).toHaveBeenCalledWith(
         JSON.stringify({
           type: 'set_nickname',
@@ -916,20 +1439,106 @@ describe('useWebSocket', () => {
       )
     })
 
-    test('does not send set_nickname on connect when nickname is null', () => {
-      useChatStore.setState({ nickname: null })
+    test('records the userId from connection_ack', () => {
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({
+          type: 'connection_ack',
+          currentChannel: null,
+          you: { username: 'testuser', userId: 'u_0123456789abcdef' },
+        })
+      })
+
+      expect(useChatStore.getState().me).toEqual({ username: 'testuser', userId: 'u_0123456789abcdef' })
+    })
+
+    test('nickname_taken puts back the name the server still uses and records the refusal', () => {
+      localStorage.setItem('chat_nickname:testuser', 'Jon')
 
       renderHook(() => useWebSocket())
       const ws = MockWebSocket.instances[0]
 
       act(() => {
         ws.simulateOpen()
+        ws.simulateMessage({ type: 'connection_ack', currentChannel: null, you: { username: 'testuser' } })
+      })
+      expect(useChatStore.getState().nickname).toBe('Jon')
+
+      act(() => {
+        ws.simulateMessage({ type: 'error', code: 'nickname_taken', nickname: 'Jon' })
       })
 
-      // Should not have sent set_nickname (no calls at all since ping hasn't fired)
-      expect(ws.send).not.toHaveBeenCalledWith(
-        expect.stringContaining('set_nickname')
-      )
+      // The server kept the sign-in name for this new socket
+      expect(useChatStore.getState().nickname).toBeNull()
+      expect(localStorage.getItem('chat_nickname:testuser')).toBeNull()
+      expect(useChatStore.getState().nicknameRejection).toEqual({ nickname: 'Jon' })
+    })
+
+    test('other server errors leave the nickname alone', () => {
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({ type: 'connection_ack', currentChannel: null, you: { username: 'testuser' } })
+        useChatStore.getState().setNickname('TestNick')
+        ws.simulateMessage({ type: 'error', code: 'invalid_message' })
+      })
+
+      expect(useChatStore.getState().nickname).toBe('TestNick')
+      expect(useChatStore.getState().nicknameRejection).toBeNull()
+    })
+
+    test('does not send set_nickname after connection_ack when that user has none stored', () => {
+      // Someone else's nickname on the same browser must not be used
+      localStorage.setItem('chat_nickname:someoneelse', 'OtherNick')
+      useChatStore.setState({ nickname: 'OtherNick', me: { username: 'someoneelse' } })
+
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({ type: 'connection_ack', currentChannel: null, you: { username: 'testuser' } })
+      })
+
+      expect(useChatStore.getState().me).toEqual({ username: 'testuser' })
+      expect(useChatStore.getState().nickname).toBeNull()
+      expect(ws.send).not.toHaveBeenCalledWith(expect.stringContaining('set_nickname'))
+    })
+
+    test('resets the chat identity on sign-out, although the view holding the socket unmounts', () => {
+      // Like App.tsx: the view that owns the socket only renders while signed in,
+      // so it unmounts in the same update that clears the token
+      function SocketOwner() {
+        useWebSocket()
+        return null
+      }
+      function SignedInOnly() {
+        const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+        return isAuthenticated ? createElement(SocketOwner) : null
+      }
+      render(createElement(SignedInOnly))
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({ type: 'connection_ack', currentChannel: null, you: { username: 'testuser' } })
+      })
+      act(() => {
+        useChatStore.getState().setNickname('TestNick')
+      })
+      expect(useChatStore.getState().me).toEqual({ username: 'testuser' })
+
+      act(() => {
+        useAuthStore.getState().logout()
+      })
+
+      expect(useChatStore.getState().me).toBeNull()
+      expect(useChatStore.getState().nickname).toBeNull()
     })
 
     test('sendSetNickname sends nickname to server when connected', () => {
@@ -967,6 +1576,234 @@ describe('useWebSocket', () => {
       expect(ws.send).not.toHaveBeenCalled()
     })
   })
+
+  describe('presence', () => {
+    const jon: PresenceEntry = {
+      userId: 'u_0123456789abcdef',
+      displayName: 'Jon',
+      channelId: '12',
+      channelName: 'TSN 1',
+      programme: 'Hockey Night',
+      view: 'live',
+      since: '2026-09-27T01:00:00+00:00',
+    }
+    const mia: PresenceEntry = {
+      userId: 'u_fedcba9876543210',
+      displayName: 'Mia',
+      channelId: null,
+      channelName: null,
+      programme: null,
+      view: null,
+      since: null,
+    }
+
+    function connect() {
+      const hook = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+      act(() => ws.simulateOpen())
+      return { ...hook, ws }
+    }
+
+    test('fills the presence store from the snapshot in connection_ack', () => {
+      const { ws } = connect()
+
+      act(() => ws.simulateMessage({ type: 'connection_ack', currentChannel: null, presence: [jon, mia] }))
+
+      expect(usePresenceStore.getState().entries).toEqual([jon, mia])
+    })
+
+    test('presence_update replaces who is here', () => {
+      const { ws } = connect()
+      act(() => ws.simulateMessage({ type: 'connection_ack', currentChannel: null, presence: [jon, mia] }))
+
+      act(() => ws.simulateMessage({ type: 'presence_update', presence: [mia] }))
+
+      expect(usePresenceStore.getState().entries).toEqual([mia])
+    })
+
+    test('presence_update with nobody here empties the list', () => {
+      const { ws } = connect()
+      act(() => ws.simulateMessage({ type: 'presence_update', presence: [jon] }))
+
+      act(() => ws.simulateMessage({ type: 'presence_update', presence: [] }))
+
+      expect(usePresenceStore.getState().entries).toEqual([])
+    })
+
+    test('an ack from an older server without presence leaves the list alone', () => {
+      usePresenceStore.setState({ entries: [jon] })
+      const { ws } = connect()
+
+      act(() => ws.simulateMessage({ type: 'connection_ack', currentChannel: null }))
+
+      expect(usePresenceStore.getState().entries).toEqual([jon])
+    })
+
+    test('ignores a presence_update from a socket that has been replaced', () => {
+      const { result, ws: oldSocket } = connect()
+      act(() => result.current.reconnect())
+      const newSocket = MockWebSocket.instances[1]
+      act(() => newSocket.simulateOpen())
+      act(() => newSocket.simulateMessage({ type: 'presence_update', presence: [mia] }))
+
+      act(() => oldSocket.simulateMessage({ type: 'presence_update', presence: [jon] }))
+
+      expect(usePresenceStore.getState().entries).toEqual([mia])
+    })
+
+    test('takes the admin presence setting from connection_ack and follows settings_update', () => {
+      const { ws } = connect()
+
+      act(() => ws.simulateMessage({
+        type: 'connection_ack',
+        currentChannel: null,
+        settings: { userChannelSelection: false, presenceVisible: true },
+      }))
+      expect(useSettingsStore.getState().presenceVisible).toBe(true)
+
+      act(() => ws.simulateMessage({
+        type: 'settings_update',
+        settings: { userChannelSelection: true, presenceVisible: false },
+      }))
+      expect(useSettingsStore.getState().presenceVisible).toBe(false)
+      expect(useSettingsStore.getState().userChannelSelection).toBe(true)
+    })
+
+    test('treats settings from an older server without the presence setting as off', () => {
+      useSettingsStore.setState({ presenceVisible: true })
+      const { ws } = connect()
+
+      act(() => ws.simulateMessage({ type: 'settings_update', settings: { userChannelSelection: false } }))
+
+      expect(useSettingsStore.getState().presenceVisible).toBe(false)
+    })
+
+    const presencePrefs = (ws: MockWebSocket) =>
+      ws.send.mock.calls
+        .map(([data]) => JSON.parse(data as string) as { type: string; hideActivity?: boolean })
+        .filter((message) => message.type === 'set_presence_prefs')
+
+    test('tells the server to hide after connection_ack, not on open', () => {
+      useUIStore.setState({ hideMyActivity: true })
+      const { ws } = connect()
+      expect(presencePrefs(ws)).toEqual([])
+
+      act(() => ws.simulateMessage({ type: 'connection_ack', currentChannel: null, presence: [] }))
+
+      expect(presencePrefs(ws)).toEqual([{ type: 'set_presence_prefs', hideActivity: true }])
+    })
+
+    test('sends nothing after connection_ack for someone who shares (the server default)', () => {
+      const { ws } = connect()
+
+      act(() => ws.simulateMessage({ type: 'connection_ack', currentChannel: null, presence: [] }))
+
+      expect(presencePrefs(ws)).toEqual([])
+    })
+
+    test('sends the preference whenever it changes', () => {
+      const { ws } = connect()
+      act(() => ws.simulateMessage({ type: 'connection_ack', currentChannel: null, presence: [] }))
+
+      act(() => useUIStore.getState().setHideMyActivity(true))
+      act(() => useUIStore.getState().setHideMyActivity(false))
+
+      expect(presencePrefs(ws)).toEqual([
+        { type: 'set_presence_prefs', hideActivity: true },
+        { type: 'set_presence_prefs', hideActivity: false },
+      ])
+    })
+
+    test('keeps a change made while offline and sends it with the next connection_ack', () => {
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => useUIStore.getState().setHideMyActivity(true))
+      expect(ws.send).not.toHaveBeenCalled()
+
+      act(() => ws.simulateOpen())
+      act(() => ws.simulateMessage({ type: 'connection_ack', currentChannel: null, presence: [] }))
+
+      expect(presencePrefs(ws)).toEqual([{ type: 'set_presence_prefs', hideActivity: true }])
+    })
+
+    test('hides again on every reconnect', () => {
+      useUIStore.setState({ hideMyActivity: true })
+      const { result, ws: first } = connect()
+      act(() => first.simulateMessage({ type: 'connection_ack', currentChannel: null, presence: [] }))
+
+      act(() => result.current.reconnect())
+      const second = MockWebSocket.instances[1]
+      act(() => second.simulateOpen())
+      act(() => second.simulateMessage({ type: 'connection_ack', currentChannel: null, presence: [] }))
+
+      expect(presencePrefs(second)).toEqual([{ type: 'set_presence_prefs', hideActivity: true }])
+    })
+
+    test('forgets who is here on sign-out or unmount', () => {
+      const { ws, unmount } = connect()
+      act(() => ws.simulateMessage({ type: 'presence_update', presence: [jon, mia] }))
+
+      unmount()
+
+      expect(usePresenceStore.getState().entries).toEqual([])
+    })
+  })
+
+  describe('focus recovery', () => {
+    test('reconnects on window focus when the socket is closed', () => {
+      vi.useFakeTimers()
+      const { result, unmount } = renderHook(() => useWebSocket())
+      act(() => MockWebSocket.instances[0].simulateOpen())
+      // Exhaust the fast retries so only the 30s slow timer is pending
+      act(() => MockWebSocket.instances[0].simulateClose(1006))
+      for (let attempt = 1; attempt <= 5; attempt++) {
+        act(() => vi.advanceTimersByTime(10000))
+        act(() => MockWebSocket.instances.at(-1)!.simulateClose(1006))
+      }
+      expect(result.current.status).toBe('disconnected')
+      expect(MockWebSocket.instances).toHaveLength(6)
+
+      act(() => window.dispatchEvent(new Event('focus')))
+      expect(MockWebSocket.instances).toHaveLength(7)
+      expect(result.current.status).toBe('reconnecting')
+      unmount()
+      vi.useRealTimers()
+    })
+
+    test('does not reconnect on window focus while the socket is open', () => {
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+      act(() => ws.simulateOpen())
+
+      act(() => window.dispatchEvent(new Event('focus')))
+
+      expect(MockWebSocket.instances).toHaveLength(1)
+      expect(ws.close).not.toHaveBeenCalled()
+      expect(result.current.status).toBe('connected')
+    })
+
+    test('does not reconnect on window focus while a connection attempt is in progress', () => {
+      renderHook(() => useWebSocket())
+
+      act(() => window.dispatchEvent(new Event('focus')))
+
+      expect(MockWebSocket.instances).toHaveLength(1)
+      expect(MockWebSocket.instances[0].close).not.toHaveBeenCalled()
+    })
+
+    test('stops listening for focus after unmount', () => {
+      const { unmount } = renderHook(() => useWebSocket())
+      act(() => MockWebSocket.instances[0].simulateOpen())
+      // The token is still valid, so only a removed listener keeps focus from reconnecting
+      unmount()
+
+      act(() => window.dispatchEvent(new Event('focus')))
+
+      expect(MockWebSocket.instances).toHaveLength(1)
+    })
+  })
+
   test('FE-10 online recovery reconnects after exhausting retries but never after expiry', async () => {
     vi.useFakeTimers()
     const { result, unmount } = renderHook(() => useWebSocket())
@@ -1033,19 +1870,19 @@ describe('useWebSocket', () => {
     Element.prototype.scrollIntoView = vi.fn() // jsdom has no layout scrolling implementation
     useChatStore.setState({ isOpen: true, nickname: 'Synthetic sender' })
     function ChatHarness() {
-      const { sendChatMessage } = useWebSocket()
-      return createElement(ChatPanel, { onSendMessage: sendChatMessage })
+      const { sendChatMessage, status } = useWebSocket()
+      return createElement(ChatPanel, { onSendMessage: sendChatMessage, status })
     }
     render(createElement(ChatHarness))
     const first = MockWebSocket.instances.at(-1)!
     act(() => first.simulateOpen())
-    const input = screen.getByPlaceholderText('Type a message...')
+    const input = screen.getByPlaceholderText('Message the club…')
     fireEvent.change(input, { target: { value: 'Keep until acknowledged' } })
     fireEvent.keyDown(input, { key: 'Enter' })
     const oldId = JSON.parse(first.send.mock.calls.at(-1)![0]).clientMessageId
     expect(input).toHaveValue('Keep until acknowledged')
     act(() => first.simulateClose(1006))
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Delivery is unconfirmed'))
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent("Couldn't confirm it was sent."))
     act(() => window.dispatchEvent(new Event('online')))
     const replacement = MockWebSocket.instances.at(-1)!
     act(() => replacement.simulateOpen())
@@ -1055,7 +1892,8 @@ describe('useWebSocket', () => {
     expect(input).toHaveValue('Keep until acknowledged')
     act(() => replacement.simulateMessage({ type: 'chat_ack', clientMessageId: newId, accepted: true, messageId: 'new-server-id' }))
     await waitFor(() => expect(input).toHaveValue(''))
-    expect(screen.getByRole('status')).toHaveTextContent('Message accepted by server')
+    expect(screen.getByRole('status')).toHaveTextContent('Message sent')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
 })

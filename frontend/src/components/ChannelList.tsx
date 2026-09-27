@@ -1,30 +1,39 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { toast } from 'sonner'
 import { X, Search } from 'lucide-react'
 import { useChannelStore } from '@/stores/channelStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useUIStore } from '@/stores/uiStore'
-import { fetchGroupedChannels, fetchNowPlayingAll, setCurrentChannel as setCurrentChannelApi, clearCurrentChannel as clearCurrentChannelApi } from '@/services/api'
+import { fetchGroupedChannels, fetchNowPlayingAll } from '@/services/api'
+import { useSetLiveChannel } from '@/hooks/useSetLiveChannel'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { CollapsibleChannelGroup } from '@/components/CollapsibleChannelGroup'
-import { cn } from '@/lib/utils'
 import type { Channel, GroupedChannelsResponse, Program } from '@/types'
 
 interface ChannelListProps {
   onChannelSelected?: () => void
+  /** Tune the person who picked to channel 0 once the switch goes through (the Live TV switcher) */
+  tuneActor?: boolean
+  /**
+   * Called with the picked channel instead of putting it on live TV (the
+   * switcher's Suggest, for viewers who can't switch). Rows can be picked
+   * whatever the viewer's permission.
+   */
+  onPick?: (channel: Channel) => void
 }
 
-export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
-  const { currentChannel, setCurrentChannel } = useChannelStore()
+export function ChannelList({ onChannelSelected, tuneActor = false, onPick }: ChannelListProps = {}) {
+  const { currentChannel } = useChannelStore()
   const { role } = useAuthStore()
   const userChannelSelection = useSettingsStore((s) => s.userChannelSelection)
   const setSidebarOpen = useUIStore((s) => s.setSidebarOpen)
+  const setLiveChannel = useSetLiveChannel({ tuneActor })
   const isAdmin = role === 'admin'
-  // Admins always may; everyone else only when the admin has opened it up
-  const canSelect = isAdmin || userChannelSelection
+  // Admins always may; everyone else only when the admin has opened it up,
+  // or to suggest a channel instead
+  const canSelect = isAdmin || userChannelSelection || onPick !== undefined
 
   const [groupedData, setGroupedData] = useState<GroupedChannelsResponse | null>(null)
   const [nowPlaying, setNowPlaying] = useState<Record<string, Program>>({})
@@ -74,9 +83,9 @@ export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
   const handleSelectChannel = useCallback(async (channel: Channel) => {
     if (!canSelect) return
 
-    // Optimistic update
-    const previousChannel = currentChannel
-    setCurrentChannel(channel)
+    // Switches the store straight away (the request settles below), unless
+    // the caller takes the pick
+    const switching = onPick ? onPick(channel) : setLiveChannel(channel)
 
     // If callback provided (modal context), call it
     // Otherwise use existing sidebar close behavior
@@ -86,41 +95,8 @@ export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
       setSidebarOpen(false)
     }
 
-    try {
-      await setCurrentChannelApi(channel)
-    } catch (e) {
-      // Revert on failure
-      setCurrentChannel(previousChannel)
-      toast.error('Failed to change channel', {
-        description: e instanceof Error ? e.message : 'Please try again',
-      })
-    }
-  }, [canSelect, currentChannel, setCurrentChannel, setSidebarOpen, onChannelSelected])
-
-  const handleClearChannel = useCallback(async () => {
-    if (!isAdmin) return
-
-    const previousChannel = currentChannel
-    setCurrentChannel(null)
-
-    // If callback provided (modal context), call it
-    // Otherwise use existing sidebar close behavior
-    if (onChannelSelected) {
-      onChannelSelected()
-    } else {
-      setSidebarOpen(false)
-    }
-
-    try {
-      await clearCurrentChannelApi()
-    } catch (e) {
-      // Revert on failure
-      setCurrentChannel(previousChannel)
-      toast.error('Failed to clear channel', {
-        description: e instanceof Error ? e.message : 'Please try again',
-      })
-    }
-  }, [isAdmin, currentChannel, setCurrentChannel, setSidebarOpen, onChannelSelected])
+    await switching
+  }, [canSelect, onPick, setLiveChannel, setSidebarOpen, onChannelSelected])
 
   useEffect(() => {
     loadGroupedChannels()
@@ -163,6 +139,9 @@ export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
   }
 
   const hasChannels = filteredGroups.length > 0 || filteredUngrouped.length > 0
+  // The group holding the live channel starts open, so it's in view without hunting
+  const containsCurrentChannel = (channels: Channel[]) =>
+    currentChannel !== null && channels.some((ch) => ch.id === currentChannel.id)
   const totalChannels = groupedData
     ? groupedData.groups.reduce((sum, g) => sum + g.channels.length, 0) + groupedData.ungrouped.length
     : 0
@@ -199,23 +178,6 @@ export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
         )}
       </div>
 
-      {/* Clear Channel button - only show when a channel is selected */}
-      {currentChannel && isAdmin && (
-        <button
-          type="button"
-          onClick={handleClearChannel}
-          className={cn(
-            'flex items-center gap-3 rounded-lg border border-destructive/50 p-4 transition-colors',
-            'text-lg text-destructive',
-            'min-h-[56px] w-full mb-2',
-            'cursor-pointer hover:bg-destructive/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring'
-          )}
-        >
-          <X className="h-5 w-5" />
-          <span className="font-medium">Clear Channel</span>
-        </button>
-      )}
-
       {/* No matches message */}
       {!hasChannels && searchQuery && (
         <div className="flex items-center justify-center p-4">
@@ -234,6 +196,7 @@ export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
             nowPlaying={nowPlaying}
             onSelectChannel={handleSelectChannel}
             forceOpen={expandedGroupIds.has(group.id)}
+            defaultOpen={containsCurrentChannel(group.channels)}
           />
         ))}
 
@@ -251,6 +214,7 @@ export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
             nowPlaying={nowPlaying}
             onSelectChannel={handleSelectChannel}
             forceOpen={searchQuery.length > 0}
+            defaultOpen={containsCurrentChannel(filteredUngrouped)}
           />
         )}
       </div>

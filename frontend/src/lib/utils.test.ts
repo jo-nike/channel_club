@@ -1,5 +1,21 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { formatDuration, isWebMSupported } from './utils'
+import { formatClockTime, formatDuration, isWebMSupported } from './utils'
+
+// These pin the en-US clock, the default locale in the test environment
+describe('formatClockTime', () => {
+  it('writes an afternoon time without a leading zero', () => {
+    expect(formatClockTime(new Date(2026, 8, 6, 13, 52))).toMatch(/^1:52\sPM$/)
+  })
+
+  it('writes a morning time without a leading zero', () => {
+    expect(formatClockTime(new Date(2026, 8, 6, 9, 5))).toMatch(/^9:05\sAM$/)
+  })
+
+  it('takes epoch milliseconds as well as a Date', () => {
+    const date = new Date(2026, 8, 6, 13, 52)
+    expect(formatClockTime(date.getTime())).toBe(formatClockTime(date))
+  })
+})
 
 describe('formatDuration', () => {
   beforeEach(() => {

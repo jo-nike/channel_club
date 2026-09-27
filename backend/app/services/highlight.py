@@ -32,6 +32,12 @@ from app.services.media_source import resolve_media_channel
 
 log = logger.bind(service="highlight")
 
+# A capture waits for the segment being written at the press to close, so the press is inside it.
+# The wait is one segment plus slack, capped so a long configured segment cannot stall the editor.
+TAIL_WAIT_SLACK_SECONDS = 2
+TAIL_WAIT_CAP_SECONDS = 12
+TAIL_POLL_SECONDS = 0.25
+
 
 def remove_recording_directory(directory: Path) -> None:
     """Delete only strict descendants of the configured recording root."""
@@ -261,8 +267,44 @@ class ChannelRecorder:
             elapsed = time.time() - self.started_at
             return min(elapsed, settings.highlight_buffer_seconds)
 
-    def _snapshot(self, workspace: Path) -> Path:
-        """Copy completed segments while producer is paused and lifecycle locked."""
+    def _newest_listed_segment(self) -> str | None:
+        """The segment muxer lists a segment only once it is closed."""
+        if not self.segment_dir:
+            return None
+        try:
+            entries = (self.segment_dir / "segments.txt").read_text().splitlines()
+        except OSError:
+            return None
+        return entries[-1] if entries else None
+
+    async def wait_for_current_segment(self) -> bool:
+        """Wait, bounded, until the segment being written now is closed and listed.
+
+        Returns False when the wait timed out (a stalled stream) or the recorder stopped;
+        the capture then ends at the last closed segment, as before.
+        """
+        # The list is read in a worker thread, like the rest of the recorder's file I/O.
+        listed = await asyncio.to_thread(self._newest_listed_segment)
+        limit = min(
+            settings.highlight_segment_seconds + TAIL_WAIT_SLACK_SECONDS, TAIL_WAIT_CAP_SECONDS
+        )
+        deadline = time.monotonic() + limit
+        while time.monotonic() < deadline:
+            await asyncio.sleep(TAIL_POLL_SECONDS)
+            if not self.is_running:
+                return False
+            if await asyncio.to_thread(self._newest_listed_segment) != listed:
+                return True
+        log.info(
+            "Capture on channel {} stopped waiting for a segment after {}s", self.channel_id, limit
+        )
+        return False
+
+    def _snapshot(self, workspace: Path) -> tuple[Path, float]:
+        """Copy completed segments while producer is paused and lifecycle locked.
+
+        Returns the concat list and the wall-clock time the newest copied segment ends.
+        """
         if not self.segment_dir or not self.process:
             raise ValueError("Recorder not running")
         producer_pid = self.process.pid
@@ -292,6 +334,11 @@ class ChannelRecorder:
             paths = [path for path in paths if path.stat().st_mtime >= cutoff]
             if not paths:
                 raise ValueError("No recent segments available")
+            # The segment being written is left out, so the capture ends this long before the
+            # snapshot. Captures first wait for the segment written at the press to close, so
+            # this is near zero for them; highlight.capture_ready logs the gap to the press.
+            ends_at = paths[-1].stat().st_mtime
+            before_snapshot = time.time() - ends_at
             if sum(path.stat().st_size for path in paths) > settings.media_export_max_bytes:
                 raise ValueError("Highlight exceeds export size limit")
             names = []
@@ -301,19 +348,33 @@ class ChannelRecorder:
                 names.append(name)
             concat = workspace / "concat.txt"
             concat.write_text("".join(f"file '{name}'\n" for name in names))
-            return concat
+            log.bind(
+                event="highlight.capture",
+                channel_id=self.channel_id,
+                segments=len(paths),
+                ends_before_snapshot_seconds=round(before_snapshot, 2),
+            ).info(
+                "Highlight capture of {} segments ends {:.1f}s before the snapshot",
+                len(paths),
+                before_snapshot,
+            )
+            return concat, ends_at
         finally:
             with suppress(ProcessLookupError):
                 os.killpg(producer_pid, signal.SIGCONT)
 
-    async def capture(self, output: Path) -> None:
-        """Remux the private snapshot into an immutable MP4 the editor streams by URL."""
+    async def capture(self, output: Path) -> float:
+        """Remux the private snapshot into an immutable MP4 the editor streams by URL.
+
+        Returns the wall-clock time the capture ends (its newest segment's mtime).
+        """
         with tempfile.TemporaryDirectory(prefix="highlight-capture-") as directory:
             async with self._lock:
                 if not self.is_running or not self.segment_dir:
                     raise ValueError("Recorder not running")
-                concat = await owned_thread(self._snapshot, Path(directory))
+                concat, ends_at = await owned_thread(self._snapshot, Path(directory))
             await encode_file(concat, output, "mp4", None, None, concat=True)
+        return ends_at
 
     async def save_highlight(
         self,
@@ -328,7 +389,7 @@ class ChannelRecorder:
                 async with self._lock:
                     if not self.is_running or not self.segment_dir:
                         return None, "Recorder not running"
-                    concat = await owned_thread(self._snapshot, workspace)
+                    concat, _ = await owned_thread(self._snapshot, workspace)
                 video = await encode_file(
                     concat,
                     workspace / f"highlight.{format}",
@@ -353,6 +414,9 @@ RECORDER_IDLE_TIMEOUT = 120
 # Captures outlive the editor session by a margin; closing the editor deletes them early.
 CAPTURE_TTL_SECONDS = 15 * 60
 
+# A download link only has to last until the browser follows it.
+DOWNLOAD_TOKEN_TTL_SECONDS = 60
+
 
 @dataclass(frozen=True)
 class Capture:
@@ -365,10 +429,23 @@ class Capture:
     size: int
     duration: float
     created_at: float
+    # Server time of the request, and the wall-clock time the capture's last frame was recorded:
+    # the editor places the press at duration - (ends_at - pressed_at).
+    pressed_at: float
+    ends_at: float
 
     @property
     def expires_at(self) -> float:
         return self.created_at + CAPTURE_TTL_SECONDS
+
+
+@dataclass(frozen=True)
+class DownloadToken:
+    """A single-use grant to download one owner's capture without their session token."""
+
+    capture_id: str
+    owner: str
+    expires_at: float
 
 
 class CaptureStore:
@@ -376,8 +453,11 @@ class CaptureStore:
 
     def __init__(self):
         self.captures: dict[str, Capture] = {}
+        self.download_tokens: dict[str, DownloadToken] = {}
 
-    async def create(self, recorder: ChannelRecorder, owner: str, channel_id: str) -> Capture:
+    async def create(
+        self, recorder: ChannelRecorder, owner: str, channel_id: str, pressed_at: float
+    ) -> Capture:
         root = Path(settings.highlight_temp_dir) / "captures"
         root.mkdir(parents=True, exist_ok=True)
         capture_id = secrets.token_urlsafe(16)
@@ -385,7 +465,7 @@ class CaptureStore:
         directory.mkdir(mode=0o700)
         path = directory / "snapshot.mp4"
         try:
-            await recorder.capture(path)
+            ends_at = await recorder.capture(path)
             duration = await media_duration(path)
             size = await owned_thread(lambda: path.stat().st_size)
         except BaseException:
@@ -394,10 +474,21 @@ class CaptureStore:
         # One capture per owner bounds disk use to one export-sized file each.
         for previous in [item for item in self.captures.values() if item.owner == owner]:
             await self._remove(previous)
-        capture = Capture(capture_id, owner, channel_id, path, size, duration, time.time())
+        capture = Capture(
+            capture_id, owner, channel_id, path, size, duration, time.time(), pressed_at, ends_at
+        )
         self.captures[capture_id] = capture
-        log.info(
-            "Capture {} ready for {} ({:.1f}s, {:.1f} KB)", capture_id, owner, duration, size / 1024
+        log.bind(
+            event="highlight.capture_ready",
+            channel_id=channel_id,
+            ends_after_press_seconds=round(ends_at - pressed_at, 2),
+        ).info(
+            "Capture {} ready for {} ({:.1f}s, {:.1f} KB), ends {:+.1f}s after the press",
+            capture_id,
+            owner,
+            duration,
+            size / 1024,
+            ends_at - pressed_at,
         )
         return capture
 
@@ -408,6 +499,27 @@ class CaptureStore:
             return None
         return capture
 
+    def issue_download_token(self, capture_id: str, owner: str) -> str | None:
+        """A plain link for the browser's download manager, which cannot send the JWT header.
+
+        Keeps the session token out of the URL, download history and proxy logs.
+        """
+        if self.get(capture_id, owner) is None:
+            return None
+        self._drop_expired_tokens(time.time())
+        token = secrets.token_urlsafe(24)
+        self.download_tokens[token] = DownloadToken(
+            capture_id, owner, time.time() + DOWNLOAD_TOKEN_TTL_SECONDS
+        )
+        return token
+
+    def redeem_download_token(self, token: str) -> Capture | None:
+        """Spend the token: a second request, an expired token or a gone capture finds nothing."""
+        grant = self.download_tokens.pop(token, None)
+        if grant is None or grant.expires_at <= time.time():
+            return None
+        return self.get(grant.capture_id, grant.owner)
+
     async def delete(self, capture_id: str, owner: str) -> None:
         capture = self.captures.get(capture_id)
         if capture is not None and capture.owner == owner:
@@ -415,9 +527,15 @@ class CaptureStore:
 
     async def sweep(self, now: float | None = None) -> None:
         now = time.time() if now is None else now
+        self._drop_expired_tokens(now)
         for capture in list(self.captures.values()):
             if capture.expires_at <= now:
                 await self._remove(capture)
+
+    def _drop_expired_tokens(self, now: float) -> None:
+        for token, grant in list(self.download_tokens.items()):
+            if grant.expires_at <= now:
+                del self.download_tokens[token]
 
     async def clear(self) -> None:
         for capture in list(self.captures.values()):
@@ -425,6 +543,9 @@ class CaptureStore:
 
     async def _remove(self, capture: Capture) -> None:
         self.captures.pop(capture.id, None)
+        for token, grant in list(self.download_tokens.items()):
+            if grant.capture_id == capture.id:
+                del self.download_tokens[token]
         try:
             await asyncio.to_thread(remove_recording_directory, capture.path.parent)
         except OSError as exc:
@@ -693,14 +814,17 @@ class HighlightService:
         self, channel_id: str, owner: str
     ) -> tuple[Capture | None, str | None]:
         """Snapshot the channel into a server-held capture the owner can stream and export."""
+        pressed_at = time.time()
         if not settings.highlight_enabled:
             return None, "Highlight feature is disabled"
         if channel_id not in self._recorders:
             return None, "No recording active for this channel"
         recorder = self._recorders[channel_id]
+        # Waited outside the export slot: only two exist server-wide, and waiting encodes nothing.
+        await recorder.wait_for_current_segment()
         with export_budget.slot(owner):
             try:
-                return await self.captures.create(recorder, owner, channel_id), None
+                return await self.captures.create(recorder, owner, channel_id, pressed_at), None
             except TimeoutError:
                 return None, "Highlight creation timed out"
             except (OSError, ValueError) as exc:
@@ -712,6 +836,12 @@ class HighlightService:
 
     async def delete_capture(self, capture_id: str, owner: str) -> None:
         await self.captures.delete(capture_id, owner)
+
+    def issue_download_token(self, capture_id: str, owner: str) -> str | None:
+        return self.captures.issue_download_token(capture_id, owner)
+
+    def redeem_download_token(self, token: str) -> Capture | None:
+        return self.captures.redeem_download_token(token)
 
 
 # Global service instance

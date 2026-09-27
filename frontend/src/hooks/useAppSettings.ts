@@ -12,6 +12,8 @@ import { useSettingsStore } from '@/stores/settingsStore'
 export function useAppSettings() {
   const userChannelSelection = useSettingsStore((s) => s.userChannelSelection)
   const setUserChannelSelection = useSettingsStore((s) => s.setUserChannelSelection)
+  const presenceVisible = useSettingsStore((s) => s.presenceVisible)
+  const setPresenceVisible = useSettingsStore((s) => s.setPresenceVisible)
 
   useEffect(() => {
     let mounted = true
@@ -21,6 +23,7 @@ export function useAppSettings() {
         const settings = await fetchAppSettings()
         if (mounted) {
           setUserChannelSelection(settings.userChannelSelection)
+          setPresenceVisible(settings.presenceVisible ?? false)
         }
       } catch {
         // Leave the current value alone - the WebSocket is the primary source
@@ -32,7 +35,7 @@ export function useAppSettings() {
     return () => {
       mounted = false
     }
-  }, [setUserChannelSelection])
+  }, [setUserChannelSelection, setPresenceVisible])
 
-  return { userChannelSelection }
+  return { userChannelSelection, presenceVisible }
 }

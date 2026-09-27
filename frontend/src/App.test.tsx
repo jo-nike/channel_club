@@ -1,11 +1,16 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor } from '@/test/utils'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { act, render, screen, waitFor } from '@/test/utils'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
+import { toast } from 'sonner'
 import { App } from './App'
 import { TVView } from '@/components/tv/TVView'
 import { useAuthStore } from '@/stores/authStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { useUIStore } from '@/stores/uiStore'
+import { useThemeStore } from '@/stores/themeStore'
+import { useReminderStore } from '@/stores/reminderStore'
+import { DEFAULT_THEME_ID, getTheme } from '@/lib/themes'
+import { APP_NAME } from '@/lib/appInfo'
 import * as api from '@/services/api'
 
 vi.mock('@/services/api', () => ({
@@ -83,9 +88,38 @@ describe('App', () => {
       isSidebarOpen: false,
     })
     vi.mocked(api.fetchChannels).mockResolvedValue([])
+    useThemeStore.setState(useThemeStore.getInitialState())
+    document.documentElement.classList.remove('dark')
+    document.documentElement.style.cssText = ''
   })
 
   describe('unauthenticated state', () => {
+    it('applies the default dark theme to the sign-in screen', async () => {
+      renderWithRouter()
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/username/i)).toBeInTheDocument()
+      })
+      expect(document.documentElement.classList.contains('dark')).toBe(true)
+      expect(document.documentElement.style.getPropertyValue('--background')).toBe(
+        getTheme(DEFAULT_THEME_ID).colors.background
+      )
+    })
+
+    it('applies a stored light theme to the sign-in screen', async () => {
+      useThemeStore.getState().setTheme('catppuccin-latte')
+
+      renderWithRouter()
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/username/i)).toBeInTheDocument()
+      })
+      expect(document.documentElement.classList.contains('dark')).toBe(false)
+      expect(document.documentElement.style.getPropertyValue('--background')).toBe(
+        getTheme('catppuccin-latte').colors.background
+      )
+    })
+
     it('should show LoginForm when not authenticated', async () => {
       renderWithRouter()
 
@@ -120,13 +154,104 @@ describe('App', () => {
     it('should show TVView when authenticated with valid token', () => {
       renderWithRouter()
 
-      expect(screen.getByRole('button', { name: /user settings/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Account menu' })).toBeInTheDocument()
     })
 
     it('should not show LoginForm when authenticated', () => {
       renderWithRouter()
 
       expect(screen.queryByLabelText(/username/i)).not.toBeInTheDocument()
+    })
+  })
+
+  describe('toasts', () => {
+    afterEach(() => {
+      act(() => {
+        toast.dismiss()
+      })
+    })
+
+    it.each([
+      ['catppuccin-latte', 'light'],
+      ['catppuccin-mocha', 'dark'],
+    ] as const)('follow the %s theme (%s)', async (themeId, mode) => {
+      useThemeStore.getState().setTheme(themeId)
+      renderWithRouter()
+
+      act(() => {
+        toast('Hello')
+      })
+
+      await waitFor(() => {
+        expect(document.querySelector('[data-sonner-toaster]')).toHaveAttribute('data-sonner-theme', mode)
+      })
+    })
+  })
+
+  describe('programme reminders', () => {
+    // Started a second ago, on a channel that isn't loaded, so the toast uses the saved name
+    const setDueReminder = () =>
+      useReminderStore.setState({
+        reminders: [
+          { programmeId: 'p1', channelId: 'ch9', channelName: 'Cartoons', title: 'Futurama', startMs: Date.now() - 1000 },
+        ],
+      })
+
+    afterEach(() => {
+      act(() => {
+        toast.dismiss()
+      })
+      useReminderStore.setState({ reminders: [] })
+    })
+
+    it('go off when signed in', async () => {
+      const payload = { exp: Math.floor(Date.now() / 1000) + 3600 }
+      useAuthStore.setState({
+        token: `header.${btoa(JSON.stringify(payload))}.signature`,
+        role: 'viewer',
+        isAuthenticated: true,
+        isInitializing: false,
+      })
+      setDueReminder()
+
+      renderWithRouter()
+
+      expect(await screen.findByText('Futurama starts now on Cartoons')).toBeInTheDocument()
+      expect(useReminderStore.getState().reminders).toEqual([])
+    })
+
+    it('do not run on the sign-in screen', async () => {
+      setDueReminder()
+
+      renderWithRouter()
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/username/i)).toBeInTheDocument()
+      })
+      // Give a runner's zero-delay timer the chance to fire
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20))
+      })
+      expect(screen.queryByText(/starts now on/)).not.toBeInTheDocument()
+      expect(useReminderStore.getState().reminders).toHaveLength(1)
+    })
+  })
+
+  describe('initializing state', () => {
+    it('applies the theme to the loading screen', () => {
+      const { initialize } = useAuthStore.getState()
+      // Hold the store in its initializing state
+      useAuthStore.setState({ isInitializing: true, initialize: vi.fn() })
+
+      try {
+        renderWithRouter()
+
+        expect(screen.getByRole('heading', { name: APP_NAME })).toBeInTheDocument()
+        expect(document.documentElement.classList.contains('dark')).toBe(true)
+        expect(document.documentElement.style.getPropertyValue('--background')).toContain('oklch')
+      } finally {
+        useAuthStore.setState({ initialize })
+      }
     })
   })
 

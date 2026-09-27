@@ -243,6 +243,109 @@ describe('QRPlexLogin', () => {
         expect.objectContaining({ onError })
       )
     })
+
+    it('passes onCodeRequested to usePlexQRAuth, so the caller hears of each new code', () => {
+      const onCodeRequested = vi.fn()
+      render(<QRPlexLogin onSuccess={vi.fn()} onCancel={vi.fn()} onCodeRequested={onCodeRequested} />)
+
+      expect(usePlexQRAuthModule.usePlexQRAuth).toHaveBeenCalledWith(
+        expect.objectContaining({ onCodeRequested })
+      )
+    })
+  })
+
+  describe('tv variant', () => {
+    it('renders the QR at 400px beside the steps and a large code', () => {
+      const { container } = render(<QRPlexLogin onSuccess={vi.fn()} onCancel={vi.fn()} variant="tv" />)
+
+      expect(screen.getByTestId('qr-code')).toHaveAttribute('data-size', '400')
+      expect(screen.getByText('ABCD')).toHaveClass('text-6xl', 'font-mono')
+      expect(screen.getByText('plex.tv/link')).toBeInTheDocument()
+      expect(screen.getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+        '1Scan the code with your phone',
+        '2Sign in with your Plex account',
+        '3This TV joins the club',
+      ])
+      // Two columns: the steps and code first, the QR second
+      const layout = container.querySelector('[data-variant="tv"]')
+      expect(layout).toHaveClass('grid')
+      expect(layout?.lastElementChild).toContainElement(screen.getByTestId('qr-code'))
+      expect(layout?.firstElementChild).toContainElement(screen.getByText('ABCD'))
+    })
+
+    it('keeps the default variant at 280px with the compact code', () => {
+      render(<QRPlexLogin onSuccess={vi.fn()} onCancel={vi.fn()} />)
+
+      expect(screen.getByTestId('qr-code')).toHaveAttribute('data-size', '280')
+      expect(screen.getByText('ABCD')).toHaveClass('text-3xl')
+      expect(screen.queryByRole('list')).not.toBeInTheDocument()
+    })
+
+    it('shows a 400px placeholder while the code loads', () => {
+      vi.mocked(usePlexQRAuthModule.usePlexQRAuth).mockReturnValue({
+        ...defaultMockReturn,
+        authUrl: null,
+        pin: null,
+        shortPin: null,
+      })
+
+      render(<QRPlexLogin onSuccess={vi.fn()} onCancel={vi.fn()} variant="tv" />)
+
+      expect(screen.getByText('Loading...').parentElement).toHaveClass('size-[448px]')
+      expect(screen.queryByTestId('qr-code')).not.toBeInTheDocument()
+    })
+
+    it('shows Try Again, room-sized, once the restarts run out', () => {
+      vi.mocked(usePlexQRAuthModule.usePlexQRAuth).mockReturnValue({
+        ...defaultMockReturn,
+        status: 'timeout',
+        error: new Error('Authentication timed out'),
+      })
+
+      render(<QRPlexLogin onSuccess={vi.fn()} onCancel={vi.fn()} variant="tv" autoRestart />)
+
+      expect(screen.getByRole('button', { name: 'Try Again' })).toHaveClass('h-14', 'text-2xl')
+    })
+  })
+
+  describe('autoRestart and cancelLabel', () => {
+    it('passes autoRestart to usePlexQRAuth', () => {
+      render(<QRPlexLogin onSuccess={vi.fn()} onCancel={vi.fn()} variant="tv" autoRestart />)
+
+      expect(usePlexQRAuthModule.usePlexQRAuth).toHaveBeenCalledWith(
+        expect.objectContaining({ autoRestart: true })
+      )
+    })
+
+    it('does not auto-restart by default', () => {
+      render(<QRPlexLogin onSuccess={vi.fn()} onCancel={vi.fn()} />)
+
+      expect(usePlexQRAuthModule.usePlexQRAuth).toHaveBeenCalledWith(
+        expect.objectContaining({ autoRestart: false })
+      )
+    })
+
+    it.each(['polling', 'timeout', 'error'] as const)(
+      'labels the way out with cancelLabel while %s, and it still cancels',
+      (status) => {
+        vi.mocked(usePlexQRAuthModule.usePlexQRAuth).mockReturnValue({ ...defaultMockReturn, status })
+        const onCancel = vi.fn()
+        render(
+          <QRPlexLogin
+            onSuccess={vi.fn()}
+            onCancel={onCancel}
+            variant="tv"
+            cancelLabel="Use another sign-in method"
+          />
+        )
+
+        fireEvent.click(screen.getByRole('button', { name: 'Use another sign-in method' }))
+
+        expect(mockCancel).toHaveBeenCalled()
+        expect(onCancel).toHaveBeenCalled()
+        expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument()
+      }
+    )
   })
 
   describe('accessibility', () => {
@@ -263,6 +366,20 @@ describe('QRPlexLogin', () => {
       render(<QRPlexLogin onSuccess={vi.fn()} onCancel={vi.fn()} />)
 
       expect(screen.getByRole('alert')).toBeInTheDocument()
+    })
+
+    it('shows the error text in the foreground colour on its translucent red tint', () => {
+      vi.mocked(usePlexQRAuthModule.usePlexQRAuth).mockReturnValue({
+        ...defaultMockReturn,
+        status: 'error',
+        error: new Error('Network error'),
+      })
+
+      render(<QRPlexLogin onSuccess={vi.fn()} onCancel={vi.fn()} />)
+
+      const alert = screen.getByRole('alert')
+      expect(alert).toHaveClass('text-foreground', 'bg-destructive/10')
+      expect(alert).not.toHaveClass('text-destructive-foreground')
     })
   })
 })

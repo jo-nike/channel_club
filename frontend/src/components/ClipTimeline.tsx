@@ -1,55 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import * as Slider from '@radix-ui/react-slider'
-
-/** Thumbnails use a separate decoder so generation never moves the visible preview. */
-function useThumbnails(url: string, duration: number) {
-  const [frames, setFrames] = useState<string[]>([])
-  useEffect(() => {
-    const controller = new AbortController()
-    const video = document.createElement('video')
-    video.muted = true
-    video.preload = 'auto'
-    const wait = (event: string) => new Promise<void>((resolve, reject) => {
-      const finish = (error?: Error) => {
-        clearTimeout(timer)
-        video.removeEventListener(event, ready)
-        video.removeEventListener('error', failed)
-        controller.signal.removeEventListener('abort', failed)
-        if (error) reject(error); else resolve()
-      }
-      const ready = () => finish()
-      const failed = () => finish(new Error('Thumbnails unavailable'))
-      const timer = setTimeout(failed, 3000)
-      video.addEventListener(event, ready, { once: true })
-      video.addEventListener('error', failed, { once: true })
-      controller.signal.addEventListener('abort', failed, { once: true })
-    })
-    const generate = async () => {
-      try {
-        const loaded = wait('loadeddata')
-        video.src = url
-        await loaded
-        const canvas = document.createElement('canvas')
-        canvas.width = 160; canvas.height = 90
-        const context = canvas.getContext('2d')
-        if (!context) return
-        const result: string[] = []
-        for (let i = 0; i < 10; i++) {
-          if (controller.signal.aborted) return
-          const sought = wait('seeked')
-          video.currentTime = Math.min(duration - 0.01, (i + 0.5) * duration / 10)
-          await sought
-          context.drawImage(video, 0, 0, 160, 90)
-          result.push(canvas.toDataURL('image/jpeg', 0.65))
-        }
-        if (!controller.signal.aborted) setFrames(result)
-      } catch { /* The timeline works without thumbnails. */ }
-    }
-    void generate()
-    return () => { controller.abort(); video.removeAttribute('src'); video.load() }
-  }, [url, duration])
-  return frames
-}
+import { useClipThumbnails } from '@/hooks/useClipThumbnails'
 
 interface Props {
   url: string
@@ -57,40 +8,203 @@ interface Props {
   start: number
   end: number
   playhead: number
+  /** Where the user pressed Clip, in seconds into the capture; outside it when the capture stops short of the press */
+  press: number
   onChange: (start: number, end: number, boundary: number) => void
   onSeek: (time: number) => void
+  /** Space on the timeline: play the selection, or pause it while it plays */
+  onPlaySelection: () => void
   disabled: boolean
 }
 
-export function ClipTimeline({ url, duration, start, end, playhead, onChange, onSeek, disabled }: Props) {
-  const frames = useThumbnails(url, duration)
+/** Roughly how wide one character of a tick label is at text-xs, in px ('−60 s' measures about 31px). */
+const LABEL_CHAR_PX = 6.5
+/** The clear space kept between labels, in px */
+const LABEL_GAP_PX = 4
+
+function tickLabel(offset: number) {
+  return `${offset < 0 ? '\u2212' : '+'}${Math.abs(offset)} s`
+}
+
+/** The [left, right] of a label `width` px wide at `percent` of a `ruler` px ruler, aligned as edgeAlign places it */
+function labelBox(percent: number, width: number, ruler: number): [number, number] {
+  const x = percent / 100 * ruler
+  return percent < 4 ? [x, x + width] : percent > 96 ? [x - width, x] : [x - width / 2, x + width / 2]
+}
+
+const clear = (a: [number, number], b: [number, number]) => a[1] + LABEL_GAP_PX <= b[0] || b[1] + LABEL_GAP_PX <= a[0]
+
+/**
+ * Ruler times in seconds from the press: every 10s (5s or 2s on short captures). Once the ruler and the
+ * press label at `shown` are measured (px), a tick is kept only if its label clears that label and the
+ * tick kept before it; until then, none within a fifth of the capture of the press label.
+ */
+function rulerTicks(duration: number, press: number, shown: number, rulerPx: number, pillPx: number): number[] {
+  const step = duration > 30 ? 10 : duration > 10 ? 5 : 2
+  const measured = rulerPx > 0 && pillPx > 0
+  const pill = labelBox(shown / duration * 100, pillPx, rulerPx)
+  let last: [number, number] | null = null
+  const ticks: number[] = []
+  for (let k = Math.ceil(-press / step); k * step <= duration - press; k++) {
+    if (k === 0) continue
+    if (!measured) {
+      if (Math.abs(press + k * step - shown) >= duration * 0.2) ticks.push(k * step)
+      continue
+    }
+    const box = labelBox((press + k * step) / duration * 100, tickLabel(k * step).length * LABEL_CHAR_PX, rulerPx)
+    if (!clear(box, pill) || (last && !clear(box, last))) continue
+    ticks.push(k * step)
+    last = box
+  }
+  return ticks
+}
+
+/** Labels near either end align to that end so they never overflow the dialog. */
+function edgeAlign(percent: number) {
+  return percent < 4 ? '' : percent > 96 ? '-translate-x-full' : '-translate-x-1/2'
+}
+
+function fromPress(offset: number) {
+  if (Math.abs(offset) < 0.05) return 'where you pressed'
+  return `${Math.abs(offset).toFixed(1)} seconds ${offset < 0 ? 'before' : 'after'} you pressed`
+}
+
+export function ClipTimeline({ url, duration, start, end, playhead, press, onChange, onSeek, onPlaySelection, disabled }: Props) {
+  const { frames, loading } = useClipThumbnails(url, duration)
+  // A capture that stops short of the press labels it at that edge, with how far past it the press was
+  const shownPress = Math.max(0, Math.min(duration, press))
+  const beyond = press - shownPress
+  const pressPercent = shownPress / duration * 100
+  const track = useRef<HTMLSpanElement>(null)
+  const dragging = useRef(false)
+  const ruler = useRef<HTMLDivElement>(null)
+  const pill = useRef<HTMLSpanElement>(null)
+  // The ruler's width and the press label's, in px, so ticks give way to the label and to each other
+  const [widths, setWidths] = useState({ ruler: 0, pill: 0 })
+
+  useEffect(() => {
+    const rulerElement = ruler.current
+    const pillElement = pill.current
+    if (!rulerElement || !pillElement) return
+    const update = () => {
+      const next = { ruler: rulerElement.clientWidth, pill: pillElement.offsetWidth }
+      setWidths(current => current.ruler === next.ruler && current.pill === next.pill ? current : next)
+    }
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(rulerElement)
+    observer.observe(pillElement)
+    return () => observer.disconnect()
+  }, [])
+
+  function seekTo(clientX: number) {
+    const rect = track.current?.getBoundingClientRect()
+    if (!rect || rect.width <= 0) return
+    onSeek(Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) * duration)
+  }
+
+  // Presses on the strip belong to the playhead: stopping them keeps Radix from moving the closest handle.
+  function pointerDown(event: PointerEvent<HTMLDivElement>) {
+    event.stopPropagation()
+    if (disabled || event.button !== 0) return
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+    dragging.current = true
+    seekTo(event.clientX)
+  }
+
+  function pointerMove(event: PointerEvent<HTMLDivElement>) {
+    event.stopPropagation()
+    if (dragging.current) seekTo(event.clientX)
+  }
+
+  function pointerEnd(event: PointerEvent<HTMLDivElement>) {
+    event.stopPropagation()
+    dragging.current = false
+  }
+
+  function keyDown(event: KeyboardEvent<HTMLDivElement>) {
+    const step = event.shiftKey ? 1 : 0.1
+    const target = {
+      ArrowLeft: playhead - step, ArrowDown: playhead - step, PageDown: playhead - 1,
+      ArrowRight: playhead + step, ArrowUp: playhead + step, PageUp: playhead + 1,
+      Home: 0, End: duration,
+    }[event.key]
+    if (target === undefined) return
+    // The slider root would otherwise step the last focused handle.
+    event.preventDefault(); event.stopPropagation()
+    if (!disabled) onSeek(Math.max(0, Math.min(duration, target)))
+  }
+
+  // Editing keys work only while the playhead or a handle has focus: elsewhere in the editor
+  // Space belongs to buttons and letters to the time fields.
+  function editingKey(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.ctrlKey || event.metaKey || event.altKey) return
+    const key = event.key.toLowerCase()
+    if (key !== 'i' && key !== 'o' && key !== ' ') return
+    event.preventDefault(); event.stopPropagation()
+    if (disabled) return
+    // Setting one end past the other pushes that one along, so the selection never inverts.
+    if (key === 'i') onChange(playhead, Math.max(end, playhead + 0.1), playhead)
+    else if (key === 'o') onChange(Math.min(start, playhead - 0.1), playhead, playhead)
+    else if (!event.repeat) onPlaySelection()
+  }
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-3" onKeyDown={editingKey}>
       <div className="relative px-3 pt-6">
         <Slider.Root value={[start, end]} min={0} max={duration} step={0.1} minStepsBetweenThumbs={1}
           disabled={disabled} onValueChange={([nextStart, nextEnd]) => onChange(nextStart, nextEnd, nextStart !== start ? nextStart : nextEnd)}
           className="relative flex h-20 w-full touch-none select-none items-center">
-          <Slider.Track className="relative h-20 grow overflow-hidden rounded-md bg-muted">
+          <Slider.Track ref={track} className="relative h-20 grow overflow-hidden rounded-md bg-muted">
             <div className="absolute inset-0 flex" aria-hidden="true">
-              {frames.map((src, i) => <img key={i} src={src} alt="" className="h-full min-w-0 flex-1 object-cover opacity-60" />)}
+              {frames.map((src, i) => src ? <img key={i} src={src} alt="" className="h-full min-w-0 flex-1 object-cover opacity-60" />
+                : <div key={i} className={`h-full min-w-0 flex-1 bg-muted${loading ? ' motion-safe:animate-pulse' : ''}`} />)}
             </div>
             <Slider.Range className="absolute h-full border-y-4 border-primary bg-primary/15" />
             <div className="absolute inset-y-0 left-0 bg-black/60" style={{ width: `${start / duration * 100}%` }} />
             <div className="absolute inset-y-0 right-0 bg-black/60" style={{ width: `${(duration - end) / duration * 100}%` }} />
-            <div className="pointer-events-none absolute inset-y-0 w-0.5 bg-white shadow" style={{ left: `${playhead / duration * 100}%` }} />
+            {Math.abs(beyond) < 0.05 && <div aria-hidden="true" data-testid="press-marker" className="pointer-events-none absolute inset-y-0 -translate-x-1/2 border-l-2 border-dashed border-white" style={{ left: `${pressPercent}%` }} />}
+            {/* No z-index: the handles come later in the DOM, so they paint above and stay draggable. */}
+            <div role="slider" aria-label="Playhead" aria-valuemin={0} aria-valuemax={duration} aria-valuenow={playhead}
+              aria-valuetext={`${playhead.toFixed(1)} seconds, ${fromPress(playhead - press)}`} aria-disabled={disabled || undefined} tabIndex={disabled ? undefined : 0} aria-keyshortcuts="I O Space"
+              onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerEnd} onPointerCancel={pointerEnd} onKeyDown={keyDown}
+              className="absolute inset-0 cursor-pointer rounded-md focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring" />
           </Slider.Track>
-          {['Start', 'End'].map(label => <Slider.Thumb key={label} aria-label={`${label} boundary`}
-            className="relative flex h-24 w-6 cursor-ew-resize items-center justify-center rounded-md border-2 border-primary bg-primary text-primary-foreground shadow focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring">
+          {/* On touch, an invisible margin either side makes each handle a 44px target without widening it. */}
+          {['Start', 'End'].map(label => <Slider.Thumb key={label} aria-label={`${label} boundary`} aria-keyshortcuts="I O Space"
+            className="relative flex h-24 w-6 cursor-ew-resize items-center justify-center rounded-md border-2 border-primary bg-primary text-primary-foreground shadow focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring pointer-coarse:before:absolute pointer-coarse:before:-inset-x-2.5 pointer-coarse:before:inset-y-0">
             <span aria-hidden="true">Ⅱ</span><span className="absolute -top-6 text-xs font-semibold text-foreground">{label}</span>
           </Slider.Thumb>)}
+          {/* After the handles so the line stays visible over the Start handle at 0s. */}
+          <div aria-hidden="true" className="pointer-events-none absolute -inset-y-1.5 w-0.5 -translate-x-1/2 bg-white shadow" style={{ left: `${playhead / duration * 100}%` }}>
+            <span className="absolute -top-1 left-1/2 size-3 -translate-x-1/2 rounded-full bg-white shadow" />
+          </div>
         </Slider.Root>
+        {/* The ruler counts from the press, which is what the user remembers. It starts below the
+            handles, which hang past the strip, so a label under one stays readable. */}
+        <div ref={ruler} aria-hidden="true" className="relative mt-3 h-5 text-xs tabular-nums text-muted-foreground">
+          {rulerTicks(duration, press, shownPress, widths.ruler, widths.pill).map(offset => {
+            const percent = (press + offset) / duration * 100
+            return <span key={offset} className={`absolute top-0 whitespace-nowrap ${edgeAlign(percent)}`} style={{ left: `${percent}%` }}>
+              {tickLabel(offset)}
+            </span>
+          })}
+          <span ref={pill} className={`absolute top-0 whitespace-nowrap rounded bg-foreground px-1.5 font-semibold text-background ${edgeAlign(pressPercent)}`} style={{ left: `${pressPercent}%` }}>
+            {Math.abs(beyond) < 0.05 ? 'You pressed' : `You pressed ${Math.abs(beyond).toFixed(1)} s ${beyond > 0 ? 'after the end' : 'before the start'}`}
+          </span>
+        </div>
       </div>
-      <label className="flex items-center gap-3 text-sm text-muted-foreground">
-        Playhead
-        <input aria-label="Playhead" type="range" min={0} max={duration} step={0.1} value={playhead}
-          disabled={disabled} onChange={e => onSeek(Number(e.target.value))} className="h-8 min-w-0 flex-1 accent-primary" />
-        <span className="w-14 tabular-nums">{playhead.toFixed(1)}s</span>
-      </label>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+        <p>Playhead <span className="inline-block w-14 tabular-nums">{playhead.toFixed(1)}s</span></p>
+        {/* Keys only help where there is a keyboard */}
+        <p className="ml-auto text-xs pointer-coarse:hidden">
+          On the timeline: <Key>I</Key> start, <Key>O</Key> end, <Key>Space</Key> play, <Key>←</Key> <Key>→</Key> move 0.1 s
+        </p>
+      </div>
     </div>
   )
+}
+
+function Key({ children }: { children: string }) {
+  return <kbd className="rounded border border-b-2 border-border bg-muted px-1 font-mono font-semibold text-foreground">{children}</kbd>
 }

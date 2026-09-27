@@ -5,14 +5,17 @@ import { useChannelStore } from '@/stores/channelStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { useTVStore, LIVE_CHANNEL_ID } from '@/stores/tvStore'
 import * as api from '@/services/api'
-import type { GroupedChannelsResponse } from '@/types'
+import type { GroupedChannelsResponse, UnifiedChannel } from '@/types'
 
 vi.mock('@/services/api', () => ({
   fetchGroupedChannels: vi.fn(),
   fetchNowPlayingAll: vi.fn(),
   setCurrentChannel: vi.fn(),
-  clearCurrentChannel: vi.fn(),
+  // Channel 0's guide lookups, once someone is tuned to it
+  fetchNowPlaying: vi.fn(async () => ({ channelId: 'x', currentProgram: null })),
+  fetchLiveProgrammes: vi.fn(async () => ({ channelId: 'x', programmes: [] })),
 }))
 
 const mockGroupedResponse: GroupedChannelsResponse = {
@@ -322,15 +325,18 @@ describe('ChannelList', () => {
       })
     })
 
-    it('should show clear channel button when channel is selected', async () => {
+    it('should not show Stop live TV even while a channel is live (it lives on the On-air card)', async () => {
       vi.mocked(api.fetchGroupedChannels).mockResolvedValueOnce(mockGroupedResponse)
       useChannelStore.setState({ currentChannel: mockGroupedResponse.groups[0].channels[0] })
 
       render(<ChannelList />)
 
       await waitFor(() => {
-        expect(screen.getByText('Clear Channel')).toBeInTheDocument()
+        expect(screen.getByText('Sports')).toBeInTheDocument()
       })
+
+      expect(screen.queryByRole('button', { name: /stop live tv/i })).not.toBeInTheDocument()
+      expect(screen.queryByText('Clear Channel')).not.toBeInTheDocument()
     })
 
     it('should close sidebar drawer when channel is selected', async () => {
@@ -376,7 +382,7 @@ describe('ChannelList', () => {
       expect(state.currentChannel).toBeNull()
     })
 
-    it('should not show clear channel button for viewer', async () => {
+    it('should not show Stop live TV for viewer', async () => {
       vi.mocked(api.fetchGroupedChannels).mockResolvedValueOnce(mockGroupedResponse)
       useChannelStore.setState({ currentChannel: mockGroupedResponse.groups[0].channels[0] })
 
@@ -386,7 +392,43 @@ describe('ChannelList', () => {
         expect(screen.getByText('Sports')).toBeInTheDocument()
       })
 
-      expect(screen.queryByText('Clear Channel')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /stop live tv/i })).not.toBeInTheDocument()
+    })
+  })
+
+  describe('tuning the person who picked', () => {
+    const movies: UnifiedChannel = { id: 'e1', name: 'Movies', number: 1, streamUrl: '/e1', type: 'ersatztv' }
+    const tsn = mockGroupedResponse.groups[0].channels[0]
+
+    beforeEach(() => {
+      useAuthStore.setState({ role: 'admin' })
+      useTVStore.setState({ selectedChannel: movies })
+      vi.mocked(api.fetchGroupedChannels).mockResolvedValue(mockGroupedResponse)
+      vi.mocked(api.setCurrentChannel).mockImplementation(async (channel) => channel)
+    })
+
+    async function pickTSN() {
+      await waitFor(() => expect(screen.getByText('Sports')).toBeInTheDocument())
+      fireEvent.click(screen.getByText('Sports'))
+      fireEvent.click(screen.getByText('TSN'))
+      await waitFor(() => expect(api.setCurrentChannel).toHaveBeenCalledWith(tsn))
+    }
+
+    it('tunes them to channel 0 in the Live TV switcher', async () => {
+      render(<ChannelList tuneActor onChannelSelected={vi.fn()} />)
+      await pickTSN()
+
+      await waitFor(() =>
+        expect(useTVStore.getState().selectedChannel).toMatchObject({ id: LIVE_CHANNEL_ID, streamUrl: tsn.streamUrl }),
+      )
+    })
+
+    it('leaves them on their own channel elsewhere, like the admin panel', async () => {
+      render(<ChannelList />)
+      await pickTSN()
+
+      await waitFor(() => expect(useChannelStore.getState().currentChannel).toEqual(tsn))
+      expect(useTVStore.getState().selectedChannel).toEqual(movies)
     })
   })
 
@@ -418,7 +460,7 @@ describe('ChannelList', () => {
       })
     })
 
-    it('should still not show clear channel button', async () => {
+    it('should still not show Stop live TV', async () => {
       vi.mocked(api.fetchGroupedChannels).mockResolvedValueOnce(mockGroupedResponse)
       useChannelStore.setState({ currentChannel: mockGroupedResponse.groups[0].channels[0] })
 
@@ -428,7 +470,7 @@ describe('ChannelList', () => {
         expect(screen.getByText('Sports')).toBeInTheDocument()
       })
 
-      expect(screen.queryByText('Clear Channel')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /stop live tv/i })).not.toBeInTheDocument()
     })
   })
 
@@ -472,6 +514,43 @@ describe('ChannelList', () => {
     })
   })
 
+  describe('Group holding the live channel', () => {
+    it('should start open, with the other groups collapsed', async () => {
+      vi.mocked(api.fetchGroupedChannels).mockResolvedValueOnce(mockGroupedResponse)
+      // CNN is in News
+      useChannelStore.setState({ currentChannel: mockGroupedResponse.groups[1].channels[0] })
+
+      render(<ChannelList />)
+
+      expect(await screen.findByText('CNN')).toBeInTheDocument()
+      expect(screen.getByText('Now Playing')).toBeInTheDocument()
+      expect(screen.queryByText('TSN')).not.toBeInTheDocument()
+      expect(screen.queryByText('CBC')).not.toBeInTheDocument()
+    })
+
+    it('should open the Ungrouped section when it holds the live channel', async () => {
+      vi.mocked(api.fetchGroupedChannels).mockResolvedValueOnce(mockGroupedResponse)
+      useChannelStore.setState({ currentChannel: mockGroupedResponse.ungrouped[0] })
+
+      render(<ChannelList />)
+
+      expect(await screen.findByText('CBC')).toBeInTheDocument()
+      expect(screen.queryByText('CNN')).not.toBeInTheDocument()
+    })
+
+    it('should still let the group be collapsed', async () => {
+      vi.mocked(api.fetchGroupedChannels).mockResolvedValueOnce(mockGroupedResponse)
+      useChannelStore.setState({ currentChannel: mockGroupedResponse.groups[1].channels[0] })
+
+      render(<ChannelList />)
+
+      expect(await screen.findByText('CNN')).toBeInTheDocument()
+      fireEvent.click(screen.getByText('News'))
+
+      expect(screen.queryByText('CNN')).not.toBeInTheDocument()
+    })
+  })
+
   describe('Current channel indicator', () => {
     it('should show "Now Playing" for current channel when group is expanded', async () => {
       vi.mocked(api.fetchGroupedChannels).mockResolvedValueOnce(mockGroupedResponse)
@@ -483,9 +562,7 @@ describe('ChannelList', () => {
         expect(screen.getByText('Sports')).toBeInTheDocument()
       })
 
-      // Expand the group containing the current channel
-      fireEvent.click(screen.getByText('Sports'))
-
+      // The group containing the current channel starts expanded
       expect(screen.getByText('Now Playing')).toBeInTheDocument()
     })
   })

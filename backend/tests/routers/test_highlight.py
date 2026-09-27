@@ -8,7 +8,12 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.services.auth import create_access_token
-from app.services.highlight import CAPTURE_TTL_SECONDS, Capture, highlight_service
+from app.services.highlight import (
+    CAPTURE_TTL_SECONDS,
+    DOWNLOAD_TOKEN_TTL_SECONDS,
+    Capture,
+    highlight_service,
+)
 
 
 @pytest.fixture
@@ -223,8 +228,10 @@ def capture(tmp_path):
     """A real file registered for `testuser`; removed after the test."""
     path = tmp_path / "snapshot.mp4"
     path.write_bytes(b"0123456789abcdefghijklmnopqrstuvwxyz")
+    now = time.time()
+    # Pressed 2s before the capture's last frame, so the press sits 10.5s into it.
     item = Capture(
-        CAPTURE_ID, "testuser", "channel-1", path, path.stat().st_size, 12.5, time.time()
+        CAPTURE_ID, "testuser", "channel-1", path, path.stat().st_size, 12.5, now, now - 2, now
     )
     highlight_service.captures.captures[CAPTURE_ID] = item
     yield item
@@ -269,7 +276,10 @@ class TestCreateCapture:
             "duration": 12.5,
             "bytes": 36,
             "expiresAt": pytest.approx(capture.created_at + CAPTURE_TTL_SECONDS),
+            "pressedAt": pytest.approx(capture.pressed_at),
+            "endsAt": pytest.approx(capture.ends_at),
         }
+        assert data["endsAt"] - data["pressedAt"] == pytest.approx(2)
         mock_service.create_capture.assert_awaited_once_with("channel-1", owner="testuser")
 
 
@@ -343,3 +353,104 @@ class TestCaptureMedia:
             client.delete(f"/api/highlight/capture/{CAPTURE_ID}", headers=auth_header).status_code
             == 204
         )
+
+
+class TestCaptureDownloadLink:
+    """Tests for POST /capture/{id}/download-token and GET /download/{token}."""
+
+    @pytest.fixture(autouse=True)
+    def no_leftover_tokens(self):
+        yield
+        highlight_service.captures.download_tokens.clear()
+
+    def link(self, client: TestClient, headers: dict[str, str]) -> str:
+        response = client.post(
+            f"/api/highlight/capture/{CAPTURE_ID}/download-token", headers=headers
+        )
+        assert response.status_code == 200
+        return response.json()["url"]
+
+    def test_requires_authentication(self, client: TestClient, capture: Capture) -> None:
+        response = client.post(f"/api/highlight/capture/{CAPTURE_ID}/download-token")
+        assert response.status_code == 401
+        assert highlight_service.captures.download_tokens == {}
+
+    def test_link_downloads_the_capture_once_without_the_session_token(
+        self, client: TestClient, auth_header: dict[str, str], capture: Capture
+    ) -> None:
+        url = self.link(client, auth_header)
+        session_token = auth_header["Authorization"].removeprefix("Bearer ")
+        assert url.startswith("/api/highlight/download/")
+        assert session_token not in url and "?" not in url
+
+        response = client.get(url)
+        assert response.status_code == 200
+        assert response.content == capture.path.read_bytes()
+        assert response.headers["content-type"] == "video/mp4"
+        assert response.headers["cache-control"] == "private, no-store"
+        assert response.headers["content-disposition"].startswith(
+            'attachment; filename="highlight-channel-1-'
+        )
+        assert response.headers["content-disposition"].endswith('.mp4"')
+
+        assert client.get(url).status_code == 404
+        # The capture itself is untouched: the editor keeps previewing it.
+        assert CAPTURE_ID in highlight_service.captures.captures
+
+    def test_each_link_is_separate(
+        self, client: TestClient, auth_header: dict[str, str], capture: Capture
+    ) -> None:
+        first, second = self.link(client, auth_header), self.link(client, auth_header)
+        assert first != second
+        assert client.get(second).status_code == 200
+        assert client.get(first).status_code == 200
+
+    def test_link_expires(
+        self,
+        client: TestClient,
+        auth_header: dict[str, str],
+        capture: Capture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        url = self.link(client, auth_header)
+        issued = time.time()
+        monkeypatch.setattr(
+            "app.services.highlight.time.time", lambda: issued + DOWNLOAD_TOKEN_TTL_SECONDS + 1
+        )
+        assert client.get(url).status_code == 404
+
+    def test_another_owner_gets_no_link(self, client: TestClient, capture: Capture) -> None:
+        other = {
+            "Authorization": f"Bearer {create_access_token({'sub': 'other', 'role': 'viewer'})}"
+        }
+        response = client.post(f"/api/highlight/capture/{CAPTURE_ID}/download-token", headers=other)
+        assert response.status_code == 404
+        assert highlight_service.captures.download_tokens == {}
+        assert (
+            client.post(
+                "/api/highlight/capture/unknown-capture-0001/download-token", headers=other
+            ).status_code
+            == 404
+        )
+
+    def test_deleting_the_capture_drops_its_links(
+        self,
+        client: TestClient,
+        auth_header: dict[str, str],
+        capture: Capture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(
+            "app.services.highlight.settings.highlight_temp_dir", str(capture.path.parent.parent)
+        )
+        url = self.link(client, auth_header)
+        assert (
+            client.delete(f"/api/highlight/capture/{CAPTURE_ID}", headers=auth_header).status_code
+            == 204
+        )
+        assert highlight_service.captures.download_tokens == {}
+        assert client.get(url).status_code == 404
+
+    def test_unknown_and_malformed_tokens(self, client: TestClient) -> None:
+        assert client.get("/api/highlight/download/unknown-token-000000").status_code == 404
+        assert client.get("/api/highlight/download/not!a!token").status_code == 422

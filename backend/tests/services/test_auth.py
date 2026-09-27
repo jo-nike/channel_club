@@ -39,6 +39,14 @@ def test_verify_token_valid():
     assert payload.exp > datetime.now(UTC)
 
 
+def test_verify_token_keeps_plex_id():
+    """verify_token returns the Plex account id a Plex sign-in token carries."""
+    from app.services.auth import create_access_token, verify_token
+
+    token = create_access_token({"sub": "plexuser", "role": "viewer", "plex_id": "12345"})
+    assert verify_token(token).plex_id == "12345"
+
+
 def test_verify_token_invalid():
     """Test verify_token raises exception for invalid token."""
     from jose import JWTError

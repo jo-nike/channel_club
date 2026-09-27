@@ -1,8 +1,11 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Cast } from 'lucide-react'
+import { toast } from 'sonner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useChromecast } from '@/hooks/useChromecast'
+import { getFullscreenElement } from '@/hooks/useFullscreenState'
 import { cn } from '@/lib/utils'
+import { useCastStore } from '@/stores/castStore'
 
 export interface CastButtonProps {
   /** Channel ID for creating cast sessions */
@@ -29,6 +32,9 @@ export interface CastButtonProps {
  * The button color indicates state:
  * - White: Available but not connected
  * - Blue: Connected or casting
+ *
+ * A cast failure shows as a toast. Toasts are drawn outside the player, so
+ * none shows while anything is fullscreen: the player shows those as a banner.
  */
 export function CastButton({
   channelId,
@@ -42,15 +48,24 @@ export function CastButton({
     isConnected,
     isCasting,
     deviceName,
-    error,
     isLoading,
-    playerState,
     startCasting,
     stopCasting,
     requestSession,
   } = useChromecast()
 
   const [isStarting, setIsStarting] = useState(false)
+
+  // Only failures that happen from now on: each report is a new object
+  useEffect(
+    () =>
+      useCastStore.subscribe((state, prev) => {
+        if (state.lastError && state.lastError !== prev.lastError && !getFullscreenElement()) {
+          toast.error(state.lastError.message)
+        }
+      }),
+    []
+  )
 
   const handleClick = useCallback(async () => {
     if (isStarting) return
@@ -97,12 +112,10 @@ export function CastButton({
 
   // Build tooltip text based on state
   let tooltipText: string
-  if (error) {
-    tooltipText = error
-  } else if (isCasting && deviceName) {
-    tooltipText = `Casting to ${deviceName} [${playerState ?? '?'}] - Click to stop`
+  if (isCasting && deviceName) {
+    tooltipText = `Casting to ${deviceName} · click to stop`
   } else if (isConnected && deviceName) {
-    tooltipText = `Connected to ${deviceName} - Click to cast`
+    tooltipText = `Connected to ${deviceName} · click to cast`
   } else if (isStarting) {
     tooltipText = 'Starting cast...'
   } else {
@@ -122,7 +135,7 @@ export function CastButton({
           disabled={isStarting}
           aria-label={tooltipText}
           className={cn(
-            'control-button relative flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-400/80',
+            'control-button relative flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-ring-media',
             isStarting && 'opacity-50 cursor-wait'
           )}
         >

@@ -1,33 +1,104 @@
-import { act, render, screen, waitFor } from '@/test/utils'
+import { act, fireEvent, render, screen, waitFor, within } from '@/test/utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 import { TVView } from './TVView'
 import { useChannelStore } from '@/stores/channelStore'
-import { useTVStore } from '@/stores/tvStore'
+import { useTVStore, LIVE_CHANNEL_ID } from '@/stores/tvStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useUIStore } from '@/stores/uiStore'
+import { useChatStore } from '@/stores/chatStore'
+import { useChannelPrefsStore } from '@/stores/channelPrefsStore'
 import * as api from '@/services/ersatztvApi'
-import { fetchNowPlaying } from '@/services/api'
+import { fetchLiveProgrammes, fetchNowPlaying } from '@/services/api'
+import { toast } from 'sonner'
+import { mockViewport } from '@/test/viewport'
 const presence = vi.hoisted(() => vi.fn())
-vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn() }))
-import type { UnifiedChannel } from '@/types'
+const sendChat = vi.hoisted(() => vi.fn())
+const crash = vi.hoisted(() => ({ player: false, chat: false }))
+const socket = vi.hoisted(() => ({ status: 'connected', reconnect: () => {}, sendSuggest: vi.fn() }))
+const chatProps = vi.hoisted(() => ({ last: null as null | { status?: string; onReconnect?: () => void; variant?: string; translucent?: boolean; onComposerFocusChange?: (focused: boolean) => void; container?: HTMLElement | null } }))
+const auth = vi.hoisted(() => ({ isAdmin: false }))
+const appSettings = vi.hoisted(() => ({ userChannelSelection: false }))
+// Chat is a build-time flag, off in tests unless a test turns it on
+const chatFlag = vi.hoisted(() => ({ enabled: false }))
+const playerProps = vi.hoisted(() => ({ onPickLive: undefined as undefined | (() => void), renders: 0, reloadKey: undefined as undefined | number, mounts: 0, zap: undefined as undefined | ChannelZap, onFocusSearch: undefined as undefined | (() => void), isStrip: undefined as undefined | boolean, arrivalHost: undefined as undefined | HTMLElement | null }))
+const guide = vi.hoisted(() => ({ onProgrammeClick: undefined as undefined | ((programme: ErsatzTVProgramme, channel: UnifiedChannel) => void) }))
+const modal = vi.hoisted(() => ({ last: null as null | { programme: ErsatzTVProgramme | null; channel: { id: string; name: string } | null; open: boolean; onWatch: (channel: { id: string; name: string }) => void } }))
+vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn(), fetchLiveProgrammes: vi.fn(async () => ({ channelId: '', programmes: [] })) }))
+import type { ErsatzTVProgramme, UnifiedChannel } from '@/types'
+import type { ChannelZap } from '@/hooks/useChannelZap'
 
 vi.mock('@/services/ersatztvApi', () => ({ fetchErsatzTVChannels: vi.fn(), fetchErsatzTVCurrentProgramme: vi.fn(), getErsatzTVLogoUrl: vi.fn() }))
-vi.mock('@/hooks/useWebSocket', () => ({ useWebSocket: () => ({ status: 'connected', sendChannelUpdate: presence, sendChatMessage: vi.fn(), sendSetNickname: vi.fn() }) }))
-vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ isAdmin: false, logout: vi.fn() }) }))
-vi.mock('@/hooks/useAppSettings', () => ({ useAppSettings: () => ({ userChannelSelection: false }) }))
-vi.mock('@/hooks/useTheme', () => ({ useTheme: vi.fn() }))
-vi.mock('@/components/tv/DualModeVideoPlayer', () => ({ DualModeVideoPlayer: ({ channel }: { channel: UnifiedChannel | null }) => <div data-testid="player">{channel?.streamUrl || 'No live broadcast'}</div> }))
-vi.mock('@/components/tv/TVEPGGrid', () => ({ TVEPGGrid: () => null }))
-vi.mock('@/components/ChatPanel', () => ({ ChatPanel: () => null }))
-vi.mock('@/components/ersatztv/ProgrammeDetailsModal', () => ({ ProgrammeDetailsModal: () => null }))
-vi.mock('@/components/UserSettingsMenu', () => ({ UserSettingsMenu: () => null }))
-vi.mock('@/components/FeedbackButton', () => ({ FeedbackButton: () => null }))
+vi.mock('@/hooks/useWebSocket', () => ({ useWebSocket: () => ({ status: socket.status, reconnect: socket.reconnect, sendChannelUpdate: presence, sendChatMessage: sendChat, sendSuggest: socket.sendSuggest, sendSetNickname: vi.fn() }) }))
+vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ isAdmin: auth.isAdmin, logout: vi.fn() }) }))
+vi.mock('@/hooks/useChatEnabled', () => ({ useChatEnabled: () => chatFlag.enabled }))
+vi.mock('@/hooks/useAppSettings', () => ({ useAppSettings: () => ({ userChannelSelection: appSettings.userChannelSelection }) }))
+const switcherProps = vi.hoisted(() => ({ onSuggest: undefined as undefined | ((channel: { id: string; name: string }) => unknown) }))
+vi.mock('@/components/LiveSwitcherSheet', () => ({ LiveSwitcherSheet: ({ open, onSuggest }: { open: boolean; onSuggest?: (channel: { id: string; name: string }) => unknown }) => {
+  switcherProps.onSuggest = onSuggest
+  return <div data-testid="live-switcher" data-open={String(open)} />
+} }))
+vi.mock('@/components/tv/DualModeVideoPlayer', async () => {
+  const { useEffect } = await import('react')
+  return { DualModeVideoPlayer: ({ channel, onPickLive, reloadKey, zap, onFocusSearch, isStrip, arrivalHost }: { channel: UnifiedChannel | null; onPickLive?: () => void; reloadKey?: number; zap?: ChannelZap; onFocusSearch?: () => void; isStrip?: boolean; arrivalHost?: HTMLElement | null }) => {
+    playerProps.onPickLive = onPickLive
+    playerProps.arrivalHost = arrivalHost
+    playerProps.isStrip = isStrip
+    playerProps.onFocusSearch = onFocusSearch
+    playerProps.reloadKey = reloadKey
+    playerProps.zap = zap
+    playerProps.renders += 1
+    useEffect(() => { playerProps.mounts += 1 }, [])
+    if (crash.player) throw new Error('player exploded')
+    return <div data-testid="player">{channel?.streamUrl || 'No live broadcast'}</div>
+  } }
+})
+vi.mock('@/components/tv/TVEPGGrid', () => ({ TVEPGGrid: ({ onProgrammeClick }: { onProgrammeClick?: (programme: ErsatzTVProgramme, channel: UnifiedChannel) => void }) => {
+  guide.onProgrammeClick = onProgrammeClick
+  return <div data-testid="tv-epg-grid" />
+} }))
+vi.mock('@/components/ChatPanel', async () => {
+  const { useChatStore } = await import('@/stores/chatStore')
+  const { useState } = await import('react')
+  const { createPortal } = await import('react-dom')
+  // Like the real panel, renders nothing (and so can't throw) while closed,
+  // keeps its draft in its own state and portals into a container
+  return { ChatPanel: (props: { status?: string; onReconnect?: () => void; variant?: string; translucent?: boolean; onComposerFocusChange?: (focused: boolean) => void; container?: HTMLElement | null }) => {
+    chatProps.last = props
+    const isOpen = useChatStore((s) => s.isOpen)
+    const [draft, setDraft] = useState('')
+    if (crash.chat && isOpen) throw new Error('chat exploded')
+    if (!isOpen) return null
+    const panel = (
+      <div id="chat-panel" data-testid="chat" data-variant={props.variant}>
+        <input aria-label="Draft" value={draft} onChange={(e) => setDraft(e.target.value)} />
+      </div>
+    )
+    return props.container ? createPortal(panel, props.container) : panel
+  } }
+})
+vi.mock('@/components/ersatztv/ProgrammeDetailsModal', () => ({ ProgrammeDetailsModal: (props: NonNullable<typeof modal.last>) => {
+  modal.last = props
+  return null
+} }))
+// Only its Reload stream, which reloads the player from the page
+vi.mock('@/components/AccountMenu', () => ({ AccountMenu: ({ onReload }: { onReload: () => void }) => (
+  <button type="button" onClick={onReload}>Reload stream</button>
+) }))
 vi.mock('@/components/AdminModal', () => ({ AdminModal: () => null }))
-vi.mock('@/components/NHLScoresOverlay', () => ({ NHLScoresOverlay: () => null }))
 
 beforeEach(() => {
-  useTVStore.setState({ selectedChannel: null, liveEPG: null })
+  socket.status = 'connected'
+  auth.isAdmin = false
+  appSettings.userChannelSelection = false
+  chatFlag.enabled = false
+  playerProps.onPickLive = undefined
+  chatProps.last = null
+  crash.player = false
+  crash.chat = false
+  useChatStore.setState({ isOpen: false, unreadCount: 0 })
+  // Forget earlier tests' lookups, so each test's live channel is looked up afresh
+  useTVStore.setState({ selectedChannel: null, liveEPG: null, liveEPGStatus: 'idle', epgLookupGuideId: null, programmesLookupGuideId: null })
   useErsatztvStore.setState({ channels: [], channelsLoading: false, error: null })
   useUIStore.setState({ lastTVChannelId: null, isTheaterMode: false, isChannelSidebarCollapsed: false })
   useChannelStore.getState().setCurrentChannel({ id: 'a', name: 'A', streamUrl: 'https://fixture/a' })
@@ -71,9 +142,11 @@ describe('FE-12 programme boundary clock', () => {
     useUIStore.setState({ lastTVChannelId: 'e' })
     vi.mocked(api.fetchErsatzTVCurrentProgramme).mockResolvedValue({ current: null, next: null })
     render(<MemoryRouter><TVView /></MemoryRouter>)
-    expect(screen.getByText('Cinema - First')).toBeVisible()
+    const header = within(screen.getByTestId('now-watching'))
+    expect(header.getByText('First')).toBeVisible()
     await act(() => vi.advanceTimersByTimeAsync(30000))
-    expect(screen.getByText('Cinema - Second')).toBeVisible()
+    expect(header.getByText('Second')).toBeVisible()
+    expect(header.getByText('CH 1 · Cinema · 1h left')).toBeVisible()
     expect(presence).toHaveBeenLastCalledWith('Cinema', 'Second', 'ersatztv', 'e')
   })
   it('refreshes live EPG at programme end with no optional catalogue', async () => {
@@ -86,9 +159,1591 @@ describe('FE-12 programme boundary clock', () => {
     useChannelStore.getState().setCurrentChannel({ id: 'a', name: 'A', streamUrl: '/a', guideId: 'guide-a' })
     render(<MemoryRouter><TVView /></MemoryRouter>)
     await act(() => vi.advanceTimersByTimeAsync(1))
-    expect(screen.getByText('A - First live')).toBeVisible()
+    const header = within(screen.getByTestId('now-watching'))
+    expect(header.getByText('First live')).toBeVisible()
     await act(() => vi.advanceTimersByTimeAsync(10000))
-    expect(screen.getByText('A - Next live')).toBeVisible()
+    expect(header.getByText('Next live')).toBeVisible()
     expect(presence).toHaveBeenLastCalledWith('A', 'Next live', 'live', 'a')
+  })
+})
+
+describe('B-01 live channel schedule', () => {
+  it('loads the live schedule when the view opens and again every 30 minutes', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-06T12:00:00Z'))
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
+    vi.mocked(fetchNowPlaying).mockResolvedValue({ channelId: 'guide-a', currentProgram: null })
+    // Same channel, so the store's own reload on a live switch doesn't run
+    useChannelStore.getState().setCurrentChannel({ id: 'a', name: 'A', streamUrl: '/a', guideId: 'guide-a' })
+    vi.mocked(fetchLiveProgrammes).mockClear()
+    vi.mocked(fetchLiveProgrammes).mockResolvedValue({
+      channelId: 'guide-a',
+      programmes: [{ title: 'Matinee', startTime: '2026-09-06T11:00:00Z', endTime: '2026-09-06T13:00:00Z' }],
+    })
+
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await act(() => vi.advanceTimersByTimeAsync(1))
+
+    expect(fetchLiveProgrammes).toHaveBeenCalledTimes(1)
+    expect(fetchLiveProgrammes).toHaveBeenCalledWith('guide-a', 'A')
+    expect(useTVStore.getState().liveProgrammes.map((p) => p.title)).toEqual(['Matinee'])
+
+    await act(() => vi.advanceTimersByTimeAsync(29 * 60 * 1000))
+    expect(fetchLiveProgrammes).toHaveBeenCalledTimes(1)
+    await act(() => vi.advanceTimersByTimeAsync(60 * 1000))
+    expect(fetchLiveProgrammes).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('B-09 one live guide request per change', () => {
+  const tsn = { id: 'tsn', name: 'TSN 5', streamUrl: '/tsn', guideId: 'guide-tsn' }
+  const sportsnet = { id: 'sn', name: 'Sportsnet', streamUrl: '/sn', guideId: 'guide-sn' }
+
+  beforeEach(() => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
+    vi.mocked(fetchNowPlaying).mockReset().mockResolvedValue({ channelId: 'guide-tsn', currentProgram: null })
+    vi.mocked(fetchLiveProgrammes).mockReset().mockResolvedValue({ channelId: 'guide-tsn', programmes: [] })
+  })
+
+  const counts = () => ({
+    nowPlaying: vi.mocked(fetchNowPlaying).mock.calls.length,
+    schedule: vi.mocked(fetchLiveProgrammes).mock.calls.length,
+  })
+
+  it('looks the live channel up once when it arrives after the view opens (page load)', async () => {
+    act(() => useChannelStore.getState().setCurrentChannel(null))
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await act(async () => {})
+    expect(counts()).toEqual({ nowPlaying: 0, schedule: 0 })
+
+    act(() => useChannelStore.getState().setCurrentChannel(tsn))
+    await act(async () => {})
+
+    expect(counts()).toEqual({ nowPlaying: 1, schedule: 1 })
+    expect(fetchNowPlaying).toHaveBeenCalledWith('guide-tsn', 'TSN 5')
+    expect(fetchLiveProgrammes).toHaveBeenCalledWith('guide-tsn', 'TSN 5')
+  })
+
+  it('looks the live channel up once when it was already on before the view opened', async () => {
+    act(() => useChannelStore.getState().setCurrentChannel(tsn))
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await act(async () => {})
+
+    expect(counts()).toEqual({ nowPlaying: 1, schedule: 1 })
+  })
+
+  it('looks a live channel up on opening when nothing has yet', async () => {
+    // The same channel as before (so no live switch), now with a guide id
+    act(() => useChannelStore.getState().setCurrentChannel({ id: 'a', name: 'A', streamUrl: '/a', guideId: 'guide-a' }))
+    expect(counts()).toEqual({ nowPlaying: 0, schedule: 0 })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await act(async () => {})
+
+    expect(counts()).toEqual({ nowPlaying: 1, schedule: 1 })
+    expect(fetchNowPlaying).toHaveBeenCalledWith('guide-a', 'A')
+  })
+
+  it('sends one now-playing and one schedule request per live switch', async () => {
+    act(() => useChannelStore.getState().setCurrentChannel(tsn))
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await act(async () => {})
+    vi.mocked(fetchNowPlaying).mockClear()
+    vi.mocked(fetchLiveProgrammes).mockClear()
+
+    act(() => useChannelStore.getState().setCurrentChannel(sportsnet))
+    await act(async () => {})
+
+    expect(counts()).toEqual({ nowPlaying: 1, schedule: 1 })
+    expect(fetchNowPlaying).toHaveBeenCalledWith('guide-sn', 'Sportsnet')
+  })
+})
+
+describe('B-01 live row programme clicks', () => {
+  const minute = 60_000
+  const live = (title: string, fromMinutes: number, toMinutes: number): ErsatzTVProgramme => ({
+    id: `live-${title}`,
+    channelId: LIVE_CHANNEL_ID,
+    title,
+    start: new Date(Date.now() + fromMinutes * minute).toISOString(),
+    stop: new Date(Date.now() + toMinutes * minute).toISOString(),
+  })
+  const liveSlot = () => useTVStore.getState().getUnifiedChannels()[0]
+
+  beforeEach(async () => {
+    modal.last = null
+    guide.onProgrammeClick = undefined
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([{ id: 'e', name: 'Cinema', number: 1, streamUrl: '/e', group: '' }])
+    useErsatztvStore.setState({ loadAllProgrammes: vi.fn().mockResolvedValue(undefined) })
+    useUIStore.setState({ isEPGVisible: true })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    // Opens on the ErsatzTV channel, not the live slot
+    await waitFor(() => expect(useTVStore.getState().selectedChannel?.id).toBe('e'))
+  })
+  afterEach(() => useUIStore.setState({ isEPGVisible: false }))
+
+  it('opens the details of an upcoming live programme, on the live slot, without tuning', () => {
+    const upcoming = live('After Hours', 60, 120)
+
+    act(() => guide.onProgrammeClick?.(upcoming, liveSlot()))
+
+    expect(modal.last).toMatchObject({ open: true, programme: upcoming, channel: { id: LIVE_CHANNEL_ID, name: 'A' } })
+    expect(useTVStore.getState().selectedChannel?.id).toBe('e')
+
+    // Its Watch action tunes to the live slot
+    act(() => modal.last?.onWatch({ id: LIVE_CHANNEL_ID, name: 'A' }))
+    expect(useTVStore.getState().selectedChannel).toMatchObject({ id: LIVE_CHANNEL_ID, type: 'live' })
+  })
+
+  it('tunes to the live slot for the live programme on now, without opening details', () => {
+    act(() => guide.onProgrammeClick?.(live('Hockey Night', -10, 50), liveSlot()))
+
+    expect(useTVStore.getState().selectedChannel).toMatchObject({ id: LIVE_CHANNEL_ID, type: 'live' })
+    expect(modal.last?.open).toBe(false)
+  })
+})
+
+describe('A-V1 contained player and chat crashes', () => {
+  beforeEach(() => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
+    // React reports caught render errors to console.error; keep the output quiet.
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  it('keeps the header and channel list when the player throws, and Reload player remounts it', async () => {
+    crash.player = true
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+
+    // The boundary resets (and the player throws again) as the channel resolves
+    await waitFor(() => expect(useTVStore.getState().selectedChannel?.streamUrl).toBe('https://fixture/a'))
+    expect(screen.getByText('The player hit an error')).toBeVisible()
+    expect(screen.getByRole('banner')).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Channels' })).toBeVisible()
+    expect(screen.queryByTestId('player')).not.toBeInTheDocument()
+
+    crash.player = false
+    fireEvent.click(screen.getByRole('button', { name: 'Reload player' }))
+
+    expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a')
+    expect(screen.queryByText('The player hit an error')).not.toBeInTheDocument()
+  })
+
+  it('retries the player when the live channel changes', async () => {
+    crash.player = true
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    // The boundary resets (and the player throws again) as the channel resolves
+    await waitFor(() => expect(useTVStore.getState().selectedChannel?.streamUrl).toBe('https://fixture/a'))
+    expect(screen.getByText('The player hit an error')).toBeVisible()
+
+    crash.player = false
+    act(() => useChannelStore.getState().setCurrentChannel({ id: 'b', name: 'B', streamUrl: 'https://fixture/b' }))
+
+    expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/b')
+  })
+
+  it('shows a small card when chat throws, and Close closes chat and clears it', async () => {
+    crash.chat = true
+    useChatStore.setState({ isOpen: true })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+
+    expect(await screen.findByText('Chat hit an error')).toBeVisible()
+    expect(screen.getByRole('banner')).toBeVisible()
+    expect(screen.getByTestId('player')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+
+    expect(useChatStore.getState().isOpen).toBe(false)
+    expect(screen.queryByText('Chat hit an error')).not.toBeInTheDocument()
+  })
+})
+
+describe('C-V3 Reload keeps the player shell', () => {
+  it('hands the player a new reloadKey instead of remounting it', async () => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+    const player = screen.getByTestId('player')
+    const mounts = playerProps.mounts
+    const before = playerProps.reloadKey
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reload stream' }))
+
+    expect(playerProps.reloadKey).not.toBe(before)
+    expect(playerProps.mounts).toBe(mounts)
+    expect(screen.getByTestId('player')).toBe(player)
+  })
+})
+
+describe('E-V1 chat connection state', () => {
+  it('hands the socket status and reconnect to the chat panel', () => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
+    socket.status = 'disconnected'
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    expect(chatProps.last?.status).toBe('disconnected')
+    expect(chatProps.last?.onReconnect).toBe(socket.reconnect)
+  })
+})
+
+const originalMatchMedia = window.matchMedia
+function matchOnly(match: string) {
+  window.matchMedia = vi.fn((query: string) => ({
+    matches: query === match,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }))
+}
+
+describe('G-03 phone portrait layout', () => {
+  beforeEach(() => vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([]))
+  afterEach(() => { window.matchMedia = originalMatchMedia })
+
+  it('gives the player a fixed full-width 16:9 box and the channel list the rest of the height', async () => {
+    matchOnly('(max-width: 768px)')
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+
+    const video = screen.getByTestId('player').closest('.bg-black') as HTMLElement
+    expect(video).toHaveClass('aspect-video', 'w-full', 'flex-none')
+    expect(video).not.toHaveClass('rounded-lg')
+    expect(video.style.flex).toBe('')
+
+    const list = screen.getByRole('heading', { name: 'Channels' }).closest('.epg-scroll') as HTMLElement
+    expect(list).toHaveClass('min-h-0', 'overflow-y-auto')
+    expect(list).toHaveStyle({ flex: '1 1 0%' })
+  })
+
+  it('gives the player a place under the picture for the arrival card, before the channel list', async () => {
+    matchOnly('(max-width: 768px)')
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(playerProps.arrivalHost).toBe(screen.getByTestId('arrival-host')))
+
+    const video = screen.getByTestId('player').closest('.bg-black') as HTMLElement
+    const host = screen.getByTestId('arrival-host')
+    // Outside the player box (so not over the picture), straight after it
+    expect(video).not.toContainElement(host)
+    expect(video.nextElementSibling).toBe(host)
+    const list = screen.getByRole('heading', { name: 'Channels' })
+    expect(host.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('keeps the arrival card over the picture off a phone', async () => {
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+
+    expect(screen.queryByTestId('arrival-host')).not.toBeInTheDocument()
+    expect(playerProps.arrivalHost).toBeNull()
+  })
+
+  it('keeps the desktop player growing into the full height', async () => {
+    useUIStore.setState({ isEPGVisible: false })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+
+    const video = screen.getByTestId('player').closest('.bg-black') as HTMLElement
+    expect(video).not.toHaveClass('aspect-video')
+    expect(video).toHaveClass('rounded-lg')
+    expect(video).toHaveStyle({ flex: '1 1 100%' })
+  })
+})
+
+describe('H-07 now-playing indicator on the phone list', () => {
+  const movies = { id: 'e1', name: 'Movies', number: 1, streamUrl: '/e1', logoUrl: '', group: '' }
+
+  beforeEach(() => {
+    matchOnly('(max-width: 768px)')
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([movies])
+    useErsatztvStore.setState({ loadAllProgrammes: vi.fn().mockResolvedValue(undefined) })
+  })
+  afterEach(() => { window.matchMedia = originalMatchMedia })
+
+  it('marks the selected row with a static AudioLines icon and nothing pulsing', async () => {
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('/e1'))
+
+    const indicator = screen.getByTestId('now-playing-indicator')
+    expect(indicator.closest('button')).toHaveTextContent('Movies')
+    expect(indicator).toHaveClass('lucide-audio-lines', 'h-4', 'w-4', 'text-primary')
+    expect(indicator).toHaveAttribute('aria-hidden', 'true')
+    const list = screen.getByRole('heading', { name: 'Channels' }).closest('.epg-scroll') as HTMLElement
+    expect(list.querySelector('.animate-pulse')).toBeNull()
+  })
+
+  it('uses the live colour when the live slot is selected', async () => {
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('/e1'))
+
+    // The live slot is carrying channel A, so its card has the LIVE badge
+    const liveCard = screen.getByText('Live', { selector: 'span' }).closest('button') as HTMLElement
+    fireEvent.click(liveCard)
+    const indicator = screen.getByTestId('now-playing-indicator')
+    expect(liveCard).toContainElement(indicator)
+    expect(indicator).toHaveClass('text-live')
+    expect(indicator).not.toHaveClass('text-primary')
+  })
+})
+
+describe('G-08 viewport height and header title', () => {
+  beforeEach(() => vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([]))
+
+  it('sizes the app to the dynamic viewport, keeping 100vh where dvh is unsupported', () => {
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    const root = screen.getByRole('banner').parentElement!
+    expect(root).toHaveClass('h-screen', 'supports-[height:100dvh]:h-dvh')
+    expect(root).not.toHaveClass('h-dvh')
+  })
+
+  it('keeps a long programme title on one truncated line', async () => {
+    const title = 'The Lord of the Rings: The War of the Rohirrim'
+    vi.mocked(fetchNowPlaying).mockResolvedValue({ channelId: 'a', currentProgram: { title, startTime: '2026-09-06T11:00:00Z', endTime: '2099-01-01T00:00:00Z' } })
+    useChannelStore.getState().setCurrentChannel({ id: 'a', name: 'PopCorn Movies', streamUrl: '/a', guideId: 'guide-a' })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    const block = screen.getByTestId('now-watching')
+    const titleEl = await within(block).findByText(title)
+    expect(titleEl).toHaveClass('truncate')
+    expect(within(block).getByText(/^Club channel · PopCorn Movies · .* left$/)).toHaveClass('truncate')
+    expect(block).toHaveClass('min-w-0', 'flex-1')
+    expect(block.parentElement).toHaveClass('min-w-0', 'flex-1')
+  })
+})
+
+describe('A-V2 iOS safe area', () => {
+  it('pads the header below the status bar', () => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    const header = screen.getByRole('banner')
+    expect(header).toHaveClass('pt-header-safe', 'pb-2')
+    expect(header).not.toHaveClass('py-2')
+  })
+})
+
+describe('B-V1 live guide copy on the phone card', () => {
+  beforeEach(() => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
+    matchOnly('(max-width: 768px)')
+  })
+  afterEach(() => { window.matchMedia = originalMatchMedia })
+
+  it("says 'Guide unavailable' when the guide lookup fails", async () => {
+    vi.mocked(fetchNowPlaying).mockRejectedValue(new Error('Failed to fetch EPG'))
+    useChannelStore.getState().setCurrentChannel({ id: 'a', name: 'Sports', streamUrl: '/a', guideId: 'guide-a' })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+
+    expect(await screen.findByText('Guide unavailable')).toBeVisible()
+    expect(screen.queryByText('Broadcasting...')).not.toBeInTheDocument()
+  })
+
+  it("says 'No guide info' when the guide has nothing on now", async () => {
+    vi.mocked(fetchNowPlaying).mockResolvedValue({ channelId: 'guide-a', currentProgram: null })
+    useChannelStore.getState().setCurrentChannel({ id: 'a', name: 'Sports', streamUrl: '/a', guideId: 'guide-a' })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+
+    expect(await screen.findByText('No guide info')).toBeVisible()
+  })
+})
+
+describe('B-V2 picking a channel from the empty live slot', () => {
+  beforeEach(() => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
+    useChannelStore.getState().setCurrentChannel(null)
+  })
+  afterEach(() => { window.matchMedia = originalMatchMedia })
+
+  const switcher = () => screen.queryByTestId('live-switcher')
+
+  it('gives an admin the live switcher from the sidebar and the player', async () => {
+    auth.isAdmin = true
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('No live broadcast'))
+
+    expect(switcher()).toHaveAttribute('data-open', 'false')
+    fireEvent.click(screen.getByRole('button', { name: 'Pick a channel' }))
+    expect(switcher()).toHaveAttribute('data-open', 'true')
+    expect(playerProps.onPickLive).toBeTypeOf('function')
+  })
+
+  it('gives a viewer the admin allowed to change live TV the live switcher', async () => {
+    appSettings.userChannelSelection = true
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('No live broadcast'))
+
+    act(() => playerProps.onPickLive?.())
+    expect(switcher()).toHaveAttribute('data-open', 'true')
+  })
+
+  it("opens the Live TV switcher from the header's Change live for a viewer the admin allowed", async () => {
+    appSettings.userChannelSelection = true
+    useChannelStore.getState().setCurrentChannel({ id: 'a', name: 'A', streamUrl: 'https://fixture/a' })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+
+    expect(switcher()).toHaveAttribute('data-open', 'false')
+    fireEvent.click(screen.getByRole('button', { name: 'Change live channel' }))
+    expect(switcher()).toHaveAttribute('data-open', 'true')
+  })
+
+  it('gives a viewer without permission Suggest a channel while chat is on, posting through the socket', async () => {
+    chatFlag.enabled = true
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('No live broadcast'))
+
+    expect(switcher()).toHaveAttribute('data-open', 'false')
+    fireEvent.click(screen.getByRole('button', { name: 'Suggest a channel' }))
+    expect(switcher()).toHaveAttribute('data-open', 'true')
+    switcherProps.onSuggest?.({ id: '42', name: 'TSN 5' })
+    expect(socket.sendSuggest).toHaveBeenCalledWith('42')
+    // The empty live slot still only waits: suggesting is from the header
+    expect(playerProps.onPickLive).toBeUndefined()
+  })
+
+  it('offers no suggestions while chat is off', async () => {
+    appSettings.userChannelSelection = true
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('No live broadcast'))
+
+    expect(switcher()).toBeInTheDocument()
+    expect(switcherProps.onSuggest).toBeUndefined()
+  })
+
+  it("shows a viewer without permission the wait copy and no live switcher", async () => {
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('No live broadcast'))
+
+    expect(switcher()).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Pick a channel' })).not.toBeInTheDocument()
+    // The row's text sits beside its stretched button, in the same list item
+    expect(screen.getByRole('button', { name: 'Live slot, nothing on' }).closest('li')).toHaveTextContent('Waiting for someone to put something on')
+    expect(playerProps.onPickLive).toBeUndefined()
+  })
+
+  describe('on a phone', () => {
+    const movies = { id: 'e1', name: 'Movies', number: 1, streamUrl: '/e1', logoUrl: '', group: '' }
+    const liveCard = () => screen.getByText('Live', { selector: 'p' }).closest('button') as HTMLElement
+
+    beforeEach(() => {
+      matchOnly('(max-width: 768px)')
+      auth.isAdmin = true
+      vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([movies])
+      useErsatztvStore.setState({ loadAllProgrammes: vi.fn().mockResolvedValue(undefined) })
+    })
+
+    it('puts Pick a channel beside the live card, opening the live switcher without tuning', async () => {
+      render(<MemoryRouter><TVView /></MemoryRouter>)
+      await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('/e1'))
+
+      const pick = screen.getByRole('button', { name: 'Pick a channel' })
+      expect(liveCard()).not.toContainElement(pick)
+      expect(pick.parentElement).toBe(liveCard().parentElement)
+
+      fireEvent.click(pick)
+      expect(switcher()).toHaveAttribute('data-open', 'true')
+      expect(useTVStore.getState().selectedChannel?.id).toBe('e1')
+    })
+
+    it('still tunes to the live slot from the card itself', async () => {
+      render(<MemoryRouter><TVView /></MemoryRouter>)
+      await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('/e1'))
+
+      fireEvent.click(liveCard())
+      expect(useTVStore.getState().selectedChannel?.type).toBe('live')
+      expect(switcher()).toHaveAttribute('data-open', 'false')
+    })
+  })
+})
+
+describe('programme progress on the phone list', () => {
+  const NOW = new Date('2026-09-26T20:00:00Z').getTime()
+  const MINUTE = 60_000
+  const movies = { id: 'e1', name: 'Movies', number: 1, streamUrl: '/e1', logoUrl: '', group: '' }
+  const onNow = (startOffsetMin: number, stopOffsetMin: number) => ({
+    id: 'p1',
+    channelId: 'e1',
+    title: 'Evening News',
+    start: new Date(NOW + startOffsetMin * MINUTE).toISOString(),
+    stop: new Date(NOW + stopOffsetMin * MINUTE).toISOString(),
+  })
+  // The bar's fill sits in the track just before the time-left label
+  const fillBefore = (label: HTMLElement) => label.previousElementSibling?.firstElementChild as HTMLElement
+
+  beforeEach(() => {
+    // Only the clock: the channel fetch and waitFor still run on real timers
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+    matchOnly('(max-width: 768px)')
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([movies])
+    useErsatztvStore.setState({ loadAllProgrammes: vi.fn().mockResolvedValue(undefined) })
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    window.matchMedia = originalMatchMedia
+    useErsatztvStore.setState({ programmesByChannel: {} })
+  })
+
+  it("shows the time left and fills the bar by the share that's been on", async () => {
+    // 30 of 95 minutes in, 65 to go
+    useErsatztvStore.setState({ programmesByChannel: { e1: [onNow(-30, 65)] } })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+
+    const label = await screen.findByText('1h 5m left')
+    expect(label.closest('button')).toHaveTextContent('Evening News')
+    expect(parseFloat(fillBefore(label).style.width)).toBeCloseTo((30 / 95) * 100, 5)
+  })
+
+  it('shows whole hours without minutes', async () => {
+    useErsatztvStore.setState({ programmesByChannel: { e1: [onNow(-60, 120)] } })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+
+    const label = await screen.findByText('2h left')
+    expect(parseFloat(fillBefore(label).style.width)).toBeCloseTo((60 / 180) * 100, 5)
+  })
+})
+
+describe('schedule on the phone list', () => {
+  const NOW = new Date('2026-09-26T20:00:00Z').getTime()
+  const MINUTE = 60_000
+  const movies = { id: 'e1', name: 'Movies', number: 1, streamUrl: '/e1', logoUrl: '', group: '' }
+  const lateMovie: ErsatzTVProgramme = {
+    id: 'p2',
+    channelId: 'e1',
+    title: 'Late Movie',
+    start: new Date(NOW + 30 * MINUTE).toISOString(),
+    stop: new Date(NOW + 150 * MINUTE).toISOString(),
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+    matchOnly('(max-width: 768px)')
+    modal.last = null
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([movies])
+    useErsatztvStore.setState({
+      loadAllProgrammes: vi.fn().mockResolvedValue(undefined),
+      programmesByChannel: { e1: [lateMovie] },
+    })
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    window.matchMedia = originalMatchMedia
+    useErsatztvStore.setState({ programmesByChannel: {} })
+  })
+
+  it("opens a programme's details from an expanded row, without tuning", async () => {
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('/e1'))
+    // Start on the live slot, so a tune to Movies would show
+    fireEvent.click(screen.getByText('A', { selector: 'p' }).closest('button') as HTMLElement)
+    expect(useTVStore.getState().selectedChannel?.type).toBe('live')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show schedule for Movies' }))
+    const schedule = screen.getByRole('list', { name: 'Schedule for Movies' })
+    fireEvent.click(within(schedule).getByRole('button', { name: /Late Movie$/ }))
+
+    expect(modal.last).toMatchObject({ open: true, programme: lateMovie, channel: { id: 'e1', name: 'Movies' } })
+    expect(useTVStore.getState().selectedChannel?.type).toBe('live')
+  })
+})
+
+describe('B-06 guide mode', () => {
+  beforeEach(() => vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([]))
+  afterEach(() => {
+    useUIStore.setState({ isEPGVisible: false, epgHeightPercent: 50 })
+    vi.restoreAllMocks()
+  })
+
+  it('leaves the scrolling to the guide grid on desktop, so its time header can stick', async () => {
+    useUIStore.setState({ isEPGVisible: true })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+
+    const wrapper = screen.getByTestId('tv-epg-grid').parentElement as HTMLElement
+    expect(wrapper).toHaveClass('min-h-0', 'overflow-hidden')
+    expect(wrapper).not.toHaveClass('overflow-y-auto')
+    expect(wrapper).toHaveStyle({ flex: `0 0 ${useUIStore.getState().epgHeightPercent}%` })
+  })
+
+  it.each([false, true])('hides the channel sidebar while the guide is open and brings it back as it was (collapsed: %s)', async (collapsed) => {
+    useUIStore.setState({ isChannelSidebarCollapsed: collapsed })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+    const sidebarToggle = () => screen.queryByRole('button', { name: collapsed ? 'Expand channel sidebar' : 'Collapse channel sidebar' })
+    expect(sidebarToggle()).toBeInTheDocument()
+
+    act(() => useUIStore.setState({ isEPGVisible: true }))
+    expect(screen.queryByRole('heading', { name: 'Channels' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /channel sidebar/ })).not.toBeInTheDocument()
+    expect(screen.getByTestId('tv-epg-grid')).toBeInTheDocument()
+    expect(useUIStore.getState().isChannelSidebarCollapsed).toBe(collapsed)
+
+    act(() => useUIStore.setState({ isEPGVisible: false }))
+    expect(sidebarToggle()).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Channels' }) !== null).toBe(!collapsed)
+  })
+
+  it('lets the guide be dragged between 30% and 75% of the height', async () => {
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(1000)
+    useUIStore.setState({ isEPGVisible: true, epgHeightPercent: 50 })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+    const handle = screen.getByRole('separator', { name: 'Resize guide' })
+
+    // Pointer events, so touch and pen drag it as well as a mouse
+    expect(handle).toHaveClass('touch-none')
+
+    // Up 400px of 1000: 50% + 40% stops at 75%
+    fireEvent.pointerDown(handle, { clientY: 500, pointerId: 1 })
+    fireEvent.pointerMove(handle, { clientY: 100, pointerId: 1 })
+    fireEvent.pointerUp(handle, { clientY: 100, pointerId: 1 })
+    expect(useUIStore.getState().epgHeightPercent).toBe(75)
+    expect(screen.getByTestId('tv-epg-grid').parentElement).toHaveStyle({ flex: '0 0 75%' })
+    expect(handle).toHaveAttribute('aria-valuenow', '75')
+
+    // Down 600px: 75% - 60% stops at 30%
+    fireEvent.pointerDown(handle, { clientY: 100, pointerId: 2 })
+    fireEvent.pointerMove(handle, { clientY: 700, pointerId: 2 })
+    fireEvent.pointerUp(handle, { clientY: 700, pointerId: 2 })
+    expect(useUIStore.getState().epgHeightPercent).toBe(30)
+  })
+
+  it('lets the guide be resized from the keyboard on a focusable separator', async () => {
+    useUIStore.setState({ isEPGVisible: true, epgHeightPercent: 50 })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+    const handle = screen.getByRole('separator', { name: 'Resize guide' })
+
+    expect(handle).toHaveAttribute('tabindex', '0')
+    expect(handle).toHaveAttribute('aria-valuenow', '50')
+    expect(handle).toHaveAttribute('aria-valuemin', '30')
+    expect(handle).toHaveAttribute('aria-valuemax', '75')
+
+    fireEvent.keyDown(handle, { key: 'ArrowUp' })
+    expect(useUIStore.getState().epgHeightPercent).toBe(55)
+    expect(handle).toHaveAttribute('aria-valuenow', '55')
+    expect(screen.getByTestId('tv-epg-grid').parentElement).toHaveStyle({ flex: '0 0 55%' })
+
+    fireEvent.keyDown(handle, { key: 'ArrowDown' })
+    fireEvent.keyDown(handle, { key: 'ArrowDown' })
+    expect(useUIStore.getState().epgHeightPercent).toBe(45)
+
+    fireEvent.keyDown(handle, { key: 'End' })
+    expect(useUIStore.getState().epgHeightPercent).toBe(75)
+    fireEvent.keyDown(handle, { key: 'Home' })
+    expect(useUIStore.getState().epgHeightPercent).toBe(30)
+  })
+})
+
+describe('B-08 store subscriptions', () => {
+  it("doesn't re-render the view for store fields it doesn't use", async () => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+
+    // The player is a child of the view, so it renders whenever the view does
+    const before = playerProps.renders
+    act(() => useTVStore.setState({ liveEPGLoading: true, epgRequestId: 99 }))
+    act(() => useErsatztvStore.setState({ loading: true, currentProgramme: null, programmes: [] }))
+    expect(playerProps.renders).toBe(before)
+
+    // A field it does use still re-renders it
+    act(() => useErsatztvStore.setState({ error: 'Guide failed' }))
+    expect(playerProps.renders).toBeGreaterThan(before)
+  })
+})
+
+describe('A-06 ErsatzTV errors', () => {
+  it('shows one toast with a fixed id and Retry instead of a fixed error box, and dismisses it when the error clears', async () => {
+    const toastError = vi.spyOn(toast, 'error')
+    const toastDismiss = vi.spyOn(toast, 'dismiss')
+    vi.mocked(api.fetchErsatzTVChannels).mockRejectedValue(new Error('ErsatzTV unreachable'))
+    const loadAllProgrammes = vi.fn().mockResolvedValue(undefined)
+    useErsatztvStore.setState({ loadAllProgrammes })
+
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1))
+    expect(toastError).toHaveBeenCalledWith('ErsatzTV unreachable', expect.objectContaining({
+      id: 'ersatz-error',
+      action: expect.objectContaining({ label: 'Retry' }),
+    }))
+    // The old fixed bottom-right box is gone; the sidebar keeps an inline Retry
+    expect(document.querySelector('.fixed.bottom-4.right-4')).toBeNull()
+    expect(screen.getByText("Couldn't load channels 1-36")).toBeVisible()
+    // Unrelated re-renders don't raise it again
+    act(() => useUIStore.setState({ isTheaterMode: false, isChannelSidebarCollapsed: false, lastTVChannelId: 'x' }))
+    expect(toastError).toHaveBeenCalledTimes(1)
+
+    // Retry reloads the channels and the guide
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([{ id: 'e', name: 'Cinema', number: 1, streamUrl: '/e', group: '' }])
+    const options = toastError.mock.calls[0][1] as { action: { onClick: () => void } }
+    toastDismiss.mockClear()
+    vi.mocked(api.fetchErsatzTVChannels).mockClear()
+    await act(async () => { options.action.onClick() })
+    expect(api.fetchErsatzTVChannels).toHaveBeenCalledTimes(1)
+    expect(loadAllProgrammes).toHaveBeenCalledWith(48)
+    // The error cleared, so the toast goes
+    expect(useErsatztvStore.getState().error).toBeNull()
+    expect(toastDismiss).toHaveBeenCalledWith('ersatz-error')
+
+    toastError.mockRestore()
+    toastDismiss.mockRestore()
+  })
+})
+
+describe('E-01 chat placement', () => {
+  beforeEach(() => vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([]))
+  afterEach(() => {
+    window.matchMedia = originalMatchMedia
+    useChatStore.setState({ isOpen: false })
+  })
+
+  const openChat = async () => {
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+    act(() => useChatStore.setState({ isOpen: true }))
+    return screen.getByTestId('chat')
+  }
+
+  it.each([390, 768])('opens in the Chat tab on a %ipx phone, agreeing with the phone layout at the edge', async (width) => {
+    chatFlag.enabled = true
+    mockViewport({ width, height: 900, pointer: 'coarse' })
+    const chat = await openChat()
+    expect(chat).toHaveAttribute('data-variant', 'inline')
+    // The same width lays the view out as a phone: the Channels | Chat strip
+    expect(screen.getByRole('tablist', { name: 'Channels and chat' })).toBeInTheDocument()
+    expect(screen.getByRole('tabpanel')).toContainElement(chat)
+  })
+
+  it('docks beside the player at 1440px, with the header and its controls still there', async () => {
+    mockViewport({ width: 1440 })
+    const chat = await openChat()
+    expect(chat).toHaveAttribute('data-variant', 'docked')
+
+    // In the chat slot after <main>, which has no box of its own, so the
+    // panel lays out as the row's third column
+    const main = screen.getByRole('main')
+    const slot = chat.parentElement as HTMLElement
+    expect(slot).toHaveClass('contents')
+    expect(slot.parentElement).toBe(main.parentElement)
+    expect(main.nextElementSibling).toBe(slot)
+    expect(screen.getByRole('banner')).not.toContainElement(chat)
+    expect(within(screen.getByRole('banner')).getByRole('button', { name: 'Reload stream' })).toBeVisible()
+  })
+
+  it('opens as a sheet inside the content row on a 900px tablet, so it starts below the header', async () => {
+    mockViewport({ width: 900 })
+    const chat = await openChat()
+    expect(chat).toHaveAttribute('data-variant', 'sheet')
+
+    const row = screen.getByRole('main').parentElement as HTMLElement
+    const slot = chat.parentElement as HTMLElement
+    expect(slot).toHaveClass('contents')
+    expect(slot.parentElement).toBe(row)
+    expect(row).toHaveClass('relative')
+    expect(screen.getByRole('banner')).toBeVisible()
+  })
+
+  // Like theater's docked chat: the player gives up the sheet's width, so its
+  // Reload, Theater and Fullscreen stay clear of the sheet
+  it('moves the player out from under the sheet on a tablet held sideways', async () => {
+    mockViewport({ width: 1024, height: 768, pointer: 'coarse' })
+    const chat = await openChat()
+    expect(chat).toHaveAttribute('data-variant', 'sheet')
+    expect(screen.getByRole('main')).toHaveClass('mr-80')
+
+    act(() => useChatStore.setState({ isOpen: false }))
+    expect(screen.getByRole('main')).not.toHaveClass('mr-80')
+  })
+
+  it('lets the sheet overlay the player where the row is too narrow to share', async () => {
+    mockViewport({ width: 900 })
+    await openChat()
+    expect(screen.getByRole('main')).not.toHaveClass('mr-80')
+  })
+
+  it('leaves the player full width on a tablet while chat is closed', async () => {
+    mockViewport({ width: 1024, height: 768, pointer: 'coarse' })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+    expect(screen.getByRole('main')).not.toHaveClass('mr-80')
+  })
+
+  // This covers TVView's half, the panel's place in the tree. That ChatPanel
+  // keeps its own DOM across the switch is tested in ChatPanel.test.tsx
+  it('keeps the panel mounted in place when theater switches it from docked to overlay', async () => {
+    mockViewport({ width: 1440 })
+    const chat = await openChat()
+    expect(chat).toHaveAttribute('data-variant', 'docked')
+
+    act(() => useUIStore.setState({ isTheaterMode: true }))
+    expect(screen.getByTestId('chat')).toBe(chat)
+    expect(chat).toHaveAttribute('data-variant', 'overlay')
+  })
+
+  it('slides over the side in theater', async () => {
+    mockViewport({ width: 1440 })
+    useUIStore.setState({ isTheaterMode: true })
+    const chat = await openChat()
+    expect(chat).toHaveAttribute('data-variant', 'overlay')
+  })
+
+  const video = () => screen.getByTestId('player').closest('.bg-black') as HTMLElement
+
+  it('docks beside the picture in theater: the video stops short of the chat column', async () => {
+    mockViewport({ width: 1440 })
+    useUIStore.setState({ isTheaterMode: true })
+    await openChat()
+
+    expect(video()).toHaveClass('fixed', 'inset-y-0', 'left-0', 'right-80', 'z-50', 'w-auto')
+    expect(video()).not.toHaveClass('inset-0')
+    expect(video()).not.toHaveClass('w-full')
+    // Beside the picture, not over it, so it stays opaque
+    expect(chatProps.last?.translucent).toBe(false)
+  })
+
+  it('gives theater the whole screen again when chat closes', async () => {
+    mockViewport({ width: 1440 })
+    useUIStore.setState({ isTheaterMode: true })
+    await openChat()
+    expect(video()).toHaveClass('right-80')
+
+    act(() => useChatStore.setState({ isOpen: false }))
+
+    expect(video()).toHaveClass('fixed', 'inset-0', 'z-50')
+    expect(video()).not.toHaveClass('right-80')
+  })
+
+  it('fills the screen in theater while chat is closed', async () => {
+    mockViewport({ width: 1440 })
+    useUIStore.setState({ isTheaterMode: true })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+
+    expect(video()).toHaveClass('fixed', 'inset-0', 'z-50')
+    expect(video()).not.toHaveClass('right-80')
+  })
+
+  it('keeps the page layout for a chat docked outside theater', async () => {
+    mockViewport({ width: 1440 })
+    await openChat()
+
+    expect(video()).not.toHaveClass('fixed')
+    expect(chatProps.last?.translucent).toBe(false)
+  })
+
+  it.each([
+    ['held sideways', { width: 667, height: 375, pointer: 'coarse' as const }, false],
+    ['in theater', { width: 390, height: 844, pointer: 'coarse' as const }, true],
+  ])('stays over the whole picture on a phone %s, see-through', async (_mode, viewport, theater) => {
+    mockViewport(viewport)
+    useUIStore.setState({ isTheaterMode: theater })
+    const chat = await openChat()
+
+    expect(chat).toHaveAttribute('data-variant', 'overlay')
+    expect(video()).toHaveClass('fixed', 'inset-0', 'z-50')
+    expect(video()).not.toHaveClass('right-80')
+    expect(chatProps.last?.translucent).toBe(true)
+  })
+})
+
+describe('G-07/E-02 Channels and Chat tabs on a phone', () => {
+  beforeEach(() => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
+    chatFlag.enabled = true
+  })
+  afterEach(() => {
+    window.matchMedia = originalMatchMedia
+    useChatStore.setState({ isOpen: false, unreadCount: 0 })
+  })
+
+  const renderPhone = async (viewport: Parameters<typeof mockViewport>[0] = { width: 390, height: 844, pointer: 'coarse' }) => {
+    const view = mockViewport(viewport)
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+    return view
+  }
+  const tab = (name: string | RegExp) => screen.getByRole('tab', { name })
+
+  it('puts a Channels | Chat strip under the pinned player, on Channels', async () => {
+    await renderPhone()
+
+    const tablist = screen.getByRole('tablist', { name: 'Channels and chat' })
+    expect(within(tablist).getAllByRole('tab').map((t) => t.textContent)).toEqual(['Channels', 'Chat'])
+    expect(tab('Channels')).toHaveAttribute('aria-selected', 'true')
+    expect(tab('Chat')).toHaveAttribute('aria-selected', 'false')
+
+    const panel = screen.getByRole('tabpanel')
+    expect(panel).toHaveAttribute('aria-labelledby', tab('Channels').id)
+    expect(within(panel).getByRole('search', { name: 'Channels' })).toBeVisible()
+    // The tab names the list, so it has no Channels heading of its own
+    expect(within(panel).queryByRole('heading', { name: 'Channels' })).toBeNull()
+    expect(panel).toHaveClass('epg-scroll', 'min-h-0', 'flex-1', 'overflow-y-auto')
+    // The strip comes after the 16:9 video (and the arrival card's place), in the same column
+    const video = screen.getByTestId('player').closest('.bg-black') as HTMLElement
+    expect(video).toHaveClass('aspect-video')
+    expect(video.nextElementSibling).toBe(screen.getByTestId('arrival-host'))
+    expect(video.nextElementSibling?.nextElementSibling).toContainElement(tablist)
+    expect(screen.queryByTestId('chat')).not.toBeInTheDocument()
+  })
+
+  it('opens chat inline in the Chat tab, keeping the video, and Channels closes it', async () => {
+    await renderPhone()
+
+    fireEvent.mouseDown(tab('Chat'))
+
+    expect(useChatStore.getState().isOpen).toBe(true)
+    expect(tab('Chat')).toHaveAttribute('aria-selected', 'true')
+    const panel = screen.getByRole('tabpanel')
+    expect(panel).toHaveAttribute('aria-labelledby', tab('Chat').id)
+    const chat = within(panel).getByTestId('chat')
+    expect(chat).toHaveAttribute('data-variant', 'inline')
+    // Only the inline panel: none beside <main> over the whole screen
+    expect(screen.getAllByTestId('chat')).toHaveLength(1)
+    expect(screen.getByTestId('player')).toBeInTheDocument()
+    expect(screen.queryByRole('search', { name: 'Channels' })).not.toBeInTheDocument()
+
+    fireEvent.mouseDown(tab('Channels'))
+    expect(useChatStore.getState().isOpen).toBe(false)
+    expect(screen.queryByTestId('chat')).not.toBeInTheDocument()
+    expect(screen.getByRole('search', { name: 'Channels' })).toBeVisible()
+  })
+
+  it('keeps the chat draft across a visit to Channels', async () => {
+    await renderPhone()
+    fireEvent.mouseDown(tab('Chat'))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Draft' }), { target: { value: 'what channel is the game on?' } })
+
+    fireEvent.mouseDown(tab('Channels'))
+    expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', tab('Channels').id)
+    // The Chat tab's panel is still there, hidden, for its aria-controls
+    const chatPanel = document.getElementById(tab('Chat').getAttribute('aria-controls') ?? '')
+    expect(chatPanel).toHaveAttribute('hidden')
+
+    fireEvent.mouseDown(tab('Chat'))
+    expect(screen.getByRole('textbox', { name: 'Draft' })).toHaveValue('what channel is the game on?')
+    expect(document.getElementById(tab('Channels').getAttribute('aria-controls') ?? '')).toHaveAttribute('hidden')
+  })
+
+  it('stacks the Chat tab under the video and strip, in the one chat slot after <main>', async () => {
+    await renderPhone()
+    fireEvent.mouseDown(tab('Chat'))
+
+    const main = screen.getByRole('main')
+    const panel = screen.getByRole('tabpanel')
+    expect(panel).toHaveAttribute('id', tab('Chat').getAttribute('aria-controls'))
+    expect(main.nextElementSibling).toBe(panel)
+    expect(panel).toHaveClass('flex', 'min-h-0', 'flex-1', 'flex-col')
+    expect(main.parentElement).toHaveClass('flex-col')
+    // <main> keeps just the video and the strip; chat takes the rest
+    expect(main).toHaveClass('flex-none')
+    expect(main).not.toHaveClass('flex-1')
+
+    fireEvent.mouseDown(tab('Channels'))
+    expect(main).toHaveClass('flex-1')
+  })
+
+  // Rotating, or theater, moves the open chat between the Chat tab and the
+  // overlay. It stays the same panel, so a half-typed message (and a failed
+  // send, kept in the same state) survives
+  it('keeps the chat draft when the phone turns sideways and back', async () => {
+    const view = await renderPhone()
+    fireEvent.mouseDown(tab('Chat'))
+    const chat = screen.getByTestId('chat')
+    expect(chat).toHaveAttribute('data-variant', 'inline')
+    fireEvent.change(screen.getByRole('textbox', { name: 'Draft' }), { target: { value: 'what a goal, did anyone see the replay?' } })
+
+    act(() => view.resize({ width: 844, height: 390, pointer: 'coarse' }))
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+    expect(screen.getByTestId('chat')).toBe(chat)
+    expect(chat).toHaveAttribute('data-variant', 'overlay')
+    expect(screen.getByRole('textbox', { name: 'Draft' })).toHaveValue('what a goal, did anyone see the replay?')
+
+    act(() => view.resize({ width: 390, height: 844, pointer: 'coarse' }))
+    expect(tab('Chat')).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByTestId('chat')).toBe(chat)
+    expect(chat).toHaveAttribute('data-variant', 'inline')
+    expect(screen.getByRole('textbox', { name: 'Draft' })).toHaveValue('what a goal, did anyone see the replay?')
+  })
+
+  it('keeps the chat draft when the phone enters theater and leaves it', async () => {
+    await renderPhone()
+    fireEvent.mouseDown(tab('Chat'))
+    const chat = screen.getByTestId('chat')
+    fireEvent.change(screen.getByRole('textbox', { name: 'Draft' }), { target: { value: 'hello there' } })
+
+    act(() => useUIStore.setState({ isTheaterMode: true }))
+    expect(screen.getByTestId('chat')).toBe(chat)
+    expect(chat).toHaveAttribute('data-variant', 'overlay')
+    expect(screen.getByRole('textbox', { name: 'Draft' })).toHaveValue('hello there')
+
+    act(() => useUIStore.setState({ isTheaterMode: false }))
+    expect(screen.getByTestId('chat')).toBe(chat)
+    expect(chat).toHaveAttribute('data-variant', 'inline')
+    expect(screen.getByRole('textbox', { name: 'Draft' })).toHaveValue('hello there')
+  })
+
+  it('selects the Chat tab from the header chat button, and back', async () => {
+    await renderPhone()
+
+    fireEvent.click(within(screen.getByRole('banner')).getByRole('button', { name: 'Chat' }))
+    expect(tab('Chat')).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByTestId('chat')).toHaveAttribute('data-variant', 'inline')
+
+    fireEvent.click(within(screen.getByRole('banner')).getByRole('button', { name: 'Chat' }))
+    expect(tab('Channels')).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('shows the unread count on the Chat tab, and clears it on opening', async () => {
+    await renderPhone()
+    act(() => useChatStore.setState({ unreadCount: 3 }))
+
+    const chatTab = tab('Chat (3 new)')
+    expect(within(chatTab).getByText('3')).toHaveClass('bg-destructive')
+
+    fireEvent.mouseDown(chatTab)
+    expect(useChatStore.getState().unreadCount).toBe(0)
+    expect(tab('Chat').textContent).toBe('Chat')
+  })
+
+  describe('with the keyboard open', () => {
+    // jsdom has no visualViewport: a stand-in whose height the keyboard moves
+    class FakeVisualViewport extends EventTarget {
+      height = 844
+    }
+    let viewport: FakeVisualViewport
+    const appHeight = () => document.documentElement.style.getPropertyValue('--app-height')
+    const video = () => screen.getByTestId('player').closest('.bg-black') as HTMLElement
+    const focusComposer = (focused: boolean) => act(() => chatProps.last?.onComposerFocusChange?.(focused))
+
+    beforeEach(() => {
+      viewport = new FakeVisualViewport()
+      Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport })
+    })
+    afterEach(() => {
+      Object.defineProperty(window, 'visualViewport', { configurable: true, value: undefined })
+      document.documentElement.style.removeProperty('--app-height')
+    })
+
+    it('sizes the view to the visual viewport on touch screens, keeping the dvh fallback', async () => {
+      await renderPhone()
+      const root = screen.getByRole('banner').parentElement!
+      expect(root).toHaveClass('h-screen', 'supports-[height:100dvh]:h-dvh', 'pointer-coarse:supports-[height:100dvh]:h-[var(--app-height,100dvh)]')
+    })
+
+    it('follows the visual viewport and shrinks the video to a strip while the composer has focus', async () => {
+      await renderPhone()
+      fireEvent.mouseDown(tab('Chat'))
+      expect(video()).toHaveClass('aspect-video')
+      expect(appHeight()).toBe('')
+
+      expect(playerProps.isStrip).toBe(false)
+      focusComposer(true)
+      expect(appHeight()).toBe('844px')
+      expect(video()).toHaveClass('h-24', 'flex-none')
+      expect(video()).not.toHaveClass('aspect-video')
+      // The player is told, so its chrome fits the strip (see PlayerChrome)
+      expect(playerProps.isStrip).toBe(true)
+
+      viewport.height = 508
+      act(() => { viewport.dispatchEvent(new Event('resize')) })
+      expect(appHeight()).toBe('508px')
+
+      focusComposer(false)
+      expect(appHeight()).toBe('')
+      expect(video()).toHaveClass('aspect-video')
+      expect(playerProps.isStrip).toBe(false)
+    })
+
+    it('lets go when chat closes with the composer still focused', async () => {
+      await renderPhone()
+      fireEvent.mouseDown(tab('Chat'))
+      focusComposer(true)
+
+      fireEvent.mouseDown(tab('Channels'))
+      expect(appHeight()).toBe('')
+      expect(video()).toHaveClass('aspect-video')
+
+      // Reopening doesn't bring back a focus the panel never reported
+      fireEvent.mouseDown(tab('Chat'))
+      expect(appHeight()).toBe('')
+      expect(video()).toHaveClass('aspect-video')
+    })
+  })
+
+  it('keeps the plain channel list, with no tabs, when chat is off', async () => {
+    chatFlag.enabled = false
+    await renderPhone()
+
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Channels' }).closest('.epg-scroll')).not.toBeNull()
+  })
+
+  it('slides chat over the side in phone landscape, with no tabs', async () => {
+    await renderPhone({ width: 667, height: 375, pointer: 'coarse' })
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+
+    act(() => useChatStore.setState({ isOpen: true }))
+    expect(screen.getByTestId('chat')).toHaveAttribute('data-variant', 'overlay')
+  })
+
+  it('slides chat over the side in phone theater, with no tabs', async () => {
+    useUIStore.setState({ isTheaterMode: true })
+    await renderPhone()
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+
+    act(() => useChatStore.setState({ isOpen: true }))
+    expect(screen.getByTestId('chat')).toHaveAttribute('data-variant', 'overlay')
+  })
+})
+
+describe('E-06 unread count outside the page', () => {
+  beforeEach(() => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
+    document.title = 'Channel Club'
+  })
+  afterEach(() => {
+    delete (navigator as unknown as { setAppBadge?: unknown }).setAppBadge
+  })
+
+  it('puts the unread count in the tab title and on the app badge, and takes it off on opening chat', async () => {
+    const setAppBadge = vi.fn(() => Promise.resolve())
+    Object.defineProperty(navigator, 'setAppBadge', { value: setAppBadge, configurable: true, writable: true })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+
+    act(() => useChatStore.setState({ unreadCount: 3 }))
+    expect(document.title).toBe('(3) Channel Club')
+    expect(setAppBadge).toHaveBeenLastCalledWith(3)
+
+    act(() => useChatStore.getState().setOpen(true))
+    expect(document.title).toBe('Channel Club')
+  })
+})
+
+describe('E-01 channel list folds to its rail beside docked chat at 1024-1279px', () => {
+  beforeEach(() => vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([]))
+  afterEach(() => {
+    window.matchMedia = originalMatchMedia
+    useChatStore.setState({ isOpen: false })
+  })
+
+  const expandButton = () => screen.queryByRole('button', { name: 'Expand channel sidebar' })
+  const collapseButton = () => screen.queryByRole('button', { name: 'Collapse channel sidebar' })
+  const renderView = async () => {
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+  }
+
+  it('folds at 1100px while chat is open and unfolds on close, never writing the saved flag', async () => {
+    mockViewport({ width: 1100 })
+    await renderView()
+    expect(collapseButton()).toBeInTheDocument()
+
+    act(() => useChatStore.setState({ isOpen: true }))
+    expect(screen.getByTestId('chat')).toHaveAttribute('data-variant', 'docked')
+    expect(expandButton()).toBeInTheDocument()
+    expect(useUIStore.getState().isChannelSidebarCollapsed).toBe(false)
+
+    act(() => useChatStore.setState({ isOpen: false }))
+    expect(collapseButton()).toBeInTheDocument()
+    expect(useUIStore.getState().isChannelSidebarCollapsed).toBe(false)
+  })
+
+  it('lets the viewer expand the folded rail for this chat without saving it, and folds again next time', async () => {
+    mockViewport({ width: 1100 })
+    await renderView()
+    act(() => useChatStore.setState({ isOpen: true }))
+
+    fireEvent.click(expandButton()!)
+    expect(collapseButton()).toBeInTheDocument()
+    expect(useUIStore.getState().isChannelSidebarCollapsed).toBe(false)
+
+    act(() => useChatStore.setState({ isOpen: false }))
+    act(() => useChatStore.setState({ isOpen: true }))
+    expect(expandButton()).toBeInTheDocument()
+    expect(useUIStore.getState().isChannelSidebarCollapsed).toBe(false)
+  })
+
+  it('expands a list the viewer had collapsed themselves, saving that choice', async () => {
+    mockViewport({ width: 1100 })
+    useUIStore.setState({ isChannelSidebarCollapsed: true })
+    await renderView()
+    act(() => useChatStore.setState({ isOpen: true }))
+
+    fireEvent.click(expandButton()!)
+    expect(collapseButton()).toBeInTheDocument()
+    expect(useUIStore.getState().isChannelSidebarCollapsed).toBe(false)
+  })
+
+  it.each([1440, 1280])('leaves the list alone at %ipx, where everything fits', async (width) => {
+    mockViewport({ width })
+    await renderView()
+    act(() => useChatStore.setState({ isOpen: true }))
+    expect(screen.getByTestId('chat')).toHaveAttribute('data-variant', 'docked')
+    expect(collapseButton()).toBeInTheDocument()
+  })
+})
+
+describe('chat sender for in-player features', () => {
+  beforeEach(() => vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([]))
+
+  it("registers the socket's chat send in chatStore while mounted", async () => {
+    sendChat.mockResolvedValue('acknowledged')
+    const { unmount } = render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+
+    await expect(useChatStore.getState().sendMessage('over the video', 'c-1')).resolves.toBe('acknowledged')
+    expect(sendChat).toHaveBeenCalledWith('over the video', 'c-1')
+
+    unmount()
+    sendChat.mockClear()
+    await expect(useChatStore.getState().sendMessage('after leaving')).resolves.toBe('not-sent')
+    expect(sendChat).not.toHaveBeenCalled()
+  })
+
+  it("registers the socket's suggestion send too, for the NHL scores' Suggest", async () => {
+    socket.sendSuggest.mockResolvedValue('acknowledged')
+    const { unmount } = render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+
+    await expect(useChatStore.getState().suggestChannel('42', 'c-1')).resolves.toBe('acknowledged')
+    expect(socket.sendSuggest).toHaveBeenCalledWith('42', 'c-1')
+
+    unmount()
+    socket.sendSuggest.mockClear()
+    await expect(useChatStore.getState().suggestChannel('42')).resolves.toBe('not-sent')
+    expect(socket.sendSuggest).not.toHaveBeenCalled()
+  })
+})
+
+describe('E-10 Escape closes chat before leaving theater', () => {
+  beforeEach(() => vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([]))
+  afterEach(() => {
+    useChatStore.setState({ isOpen: false })
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null })
+  })
+
+  const renderInTheaterWithChat = async () => {
+    useUIStore.setState({ isTheaterMode: true })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+    act(() => useChatStore.setState({ isOpen: true }))
+  }
+
+  it('closes chat and keeps theater, then leaves theater on a second Escape', async () => {
+    await renderInTheaterWithChat()
+
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    expect(useChatStore.getState().isOpen).toBe(false)
+    expect(useUIStore.getState().isTheaterMode).toBe(true)
+
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    expect(useUIStore.getState().isTheaterMode).toBe(false)
+  })
+
+  it('ignores an Escape a layer already handled, like the GIF popover closing', async () => {
+    await renderInTheaterWithChat()
+    // Radix's dismissable layer listens in the capture phase and marks the event
+    const layer = (e: KeyboardEvent) => e.preventDefault()
+    document.addEventListener('keydown', layer, true)
+
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    document.removeEventListener('keydown', layer, true)
+
+    expect(useChatStore.getState().isOpen).toBe(true)
+    expect(useUIStore.getState().isTheaterMode).toBe(true)
+  })
+
+  describe('with the player shell fullscreen', () => {
+    let shell: HTMLDivElement
+    const enterFullscreen = (element: Element) => act(() => {
+      Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: element })
+      document.dispatchEvent(new Event('fullscreenchange'))
+    })
+
+    beforeEach(() => {
+      shell = document.createElement('div')
+      shell.setAttribute('data-player-shell', '')
+      document.body.appendChild(shell)
+    })
+    afterEach(() => {
+      shell.remove()
+      window.matchMedia = originalMatchMedia
+    })
+
+    it('draws chat inside it as the see-through overlay', async () => {
+      mockViewport({ width: 1440 })
+      render(<MemoryRouter><TVView /></MemoryRouter>)
+      await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+      enterFullscreen(shell)
+      act(() => useChatStore.setState({ isOpen: true }))
+
+      const chat = screen.getByTestId('chat')
+      expect(shell).toContainElement(chat)
+      expect(chat).toHaveAttribute('data-variant', 'overlay')
+      expect(chatProps.last?.translucent).toBe(true)
+    })
+
+    it('closes chat on Escape and stays fullscreen', async () => {
+      await renderInTheaterWithChat()
+      const exitFullscreen = vi.fn(() => Promise.resolve())
+      Object.defineProperty(document, 'exitFullscreen', { configurable: true, value: exitFullscreen })
+      enterFullscreen(shell)
+      expect(shell).toContainElement(screen.getByTestId('chat'))
+
+      fireEvent.keyDown(document.body, { key: 'Escape' })
+
+      expect(useChatStore.getState().isOpen).toBe(false)
+      expect(exitFullscreen).not.toHaveBeenCalled()
+    })
+
+    it('keeps chat outside it on a touch screen, where fullscreen goes first', async () => {
+      mockViewport({ width: 1024, height: 768, pointer: 'coarse' })
+      await renderInTheaterWithChat()
+      const exitFullscreen = vi.fn(() => Promise.resolve())
+      Object.defineProperty(document, 'exitFullscreen', { configurable: true, value: exitFullscreen })
+      enterFullscreen(shell)
+
+      expect(shell).not.toContainElement(screen.getByTestId('chat'))
+      expect(chatProps.last?.container).toBeNull()
+      fireEvent.keyDown(document.body, { key: 'Escape' })
+      expect(exitFullscreen).toHaveBeenCalledTimes(1)
+      expect(useChatStore.getState().isOpen).toBe(true)
+    })
+  })
+
+  it('leaves fullscreen first when chat is hidden behind it', async () => {
+    await renderInTheaterWithChat()
+    const exitFullscreen = vi.fn(() => Promise.resolve())
+    Object.defineProperty(document, 'exitFullscreen', { configurable: true, value: exitFullscreen })
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: screen.getByTestId('player') })
+
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+
+    expect(exitFullscreen).toHaveBeenCalledTimes(1)
+    expect(useChatStore.getState().isOpen).toBe(true)
+  })
+})
+
+describe('C-07 channel keys', () => {
+  const lineup = [1, 2, 3].map((n) => ({ id: `e${n}`, name: `Channel ${n}`, number: n, streamUrl: `/e${n}`, group: '' }))
+
+  beforeEach(() => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue(lineup)
+    vi.mocked(api.fetchErsatzTVCurrentProgramme).mockResolvedValue({ current: null, next: null })
+    useErsatztvStore.setState({ channels: lineup, loadAllProgrammes: vi.fn().mockResolvedValue(undefined) })
+    useUIStore.setState({ lastTVChannelId: 'e1' })
+  })
+
+  const selected = () => useTVStore.getState().selectedChannel?.id
+
+  it("hands the player the page's zap, whose steps tune the TV store once the presses stop", async () => {
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(selected()).toBe('e1'))
+    vi.useFakeTimers()
+
+    act(() => {
+      playerProps.zap?.step(1)
+      playerProps.zap?.step(1)
+    })
+    expect(playerProps.zap?.pending?.id).toBe('e3')
+    expect(selected()).toBe('e1')
+
+    act(() => {
+      vi.advanceTimersByTime(700)
+    })
+    expect(selected()).toBe('e3')
+    expect(playerProps.zap?.pending).toBeNull()
+  })
+
+  it("L tunes the TV store's previous channel", async () => {
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(selected()).toBe('e1'))
+    const e3 = useTVStore.getState().getUnifiedChannels().find((c) => c.id === 'e3')
+    if (!e3) throw new Error('no e3')
+    act(() => useTVStore.getState().selectChannel(e3))
+
+    act(() => playerProps.zap?.tuneLast())
+
+    expect(selected()).toBe('e1')
+  })
+})
+
+describe("B-10 '/' focuses the channel search", () => {
+  beforeEach(() => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
+    playerProps.onFocusSearch = undefined
+  })
+  afterEach(() => {
+    useUIStore.setState({ isEPGVisible: false, isTheaterMode: false, isChannelSidebarCollapsed: false })
+    useChannelPrefsStore.setState({ searchFocusRequested: false })
+  })
+
+  const renderView = async () => {
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+  }
+  const search = () => screen.getByRole('textbox', { name: 'Search channels and shows' })
+
+  it("focuses the sidebar's search box", async () => {
+    await renderView()
+
+    act(() => playerProps.onFocusSearch?.())
+
+    expect(document.activeElement).toBe(search())
+    expect(useChannelPrefsStore.getState().searchFocusRequested).toBe(false)
+  })
+
+  it('expands the collapsed rail first, then focuses its search box', async () => {
+    useUIStore.setState({ isChannelSidebarCollapsed: true })
+    await renderView()
+    expect(screen.queryByRole('textbox', { name: 'Search channels and shows' })).toBeNull()
+
+    act(() => playerProps.onFocusSearch?.())
+
+    expect(screen.getByRole('button', { name: 'Collapse channel sidebar' })).toBeInTheDocument()
+    expect(useUIStore.getState().isChannelSidebarCollapsed).toBe(false)
+    expect(document.activeElement).toBe(search())
+  })
+
+  it('is not offered in theater mode, where the player covers the page', async () => {
+    useUIStore.setState({ isTheaterMode: true })
+    await renderView()
+
+    expect(playerProps.onFocusSearch).toBeUndefined()
+  })
+
+  it('is not offered on a phone, whose list has no search box', async () => {
+    matchOnly('(max-width: 768px)')
+    await renderView()
+
+    expect(playerProps.onFocusSearch).toBeUndefined()
+    window.matchMedia = originalMatchMedia
+  })
+})
+
+describe('G-09 tablet layout', () => {
+  beforeEach(() => vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([]))
+  afterEach(() => { window.matchMedia = originalMatchMedia })
+
+  const renderView = async () => {
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+  }
+  const video = () => screen.getByTestId('player').closest('.bg-black') as HTMLElement
+
+  it('stacks a 16:9 player over the channel list on a tablet held upright, like a phone', async () => {
+    mockViewport({ width: 820, height: 1180, pointer: 'coarse' })
+    await renderView()
+
+    expect(video()).toHaveClass('aspect-video', 'w-full', 'flex-none')
+    expect(screen.getByRole('heading', { name: 'Channels' }).closest('.epg-scroll')).not.toBeNull()
+    // No side list beside the picture
+    expect(screen.queryByRole('button', { name: /channel sidebar/ })).toBeNull()
+  })
+
+  describe('held sideways', () => {
+    afterEach(() => {
+      useUIStore.setState({ isEPGVisible: false, isChannelSidebarCollapsed: false })
+      useChatStore.setState({ isOpen: false })
+      useChannelPrefsStore.setState({ searchFocusRequested: false })
+    })
+    const rail = () => screen.getByRole('button', { name: /^0 Live: A/ }).closest('aside') as HTMLElement
+
+    it.each([
+      ['1024 x 768', { width: 1024, height: 768 }],
+      ['1180 x 820', { width: 1180, height: 820 }],
+    ])('shows the slim logo rail with no expand button at %s, never saving it as collapsed', async (_size, size) => {
+      mockViewport({ ...size, pointer: 'coarse' })
+      await renderView()
+
+      expect(rail()).toHaveClass('w-16')
+      expect(screen.queryByRole('heading', { name: 'Channels' })).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Expand channel sidebar' })).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Collapse channel sidebar' })).toBeNull()
+      expect(useUIStore.getState().isChannelSidebarCollapsed).toBe(false)
+    })
+
+    it('gives the full list back as the viewer left it on a desktop', async () => {
+      const viewport = mockViewport({ width: 1180, height: 820, pointer: 'coarse' })
+      await renderView()
+      expect(rail()).toHaveClass('w-16')
+
+      act(() => viewport.resize({ width: 1440, height: 900 }))
+
+      expect(screen.getByRole('heading', { name: 'Channels' })).toBeVisible()
+      expect(useUIStore.getState().isChannelSidebarCollapsed).toBe(false)
+    })
+
+    it('stacks like a phone again when turned upright', async () => {
+      const viewport = mockViewport({ width: 1180, height: 820, pointer: 'coarse' })
+      await renderView()
+      expect(rail()).toHaveClass('w-16')
+
+      act(() => viewport.resize({ width: 820, height: 1180, pointer: 'coarse' }))
+
+      expect(video()).toHaveClass('aspect-video')
+      expect(screen.getByRole('heading', { name: 'Channels' }).closest('.epg-scroll')).not.toBeNull()
+      expect(useUIStore.getState().isChannelSidebarCollapsed).toBe(false)
+    })
+
+    it('opens chat as a sheet below the header', async () => {
+      mockViewport({ width: 1180, height: 820, pointer: 'coarse' })
+      await renderView()
+
+      act(() => useChatStore.setState({ isOpen: true }))
+
+      expect(screen.getByTestId('chat')).toHaveAttribute('data-variant', 'sheet')
+      expect(rail()).toHaveClass('w-16')
+    })
+
+    it("leaves '/' to the guide's search, since the rail has none", async () => {
+      mockViewport({ width: 1180, height: 820, pointer: 'coarse' })
+      await renderView()
+      expect(playerProps.onFocusSearch).toBeUndefined()
+
+      act(() => useUIStore.setState({ isEPGVisible: true }))
+
+      expect(playerProps.onFocusSearch).toBeDefined()
+    })
+  })
+})
+
+describe('C-04 live changes in the couch view', () => {
+  beforeEach(() => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
+    localStorage.setItem('tv-mode', 'true')
+  })
+  afterEach(() => {
+    localStorage.removeItem('tv-mode')
+  })
+
+  const liveChange = (name: string, by: string | null) =>
+    act(() => {
+      useChannelStore.getState().setCurrentChannel({ id: name, name, streamUrl: `https://fixture/${name}` })
+      useChannelStore.getState().setLastChange({ by, at: Date.now(), channelName: name })
+    })
+
+  it('names who changed the live channel in the channel banner, where the info rail stays away', async () => {
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+
+    liveChange('TSN 5', 'jon')
+
+    expect(screen.getByText('jon put on TSN 5')).toBeVisible()
+    expect(screen.getByText('jon put on TSN 5').closest('[role="status"]')).toHaveTextContent('CH 0 · TSN 5')
+  })
+
+  it('announces nothing on other channels, which get the toast', async () => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([{ id: 'e', name: 'Cinema', number: 1, streamUrl: '/e', group: '' }])
+    vi.mocked(api.fetchErsatzTVCurrentProgramme).mockResolvedValue({ current: null, next: null })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(useTVStore.getState().getUnifiedChannels()).toHaveLength(2))
+    act(() => useTVStore.getState().selectChannel(useTVStore.getState().getUnifiedChannels()[1]))
+
+    liveChange('TSN 5', 'jon')
+
+    expect(screen.queryByText('jon put on TSN 5')).not.toBeInTheDocument()
   })
 })

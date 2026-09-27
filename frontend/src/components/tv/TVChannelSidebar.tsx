@@ -1,63 +1,123 @@
-import { useEffect, useState } from 'react'
-import { ChevronLeft, ChevronRight, Radio } from 'lucide-react'
+import { useEffect, useMemo, useRef, type Ref } from 'react'
+import { AudioLines, ChevronLeft, ChevronRight, Radio, Star } from 'lucide-react'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
-import { useTVStore } from '@/stores/tvStore'
-import { getErsatzTVLogoUrl, fetchErsatzTVCurrentProgramme } from '@/services/ersatztvApi'
+import { useTVStore, buildUnifiedChannels, describeLiveGuide } from '@/stores/tvStore'
+import { useChannelStore } from '@/stores/channelStore'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import type { UnifiedChannel, ErsatzTVProgramme } from '@/types'
+import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
+import { useProgrammeClock } from '@/hooks/useProgrammeClock'
+import { useRovingTabIndex } from '@/hooks/useRovingTabIndex'
+import { useFilteredChannels } from '@/hooks/useFilteredChannels'
+import { useChannelPrefsStore } from '@/stores/channelPrefsStore'
+import { ChannelFilterBar, NoChannelsMatch } from '@/components/tv/ChannelFilterBar'
+import { LivePill } from '@/components/LivePill'
+import { ChannelLogo } from '@/components/ChannelLogo'
+import { ChannelPresenceStack } from '@/components/tv/ChannelPresenceStack'
+import { presenceNames, usePresenceByChannel } from '@/hooks/usePresenceByChannel'
+import { calculateProgress, findOnAir, formatRemaining, getProgrammeState } from '@/lib/programmes'
+import { buildProgrammeIndex, findCurrentAndNext, type IndexedProgramme } from '@/lib/programmeIndex'
+import { favouritesFirst } from '@/lib/channelSearch'
+import { cn, formatClockTime } from '@/lib/utils'
+import type { PresenceEntry, UnifiedChannel } from '@/types'
+
+const getChannelId = (channel: UnifiedChannel) => channel.id
+
+// What a screen reader hears for a row or rail tile. The live slot names what
+// is on it, since its visible number and icon say nothing on their own.
+function channelLabel(channel: UnifiedChannel, hasLiveChannel: boolean, liveProgramme: string) {
+  if (channel.type !== 'live') return `${channel.number} ${channel.name}`
+  if (!hasLiveChannel) return 'Live slot, nothing on'
+  return `${channel.number} Live: ${channel.name}, ${liveProgramme}`
+}
 
 interface TVChannelSidebarProps {
   isCollapsed?: boolean
   onToggleCollapse?: () => void
+  // False where the layout holds the list at its rail (a tablet held
+  // sideways): the rail then has no expand button
+  canExpand?: boolean
   liveEPGTitle?: string | null
+  // Opens the Live TV switcher; only for people allowed to change live TV
+  onPickLive?: () => void
 }
 
 export function TVChannelSidebar({
   isCollapsed = false,
   onToggleCollapse,
+  canExpand = true,
   liveEPGTitle,
+  onPickLive,
 }: TVChannelSidebarProps) {
-  const { channels: ersatzTVChannels, channelsLoading, error, loadChannels } = useErsatztvStore()
-  const { selectedChannel, selectChannel, getUnifiedChannels, isLiveChannelActive } = useTVStore()
+  // Field selectors: the sidebar re-renders for what it shows, not on every
+  // update to the stores it reads
+  const ersatzTVChannels = useErsatztvStore((s) => s.channels)
+  const channelsLoading = useErsatztvStore((s) => s.channelsLoading)
+  const error = useErsatztvStore((s) => s.error)
+  const loadChannels = useErsatztvStore((s) => s.loadChannels)
+  const selectedChannel = useTVStore((s) => s.selectedChannel)
+  const selectChannel = useTVStore((s) => s.selectChannel)
+  const liveEPGStatus = useTVStore((s) => s.liveEPGStatus)
+  const liveChannel = useChannelStore((s) => s.currentChannel)
+  // Now/next come from the guide's programmes, which TVView refreshes every
+  // 2h, so a schedule edit in ErsatzTV shows here on that refresh
+  const programmesByChannel = useErsatztvStore((s) => s.programmesByChannel)
+  const now = useProgrammeClock()
+  const programmeIndex = buildProgrammeIndex(programmesByChannel)
 
-  const [channelProgrammes, setChannelProgrammes] = useState<Record<string, ErsatzTVProgramme>>({})
-  const [currentTime, setCurrentTime] = useState(() => Date.now())
+  // The unified list, built from the two stores it comes from, so the live
+  // slot follows live TV and the search keeps its memo between renders
+  const unifiedChannels = useMemo(
+    () => buildUnifiedChannels(liveChannel, ersatzTVChannels),
+    [liveChannel, ersatzTVChannels]
+  )
+  const hasLiveChannel = liveChannel !== null
+  const liveProgramme = liveEPGTitle || describeLiveGuide(liveEPGStatus)
 
-  // Get unified channel list
-  const unifiedChannels = getUnifiedChannels()
-  const hasLiveChannel = isLiveChannelActive()
+  // The expanded list goes through the search and chips; the rail, which
+  // has no search box, lists every channel with the favourites first
+  const { channels: filteredChannels, isFiltering } = useFilteredChannels(unifiedChannels, programmesByChannel)
+  const favouriteChannelIds = useChannelPrefsStore((s) => s.favouriteChannelIds)
+  const toggleFavourite = useChannelPrefsStore((s) => s.toggleFavourite)
+  // Who else is on each row; empty unless this viewer sees channels
+  const presenceByChannel = usePresenceByChannel()
+  const listedChannels = isCollapsed ? favouritesFirst(unifiedChannels, favouriteChannelIds) : filteredChannels
 
-  // Update current time every 30 seconds for time remaining calculations
+  // '/' on the rail: expand it, and the search box in the list takes focus
+  // once it's there
+  const searchFocusRequested = useChannelPrefsStore((s) => s.searchFocusRequested)
   useEffect(() => {
-    const interval = setInterval(() => setCurrentTime(Date.now()), 30 * 1000)
-    return () => clearInterval(interval)
-  }, [])
+    if (isCollapsed && canExpand && searchFocusRequested) onToggleCollapse?.()
+  }, [isCollapsed, canExpand, searchFocusRequested, onToggleCollapse])
 
-  // Fetch current programmes for ErsatzTV channels every 30 seconds
+  // One tab stop for the channels: arrow keys, Home and End move between
+  // them. The list and the rail share it (only one is mounted), and the tab
+  // stop follows whichever channel was last focused.
+  const listRef = useRef<HTMLElement | null>(null)
+  const setListRef = (element: HTMLElement | null) => {
+    listRef.current = element
+  }
+  const { getTabIndex, handleKeyDown, setFocusedIndex, itemRefs } = useRovingTabIndex({
+    items: listedChannels,
+    getItemId: getChannelId,
+    containerRef: listRef,
+  })
+
+  // Keep the selected channel in view: when the list mounts (a restored
+  // channel may be far down), when the rail collapses or expands, and when
+  // the selection changes. Only one of the rail or the list is mounted, so
+  // they share the map.
+  const channelRefs = useRef(new Map<string, HTMLButtonElement>())
+  const setChannelRef = (channelId: string, index: number) => (element: HTMLButtonElement | null) => {
+    if (element) channelRefs.current.set(channelId, element)
+    else channelRefs.current.delete(channelId)
+    itemRefs.current[index] = element
+  }
+  const selectedChannelId = selectedChannel?.id
   useEffect(() => {
-    const fetchAllCurrentProgrammes = async () => {
-      const results: Record<string, ErsatzTVProgramme> = {}
-      await Promise.all(
-        ersatzTVChannels.map(async (channel) => {
-          try {
-            const data = await fetchErsatzTVCurrentProgramme(channel.id)
-            if (data.current) {
-              results[channel.id] = data.current
-            }
-          } catch {
-            // Ignore individual failures
-          }
-        })
-      )
-      setChannelProgrammes(results)
-    }
-
-    if (ersatzTVChannels.length > 0) {
-      fetchAllCurrentProgrammes()
-      const interval = setInterval(fetchAllCurrentProgrammes, 30 * 1000)
-      return () => clearInterval(interval)
-    }
-  }, [ersatzTVChannels])
+    if (!selectedChannelId) return
+    channelRefs.current.get(selectedChannelId)?.scrollIntoView({ block: 'nearest' })
+  }, [isCollapsed, selectedChannelId])
 
   const handleChannelClick = (channel: UnifiedChannel) => {
     selectChannel(channel)
@@ -66,22 +126,37 @@ export function TVChannelSidebar({
   // Collapsed state
   if (isCollapsed) {
     return (
-      <aside className="flex h-full w-12 flex-col items-center border-r bg-card py-2 rounded-r-lg overflow-hidden">
-        <button
-          onClick={onToggleCollapse}
-          className="flex h-10 w-10 items-center justify-center rounded-md hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          aria-label="Expand channel sidebar"
+      <aside className="flex h-full w-16 flex-col items-center border-r bg-card py-2 rounded-r-lg overflow-hidden">
+        {canExpand && (
+          <button
+            onClick={onToggleCollapse}
+            className="flex h-10 w-10 items-center justify-center rounded-md hover:bg-accent"
+            aria-label="Expand channel sidebar"
+          >
+            <ChevronRight className="h-5 w-5" />
+          </button>
+        )}
+        {/* No scrollbar: a classic 15px one would widen the list past the 64px rail
+            and push the tiles off-centre. Wheel, touch and keyboard focus still scroll it. */}
+        <div
+          ref={setListRef}
+          onKeyDown={handleKeyDown}
+          className="mt-2 flex w-full flex-1 flex-col items-center gap-1.5 overflow-y-auto px-3 pt-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
-          <ChevronRight className="h-5 w-5" />
-        </button>
-        <div className="mt-2 flex flex-1 flex-col items-center gap-1 overflow-y-auto pt-1">
-          {unifiedChannels.map((channel) => (
+          {listedChannels.map((channel, index) => (
             <CollapsedChannelButton
               key={channel.id}
+              ref={setChannelRef(channel.id, index)}
               channel={channel}
+              label={channelLabel(channel, hasLiveChannel, liveProgramme)}
               isSelected={selectedChannel?.id === channel.id}
+              isFavourite={channel.type !== 'live' && favouriteChannelIds.includes(channel.id)}
               hasLiveChannel={hasLiveChannel}
+              canPickLive={!!onPickLive}
               onSelect={handleChannelClick}
+              tabIndex={getTabIndex(index)}
+              onFocus={() => setFocusedIndex(index)}
+              people={presenceByChannel.get(channel.id)}
             />
           ))}
         </div>
@@ -92,38 +167,64 @@ export function TVChannelSidebar({
   // Expanded state
   return (
     <aside className="epg-scroll h-full w-72 overflow-y-auto border-r bg-card rounded-r-lg">
-      <div className="sticky top-0 flex items-center justify-between border-b bg-card/95 p-4 backdrop-blur">
-        <h2 className="text-lg font-semibold">Channels</h2>
-        <button
-          onClick={onToggleCollapse}
-          className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          aria-label="Collapse channel sidebar"
-        >
-          <ChevronLeft className="h-5 w-5" />
-        </button>
+      {/* The header and the filter stick together, so the search stays in
+          reach however far the list is scrolled */}
+      <div className="sticky top-0 z-10 bg-card/95 backdrop-blur">
+        <div className="flex items-center justify-between border-b p-4">
+          <h2 className="text-lg font-semibold">Channels</h2>
+          <button
+            onClick={onToggleCollapse}
+            className="flex h-8 w-8 items-center justify-center rounded-md hover:bg-accent"
+            aria-label="Collapse channel sidebar"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+        </div>
+        <ChannelFilterBar className="border-b p-3" />
       </div>
 
-      {channelsLoading && <p role="status">Loading additional channels...</p>}
-      {error && <div role="status" className="p-4">
-        <p>{error}</p>
-        <button onClick={() => loadChannels()}>Retry additional channels</button>
-      </div>}
-      <ul className="divide-y" role="list">
-        {unifiedChannels.map((channel) => (
-          <ChannelItem
-            key={channel.id}
-            channel={channel}
-            isSelected={selectedChannel?.id === channel.id}
-            onSelect={handleChannelClick}
-            currentProgramme={
-              channel.type === 'live' ? liveEPGTitle : channelProgrammes[channel.id]?.title
-            }
-            programme={channel.type === 'live' ? undefined : channelProgrammes[channel.id]}
-            currentTime={currentTime}
-            hasLiveChannel={hasLiveChannel}
-          />
-        ))}
+      <ul ref={setListRef} onKeyDown={handleKeyDown} className="divide-y" role="list">
+        {listedChannels.map((channel, index) => {
+          const { current: onAir, next } =
+            channel.type === 'live'
+              ? { current: null, next: null }
+              : findCurrentAndNext(programmeIndex, channel.id, now)
+          return (
+            <ChannelItem
+              key={channel.id}
+              ref={setChannelRef(channel.id, index)}
+              channel={channel}
+              label={channelLabel(channel, hasLiveChannel, liveProgramme)}
+              isSelected={selectedChannel?.id === channel.id}
+              onSelect={handleChannelClick}
+              isFavourite={favouriteChannelIds.includes(channel.id)}
+              onToggleFavourite={toggleFavourite}
+              tabIndex={getTabIndex(index)}
+              onFocus={() => setFocusedIndex(index)}
+              currentProgramme={channel.type === 'live' ? liveProgramme : onAir?.programme.title}
+              onAir={onAir}
+              next={next}
+              currentTime={now}
+              hasLiveChannel={hasLiveChannel}
+              onPickLive={onPickLive}
+              people={presenceByChannel.get(channel.id)}
+            />
+          )
+        })}
       </ul>
+      {/* Row 0 always stays, so nothing matching means nothing after it */}
+      {isFiltering && listedChannels.length <= 1 && ersatzTVChannels.length > 0 && <NoChannelsMatch />}
+      {/* The live row above doesn't wait for ErsatzTV */}
+      {channelsLoading && ersatzTVChannels.length === 0 && <SidebarSkeleton />}
+      {/* The error's details are in the toast TVView shows; this keeps a retry where the channels would be */}
+      {error && (
+        <div className="m-3 rounded-lg border bg-background/50 p-4">
+          <p className="text-sm text-destructive">Couldn't load channels 1-36</p>
+          <Button variant="outline" size="sm" className="mt-3" onClick={() => loadChannels()}>
+            Retry
+          </Button>
+        </div>
+      )}
     </aside>
   )
 }
@@ -133,59 +234,173 @@ export function TVChannelSidebar({
 // ============================================================================
 
 interface CollapsedChannelButtonProps {
+  ref?: Ref<HTMLButtonElement>
   channel: UnifiedChannel
+  label: string
   isSelected: boolean
+  isFavourite: boolean
   hasLiveChannel: boolean
+  // Whether this viewer may put something on live TV (changes the empty-slot copy)
+  canPickLive: boolean
   onSelect: (channel: UnifiedChannel) => void
+  // Roving focus: 0 on the one tab stop, -1 on the rest
+  tabIndex: 0 | -1
+  onFocus: () => void
+  // Who else is on the channel (usePresenceByChannel)
+  people?: PresenceEntry[]
 }
 
 function CollapsedChannelButton({
+  ref,
   channel,
+  label,
   isSelected,
+  isFavourite,
   hasLiveChannel,
+  canPickLive,
   onSelect,
+  tabIndex,
+  onFocus,
+  people,
 }: CollapsedChannelButtonProps) {
   const isLive = channel.type === 'live'
+  const isLiveOn = isLive && hasLiveChannel
+  // The people on the channel, but never on the empty live slot (as on the expanded row)
+  const presence = people && people.length > 0 && (!isLive || hasLiveChannel) ? people : null
 
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <button
+          ref={ref}
           onClick={() => onSelect(channel)}
-          className={`
-            flex h-8 items-center justify-center rounded text-xs font-medium overflow-hidden
-            hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring
-            ${isLive ? 'w-auto min-w-8 px-1' : 'w-8'}
-            ${isSelected ? 'ring-2 ring-primary bg-primary/10' : ''}
-            ${isLive && hasLiveChannel ? 'bg-destructive/20 text-destructive' : 'bg-muted'}
-          `}
-          aria-label={isLive ? 'Live Channel' : `${channel.number} ${channel.name}`}
-          aria-pressed={isSelected}
+          onFocus={onFocus}
+          tabIndex={tabIndex}
+          className={cn(
+            'relative flex h-10 shrink-0 scroll-my-1 items-center justify-center rounded-lg font-display text-sm font-extrabold tabular-nums overflow-hidden',
+            'hover:bg-foreground/10 focus-visible:-outline-offset-2',
+            isLive ? 'w-auto min-w-10 px-1' : 'w-10',
+            isSelected && 'ring-2 ring-primary',
+            // One background: the live tint wins (the ring marks selection), then selection, then muted
+            isLiveOn ? 'bg-live/20 text-live' : isSelected ? 'bg-primary/10' : 'bg-muted'
+          )}
+          // The favourites lead the rail; the label says why this one is up there
+          aria-label={`${label}${isFavourite ? ', favourite' : ''}${presence ? `, ${presenceNames(presence)} watching` : ''}`}
+          aria-current={isSelected ? 'true' : undefined}
         >
+          {isFavourite && (
+            <Star
+              aria-hidden="true"
+              data-testid="favourite-mark"
+              className="absolute top-0.5 left-0.5 z-10 h-2.5 w-2.5 fill-current text-primary"
+            />
+          )}
+          {/* A friend is here: top-right, clear of the star and the number badge */}
+          {presence && (
+            <span
+              aria-hidden="true"
+              data-testid="presence-dot"
+              className="absolute top-0.5 right-0.5 z-10 h-2 w-2 rounded-full bg-success ring-2 ring-card"
+            />
+          )}
           {isLive ? (
             hasLiveChannel ? (
-              <Radio className="h-4 w-4 text-destructive" />
+              // The live channel's logo on the tile's live tint, or the icon
+              <ChannelLogo
+                channel={channel}
+                className="size-8 bg-transparent"
+                fallback={<Radio className="h-4 w-4 text-live" />}
+              />
             ) : (
               '0'
             )
           ) : channel.logoUrl ? (
-            <img
-              src={getErsatzTVLogoUrl(channel.id)}
-              alt=""
-              className="h-full w-full object-contain"
-              onError={(e) => {
-                ;(e.target as HTMLImageElement).style.display = 'none'
-              }}
-            />
+            <>
+              <ChannelLogo channel={channel} className="size-full rounded-none bg-transparent" />
+              {/* The aria-label already carries the number */}
+              <span
+                aria-hidden="true"
+                className="absolute bottom-0 right-0 flex h-4 min-w-4 items-center justify-center rounded-tl-md bg-background/85 px-0.5 text-xs leading-none text-foreground"
+              >
+                {channel.number}
+              </span>
+            </>
           ) : (
             channel.number
           )}
         </button>
       </TooltipTrigger>
       <TooltipContent side="right">
-        <p>{channel.name}</p>
+        <ChannelTooltipBody
+          channel={channel}
+          hasLiveChannel={hasLiveChannel}
+          canPickLive={canPickLive}
+          people={presence}
+        />
       </TooltipContent>
     </Tooltip>
+  )
+}
+
+// Radix mounts tooltip content only while it's open, so the clock and the
+// store reads below run only for the tile being hovered or focused.
+function ChannelTooltipBody({
+  channel,
+  hasLiveChannel,
+  canPickLive,
+  people,
+}: {
+  channel: UnifiedChannel
+  hasLiveChannel: boolean
+  canPickLive: boolean
+  people: PresenceEntry[] | null
+}) {
+  const now = useProgrammeClock()
+  const programmes = useErsatztvStore((s) => s.programmesByChannel[channel.id])
+  const liveEPG = useTVStore((s) => s.liveEPG)
+  const liveEPGStatus = useTVStore((s) => s.liveEPGStatus)
+
+  const isLive = channel.type === 'live'
+  let nowTitle: string | undefined
+  let nextTitle: string | undefined
+  if (isLive) {
+    nowTitle = liveEPG?.currentProgram?.title
+    nextTitle = liveEPG?.nextProgram?.title
+  } else if (programmes) {
+    nowTitle = findOnAir(programmes, now)?.title
+    nextTitle = programmes.find((p) => getProgrammeState(p, now) === 'future')?.title
+  }
+
+  return (
+    <div className="max-w-56 space-y-0.5">
+      <p className="font-medium">
+        <span className="tabular-nums">{channel.number}</span> {channel.name}
+      </p>
+      {isLive && !hasLiveChannel ? (
+        // Same copy as the expanded live row
+        <p className="text-muted-foreground">
+          {canPickLive ? 'Nothing on yet' : 'Waiting for someone to put something on'}
+        </p>
+      ) : (
+        <>
+          {/* Live TV is on but the guide has no title: say why, like the expanded row */}
+          {isLive && !nowTitle && (
+            <p className="text-muted-foreground">{describeLiveGuide(liveEPGStatus)}</p>
+          )}
+          {nowTitle && (
+            <p className="truncate">
+              <span className="text-muted-foreground">Now</span> {nowTitle}
+            </p>
+          )}
+          {nextTitle && (
+            <p className="truncate">
+              <span className="text-muted-foreground">Next</span> {nextTitle}
+            </p>
+          )}
+        </>
+      )}
+      {people && <p className="text-muted-foreground">{presenceNames(people)} watching</p>}
+    </div>
   )
 }
 
@@ -194,119 +409,132 @@ function CollapsedChannelButton({
 // ============================================================================
 
 interface ChannelItemProps {
+  ref?: Ref<HTMLButtonElement>
   channel: UnifiedChannel
+  label: string
   isSelected: boolean
   onSelect: (channel: UnifiedChannel) => void
+  isFavourite: boolean
+  onToggleFavourite: (channelId: string) => void
+  // Roving focus: 0 on the one tab stop, -1 on the rest
+  tabIndex: 0 | -1
+  onFocus: () => void
   currentProgramme?: string | null
-  programme?: ErsatzTVProgramme
+  // The ErsatzTV programme on air, with its parsed times
+  onAir: IndexedProgramme | null
+  // The ErsatzTV programme after it (or after the gap)
+  next: IndexedProgramme | null
   currentTime: number
   hasLiveChannel: boolean
-}
-
-function formatTimeRemaining(programme: ErsatzTVProgramme, currentTime: number): string {
-  const stopTime = new Date(programme.stop).getTime()
-  const remainingMs = stopTime - currentTime
-
-  if (remainingMs <= 0) return 'Ending...'
-
-  const remainingMinutes = Math.ceil(remainingMs / (1000 * 60))
-
-  if (remainingMinutes < 60) {
-    return `${remainingMinutes}m left`
-  }
-
-  const hours = Math.floor(remainingMinutes / 60)
-  const minutes = remainingMinutes % 60
-
-  if (minutes === 0) {
-    return `${hours}h left`
-  }
-
-  return `${hours}h ${minutes}m left`
-}
-
-function calculateProgress(programme: ErsatzTVProgramme, currentTime: number): number {
-  const startTime = new Date(programme.start).getTime()
-  const stopTime = new Date(programme.stop).getTime()
-  const totalDuration = stopTime - startTime
-  const elapsed = currentTime - startTime
-
-  if (totalDuration <= 0) return 0
-
-  return Math.min(100, Math.max(0, (elapsed / totalDuration) * 100))
+  onPickLive?: () => void
+  // Who else is on the channel (usePresenceByChannel)
+  people?: PresenceEntry[]
 }
 
 function ChannelItem({
+  ref,
   channel,
+  label,
   isSelected,
   onSelect,
+  isFavourite,
+  onToggleFavourite,
+  tabIndex,
+  onFocus,
   currentProgramme,
-  programme,
+  onAir,
+  next,
   currentTime,
   hasLiveChannel,
+  onPickLive,
+  people,
 }: ChannelItemProps) {
   const isLive = channel.type === 'live'
-  const progress = programme ? calculateProgress(programme, currentTime) : 0
-  const timeRemaining = programme ? formatTimeRemaining(programme, currentTime) : null
+  const progress = onAir ? calculateProgress(onAir.startMs, onAir.stopMs, currentTime) : 0
+  const timeRemaining = onAir ? formatRemaining(onAir.stopMs, currentTime) : null
+  // The empty live slot offers Pick a channel, which opens the live switcher,
+  // next to the row (a sibling, since buttons can't nest)
+  const showPickLive = isLive && !hasLiveChannel && !!onPickLive
+  // Every channel but the live slot, which is always the first row anyway,
+  // can be starred. The star is the row's sibling, since buttons can't nest.
+  const showStar = !isLive
+  // The people on the channel, but never on the empty live slot
+  const presence = people && people.length > 0 && (!isLive || hasLiveChannel) ? people : null
 
   return (
-    <li>
+    // One background per row: the live row's tint is on the item, so it runs
+    // under Pick a channel too; the selection tint is on the button
+    <li className={cn('relative', isLive && 'bg-live/5', showPickLive && 'flex items-center pr-3')}>
+      {/* The row's click target is stretched under its content, so the
+          presence stack can sit in the name line without a button inside a
+          button. scroll-mt clears the sticky Channels header and filter when
+          the row is scrolled into view. */}
       <button
+        ref={ref}
         onClick={() => onSelect(channel)}
-        className={`
-          flex w-full items-center gap-3 p-3 text-left transition-colors
-          hover:bg-accent focus:bg-accent focus:outline-none
-          focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring
-          ${isSelected ? 'bg-primary/10 border-l-4 border-primary' : ''}
-          ${isLive ? 'bg-destructive/5' : ''}
-        `}
-        aria-pressed={isSelected}
-        aria-label={isLive ? 'Live Channel' : `${channel.number} ${channel.name}`}
+        onFocus={onFocus}
+        tabIndex={tabIndex}
+        className={cn(
+          'absolute inset-0 scroll-mt-41 transition-colors',
+          'hover:bg-accent focus-visible:-outline-offset-2',
+          // The live row's tint (on the item) wins; the border marks selection
+          isSelected && 'border-l-4 border-primary',
+          isSelected && !isLive && 'bg-primary/10'
+        )}
+        aria-current={isSelected ? 'true' : undefined}
+        aria-label={label}
+      />
+      {/* What the row shows: clicks pass through to the button under it */}
+      <div
+        data-slot="channel-row-content"
+        className={cn(
+          'pointer-events-none relative flex items-center gap-3 p-3 text-left',
+          showPickLive ? 'min-w-0 flex-1' : 'w-full',
+          showStar && 'pr-12'
+        )}
       >
-        {/* Channel logo / icon */}
-        <div
-          className={`h-12 w-12 shrink-0 overflow-hidden rounded flex items-center justify-center ${
-            isLive ? 'bg-destructive/20' : 'bg-muted'
-          }`}
-        >
-          {isLive ? (
-            <Radio className="h-6 w-6 text-destructive" />
-          ) : channel.logoUrl ? (
-            <img
-              src={getErsatzTVLogoUrl(channel.id)}
-              alt={`${channel.name} logo`}
-              className="h-full w-full object-contain"
-              onError={(e) => {
-                ;(e.target as HTMLImageElement).style.display = 'none'
-              }}
-            />
-          ) : null}
-        </div>
+        {/* Channel logo, or the live slot's icon while it has none */}
+        <ChannelLogo
+          channel={channel}
+          className={cn('size-12 rounded', isLive && 'bg-live/20')}
+          fallback={isLive ? <Radio className="h-6 w-6 text-live" /> : undefined}
+        />
 
         {/* Channel info */}
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
-            <span className="text-sm font-medium text-muted-foreground">
+            <span className="font-display text-lg font-extrabold leading-none tabular-nums text-muted-foreground">
               {channel.number}
             </span>
             <span className="truncate font-medium">
               {isLive ? (hasLiveChannel ? channel.name : 'Live') : channel.name}
             </span>
-            {isLive && hasLiveChannel && (
-              <span className="rounded bg-destructive px-1.5 py-0.5 text-[10px] font-bold uppercase text-destructive-foreground">
-                Live
-              </span>
+            {isLive && hasLiveChannel && <LivePill />}
+            {presence && (
+              // Inline after the name (mockup M1), so it only takes room from
+              // a long name. It shares the row's tab stop, like the star.
+              <ChannelPresenceStack
+                people={presence}
+                channelName={channel.name}
+                isWatching={isSelected}
+                onJoin={() => onSelect(channel)}
+                tabIndex={tabIndex}
+                className="pointer-events-auto self-center"
+              />
             )}
           </div>
-          <p className="truncate text-sm text-muted-foreground">
+          {/* Beside Pick a channel the idle copy wraps rather than cutting to 'Nothing …' */}
+          <p className={cn('text-sm text-muted-foreground', showPickLive ? 'line-clamp-2' : 'truncate')}>
             {isLive
               ? hasLiveChannel
-                ? currentProgramme || 'Now broadcasting...'
-                : 'Awaiting broadcast...'
+                ? currentProgramme
+                : onPickLive
+                  ? 'Nothing on yet'
+                  : 'Waiting for someone to put something on'
               : currentProgramme || 'Now playing...'}
           </p>
           {/* Progress bar and time remaining for ErsatzTV channels */}
-          {!isLive && programme && (
+          {!isLive && onAir && (
             <div className="mt-1.5 flex items-center gap-2">
               <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
                 <div
@@ -314,24 +542,53 @@ function ChannelItem({
                   style={{ width: `${progress}%` }}
                 />
               </div>
-              <span className="shrink-0 text-[10px] text-muted-foreground">
+              <span className="shrink-0 text-xs text-muted-foreground">
                 {timeRemaining}
               </span>
             </div>
           )}
+          {/* The line is always there on ErsatzTV rows, so rows don't grow when the guide arrives */}
+          {!isLive && (
+            <p className="mt-1 h-4 truncate text-xs leading-4 text-muted-foreground">
+              {next && `Next ${formatClockTime(next.startMs)} · ${next.programme.title}`}
+            </p>
+          )}
         </div>
 
-        {/* Playing indicator */}
+        {/* Playing indicator: static, so nothing blinks beside the video */}
         {isSelected && (
           <div className="shrink-0">
-            <span
-              className={`inline-flex h-3 w-3 animate-pulse rounded-full ${
-                isLive ? 'bg-destructive' : 'bg-primary'
-              }`}
+            <AudioLines
+              className={`h-4 w-4 ${isLive ? 'text-live' : 'text-primary'}`}
+              aria-hidden="true"
+              data-testid="now-playing-indicator"
             />
           </div>
         )}
-      </button>
+      </div>
+      {showPickLive && (
+        // Over the stretched row button, which spans the whole item
+        <Button size="sm" className="relative" onClick={onPickLive}>
+          Pick a channel
+        </Button>
+      )}
+      {showStar && (
+        // The row's tab stop covers its star too, so Tab goes from a row to
+        // its star and the list stays one stop long
+        <button
+          type="button"
+          onClick={() => onToggleFavourite(channel.id)}
+          tabIndex={tabIndex}
+          aria-pressed={isFavourite}
+          aria-label={`Favourite ${channel.name}`}
+          className={cn(
+            'absolute top-1/2 right-2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md hover:bg-accent focus-visible:-outline-offset-2',
+            isFavourite ? 'text-primary' : 'text-muted-foreground/60 hover:text-foreground'
+          )}
+        >
+          <Star aria-hidden="true" className={cn('h-4 w-4', isFavourite && 'fill-current')} />
+        </button>
+      )}
     </li>
   )
 }
@@ -340,3 +597,23 @@ function ChannelItem({
 // Skeleton
 // ============================================================================
 
+// Placeholder rows shaped like ChannelItem (48px logo, name, programme line)
+// while the ErsatzTV channels load
+const SKELETON_ROWS = 6
+
+function SidebarSkeleton() {
+  return (
+    <div role="status" className="divide-y" data-testid="sidebar-skeleton">
+      <span className="sr-only">Loading channels</span>
+      {Array.from({ length: SKELETON_ROWS }, (_, i) => (
+        <div key={i} className="flex items-center gap-3 p-3" aria-hidden="true">
+          <Skeleton className="h-12 w-12 shrink-0 rounded" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <Skeleton className="h-4 w-3/5" />
+            <Skeleton className="h-3 w-4/5" />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}

@@ -34,50 +34,75 @@ export function ActiveUsersTab() {
   return (
     <div className="space-y-6 p-4">
       {/* Header with refresh */}
-      <div className="flex items-center justify-end gap-2">
-        <span className="text-xs text-muted-foreground">
-          {formatLastUpdated(lastUpdated)}
-        </span>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={refetch}
-          disabled={isRefreshing}
-          aria-label="Refresh active users"
-        >
-          <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-        </Button>
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-lg font-semibold">Active Users</h2>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            {formatLastUpdated(lastUpdated)}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={refetch}
+            disabled={isRefreshing}
+            aria-label="Refresh active users"
+          >
+            <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+          </Button>
+        </div>
       </div>
 
       {/* Live TV section */}
       <UserSection
         title="Live TV"
         users={data.liveUsers}
-        count={data.totals.liveCount}
       />
 
       {/* ErsatzTV section */}
       <UserSection
         title="ErsatzTV"
         users={data.ersatztvUsers}
-        count={data.totals.ersatztvCount}
       />
     </div>
   )
 }
 
-interface UserSectionProps {
-  title: string
-  users: Array<{
-    username: string
-    channel: string | null
-    programme: string | null
-    connectedSince: string
-  }>
-  count: number
+interface Session {
+  username: string
+  channel: string | null
+  programme: string | null
+  connectedSince: string
 }
 
-function UserSection({ title, users, count }: UserSectionProps) {
+interface Person {
+  username: string
+  sessions: Session[]
+}
+
+/** One entry per username (in first-seen order), holding each of their sessions */
+function groupByPerson(sessions: Session[]): Person[] {
+  const people = new Map<string, Person>()
+  for (const session of sessions) {
+    const person = people.get(session.username)
+    if (person) {
+      person.sessions.push(session)
+    } else {
+      people.set(session.username, { username: session.username, sessions: [session] })
+    }
+  }
+  return [...people.values()]
+}
+
+interface UserSectionProps {
+  title: string
+  users: Session[]
+}
+
+function UserSection({ title, users }: UserSectionProps) {
+  // The API lists one entry per connection; someone on a phone and a TV is one person
+  const people = groupByPerson(users)
+  const count = people.length
+
   return (
     <section>
       <div className="mb-2 flex items-center justify-between">
@@ -87,50 +112,60 @@ function UserSection({ title, users, count }: UserSectionProps) {
         </span>
       </div>
 
-      {users.length === 0 ? (
+      {people.length === 0 ? (
         <p className="text-sm text-muted-foreground">No active users</p>
       ) : (
-        <div className="space-y-2">
-          {users.map((user) => (
-            <UserRow key={`${user.username}-${user.connectedSince}`} user={user} />
+        <ul className="space-y-2">
+          {people.map((person) => (
+            <PersonRow key={person.username} person={person} />
           ))}
-        </div>
+        </ul>
       )}
     </section>
   )
 }
 
-interface UserRowProps {
-  user: {
-    username: string
-    channel: string | null
-    programme: string | null
-    connectedSince: string
-  }
-}
-
-function UserRow({ user }: UserRowProps) {
+function describeSession(session: Session): string {
   // Build display string: "channel - programme - duration" or "No channel - duration"
   const displayParts = []
-  if (user.channel) {
-    displayParts.push(user.channel)
-    if (user.programme) {
-      displayParts.push(user.programme)
+  if (session.channel) {
+    displayParts.push(session.channel)
+    if (session.programme) {
+      displayParts.push(session.programme)
     }
   } else {
     displayParts.push('No channel')
   }
-  displayParts.push(formatDuration(user.connectedSince))
+  displayParts.push(formatDuration(session.connectedSince))
+  return displayParts.join(' • ')
+}
+
+function PersonRow({ person }: { person: Person }) {
+  const sessionCount = person.sessions.length
 
   return (
-    <div className="flex items-center justify-between rounded-md border p-3 min-h-[56px] gap-2">
+    <li className="flex items-center justify-between rounded-md border p-3 min-h-[56px] gap-2">
       <div className="flex flex-col min-w-0 flex-1">
-        <span className="font-medium truncate">{user.username}</span>
-        <span className="text-sm text-muted-foreground truncate">
-          {displayParts.join(' • ')}
-        </span>
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="font-medium truncate">{person.username}</span>
+          {sessionCount > 1 && (
+            <span className="text-xs text-muted-foreground shrink-0">
+              {sessionCount} sessions
+            </span>
+          )}
+        </div>
+        <ul aria-label={`${person.username}'s sessions`}>
+          {person.sessions.map((session, index) => (
+            <li
+              key={`${session.connectedSince}-${index}`}
+              className="text-sm text-muted-foreground truncate"
+            >
+              {describeSession(session)}
+            </li>
+          ))}
+        </ul>
       </div>
-    </div>
+    </li>
   )
 }
 

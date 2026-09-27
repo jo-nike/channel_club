@@ -1,99 +1,28 @@
-import { useState, useEffect, useCallback } from 'react'
-
-interface BeforeInstallPromptEvent extends Event {
-  prompt: () => Promise<void>
-  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
-}
-
-const STORAGE_KEY = 'pwa-install-state'
-
-interface InstallState {
-  installed: boolean
-  dismissed: boolean
-  dismissedAt?: number
-}
+import {
+  selectCanInstall,
+  selectInstallVariant,
+  selectShouldPromote,
+  useInstallStore,
+  type InstallVariant,
+} from '@/stores/installStore'
 
 interface UseInstallPromptResult {
+  // The app can be installed now (for the account menu)
   canInstall: boolean
+  // Show the install banner
+  shouldPromote: boolean
+  // 'ios': show IosInstallDialog instead of calling install()
+  variant: InstallVariant
   install: () => Promise<boolean>
   dismiss: () => void
 }
 
-function getInstallState(): InstallState {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY)
-    return stored ? JSON.parse(stored) : { installed: false, dismissed: false }
-  } catch {
-    return { installed: false, dismissed: false }
-  }
-}
-
-function setInstallState(state: InstallState): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
-}
-
-function isRecentlyDismissed(state: InstallState): boolean {
-  if (!state.dismissed || !state.dismissedAt) return false
-  const sevenDays = 7 * 24 * 60 * 60 * 1000
-  return Date.now() - state.dismissedAt < sevenDays
-}
-
+/** The shared install state (stores/installStore owns the browser's install offer). */
 export function useInstallPrompt(): UseInstallPromptResult {
-  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null)
-  const [canInstall, setCanInstall] = useState(false)
-
-  useEffect(() => {
-    // Check if already installed or dismissed
-    const state = getInstallState()
-    if (state.installed || isRecentlyDismissed(state)) {
-      return
-    }
-
-    const handleBeforeInstallPrompt = (e: Event) => {
-      e.preventDefault()
-      setDeferredPrompt(e as BeforeInstallPromptEvent)
-      setCanInstall(true)
-    }
-
-    const handleAppInstalled = () => {
-      setInstallState({ installed: true, dismissed: false })
-      setCanInstall(false)
-      setDeferredPrompt(null)
-    }
-
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
-    window.addEventListener('appinstalled', handleAppInstalled)
-
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
-      window.removeEventListener('appinstalled', handleAppInstalled)
-    }
-  }, [])
-
-  const install = useCallback(async (): Promise<boolean> => {
-    if (!deferredPrompt) return false
-
-    await deferredPrompt.prompt()
-    const { outcome } = await deferredPrompt.userChoice
-
-    if (outcome === 'accepted') {
-      setInstallState({ installed: true, dismissed: false })
-      setCanInstall(false)
-      setDeferredPrompt(null)
-      return true
-    }
-
-    return false
-  }, [deferredPrompt])
-
-  const dismiss = useCallback(() => {
-    setInstallState({
-      installed: false,
-      dismissed: true,
-      dismissedAt: Date.now()
-    })
-    setCanInstall(false)
-  }, [])
-
-  return { canInstall, install, dismiss }
+  const canInstall = useInstallStore(selectCanInstall)
+  const shouldPromote = useInstallStore(selectShouldPromote)
+  const variant = useInstallStore(selectInstallVariant)
+  const install = useInstallStore((s) => s.install)
+  const dismiss = useInstallStore((s) => s.dismiss)
+  return { canInstall, shouldPromote, variant, install, dismiss }
 }

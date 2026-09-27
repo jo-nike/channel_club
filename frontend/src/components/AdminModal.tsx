@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type CSSProperties, type RefObject } from 'react'
 import { APP_NAME, APP_VERSION } from '@/lib/appInfo'
 import {
   Dialog,
@@ -6,66 +6,75 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ChannelList } from '@/components/ChannelList'
-import { ActiveUsersTab } from '@/components/admin/ActiveUsersTab'
 import { ChatTab } from '@/components/admin/ChatTab'
+import { OnAirCard } from '@/components/admin/OnAirCard'
 import { NHLGamesTab } from '@/components/admin/NHLGamesTab'
-import { PlaceholderTab } from '@/components/admin/PlaceholderTab'
+import { PeopleTab } from '@/components/admin/PeopleTab'
 import { StatusTab } from '@/components/admin/StatusTab'
-import { UserAccessTab } from '@/components/admin/UserAccessTab'
 import { cn } from '@/lib/utils'
+import { useReturnFocus } from '@/hooks/useReturnFocus'
 
-type TabType = 'channels' | 'active-users' | 'user-access' | 'chat' | 'nhl' | 'plugins' | 'status'
+type TabType = 'channels' | 'people' | 'chat' | 'nhl' | 'status'
 
 interface AdminModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Where focus goes on close when the element that opened it has gone (the
+      account menu's item unmounts with the menu) */
+  returnFocusTo?: RefObject<HTMLElement | null>
 }
 
 const tabs: { id: TabType; label: string }[] = [
   { id: 'channels', label: 'Channels' },
-  { id: 'active-users', label: 'Active Users' },
-  { id: 'user-access', label: 'User Access' },
+  { id: 'people', label: 'People' },
   { id: 'chat', label: 'Chat' },
   { id: 'nhl', label: 'NHL' },
-  { id: 'plugins', label: 'Plugins' },
   { id: 'status', label: 'Status' },
 ]
 
-export function AdminModal({ open, onOpenChange }: AdminModalProps) {
+/**
+ * The On-air card sticks to the top of the tab's scroll container, over the
+ * channel list. Browsers scroll a newly focused row to the scrollport's edge
+ * and ignore sticky overlays, so every element in the list gets a scroll
+ * margin of the card's measured height (it changes with the programme, count
+ * and recents rows). Keyboard and d-pad focus then lands below the card, not
+ * under it. The margin sits on the list only: the card's own buttons stay
+ * where they are when focused.
+ */
+function ChannelsTab() {
+  const [onAirHeight, setOnAirHeight] = useState(0)
+
+  return (
+    <>
+      <OnAirCard onHeightChange={setOnAirHeight} />
+      <div
+        className="**:scroll-mt-(--on-air-height)"
+        style={{ '--on-air-height': `${onAirHeight}px` } as CSSProperties}
+      >
+        <ChannelList />
+      </div>
+    </>
+  )
+}
+
+export function AdminModal({ open, onOpenChange, returnFocusTo }: AdminModalProps) {
   const [activeTab, setActiveTab] = useState<TabType>('channels')
+  // Opened by state (the Host button, the account menu), not a trigger Radix
+  // could return focus to
+  const returnFocus = useReturnFocus(returnFocusTo)
 
-  const handleTabClick = (tabId: TabType) => {
-    setActiveTab(tabId)
-  }
-
-  const handleTabKeyDown = (e: React.KeyboardEvent, tabId: TabType) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault()
-      setActiveTab(tabId)
-    }
-  }
-
-  const renderTabContent = () => {
-    switch (activeTab) {
+  const renderTabContent = (tabId: TabType) => {
+    switch (tabId) {
       case 'channels':
-        return <ChannelList />
-      case 'active-users':
-        return <ActiveUsersTab />
-      case 'user-access':
-        return <UserAccessTab />
+        return <ChannelsTab />
+      case 'people':
+        return <PeopleTab />
       case 'chat':
         return <ChatTab />
       case 'nhl':
         return <NHLGamesTab />
-      case 'plugins':
-        return (
-          <PlaceholderTab
-            title="Plugins"
-            message="Plugins management coming soon"
-            description="Extend functionality with third-party integrations and custom features."
-          />
-        )
       case 'status':
         return <StatusTab />
       default:
@@ -75,40 +84,61 @@ export function AdminModal({ open, onOpenChange }: AdminModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[95vw] sm:w-[85vw] md:w-[75vw] max-w-5xl max-h-[90vh] overflow-hidden flex flex-col" aria-describedby={undefined}>
+      {/* Fixed height, anchored near the top: the title and tab bar stay put when tabs change */}
+      <DialogContent
+        className="top-4 sm:top-[5dvh] translate-y-0 h-[min(88dvh,780px)] w-[95vw] sm:w-[85vw] md:w-[75vw] max-w-5xl overflow-hidden flex flex-col"
+        aria-describedby={undefined}
+        {...returnFocus}
+      >
         <DialogHeader>
           <DialogTitle>Admin Panel</DialogTitle>
           <p className="text-sm text-muted-foreground">{APP_NAME} v{APP_VERSION}</p>
         </DialogHeader>
 
-        {/* Tab navigation - horizontal scroll for mobile, enhanced focus for TV */}
-        <div role="tablist" className="flex gap-0 border-b overflow-x-auto scrollbar-hide shrink-0">
-          {tabs.map(tab => (
-            <button
-              key={tab.id}
-              role="tab"
-              aria-selected={activeTab === tab.id}
-              tabIndex={0}
-              onClick={() => handleTabClick(tab.id)}
-              onKeyDown={(e) => handleTabKeyDown(e, tab.id)}
-              className={cn(
-                'px-4 py-3 border-b-2 transition-colors whitespace-nowrap shrink-0 min-h-[44px]',
-                'focus:outline-none focus-visible:ring-4 focus-visible:ring-primary focus-visible:ring-offset-2',
-                'xl:text-lg xl:px-6 xl:py-4 xl:min-h-[56px]',
-                activeTab === tab.id
-                  ? 'border-primary text-primary font-medium'
-                  : 'border-transparent text-muted-foreground hover:text-foreground'
-              )}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        {/* Manual activation: arrowing (or a TV remote's d-pad) only moves focus, so
+            passing over a tab doesn't mount it and start its fetches; Enter/Space opens it */}
+        <Tabs
+          value={activeTab}
+          onValueChange={(value) => setActiveTab(value as TabType)}
+          activationMode="manual"
+          className="min-h-0 flex-1 gap-4"
+        >
+          {/* Tab navigation - horizontal scroll for mobile, enhanced focus for TV */}
+          <TabsList
+            aria-label="Admin sections"
+            className="flex h-auto w-full justify-start gap-0 rounded-none bg-transparent p-0 border-b overflow-x-auto scrollbar-hide shrink-0"
+          >
+            {tabs.map(tab => (
+              <TabsTrigger
+                key={tab.id}
+                value={tab.id}
+                className={cn(
+                  'flex-none h-auto rounded-none border-0 border-b-2 border-transparent px-4 py-3 text-base font-normal transition-colors whitespace-nowrap shrink-0 min-h-[44px]',
+                  // Focus shows only the global outline: an underline on a focused tab would
+                  // read as "selected" before Enter opens it
+                  'focus-visible:-outline-offset-2 focus-visible:border-transparent',
+                  'xl:text-lg xl:px-6 xl:py-4 xl:min-h-[56px]',
+                  'text-muted-foreground dark:text-muted-foreground hover:text-foreground',
+                  'data-[state=active]:border-primary data-[state=active]:text-primary data-[state=active]:font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none',
+                  'dark:data-[state=active]:border-primary dark:data-[state=active]:text-primary dark:data-[state=active]:bg-transparent'
+                )}
+              >
+                {tab.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
 
-        {/* Tab content panel - scroll container for all tab content */}
-        <div role="tabpanel" className="epg-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
-          {renderTabContent()}
-        </div>
+          {/* Tab content panel - scroll container for all tab content */}
+          {tabs.map(tab => (
+            <TabsContent
+              key={tab.id}
+              value={tab.id}
+              className="epg-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-none focus-visible:-outline-offset-2"
+            >
+              {renderTabContent(tab.id)}
+            </TabsContent>
+          ))}
+        </Tabs>
       </DialogContent>
     </Dialog>
   )

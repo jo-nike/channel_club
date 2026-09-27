@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { login, fetchWithAuth, getAuthConfig, loginWithPlex } from './api'
+import { login, fetchWithAuth, getAuthConfig, loginWithPlex, createCaptureDownloadUrl } from './api'
 import { useAuthStore } from '@/stores/authStore'
 
 describe('api service', () => {
@@ -305,6 +305,24 @@ describe('api service', () => {
     })
   })
 
+  describe('clearCurrentChannel', () => {
+    it.each([
+      [403, 'Only admins can stop live TV'],
+      [500, 'Could not stop live TV'],
+    ])('says a %i failure in the words of stopping live TV', async (status, message) => {
+      vi.mocked(localStorage.getItem).mockReturnValue('test-token')
+
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: false,
+        status,
+        json: () => Promise.resolve({ detail: 'Error' }),
+      } as Response)
+
+      const { clearCurrentChannel } = await import('./api')
+      await expect(clearCurrentChannel()).rejects.toThrow(message)
+    })
+  })
+
   describe('fetchCurrentChannel', () => {
     it('should GET /channels/current and return channel', async () => {
       vi.mocked(localStorage.getItem).mockReturnValue('test-token')
@@ -357,6 +375,65 @@ describe('api service', () => {
 
       const { fetchCurrentChannel } = await import('./api')
       await expect(fetchCurrentChannel()).rejects.toThrow('Failed to fetch current channel')
+    })
+  })
+
+  describe('fetchNowPlaying', () => {
+    const ok = () =>
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ channelId: '28', currentProgram: null }),
+      } as Response)
+
+    it('sends the channel name, encoded, for the guide lookup', async () => {
+      ok()
+      const { fetchNowPlaying } = await import('./api')
+      await fetchNowPlaying('5.1', 'CA-S: TSN 5 & More')
+
+      expect(vi.mocked(fetch).mock.calls[0][0]).toBe(
+        '/api/epg/now-playing?channel_id=5.1&channel_name=CA-S%3A+TSN+5+%26+More'
+      )
+    })
+
+    it('leaves the name out when there is none', async () => {
+      ok()
+      const { fetchNowPlaying } = await import('./api')
+      await fetchNowPlaying('28')
+
+      expect(vi.mocked(fetch).mock.calls[0][0]).toBe('/api/epg/now-playing?channel_id=28')
+    })
+  })
+
+  describe('fetchLiveProgrammes', () => {
+    it('asks for 12 hours by guide id, with the channel name encoded, and returns the schedule', async () => {
+      const schedule = {
+        channelId: '5.1',
+        programmes: [{ title: 'Hockey Night', startTime: '2026-09-26T23:00:00Z', endTime: '2026-09-27T02:00:00Z' }],
+      }
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(schedule),
+      } as Response)
+      const { fetchLiveProgrammes } = await import('./api')
+
+      await expect(fetchLiveProgrammes('5.1', 'CA-S: TSN 5 & More')).resolves.toEqual(schedule)
+      expect(vi.mocked(fetch).mock.calls[0][0]).toBe(
+        '/api/epg/programmes?channel_id=5.1&hours=12&channel_name=CA-S%3A+TSN+5+%26+More'
+      )
+    })
+
+    it('throws when the guide is unavailable', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        json: () => Promise.resolve({ detail: 'EPG service unavailable' }),
+      } as Response)
+      const { fetchLiveProgrammes } = await import('./api')
+
+      await expect(fetchLiveProgrammes('28', undefined, 6)).rejects.toThrow('Failed to fetch programmes')
+      expect(vi.mocked(fetch).mock.calls[0][0]).toBe('/api/epg/programmes?channel_id=28&hours=6')
     })
   })
 
@@ -434,6 +511,39 @@ describe('api service', () => {
       } as Response)
 
       await expect(loginWithPlex('bad-token')).rejects.toThrow('Plex authentication failed')
+    })
+  })
+
+  describe('createCaptureDownloadUrl', () => {
+    it('asks for a single-use link with the session header and returns it without the session token', async () => {
+      vi.mocked(localStorage.getItem).mockReturnValue('test-jwt-token')
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ url: '/api/highlight/download/single-use-token' }),
+      } as Response)
+
+      const url = await createCaptureDownloadUrl('capture-1')
+
+      expect(url).toBe('/api/highlight/download/single-use-token')
+      expect(url).not.toContain('test-jwt-token')
+      expect(fetch).toHaveBeenCalledWith(
+        '/api/highlight/capture/capture-1/download-token',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({ Authorization: 'Bearer test-jwt-token' }),
+        })
+      )
+    })
+
+    it('says the capture is gone when the server no longer has it', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        json: () => Promise.resolve({ detail: 'Capture not found' }),
+      } as Response)
+
+      await expect(createCaptureDownloadUrl('capture-1')).rejects.toThrow('This capture is no longer available')
     })
   })
 })

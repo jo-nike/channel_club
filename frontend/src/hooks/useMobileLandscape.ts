@@ -1,63 +1,17 @@
-import { useState, useEffect } from 'react'
+import { useMediaQuery } from '@/hooks/useMediaQuery'
 
 /**
- * Hook that detects when a mobile device is in landscape orientation.
- * Used to trigger CSS-based pseudo-fullscreen for video players.
- *
- * Returns true when:
- * - Screen width <= 926px (max phone width in landscape)
- * - Device has touch capability (pointer: coarse)
- * - Orientation is landscape
+ * A touch phone held sideways. Detected by height rather than width: phones
+ * in landscape are 932-956px wide on the Plus/Pro Max class, wider than any
+ * sensible width cut-off, but none is taller than 500px. Tablets in landscape
+ * (768px tall and up) stay out.
  */
-// Helper function to check mobile landscape - defined outside component to avoid recreating
-function checkMobileLandscape(): boolean {
-  if (typeof window === 'undefined') return false
+const MOBILE_LANDSCAPE_QUERY = '(pointer: coarse) and (orientation: landscape) and (max-height: 500px)'
 
-  // Check for mobile device (touch capable)
-  const isTouchDevice = window.matchMedia('(pointer: coarse)').matches
-  if (!isTouchDevice) return false
-
-  // Check for landscape orientation
-  const isLandscape = window.matchMedia('(orientation: landscape)').matches
-  if (!isLandscape) return false
-
-  // Check screen width - phones in landscape are typically <= 926px wide
-  // (iPhone 14 Pro Max landscape = 926px)
-  const isPhoneSize = window.matchMedia('(max-width: 926px)').matches
-
-  return isPhoneSize
-}
-
+/**
+ * Hook that detects when a phone is in landscape orientation.
+ * Used to trigger CSS-based pseudo-fullscreen for video players.
+ */
 export function useMobileLandscape(): boolean {
-  // Initialize state with a function to avoid calling setState in useEffect
-  const [isMobileLandscape, setIsMobileLandscape] = useState(checkMobileLandscape)
-
-  useEffect(() => {
-    // Listen for orientation changes
-    const handleChange = () => {
-      setIsMobileLandscape(checkMobileLandscape())
-    }
-
-    // Use multiple listeners for broad compatibility
-    const orientationQuery = window.matchMedia('(orientation: landscape)')
-    orientationQuery.addEventListener('change', handleChange)
-
-    // Also listen for resize (fallback)
-    window.addEventListener('resize', handleChange)
-
-    // Screen Orientation API
-    if ('orientation' in screen && screen.orientation) {
-      screen.orientation.addEventListener('change', handleChange)
-    }
-
-    return () => {
-      orientationQuery.removeEventListener('change', handleChange)
-      window.removeEventListener('resize', handleChange)
-      if ('orientation' in screen && screen.orientation) {
-        screen.orientation.removeEventListener('change', handleChange)
-      }
-    }
-  }, [])
-
-  return isMobileLandscape
+  return useMediaQuery(MOBILE_LANDSCAPE_QUERY)
 }

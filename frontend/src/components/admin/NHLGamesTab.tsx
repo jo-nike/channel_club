@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { toast } from 'sonner'
+import { useEffect, useMemo, useState } from 'react'
 import { Pin, PinOff, RefreshCw } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -9,10 +8,11 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Skeleton } from '@/components/ui/skeleton'
 
 import { useNHLScores } from '@/hooks/useNHLScores'
-import { useChannelStore } from '@/stores/channelStore'
+import { useSetLiveChannel } from '@/hooks/useSetLiveChannel'
 import { useNhlMappingStore } from '@/stores/nhlMappingStore'
-import { fetchGroupedChannels, setCurrentChannel as setCurrentChannelApi } from '@/services/api'
-import { matchNetworkToChannels } from '@/lib/nhlChannelMatcher'
+import { fetchGroupedChannels } from '@/services/api'
+import type { MatcherResult } from '@/lib/nhlChannelMatcher'
+import { matchGames, type BroadcastMatch } from '@/lib/nhlWatch'
 import { cn } from '@/lib/utils'
 import { logger } from '@/lib/logger'
 import type { Channel } from '@/types'
@@ -20,6 +20,7 @@ import type { NHLBroadcast, NHLGame } from '@/types/nhl'
 
 export function NHLGamesTab() {
   const { data, isLoading, error, refetch } = useNHLScores(true)
+  const overrides = useNhlMappingStore((s) => s.overrides)
   const [channels, setChannels] = useState<Channel[]>([])
   const [channelsLoading, setChannelsLoading] = useState(true)
 
@@ -42,10 +43,8 @@ export function NHLGamesTab() {
     }
   }, [])
 
-  const games = useMemo(() => {
-    const all = data?.games ?? []
-    return [...all].sort(sortGames)
-  }, [data])
+  const games = useMemo(() => matchGames(data?.games ?? [], channels, overrides), [data, channels, overrides])
+  const playableCount = games.filter((g) => g.playable).length
 
   if (isLoading || channelsLoading) {
     return <NHLGamesTabSkeleton />
@@ -67,7 +66,9 @@ export function NHLGamesTab() {
           <p className="text-sm text-muted-foreground">
             {games.length === 0
               ? 'No games today'
-              : `${games.length} game${games.length === 1 ? '' : 's'} \u2014 click a broadcast to play`}
+              : `${games.length} game${games.length === 1 ? '' : 's'} \u00b7 ${playableCount} on your channels${
+                  playableCount > 0 ? ' \u00b7 click a broadcast to put it on' : ''
+                }`}
           </p>
         </div>
         <Button variant="ghost" size="sm" onClick={refetch} aria-label="Refresh NHL games">
@@ -81,32 +82,18 @@ export function NHLGamesTab() {
         </div>
       ) : (
         <div className="space-y-3">
-          {games.map((game) => (
-            <GameCard key={game.id} game={game} channels={channels} />
+          {games.map((row) => (
+            <GameCard
+              key={row.game.id}
+              game={row.game}
+              broadcasts={row.broadcasts}
+              channels={channels}
+            />
           ))}
         </div>
       )}
     </div>
   )
-}
-
-// Sort: live -> scheduled (by time) -> final
-function sortGames(a: NHLGame, b: NHLGame): number {
-  const statusOrder = { live: 0, scheduled: 1, final: 2 } as const
-  const diff = statusOrder[a.status] - statusOrder[b.status]
-  if (diff !== 0) return diff
-  return a.startTime.localeCompare(b.startTime)
-}
-
-// Sort broadcasts: CA first, then US; national markets before regional; then alpha.
-function sortBroadcasts(a: NHLBroadcast, b: NHLBroadcast): number {
-  const countryRank = (c: string) => (c === 'CA' ? 0 : c === 'US' ? 1 : 2)
-  const marketRank = (m: string) => (m === 'N' ? 0 : 1)
-  const c = countryRank(a.countryCode) - countryRank(b.countryCode)
-  if (c !== 0) return c
-  const m = marketRank(a.market) - marketRank(b.market)
-  if (m !== 0) return m
-  return a.network.localeCompare(b.network)
 }
 
 function formatStatus(game: NHLGame): string {
@@ -123,15 +110,26 @@ function formatStatus(game: NHLGame): string {
 
 interface GameCardProps {
   game: NHLGame
+  broadcasts: BroadcastMatch[]
   channels: Channel[]
 }
 
-function GameCard({ game, channels }: GameCardProps) {
-  const broadcasts = useMemo(() => [...game.broadcasts].sort(sortBroadcasts), [game.broadcasts])
+function GameCard({ game, broadcasts, channels }: GameCardProps) {
+  const [showUnmatched, setShowUnmatched] = useState(false)
+  const matched = broadcasts.filter((b) => b.result.matched.length > 0)
+  const unmatched = broadcasts.filter((b) => b.result.matched.length === 0)
+  const chip = ({ broadcast, result }: BroadcastMatch) => (
+    <BroadcastChip
+      key={`${broadcast.network}-${broadcast.market}-${broadcast.countryCode}`}
+      broadcast={broadcast}
+      result={result}
+      channels={channels}
+    />
+  )
 
   return (
-    <Card className={cn(game.status === 'live' && 'border-green-500')}>
-      <CardContent className="p-4 space-y-3">
+    <Card className={cn('gap-0 py-0', game.status === 'live' && 'border-live')}>
+      <CardContent className="p-3 space-y-2">
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-4 min-w-0">
             <TeamLine
@@ -153,7 +151,7 @@ function GameCard({ game, channels }: GameCardProps) {
           <div
             className={cn(
               'text-xs font-medium whitespace-nowrap',
-              game.status === 'live' && 'text-green-600',
+              game.status === 'live' && 'text-live',
             )}
           >
             {formatStatus(game)}
@@ -161,14 +159,21 @@ function GameCard({ game, channels }: GameCardProps) {
         </div>
 
         {broadcasts.length > 0 ? (
-          <div className="flex flex-wrap gap-2">
-            {broadcasts.map((b) => (
-              <BroadcastChip
-                key={`${b.network}-${b.market}-${b.countryCode}`}
-                broadcast={b}
-                channels={channels}
-              />
-            ))}
+          <div className="flex flex-wrap items-center gap-2">
+            {matched.map(chip)}
+            {showUnmatched && unmatched.map(chip)}
+            {unmatched.length > 0 && (
+              <button
+                type="button"
+                className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+                aria-expanded={showUnmatched}
+                onClick={() => setShowUnmatched((v) => !v)}
+              >
+                {showUnmatched
+                  ? `Hide ${unmatched.length} not in your lineup`
+                  : `+${unmatched.length} not in your lineup`}
+              </button>
+            )}
           </div>
         ) : (
           <div className="text-xs text-muted-foreground italic">No broadcast info</div>
@@ -193,40 +198,19 @@ function TeamLine({ abbr, name, score, logo, showScore }: TeamLineProps) {
       <span className="font-medium truncate" title={name}>
         {abbr}
       </span>
-      {showScore && <span className="text-sm tabular-nums">{score}</span>}
+      {showScore && <span className="font-display text-base font-extrabold tabular-nums">{score}</span>}
     </div>
   )
 }
 
 interface BroadcastChipProps {
   broadcast: NHLBroadcast
+  result: MatcherResult
   channels: Channel[]
 }
 
-function BroadcastChip({ broadcast, channels }: BroadcastChipProps) {
-  const overrides = useNhlMappingStore((s) => s.overrides)
-  const { setCurrentChannel } = useChannelStore()
-
-  const result = useMemo(
-    () => matchNetworkToChannels(broadcast.network, channels, overrides),
-    [broadcast.network, channels, overrides],
-  )
-
-  const playChannel = useCallback(
-    async (channel: Channel) => {
-      const previous = useChannelStore.getState().currentChannel
-      setCurrentChannel(channel)
-      try {
-        await setCurrentChannelApi(channel)
-      } catch (e) {
-        setCurrentChannel(previous)
-        toast.error('Failed to change channel', {
-          description: e instanceof Error ? e.message : 'Please try again',
-        })
-      }
-    },
-    [setCurrentChannel],
-  )
+function BroadcastChip({ broadcast, result, channels }: BroadcastChipProps) {
+  const playChannel = useSetLiveChannel()
 
   const countryLabel = broadcast.countryCode
   const isNational = broadcast.market === 'N'
@@ -310,7 +294,7 @@ function BroadcastChip({ broadcast, channels }: BroadcastChipProps) {
 function NetworkLabel({ broadcast }: { broadcast: NHLBroadcast }) {
   const marketBadge =
     broadcast.market === 'N' ? null : (
-      <span className="text-[10px] uppercase text-muted-foreground">
+      <span className="text-[11px] uppercase text-muted-foreground">
         {broadcast.market === 'H' ? 'home' : 'away'}
       </span>
     )

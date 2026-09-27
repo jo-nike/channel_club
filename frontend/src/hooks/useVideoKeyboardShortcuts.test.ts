@@ -16,8 +16,11 @@ describe('useVideoKeyboardShortcuts', () => {
       onMuteToggle: vi.fn(),
       onFullscreenToggle: vi.fn(),
       onTheaterModeToggle: vi.fn(),
+      onRetry: vi.fn(),
       onVolumeChange: vi.fn(),
+      onUnmute: vi.fn(),
       volume: 0.5,
+      isMuted: false,
     }
   })
 
@@ -70,6 +73,33 @@ describe('useVideoKeyboardShortcuts', () => {
     expect(mockProps.onTheaterModeToggle).toHaveBeenCalledTimes(1)
   })
 
+  it.each(['r', 'R'])('calls onRetry when %s is pressed', (key) => {
+    renderHook(() => useVideoKeyboardShortcuts(mockProps))
+
+    fireKeyEvent(key)
+
+    expect(mockProps.onRetry).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves R to a focused text field', () => {
+    renderHook(() => useVideoKeyboardShortcuts(mockProps))
+    const input = document.createElement('input')
+    container.appendChild(input)
+    input.focus()
+
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'r', bubbles: true }))
+
+    expect(mockProps.onRetry).not.toHaveBeenCalled()
+  })
+
+  it('leaves Ctrl+R (the browser reload) alone', () => {
+    renderHook(() => useVideoKeyboardShortcuts(mockProps))
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'r', ctrlKey: true, bubbles: true }))
+
+    expect(mockProps.onRetry).not.toHaveBeenCalled()
+  })
+
   it('increases volume when ArrowRight is pressed', () => {
     renderHook(() => useVideoKeyboardShortcuts(mockProps))
 
@@ -84,6 +114,115 @@ describe('useVideoKeyboardShortcuts', () => {
     fireKeyEvent('ArrowLeft')
 
     expect(mockProps.onVolumeChange).toHaveBeenCalledWith(0.4)
+  })
+
+  it('increases volume when ArrowUp is pressed', () => {
+    renderHook(() => useVideoKeyboardShortcuts(mockProps))
+
+    fireKeyEvent('ArrowUp')
+
+    expect(mockProps.onVolumeChange).toHaveBeenCalledWith(0.6)
+  })
+
+  it('decreases volume when ArrowDown is pressed', () => {
+    renderHook(() => useVideoKeyboardShortcuts(mockProps))
+
+    fireKeyEvent('ArrowDown')
+
+    expect(mockProps.onVolumeChange).toHaveBeenCalledWith(0.4)
+  })
+
+  it.each(['ArrowUp', 'ArrowRight'])('%s while muted unmutes at the saved level instead of stepping from zero', (key) => {
+    renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, isMuted: true }))
+
+    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+    window.dispatchEvent(event)
+
+    expect(event.defaultPrevented).toBe(true)
+    expect(mockProps.onUnmute).toHaveBeenCalledTimes(1)
+    expect(mockProps.onVolumeChange).not.toHaveBeenCalled()
+  })
+
+  it.each(['ArrowDown', 'ArrowLeft'])('%s while muted leaves the mute and the level alone', (key) => {
+    renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, isMuted: true }))
+
+    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+    window.dispatchEvent(event)
+
+    expect(event.defaultPrevented).toBe(true)
+    expect(mockProps.onVolumeChange).not.toHaveBeenCalled()
+    expect(mockProps.onUnmute).not.toHaveBeenCalled()
+  })
+
+  it('volume keys never unmute while unmuted', () => {
+    renderHook(() => useVideoKeyboardShortcuts(mockProps))
+
+    for (const key of ['ArrowUp', 'ArrowRight', 'ArrowDown', 'ArrowLeft']) fireKeyEvent(key)
+
+    expect(mockProps.onUnmute).not.toHaveBeenCalled()
+    expect(mockProps.onVolumeChange).toHaveBeenCalledTimes(4)
+  })
+
+  it('leaves ArrowUp/ArrowDown alone when ignoreVerticalArrows is set (TV mode)', () => {
+    renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, ignoreVerticalArrows: true }))
+
+    for (const key of ['ArrowUp', 'ArrowDown']) {
+      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+      window.dispatchEvent(event)
+      expect(event.defaultPrevented).toBe(false)
+    }
+    expect(mockProps.onVolumeChange).not.toHaveBeenCalled()
+
+    fireKeyEvent('ArrowLeft')
+    expect(mockProps.onVolumeChange).toHaveBeenCalledWith(0.4)
+  })
+
+  describe("a remote's play/pause key", () => {
+    const pressPlayPause = (init: KeyboardEventInit) => {
+      const event = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init })
+      window.dispatchEvent(event)
+      return event
+    }
+
+    it.each([
+      ['MediaPlayPause', { key: 'MediaPlayPause', keyCode: 179 }],
+      ['webOS, by key code', { key: 'Unidentified', keyCode: 179 }],
+      ['Tizen, by key code', { key: 'Unidentified', keyCode: 10252 }],
+    ])('plays and pauses on a TV (%s)', (_label, init) => {
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, remotePlayPause: true }))
+
+      const event = pressPlayPause(init)
+
+      expect(mockProps.onPlayPause).toHaveBeenCalledTimes(1)
+      expect(event.defaultPrevented).toBe(true)
+    })
+
+    it('works with focus outside the player, like the other single keys', () => {
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, remotePlayPause: true }))
+      const button = document.createElement('button')
+      document.body.appendChild(button)
+      button.focus()
+
+      button.dispatchEvent(new KeyboardEvent('keydown', { key: 'MediaPlayPause', bubbles: true }))
+
+      expect(mockProps.onPlayPause).toHaveBeenCalledTimes(1)
+      button.remove()
+    })
+
+    it('is left to the browser off a TV', () => {
+      renderHook(() => useVideoKeyboardShortcuts(mockProps))
+
+      const event = pressPlayPause({ key: 'MediaPlayPause', keyCode: 179 })
+
+      expect(mockProps.onPlayPause).not.toHaveBeenCalled()
+      expect(event.defaultPrevented).toBe(false)
+    })
+
+    it('is left alone where playback has no toggle (casting)', () => {
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onPlayPause: undefined, remotePlayPause: true }))
+
+      expect(pressPlayPause({ key: 'MediaPlayPause' }).defaultPrevented).toBe(false)
+    })
   })
 
   it('does not exceed volume of 1', () => {
@@ -117,16 +256,17 @@ describe('useVideoKeyboardShortcuts', () => {
 
     document.body.removeChild(input)
   })
-  it.each(['button', 'slider', 'menuitem', 'editable', 'link'])('FE-09 preserves focused %s native keyboard handling', (kind) => {
-    const element = document.createElement(kind === 'button' ? 'button' : kind === 'link' ? 'a' : 'div')
+  it.each(['slider', 'range input', 'menuitem', 'option', 'tab', 'switch', 'editable', 'link'])('FE-09 preserves focused %s native keyboard handling', (kind) => {
+    const element = document.createElement(kind === 'link' ? 'a' : kind === 'range input' ? 'input' : 'div')
     element.tabIndex = 0
     if (kind === 'editable') element.setAttribute('contenteditable', 'true')
     else if (kind === 'link') element.setAttribute('href', '#')
-    else if (kind !== 'button') element.setAttribute('role', kind)
+    else if (kind === 'range input') element.setAttribute('type', 'range')
+    else element.setAttribute('role', kind)
     container.append(element)
     element.focus()
     renderHook(() => useVideoKeyboardShortcuts(mockProps))
-    for (const key of [' ', 'ArrowRight', 'ArrowLeft', 'm', 'f']) {
+    for (const key of [' ', 'ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDown', 'm', 'f']) {
       const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
       element.dispatchEvent(event)
       expect(event.defaultPrevented).toBe(false)
@@ -135,6 +275,513 @@ describe('useVideoKeyboardShortcuts', () => {
     expect(mockProps.onVolumeChange).not.toHaveBeenCalled()
     expect(mockProps.onMuteToggle).not.toHaveBeenCalled()
   })
+  it('handles non-activation keys on a button inside the player but keeps Space/Enter native', () => {
+    const button = document.createElement('button')
+    container.append(button)
+    button.focus()
+    renderHook(() => useVideoKeyboardShortcuts(mockProps))
+
+    for (const key of [' ', 'Enter']) {
+      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+      button.dispatchEvent(event)
+      expect(event.defaultPrevented).toBe(false)
+    }
+    expect(mockProps.onPlayPause).not.toHaveBeenCalled()
+
+    for (const key of ['m', 'f', 't', 'ArrowUp', 'ArrowLeft']) {
+      button.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
+    }
+    expect(mockProps.onMuteToggle).toHaveBeenCalledTimes(1)
+    expect(mockProps.onFullscreenToggle).toHaveBeenCalledTimes(1)
+    expect(mockProps.onTheaterModeToggle).toHaveBeenCalledTimes(1)
+    expect(mockProps.onVolumeChange).toHaveBeenNthCalledWith(1, 0.6)
+    expect(mockProps.onVolumeChange).toHaveBeenNthCalledWith(2, 0.4)
+  })
+
+  it('letters work with focus on a button outside the player (a sidebar channel just clicked); Space and arrows do not', () => {
+    const sidebar = document.createElement('ul')
+    const button = document.createElement('button')
+    sidebar.append(button)
+    document.body.appendChild(sidebar)
+    button.focus()
+    renderHook(() => useVideoKeyboardShortcuts(mockProps))
+
+    for (const key of ['m', 'f', 't', 'r']) {
+      button.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
+    }
+    expect(mockProps.onMuteToggle).toHaveBeenCalledTimes(1)
+    expect(mockProps.onFullscreenToggle).toHaveBeenCalledTimes(1)
+    expect(mockProps.onTheaterModeToggle).toHaveBeenCalledTimes(1)
+    expect(mockProps.onRetry).toHaveBeenCalledTimes(1)
+
+    for (const key of [' ', 'Enter', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']) {
+      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+      button.dispatchEvent(event)
+      expect(event.defaultPrevented).toBe(false)
+    }
+    expect(mockProps.onPlayPause).not.toHaveBeenCalled()
+    expect(mockProps.onVolumeChange).not.toHaveBeenCalled()
+
+    document.body.removeChild(sidebar)
+  })
+
+  it('letters work with focus on any other non-text element outside the player', () => {
+    const panel = document.createElement('div')
+    panel.tabIndex = 0
+    document.body.appendChild(panel)
+    panel.focus()
+    renderHook(() => useVideoKeyboardShortcuts(mockProps))
+
+    panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', bubbles: true }))
+    panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }))
+
+    expect(mockProps.onMuteToggle).toHaveBeenCalledTimes(1)
+    expect(mockProps.onVolumeChange).not.toHaveBeenCalled()
+
+    document.body.removeChild(panel)
+  })
+
+  it.each(['grid', 'listbox', 'menu', 'tablist', 'tree'])('leaves every key to a focused %s (composite widgets move focus with keys)', (role) => {
+    const widget = document.createElement('div')
+    widget.setAttribute('role', role)
+    const item = document.createElement('div')
+    item.tabIndex = 0
+    widget.append(item)
+    document.body.appendChild(widget)
+    item.focus()
+    renderHook(() => useVideoKeyboardShortcuts(mockProps))
+
+    for (const key of ['m', 'f', 't', 'r']) {
+      item.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
+    }
+    expect(mockProps.onMuteToggle).not.toHaveBeenCalled()
+    expect(mockProps.onFullscreenToggle).not.toHaveBeenCalled()
+    expect(mockProps.onTheaterModeToggle).not.toHaveBeenCalled()
+    expect(mockProps.onRetry).not.toHaveBeenCalled()
+
+    document.body.removeChild(widget)
+  })
+
+  it('ignores letters in a text field outside the player', () => {
+    const input = document.createElement('textarea')
+    document.body.appendChild(input)
+    input.focus()
+    renderHook(() => useVideoKeyboardShortcuts(mockProps))
+
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', bubbles: true }))
+
+    expect(mockProps.onMuteToggle).not.toHaveBeenCalled()
+    document.body.removeChild(input)
+  })
+
+  it('ignores letters in a dialog outside the player', () => {
+    const dialog = document.createElement('div')
+    dialog.setAttribute('role', 'dialog')
+    const button = document.createElement('button')
+    dialog.append(button)
+    document.body.appendChild(dialog)
+    button.focus()
+    renderHook(() => useVideoKeyboardShortcuts(mockProps))
+
+    button.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', bubbles: true }))
+
+    expect(mockProps.onFullscreenToggle).not.toHaveBeenCalled()
+    document.body.removeChild(dialog)
+  })
+
+  it('ignores keys from inside a dialog, even within the player', () => {
+    const dialog = document.createElement('div')
+    dialog.setAttribute('role', 'dialog')
+    const button = document.createElement('button')
+    dialog.append(button)
+    container.append(dialog)
+    button.focus()
+    renderHook(() => useVideoKeyboardShortcuts(mockProps))
+
+    for (const key of ['m', 'f', 'ArrowUp', 'ArrowLeft']) {
+      button.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
+    }
+    expect(mockProps.onMuteToggle).not.toHaveBeenCalled()
+    expect(mockProps.onFullscreenToggle).not.toHaveBeenCalled()
+    expect(mockProps.onVolumeChange).not.toHaveBeenCalled()
+  })
+
+  describe('channel keys', () => {
+    const press = (target: EventTarget, key: string, init: KeyboardEventInit = {}) => {
+      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init })
+      target.dispatchEvent(event)
+      return event
+    }
+
+    it.each([
+      ['PageUp', 1],
+      [']', 1],
+      ['PageDown', -1],
+      ['[', -1],
+    ] as const)('%s steps the channel by %i without scrolling the page', (key, dir) => {
+      const onChannelStep = vi.fn()
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onChannelStep }))
+
+      const event = press(window, key)
+
+      expect(onChannelStep).toHaveBeenCalledTimes(1)
+      expect(onChannelStep).toHaveBeenCalledWith(dir)
+      expect(event.defaultPrevented).toBe(true)
+    })
+
+    it.each(['l', 'L'])('%s goes back to the last channel', (key) => {
+      const onLastChannel = vi.fn()
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onLastChannel }))
+
+      press(window, key)
+
+      expect(onLastChannel).toHaveBeenCalledTimes(1)
+    })
+
+    it('work with focus on a sidebar channel button outside the player', () => {
+      const onChannelStep = vi.fn()
+      const onLastChannel = vi.fn()
+      const button = document.createElement('button')
+      document.body.appendChild(button)
+      button.focus()
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onChannelStep, onLastChannel }))
+
+      for (const key of ['PageDown', ']', 'l']) press(button, key)
+
+      expect(onChannelStep.mock.calls).toEqual([[-1], [1]])
+      expect(onLastChannel).toHaveBeenCalledTimes(1)
+      document.body.removeChild(button)
+    })
+
+    it('still work in TV mode, where only Up/Down step aside', () => {
+      const onChannelStep = vi.fn()
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onChannelStep, ignoreVerticalArrows: true }))
+
+      press(window, 'ArrowUp')
+      press(window, 'PageDown')
+
+      expect(onChannelStep).toHaveBeenCalledTimes(1)
+      expect(onChannelStep).toHaveBeenCalledWith(-1)
+      expect(mockProps.onVolumeChange).not.toHaveBeenCalled()
+    })
+
+    it('are left to text fields and dialogs', () => {
+      const onChannelStep = vi.fn()
+      const onLastChannel = vi.fn()
+      const input = document.createElement('input')
+      const dialog = document.createElement('div')
+      dialog.setAttribute('role', 'dialog')
+      const inDialog = document.createElement('button')
+      dialog.append(inDialog)
+      document.body.append(input, dialog)
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onChannelStep, onLastChannel }))
+
+      for (const target of [input, inDialog]) {
+        target.focus()
+        for (const key of ['PageUp', '[', 'l']) {
+          expect(press(target, key).defaultPrevented).toBe(false)
+        }
+      }
+
+      expect(onChannelStep).not.toHaveBeenCalled()
+      expect(onLastChannel).not.toHaveBeenCalled()
+      document.body.removeChild(input)
+      document.body.removeChild(dialog)
+    })
+
+    it('ignore modifiers (Ctrl+PageUp switches browser tabs)', () => {
+      const onChannelStep = vi.fn()
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onChannelStep }))
+
+      press(window, 'PageUp', { ctrlKey: true })
+      press(window, 'PageDown', { altKey: true })
+      press(window, ']', { metaKey: true })
+
+      expect(onChannelStep).not.toHaveBeenCalled()
+    })
+
+    it('leaves keys with no action alone, so two instances can split the map', () => {
+      renderHook(() => useVideoKeyboardShortcuts(mockProps))
+      const onChannelStep = vi.fn()
+      renderHook(() => useVideoKeyboardShortcuts({ containerRef: { current: container }, onChannelStep }))
+
+      expect(press(window, 'PageUp').defaultPrevented).toBe(true)
+      expect(press(window, ' ').defaultPrevented).toBe(true)
+      press(window, 'ArrowUp')
+
+      expect(onChannelStep).toHaveBeenCalledTimes(1)
+      expect(mockProps.onPlayPause).toHaveBeenCalledTimes(1)
+      expect(mockProps.onVolumeChange).toHaveBeenCalledTimes(1)
+    })
+
+    it.each(['0', '1', '5', '9'])('digit %s is part of a channel number', (key) => {
+      const onDigit = vi.fn()
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onDigit }))
+
+      press(window, key)
+
+      expect(onDigit).toHaveBeenCalledTimes(1)
+      expect(onDigit).toHaveBeenCalledWith(key)
+    })
+
+    it('digits work with focus on a sidebar button, but not in a text field or dialog', () => {
+      const onDigit = vi.fn()
+      const button = document.createElement('button')
+      const input = document.createElement('input')
+      const dialog = document.createElement('div')
+      dialog.setAttribute('role', 'dialog')
+      const inDialog = document.createElement('button')
+      dialog.append(inDialog)
+      document.body.append(button, input, dialog)
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onDigit }))
+
+      button.focus()
+      press(button, '1')
+      input.focus()
+      press(input, '2')
+      inDialog.focus()
+      press(inDialog, '3')
+
+      expect(onDigit.mock.calls).toEqual([['1']])
+      document.body.removeChild(button)
+      document.body.removeChild(input)
+      document.body.removeChild(dialog)
+    })
+
+    it('Enter commits the number being typed, and only then takes the key', () => {
+      const onDigitCommit = vi.fn(() => true)
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onDigitCommit }))
+
+      expect(press(window, 'Enter').defaultPrevented).toBe(true)
+      expect(onDigitCommit).toHaveBeenCalledTimes(1)
+
+      onDigitCommit.mockReturnValue(false)
+      expect(press(window, 'Enter').defaultPrevented).toBe(false)
+    })
+
+    it('Enter on a focused button stays with the button', () => {
+      const onDigitCommit = vi.fn(() => true)
+      const button = document.createElement('button')
+      document.body.appendChild(button)
+      button.focus()
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onDigitCommit }))
+
+      expect(press(button, 'Enter').defaultPrevented).toBe(false)
+      expect(onDigitCommit).not.toHaveBeenCalled()
+      document.body.removeChild(button)
+    })
+
+    it('an instance without channel actions leaves PageUp to the page', () => {
+      renderHook(() => useVideoKeyboardShortcuts(mockProps))
+
+      expect(press(window, 'PageUp').defaultPrevented).toBe(false)
+    })
+  })
+
+  describe('panel keys', () => {
+    const press = (target: EventTarget, key: string, init: KeyboardEventInit = {}) => {
+      target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }))
+    }
+    const panelActions = () => ({ onShortcutSheet: vi.fn(), onChatToggle: vi.fn(), onNHLToggle: vi.fn() })
+
+    it('? opens the shortcut sheet', () => {
+      const actions = panelActions()
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, ...actions }))
+
+      // Shift+/ on a US layout
+      press(window, '?', { shiftKey: true })
+
+      expect(actions.onShortcutSheet).toHaveBeenCalledTimes(1)
+      expect(actions.onChatToggle).not.toHaveBeenCalled()
+      expect(actions.onNHLToggle).not.toHaveBeenCalled()
+    })
+
+    it.each(['c', 'C'])('%s toggles chat', (key) => {
+      const actions = panelActions()
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, ...actions }))
+
+      press(window, key)
+
+      expect(actions.onChatToggle).toHaveBeenCalledTimes(1)
+      expect(actions.onNHLToggle).not.toHaveBeenCalled()
+    })
+
+    // It may open a composer and focus it within the same keydown
+    it('C is not typed anywhere once chat takes it, and left alone without chat', () => {
+      const actions = panelActions()
+      const { unmount } = renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, ...actions }))
+      const withChat = new KeyboardEvent('keydown', { key: 'c', bubbles: true, cancelable: true })
+      window.dispatchEvent(withChat)
+      expect(withChat.defaultPrevented).toBe(true)
+      unmount()
+
+      renderHook(() => useVideoKeyboardShortcuts(mockProps))
+      const withoutChat = new KeyboardEvent('keydown', { key: 'c', bubbles: true, cancelable: true })
+      window.dispatchEvent(withoutChat)
+      expect(withoutChat.defaultPrevented).toBe(false)
+    })
+
+    it.each(['n', 'N'])('%s toggles the NHL scores', (key) => {
+      const actions = panelActions()
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, ...actions }))
+
+      press(window, key)
+
+      expect(actions.onNHLToggle).toHaveBeenCalledTimes(1)
+      expect(actions.onChatToggle).not.toHaveBeenCalled()
+    })
+
+    it('work with focus on a sidebar channel button outside the player', () => {
+      const actions = panelActions()
+      const button = document.createElement('button')
+      document.body.appendChild(button)
+      button.focus()
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, ...actions }))
+
+      for (const key of ['?', 'c', 'n']) press(button, key)
+
+      expect(actions.onShortcutSheet).toHaveBeenCalledTimes(1)
+      expect(actions.onChatToggle).toHaveBeenCalledTimes(1)
+      expect(actions.onNHLToggle).toHaveBeenCalledTimes(1)
+      document.body.removeChild(button)
+    })
+
+    it('are left to text fields (the chat composer) and dialogs (the sheet itself)', () => {
+      const actions = panelActions()
+      const input = document.createElement('textarea')
+      const dialog = document.createElement('div')
+      dialog.setAttribute('role', 'dialog')
+      const inDialog = document.createElement('button')
+      dialog.append(inDialog)
+      document.body.append(input, dialog)
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, ...actions }))
+
+      for (const target of [input, inDialog]) {
+        target.focus()
+        for (const key of ['?', 'c', 'n']) press(target, key)
+      }
+
+      expect(actions.onShortcutSheet).not.toHaveBeenCalled()
+      expect(actions.onChatToggle).not.toHaveBeenCalled()
+      expect(actions.onNHLToggle).not.toHaveBeenCalled()
+      document.body.removeChild(input)
+      document.body.removeChild(dialog)
+    })
+
+    it.each(['x', 'X'])('%s runs Clip that', (key) => {
+      const onClipThat = vi.fn()
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onClipThat }))
+
+      press(window, key)
+
+      expect(onClipThat).toHaveBeenCalledTimes(1)
+    })
+
+    it('X works with focus on a sidebar channel button, and is left to text fields and dialogs', () => {
+      const onClipThat = vi.fn()
+      const button = document.createElement('button')
+      const input = document.createElement('input')
+      const dialog = document.createElement('div')
+      dialog.setAttribute('role', 'dialog')
+      const inDialog = document.createElement('button')
+      dialog.append(inDialog)
+      document.body.append(button, input, dialog)
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onClipThat }))
+
+      button.focus()
+      press(button, 'x')
+      expect(onClipThat).toHaveBeenCalledTimes(1)
+      for (const target of [input, inDialog]) {
+        target.focus()
+        press(target, 'x')
+      }
+      expect(onClipThat).toHaveBeenCalledTimes(1)
+      button.remove()
+      input.remove()
+      dialog.remove()
+    })
+
+    it('Ctrl+X (cut) is not Clip that', () => {
+      const onClipThat = vi.fn()
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onClipThat }))
+
+      press(window, 'x', { ctrlKey: true })
+      press(window, 'x', { metaKey: true })
+
+      expect(onClipThat).not.toHaveBeenCalled()
+    })
+
+    it('ignore modifiers (Ctrl+C copies, Ctrl+N opens a window)', () => {
+      const actions = panelActions()
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, ...actions }))
+
+      press(window, 'c', { ctrlKey: true })
+      press(window, 'n', { metaKey: true })
+      press(window, '?', { altKey: true })
+
+      expect(actions.onShortcutSheet).not.toHaveBeenCalled()
+      expect(actions.onChatToggle).not.toHaveBeenCalled()
+      expect(actions.onNHLToggle).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('channel search key', () => {
+    const press = (target: EventTarget, key: string, init: KeyboardEventInit = {}) => {
+      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init })
+      target.dispatchEvent(event)
+      return event
+    }
+
+    it("/ focuses the channel search, and isn't typed or sent to the browser's quick find", () => {
+      const onFocusSearch = vi.fn()
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onFocusSearch }))
+
+      const event = press(window, '/')
+
+      expect(onFocusSearch).toHaveBeenCalledTimes(1)
+      expect(event.defaultPrevented).toBe(true)
+    })
+
+    it('works with focus on a sidebar channel button', () => {
+      const onFocusSearch = vi.fn()
+      const button = document.createElement('button')
+      document.body.appendChild(button)
+      button.focus()
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onFocusSearch }))
+
+      press(button, '/')
+
+      expect(onFocusSearch).toHaveBeenCalledTimes(1)
+      document.body.removeChild(button)
+    })
+
+    it('is left to text fields (the search box itself, chat) and dialogs', () => {
+      const onFocusSearch = vi.fn()
+      const input = document.createElement('input')
+      const dialog = document.createElement('div')
+      dialog.setAttribute('role', 'dialog')
+      const inDialog = document.createElement('button')
+      dialog.append(inDialog)
+      document.body.append(input, dialog)
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onFocusSearch }))
+
+      for (const target of [input, inDialog]) {
+        target.focus()
+        expect(press(target, '/').defaultPrevented).toBe(false)
+      }
+
+      expect(onFocusSearch).not.toHaveBeenCalled()
+      document.body.removeChild(input)
+      document.body.removeChild(dialog)
+    })
+
+    it('is left to the browser where there is no search to focus', () => {
+      renderHook(() => useVideoKeyboardShortcuts(mockProps))
+
+      expect(press(window, '/').defaultPrevented).toBe(false)
+    })
+  })
+
   it('FE-09 respects an already handled player-surface event', () => {
     renderHook(() => useVideoKeyboardShortcuts(mockProps))
     const event = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true })

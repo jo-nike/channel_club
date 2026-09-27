@@ -54,9 +54,23 @@ interface DispatchrrStatus {
   streams: DispatcharrStream[]
 }
 
+interface EPGHealthStatus {
+  name: string
+  online: boolean
+  lastChecked: string
+  error: string | null
+  stale: boolean
+  channelCount: number
+  programmeCount: number
+  lastAttemptAt: string | null
+  lastSuccessAt: string | null
+  nextRetryAt: string | null
+}
+
 export interface SystemStatusData {
   ersatztv: ErsatzTVStatus
   dispatcharr: DispatchrrStatus
+  epg: EPGHealthStatus
 }
 
 const POLL_INTERVAL = 30000 // 30 seconds

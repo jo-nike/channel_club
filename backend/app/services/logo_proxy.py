@@ -1,5 +1,6 @@
 """Logo metadata can reference only explicitly trusted raster-image origins."""
 
+from collections.abc import Mapping, Sequence
 from urllib.parse import urlsplit
 
 import httpx
@@ -24,10 +25,13 @@ def _origin(url: str) -> tuple[str, str, int] | None:
         return None
 
 
-def allowed_logo_url(url: str) -> bool:
+def allowed_logo_url(url: str, trusted_origins: Sequence[str] | None = None) -> bool:
+    """Only the ErsatzTV origins by default; a caller with its own fixed origin
+    passes it as `trusted_origins`, which replaces (never extends) that list."""
     origin = _origin(url)
-    trusted = [settings.ersatztv_base_url, *settings.ersatztv_logo_origins]
-    return origin is not None and origin in {_origin(value) for value in trusted}
+    if trusted_origins is None:
+        trusted_origins = [settings.ersatztv_base_url, *settings.ersatztv_logo_origins]
+    return origin is not None and origin in {_origin(value) for value in trusted_origins}
 
 
 def raster_type(body: bytes) -> str:
@@ -42,11 +46,22 @@ def raster_type(body: bytes) -> str:
     raise ValueError("Logo must be a PNG, JPEG, GIF or WebP image")
 
 
-async def fetch_logo(client: httpx.AsyncClient, url: str) -> tuple[bytes, str]:
+async def fetch_logo(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    trusted_origins: Sequence[str] | None = None,
+    headers: Mapping[str, str] | None = None,
+) -> tuple[bytes, str]:
+    """Fetch a raster logo, checking every hop's origin against the allowlist.
+
+    `headers` (e.g. an API key) go only to the trusted origins, since a redirect
+    is followed only when its target passes the same check.
+    """
     for _ in range(6):
-        if not allowed_logo_url(url):
+        if not allowed_logo_url(url, trusted_origins):
             raise ValueError("Untrusted logo origin")
-        response = await client.send(client.build_request("GET", url), stream=True)
+        response = await client.send(client.build_request("GET", url, headers=headers), stream=True)
         try:
             if response.is_redirect and "location" in response.headers:
                 url = str(response.url.join(response.headers["location"]))

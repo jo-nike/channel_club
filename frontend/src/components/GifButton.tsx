@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { ImageIcon } from 'lucide-react'
-import { useBreakpoint } from '@/hooks/useBreakpoint'
+import { useLayoutMode } from '@/hooks/useLayoutMode'
 import { getGifFeatureEnabled } from '@/services/gifApi'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -14,16 +14,17 @@ const GIF_FEATURE_ENABLED = import.meta.env.VITE_GIF_ENABLED === 'true'
 export interface GifButtonProps {
   onSelect: (gifUrl: string) => boolean | void | Promise<boolean | void>
   disabled?: boolean
+  /** Where the picker opens: the player while chat is in it fullscreen */
+  container?: HTMLElement | null
 }
 
-export function GifButton({ onSelect, disabled }: GifButtonProps) {
+export function GifButton({ onSelect, disabled, container }: GifButtonProps) {
   const [isOpen, setIsOpen] = useState(false)
   // Initialize to false if build-time flag is off, otherwise null (loading)
   const [serverEnabled, setServerEnabled] = useState<boolean | null>(
     GIF_FEATURE_ENABLED ? null : false
   )
-  const breakpoint = useBreakpoint()
-  const isMobile = breakpoint === 'mobile'
+  const isMobile = useLayoutMode() === 'phone'
 
   // Check if server has GIF feature enabled (only if build-time flag is true)
   useEffect(() => {
@@ -76,19 +77,22 @@ export function GifButton({ onSelect, disabled }: GifButtonProps) {
     setIsOpen(false)
   }
 
+  // The trigger is a quiet ghost icon, so Send stays the composer's main action.
   // Use Dialog for mobile (bottom sheet style), Popover for desktop
   if (isMobile) {
     return (
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <Button
+          variant="ghost"
           size="icon"
           disabled={disabled}
           onClick={() => setIsOpen(true)}
           aria-label="Send GIF"
+          className="pointer-coarse:size-11"
         >
           <ImageIcon className="h-4 w-4" />
         </Button>
-        <DialogContent className="sm:max-w-md max-h-[80vh] p-0 gap-0">
+        <DialogContent className="sm:max-w-md max-h-[80vh] p-0 gap-0" container={container}>
           <DialogHeader className="p-4 pb-0">
             <DialogTitle>Choose a GIF</DialogTitle>
           </DialogHeader>
@@ -102,9 +106,11 @@ export function GifButton({ onSelect, disabled }: GifButtonProps) {
     <Popover open={isOpen} onOpenChange={setIsOpen}>
       <PopoverTrigger asChild>
         <Button
+          variant="ghost"
           size="icon"
           disabled={disabled}
           aria-label="Send GIF"
+          className="pointer-coarse:size-11"
         >
           <ImageIcon className="h-4 w-4" />
         </Button>
@@ -114,6 +120,7 @@ export function GifButton({ onSelect, disabled }: GifButtonProps) {
         align="end"
         side="top"
         sideOffset={8}
+        container={container}
       >
         <GifPicker onSelect={handleSelect} onClose={handleClose} />
       </PopoverContent>

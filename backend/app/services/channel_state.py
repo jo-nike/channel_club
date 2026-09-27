@@ -14,6 +14,7 @@ from loguru import logger
 
 from app.config import settings
 from app.models.channel import Channel
+from app.services import chat
 
 # Module-level logger with service context
 log = logger.bind(service="channel")
@@ -75,7 +76,9 @@ async def set_current_channel(channel: Channel, user: str | None = None) -> Chan
             log.warning("Highlight setup failed for {}: {}", channel.id, exc)
 
     # Broadcast to all connected clients
-    await broadcast_channel_update(channel)
+    await broadcast_channel_update(channel, changed_by=user)
+    if user:
+        await _broadcast_system_line(f"{user} put on {channel.name}")
 
     return _current_channel
 
@@ -108,8 +111,10 @@ async def clear_current_channel_async(user: str | None = None) -> None:
     else:
         log.info("Current channel cleared")
 
-    # Broadcast to all connected clients
-    await broadcast({"type": "channel_update", "channel": None})
+    # Broadcast to all connected clients, naming who stopped live TV
+    await broadcast({"type": "channel_update", "channel": None, "changedBy": user})
+    if user:
+        await _broadcast_system_line(f"{user} stopped live TV")
 
 
 async def connect(websocket: WebSocket, owner: asyncio.Task | None = None) -> None:
@@ -141,18 +146,36 @@ def disconnect(websocket: WebSocket) -> None:
     log.debug("WebSocket disconnected, remaining connections: {}", len(_active_connections))
 
 
-async def broadcast_channel_update(channel: Channel) -> None:
+async def broadcast_channel_update(channel: Channel, changed_by: str | None = None) -> None:
     """Broadcast channel update to all connected clients.
 
     Args:
         channel: The channel to broadcast.
+        changed_by: Username of whoever changed the channel, so clients can
+            say who put it on. None for system changes.
     """
     message = {
         "type": "channel_update",
         "channel": channel.model_dump(by_alias=True),
+        "changedBy": changed_by,
     }
     log.debug("Broadcasting channel update to {} clients", len(_active_connections))
     await broadcast(message)
+
+
+async def _broadcast_system_line(content: str) -> None:
+    """Post a system line to chat about a Live change, if chat is enabled.
+
+    The line is broadcast as an ordinary chat_message (kind 'system') but not
+    stored in the chat history; see chat.system_message.
+
+    Args:
+        content: The sentence to show, naming who made the change.
+    """
+    if not settings.chat_enabled:
+        return
+    line = chat.system_message(content)
+    await broadcast({"type": "chat_message", **line.to_dict()})
 
 
 async def broadcast(message: dict) -> None:

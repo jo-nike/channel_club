@@ -1,7 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@/test/utils'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, fireEvent, act } from '@/test/utils'
 import { InstallPrompt } from './InstallPrompt'
 import * as useInstallPromptModule from '@/hooks/useInstallPrompt'
+import { initInstallStore } from '@/stores/installStore'
+import { useChatStore } from '@/stores/chatStore'
 
 vi.mock('@/hooks/useInstallPrompt')
 
@@ -12,12 +14,15 @@ describe('InstallPrompt', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockInstall.mockResolvedValue(true)
+    useChatStore.setState({ isOpen: false })
   })
 
-  describe('when canInstall is false', () => {
+  describe('when the banner should not be promoted', () => {
     it('renders nothing', () => {
       vi.spyOn(useInstallPromptModule, 'useInstallPrompt').mockReturnValue({
-        canInstall: false,
+        canInstall: true,
+        shouldPromote: false,
+        variant: 'native',
         install: mockInstall,
         dismiss: mockDismiss
       })
@@ -27,18 +32,174 @@ describe('InstallPrompt', () => {
     })
   })
 
-  describe('when canInstall is true', () => {
+  describe('with the real hook', () => {
+    beforeEach(async () => {
+      localStorage.clear()
+      sessionStorage.clear()
+      // Past the engagement gate: this is the third session
+      localStorage.setItem('pwa-sessions', '2')
+      initInstallStore()
+      const actual = await vi.importActual<typeof useInstallPromptModule>('@/hooks/useInstallPrompt')
+      vi.spyOn(useInstallPromptModule, 'useInstallPrompt').mockImplementation(actual.useInstallPrompt)
+    })
+
+    afterEach(() => {
+      localStorage.clear()
+      sessionStorage.clear()
+    })
+
+    function fireBeforeInstallPrompt() {
+      const event = new Event('beforeinstallprompt') as Event & {
+        prompt: () => Promise<void>
+        userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
+      }
+      event.prompt = vi.fn().mockResolvedValue(undefined)
+      event.userChoice = Promise.resolve({ outcome: 'accepted' })
+      act(() => {
+        window.dispatchEvent(event)
+      })
+    }
+
+    it('shows the banner when the browser offers installation', () => {
+      render(<InstallPrompt />)
+      fireBeforeInstallPrompt()
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+
+    it('shows the banner for an offer made before it mounted (on the sign-in screen)', () => {
+      fireBeforeInstallPrompt()
+      render(<InstallPrompt />)
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+
+    it('waits for the third session', () => {
+      localStorage.setItem('pwa-sessions', '0')
+      sessionStorage.clear()
+      initInstallStore()
+      const { container } = render(<InstallPrompt />)
+      fireBeforeInstallPrompt()
+      expect(container.firstChild).toBeNull()
+    })
+
+    it('renders nothing in TV mode', () => {
+      localStorage.setItem('tv-mode', 'true')
+      initInstallStore()
+      const { container } = render(<InstallPrompt />)
+      fireBeforeInstallPrompt()
+      expect(container.firstChild).toBeNull()
+    })
+  })
+
+  describe('on iPhone and iPad', () => {
     beforeEach(() => {
       vi.spyOn(useInstallPromptModule, 'useInstallPrompt').mockReturnValue({
         canInstall: true,
+        shouldPromote: true,
+        variant: 'ios',
         install: mockInstall,
         dismiss: mockDismiss
       })
     })
 
-    it('renders the install prompt banner', () => {
+    it('says what Show me opens, under the same Install app title', () => {
       render(<InstallPrompt />)
-      expect(screen.getByText('Install App')).toBeInTheDocument()
+      expect(screen.getByRole('dialog', { name: 'Install app' })).toHaveTextContent(
+        'Add Channel Club to your Home Screen',
+      )
+      expect(screen.queryByText(/quick access/)).not.toBeInTheDocument()
+    })
+
+    it('offers the Add to Home Screen steps instead of an Install button', () => {
+      render(<InstallPrompt />)
+      expect(screen.queryByRole('button', { name: 'Install' })).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Show me' }))
+
+      const sheet = screen.getByRole('dialog', { name: /Add Channel Club to your Home Screen/ })
+      expect(sheet).toHaveTextContent('Tap Share')
+      expect(sheet).toHaveTextContent('Add to Home Screen')
+      expect(mockInstall).not.toHaveBeenCalled()
+      // Seen once: the banner retires to the menu
+      expect(mockDismiss).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('when the banner should be promoted', () => {
+    beforeEach(() => {
+      vi.spyOn(useInstallPromptModule, 'useInstallPrompt').mockReturnValue({
+        canInstall: true,
+        shouldPromote: true,
+        variant: 'native',
+        install: mockInstall,
+        dismiss: mockDismiss
+      })
+    })
+
+    it('publishes the room it takes as --install-prompt-h only while it shows', () => {
+      const root = document.documentElement
+      const { unmount } = render(<InstallPrompt />)
+      expect(root.style.getPropertyValue('--install-prompt-h')).toMatch(/^calc\(\d+px \+ .*\)$/)
+
+      act(() => {
+        useChatStore.setState({ isOpen: true })
+      })
+      expect(root.style.getPropertyValue('--install-prompt-h')).toBe('')
+
+      act(() => {
+        useChatStore.setState({ isOpen: false })
+      })
+      expect(root.style.getPropertyValue('--install-prompt-h')).not.toBe('')
+
+      unmount()
+      expect(root.style.getPropertyValue('--install-prompt-h')).toBe('')
+    })
+
+    it('counts the offset it actually sits at, raised or not, in --install-prompt-h', () => {
+      // A portrait tablet gets the phone channel list and the raised md+
+      // banner, so the list must reserve the raised offset, not the phone one.
+      // jsdom has no stylesheet: stand in the browser's resolved bottom
+      const realGetComputedStyle = window.getComputedStyle.bind(window)
+      const spy = vi.spyOn(window, 'getComputedStyle').mockImplementation((el, pseudo) => {
+        const style = realGetComputedStyle(el, pseudo)
+        if (el.getAttribute('role') !== 'dialog') return style
+        return new Proxy(style, {
+          get: (target, prop) => (prop === 'bottom' ? '88px' : Reflect.get(target, prop)),
+        })
+      })
+      try {
+        render(<InstallPrompt />)
+        expect(document.documentElement.style.getPropertyValue('--install-prompt-h')).toMatch(
+          /^calc\(\d+px \+ 88px\)$/,
+        )
+      } finally {
+        spy.mockRestore()
+      }
+    })
+
+    it('stays hidden while chat is open and comes back when it closes', () => {
+      useChatStore.setState({ isOpen: true })
+      render(<InstallPrompt />)
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+      act(() => {
+        useChatStore.setState({ isOpen: false })
+      })
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+
+    it('renders the install prompt banner, titled in sentence case', () => {
+      render(<InstallPrompt />)
+      expect(screen.getByRole('dialog', { name: 'Install app' })).toBeInTheDocument()
+      expect(screen.queryByText('Install App')).not.toBeInTheDocument()
+    })
+
+    it('sits above the player control bar from md up, and at the bottom edge on a phone', () => {
+      render(<InstallPrompt />)
+      const banner = screen.getByRole('dialog', { name: 'Install app' })
+      // Tablet and desktop: raised clear of the bar's 48px buttons
+      expect(banner).toHaveClass('md:bottom-[calc(4.5rem+max(1rem,env(safe-area-inset-bottom)))]')
+      // Phone: the player is not at the bottom of the screen, so it stays low
+      expect(banner).toHaveClass('bottom-[max(1rem,env(safe-area-inset-bottom))]')
     })
 
     it('shows install description text', () => {
@@ -72,6 +233,36 @@ describe('InstallPrompt', () => {
       fireEvent.click(dismissButton)
 
       expect(mockDismiss).toHaveBeenCalled()
+    })
+
+    describe('styling', () => {
+      it('uses theme tokens instead of hard-coded slate and blue', () => {
+        render(<InstallPrompt />)
+        const dialog = screen.getByRole('dialog')
+        expect(dialog).toHaveClass('bg-card', 'text-card-foreground', 'border-border')
+
+        const classes = [dialog, ...dialog.querySelectorAll('*')]
+          .map((el) => el.getAttribute('class') ?? '')
+          .join(' ')
+        expect(classes).not.toMatch(/\b(?:[\w-]+:)*[\w-]+-(?:slate|blue)-\d+/)
+      })
+
+      it('uses the default primary Install button', () => {
+        render(<InstallPrompt />)
+        const installButton = screen.getByRole('button', { name: 'Install' })
+        expect(installButton).toHaveClass('bg-primary', 'text-primary-foreground')
+        expect(installButton.className).not.toMatch(/bg-blue/)
+      })
+
+      it('lets the description wrap instead of truncating it', () => {
+        render(<InstallPrompt />)
+        expect(screen.getByText(/Add to home screen/i)).not.toHaveClass('truncate')
+      })
+
+      it('sits above the home indicator', () => {
+        render(<InstallPrompt />)
+        expect(screen.getByRole('dialog')).toHaveClass('bottom-[max(1rem,env(safe-area-inset-bottom))]')
+      })
     })
 
     describe('accessibility', () => {

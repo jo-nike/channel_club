@@ -4,8 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from loguru import logger
 
 from app.models.auth import TokenPayload
-from app.models.epg import EPGResponse, NowPlayingBulkResponse
+from app.models.channel import Channel
+from app.models.epg import EPGProgrammesResponse, EPGResponse, NowPlayingBulkResponse
 from app.routers.auth_deps import get_current_user
+from app.services.dispatcharr import DispatchrrUnavailableError, get_grouped_channels
 from app.services.epg_service import EPGServiceError, get_epg_service
 
 router = APIRouter(tags=["epg"])
@@ -21,6 +23,10 @@ async def get_now_playing_all(
     Requires JWT authentication. Lets a channel list show what is on each
     channel without one request per channel.
 
+    The grouped channel catalogue (the list the channel picker shows) is
+    resolved by guide id with the same display-name fallback as the single
+    lookup. When the catalogue is unavailable, only XMLTV ids are returned.
+
     Args:
         current_user: Authenticated user from JWT token.
 
@@ -34,8 +40,15 @@ async def get_now_playing_all(
     log.debug("EPG bulk now-playing request")
     epg_service = get_epg_service()
 
+    channels: list[Channel] = []
     try:
-        now_playing = await epg_service.get_now_playing_bulk()
+        grouped = await get_grouped_channels()
+        channels = [ch for group in grouped.groups for ch in group.channels] + grouped.ungrouped
+    except DispatchrrUnavailableError:
+        log.warning("Channel catalogue unavailable; bulk now-playing keyed by XMLTV id only")
+
+    try:
+        now_playing = await epg_service.get_now_playing_bulk(channels)
         log.debug("EPG bulk response with {} channels on air", len(now_playing))
         return NowPlayingBulkResponse(now_playing=now_playing)
     except EPGServiceError:
@@ -49,6 +62,11 @@ async def get_now_playing_all(
 @router.get("/epg/now-playing", response_model=EPGResponse)
 async def get_now_playing(
     channel_id: str = Query(..., description="Channel UUID to get EPG data for"),
+    channel_name: str | None = Query(
+        None,
+        max_length=256,
+        description="Channel name, matched to an XMLTV display name when the id has no data",
+    ),
     current_user: TokenPayload = Depends(get_current_user),
 ) -> EPGResponse:
     """Get current and next program for a channel.
@@ -58,6 +76,7 @@ async def get_now_playing(
 
     Args:
         channel_id: UUID of the channel to look up.
+        channel_name: Optional channel name to fall back on.
         current_user: Authenticated user from JWT token.
 
     Returns:
@@ -70,11 +89,54 @@ async def get_now_playing(
     epg_service = get_epg_service()
 
     try:
-        result = await epg_service.get_now_playing(channel_id)
+        result = await epg_service.get_now_playing(channel_id, channel_name=channel_name)
         log.debug("EPG response data returned for channel: {}", channel_id)
         return result
     except EPGServiceError:
         log.warning("EPG service unavailable for channel: {}", channel_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="EPG service unavailable",
+        ) from None
+
+
+@router.get("/epg/programmes", response_model=EPGProgrammesResponse)
+async def get_programmes(
+    channel_id: str = Query(..., description="Guide id of the channel to get the schedule for"),
+    hours: int = Query(12, ge=1, le=48, description="How many hours ahead of now to include"),
+    channel_name: str | None = Query(
+        None,
+        max_length=256,
+        description="Channel name, matched to an XMLTV display name when the id has no data",
+    ),
+    current_user: TokenPayload = Depends(get_current_user),
+) -> EPGProgrammesResponse:
+    """Get a channel's schedule from the XMLTV guide.
+
+    Requires JWT authentication. Returns the programmes that end after
+    30 minutes ago and start within the next `hours` hours, in start order.
+
+    Args:
+        channel_id: Guide id of the channel to look up.
+        hours: How many hours ahead of now to include (1-48).
+        channel_name: Optional channel name to fall back on.
+        current_user: Authenticated user from JWT token.
+
+    Returns:
+        EPGProgrammesResponse with the channel's programmes in the window.
+
+    Raises:
+        HTTPException: 503 if EPG service is unavailable.
+    """
+    log.debug("EPG programmes request for channel_id: {} ({}h)", channel_id, hours)
+    epg_service = get_epg_service()
+
+    try:
+        result = await epg_service.get_programmes(channel_id, hours, channel_name=channel_name)
+        log.debug("EPG programmes returned {} for channel: {}", len(result.programmes), channel_id)
+        return result
+    except EPGServiceError:
+        log.warning("EPG service unavailable for programmes of channel: {}", channel_id)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="EPG service unavailable",

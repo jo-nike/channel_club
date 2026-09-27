@@ -1,44 +1,9 @@
 import { useEffect } from 'react'
-import { useThemeStore } from '@/stores/themeStore'
+import { resolveThemeId, useThemeStore } from '@/stores/themeStore'
+import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { getTheme } from '@/lib/themes'
+import { colorToCSSVar, createThemeBoot, saveThemeBoot } from '@/lib/themeBoot'
 import type { ThemeId, ThemeColors } from '@/types/theme'
-
-/**
- * Map of ThemeColors property names to CSS variable names
- */
-const colorToCSSVar: Record<keyof ThemeColors, string> = {
-  background: '--background',
-  foreground: '--foreground',
-  card: '--card',
-  cardForeground: '--card-foreground',
-  popover: '--popover',
-  popoverForeground: '--popover-foreground',
-  primary: '--primary',
-  primaryForeground: '--primary-foreground',
-  secondary: '--secondary',
-  secondaryForeground: '--secondary-foreground',
-  muted: '--muted',
-  mutedForeground: '--muted-foreground',
-  accent: '--accent',
-  accentForeground: '--accent-foreground',
-  destructive: '--destructive',
-  border: '--border',
-  input: '--input',
-  ring: '--ring',
-  chart1: '--chart-1',
-  chart2: '--chart-2',
-  chart3: '--chart-3',
-  chart4: '--chart-4',
-  chart5: '--chart-5',
-  sidebar: '--sidebar',
-  sidebarForeground: '--sidebar-foreground',
-  sidebarPrimary: '--sidebar-primary',
-  sidebarPrimaryForeground: '--sidebar-primary-foreground',
-  sidebarAccent: '--sidebar-accent',
-  sidebarAccentForeground: '--sidebar-accent-foreground',
-  sidebarBorder: '--sidebar-border',
-  sidebarRing: '--sidebar-ring',
-}
 
 /**
  * Apply theme colors to the document root element
@@ -69,6 +34,14 @@ function applyDarkModeClass(isDark: boolean): void {
 }
 
 /**
+ * Point the browser UI colour (status bar, PWA title bar) at the theme
+ * background
+ */
+function applyThemeColorMeta(hex: string): void {
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', hex)
+}
+
+/**
  * Hook to apply and manage the current theme
  *
  * Usage: Call this hook in your root App component to initialize theming.
@@ -76,11 +49,17 @@ function applyDarkModeClass(isDark: boolean): void {
  * - Apply the current theme's colors as CSS custom properties
  * - Toggle the 'dark' class on the document root based on theme mode
  * - Automatically update when the theme changes
+ * - In Auto (followSystem), show the dark or light pick to match
+ *   prefers-color-scheme, and switch live when the device's scheme changes
  *
  * @returns Object containing current theme info and setTheme function
  */
 export function useTheme() {
-  const themeId = useThemeStore((s) => s.themeId)
+  const systemPrefersDark = useMediaQuery('(prefers-color-scheme: dark)')
+  const themeId = useThemeStore((s) => resolveThemeId(s, systemPrefersDark))
+  const followSystem = useThemeStore((s) => s.followSystem)
+  const darkThemeId = useThemeStore((s) => s.darkThemeId)
+  const lightThemeId = useThemeStore((s) => s.lightThemeId)
   const setThemeId = useThemeStore((s) => s.setTheme)
 
   // Get the full theme object
@@ -93,7 +72,18 @@ export function useTheme() {
 
     // Apply all color CSS variables
     applyThemeColors(theme.colors)
-  }, [theme])
+
+    // In Auto, keep both picks so index.html can match the scheme at load
+    const boot = createThemeBoot(
+      theme,
+      followSystem ? { dark: getTheme(darkThemeId), light: getTheme(lightThemeId) } : undefined
+    )
+
+    applyThemeColorMeta(boot.themeColor)
+
+    // Remember the resolved theme so index.html can apply it before first paint
+    saveThemeBoot(boot)
+  }, [theme, followSystem, darkThemeId, lightThemeId])
 
   return {
     themeId,

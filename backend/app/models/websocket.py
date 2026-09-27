@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 MAX_MESSAGE_BYTES = 16 * 1024
 PresenceText = Annotated[str, Field(strict=True, max_length=512)]
 InputText = Annotated[str, Field(strict=True, max_length=4096)]
+ClientMessageId = Annotated[str, Field(strict=True, min_length=1, max_length=64)]
 
 
 class ClientMessage(BaseModel):
@@ -35,15 +36,41 @@ class NicknameMessage(ClientMessage):
     nickname: InputText = ""
 
 
+class PresencePrefsMessage(ClientMessage):
+    type: Literal["set_presence_prefs"]
+    hideActivity: bool
+
+
 class ChatMessage(ClientMessage):
     type: Literal["chat_message"]
     content: InputText = ""
-    clientMessageId: Annotated[str, Field(strict=True, min_length=1, max_length=64)] | None = None
+    clientMessageId: ClientMessageId | None = None
+
+
+class ShareMessage(ClientMessage):
+    """Share what I'm watching. Carries no channel: the server fills it from presence."""
+
+    type: Literal["share"]
+    clientMessageId: ClientMessageId | None = None
+
+
+class SuggestMessage(ClientMessage):
+    """Suggest a channel for live TV. Only its id: the server resolves the rest."""
+
+    type: Literal["suggest"]
+    channelId: PresenceText
+    clientMessageId: ClientMessageId | None = None
 
 
 client_message_adapter = TypeAdapter(
     Annotated[
-        PingMessage | ChannelUpdateMessage | NicknameMessage | ChatMessage,
+        PingMessage
+        | ChannelUpdateMessage
+        | NicknameMessage
+        | PresencePrefsMessage
+        | ChatMessage
+        | ShareMessage
+        | SuggestMessage,
         Field(discriminator="type"),
     ]
 )

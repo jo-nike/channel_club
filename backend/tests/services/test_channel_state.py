@@ -4,8 +4,9 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from app.config import settings
 from app.models.channel import Channel
-from app.services import channel_state
+from app.services import channel_state, chat
 
 
 @pytest.fixture(autouse=True)
@@ -110,6 +111,154 @@ class TestClearCurrentChannel:
         """Should not error when clearing with no channel set."""
         channel_state.clear_current_channel()
         assert channel_state.get_current_channel() is None
+
+
+class TestChannelUpdateAttribution:
+    """Tests for the changedBy field on channel_update broadcasts."""
+
+    @pytest.mark.asyncio
+    async def test_set_broadcast_names_the_user(self) -> None:
+        """Setting a channel with a user broadcasts changedBy as that user."""
+        channel = Channel(
+            id="uuid-1",
+            name="TSN",
+            stream_url="https://streams.example.com/stream/uuid-1",
+            guide_id="guide-1",
+        )
+
+        with patch.object(channel_state, "broadcast", new_callable=AsyncMock) as mock_broadcast:
+            await channel_state.set_current_channel(channel, user="alice")
+
+        mock_broadcast.assert_awaited_once()
+        assert mock_broadcast.await_args is not None
+        message = mock_broadcast.await_args.args[0]
+        assert message["type"] == "channel_update"
+        assert message["channel"]["id"] == "uuid-1"
+        assert message["changedBy"] == "alice"
+
+    @pytest.mark.asyncio
+    async def test_set_broadcast_without_user_has_null_changed_by(self) -> None:
+        """A system change (no user) broadcasts changedBy as None."""
+        channel = Channel(
+            id="uuid-1",
+            name="TSN",
+            stream_url="https://streams.example.com/stream/uuid-1",
+            guide_id="guide-1",
+        )
+
+        with patch.object(channel_state, "broadcast", new_callable=AsyncMock) as mock_broadcast:
+            await channel_state.set_current_channel(channel)
+
+        assert mock_broadcast.await_args is not None
+        message = mock_broadcast.await_args.args[0]
+        assert "changedBy" in message
+        assert message["changedBy"] is None
+
+    @pytest.mark.asyncio
+    async def test_clear_broadcast_names_the_user(self) -> None:
+        """Clearing with a user broadcasts a null channel with changedBy."""
+        with patch.object(channel_state, "broadcast", new_callable=AsyncMock) as mock_broadcast:
+            await channel_state.clear_current_channel_async(user="alice")
+
+        mock_broadcast.assert_awaited_once_with(
+            {"type": "channel_update", "channel": None, "changedBy": "alice"}
+        )
+
+
+def _sent_messages(mock_broadcast: AsyncMock) -> list[dict]:
+    """The messages a patched broadcast was awaited with, in order."""
+    return [call.args[0] for call in mock_broadcast.await_args_list]
+
+
+class TestLiveChangeSystemLines:
+    """Tests for the system chat line posted when someone changes Live."""
+
+    @pytest.fixture
+    def channel(self) -> Channel:
+        return Channel(
+            id="uuid-5",
+            name="TSN 5",
+            stream_url="https://streams.example.com/stream/uuid-5",
+            guide_id="guide-5",
+        )
+
+    @pytest.mark.asyncio
+    async def test_set_posts_a_system_line_when_chat_is_enabled(
+        self, channel: Channel, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With chat on, a switch broadcasts the channel_update then a system line."""
+        monkeypatch.setattr(settings, "chat_enabled", True)
+
+        with patch.object(channel_state, "broadcast", new_callable=AsyncMock) as mock_broadcast:
+            await channel_state.set_current_channel(channel, user="jon")
+
+        sent = _sent_messages(mock_broadcast)
+        assert [m["type"] for m in sent] == ["channel_update", "chat_message"]
+        line = sent[1]
+        assert line["kind"] == "system"
+        assert line["username"] == "Live TV"
+        assert line["content"] == "jon put on TSN 5"
+
+    @pytest.mark.asyncio
+    async def test_clear_posts_a_system_line_when_chat_is_enabled(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With chat on, stopping live TV broadcasts a system line naming who did it."""
+        monkeypatch.setattr(settings, "chat_enabled", True)
+
+        with patch.object(channel_state, "broadcast", new_callable=AsyncMock) as mock_broadcast:
+            await channel_state.clear_current_channel_async(user="jon")
+
+        sent = _sent_messages(mock_broadcast)
+        assert [m["type"] for m in sent] == ["channel_update", "chat_message"]
+        assert sent[1]["kind"] == "system"
+        assert sent[1]["content"] == "jon stopped live TV"
+
+    @pytest.mark.asyncio
+    async def test_no_system_line_when_chat_is_disabled(
+        self, channel: Channel, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With chat off, only the channel_update goes out, on set and on clear."""
+        monkeypatch.setattr(settings, "chat_enabled", False)
+
+        with patch.object(channel_state, "broadcast", new_callable=AsyncMock) as mock_broadcast:
+            await channel_state.set_current_channel(channel, user="jon")
+            await channel_state.clear_current_channel_async(user="jon")
+
+        assert [m["type"] for m in _sent_messages(mock_broadcast)] == [
+            "channel_update",
+            "channel_update",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_no_system_line_without_a_user(
+        self, channel: Channel, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A change nobody made has no one to name, so no line is posted."""
+        monkeypatch.setattr(settings, "chat_enabled", True)
+
+        with patch.object(channel_state, "broadcast", new_callable=AsyncMock) as mock_broadcast:
+            await channel_state.set_current_channel(channel)
+            await channel_state.clear_current_channel_async()
+
+        assert [m["type"] for m in _sent_messages(mock_broadcast)] == [
+            "channel_update",
+            "channel_update",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_system_line_is_not_stored_in_chat_history(
+        self, channel: Channel, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Live changes never take room in the chat history."""
+        monkeypatch.setattr(settings, "chat_enabled", True)
+        chat.clear_history()
+
+        with patch.object(channel_state, "broadcast", new_callable=AsyncMock):
+            await channel_state.set_current_channel(channel, user="jon")
+            await channel_state.clear_current_channel_async(user="jon")
+
+        assert chat.get_history_count() == 0
 
 
 class TestConnectionManagement:

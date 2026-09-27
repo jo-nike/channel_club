@@ -89,6 +89,29 @@ describe('useAuth', () => {
       })
     })
 
+    it('keeps a valid base64url token whose payload has - and _ (no padding)', () => {
+      const logoutSpy = vi.fn()
+      // '>>>' and '???' encode to '+' and '/' in base64, which base64url writes as '-' and '_'
+      const payload = { sub: 'Zoë', note: '>>>???', exp: Math.floor(Date.now() / 1000) + 3600 }
+      const bytes = new TextEncoder().encode(JSON.stringify(payload))
+      const segment = btoa(Array.from(bytes, (b) => String.fromCharCode(b)).join(''))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '')
+      expect(segment).toMatch(/[-_]/)
+
+      useAuthStore.setState({
+        token: `header.${segment}.signature`,
+        role: 'viewer',
+        isAuthenticated: true,
+        logout: logoutSpy,
+      })
+
+      renderHook(() => useAuth())
+
+      expect(logoutSpy).not.toHaveBeenCalled()
+    })
+
     it('should not call logout when token is valid', () => {
       const logoutSpy = vi.fn()
       // Create a valid JWT token that expires in 1 hour

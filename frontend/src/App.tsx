@@ -1,13 +1,26 @@
 import { Outlet } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
+import { useTheme } from '@/hooks/useTheme'
+import { useProgrammeReminders } from '@/hooks/useProgrammeReminders'
 import { LoginForm } from '@/components/LoginForm'
 import { AppLoadingScreen } from '@/components/AppLoadingScreen'
 import { OfflineFallback } from '@/components/OfflineFallback'
 import { InstallPrompt } from '@/components/InstallPrompt'
 import { Toaster } from '@/components/ui/sonner'
 
+/** Programme reminders go off while someone is signed in, whichever view is open. */
+function ReminderRunner() {
+  useProgrammeReminders()
+  return null
+}
+
 export function App() {
   const { isAuthenticated, isInitializing } = useAuth()
+
+  // Apply the stored theme here, before the early returns, so the loading
+  // and sign-in screens are themed too (not only the main view)
+  const { isDark } = useTheme()
+  const toastTheme = isDark ? 'dark' : 'light'
 
   // Show loading screen while checking auth state
   if (isInitializing) {
@@ -15,7 +28,7 @@ export function App() {
       <>
         <OfflineFallback />
         <AppLoadingScreen />
-        <Toaster />
+        <Toaster theme={toastTheme} />
       </>
     )
   }
@@ -27,7 +40,7 @@ export function App() {
         <div className="flex min-h-screen items-center justify-center bg-background">
           <LoginForm />
         </div>
-        <Toaster />
+        <Toaster theme={toastTheme} />
       </>
     )
   }
@@ -37,7 +50,8 @@ export function App() {
       <OfflineFallback />
       <Outlet />
       <InstallPrompt />
-      <Toaster />
+      <ReminderRunner />
+      <Toaster theme={toastTheme} />
     </>
   )
 }

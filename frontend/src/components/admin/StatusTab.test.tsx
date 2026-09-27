@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen } from '@/test/utils'
+import { render, screen, within } from '@/test/utils'
 import { StatusTab } from './StatusTab'
 
 // Mock useSystemStatus hook
@@ -7,6 +7,54 @@ const mockUseSystemStatus = vi.fn()
 vi.mock('@/hooks/useSystemStatus', () => ({
   useSystemStatus: () => mockUseSystemStatus(),
 }))
+
+const onlineEpg = {
+  name: 'Guide data (XMLTV)',
+  online: true,
+  lastChecked: '2026-01-04T12:00:00Z',
+  error: null,
+  stale: false,
+  channelCount: 109,
+  programmeCount: 5065,
+  lastAttemptAt: '2026-01-04T11:55:00Z',
+  lastSuccessAt: '2026-01-04T11:55:00Z',
+  nextRetryAt: null,
+}
+
+const onlineErsatztv = {
+  name: 'ErsatzTV',
+  online: true,
+  lastChecked: '2026-01-04T12:00:00Z',
+  error: null,
+  activeSessions: 0,
+  sessions: [],
+}
+
+const onlineDispatcharr = {
+  name: 'Dispatcharr',
+  online: true,
+  lastChecked: '2026-01-04T12:00:00Z',
+  error: null,
+  activeStreams: 0,
+  totalViewers: 0,
+}
+
+function mockGuideData(epg: Record<string, unknown>) {
+  mockUseSystemStatus.mockReturnValue({
+    data: { ersatztv: onlineErsatztv, dispatcharr: onlineDispatcharr, epg },
+    loading: false,
+    error: null,
+    lastUpdated: new Date('2026-01-04T12:00:00Z'),
+    isRefreshing: false,
+    refetch: vi.fn(),
+  })
+}
+
+function guideDataCard() {
+  const card = screen.getByText('Guide data (XMLTV)').closest('[data-slot="card"]')
+  if (!(card instanceof HTMLElement)) throw new Error('Guide data card not found')
+  return within(card)
+}
 
 // Mock cn utility
 vi.mock('@/lib/utils', () => ({
@@ -78,6 +126,7 @@ describe('StatusTab', () => {
           activeStreams: 5,
           totalViewers: 10,
         },
+        epg: onlineEpg,
       },
       loading: false,
       error: null,
@@ -117,6 +166,7 @@ describe('StatusTab', () => {
           activeStreams: 0,
           totalViewers: 0,
         },
+        epg: onlineEpg,
       },
       loading: false,
       error: null,
@@ -154,6 +204,7 @@ describe('StatusTab', () => {
           activeStreams: 0,
           totalViewers: 0,
         },
+        epg: onlineEpg,
       },
       loading: false,
       error: null,
@@ -195,6 +246,7 @@ describe('StatusTab', () => {
           activeStreams: 0,
           totalViewers: 0,
         },
+        epg: onlineEpg,
       },
       loading: false,
       error: null,
@@ -206,6 +258,87 @@ describe('StatusTab', () => {
     render(<StatusTab />)
 
     expect(screen.getByRole('button', { name: /refresh/i })).toBeInTheDocument()
+  })
+
+  it('shows guide data as unavailable with the upstream reason after a 403', () => {
+    mockGuideData({
+      ...onlineEpg,
+      online: false,
+      error: 'HTTP 403',
+      channelCount: 0,
+      programmeCount: 0,
+      lastSuccessAt: null,
+      nextRetryAt: '2026-01-04T12:00:30Z',
+    })
+
+    render(<StatusTab />)
+
+    const card = guideDataCard()
+    expect(card.getByText('Unavailable')).toBeInTheDocument()
+    expect(card.getByText('HTTP 403')).toBeInTheDocument()
+    expect(card.getByText('Never')).toBeInTheDocument()
+    expect(card.getByText('Next Retry')).toBeInTheDocument()
+    expect(
+      card.getByText(new Date('2026-01-04T12:00:30Z').toLocaleString())
+    ).toBeInTheDocument()
+  })
+
+  it('shows guide data counts and last success when online', () => {
+    mockGuideData(onlineEpg)
+
+    render(<StatusTab />)
+
+    const card = guideDataCard()
+    expect(card.getByText('Online')).toBeInTheDocument()
+    expect(card.getByText('109')).toBeInTheDocument()
+    expect(card.getByText('5065')).toBeInTheDocument()
+    expect(
+      card.getByText(new Date('2026-01-04T11:55:00Z').toLocaleString())
+    ).toBeInTheDocument()
+    expect(card.queryByText('Last Error')).not.toBeInTheDocument()
+    expect(card.queryByText('Next Retry')).not.toBeInTheDocument()
+  })
+
+  it('colours the guide data status icon with the theme status tokens', () => {
+    // The icon sits next to the card title in the header row
+    const statusIcon = () => {
+      const icon = screen.getByText('Guide data (XMLTV)').nextElementSibling
+      if (!(icon instanceof HTMLElement)) throw new Error('Guide data status icon not found')
+      return icon
+    }
+
+    mockGuideData(onlineEpg)
+    const { unmount } = render(<StatusTab />)
+    expect(statusIcon()).toHaveClass('text-success')
+    expect(statusIcon().className).not.toMatch(/green|red|amber/)
+    unmount()
+
+    mockGuideData({ ...onlineEpg, stale: true })
+    const stale = render(<StatusTab />)
+    expect(statusIcon()).toHaveClass('text-warning')
+    expect(statusIcon().className).not.toMatch(/green|red|amber/)
+    stale.unmount()
+
+    mockGuideData({ ...onlineEpg, online: false, error: 'HTTP 403' })
+    render(<StatusTab />)
+    expect(statusIcon()).toHaveClass('text-destructive')
+    expect(statusIcon().className).not.toMatch(/green|red|amber/)
+  })
+
+  it('shows guide data as stale when refreshes fail but cached data remains', () => {
+    mockGuideData({
+      ...onlineEpg,
+      stale: true,
+      error: 'timeout',
+      nextRetryAt: '2026-01-04T12:05:00Z',
+    })
+
+    render(<StatusTab />)
+
+    const card = guideDataCard()
+    expect(card.getByText('Stale')).toBeInTheDocument()
+    expect(card.getByText('timeout')).toBeInTheDocument()
+    expect(card.getByText('109')).toBeInTheDocument()
   })
 
   it('keeps application information when upstream data is absent', () => {

@@ -1,7 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@/test/utils'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, fireEvent, waitFor } from '@/test/utils'
 import { FilterMenu } from './FilterMenu'
+import { focusOverrides } from '@/test/focus'
 import { useFilterStore, FILTER_REGISTRY } from '@/stores/filterStore'
+import { useMediaQuery } from '@/hooks/useMediaQuery'
 
 // Mock useMediaQuery hook
 vi.mock('@/hooks/useMediaQuery', () => ({
@@ -107,9 +109,125 @@ describe('FilterMenu', () => {
     expect(useFilterStore.getState().activeFilters).toContain('retro-tv')
   })
 
+  it('left-aligns each filter row so wrapped descriptions do not centre', async () => {
+    render(<FilterMenu isVisible={true} />)
+    fireEvent.click(screen.getByRole('button', { name: /video filters/i }))
+
+    for (const filter of FILTER_REGISTRY) {
+      const row = await screen.findByRole('button', { name: new RegExp(filter.name, 'i') })
+      expect(row).toHaveClass('text-left')
+    }
+  })
+
+  // A two-line description must not squeeze the switch: jsdom does no layout,
+  // so check the flex classes that keep every switch 44px wide and in line
+  async function expectFixedSwitches() {
+    for (const filter of FILTER_REGISTRY) {
+      const row = await screen.findByRole('button', { name: new RegExp(filter.name, 'i') })
+      const [text, track] = Array.from(row.children)
+      expect(text).toHaveClass('min-w-0', 'flex-1')
+      expect(track).toHaveClass('h-6', 'w-11', 'shrink-0')
+    }
+  }
+
+  it('keeps every filter switch its full size when the description wraps', async () => {
+    render(<FilterMenu isVisible={true} />)
+    fireEvent.click(screen.getByRole('button', { name: /video filters/i }))
+
+    await expectFixedSwitches()
+  })
+
+  it('opens the popover from the start of the trigger, not centred over the picture', async () => {
+    render(<FilterMenu isVisible={true} />)
+    fireEvent.click(screen.getByRole('button', { name: /video filters/i }))
+
+    const heading = await screen.findByText('Video Filters')
+    const content = heading.closest('[data-slot="popover-content"]')
+    expect(content).toHaveAttribute('data-align', 'start')
+  })
+
+  describe('portal', () => {
+    const setFullscreenElement = (element: Element | null) =>
+      Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: element })
+    const added: Element[] = []
+    const addToPage = () => {
+      const element = document.body.appendChild(document.createElement('div'))
+      added.push(element)
+      return element
+    }
+
+    afterEach(() => {
+      setFullscreenElement(null)
+      added.splice(0).forEach((element) => element.remove())
+    })
+
+    // The player container is the element the player fullscreens, so it is
+    // the one place the menu shows both in and out of fullscreen
+    it.each([
+      ['nothing', () => null],
+      ['another element', addToPage],
+    ])('opens inside the player container while %s is fullscreen', async (_what, fullscreenElement) => {
+      const container = addToPage()
+      setFullscreenElement(fullscreenElement())
+      render(<FilterMenu isVisible={true} containerRef={{ current: container }} />)
+
+      fireEvent.click(screen.getByRole('button', { name: /video filters/i }))
+
+      expect(container).toContainElement(await screen.findByText('Video Filters'))
+    })
+  })
+
+  describe('mobile sheet', () => {
+    beforeEach(() => {
+      vi.mocked(useMediaQuery).mockReturnValue(true)
+    })
+
+    afterEach(() => {
+      vi.mocked(useMediaQuery).mockReturnValue(false)
+    })
+
+    it('opens the filters as a dialog from the button', async () => {
+      render(<FilterMenu isVisible={true} />)
+
+      fireEvent.click(screen.getByRole('button', { name: /video filters/i }))
+
+      expect(await screen.findByRole('dialog', { name: 'Video Filters' })).toBeInTheDocument()
+    })
+
+    it('keeps every filter switch its full size in the sheet', async () => {
+      render(<FilterMenu isVisible={true} />)
+      fireEvent.click(screen.getByRole('button', { name: /video filters/i }))
+      await screen.findByRole('dialog', { name: 'Video Filters' })
+
+      await expectFixedSwitches()
+    })
+
+    it('returns focus to the Video filters button when Escape closes it', async () => {
+      render(<FilterMenu isVisible={true} />)
+      const button = screen.getByRole('button', { name: /video filters/i })
+      button.focus()
+      fireEvent.click(button)
+      const dialog = await screen.findByRole('dialog', { name: 'Video Filters' })
+      // Radix moves focus on the next tick
+      await waitFor(() => expect(button).not.toHaveFocus())
+
+      fireEvent.keyDown(dialog, { key: 'Escape' })
+
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+      await waitFor(() => expect(button).toHaveFocus())
+    })
+  })
+
   it('should have aria-haspopup on trigger button', () => {
     render(<FilterMenu isVisible={true} />)
     const button = screen.getByRole('button', { name: /video filters/i })
     expect(button).toHaveAttribute('aria-haspopup', 'dialog')
+  })
+
+  it('marks keyboard focus with the over-video ring, not a blue ring or a click-time one', () => {
+    render(<FilterMenu isVisible={true} />)
+    const button = screen.getByRole('button', { name: /video filters/i })
+    expect(button).toHaveClass('focus-ring-media')
+    expect(focusOverrides(button)).toEqual([])
   })
 })

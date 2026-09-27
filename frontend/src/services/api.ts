@@ -3,13 +3,14 @@ import { logger } from '@/lib/logger'
 import type {
   AppSettings,
   Channel,
+  EPGProgrammesResponse,
   EPGResponse,
   GroupedChannelsResponse,
   NowPlayingBulkResponse,
   Program,
 } from '@/types'
 
-import { API_URL } from './apiBase'
+import { API_URL, apiAssetUrl } from './apiBase'
 
 /**
  * Get absolute API URL for Chromecast.
@@ -86,13 +87,22 @@ export async function login(credentials: LoginRequest): Promise<TokenResponse> {
   return response.json()
 }
 
+/** The stored token, or the in-memory one when site storage is blocked (signed in for this page only). */
+export function getAuthToken(): string | null {
+  try {
+    return localStorage.getItem('token')
+  } catch {
+    return useAuthStore.getState().token
+  }
+}
+
 export async function fetchWithAuth(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<Response> {
   logger.debug('API', `Request: ${options.method || 'GET'} ${endpoint}`)
 
-  const token = localStorage.getItem('token')
+  const token = getAuthToken()
   const generation = useAuthStore.getState().generation
 
   const headers: Record<string, string> = {
@@ -113,7 +123,7 @@ export async function fetchWithAuth(
   if (response.status === 401) {
     logger.error('API', `Session expired: ${endpoint}`, { status: 401 })
     // Clear auth state and redirect to login
-    if (useAuthStore.getState().generation === generation && localStorage.getItem('token') === token) {
+    if (useAuthStore.getState().generation === generation && getAuthToken() === token) {
       useAuthStore.getState().logout()
     }
     throw new Error('Session expired')
@@ -236,22 +246,50 @@ export async function clearCurrentChannel(): Promise<void> {
       statusText: response.statusText,
     })
     if (response.status === 403) {
-      throw new Error('Only admins can clear the channel')
+      throw new Error('Only admins can stop live TV')
     }
-    throw new Error('Failed to clear channel')
+    throw new Error('Could not stop live TV')
   }
 
   logger.info('API', 'Channel cleared')
 }
 
-export async function fetchNowPlaying(channelId: string): Promise<EPGResponse> {
+export async function fetchNowPlaying(channelId: string, channelName?: string): Promise<EPGResponse> {
   logger.debug('API', `Fetching now playing for channel: ${channelId}`)
 
-  const response = await fetchWithAuth(`/epg/now-playing?channel_id=${channelId}`)
+  // The name lets the server fall back to the guide's display names when the
+  // id doesn't match; both need encoding
+  const params = new URLSearchParams({ channel_id: channelId })
+  if (channelName) params.set('channel_name', channelName)
+  const response = await fetchWithAuth(`/epg/now-playing?${params}`)
 
   if (!response.ok) {
     logger.error('API', `Failed to fetch EPG: ${response.status}`, { channelId })
     throw new Error('Failed to fetch EPG')
+  }
+
+  return response.json()
+}
+
+/**
+ * A live channel's schedule, from programmes that ended in the last 30
+ * minutes to those starting within `hours` from now.
+ */
+export async function fetchLiveProgrammes(
+  channelId: string,
+  channelName?: string,
+  hours = 12
+): Promise<EPGProgrammesResponse> {
+  logger.debug('API', `Fetching programmes for channel: ${channelId}`)
+
+  // Same guide id and name fallback as fetchNowPlaying
+  const params = new URLSearchParams({ channel_id: channelId, hours: String(hours) })
+  if (channelName) params.set('channel_name', channelName)
+  const response = await fetchWithAuth(`/epg/programmes?${params}`)
+
+  if (!response.ok) {
+    logger.error('API', `Failed to fetch programmes: ${response.status}`, { channelId })
+    throw new Error('Failed to fetch programmes')
   }
 
   return response.json()
@@ -391,7 +429,7 @@ export async function saveHighlight(
 ): Promise<Blob> {
   logger.debug('API', `Saving highlight for channel: ${channelId} (format: ${format}, trim: ${JSON.stringify(trimOptions)})`)
 
-  const token = localStorage.getItem('token')
+  const token = getAuthToken()
   const headers: Record<string, string> = {}
 
   if (token) {
@@ -428,6 +466,10 @@ export interface HighlightCapture {
   duration: number
   bytes: number
   expiresAt: number
+  /** Server time of the capture request (Unix seconds) */
+  pressedAt: number
+  /** When the capture's last frame was recorded (Unix seconds); the press is at duration - (endsAt - pressedAt) */
+  endsAt: number
 }
 
 /** Snapshot the recent buffer server-side; the editor streams it by URL instead of downloading it. */
@@ -442,7 +484,7 @@ export async function createHighlightCapture(channelId: string, signal?: AbortSi
 
 /** Media elements cannot send headers, so the token travels in the query like HLS streams. */
 export function highlightCaptureUrl(captureId: string): string {
-  const token = localStorage.getItem('token')
+  const token = getAuthToken()
   return `${API_URL}/highlight/capture/${captureId}${token ? `?token=${token}` : ''}`
 }
 
@@ -451,6 +493,20 @@ export async function fetchHighlightCapture(captureId: string, signal?: AbortSig
   const response = await fetchWithAuth(`/highlight/capture/${captureId}`, { signal })
   if (!response.ok) throw new Error('This capture is no longer available. Capture again to retry.')
   return response.blob()
+}
+
+/**
+ * A single-use link, valid for a minute, that the browser's download manager can follow for the
+ * untrimmed capture. Unlike highlightCaptureUrl it carries no session token, so none ends up in
+ * download history or proxy logs.
+ */
+export async function createCaptureDownloadUrl(captureId: string, signal?: AbortSignal): Promise<string> {
+  const response = await fetchWithAuth(`/highlight/capture/${captureId}/download-token`, { method: 'POST', signal })
+  if (!response.ok) throw new Error('This capture is no longer available. Capture again to retry.')
+  const { url } = await response.json() as { url: string }
+  const resolved = apiAssetUrl(url)
+  if (!resolved) throw new Error('The download link was not valid. Please try again.')
+  return resolved
 }
 
 /** Free server disk as soon as the editor closes; expiry covers anything missed. */
@@ -583,7 +639,7 @@ export async function stopCastSession(sessionId: string): Promise<void> {
  * Uses absolute URL so Chromecast can access it.
  */
 export function getCastHlsUrl(sessionId: string): string {
-  const token = localStorage.getItem('token')
+  const token = getAuthToken()
   const baseUrl = getCastBaseUrl()
   return `${baseUrl}/cast/hls/${sessionId}/playlist.m3u8${token ? `?token=${token}` : ''}`
 }

@@ -1,36 +1,93 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/authStore'
-import { useChannelStore } from '@/stores/channelStore'
+import { useChannelStore, describeLiveChange } from '@/stores/channelStore'
+import { useTVStore } from '@/stores/tvStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { usePresenceStore } from '@/stores/presenceStore'
 import { logger } from '@/lib/logger'
 import { getSessionId } from '@/lib/sessionId'
+import { createClientMessageId } from '@/lib/messageId'
 import { useChatEnabled } from './useChatEnabled'
-import type { AppSettings, Channel, ChatMessage } from '@/types'
+import type { AppSettings, Channel, ChatMessage, PresenceEntry } from '@/types'
 
 interface WebSocketMessage {
   type: string
   channel?: Channel | null
+  // Username of whoever changed the live channel (channel_update); absent from older servers
+  changedBy?: string | null
   currentChannel?: Channel | null
   settings?: AppSettings
+  // Who this socket is signed in as (connection_ack); absent from older servers
+  you?: { username: string; userId?: string }
+  // Who is here (connection_ack and presence_update); absent from older servers
+  presence?: PresenceEntry[]
   // Chat message fields
   clientMessageId?: string
   accepted?: boolean
   messageId?: string
   username?: string
+  userId?: string
   content?: string
   timestamp?: string
+  kind?: ChatMessage['kind']
+  channelId?: ChatMessage['channelId']
+  channelName?: ChatMessage['channelName']
+  programme?: ChatMessage['programme']
+  view?: ChatMessage['view']
   messages?: ChatMessage[]
+  // error: what went wrong, and for nickname_taken the refused nickname
+  code?: string
+  nickname?: string
 }
 
-type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
+export type WebSocketStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
 
 const PING_INTERVAL = 30000
 const MAX_RETRIES = 5
 const INITIAL_BACKOFF = 1000 // 1 second
 const MAX_BACKOFF = 10000 // 10 seconds
+// After the fast retries run out, keep trying slowly; jitter spreads clients out after a server restart
+const SLOW_RETRY_INTERVAL = 30000 // 30 seconds
+const SLOW_RETRY_JITTER = 5000 // up to 5 seconds
+
+// One fixed id, so rapid live-channel switches replace the toast instead of stacking
+const LIVE_CHANGE_TOAST_ID = 'live-channel-change'
+const LIVE_CHANGE_TOAST_DURATION = 5000
+
+/**
+ * Tell the viewer someone changed the live channel (channel 0), naming who.
+ * Skipped for the person who made the change and for viewers already on
+ * channel 0, who see the change happen in the player.
+ */
+function notifyLiveChange(channel: Channel | null, changedBy: string | null) {
+  if (changedBy && changedBy === useAuthStore.getState().username) return
+  if (useTVStore.getState().selectedChannel?.type === 'live') return
+
+  if (channel) {
+    toast(describeLiveChange(channel.name, changedBy), {
+      id: LIVE_CHANGE_TOAST_ID,
+      duration: LIVE_CHANGE_TOAST_DURATION,
+      action: {
+        label: 'Watch',
+        onClick: () => {
+          const tv = useTVStore.getState()
+          tv.selectChannel(tv.getUnifiedChannels()[0])
+        },
+      },
+    })
+  } else if (changedBy) {
+    // Sonner merges an update into a visible toast with the same id, so an
+    // omitted action would keep the previous 'put on' toast's Watch button.
+    toast(describeLiveChange(null, changedBy), {
+      id: LIVE_CHANGE_TOAST_ID,
+      duration: LIVE_CHANGE_TOAST_DURATION,
+      action: undefined,
+    })
+  }
+}
 
 interface UseWebSocketOptions {
   view?: 'live' | 'ersatztv' | 'tv'
@@ -39,10 +96,14 @@ interface UseWebSocketOptions {
 export type ChatSendResult = 'acknowledged' | 'not-sent' | 'unconfirmed'
 
 interface UseWebSocketReturn {
-  status: ConnectionStatus
+  status: WebSocketStatus
   reconnect: () => void
   sendChannelUpdate: (channelName: string | null, programmeTitle?: string | null, viewType?: 'live' | 'ersatztv', channelId?: string | null) => void
-  sendChatMessage: (content: string) => Promise<ChatSendResult>
+  sendChatMessage: (content: string, clientMessageId?: string) => Promise<ChatSendResult>
+  // Post a card of what this viewer is watching; the server fills in the channel
+  sendShare: (clientMessageId?: string) => Promise<ChatSendResult>
+  // Suggest a channel for live TV in chat; the server looks the channel up by id
+  sendSuggest: (channelId: string, clientMessageId?: string) => Promise<ChatSendResult>
   sendSetNickname: (nickname: string) => void
 }
 
@@ -50,11 +111,18 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   const { view = 'live' } = options
   const token = useAuthStore((s) => s.token)
   const setCurrentChannel = useChannelStore((s) => s.setCurrentChannel)
+  const setLastChange = useChannelStore((s) => s.setLastChange)
   const notificationsEnabled = useUIStore((s) => s.notificationsEnabled)
+  const hideMyActivity = useUIStore((s) => s.hideMyActivity)
   const chatEnabled = useChatEnabled()
   const addChatMessage = useChatStore((s) => s.addMessage)
   const setChatMessages = useChatStore((s) => s.setMessages)
+  const setChatIdentity = useChatStore((s) => s.setIdentity)
+  const rejectChatNickname = useChatStore((s) => s.rejectNickname)
   const setUserChannelSelection = useSettingsStore((s) => s.setUserChannelSelection)
+  const setPresenceVisible = useSettingsStore((s) => s.setPresenceVisible)
+  const setPresence = usePresenceStore((s) => s.setEntries)
+  const clearPresence = usePresenceStore((s) => s.clear)
 
   const pendingChat = useRef(new Map<string, { finish: (result: ChatSendResult) => void; timer: ReturnType<typeof setTimeout> }>())
   const clearPendingChat = useCallback(() => {
@@ -76,7 +144,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     notificationsEnabledRef.current = notificationsEnabled
   }, [notificationsEnabled])
 
-  const [status, setStatus] = useState<ConnectionStatus>('disconnected')
+  const [status, setStatus] = useState<WebSocketStatus>('disconnected')
 
   const getBackoffDelay = useCallback(() => {
     return Math.min(INITIAL_BACKOFF * Math.pow(2, retryCountRef.current), MAX_BACKOFF)
@@ -101,6 +169,37 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           setCurrentChannel(message.currentChannel ?? null)
           if (message.settings) {
             setUserChannelSelection(message.settings.userChannelSelection)
+            setPresenceVisible(message.settings.presenceVisible ?? false)
+          }
+          if (typeof message.you?.username === 'string') {
+            // Loads this user's own nickname, replacing whoever chatted here before
+            setChatIdentity(message.you)
+            // Without a nickname the server already posts under the sign-in name
+            const storedNickname = useChatStore.getState().nickname
+            const socket = wsRef.current
+            if (storedNickname && socket?.readyState === WebSocket.OPEN) {
+              socket.send(JSON.stringify({ type: 'set_nickname', nickname: storedNickname }))
+              logger.debug('WebSocket', `Sent nickname after connection_ack: ${storedNickname}`)
+            }
+          }
+          if (Array.isArray(message.presence)) {
+            setPresence(message.presence)
+          }
+          // The server shares each new connection's channel unless told otherwise.
+          // Read from the store so a change doesn't recreate the socket handlers
+          if (useUIStore.getState().hideMyActivity) {
+            const socket = wsRef.current
+            if (socket?.readyState === WebSocket.OPEN) {
+              socket.send(JSON.stringify({ type: 'set_presence_prefs', hideActivity: true }))
+              logger.debug('WebSocket', 'Sent presence prefs after connection_ack: hidden')
+            }
+          }
+          break
+
+        case 'presence_update':
+          logger.debug('WebSocket', 'Received presence_update', message)
+          if (Array.isArray(message.presence)) {
+            setPresence(message.presence)
           }
           break
 
@@ -108,22 +207,22 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           logger.debug('WebSocket', 'Received settings_update', message)
           if (message.settings) {
             setUserChannelSelection(message.settings.userChannelSelection)
+            setPresenceVisible(message.settings.presenceVisible ?? false)
           }
           break
 
-        case 'channel_update':
+        case 'channel_update': {
           logger.debug('WebSocket', `Channel update: ${message.channel?.name || 'null'}`)
           // A null channel means the channel was cleared - propagate it too
-          setCurrentChannel(message.channel ?? null)
-          // Show notification toast if enabled
-          if (message.channel && notificationsEnabledRef.current) {
-            const channelName = message.channel.name
-            toast(`Live channel set to: ${channelName}`, {
-              id: `channel-update-${message.channel.id}`,
-              duration: 5000,
-            })
+          const channel = message.channel ?? null
+          const changedBy = message.changedBy ?? null
+          setCurrentChannel(channel)
+          setLastChange({ by: changedBy, at: Date.now(), channelName: channel?.name ?? null })
+          if (notificationsEnabledRef.current) {
+            notifyLiveChange(channel, changedBy)
           }
           break
+        }
 
         case 'pong':
           // Ping acknowledged, connection healthy
@@ -136,8 +235,14 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
             addChatMessage({
               messageId: message.messageId,
               username: message.username,
+              userId: message.userId,
               content: message.content,
               timestamp: message.timestamp,
+              kind: message.kind,
+              channelId: message.channelId,
+              channelName: message.channelName,
+              programme: message.programme,
+              view: message.view,
             })
           }
           break
@@ -149,12 +254,22 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           }
           break
 
+        case 'error':
+          if (message.code === 'nickname_taken' && typeof message.nickname === 'string') {
+            // Another member signed in under that name; go back to the name the server still uses
+            logger.info('WebSocket', `Nickname refused: ${message.nickname}`)
+            rejectChatNickname(message.nickname)
+          } else {
+            logger.warn('WebSocket', `Server error: ${message.code ?? 'unknown'}`, message)
+          }
+          break
+
         default:
           // Unknown message type - log but don't crash
           logger.warn('WebSocket', `Unknown message type: ${message.type}`, message)
       }
     },
-    [setCurrentChannel, chatEnabled, addChatMessage, setChatMessages, setUserChannelSelection]
+    [setCurrentChannel, setLastChange, chatEnabled, addChatMessage, setChatMessages, setChatIdentity, rejectChatNickname, setUserChannelSelection, setPresenceVisible, setPresence]
   )
 
   const connect = useCallback(
@@ -189,13 +304,6 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         logger.info('WebSocket', 'Connected successfully')
         setStatus('connected')
         retryCountRef.current = 0
-
-        // Send nickname if set (for chat display name)
-        const currentNickname = useChatStore.getState().nickname
-        if (currentNickname) {
-          ws.send(JSON.stringify({ type: 'set_nickname', nickname: currentNickname }))
-          logger.debug('WebSocket', `Sent nickname on connect: ${currentNickname}`)
-        }
 
         // Start ping interval for keep-alive
         pingIntervalRef.current = window.setInterval(() => {
@@ -278,8 +386,14 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
             connectRef.current?.(true)
           }, delay)
         } else {
-          logger.warn('WebSocket', 'Max reconnection attempts reached')
+          // Never give up: a restart longer than the fast retries must not strand the tab
+          const delay = SLOW_RETRY_INTERVAL + Math.random() * SLOW_RETRY_JITTER
+          logger.warn('WebSocket', `Fast reconnection attempts exhausted, retrying in ${Math.round(delay)}ms`)
           setStatus('disconnected')
+
+          reconnectTimeoutRef.current = window.setTimeout(() => {
+            connectRef.current?.(true)
+          }, delay)
         }
       }
     },
@@ -300,8 +414,11 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       ws.close()
       wsRef.current = null
     }
+    // Signed out or unmounted: nobody is known to be here any more. (A drop
+    // that reconnects keeps the list until the next connection_ack replaces it.)
+    clearPresence()
     setStatus('disconnected')
-  }, [clearTimers, clearPendingChat])
+  }, [clearTimers, clearPendingChat, clearPresence])
 
   const reconnect = useCallback(() => {
     retryCountRef.current = 0
@@ -315,12 +432,24 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     }
     const onVisible = () => { if (document.visibilityState === 'visible') recover() }
     window.addEventListener('online', recover)
+    // Foreground tabs and TVs never fire online or visibilitychange, but they do regain focus
+    window.addEventListener('focus', recover)
     document.addEventListener('visibilitychange', onVisible)
     return () => {
       window.removeEventListener('online', recover)
+      window.removeEventListener('focus', recover)
       document.removeEventListener('visibilitychange', onVisible)
     }
   }, [reconnect])
+
+  // Tell the server when the person changes it; each new socket gets it after its connection_ack
+  useEffect(() => {
+    const socket = wsRef.current
+    if (socket?.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: 'set_presence_prefs', hideActivity: hideMyActivity }))
+      logger.debug('WebSocket', `Sent presence prefs: ${hideMyActivity ? 'hidden' : 'shared'}`)
+    }
+  }, [hideMyActivity])
 
   const sendChannelUpdate = useCallback(
     (channelName: string | null, programmeTitle?: string | null, viewType?: 'live' | 'ersatztv', channelId?: string | null) => {
@@ -340,12 +469,11 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     []
   )
 
-  const sendChatMessage = useCallback(
-    (content: string): Promise<ChatSendResult> => {
+  // A chat send the server acknowledges by clientMessageId (a message, a share or a suggestion)
+  const sendAcknowledged = useCallback(
+    (payload: Record<string, unknown>, clientMessageId: string): Promise<ChatSendResult> => {
       const socket = wsRef.current
       if (!chatEnabled || socket?.readyState !== WebSocket.OPEN || pendingChat.current.size >= 20) return Promise.resolve('not-sent')
-      // getRandomValues also works on the supported HTTP LAN development origin.
-      const clientMessageId = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, '0')).join('')
       return new Promise((finish) => {
         const timer = setTimeout(() => {
           pendingChat.current.delete(clientMessageId)
@@ -353,7 +481,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         }, 10_000)
         pendingChat.current.set(clientMessageId, { finish, timer })
         try {
-          socket.send(JSON.stringify({ type: 'chat_message', content, clientMessageId }))
+          socket.send(JSON.stringify({ ...payload, clientMessageId }))
         } catch {
           clearTimeout(timer)
           pendingChat.current.delete(clientMessageId)
@@ -362,6 +490,28 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       })
     },
     [chatEnabled]
+  )
+
+  const sendChatMessage = useCallback(
+    (content: string, clientMessageId: string = createClientMessageId()): Promise<ChatSendResult> =>
+      sendAcknowledged({ type: 'chat_message', content }, clientMessageId),
+    [sendAcknowledged]
+  )
+
+  // No channel is sent: the server takes it from presence, so a card can't
+  // name a channel its sender isn't on
+  const sendShare = useCallback(
+    (clientMessageId: string = createClientMessageId()): Promise<ChatSendResult> =>
+      sendAcknowledged({ type: 'share' }, clientMessageId),
+    [sendAcknowledged]
+  )
+
+  // Only the id is sent: the server names the channel from its catalogue, so
+  // a card can't put a name on a channel that isn't what it says
+  const sendSuggest = useCallback(
+    (channelId: string, clientMessageId: string = createClientMessageId()): Promise<ChatSendResult> =>
+      sendAcknowledged({ type: 'suggest', channelId }, clientMessageId),
+    [sendAcknowledged]
   )
 
   const sendSetNickname = useCallback((nicknameValue: string) => {
@@ -386,5 +536,5 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     return () => disconnect()
   }, [token, connect, disconnect])
 
-  return { status, reconnect, sendChannelUpdate, sendChatMessage, sendSetNickname }
+  return { status, reconnect, sendChannelUpdate, sendChatMessage, sendShare, sendSuggest, sendSetNickname }
 }

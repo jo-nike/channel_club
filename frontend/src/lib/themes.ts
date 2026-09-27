@@ -10,6 +10,19 @@
  */
 
 import type { Theme, ThemeId, ThemeCategory } from '@/types/theme'
+import { contrast, formatOklch, mix } from '@/lib/color'
+
+/**
+ * Colours shared by every theme. Live is the on-air red used for LIVE badges
+ * and the guide's live row; white text on it is 5.2:1.
+ */
+const LIVE = 'oklch(0.55 0.22 27)'
+const ON_SOLID = 'oklch(0.985 0 0)'
+
+/** Whichever of a dark and a light text colour has more contrast on `background`. */
+function readableOn(background: string, dark: string, light: string): string {
+  return contrast(dark, background) >= contrast(light, background) ? dark : light
+}
 
 /**
  * Helper to create derived colors from base background/primary
@@ -18,7 +31,7 @@ import type { Theme, ThemeId, ThemeCategory } from '@/types/theme'
 function createDarkThemeColors(
   background: string,
   primary: string,
-  accent: string = primary
+  overrides: Partial<Theme['colors']> = {}
 ): Theme['colors'] {
   // Parse L value from background to derive other colors
   const bgParts = background.split(' ')
@@ -28,13 +41,8 @@ function createDarkThemeColors(
 
   // Parse primary for foreground derivation
   const primaryParts = primary.split(' ')
-  const primaryL = parseFloat(primaryParts[0])
   const primaryC = parseFloat(primaryParts[1])
   const primaryH = primaryParts[2] || '0'
-
-  // Parse accent for foreground derivation
-  const accentParts = accent.split(' ')
-  const accentL = parseFloat(accentParts[0])
 
   // Card is slightly lighter than background
   const cardL = Math.min(bgL + 0.06, 0.3)
@@ -49,17 +57,36 @@ function createDarkThemeColors(
     popover: `oklch(${cardL} ${bgC} ${bgH})`,
     popoverForeground: 'oklch(0.985 0 0)',
     primary: `oklch(${primary})`,
-    primaryForeground: primaryL > 0.6 ? 'oklch(0.2 0 0)' : 'oklch(0.985 0 0)',
+    primaryForeground: readableOn(`oklch(${primary})`, 'oklch(0.2 0 0)', 'oklch(0.985 0 0)'),
     secondary: `oklch(${mutedL} ${bgC * 0.5} ${bgH})`,
     secondaryForeground: 'oklch(0.985 0 0)',
     muted: `oklch(${mutedL} ${bgC * 0.5} ${bgH})`,
-    mutedForeground: 'oklch(0.708 0 0)',
-    accent: `oklch(${accent})`,
-    accentForeground: accentL > 0.6 ? 'oklch(0.2 0 0)' : 'oklch(0.985 0 0)',
+    // 0.74 keeps muted text above 4.5:1 on the muted surface at its 0.35 cap
+    mutedForeground: 'oklch(0.74 0 0)',
+    // Accent is the quiet hover/selected surface (shadcn convention): a
+    // low-chroma primary tint just above the card, so foreground stays above
+    // 11:1, muted text above 4.5:1 and a primary check icon above 3.5:1.
+    accent: `oklch(${Math.min(cardL + 0.06, 0.34)} ${primaryC * 0.35} ${primaryH})`,
+    accentForeground: 'oklch(0.985 0 0)',
     destructive: 'oklch(0.704 0.191 22.216)',
+    destructiveForeground: ON_SOLID,
+    live: LIVE,
+    liveForeground: ON_SOLID,
+    // Guide programme blocks: future is a quiet step up from the page, now is a
+    // low-chroma primary tint that keeps foreground text above 7:1.
+    guideNow: `oklch(${Math.min(cardL + 0.11, 0.42)} ${primaryC * 0.45} ${primaryH})`,
+    guideFuture: `oklch(${Math.min(bgL + 0.08, 0.3)} ${bgC * 0.5} ${bgH})`,
+    success: 'oklch(0.72 0.17 150)',
+    successForeground: 'oklch(0.2 0 0)',
+    warning: 'oklch(0.8 0.16 80)',
+    warningForeground: 'oklch(0.2 0 0)',
+    info: 'oklch(0.72 0.13 235)',
+    infoForeground: 'oklch(0.2 0 0)',
     border: 'oklch(1 0 0 / 10%)',
     input: 'oklch(1 0 0 / 15%)',
-    ring: `oklch(${Math.max(primaryL - 0.2, 0.4)} ${primaryC * 0.8} ${primaryH})`,
+    // Focus outline: primary clears 3:1 on the background in every theme
+    // (WCAG 1.4.11), where a darkened or 50%-alpha ring did not.
+    ring: `oklch(${primary})`,
     chart1: `oklch(${primary})`,
     chart2: 'oklch(0.696 0.17 162.48)',
     chart3: 'oklch(0.769 0.188 70.08)',
@@ -72,28 +99,30 @@ function createDarkThemeColors(
     sidebarAccent: `oklch(${mutedL} ${bgC * 0.5} ${bgH})`,
     sidebarAccentForeground: 'oklch(0.985 0 0)',
     sidebarBorder: 'oklch(1 0 0 / 10%)',
-    sidebarRing: `oklch(${Math.max(primaryL - 0.2, 0.4)} ${primaryC * 0.8} ${primaryH})`,
+    sidebarRing: `oklch(${primary})`,
+    ...overrides,
   }
 }
 
 function createLightThemeColors(
   background: string,
-  primary: string
+  primary: string,
+  overrides: Partial<Theme['colors']> = {}
 ): Theme['colors'] {
   const bgParts = background.split(' ')
   const bgL = parseFloat(bgParts[0])
   const bgC = parseFloat(bgParts[1])
   const bgH = bgParts[2] || '0'
 
-  const primaryParts = primary.split(' ')
-  const primaryL = parseFloat(primaryParts[0])
-  const primaryC = parseFloat(primaryParts[1])
-  const primaryH = primaryParts[2] || '0'
-
   // Light theme cards are white or very light
   const cardL = Math.min(bgL + 0.02, 1)
   const mutedL = Math.max(bgL - 0.05, 0.9)
   const borderL = Math.max(bgL - 0.1, 0.85)
+  const card = `oklch(${cardL} ${bgC * 0.5} ${bgH})`
+  const muted = `oklch(${mutedL} ${bgC * 0.3} ${bgH})`
+  // Accent (hover/selected) sits a step off muted, on the side away from the
+  // card, so hovers show on muted surfaces, cards and popovers alike
+  const accentL = cardL > mutedL ? mutedL - 0.04 : mutedL + 0.04
 
   return {
     background: `oklch(${background})`,
@@ -103,17 +132,33 @@ function createLightThemeColors(
     popover: `oklch(${cardL} ${bgC * 0.5} ${bgH})`,
     popoverForeground: 'oklch(0.145 0 0)',
     primary: `oklch(${primary})`,
-    primaryForeground: primaryL > 0.6 ? 'oklch(0.145 0 0)' : 'oklch(0.985 0 0)',
+    primaryForeground: readableOn(`oklch(${primary})`, 'oklch(0.145 0 0)', 'oklch(0.985 0 0)'),
     secondary: `oklch(${mutedL} ${bgC * 0.3} ${bgH})`,
     secondaryForeground: 'oklch(0.205 0 0)',
     muted: `oklch(${mutedL} ${bgC * 0.3} ${bgH})`,
     mutedForeground: 'oklch(0.45 0 0)',
-    accent: `oklch(${mutedL} ${bgC * 0.3} ${bgH})`,
+    accent: `oklch(${accentL} ${bgC * 0.3} ${bgH})`,
     accentForeground: 'oklch(0.205 0 0)',
     destructive: 'oklch(0.577 0.245 27.325)',
+    destructiveForeground: ON_SOLID,
+    live: LIVE,
+    liveForeground: ON_SOLID,
+    // Guide programme blocks: now is 12% primary mixed into the card, future
+    // is the muted surface.
+    guideNow: formatOklch(mix(card, `oklch(${primary})`, 0.12)),
+    guideFuture: muted,
+    // Status colours are dark enough to keep white text at 4.5:1 and stay
+    // 3:1 against the lightest and the peach backgrounds.
+    success: 'oklch(0.52 0.14 150)',
+    successForeground: ON_SOLID,
+    warning: 'oklch(0.53 0.13 60)',
+    warningForeground: ON_SOLID,
+    info: 'oklch(0.52 0.14 240)',
+    infoForeground: ON_SOLID,
     border: `oklch(${borderL} ${bgC * 0.2} ${bgH})`,
     input: `oklch(${borderL} ${bgC * 0.2} ${bgH})`,
-    ring: `oklch(${primaryL} ${primaryC * 0.8} ${primaryH})`,
+    // Focus outline: primary, like the dark themes.
+    ring: `oklch(${primary})`,
     chart1: `oklch(${primary})`,
     chart2: 'oklch(0.6 0.118 184.704)',
     chart3: 'oklch(0.398 0.07 227.392)',
@@ -126,19 +171,38 @@ function createLightThemeColors(
     sidebarAccent: `oklch(${mutedL} ${bgC * 0.3} ${bgH})`,
     sidebarAccentForeground: 'oklch(0.205 0 0)',
     sidebarBorder: `oklch(${borderL} ${bgC * 0.2} ${bgH})`,
-    sidebarRing: `oklch(${primaryL} ${primaryC * 0.8} ${primaryH})`,
+    sidebarRing: `oklch(${primary})`,
+    ...overrides,
   }
 }
 
 /**
- * All available themes - 14 Glance themes
+ * All available themes: the Club Night and Club Day house themes plus 14
+ * Glance themes
  *
  * HSL to OKLCH approximate conversions:
  * HSL(240, 21%, 15%) → oklch(0.19 0.022 265) - Catppuccin Mocha bg
  * HSL(217, 92%, 83%) → oklch(0.85 0.14 250)  - Catppuccin Mocha primary
  */
 export const themes: Record<ThemeId, Theme> = {
-  // === DARK THEMES (11) ===
+  // === DARK THEMES (12) ===
+
+  // House theme: ink background, marquee-amber primary. The derived muted and
+  // primary foregrounds are neutral; these warmer, tuned ones keep muted text
+  // above 7:1 on cards and ink on amber above 9:1.
+  'club-night': {
+    id: 'club-night',
+    name: 'Club Night',
+    mode: 'dark',
+    colors: createDarkThemeColors(
+      '0.17 0.02 275', // Ink
+      '0.82 0.14 78', // Marquee amber
+      {
+        mutedForeground: 'oklch(0.74 0.02 275)',
+        primaryForeground: 'oklch(0.22 0.03 60)',
+      }
+    ),
+  },
 
   'teal-city': {
     id: 'teal-city',
@@ -250,7 +314,19 @@ export const themes: Record<ThemeId, Theme> = {
     ),
   },
 
-  // === LIGHT THEMES (3) ===
+  // === LIGHT THEMES (4) ===
+
+  // Light pair to Club Night: warm paper background, burnt-amber primary dark
+  // enough to carry white text.
+  'club-day': {
+    id: 'club-day',
+    name: 'Club Day',
+    mode: 'light',
+    colors: createLightThemeColors(
+      '0.975 0.008 85', // Warm paper
+      '0.50 0.13 55' // Burnt amber
+    ),
+  },
 
   'catppuccin-latte': {
     id: 'catppuccin-latte',
@@ -311,6 +387,7 @@ export function getAllThemeIds(): ThemeId[] {
 }
 
 /**
- * Default theme ID
+ * Default theme ID. The store persists the chosen themeId, so this only
+ * applies to devices that have never saved one.
  */
-export const DEFAULT_THEME_ID: ThemeId = 'catppuccin-mocha'
+export const DEFAULT_THEME_ID: ThemeId = 'club-night'

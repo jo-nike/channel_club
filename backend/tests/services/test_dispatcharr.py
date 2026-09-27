@@ -5,13 +5,24 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from app.models.channel import Channel
+from app.models.channel import (
+    Channel,
+    DispatchrrChannelGroup,
+    DispatchrrFullChannel,
+    GroupedChannelsResponse,
+)
+from app.services import dispatcharr
 from app.services.dispatcharr import (
     DispatchrrUnavailableError,
+    _build_grouped_channels,
+    _cached_logo,
+    _store_logo,
     dispatcharr_auth_headers,
     extract_uuid,
+    format_channel_number,
     get_channel_groups,
     get_lineup,
+    invalidate_grouped_channels_cache,
 )
 
 
@@ -250,3 +261,171 @@ class TestGetLineup:
                 await get_lineup()
 
         mock_client.get.assert_called_once_with("http://10.8.0.2:9191/hdhr/lineup.json")
+
+
+class TestFormatChannelNumber:
+    """Tests for format_channel_number, which mirrors Dispatcharr's formatting."""
+
+    def test_whole_number_has_no_decimal_part(self) -> None:
+        assert format_channel_number(28) == "28"
+        assert format_channel_number(7.0) == "7"
+
+    def test_fractional_number_keeps_its_decimal_part(self) -> None:
+        assert format_channel_number(5.1) == "5.1"
+
+    def test_missing_number_is_none(self) -> None:
+        assert format_channel_number(None) is None
+
+
+class TestBuildGroupedChannels:
+    """Tests for the grouped catalogue's guide ids."""
+
+    @staticmethod
+    async def _build(raw_channels: list[dict[str, object]]) -> GroupedChannelsResponse:
+        # Validate the raw Dispatcharr JSON the way get_channels_with_groups does
+        channels = [DispatchrrFullChannel.model_validate(c) for c in raw_channels]
+        groups = [DispatchrrChannelGroup(id=1, name="Sports", channel_count=len(channels))]
+        with (
+            patch(
+                "app.services.dispatcharr.get_channel_groups",
+                new=AsyncMock(return_value=groups),
+            ),
+            patch(
+                "app.services.dispatcharr.get_channels_with_groups",
+                new=AsyncMock(return_value=channels),
+            ),
+        ):
+            return await _build_grouped_channels()
+
+    @staticmethod
+    def _guide_ids(response: GroupedChannelsResponse) -> dict[str, str]:
+        channels = [c for g in response.groups for c in g.channels] + response.ungrouped
+        return {c.name: c.guide_id for c in channels}
+
+    @pytest.mark.asyncio
+    async def test_guide_id_is_the_formatted_channel_number(self) -> None:
+        """Guide ids match Dispatcharr's XMLTV channel ids, not its database ids."""
+        response = await self._build(
+            [
+                {
+                    "id": 101,
+                    "name": "TSN 5",
+                    "channel_number": 28,
+                    "channel_group_id": 1,
+                    "uuid": "uuid-28",
+                },
+                {
+                    "id": 102,
+                    "name": "CBC",
+                    "channel_number": 7.0,
+                    "channel_group_id": 1,
+                    "uuid": "uuid-7",
+                },
+                {
+                    "id": 103,
+                    "name": "TVA",
+                    "channel_number": 5.1,
+                    "channel_group_id": None,
+                    "uuid": "uuid-5-1",
+                },
+            ]
+        )
+
+        assert self._guide_ids(response) == {"TSN 5": "28", "CBC": "7", "TVA": "5.1"}
+
+    @pytest.mark.asyncio
+    async def test_guide_id_falls_back_to_database_id_without_a_number(self) -> None:
+        """A channel with no number is keyed by its id, as Dispatcharr's XMLTV does."""
+        response = await self._build(
+            [
+                {
+                    "id": 42,
+                    "name": "Unnumbered",
+                    "channel_number": None,
+                    "channel_group_id": 1,
+                    "uuid": "uuid-42",
+                }
+            ]
+        )
+
+        assert self._guide_ids(response) == {"Unnumbered": "42"}
+
+    @pytest.mark.asyncio
+    async def test_logo_id_becomes_our_logo_route(self) -> None:
+        """A channel's Dispatcharr logo id maps to our proxy route, exposed as logoUrl."""
+        response = await self._build(
+            [
+                {
+                    "id": 101,
+                    "name": "TSN 5",
+                    "channel_number": 28,
+                    "channel_group_id": 1,
+                    "uuid": "uuid-28",
+                    "logo_id": 17,
+                },
+                {
+                    "id": 102,
+                    "name": "CBC",
+                    "channel_number": 7,
+                    "channel_group_id": None,
+                    "uuid": "uuid-7",
+                    "logo_id": None,
+                },
+            ]
+        )
+
+        channels = {c.name: c for g in response.groups for c in g.channels}
+        channels.update({c.name: c for c in response.ungrouped})
+        assert channels["TSN 5"].logo_url == "/api/channels/logos/17"
+        assert channels["TSN 5"].model_dump(by_alias=True)["logoUrl"] == "/api/channels/logos/17"
+        assert channels["CBC"].logo_url is None
+
+    @pytest.mark.asyncio
+    async def test_logo_url_is_never_taken_from_the_payload(self) -> None:
+        """Only the integer logo id is read; URL-like fields in the payload are ignored."""
+        response = await self._build(
+            [
+                {
+                    "id": 101,
+                    "name": "TSN 5",
+                    "channel_number": 28,
+                    "channel_group_id": 1,
+                    "uuid": "uuid-28",
+                    "logo_url": "http://evil.invalid/logo.png",
+                    "logoUrl": "http://evil.invalid/logo.png",
+                    "logo": "http://evil.invalid/logo.png",
+                }
+            ]
+        )
+
+        assert response.groups[0].channels[0].logo_url is None
+
+
+class TestChannelLogoCache:
+    """The logo cache is bounded by bytes and drops the least recently used first."""
+
+    def test_evicts_least_recently_used_over_the_byte_budget(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        invalidate_grouped_channels_cache()
+        monkeypatch.setattr(dispatcharr, "_LOGO_CACHE_MAX_BYTES", 25)
+        try:
+            _store_logo(1, b"a" * 10, "image/png")
+            _store_logo(2, b"b" * 10, "image/png")
+            assert _cached_logo(1) is not None  # 1 is now the most recently used
+            _store_logo(3, b"c" * 10, "image/png")
+
+            assert _cached_logo(2) is None
+            assert _cached_logo(1) == (b"a" * 10, "image/png")
+            assert _cached_logo(3) == (b"c" * 10, "image/png")
+        finally:
+            invalidate_grouped_channels_cache()
+
+    def test_expired_logo_is_not_served(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        invalidate_grouped_channels_cache()
+        monkeypatch.setattr(dispatcharr, "_LOGO_CACHE_TTL_SECONDS", -1)
+        try:
+            _store_logo(1, b"a" * 10, "image/png")
+            assert _cached_logo(1) is None
+        finally:
+            invalidate_grouped_channels_cache()

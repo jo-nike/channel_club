@@ -20,6 +20,8 @@ export interface Channel {
   name: string
   streamUrl: string
   guideId: string
+  /** Our logo route (/api/channels/logos/{id}); null or absent without a logo */
+  logoUrl?: string | null
 }
 
 export interface ChannelGroupWithChannels {
@@ -52,6 +54,12 @@ export interface EPGResponse {
   nextProgram?: Program | null
 }
 
+/** A channel's schedule from the XMLTV guide, in start order. */
+export interface EPGProgrammesResponse {
+  channelId: string
+  programmes: Program[]
+}
+
 /** Current programme per channel, keyed by Channel.guideId. */
 export interface NowPlayingBulkResponse {
   nowPlaying: Record<string, Program>
@@ -60,6 +68,8 @@ export interface NowPlayingBulkResponse {
 /** Runtime settings an admin can toggle for all users. */
 export interface AppSettings {
   userChannelSelection: boolean
+  // Members see what everyone is watching (off: names only). Absent from older servers
+  presenceVisible?: boolean
 }
 
 // ErsatzTV types
@@ -116,7 +126,40 @@ export interface UnifiedChannel {
 // Chat types
 export interface ChatMessage {
   messageId: string
+  // Display name at the time of sending (the nickname, or the sign-in name)
   username: string
+  // Stable, opaque id of the sender's account; unlike username it survives a rename.
+  // Absent from older servers
+  userId?: string
   content: string
   timestamp: string // ISO8601
+  // 'system' is a line the server posts about a shared event (someone changing
+  // Live), with the whole sentence as content; 'share' is a member's
+  // now-playing card, its content the same in words; 'suggestion' is a member
+  // asking for a channel on live TV, likewise. Absent from older servers: 'user'
+  kind?: 'user' | 'system' | 'share' | 'suggestion'
+  // Where the sender was watching when they posted, stamped by the server from
+  // presence (as in PresenceEntry). Null unless the admin shows what everyone
+  // is watching and the sender doesn't hide it; absent from older servers. On
+  // a suggestion, channelId and channelName are the channel suggested
+  channelId?: string | null
+  channelName?: string | null
+  programme?: string | null
+  view?: 'live' | 'ersatztv' | null
+}
+
+// Presence types
+// One person who is here (from the presence_update snapshot). The channel
+// fields are null unless the admin shows what everyone is watching and the
+// person doesn't hide it.
+export interface PresenceEntry {
+  // Same opaque id as ChatMessage.userId; null for connections without one
+  userId: string | null
+  // Chat nickname, or the sign-in name
+  displayName: string
+  channelId: string | null
+  channelName: string | null
+  programme: string | null
+  view: 'live' | 'ersatztv' | null
+  since: string | null // ISO8601, when they started this channel
 }

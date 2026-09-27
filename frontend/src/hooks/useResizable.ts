@@ -11,8 +11,12 @@ interface UseResizableOptions {
 interface UseResizableResult {
   heightPercent: number
   isDragging: boolean
-  handleMouseDown: (e: React.MouseEvent) => void
+  handlePointerDown: (e: React.PointerEvent) => void
+  handleKeyDown: (e: React.KeyboardEvent) => void
 }
+
+// How far one arrow key press moves the splitter
+const KEY_STEP_PERCENT = 5
 
 export function useResizable({
   initialHeightPercent,
@@ -25,15 +29,48 @@ export function useResizable({
   const [isDragging, setIsDragging] = useState(false)
   const startY = useRef(0)
   const startHeight = useRef(0)
+  // The pointer that started the drag; a second finger doesn't move the splitter
+  const pointerId = useRef<number | null>(null)
 
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
+  // Pointer events cover mouse, touch and pen. Capturing the pointer keeps
+  // the moves coming to the handle when the finger or cursor leaves it.
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent) => {
       e.preventDefault()
+      e.currentTarget.setPointerCapture?.(e.pointerId)
+      pointerId.current = e.pointerId
       setIsDragging(true)
       startY.current = e.clientY
       startHeight.current = heightPercent
     },
     [heightPercent]
+  )
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      let newPercent: number
+      switch (e.key) {
+        case 'ArrowUp':
+          newPercent = heightPercent + KEY_STEP_PERCENT
+          break
+        case 'ArrowDown':
+          newPercent = heightPercent - KEY_STEP_PERCENT
+          break
+        case 'Home':
+          newPercent = minHeightPercent
+          break
+        case 'End':
+          newPercent = maxHeightPercent
+          break
+        default:
+          return
+      }
+      e.preventDefault()
+      newPercent = Math.min(maxHeightPercent, Math.max(minHeightPercent, newPercent))
+      setHeightPercent(newPercent)
+      onHeightChange?.(newPercent)
+    },
+    [heightPercent, minHeightPercent, maxHeightPercent, onHeightChange]
   )
 
   useEffect(() => {
@@ -44,7 +81,8 @@ export function useResizable({
 
     const containerHeight = container.clientHeight
 
-    const handleMouseMove = (e: MouseEvent) => {
+    const handlePointerMove = (e: PointerEvent) => {
+      if (e.pointerId !== pointerId.current) return
       // Dragging up (negative deltaY) increases EPG height
       const deltaY = startY.current - e.clientY
       const deltaPercent = (deltaY / containerHeight) * 100
@@ -56,16 +94,22 @@ export function useResizable({
       onHeightChange?.(newPercent)
     }
 
-    const handleMouseUp = () => {
+    // Up ends the drag; cancel (the browser took the touch, say) ends it too
+    const handlePointerEnd = (e: PointerEvent) => {
+      if (e.pointerId !== pointerId.current) return
+      pointerId.current = null
       setIsDragging(false)
     }
 
-    document.addEventListener('mousemove', handleMouseMove)
-    document.addEventListener('mouseup', handleMouseUp)
+    // Captured events still bubble to the document
+    document.addEventListener('pointermove', handlePointerMove)
+    document.addEventListener('pointerup', handlePointerEnd)
+    document.addEventListener('pointercancel', handlePointerEnd)
 
     return () => {
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
+      document.removeEventListener('pointermove', handlePointerMove)
+      document.removeEventListener('pointerup', handlePointerEnd)
+      document.removeEventListener('pointercancel', handlePointerEnd)
     }
   }, [isDragging, containerRef, minHeightPercent, maxHeightPercent, onHeightChange])
 
@@ -77,6 +121,7 @@ export function useResizable({
   return {
     heightPercent,
     isDragging,
-    handleMouseDown,
+    handlePointerDown,
+    handleKeyDown,
   }
 }

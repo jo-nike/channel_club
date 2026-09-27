@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import { renderHook, act } from '@/test/utils'
-import { usePlexQRAuth } from './usePlexQRAuth'
+import { usePlexQRAuth, MAX_AUTO_RESTARTS } from './usePlexQRAuth'
 import * as plexAuth from '@/services/plexAuth'
 
 vi.mock('@/services/plexAuth', () => ({
@@ -277,7 +277,8 @@ describe('usePlexQRAuth', () => {
 
       expect(result.current.status).toBe('timeout')
       expect(result.current.error?.message).toBe('Authentication timed out')
-      expect(onError).toHaveBeenCalled()
+      // The timeout is a status the code screen shows once, not an error to report
+      expect(onError).not.toHaveBeenCalled()
     })
 
     it('should update timeRemaining countdown', async () => {
@@ -308,6 +309,172 @@ describe('usePlexQRAuth', () => {
       })
 
       expect(result.current.timeRemaining).toBe(0)
+    })
+  })
+
+  describe('autoRestart', () => {
+    /** Resolves PIN creation with a fresh pair each time, so restarts are visible. */
+    function freshPinsEachStart() {
+      let n = 0
+      vi.mocked(plexAuth.createPlexPin).mockImplementation((strong = true) => {
+        if (strong) n += 1
+        return Promise.resolve(strong
+          ? { id: 100 + n, code: `strong-${n}`, authToken: null }
+          : { id: 200 + n, code: `CODE${n}`, authToken: null })
+      })
+    }
+
+    async function timeOut(ms: number) {
+      await act(async () => {
+        vi.advanceTimersByTime(ms)
+      })
+    }
+
+    it('starts over with fresh PINs on timeout instead of stopping', async () => {
+      freshPinsEachStart()
+      const onError = vi.fn()
+      const { result } = renderHook(() =>
+        usePlexQRAuth({ timeout: 10000, autoRestart: true, onError })
+      )
+
+      await act(async () => {
+        await result.current.start()
+      })
+      expect(result.current.shortPin?.code).toBe('CODE1')
+
+      await timeOut(10000)
+
+      expect(plexAuth.createPlexPin).toHaveBeenCalledTimes(4)
+      expect(result.current.status).toBe('polling')
+      expect(result.current.shortPin?.code).toBe('CODE2')
+      expect(result.current.timeRemaining).toBe(10)
+      expect(result.current.error).toBeNull()
+      expect(onError).not.toHaveBeenCalled()
+    })
+
+    it(`restarts at most ${MAX_AUTO_RESTARTS} times, then times out for Try Again`, async () => {
+      freshPinsEachStart()
+      const onError = vi.fn()
+      const { result } = renderHook(() =>
+        usePlexQRAuth({ timeout: 10000, autoRestart: true, onError })
+      )
+
+      await act(async () => {
+        await result.current.start()
+      })
+      for (let i = 0; i < MAX_AUTO_RESTARTS; i++) {
+        await timeOut(10000)
+        expect(result.current.status).toBe('polling')
+      }
+      expect(result.current.shortPin?.code).toBe(`CODE${MAX_AUTO_RESTARTS + 1}`)
+
+      await timeOut(10000)
+
+      expect(result.current.status).toBe('timeout')
+      expect(result.current.error?.message).toBe('Authentication timed out')
+      expect(onError).not.toHaveBeenCalled()
+      // One pair of PINs per attempt: the first plus three restarts
+      expect(plexAuth.createPlexPin).toHaveBeenCalledTimes(2 * (MAX_AUTO_RESTARTS + 1))
+
+      // Nothing more happens while the TV sits on Try Again
+      vi.mocked(plexAuth.checkPlexPin).mockClear()
+      await timeOut(60000)
+      expect(plexAuth.createPlexPin).toHaveBeenCalledTimes(2 * (MAX_AUTO_RESTARTS + 1))
+      expect(plexAuth.checkPlexPin).not.toHaveBeenCalled()
+    })
+
+    it('stops polling the expired PINs once it restarts', async () => {
+      freshPinsEachStart()
+      const { result } = renderHook(() =>
+        usePlexQRAuth({ timeout: 10000, pollInterval: 2000, autoRestart: true })
+      )
+
+      await act(async () => {
+        await result.current.start()
+      })
+      await timeOut(10000)
+      vi.mocked(plexAuth.checkPlexPin).mockClear()
+
+      await timeOut(2000)
+
+      const polledIds = vi.mocked(plexAuth.checkPlexPin).mock.calls.map(([id]) => id)
+      expect(polledIds.sort()).toEqual([102, 202])
+    })
+
+    it('reports each new code asked for: the first, every restart and Try Again', async () => {
+      freshPinsEachStart()
+      const onCodeRequested = vi.fn()
+      const { result } = renderHook(() =>
+        usePlexQRAuth({ timeout: 10000, autoRestart: true, onCodeRequested })
+      )
+
+      await act(async () => {
+        await result.current.start()
+      })
+      expect(onCodeRequested).toHaveBeenCalledTimes(1)
+
+      for (let i = 0; i < MAX_AUTO_RESTARTS; i++) await timeOut(10000)
+      expect(onCodeRequested).toHaveBeenCalledTimes(1 + MAX_AUTO_RESTARTS)
+
+      // The final timeout asks for nothing
+      await timeOut(10000)
+      expect(result.current.status).toBe('timeout')
+      expect(onCodeRequested).toHaveBeenCalledTimes(1 + MAX_AUTO_RESTARTS)
+
+      // Try Again
+      await act(async () => {
+        await result.current.start()
+      })
+      expect(onCodeRequested).toHaveBeenCalledTimes(2 + MAX_AUTO_RESTARTS)
+    })
+
+    it('gives a manual Try Again a fresh restart budget', async () => {
+      freshPinsEachStart()
+      const { result } = renderHook(() =>
+        usePlexQRAuth({ timeout: 10000, autoRestart: true })
+      )
+
+      await act(async () => {
+        await result.current.start()
+      })
+      for (let i = 0; i <= MAX_AUTO_RESTARTS; i++) await timeOut(10000)
+      expect(result.current.status).toBe('timeout')
+
+      await act(async () => {
+        await result.current.start()
+      })
+      await timeOut(10000)
+
+      expect(result.current.status).toBe('polling')
+    })
+
+    it('does not restart without the option', async () => {
+      const { result } = renderHook(() => usePlexQRAuth({ timeout: 10000 }))
+
+      await act(async () => {
+        await result.current.start()
+      })
+      await timeOut(10000)
+
+      expect(result.current.status).toBe('timeout')
+      expect(plexAuth.createPlexPin).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not restart after cancel', async () => {
+      const { result } = renderHook(() =>
+        usePlexQRAuth({ timeout: 10000, autoRestart: true })
+      )
+
+      await act(async () => {
+        await result.current.start()
+      })
+      act(() => {
+        result.current.cancel()
+      })
+      await timeOut(30000)
+
+      expect(result.current.status).toBe('idle')
+      expect(plexAuth.createPlexPin).toHaveBeenCalledTimes(2)
     })
   })
 

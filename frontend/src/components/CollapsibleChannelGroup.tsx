@@ -2,6 +2,7 @@ import { useState, forwardRef, useImperativeHandle } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Badge } from '@/components/ui/badge'
+import { ChannelLogo } from '@/components/ChannelLogo'
 import { cn } from '@/lib/utils'
 import type { Channel, ChannelGroupWithChannels, Program } from '@/types'
 
@@ -10,7 +11,10 @@ interface CollapsibleChannelGroupProps {
   currentChannelId: string | null
   canSelect: boolean
   onSelectChannel: (channel: Channel) => void
+  /** Keeps the group open while true (search results); it can't be collapsed meanwhile. */
   forceOpen?: boolean
+  /** Starts the group open. Only the first render reads it, so the group can still be collapsed. */
+  defaultOpen?: boolean
   /** Current programme per channel, keyed by Channel.guideId. */
   nowPlaying?: Record<string, Program>
 }
@@ -21,11 +25,11 @@ export interface CollapsibleChannelGroupHandle {
 
 export const CollapsibleChannelGroup = forwardRef<CollapsibleChannelGroupHandle, CollapsibleChannelGroupProps>(
   function CollapsibleChannelGroup(
-    { group, currentChannelId, canSelect, onSelectChannel, forceOpen = false, nowPlaying },
+    { group, currentChannelId, canSelect, onSelectChannel, forceOpen = false, defaultOpen = false, nowPlaying },
     ref
   ) {
-    const [isOpen, setIsOpen] = useState(forceOpen)
-    const [hasOpened, setHasOpened] = useState(forceOpen)
+    const [isOpen, setIsOpen] = useState(forceOpen || defaultOpen)
+    const [hasOpened, setHasOpened] = useState(forceOpen || defaultOpen)
 
     // Expose setOpen method to parent
     useImperativeHandle(ref, () => ({
@@ -51,7 +55,7 @@ export const CollapsibleChannelGroup = forwardRef<CollapsibleChannelGroupHandle,
         <CollapsibleTrigger
           className={cn(
             'flex items-center justify-between w-full p-3 rounded-lg transition-colors',
-            'hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+            'hover:bg-accent focus-visible:-outline-offset-2',
             'text-left font-medium'
           )}
         >
@@ -128,13 +132,14 @@ function ChannelGroupItem({
       className={cn(
         'flex items-center gap-3 rounded-lg border p-3 transition-colors',
         'text-base',
-        'min-h-[48px]',
+        'min-h-[48px] focus-visible:-outline-offset-2',
         isSelected && 'border-primary bg-primary/10',
-        canSelect && !isSelecting && 'cursor-pointer hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+        canSelect && !isSelecting && 'cursor-pointer hover:bg-accent',
         canSelect && isSelecting && 'cursor-wait opacity-70',
         !canSelect && 'cursor-default'
       )}
     >
+      <ChannelLogo channel={channel} />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
           <span className="font-medium truncate">{channel.name}</span>

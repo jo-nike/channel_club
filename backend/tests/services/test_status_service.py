@@ -6,12 +6,33 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from app.models.status import DispatchrrStatus, ErsatzTVStatus
+from app.models.status import DispatchrrStatus, EPGHealthStatus, ErsatzTVStatus
+from app.services import status_service
+from app.services.epg_service import EPGService
 from app.services.status_service import (
     get_dispatcharr_status,
+    get_epg_status,
     get_ersatztv_status,
     get_system_status,
 )
+
+
+def _epg_health(**overrides: object) -> EPGHealthStatus:
+    fields: dict[str, object] = {
+        "name": "Guide data (XMLTV)",
+        "online": True,
+        "last_checked": datetime.now(UTC),
+        "channel_count": 109,
+        "programme_count": 5065,
+    }
+    fields.update(overrides)
+    return EPGHealthStatus.model_validate(fields)
+
+
+@pytest.fixture(autouse=True)
+def stub_epg_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep system status tests off the shared EPG singleton and its XMLTV download."""
+    monkeypatch.setattr(status_service, "get_epg_status", AsyncMock(return_value=_epg_health()))
 
 
 class TestGetErsatzTVStatus:
@@ -359,6 +380,104 @@ class TestGetSystemStatus:
         assert status.dispatcharr.online is False
 
 
+class _RecordingEPGService(EPGService):
+    """EPG service fake that records health checks instead of downloading XMLTV."""
+
+    def __init__(self, health: EPGHealthStatus) -> None:
+        super().__init__("http://synthetic.invalid")
+        self.health = health
+        self.checks = 0
+
+    async def check_health(self) -> EPGHealthStatus:
+        self.checks += 1
+        return self.health
+
+
+class TestGetEPGStatus:
+    """Tests for the guide data block of the system status."""
+
+    @pytest.mark.asyncio
+    async def test_uses_the_backoff_aware_health_check(self) -> None:
+        """Reports EPGService.check_health, which respects the refresh backoff."""
+        fake = _RecordingEPGService(_epg_health(online=False, error="HTTP 403"))
+
+        with patch("app.services.status_service.get_epg_service", return_value=fake):
+            status = await get_epg_status()
+
+        assert fake.checks == 1
+        assert status.online is False
+        assert status.error == "HTTP 403"
+
+    @pytest.mark.asyncio
+    async def test_system_status_includes_epg_block(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The combined status carries the guide data health."""
+        monkeypatch.setattr(
+            status_service,
+            "get_ersatztv_status",
+            AsyncMock(
+                return_value=ErsatzTVStatus(
+                    name="ErsatzTV", online=True, last_checked=datetime.now(UTC)
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            status_service,
+            "get_dispatcharr_status",
+            AsyncMock(
+                return_value=DispatchrrStatus(
+                    name="Dispatcharr", online=True, last_checked=datetime.now(UTC)
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            status_service,
+            "get_epg_status",
+            AsyncMock(return_value=_epg_health(online=False, channel_count=0, error="HTTP 403")),
+        )
+
+        status = await get_system_status()
+
+        assert status.epg.online is False
+        assert status.epg.error == "HTTP 403"
+        assert status.ersatztv.online is True
+        assert status.dispatcharr.online is True
+
+    @pytest.mark.asyncio
+    async def test_epg_exception_does_not_hide_other_services(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A crash in the guide check degrades only the epg block."""
+        monkeypatch.setattr(
+            status_service,
+            "get_ersatztv_status",
+            AsyncMock(
+                return_value=ErsatzTVStatus(
+                    name="ErsatzTV", online=True, last_checked=datetime.now(UTC)
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            status_service,
+            "get_dispatcharr_status",
+            AsyncMock(
+                return_value=DispatchrrStatus(
+                    name="Dispatcharr", online=True, last_checked=datetime.now(UTC)
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            status_service, "get_epg_status", AsyncMock(side_effect=RuntimeError("boom"))
+        )
+
+        status = await get_system_status()
+
+        assert status.epg.online is False
+        assert status.epg.error == "Status check failed"
+        assert status.epg.name == "Guide data (XMLTV)"
+        assert status.ersatztv.online is True
+        assert status.dispatcharr.online is True
+
+
 @pytest.mark.parametrize(
     "bad_payload",
     [
@@ -462,3 +581,5 @@ def test_sec08_admin_endpoint_isolates_unexpected_service_failure(monkeypatch):
     assert response.status_code == 200
     assert response.json()["ersatztv"]["error"] == "Status check failed"
     assert response.json()["dispatcharr"]["online"] is True
+    assert response.json()["epg"]["online"] is True
+    assert response.json()["epg"]["channelCount"] == 109

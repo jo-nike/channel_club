@@ -5,8 +5,15 @@ const defaultStatus: HighlightStatusResponse = {
   enabled: false, recording: false, bufferSeconds: 0, maxBufferSeconds: 60,
 }
 
+export interface HighlightStatusResult {
+  status: HighlightStatusResponse
+  /** False until the first poll for this channel answers (or fails), so the
+   *  placeholder status isn't mistaken for "not recording" */
+  loaded: boolean
+}
+
 /** Poll independently of control visibility to keep the recorder alive. */
-export function useHighlightStatus(channelId: string | undefined): HighlightStatusResponse {
+export function useHighlightStatus(channelId: string | undefined): HighlightStatusResult {
   const [result, setResult] = useState<{ channel: string; status: HighlightStatusResponse } | null>(null)
   useEffect(() => {
     if (!channelId) return
@@ -26,5 +33,7 @@ export function useHighlightStatus(channelId: string | undefined): HighlightStat
     const interval = setInterval(fetchStatus, 5000)
     return () => { controller.abort(); clearInterval(interval) }
   }, [channelId])
-  return result && result.channel === channelId ? result.status : defaultStatus
+  return result && result.channel === channelId
+    ? { status: result.status, loaded: true }
+    : { status: defaultStatus, loaded: false }
 }

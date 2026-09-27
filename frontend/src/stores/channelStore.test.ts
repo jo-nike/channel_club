@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { useChannelStore } from './channelStore'
+import { describeLiveChange, useChannelStore } from './channelStore'
 
 describe('channelStore', () => {
   beforeEach(() => {
@@ -7,6 +7,7 @@ describe('channelStore', () => {
     useChannelStore.setState({
       channels: [],
       currentChannel: null,
+      lastChange: null,
       isLoading: false,
       error: null,
     })
@@ -121,5 +122,39 @@ describe('channelStore', () => {
       const state = useChannelStore.getState()
       expect(state.error).toBeNull()
     })
+  })
+
+  describe('setLastChange', () => {
+    it('has no last change initially', () => {
+      expect(useChannelStore.getState().lastChange).toBeNull()
+    })
+
+    it('records who changed the live channel, when, and to what', () => {
+      useChannelStore.getState().setLastChange({ by: 'alice', at: 1000, channelName: 'ESPN' })
+
+      expect(useChannelStore.getState().lastChange).toEqual({ by: 'alice', at: 1000, channelName: 'ESPN' })
+    })
+
+    it('replaces the previous change and leaves the current channel alone', () => {
+      const channel = { id: '1', name: 'ESPN', streamUrl: 'http://stream1.m3u8' }
+      useChannelStore.setState({ currentChannel: channel })
+      useChannelStore.getState().setLastChange({ by: 'alice', at: 1000, channelName: 'ESPN' })
+
+      useChannelStore.getState().setLastChange({ by: 'bob', at: 2000, channelName: null })
+
+      expect(useChannelStore.getState().lastChange).toEqual({ by: 'bob', at: 2000, channelName: null })
+      expect(useChannelStore.getState().currentChannel).toEqual(channel)
+    })
+  })
+})
+
+describe('describeLiveChange', () => {
+  it.each([
+    ['TSN 5', 'jon', 'jon put on TSN 5'],
+    ['TSN 5', null, 'Live channel set to TSN 5'],
+    [null, 'jon', 'jon stopped live TV'],
+    [null, null, 'Live TV stopped'],
+  ] as const)('%s by %s reads "%s"', (channelName, by, text) => {
+    expect(describeLiveChange(channelName, by)).toBe(text)
   })
 })
