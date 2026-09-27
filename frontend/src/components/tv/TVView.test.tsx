@@ -8,7 +8,7 @@ import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
 import * as api from '@/services/ersatztvApi'
-import { fetchNowPlaying } from '@/services/api'
+import { fetchLiveProgrammes, fetchNowPlaying } from '@/services/api'
 import { toast } from 'sonner'
 const presence = vi.hoisted(() => vi.fn())
 const crash = vi.hoisted(() => ({ player: false, chat: false }))
@@ -17,7 +17,7 @@ const chatProps = vi.hoisted(() => ({ last: null as null | { status?: string; on
 const auth = vi.hoisted(() => ({ isAdmin: false }))
 const appSettings = vi.hoisted(() => ({ userChannelSelection: false }))
 const playerProps = vi.hoisted(() => ({ onPickLive: undefined as undefined | (() => void), renders: 0, reloadKey: undefined as undefined | number, mounts: 0 }))
-vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn() }))
+vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn(), fetchLiveProgrammes: vi.fn(async () => ({ channelId: '', programmes: [] })) }))
 import type { UnifiedChannel } from '@/types'
 
 vi.mock('@/services/ersatztvApi', () => ({ fetchErsatzTVChannels: vi.fn(), fetchErsatzTVCurrentProgramme: vi.fn(), getErsatzTVLogoUrl: vi.fn() }))
@@ -128,6 +128,34 @@ describe('FE-12 programme boundary clock', () => {
     await act(() => vi.advanceTimersByTimeAsync(10000))
     expect(header.getByText('Next live')).toBeVisible()
     expect(presence).toHaveBeenLastCalledWith('A', 'Next live', 'live', 'a')
+  })
+})
+
+describe('B-01 live channel schedule', () => {
+  it('loads the live schedule when the view opens and again every 30 minutes', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-06T12:00:00Z'))
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
+    vi.mocked(fetchNowPlaying).mockResolvedValue({ channelId: 'guide-a', currentProgram: null })
+    // Same channel, so the store's own reload on a live switch doesn't run
+    useChannelStore.getState().setCurrentChannel({ id: 'a', name: 'A', streamUrl: '/a', guideId: 'guide-a' })
+    vi.mocked(fetchLiveProgrammes).mockClear()
+    vi.mocked(fetchLiveProgrammes).mockResolvedValue({
+      channelId: 'guide-a',
+      programmes: [{ title: 'Matinee', startTime: '2026-09-06T11:00:00Z', endTime: '2026-09-06T13:00:00Z' }],
+    })
+
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await act(() => vi.advanceTimersByTimeAsync(1))
+
+    expect(fetchLiveProgrammes).toHaveBeenCalledTimes(1)
+    expect(fetchLiveProgrammes).toHaveBeenCalledWith('guide-a', 'A')
+    expect(useTVStore.getState().liveProgrammes.map((p) => p.title)).toEqual(['Matinee'])
+
+    await act(() => vi.advanceTimersByTimeAsync(29 * 60 * 1000))
+    expect(fetchLiveProgrammes).toHaveBeenCalledTimes(1)
+    await act(() => vi.advanceTimersByTimeAsync(60 * 1000))
+    expect(fetchLiveProgrammes).toHaveBeenCalledTimes(2)
   })
 })
 

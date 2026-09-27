@@ -35,6 +35,9 @@ import type { ErsatzTVProgramme, UnifiedChannel, ErsatzTVChannel } from '@/types
 // Refresh interval for programme data (120 minutes)
 const REFRESH_INTERVAL = 120 * 60 * 1000
 
+// Refresh interval for the live channel's schedule (30 minutes)
+const LIVE_SCHEDULE_REFRESH_INTERVAL = 30 * 60 * 1000
+
 // One fixed id, so repeated ErsatzTV failures replace the toast instead of stacking
 const ERSATZ_ERROR_TOAST_ID = 'ersatz-error'
 
@@ -65,6 +68,7 @@ export function TVView() {
   const selectChannel = useTVStore((s) => s.selectChannel)
   const liveEPG = useTVStore((s) => s.liveEPG)
   const loadLiveEPG = useTVStore((s) => s.loadLiveEPG)
+  const loadLiveProgrammes = useTVStore((s) => s.loadLiveProgrammes)
   const getUnifiedChannels = useTVStore((s) => s.getUnifiedChannels)
 
   // UI state
@@ -262,6 +266,15 @@ export function TVView() {
     timer = setTimeout(refresh, delay)
     return () => { active = false; clearTimeout(timer) }
   }, [liveChannel?.guideId, liveEPG, loadLiveEPG])
+
+  // The live channel's schedule for the guide: now, then every 30 minutes.
+  // The store reloads it itself when live TV switches, and a lookup with
+  // nothing on live TV fetches nothing.
+  useEffect(() => {
+    loadLiveProgrammes()
+    const interval = setInterval(loadLiveProgrammes, LIVE_SCHEDULE_REFRESH_INTERVAL)
+    return () => clearInterval(interval)
+  }, [loadLiveProgrammes])
 
   // Auto-refresh programme data (silent to avoid flash)
   useEffect(() => {
