@@ -94,6 +94,33 @@ describe('Clip editor', () => {
     expect(screen.getByLabelText('End (seconds)')).toHaveValue(55)
   })
 
+  it('plays the default selection once on open and stops at its end', async () => {
+    render(<HighlightModal {...props} />)
+    const video = await ready()
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(1)
+    expect(video.currentTime).toBe(40)
+    expect(await screen.findByText('Pause preview')).toBeInTheDocument()
+    video.currentTime = 60
+    fireEvent.timeUpdate(video)
+    expect(video.paused).toBe(true)
+    expect(screen.getByText('Play selection')).toBeInTheDocument()
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(1)
+  })
+
+  it('stays paused and ready when the browser refuses to play on open', async () => {
+    // iOS Safari rejects play() outside a user gesture; the capture resolves long after the press.
+    vi.mocked(HTMLMediaElement.prototype.play).mockImplementationOnce(() => Promise.reject(new DOMException('Not allowed', 'NotAllowedError')))
+    render(<HighlightModal {...props} />)
+    const video = await ready()
+    await waitFor(() => expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(1))
+    expect(screen.getByText('Play selection')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(video.currentTime).toBe(40)
+    fireEvent.click(screen.getByText('Play selection'))
+    expect(await screen.findByText('Pause preview')).toBeInTheDocument()
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(2)
+  })
+
   it('ends the default selection at the capture when it stops short of the press, still counting from the press', async () => {
     // The wait for the segment being written timed out, so the capture ends 4s before the press.
     vi.mocked(api.createHighlightCapture).mockResolvedValue({ ...capture, pressedAt: 1_000, endsAt: 996 })

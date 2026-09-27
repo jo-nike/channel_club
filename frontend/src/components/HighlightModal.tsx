@@ -60,6 +60,7 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
   const closeButton = useRef<HTMLButtonElement>(null)
   const controller = useRef<AbortController | null>(null)
   const busy = useRef(false)
+  const autoplayed = useRef(false)
   const cache = useRef<{ key: string; blob: Blob } | null>(null)
   const [start, end] = range
   const ready = duration >= 0.1 && source !== null && !captureError
@@ -218,6 +219,12 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
               setDuration(length); setPress(pressOffset); setRange([defaultStart, defaultEnd])
               if (video.current) video.current.currentTime = defaultStart
               setPlayhead(defaultStart)
+              // Play the selection once on open. This runs after the async capture, outside the Clip
+              // press's user activation, so iOS may refuse it; the editor then stays paused and ready.
+              if (video.current && !autoplayed.current) {
+                autoplayed.current = true
+                video.current.play().catch(() => {})
+              }
             }}
             onError={() => setCaptureError('This capture could not be played. Capture again to retry.')}
             onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}
