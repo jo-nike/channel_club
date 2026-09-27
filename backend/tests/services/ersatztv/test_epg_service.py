@@ -292,6 +292,42 @@ class TestGetProgrammesByChannel:
         assert result[0].title == "First"
         assert result[1].title == "Second"
 
+    @patch("app.services.ersatztv.epg_service.parse_xmltv")
+    def test_get_programmes_includes_recent_past(self, mock_parse: MagicMock):
+        """get_programmes_by_channel keeps programmes that ended within the last hour."""
+        now = datetime(2026, 9, 27, 13, 0, tzinfo=UTC)
+        mock_parse.return_value = [
+            Programme(
+                id="p1",
+                channel_id="ch1",
+                title="Current",
+                start=now - timedelta(minutes=20),
+                stop=now + timedelta(minutes=30),
+            ),
+            Programme(
+                id="p0",
+                channel_id="ch1",
+                title="Just Ended",
+                start=now - timedelta(minutes=50),
+                stop=now - timedelta(minutes=20),
+            ),
+            Programme(
+                id="p-1",
+                channel_id="ch1",
+                title="Long Gone",
+                start=now - timedelta(hours=3),
+                stop=now - timedelta(hours=2),
+            ),
+        ]
+
+        from app.services.ersatztv import epg_service
+
+        with patch.object(epg_service, "datetime", wraps=datetime) as mock_datetime:
+            mock_datetime.now.return_value = now
+            result = epg_service.get_programmes_by_channel("ch1", hours=6)
+
+        assert [p.title for p in result] == ["Just Ended", "Current"]
+
 
 class TestGetUpcomingProgrammes:
     """Tests for get_upcoming_programmes function."""
