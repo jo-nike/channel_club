@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen, fireEvent, cleanup } from '@/test/utils'
+import { render, screen, fireEvent, cleanup, within } from '@/test/utils'
 import { TVHeader } from './TVHeader'
 import { useTVStore } from '@/stores/tvStore'
 import { useUIStore } from '@/stores/uiStore'
@@ -53,22 +53,27 @@ describe('TVHeader', () => {
     expect(screen.getByRole('banner')).toHaveClass('pt-header-safe', 'pb-2')
   })
 
-  it('shows the channel and programme, or asks for a channel', () => {
+  it('shows what is on in the now-watching block, right of the connection status', () => {
     renderHeader()
-    expect(screen.getByText('Select a channel')).toBeVisible()
+    expect(screen.getByText('Tuning in...')).toBeVisible()
     cleanup()
 
     useTVStore.setState({ selectedChannel: movies })
     renderHeader()
     expect(screen.getByText('Movies')).toBeVisible()
+    expect(screen.getByText('CH 1')).toBeVisible()
     cleanup()
 
     useTVStore.setState({
       selectedChannel: { id: 'live-channel-0', name: 'Sports', number: 0, streamUrl: '/a', type: 'live' },
       liveEPG: { channelId: 'a', currentProgram: { title: 'Big Game', startTime: '2026-09-06T11:00:00Z', endTime: '2099-01-01T00:00:00Z' } },
     })
-    renderHeader()
-    expect(screen.getByText('Sports - Big Game')).toHaveClass('truncate')
+    renderHeader({ status: 'disconnected' })
+    const block = within(screen.getByRole('banner')).getByTestId('now-watching')
+    expect(within(block).getByText('Big Game')).toHaveClass('truncate')
+    // The connection status stays to the left of the block
+    const reconnect = screen.getByRole('button', { name: 'Reconnect' })
+    expect(reconnect.compareDocumentPosition(block) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('reports the connection and reconnects from it', () => {

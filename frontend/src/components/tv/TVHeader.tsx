@@ -2,13 +2,12 @@ import { ShieldCheck, LayoutList, RefreshCw, Tv } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useAppSettings } from '@/hooks/useAppSettings'
 import type { WebSocketStatus } from '@/hooks/useWebSocket'
-import { useNowPlaying } from '@/hooks/useNowPlaying'
-import { useTVStore } from '@/stores/tvStore'
 import { useUIStore } from '@/stores/uiStore'
 import { ChatToggleButton } from '@/components/ChatToggleButton'
 import { FeedbackButton } from '@/components/FeedbackButton'
 import { UserSettingsMenu } from '@/components/UserSettingsMenu'
 import { ConnectionStatus } from '@/components/ConnectionStatus'
+import { NowWatching } from '@/components/tv/NowWatching'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 interface TVHeaderProps {
@@ -33,8 +32,6 @@ export function TVHeader({
   const { logout, isAdmin } = useAuth()
   // Admin-controlled: lets non-admins change the live channel for everyone
   const { userChannelSelection } = useAppSettings()
-  const selectedChannel = useTVStore((s) => s.selectedChannel)
-  const { title: currentProgrammeTitle } = useNowPlaying(selectedChannel)
   const isEPGVisible = useUIStore((s) => s.isEPGVisible)
   const toggleEPG = useUIStore((s) => s.toggleEPG)
   const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
@@ -45,12 +42,8 @@ export function TVHeader({
       <div className="flex min-w-0 flex-1 items-center gap-4">
         {/* Connection status indicator */}
         <ConnectionStatus status={status} onReconnect={onReconnect} />
-        {/* Current channel/programme info: one line, so a long title can't push the video down */}
-        <span className="truncate text-muted-foreground text-sm">
-          {selectedChannel?.name && currentProgrammeTitle
-            ? `${selectedChannel.name} - ${currentProgrammeTitle}`
-            : selectedChannel?.name || 'Select a channel'}
-        </span>
+        {/* What's on: two truncating lines, so a long title can't push the video down */}
+        <NowWatching />
       </div>
 
       <div className="flex items-center gap-2">
