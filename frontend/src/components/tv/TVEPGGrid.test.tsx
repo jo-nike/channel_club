@@ -221,6 +221,13 @@ describe('TVEPGGrid empty live slot', () => {
     expect(useTVStore.getState().selectedChannel).toBeNull()
   })
 
+  it('gives Pick a channel for everyone a 44px target on touch only', () => {
+    render(<TVEPGGrid programmesByChannel={{}} onPickLive={vi.fn()} />)
+
+    const pick = screen.getByRole('button', { name: 'Pick a channel for everyone' })
+    expect(pick).toHaveClass('h-8', 'pointer-coarse:h-11')
+  })
+
   it('shows the wait copy without the action', () => {
     render(<TVEPGGrid programmesByChannel={{}} />)
 
@@ -614,12 +621,15 @@ describe('TVEPGGrid programme states', () => {
     expect(meta(next)).not.toHaveTextContent('left')
   })
 
-  it('marks the block on now on the watched channel, and only that one', () => {
+  it('marks the block on now on the watched channel, and only that one, without a focus-coloured outline', () => {
     useTVStore.setState({ selectedChannel: { ...movies, type: 'ersatztv' } })
     render(<TVEPGGrid programmesByChannel={schedule} />)
 
     expect(block('Current Film')).toHaveAttribute('data-watching', 'true')
-    expect(block('Current Film')).toHaveClass('border-primary')
+    // Keyboard focus is the only amber outline in the grid; watching is
+    // marked on the channel label
+    expect(block('Current Film')).not.toHaveClass('border-primary')
+    expect(block('Current Film')).toHaveClass('border-border')
     for (const other of ['Earlier Film', 'Later Film', 'Long Cartoon']) {
       expect(block(other)).not.toHaveAttribute('data-watching')
       expect(block(other)).not.toHaveClass('border-primary')
@@ -830,6 +840,90 @@ describe('TVEPGGrid time header', () => {
     expect(pill).toHaveTextContent(timeFormat.format(new Date(NOW)))
     // Half an hour into the grid: one slot
     expect(pill).toHaveStyle({ left: '150px' })
+  })
+
+  it('grows the time controls to 44px targets on touch, keeping their mouse sizes', () => {
+    render(<TVEPGGrid hours={48} programmesByChannel={{}} />)
+
+    for (const name of ['Scroll back 2 hours', 'Scroll forward 2 hours']) {
+      expect(screen.getByRole('button', { name })).toHaveClass('h-6', 'w-6', 'pointer-coarse:h-11', 'pointer-coarse:w-11')
+    }
+    expect(screen.getByRole('button', { name: 'Scroll to now' })).toHaveClass(
+      'px-1',
+      'pointer-coarse:h-11',
+      'pointer-coarse:px-3'
+    )
+  })
+
+  it('draws the pill, the now line and its dot in the live colour pair, not destructive', () => {
+    render(<TVEPGGrid hours={48} programmesByChannel={{}} />)
+
+    const pill = screen.getByTestId('now-pill')
+    expect(pill).toHaveClass('bg-live', 'text-live-foreground')
+    expect(pill).not.toHaveClass('bg-destructive')
+    expect(pill).not.toHaveClass('text-destructive-foreground')
+    expect(screen.getByTestId('now-line')).toHaveClass('bg-live')
+    expect(screen.getByTestId('now-line')).not.toHaveClass('bg-destructive')
+    expect(screen.getByTestId('now-dot')).toHaveClass('bg-live')
+    expect(screen.getByTestId('now-dot')).not.toHaveClass('bg-destructive')
+  })
+})
+
+describe('TVEPGGrid now pill over the time labels', () => {
+  const timeFormat = new Intl.DateTimeFormat([], { hour: 'numeric', minute: '2-digit' })
+  const label = (hours: number, minutes: number) => {
+    const text = timeFormat.format(new Date(2026, 8, 26, hours, minutes))
+    const header = screen.getByRole('button', { name: 'Scroll to now' }).parentElement!.parentElement!
+    const slots = Array.from(header.lastElementChild!.children).filter((el) => el.tagName === 'DIV')
+    const slot = slots.find((el) => el.textContent?.replace('​', '') === text)!
+    return slot.firstElementChild as HTMLElement
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels: [] })
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+  })
+
+  it('hides the half-hour label the pill sits on, and shows it again once the pill moves on', () => {
+    // The grid starts at 1 PM: the 1:30 label spans about 158-218px
+    vi.setSystemTime(new Date(2026, 8, 26, 13, 31))
+    render(<TVEPGGrid programmesByChannel={{}} />)
+
+    expect(screen.getByTestId('now-pill')).toHaveTextContent(timeFormat.format(new Date(2026, 8, 26, 13, 31)))
+    expect(label(13, 30)).toHaveClass('invisible')
+    expect(label(14, 0)).not.toHaveClass('invisible')
+    expect(label(13, 0)).not.toHaveClass('invisible')
+
+    // 19 minutes on (the clock ticks every 30 s), the pill is clear of it
+    act(() => vi.advanceTimersByTime(19 * 60_000))
+    expect(screen.getByTestId('now-pill')).toHaveTextContent(timeFormat.format(new Date(2026, 8, 26, 13, 50)))
+    expect(label(13, 30)).not.toHaveClass('invisible')
+    expect(document.querySelectorAll('.invisible')).toHaveLength(0)
+  })
+
+  it('hides the next label as the pill reaches it before the half hour, and none once it is clear', () => {
+    vi.setSystemTime(new Date(2026, 8, 26, 13, 27))
+    render(<TVEPGGrid programmesByChannel={{}} />)
+    expect(label(13, 30)).toHaveClass('invisible')
+    expect(label(13, 0)).not.toHaveClass('invisible')
+    cleanup()
+
+    // At 1:45 the pill (about 195-255px) still overlaps the 1:30 label's
+    // end; by 1:52 it is clear of it and short of the 2:00 label
+    vi.setSystemTime(new Date(2026, 8, 26, 13, 45))
+    render(<TVEPGGrid programmesByChannel={{}} />)
+    expect(label(13, 30)).toHaveClass('invisible')
+    cleanup()
+
+    vi.setSystemTime(new Date(2026, 8, 26, 13, 52))
+    render(<TVEPGGrid programmesByChannel={{}} />)
+    expect(document.querySelectorAll('.invisible')).toHaveLength(0)
   })
 })
 
@@ -1537,7 +1631,7 @@ describe('TVEPGGrid presence stacks', () => {
     cleanup()
     useChannelStore.setState({ currentChannel: null })
     useErsatztvStore.setState({ channels: [] })
-    useTVStore.setState({ selectedChannel: null })
+    useTVStore.setState({ selectedChannel: null, liveProgrammes: [] })
     usePresenceStore.setState({ entries: [] })
     useSettingsStore.setState({ presenceVisible: false })
     useUIStore.setState({ hideMyActivity: false })
@@ -1555,6 +1649,42 @@ describe('TVEPGGrid presence stacks', () => {
     expect(join.closest('[role="rowheader"]')).toBe(label.closest('[role="rowheader"]'))
     // The label keeps its width; the stack sits over room held inside it
     expect(label).toHaveStyle({ width: '208px' })
+  })
+
+  it("holds the stack's room on the second line, so the live row's name keeps the first line", () => {
+    useTVStore.setState({
+      liveProgrammes: [toLiveProgramme({ title: 'Hockey', startTime: start, endTime: stop })],
+    })
+    render(<TVEPGGrid programmesByChannel={{}} />)
+
+    const label = labelFor('TSN 5')
+    const name = within(label).getByText('TSN 5')
+    expect(name).toHaveClass('truncate', 'min-w-[3ch]')
+    const nameLine = name.parentElement!
+    expect(within(nameLine).getByTestId('live-pill')).toBeInTheDocument()
+    const column = nameLine.parentElement!
+    // The room (the aria-hidden copy of the stack) sits on the progress
+    // line, not beside the column in the button's row
+    const space = label.querySelector('[aria-hidden="true"] [data-slot="presence-stack"]')!.parentElement!
+    expect(nameLine.contains(space)).toBe(false)
+    expect(column.contains(space)).toBe(true)
+    expect(space.parentElement).toBe(label.querySelector('[data-testid="label-progress"]')!.parentElement!.parentElement)
+    expect(Array.from(label.children)).not.toContain(space)
+    // The real stack is laid over that line rather than centred on the row
+    const stack = screen.getByRole('button', { name: 'Join maya on TSN 5' })
+    expect(stack).toHaveClass('absolute', 'bottom-2', 'right-2')
+    expect(stack).not.toHaveClass('top-1/2')
+  })
+
+  it('keeps the stack on the second line of a row with nothing on air', () => {
+    render(<TVEPGGrid programmesByChannel={{}} />)
+
+    const label = labelFor('Cartoons')
+    const space = label.querySelector('[aria-hidden="true"] [data-slot="presence-stack"]')!.parentElement!
+    expect(Array.from(label.children)).not.toContain(space)
+    expect(space).toHaveClass('ml-auto')
+    const nameLine = within(label).getByText('Cartoons').parentElement!
+    expect(space.parentElement!.previousElementSibling).toBe(nameLine)
   })
 
   it('tunes to the channel when the stack is clicked', () => {

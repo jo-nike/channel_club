@@ -27,6 +27,9 @@ export function ResizeDragHandle({
       className={cn(
         // touch-none: a touch drag moves the splitter instead of scrolling the page
         'group flex h-3 w-full cursor-ns-resize touch-none items-center justify-center focus-visible:-outline-offset-2',
+        // Touch: a 20px bar with an invisible hit area 12px past each edge,
+        // a 44px target without a thicker bar
+        'relative pointer-coarse:h-5 pointer-coarse:before:absolute pointer-coarse:before:inset-x-0 pointer-coarse:before:-inset-y-3',
         'border-t bg-muted/50 hover:bg-muted transition-colors rounded-t-lg',
         isDragging && 'bg-primary/20',
         className

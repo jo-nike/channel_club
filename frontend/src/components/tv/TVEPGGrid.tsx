@@ -49,6 +49,13 @@ const CHANNEL_LABEL_WIDTH = 208
 const PROGRAMME_GAP = 3 // pixels between programme boxes
 // Where block titles and header time labels stick while they scroll under the channel column
 const STICKY_TEXT_LEFT = CHANNEL_LABEL_WIDTH + 8
+// For hiding the half-hour label the now pill sits on: half the pill's width
+// (a time such as '1:34 PM') plus a small gap, and a label's extent from its
+// slot's padding, wider at midnight where the day leads it
+const NOW_PILL_HALF_WIDTH = 30
+const TIME_LABEL_LEFT = 8
+const TIME_LABEL_WIDTH = 60
+const MIDNIGHT_LABEL_WIDTH = 120
 // Narrower blocks show no text; a tooltip and their accessible name carry it
 const PROGRAMME_TEXT_MIN_WIDTH = 48
 // The grid's horizontal scroll, kept as a CSS variable on the scroller so
@@ -186,6 +193,20 @@ export function TVEPGGrid({
   const nowMarkerOffset = useMemo(() => {
     return calculateTimeOffset(new Date(now), startTime)
   }, [now, startTime])
+
+  // The header label the now pill would cover, or -1. It changes only when
+  // the pill reaches or leaves a label, so the memoised labels skip most ticks.
+  const pillCoveredSlot = useMemo(() => {
+    if (nowMarkerOffset <= 0 || nowMarkerOffset >= gridWidth) return -1
+    return timeSlots.findIndex((slot, i) => {
+      const labelLeft = i * SLOT_WIDTH + TIME_LABEL_LEFT
+      const labelWidth = isMidnight(slot) ? MIDNIGHT_LABEL_WIDTH : TIME_LABEL_WIDTH
+      return (
+        nowMarkerOffset + NOW_PILL_HALF_WIDTH > labelLeft &&
+        nowMarkerOffset - NOW_PILL_HALF_WIDTH < labelLeft + labelWidth
+      )
+    })
+  }, [nowMarkerOffset, gridWidth, timeSlots])
 
   // Navigation functions
   const scrollByHours = useCallback((hoursToScroll: number) => {
@@ -385,21 +406,21 @@ export function TVEPGGrid({
             </span>
             <button
               onClick={() => scrollByHours(-2)}
-              className="flex h-6 w-6 items-center justify-center rounded hover:bg-accent"
+              className="flex h-6 w-6 items-center justify-center rounded hover:bg-accent pointer-coarse:h-11 pointer-coarse:w-11"
               aria-label="Scroll back 2 hours"
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
             <button
               onClick={scrollToNow}
-              className="px-1 text-xs font-medium hover:bg-accent rounded"
+              className="px-1 text-xs font-medium hover:bg-accent rounded pointer-coarse:h-11 pointer-coarse:px-3"
               aria-label="Scroll to now"
             >
               Now
             </button>
             <button
               onClick={() => scrollByHours(2)}
-              className="flex h-6 w-6 items-center justify-center rounded hover:bg-accent"
+              className="flex h-6 w-6 items-center justify-center rounded hover:bg-accent pointer-coarse:h-11 pointer-coarse:w-11"
               aria-label="Scroll forward 2 hours"
             >
               <ChevronRight className="h-4 w-4" />
@@ -412,12 +433,12 @@ export function TVEPGGrid({
               narrower than its label, the label hides rather than showing a
               fragment such as '0 PM'. */}
           <div className="relative flex">
-            <TimeSlotLabels slots={timeSlots} />
+            <TimeSlotLabels slots={timeSlots} coveredIndex={pillCoveredSlot} />
             {/* Live time pill on the now marker */}
             {nowMarkerOffset > 0 && nowMarkerOffset < gridWidth && (
               <span
                 data-testid="now-pill"
-                className="absolute top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded bg-destructive px-1.5 py-0.5 text-xs font-bold leading-none tabular-nums text-destructive-foreground"
+                className="absolute top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded bg-live px-1.5 py-0.5 text-xs font-bold leading-none tabular-nums text-live-foreground"
                 style={{ left: nowMarkerOffset }}
               >
                 {formatTime(new Date(now))}
@@ -444,10 +465,11 @@ export function TVEPGGrid({
           {nowMarkerOffset > 0 && nowMarkerOffset < gridWidth && (
             <div
               aria-hidden="true"
-              className="absolute top-0 bottom-0 z-10 w-0.5 bg-destructive"
+              data-testid="now-line"
+              className="absolute top-0 bottom-0 z-10 w-0.5 bg-live"
               style={{ left: CHANNEL_LABEL_WIDTH + nowMarkerOffset }}
             >
-              <div className="absolute -top-1 -left-1.5 h-3 w-3 rounded-full bg-destructive" />
+              <div data-testid="now-dot" className="absolute -top-1 -left-1.5 h-3 w-3 rounded-full bg-live" />
             </div>
           )}
 
@@ -578,6 +600,7 @@ const ChannelRow = memo(function ChannelRow({
             <LiveRowSlot>
               <Button
                 size="sm"
+                className="pointer-coarse:h-11"
                 onClick={onPickLive}
                 tabIndex={tabStopBlockId === PICK_LIVE_CELL ? 0 : -1}
                 data-grid-row={channel.id}
@@ -719,30 +742,38 @@ function ChannelLabel({
           fallback={isLive ? <Radio className="h-4 w-4 text-live" /> : undefined}
         />
         <span className="flex min-w-0 flex-1 flex-col gap-1">
+          {/* The name keeps the whole first line, and a few letters at least */}
           <span className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate font-medium">{channel.name}</span>
+            <span className="min-w-[3ch] truncate font-medium">{channel.name}</span>
             {showLiveHighlight && <LivePill />}
           </span>
-          {onAir && (
+          {(onAir || presence) && (
             <span className="flex items-center gap-1.5">
-              <span className="h-0.5 flex-1 overflow-hidden rounded-full bg-muted">
-                <span
-                  data-testid="label-progress"
-                  className={cn('block h-full rounded-full', isLive ? 'bg-live' : 'bg-primary/60')}
-                  style={{ width: `${calculateProgress(onAir.startMs, onAir.stopMs, now)}%` }}
-                />
-              </span>
-              <span className="shrink-0 text-xs leading-none tabular-nums text-muted-foreground">
-                {formatRemaining(onAir.stopMs, now)}
-              </span>
+              {onAir && (
+                <>
+                  <span className="h-0.5 flex-1 overflow-hidden rounded-full bg-muted">
+                    <span
+                      data-testid="label-progress"
+                      className={cn('block h-full rounded-full', isLive ? 'bg-live' : 'bg-primary/60')}
+                      style={{ width: `${calculateProgress(onAir.startMs, onAir.stopMs, now)}%` }}
+                    />
+                  </span>
+                  <span className="shrink-0 text-xs leading-none tabular-nums text-muted-foreground">
+                    {formatRemaining(onAir.stopMs, now)}
+                  </span>
+                </>
+              )}
+              {/* Room for the people on the channel, on the second line so
+                  the name keeps the first, laid over it below */}
+              {presence && <ChannelPresenceSpace people={presence} className="ml-auto" />}
             </span>
           )}
         </span>
-        {/* Room for the people on the channel, laid over it below */}
-        {presence && <ChannelPresenceSpace people={presence} />}
       </button>
       {presence && (
-        // Over its room: centred like it, at the label's right padding. Out
+        // Over its room at the end of the second line: the 20px name line,
+        // the gap and the 24px stack are centred in the 64px row, so the
+        // stack ends 8px above the label's bottom, at its right padding. Out
         // of the grid's keyboard order (the label beside it tunes the same
         // channel), so the guide stays one tab stop.
         <ChannelPresenceStack
@@ -751,7 +782,7 @@ function ChannelLabel({
           isWatching={isWatching}
           onJoin={() => onChannelClick?.(channel)}
           tabIndex={-1}
-          className="absolute top-1/2 right-2 -translate-y-1/2"
+          className="absolute right-2 bottom-2"
         />
       )}
     </div>
@@ -851,8 +882,9 @@ const ProgrammeBox = memo(function ProgrammeBox({
         state === 'now' && (isLive
           ? 'bg-live/15 border-live/40 shadow-[inset_3px_0_0_var(--live)]'
           : 'bg-guide-now border-border shadow-[inset_3px_0_0_var(--primary)]'),
-        state === 'future' && (isLive ? 'bg-live/15 border-live/40 text-foreground' : 'bg-guide-future border-border text-foreground'),
-        isWatching && 'border-primary'
+        state === 'future' && (isLive ? 'bg-live/15 border-live/40 text-foreground' : 'bg-guide-future border-border text-foreground')
+        // No outline for the watched block: the channel label marks it, so
+        // keyboard focus is the only amber outline in the grid
       )}
       style={{ left, width }}
       data-state={state}
@@ -991,26 +1023,34 @@ function formatDay(dayStartMs: number, nowMs: number): string {
   return dayFormat.format(dayStartMs)
 }
 
+// A slot starting at local midnight, whose label leads with the day
+function isMidnight(slot: Date): boolean {
+  return slot.getHours() === 0 && slot.getMinutes() === 0
+}
+
 interface TimeSlotLabelsProps {
   slots: Date[]
+  // The label under the now pill, or -1: it hides rather than show a fragment
+  coveredIndex: number
 }
 
 // The header's half-hour labels. Memoised on the slot list, which only
-// changes with the grid's range, so clock ticks don't re-format them.
-const TimeSlotLabels = memo(function TimeSlotLabels({ slots }: TimeSlotLabelsProps) {
+// changes with the grid's range, and the covered label, which changes a few
+// times an hour, so most clock ticks don't re-format them.
+const TimeSlotLabels = memo(function TimeSlotLabels({ slots, coveredIndex }: TimeSlotLabelsProps) {
   return slots.map((slot, i) => {
-    const isMidnight = slot.getHours() === 0 && slot.getMinutes() === 0
+    const midnight = isMidnight(slot)
     return (
       <div
         key={i}
         className={cn(
           'shrink-0 overflow-clip border-l px-2 py-2 text-sm text-muted-foreground',
-          isMidnight && 'border-l-foreground/40'
+          midnight && 'border-l-foreground/40'
         )}
         style={{ width: SLOT_WIDTH }}
       >
         <span
-          className="sticky block h-[1lh] w-fit overflow-clip"
+          className={cn('sticky block h-[1lh] w-fit overflow-clip', i === coveredIndex && 'invisible')}
           style={{ left: STICKY_TEXT_LEFT, maxWidth: visiblePartWidth(i * SLOT_WIDTH) }}
         >
           {/* A label too wide for that width wraps after the
@@ -1018,7 +1058,7 @@ const TimeSlotLabels = memo(function TimeSlotLabels({ slots }: TimeSlotLabelsPro
               height clips */}
           {'\u200B'}
           <span className="inline-block whitespace-nowrap tabular-nums">
-            {isMidnight && (
+            {midnight && (
               <span data-testid="day-marker" className="mr-1.5 font-semibold text-foreground">
                 {dayFormat.format(slot)}
               </span>
