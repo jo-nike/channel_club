@@ -19,6 +19,10 @@ const buttonVariants = cva(
         ghost:
           "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
         link: "text-primary underline-offset-4 hover:underline",
+        // Header and toolbar actions: quiet until hovered, and a toggle that
+        // is on (aria-pressed) gets a primary tint, not just a brighter icon
+        toolbar:
+          "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground aria-pressed:bg-primary/15 aria-pressed:text-primary",
       },
       size: {
         default: "h-9 px-4 py-2 has-[>svg]:px-3",
@@ -27,6 +31,9 @@ const buttonVariants = cva(
         icon: "size-9",
         "icon-sm": "size-8",
         "icon-lg": "size-10",
+        // 44px touch targets below md, 36px from md; 18px icons
+        toolbar:
+          "size-11 md:size-9 [&_svg:not([class*='size-'])]:size-[18px]",
       },
     },
     defaultVariants: {
