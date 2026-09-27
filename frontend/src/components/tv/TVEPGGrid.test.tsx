@@ -530,6 +530,80 @@ describe('TVEPGGrid programme states', () => {
     expect(meta(block('Soon Film'))).toHaveTextContent('30m left')
   })
 
+  it('keeps each title sticky just right of the channel column, clipping rather than scrolling the block', () => {
+    render(<TVEPGGrid programmesByChannel={schedule} />)
+
+    for (const title of ['Earlier Film', 'Current Film', 'Later Film', 'Long Cartoon']) {
+      const el = block(title)
+      // overflow: hidden would make the block the sticky title's scroll container
+      expect(el).toHaveClass('overflow-clip', 'text-left')
+      expect(el).not.toHaveClass('overflow-hidden')
+      expect(el).not.toHaveClass('text-right')
+      const text = el.querySelector('[data-testid="programme-text"]') as HTMLElement
+      // The 208px channel column plus 8px
+      expect(text).toHaveClass('sticky', 'w-fit')
+      expect(text).toHaveStyle({ left: '216px' })
+      expect(text.querySelectorAll('p')).toHaveLength(2)
+      text.querySelectorAll('p').forEach((p) => expect(p).toHaveClass('truncate'))
+    }
+  })
+
+  it('narrows each title to the part of its block right of the channel column, so it truncates at the column edge', () => {
+    render(<TVEPGGrid programmesByChannel={schedule} />)
+    const grid = screen.getByTestId('tv-epg-grid')
+    const width = (title: string) =>
+      (block(title).querySelector('[data-testid="programme-text"]') as HTMLElement).style.maxWidth
+
+    // The block less what has scrolled past its left edge, from the block's
+    // own offset into the programmes: 0px from 19:30, 300px from 20:30
+    expect(width('Long Cartoon')).toBe('calc(100% - max(0px, var(--guide-scroll-x, 0px) - 0px))')
+    expect(width('Later Film')).toBe('calc(100% - max(0px, var(--guide-scroll-x, 0px) - 300px))')
+
+    // Opening scrolls now 100px right of the column: 20:00 is 150px in
+    expect(grid.style.getPropertyValue('--guide-scroll-x')).toBe('50px')
+    grid.scrollLeft = 120
+    fireEvent.scroll(grid)
+    expect(grid.style.getPropertyValue('--guide-scroll-x')).toBe('120px')
+  })
+
+  it('draws a block that started before the grid from the grid start, left-aligned', () => {
+    render(<TVEPGGrid programmesByChannel={schedule} />)
+
+    // 19:30 to 20:30 at 150px per half hour, less the 3px gap
+    const long = block('Long Cartoon')
+    expect(long).toHaveStyle({ left: '0px', width: '297px' })
+    expect(long).not.toHaveClass('text-right')
+  })
+
+  it('draws short programmes at their true width, with a tooltip and an accessible name instead of text', () => {
+    const shorts = {
+      etv1: [
+        { id: 'short', channelId: 'etv1', title: 'Station Ident', start: at(30), stop: at(35) },
+        { id: 'after', channelId: 'etv1', title: 'Later Film', start: at(35), stop: at(120) },
+      ],
+    }
+    render(<TVEPGGrid programmesByChannel={shorts} />)
+
+    const short = screen.getByRole('button', { name: /^Station Ident, / })
+    // Five minutes: 25px less the gap, no 60px minimum spilling over the next block
+    expect(short).toHaveStyle({ width: '22px' })
+    const next = block('Later Film')
+    expect(parseFloat(short.style.left) + parseFloat(short.style.width)).toBeLessThanOrEqual(parseFloat(next.style.left))
+    expect(short).toHaveAttribute('data-state', 'future')
+    expect(short).toHaveTextContent('')
+    expect(short.querySelector('[data-testid="programme-text"]')).toBeNull()
+
+    fireEvent.focus(short)
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Station Ident')
+  })
+
+  it('names a narrow block on now by its title and time left', () => {
+    const ending = { etv1: [{ id: 'ending', channelId: 'etv1', title: 'Promo', start: at(-5), stop: at(4) }] }
+    render(<TVEPGGrid programmesByChannel={ending} />)
+
+    expect(screen.getByRole('button', { name: 'Promo, 4m left' })).toHaveAttribute('data-state', 'now')
+  })
+
   it('keeps the live tint on the live row while its programme is on', () => {
     useChannelStore.setState({
       currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1' },

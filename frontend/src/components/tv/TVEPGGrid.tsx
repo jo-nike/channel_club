@@ -1,10 +1,11 @@
-import { memo, useEffect, useRef, useMemo, useCallback, type ReactNode } from 'react'
+import { memo, useEffect, useRef, useMemo, useCallback, type ReactNode, type UIEvent } from 'react'
 import { ChevronLeft, ChevronRight, Radio } from 'lucide-react'
 import { useTVStore, LIVE_CHANNEL_ID, buildUnifiedChannels, describeLiveGuide } from '@/stores/tvStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { getErsatzTVLogoUrl } from '@/services/ersatztvApi'
 import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useProgrammeClock } from '@/hooks/useProgrammeClock'
 import { scrollBehavior } from '@/lib/motion'
 import { buildProgrammeIndex, findCurrentAndNext, type ProgrammeIndex } from '@/lib/programmeIndex'
@@ -19,6 +20,14 @@ const ROW_HEIGHT = 64 // pixels per channel row
 // Wide enough for the channel name: with the guide open it's the only channel list
 const CHANNEL_LABEL_WIDTH = 208
 const PROGRAMME_GAP = 3 // pixels between programme boxes
+// Where a block's title sticks while the block scrolls under the channel column
+const PROGRAMME_TEXT_STICKY_LEFT = CHANNEL_LABEL_WIDTH + 8
+// Narrower blocks show no text; a tooltip and their accessible name carry it
+const PROGRAMME_TEXT_MIN_WIDTH = 48
+// The grid's horizontal scroll, kept as a CSS variable on the scroller so
+// sticky text can fit the part of its box right of the channel column
+// without a render per scroll
+const SCROLL_X_VAR = '--guide-scroll-x'
 
 interface TVEPGGridProps {
   hours?: number
@@ -72,6 +81,11 @@ export function TVEPGGrid({
 
   const gridWidth = hours * HOUR_WIDTH
 
+  // Keeps the scroll offset the sticky titles read in step with the grid
+  const handleScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
+    syncScrollX(event.currentTarget)
+  }, [])
+
   // Generate time slots for header
   const timeSlots = useMemo(() => {
     const slots: Date[] = []
@@ -88,6 +102,8 @@ export function TVEPGGrid({
     if (containerRef.current && !loading && Object.keys(programmesByChannel).length > 0) {
       const nowOffset = calculateTimeOffset(new Date(), startTime)
       containerRef.current.scrollLeft = Math.max(0, nowOffset - 100)
+      // Its scroll event comes later; the sticky titles need the offset now
+      syncScrollX(containerRef.current)
     }
   }, [loading, startTime, programmesByChannel])
 
@@ -164,6 +180,7 @@ export function TVEPGGrid({
       // horizontal scrollbar sits at the bottom of the visible guide
       className="epg-scroll relative h-full overflow-auto"
       data-testid="tv-epg-grid"
+      onScroll={handleScroll}
     >
       {/* Time header - sticky top, scrolls horizontally with grid. It layers
           above the sticky channel labels (z-20), which scroll up under it */}
@@ -501,15 +518,19 @@ const ProgrammeBox = memo(function ProgrammeBox({
   // Skip if programme ends before grid starts
   if (left + width < 0) return null
 
-  // Calculate if the programme is clipped (started before grid start)
-  const isClipped = left < 0
+  // A programme that started before the grid is drawn from the grid's start
   const visualLeft = Math.max(0, left)
-  const visualWidth = Math.max(60, width - (isClipped ? -left : 0) - PROGRAMME_GAP)
+  // True to its duration: short fillers no longer grow over their neighbours
+  const visualWidth = Math.max(0, width - (visualLeft - left) - PROGRAMME_GAP)
+  const showsText = visualWidth >= PROGRAMME_TEXT_MIN_WIDTH
+  const meta = state === 'now' ? timeLeft : `${formatTime(progStart)} - ${formatTime(progEnd)}`
 
-  return (
+  const block = (
     <button
+      // overflow-clip, not overflow-hidden: hidden would make the block the
+      // title's scroll container, and the title couldn't stick to the grid
       className={cn(
-        'absolute top-1 bottom-1 z-0 overflow-hidden rounded border',
+        'absolute top-1 bottom-1 z-0 overflow-clip rounded border text-left',
         'px-2 py-1 text-sm flex flex-col justify-center',
         'hover:opacity-80 focus-visible:-outline-offset-2',
         'transition-colors',
@@ -521,8 +542,7 @@ const ProgrammeBox = memo(function ProgrammeBox({
           ? 'bg-live/15 border-live/40 shadow-[inset_3px_0_0_var(--live)]'
           : 'bg-guide-now border-border shadow-[inset_3px_0_0_var(--primary)]'),
         state === 'future' && (isLive ? 'bg-live/15 border-live/40 text-foreground' : 'bg-guide-future border-border text-foreground'),
-        isWatching && 'border-primary',
-        isClipped ? 'text-right' : 'text-left'
+        isWatching && 'border-primary'
       )}
       style={{
         left: visualLeft,
@@ -530,25 +550,39 @@ const ProgrammeBox = memo(function ProgrammeBox({
       }}
       data-state={state}
       data-watching={isWatching || undefined}
+      aria-label={showsText ? undefined : `${programme.title}, ${meta}`}
       onClick={() => onClick?.(programme, channel)}
     >
-      <p
-        className={cn(
-          'truncate',
-          state === 'past' && 'font-normal',
-          state === 'now' && 'font-semibold',
-          state === 'future' && 'font-medium'
-        )}
-      >
-        {programme.title}
-      </p>
-      {state === 'now' ? (
-        // Muted text on guide-now is only 3.39-5.20:1, so the meta stays on the foreground
-        <p className="truncate text-xs tabular-nums text-foreground">{timeLeft}</p>
-      ) : (
-        <p className="truncate text-xs tabular-nums text-muted-foreground">
-          {formatTime(progStart)} - {formatTime(progEnd)}
-        </p>
+      {showsText && (
+        // Sticks just right of the channel column, so the start of the title
+        // stays readable while the block scrolls under it. It's only as wide
+        // as its text, and no wider than the part of the block still in
+        // view, so it has room to move and truncates at the column edge.
+        <div
+          data-testid="programme-text"
+          className="sticky w-fit"
+          style={{ left: PROGRAMME_TEXT_STICKY_LEFT, maxWidth: visiblePartWidth(visualLeft) }}
+        >
+          <p
+            className={cn(
+              'truncate',
+              state === 'past' && 'font-normal',
+              state === 'now' && 'font-semibold',
+              state === 'future' && 'font-medium'
+            )}
+          >
+            {programme.title}
+          </p>
+          <p
+            className={cn(
+              'truncate text-xs tabular-nums',
+              // Muted text on guide-now is only 3.39-5.20:1, so the meta stays on the foreground
+              state === 'now' ? 'text-foreground' : 'text-muted-foreground'
+            )}
+          >
+            {meta}
+          </p>
+        </div>
       )}
       {state === 'now' && progressPct !== undefined && (
         <span
@@ -559,6 +593,19 @@ const ProgrammeBox = memo(function ProgrammeBox({
         />
       )}
     </button>
+  )
+
+  if (showsText) return block
+
+  // Too narrow for its text: the tooltip shows it on hover and keyboard focus
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{block}</TooltipTrigger>
+      <TooltipContent>
+        <p className="font-medium">{programme.title}</p>
+        <p className="text-xs tabular-nums">{meta}</p>
+      </TooltipContent>
+    </Tooltip>
   )
 })
 
@@ -571,6 +618,23 @@ function calculateTimeOffset(time: Date, startTime: Date): number {
 function calculateDurationWidth(start: Date, end: Date): number {
   const diffMinutes = (end.getTime() - start.getTime()) / (1000 * 60)
   return (diffMinutes / 30) * SLOT_WIDTH
+}
+
+// Writes the grid's horizontal scroll to SCROLL_X_VAR. Skipped when it hasn't
+// changed, as on a vertical scroll, since a change restyles every block.
+function syncScrollX(scroller: HTMLElement) {
+  const value = `${scroller.scrollLeft}px`
+  if (scroller.style.getPropertyValue(SCROLL_X_VAR) !== value) {
+    scroller.style.setProperty(SCROLL_X_VAR, value)
+  }
+}
+
+// Max width for sticky text in a box that starts `left` px into the
+// programmes: the box less the part scrolled under the channel column. A
+// sticky element can't leave its box, so text wider than the part in view
+// would stop short of the column edge and stay cut on the left.
+function visiblePartWidth(left: number): string {
+  return `calc(100% - max(0px, var(${SCROLL_X_VAR}, 0px) - ${left}px))`
 }
 
 function formatTime(date: Date): string {
