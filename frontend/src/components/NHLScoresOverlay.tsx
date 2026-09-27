@@ -9,6 +9,17 @@ import { useChatEnabled } from '@/hooks/useChatEnabled'
 import { useNHLScores } from '@/hooks/useNHLScores'
 import { useSetLiveChannel } from '@/hooks/useSetLiveChannel'
 import type { ChatSendResult } from '@/hooks/useWebSocket'
+import { useUIStore } from '@/stores/uiStore'
+import { useAuthStore } from '@/stores/authStore'
+import { useChannelStore } from '@/stores/channelStore'
+import { useChatStore } from '@/stores/chatStore'
+import { useNhlMappingStore } from '@/stores/nhlMappingStore'
+import { useSettingsStore } from '@/stores/settingsStore'
+import { cn } from '@/lib/utils'
+import { scrollBehavior } from '@/lib/motion'
+import { askGroupMessage, channelsOf, liveGameId, matchGames, type GameRow } from '@/lib/nhlWatch'
+import type { Channel } from '@/types'
+import type { NHLGame, NHLTeam } from '@/types/nhl'
 
 /**
  * NHL shield logo as inline SVG.
@@ -41,17 +52,6 @@ function NHLLogo({ className }: { className?: string }) {
     </svg>
   )
 }
-import { useUIStore } from '@/stores/uiStore'
-import { useAuthStore } from '@/stores/authStore'
-import { useChannelStore } from '@/stores/channelStore'
-import { useChatStore } from '@/stores/chatStore'
-import { useNhlMappingStore } from '@/stores/nhlMappingStore'
-import { useSettingsStore } from '@/stores/settingsStore'
-import { cn } from '@/lib/utils'
-import { scrollBehavior } from '@/lib/motion'
-import { askGroupMessage, channelsOf, liveGameId, matchGames, type GameRow } from '@/lib/nhlWatch'
-import type { Channel } from '@/types'
-import type { NHLGame, NHLTeam } from '@/types/nhl'
 
 interface NHLScoresOverlayProps {
   isVisible: boolean
