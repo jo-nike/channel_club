@@ -153,6 +153,33 @@ describe('TVEPGGrid empty live slot', () => {
   })
 })
 
+describe('TVEPGGrid scrolling', () => {
+  afterEach(() => cleanup())
+
+  it('is the only scroller, both ways, with the time header sticking inside it', () => {
+    render(<TVEPGGrid programmesByChannel={programmesByChannel} liveEPG={liveEPG} />)
+
+    const grid = screen.getByTestId('tv-epg-grid')
+    expect(grid).toHaveClass('h-full', 'overflow-auto')
+    expect(grid).not.toHaveClass('overflow-y-hidden')
+    const header = screen.getByRole('button', { name: 'Scroll to now' }).parentElement!.parentElement!
+    expect(header).toHaveClass('sticky', 'top-0')
+    expect(header.parentElement).toBe(grid)
+  })
+
+  it('layers the time header above the channel labels that scroll up under it', () => {
+    render(<TVEPGGrid programmesByChannel={programmesByChannel} liveEPG={liveEPG} />)
+
+    // jsdom doesn't paint, so compare the z-index classes. The header, the
+    // labels and the now marker share one stacking context in the grid.
+    const zIndex = (el: Element) => Number(/(?:^|\s)z-(\d+)(?:\s|$)/.exec(el.className)?.[1] ?? 0)
+    const header = screen.getByRole('button', { name: 'Scroll to now' }).parentElement!.parentElement!
+    const label = screen.getAllByTestId('channel-row')[0].firstElementChild!
+    expect(label).toHaveClass('sticky', 'left-0')
+    expect(zIndex(header)).toBeGreaterThan(zIndex(label))
+  })
+})
+
 describe('TVEPGGrid navigation scrolling', () => {
   // jsdom has no layout scrolling, so there's no scrollBy/scrollTo to spy on
   const scrollBy = vi.fn()

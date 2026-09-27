@@ -406,7 +406,12 @@ export function TVView() {
           {/* EPG section - hidden in theater mode or mobile landscape */}
           {!isTheaterMode && !isMobileLandscape && (isMobile || isEPGVisible) && (
             <div
-              className="epg-scroll min-h-0 overflow-y-auto rounded-t-lg"
+              className={cn(
+                'min-h-0 rounded-t-lg',
+                // Desktop: the guide grid scrolls itself (both ways), so its
+                // time header can stick. Phone: this box scrolls the list.
+                isMobile ? 'epg-scroll overflow-y-auto' : 'overflow-hidden'
+              )}
               style={
                 !isMobile && isEPGVisible
                   ? { flex: `0 0 ${epgHeightPercent}%` }

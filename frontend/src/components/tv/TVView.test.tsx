@@ -38,7 +38,7 @@ vi.mock('@/components/tv/DualModeVideoPlayer', async () => {
     return <div data-testid="player">{channel?.streamUrl || 'No live broadcast'}</div>
   } }
 })
-vi.mock('@/components/tv/TVEPGGrid', () => ({ TVEPGGrid: () => null }))
+vi.mock('@/components/tv/TVEPGGrid', () => ({ TVEPGGrid: () => <div data-testid="tv-epg-grid" /> }))
 vi.mock('@/components/ChatPanel', async () => {
   const { useChatStore } = await import('@/stores/chatStore')
   // Like the real panel, renders nothing (and so can't throw) while closed
@@ -471,6 +471,22 @@ describe('programme progress on the phone list', () => {
 
     const label = await screen.findByText('2h left')
     expect(parseFloat(fillBefore(label).style.width)).toBeCloseTo((60 / 180) * 100, 5)
+  })
+})
+
+describe('B-06 guide mode', () => {
+  beforeEach(() => vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([]))
+  afterEach(() => useUIStore.setState({ isEPGVisible: false }))
+
+  it('leaves the scrolling to the guide grid on desktop, so its time header can stick', async () => {
+    useUIStore.setState({ isEPGVisible: true })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+
+    const wrapper = screen.getByTestId('tv-epg-grid').parentElement as HTMLElement
+    expect(wrapper).toHaveClass('min-h-0', 'overflow-hidden')
+    expect(wrapper).not.toHaveClass('overflow-y-auto')
+    expect(wrapper).toHaveStyle({ flex: `0 0 ${useUIStore.getState().epgHeightPercent}%` })
   })
 })
 

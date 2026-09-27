@@ -127,12 +127,16 @@ export function TVEPGGrid({
   return (
     <div
       ref={containerRef}
-      className="epg-scroll relative overflow-x-auto overflow-y-hidden"
+      // The only scroller in both directions, so the sticky time header and
+      // its Now/2h buttons stay in view while scrolling channels, and the
+      // horizontal scrollbar sits at the bottom of the visible guide
+      className="epg-scroll relative h-full overflow-auto"
       data-testid="tv-epg-grid"
     >
-      {/* Time header - sticky top, scrolls horizontally with grid */}
+      {/* Time header - sticky top, scrolls horizontally with grid. It layers
+          above the sticky channel labels (z-20), which scroll up under it */}
       <div
-        className="sticky top-0 z-20 flex bg-card border-b"
+        className="sticky top-0 z-30 flex bg-card border-b"
         style={{ width: CHANNEL_LABEL_WIDTH + gridWidth }}
       >
         {/* Navigation controls */}
