@@ -1,7 +1,9 @@
-import { render, screen, fireEvent } from '@/test/utils'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, fireEvent, act } from '@/test/utils'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ProgrammeDetailsModal } from './ProgrammeDetailsModal'
-import type { ErsatzTVProgramme, ErsatzTVChannel } from '@/types'
+import { useErsatztvStore } from '@/stores/ersatztvStore'
+import { useTVStore } from '@/stores/tvStore'
+import type { ErsatzTVProgramme, ErsatzTVChannel, UnifiedChannel } from '@/types'
 
 describe('ProgrammeDetailsModal', () => {
   const mockProgramme: ErsatzTVProgramme = {
@@ -31,8 +33,35 @@ describe('ProgrammeDetailsModal', () => {
     onWatch: vi.fn(),
   }
 
+  // Test Movie runs 14:00-16:00Z; by default the clock sits halfway through it.
+  const DURING = new Date('2026-01-03T15:00:00Z')
+
+  const onAir: ErsatzTVProgramme = {
+    id: 'p0',
+    channelId: 'ch1',
+    title: 'Morning Cartoons',
+    start: '2026-01-03T12:12:00Z',
+    stop: '2026-01-03T14:00:00Z',
+  }
+
+  const watching: UnifiedChannel = {
+    id: 'ch1',
+    name: 'Comedy Classics',
+    number: 1,
+    streamUrl: 'http://example.com/stream.m3u8',
+    type: 'ersatztv',
+  }
+
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.useFakeTimers()
+    vi.setSystemTime(DURING)
+    useTVStore.setState({ selectedChannel: null })
+    useErsatztvStore.setState({ programmesByChannel: {} })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('displays programme title', () => {
@@ -98,19 +127,93 @@ describe('ProgrammeDetailsModal', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
-  it('closes modal on Close button click', () => {
-    const onOpenChange = vi.fn()
-    render(<ProgrammeDetailsModal {...defaultProps} onOpenChange={onOpenChange} />)
+  it('has no footer Close button, only the dialog X', () => {
+    render(<ProgrammeDetailsModal {...defaultProps} />)
 
-    // Get the footer Close button (not the X icon close button)
     const closeButtons = screen.getAllByRole('button', { name: /close/i })
-    // The footer Close button is the one with "Close" text, not sr-only
-    const footerCloseButton = closeButtons.find(
-      (btn) => btn.textContent === 'Close'
-    )
-    expect(footerCloseButton).toBeDefined()
-    fireEvent.click(footerCloseButton!)
-    expect(onOpenChange).toHaveBeenCalledWith(false)
+    expect(closeButtons).toHaveLength(1)
+    expect(closeButtons[0]).toHaveAttribute('data-slot', 'dialog-close')
+  })
+
+  describe('actions by programme state', () => {
+    it('upcoming: says when it starts and offers the channel as it is now', () => {
+      // 1h 48m before Test Movie starts at 14:00Z
+      vi.setSystemTime(new Date('2026-01-03T12:12:00Z'))
+      useErsatztvStore.setState({ programmesByChannel: { ch1: [onAir, mockProgramme] } })
+      const onWatch = vi.fn()
+      render(<ProgrammeDetailsModal {...defaultProps} onWatch={onWatch} />)
+
+      expect(screen.getByText(/In 1h 48m ·/)).toBeInTheDocument()
+      expect(screen.getByText('On now: Morning Cartoons')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Watch now' })).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Watch Comedy Classics now' }))
+      expect(onWatch).toHaveBeenCalledWith(mockChannel)
+    })
+
+    it('upcoming: leaves out the on-now hint when nothing is on air', () => {
+      vi.setSystemTime(new Date('2026-01-03T12:12:00Z'))
+      render(<ProgrammeDetailsModal {...defaultProps} />)
+
+      expect(screen.getByRole('button', { name: 'Watch Comedy Classics now' })).toBeInTheDocument()
+      expect(screen.queryByText(/On now:/)).not.toBeInTheDocument()
+    })
+
+    it('on now: shows the time left and a primary Watch now', () => {
+      vi.setSystemTime(new Date('2026-01-03T15:28:00Z'))
+      useErsatztvStore.setState({ programmesByChannel: { ch1: [onAir, mockProgramme] } })
+      render(<ProgrammeDetailsModal {...defaultProps} />)
+
+      expect(screen.getByText(/32m left ·/)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Watch now' })).toBeInTheDocument()
+      expect(screen.queryByText(/On now:/)).not.toBeInTheDocument()
+    })
+
+    it('watching: says so and offers no watch button', () => {
+      useTVStore.setState({ selectedChannel: watching })
+      render(<ProgrammeDetailsModal {...defaultProps} />)
+
+      expect(screen.getByText("You're watching this")).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /watch/i })).not.toBeInTheDocument()
+    })
+
+    it('ended: says when it ended and offers only the channel as it is now', () => {
+      vi.setSystemTime(new Date('2026-01-03T16:10:00Z'))
+      useErsatztvStore.setState({
+        programmesByChannel: {
+          ch1: [
+            mockProgramme,
+            { ...onAir, id: 'p2', title: 'Evening News', start: '2026-01-03T16:00:00Z', stop: '2026-01-03T16:30:00Z' },
+          ],
+        },
+      })
+      render(<ProgrammeDetailsModal {...defaultProps} />)
+
+      expect(screen.getByText(/Ended at/)).toBeInTheDocument()
+      expect(screen.getByText('On now: Evening News')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Watch now' })).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Watch Comedy Classics now' })).toBeInTheDocument()
+    })
+
+    it('upcoming on the channel you are watching: no watch button, since it would do nothing', () => {
+      vi.setSystemTime(new Date('2026-01-03T12:12:00Z'))
+      useTVStore.setState({ selectedChannel: watching })
+      render(<ProgrammeDetailsModal {...defaultProps} />)
+
+      expect(screen.getByText("You're watching Comedy Classics")).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /watch/i })).not.toBeInTheDocument()
+    })
+
+    it('moves from upcoming to on now when the clock passes the start', () => {
+      vi.setSystemTime(new Date('2026-01-03T13:59:45Z'))
+      render(<ProgrammeDetailsModal {...defaultProps} />)
+      expect(screen.getByText(/In 1m ·/)).toBeInTheDocument()
+
+      act(() => {
+        vi.advanceTimersByTime(30_000)
+      })
+      expect(screen.getByRole('button', { name: 'Watch now' })).toBeInTheDocument()
+    })
   })
 
   it('returns null when programme is null', () => {
