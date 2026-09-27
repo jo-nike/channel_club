@@ -7,6 +7,10 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { useProgrammeClock } from '@/hooks/useProgrammeClock'
+import { findOnAir, formatRemaining, formatStartsIn, getProgrammeState } from '@/lib/programmes'
+import { useErsatztvStore } from '@/stores/ersatztvStore'
+import { useTVStore } from '@/stores/tvStore'
 import type { ErsatzTVProgramme, ErsatzTVChannel } from '@/types'
 
 interface ProgrammeDetailsModalProps {
@@ -24,7 +28,17 @@ export function ProgrammeDetailsModal({
   onOpenChange,
   onWatch,
 }: ProgrammeDetailsModalProps) {
+  const now = useProgrammeClock()
+  const selectedChannelId = useTVStore((s) => s.selectedChannel?.id)
+  const channelProgrammes = useErsatztvStore((s) =>
+    channel ? s.programmesByChannel[channel.id] : undefined
+  )
+
   if (!programme || !channel) return null
+
+  const state = getProgrammeState(programme, now)
+  const isWatching = selectedChannelId === channel.id
+  const onAirNow = findOnAir(channelProgrammes ?? [], now)
 
   const startTime = new Date(programme.start)
   const endTime = new Date(programme.stop)
@@ -43,6 +57,13 @@ export function ProgrammeDetailsModal({
       minute: '2-digit',
     })
   }
+
+  const status =
+    state === 'future'
+      ? formatStartsIn(startTime.getTime() - now)
+      : state === 'now'
+        ? formatRemaining(endTime.getTime(), now)
+        : `Ended at ${formatTime(endTime)}`
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -64,7 +85,7 @@ export function ProgrammeDetailsModal({
                 </p>
               )}
               <p className="text-muted-foreground">
-                {formatTime(startTime)} - {formatTime(endTime)} ({duration} min) · {channel.name}
+                {status} · {formatTime(startTime)} - {formatTime(endTime)} ({duration} min) · {channel.name}
               </p>
             </div>
           </DialogDescription>
@@ -82,11 +103,30 @@ export function ProgrammeDetailsModal({
           )}
         </div>
 
-        <DialogFooter className="gap-2 sm:gap-0">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Close
-          </Button>
-          <Button onClick={handleWatch}>Watch Now</Button>
+        <DialogFooter className="gap-2 sm:items-center">
+          {state === 'now' ? (
+            isWatching ? (
+              <p className="text-sm font-medium">You're watching this</p>
+            ) : (
+              <Button onClick={handleWatch}>Watch now</Button>
+            )
+          ) : (
+            // Upcoming or ended: the only honest action is the channel as it is now.
+            <>
+              {onAirNow && (
+                <p className="text-sm text-muted-foreground sm:mr-auto">
+                  On now: {onAirNow.title}
+                </p>
+              )}
+              {isWatching ? (
+                <p className="text-sm font-medium">You're watching {channel.name}</p>
+              ) : (
+                <Button variant="ghost" onClick={handleWatch}>
+                  Watch {channel.name} now
+                </Button>
+              )}
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
