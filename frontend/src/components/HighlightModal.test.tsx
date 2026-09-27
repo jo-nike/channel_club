@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, within, act } from '@/test/utils'
 import { HighlightModal } from './HighlightModal'
 import * as api from '@/services/api'
 import { useAudioStore } from '@/stores/audioStore'
+import { useChatStore, type ChatSender } from '@/stores/chatStore'
 
 vi.mock('@/services/api', () => ({
   createHighlightCapture: vi.fn(), highlightCaptureUrl: vi.fn(), fetchHighlightCapture: vi.fn(), createCaptureDownloadUrl: vi.fn(), deleteHighlightCapture: vi.fn(),
@@ -788,5 +789,147 @@ describe('Clip editor', () => {
     fireEvent.change(screen.getByLabelText('Format'), { target: { value: 'webm' } })
     fireEvent.click(screen.getByText('Download clip'))
     await waitFor(() => expect(api.exportHighlight).toHaveBeenCalledWith('capture-1', 'webm', { startTime: 1.3, endTime: 60 }, expect.any(AbortSignal)))
+  })
+})
+
+describe('Post to chat', () => {
+  const link = 'https://clips.example/clip.mp4'
+  let unregister: () => void = () => {}
+
+  beforeEach(() => {
+    vi.stubEnv('VITE_CHAT_ENABLED', 'true')
+    vi.mocked(api.getHighlightFeatures).mockResolvedValue({ enabled: true, ziplineEnabled: true })
+  })
+  afterEach(() => {
+    unregister()
+    vi.unstubAllEnvs()
+  })
+
+  /** Stands in for the chat socket TVView registers, answering each send in turn */
+  function registerSender(...results: Awaited<ReturnType<ChatSender>>[]) {
+    const sender = vi.fn<ChatSender>(() => Promise.resolve(results.length > 1 ? results.shift()! : results[0] ?? 'acknowledged'))
+    unregister = useChatStore.getState().registerSender(sender)
+    return sender
+  }
+
+  const post = () => screen.findByRole('button', { name: 'Post to chat' })
+
+  it('exports once, uploads once and posts the link with the caption as the primary action', async () => {
+    const sender = registerSender('acknowledged')
+    render(<HighlightModal {...props} channelName="TSN 5" />)
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: '10s' }))
+    fireEvent.change(screen.getByLabelText('Caption (optional)'), { target: { value: '  What a goal  ' } })
+    // Download steps back once there is a club to show the clip to
+    expect(screen.getByRole('button', { name: 'Download clip' })).toHaveAttribute('data-variant', 'outline')
+    expect(await post()).toHaveAttribute('data-variant', 'default')
+    fireEvent.click(await post())
+    expect(await screen.findByText('Posted to chat.')).toBeInTheDocument()
+    expect(api.exportHighlight).toHaveBeenCalledExactlyOnceWith('capture-1', 'mp4', { startTime: 50, endTime: 60 }, expect.any(AbortSignal))
+    expect(api.uploadHighlight).toHaveBeenCalledExactlyOnceWith(prepared, 'mp4', expect.any(AbortSignal))
+    expect(sender).toHaveBeenCalledExactlyOnceWith(`Clip from TSN 5 (10s): What a goal ${link}`, expect.any(String))
+    expect(screen.getByRole('button', { name: 'Posted to chat' })).toBeDisabled()
+    // The link is there to copy as well
+    expect(screen.getByLabelText('Uploaded clip link')).toHaveValue(link)
+  })
+
+  it('posts without a caption, with the selected length to a tenth', async () => {
+    const sender = registerSender('acknowledged')
+    render(<HighlightModal {...props} channelName="TSN 5" />)
+    await ready()
+    typeTime('Start', '50.7')
+    fireEvent.click(await post())
+    await waitFor(() => expect(sender).toHaveBeenCalledExactlyOnceWith(`Clip from TSN 5 (9.3s) ${link}`, expect.any(String)))
+  })
+
+  it('posts the link Get share link already made instead of uploading again', async () => {
+    const sender = registerSender('acknowledged')
+    render(<HighlightModal {...props} channelName="TSN 5" />)
+    await ready()
+    fireEvent.click(await screen.findByRole('button', { name: 'Get share link' }))
+    expect(await screen.findByLabelText('Uploaded clip link')).toHaveValue(link)
+    fireEvent.click(await post())
+    expect(await screen.findByText('Posted to chat.')).toBeInTheDocument()
+    expect(api.uploadHighlight).toHaveBeenCalledTimes(1)
+    expect(api.exportHighlight).toHaveBeenCalledTimes(1)
+    expect(sender).toHaveBeenCalledExactlyOnceWith(`Clip from TSN 5 (20s) ${link}`, expect.any(String))
+  })
+
+  it('says a post was not sent, keeps the link, and posts it again without another upload', async () => {
+    const sender = registerSender('not-sent', 'acknowledged')
+    render(<HighlightModal {...props} channelName="TSN 5" />)
+    await ready()
+    fireEvent.click(await post())
+    expect(await screen.findByRole('alert')).toHaveTextContent("Not posted. You're offline or reconnecting.")
+    expect(screen.getByLabelText('Uploaded clip link')).toHaveValue(link)
+    expect(screen.getByRole('button', { name: 'Copy link' })).toBeInTheDocument()
+    fireEvent.click(await post())
+    expect(await screen.findByText('Posted to chat.')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(api.exportHighlight).toHaveBeenCalledTimes(1)
+    expect(api.uploadHighlight).toHaveBeenCalledTimes(1)
+    // The same message under the same id, so the server confirms rather than posts a duplicate
+    expect(sender).toHaveBeenCalledTimes(2)
+    expect(sender.mock.calls[1]).toEqual(sender.mock.calls[0])
+  })
+
+  it('says when chat could not confirm the post', async () => {
+    registerSender('unconfirmed')
+    render(<HighlightModal {...props} />)
+    await ready()
+    fireEvent.click(await post())
+    expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't confirm it was posted.")
+    expect(screen.getByLabelText('Uploaded clip link')).toHaveValue(link)
+    expect(await post()).toBeEnabled()
+  })
+
+  it('reports not sent when no chat is there to post to, and keeps the link', async () => {
+    render(<HighlightModal {...props} />)
+    await ready()
+    fireEvent.click(await post())
+    expect(await screen.findByRole('alert')).toHaveTextContent('Not posted.')
+    expect(screen.getByLabelText('Uploaded clip link')).toHaveValue(link)
+  })
+
+  it('leaves the post undone and keeps the selection when the upload fails', async () => {
+    const sender = registerSender('acknowledged')
+    vi.mocked(api.uploadHighlight).mockRejectedValueOnce(new Error('Zipline quota exceeded'))
+    render(<HighlightModal {...props} />)
+    await ready()
+    fireEvent.click(await post())
+    expect(await screen.findByRole('alert')).toHaveTextContent('Zipline quota exceeded')
+    expect(sender).not.toHaveBeenCalled()
+    expect(shown('Start')).toBe('40.0s')
+  })
+
+  it('offers to post again once the selection changes', async () => {
+    registerSender('acknowledged')
+    render(<HighlightModal {...props} />)
+    await ready()
+    fireEvent.click(await post())
+    expect(await screen.findByRole('button', { name: 'Posted to chat' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: '10s' }))
+    expect(await post()).toBeEnabled()
+    expect(screen.queryByText('Posted to chat.')).not.toBeInTheDocument()
+  })
+
+  it('is absent without chat, leaving Download as the primary action', async () => {
+    vi.stubEnv('VITE_CHAT_ENABLED', 'false')
+    render(<HighlightModal {...props} />)
+    await ready()
+    expect(await screen.findByRole('button', { name: 'Get share link' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Post to chat' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Caption (optional)')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Download clip' })).toHaveAttribute('data-variant', 'default')
+  })
+
+  it('is absent without Zipline to host the clip', async () => {
+    vi.mocked(api.getHighlightFeatures).mockResolvedValue({ enabled: true, ziplineEnabled: false })
+    render(<HighlightModal {...props} />)
+    await ready()
+    // Let the feature check settle, so the button is not merely still waiting for it
+    await act(async () => { await vi.mocked(api.getHighlightFeatures).mock.results[0].value })
+    expect(screen.queryByRole('button', { name: 'Post to chat' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Caption (optional)')).not.toBeInTheDocument()
   })
 })
