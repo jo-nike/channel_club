@@ -113,6 +113,7 @@ export function DualModeVideoPlayer({
   const reloadKey = pageReloadKey + shellReloads
   const reload = useCallback(() => setShellReloads((n) => n + 1), [])
 
+  const stepChannel = zap?.step
   const shell = useMemo(
     () => ({
       containerRef,
@@ -125,6 +126,7 @@ export function DualModeVideoPlayer({
       setHoveringControls,
       isInfoRailVisible,
       setInfoRailVisible,
+      stepChannel,
       reload,
       reloadKey,
     }),
@@ -135,6 +137,7 @@ export function DualModeVideoPlayer({
       onTheaterModeToggle,
       controlsVisible,
       isInfoRailVisible,
+      stepChannel,
       reload,
       reloadKey,
     ]

@@ -540,6 +540,119 @@ describe('PlayerChrome', () => {
     })
   })
 
+  describe('channel rocker', () => {
+    const WIDE = '(min-width: 1024px)'
+    const ROOMY = '(min-width: 768px)'
+    const setupMatchMedia = window.matchMedia
+    // setup.ts answers every media query with false; this reports the given ones as matching
+    const matchMediaQueries = (matching: string[]) => {
+      Object.defineProperty(window, 'matchMedia', {
+        writable: true,
+        configurable: true,
+        value: (query: string) => ({
+          matches: matching.includes(query),
+          media: query,
+          onchange: null,
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+          dispatchEvent: vi.fn(() => true),
+        }),
+      })
+    }
+    afterEach(() => {
+      Object.defineProperty(window, 'matchMedia', { writable: true, configurable: true, value: setupMatchMedia })
+    })
+    const rocker = () => screen.queryByRole('group', { name: 'Channel' })
+
+    it('shows at 1024px and wider, and steps through the shell', () => {
+      matchMediaQueries([WIDE])
+      const stepChannel = vi.fn()
+      renderChrome({ shell: { stepChannel } })
+
+      expect(toolbar()).toContainElement(rocker())
+      fireEvent.click(screen.getByRole('button', { name: 'Channel up' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Channel down' }))
+
+      expect(stepChannel.mock.calls).toEqual([[1], [-1]])
+    })
+
+    it('is left out below 1024px (the bar is already full at 640-768px)', () => {
+      matchMediaQueries([ROOMY])
+      renderChrome({ shell: { stepChannel: vi.fn() } })
+
+      expect(rocker()).not.toBeInTheDocument()
+    })
+
+    it.each([
+      ['theater', { isTheaterMode: true }],
+      ['fullscreen', { isFullscreen: true }],
+    ])('shows from 768px to 1024px in %s, where the sidebar and guide are gone', (_mode, shell) => {
+      matchMediaQueries([ROOMY])
+      renderChrome({ shell: { ...shell, stepChannel: vi.fn() }, props: { isMobile: true } })
+
+      expect(rocker()).toBeInTheDocument()
+    })
+
+    it.each([
+      ['theater', { isTheaterMode: true }],
+      ['fullscreen', { isFullscreen: true }],
+    ])('is left out on a phone in %s, so Exit fullscreen stays on screen', (_mode, shell) => {
+      renderChrome({ shell: { ...shell, stepChannel: vi.fn() }, props: { isMobile: true } })
+
+      expect(rocker()).not.toBeInTheDocument()
+    })
+
+    it('comes and goes as the shell enters and leaves theater', () => {
+      matchMediaQueries([ROOMY])
+      const stepChannel = vi.fn()
+      const { update } = renderChrome({ shell: { stepChannel } })
+      expect(rocker()).not.toBeInTheDocument()
+
+      update({ shell: { stepChannel, isTheaterMode: true } })
+      expect(rocker()).toBeInTheDocument()
+
+      update({ shell: { stepChannel, isTheaterMode: false } })
+      expect(rocker()).not.toBeInTheDocument()
+    })
+
+    // jsdom can't lay the bar out, so these pin the rule: the bar is a size
+    // container and the rocker drops out below the width every control plus
+    // the rocker needs (Chrome: ~742px of content with Theater, ~678px without)
+    it('drops out while the bar itself is too narrow, such as beside the docked chat', () => {
+      matchMediaQueries([WIDE])
+      renderChrome({ shell: { stepChannel: vi.fn() } })
+
+      expect(toolbar()).toHaveClass('@container')
+      expect(rocker()).toHaveClass('@max-[48rem]:hidden')
+    })
+
+    it('needs less of the bar in fullscreen, where the Theater button is gone', () => {
+      matchMediaQueries([WIDE])
+      renderChrome({ shell: { stepChannel: vi.fn(), isFullscreen: true } })
+
+      expect(screen.queryByRole('button', { name: /theater/i })).not.toBeInTheDocument()
+      expect(rocker()).toHaveClass('@max-[44rem]:hidden')
+      expect(rocker()).not.toHaveClass('@max-[48rem]:hidden')
+    })
+
+    it('is not there without a zap to step through', () => {
+      matchMediaQueries([WIDE])
+      renderChrome({ shell: { isTheaterMode: true } })
+
+      expect(rocker()).not.toBeInTheDocument()
+    })
+
+    it('leaves the tab order with the rest of the bar when the controls hide', () => {
+      matchMediaQueries([ROOMY])
+      renderChrome({ shell: { stepChannel: vi.fn(), isTheaterMode: true, controlsVisible: false } })
+
+      expect(screen.getByRole('button', { name: 'Channel up' })).toHaveAttribute('tabindex', '-1')
+      expect(screen.getByRole('button', { name: 'Channel down' })).toHaveAttribute('tabindex', '-1')
+    })
+  })
+
   describe('visibility', () => {
     // The shell's one auto-hide, which overlays read too
     it('is visible while the shell shows the controls', () => {

@@ -33,6 +33,11 @@ export interface PlayerShell {
   isInfoRailVisible: boolean
   /** The info rail reports whether it is showing */
   setInfoRailVisible: (visible: boolean) => void
+  /**
+   * Channel up (+1) or down (-1) through the page's zap, for the control
+   * bar's rocker; absent where the page gives the player no zap
+   */
+  stepChannel?: (dir: 1 | -1) => void
   /** Re-initialises the engine; the shell (and fullscreen) stays */
   reload: () => void
   /** Changes on every reload, whether asked for here or by the page */

@@ -2427,6 +2427,35 @@ describe('DualModeVideoPlayer channel keys', () => {
       expect(screen.getByRole('button', { name: 'Exit fullscreen' })).toBeInTheDocument()
     })
 
+    it('the rocker in fullscreen steps like PageDown: one tune after the presses stop, still in fullscreen', () => {
+      // Fullscreen on a screen with room for the rocker (not a phone)
+      matchMediaQueries(['(min-width: 768px)'])
+      render(<Page />)
+      const fullscreen = shell()
+      act(() => {
+        fullscreenElement = fullscreen
+        document.dispatchEvent(new Event('fullscreenchange'))
+      })
+
+      for (let i = 0; i < 3; i++) fireEvent.click(screen.getByRole('button', { name: 'Channel down' }))
+      expect(screen.getByTestId('player-info-rail')).toHaveTextContent('Channel 2')
+      expect(tunes).toEqual([])
+
+      act(() => {
+        vi.advanceTimersByTime(700)
+      })
+
+      expect(tunes).toEqual(['e2'])
+      expect(shell()).toBe(fullscreen)
+      expect(screen.getByRole('button', { name: 'Channel up' })).toBeInTheDocument()
+    })
+
+    it('has no rocker inline below 1024px', () => {
+      render(<Page />)
+
+      expect(screen.queryByRole('group', { name: 'Channel' })).not.toBeInTheDocument()
+    })
+
     it('L goes back to the channel before, and L again returns', () => {
       render(<Page />)
       fireEvent.keyDown(window, { key: ']' })
