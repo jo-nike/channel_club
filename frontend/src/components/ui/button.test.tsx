@@ -28,10 +28,12 @@ describe('Button toolbar variant', () => {
 })
 
 describe('Button toolbar size', () => {
-  it('is a 44px touch target on phones and 36px from md, with 18px icons', () => {
+  it('is a 44px touch target on touch screens and phones, 36px for a mouse from md, with 18px icons', () => {
     render(<Button variant="toolbar" size="toolbar" aria-label="Guide" />)
     const button = screen.getByRole('button', { name: 'Guide' })
-    expect(button).toHaveClass('size-11', 'md:size-9', "[&_svg:not([class*='size-'])]:size-[18px]")
+    expect(button).toHaveClass('size-11', 'pointer-fine:md:size-9', "[&_svg:not([class*='size-'])]:size-[18px]")
+    // Keyed on the pointer, not width alone: a touch tablet at md keeps 44px
+    expect(button).not.toHaveClass('md:size-9')
     // The base 16px icon rule is replaced, not stacked alongside
     expect(button).not.toHaveClass("[&_svg:not([class*='size-'])]:size-4")
   })

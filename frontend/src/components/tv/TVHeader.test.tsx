@@ -257,7 +257,7 @@ describe('TVHeader', () => {
       'Open admin panel',
       'Chat',
     ])
-    for (const action of actions) expect(action).toHaveClass('size-11', 'md:size-9')
+    for (const action of actions) expect(action).toHaveClass('size-11', 'pointer-fine:md:size-9')
     expect(within(nav).getByTestId('account-menu')).toBeInTheDocument()
     // The menu carries NHL scores on a phone
     expect(accountMenu.props?.isMobile).toBe(true)

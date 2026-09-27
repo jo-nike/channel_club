@@ -89,12 +89,15 @@ afterEach(() => {
 })
 
 describe('AccountMenu trigger', () => {
-  it("shows the first letter of the user's name on a 44px/36px toolbar avatar", () => {
+  it("shows the first letter of the user's name on a 44px (touch) / 36px (mouse) toolbar avatar", () => {
     renderMenu()
     const button = trigger()
     expect(button).toHaveTextContent(/^J$/)
     expect(button).toHaveAttribute('data-variant', 'toolbar')
-    expect(button).toHaveClass('size-11', 'md:size-9')
+    expect(button).toHaveClass('size-11', 'pointer-fine:md:size-9')
+    // The avatar shrinks with the button only for a mouse, never on a touch tablet
+    expect(button.querySelector('span')).toHaveClass('size-8', 'pointer-fine:md:size-7')
+    expect(button.querySelector('span')).not.toHaveClass('md:size-7')
   })
 
   it('falls back to a person icon without a username', () => {

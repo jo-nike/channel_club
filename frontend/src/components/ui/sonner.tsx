@@ -25,6 +25,9 @@ export function Toaster({ ...props }: ToasterProps) {
       position="top-center"
       offset={TOP_OFFSET}
       mobileOffset={TOP_OFFSET}
+      // Sonner draws action buttons 24px tall; min-height outgrows that to a
+      // 44px target on touch screens, mouse desktops keep the compact button
+      toastOptions={{ classNames: { actionButton: "pointer-coarse:min-h-11" } }}
       icons={{
         success: <CircleCheckIcon className="size-4" />,
         info: <InfoIcon className="size-4" />,

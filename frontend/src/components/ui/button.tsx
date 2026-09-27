@@ -33,9 +33,10 @@ const buttonVariants = cva(
         icon: "size-9",
         "icon-sm": "size-8",
         "icon-lg": "size-10",
-        // 44px touch targets below md, 36px from md; 18px icons
+        // 44px touch targets on coarse pointers and below md, 36px for a
+        // fine pointer from md; 18px icons
         toolbar:
-          "size-11 md:size-9 [&_svg:not([class*='size-'])]:size-[18px]",
+          "size-11 pointer-fine:md:size-9 [&_svg:not([class*='size-'])]:size-[18px]",
       },
     },
     defaultVariants: {

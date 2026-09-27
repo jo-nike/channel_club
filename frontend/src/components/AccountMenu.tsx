@@ -112,7 +112,7 @@ export function AccountMenu({
               <Button ref={triggerRef} type="button" variant="toolbar" size="toolbar" aria-label="Account menu">
                 <span
                   aria-hidden="true"
-                  className="grid size-8 place-items-center rounded-full bg-primary text-sm font-bold leading-none text-primary-foreground md:size-7"
+                  className="grid size-8 place-items-center rounded-full bg-primary text-sm font-bold leading-none text-primary-foreground pointer-fine:md:size-7"
                 >
                   {initial ?? <User className="size-4" />}
                 </span>
