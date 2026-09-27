@@ -299,6 +299,32 @@ describe('StatusTab', () => {
     expect(card.queryByText('Next Retry')).not.toBeInTheDocument()
   })
 
+  it('colours the guide data status icon with the theme status tokens', () => {
+    // The icon sits next to the card title in the header row
+    const statusIcon = () => {
+      const icon = screen.getByText('Guide data (XMLTV)').nextElementSibling
+      if (!(icon instanceof HTMLElement)) throw new Error('Guide data status icon not found')
+      return icon
+    }
+
+    mockGuideData(onlineEpg)
+    const { unmount } = render(<StatusTab />)
+    expect(statusIcon()).toHaveClass('text-success')
+    expect(statusIcon().className).not.toMatch(/green|red|amber/)
+    unmount()
+
+    mockGuideData({ ...onlineEpg, stale: true })
+    const stale = render(<StatusTab />)
+    expect(statusIcon()).toHaveClass('text-warning')
+    expect(statusIcon().className).not.toMatch(/green|red|amber/)
+    stale.unmount()
+
+    mockGuideData({ ...onlineEpg, online: false, error: 'HTTP 403' })
+    render(<StatusTab />)
+    expect(statusIcon()).toHaveClass('text-destructive')
+    expect(statusIcon().className).not.toMatch(/green|red|amber/)
+  })
+
   it('shows guide data as stale when refreshes fail but cached data remains', () => {
     mockGuideData({
       ...onlineEpg,

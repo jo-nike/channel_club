@@ -116,7 +116,7 @@ export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
     } catch (e) {
       // Revert on failure
       setCurrentChannel(previousChannel)
-      toast.error('Failed to clear channel', {
+      toast.error('Could not stop live TV', {
         description: e instanceof Error ? e.message : 'Please try again',
       })
     }

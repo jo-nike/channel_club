@@ -1,4 +1,5 @@
 import { useActiveUsers } from '@/hooks/useActiveUsers'
+import { useAuthStore } from '@/stores/authStore'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -46,17 +47,19 @@ export function StopLiveTVDialog({ open, onOpenChange, channelName, onConfirm }:
 
 function AffectedViewers({ channelName }: { channelName: string }) {
   const { data, loading, error } = useActiveUsers()
+  const me = useAuthStore((s) => s.username)
 
-  // Presence lists sessions, not people: one person with two tabs counts once
+  // Presence lists sessions, not people: one person with two tabs counts once.
+  // The admin pressing Stop is not one of the people it affects.
   const people = data && !loading && !error
-    ? new Set(data.liveUsers.map((u) => u.username)).size
+    ? new Set(data.liveUsers.map((u) => u.username).filter((name) => name !== me)).size
     : null
 
   let text: string
   if (people === null) {
     text = `Everyone watching ${channelName} will see "No live broadcast" ${UNTIL}`
   } else if (people === 0) {
-    text = `No one is watching ${channelName} right now. Live TV will show "No live broadcast" ${UNTIL}`
+    text = `Nobody else is watching ${channelName}. Live TV will show "No live broadcast" ${UNTIL}`
   } else {
     const who = people === 1 ? '1 person is' : `${people} people are`
     text = `${who} watching ${channelName}. Their screens will show "No live broadcast" ${UNTIL}`

@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
 import { useThemeStore } from '@/stores/themeStore'
 import { getTheme } from '@/lib/themes'
-import { toHex } from '@/lib/color'
 import { colorToCSSVar, createThemeBoot, saveThemeBoot } from '@/lib/themeBoot'
 import type { ThemeId, ThemeColors } from '@/types/theme'
 
@@ -37,8 +36,8 @@ function applyDarkModeClass(isDark: boolean): void {
  * Point the browser UI colour (status bar, PWA title bar) at the theme
  * background
  */
-function applyThemeColorMeta(background: string): void {
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', toHex(background))
+function applyThemeColorMeta(hex: string): void {
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', hex)
 }
 
 /**
@@ -67,10 +66,12 @@ export function useTheme() {
     // Apply all color CSS variables
     applyThemeColors(theme.colors)
 
-    applyThemeColorMeta(theme.colors.background)
+    const boot = createThemeBoot(theme)
+
+    applyThemeColorMeta(boot.themeColor)
 
     // Remember the resolved theme so index.html can apply it before first paint
-    saveThemeBoot(createThemeBoot(theme))
+    saveThemeBoot(boot)
   }, [theme])
 
   return {
