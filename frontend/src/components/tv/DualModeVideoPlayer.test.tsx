@@ -76,6 +76,10 @@ vi.mock('@/components/HighlightModal', () => ({
 }))
 vi.mock('@/components/CastButton', () => ({ CastButton: () => null }))
 
+// Script volume detection (false on iOS/iPadOS Safari)
+const volumeSupport = vi.hoisted(() => ({ canSet: true }))
+vi.mock('@/hooks/useCanSetVolume', () => ({ useCanSetVolume: () => volumeSupport.canSet }))
+
 const liveChannel = (streamUrl: string): UnifiedChannel => ({
   id: 'live-channel-0',
   name: 'Live',
@@ -133,6 +137,7 @@ beforeEach(() => {
   Object.values(vidstack.remote).forEach((fn) => fn.mockClear())
   highlight.enabled = false
   highlight.modal.mockClear()
+  volumeSupport.canSet = true
   vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
 })
 
@@ -415,5 +420,25 @@ describe('DualModeVideoPlayer audio: keyboard', () => {
     fireEvent.keyDown(focusedPlayer(), { key: 'ArrowDown' })
 
     expect(useAudioStore.getState().volume).toBe(0.3)
+  })
+})
+
+describe('DualModeVideoPlayer audio: browsers that ignore script volume (iOS/iPadOS)', () => {
+  it.each([
+    ['live', liveChannel('https://fixture/a')],
+    ['ErsatzTV', hlsChannel('1', 1)],
+  ])('%s: no slider, arrow keys save nothing, Mute still works', (_engine, channel) => {
+    volumeSupport.canSet = false
+    useAudioStore.setState({ volume: 0.3, muted: false })
+    renderPlayer(channel)
+
+    expect(screen.queryByRole('slider', { name: 'Volume' })).not.toBeInTheDocument()
+
+    fireEvent.keyDown(window, { key: 'ArrowRight' })
+    fireEvent.keyDown(window, { key: 'ArrowDown' })
+    expect(useAudioStore.getState()).toMatchObject({ volume: 0.3, muted: false })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mute' }))
+    expect(useAudioStore.getState().muted).toBe(true)
   })
 })

@@ -7,6 +7,10 @@ vi.mock('@/hooks/useHighlightFeature', () => ({
   useHighlightFeature: () => ({ isEnabled: false, isLoading: false }),
 }))
 
+// Script volume detection (false on iOS/iPadOS Safari)
+const volumeSupport = vi.hoisted(() => ({ canSet: true }))
+vi.mock('@/hooks/useCanSetVolume', () => ({ useCanSetVolume: () => volumeSupport.canSet }))
+
 // Mock video element
 const createMockVideoRef = () => {
   const video = document.createElement('video')
@@ -21,6 +25,7 @@ describe('VideoControls', () => {
   let defaultProps: VideoControlsProps
 
   beforeEach(() => {
+    volumeSupport.canSet = true
     mockVideoRef = createMockVideoRef()
     defaultProps = {
       videoRef: mockVideoRef as React.RefObject<HTMLVideoElement>,
@@ -128,6 +133,23 @@ describe('VideoControls', () => {
 
       const slider = screen.getByRole('slider', { name: /volume/i })
       expect(slider).toHaveValue('0')
+    })
+  })
+
+  describe('Browsers that ignore script volume (iOS/iPadOS)', () => {
+    it('hides the volume slider and keeps Mute', () => {
+      volumeSupport.canSet = false
+      render(<VideoControls {...defaultProps} />)
+
+      expect(screen.queryByRole('slider', { name: /volume/i })).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /mute/i })).toBeInTheDocument()
+    })
+
+    it('shows the volume slider where volume can be set', () => {
+      volumeSupport.canSet = true
+      render(<VideoControls {...defaultProps} />)
+
+      expect(screen.getByRole('slider', { name: /volume/i })).toBeInTheDocument()
     })
   })
 

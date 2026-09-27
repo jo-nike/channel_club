@@ -8,6 +8,10 @@ vi.mock('@/hooks/useHighlightFeature', () => ({
   useHighlightFeature: () => ({ isEnabled: false, isLoading: false }),
 }))
 
+// Script volume detection (false on iOS/iPadOS Safari)
+const volumeSupport = vi.hoisted(() => ({ canSet: true }))
+vi.mock('@/hooks/useCanSetVolume', () => ({ useCanSetVolume: () => volumeSupport.canSet }))
+
 // Mock Vidstack hooks
 const mockRemote = {
   togglePaused: vi.fn(),
@@ -46,6 +50,7 @@ describe('ErsatzTVVideoControls', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    volumeSupport.canSet = true
     mockPaused = false
     mockVolume = 1
     mockMuted = false
@@ -185,6 +190,23 @@ describe('ErsatzTVVideoControls', () => {
 
       const slider = screen.getByRole('slider', { name: /volume/i })
       expect(slider).toHaveValue('0.3')
+    })
+  })
+
+  describe('Browsers that ignore script volume (iOS/iPadOS)', () => {
+    it('hides the volume slider and keeps Mute', () => {
+      volumeSupport.canSet = false
+      render(<ErsatzTVVideoControls {...defaultProps} />)
+
+      expect(screen.queryByRole('slider', { name: /volume/i })).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /mute/i })).toBeInTheDocument()
+    })
+
+    it('shows the volume slider where volume can be set', () => {
+      volumeSupport.canSet = true
+      render(<ErsatzTVVideoControls {...defaultProps} />)
+
+      expect(screen.getByRole('slider', { name: /volume/i })).toBeInTheDocument()
     })
   })
 

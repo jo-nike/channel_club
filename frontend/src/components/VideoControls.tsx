@@ -3,6 +3,7 @@ import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Expand, Shrink } fro
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useHighlightFeature } from '@/hooks/useHighlightFeature'
 import { useHighlightStatus } from '@/hooks/useHighlightStatus'
+import { useCanSetVolume } from '@/hooks/useCanSetVolume'
 import { HighlightButton } from './HighlightButton'
 import { HighlightModal } from './HighlightModal'
 import { CastButton } from './CastButton'
@@ -63,6 +64,7 @@ export function VideoControls({
   const isTouchDevice = useMediaQuery('(pointer: coarse)')
   const isMobileQuery = useMediaQuery('(max-width: 768px)')
   const isMobile = isMobileProp || isMobileQuery || isTouchDevice
+  const canSetVolume = useCanSetVolume()
 
   // Check if highlight feature is enabled (server-side feature flag)
   const { isEnabled: highlightEnabled } = useHighlightFeature()
@@ -141,17 +143,20 @@ export function VideoControls({
             <p>{isMuted ? 'Unmute' : 'Mute'}</p>
           </TooltipContent>
         </Tooltip>
-        <input
-          type="range"
-          tabIndex={isVisible ? 0 : -1}
-          min="0"
-          max="1"
-          step="0.05"
-          value={isMuted ? 0 : volume}
-          onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
-          aria-label="Volume"
-          className="hidden h-2 w-24 cursor-pointer sm:block appearance-none rounded-full bg-white/30 accent-white"
-        />
+        {/* No slider where the browser ignores script volume (iOS/iPadOS); Mute still works */}
+        {canSetVolume && (
+          <input
+            type="range"
+            tabIndex={isVisible ? 0 : -1}
+            min="0"
+            max="1"
+            step="0.05"
+            value={isMuted ? 0 : volume}
+            onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
+            aria-label="Volume"
+            className="hidden h-2 w-24 cursor-pointer sm:block appearance-none rounded-full bg-white/30 accent-white"
+          />
+        )}
       </div>
 
       {/* Highlight capture */}

@@ -11,6 +11,7 @@ import { VideoControls } from '@/components/VideoControls'
 import { ErsatzTVVideoControls } from '@/components/ersatztv/ErsatzTVVideoControls'
 import { useAutoHide } from '@/hooks/useAutoHide'
 import { useTVMode } from '@/hooks/useTVMode'
+import { useCanSetVolume } from '@/hooks/useCanSetVolume'
 import { useVideoKeyboardShortcuts } from '@/hooks/useVideoKeyboardShortcuts'
 import { useOrientationFullscreen } from '@/hooks/useOrientationFullscreen'
 import { useHLSRetry } from '@/hooks/useHLSRetry'
@@ -149,6 +150,7 @@ function LiveVideoPlayer({
   const setStoredVolume = useAudioStore((s) => s.setVolume)
   const setStoredMuted = useAudioStore((s) => s.setMuted)
   const isMuted = isStoreMuted || isElementMuted
+  const canSetVolume = useCanSetVolume()
 
   // Video filter state
   const isRetroTVActive = useFilterStore((s) => s.isFilterActive('retro-tv'))
@@ -195,12 +197,14 @@ function LiveVideoPlayer({
   }, [])
 
   const handleVolumeChange = useCallback((newVolume: number) => {
+    // A level the browser ignores (iOS/iPadOS) would only save a meaningless value
+    if (!canSetVolume) return
     setStoredVolume(newVolume)
 
     // Choosing an audible level also clears a mute that only the element had
     const video = videoRef.current
     if (video && !useAudioStore.getState().muted) video.muted = false
-  }, [setStoredVolume])
+  }, [canSetVolume, setStoredVolume])
 
   const handleMuteToggle = useCallback(() => {
     const video = videoRef.current
@@ -511,14 +515,17 @@ function HLSControlsWrapper({
   const setStoredVolume = useAudioStore((s) => s.setVolume)
   const setStoredMuted = useAudioStore((s) => s.setMuted)
   const isMuted = isStoreMuted || isElementMuted
+  const canSetVolume = useCanSetVolume()
 
   const handleVolumeChange = useCallback(
     (newVolume: number) => {
+      // A level the browser ignores (iOS/iPadOS) would only save a meaningless value
+      if (!canSetVolume) return
       setStoredVolume(newVolume)
       // Choosing an audible level also clears a mute that only the element had
       if (!useAudioStore.getState().muted) remote.unmute()
     },
-    [remote, setStoredVolume]
+    [canSetVolume, remote, setStoredVolume]
   )
 
   const handleMuteToggle = useCallback(() => {
