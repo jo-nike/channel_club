@@ -95,6 +95,9 @@ export function DualModeVideoPlayer({
     isHoveringControls,
   })
 
+  // The info rail reports whether it is up; the sound-off pill moves under it
+  const [isInfoRailVisible, setInfoRailVisible] = useState(false)
+
   // Both counters only grow, so their sum changes on every reload
   const [shellReloads, setShellReloads] = useState(0)
   const reloadKey = pageReloadKey + shellReloads
@@ -110,10 +113,21 @@ export function DualModeVideoPlayer({
       controlsVisible,
       setPlaying: setEnginePlaying,
       setHoveringControls,
+      isInfoRailVisible,
+      setInfoRailVisible,
       reload,
       reloadKey,
     }),
-    [isFullscreen, toggleFullscreen, isTheaterMode, onTheaterModeToggle, controlsVisible, reload, reloadKey]
+    [
+      isFullscreen,
+      toggleFullscreen,
+      isTheaterMode,
+      onTheaterModeToggle,
+      controlsVisible,
+      isInfoRailVisible,
+      reload,
+      reloadKey,
+    ]
   )
 
   // What this viewer's player shows now, for the clip editor's notice: null
@@ -274,7 +288,7 @@ function LiveVideoPlayer({
   isMobile,
 }: LiveVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
-  const { containerRef, toggleFullscreen, toggleTheaterMode, controlsVisible } = usePlayerShell()
+  const { containerRef, toggleFullscreen, toggleTheaterMode, controlsVisible, isInfoRailVisible } = usePlayerShell()
   const playerRef = useRef<mpegts.Player | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isBuffering, setIsBuffering] = useState(false)
@@ -433,6 +447,7 @@ function LiveVideoPlayer({
           volume={isSystemMuted ? volume : unmutedVolume(volume)}
           onUnmute={isSystemMuted ? handleSoundOn : unmute}
           onPlay={handleStartPlayback}
+          belowRail={isInfoRailVisible}
         />
       )}
 
@@ -461,6 +476,7 @@ function HLSVideoPlayerWrapper({
   isMobile,
 }: HLSVideoPlayerWrapperProps) {
   const playerRef = useRef<MediaPlayerInstance>(null)
+  const { isInfoRailVisible } = usePlayerShell()
   const [isBuffering, setIsBuffering] = useState(true)
   const [hasStarted, setHasStarted] = useState(false)
 
@@ -631,6 +647,7 @@ function HLSVideoPlayerWrapper({
           volume={isSystemMuted ? volume : unmutedVolume(volume)}
           onUnmute={isSystemMuted ? handleSoundOn : handleRestoreSound}
           onPlay={handleStartPlayback}
+          belowRail={isInfoRailVisible}
         />
       )}
     </div>

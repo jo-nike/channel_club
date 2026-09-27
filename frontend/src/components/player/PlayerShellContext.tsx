@@ -26,6 +26,13 @@ export interface PlayerShell {
   setPlaying: (playing: boolean) => void
   /** The pointer is over the control bar, which keeps it up */
   setHoveringControls: (hovering: boolean) => void
+  /**
+   * Whether the info rail across the top is showing (with the controls, or
+   * as a tune or live-change banner): other top overlays move under it
+   */
+  isInfoRailVisible: boolean
+  /** The info rail reports whether it is showing */
+  setInfoRailVisible: (visible: boolean) => void
   /** Re-initialises the engine; the shell (and fullscreen) stays */
   reload: () => void
   /** Changes on every reload, whether asked for here or by the page */

@@ -46,6 +46,8 @@ const makeShell = (overrides: Partial<PlayerShell> = {}): PlayerShell => ({
   controlsVisible: true,
   setPlaying: vi.fn(),
   setHoveringControls: vi.fn(),
+  isInfoRailVisible: false,
+  setInfoRailVisible: vi.fn(),
   reload: vi.fn(),
   reloadKey: 0,
   ...overrides,
@@ -197,9 +199,12 @@ describe('PlayerInfoOverlay: what the rail says', () => {
 
   it('leaves TV theater to its own channel banner', () => {
     localStorage.setItem('tv-mode', 'true')
-    renderOverlay(cinema, { isTheaterMode: true })
+    const setInfoRailVisible = vi.fn()
+    renderOverlay(cinema, { isTheaterMode: true, setInfoRailVisible })
 
     expect(queryRail()).not.toBeInTheDocument()
+    // Nothing up there for the sound-off pill to move under
+    expect(setInfoRailVisible).toHaveBeenLastCalledWith(false)
   })
 })
 
@@ -215,6 +220,19 @@ describe('PlayerInfoOverlay: showing and hiding with the controls', () => {
     expect(rail()).toHaveClass('opacity-0')
     // Out of the tab order while it can't be seen
     expect(nhlToggle()).toHaveAttribute('tabindex', '-1')
+  })
+
+  it('tells the shell whether it is up, so the sound-off pill can move under it', () => {
+    const setInfoRailVisible = vi.fn()
+    const { update } = renderOverlay(cinema, { controlsVisible: false, setInfoRailVisible })
+    // The tune banner
+    expect(setInfoRailVisible).toHaveBeenLastCalledWith(true)
+
+    waitOutTuneBanner()
+    expect(setInfoRailVisible).toHaveBeenLastCalledWith(false)
+
+    update(cinema, { controlsVisible: true, setInfoRailVisible })
+    expect(setInfoRailVisible).toHaveBeenLastCalledWith(true)
   })
 
   it('keeps the controls up while the pointer is over its buttons', () => {

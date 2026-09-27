@@ -31,12 +31,12 @@ interface PlayerInfoOverlayProps {
  * like a cable box's channel banner. When someone changes the shared live
  * channel under a viewer on channel 0, the rail says so for 5s and names who
  * did it (those viewers get this instead of the toast). It is the one top
- * rail: the ticker moves down while the rail is up, so the two never overlap. TV
- * theater has its own channel banner (ZapBanner) in that corner, so the rail
- * stays out of it there.
+ * rail: the ticker and the engine's sound-off pill move down while the rail is
+ * up, so they never overlap it. TV theater has its own channel banner
+ * (ZapBanner) in that corner, so the rail stays out of it there.
  */
 export function PlayerInfoOverlay({ channel }: PlayerInfoOverlayProps) {
-  const { controlsVisible, isTheaterMode } = usePlayerShell()
+  const { controlsVisible, isTheaterMode, setInfoRailVisible } = usePlayerShell()
   const isTVMode = useTVMode()
   const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
 
@@ -86,6 +86,12 @@ export function PlayerInfoOverlay({ channel }: PlayerInfoOverlayProps) {
 
   const hasRail = channel !== null && !(isTVMode && isTheaterMode)
   const isRailVisible = hasRail && (controlsVisible || isTuneBanner || liveChange !== null)
+
+  // The engine's sound-off pill moves under the rail while it is up
+  useEffect(() => {
+    setInfoRailVisible(isRailVisible)
+  }, [isRailVisible, setInfoRailVisible])
+  useEffect(() => () => setInfoRailVisible(false), [setInfoRailVisible])
 
   return (
     <>

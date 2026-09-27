@@ -1288,6 +1288,30 @@ describe('DualModeVideoPlayer info rail', () => {
     act(() => useChannelStore.setState({ lastChange: null }))
   })
 
+  it('keeps the sound-off pill under the rail while the rail is up, and back at the top when it hides', () => {
+    vi.useFakeTimers()
+    try {
+      useAudioStore.setState({ volume: 0.3, muted: true, savedMuteNotice: true })
+      renderPlayer(liveChannel('https://fixture/a'))
+      act(() => {
+        video().dispatchEvent(new Event('playing'))
+      })
+      const notice = soundOffNotice()
+      expect(rail()).toHaveClass('opacity-100')
+      expect(notice).toHaveClass('top-[calc(4.25rem+var(--player-inset-top,0px))]')
+      expect(notice).not.toHaveClass('top-4')
+
+      act(() => {
+        vi.advanceTimersByTime(5000)
+      })
+
+      expect(rail()).toHaveClass('opacity-0')
+      expect(soundOffNotice()).toHaveClass('top-4')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('follows the shell\'s control visibility', () => {
     vi.useFakeTimers()
     try {
@@ -1560,7 +1584,8 @@ describe('DualModeVideoPlayer: a page load that starts from a saved mute', () =>
       startPlayback()
       const notice = soundOffNotice()
       expect(notice).toHaveTextContent('Restore 30%')
-      expect(notice).toHaveClass('top-4', 'left-4')
+      // Under the info rail, which is up for the tune
+      expect(notice).toHaveClass('top-[calc(4.25rem+var(--player-inset-top,0px))]', 'left-1/2')
 
       fireEvent.click(notice!)
 
