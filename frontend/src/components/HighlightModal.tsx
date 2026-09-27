@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { Download, Upload, Play, Pause, RotateCcw, Loader2, Copy, ExternalLink, X } from 'lucide-react'
+import { useState, useEffect, useRef, useCallback, useId } from 'react'
+import { Download, Upload, Play, Pause, RotateCcw, Loader2, Copy, ExternalLink, X, Pencil } from 'lucide-react'
 import { toast } from 'sonner'
 import { createHighlightCapture, highlightCaptureUrl, fetchHighlightCapture, deleteHighlightCapture, exportHighlight, uploadHighlight, getHighlightFeatures, type HighlightFormat, type UploadedHighlight } from '@/services/api'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { ClipTimeline } from './ClipTimeline'
 import { ClipTimeField } from './ClipTimeField'
 import { useAudioStore } from '@/stores/audioStore'
@@ -15,6 +16,25 @@ const DEFAULT_CLIP_SECONDS = 20
 function pressRange(duration: number, press: number): [number, number] {
   const end = Math.min(duration, Math.max(Math.min(duration, 0.1), press))
   return [Math.max(0, end - DEFAULT_CLIP_SECONDS), end]
+}
+
+/** Nudges land on tenths, like the handles, so repeated presses never drift. */
+const tenths = (time: number) => Math.round(time * 10) / 10
+
+/** A selection boundary as a readout with nudges either side: the coarse step outermost. */
+function BoundaryReadout({ label, value, onNudge }: { label: 'Start' | 'End'; value: number; onNudge: (step: number) => void }) {
+  const id = useId()
+  const nudge = (step: number) => <Button key={step} type="button" variant="outline" size="sm" className="px-2 tabular-nums"
+    aria-label={`${label} ${step < 0 ? 'back' : 'forward'} ${Math.abs(step)} ${Math.abs(step) === 1 ? 'second' : 'seconds'}`}
+    onClick={() => onNudge(step)}>{step < 0 ? '\u2212' : '+'}{Math.abs(step)}s</Button>
+  return <div role="group" aria-labelledby={id} className="flex flex-col gap-1">
+    <span id={id} className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</span>
+    <div className="flex items-center gap-1">
+      {nudge(-1)}{nudge(-0.1)}
+      <span className="min-w-16 text-center font-display text-2xl font-bold tabular-nums">{value.toFixed(1)}s</span>
+      {nudge(0.1)}{nudge(1)}
+    </div>
+  </div>
 }
 
 export interface HighlightModalProps {
@@ -187,6 +207,16 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
     }
   }
 
+  // Nudges stop at the other boundary rather than pushing it, unlike I and O on the timeline.
+  function nudgeStart(step: number) {
+    select(Math.max(0, Math.min(end - 0.1, tenths(start + step))), end)
+  }
+
+  function nudgeEnd(step: number) {
+    const next = Math.min(duration, Math.max(start + 0.1, tenths(end + step)))
+    select(start, next, next)
+  }
+
   function retryCapture() {
     setSource(null); setCaptureError(null); setDuration(0); setPress(0); setRange([0, 0])
     setPlayhead(0); setPlaying(false); cache.current = null
@@ -270,15 +300,27 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
             </div>
             <ClipTimeline url={source.url} duration={duration} start={start} end={end} playhead={playhead} press={press}
               onChange={select} onSeek={seek} onPlaySelection={() => void playSelection()} disabled={stage !== null} />
-            <div className="flex flex-wrap items-end gap-3">
-              <ClipTimeField label="Start (seconds)" value={start} min={0} max={end - 0.1}
-                onCommit={value => select(value, end)} />
-              <ClipTimeField label="End (seconds)" value={end} min={start + 0.1} max={duration}
-                onCommit={value => select(start, value, value)} />
-              <Button variant="ghost" onClick={() => select(...pressRange(duration, press))}><RotateCcw />Reset</Button>
-              <span className="ml-auto pb-2 text-sm font-semibold tabular-nums">Selected: {(end - start).toFixed(1)}s</span>
+            <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+              <BoundaryReadout label="Start" value={start} onNudge={nudgeStart} />
+              <BoundaryReadout label="End" value={end} onNudge={nudgeEnd} />
+              <span className="ml-auto pb-1.5 text-sm font-semibold tabular-nums">Selected: {(end - start).toFixed(1)}s</span>
             </div>
-            <Button variant="outline" onClick={() => void playSelection()}>{playing ? <Pause /> : <Play />}{playing ? 'Pause preview' : 'Play selection'}</Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="outline" onClick={() => void playSelection()}>{playing ? <Pause /> : <Play />}{playing ? 'Pause preview' : 'Play selection'}</Button>
+              {/* Typing a time is for precision; the readouts and nudges cover most edits. */}
+              <Popover>
+                <PopoverTrigger asChild><Button type="button" variant="ghost"><Pencil />Type exact times</Button></PopoverTrigger>
+                <PopoverContent container={container} align="start" className="flex w-auto items-end gap-3"
+                  // Escape first reverts a half-typed time (the field does that), then closes.
+                  onEscapeKeyDown={event => { if ((event.target as HTMLElement | null)?.closest?.('[data-draft]')) event.preventDefault() }}>
+                  <ClipTimeField label="Start (seconds)" value={start} min={0} max={end - 0.1}
+                    onCommit={value => select(value, end)} />
+                  <ClipTimeField label="End (seconds)" value={end} min={start + 0.1} max={duration}
+                    onCommit={value => select(start, value, value)} />
+                </PopoverContent>
+              </Popover>
+              <Button variant="ghost" onClick={() => select(...pressRange(duration, press))}><RotateCcw />Reset</Button>
+            </div>
           </fieldset>
           <div className="flex flex-wrap items-end gap-3 border-t pt-4">
             <label className="flex flex-col gap-1 text-sm">Format
