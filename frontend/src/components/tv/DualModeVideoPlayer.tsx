@@ -294,7 +294,8 @@ function LiveVideoPlayer({
   isMobile,
 }: LiveVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
-  const { containerRef, toggleFullscreen, toggleTheaterMode, controlsVisible, isInfoRailVisible } = usePlayerShell()
+  const { containerRef, toggleFullscreen, toggleTheaterMode, controlsVisible, isInfoRailVisible, reload } =
+    usePlayerShell()
   const playerRef = useRef<mpegts.Player | null>(null)
   const [isBuffering, setIsBuffering] = useState(false)
   // Errors, the upstream closing and stalls reconnect with backoff, then stop
@@ -348,6 +349,7 @@ function LiveVideoPlayer({
     onMuteToggle: toggleMute,
     onFullscreenToggle: toggleFullscreen,
     onTheaterModeToggle: toggleTheaterMode,
+    onRetry: reload,
     onVolumeChange: changeVolume,
     onUnmute: unmute,
     volume,
@@ -719,7 +721,7 @@ function HLSControlsWrapper({
 }) {
   // Playing and the element's own mute, from the MediaPlayer around this
   const adapter = useVidstackAdapter()
-  const { containerRef, toggleFullscreen, toggleTheaterMode } = usePlayerShell()
+  const { containerRef, toggleFullscreen, toggleTheaterMode, reload } = usePlayerShell()
 
   // Detect TV mode
   const isTVMode = useTVMode()
@@ -736,6 +738,7 @@ function HLSControlsWrapper({
     onMuteToggle: toggleMute,
     onFullscreenToggle: toggleFullscreen,
     onTheaterModeToggle: toggleTheaterMode,
+    onRetry: reload,
     onVolumeChange: changeVolume,
     onUnmute: unmute,
     volume,

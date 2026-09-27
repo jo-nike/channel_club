@@ -7,6 +7,8 @@ interface UseVideoKeyboardShortcutsOptions {
   onMuteToggle: () => void
   onFullscreenToggle: () => void
   onTheaterModeToggle: () => void
+  /** Start the stream again (R), as the player's Reload does */
+  onRetry: () => void
   onVolumeChange: (volume: number) => void
   /** Unmute at the saved level (volume up while muted) */
   onUnmute: () => void
@@ -36,6 +38,7 @@ export function useVideoKeyboardShortcuts({
   onMuteToggle,
   onFullscreenToggle,
   onTheaterModeToggle,
+  onRetry,
   onVolumeChange,
   onUnmute,
   volume,
@@ -87,6 +90,11 @@ export function useVideoKeyboardShortcuts({
           onTheaterModeToggle()
           break
 
+        case 'r':
+        case 'R': // R - Reload the stream
+          onRetry()
+          break
+
         case 'ArrowUp': // Arrow Up - Volume up
         case 'ArrowRight': // Arrow Right - Volume up (alias)
           e.preventDefault()
@@ -112,6 +120,7 @@ export function useVideoKeyboardShortcuts({
       onMuteToggle,
       onFullscreenToggle,
       onTheaterModeToggle,
+      onRetry,
       onVolumeChange,
       onUnmute,
       volume,

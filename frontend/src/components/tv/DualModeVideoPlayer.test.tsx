@@ -1028,6 +1028,28 @@ describe('DualModeVideoPlayer shell: fullscreen survives engine swaps', () => {
     expect(screen.getByRole('button', { name: 'Exit fullscreen' })).toBeInTheDocument()
   })
 
+  it.each([
+    ['live', liveChannel('https://fixture/a')],
+    ['ErsatzTV', hlsChannel('1', 1)],
+  ])('%s: the bar\'s Reload and the R key re-initialise only the engine', (_engine, channel) => {
+    renderPlayer(channel)
+    const fullscreen = enterFullscreen()
+    const firstVideo = document.querySelector('video')
+    vidstack.mounted.mockClear()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reload stream' }))
+    if (channel.type === 'live') expect(video()).not.toBe(firstVideo)
+    else expect(vidstack.mounted).toHaveBeenCalledTimes(1)
+    const secondVideo = document.querySelector('video')
+
+    fireEvent.keyDown(window, { key: 'r' })
+    if (channel.type === 'live') expect(video()).not.toBe(secondVideo)
+    else expect(vidstack.mounted).toHaveBeenCalledTimes(2)
+
+    expect(shell()).toBe(fullscreen)
+    expect(screen.getByRole('button', { name: 'Exit fullscreen' })).toBeInTheDocument()
+  })
+
   it('ErsatzTV: says the stream is starting until it has played, then reconnecting, from 1 of 5', async () => {
     vi.useFakeTimers()
     try {
@@ -1344,6 +1366,16 @@ describe('DualModeVideoPlayer live reconnect', () => {
     expect(screen.queryByText('Stream stopped')).not.toBeInTheDocument()
     emit('error')
     expect(reconnecting(1)).toBeInTheDocument()
+  })
+
+  it('R after the reconnects stop starts the stream again', async () => {
+    renderLive()
+    await failFiveTimes()
+
+    fireEvent.keyDown(window, { key: 'R' })
+
+    expect(screen.queryByText('Stream stopped')).not.toBeInTheDocument()
+    expect(mpegtsHarness.createPlayer).toHaveBeenCalledTimes(7)
   })
 
   it("'Back to' tunes this viewer to their previous channel, leaving the club's live channel alone", async () => {

@@ -128,11 +128,10 @@ describe('TVHeader', () => {
       'NHL Scores',
       'Open admin panel',
       'Open chat',
-      'Refresh video',
     ])
     // The account menu comes last and replaces the feedback icon and settings popover
     expect(within(nav).getByTestId('account-menu')).toBeInTheDocument()
-    expect(within(nav).getByRole('button', { name: 'Refresh video' }).compareDocumentPosition(
+    expect(within(nav).getByRole('button', { name: 'Open chat' }).compareDocumentPosition(
       within(nav).getByTestId('account-menu'),
     ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Send feedback' })).not.toBeInTheDocument()
@@ -173,10 +172,10 @@ describe('TVHeader', () => {
     renderHeader({ isMobile: true })
     expect(screen.queryByRole('button', { name: /guide/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /NHL Scores/ })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Refresh video' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Open chat' })).toBeVisible()
   })
 
-  it('keeps Host, Chat, Refresh and the account menu on a phone, all 44px', () => {
+  it('keeps Host, Chat and the account menu on a phone, all 44px', () => {
     auth.isAdmin = true
     renderHeader({ isMobile: true })
 
@@ -185,7 +184,6 @@ describe('TVHeader', () => {
     expect(actions.map((b) => b.getAttribute('aria-label'))).toEqual([
       'Open admin panel',
       'Open chat',
-      'Refresh video',
     ])
     for (const action of actions) expect(action).toHaveClass('size-11', 'md:size-9')
     expect(within(nav).getByTestId('account-menu')).toBeInTheDocument()
@@ -205,10 +203,10 @@ describe('TVHeader', () => {
     expect(props.onOpenChannelPicker).toHaveBeenCalledTimes(1)
   })
 
-  it('reloads the video from Refresh video', () => {
+  it('has no top-level Refresh: Reload stream lives in the account menu and the player', () => {
     const props = renderHeader()
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh video' }))
-    expect(props.onReload).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('button', { name: /Refresh|Reload/ })).not.toBeInTheDocument()
+    expect(accountMenu.props?.onReload).toBe(props.onReload)
   })
 
   it('gives an admin the admin panel and no separate live picker', () => {

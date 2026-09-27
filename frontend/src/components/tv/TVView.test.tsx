@@ -59,7 +59,10 @@ vi.mock('@/components/ersatztv/ProgrammeDetailsModal', () => ({ ProgrammeDetails
   modal.last = props
   return null
 } }))
-vi.mock('@/components/AccountMenu', () => ({ AccountMenu: () => null }))
+// Only its Reload stream, which reloads the player from the page
+vi.mock('@/components/AccountMenu', () => ({ AccountMenu: ({ onReload }: { onReload: () => void }) => (
+  <button type="button" onClick={onReload}>Reload stream</button>
+) }))
 vi.mock('@/components/AdminModal', () => ({ AdminModal: () => null }))
 
 beforeEach(() => {
@@ -267,7 +270,7 @@ describe('A-V1 contained player and chat crashes', () => {
   })
 })
 
-describe('C-V3 Refresh keeps the player shell', () => {
+describe('C-V3 Reload keeps the player shell', () => {
   it('hands the player a new reloadKey instead of remounting it', async () => {
     vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
     render(<MemoryRouter><TVView /></MemoryRouter>)
@@ -276,7 +279,7 @@ describe('C-V3 Refresh keeps the player shell', () => {
     const mounts = playerProps.mounts
     const before = playerProps.reloadKey
 
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh video' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reload stream' }))
 
     expect(playerProps.reloadKey).not.toBe(before)
     expect(playerProps.mounts).toBe(mounts)

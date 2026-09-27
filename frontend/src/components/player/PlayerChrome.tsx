@@ -1,5 +1,5 @@
 import { useCallback } from 'react'
-import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Expand, Shrink } from 'lucide-react'
+import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Expand, Shrink, RotateCw } from 'lucide-react'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useHighlightFeature } from '@/hooks/useHighlightFeature'
 import { useHighlightStatus } from '@/hooks/useHighlightStatus'
@@ -48,6 +48,7 @@ export function PlayerChrome({
     toggleTheaterMode,
     controlsVisible: isVisible,
     setHoveringControls,
+    reload,
   } = usePlayerShell()
   const { volume, isStoreMuted, isMuted, canSetVolume, changeVolume, toggleMute } = usePlayerAudio(adapter)
   const isTVMode = useTVMode()
@@ -186,6 +187,27 @@ export function PlayerChrome({
 
       {/* Spacer */}
       <div className="flex-1" />
+
+      {/* Reload: starts the stream again and keeps the shell, so it works in
+          theater and fullscreen, where the page header is gone. Left out on
+          the narrowest phones, where the bar has no room for it; the account
+          menu and the failure card's Retry still reload there. */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            tabIndex={tabIndex}
+            onClick={reload}
+            aria-label="Reload stream"
+            className={`${CONTROL_BUTTON} max-[399px]:hidden`}
+          >
+            <RotateCw className="h-6 w-6 text-white" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>
+          <p>Reload stream (R)</p>
+        </TooltipContent>
+      </Tooltip>
 
       {/* Theater Mode Button - hidden on touch/small screens and in fullscreen. TV browsers
           always get it: webOS pointer mode can report pointer:coarse. */}
