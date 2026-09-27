@@ -7,10 +7,21 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useProgrammeClock } from '@/hooks/useProgrammeClock'
+import { useRovingTabIndex } from '@/hooks/useRovingTabIndex'
 import { calculateProgress, findOnAir, formatRemaining, getProgrammeState } from '@/lib/programmes'
 import { buildProgrammeIndex, findCurrentAndNext, type IndexedProgramme } from '@/lib/programmeIndex'
 import { cn } from '@/lib/utils'
 import type { UnifiedChannel } from '@/types'
+
+const getChannelId = (channel: UnifiedChannel) => channel.id
+
+// What a screen reader hears for a row or rail tile. The live slot names what
+// is on it, since its visible number and icon say nothing on their own.
+function channelLabel(channel: UnifiedChannel, hasLiveChannel: boolean, liveProgramme: string) {
+  if (channel.type !== 'live') return `${channel.number} ${channel.name}`
+  if (!hasLiveChannel) return 'Live slot, nothing on'
+  return `${channel.number} Live: ${channel.name}, ${liveProgramme}`
+}
 
 interface TVChannelSidebarProps {
   isCollapsed?: boolean
@@ -37,15 +48,30 @@ export function TVChannelSidebar({
   // Get unified channel list
   const unifiedChannels = getUnifiedChannels()
   const hasLiveChannel = isLiveChannelActive()
+  const liveProgramme = liveEPGTitle || describeLiveGuide(liveEPGStatus)
+
+  // One tab stop for the channels: arrow keys, Home and End move between
+  // them. The list and the rail share it (only one is mounted), and the tab
+  // stop follows whichever channel was last focused.
+  const listRef = useRef<HTMLElement | null>(null)
+  const setListRef = (element: HTMLElement | null) => {
+    listRef.current = element
+  }
+  const { getTabIndex, handleKeyDown, setFocusedIndex, itemRefs } = useRovingTabIndex({
+    items: unifiedChannels,
+    getItemId: getChannelId,
+    containerRef: listRef,
+  })
 
   // Keep the selected channel in view: when the list mounts (a restored
   // channel may be far down), when the rail collapses or expands, and when
   // the selection changes. Only one of the rail or the list is mounted, so
   // they share the map.
   const channelRefs = useRef(new Map<string, HTMLButtonElement>())
-  const setChannelRef = (channelId: string) => (element: HTMLButtonElement | null) => {
+  const setChannelRef = (channelId: string, index: number) => (element: HTMLButtonElement | null) => {
     if (element) channelRefs.current.set(channelId, element)
     else channelRefs.current.delete(channelId)
+    itemRefs.current[index] = element
   }
   const selectedChannelId = selectedChannel?.id
   useEffect(() => {
@@ -70,16 +96,23 @@ export function TVChannelSidebar({
         </button>
         {/* No scrollbar: a classic 15px one would widen the list past the 64px rail
             and push the tiles off-centre. Wheel, touch and keyboard focus still scroll it. */}
-        <div className="mt-2 flex w-full flex-1 flex-col items-center gap-1.5 overflow-y-auto px-3 pt-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {unifiedChannels.map((channel) => (
+        <div
+          ref={setListRef}
+          onKeyDown={handleKeyDown}
+          className="mt-2 flex w-full flex-1 flex-col items-center gap-1.5 overflow-y-auto px-3 pt-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
+          {unifiedChannels.map((channel, index) => (
             <CollapsedChannelButton
               key={channel.id}
-              ref={setChannelRef(channel.id)}
+              ref={setChannelRef(channel.id, index)}
               channel={channel}
+              label={channelLabel(channel, hasLiveChannel, liveProgramme)}
               isSelected={selectedChannel?.id === channel.id}
               hasLiveChannel={hasLiveChannel}
               canPickLive={!!onPickLive}
               onSelect={handleChannelClick}
+              tabIndex={getTabIndex(index)}
+              onFocus={() => setFocusedIndex(index)}
             />
           ))}
         </div>
@@ -101,8 +134,8 @@ export function TVChannelSidebar({
         </button>
       </div>
 
-      <ul className="divide-y" role="list">
-        {unifiedChannels.map((channel) => {
+      <ul ref={setListRef} onKeyDown={handleKeyDown} className="divide-y" role="list">
+        {unifiedChannels.map((channel, index) => {
           const { current: onAir, next } =
             channel.type === 'live'
               ? { current: null, next: null }
@@ -110,13 +143,14 @@ export function TVChannelSidebar({
           return (
             <ChannelItem
               key={channel.id}
-              ref={setChannelRef(channel.id)}
+              ref={setChannelRef(channel.id, index)}
               channel={channel}
+              label={channelLabel(channel, hasLiveChannel, liveProgramme)}
               isSelected={selectedChannel?.id === channel.id}
               onSelect={handleChannelClick}
-              currentProgramme={
-                channel.type === 'live' ? liveEPGTitle || describeLiveGuide(liveEPGStatus) : onAir?.programme.title
-              }
+              tabIndex={getTabIndex(index)}
+              onFocus={() => setFocusedIndex(index)}
+              currentProgramme={channel.type === 'live' ? liveProgramme : onAir?.programme.title}
               onAir={onAir}
               next={next}
               currentTime={now}
@@ -148,20 +182,27 @@ export function TVChannelSidebar({
 interface CollapsedChannelButtonProps {
   ref?: Ref<HTMLButtonElement>
   channel: UnifiedChannel
+  label: string
   isSelected: boolean
   hasLiveChannel: boolean
   // Whether this viewer may put something on live TV (changes the empty-slot copy)
   canPickLive: boolean
   onSelect: (channel: UnifiedChannel) => void
+  // Roving focus: 0 on the one tab stop, -1 on the rest
+  tabIndex: 0 | -1
+  onFocus: () => void
 }
 
 function CollapsedChannelButton({
   ref,
   channel,
+  label,
   isSelected,
   hasLiveChannel,
   canPickLive,
   onSelect,
+  tabIndex,
+  onFocus,
 }: CollapsedChannelButtonProps) {
   const isLive = channel.type === 'live'
   const isLiveOn = isLive && hasLiveChannel
@@ -172,6 +213,8 @@ function CollapsedChannelButton({
         <button
           ref={ref}
           onClick={() => onSelect(channel)}
+          onFocus={onFocus}
+          tabIndex={tabIndex}
           className={cn(
             'relative flex h-10 shrink-0 scroll-my-1 items-center justify-center rounded-lg font-display text-sm font-extrabold tabular-nums overflow-hidden',
             'hover:bg-foreground/10 focus-visible:-outline-offset-2',
@@ -180,8 +223,8 @@ function CollapsedChannelButton({
             // One background: the live tint wins (the ring marks selection), then selection, then muted
             isLiveOn ? 'bg-live/20 text-live' : isSelected ? 'bg-primary/10' : 'bg-muted'
           )}
-          aria-label={isLive ? 'Live Channel' : `${channel.number} ${channel.name}`}
-          aria-pressed={isSelected}
+          aria-label={label}
+          aria-current={isSelected ? 'true' : undefined}
         >
           {isLive ? (
             hasLiveChannel ? (
@@ -288,8 +331,12 @@ const nextTimeFormat = new Intl.DateTimeFormat(undefined, { hour: '2-digit', min
 interface ChannelItemProps {
   ref?: Ref<HTMLButtonElement>
   channel: UnifiedChannel
+  label: string
   isSelected: boolean
   onSelect: (channel: UnifiedChannel) => void
+  // Roving focus: 0 on the one tab stop, -1 on the rest
+  tabIndex: 0 | -1
+  onFocus: () => void
   currentProgramme?: string | null
   // The ErsatzTV programme on air, with its parsed times
   onAir: IndexedProgramme | null
@@ -303,8 +350,11 @@ interface ChannelItemProps {
 function ChannelItem({
   ref,
   channel,
+  label,
   isSelected,
   onSelect,
+  tabIndex,
+  onFocus,
   currentProgramme,
   onAir,
   next,
@@ -325,14 +375,16 @@ function ChannelItem({
       <button
         ref={ref}
         onClick={() => onSelect(channel)}
+        onFocus={onFocus}
+        tabIndex={tabIndex}
         className={`
           flex ${showPickLive ? 'min-w-0 flex-1' : 'w-full'} scroll-mt-17 items-center gap-3 p-3 text-left transition-colors
           hover:bg-accent focus-visible:-outline-offset-2
           ${isSelected ? 'bg-primary/10 border-l-4 border-primary' : ''}
           ${isLive ? 'bg-destructive/5' : ''}
         `}
-        aria-pressed={isSelected}
-        aria-label={isLive ? 'Live Channel' : `${channel.number} ${channel.name}`}
+        aria-current={isSelected ? 'true' : undefined}
+        aria-label={label}
       >
         {/* Channel logo / icon */}
         <div

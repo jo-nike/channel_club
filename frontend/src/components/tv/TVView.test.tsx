@@ -388,7 +388,7 @@ describe('B-V2 picking a channel from the empty live slot', () => {
 
     expect(picker()).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Pick a channel' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Live Channel' })).toHaveTextContent('Waiting for someone to put something on')
+    expect(screen.getByRole('button', { name: 'Live slot, nothing on' })).toHaveTextContent('Waiting for someone to put something on')
     expect(playerProps.onPickLive).toBeUndefined()
   })
 
