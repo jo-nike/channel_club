@@ -1,9 +1,10 @@
 # Channel Club CI/CD. Master builds deploy by immutable digest; vX.Y.Z tags
 # publish a matching fixed Docker release tag without another deployment.
 # Registry credentials are Gitea organization secrets. The deploy key and the
-# pinned host keys are repository secrets, which shadow org secrets of the same
-# name. Secrets reach scripts only through env: a ${{ secrets.X }} inside run:
-# is pasted into the script Gitea prints, and a multi-line key isn't masked.
+# pinned host keys are repository secrets. Secrets reach scripts only through
+# env: a ${{ secrets.X }} inside run: is pasted into the script Gitea prints.
+# The runner also prints each step's env and can't mask a multi-line value, so
+# the deploy key is stored base64-encoded on one line (SSH_PRIVATE_KEY_B64).
 # The host directory and Infisical path stay unchanged during the rename.
 
 name: CI + Deploy
@@ -196,15 +197,15 @@ jobs:
       - name: Preflight deploy secrets
         env:
           DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_PRIVATE_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY_B64 }}
         run: |
           if [ -n "${{ steps.ver.outputs.release_tag }}" ]; then exit 0; fi
           if [ -z "$DEPLOY_KNOWN_HOSTS" ]; then
             echo "::error::DEPLOY_KNOWN_HOSTS secret is not set — populate it with \`ssh-keyscan $DEPLOY_HOST\` output captured from a trusted vantage point before deploying."
             exit 1
           fi
-          if [ -z "$SSH_PRIVATE_KEY" ]; then
-            echo "::error::SSH_PRIVATE_KEY secret is not set — cannot deploy."
+          if [ -z "$SSH_PRIVATE_KEY_B64" ]; then
+            echo "::error::SSH_PRIVATE_KEY_B64 secret is not set (the deploy key, base64 on one line) — cannot deploy."
             exit 1
           fi
 
@@ -249,13 +250,13 @@ jobs:
       - name: Deploy to plex-stack
         env:
           DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_PRIVATE_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY_B64 }}
         run: |
           if [ -n "${{ steps.ver.outputs.release_tag }}" ]; then exit 0; fi
           VERSION="${{ steps.ver.outputs.version }}"
           IMAGE_REFERENCE="${{ steps.artifact.outputs.image_reference }}"
           mkdir -p ~/.ssh
-          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          printf '%s' "$SSH_PRIVATE_KEY_B64" | base64 -d > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           # Pin the deploy host's key instead of trusting whatever answers at
           # run time: ssh-keyscan here would be trust-on-every-run and is
