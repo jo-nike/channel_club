@@ -1,11 +1,18 @@
 import { Outlet } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { useTheme } from '@/hooks/useTheme'
+import { useProgrammeReminders } from '@/hooks/useProgrammeReminders'
 import { LoginForm } from '@/components/LoginForm'
 import { AppLoadingScreen } from '@/components/AppLoadingScreen'
 import { OfflineFallback } from '@/components/OfflineFallback'
 import { InstallPrompt } from '@/components/InstallPrompt'
 import { Toaster } from '@/components/ui/sonner'
+
+/** Programme reminders go off while someone is signed in, whichever view is open. */
+function ReminderRunner() {
+  useProgrammeReminders()
+  return null
+}
 
 export function App() {
   const { isAuthenticated, isInitializing } = useAuth()
@@ -43,6 +50,7 @@ export function App() {
       <OfflineFallback />
       <Outlet />
       <InstallPrompt />
+      <ReminderRunner />
       <Toaster theme={toastTheme} />
     </>
   )
