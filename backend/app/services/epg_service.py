@@ -11,11 +11,14 @@ from loguru import logger
 
 from app.config import settings
 from app.models.channel import Channel
-from app.models.epg import EPGResponse, Program
+from app.models.epg import EPGProgrammesResponse, EPGResponse, Program
 from app.models.status import EPGHealthStatus
 
 # Module-level logger with service context
 log = logger.bind(service="epg")
+
+# A schedule window keeps programmes that ended this recently, so the one just finished still shows
+PROGRAMMES_LOOKBACK = timedelta(minutes=30)
 
 # Failed XMLTV refreshes back off from 30s, doubling per consecutive failure, up to 5 min
 RETRY_BASE_SECONDS = 30
@@ -396,6 +399,51 @@ class EPGService:
             current_program=current_program,
             next_program=next_program,
         )
+
+    async def get_programmes(
+        self, channel_id: str, hours: int, channel_name: str | None = None
+    ) -> EPGProgrammesResponse:
+        """Get a channel's schedule from 30 minutes ago to the given number of hours ahead.
+
+        The channel is resolved like get_now_playing: guide id first, then the
+        channel name against the XMLTV display names when the id has no
+        programmes.
+
+        Args:
+            channel_id: Guide id of the channel to look up.
+            hours: How far ahead of now the window reaches.
+            channel_name: Optional channel name to fall back on.
+
+        Returns:
+            EPGProgrammesResponse with the programmes that end after now minus
+            30 minutes and start before now plus hours, in start order.
+
+        Raises:
+            EPGServiceError: If cache is empty and refresh fails.
+        """
+        await self._ensure_cache()
+
+        programs, xmltv_id = self._resolve_programs(channel_id, channel_name)
+        if xmltv_id is not None:
+            log.debug(
+                "Guide id {} missed; matched channel name {!r} to XMLTV id {}",
+                channel_id,
+                channel_name,
+                xmltv_id,
+            )
+
+        now = datetime.now(UTC)
+        window_start = now - PROGRAMMES_LOOKBACK
+        window_end = now + timedelta(hours=hours)
+        in_window: list[Program] = []
+        # The cache is sorted by start time, so nothing after the window end can match
+        for program in programs:
+            if program.start_time >= window_end:
+                break
+            if program.end_time > window_start:
+                in_window.append(program)
+
+        return EPGProgrammesResponse(channel_id=channel_id, programmes=in_window)
 
     async def get_now_playing_bulk(self, channels: Iterable[Channel] = ()) -> dict[str, Program]:
         """Get the on-air program for every channel in the EPG cache.

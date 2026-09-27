@@ -32,3 +32,12 @@ class EPGResponse(BaseModel):
     next_program: Program | None = Field(alias="nextProgram", default=None)
 
     model_config = {"populate_by_name": True}
+
+
+class EPGProgrammesResponse(BaseModel):
+    """Response for GET /api/epg/programmes."""
+
+    channel_id: str = Field(alias="channelId")
+    programmes: list[Program]
+
+    model_config = {"populate_by_name": True}
