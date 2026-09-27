@@ -8,7 +8,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { useTVMode } from '@/hooks/useTVMode'
 import { logger } from '@/lib/logger'
 import { login, getAuthConfig, loginWithPlex, type AuthConfig } from '@/services/api'
-import { authenticateWithPlex, PlexAuthError } from '@/services/plexAuth'
+import { authenticateWithPlex, openPlexAuthWindow, PlexAuthError } from '@/services/plexAuth'
 
 type PlexAuthMode = 'select' | 'popup' | 'qr'
 
@@ -55,11 +55,18 @@ export function LoginForm() {
       setPlexAuthMode('qr')
       return
     }
-    // On desktop, use popup mode
-    setPlexLoading(true)
+    // On desktop, use popup mode. Open the window before any await so the
+    // browser still counts it as part of the click.
+    const popup = openPlexAuthWindow()
     setError('')
+    if (!popup) {
+      logger.error('Plex', 'Failed to open Plex authentication popup')
+      setError('Failed to open Plex authentication popup')
+      return
+    }
+    setPlexLoading(true)
     try {
-      const authToken = await authenticateWithPlex()
+      const authToken = await authenticateWithPlex(popup)
       const response = await loginWithPlex(authToken)
       setAuth(response.accessToken, response.role)
     } catch (err) {

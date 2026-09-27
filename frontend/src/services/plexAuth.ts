@@ -118,35 +118,59 @@ export async function checkPlexPin(pinId: number): Promise<string | null> {
 }
 
 /**
- * Full Plex authentication flow using popup.
+ * Open the (blank) window the Plex sign-in page will load into.
  *
- * Opens Plex auth page in popup, polls for authentication,
- * and returns the auth token when user completes login.
- *
- * @throws PlexAuthError if the popup is blocked, the user cancels, or it times out
+ * Call this synchronously from the click handler, before any await: Safari,
+ * iOS home-screen apps and strict popup blockers only allow window.open while
+ * the click's user activation is still current. Returns null when blocked.
  */
-export async function authenticateWithPlex(): Promise<string> {
+export function openPlexAuthWindow(): Window | null {
+  logger.debug('Plex', 'Opening auth popup')
+  return window.open('about:blank', 'PlexAuth', 'width=600,height=700')
+}
+
+/**
+ * Full Plex authentication flow in a window opened by openPlexAuthWindow().
+ *
+ * Creates a PIN, points the window at the Plex auth page, polls for
+ * authentication and returns the auth token when the user completes login.
+ *
+ * @throws PlexAuthError if the PIN can't be created (the window is closed),
+ *         the user closes the window, or it times out after 5 minutes
+ */
+export async function authenticateWithPlex(popup: Window): Promise<string> {
   logger.debug('Plex', 'Starting Plex OAuth flow')
 
-  // 1. Create PIN
-  const pin = await createPlexPin()
-
-  // 2. Open popup with auth URL
-  const authUrl = getPlexAuthUrl(pin)
-  logger.debug('Plex', 'Opening auth popup')
-  const popup = window.open(authUrl, 'PlexAuth', 'width=600,height=700')
-
-  if (!popup) {
-    logger.error('Plex', 'Failed to open Plex authentication popup')
-    throw new PlexAuthError('popup_blocked', 'Failed to open Plex authentication popup')
+  // 1. Create PIN. On failure, don't leave the blank window behind.
+  let pin: PlexPin
+  try {
+    pin = await createPlexPin()
+  } catch (err) {
+    popup.close()
+    throw err
   }
+
+  if (popup.closed) {
+    logger.info('Plex', 'Authentication cancelled by user')
+    throw new PlexAuthError('cancelled', 'Authentication cancelled')
+  }
+
+  // 2. Send the window to the Plex auth page
+  popup.location.href = getPlexAuthUrl(pin)
 
   // 3. Poll for auth token
   return new Promise((resolve, reject) => {
+    let settled = false
+    const finish = () => {
+      settled = true
+      clearInterval(pollInterval)
+      clearTimeout(timeout)
+    }
+
     const pollInterval = setInterval(async () => {
       // Check if popup was closed
       if (popup.closed) {
-        clearInterval(pollInterval)
+        finish()
         logger.info('Plex', 'Authentication cancelled by user')
         reject(new PlexAuthError('cancelled', 'Authentication cancelled'))
         return
@@ -154,8 +178,8 @@ export async function authenticateWithPlex(): Promise<string> {
 
       try {
         const authToken = await checkPlexPin(pin.id)
-        if (authToken) {
-          clearInterval(pollInterval)
+        if (authToken && !settled) {
+          finish()
           popup.close()
           logger.info('Plex', 'OAuth token acquired successfully')
           resolve(authToken)
@@ -166,8 +190,8 @@ export async function authenticateWithPlex(): Promise<string> {
     }, 2000) // Poll every 2 seconds
 
     // Timeout after 5 minutes
-    setTimeout(() => {
-      clearInterval(pollInterval)
+    const timeout = setTimeout(() => {
+      finish()
       popup.close()
       logger.error('Plex', 'Authentication timed out after 5 minutes')
       reject(new PlexAuthError('timeout', 'Authentication timed out'))

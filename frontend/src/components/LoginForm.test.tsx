@@ -16,7 +16,11 @@ vi.mock('@/services/api', () => ({
 vi.mock('@/services/plexAuth', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/services/plexAuth')>()),
   authenticateWithPlex: vi.fn(),
+  openPlexAuthWindow: vi.fn(),
 }))
+
+/** Stand-in for the window returned by openPlexAuthWindow. */
+const plexWindow = { closed: false, close: vi.fn() } as unknown as Window
 
 vi.mock('@/hooks/useTVMode', () => ({
   useTVMode: vi.fn(() => false),
@@ -50,6 +54,7 @@ describe('LoginForm', () => {
       localAuthEnabled: true,
       plexAuthEnabled: false,
     })
+    vi.mocked(plexAuth.openPlexAuthWindow).mockReturnValue(plexWindow)
   })
 
   it('should render login form with username and password fields', async () => {
@@ -309,6 +314,36 @@ describe('LoginForm', () => {
       await waitFor(() => {
         expect(screen.getByRole('alert')).toHaveTextContent('No access to Plex server')
       })
+    })
+
+    it('opens the Plex window during the click, before anything is awaited', async () => {
+      vi.mocked(api.getAuthConfig).mockResolvedValueOnce({
+        localAuthEnabled: true,
+        plexAuthEnabled: true,
+      })
+      vi.mocked(plexAuth.authenticateWithPlex).mockReturnValueOnce(new Promise(() => {}))
+
+      render(<LoginForm />)
+      fireEvent.click(await screen.findByText('Sign in with Plex'))
+
+      // Checked synchronously after the click: no await has run yet
+      expect(plexAuth.openPlexAuthWindow).toHaveBeenCalledTimes(1)
+      expect(plexAuth.authenticateWithPlex).toHaveBeenCalledWith(plexWindow)
+    })
+
+    it('shows an error and starts no flow when the browser blocks the window', async () => {
+      vi.mocked(api.getAuthConfig).mockResolvedValueOnce({
+        localAuthEnabled: true,
+        plexAuthEnabled: true,
+      })
+      vi.mocked(plexAuth.openPlexAuthWindow).mockReturnValueOnce(null)
+
+      render(<LoginForm />)
+      fireEvent.click(await screen.findByText('Sign in with Plex'))
+
+      expect(await screen.findByRole('alert')).toBeInTheDocument()
+      expect(plexAuth.authenticateWithPlex).not.toHaveBeenCalled()
+      expect(screen.getByText('Sign in with Plex')).toBeEnabled()
     })
 
     it('should hide local auth form when localAuthEnabled is false', async () => {
