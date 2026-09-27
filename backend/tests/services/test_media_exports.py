@@ -121,7 +121,7 @@ async def test_cancel_encoding_kills_and_reaps_actual_harmless_child(tmp_path):
     assert children[0].poll() is not None
 
 
-def test_snapshot_logs_how_far_the_capture_ends_before_the_press(tmp_path):
+def test_snapshot_logs_how_far_the_capture_ends_before_the_snapshot(tmp_path):
     recorder = ChannelRecorder("safe", "http://fixture")
     recorder.segment_dir = tmp_path
     now = time.time()
@@ -144,7 +144,8 @@ def test_snapshot_logs_how_far_the_capture_ends_before_the_press(tmp_path):
     extra = next(r["extra"] for r in records if r["extra"].get("event") == "highlight.capture")
     assert extra["channel_id"] == "safe"
     assert extra["segments"] == 2
-    assert 7.0 <= extra["tail_gap_seconds"] < 8.0
+    assert 7.0 <= extra["ends_before_snapshot_seconds"] < 8.0
+    assert "tail_gap_seconds" not in extra
     # The capture ends when its newest included segment was last written.
     assert ends_at == pytest.approx(now - 7.0)
     assert sorted(path.name for path in workspace.glob("input_*.ts")) == [

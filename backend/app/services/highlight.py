@@ -335,9 +335,10 @@ class ChannelRecorder:
             if not paths:
                 raise ValueError("No recent segments available")
             # The segment being written is left out, so the capture ends this long before the
-            # snapshot. Captures first wait for the segment written at the press to close.
+            # snapshot. Captures first wait for the segment written at the press to close, so
+            # this is near zero for them; highlight.capture_ready logs the gap to the press.
             ends_at = paths[-1].stat().st_mtime
-            tail_gap = time.time() - ends_at
+            before_snapshot = time.time() - ends_at
             if sum(path.stat().st_size for path in paths) > settings.media_export_max_bytes:
                 raise ValueError("Highlight exceeds export size limit")
             names = []
@@ -351,11 +352,11 @@ class ChannelRecorder:
                 event="highlight.capture",
                 channel_id=self.channel_id,
                 segments=len(paths),
-                tail_gap_seconds=round(tail_gap, 2),
+                ends_before_snapshot_seconds=round(before_snapshot, 2),
             ).info(
                 "Highlight capture of {} segments ends {:.1f}s before the snapshot",
                 len(paths),
-                tail_gap,
+                before_snapshot,
             )
             return concat, ends_at
         finally:
