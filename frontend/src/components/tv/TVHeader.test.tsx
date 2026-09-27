@@ -5,6 +5,8 @@ import { useTVStore } from '@/stores/tvStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { useChatStore } from '@/stores/chatStore'
+import { usePresenceStore } from '@/stores/presenceStore'
+import type { PresenceEntry } from '@/types'
 
 const auth = vi.hoisted(() => ({ isAdmin: false }))
 const appSettings = vi.hoisted(() => ({ userChannelSelection: false }))
@@ -259,6 +261,66 @@ describe('TVHeader', () => {
     expect(accountMenu.props?.isMobile).toBe(true)
     // Tighter gaps so the 44px targets leave room for the title
     expect(nav).toHaveClass('gap-1', 'md:gap-2')
+  })
+
+  describe("who's here facepile", () => {
+    const person = (displayName: string, userId: string): PresenceEntry => ({
+      userId, displayName, channelId: null, channelName: null, programme: null, view: null, since: null,
+    })
+
+    beforeEach(() => {
+      useChatStore.setState({ nickname: null, me: { username: 'jonike', userId: 'u_me' } })
+    })
+
+    afterEach(() => {
+      usePresenceStore.setState({ entries: [] })
+    })
+
+    it('sits immediately left of Chat with the others here', () => {
+      usePresenceStore.setState({
+        entries: [person('jonike', 'u_me'), person('maya', 'u_maya'), person('dev', 'u_dev'), person('sam', 'u_sam')],
+      })
+      renderHeader()
+
+      const nav = screen.getByRole('navigation', { name: 'Watch controls' })
+      const buttons = within(nav).getAllByRole('button')
+      expect(buttons.at(-2)).toHaveAccessibleName('3 here')
+      expect(buttons.at(-1)).toHaveAccessibleName('Chat')
+
+      const facepile = within(nav).getByRole('button', { name: '3 here' })
+      expect(facepile).toHaveAttribute('aria-haspopup', 'dialog')
+      const stack = facepile.querySelector('[data-slot="presence-stack"]')!
+      expect(Array.from(stack.children).map((a) => a.textContent)).toEqual(['M', 'D', 'S'])
+      expect(within(facepile).getByText('3 here')).not.toHaveClass('sr-only')
+    })
+
+    it('opens the Here-now list', () => {
+      usePresenceStore.setState({ entries: [person('maya', 'u_maya')] })
+      renderHeader()
+      fireEvent.click(screen.getByRole('button', { name: '1 here' }))
+      expect(screen.getByRole('region', { name: 'Here now' })).toHaveTextContent('maya')
+    })
+
+    it('is absent while nobody else is here', () => {
+      usePresenceStore.setState({ entries: [person('jonike', 'u_me')] })
+      renderHeader()
+      const nav = screen.getByRole('navigation', { name: 'Watch controls' })
+      expect(within(nav).queryByRole('button', { name: /here$/ })).not.toBeInTheDocument()
+      expect(within(nav).getAllByRole('button').at(-1)).toHaveAccessibleName('Chat')
+    })
+
+    it('draws the avatars only on a phone, in a 44px target named by the count', () => {
+      usePresenceStore.setState({ entries: [person('maya', 'u_maya'), person('dev', 'u_dev'), person('sam', 'u_sam')] })
+      renderHeader({ isMobile: true })
+
+      const facepile = screen.getByRole('button', { name: '3 here' })
+      expect(facepile).toHaveClass('h-11')
+      expect(within(facepile).getByText('3 here')).toHaveClass('sr-only')
+      // Two avatars and '+1' fit beside Chat's badge
+      const stack = facepile.querySelector('[data-slot="presence-stack"]')!
+      expect(Array.from(stack.children).map((a) => a.textContent)).toEqual(['M', 'D', '+1'])
+      expect(facepile.compareDocumentPosition(screen.getByRole('button', { name: 'Chat' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    })
   })
 
   it('keeps the live channel picker one tap away for a permitted viewer on a phone', () => {
