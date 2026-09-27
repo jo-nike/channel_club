@@ -40,6 +40,7 @@ export function TVEPGGrid({
 }: TVEPGGridProps) {
   const { getUnifiedChannels, isLiveChannelActive, liveEPGStatus, selectedChannel } = useTVStore()
   const containerRef = useRef<HTMLDivElement>(null)
+  const headerRef = useRef<HTMLDivElement>(null)
   const [currentTime, setCurrentTime] = useState(new Date())
 
   const unifiedChannels = getUnifiedChannels()
@@ -87,6 +88,22 @@ export function TVEPGGrid({
       containerRef.current.scrollLeft = Math.max(0, nowOffset - 100)
     }
   }, [loading, startTime, programmesByChannel])
+
+  // Centre the watched row when it's off-screen: when the guide opens (this
+  // mounts then, and again once the programmes have loaded) and when the
+  // channel changes while it's open. A row already in view stays put.
+  const selectedRowIndex = unifiedChannels.findIndex((c) => c.id === selectedChannel?.id)
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container || loading || selectedRowIndex < 0 || container.clientHeight === 0) return
+    // Rows scroll under the sticky time header, so only the height below it shows them
+    const visibleHeight = container.clientHeight - (headerRef.current?.offsetHeight ?? 0)
+    const rowTop = selectedRowIndex * ROW_HEIGHT
+    const inView = rowTop >= container.scrollTop && rowTop + ROW_HEIGHT <= container.scrollTop + visibleHeight
+    if (inView) return
+    const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight)
+    container.scrollTop = Math.min(maxScrollTop, Math.max(0, rowTop + ROW_HEIGHT / 2 - visibleHeight / 2))
+  }, [loading, selectedRowIndex])
 
   // Calculate now marker position
   const nowMarkerOffset = useMemo(() => {
@@ -149,6 +166,7 @@ export function TVEPGGrid({
       {/* Time header - sticky top, scrolls horizontally with grid. It layers
           above the sticky channel labels (z-20), which scroll up under it */}
       <div
+        ref={headerRef}
         className="sticky top-0 z-30 flex bg-card border-b"
         style={{ width: CHANNEL_LABEL_WIDTH + gridWidth }}
       >

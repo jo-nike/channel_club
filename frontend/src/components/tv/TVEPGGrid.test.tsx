@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen, cleanup, fireEvent, within } from '@/test/utils'
+import { act, render, screen, cleanup, fireEvent, within } from '@/test/utils'
 import { TVEPGGrid } from './TVEPGGrid'
 import { focusOverrides } from '@/test/focus'
 import { useChannelStore } from '@/stores/channelStore'
@@ -270,6 +270,87 @@ describe('TVEPGGrid scrolling', () => {
     const label = screen.getAllByTestId('channel-row')[0].firstElementChild!
     expect(label).toHaveClass('sticky', 'left-0')
     expect(zIndex(header)).toBeGreaterThan(zIndex(label))
+  })
+})
+
+describe('TVEPGGrid scrolls to the watched channel', () => {
+  // Ten ErsatzTV channels under the live row: 11 rows of 64px. jsdom has no
+  // layout, so the grid gets a 300px viewport; the time header measures 0.
+  const channels = Array.from({ length: 10 }, (_, i) => ({
+    id: `etv${i + 1}`, name: `Channel ${i + 1}`, streamUrl: `/etv${i + 1}`, logoUrl: '', number: i + 1, group: '',
+  }))
+  const isGrid = (el: Element) => el instanceof HTMLElement && el.dataset.testid === 'tv-epg-grid'
+  const watch = (n: number) => act(() => useTVStore.setState({ selectedChannel: { ...channels[n - 1], type: 'ersatztv' } }))
+
+  beforeEach(() => {
+    vi.spyOn(Element.prototype, 'clientHeight', 'get').mockImplementation(function (this: Element) {
+      return isGrid(this) ? 300 : 0
+    })
+    vi.spyOn(Element.prototype, 'scrollHeight', 'get').mockImplementation(function (this: Element) {
+      return isGrid(this) ? 11 * 64 : 0
+    })
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels })
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+    useErsatztvStore.setState({ channels: [] })
+    useTVStore.setState({ selectedChannel: null, liveEPGStatus: 'idle' })
+  })
+
+  it('centres the watched row when the guide opens with it off-screen', () => {
+    useTVStore.setState({ selectedChannel: { ...channels[7], type: 'ersatztv' } })
+    render(<TVEPGGrid programmesByChannel={{}} />)
+
+    // Row 8 starts at 512px; its centre (544) sits mid-viewport at 544 - 150
+    expect(screen.getByTestId('tv-epg-grid').scrollTop).toBe(394)
+  })
+
+  it('waits for the programmes to load, then scrolls', () => {
+    useTVStore.setState({ selectedChannel: { ...channels[7], type: 'ersatztv' } })
+    const { rerender } = render(<TVEPGGrid programmesByChannel={{}} loading />)
+    expect(screen.queryByTestId('tv-epg-grid')).not.toBeInTheDocument()
+
+    rerender(<TVEPGGrid programmesByChannel={{}} />)
+
+    expect(screen.getByTestId('tv-epg-grid').scrollTop).toBe(394)
+  })
+
+  it('follows a channel change while open, leaving a row already in view where it is', () => {
+    render(<TVEPGGrid programmesByChannel={{}} />)
+    const grid = screen.getByTestId('tv-epg-grid')
+    expect(grid.scrollTop).toBe(0)
+
+    watch(8)
+    expect(grid.scrollTop).toBe(394)
+
+    // Row 7 (448-512px) is inside 394-694px: no jump
+    watch(7)
+    expect(grid.scrollTop).toBe(394)
+
+    // Back near the top, clamped at 0
+    watch(1)
+    expect(grid.scrollTop).toBe(0)
+
+    // The last row can't be centred: clamped to the end of the grid (704 - 300)
+    watch(10)
+    expect(grid.scrollTop).toBe(404)
+  })
+
+  it("doesn't pull the guide back after the viewer scrolls away, or when nothing is watched", () => {
+    render(<TVEPGGrid programmesByChannel={{}} />)
+    const grid = screen.getByTestId('tv-epg-grid')
+    watch(8)
+    expect(grid.scrollTop).toBe(394)
+
+    grid.scrollTop = 0
+    act(() => useTVStore.setState({ liveEPGStatus: 'empty' }))
+    expect(grid.scrollTop).toBe(0)
+
+    act(() => useTVStore.setState({ selectedChannel: null }))
+    expect(grid.scrollTop).toBe(0)
   })
 })
 
