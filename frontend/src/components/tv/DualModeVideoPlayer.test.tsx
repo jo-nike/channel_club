@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { ReactNode, Ref } from 'react'
-import { render, screen, fireEvent, act, waitFor, within } from '@/test/utils'
+import { render, renderHook, screen, fireEvent, act, waitFor, within } from '@/test/utils'
 import { DualModeVideoPlayer } from './DualModeVideoPlayer'
 import { useAudioStore } from '@/stores/audioStore'
 import { useFilterStore } from '@/stores/filterStore'
@@ -12,6 +12,7 @@ import { useTVStore } from '@/stores/tvStore'
 import { useChatStore } from '@/stores/chatStore'
 import { INITIAL_CAST_STATE, useCastStore } from '@/stores/castStore'
 import { useChannelZap, type ChannelZap } from '@/hooks/useChannelZap'
+import { usePlayerFullscreenElement } from '@/hooks/useFullscreenState'
 import type { UnifiedChannel } from '@/types'
 import type { NHLGame } from '@/types/nhl'
 import type { PlayerShell } from '@/components/player/PlayerShellContext'
@@ -923,6 +924,15 @@ describe('DualModeVideoPlayer fullscreen state', () => {
     setFullscreenElement(null)
     expect(screen.getByRole('button', { name: 'Fullscreen' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Theater mode' })).toBeInTheDocument()
+  })
+
+  // The page finds it by the mark to portal chat and toasts into it
+  it('marks the shell for the page to find in fullscreen', () => {
+    renderPlayer(liveChannel('https://fixture/a'))
+    setFullscreenElement(shell())
+
+    const { result } = renderHook(() => usePlayerFullscreenElement())
+    expect(result.current).toBe(shell())
   })
 
   // Vidstack only reports its own MediaPlayer element as fullscreen, never the shell

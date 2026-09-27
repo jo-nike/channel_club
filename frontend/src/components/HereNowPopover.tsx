@@ -107,13 +107,15 @@ function HereNowList({ people, onJoined }: HereNowListProps) {
 interface HereNowPopoverProps {
   variant?: HereNowVariant
   className?: string
+  /** Where the list opens: the player while chat is in it fullscreen */
+  container?: HTMLElement | null
 }
 
 /**
  * Who else is here: a stack of their avatars with 'N here' that opens the
  * Here-now list. Nothing renders while nobody else is here.
  */
-export function HereNowPopover({ variant = 'chat', className }: HereNowPopoverProps) {
+export function HereNowPopover({ variant = 'chat', className, container }: HereNowPopoverProps) {
   const people = useOthersHere()
   const [open, setOpen] = useState(false)
   // The last other person left while it was open: closed, so it doesn't
@@ -130,7 +132,7 @@ export function HereNowPopover({ variant = 'chat', className }: HereNowPopoverPr
           <span className={cn(variant === 'phone' && 'sr-only')}>{count}</span>
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 p-3">
+      <PopoverContent align="end" className="w-72 p-3" container={container}>
         <HereNowList people={people} onJoined={() => setOpen(false)} />
       </PopoverContent>
     </Popover>

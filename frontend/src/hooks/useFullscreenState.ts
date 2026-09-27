@@ -28,3 +28,23 @@ export function useFullscreenState(containerRef?: RefObject<HTMLElement | null>)
 
   return useSyncExternalStore(subscribe, getSnapshot, () => false)
 }
+
+/**
+ * Marks the player shell, the element the player fullscreens, so views
+ * outside it can find it in fullscreen (DualModeVideoPlayer sets it)
+ */
+export const PLAYER_SHELL_ATTRIBUTE = 'data-player-shell'
+
+const getPlayerFullscreenElement = (): HTMLElement | null => {
+  const element = getFullscreenElement()
+  return element instanceof HTMLElement && element.hasAttribute(PLAYER_SHELL_ATTRIBUTE) ? element : null
+}
+
+/**
+ * The player shell while it is the fullscreen element, else null. In
+ * fullscreen only that element is drawn, so a layer that must stay in view
+ * (the chat panel, toasts) portals into it.
+ */
+export function usePlayerFullscreenElement(): HTMLElement | null {
+  return useSyncExternalStore(subscribe, getPlayerFullscreenElement, () => null)
+}

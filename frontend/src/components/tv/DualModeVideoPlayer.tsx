@@ -12,7 +12,7 @@ import '@vidstack/react/player/styles/default/theme.css'
 import { useAutoHide } from '@/hooks/useAutoHide'
 import { useTVMode } from '@/hooks/useTVMode'
 import { useVideoKeyboardShortcuts } from '@/hooks/useVideoKeyboardShortcuts'
-import { useFullscreenState } from '@/hooks/useFullscreenState'
+import { PLAYER_SHELL_ATTRIBUTE, useFullscreenState } from '@/hooks/useFullscreenState'
 import { useStreamRecovery } from '@/hooks/useStreamRecovery'
 import { useChatEnabled } from '@/hooks/useChatEnabled'
 import { useMobileLandscape } from '@/hooks/useMobileLandscape'
@@ -260,8 +260,10 @@ export function DualModeVideoPlayer({
 
   return (
     <PlayerShellContext value={shell}>
+      {/* Marked, so the page can portal chat and toasts into it in fullscreen */}
       <div
         ref={attachShell}
+        {...{ [PLAYER_SHELL_ATTRIBUTE]: '' }}
         className={`video-player-container relative h-full w-full bg-black${isSwipeZap ? ' touch-none' : ''}`}
         style={insetTop}
       >

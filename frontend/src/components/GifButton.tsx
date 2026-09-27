@@ -14,9 +14,11 @@ const GIF_FEATURE_ENABLED = import.meta.env.VITE_GIF_ENABLED === 'true'
 export interface GifButtonProps {
   onSelect: (gifUrl: string) => boolean | void | Promise<boolean | void>
   disabled?: boolean
+  /** Where the picker opens: the player while chat is in it fullscreen */
+  container?: HTMLElement | null
 }
 
-export function GifButton({ onSelect, disabled }: GifButtonProps) {
+export function GifButton({ onSelect, disabled, container }: GifButtonProps) {
   const [isOpen, setIsOpen] = useState(false)
   // Initialize to false if build-time flag is off, otherwise null (loading)
   const [serverEnabled, setServerEnabled] = useState<boolean | null>(
@@ -89,7 +91,7 @@ export function GifButton({ onSelect, disabled }: GifButtonProps) {
         >
           <ImageIcon className="h-4 w-4" />
         </Button>
-        <DialogContent className="sm:max-w-md max-h-[80vh] p-0 gap-0">
+        <DialogContent className="sm:max-w-md max-h-[80vh] p-0 gap-0" container={container}>
           <DialogHeader className="p-4 pb-0">
             <DialogTitle>Choose a GIF</DialogTitle>
           </DialogHeader>
@@ -116,6 +118,7 @@ export function GifButton({ onSelect, disabled }: GifButtonProps) {
         align="end"
         side="top"
         sideOffset={8}
+        container={container}
       >
         <GifPicker onSelect={handleSelect} onClose={handleClose} />
       </PopoverContent>

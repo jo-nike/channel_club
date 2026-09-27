@@ -10,12 +10,15 @@ import { useSettingsStore } from '@/stores/settingsStore'
 import { useUIStore } from '@/stores/uiStore'
 import type { ChatMessage, ErsatzTVChannel, PresenceEntry, UnifiedChannel } from '@/types'
 
-// Stand-in for the GIF picker, which fetches its feature flag: a click picks one fixed GIF
+// Stand-in for the GIF picker, which fetches its feature flag: a click picks one fixed GIF.
+// It keeps the element its picker would open in.
 const GIF_URL = 'https://media.example/cat.gif'
+const gif = vi.hoisted(() => ({ container: undefined as HTMLElement | null | undefined }))
 vi.mock('./GifButton', () => ({
-  GifButton: ({ disabled, onSelect }: { disabled?: boolean; onSelect: (url: string) => void }) => (
-    <button type="button" aria-label="Send GIF" disabled={disabled} onClick={() => onSelect(GIF_URL)} />
-  ),
+  GifButton: ({ disabled, onSelect, container }: { disabled?: boolean; onSelect: (url: string) => void; container?: HTMLElement | null }) => {
+    gif.container = container
+    return <button type="button" aria-label="Send GIF" disabled={disabled} onClick={() => onSelect(GIF_URL)} />
+  },
 }))
 
 // Mock scrollIntoView
@@ -1392,6 +1395,64 @@ describe('ChatPanel', () => {
       expect(screen.getByPlaceholderText('Message the club…')).toBe(input)
       expect(input).toHaveValue('half typed')
       expect(input).toHaveFocus()
+    })
+  })
+
+  describe('in the fullscreen player', () => {
+    let shell: HTMLDivElement
+    beforeEach(() => {
+      // Stands in for document.fullscreenElement: the player shell
+      shell = document.createElement('div')
+      document.body.appendChild(shell)
+    })
+    afterEach(() => shell.remove())
+
+    it('draws the panel inside the element it is given, where fullscreen shows it', () => {
+      const { container } = render(<ChatPanel onSendMessage={mockOnSendMessage} variant="overlay" translucent container={shell} />)
+      const panel = screen.getByRole('complementary', { name: 'Chat' })
+      expect(shell).toContainElement(panel)
+      expect(container).not.toContainElement(panel)
+      expect(panel).toHaveClass('fixed', 'right-0', 'w-80', 'bg-background/85')
+    })
+
+    it('moves in and out of the fullscreen player keeping its draft', () => {
+      const { container, rerender } = render(<ChatPanel onSendMessage={mockOnSendMessage} variant="docked" />)
+      fireEvent.change(screen.getByPlaceholderText('Message the club…'), { target: { value: 'half typed' } })
+
+      rerender(<ChatPanel onSendMessage={mockOnSendMessage} variant="overlay" container={shell} />)
+      expect(shell).toContainElement(screen.getByPlaceholderText('Message the club…'))
+      expect(screen.getByPlaceholderText('Message the club…')).toHaveValue('half typed')
+
+      rerender(<ChatPanel onSendMessage={mockOnSendMessage} variant="docked" />)
+      expect(shell).toBeEmptyDOMElement()
+      expect(container).toContainElement(screen.getByPlaceholderText('Message the club…'))
+      expect(screen.getByPlaceholderText('Message the club…')).toHaveValue('half typed')
+    })
+
+    it('draws nothing in it while closed', () => {
+      useChatStore.setState({ isOpen: false })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} variant="overlay" container={shell} />)
+      expect(shell).toBeEmptyDOMElement()
+    })
+
+    // A popover left in document.body would open hidden behind fullscreen
+    it('opens the Here-now list inside it too', () => {
+      useChatStore.setState({ nickname: null, me: { username: 'jonike', userId: 'u_me' } })
+      usePresenceStore.setState({
+        entries: [{ userId: 'u_maya', displayName: 'maya', channelId: null, channelName: null, programme: null, view: null, since: null }],
+      })
+      try {
+        render(<ChatPanel onSendMessage={mockOnSendMessage} variant="overlay" container={shell} />)
+        fireEvent.click(screen.getByRole('button', { name: '1 here' }))
+        expect(shell).toContainElement(screen.getByRole('region', { name: 'Here now' }))
+      } finally {
+        usePresenceStore.setState({ entries: [] })
+      }
+    })
+
+    it('opens the GIF picker inside it too', () => {
+      render(<ChatPanel onSendMessage={mockOnSendMessage} variant="overlay" container={shell} />)
+      expect(gif.container).toBe(shell)
     })
   })
 
