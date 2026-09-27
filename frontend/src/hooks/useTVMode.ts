@@ -1,5 +1,39 @@
 import { useState, useEffect } from 'react'
 
+const STORAGE_KEY = 'tv-mode'
+
+// A TV layout choice this browser wouldn't store (blocked site data, a
+// locked-down TV browser). It applies for this page load only. undefined:
+// none; null: Auto.
+let pageOnlyPreference: string | null | undefined
+
+/** The stored 'tv-mode' value, or null when there is none or storage is blocked. */
+function readStoredPreference(): string | null {
+  if (pageOnlyPreference !== undefined) return pageOnlyPreference
+  try {
+    return localStorage.getItem(STORAGE_KEY)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Store the 'tv-mode' value (null clears it). When storage throws, keep the
+ * value in memory for this page load instead of stopping the app.
+ */
+function storePreference(value: string | null): void {
+  try {
+    if (value == null) {
+      localStorage.removeItem(STORAGE_KEY)
+    } else {
+      localStorage.setItem(STORAGE_KEY, value)
+    }
+    pageOnlyPreference = undefined
+  } catch {
+    pageOnlyPreference = value
+  }
+}
+
 /**
  * Detect if the current environment should use TV mode.
  * Checks localStorage override and TV browser user agents (WebOS, Tizen).
@@ -8,7 +42,7 @@ import { useState, useEffect } from 'react'
 export function detectTVMode(): boolean {
   // Check localStorage override first
   // Note: Using == null to also handle undefined (JSDOM returns undefined for missing keys)
-  const storedPreference = localStorage.getItem('tv-mode')
+  const storedPreference = readStoredPreference()
   if (storedPreference != null) {
     return storedPreference === 'true'
   }
@@ -31,7 +65,7 @@ const TV_MODE_CHANGE_EVENT = 'tv-mode-change'
 
 /** The TV layout choice stored in this browser ('auto' when there is none). */
 export function readTVModeOverride(): TVModeOverride {
-  const storedPreference = localStorage.getItem('tv-mode')
+  const storedPreference = readStoredPreference()
   if (storedPreference == null) return 'auto'
   return storedPreference === 'true' ? 'on' : 'off'
 }
@@ -41,11 +75,7 @@ export function readTVModeOverride(): TVModeOverride {
  * without a reload.
  */
 export function setTVModeOverride(mode: TVModeOverride): void {
-  if (mode === 'auto') {
-    localStorage.removeItem('tv-mode')
-  } else {
-    localStorage.setItem('tv-mode', mode === 'on' ? 'true' : 'false')
-  }
+  storePreference(mode === 'auto' ? null : mode === 'on' ? 'true' : 'false')
   window.dispatchEvent(new Event(TV_MODE_CHANGE_EVENT))
 }
 
@@ -54,7 +84,8 @@ export function setTVModeOverride(mode: TVModeOverride): void {
  * (localStorage 'tv-mode' = 'true' / 'false'), then drop the parameter from
  * the address bar so a bookmark or reload doesn't carry it. For TV browsers
  * the user agent check misses (Android TV, Fire TV) and for testing.
- * Any other value, or no parameter, changes nothing.
+ * Any other value, or no parameter, changes nothing. Where storage is
+ * blocked the choice applies for this page load only.
  *
  * Runs before the router and the stores are created (see tvModeParam.ts), so
  * everything that reads TV mode at startup already sees the override.
@@ -64,7 +95,7 @@ export function applyTVModeQueryParam(): void {
   const value = url.searchParams.get('tv')
   if (value !== '1' && value !== '0') return
 
-  localStorage.setItem('tv-mode', value === '1' ? 'true' : 'false')
+  storePreference(value === '1' ? 'true' : 'false')
   url.searchParams.delete('tv')
   window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash)
 }
