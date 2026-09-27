@@ -5,6 +5,7 @@ import {
   MediaProvider,
   useMediaState,
   useMediaRemote,
+  type MediaPlayerInstance,
 } from '@vidstack/react'
 import '@vidstack/react/player/styles/default/theme.css'
 import { VideoControls } from '@/components/VideoControls'
@@ -388,6 +389,7 @@ function HLSVideoPlayerWrapper({
   onTheaterModeToggle,
 }: HLSVideoPlayerWrapperProps) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const playerRef = useRef<MediaPlayerInstance>(null)
   const [isBuffering, setIsBuffering] = useState(true)
 
   // Saved volume and mute, passed as controlled props: Vidstack queues each
@@ -418,6 +420,27 @@ function HLSVideoPlayerWrapper({
     setIsBuffering(true)
   }, [])
 
+  // A refused play() leaves the player paused: never leave the loader over it
+  const onPlainPlayFail = useCallback(() => {
+    setIsBuffering(false)
+  }, [])
+
+  const onAutoPlayFail = useCallback(
+    () => {
+      setIsBuffering(false)
+      // Vidstack refuses every autoplay request under Reduce Motion. Picking a
+      // channel is consent to play, and a plain play() is not an autoplay
+      // request, but it has to wait a tick: autoPlaying is reset only after
+      // this event has dispatched.
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        setTimeout(() => {
+          playerRef.current?.play().catch(onPlainPlayFail)
+        }, 0)
+      }
+    },
+    [onPlainPlayFail]
+  )
+
   if (status === 'failed') {
     return (
       <div className="flex h-full w-full items-center justify-center bg-black">
@@ -442,6 +465,7 @@ function HLSVideoPlayerWrapper({
 
       <MediaPlayer
         key={retryKey}
+        ref={playerRef}
         src={streamUrl}
         title={title}
         autoPlay
@@ -454,6 +478,7 @@ function HLSVideoPlayerWrapper({
         className="h-full w-full max-h-full max-w-full [&_video]:object-contain"
         onWaiting={handleWaiting}
         onPlaying={onPlaying}
+        onAutoPlayFail={onAutoPlayFail}
         onError={handleError}
       >
         <MediaProvider />

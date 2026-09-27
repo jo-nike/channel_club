@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import type { ReactNode } from 'react'
+import type { ReactNode, Ref } from 'react'
 import { render, screen, fireEvent, act, waitFor } from '@/test/utils'
 import { DualModeVideoPlayer } from './DualModeVideoPlayer'
 import { useAudioStore } from '@/stores/audioStore'
@@ -21,32 +21,48 @@ vi.mock('mpegts.js', () => ({
 
 type MediaPlayerProps = {
   children?: ReactNode
+  ref?: Ref<unknown>
   volume?: number
   muted?: boolean
   keyDisabled?: boolean
   onError?: () => void
+  onPlaying?: () => void
+  onAutoPlayFail?: (detail: { muted: boolean; error: Error }) => void
 }
 
-const vidstack = vi.hoisted(() => ({
-  mediaPlayer: vi.fn<(props: Record<string, unknown>) => void>(),
-  mounted: vi.fn(),
-  // Vidstack reports a placeholder volume of 1 until can-play
-  state: { paused: false, volume: 1, muted: false, fullscreen: false } as Record<string, unknown>,
-  remote: {
+const vidstack = vi.hoisted(() => {
+  const remote = {
     togglePaused: vi.fn(),
     changeVolume: vi.fn(),
     toggleMuted: vi.fn(),
     mute: vi.fn(),
     unmute: vi.fn(),
     toggleFullscreen: vi.fn(),
-  },
-}))
+  }
+  const harness = {
+    mediaPlayer: vi.fn<(props: Record<string, unknown>) => void>(),
+    mounted: vi.fn(),
+    // Vidstack reports a placeholder volume of 1 until can-play
+    state: { paused: false, volume: 1, muted: false, fullscreen: false } as Record<string, unknown>,
+    remote,
+    // What the MediaPlayer ref exposes
+    player: {
+      play: vi.fn<() => Promise<void>>(),
+      remoteControl: remote,
+      get state() {
+        return harness.state
+      },
+    },
+  }
+  return harness
+})
 
 vi.mock('@vidstack/react', async () => {
-  const { useEffect } = await import('react')
+  const { useEffect, useImperativeHandle } = await import('react')
   return {
-    MediaPlayer: ({ children, ...props }: MediaPlayerProps) => {
+    MediaPlayer: ({ children, ref, ...props }: MediaPlayerProps) => {
       vidstack.mediaPlayer(props)
+      useImperativeHandle(ref, () => vidstack.player)
       useEffect(() => vidstack.mounted(), [])
       return (
         <div data-media-player="" tabIndex={0}>
@@ -129,6 +145,33 @@ const lastPreviewAudio = () => {
 const wroteAudioStorage = () =>
   vi.mocked(localStorage.setItem).mock.calls.some(([key]) => key === 'audio-storage')
 
+// setup.ts answers every media query with false; this reports the given ones
+// as matching until the test ends (restored in afterEach)
+const setupMatchMedia = window.matchMedia
+const matchMediaQueries = (matching: string[]) => {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    configurable: true,
+    value: (query: string) => ({
+      matches: matching.includes(query),
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(() => true),
+    }),
+  })
+}
+
+const REDUCED_MOTION = '(prefers-reduced-motion: reduce)'
+const loader = () => document.querySelector('.projector-beam')
+const refuseAutoplay = (error: Error) =>
+  act(() => lastPlayerProps().onAutoPlayFail?.({ muted: false, error }))
+const reducedMotionError = () =>
+  new Error('[vidstack] autoplay is blocked due to user preference for reduced motion')
+
 beforeEach(() => {
   localStorage.clear()
   useAudioStore.setState({ volume: 1, muted: false })
@@ -137,6 +180,7 @@ beforeEach(() => {
   vidstack.mediaPlayer.mockClear()
   vidstack.mounted.mockClear()
   Object.values(vidstack.remote).forEach((fn) => fn.mockClear())
+  vidstack.player.play.mockReset().mockResolvedValue(undefined)
   highlight.enabled = false
   highlight.modal.mockClear()
   volumeSupport.canSet = true
@@ -145,6 +189,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks()
+  Object.defineProperty(window, 'matchMedia', { writable: true, configurable: true, value: setupMatchMedia })
 })
 
 describe('DualModeVideoPlayer audio: live channel (mpegts)', () => {
@@ -493,5 +538,54 @@ describe('DualModeVideoPlayer audio: browsers that ignore script volume (iOS/iPa
 
     fireEvent.click(screen.getByRole('button', { name: 'Mute' }))
     expect(useAudioStore.getState().muted).toBe(true)
+  })
+})
+
+describe('DualModeVideoPlayer autoplay: ErsatzTV channel (Vidstack)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('under Reduce Motion, plays once more on the next tick after Vidstack refuses autoplay', async () => {
+    matchMediaQueries([REDUCED_MOTION])
+    renderPlayer(hlsChannel('1', 1))
+
+    refuseAutoplay(reducedMotionError())
+    // autoPlaying is still set while the event dispatches, so not yet
+    expect(vidstack.player.play).not.toHaveBeenCalled()
+
+    await act(() => vi.advanceTimersByTimeAsync(0))
+
+    expect(vidstack.player.play).toHaveBeenCalledTimes(1)
+    expect(vidstack.remote.mute).not.toHaveBeenCalled()
+    expect(useAudioStore.getState().muted).toBe(false)
+  })
+
+  it('under Reduce Motion, removes the loader when autoplay and the retry are both refused', async () => {
+    matchMediaQueries([REDUCED_MOTION])
+    vidstack.player.play.mockRejectedValue(new Error('media error'))
+    renderPlayer(hlsChannel('1', 1))
+    expect(loader()).toBeInTheDocument()
+
+    refuseAutoplay(reducedMotionError())
+    await act(() => vi.advanceTimersByTimeAsync(0))
+
+    expect(vidstack.player.play).toHaveBeenCalledTimes(1)
+    expect(loader()).not.toBeInTheDocument()
+  })
+
+  it('without Reduce Motion, a refused autoplay removes the loader and does not retry unmuted', async () => {
+    renderPlayer(hlsChannel('1', 1))
+    expect(loader()).toBeInTheDocument()
+
+    refuseAutoplay(new Error('media error'))
+    await act(() => vi.advanceTimersByTimeAsync(0))
+
+    expect(loader()).not.toBeInTheDocument()
+    expect(vidstack.player.play).not.toHaveBeenCalled()
   })
 })
