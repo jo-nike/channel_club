@@ -273,6 +273,47 @@ class TestChatMessage:
         assert "T" in timestamp  # ISO format includes T separator
 
 
+class TestAddShare:
+    """Tests for add_share, the 'share what I'm watching' card."""
+
+    def test_stores_a_share_card_with_the_channel(self) -> None:
+        stamp = chat.ChannelStamp(
+            channel_name="TSN 5", channel_id="42", programme="CFL Football", view="live"
+        )
+
+        msg = chat.add_share("maya", stamp, user_id="u_maya")
+
+        assert msg.kind == "share"
+        assert msg.username == "maya"
+        assert msg.user_id == "u_maya"
+        assert msg.channel == stamp
+        assert chat.get_history() == [msg]
+        msg_dict = msg.to_dict()
+        assert msg_dict["kind"] == "share"
+        assert msg_dict["channelName"] == "TSN 5"
+        assert msg_dict["view"] == "live"
+
+    def test_content_says_what_is_shared_for_older_clients(self) -> None:
+        with_programme = chat.add_share(
+            "maya", chat.ChannelStamp(channel_name="TSN 5", programme="CFL Football")
+        )
+        without = chat.add_share("maya", chat.ChannelStamp(channel_name="Cartoons"))
+
+        assert with_programme.content == "Watching TSN 5 · CFL Football"
+        assert without.content == "Watching Cartoons"
+
+    def test_content_is_capped_like_a_message(self) -> None:
+        msg = chat.add_share("maya", chat.ChannelStamp(channel_name="x" * 512, programme="y" * 512))
+
+        assert len(msg.content) == chat.MAX_MESSAGE_LENGTH
+
+    def test_keeps_its_channel_when_channels_are_left_out(self) -> None:
+        """A share is the sender's own post: hiding stamps doesn't blank it."""
+        msg = chat.add_share("maya", chat.ChannelStamp(channel_name="TSN 5"))
+
+        assert msg.to_dict(show_channel=False)["channelName"] == "TSN 5"
+
+
 class TestSystemMessage:
     """Tests for system_message, the ephemeral lines about shared events."""
 

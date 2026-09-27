@@ -1111,6 +1111,197 @@ class TestChatChannelStamp:
         assert message["channelName"] is None
 
 
+class TestShareMessage:
+    """'Share what I'm watching' posts a card whose channel the server fills from presence."""
+
+    @pytest.fixture(autouse=True)
+    def chat_on(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(settings, "chat_enabled", True)
+
+    @pytest.fixture
+    def visible(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(app_settings, "_presence_visible", True)
+
+    @staticmethod
+    def open_chat(ws) -> None:
+        ws.receive_json()  # connection_ack
+        ws.receive_json()  # chat_history
+
+    @staticmethod
+    def watch(ws) -> None:
+        """Report a live channel and wait until the server has it."""
+        ws.send_json(
+            {
+                "type": "channel_update",
+                "channel": "TSN 5",
+                "channelId": "42",
+                "programme": "CFL Football",
+                "view": "live",
+            }
+        )
+        ws.send_json({"type": "ping"})
+        assert ws.receive_json()["type"] == "pong"
+
+    @staticmethod
+    def assert_nothing_broadcast(ws) -> None:
+        ws.send_json({"type": "ping"})
+        assert ws.receive_json()["type"] == "pong"
+
+    @pytest.mark.usefixtures("visible")
+    def test_share_is_broadcast_as_a_card_with_the_servers_channel(
+        self, client: TestClient, valid_token: str, admin_token: str
+    ):
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws1:
+            self.open_chat(ws1)
+            self.watch(ws1)
+            with client.websocket_connect(f"/api/ws?token={admin_token}") as ws2:
+                self.open_chat(ws2)
+
+                ws1.send_json({"type": "share", "clientMessageId": "s-1"})
+                card = ws2.receive_json()
+                own = ws1.receive_json()
+                ack = ws1.receive_json()
+
+        assert card["type"] == "chat_message"
+        assert card["kind"] == "share"
+        assert card["username"] == "testuser"
+        assert card["userId"] == expected_user_id("local:testuser")
+        assert card["channelId"] == "42"
+        assert card["channelName"] == "TSN 5"
+        assert card["programme"] == "CFL Football"
+        assert card["view"] == "live"
+        # Clients that predate share cards show the same thing as text
+        assert card["content"] == "Watching TSN 5 · CFL Football"
+        assert own["messageId"] == card["messageId"]
+        assert ack == {
+            "type": "chat_ack",
+            "clientMessageId": "s-1",
+            "accepted": True,
+            "messageId": card["messageId"],
+        }
+        [stored] = chat.get_history()
+        assert stored.kind == "share"
+
+    @pytest.mark.usefixtures("visible")
+    def test_client_sent_channel_names_are_ignored(self, client: TestClient, valid_token: str):
+        """The card names the channel presence has, whatever the client claims."""
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            self.open_chat(ws)
+            self.watch(ws)
+
+            ws.send_json(
+                {
+                    "type": "share",
+                    "channelName": "Fake",
+                    "channelId": "666",
+                    "programme": "Not this",
+                    "content": "spoof",
+                }
+            )
+            card = ws.receive_json()
+
+        assert card["channelName"] == "TSN 5"
+        assert card["channelId"] == "42"
+        assert card["programme"] == "CFL Football"
+        assert card["content"] == "Watching TSN 5 · CFL Football"
+
+    def test_refused_while_presence_is_off(self, client: TestClient, valid_token: str):
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            self.open_chat(ws)
+            self.watch(ws)
+
+            ws.send_json({"type": "share", "clientMessageId": "s-1"})
+            ack = ws.receive_json()
+            self.assert_nothing_broadcast(ws)
+
+        assert ack == {"type": "chat_ack", "clientMessageId": "s-1", "accepted": False}
+        assert chat.get_history() == []
+
+    @pytest.mark.usefixtures("visible")
+    def test_refused_for_a_sender_who_hides(self, client: TestClient, valid_token: str):
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            self.open_chat(ws)
+            ws.send_json({"type": "set_presence_prefs", "hideActivity": True})
+            self.watch(ws)
+
+            ws.send_json({"type": "share", "clientMessageId": "s-1"})
+            ack = ws.receive_json()
+            self.assert_nothing_broadcast(ws)
+
+        assert ack["accepted"] is False
+
+    @pytest.mark.usefixtures("visible")
+    def test_refused_before_the_sender_reports_a_channel(
+        self, client: TestClient, valid_token: str
+    ):
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            self.open_chat(ws)
+
+            ws.send_json({"type": "share", "clientMessageId": "s-1"})
+            ack = ws.receive_json()
+
+        assert ack["accepted"] is False
+
+    @pytest.mark.usefixtures("visible")
+    def test_refused_while_chat_is_off(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setattr(settings, "chat_enabled", False)
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            ws.receive_json()  # connection_ack
+            self.watch(ws)
+
+            ws.send_json({"type": "share", "clientMessageId": "s-1"})
+            ack = ws.receive_json()
+
+        assert ack["accepted"] is False
+
+    @pytest.mark.usefixtures("visible")
+    def test_retried_share_is_acknowledged_without_reposting(
+        self, client: TestClient, valid_token: str
+    ):
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            self.open_chat(ws)
+            self.watch(ws)
+            ws.send_json({"type": "share", "clientMessageId": "s-1"})
+            card = ws.receive_json()
+            ws.receive_json()  # chat_ack
+
+            ws.send_json({"type": "share", "clientMessageId": "s-1"})
+            ack = ws.receive_json()
+            self.assert_nothing_broadcast(ws)
+
+        assert ack["messageId"] == card["messageId"]
+        assert len(chat.get_history()) == 1
+
+    def test_invalid_share_is_rejected(self, client: TestClient, valid_token: str):
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            self.open_chat(ws)
+
+            ws.send_json({"type": "share", "clientMessageId": 7})
+
+            assert ws.receive_json() == {"type": "error", "code": "invalid_message"}
+
+    @pytest.mark.usefixtures("visible")
+    def test_history_keeps_a_share_after_presence_turns_off(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """A share is the sender's own post, so it keeps its channel."""
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            self.open_chat(ws)
+            self.watch(ws)
+            ws.send_json({"type": "share"})
+            ws.receive_json()  # the card
+
+        monkeypatch.setattr(app_settings, "_presence_visible", False)
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            ws.receive_json()  # connection_ack
+            [card] = ws.receive_json()["messages"]
+
+        assert card["kind"] == "share"
+        assert card["channelName"] == "TSN 5"
+
+
 class TestChatNickname:
     """Tests for chat nickname functionality."""
 

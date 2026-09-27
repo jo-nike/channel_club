@@ -86,6 +86,28 @@ def _channel_stamp(client_id: str) -> chat.ChannelStamp | None:
     )
 
 
+async def _ack_chat(
+    websocket: WebSocket, client_message_id: str | None, message_id: str | None
+) -> None:
+    """Confirm a chat send that asked for it: accepted with its id, or refused.
+
+    Args:
+        websocket: The sender's WebSocket.
+        client_message_id: The client's id for the send; without one, nothing is sent.
+        message_id: The stored message's id, or None if the send was refused.
+    """
+    if not client_message_id:
+        return
+    ack: dict[str, object] = {
+        "type": "chat_ack",
+        "clientMessageId": client_message_id,
+        "accepted": message_id is not None,
+    }
+    if message_id is not None:
+        ack["messageId"] = message_id
+    await websocket.send_json(ack)
+
+
 async def verify_websocket_token(token: str) -> dict | None:
     """Verify JWT token for WebSocket connection.
 
@@ -236,7 +258,14 @@ async def handle_client_message(
         isinstance(message, dict)
         and isinstance(message.get("type"), str)
         and message["type"]
-        not in {"ping", "channel_update", "set_nickname", "set_presence_prefs", "chat_message"}
+        not in {
+            "ping",
+            "channel_update",
+            "set_nickname",
+            "set_presence_prefs",
+            "chat_message",
+            "share",
+        }
     ):
         return
     try:
@@ -293,44 +322,35 @@ async def handle_client_message(
         presence_broadcast.schedule_broadcast()
         log.debug("Presence prefs from client {}: hide={}", client_id, validated["hideActivity"])
 
-    elif msg_type == "chat_message":
+    elif msg_type in ("chat_message", "share"):
+        client_message_id = validated.get("clientMessageId")
         # Handle chat messages only if chat is enabled
         if not settings.chat_enabled:
             log.debug("Chat message ignored from client {} - chat disabled", client_id)
-            if validated.get("clientMessageId"):
-                await websocket.send_json(
-                    {
-                        "type": "chat_ack",
-                        "clientMessageId": validated["clientMessageId"],
-                        "accepted": False,
-                    }
-                )
+            await _ack_chat(websocket, client_message_id, None)
             return
 
-        client_message_id = validated.get("clientMessageId")
         original_id = (
             chat.find_recent_send(username, client_message_id) if client_message_id else None
         )
         if original_id is not None:
             # A retry of a send we already stored and broadcast: confirm it again
             log.debug("Repeated chat send from {} acknowledged without reposting", username)
-            await websocket.send_json(
-                {
-                    "type": "chat_ack",
-                    "clientMessageId": client_message_id,
-                    "accepted": True,
-                    "messageId": original_id,
-                }
-            )
+            await _ack_chat(websocket, client_message_id, original_id)
             return
 
-        content = validated.get("content", "")
         # Use nickname if set, otherwise fall back to auth username
         nickname_entry = _nickname_map.get(client_id)
         display_name = nickname_entry[1] if nickname_entry else username
-        chat_msg = chat.add_message(
-            display_name, content, user_id=user_id, channel=_channel_stamp(client_id)
-        )
+        if msg_type == "share":
+            # Refused (None) while the sender's channel is private or unknown
+            stamp = _channel_stamp(client_id)
+            chat_msg = chat.add_share(display_name, stamp, user_id=user_id) if stamp else None
+        else:
+            content = validated.get("content", "")
+            chat_msg = chat.add_message(
+                display_name, content, user_id=user_id, channel=_channel_stamp(client_id)
+            )
 
         if chat_msg:
             if client_message_id:
@@ -342,26 +362,11 @@ async def handle_client_message(
                 **chat_msg.to_dict(),
             }
             await channel_state.broadcast(broadcast_message)
-            if validated.get("clientMessageId"):
-                await websocket.send_json(
-                    {
-                        "type": "chat_ack",
-                        "clientMessageId": validated["clientMessageId"],
-                        "accepted": True,
-                        "messageId": chat_msg.message_id,
-                    }
-                )
+            await _ack_chat(websocket, client_message_id, chat_msg.message_id)
             log.debug("Chat message broadcast from {}: {}", username, chat_msg.message_id[:8])
         else:
-            log.debug("Chat message from {} rejected (empty/invalid)", username)
-            if validated.get("clientMessageId"):
-                await websocket.send_json(
-                    {
-                        "type": "chat_ack",
-                        "clientMessageId": validated["clientMessageId"],
-                        "accepted": False,
-                    }
-                )
+            log.debug("Chat {} from {} rejected (empty/invalid/private)", msg_type, username)
+            await _ack_chat(websocket, client_message_id, None)
     else:
         # Log unknown message types for debugging
         log.debug("Unknown WebSocket message type from client {}: {}", client_id, msg_type)

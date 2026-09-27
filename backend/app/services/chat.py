@@ -72,9 +72,12 @@ class ChatMessage:
         Args:
             show_channel: Include the sender's channel. False empties the
                 channel fields, e.g. replaying history after the admin has
-                turned presence off or for a sender who now hides it.
+                turned presence off or for a sender who now hides it. A
+                share card always keeps its channel.
         """
-        channel = self.channel if show_channel else None
+        # A share card is the sender's own post about their channel, so it
+        # keeps it (its content names the channel anyway)
+        channel = self.channel if show_channel or self.kind == "share" else None
         return {
             "messageId": self.message_id,
             "username": self.username,
@@ -208,6 +211,40 @@ def add_message(
         username,
         len(_chat_history),
     )
+
+    return message
+
+
+def add_share(username: str, channel: ChannelStamp, user_id: str = "") -> ChatMessage:
+    """Add a 'share what I'm watching' card to the history.
+
+    The channel comes from the server's presence, never from the client. The
+    content says the same in words, so clients that predate `kind` show it
+    as an ordinary message.
+
+    Args:
+        username: The display name of the sender.
+        channel: The sender's channel, programme and view.
+        user_id: The sender's stable chat id (see user_id_for).
+
+    Returns:
+        The stored ChatMessage of kind 'share'.
+    """
+    content = f"Watching {channel.channel_name}"
+    if channel.programme:
+        content += f" · {channel.programme}"
+    message = ChatMessage(
+        message_id=str(uuid4()),
+        username=username,
+        content=content[:MAX_MESSAGE_LENGTH],
+        user_id=user_id,
+        kind="share",
+        channel=channel,
+    )
+
+    _prune_expired()
+    _chat_history.append(message)
+    log.debug("Share added: {} from {}", message.message_id[:8], username)
 
     return message
 
