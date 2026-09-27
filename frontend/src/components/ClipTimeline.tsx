@@ -1,55 +1,5 @@
-import { useEffect, useState } from 'react'
 import * as Slider from '@radix-ui/react-slider'
-
-/** Thumbnails use a separate decoder so generation never moves the visible preview. */
-function useThumbnails(url: string, duration: number) {
-  const [frames, setFrames] = useState<string[]>([])
-  useEffect(() => {
-    const controller = new AbortController()
-    const video = document.createElement('video')
-    video.muted = true
-    video.preload = 'auto'
-    const wait = (event: string) => new Promise<void>((resolve, reject) => {
-      const finish = (error?: Error) => {
-        clearTimeout(timer)
-        video.removeEventListener(event, ready)
-        video.removeEventListener('error', failed)
-        controller.signal.removeEventListener('abort', failed)
-        if (error) reject(error); else resolve()
-      }
-      const ready = () => finish()
-      const failed = () => finish(new Error('Thumbnails unavailable'))
-      const timer = setTimeout(failed, 3000)
-      video.addEventListener(event, ready, { once: true })
-      video.addEventListener('error', failed, { once: true })
-      controller.signal.addEventListener('abort', failed, { once: true })
-    })
-    const generate = async () => {
-      try {
-        const loaded = wait('loadeddata')
-        video.src = url
-        await loaded
-        const canvas = document.createElement('canvas')
-        canvas.width = 160; canvas.height = 90
-        const context = canvas.getContext('2d')
-        if (!context) return
-        const result: string[] = []
-        for (let i = 0; i < 10; i++) {
-          if (controller.signal.aborted) return
-          const sought = wait('seeked')
-          video.currentTime = Math.min(duration - 0.01, (i + 0.5) * duration / 10)
-          await sought
-          context.drawImage(video, 0, 0, 160, 90)
-          result.push(canvas.toDataURL('image/jpeg', 0.65))
-        }
-        if (!controller.signal.aborted) setFrames(result)
-      } catch { /* The timeline works without thumbnails. */ }
-    }
-    void generate()
-    return () => { controller.abort(); video.removeAttribute('src'); video.load() }
-  }, [url, duration])
-  return frames
-}
+import { useClipThumbnails } from '@/hooks/useClipThumbnails'
 
 interface Props {
   url: string
@@ -63,7 +13,7 @@ interface Props {
 }
 
 export function ClipTimeline({ url, duration, start, end, playhead, onChange, onSeek, disabled }: Props) {
-  const frames = useThumbnails(url, duration)
+  const { frames, loading } = useClipThumbnails(url, duration)
   return (
     <div className="space-y-3">
       <div className="relative px-3 pt-6">
@@ -72,7 +22,8 @@ export function ClipTimeline({ url, duration, start, end, playhead, onChange, on
           className="relative flex h-20 w-full touch-none select-none items-center">
           <Slider.Track className="relative h-20 grow overflow-hidden rounded-md bg-muted">
             <div className="absolute inset-0 flex" aria-hidden="true">
-              {frames.map((src, i) => <img key={i} src={src} alt="" className="h-full min-w-0 flex-1 object-cover opacity-60" />)}
+              {frames.map((src, i) => src ? <img key={i} src={src} alt="" className="h-full min-w-0 flex-1 object-cover opacity-60" />
+                : <div key={i} className={`h-full min-w-0 flex-1 bg-muted${loading ? ' motion-safe:animate-pulse' : ''}`} />)}
             </div>
             <Slider.Range className="absolute h-full border-y-4 border-primary bg-primary/15" />
             <div className="absolute inset-y-0 left-0 bg-black/60" style={{ width: `${start / duration * 100}%` }} />
