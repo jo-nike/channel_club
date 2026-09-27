@@ -20,6 +20,8 @@ describe('getRemoteAction', () => {
     ['Guide', 0, 'guide'],
     ['Info', 0, 'guide'],
     ['ColorF1Green', 404, 'room'],
+    ['w', 87, 'room'], // a keyboard's stand-in for green, with ?tv=1
+    ['W', 87, 'room'],
     ['ColorF0Red', 403, null],
     ['0', 48, 'digit'],
     ['7', 55, 'digit'],

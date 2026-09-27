@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, within } from '@/test/utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { RoomPanel } from './RoomPanel'
+import { NOBODY_HERE_MS, RoomPanel } from './RoomPanel'
 import { usePresenceStore } from '@/stores/presenceStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useUIStore } from '@/stores/uiStore'
@@ -121,12 +121,39 @@ describe('RoomPanel: who is here', () => {
     expect(screen.queryByText('Join')).not.toBeInTheDocument()
   })
 
-  it('shows nothing, and closes, while nobody else is here', () => {
-    usePresenceStore.setState({ entries: [me] })
-    const { onClose, container } = renderPanel()
+  describe('opened while nobody else is here', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
 
-    expect(container).toBeEmptyDOMElement()
-    expect(onClose).toHaveBeenCalledTimes(1)
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('says so briefly, then closes', () => {
+      usePresenceStore.setState({ entries: [me] })
+      const { onClose } = renderPanel()
+
+      expect(screen.getByRole('status')).toHaveTextContent('Nobody else is here')
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+
+      act(() => vi.advanceTimersByTime(NOBODY_HERE_MS - 1))
+      expect(onClose).not.toHaveBeenCalled()
+      act(() => vi.advanceTimersByTime(1))
+      expect(onClose).toHaveBeenCalledTimes(1)
+    })
+
+    it("doesn't turn into the list when a friend arrives meanwhile", () => {
+      usePresenceStore.setState({ entries: [me] })
+      const { onClose } = renderPanel()
+
+      act(() => usePresenceStore.setState({ entries: [me, sam] }))
+
+      expect(screen.getByRole('status')).toHaveTextContent('Nobody else is here')
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+      act(() => vi.advanceTimersByTime(NOBODY_HERE_MS))
+      expect(onClose).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('closes when the last friend leaves', () => {

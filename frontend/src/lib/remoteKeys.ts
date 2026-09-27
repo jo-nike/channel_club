@@ -26,8 +26,10 @@ const GUIDE_KEYS = new Set(['Guide', 'Info'])
 const GUIDE_CODES = new Set([457, 458])
 // The remote's green key shows who's here (the couch room panel). 404 is
 // green on webOS and Tizen (a Tizen packaged app registers it; the stock
-// browser may keep it); verify on each set.
-const ROOM_KEYS = new Set(['ColorF1Green'])
+// browser may keep it); verify on each set. W does the same from a keyboard,
+// for testing the couch layout on a desktop with ?tv=1 (no player shortcut
+// uses it).
+const ROOM_KEYS = new Set(['ColorF1Green', 'w', 'W'])
 const ROOM_CODES = new Set([404])
 
 /**

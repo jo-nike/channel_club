@@ -479,15 +479,46 @@ describe('CouchView: who is here', () => {
     expect(screen.getByTestId('player')).toHaveTextContent('/e2')
   })
 
-  it("opens nothing while nobody else is here, and doesn't spring open when a friend arrives", () => {
+  it("says briefly that nobody else is here, and doesn't spring open when a friend arrives", () => {
     usePresenceStore.setState({ entries: [me] })
     renderCouch()
 
     green()
+    expect(screen.getByText('Nobody else is here')).toBeInTheDocument()
     expect(panel()).not.toBeInTheDocument()
+
+    act(() => vi.advanceTimersByTime(3000))
+    expect(screen.queryByText('Nobody else is here')).not.toBeInTheDocument()
 
     act(() => usePresenceStore.setState({ entries: [me, sam] }))
     expect(panel()).not.toBeInTheDocument()
+
+    // Open again, it lists them
+    green()
+    expect(panel()).toHaveTextContent('sam')
+  })
+
+  it('opens and hides on W from a keyboard too, for testing with ?tv=1', () => {
+    renderCouch()
+
+    expect(press('w')).toBe(false)
+    expect(panel()).toBeInTheDocument()
+
+    expect(press('W', {}, focusedRow())).toBe(false)
+    expect(panel()).not.toBeInTheDocument()
+  })
+
+  it("swaps the open guide for who's here on the green key, which the guide's hints name", () => {
+    renderCouch()
+    press('Guide')
+    const guide = screen.getByRole('listbox', { name: 'Channels' })
+    expect(screen.getByText('Green', { selector: 'kbd' }).parentElement).toHaveTextContent("Who's here")
+
+    green(focusedRow())
+
+    expect(guide).not.toBeInTheDocument()
+    expect(panel()).toBeInTheDocument()
+    expect(focusedRow()).toHaveTextContent('sam')
   })
 })
 

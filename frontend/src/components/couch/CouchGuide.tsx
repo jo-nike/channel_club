@@ -18,6 +18,8 @@ interface CouchGuideProps {
   onClose: () => void
   /** Whether this viewer may put something on live TV (changes the empty slot's copy) */
   canPickLive: boolean
+  /** Hides the guide and shows who's here (the remote's green key, or W) */
+  onOpenRoom: () => void
 }
 
 const getChannelId = (channel: UnifiedChannel) => channel.id
@@ -73,7 +75,8 @@ function channelRowGuide(index: ProgrammeIndex, channelId: string, nowMs: number
  * The couch's guide: every channel with what's on now and next, over the
  * bottom of the picture, which keeps playing. A one-column list for the
  * D-pad: Up and Down move, OK watches the channel and hides the guide, Back
- * (or Guide) hides it. It opens on the channel playing.
+ * (or Guide) hides it, and the green key (or W) swaps it for who's here. It
+ * opens on the channel playing.
  *
  * Deliberately not the 48-hour guide grid: over a thousand buttons are too
  * heavy for a TV's chip and awkward with a D-pad. If a grid comes back here,
@@ -84,7 +87,7 @@ function channelRowGuide(index: ProgrammeIndex, channelId: string, nowMs: number
  * it), and hides when focus leaves it, such as a Magic Remote click on the
  * picture, so an open guide always has the remote's keys.
  */
-export function CouchGuide({ onClose, canPickLive }: CouchGuideProps) {
+export function CouchGuide({ onClose, canPickLive, onOpenRoom }: CouchGuideProps) {
   const ersatzTVChannels = useErsatztvStore((s) => s.channels)
   const programmesByChannel = useErsatztvStore((s) => s.programmesByChannel)
   const liveChannel = useChannelStore((s) => s.currentChannel)
@@ -133,6 +136,13 @@ export function CouchGuide({ onClose, canPickLive }: CouchGuideProps) {
       e.preventDefault()
       e.stopPropagation()
       onClose()
+      return
+    }
+    if (action === 'room') {
+      // The hint below offers it: the guide has the keys while it's open
+      e.preventDefault()
+      e.stopPropagation()
+      onOpenRoom()
       return
     }
     handleKeyDown(e)
@@ -240,6 +250,7 @@ export function CouchGuide({ onClose, canPickLive }: CouchGuideProps) {
         <KeyHint keys={['▲', '▼']}>Choose</KeyHint>
         <KeyHint keys={['OK']}>Watch</KeyHint>
         <KeyHint keys={['Back']}>Hide guide</KeyHint>
+        <KeyHint keys={['Green']}>Who's here</KeyHint>
       </p>
     </div>
   )
