@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { renderHook, act } from '@/test/utils'
 import { useTheme } from './useTheme'
-import { useThemeStore } from '@/stores/themeStore'
+import { DEFAULT_LIGHT_THEME_ID, useThemeStore } from '@/stores/themeStore'
 import { DEFAULT_THEME_ID, getTheme, themes } from '@/lib/themes'
 import { toHex } from '@/lib/color'
 import { THEME_BOOT_KEY } from '@/lib/themeBoot'
@@ -10,7 +10,7 @@ import type { ThemeId } from '@/types/theme'
 describe('useTheme', () => {
   beforeEach(() => {
     // Reset store to initial state
-    useThemeStore.setState({ themeId: DEFAULT_THEME_ID })
+    useThemeStore.setState(useThemeStore.getInitialState())
 
     // Clean up document root classes and styles
     document.documentElement.classList.remove('dark')
@@ -193,6 +193,123 @@ describe('useTheme', () => {
 
       expect(readBoot()).toBeNull()
       expect(document.documentElement.classList.contains('dark')).toBe(true)
+    })
+  })
+
+  describe('following the system colour scheme', () => {
+    const originalMatchMedia = window.matchMedia
+    const readBoot = () => JSON.parse(localStorage.getItem(THEME_BOOT_KEY) ?? 'null')
+
+    /** A prefers-color-scheme the test can flip, notifying 'change' listeners */
+    function mockColorScheme(initiallyDark: boolean) {
+      let dark = initiallyDark
+      const listeners = new Set<() => void>()
+      Object.defineProperty(window, 'matchMedia', {
+        writable: true,
+        value: vi.fn((query: string) => ({
+          get matches() {
+            return query === '(prefers-color-scheme: dark)' ? dark : false
+          },
+          media: query,
+          onchange: null,
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+          addEventListener: (_type: string, listener: () => void) => listeners.add(listener),
+          removeEventListener: (_type: string, listener: () => void) => listeners.delete(listener),
+          dispatchEvent: vi.fn(),
+        })),
+      })
+      return {
+        setDark(value: boolean) {
+          dark = value
+          listeners.forEach((listener) => listener())
+        },
+      }
+    }
+
+    beforeEach(() => {
+      localStorage.clear()
+      useThemeStore.setState({ darkThemeId: 'dracula', lightThemeId: 'peachy' })
+    })
+
+    afterEach(() => {
+      Object.defineProperty(window, 'matchMedia', { writable: true, value: originalMatchMedia })
+    })
+
+    it('shows the dark pick on a dark device and swaps to the light pick when it turns light', () => {
+      const scheme = mockColorScheme(true)
+      useThemeStore.getState().setFollowSystem(true)
+      const { result } = renderHook(() => useTheme())
+
+      expect(result.current.themeId).toBe('dracula')
+      expect(document.documentElement.classList.contains('dark')).toBe(true)
+
+      act(() => scheme.setDark(false))
+
+      expect(result.current.themeId).toBe('peachy')
+      expect(result.current.isDark).toBe(false)
+      expect(document.documentElement.classList.contains('dark')).toBe(false)
+      expect(document.documentElement.style.getPropertyValue('--background')).toBe(
+        getTheme('peachy').colors.background
+      )
+
+      act(() => scheme.setDark(true))
+
+      expect(result.current.themeId).toBe('dracula')
+      expect(document.documentElement.style.getPropertyValue('--background')).toBe(
+        getTheme('dracula').colors.background
+      )
+    })
+
+    it('ignores the device scheme outside Auto', () => {
+      const scheme = mockColorScheme(false)
+      const { result } = renderHook(() => useTheme())
+
+      expect(result.current.themeId).toBe('dracula')
+
+      act(() => scheme.setDark(true))
+      act(() => scheme.setDark(false))
+
+      expect(result.current.themeId).toBe('dracula')
+      expect(document.documentElement.classList.contains('dark')).toBe(true)
+    })
+
+    it('stores both picks in the boot snapshot while following the system', () => {
+      mockColorScheme(false)
+      useThemeStore.getState().setFollowSystem(true)
+      renderHook(() => useTheme())
+
+      const boot = readBoot()
+      expect(boot.dark).toBe(false)
+      expect(boot.vars['--background']).toBe(getTheme('peachy').colors.background)
+      expect(boot.system.dark.vars['--background']).toBe(getTheme('dracula').colors.background)
+      expect(boot.system.dark.dark).toBe(true)
+      expect(boot.system.light.vars['--background']).toBe(getTheme('peachy').colors.background)
+      expect(boot.system.light.dark).toBe(false)
+    })
+
+    it('rewrites the snapshot when an Auto pick changes and drops the pair when Auto is off', () => {
+      mockColorScheme(true)
+      useThemeStore.getState().setFollowSystem(true)
+      const { result } = renderHook(() => useTheme())
+
+      // The light pick is not on screen, but the next load may need it
+      act(() => result.current.setTheme('zebra'))
+      expect(readBoot().system.light.vars['--background']).toBe(getTheme('zebra').colors.background)
+
+      act(() => useThemeStore.getState().setFollowSystem(false))
+      expect(readBoot().system).toBeUndefined()
+      expect(readBoot().vars['--background']).toBe(getTheme('dracula').colors.background)
+    })
+
+    it('uses the default picks for a device that just turned Auto on', () => {
+      mockColorScheme(false)
+      useThemeStore.setState(useThemeStore.getInitialState())
+      useThemeStore.getState().setFollowSystem(true)
+
+      const { result } = renderHook(() => useTheme())
+
+      expect(result.current.themeId).toBe(DEFAULT_LIGHT_THEME_ID)
     })
   })
 

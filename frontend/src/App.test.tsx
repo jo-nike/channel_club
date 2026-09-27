@@ -87,7 +87,7 @@ describe('App', () => {
       isSidebarOpen: false,
     })
     vi.mocked(api.fetchChannels).mockResolvedValue([])
-    useThemeStore.setState({ themeId: DEFAULT_THEME_ID })
+    useThemeStore.setState(useThemeStore.getInitialState())
     document.documentElement.classList.remove('dark')
     document.documentElement.style.cssText = ''
   })
@@ -106,7 +106,7 @@ describe('App', () => {
     })
 
     it('applies a stored light theme to the sign-in screen', async () => {
-      useThemeStore.setState({ themeId: 'catppuccin-latte' })
+      useThemeStore.getState().setTheme('catppuccin-latte')
 
       renderWithRouter()
 
@@ -174,7 +174,7 @@ describe('App', () => {
       ['catppuccin-latte', 'light'],
       ['catppuccin-mocha', 'dark'],
     ] as const)('follow the %s theme (%s)', async (themeId, mode) => {
-      useThemeStore.setState({ themeId })
+      useThemeStore.getState().setTheme(themeId)
       renderWithRouter()
 
       act(() => {

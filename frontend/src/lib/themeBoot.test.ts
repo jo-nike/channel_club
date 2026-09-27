@@ -34,6 +34,33 @@ describe('createThemeBoot', () => {
   })
 })
 
+describe('createThemeBoot while following the system', () => {
+  it('stores both palettes alongside the one on screen', () => {
+    const dracula = getTheme('dracula')
+    const latte = getTheme('catppuccin-latte')
+
+    const boot = createThemeBoot(latte, { dark: dracula, light: latte })
+
+    // The top level is still the theme on screen, for older boot scripts
+    expect(boot.dark).toBe(false)
+    expect(boot.vars['--background']).toBe(latte.colors.background)
+    expect(boot.system?.dark).toEqual({
+      dark: true,
+      vars: createThemeBoot(dracula).vars,
+      themeColor: toHex(dracula.colors.background),
+    })
+    expect(boot.system?.light).toEqual({
+      dark: false,
+      vars: createThemeBoot(latte).vars,
+      themeColor: toHex(latte.colors.background),
+    })
+  })
+
+  it('leaves the pair out when not following the system', () => {
+    expect(createThemeBoot(getTheme('dracula'))).not.toHaveProperty('system')
+  })
+})
+
 describe('saveThemeBoot', () => {
   beforeEach(() => {
     localStorage.clear()

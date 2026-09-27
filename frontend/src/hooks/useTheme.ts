@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
-import { useThemeStore } from '@/stores/themeStore'
+import { resolveThemeId, useThemeStore } from '@/stores/themeStore'
+import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { getTheme } from '@/lib/themes'
 import { colorToCSSVar, createThemeBoot, saveThemeBoot } from '@/lib/themeBoot'
 import type { ThemeId, ThemeColors } from '@/types/theme'
@@ -48,11 +49,17 @@ function applyThemeColorMeta(hex: string): void {
  * - Apply the current theme's colors as CSS custom properties
  * - Toggle the 'dark' class on the document root based on theme mode
  * - Automatically update when the theme changes
+ * - In Auto (followSystem), show the dark or light pick to match
+ *   prefers-color-scheme, and switch live when the device's scheme changes
  *
  * @returns Object containing current theme info and setTheme function
  */
 export function useTheme() {
-  const themeId = useThemeStore((s) => s.themeId)
+  const systemPrefersDark = useMediaQuery('(prefers-color-scheme: dark)')
+  const themeId = useThemeStore((s) => resolveThemeId(s, systemPrefersDark))
+  const followSystem = useThemeStore((s) => s.followSystem)
+  const darkThemeId = useThemeStore((s) => s.darkThemeId)
+  const lightThemeId = useThemeStore((s) => s.lightThemeId)
   const setThemeId = useThemeStore((s) => s.setTheme)
 
   // Get the full theme object
@@ -66,13 +73,17 @@ export function useTheme() {
     // Apply all color CSS variables
     applyThemeColors(theme.colors)
 
-    const boot = createThemeBoot(theme)
+    // In Auto, keep both picks so index.html can match the scheme at load
+    const boot = createThemeBoot(
+      theme,
+      followSystem ? { dark: getTheme(darkThemeId), light: getTheme(lightThemeId) } : undefined
+    )
 
     applyThemeColorMeta(boot.themeColor)
 
     // Remember the resolved theme so index.html can apply it before first paint
     saveThemeBoot(boot)
-  }, [theme])
+  }, [theme, followSystem, darkThemeId, lightThemeId])
 
   return {
     themeId,

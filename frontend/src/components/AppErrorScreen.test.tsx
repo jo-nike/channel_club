@@ -4,7 +4,6 @@ import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { AppErrorScreen } from './AppErrorScreen'
 import { useAuthStore } from '@/stores/authStore'
 import { useThemeStore } from '@/stores/themeStore'
-import { DEFAULT_THEME_ID } from '@/lib/themes'
 import { logger } from '@/lib/logger'
 
 const originalLocation = window.location
@@ -38,7 +37,7 @@ describe('AppErrorScreen', () => {
       writable: true,
       configurable: true,
     })
-    useThemeStore.setState({ themeId: DEFAULT_THEME_ID })
+    useThemeStore.setState(useThemeStore.getInitialState())
     document.documentElement.classList.remove('dark')
     document.documentElement.style.cssText = ''
   })

@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import {
-  Check,
   LogOut,
   MessageSquarePlus,
   Palette,
@@ -15,24 +14,24 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
 import { FeedbackDialog } from '@/components/FeedbackDialog'
+import { AppearancePicker } from '@/components/theme/AppearancePicker'
 import { useAuth } from '@/hooks/useAuth'
 import { useAppSettings } from '@/hooks/useAppSettings'
 import { useFeedbackFeature } from '@/hooks/useFeedbackFeature'
-import { useThemeStore } from '@/stores/themeStore'
 import { useUIStore } from '@/stores/uiStore'
-import { getThemeCategories, getTheme } from '@/lib/themes'
-import type { ThemeId } from '@/types/theme'
 
 interface AccountMenuProps {
   // Opens the live channel picker (admins, and viewers the admin allows)
@@ -55,12 +54,11 @@ export function AccountMenu({ onOpenChannelPicker, onOpenAdmin, onReload, isMobi
   const { userChannelSelection } = useAppSettings()
   const { isEnabled: feedbackEnabled } = useFeedbackFeature()
   const [feedbackOpen, setFeedbackOpen] = useState(false)
+  const [appearanceOpen, setAppearanceOpen] = useState(false)
   const notificationsEnabled = useUIStore((s) => s.notificationsEnabled)
   const setNotificationsEnabled = useUIStore((s) => s.setNotificationsEnabled)
   const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
   const setNHLOverlayVisible = useUIStore((s) => s.setNHLOverlayVisible)
-  const themeId = useThemeStore((s) => s.themeId)
-  const setTheme = useThemeStore((s) => s.setTheme)
   const initial = initialOf(username)
   const canChangeLive = isAdmin || userChannelSelection
 
@@ -130,29 +128,10 @@ export function AccountMenu({ onOpenChannelPicker, onOpenAdmin, onReload, isMobi
             Pop-up when the live channel changes
           </DropdownMenuCheckboxItem>
           {/* 'Chat previews' (W3) and 'Hide what I'm watching' (W3-presence-client) go here */}
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              <Palette />
-              Theme
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="w-60">
-              {getThemeCategories().map((category) => (
-                <DropdownMenuRadioGroup
-                  key={category.mode}
-                  aria-label={category.label}
-                  value={themeId}
-                  onValueChange={(id) => setTheme(id as ThemeId)}
-                >
-                  <DropdownMenuLabel className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    {category.label}
-                  </DropdownMenuLabel>
-                  {category.themes.map((theme) => (
-                    <ThemeItem key={theme.id} id={theme.id} name={theme.name} isSelected={themeId === theme.id} />
-                  ))}
-                </DropdownMenuRadioGroup>
-              ))}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
+          <DropdownMenuItem onSelect={() => setAppearanceOpen(true)}>
+            <Palette />
+            Appearance…
+          </DropdownMenuItem>
           {/* 'TV layout' goes here (W3-couch-switch) */}
           <DropdownMenuSeparator />
           <DropdownMenuItem variant="destructive" onSelect={logout}>
@@ -162,37 +141,16 @@ export function AccountMenu({ onOpenChannelPicker, onOpenAdmin, onReload, isMobi
         </DropdownMenuContent>
       </DropdownMenu>
       <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
+      <Dialog open={appearanceOpen} onOpenChange={setAppearanceOpen}>
+        {/* A bottom sheet on phones, scrolling inside the screen; centred from sm */}
+        <DialogContent className="max-h-[85dvh] overflow-y-auto max-sm:top-auto max-sm:bottom-0 max-sm:max-w-full max-sm:translate-y-0 max-sm:rounded-b-none max-sm:pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Appearance</DialogTitle>
+            <DialogDescription>Choose how Channel Club looks on this device.</DialogDescription>
+          </DialogHeader>
+          <AppearancePicker />
+        </DialogContent>
+      </Dialog>
     </>
-  )
-}
-
-interface ThemeItemProps {
-  id: ThemeId
-  name: string
-  isSelected: boolean
-}
-
-function ThemeItem({ id, name, isSelected }: ThemeItemProps) {
-  const { colors } = getTheme(id)
-
-  return (
-    <DropdownMenuRadioItem
-      value={id}
-      // The row carries its own swatches and primary check, so the primitive's
-      // radio dot (its first child) is hidden and the gutter it needs dropped
-      className="pl-2 data-[state=checked]:bg-accent data-[state=checked]:text-accent-foreground [&>span:first-child]:hidden"
-    >
-      <span className="flex shrink-0 gap-0.5" aria-hidden="true">
-        {[colors.background, colors.card, colors.primary].map((color, index) => (
-          <span
-            key={index}
-            className="size-3 rounded-sm border border-border"
-            style={{ backgroundColor: color }}
-          />
-        ))}
-      </span>
-      <span className="flex-1 truncate">{name}</span>
-      {isSelected && <Check className="text-primary" aria-hidden="true" />}
-    </DropdownMenuRadioItem>
   )
 }

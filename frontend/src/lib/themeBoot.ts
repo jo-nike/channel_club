@@ -52,13 +52,8 @@ export const colorToCSSVar: Record<keyof ThemeColors, string> = {
 /** localStorage key read by the inline boot script in index.html */
 export const THEME_BOOT_KEY = 'theme-boot'
 
-/**
- * Resolved theme values for the inline script in index.html, which applies
- * them before first paint. Storing resolved values means index.html never
- * needs its own copy of lib/themes.ts.
- */
-export interface ThemeBoot {
-  v: 1
+/** One theme's resolved values, as useTheme applies them */
+export interface ThemeBootPalette {
   dark: boolean
   /** CSS variable name to value, exactly as useTheme applies them */
   vars: Record<string, string>
@@ -70,7 +65,23 @@ export interface ThemeBoot {
   themeColor: string
 }
 
-export function createThemeBoot(theme: Theme): ThemeBoot {
+/**
+ * Resolved theme values for the inline script in index.html, which applies
+ * them before first paint. Storing resolved values means index.html never
+ * needs its own copy of lib/themes.ts.
+ *
+ * The top-level palette is the theme on screen when the snapshot was
+ * written. While the theme follows the system, `system` also holds both
+ * palettes and the script picks one with prefers-color-scheme, so a scheme
+ * change between visits doesn't flash the old theme. A script without
+ * `system` support (an index.html cached before it) uses the top level.
+ */
+export interface ThemeBoot extends ThemeBootPalette {
+  v: 1
+  system?: { dark: ThemeBootPalette; light: ThemeBootPalette }
+}
+
+function createThemeBootPalette(theme: Theme): ThemeBootPalette {
   const vars: Record<string, string> = {}
   for (const [key, value] of Object.entries(theme.colors)) {
     const cssVar = colorToCSSVar[key as keyof ThemeColors]
@@ -78,7 +89,22 @@ export function createThemeBoot(theme: Theme): ThemeBoot {
       vars[cssVar] = value
     }
   }
-  return { v: 1, dark: theme.mode === 'dark', vars, themeColor: toHex(theme.colors.background) }
+  return { dark: theme.mode === 'dark', vars, themeColor: toHex(theme.colors.background) }
+}
+
+/**
+ * Snapshot `theme`, the one on screen. Pass the dark and light picks as
+ * `system` while following the system.
+ */
+export function createThemeBoot(theme: Theme, system?: { dark: Theme; light: Theme }): ThemeBoot {
+  const boot: ThemeBoot = { v: 1, ...createThemeBootPalette(theme) }
+  if (system) {
+    boot.system = {
+      dark: createThemeBootPalette(system.dark),
+      light: createThemeBootPalette(system.light),
+    }
+  }
+  return boot
 }
 
 /**
