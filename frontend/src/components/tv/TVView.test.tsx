@@ -733,7 +733,7 @@ describe('E-01 chat placement', () => {
     expect(chat.parentElement).toBe(main.parentElement)
     expect(main.nextElementSibling).toBe(chat)
     expect(screen.getByRole('banner')).not.toContainElement(chat)
-    expect(within(screen.getByRole('banner')).getByRole('button', { name: 'Refresh video' })).toBeVisible()
+    expect(within(screen.getByRole('banner')).getByRole('button', { name: 'Reload stream' })).toBeVisible()
   })
 
   it('opens as a sheet inside the content row on a 900px tablet, so it starts below the header', async () => {
