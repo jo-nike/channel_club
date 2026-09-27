@@ -209,6 +209,34 @@ describe('ProgrammeDetailsModal', () => {
       expect(screen.queryByRole('button', { name: /watch/i })).not.toBeInTheDocument()
     })
 
+    // jsdom has no layout, so these guard the classes that keep the footer inside the dialog
+    describe('upcoming footer layout', () => {
+      const longOnAir = { ...onAir, title: 'Mission: Impossible - Dead Reckoning Part One' }
+
+      beforeEach(() => {
+        vi.setSystemTime(new Date('2026-01-03T12:12:00Z'))
+        useErsatztvStore.setState({ programmesByChannel: { ch1: [longOnAir, mockProgramme] } })
+      })
+
+      it('wraps, with On now on a row of its own, instead of widening the dialog', () => {
+        render(<ProgrammeDetailsModal {...defaultProps} />)
+
+        const remind = screen.getByRole('button', { name: /Remind me at/ })
+        const footer = remind.closest('[data-slot="dialog-footer"]')
+        expect(footer).toHaveClass('sm:flex-wrap')
+        expect(screen.getByText(`On now: ${longOnAir.title}`)).toHaveClass('sm:basis-full')
+        expect(screen.getByRole('button', { name: 'Watch Comedy Classics now' })).toHaveClass('sm:mr-auto')
+      })
+
+      it('puts You are watching left of Remind me on the channel you are watching', () => {
+        useTVStore.setState({ selectedChannel: watching })
+        render(<ProgrammeDetailsModal {...defaultProps} />)
+
+        expect(screen.getByText(`On now: ${longOnAir.title}`)).toHaveClass('sm:basis-full')
+        expect(screen.getByText("You're watching Comedy Classics")).toHaveClass('sm:mr-auto')
+      })
+    })
+
     it('moves from upcoming to on now when the clock passes the start', () => {
       vi.setSystemTime(new Date('2026-01-03T13:59:45Z'))
       render(<ProgrammeDetailsModal {...defaultProps} />)
