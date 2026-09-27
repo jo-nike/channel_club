@@ -136,6 +136,12 @@ describe('ArrivalCard: first-run welcome', () => {
     expect(welcome()).toHaveTextContent(/^Welcome$/)
   })
 
+  it('makes Join live and Browse channels 44px targets on touch screens', () => {
+    renderCard()
+    expect(joinLive()).toHaveClass('pointer-coarse:h-11')
+    expect(screen.getByRole('button', { name: 'Browse channels' })).toHaveClass('pointer-coarse:h-11')
+  })
+
   it('offers Join live only while live TV has something on and the viewer is elsewhere', () => {
     const { update } = renderCard()
     expect(joinLive()).toBeInTheDocument()

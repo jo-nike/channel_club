@@ -29,6 +29,8 @@ describe('GifButton', () => {
 
     expect(trigger).toHaveAttribute('data-variant', 'ghost')
     expect(trigger).not.toHaveClass('bg-primary')
+    // A 44px target on touch screens, like Send beside it
+    expect(trigger).toHaveClass('pointer-coarse:size-11')
   })
 
   // Chat in the fullscreen player hands it the player: anywhere else the

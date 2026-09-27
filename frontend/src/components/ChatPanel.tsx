@@ -566,7 +566,7 @@ export function ChatPanel({ onSendMessage, onShare, onSetNickname, status = 'con
             size="icon"
             onClick={handleEditNickname}
             aria-label="Edit nickname"
-            className="h-6 w-6 shrink-0"
+            className="h-6 w-6 shrink-0 pointer-coarse:size-11"
           >
             <Pencil className="h-3 w-3" />
           </Button>
@@ -773,7 +773,7 @@ export function ChatPanel({ onSendMessage, onShare, onSetNickname, status = 'con
                 onChange={(e) => { draftVersion.current += 1; setFailure(null); setInputValue(e.target.value) }}
                 onKeyDown={handleKeyDown}
                 placeholder="Message the club…"
-                className="flex-1"
+                className="flex-1 pointer-coarse:h-11"
                 maxLength={500}
               />
               {/* Only where others may see channels: the server refuses it otherwise */}
@@ -785,6 +785,7 @@ export function ChatPanel({ onSendMessage, onShare, onSetNickname, status = 'con
                   disabled={isSending || !isConnected}
                   aria-label="Share what I'm watching"
                   title="Share what I'm watching"
+                  className="pointer-coarse:size-11"
                 >
                   <Tv className="h-4 w-4" aria-hidden="true" />
                 </Button>
@@ -797,6 +798,7 @@ export function ChatPanel({ onSendMessage, onShare, onSetNickname, status = 'con
                 variant={inputValue.trim() ? 'default' : 'ghost'}
                 size="icon"
                 aria-label="Send message"
+                className="pointer-coarse:size-11"
               >
                 {isSending
                   ? <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden="true" />

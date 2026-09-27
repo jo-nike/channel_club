@@ -88,6 +88,7 @@ export function GifButton({ onSelect, disabled, container }: GifButtonProps) {
           disabled={disabled}
           onClick={() => setIsOpen(true)}
           aria-label="Send GIF"
+          className="pointer-coarse:size-11"
         >
           <ImageIcon className="h-4 w-4" />
         </Button>
@@ -109,6 +110,7 @@ export function GifButton({ onSelect, disabled, container }: GifButtonProps) {
           size="icon"
           disabled={disabled}
           aria-label="Send GIF"
+          className="pointer-coarse:size-11"
         >
           <ImageIcon className="h-4 w-4" />
         </Button>

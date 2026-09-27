@@ -118,6 +118,12 @@ describe('ChatPanel', () => {
       expect(starters).not.toHaveTextContent(/come watch/i)
     })
 
+    it('draws the composer field and Send at 44px on touch screens (mockup M5)', () => {
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.getByPlaceholderText('Message the club…')).toHaveClass('pointer-coarse:h-11')
+      expect(screen.getByRole('button', { name: 'Send message' })).toHaveClass('pointer-coarse:size-11')
+    })
+
     it('fills the composer with a starter without sending it', () => {
       render(<ChatPanel onSendMessage={mockOnSendMessage} />)
       fireEvent.click(screen.getByRole('button', { name: "What's everyone watching?" }))
@@ -307,6 +313,11 @@ describe('ChatPanel', () => {
       render(<ChatPanel onSendMessage={mockOnSendMessage} />)
       expect(screen.getByText('Chatting as testuser')).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Edit nickname' })).toBeInTheDocument()
+    })
+
+    it('makes Edit nickname a 44px target on touch screens', () => {
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.getByRole('button', { name: 'Edit nickname' })).toHaveClass('h-6', 'w-6', 'pointer-coarse:size-11')
     })
 
     it('says you are chatting as your nickname when one is set', () => {
@@ -1937,6 +1948,8 @@ describe('ChatPanel', () => {
       it('posts a share through onShare, not as a message, and keeps the draft', async () => {
         const onShare = vi.fn().mockReturnValue('acknowledged')
         render(<ChatPanel onSendMessage={mockOnSendMessage} onShare={onShare} />)
+        // A 44px target on touch screens, like Send beside it
+        expect(shareButton()).toHaveClass('pointer-coarse:size-11')
         const input = screen.getByPlaceholderText('Message the club…')
         fireEvent.change(input, { target: { value: 'half a thought' } })
 

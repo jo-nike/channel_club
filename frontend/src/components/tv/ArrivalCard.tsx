@@ -298,11 +298,11 @@ export function ArrivalCard({ channel, placement = 'overlay' }: ArrivalCardProps
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
                 {showJoin && (
-                  <Button size="sm" onClick={joinLive} className="focus-ring-media">
+                  <Button size="sm" onClick={joinLive} className="focus-ring-media pointer-coarse:h-11">
                     Join live
                   </Button>
                 )}
-                <Button variant="secondary" size="sm" onClick={browseChannels} className="focus-ring-media">
+                <Button variant="secondary" size="sm" onClick={browseChannels} className="focus-ring-media pointer-coarse:h-11">
                   Browse channels
                 </Button>
               </div>
