@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { toast } from 'sonner'
-import { render, screen, fireEvent, waitFor, act } from '@/test/utils'
+import { render, screen, fireEvent, waitFor } from '@/test/utils'
 import { ChannelList } from './ChannelList'
 import { useChannelStore } from '@/stores/channelStore'
 import { useAuthStore } from '@/stores/authStore'
@@ -13,24 +12,6 @@ vi.mock('@/services/api', () => ({
   fetchGroupedChannels: vi.fn(),
   fetchNowPlayingAll: vi.fn(),
   setCurrentChannel: vi.fn(),
-  clearCurrentChannel: vi.fn(),
-}))
-
-// The Stop live TV confirm counts who is watching from the admin presence list
-const mockUseActiveUsers = vi.fn(() => ({
-  data: {
-    liveUsers: [
-      { username: 'alice', channel: 'TSN' },
-      // A second tab of the same person
-      { username: 'alice', channel: 'TSN' },
-      { username: 'bob', channel: 'TSN' },
-    ],
-  },
-  loading: false,
-  error: null,
-}))
-vi.mock('@/hooks/useActiveUsers', () => ({
-  useActiveUsers: () => mockUseActiveUsers(),
 }))
 
 const mockGroupedResponse: GroupedChannelsResponse = {
@@ -340,20 +321,9 @@ describe('ChannelList', () => {
       })
     })
 
-    it('should show a small Stop live TV button when a channel is live', async () => {
+    it('should not show Stop live TV even while a channel is live (it lives on the On-air card)', async () => {
       vi.mocked(api.fetchGroupedChannels).mockResolvedValueOnce(mockGroupedResponse)
       useChannelStore.setState({ currentChannel: mockGroupedResponse.groups[0].channels[0] })
-
-      render(<ChannelList />)
-
-      const stop = await screen.findByRole('button', { name: 'Stop live TV…' })
-      expect(stop).toHaveAttribute('data-size', 'sm')
-      expect(stop).toHaveAttribute('data-variant', 'outline')
-      expect(screen.queryByText('Clear Channel')).not.toBeInTheDocument()
-    })
-
-    it('should not show Stop live TV when nothing is live', async () => {
-      vi.mocked(api.fetchGroupedChannels).mockResolvedValueOnce(mockGroupedResponse)
 
       render(<ChannelList />)
 
@@ -362,126 +332,7 @@ describe('ChannelList', () => {
       })
 
       expect(screen.queryByRole('button', { name: /stop live tv/i })).not.toBeInTheDocument()
-    })
-
-    it('should ask before stopping, naming how many people are watching', async () => {
-      vi.mocked(api.fetchGroupedChannels).mockResolvedValueOnce(mockGroupedResponse)
-      useChannelStore.setState({ currentChannel: mockGroupedResponse.groups[0].channels[0] })
-
-      render(<ChannelList />)
-
-      expect(mockUseActiveUsers).not.toHaveBeenCalled()
-
-      fireEvent.click(await screen.findByRole('button', { name: 'Stop live TV…' }))
-
-      const dialog = screen.getByRole('dialog', { name: 'Stop live TV for everyone?' })
-      // Two sessions of alice plus bob: two people, not three
-      expect(dialog).toHaveAccessibleDescription(
-        '2 people are watching TSN. Their screens will show "No live broadcast" until someone picks a channel.'
-      )
-      expect(api.clearCurrentChannel).not.toHaveBeenCalled()
-    })
-
-    it('should keep live TV on when the admin chooses Keep it on', async () => {
-      vi.mocked(api.fetchGroupedChannels).mockResolvedValueOnce(mockGroupedResponse)
-      const tsn = mockGroupedResponse.groups[0].channels[0]
-      useChannelStore.setState({ currentChannel: tsn })
-
-      render(<ChannelList />)
-
-      fireEvent.click(await screen.findByRole('button', { name: 'Stop live TV…' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Keep it on' }))
-
-      await waitFor(() => {
-        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-      })
-      expect(api.clearCurrentChannel).not.toHaveBeenCalled()
-      expect(useChannelStore.getState().currentChannel).toEqual(tsn)
-    })
-
-    it('should stop live TV once when the admin confirms', async () => {
-      vi.mocked(api.fetchGroupedChannels).mockResolvedValueOnce(mockGroupedResponse)
-      vi.mocked(api.clearCurrentChannel).mockResolvedValueOnce(undefined)
-      useChannelStore.setState({ currentChannel: mockGroupedResponse.groups[0].channels[0] })
-
-      render(<ChannelList />)
-
-      fireEvent.click(await screen.findByRole('button', { name: 'Stop live TV…' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Stop live TV' }))
-
-      await waitFor(() => {
-        expect(api.clearCurrentChannel).toHaveBeenCalledTimes(1)
-      })
-      expect(useChannelStore.getState().currentChannel).toBeNull()
-      await waitFor(() => {
-        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-      })
-    })
-
-    it('should say it could not stop live TV and keep the channel when stopping fails', async () => {
-      const toastError = vi.spyOn(toast, 'error')
-      vi.mocked(api.fetchGroupedChannels).mockResolvedValueOnce(mockGroupedResponse)
-      vi.mocked(api.clearCurrentChannel).mockRejectedValueOnce(new Error('Failed to clear channel'))
-      const tsn = mockGroupedResponse.groups[0].channels[0]
-      useChannelStore.setState({ currentChannel: tsn })
-
-      render(<ChannelList />)
-
-      fireEvent.click(await screen.findByRole('button', { name: 'Stop live TV…' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Stop live TV' }))
-
-      await waitFor(() => {
-        expect(toastError).toHaveBeenCalledWith('Could not stop live TV', {
-          description: 'Failed to clear channel',
-        })
-      })
-      expect(useChannelStore.getState().currentChannel).toEqual(tsn)
-      toastError.mockRestore()
-    })
-
-    it('should drop an open confirm when live TV stops elsewhere', async () => {
-      vi.mocked(api.fetchGroupedChannels).mockResolvedValueOnce(mockGroupedResponse)
-      const tsn = mockGroupedResponse.groups[0].channels[0]
-      useChannelStore.setState({ currentChannel: tsn })
-
-      render(<ChannelList />)
-
-      fireEvent.click(await screen.findByRole('button', { name: 'Stop live TV…' }))
-      expect(screen.getByRole('dialog')).toBeInTheDocument()
-
-      // Another admin stops live TV; the change arrives over the WebSocket
-      act(() => {
-        useChannelStore.setState({ currentChannel: null })
-      })
-      await waitFor(() => {
-        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-      })
-
-      // Later someone picks the same channel again: nobody asked to stop it
-      act(() => {
-        useChannelStore.setState({ currentChannel: tsn })
-      })
-      expect(await screen.findByRole('button', { name: 'Stop live TV…' })).toBeInTheDocument()
-      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    })
-
-    it('should drop an open confirm when live TV switches to another channel', async () => {
-      vi.mocked(api.fetchGroupedChannels).mockResolvedValueOnce(mockGroupedResponse)
-      const [tsn, other] = mockGroupedResponse.groups[0].channels
-      useChannelStore.setState({ currentChannel: tsn })
-
-      render(<ChannelList />)
-
-      fireEvent.click(await screen.findByRole('button', { name: 'Stop live TV…' }))
-      expect(screen.getByRole('dialog')).toBeInTheDocument()
-
-      act(() => {
-        useChannelStore.setState({ currentChannel: other })
-      })
-      await waitFor(() => {
-        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-      })
-      expect(api.clearCurrentChannel).not.toHaveBeenCalled()
+      expect(screen.queryByText('Clear Channel')).not.toBeInTheDocument()
     })
 
     it('should close sidebar drawer when channel is selected', async () => {

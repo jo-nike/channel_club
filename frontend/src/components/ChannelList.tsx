@@ -1,17 +1,15 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { toast } from 'sonner'
-import { X, Search, Square } from 'lucide-react'
+import { X, Search } from 'lucide-react'
 import { useChannelStore } from '@/stores/channelStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useUIStore } from '@/stores/uiStore'
-import { fetchGroupedChannels, fetchNowPlayingAll, clearCurrentChannel as clearCurrentChannelApi } from '@/services/api'
+import { fetchGroupedChannels, fetchNowPlayingAll } from '@/services/api'
 import { useSetLiveChannel } from '@/hooks/useSetLiveChannel'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { CollapsibleChannelGroup } from '@/components/CollapsibleChannelGroup'
-import { StopLiveTVDialog } from '@/components/StopLiveTVDialog'
 import type { Channel, GroupedChannelsResponse, Program } from '@/types'
 
 interface ChannelListProps {
@@ -19,7 +17,7 @@ interface ChannelListProps {
 }
 
 export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
-  const { currentChannel, setCurrentChannel } = useChannelStore()
+  const { currentChannel } = useChannelStore()
   const { role } = useAuthStore()
   const userChannelSelection = useSettingsStore((s) => s.userChannelSelection)
   const setSidebarOpen = useUIStore((s) => s.setSidebarOpen)
@@ -89,31 +87,6 @@ export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
 
     await switching
   }, [canSelect, setLiveChannel, setSidebarOpen, onChannelSelected])
-
-  const handleClearChannel = useCallback(async () => {
-    if (!isAdmin) return
-
-    const previousChannel = currentChannel
-    setCurrentChannel(null)
-
-    // If callback provided (modal context), call it
-    // Otherwise use existing sidebar close behavior
-    if (onChannelSelected) {
-      onChannelSelected()
-    } else {
-      setSidebarOpen(false)
-    }
-
-    try {
-      await clearCurrentChannelApi()
-    } catch (e) {
-      // Revert on failure
-      setCurrentChannel(previousChannel)
-      toast.error('Could not stop live TV', {
-        description: e instanceof Error ? e.message : 'Please try again',
-      })
-    }
-  }, [isAdmin, currentChannel, setCurrentChannel, setSidebarOpen, onChannelSelected])
 
   useEffect(() => {
     loadGroupedChannels()
@@ -192,18 +165,6 @@ export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
         )}
       </div>
 
-      {/* Stop live TV - admin only, and only while something is live. It stops
-          the shared broadcast for everyone, so it asks first. */}
-      {currentChannel && isAdmin && (
-        // Keyed by channel so an open confirm is dropped when live TV stops or
-        // changes elsewhere, instead of reopening when a channel is next picked
-        <StopLiveTVControl
-          key={currentChannel.id}
-          channelName={currentChannel.name}
-          onConfirm={handleClearChannel}
-        />
-      )}
-
       {/* No matches message */}
       {!hasChannels && searchQuery && (
         <div className="flex items-center justify-center p-4">
@@ -255,33 +216,6 @@ function ChannelListSkeleton() {
       {Array.from({ length: 4 }).map((_, i) => (
         <Skeleton key={i} className="h-12 w-full rounded-lg" />
       ))}
-    </div>
-  )
-}
-
-function StopLiveTVControl({ channelName, onConfirm }: { channelName: string; onConfirm: () => void }) {
-  const [confirmOpen, setConfirmOpen] = useState(false)
-
-  return (
-    <div className="flex justify-end">
-      <Button
-        variant="outline"
-        size="sm"
-        className="text-destructive"
-        onClick={() => setConfirmOpen(true)}
-      >
-        <Square />
-        Stop live TV…
-      </Button>
-      <StopLiveTVDialog
-        open={confirmOpen}
-        onOpenChange={setConfirmOpen}
-        channelName={channelName}
-        onConfirm={() => {
-          setConfirmOpen(false)
-          onConfirm()
-        }}
-      />
     </div>
   )
 }
