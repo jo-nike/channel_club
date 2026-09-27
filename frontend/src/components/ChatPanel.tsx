@@ -625,7 +625,7 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
                 value={inputValue}
                 onChange={(e) => { draftVersion.current += 1; setFailure(null); setInputValue(e.target.value) }}
                 onKeyDown={handleKeyDown}
-                placeholder="Type a message..."
+                placeholder="Message the club…"
                 className="flex-1"
                 maxLength={500}
               />

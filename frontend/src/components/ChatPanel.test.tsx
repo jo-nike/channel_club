@@ -80,7 +80,7 @@ describe('ChatPanel', () => {
 
   it('sends message on Enter key', () => {
     render(<ChatPanel onSendMessage={mockOnSendMessage} />)
-    const input = screen.getByPlaceholderText('Type a message...')
+    const input = screen.getByPlaceholderText('Message the club…')
 
     fireEvent.change(input, { target: { value: 'Hello world!' } })
     fireEvent.keyDown(input, { key: 'Enter' })
@@ -90,7 +90,7 @@ describe('ChatPanel', () => {
 
   it('sends message on button click', () => {
     render(<ChatPanel onSendMessage={mockOnSendMessage} />)
-    const input = screen.getByPlaceholderText('Type a message...')
+    const input = screen.getByPlaceholderText('Message the club…')
     const sendButton = screen.getByRole('button', { name: 'Send message' })
 
     fireEvent.change(input, { target: { value: 'Hello world!' } })
@@ -101,7 +101,7 @@ describe('ChatPanel', () => {
 
   it('clears input after sending', async () => {
     render(<ChatPanel onSendMessage={mockOnSendMessage} />)
-    const input = screen.getByPlaceholderText('Type a message...')
+    const input = screen.getByPlaceholderText('Message the club…')
 
     fireEvent.change(input, { target: { value: 'Hello!' } })
     fireEvent.keyDown(input, { key: 'Enter' })
@@ -111,7 +111,7 @@ describe('ChatPanel', () => {
 
   it('does not send empty messages', () => {
     render(<ChatPanel onSendMessage={mockOnSendMessage} />)
-    const input = screen.getByPlaceholderText('Type a message...')
+    const input = screen.getByPlaceholderText('Message the club…')
 
     fireEvent.change(input, { target: { value: '   ' } })
     fireEvent.keyDown(input, { key: 'Enter' })
@@ -166,7 +166,7 @@ describe('ChatPanel', () => {
 
   it('has max length on input', () => {
     render(<ChatPanel onSendMessage={mockOnSendMessage} />)
-    const input = screen.getByPlaceholderText('Type a message...')
+    const input = screen.getByPlaceholderText('Message the club…')
     expect(input).toHaveAttribute('maxLength', '500')
   })
 
@@ -180,7 +180,7 @@ describe('ChatPanel', () => {
       render(<ChatPanel onSendMessage={mockOnSendMessage} />)
       expect(screen.queryByRole('heading', { name: 'Change display name' })).not.toBeInTheDocument()
       expect(screen.queryByPlaceholderText('Display name')).not.toBeInTheDocument()
-      expect(screen.getByPlaceholderText('Type a message...')).toBeInTheDocument()
+      expect(screen.getByPlaceholderText('Message the club…')).toBeInTheDocument()
     })
 
     it('says you are chatting as your sign-in name', () => {
@@ -200,7 +200,7 @@ describe('ChatPanel', () => {
       render(<ChatPanel onSendMessage={mockOnSendMessage} />)
       expect(screen.queryByText(/Chatting as/)).not.toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'Edit nickname' })).not.toBeInTheDocument()
-      expect(screen.getByPlaceholderText('Type a message...')).toBeInTheDocument()
+      expect(screen.getByPlaceholderText('Message the club…')).toBeInTheDocument()
     })
 
     it('treats messages under the sign-in name as your own when no nickname is set', () => {
@@ -283,7 +283,7 @@ describe('ChatPanel', () => {
       expect(useChatStore.getState().nickname).toBeNull()
       expect(localStorage.getItem('chat_nickname:testuser')).toBeNull()
       expect(screen.getByText('Chatting as testuser')).toBeInTheDocument()
-      expect(screen.getByPlaceholderText('Type a message...')).toBeInTheDocument()
+      expect(screen.getByPlaceholderText('Message the club…')).toBeInTheDocument()
     })
 
     it('reads as changing a name, not a gate to pass', () => {
@@ -306,7 +306,7 @@ describe('ChatPanel', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
 
       expect(screen.queryByPlaceholderText('Display name')).not.toBeInTheDocument()
-      expect(screen.getByPlaceholderText('Type a message...')).toBeInTheDocument()
+      expect(screen.getByPlaceholderText('Message the club…')).toBeInTheDocument()
       expect(screen.getByText('Chatting as TestNick')).toBeInTheDocument()
       expect(mockSetNickname).not.toHaveBeenCalled()
       expect(useChatStore.getState().nickname).toBe('TestNick')
@@ -422,7 +422,7 @@ describe('ChatPanel', () => {
   it('FE-11 preserves failed drafts and clears only after matching acknowledgement', async () => {
     mockOnSendMessage.mockReturnValueOnce('not-sent').mockReturnValueOnce('acknowledged')
     render(<ChatPanel onSendMessage={mockOnSendMessage} />)
-    const input = screen.getByPlaceholderText('Type a message...')
+    const input = screen.getByPlaceholderText('Message the club…')
     fireEvent.change(input, { target: { value: 'Keep this message' } })
     fireEvent.keyDown(input, { key: 'Enter' })
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent("Not sent. You're offline or reconnecting."))
@@ -437,7 +437,7 @@ describe('ChatPanel', () => {
     let finish!: (result: string) => void
     mockOnSendMessage.mockReturnValue(new Promise((resolve) => { finish = resolve }))
     render(<ChatPanel onSendMessage={mockOnSendMessage} />)
-    const input = screen.getByPlaceholderText('Type a message...')
+    const input = screen.getByPlaceholderText('Message the club…')
     fireEvent.change(input, { target: { value: 'First' } })
     fireEvent.keyDown(input, { key: 'Enter' })
     expect(input).toHaveValue('First')
@@ -451,7 +451,7 @@ describe('ChatPanel', () => {
   it('FE-11 retains a draft when delivery becomes uncertain after send', async () => {
     mockOnSendMessage.mockResolvedValue('unconfirmed')
     render(<ChatPanel onSendMessage={mockOnSendMessage} />)
-    const input = screen.getByPlaceholderText('Type a message...')
+    const input = screen.getByPlaceholderText('Message the club…')
     fireEvent.change(input, { target: { value: 'Uncertain' } })
     fireEvent.keyDown(input, { key: 'Enter' })
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent("Couldn't confirm it was sent."))
@@ -545,7 +545,7 @@ describe('ChatPanel', () => {
 
     it('shows no row and allows sending while connected', () => {
       render(<ChatPanel onSendMessage={mockOnSendMessage} status="connected" onReconnect={vi.fn()} />)
-      fireEvent.change(screen.getByPlaceholderText('Type a message...'), { target: { value: 'Hi' } })
+      fireEvent.change(screen.getByPlaceholderText('Message the club…'), { target: { value: 'Hi' } })
       expect(screen.queryByText('Reconnecting…')).not.toBeInTheDocument()
       expect(screen.queryByText('Chat is offline')).not.toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Send message' })).toBeEnabled()
@@ -555,7 +555,7 @@ describe('ChatPanel', () => {
     it("says 'Reconnecting…' only after 2s, and holds sends while keeping the draft editable", () => {
       vi.useFakeTimers()
       render(<ChatPanel onSendMessage={mockOnSendMessage} status="reconnecting" onReconnect={vi.fn()} />)
-      const input = screen.getByPlaceholderText('Type a message...')
+      const input = screen.getByPlaceholderText('Message the club…')
       fireEvent.change(input, { target: { value: 'Keep me' } })
 
       act(() => vi.advanceTimersByTime(1999))
@@ -589,7 +589,7 @@ describe('ChatPanel', () => {
     it("says 'Chat is offline' with a Reconnect button that reconnects", () => {
       const onReconnect = vi.fn()
       render(<ChatPanel onSendMessage={mockOnSendMessage} status="disconnected" onReconnect={onReconnect} />)
-      const input = screen.getByPlaceholderText('Type a message...')
+      const input = screen.getByPlaceholderText('Message the club…')
       fireEvent.change(input, { target: { value: 'Draft' } })
 
       expect(screen.getByText('Chat is offline')).toBeInTheDocument()
@@ -644,7 +644,7 @@ describe('ChatPanel', () => {
     it('holds Retry while offline', async () => {
       mockOnSendMessage.mockReturnValue('not-sent')
       const { rerender } = render(<ChatPanel onSendMessage={mockOnSendMessage} status="connected" />)
-      const input = screen.getByPlaceholderText('Type a message...')
+      const input = screen.getByPlaceholderText('Message the club…')
       fireEvent.change(input, { target: { value: 'Offline soon' } })
       fireEvent.keyDown(input, { key: 'Enter' })
       await screen.findByRole('alert')
@@ -659,7 +659,7 @@ describe('ChatPanel', () => {
   describe('send feedback', () => {
     it('confirms an acknowledged send to screen readers only, with no visible status line', async () => {
       render(<ChatPanel onSendMessage={mockOnSendMessage} />)
-      const input = screen.getByPlaceholderText('Type a message...')
+      const input = screen.getByPlaceholderText('Message the club…')
       fireEvent.change(input, { target: { value: 'Hello' } })
       fireEvent.keyDown(input, { key: 'Enter' })
       await waitFor(() => expect(input).toHaveValue(''))
@@ -674,7 +674,7 @@ describe('ChatPanel', () => {
       let finish!: (result: string) => void
       mockOnSendMessage.mockReturnValue(new Promise((resolve) => { finish = resolve }))
       render(<ChatPanel onSendMessage={mockOnSendMessage} />)
-      const input = screen.getByPlaceholderText('Type a message...')
+      const input = screen.getByPlaceholderText('Message the club…')
       fireEvent.change(input, { target: { value: 'Hello' } })
       fireEvent.keyDown(input, { key: 'Enter' })
       const sendButton = screen.getByRole('button', { name: 'Send message' })
@@ -687,7 +687,7 @@ describe('ChatPanel', () => {
     it('puts the failure row in the composer, below the message list', async () => {
       mockOnSendMessage.mockReturnValue('not-sent')
       render(<ChatPanel onSendMessage={mockOnSendMessage} />)
-      const input = screen.getByPlaceholderText('Type a message...')
+      const input = screen.getByPlaceholderText('Message the club…')
       fireEvent.change(input, { target: { value: 'Offline' } })
       fireEvent.keyDown(input, { key: 'Enter' })
       const alert = await screen.findByRole('alert')
@@ -699,7 +699,7 @@ describe('ChatPanel', () => {
     it('Retry after a failed GIF resends the GIF with the same id and keeps the text draft', async () => {
       mockOnSendMessage.mockReturnValueOnce('not-sent').mockReturnValueOnce('acknowledged')
       render(<ChatPanel onSendMessage={mockOnSendMessage} />)
-      const input = screen.getByPlaceholderText('Type a message...')
+      const input = screen.getByPlaceholderText('Message the club…')
       fireEvent.change(input, { target: { value: 'A half-typed thought' } })
       fireEvent.click(screen.getByRole('button', { name: 'Send GIF' }))
       await screen.findByRole('alert')
@@ -715,7 +715,7 @@ describe('ChatPanel', () => {
     it('Retry resends a failed text message with the same id and then clears the draft', async () => {
       mockOnSendMessage.mockReturnValueOnce('not-sent').mockReturnValueOnce('acknowledged')
       render(<ChatPanel onSendMessage={mockOnSendMessage} />)
-      const input = screen.getByPlaceholderText('Type a message...')
+      const input = screen.getByPlaceholderText('Message the club…')
       fireEvent.change(input, { target: { value: 'Goal!' } })
       fireEvent.keyDown(input, { key: 'Enter' })
       await screen.findByRole('alert')
@@ -729,7 +729,7 @@ describe('ChatPanel', () => {
     it("offers 'Send again' with the same id when delivery couldn't be confirmed", async () => {
       mockOnSendMessage.mockResolvedValueOnce('unconfirmed').mockResolvedValueOnce('acknowledged')
       render(<ChatPanel onSendMessage={mockOnSendMessage} />)
-      const input = screen.getByPlaceholderText('Type a message...')
+      const input = screen.getByPlaceholderText('Message the club…')
       fireEvent.change(input, { target: { value: 'Did this land?' } })
       fireEvent.keyDown(input, { key: 'Enter' })
       const alert = await screen.findByRole('alert')
@@ -745,7 +745,7 @@ describe('ChatPanel', () => {
     it('reuses the id when the unchanged draft is sent again, but not after an edit', async () => {
       mockOnSendMessage.mockReturnValue('not-sent')
       render(<ChatPanel onSendMessage={mockOnSendMessage} />)
-      const input = screen.getByPlaceholderText('Type a message...')
+      const input = screen.getByPlaceholderText('Message the club…')
       fireEvent.change(input, { target: { value: 'Same words' } })
       fireEvent.keyDown(input, { key: 'Enter' })
       await screen.findByRole('alert')
@@ -763,7 +763,7 @@ describe('ChatPanel', () => {
     it('clears the failure row when the draft changes', async () => {
       mockOnSendMessage.mockReturnValue('not-sent')
       render(<ChatPanel onSendMessage={mockOnSendMessage} />)
-      const input = screen.getByPlaceholderText('Type a message...')
+      const input = screen.getByPlaceholderText('Message the club…')
       fireEvent.change(input, { target: { value: 'Offline' } })
       fireEvent.keyDown(input, { key: 'Enter' })
       await screen.findByRole('alert')
@@ -1149,7 +1149,7 @@ describe('ChatPanel', () => {
       const panel = document.getElementById('chat-panel')
       const viewport = document.querySelector('[data-radix-scroll-area-viewport]')
       const message = screen.getByText('Message 2')
-      const input = screen.getByPlaceholderText('Type a message...')
+      const input = screen.getByPlaceholderText('Message the club…')
       fireEvent.change(input, { target: { value: 'half typed' } })
       input.focus()
 
@@ -1161,7 +1161,7 @@ describe('ChatPanel', () => {
       expect(viewport).not.toBeNull()
       expect(document.querySelector('[data-radix-scroll-area-viewport]')).toBe(viewport)
       expect(screen.getByText('Message 2')).toBe(message)
-      expect(screen.getByPlaceholderText('Type a message...')).toBe(input)
+      expect(screen.getByPlaceholderText('Message the club…')).toBe(input)
       expect(input).toHaveValue('half typed')
       expect(input).toHaveFocus()
     })
@@ -1173,10 +1173,10 @@ describe('ChatPanel', () => {
       const send = screen.getByRole('button', { name: 'Send message' })
       expect(send).toHaveAttribute('data-variant', 'ghost')
 
-      fireEvent.change(screen.getByPlaceholderText('Type a message...'), { target: { value: '   ' } })
+      fireEvent.change(screen.getByPlaceholderText('Message the club…'), { target: { value: '   ' } })
       expect(send).toHaveAttribute('data-variant', 'ghost')
 
-      fireEvent.change(screen.getByPlaceholderText('Type a message...'), { target: { value: 'Goal!' } })
+      fireEvent.change(screen.getByPlaceholderText('Message the club…'), { target: { value: 'Goal!' } })
       expect(send).toHaveAttribute('data-variant', 'default')
       expect(send).toHaveClass('bg-primary')
     })
@@ -1237,7 +1237,7 @@ describe('ChatPanel', () => {
       render(<ChatPanel onSendMessage={mockOnSendMessage} variant={variant} />)
 
       act(() => useChatStore.setState({ isOpen: true }))
-      screen.getByPlaceholderText('Type a message...').focus()
+      screen.getByPlaceholderText('Message the club…').focus()
       act(() => useChatStore.setState({ isOpen: false }))
 
       expect(opener).toHaveFocus()
@@ -1290,7 +1290,7 @@ describe('ChatPanel', () => {
     it('keeps the composer focused when an open overlay becomes the takeover', () => {
       useChatStore.setState({ me: { username: 'TestUser' } })
       const { rerender } = render(<ChatPanel onSendMessage={mockOnSendMessage} variant="overlay" />)
-      const input = screen.getByPlaceholderText('Type a message...')
+      const input = screen.getByPlaceholderText('Message the club…')
       fireEvent.change(input, { target: { value: 'half typed' } })
       input.focus()
 

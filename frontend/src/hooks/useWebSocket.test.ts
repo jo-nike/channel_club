@@ -1510,7 +1510,7 @@ describe('useWebSocket', () => {
     render(createElement(ChatHarness))
     const first = MockWebSocket.instances.at(-1)!
     act(() => first.simulateOpen())
-    const input = screen.getByPlaceholderText('Type a message...')
+    const input = screen.getByPlaceholderText('Message the club…')
     fireEvent.change(input, { target: { value: 'Keep until acknowledged' } })
     fireEvent.keyDown(input, { key: 'Enter' })
     const oldId = JSON.parse(first.send.mock.calls.at(-1)![0]).clientMessageId
