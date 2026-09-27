@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState, useMemo, useCallback, type ReactNode } from 'react'
+import { memo, useEffect, useRef, useMemo, useCallback, type ReactNode } from 'react'
 import { ChevronLeft, ChevronRight, Radio } from 'lucide-react'
-import { useTVStore, LIVE_CHANNEL_ID, describeLiveGuide } from '@/stores/tvStore'
+import { useTVStore, LIVE_CHANNEL_ID, buildUnifiedChannels, describeLiveGuide } from '@/stores/tvStore'
+import { useChannelStore } from '@/stores/channelStore'
+import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { getErsatzTVLogoUrl } from '@/services/ersatztvApi'
 import { Button } from '@/components/ui/button'
 import { useProgrammeClock } from '@/hooks/useProgrammeClock'
 import { scrollBehavior } from '@/lib/motion'
 import { buildProgrammeIndex, findCurrentAndNext, type ProgrammeIndex } from '@/lib/programmeIndex'
-import { calculateProgress, formatRemaining } from '@/lib/programmes'
+import { calculateProgress, formatRemaining, getProgrammeState, type ProgrammeState } from '@/lib/programmes'
 import { cn } from '@/lib/utils'
 import type { UnifiedChannel, ErsatzTVProgramme, EPGResponse } from '@/types'
 
@@ -38,12 +40,20 @@ export function TVEPGGrid({
   onChannelClick,
   onPickLive,
 }: TVEPGGridProps) {
-  const { getUnifiedChannels, isLiveChannelActive, liveEPGStatus, selectedChannel } = useTVStore()
+  const { isLiveChannelActive, liveEPGStatus, selectedChannel } = useTVStore()
   const containerRef = useRef<HTMLDivElement>(null)
   const headerRef = useRef<HTMLDivElement>(null)
-  const [currentTime, setCurrentTime] = useState(new Date())
+  // The shared programme clock: the now marker and the blocks' past/now/future
+  const now = useProgrammeClock()
 
-  const unifiedChannels = getUnifiedChannels()
+  // Kept stable between clock ticks so the memoised programme blocks, which
+  // get their channel, can skip re-rendering
+  const liveChannel = useChannelStore((s) => s.currentChannel)
+  const ersatzTVChannels = useErsatztvStore((s) => s.channels)
+  const unifiedChannels = useMemo(
+    () => buildUnifiedChannels(liveChannel, ersatzTVChannels),
+    [liveChannel, ersatzTVChannels]
+  )
   const hasLiveChannel = isLiveChannelActive()
 
   // Calculate time range - start 30 min before current rounded time
@@ -73,14 +83,6 @@ export function TVEPGGrid({
     return slots
   }, [startTime, endTime])
 
-  // Update current time every minute for now marker
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentTime(new Date())
-    }, 60000)
-    return () => clearInterval(interval)
-  }, [])
-
   // Auto-scroll to current time on load
   useEffect(() => {
     if (containerRef.current && !loading && Object.keys(programmesByChannel).length > 0) {
@@ -107,8 +109,8 @@ export function TVEPGGrid({
 
   // Calculate now marker position
   const nowMarkerOffset = useMemo(() => {
-    return calculateTimeOffset(currentTime, startTime)
-  }, [currentTime, startTime])
+    return calculateTimeOffset(new Date(now), startTime)
+  }, [now, startTime])
 
   // Navigation functions
   const scrollByHours = useCallback((hoursToScroll: number) => {
@@ -240,6 +242,7 @@ export function TVEPGGrid({
                 : programmesByChannel[channel.id] || []
             }
             startTime={startTime}
+            now={now}
             gridWidth={gridWidth}
             rowIndex={rowIndex}
             programmeIndex={channel.type === 'live' ? liveProgrammeIndex : programmeIndex}
@@ -260,6 +263,8 @@ interface ChannelRowProps {
   channel: UnifiedChannel
   programmes: ErsatzTVProgramme[]
   startTime: Date
+  // The shared programme clock, epoch ms
+  now: number
   gridWidth: number
   rowIndex: number
   programmeIndex: ProgrammeIndex
@@ -277,6 +282,7 @@ function ChannelRow({
   channel,
   programmes,
   startTime,
+  now,
   gridWidth,
   rowIndex,
   programmeIndex,
@@ -321,16 +327,31 @@ function ChannelRow({
         ) : isLive && programmes.length === 0 ? (
           <LiveRowPlaceholder>{liveGuideText}</LiveRowPlaceholder>
         ) : (
-          programmes.map((programme) => (
-            <ProgrammeBox
-              key={programme.id}
-              programme={programme}
-              channel={channel}
-              startTime={startTime}
-              isLive={isLive}
-              onClick={onProgrammeClick}
-            />
-          ))
+          programmes.map((programme) => {
+            // Each block gets its state as primitives, so a clock tick
+            // re-renders only the blocks whose state or progress changed
+            const state = getProgrammeState(programme, now)
+            const isNow = state === 'now'
+            const startMs = new Date(programme.start).getTime()
+            const stopMs = new Date(programme.stop).getTime()
+            return (
+              <ProgrammeBox
+                key={programme.id}
+                programme={programme}
+                channel={channel}
+                startTime={startTime}
+                isLive={isLive}
+                state={state}
+                // Elapsed across the part of the block that's drawn, so the
+                // line ends at the now marker even when the block starts
+                // before the grid does
+                progressPct={isNow ? calculateProgress(Math.max(startMs, startTime.getTime()), stopMs, now) : undefined}
+                timeLeft={isNow ? formatRemaining(stopMs, now) : undefined}
+                isWatching={isNow && isWatching}
+                onClick={onProgrammeClick}
+              />
+            )
+          })
         )}
       </div>
     </div>
@@ -347,8 +368,7 @@ interface ChannelLabelProps {
 
 // The sticky channel column: number, logo, name, LIVE on an active live row,
 // and the on-air programme's progress and time left, which the sidebar shows
-// when the guide is closed. It reads the shared programme clock itself, so a
-// tick re-renders the labels, not the programme blocks.
+// when the guide is closed. It reads the shared programme clock itself.
 function ChannelLabel({ channel, programmeIndex, isWatching, showLiveHighlight, onChannelClick }: ChannelLabelProps) {
   const isLive = channel.type === 'live'
   const now = useProgrammeClock()
@@ -450,14 +470,26 @@ interface ProgrammeBoxProps {
   channel: UnifiedChannel
   startTime: Date
   isLive: boolean
+  state: ProgrammeState
+  // Only for the block on now: elapsed share of the drawn block (0-100) and '32m left'
+  progressPct?: number
+  timeLeft?: string
+  // On now on the channel being watched
+  isWatching: boolean
   onClick?: (programme: ErsatzTVProgramme, channel: UnifiedChannel) => void
 }
 
-function ProgrammeBox({
+// Memoised on primitive state props, so a clock tick skips blocks that stay
+// past or future
+const ProgrammeBox = memo(function ProgrammeBox({
   programme,
   channel,
   startTime,
   isLive,
+  state,
+  progressPct,
+  timeLeft,
+  isWatching,
   onClick,
 }: ProgrammeBoxProps) {
   const progStart = new Date(programme.start)
@@ -476,31 +508,59 @@ function ProgrammeBox({
 
   return (
     <button
-      className={`
-        absolute top-1 bottom-1 z-0 overflow-hidden rounded border
-        px-2 py-1 text-sm flex flex-col justify-center
-        hover:opacity-80 focus-visible:-outline-offset-2
-        transition-colors
-        ${
-          isLive
-            ? 'bg-live/15 border-live/40 text-foreground'
-            : 'bg-guide-future text-foreground border-border'
-        }
-        ${isClipped ? 'text-right' : 'text-left'}
-      `}
+      className={cn(
+        'absolute top-1 bottom-1 z-0 overflow-hidden rounded border',
+        'px-2 py-1 text-sm flex flex-col justify-center',
+        'hover:opacity-80 focus-visible:-outline-offset-2',
+        'transition-colors',
+        // Past: recedes. Now: the one tinted block, with a bar at its start.
+        // Future: quiet. The live row keeps its live tint while it's on.
+        state === 'past' && 'bg-transparent border-border text-muted-foreground',
+        state === 'now' && 'text-foreground',
+        state === 'now' && (isLive
+          ? 'bg-live/15 border-live/40 shadow-[inset_3px_0_0_var(--live)]'
+          : 'bg-guide-now border-border shadow-[inset_3px_0_0_var(--primary)]'),
+        state === 'future' && (isLive ? 'bg-live/15 border-live/40 text-foreground' : 'bg-guide-future border-border text-foreground'),
+        isWatching && 'border-primary',
+        isClipped ? 'text-right' : 'text-left'
+      )}
       style={{
         left: visualLeft,
         width: visualWidth,
       }}
+      data-state={state}
+      data-watching={isWatching || undefined}
       onClick={() => onClick?.(programme, channel)}
     >
-      <p className="truncate font-medium">{programme.title}</p>
-      <p className="truncate text-xs opacity-75">
-        {formatTime(progStart)} - {formatTime(progEnd)}
+      <p
+        className={cn(
+          'truncate',
+          state === 'past' && 'font-normal',
+          state === 'now' && 'font-semibold',
+          state === 'future' && 'font-medium'
+        )}
+      >
+        {programme.title}
       </p>
+      {state === 'now' ? (
+        // Muted text on guide-now is only 3.39-5.20:1, so the meta stays on the foreground
+        <p className="truncate text-xs tabular-nums text-foreground">{timeLeft}</p>
+      ) : (
+        <p className="truncate text-xs tabular-nums text-muted-foreground">
+          {formatTime(progStart)} - {formatTime(progEnd)}
+        </p>
+      )}
+      {state === 'now' && progressPct !== undefined && (
+        <span
+          aria-hidden="true"
+          data-testid="programme-elapsed"
+          className={cn('absolute bottom-0 left-0 h-0.5', isLive ? 'bg-live' : 'bg-primary')}
+          style={{ width: `${progressPct}%` }}
+        />
+      )}
     </button>
   )
-}
+})
 
 // Helper functions
 function calculateTimeOffset(time: Date, startTime: Date): number {

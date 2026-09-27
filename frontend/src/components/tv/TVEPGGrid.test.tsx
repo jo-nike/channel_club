@@ -43,11 +43,11 @@ describe('TVEPGGrid colours', () => {
     useErsatztvStore.setState({ channels: [] })
   })
 
-  it('paints ErsatzTV programmes on the guide-future token with a border, not the accent', () => {
+  it('paints the ErsatzTV programme on now on the guide-now token with a border, not the accent', () => {
     render(<TVEPGGrid programmesByChannel={programmesByChannel} liveEPG={liveEPG} />)
 
     const block = screen.getByText('Movie Night').closest('button')
-    expect(block).toHaveClass('bg-guide-future', 'text-foreground', 'border', 'border-border')
+    expect(block).toHaveClass('bg-guide-now', 'text-foreground', 'border', 'border-border')
     expect(block).not.toHaveClass('bg-accent')
   })
 
@@ -417,5 +417,132 @@ describe('TVEPGGrid navigation scrolling', () => {
 
     expect(scrollBy).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'smooth' }))
     expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'smooth' }))
+  })
+})
+
+describe('TVEPGGrid programme states', () => {
+  // The grid starts at 19:30, 30 minutes before the half hour now falls in
+  const NOW = new Date('2026-09-26T20:00:00Z').getTime()
+  const MINUTE = 60_000
+  const at = (minutes: number) => new Date(NOW + minutes * MINUTE).toISOString()
+  const movies = { id: 'etv1', name: 'Movies', streamUrl: '/etv1', logoUrl: '', number: 1, group: 'Films' }
+  const cartoons = { id: 'etv2', name: 'Cartoons', streamUrl: '/etv2', logoUrl: '', number: 2, group: 'Kids' }
+  const schedule: Record<string, ErsatzTVProgramme[]> = {
+    etv1: [
+      { id: 'past', channelId: 'etv1', title: 'Earlier Film', start: at(-60), stop: at(-15) },
+      // 15 of 45 minutes in, 30 to go
+      { id: 'now', channelId: 'etv1', title: 'Current Film', start: at(-15), stop: at(30) },
+      { id: 'next', channelId: 'etv1', title: 'Later Film', start: at(30), stop: at(120) },
+    ],
+    etv2: [
+      // Started 90 minutes ago, an hour before the grid does
+      { id: 'long', channelId: 'etv2', title: 'Long Cartoon', start: at(-90), stop: at(30) },
+    ],
+  }
+  const block = (title: string) => screen.getByText(title).closest('button')!
+  const [title, meta] = [0, 1].map((i) => (el: HTMLElement) => el.querySelectorAll('p')[i])
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    vi.setSystemTime(NOW)
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels: [movies, cartoons] })
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+    useErsatztvStore.setState({ channels: [] })
+    useTVStore.setState({ selectedChannel: null })
+  })
+
+  it('marks blocks before, around and after now as past, now and future', () => {
+    render(<TVEPGGrid programmesByChannel={schedule} />)
+
+    expect(block('Earlier Film')).toHaveAttribute('data-state', 'past')
+    expect(block('Current Film')).toHaveAttribute('data-state', 'now')
+    expect(block('Later Film')).toHaveAttribute('data-state', 'future')
+  })
+
+  it('lets past blocks recede: no fill, a border and muted regular-weight text', () => {
+    render(<TVEPGGrid programmesByChannel={schedule} />)
+
+    const past = block('Earlier Film')
+    expect(past).toHaveClass('bg-transparent', 'border', 'border-border', 'text-muted-foreground')
+    expect(past).not.toHaveClass('bg-guide-future')
+    expect(title(past)).toHaveClass('font-normal')
+    expect(past.querySelector('[data-testid="programme-elapsed"]')).toBeNull()
+  })
+
+  it("puts the block on now on guide-now with a primary start bar, a semibold title and the time left", () => {
+    render(<TVEPGGrid programmesByChannel={schedule} />)
+
+    const now = block('Current Film')
+    expect(now).toHaveClass('bg-guide-now', 'shadow-[inset_3px_0_0_var(--primary)]', 'text-foreground')
+    expect(title(now)).toHaveClass('font-semibold')
+    expect(meta(now)).toHaveTextContent('30m left')
+    // The meta stays on the foreground: muted text on guide-now is too faint
+    expect(meta(now)).toHaveClass('text-foreground')
+    expect(meta(now)).not.toHaveClass('text-muted-foreground')
+  })
+
+  it('draws a primary elapsed line across the block on now, ending at the now marker', () => {
+    render(<TVEPGGrid programmesByChannel={schedule} />)
+
+    const elapsed = block('Current Film').querySelector('[data-testid="programme-elapsed"]') as HTMLElement
+    expect(elapsed).toHaveClass('h-0.5', 'bg-primary')
+    expect(parseFloat(elapsed.style.width)).toBeCloseTo((15 / 45) * 100, 5)
+    // Drawn from the grid's start at 19:30: 30 of the 60 visible minutes
+    const clipped = block('Long Cartoon').querySelector('[data-testid="programme-elapsed"]') as HTMLElement
+    expect(parseFloat(clipped.style.width)).toBeCloseTo(50, 5)
+  })
+
+  it('keeps future blocks quiet: guide-future, medium weight, the time range muted', () => {
+    render(<TVEPGGrid programmesByChannel={schedule} />)
+
+    const next = block('Later Film')
+    expect(next).toHaveClass('bg-guide-future', 'border-border', 'text-foreground')
+    expect(title(next)).toHaveClass('font-medium')
+    expect(meta(next)).toHaveClass('text-muted-foreground')
+    expect(meta(next)).not.toHaveTextContent('left')
+  })
+
+  it('marks the block on now on the watched channel, and only that one', () => {
+    useTVStore.setState({ selectedChannel: { ...movies, type: 'ersatztv' } })
+    render(<TVEPGGrid programmesByChannel={schedule} />)
+
+    expect(block('Current Film')).toHaveAttribute('data-watching', 'true')
+    expect(block('Current Film')).toHaveClass('border-primary')
+    for (const other of ['Earlier Film', 'Later Film', 'Long Cartoon']) {
+      expect(block(other)).not.toHaveAttribute('data-watching')
+      expect(block(other)).not.toHaveClass('border-primary')
+    }
+  })
+
+  it('moves a block from future to now when the clock reaches its start', () => {
+    const soon = { etv1: [{ id: 'soon', channelId: 'etv1', title: 'Soon Film', start: at(1), stop: at(31) }] }
+    render(<TVEPGGrid programmesByChannel={soon} />)
+    expect(block('Soon Film')).toHaveAttribute('data-state', 'future')
+
+    act(() => vi.advanceTimersByTime(MINUTE))
+
+    expect(block('Soon Film')).toHaveAttribute('data-state', 'now')
+    expect(meta(block('Soon Film'))).toHaveTextContent('30m left')
+  })
+
+  it('keeps the live tint on the live row while its programme is on', () => {
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1' },
+    })
+    const live: EPGResponse = {
+      channelId: 'live',
+      currentProgram: { title: 'Club Broadcast', startTime: at(-10), endTime: at(20) },
+    }
+    render(<TVEPGGrid programmesByChannel={{}} liveEPG={live} />)
+
+    const onAir = block('Club Broadcast')
+    expect(onAir).toHaveAttribute('data-state', 'now')
+    expect(onAir).toHaveClass('bg-live/15', 'shadow-[inset_3px_0_0_var(--live)]')
+    expect(onAir.querySelector('[data-testid="programme-elapsed"]')).toHaveClass('bg-live')
   })
 })
