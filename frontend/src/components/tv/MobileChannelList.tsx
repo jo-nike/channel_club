@@ -39,8 +39,10 @@ export function MobileChannelList({ onChannelSelect, liveEPGTitle, onPickLive }:
     return onPickLive ? 'Nothing on yet' : 'Waiting for someone to put something on'
   }
 
+  // The bottom padding grows by the install banner's room while it shows,
+  // so the last channel can scroll out from under it
   return (
-    <div className="space-y-2 p-4">
+    <div className="space-y-2 px-4 pt-4 pb-[calc(1rem+var(--install-prompt-h,0px))]">
       <h2 className="text-lg font-semibold">Channels</h2>
       <div className="grid grid-cols-1 gap-2">
         {unifiedChannels.map((channel) => {

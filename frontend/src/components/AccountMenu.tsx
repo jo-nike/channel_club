@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import {
+  Download,
   LogOut,
   MessageSquarePlus,
   Palette,
@@ -27,10 +28,12 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
 import { FeedbackDialog } from '@/components/FeedbackDialog'
+import { IosInstallDialog } from '@/components/IosInstallDialog'
 import { AppearancePicker } from '@/components/theme/AppearancePicker'
 import { useAuth } from '@/hooks/useAuth'
 import { useAppSettings } from '@/hooks/useAppSettings'
 import { useFeedbackFeature } from '@/hooks/useFeedbackFeature'
+import { useInstallPrompt } from '@/hooks/useInstallPrompt'
 import { useUIStore } from '@/stores/uiStore'
 
 interface AccountMenuProps {
@@ -55,6 +58,9 @@ export function AccountMenu({ onOpenChannelPicker, onOpenAdmin, onReload, isMobi
   const { isEnabled: feedbackEnabled } = useFeedbackFeature()
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [appearanceOpen, setAppearanceOpen] = useState(false)
+  // Always offered here when installable, whether or not the banner is showing or snoozed
+  const { canInstall, variant: installVariant, install } = useInstallPrompt()
+  const [iosInstallOpen, setIosInstallOpen] = useState(false)
   const notificationsEnabled = useUIStore((s) => s.notificationsEnabled)
   const setNotificationsEnabled = useUIStore((s) => s.setNotificationsEnabled)
   const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
@@ -119,7 +125,18 @@ export function AccountMenu({ onOpenChannelPicker, onOpenAdmin, onReload, isMobi
               Send feedback
             </DropdownMenuItem>
           )}
-          {/* 'Install app' goes here (W2-install-engagement) */}
+          {canInstall &&
+            (installVariant === 'ios' ? (
+              <DropdownMenuItem onSelect={() => setIosInstallOpen(true)}>
+                <Download />
+                Add to Home Screen
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem onSelect={() => void install()}>
+                <Download />
+                Install app
+              </DropdownMenuItem>
+            ))}
           <DropdownMenuSeparator />
           <DropdownMenuCheckboxItem
             checked={notificationsEnabled}
@@ -141,6 +158,7 @@ export function AccountMenu({ onOpenChannelPicker, onOpenAdmin, onReload, isMobi
         </DropdownMenuContent>
       </DropdownMenu>
       <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
+      {installVariant === 'ios' && <IosInstallDialog open={iosInstallOpen} onOpenChange={setIosInstallOpen} />}
       <Dialog open={appearanceOpen} onOpenChange={setAppearanceOpen}>
         {/* A bottom sheet on phones, scrolling inside the screen; centred from sm */}
         <DialogContent className="max-h-[85dvh] overflow-y-auto max-sm:top-auto max-sm:bottom-0 max-sm:max-w-full max-sm:translate-y-0 max-sm:rounded-b-none max-sm:pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] sm:max-w-lg">

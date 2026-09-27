@@ -120,4 +120,10 @@ describe('MobileChannelList', () => {
     expect(screen.getByText('1h left')).toBeVisible()
     expect(screen.queryByText('First')).not.toBeInTheDocument()
   })
+
+  it('reserves room under the last row for the install banner', () => {
+    const { container } = render(<MobileChannelList onChannelSelect={vi.fn()} />)
+    // --install-prompt-h is set on <html> only while the banner shows; 0px otherwise
+    expect(container.firstElementChild).toHaveClass('pb-[calc(1rem+var(--install-prompt-h,0px))]')
+  })
 })

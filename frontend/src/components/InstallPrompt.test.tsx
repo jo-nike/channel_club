@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, act } from '@/test/utils'
 import { InstallPrompt } from './InstallPrompt'
 import * as useInstallPromptModule from '@/hooks/useInstallPrompt'
+import { initInstallStore } from '@/stores/installStore'
+import { useChatStore } from '@/stores/chatStore'
 
 vi.mock('@/hooks/useInstallPrompt')
 
@@ -12,12 +14,15 @@ describe('InstallPrompt', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockInstall.mockResolvedValue(true)
+    useChatStore.setState({ isOpen: false })
   })
 
-  describe('when canInstall is false', () => {
+  describe('when the banner should not be promoted', () => {
     it('renders nothing', () => {
       vi.spyOn(useInstallPromptModule, 'useInstallPrompt').mockReturnValue({
-        canInstall: false,
+        canInstall: true,
+        shouldPromote: false,
+        variant: 'native',
         install: mockInstall,
         dismiss: mockDismiss
       })
@@ -30,12 +35,17 @@ describe('InstallPrompt', () => {
   describe('with the real hook', () => {
     beforeEach(async () => {
       localStorage.clear()
+      sessionStorage.clear()
+      // Past the engagement gate: this is the third session
+      localStorage.setItem('pwa-sessions', '2')
+      initInstallStore()
       const actual = await vi.importActual<typeof useInstallPromptModule>('@/hooks/useInstallPrompt')
       vi.spyOn(useInstallPromptModule, 'useInstallPrompt').mockImplementation(actual.useInstallPrompt)
     })
 
     afterEach(() => {
       localStorage.clear()
+      sessionStorage.clear()
     })
 
     function fireBeforeInstallPrompt() {
@@ -56,21 +66,97 @@ describe('InstallPrompt', () => {
       expect(screen.getByRole('dialog')).toBeInTheDocument()
     })
 
+    it('shows the banner for an offer made before it mounted (on the sign-in screen)', () => {
+      fireBeforeInstallPrompt()
+      render(<InstallPrompt />)
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+
+    it('waits for the third session', () => {
+      localStorage.setItem('pwa-sessions', '0')
+      sessionStorage.clear()
+      initInstallStore()
+      const { container } = render(<InstallPrompt />)
+      fireBeforeInstallPrompt()
+      expect(container.firstChild).toBeNull()
+    })
+
     it('renders nothing in TV mode', () => {
       localStorage.setItem('tv-mode', 'true')
+      initInstallStore()
       const { container } = render(<InstallPrompt />)
       fireBeforeInstallPrompt()
       expect(container.firstChild).toBeNull()
     })
   })
 
-  describe('when canInstall is true', () => {
+  describe('on iPhone and iPad', () => {
     beforeEach(() => {
       vi.spyOn(useInstallPromptModule, 'useInstallPrompt').mockReturnValue({
         canInstall: true,
+        shouldPromote: true,
+        variant: 'ios',
         install: mockInstall,
         dismiss: mockDismiss
       })
+    })
+
+    it('offers the Add to Home Screen steps instead of an Install button', () => {
+      render(<InstallPrompt />)
+      expect(screen.queryByRole('button', { name: 'Install' })).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Show me' }))
+
+      const sheet = screen.getByRole('dialog', { name: /Add Channel Club to your Home Screen/ })
+      expect(sheet).toHaveTextContent('Tap Share')
+      expect(sheet).toHaveTextContent('Add to Home Screen')
+      expect(mockInstall).not.toHaveBeenCalled()
+      // Seen once: the banner retires to the menu
+      expect(mockDismiss).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('when the banner should be promoted', () => {
+    beforeEach(() => {
+      vi.spyOn(useInstallPromptModule, 'useInstallPrompt').mockReturnValue({
+        canInstall: true,
+        shouldPromote: true,
+        variant: 'native',
+        install: mockInstall,
+        dismiss: mockDismiss
+      })
+    })
+
+    it('publishes the room it takes as --install-prompt-h only while it shows', () => {
+      const root = document.documentElement
+      const { unmount } = render(<InstallPrompt />)
+      expect(root.style.getPropertyValue('--install-prompt-h')).toMatch(
+        /^calc\(\d+px \+ max\(1rem, env\(safe-area-inset-bottom\)\)\)$/,
+      )
+
+      act(() => {
+        useChatStore.setState({ isOpen: true })
+      })
+      expect(root.style.getPropertyValue('--install-prompt-h')).toBe('')
+
+      act(() => {
+        useChatStore.setState({ isOpen: false })
+      })
+      expect(root.style.getPropertyValue('--install-prompt-h')).not.toBe('')
+
+      unmount()
+      expect(root.style.getPropertyValue('--install-prompt-h')).toBe('')
+    })
+
+    it('stays hidden while chat is open and comes back when it closes', () => {
+      useChatStore.setState({ isOpen: true })
+      render(<InstallPrompt />)
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+      act(() => {
+        useChatStore.setState({ isOpen: false })
+      })
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
     })
 
     it('renders the install prompt banner', () => {
