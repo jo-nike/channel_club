@@ -28,10 +28,11 @@ vi.mock('@/hooks/useTVMode', () => ({
 
 // Mock QRPlexLogin component for testing; its cancel button shows the label it is given
 vi.mock('@/components/QRPlexLogin', () => ({
-  QRPlexLogin: ({ onSuccess, onCancel, onError, variant, autoRestart, cancelLabel }: {
+  QRPlexLogin: ({ onSuccess, onCancel, onError, onCodeRequested, variant, autoRestart, cancelLabel }: {
     onSuccess: (token: string) => void
     onCancel: () => void
     onError?: (err: Error) => void
+    onCodeRequested?: () => void
     variant?: 'default' | 'tv'
     autoRestart?: boolean
     cancelLabel?: string
@@ -44,6 +45,7 @@ vi.mock('@/components/QRPlexLogin', () => ({
       <button onClick={() => onSuccess('qr-auth-token')}>Mock QR Success</button>
       <button onClick={onCancel}>{cancelLabel ?? 'Cancel'}</button>
       <button onClick={() => onError?.(new Error('QR error'))}>Mock QR Error</button>
+      <button onClick={() => onCodeRequested?.()}>Mock New Code</button>
     </div>
   ),
 }))
@@ -928,6 +930,32 @@ describe('LoginForm', () => {
       await waitFor(() => {
         expect(screen.getByRole('alert')).toHaveTextContent('QR error')
       })
+    })
+
+    it('clears the error on a TV when a new code is asked for', async () => {
+      vi.mocked(useTVModeModule.useTVMode).mockReturnValue(true)
+
+      render(<LoginForm />)
+
+      fireEvent.click(await screen.findByText('Mock QR Error'))
+      expect(await screen.findByRole('alert')).toHaveTextContent('QR error')
+
+      // Try Again, or an automatic restart, asks Plex for a fresh code
+      fireEvent.click(screen.getByText('Mock New Code'))
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(screen.getByTestId('qr-plex-login')).toBeInTheDocument()
+    })
+
+    it('clears the error in the desktop code sign-in when a new code is asked for', async () => {
+      vi.mocked(useTVModeModule.useTVMode).mockReturnValue(false)
+
+      render(<LoginForm />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Sign in with a code' }))
+      fireEvent.click(await screen.findByText('Mock QR Error'))
+      expect(await screen.findByRole('alert')).toHaveTextContent('QR error')
+
+      fireEvent.click(screen.getByText('Mock New Code'))
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     })
 
     it('should use popup flow for desktop users by default', async () => {

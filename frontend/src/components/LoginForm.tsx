@@ -154,6 +154,12 @@ export function LoginForm() {
     setError(err.message)
   }
 
+  // A fresh code replaces whatever went wrong before, so a TV never shows an
+  // old error above a code that works. The code screen reports its own timeout.
+  const handleQRCodeRequested = () => {
+    setError('')
+  }
+
   // While the config loads, carry on showing the app's loading screen
   if (configLoading) {
     return <AppLoadingScreen />
@@ -237,6 +243,7 @@ export function LoginForm() {
             onSuccess={handleQRPlexSuccess}
             onCancel={handleQRPlexCancel}
             onError={handleQRPlexError}
+            onCodeRequested={handleQRCodeRequested}
           />
         </div>
       </div>
@@ -343,6 +350,7 @@ export function LoginForm() {
             onSuccess={handleQRPlexSuccess}
             onCancel={handleQRPlexCancel}
             onError={handleQRPlexError}
+            onCodeRequested={handleQRCodeRequested}
           />
         )}
       </div>

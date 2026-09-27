@@ -277,7 +277,8 @@ describe('usePlexQRAuth', () => {
 
       expect(result.current.status).toBe('timeout')
       expect(result.current.error?.message).toBe('Authentication timed out')
-      expect(onError).toHaveBeenCalled()
+      // The timeout is a status the code screen shows once, not an error to report
+      expect(onError).not.toHaveBeenCalled()
     })
 
     it('should update timeRemaining countdown', async () => {
@@ -371,7 +372,7 @@ describe('usePlexQRAuth', () => {
 
       expect(result.current.status).toBe('timeout')
       expect(result.current.error?.message).toBe('Authentication timed out')
-      expect(onError).toHaveBeenCalledTimes(1)
+      expect(onError).not.toHaveBeenCalled()
       // One pair of PINs per attempt: the first plus three restarts
       expect(plexAuth.createPlexPin).toHaveBeenCalledTimes(2 * (MAX_AUTO_RESTARTS + 1))
 
@@ -398,6 +399,33 @@ describe('usePlexQRAuth', () => {
 
       const polledIds = vi.mocked(plexAuth.checkPlexPin).mock.calls.map(([id]) => id)
       expect(polledIds.sort()).toEqual([102, 202])
+    })
+
+    it('reports each new code asked for: the first, every restart and Try Again', async () => {
+      freshPinsEachStart()
+      const onCodeRequested = vi.fn()
+      const { result } = renderHook(() =>
+        usePlexQRAuth({ timeout: 10000, autoRestart: true, onCodeRequested })
+      )
+
+      await act(async () => {
+        await result.current.start()
+      })
+      expect(onCodeRequested).toHaveBeenCalledTimes(1)
+
+      for (let i = 0; i < MAX_AUTO_RESTARTS; i++) await timeOut(10000)
+      expect(onCodeRequested).toHaveBeenCalledTimes(1 + MAX_AUTO_RESTARTS)
+
+      // The final timeout asks for nothing
+      await timeOut(10000)
+      expect(result.current.status).toBe('timeout')
+      expect(onCodeRequested).toHaveBeenCalledTimes(1 + MAX_AUTO_RESTARTS)
+
+      // Try Again
+      await act(async () => {
+        await result.current.start()
+      })
+      expect(onCodeRequested).toHaveBeenCalledTimes(2 + MAX_AUTO_RESTARTS)
     })
 
     it('gives a manual Try Again a fresh restart budget', async () => {

@@ -13,7 +13,16 @@ export interface UsePlexQRAuthOptions {
    */
   autoRestart?: boolean
   onSuccess?: (authToken: string) => void
+  /**
+   * A failure to start. Not called on timeout: that is the 'timeout' status,
+   * which the code screen shows with its own Try Again.
+   */
   onError?: (error: Error) => void
+  /**
+   * Each attempt asking Plex for a new code: the first, Try Again and every
+   * auto-restart. A caller clears any earlier error here.
+   */
+  onCodeRequested?: () => void
 }
 
 export interface UsePlexQRAuthReturn {
@@ -43,6 +52,7 @@ export function usePlexQRAuth(options: UsePlexQRAuthOptions = {}): UsePlexQRAuth
     autoRestart = false,
     onSuccess,
     onError,
+    onCodeRequested,
   } = options
 
   const [pin, setPin] = useState<PlexPin | null>(null)
@@ -103,6 +113,7 @@ export function usePlexQRAuth(options: UsePlexQRAuthOptions = {}): UsePlexQRAuth
       setStatus('polling')
       setTimeRemaining(Math.floor(timeout / 1000))
       startTimeRef.current = Date.now()
+      onCodeRequested?.()
 
       timeoutRef.current = setTimeout(() => {
         if (!current()) return
@@ -119,9 +130,7 @@ export function usePlexQRAuth(options: UsePlexQRAuthOptions = {}): UsePlexQRAuth
         }
         setStatus('timeout')
         setTimeRemaining(0)
-        const timeoutError = new Error('Authentication timed out')
-        setError(timeoutError)
-        onError?.(timeoutError)
+        setError(new Error('Authentication timed out'))
       }, timeout)
 
       try {
@@ -186,7 +195,7 @@ export function usePlexQRAuth(options: UsePlexQRAuthOptions = {}): UsePlexQRAuth
     }
 
     await run()
-  }, [cleanup, timeout, autoRestart, pollInterval, onSuccess, onError])
+  }, [cleanup, timeout, autoRestart, pollInterval, onSuccess, onError, onCodeRequested])
 
   return {
     pin,
