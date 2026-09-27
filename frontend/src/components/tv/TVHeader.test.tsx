@@ -25,7 +25,6 @@ function renderHeader(overrides: Partial<Parameters<typeof TVHeader>[0]> = {}) {
   const props = {
     status: 'connected' as const,
     onReconnect: vi.fn(),
-    currentProgrammeTitle: null,
     onOpenAdmin: vi.fn(),
     onOpenChannelPicker: vi.fn(),
     onReload: vi.fn(),
@@ -41,7 +40,7 @@ beforeEach(() => {
   auth.logout = vi.fn()
   appSettings.userChannelSelection = false
   settingsMenu.onLogout = undefined
-  useTVStore.setState({ selectedChannel: null })
+  useTVStore.setState({ selectedChannel: null, liveEPG: null })
   useUIStore.setState({ isEPGVisible: true, isNHLOverlayVisible: false })
   useChatStore.setState({ isOpen: false, unreadCount: 0 })
 })
@@ -64,8 +63,12 @@ describe('TVHeader', () => {
     expect(screen.getByText('Movies')).toBeVisible()
     cleanup()
 
-    renderHeader({ currentProgrammeTitle: 'Heat' })
-    expect(screen.getByText('Movies - Heat')).toHaveClass('truncate')
+    useTVStore.setState({
+      selectedChannel: { id: 'live-channel-0', name: 'Sports', number: 0, streamUrl: '/a', type: 'live' },
+      liveEPG: { channelId: 'a', currentProgram: { title: 'Big Game', startTime: '2026-09-06T11:00:00Z', endTime: '2099-01-01T00:00:00Z' } },
+    })
+    renderHeader()
+    expect(screen.getByText('Sports - Big Game')).toHaveClass('truncate')
   })
 
   it('reports the connection and reconnects from it', () => {

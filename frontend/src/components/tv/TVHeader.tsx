@@ -2,6 +2,7 @@ import { ShieldCheck, LayoutList, RefreshCw, Tv } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useAppSettings } from '@/hooks/useAppSettings'
 import type { WebSocketStatus } from '@/hooks/useWebSocket'
+import { useNowPlaying } from '@/hooks/useNowPlaying'
 import { useTVStore } from '@/stores/tvStore'
 import { useUIStore } from '@/stores/uiStore'
 import { ChatToggleButton } from '@/components/ChatToggleButton'
@@ -13,8 +14,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 interface TVHeaderProps {
   status: WebSocketStatus
   onReconnect: () => void
-  // Title of the programme on the selected channel, if known
-  currentProgrammeTitle: string | null
   onOpenAdmin: () => void
   // Opens the live channel picker (the button shows only for non-admins the admin allows)
   onOpenChannelPicker: () => void
@@ -26,7 +25,6 @@ interface TVHeaderProps {
 export function TVHeader({
   status,
   onReconnect,
-  currentProgrammeTitle,
   onOpenAdmin,
   onOpenChannelPicker,
   onReload,
@@ -36,6 +34,7 @@ export function TVHeader({
   // Admin-controlled: lets non-admins change the live channel for everyone
   const { userChannelSelection } = useAppSettings()
   const selectedChannel = useTVStore((s) => s.selectedChannel)
+  const { title: currentProgrammeTitle } = useNowPlaying(selectedChannel)
   const isEPGVisible = useUIStore((s) => s.isEPGVisible)
   const toggleEPG = useUIStore((s) => s.toggleEPG)
   const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)

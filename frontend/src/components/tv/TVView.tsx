@@ -5,7 +5,7 @@ import { useEscapeKey } from '@/hooks/useEscapeKey'
 import { useTVMode } from '@/hooks/useTVMode'
 import { useChannelZap } from '@/hooks/useChannelZap'
 import { getRemoteAction, isKeyForFocusedControl } from '@/lib/remoteKeys'
-import { useProgrammeClock } from '@/hooks/useProgrammeClock'
+import { useNowPlaying } from '@/hooks/useNowPlaying'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useChannelStore } from '@/stores/channelStore'
@@ -144,24 +144,8 @@ export function TVView() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isTVMode, isTheaterMode, handleEscape, setTheaterMode])
 
-  const programmeTime = useProgrammeClock()
-
   // Get currently playing programme for presence tracking
-  const currentProgrammeTitle = (() => {
-    if (!selectedChannel) return null
-
-    if (selectedChannel.type === 'live') {
-      return liveEPG?.currentProgram?.title ?? null
-    }
-
-    const programmes = programmesByChannel[selectedChannel.id]
-    if (!programmes) return null
-    const now = new Date(programmeTime)
-    const current = programmes.find(
-      (p) => new Date(p.start) <= now && new Date(p.stop) > now
-    )
-    return current?.title ?? null
-  })()
+  const { title: currentProgrammeTitle } = useNowPlaying(selectedChannel)
 
   // Track that user visited this route (now at root)
   useEffect(() => {
@@ -328,7 +312,6 @@ export function TVView() {
         <TVHeader
           status={status}
           onReconnect={reconnect}
-          currentProgrammeTitle={currentProgrammeTitle}
           onOpenAdmin={openAdmin}
           onOpenChannelPicker={openLivePicker}
           onReload={reloadVideo}
