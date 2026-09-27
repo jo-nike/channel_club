@@ -173,7 +173,7 @@ function CollapsedChannelButton({
           ref={ref}
           onClick={() => onSelect(channel)}
           className={cn(
-            'relative flex h-10 shrink-0 scroll-my-1 items-center justify-center rounded-lg text-xs font-medium overflow-hidden',
+            'relative flex h-10 shrink-0 scroll-my-1 items-center justify-center rounded-lg font-display text-sm font-extrabold tabular-nums overflow-hidden',
             'hover:bg-foreground/10 focus-visible:-outline-offset-2',
             isLive ? 'w-auto min-w-10 px-1' : 'w-10',
             isSelected && 'ring-2 ring-primary',
@@ -202,7 +202,7 @@ function CollapsedChannelButton({
               {/* The aria-label already carries the number */}
               <span
                 aria-hidden="true"
-                className="absolute bottom-0 right-0 flex h-4 min-w-4 items-center justify-center rounded-tl-md bg-background/85 px-0.5 text-[10px] font-semibold leading-none tabular-nums text-foreground"
+                className="absolute bottom-0 right-0 flex h-4 min-w-4 items-center justify-center rounded-tl-md bg-background/85 px-0.5 text-[10px] leading-none text-foreground"
               >
                 {channel.number}
               </span>
@@ -357,7 +357,7 @@ function ChannelItem({
         {/* Channel info */}
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
-            <span className="text-sm font-medium text-muted-foreground">
+            <span className="font-display text-lg font-extrabold leading-none tabular-nums text-muted-foreground">
               {channel.number}
             </span>
             <span className="truncate font-medium">

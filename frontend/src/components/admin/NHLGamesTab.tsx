@@ -247,7 +247,7 @@ function TeamLine({ abbr, name, score, logo, showScore }: TeamLineProps) {
       <span className="font-medium truncate" title={name}>
         {abbr}
       </span>
-      {showScore && <span className="text-sm tabular-nums">{score}</span>}
+      {showScore && <span className="font-display text-base font-extrabold tabular-nums">{score}</span>}
     </div>
   )
 }

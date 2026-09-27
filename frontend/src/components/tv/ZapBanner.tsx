@@ -41,7 +41,7 @@ function ZapBannerCard({ channel }: { channel: UnifiedChannel }) {
   return (
     <div className="rounded-2xl bg-black/70 px-8 py-6 text-white shadow-2xl">
       <p className="text-5xl font-bold">
-        <span className="tabular-nums">CH {channel.number}</span> · {channel.name}
+        <span className="font-display font-black tabular-nums">CH {channel.number}</span> · {channel.name}
       </p>
       <p className="mt-3 text-2xl text-white/80">▲▼ change channel · Back for menu</p>
     </div>

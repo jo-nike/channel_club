@@ -383,8 +383,8 @@ function TeamBadge({
       {score !== undefined && (
         <span
           className={cn(
-            'text-xs tabular-nums',
-            isWinner ? 'font-bold text-primary' : 'text-muted-foreground'
+            'font-display text-sm tabular-nums',
+            isWinner ? 'font-black text-primary' : 'font-bold text-muted-foreground'
           )}
         >
           {score}

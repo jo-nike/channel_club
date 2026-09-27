@@ -86,7 +86,7 @@ export function MobileChannelList({ onChannelSelect, liveEPGTitle, onPickLive }:
                     }}
                   />
                 ) : (
-                  <span className="text-sm font-medium">{channel.number}</span>
+                  <span className="font-display text-lg font-extrabold tabular-nums">{channel.number}</span>
                 )}
               </div>
               <div className="min-w-0 flex-1">

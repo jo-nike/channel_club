@@ -224,6 +224,12 @@ describe('NHLScoresOverlay', () => {
     render(<NHLScoresOverlay isVisible={true} />)
 
     expect(screen.getByText('F/OT')).toBeInTheDocument()
+
+    // Scores are set in the display face with tabular figures; the winner is heavier
+    const winner = screen.getByText('3')
+    const loser = screen.getByText('2')
+    expect(winner).toHaveClass('font-display', 'tabular-nums', 'font-black', 'text-primary')
+    expect(loser).toHaveClass('font-display', 'tabular-nums', 'font-bold', 'text-muted-foreground')
   })
 
   it('should show intermission status', () => {

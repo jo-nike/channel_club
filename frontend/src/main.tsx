@@ -2,6 +2,12 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { RouterProvider } from 'react-router-dom'
 import { registerSW } from 'virtual:pwa-register'
+// Self-hosted brand fonts, upright only (the few italic lines get a
+// synthesized slant). The packages ship no latin-only entry; unicode-range
+// means a browser only fetches the subsets a page uses, and the service
+// worker precaches them all (about 100 kB) for offline starts.
+import '@fontsource-variable/figtree'
+import '@fontsource-variable/big-shoulders-display'
 import './index.css'
 import { router } from '@/router'
 import { logger } from '@/lib/logger'

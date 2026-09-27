@@ -52,6 +52,22 @@ describe('TVChannelSidebar colours', () => {
     expect(tile).not.toHaveClass('hover:bg-accent')
   })
 
+  it('sets channel numbers in the display face with tabular figures', async () => {
+    render(<TVChannelSidebar isCollapsed />)
+    await act(async () => {})
+    expect(screen.getByRole('button', { name: '1 Movies' })).toHaveClass(
+      'font-display',
+      'font-extrabold',
+      'tabular-nums',
+    )
+    cleanup()
+
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+    const row = screen.getByRole('button', { name: /Movies/ })
+    expect(within(row).getByText('1')).toHaveClass('font-display', 'font-extrabold', 'tabular-nums')
+  })
+
   it('shows the LIVE badge on the live token rather than destructive', async () => {
     render(<TVChannelSidebar />)
     await act(async () => {})
