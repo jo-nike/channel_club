@@ -1,19 +1,21 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor, within } from '@/test/utils'
+import { act, render, screen, fireEvent, waitFor, within } from '@/test/utils'
 import { LiveSwitcherSheet } from './LiveSwitcherSheet'
 import { useChannelStore } from '@/stores/channelStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useRecentLiveStore } from '@/stores/recentLiveStore'
 import { useNhlMappingStore } from '@/stores/nhlMappingStore'
+import { useTVStore, LIVE_CHANNEL_ID } from '@/stores/tvStore'
 import * as api from '@/services/api'
-import type { Channel, GroupedChannelsResponse } from '@/types'
+import type { Channel, GroupedChannelsResponse, UnifiedChannel } from '@/types'
 import type { GameStatus, NHLBroadcast, NHLGame, NHLScoresResponse } from '@/types/nhl'
 
 vi.mock('@/services/api', () => ({
   fetchGroupedChannels: vi.fn(),
   fetchNowPlaying: vi.fn(),
   fetchNowPlayingAll: vi.fn(),
+  fetchLiveProgrammes: vi.fn(async () => ({ channelId: 'x', programmes: [] })),
   setCurrentChannel: vi.fn(),
   clearCurrentChannel: vi.fn(),
 }))
@@ -34,6 +36,7 @@ const tsn5 = ch('1', 'TSN 5')
 const sportsnet = ch('2', 'Sportsnet')
 const cnn = ch('3', 'CNN')
 const cbc = ch('4', 'CBC')
+const movies: UnifiedChannel = { id: 'e1', name: 'Movies', number: 1, streamUrl: '/e1', type: 'ersatztv' }
 
 const lineup: GroupedChannelsResponse = {
   groups: [
@@ -78,6 +81,8 @@ describe('LiveSwitcherSheet', () => {
     useSettingsStore.setState({ userChannelSelection: true })
     useRecentLiveStore.setState({ byUser: {} })
     useNhlMappingStore.setState({ overrides: {} })
+    // The person opening the switcher is watching an ErsatzTV channel
+    useTVStore.setState({ selectedChannel: movies })
     vi.mocked(api.fetchGroupedChannels).mockResolvedValue(lineup)
     vi.mocked(api.fetchNowPlaying).mockResolvedValue({ channelId: 'x', currentProgram: null })
     vi.mocked(api.fetchNowPlayingAll).mockResolvedValue({})
@@ -119,7 +124,9 @@ describe('LiveSwitcherSheet', () => {
     expect(within(channels).getAllByRole('button').map((b) => b.textContent)).toEqual(['TSN 5'])
   })
 
-  it('puts a game on live TV from its chip and closes', async () => {
+  it('puts a game on live TV from its chip, closes, then tunes the person to channel 0', async () => {
+    let accept!: (channel: Channel) => void
+    vi.mocked(api.setCurrentChannel).mockReturnValueOnce(new Promise((r) => { accept = r }))
     const onOpenChange = renderSheet()
 
     const sports = await screen.findByRole('region', { name: 'Sports on now' })
@@ -128,7 +135,12 @@ describe('LiveSwitcherSheet', () => {
     expect(api.setCurrentChannel).toHaveBeenCalledWith(tsn5)
     expect(useChannelStore.getState().currentChannel).toEqual(tsn5)
     expect(onOpenChange).toHaveBeenCalledWith(false)
-    await waitFor(() => expect(useRecentLiveStore.getState().byUser.sam).toEqual([tsn5.id]))
+    // Still on their own channel until the server accepts the switch
+    expect(useTVStore.getState().selectedChannel).toEqual(movies)
+
+    await act(async () => accept(tsn5))
+    expect(useTVStore.getState().selectedChannel).toMatchObject({ id: LIVE_CHANNEL_ID, streamUrl: tsn5.streamUrl })
+    expect(useRecentLiveStore.getState().byUser.sam).toEqual([tsn5.id])
   })
 
   it('marks the channel already on air instead of offering it', async () => {
@@ -158,7 +170,7 @@ describe('LiveSwitcherSheet', () => {
     expect(within(lak).getByRole('button', { name: 'CNN' })).toBeInTheDocument()
   })
 
-  it("offers the person's recent channels except the one on air, and switches to one", async () => {
+  it("offers the person's recent channels except the one on air, and switches and tunes to one", async () => {
     const { record } = useRecentLiveStore.getState()
     record('sam', sportsnet.id)
     record('sam', cbc.id)
@@ -171,7 +183,7 @@ describe('LiveSwitcherSheet', () => {
     fireEvent.click(within(recent).getByRole('button', { name: 'Sportsnet' }))
     expect(api.setCurrentChannel).toHaveBeenCalledWith(sportsnet)
     expect(onOpenChange).toHaveBeenCalledWith(false)
-    await waitFor(() => expect(useRecentLiveStore.getState().byUser.sam?.[0]).toBe(sportsnet.id))
+    await waitFor(() => expect(useTVStore.getState().selectedChannel).toMatchObject({ id: LIVE_CHANNEL_ID, streamUrl: sportsnet.streamUrl }))
   })
 
   it('has no Recent section for someone who has not switched yet', async () => {
@@ -183,7 +195,7 @@ describe('LiveSwitcherSheet', () => {
     expect(screen.queryByRole('region', { name: 'Recent' })).not.toBeInTheDocument()
   })
 
-  it('puts a channel from the full lineup on live TV and closes', async () => {
+  it('puts a channel from the full lineup on live TV, closes and tunes the person to it', async () => {
     const onOpenChange = renderSheet()
 
     const all = section('All channels')
@@ -192,7 +204,7 @@ describe('LiveSwitcherSheet', () => {
 
     expect(api.setCurrentChannel).toHaveBeenCalledWith(cnn)
     expect(onOpenChange).toHaveBeenCalledWith(false)
-    await waitFor(() => expect(useRecentLiveStore.getState().byUser.sam).toEqual([cnn.id]))
+    await waitFor(() => expect(useTVStore.getState().selectedChannel).toMatchObject({ id: LIVE_CHANNEL_ID, streamUrl: cnn.streamUrl }))
   })
 
   it('keeps Stop live TV and the watching count from viewers', async () => {

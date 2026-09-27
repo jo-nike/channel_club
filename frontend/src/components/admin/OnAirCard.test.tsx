@@ -11,6 +11,8 @@ import type { Channel, GroupedChannelsResponse } from '@/types'
 vi.mock('@/services/api', () => ({
   fetchGroupedChannels: vi.fn(),
   fetchNowPlaying: vi.fn(),
+  // The TV store's schedule lookup for channel 0 (loaded by the live switch)
+  fetchLiveProgrammes: vi.fn(async () => ({ channelId: 'x', programmes: [] })),
   setCurrentChannel: vi.fn(),
   clearCurrentChannel: vi.fn(),
 }))
@@ -218,6 +220,9 @@ describe('OnAirCard', () => {
   describe('Nothing on live TV', () => {
     beforeEach(() => {
       useChannelStore.setState({ currentChannel: null })
+      // Putting TSN on above had the TV store look its programme up for
+      // channel 0; only the card's own lookups count here
+      vi.mocked(api.fetchNowPlaying).mockClear()
     })
 
     it('says so and points to the list', () => {

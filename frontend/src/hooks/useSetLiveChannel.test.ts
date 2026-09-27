@@ -5,15 +5,20 @@ import { useSetLiveChannel } from './useSetLiveChannel'
 import { useChannelStore } from '@/stores/channelStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useRecentLiveStore } from '@/stores/recentLiveStore'
+import { useTVStore, LIVE_CHANNEL_ID } from '@/stores/tvStore'
 import * as api from '@/services/api'
-import type { Channel } from '@/types'
+import type { Channel, UnifiedChannel } from '@/types'
 
 vi.mock('@/services/api', () => ({
   setCurrentChannel: vi.fn(),
+  // Channel 0's guide lookups, once someone is tuned to it
+  fetchNowPlaying: vi.fn(async () => ({ channelId: 'x', currentProgram: null })),
+  fetchLiveProgrammes: vi.fn(async () => ({ channelId: 'x', programmes: [] })),
 }))
 
 const tsn: Channel = { id: '1', name: 'TSN', streamUrl: 'http://stream1.m3u8', guideId: '1' }
 const cnn: Channel = { id: '3', name: 'CNN', streamUrl: 'http://stream3.m3u8', guideId: '3' }
+const movies: UnifiedChannel = { id: 'e1', name: 'Movies', number: 1, streamUrl: '/e1', type: 'ersatztv' }
 
 describe('useSetLiveChannel', () => {
   beforeEach(() => {
@@ -21,6 +26,8 @@ describe('useSetLiveChannel', () => {
     useChannelStore.setState({ currentChannel: tsn })
     useAuthStore.setState({ username: 'jon', role: 'admin' })
     useRecentLiveStore.setState({ byUser: {} })
+    // Watching an ErsatzTV channel, not live TV
+    useTVStore.setState({ selectedChannel: movies })
   })
 
   const recents = () => useRecentLiveStore.getState().byUser.jon
@@ -105,5 +112,52 @@ describe('useSetLiveChannel', () => {
 
     expect(useChannelStore.getState().currentChannel).toEqual(cnn)
     expect(useRecentLiveStore.getState().byUser).toEqual({ sam: ['3'] })
+  })
+
+  describe('tuneActor', () => {
+    const selected = () => useTVStore.getState().selectedChannel
+
+    it('tunes the person who switched to channel 0 once the server accepts the switch', async () => {
+      let resolve!: (channel: Channel) => void
+      vi.mocked(api.setCurrentChannel).mockReturnValueOnce(new Promise((r) => { resolve = r }))
+      const { result } = renderHook(() => useSetLiveChannel({ tuneActor: true }))
+
+      let switching!: Promise<boolean>
+      act(() => {
+        switching = result.current(cnn)
+      })
+      // Not while the switch may still be refused
+      expect(selected()).toEqual(movies)
+
+      await act(async () => {
+        resolve(cnn)
+        await switching
+      })
+      expect(selected()).toMatchObject({ id: LIVE_CHANNEL_ID, type: 'live', number: 0, streamUrl: cnn.streamUrl })
+    })
+
+    it('leaves the person where they are when the switch is refused', async () => {
+      const toastError = vi.spyOn(toast, 'error')
+      vi.mocked(api.setCurrentChannel).mockRejectedValueOnce(new Error('Only admins can change the channel'))
+      const { result } = renderHook(() => useSetLiveChannel({ tuneActor: true }))
+
+      await act(async () => {
+        await result.current(cnn)
+      })
+
+      expect(selected()).toEqual(movies)
+      toastError.mockRestore()
+    })
+
+    it('leaves the person where they are by default, as the admin panel switches', async () => {
+      vi.mocked(api.setCurrentChannel).mockImplementation(async (channel) => channel)
+      const { result } = renderHook(() => useSetLiveChannel())
+
+      await act(async () => {
+        expect(await result.current(cnn)).toBe(true)
+      })
+
+      expect(selected()).toEqual(movies)
+    })
   })
 })

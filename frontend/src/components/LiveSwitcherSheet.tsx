@@ -29,8 +29,9 @@ interface LiveSwitcherSheetProps {
  * The Live TV switcher, for admins and for everyone else when the admin has
  * allowed it: what's on air, the NHL games on now that are on your channels,
  * the channels you recently put on, then the full lineup. Picking anything
- * puts it on live TV for everyone and closes the sheet. A bottom sheet on
- * phones, a dialog from tablet width up.
+ * puts it on live TV for everyone and closes the sheet, and once the switch
+ * goes through tunes you to channel 0 to watch it. A bottom sheet on phones,
+ * a dialog from tablet width up.
  */
 export function LiveSwitcherSheet({ open, onOpenChange }: LiveSwitcherSheetProps) {
   return (
@@ -55,7 +56,7 @@ function SwitcherBody({ onPicked }: { onPicked: () => void }) {
   const catalogue = useChannelCatalogue()
   const overrides = useNhlMappingStore((s) => s.overrides)
   const { data: scores } = useNHLScores(true)
-  const setLiveChannel = useSetLiveChannel()
+  const setLiveChannel = useSetLiveChannel({ tuneActor: true })
 
   const games = useMemo(
     () => (catalogue ? gamesOnNow(scores, [...catalogue.values()], overrides) : []),
@@ -113,7 +114,7 @@ function SwitcherBody({ onPicked }: { onPicked: () => void }) {
         )}
 
         <SwitcherSection title="All channels" flush>
-          <ChannelList onChannelSelected={onPicked} />
+          <ChannelList onChannelSelected={onPicked} tuneActor />
         </SwitcherSection>
       </div>
     </>

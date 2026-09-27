@@ -5,13 +5,17 @@ import { useChannelStore } from '@/stores/channelStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { useTVStore, LIVE_CHANNEL_ID } from '@/stores/tvStore'
 import * as api from '@/services/api'
-import type { GroupedChannelsResponse } from '@/types'
+import type { GroupedChannelsResponse, UnifiedChannel } from '@/types'
 
 vi.mock('@/services/api', () => ({
   fetchGroupedChannels: vi.fn(),
   fetchNowPlayingAll: vi.fn(),
   setCurrentChannel: vi.fn(),
+  // Channel 0's guide lookups, once someone is tuned to it
+  fetchNowPlaying: vi.fn(async () => ({ channelId: 'x', currentProgram: null })),
+  fetchLiveProgrammes: vi.fn(async () => ({ channelId: 'x', programmes: [] })),
 }))
 
 const mockGroupedResponse: GroupedChannelsResponse = {
@@ -389,6 +393,42 @@ describe('ChannelList', () => {
       })
 
       expect(screen.queryByRole('button', { name: /stop live tv/i })).not.toBeInTheDocument()
+    })
+  })
+
+  describe('tuning the person who picked', () => {
+    const movies: UnifiedChannel = { id: 'e1', name: 'Movies', number: 1, streamUrl: '/e1', type: 'ersatztv' }
+    const tsn = mockGroupedResponse.groups[0].channels[0]
+
+    beforeEach(() => {
+      useAuthStore.setState({ role: 'admin' })
+      useTVStore.setState({ selectedChannel: movies })
+      vi.mocked(api.fetchGroupedChannels).mockResolvedValue(mockGroupedResponse)
+      vi.mocked(api.setCurrentChannel).mockImplementation(async (channel) => channel)
+    })
+
+    async function pickTSN() {
+      await waitFor(() => expect(screen.getByText('Sports')).toBeInTheDocument())
+      fireEvent.click(screen.getByText('Sports'))
+      fireEvent.click(screen.getByText('TSN'))
+      await waitFor(() => expect(api.setCurrentChannel).toHaveBeenCalledWith(tsn))
+    }
+
+    it('tunes them to channel 0 in the Live TV switcher', async () => {
+      render(<ChannelList tuneActor onChannelSelected={vi.fn()} />)
+      await pickTSN()
+
+      await waitFor(() =>
+        expect(useTVStore.getState().selectedChannel).toMatchObject({ id: LIVE_CHANNEL_ID, streamUrl: tsn.streamUrl }),
+      )
+    })
+
+    it('leaves them on their own channel elsewhere, like the admin panel', async () => {
+      render(<ChannelList />)
+      await pickTSN()
+
+      await waitFor(() => expect(useChannelStore.getState().currentChannel).toEqual(tsn))
+      expect(useTVStore.getState().selectedChannel).toEqual(movies)
     })
   })
 

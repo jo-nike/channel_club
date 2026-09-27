@@ -14,14 +14,16 @@ import type { Channel, GroupedChannelsResponse, Program } from '@/types'
 
 interface ChannelListProps {
   onChannelSelected?: () => void
+  /** Tune the person who picked to channel 0 once the switch goes through (the Live TV switcher) */
+  tuneActor?: boolean
 }
 
-export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
+export function ChannelList({ onChannelSelected, tuneActor = false }: ChannelListProps = {}) {
   const { currentChannel } = useChannelStore()
   const { role } = useAuthStore()
   const userChannelSelection = useSettingsStore((s) => s.userChannelSelection)
   const setSidebarOpen = useUIStore((s) => s.setSidebarOpen)
-  const setLiveChannel = useSetLiveChannel()
+  const setLiveChannel = useSetLiveChannel({ tuneActor })
   const isAdmin = role === 'admin'
   // Admins always may; everyone else only when the admin has opened it up
   const canSelect = isAdmin || userChannelSelection
