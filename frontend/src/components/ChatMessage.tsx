@@ -8,6 +8,10 @@ export interface ChatMessageProps {
   isOwn?: boolean
   // The current time (ms) from the panel's shared tick, so 'just now' moves on
   now: number
+  // Consecutive messages from one sender form a group: the name shows on the
+  // first bubble, the time on the last
+  isFirstInGroup?: boolean
+  isLastInGroup?: boolean
 }
 
 /**
@@ -80,7 +84,13 @@ function renderContent(content: string): ReactNode {
   return <div className="flex flex-col gap-1 text-sm break-words">{segments}</div>
 }
 
-export function ChatMessage({ message, isOwn = false, now }: ChatMessageProps) {
+export function ChatMessage({
+  message,
+  isOwn = false,
+  now,
+  isFirstInGroup = true,
+  isLastInGroup = true,
+}: ChatMessageProps) {
   const formattedTime = formatTimestamp(message.timestamp, now)
 
   const renderedContent = useMemo(
@@ -90,9 +100,9 @@ export function ChatMessage({ message, isOwn = false, now }: ChatMessageProps) {
 
   return (
     <div
-      className={`flex flex-col gap-0.5 px-3 py-1.5 ${
-        isOwn ? 'items-end' : 'items-start'
-      }`}
+      className={`flex flex-col gap-0.5 px-3 ${isFirstInGroup ? 'pt-1.5' : 'pt-0.5'} ${
+        isLastInGroup ? 'pb-1.5' : 'pb-0.5'
+      } ${isOwn ? 'items-end' : 'items-start'}`}
     >
       <div
         className={`max-w-[85%] rounded-lg px-3 py-2 overflow-hidden ${
@@ -101,14 +111,16 @@ export function ChatMessage({ message, isOwn = false, now }: ChatMessageProps) {
             : 'bg-muted text-foreground'
         }`}
       >
-        {!isOwn && (
+        {!isOwn && isFirstInGroup && (
           <span className="block text-xs font-semibold text-muted-foreground mb-0.5">
             {message.username}
           </span>
         )}
         {renderedContent}
       </div>
-      <span className="text-xs text-muted-foreground px-1">{formattedTime}</span>
+      {isLastInGroup && (
+        <span className="text-xs text-muted-foreground px-1">{formattedTime}</span>
+      )}
     </div>
   )
 }

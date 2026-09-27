@@ -80,6 +80,46 @@ describe('ChatMessage', () => {
     expect(screen.getByText('just now')).toBeInTheDocument()
   })
 
+  describe('within a group', () => {
+    it('shows the name and time on a message standing alone', () => {
+      render(<ChatMessage message={createMessage({ username: 'OtherUser' })} now={NOW} />)
+      expect(screen.getByText('OtherUser')).toBeInTheDocument()
+      expect(screen.getByText('just now')).toBeInTheDocument()
+    })
+
+    it('shows the name but not the time on the first bubble', () => {
+      render(<ChatMessage message={createMessage({ username: 'OtherUser' })} now={NOW} isLastInGroup={false} />)
+      expect(screen.getByText('OtherUser')).toBeInTheDocument()
+      expect(screen.queryByText('just now')).not.toBeInTheDocument()
+    })
+
+    it('shows neither on a bubble in the middle', () => {
+      render(
+        <ChatMessage
+          message={createMessage({ username: 'OtherUser' })}
+          now={NOW}
+          isFirstInGroup={false}
+          isLastInGroup={false}
+        />
+      )
+      expect(screen.queryByText('OtherUser')).not.toBeInTheDocument()
+      expect(screen.queryByText('just now')).not.toBeInTheDocument()
+    })
+
+    it('shows the time but not the name on the last bubble', () => {
+      render(<ChatMessage message={createMessage({ username: 'OtherUser' })} now={NOW} isFirstInGroup={false} />)
+      expect(screen.queryByText('OtherUser')).not.toBeInTheDocument()
+      expect(screen.getByText('just now')).toBeInTheDocument()
+    })
+
+    it('packs bubbles inside a group closer than between groups', () => {
+      const { container, rerender } = render(<ChatMessage message={createMessage()} now={NOW} />)
+      expect(container.firstChild).toHaveClass('pt-1.5', 'pb-1.5')
+      rerender(<ChatMessage message={createMessage()} now={NOW} isFirstInGroup={false} isLastInGroup={false} />)
+      expect(container.firstChild).toHaveClass('pt-0.5', 'pb-0.5')
+    })
+  })
+
   it('applies different styles for own vs other messages', () => {
     const { rerender } = render(<ChatMessage message={createMessage()} now={NOW} />)
     const otherMessage = screen.getByText('Hello world!').closest('div')

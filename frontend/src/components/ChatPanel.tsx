@@ -4,6 +4,7 @@ import type { ChatSendResult, WebSocketStatus } from '@/hooks/useWebSocket'
 import { createClientMessageId } from '@/lib/messageId'
 import { scrollBehavior } from '@/lib/motion'
 import { useChatStore, isOwnMessage } from '@/stores/chatStore'
+import type { ChatMessage as ChatMessageData } from '@/types'
 import { useBreakpoint } from '@/hooks/useBreakpoint'
 import { useNow } from '@/hooks/useNow'
 import { ChatMessage } from './ChatMessage'
@@ -28,6 +29,22 @@ const AT_BOTTOM_THRESHOLD = 80
 
 function isNearBottom(viewport: HTMLElement): boolean {
   return viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < AT_BOTTOM_THRESHOLD
+}
+
+// Messages from one sender this close together, on the same day, share one name and one time
+const GROUP_GAP_MS = 3 * 60_000
+
+/**
+ * Whether a message carries on its sender's group from the one before it. The
+ * sender is their account id where the server sends one, so two people who
+ * picked the same name never merge; older servers only give the name.
+ */
+function continuesGroup(previous: ChatMessageData | undefined, message: ChatMessageData): boolean {
+  if (!previous || (previous.userId ?? previous.username) !== (message.userId ?? message.username)) return false
+  const previousAt = new Date(previous.timestamp)
+  const at = new Date(message.timestamp)
+  const gap = at.getTime() - previousAt.getTime()
+  return gap >= 0 && gap <= GROUP_GAP_MS && at.toDateString() === previousAt.toDateString()
 }
 
 // A send that failed, kept whole so a retry resends exactly it (a GIF stays a
@@ -314,6 +331,12 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
 
   if (!isOpen) return null
 
+  // Where each sender's group begins. The 'New' divider ends a group, so the
+  // first unread message always shows who sent it
+  const startsGroup = messages.map(
+    (msg, index) => msg.messageId === firstUnreadId || !continuesGroup(messages[index - 1], msg)
+  )
+
   // Panel styles based on viewport
   // Full-screen on phones: keep the header clear of the status bar and the
   // composer above the home indicator
@@ -437,7 +460,7 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
                     No messages yet. Say hello!
                   </p>
                 ) : (
-                  messages.map((msg) => (
+                  messages.map((msg, index) => (
                     <Fragment key={msg.messageId}>
                       {msg.messageId === firstUnreadId && (
                         <div
@@ -451,7 +474,13 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
                           <span className="h-px flex-1 bg-primary/50" aria-hidden="true" />
                         </div>
                       )}
-                      <ChatMessage message={msg} isOwn={isOwnMessage(msg, { nickname, me })} now={now} />
+                      <ChatMessage
+                        message={msg}
+                        isOwn={isOwnMessage(msg, { nickname, me })}
+                        now={now}
+                        isFirstInGroup={startsGroup[index]}
+                        isLastInGroup={startsGroup[index + 1] ?? true}
+                      />
                     </Fragment>
                   ))
                 )}

@@ -773,6 +773,84 @@ describe('ChatPanel', () => {
     })
   })
 
+  describe('grouping', () => {
+    // Local noon, well clear of midnight, which ends a group
+    const base = new Date(2026, 8, 27, 12, 0).getTime()
+    beforeEach(() => {
+      vi.useFakeTimers()
+      vi.setSystemTime(base)
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+    // A message sent this many seconds before now
+    const sent = (id: string, username: string, secondsAgo: number, userId?: string): ChatMessage => ({
+      messageId: id,
+      username,
+      userId,
+      content: `Message ${id}`,
+      timestamp: new Date(base - secondsAgo * 1000).toISOString(),
+    })
+
+    it('shows one name and one time for quick messages from one sender', () => {
+      useChatStore.setState({
+        messages: [sent('1', 'OtherUser', 20), sent('2', 'OtherUser', 10), sent('3', 'OtherUser', 0)],
+      })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.getAllByText('OtherUser')).toHaveLength(1)
+      expect(screen.getAllByText('just now')).toHaveLength(1)
+    })
+
+    it('starts a new group after a gap of more than 3 minutes', () => {
+      useChatStore.setState({ messages: [sent('1', 'OtherUser', 200), sent('2', 'OtherUser', 0)] })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.getAllByText('OtherUser')).toHaveLength(2)
+    })
+
+    it('keeps a gap of exactly 3 minutes in the group', () => {
+      useChatStore.setState({ messages: [sent('1', 'OtherUser', 180), sent('2', 'OtherUser', 0)] })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.getAllByText('OtherUser')).toHaveLength(1)
+    })
+
+    it('starts a new group when someone else speaks in between', () => {
+      useChatStore.setState({
+        messages: [sent('1', 'Alice', 20), sent('2', 'Bob', 10), sent('3', 'Alice', 0)],
+      })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.getAllByText('Alice')).toHaveLength(2)
+      expect(screen.getAllByText('Bob')).toHaveLength(1)
+    })
+
+    it('never merges two people who picked the same name', () => {
+      useChatStore.setState({
+        messages: [sent('1', 'Sam', 10, 'u_aaaaaaaaaaaaaaaa'), sent('2', 'Sam', 0, 'u_bbbbbbbbbbbbbbbb')],
+      })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.getAllByText('Sam')).toHaveLength(2)
+    })
+
+    it('keeps one sender together across a rename', () => {
+      useChatStore.setState({
+        messages: [sent('1', 'Sam', 10, 'u_aaaaaaaaaaaaaaaa'), sent('2', 'Samuel', 0, 'u_aaaaaaaaaaaaaaaa')],
+      })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.getByText('Sam')).toBeInTheDocument()
+      expect(screen.queryByText('Samuel')).not.toBeInTheDocument()
+    })
+
+    it("names the sender again after the 'New' divider", () => {
+      useChatStore.setState({
+        messages: [sent('1', 'OtherUser', 20), sent('2', 'OtherUser', 10)],
+        readMarker: base - 15_000,
+      })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.getAllByText('OtherUser')).toHaveLength(2)
+      // Each side of the divider ends with its time
+      expect(screen.getAllByText('just now')).toHaveLength(2)
+    })
+  })
+
   describe('scroll position', () => {
     const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView)
     const originalMatchMedia = window.matchMedia
