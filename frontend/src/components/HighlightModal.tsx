@@ -18,6 +18,9 @@ function pressRange(duration: number, press: number): [number, number] {
   return [Math.max(0, end - DEFAULT_CLIP_SECONDS), end]
 }
 
+/** Lengths offered in the segmented control, each ending where the user pressed */
+const LENGTHS = [10, 20, 30] as const
+
 /** Nudges land on tenths, like the handles, so repeated presses never drift. */
 const tenths = (time: number) => Math.round(time * 10) / 10
 
@@ -86,6 +89,7 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
   const keep = useRef<{ pressedAt: number; start: number; end: number } | null>(null)
   const cache = useRef<{ key: string; blob: Blob } | null>(null)
   const [start, end] = range
+  const lengthLabel = useId()
   const ready = duration >= 0.1 && source !== null && !captureError
   const needsConfirm = ready && delivered !== `${start}:${end}:${format}`
   // Seconds between the capture's last frame and the press: the recorder had not closed them yet
@@ -207,6 +211,20 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
     }
   }
 
+  /** The `seconds` that end where the user pressed, or as much of them as the capture holds */
+  function lengthRange(seconds: number): [number, number] {
+    const [, pressEnd] = pressRange(duration, press)
+    return [Math.max(0, pressEnd - seconds), pressEnd]
+  }
+
+  // A length shows as chosen only while the selection is exactly that long and ends at the press, so a
+  // short capture shows Full rather than a 10s that is really 8s; any hand edit clears it.
+  const near = (a: number, b: number) => Math.abs(a - b) < 0.05
+  const chosenLength = LENGTHS.find(seconds => {
+    const [from, to] = lengthRange(seconds)
+    return near(start, from) && near(end, to) && near(to - from, seconds)
+  }) ?? (near(start, 0) && near(end, duration) ? 'full' : null)
+
   // Nudges stop at the other boundary rather than pushing it, unlike I and O on the timeline.
   function nudgeStart(step: number) {
     select(Math.max(0, Math.min(end - 0.1, tenths(start + step))), end)
@@ -292,11 +310,18 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
               <span>This capture ends {missing.toFixed(1)}s before you pressed.</span>
               <Button type="button" variant="outline" size="sm" onClick={includeLastSeconds}>Include the last few seconds</Button>
             </div>}
-            <div className="flex flex-wrap items-center gap-2">
-              {[10, 15, 30].map(seconds => <Button key={seconds} type="button" variant="outline" size="sm"
-                onClick={() => { const [, pressEnd] = pressRange(duration, press); select(Math.max(0, pressEnd - seconds), pressEnd) }}>Last {seconds}s</Button>)}
-              <Button type="button" variant="outline" size="sm" onClick={() => select(0, duration)}>Full clip</Button>
-              <span className="ml-auto text-sm text-muted-foreground">{duration.toFixed(1)}s captured</span>
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="flex flex-col gap-1">
+                <span id={lengthLabel} className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Length</span>
+                <div role="group" aria-labelledby={lengthLabel} className="grid grid-cols-4 gap-1 rounded-lg bg-muted p-1">
+                  {[...LENGTHS, 'full' as const].map(length => <button key={length} type="button" aria-pressed={chosenLength === length}
+                    onClick={() => length === 'full' ? select(0, duration) : select(...lengthRange(length))}
+                    className="inline-flex h-11 min-w-14 items-center justify-center rounded-md px-3 font-display text-lg font-bold tabular-nums text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-50 aria-pressed:bg-foreground aria-pressed:text-background md:h-9">
+                    {length === 'full' ? 'Full' : `${length}s`}
+                  </button>)}
+                </div>
+              </div>
+              <span className="ml-auto pb-2 text-sm text-muted-foreground">{duration.toFixed(1)}s captured</span>
             </div>
             <ClipTimeline url={source.url} duration={duration} start={start} end={end} playhead={playhead} press={press}
               onChange={select} onSeek={seek} onPlaySelection={() => void playSelection()} disabled={stage !== null} />
