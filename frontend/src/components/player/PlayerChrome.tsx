@@ -8,8 +8,10 @@ import { HighlightButton } from '@/components/HighlightButton'
 import { CastButton } from '@/components/CastButton'
 import { FilterMenu } from '@/components/FilterMenu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { withKey } from '@/lib/keyHints'
 import { unmutedVolume } from '@/stores/audioStore'
 import { useClipStore } from '@/stores/clipStore'
+import { ChannelRocker } from './ChannelRocker'
 import { usePlayerShell } from './PlayerShellContext'
 import { usePlayerAudio } from './usePlayerAudio'
 import type { PlayerMediaAdapter } from './mediaAdapters'
@@ -48,6 +50,7 @@ export function PlayerChrome({
     toggleTheaterMode,
     controlsVisible: isVisible,
     setHoveringControls,
+    stepChannel,
     reload,
   } = usePlayerShell()
   const { volume, isStoreMuted, isMuted, canSetVolume, changeVolume, toggleMute } = usePlayerAudio(adapter)
@@ -58,6 +61,24 @@ export function PlayerChrome({
   const isTouchDevice = useMediaQuery('(pointer: coarse)')
   const isMobileQuery = useMediaQuery('(max-width: 768px)')
   const isMobile = isMobileProp || isMobileQuery || isTouchDevice
+
+  const showTheaterButton = (isTVMode || !isMobile) && !isFullscreen
+
+  // The bar is already full at 640-768px: the channel rocker comes in at
+  // 1024px, or in theater and fullscreen, where the sidebar and guide are gone.
+  // Never below 768px, even there: the bar doesn't wrap or shrink, so on a
+  // phone the rocker would push Exit fullscreen off the screen.
+  const isWide = useMediaQuery('(min-width: 1024px)')
+  const hasRoomForRocker = useMediaQuery('(min-width: 768px)')
+  const showChannelRocker = stepChannel && (isWide || (hasRoomForRocker && (isTheaterMode || isFullscreen)))
+  // The viewport isn't the bar, though: on a desktop the player sits beside
+  // the sidebar and the docked chat, so at 1024px with chat open it is only
+  // 640px wide. The bar is a size container, and the rocker also stays out
+  // while the bar is narrower than every control plus the rocker needs. With
+  // Cast and clip on that is about 742px inside the padding, or 678px without
+  // the Theater button (measured in Chrome); the thresholds leave some slack
+  // for the CH label's fallback fonts.
+  const rockerFitClass = showTheaterButton ? '@max-[48rem]:hidden' : '@max-[44rem]:hidden'
 
   // Check if highlight feature is enabled (server-side feature flag)
   const { isEnabled: highlightEnabled } = useHighlightFeature()
@@ -92,7 +113,7 @@ export function PlayerChrome({
       aria-label="Video controls"
       onMouseEnter={() => setHoveringControls(true)}
       onMouseLeave={() => setHoveringControls(false)}
-      className={`video-controls absolute inset-x-0 bottom-0 z-10 flex items-center gap-2 bg-gradient-to-t from-black/80 via-black/50 to-transparent px-3 pb-2 pt-8 sm:gap-4 transition-opacity duration-300 ${
+      className={`video-controls @container absolute inset-x-0 bottom-0 z-10 flex items-center gap-2 bg-gradient-to-t from-black/80 via-black/50 to-transparent px-3 pb-2 pt-8 sm:gap-4 transition-opacity duration-300 ${
         isVisible ? 'opacity-100' : 'pointer-events-none opacity-0'
       }`}
     >
@@ -104,6 +125,7 @@ export function PlayerChrome({
             tabIndex={tabIndex}
             onClick={adapter.togglePaused}
             aria-label={playLabel}
+            aria-keyshortcuts="Space"
             className={CONTROL_BUTTON}
           >
             {adapter.isPlaying ? (
@@ -114,7 +136,7 @@ export function PlayerChrome({
           </button>
         </TooltipTrigger>
         <TooltipContent>
-          <p>{playLabel}</p>
+          <p>{withKey(playLabel, 'Space')}</p>
         </TooltipContent>
       </Tooltip>
 
@@ -127,6 +149,7 @@ export function PlayerChrome({
               tabIndex={tabIndex}
               onClick={toggleMute}
               aria-label={muteLabel}
+              aria-keyshortcuts="M"
               className={CONTROL_BUTTON}
             >
               {isMuted ? (
@@ -137,7 +160,7 @@ export function PlayerChrome({
             </button>
           </TooltipTrigger>
           <TooltipContent>
-            <p>{muteLabel}</p>
+            <p>{withKey(muteLabel, 'M')}</p>
           </TooltipContent>
         </Tooltip>
         {/* No slider where the browser ignores script volume (iOS/iPadOS); Mute
@@ -159,6 +182,16 @@ export function PlayerChrome({
           />
         )}
       </div>
+
+      {/* Channel down/up, through the page's zap like PageDown/PageUp */}
+      {showChannelRocker && (
+        <ChannelRocker
+          onStep={stepChannel}
+          tabIndex={tabIndex}
+          buttonClassName={CONTROL_BUTTON}
+          className={rockerFitClass}
+        />
+      )}
 
       {/* Highlight capture */}
       {showHighlightButton && (
@@ -199,19 +232,20 @@ export function PlayerChrome({
             tabIndex={tabIndex}
             onClick={reload}
             aria-label="Reload stream"
+            aria-keyshortcuts="R"
             className={`${CONTROL_BUTTON} max-[399px]:hidden`}
           >
             <RotateCw className="h-6 w-6 text-white" />
           </button>
         </TooltipTrigger>
         <TooltipContent>
-          <p>Reload stream (R)</p>
+          <p>{withKey('Reload stream', 'R')}</p>
         </TooltipContent>
       </Tooltip>
 
       {/* Theater Mode Button - hidden on touch/small screens and in fullscreen. TV browsers
           always get it: webOS pointer mode can report pointer:coarse. */}
-      {(isTVMode || !isMobile) && !isFullscreen && (
+      {showTheaterButton && (
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -219,6 +253,7 @@ export function PlayerChrome({
               tabIndex={tabIndex}
               onClick={toggleTheaterMode}
               aria-label={theaterLabel}
+              aria-keyshortcuts="T"
               className={CONTROL_BUTTON}
             >
               {isTheaterMode ? (
@@ -229,7 +264,7 @@ export function PlayerChrome({
             </button>
           </TooltipTrigger>
           <TooltipContent>
-            <p>{theaterLabel}</p>
+            <p>{withKey(theaterLabel, 'T')}</p>
           </TooltipContent>
         </Tooltip>
       )}
@@ -242,6 +277,7 @@ export function PlayerChrome({
             tabIndex={tabIndex}
             onClick={toggleFullscreen}
             aria-label={fullscreenLabel}
+            aria-keyshortcuts="F"
             className={CONTROL_BUTTON}
           >
             {isFullscreen ? (
@@ -252,7 +288,7 @@ export function PlayerChrome({
           </button>
         </TooltipTrigger>
         <TooltipContent>
-          <p>{fullscreenLabel}</p>
+          <p>{withKey(fullscreenLabel, 'F')}</p>
         </TooltipContent>
       </Tooltip>
     </div>

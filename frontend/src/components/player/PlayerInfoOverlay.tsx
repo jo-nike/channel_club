@@ -4,6 +4,7 @@ import { NHLScoresOverlay } from '@/components/NHLScoresOverlay'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useNowPlaying } from '@/hooks/useNowPlaying'
 import { useTVMode } from '@/hooks/useTVMode'
+import { withKey } from '@/lib/keyHints'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
 import { useChannelStore, type LiveChannelChange } from '@/stores/channelStore'
@@ -207,6 +208,7 @@ function InfoRail({ channel, isVisible, liveChange }: InfoRailProps) {
               tabIndex={isVisible ? 0 : -1}
               onClick={toggleNHLOverlay}
               aria-label={nhlLabel}
+              aria-keyshortcuts="N"
               aria-pressed={isNHLOverlayVisible}
               className={cn(
                 'control-button flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-ring-media',
@@ -220,7 +222,7 @@ function InfoRail({ channel, isVisible, liveChange }: InfoRailProps) {
             </button>
           </TooltipTrigger>
           <TooltipContent>
-            <p>{nhlLabel}</p>
+            <p>{withKey(nhlLabel, 'N')}</p>
           </TooltipContent>
         </Tooltip>
       </div>

@@ -9,6 +9,7 @@ import { useUIStore } from '@/stores/uiStore'
 import { useClipStore } from '@/stores/clipStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore } from '@/stores/tvStore'
+import { useChatStore } from '@/stores/chatStore'
 import { useChannelZap, type ChannelZap } from '@/hooks/useChannelZap'
 import type { UnifiedChannel } from '@/types'
 import type { PlayerShell } from '@/components/player/PlayerShellContext'
@@ -166,6 +167,10 @@ vi.mock('@/hooks/useNHLScores', () => ({
 const volumeSupport = vi.hoisted(() => ({ canSet: true }))
 vi.mock('@/hooks/useCanSetVolume', () => ({ useCanSetVolume: () => volumeSupport.canSet }))
 
+// VITE_CHAT_ENABLED: off unless a test turns it on
+const chatFeature = vi.hoisted(() => ({ enabled: false }))
+vi.mock('@/hooks/useChatEnabled', () => ({ useChatEnabled: () => chatFeature.enabled }))
+
 const liveChannel = (streamUrl: string): UnifiedChannel => ({
   id: 'live-channel-0',
   name: 'Live',
@@ -264,6 +269,7 @@ beforeEach(() => {
   clipApi.deleteHighlightCapture.mockReset().mockResolvedValue(undefined)
   clipApi.getHighlightFeatures.mockReset().mockResolvedValue({ enabled: true, ziplineEnabled: false })
   volumeSupport.canSet = true
+  chatFeature.enabled = false
   mpegtsHarness.players.length = 0
   mpegtsHarness.createPlayer.mockClear()
   vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
@@ -2421,6 +2427,35 @@ describe('DualModeVideoPlayer channel keys', () => {
       expect(screen.getByRole('button', { name: 'Exit fullscreen' })).toBeInTheDocument()
     })
 
+    it('the rocker in fullscreen steps like PageDown: one tune after the presses stop, still in fullscreen', () => {
+      // Fullscreen on a screen with room for the rocker (not a phone)
+      matchMediaQueries(['(min-width: 768px)'])
+      render(<Page />)
+      const fullscreen = shell()
+      act(() => {
+        fullscreenElement = fullscreen
+        document.dispatchEvent(new Event('fullscreenchange'))
+      })
+
+      for (let i = 0; i < 3; i++) fireEvent.click(screen.getByRole('button', { name: 'Channel down' }))
+      expect(screen.getByTestId('player-info-rail')).toHaveTextContent('Channel 2')
+      expect(tunes).toEqual([])
+
+      act(() => {
+        vi.advanceTimersByTime(700)
+      })
+
+      expect(tunes).toEqual(['e2'])
+      expect(shell()).toBe(fullscreen)
+      expect(screen.getByRole('button', { name: 'Channel up' })).toBeInTheDocument()
+    })
+
+    it('has no rocker inline below 1024px', () => {
+      render(<Page />)
+
+      expect(screen.queryByRole('group', { name: 'Channel' })).not.toBeInTheDocument()
+    })
+
     it('L goes back to the channel before, and L again returns', () => {
       render(<Page />)
       fireEvent.keyDown(window, { key: ']' })
@@ -2474,5 +2509,96 @@ describe('DualModeVideoPlayer channel keys', () => {
       })
       expect(screen.getByTestId('player-info-rail')).toHaveTextContent('Channel 5')
     })
+  })
+})
+
+describe('DualModeVideoPlayer panel keys', () => {
+  const sheet = () => screen.queryByRole('dialog', { name: 'Keyboard shortcuts' })
+
+  beforeEach(() => {
+    useChatStore.setState({ isOpen: false })
+    useUIStore.setState({ isNHLOverlayVisible: false })
+  })
+
+  it.each([
+    ['live', liveChannel('https://fixture/a')],
+    ['ErsatzTV', hlsChannel('1', 1)],
+    ['the empty live slot', liveChannel('')],
+  ])('%s: ? opens the shortcut sheet inside the shell, and Escape closes it', (_what, channel) => {
+    render(<DualModeVideoPlayer channel={channel} isTheaterMode={false} onTheaterModeToggle={vi.fn()} />)
+
+    fireEvent.keyDown(window, { key: '?', shiftKey: true })
+
+    const dialog = sheet()
+    expect(dialog).toBeInTheDocument()
+    // The fullscreen element, so the sheet shows in fullscreen
+    expect(shell()).toContainElement(dialog)
+
+    fireEvent.keyDown(dialog as HTMLElement, { key: 'Escape' })
+    expect(sheet()).not.toBeInTheDocument()
+  })
+
+  it('the sheet stays open across a channel change', () => {
+    const { switchTo } = renderPlayer(liveChannel('https://fixture/a'))
+    fireEvent.keyDown(window, { key: '?' })
+
+    switchTo(hlsChannel('1', 1))
+
+    expect(sheet()).toBeInTheDocument()
+  })
+
+  it('C opens and closes chat', () => {
+    chatFeature.enabled = true
+    renderPlayer(hlsChannel('1', 1))
+
+    fireEvent.keyDown(window, { key: 'c' })
+    expect(useChatStore.getState().isOpen).toBe(true)
+
+    fireEvent.keyDown(window, { key: 'C' })
+    expect(useChatStore.getState().isOpen).toBe(false)
+  })
+
+  it('C does nothing where chat is turned off', () => {
+    renderPlayer(hlsChannel('1', 1))
+
+    fireEvent.keyDown(window, { key: 'c' })
+
+    expect(useChatStore.getState().isOpen).toBe(false)
+  })
+
+  it('N shows and hides the NHL scores', () => {
+    renderPlayer(liveChannel(''))
+
+    fireEvent.keyDown(window, { key: 'n' })
+    expect(useUIStore.getState().isNHLOverlayVisible).toBe(true)
+
+    fireEvent.keyDown(window, { key: 'N' })
+    expect(useUIStore.getState().isNHLOverlayVisible).toBe(false)
+  })
+
+  it('C and N work with focus on a sidebar channel button just clicked', () => {
+    chatFeature.enabled = true
+    renderPlayer(hlsChannel('1', 1))
+    const sidebarButton = document.body.appendChild(document.createElement('button'))
+    sidebarButton.focus()
+
+    fireEvent.keyDown(sidebarButton, { key: 'c' })
+    fireEvent.keyDown(sidebarButton, { key: 'n' })
+
+    expect(useChatStore.getState().isOpen).toBe(true)
+    expect(useUIStore.getState().isNHLOverlayVisible).toBe(true)
+    sidebarButton.remove()
+  })
+
+  it('one press is one toggle, whichever engine is playing', () => {
+    chatFeature.enabled = true
+    const { switchTo } = renderPlayer(liveChannel('https://fixture/a'))
+    switchTo(hlsChannel('1', 1))
+
+    fireEvent.keyDown(window, { key: 'c' })
+    fireEvent.keyDown(window, { key: 'n' })
+
+    expect(useChatStore.getState().isOpen).toBe(true)
+    expect(useUIStore.getState().isNHLOverlayVisible).toBe(true)
   })
 })

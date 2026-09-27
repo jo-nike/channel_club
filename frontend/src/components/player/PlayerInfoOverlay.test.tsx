@@ -439,6 +439,17 @@ describe('PlayerInfoOverlay: NHL ticker', () => {
     expect(ticker()).not.toBeInTheDocument()
   })
 
+  it('the NHL button names its key, N, in its tooltip and to assistive technology', () => {
+    renderOverlay(cinema)
+
+    fireEvent.focus(nhlToggle())
+
+    expect(screen.getByRole('tooltip')).toHaveTextContent('NHL Scores (N)')
+    expect(nhlToggle()).toHaveAttribute('aria-keyshortcuts', 'N')
+    // The key is a hint, not part of the button's name
+    expect(nhlToggle()).toHaveAccessibleName('NHL Scores')
+  })
+
   it('moves the ticker under the rail while the rail is up, and back to the top when it hides', () => {
     useUIStore.setState({ isNHLOverlayVisible: true })
     const { update } = renderOverlay(cinema, { controlsVisible: true })
