@@ -1,11 +1,18 @@
 import { Radio, AudioLines } from 'lucide-react'
+import { useMemo } from 'react'
 import { useProgrammeClock } from '@/hooks/useProgrammeClock'
-import { calculateProgress, findOnAir, formatRemaining } from '@/lib/programmes'
+import { buildProgrammeIndex, findCurrentAndNext, type CurrentAndNext } from '@/lib/programmeIndex'
+import { calculateProgress, formatRemaining } from '@/lib/programmes'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
-import { useTVStore, describeLiveGuide } from '@/stores/tvStore'
+import { useTVStore, describeLiveGuide, LIVE_CHANNEL_ID } from '@/stores/tvStore'
 import { getErsatzTVLogoUrl } from '@/services/ersatztvApi'
 import { Button } from '@/components/ui/button'
-import type { ErsatzTVProgramme, UnifiedChannel } from '@/types'
+import type { UnifiedChannel } from '@/types'
+
+// Created once: the Next line formats a time on every row on every tick
+const nextTimeFormat = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' })
+
+const NOTHING_ON: CurrentAndNext = { current: null, next: null }
 
 // Mobile card layout
 interface MobileChannelListProps {
@@ -18,18 +25,26 @@ interface MobileChannelListProps {
 export function MobileChannelList({ onChannelSelect, liveEPGTitle, onPickLive }: MobileChannelListProps) {
   const { getUnifiedChannels, isLiveChannelActive, selectedChannel, liveEPGStatus } = useTVStore()
   const { programmesByChannel } = useErsatztvStore()
+  // The live channel's schedule, for the live row's Next line
+  const liveProgrammes = useTVStore((s) => s.liveProgrammes)
   // Shared 30s clock for the current programme, progress and time remaining
   const currentTime = useProgrammeClock()
 
   const unifiedChannels = getUnifiedChannels()
   const hasLiveChannel = isLiveChannelActive()
 
-  // Helper to get current programme for a channel
-  const getCurrentProgramme = (channel: UnifiedChannel): ErsatzTVProgramme | null => {
-    if (channel.type === 'live') return null
-    const programmes = programmesByChannel[channel.id]
-    if (!programmes) return null
-    return findOnAir(programmes, currentTime)
+  // Now and next per channel: the ErsatzTV index is cached per
+  // programmesByChannel (and shared with the guide); the live row gets its own
+  const programmeIndex = buildProgrammeIndex(programmesByChannel)
+  const liveProgrammeIndex = useMemo(
+    () => buildProgrammeIndex({ [LIVE_CHANNEL_ID]: liveProgrammes }),
+    [liveProgrammes]
+  )
+  const getNowAndNext = (channel: UnifiedChannel): CurrentAndNext => {
+    if (channel.type === 'live') {
+      return hasLiveChannel ? findCurrentAndNext(liveProgrammeIndex, channel.id, currentTime) : NOTHING_ON
+    }
+    return findCurrentAndNext(programmeIndex, channel.id, currentTime)
   }
 
   // Helper to get live programme title
@@ -48,7 +63,9 @@ export function MobileChannelList({ onChannelSelect, liveEPGTitle, onPickLive }:
         {unifiedChannels.map((channel) => {
           const isLive = channel.type === 'live'
           const isSelected = selectedChannel?.id === channel.id
-          const currentProgramme = getCurrentProgramme(channel)
+          const { current, next } = getNowAndNext(channel)
+          // The live row's title comes from the now-playing lookup instead
+          const currentProgramme = isLive ? null : current?.programme
           const cardClassName = `
             rounded-lg border
             ${isSelected ? 'border-primary bg-primary/10' : ''}
@@ -128,6 +145,13 @@ export function MobileChannelList({ onChannelSelect, liveEPGTitle, onPickLive }:
                       {formatRemaining(new Date(currentProgramme.stop).getTime(), currentTime)}
                     </span>
                   </div>
+                )}
+                {/* Always there (except on the empty live slot), so rows
+                    don't grow when the schedule arrives */}
+                {(!isLive || hasLiveChannel) && (
+                  <p className="mt-1 h-4 truncate text-xs leading-4 text-muted-foreground">
+                    {next && `Next ${nextTimeFormat.format(next.startMs)} · ${next.programme.title}`}
+                  </p>
                 )}
               </div>
               {/* Static, so nothing blinks beside the video */}

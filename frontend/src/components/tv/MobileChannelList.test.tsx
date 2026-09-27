@@ -22,7 +22,7 @@ describe('MobileChannelList', () => {
       ],
       programmesByChannel: {},
     })
-    useTVStore.setState({ selectedChannel: null, liveEPG: null, liveEPGStatus: 'idle' })
+    useTVStore.setState({ selectedChannel: null, liveEPG: null, liveEPGStatus: 'idle', liveProgrammes: [] })
   })
 
   afterEach(() => {
@@ -119,6 +119,70 @@ describe('MobileChannelList', () => {
     expect(screen.getByText('Second')).toBeVisible()
     expect(screen.getByText('1h left')).toBeVisible()
     expect(screen.queryByText('First')).not.toBeInTheDocument()
+  })
+
+  describe('Next line', () => {
+    const NOW = new Date('2026-09-06T12:00:00Z').getTime()
+    const at = (minutes: number) => new Date(NOW + minutes * 60_000).toISOString()
+    const clock = (minutes: number) =>
+      new Date(NOW + minutes * 60_000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    const row = (name: string) => screen.getByText(name).closest('button') as HTMLElement
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(NOW)
+    })
+
+    it('shows the next programme and its start time on each ErsatzTV row', () => {
+      useErsatztvStore.setState({ programmesByChannel: {
+        etv1: [
+          { id: 'p1', channelId: 'etv1', title: 'Evening News', start: at(-30), stop: at(65) },
+          { id: 'p2', channelId: 'etv1', title: 'Late Movie', start: at(65), stop: at(155) },
+          { id: 'p3', channelId: 'etv1', title: 'Night Film', start: at(155), stop: at(250) },
+        ],
+        // After a gap: nothing on now, the next one still shows
+        etv2: [{ id: 'c1', channelId: 'etv2', title: 'Toons', start: at(10), stop: at(40) }],
+      } })
+      render(<MobileChannelList onChannelSelect={vi.fn()} />)
+
+      expect(row('Movies')).toHaveTextContent(`Next ${clock(65)} · Late Movie`)
+      expect(row('Movies')).not.toHaveTextContent('Night Film')
+      expect(row('Cartoons')).toHaveTextContent(`Next ${clock(10)} · Toons`)
+    })
+
+    it('keeps an empty Next line until the schedule arrives, so rows do not jump', () => {
+      render(<MobileChannelList onChannelSelect={vi.fn()} />)
+      const emptyLine = row('Movies').querySelector('p.h-4')
+      expect(emptyLine).toBeEmptyDOMElement()
+
+      act(() => {
+        useErsatztvStore.setState({ programmesByChannel: { etv1: [
+          { id: 'p1', channelId: 'etv1', title: 'Evening News', start: at(-30), stop: at(65) },
+          { id: 'p2', channelId: 'etv1', title: 'Late Movie', start: at(65), stop: at(155) },
+        ] } })
+      })
+
+      expect(row('Movies').querySelector('p.h-4')).toHaveTextContent('Late Movie')
+    })
+
+    it("shows what's next on live TV from the live schedule", () => {
+      useTVStore.setState({ liveProgrammes: [
+        { id: 'l1', channelId: 'live-channel-0', title: 'Big Game', start: at(-60), stop: at(30) },
+        { id: 'l2', channelId: 'live-channel-0', title: 'Post-game', start: at(30), stop: at(60) },
+      ] })
+      render(<MobileChannelList onChannelSelect={vi.fn()} liveEPGTitle="Big Game" />)
+
+      expect(row('Club')).toHaveTextContent(`Next ${clock(30)} · Post-game`)
+    })
+
+    it('has no Next line on the empty live slot', () => {
+      useChannelStore.setState({ currentChannel: null })
+      render(<MobileChannelList onChannelSelect={vi.fn()} />)
+
+      const liveRow = row('Live')
+      expect(liveRow.querySelector('p.h-4')).toBeNull()
+      expect(liveRow).not.toHaveTextContent('Next')
+    })
   })
 
   it('reserves room under the last row for the install banner', () => {
