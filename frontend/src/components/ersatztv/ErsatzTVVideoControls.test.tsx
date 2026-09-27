@@ -2,11 +2,18 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, act } from '@/test/utils'
 import { ErsatzTVVideoControls, ErsatzTVVideoControlsProps } from './ErsatzTVVideoControls'
 import { useAudioStore } from '@/stores/audioStore'
+import { useClipStore } from '@/stores/clipStore'
 
 // Mock the highlight feature hook - disabled by default for existing tests
+const highlight = vi.hoisted(() => ({ enabled: false }))
 vi.mock('@/hooks/useHighlightFeature', () => ({
-  useHighlightFeature: () => ({ isEnabled: false, isLoading: false }),
+  useHighlightFeature: () => ({ isEnabled: highlight.enabled, isLoading: false }),
 }))
+vi.mock('@/hooks/useHighlightStatus', () => ({
+  useHighlightStatus: () => ({ recording: true, ready: true, bufferSeconds: 60 }),
+}))
+// Rendered once there is a channel; it would ask the server whether casting is on
+vi.mock('@/components/CastButton', () => ({ CastButton: () => null }))
 
 // Script volume detection (false on iOS/iPadOS Safari)
 const volumeSupport = vi.hoisted(() => ({ canSet: true }))
@@ -350,6 +357,34 @@ describe('ErsatzTVVideoControls', () => {
       const toolbar = screen.getByRole('toolbar')
       expect(toolbar).not.toHaveClass('bottom-12')
       expect(toolbar).not.toHaveClass('bottom-24')
+    })
+  })
+
+  describe('Clip capture', () => {
+    beforeEach(() => {
+      highlight.enabled = true
+      useClipStore.setState({ session: null })
+    })
+    afterEach(() => {
+      highlight.enabled = false
+    })
+
+    it('opens the clip session on this channel and leaves the editor to the player shell', () => {
+      render(<ErsatzTVVideoControls {...defaultProps} channelId="42" channelName="Sportsnet" />)
+
+      fireEvent.click(screen.getByRole('button', { name: /Capture clip/ }))
+
+      expect(useClipStore.getState().session).toEqual({ channelId: '42', channelName: 'Sportsnet' })
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    it('leaves the session open when the control bar unmounts', () => {
+      const { unmount } = render(<ErsatzTVVideoControls {...defaultProps} channelId="42" channelName="Sportsnet" />)
+      fireEvent.click(screen.getByRole('button', { name: /Capture clip/ }))
+
+      unmount()
+
+      expect(useClipStore.getState().session).toEqual({ channelId: '42', channelName: 'Sportsnet' })
     })
   })
 

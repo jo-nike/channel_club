@@ -25,8 +25,10 @@ import { AutoplayNotice } from '@/components/player/AutoplayNotice'
 import { PlayerShellContext, usePlayerShell } from '@/components/player/PlayerShellContext'
 import { FilterLayer } from '@/components/player/FilterLayer'
 import { NHLScoresOverlay } from '@/components/NHLScoresOverlay'
+import { HighlightModal } from '@/components/HighlightModal'
 import { useAudioStore, unmutedVolume } from '@/stores/audioStore'
 import { useChannelStore } from '@/stores/channelStore'
+import { useClipStore } from '@/stores/clipStore'
 import { useUIStore } from '@/stores/uiStore'
 import { getErsatzTVStreamUrl } from '@/services/ersatztvApi'
 import type { UnifiedChannel } from '@/types'
@@ -47,7 +49,9 @@ interface DualModeVideoPlayerProps {
 // element, so only the keyed engine inside it re-initialises (on a channel
 // change or a reload) and a viewer in fullscreen stays there. (Removing the
 // fullscreen element exits fullscreen; Vidstack's own exit on unmount is a
-// no-op unless MediaPlayer itself is the fullscreen element.)
+// no-op unless MediaPlayer itself is the fullscreen element.) The clip
+// editor lives in the shell too, so a channel change or a stream retry
+// leaves it, its capture and any export alone.
 export function DualModeVideoPlayer({
   channel,
   isTheaterMode,
@@ -57,8 +61,20 @@ export function DualModeVideoPlayer({
   reloadKey: pageReloadKey = 0,
 }: DualModeVideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
+  // The shell element again, as state: the clip editor portals into it
+  // (so it shows in fullscreen) and render can't read the ref
+  const [shellElement, setShellElement] = useState<HTMLDivElement | null>(null)
+  const attachShell = useCallback((node: HTMLDivElement | null) => {
+    containerRef.current = node
+    setShellElement(node)
+  }, [])
   const isFullscreen = useFullscreenState(containerRef)
   const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
+
+  const clipSession = useClipStore((s) => s.session)
+  const closeClip = useClipStore((s) => s.close)
+  // The editor belongs to this player: it closes when the player goes away
+  useEffect(() => closeClip, [closeClip])
 
   const toggleFullscreen = useCallback(() => {
     const container = containerRef.current
@@ -121,13 +137,20 @@ export function DualModeVideoPlayer({
 
   return (
     <PlayerShellContext value={shell}>
-      <div ref={containerRef} className="video-player-container relative h-full w-full bg-black">
+      <div ref={attachShell} className="video-player-container relative h-full w-full bg-black">
         {/* Before the engine, so its control bar paints above the filters */}
         <FilterLayer />
         {engine}
         {/* In the shell, so the ticker shows in fullscreen too */}
         <NHLScoresOverlay isVisible={isNHLOverlayVisible} />
       </div>
+      {/* One editor for every engine, keyed by the capture's channel, not the one playing */}
+      <HighlightModal
+        isOpen={clipSession !== null}
+        onClose={closeClip}
+        channelId={clipSession?.channelId ?? ''}
+        container={shellElement}
+      />
     </PlayerShellContext>
   )
 }

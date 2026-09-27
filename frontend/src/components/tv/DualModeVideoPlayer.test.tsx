@@ -6,6 +6,7 @@ import { useAudioStore } from '@/stores/audioStore'
 import { useFilterStore } from '@/stores/filterStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { useUIStore } from '@/stores/uiStore'
+import { useClipStore } from '@/stores/clipStore'
 import type { UnifiedChannel } from '@/types'
 import type { PlayerShell } from '@/components/player/PlayerShellContext'
 
@@ -80,20 +81,28 @@ vi.mock('@vidstack/react', async () => {
   }
 })
 
-const highlight = vi.hoisted(() => ({
-  enabled: false,
-  modal: vi.fn<(props: Record<string, unknown>) => void>(),
-}))
+const highlight = vi.hoisted(() => ({ enabled: false }))
 vi.mock('@/hooks/useHighlightFeature', () => ({
   useHighlightFeature: () => ({ isEnabled: highlight.enabled, isLoading: false }),
 }))
 vi.mock('@/hooks/useHighlightStatus', () => ({ useHighlightStatus: () => ({}) }))
-vi.mock('@/components/HighlightButton', () => ({ HighlightButton: () => null }))
-vi.mock('@/components/HighlightModal', () => ({
-  HighlightModal: (props: Record<string, unknown>) => {
-    highlight.modal(props)
-    return null
-  },
+vi.mock('@/components/HighlightButton', () => ({
+  HighlightButton: ({ onOpenModal }: { onOpenModal?: () => void }) => (
+    <button type="button" onClick={onOpenModal}>
+      Capture clip
+    </button>
+  ),
+}))
+// The real clip editor, on a fake capture API
+const clipApi = vi.hoisted(() => ({
+  createHighlightCapture: vi.fn<(channelId: string, signal?: AbortSignal) => Promise<{ id: string }>>(),
+  deleteHighlightCapture: vi.fn<(id: string) => Promise<void>>(),
+  getHighlightFeatures: vi.fn<() => Promise<{ enabled: boolean; ziplineEnabled: boolean }>>(),
+}))
+vi.mock('@/services/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/services/api')>()),
+  ...clipApi,
+  highlightCaptureUrl: (id: string) => `/api/highlight/capture/${id}`,
 }))
 // The cast button renders in both control bars, so it reports the shell it sits in
 const shellProbe = vi.hoisted(() => ({ current: null as PlayerShell | null }))
@@ -214,7 +223,10 @@ beforeEach(() => {
   Object.values(vidstack.remote).forEach((fn) => fn.mockClear())
   vidstack.player.play.mockReset().mockResolvedValue(undefined)
   highlight.enabled = false
-  highlight.modal.mockClear()
+  useClipStore.setState({ session: null })
+  clipApi.createHighlightCapture.mockReset().mockResolvedValue({ id: 'capture-1' })
+  clipApi.deleteHighlightCapture.mockReset().mockResolvedValue(undefined)
+  clipApi.getHighlightFeatures.mockReset().mockResolvedValue({ enabled: true, ziplineEnabled: false })
   volumeSupport.canSet = true
   vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
 })
@@ -734,6 +746,121 @@ describe('DualModeVideoPlayer shell: fullscreen survives engine swaps', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('DualModeVideoPlayer clip editor: one editor in the shell', () => {
+  beforeEach(() => {
+    highlight.enabled = true
+  })
+
+  // The live engine's element; the editor's preview is a <video> too
+  const engineVideo = () => {
+    const element = shell().querySelector<HTMLVideoElement>('video:not([aria-label="Highlight preview"])')
+    if (!element) throw new Error('no engine video element')
+    return element
+  }
+
+  const openEditor = async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Capture clip' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Create clip' })
+    // The capture has arrived and the editor is streaming it
+    const preview = await screen.findByLabelText('Highlight preview')
+    return { dialog, preview }
+  }
+
+  it.each([
+    ['live', liveChannel('https://fixture/a'), 'live-channel-0'],
+    ['ErsatzTV', hlsChannel('1', 1), '1'],
+  ])('%s: Capture clip opens the editor inside the shell, so it shows in fullscreen', async (_engine, channel, id) => {
+    renderPlayer(channel)
+
+    const { dialog } = await openEditor()
+
+    expect(shell()).toContainElement(dialog)
+    expect(useClipStore.getState().session).toEqual({ channelId: id, channelName: channel.name })
+    expect(clipApi.createHighlightCapture).toHaveBeenCalledExactlyOnceWith(id, expect.any(AbortSignal))
+  })
+
+  it('a live channel change keeps the open editor and its capture', async () => {
+    const { switchTo } = renderPlayer({ ...liveChannel('https://fixture/a'), backendId: '42' })
+    const { dialog, preview } = await openEditor()
+    const firstVideo = engineVideo()
+
+    switchTo({ ...liveChannel('https://fixture/b'), backendId: '43', name: 'Post-game' })
+
+    expect(engineVideo()).not.toBe(firstVideo)
+    expect(screen.getByRole('dialog', { name: 'Create clip' })).toBe(dialog)
+    expect(screen.getByLabelText('Highlight preview')).toBe(preview)
+    expect(useClipStore.getState().session?.channelId).toBe('42')
+    expect(clipApi.createHighlightCapture).toHaveBeenCalledTimes(1)
+    expect(clipApi.deleteHighlightCapture).not.toHaveBeenCalled()
+  })
+
+  it('live TV stopping keeps the open editor and its capture', async () => {
+    const { switchTo } = renderPlayer(liveChannel('https://fixture/a'))
+    const { dialog } = await openEditor()
+
+    switchTo(liveChannel(''))
+
+    expect(screen.getByRole('dialog', { name: 'Create clip' })).toBe(dialog)
+    expect(clipApi.deleteHighlightCapture).not.toHaveBeenCalled()
+  })
+
+  it('an HLS retry keeps the open editor and its capture', async () => {
+    renderPlayer(hlsChannel('1', 1))
+    const { dialog } = await openEditor()
+    vidstack.mounted.mockClear()
+
+    act(() => lastPlayerProps().onError?.())
+    await waitFor(() => expect(vidstack.mounted).toHaveBeenCalledTimes(1), { timeout: 2000 })
+
+    expect(screen.getByRole('dialog', { name: 'Create clip' })).toBe(dialog)
+    expect(clipApi.createHighlightCapture).toHaveBeenCalledTimes(1)
+    expect(clipApi.deleteHighlightCapture).not.toHaveBeenCalled()
+    // The remounted player starts silent under the open editor
+    expect(lastPlayerProps().muted).toBe(true)
+  })
+
+  it('the preview hold keeps the new engine silent after a live change and never writes audio-storage', async () => {
+    useAudioStore.setState({ volume: 0.3, muted: false })
+    const { switchTo } = renderPlayer(liveChannel('https://fixture/a'))
+    vi.mocked(localStorage.setItem).mockClear()
+    await openEditor()
+    expect(engineVideo().muted).toBe(true)
+
+    switchTo(liveChannel('https://fixture/b'))
+    expect(engineVideo().muted).toBe(true)
+    expect(useAudioStore.getState().muted).toBe(false)
+
+    // The capture isn't ready, so the editor closes without asking
+    fireEvent.click(screen.getByRole('button', { name: 'Close editor' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(engineVideo().muted).toBe(false)
+    expect(engineVideo().volume).toBe(0.3)
+    expect(wroteAudioStorage()).toBe(false)
+  })
+
+  it('closing the editor ends the session and deletes the capture', async () => {
+    renderPlayer(liveChannel('https://fixture/a'))
+    await openEditor()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close editor' }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(useClipStore.getState().session).toBeNull()
+    expect(clipApi.deleteHighlightCapture).toHaveBeenCalledExactlyOnceWith('capture-1')
+  })
+
+  it('the player going away closes the editor, so it does not reopen on the next player', async () => {
+    const { unmount } = renderPlayer(liveChannel('https://fixture/a'))
+    await openEditor()
+
+    unmount()
+
+    expect(useClipStore.getState().session).toBeNull()
+    expect(clipApi.deleteHighlightCapture).toHaveBeenCalledExactlyOnceWith('capture-1')
+    expect(useAudioStore.getState().previewHolds).toBe(0)
   })
 })
 
