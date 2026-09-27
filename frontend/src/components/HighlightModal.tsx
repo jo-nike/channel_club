@@ -14,7 +14,15 @@ const DEFAULT_CLIP_SECONDS = 20
 export interface HighlightModalProps {
   isOpen: boolean
   onClose: () => void
+  /** The channel the capture comes from; the session stays on it whatever plays next */
   channelId: string
+  /** That channel's name, for the notice when live TV changes */
+  channelName?: string
+  /**
+   * What the player shows now: a different channel gets a notice that the
+   * clip is kept, null means live TV stopped, undefined says nothing.
+   */
+  playingChannel?: { id: string; name: string } | null
   container?: HTMLElement | null
 }
 
@@ -23,7 +31,7 @@ export function HighlightModal({ isOpen, ...props }: HighlightModalProps) {
   return isOpen ? <ClipSession key={props.channelId} {...props} /> : null
 }
 
-function ClipSession({ channelId, onClose, container }: Omit<HighlightModalProps, 'isOpen'>) {
+function ClipSession({ channelId, channelName = channelId, playingChannel, onClose, container }: Omit<HighlightModalProps, 'isOpen'>) {
   const [source, setSource] = useState<{ id: string; url: string } | null>(null)
   const [duration, setDuration] = useState(0)
   const [range, setRange] = useState<[number, number]>([0, 0])
@@ -48,6 +56,9 @@ function ClipSession({ channelId, onClose, container }: Omit<HighlightModalProps
   const [start, end] = range
   const ready = duration >= 0.1 && source !== null && !captureError
   const needsConfirm = ready && delivered !== `${start}:${end}:${format}`
+  // Live TV moved on (someone switched it, or stopped it) while this editor was open
+  const liveChange = playingChannel === null ? 'Live TV stopped.'
+    : playingChannel && playingChannel.id !== channelId ? `Live TV changed to ${playingChannel.name}.` : null
 
   function requestClose() {
     if (needsConfirm) setConfirmDiscard(true); else onClose()
@@ -182,6 +193,7 @@ function ClipSession({ channelId, onClose, container }: Omit<HighlightModalProps
           <DialogTitle>Create clip</DialogTitle>
           <DialogDescription>Choose the moment to keep, preview your selection, then export it.</DialogDescription>
         </DialogHeader>
+        {liveChange && <p role="status" className="rounded-md border bg-muted px-3 py-2 text-sm">{liveChange} Your clip from {channelName} is kept.</p>}
         {captureError ? <div role="alert" className="space-y-3 py-8 text-center">
           <p>{captureError}</p><Button variant="outline" onClick={retryCapture}>Capture again</Button>
         </div> : !source ? <div role="status" className="flex items-center justify-center gap-3 py-16"><Loader2 className="animate-spin" />Capturing recent footage…</div> : (

@@ -797,6 +797,36 @@ describe('DualModeVideoPlayer clip editor: one editor in the shell', () => {
     expect(clipApi.deleteHighlightCapture).not.toHaveBeenCalled()
   })
 
+  it('tells the viewer when live TV changes under the open editor', async () => {
+    const { switchTo } = renderPlayer({ ...liveChannel('https://fixture/a'), name: 'Sportsnet', backendId: '42' })
+    await openEditor()
+    expect(screen.queryByText(/Live TV changed/)).not.toBeInTheDocument()
+
+    switchTo({ ...liveChannel('https://fixture/b'), name: 'Post-game', backendId: '43' })
+
+    expect(screen.getByText('Live TV changed to Post-game. Your clip from Sportsnet is kept.')).toBeInTheDocument()
+  })
+
+  it('tells the viewer when live TV stops under the open editor', async () => {
+    const { switchTo } = renderPlayer({ ...liveChannel('https://fixture/a'), name: 'Sportsnet', backendId: '42' })
+    await openEditor()
+
+    switchTo(liveChannel(''))
+
+    expect(screen.getByText('Live TV stopped. Your clip from Sportsnet is kept.')).toBeInTheDocument()
+  })
+
+  it('an HLS retry on the same channel is not a change', async () => {
+    renderPlayer(hlsChannel('1', 1))
+    await openEditor()
+    vidstack.mounted.mockClear()
+
+    act(() => lastPlayerProps().onError?.())
+    await waitFor(() => expect(vidstack.mounted).toHaveBeenCalledTimes(1), { timeout: 2000 })
+
+    expect(screen.queryByText(/Live TV/)).not.toBeInTheDocument()
+  })
+
   it('live TV stopping keeps the open editor and its capture', async () => {
     const { switchTo } = renderPlayer(liveChannel('https://fixture/a'))
     const { dialog } = await openEditor()

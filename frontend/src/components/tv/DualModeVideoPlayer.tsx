@@ -97,6 +97,14 @@ export function DualModeVideoPlayer({
     [isFullscreen, toggleFullscreen, reload, reloadKey]
   )
 
+  // What this viewer's player shows now, for the clip editor's notice: null
+  // while live TV is stopped, nothing before a channel is selected
+  const playingChannel = !channel
+    ? undefined
+    : channel.type === 'live' && !channel.streamUrl
+      ? null
+      : { id: channel.backendId || channel.id, name: channel.name }
+
   let engine: ReactNode
   if (!channel) {
     // No channel selected
@@ -149,6 +157,8 @@ export function DualModeVideoPlayer({
         isOpen={clipSession !== null}
         onClose={closeClip}
         channelId={clipSession?.channelId ?? ''}
+        channelName={clipSession?.channelName}
+        playingChannel={playingChannel}
         container={shellElement}
       />
     </PlayerShellContext>
