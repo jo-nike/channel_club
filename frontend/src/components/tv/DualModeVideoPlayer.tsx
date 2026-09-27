@@ -42,6 +42,7 @@ import { ShortcutSheet } from '@/components/player/ShortcutSheet'
 import { useLiveAdapter, useVidstackAdapter } from '@/components/player/mediaAdapters'
 import { usePlayerAudio } from '@/components/player/usePlayerAudio'
 import { HighlightModal } from '@/components/HighlightModal'
+import { ArrivalCard } from '@/components/tv/ArrivalCard'
 import { useAudioStore, unmutedVolume } from '@/stores/audioStore'
 import { useCastStore } from '@/stores/castStore'
 import { useChannelStore } from '@/stores/channelStore'
@@ -315,6 +316,8 @@ export function DualModeVideoPlayer({
           entry={zap?.entry ?? null}
           missing={zap?.missing ?? null}
         />
+        {/* The arrival card: in the shell too, so a channel change leaves it up */}
+        <ArrivalCard channel={channel} />
         {/* The latest chat over the video in theater and fullscreen, above
             the control bar */}
         <ChatOverlay composerRequest={composerRequest} onComposerClose={closeComposer} />
