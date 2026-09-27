@@ -293,7 +293,7 @@ function ChannelItem({
               {isLive ? (hasLiveChannel ? channel.name : 'Live') : channel.name}
             </span>
             {isLive && hasLiveChannel && (
-              <span className="rounded bg-destructive px-1.5 py-0.5 text-[10px] font-bold uppercase text-destructive-foreground">
+              <span className="rounded bg-live px-1.5 py-0.5 text-[10px] font-bold uppercase text-live-foreground">
                 Live
               </span>
             )}

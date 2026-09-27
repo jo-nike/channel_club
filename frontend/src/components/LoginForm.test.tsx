@@ -148,6 +148,24 @@ describe('LoginForm', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Invalid credentials')
   })
 
+  it('shows the error text in the foreground colour on its translucent red tint', async () => {
+    vi.mocked(api.login).mockRejectedValueOnce(new Error('Invalid credentials'))
+
+    render(<LoginForm />)
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/username/i)).toBeInTheDocument()
+    })
+
+    fireEvent.change(screen.getByLabelText(/username/i), { target: { value: 'baduser' } })
+    fireEvent.change(screen.getByLabelText(/password/i), { target: { value: 'badpass' } })
+    fireEvent.click(screen.getByRole('button', { name: /sign in/i }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveClass('text-foreground', 'bg-destructive/10')
+    expect(alert).not.toHaveClass('text-destructive-foreground')
+  })
+
   it('should have proper tab order for keyboard navigation', async () => {
     render(<LoginForm />)
 

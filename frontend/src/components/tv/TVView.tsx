@@ -480,7 +480,7 @@ export function TVView() {
 
       {/* Error toast */}
       {error && (
-        <div className="fixed bottom-4 right-4 rounded-lg bg-destructive px-4 py-2 text-destructive-foreground">
+        <div className="fixed bottom-4 right-4 rounded-lg bg-destructive px-4 py-2 text-destructive-foreground dark:bg-destructive/60">
           {error}
         </div>
       )}
@@ -600,7 +600,7 @@ function MobileChannelList({ onChannelSelect, liveEPGTitle }: MobileChannelListP
                     {isLive ? (hasLiveChannel ? channel.name : 'Live') : channel.name}
                   </p>
                   {isLive && hasLiveChannel && (
-                    <span className="rounded bg-destructive px-1.5 py-0.5 text-[10px] font-bold uppercase text-destructive-foreground">
+                    <span className="rounded bg-live px-1.5 py-0.5 text-[10px] font-bold uppercase text-live-foreground">
                       Live
                     </span>
                   )}

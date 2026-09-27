@@ -37,4 +37,13 @@ describe('TVChannelSidebar colours', () => {
     expect(tile).toHaveClass('bg-muted', 'hover:bg-foreground/10')
     expect(tile).not.toHaveClass('hover:bg-accent')
   })
+
+  it('shows the LIVE badge on the live token rather than destructive', async () => {
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+
+    const badge = screen.getByText('Live', { selector: 'span' })
+    expect(badge).toHaveClass('bg-live', 'text-live-foreground')
+    expect(badge).not.toHaveClass('bg-destructive')
+  })
 })

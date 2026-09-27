@@ -47,7 +47,7 @@ export function QRPlexLogin({ onSuccess, onCancel, onError }: QRPlexLoginProps) 
         <h2 className="text-2xl font-bold text-foreground">Sign in with Plex</h2>
         <div
           role="alert"
-          className="p-4 text-lg text-destructive-foreground bg-destructive/10 border border-destructive rounded-md text-center"
+          className="p-4 text-lg text-foreground bg-destructive/10 border border-destructive rounded-md text-center"
         >
           {error?.message || 'Unable to start Plex login'}
         </div>
