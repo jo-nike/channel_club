@@ -1031,3 +1031,77 @@ describe('Clip editor opened on a capture already taken (Clip that\'s Edit)', ()
     await waitFor(() => expect(api.deleteHighlightCapture).toHaveBeenCalledExactlyOnceWith('clip-that-capture'))
   })
 })
+
+// jsdom has no layout, so these guard the classes that size and place the editor's parts.
+describe('Clip editor layout', () => {
+  afterEach(() => vi.unstubAllEnvs())
+
+  it('puts the timeline under the preview and the controls beside them on a desktop screen', async () => {
+    render(<HighlightModal {...props} />)
+    const video = await ready()
+    const grid = video.parentElement!
+    expect(grid).toHaveClass('lg:grid', 'lg:grid-cols-[minmax(0,1fr)_20rem]', 'space-y-4')
+    expect(video).toHaveClass('lg:col-start-1', 'lg:row-start-1')
+    // The fieldset gives its children to the grid, and still disables them during an export
+    const fieldset = screen.getByRole('group', { name: 'Clip selection' })
+    expect(fieldset.parentElement).toBe(grid)
+    expect(fieldset).toHaveClass('lg:contents', 'lg:disabled:*:opacity-70')
+    const cell = (control: HTMLElement) => [...fieldset.children].find(child => child.contains(control))
+    // The trim strip sits straight under the preview, so however tall the controls column grows it
+    // can't push the strip below the fold of a short screen
+    expect(cell(screen.getByRole('slider', { name: 'Playhead' }))).toHaveClass('lg:col-start-1', 'lg:row-start-2')
+    expect(cell(screen.getByRole('button', { name: '10s' }))).toHaveClass('lg:col-start-2', 'lg:row-start-1')
+    for (const control of [screen.getByRole('group', { name: 'Start' }), screen.getByRole('button', { name: 'Reset' })]) {
+      expect(cell(control)).toHaveClass('lg:col-start-2', 'lg:row-start-2')
+    }
+  })
+
+  it('caps the preview by height on short screens so the trim strip fits beside it', async () => {
+    render(<HighlightModal {...props} />)
+    const video = await ready()
+    expect(video).toHaveClass('max-h-[28dvh]', 'md:max-h-[45dvh]', 'lg:max-h-[40dvh]', '[@media(max-height:800px)]:max-h-[28dvh]')
+  })
+
+  it('gives touch screens 44px targets', async () => {
+    vi.stubEnv('VITE_CHAT_ENABLED', 'true')
+    vi.mocked(api.getHighlightFeatures).mockResolvedValue({ enabled: true, ziplineEnabled: true })
+    render(<HighlightModal {...props} />)
+    await ready()
+    for (const length of ['10s', '20s', '30s', 'Full']) expect(screen.getByRole('button', { name: length })).toHaveClass('pointer-coarse:h-11')
+    for (const nudge of within(screen.getByRole('group', { name: 'Start' })).getAllByRole('button')) {
+      expect(nudge).toHaveClass('pointer-coarse:h-11', 'pointer-coarse:min-w-11')
+    }
+    expect(screen.getByRole('button', { name: 'Close editor' })).toHaveClass('pointer-coarse:size-11')
+    // The selection plays once on open, so its button says Pause preview
+    for (const name of [/Play selection|Pause preview/, 'Type exact times', 'Reset', 'Download clip']) {
+      expect(screen.getByRole('button', { name })).toHaveClass('pointer-coarse:h-11')
+    }
+    expect(await screen.findByRole('button', { name: 'Get share link' })).toHaveClass('pointer-coarse:h-11')
+    expect(await screen.findByRole('button', { name: 'Post to chat' })).toHaveClass('pointer-coarse:h-11')
+  })
+
+  it('compacts the header and footer on phones without taking their words from screen readers', async () => {
+    vi.stubEnv('VITE_CHAT_ENABLED', 'true')
+    vi.mocked(api.getHighlightFeatures).mockResolvedValue({ enabled: true, ziplineEnabled: true })
+    render(<HighlightModal {...props} />)
+    await ready()
+    const dialog = screen.getByRole('dialog', { name: 'Create clip' })
+    const description = screen.getByText(/Choose the moment to keep/)
+    expect(description).toHaveClass('max-sm:sr-only')
+    expect(dialog).toHaveAccessibleDescription(/Choose the moment to keep/)
+    expect(description.parentElement).toHaveClass('p-4', 'sm:p-6')
+    expect(screen.getByLabelText('Highlight preview').closest('.overflow-y-auto')).toHaveClass('p-4', 'sm:p-6')
+    const footer = screen.getByRole('group', { name: 'Export' })
+    expect(footer).toHaveClass('px-4', 'py-3', 'sm:px-6', 'sm:py-4')
+    // The labels and the secondary actions' words hide on phones, but still name their controls
+    expect(await screen.findByLabelText('Caption (optional)')).toBeInTheDocument()
+    expect(screen.getByText('Caption (optional)')).toHaveClass('max-sm:sr-only')
+    expect(screen.getByLabelText('Format')).toBeInTheDocument()
+    expect(screen.getByText('Format')).toHaveClass('max-sm:sr-only')
+    expect(within(footer).getByText('Get share link')).toHaveClass('max-sm:sr-only')
+    expect(within(footer).getByText('Download clip')).toHaveClass('max-sm:sr-only')
+    expect(within(footer).getByRole('button', { name: 'Download clip' })).toBeInTheDocument()
+    // Post to chat stays the one labelled button
+    expect(within(footer).getByText('Post to chat')).not.toHaveClass('max-sm:sr-only')
+  })
+})

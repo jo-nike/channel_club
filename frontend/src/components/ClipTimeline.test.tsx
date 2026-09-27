@@ -145,6 +145,13 @@ describe('ClipTimeline', () => {
     expect(handle.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
+  it('widens the handles to a 44px touch target without changing how they look', () => {
+    renderTimeline()
+    for (const name of ['Start boundary', 'End boundary']) {
+      expect(screen.getByRole('slider', { name })).toHaveClass('w-6', 'pointer-coarse:before:absolute', 'pointer-coarse:before:-inset-x-2.5')
+    }
+  })
+
   it('shows frames as they arrive and pulses the empty slots while loading', () => {
     vi.mocked(useClipThumbnails).mockReturnValue({ frames: ['data:frame-0', null, ...Array(8).fill(null)], loading: true })
     const { container } = render(<ClipTimeline url="/clip.mp4" duration={60} start={0} end={60} playhead={0} press={60}
@@ -188,5 +195,45 @@ describe('ClipTimeline', () => {
     // −10 s would crowd the label at the end.
     expect(screen.queryByText('\u221210 s')).not.toBeInTheDocument()
     expect(screen.getByRole('slider', { name: 'Playhead' })).toHaveAttribute('aria-valuetext', '60.0 seconds, 4.0 seconds before you pressed')
+  })
+})
+
+describe('ClipTimeline ruler on a measured phone-width ruler', () => {
+  /** The ruler (clientWidth) and the 'You pressed' label (offsetWidth) as a phone lays them out */
+  function measure(ruler: number, pill: number) {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(ruler)
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(pill)
+  }
+
+  /** The kept tick labels, left to right */
+  function ticks() {
+    const label = screen.getByText('You pressed')
+    return [...label.parentElement!.children].filter(child => child !== label).map(child => child.textContent)
+  }
+
+  it('drops the tick the press label would cover, and a tick that would run into the one before it', () => {
+    // 360x740: a 255px ruler, the label 78px wide at its right edge
+    measure(255, 78)
+    renderTimeline({ start: 40, end: 60, playhead: 40, press: 60 })
+    expect(ticks()).toEqual(['−60 s', '−40 s', '−30 s'])
+  })
+
+  it('never shows −60 s and −50 s side by side at 390px', () => {
+    measure(285, 78)
+    renderTimeline({ start: 40, end: 60, playhead: 40, press: 60 })
+    expect(ticks()).not.toContain('−20 s')
+    expect(ticks()).not.toContain('−50 s')
+    expect(ticks()).toContain('−60 s')
+  })
+
+  it('keeps every tick clear of the press label on a wide ruler', () => {
+    measure(900, 78)
+    renderTimeline({ start: 40, end: 60, playhead: 40, press: 60 })
+    expect(ticks()).toEqual(['−60 s', '−50 s', '−40 s', '−30 s', '−20 s', '−10 s'])
+  })
+
+  it('starts the ruler below the handles, which hang past the strip', () => {
+    renderTimeline()
+    expect(screen.getByText('You pressed').parentElement).toHaveClass('mt-3')
   })
 })
