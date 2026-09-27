@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@/test/utils'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, fireEvent, act } from '@/test/utils'
 import { ErsatzTVVideoControls, ErsatzTVVideoControlsProps } from './ErsatzTVVideoControls'
 import { useAudioStore } from '@/stores/audioStore'
 
@@ -45,8 +45,25 @@ vi.mock('@vidstack/react', () => ({
   useMediaRemote: () => mockRemote,
 }))
 
+// The fullscreen button fullscreens this container, not Vidstack's MediaPlayer
+const makeContainer = () => {
+  const container = document.createElement('div')
+  return { container, containerRef: { current: container } }
+}
+
+const enterFullscreen = (element: Element | null) => {
+  act(() => {
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: element })
+    document.dispatchEvent(new Event('fullscreenchange'))
+  })
+}
+
 describe('ErsatzTVVideoControls', () => {
   let defaultProps: ErsatzTVVideoControlsProps
+
+  afterEach(() => {
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null })
+  })
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -219,11 +236,32 @@ describe('ErsatzTVVideoControls', () => {
       expect(mockRemote.toggleFullscreen).toHaveBeenCalledTimes(1)
     })
 
-    it('shows exit fullscreen label when in fullscreen', () => {
+    it('shows exit fullscreen label when the container is fullscreen', () => {
+      // Vidstack never reports a fullscreen container
+      mockFullscreen = false
+      const { container, containerRef } = makeContainer()
+      render(<ErsatzTVVideoControls {...defaultProps} containerRef={containerRef} />)
+      expect(screen.getByRole('button', { name: 'Fullscreen' })).toBeInTheDocument()
+
+      enterFullscreen(container)
+
+      expect(screen.getByRole('button', { name: 'Exit fullscreen' })).toBeInTheDocument()
+    })
+
+    it('shows the fullscreen label when another element is fullscreen', () => {
+      const { containerRef } = makeContainer()
+      render(<ErsatzTVVideoControls {...defaultProps} containerRef={containerRef} />)
+
+      enterFullscreen(document.createElement('div'))
+
+      expect(screen.getByRole('button', { name: 'Fullscreen' })).toBeInTheDocument()
+    })
+
+    it('falls back to Vidstack state without a container', () => {
       mockFullscreen = true
       render(<ErsatzTVVideoControls {...defaultProps} />)
 
-      expect(screen.getByRole('button', { name: /exit fullscreen/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Exit fullscreen' })).toBeInTheDocument()
     })
   })
 
@@ -248,16 +286,21 @@ describe('ErsatzTVVideoControls', () => {
       expect(screen.queryByRole('button', { name: /theater/i })).not.toBeInTheDocument()
     })
 
-    it('hides theater mode button when in fullscreen', () => {
-      mockFullscreen = true
-      render(<ErsatzTVVideoControls {...defaultProps} />)
+    it('hides theater mode button when the container is fullscreen', () => {
+      const { container, containerRef } = makeContainer()
+      render(<ErsatzTVVideoControls {...defaultProps} containerRef={containerRef} />)
+
+      enterFullscreen(container)
 
       expect(screen.queryByRole('button', { name: /theater/i })).not.toBeInTheDocument()
     })
 
-    it('shows theater mode button when not in fullscreen', () => {
-      mockFullscreen = false
-      render(<ErsatzTVVideoControls {...defaultProps} />)
+    it('shows theater mode button again after leaving fullscreen', () => {
+      const { container, containerRef } = makeContainer()
+      render(<ErsatzTVVideoControls {...defaultProps} containerRef={containerRef} />)
+
+      enterFullscreen(container)
+      enterFullscreen(null)
 
       expect(screen.getByRole('button', { name: /theater/i })).toBeInTheDocument()
     })

@@ -107,6 +107,25 @@ describe('FilterMenu', () => {
     expect(useFilterStore.getState().activeFilters).toContain('retro-tv')
   })
 
+  it('left-aligns each filter row so wrapped descriptions do not centre', async () => {
+    render(<FilterMenu isVisible={true} />)
+    fireEvent.click(screen.getByRole('button', { name: /video filters/i }))
+
+    for (const filter of FILTER_REGISTRY) {
+      const row = await screen.findByRole('button', { name: new RegExp(filter.name, 'i') })
+      expect(row).toHaveClass('text-left')
+    }
+  })
+
+  it('opens the popover from the start of the trigger, not centred over the picture', async () => {
+    render(<FilterMenu isVisible={true} />)
+    fireEvent.click(screen.getByRole('button', { name: /video filters/i }))
+
+    const heading = await screen.findByText('Video Filters')
+    const content = heading.closest('[data-slot="popover-content"]')
+    expect(content).toHaveAttribute('data-align', 'start')
+  })
+
   it('should have aria-haspopup on trigger button', () => {
     render(<FilterMenu isVisible={true} />)
     const button = screen.getByRole('button', { name: /video filters/i })

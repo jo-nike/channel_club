@@ -14,6 +14,7 @@ import { useTVMode } from '@/hooks/useTVMode'
 import { useCanSetVolume } from '@/hooks/useCanSetVolume'
 import { useVideoKeyboardShortcuts } from '@/hooks/useVideoKeyboardShortcuts'
 import { useOrientationFullscreen } from '@/hooks/useOrientationFullscreen'
+import { useFullscreenState } from '@/hooks/useFullscreenState'
 import { useHLSRetry } from '@/hooks/useHLSRetry'
 import { ProjectorBeamLoader } from '@/components/ProjectorBeamLoader'
 import { RetroTVFilter } from '@/components/filters/RetroTVFilter'
@@ -138,7 +139,6 @@ function LiveVideoPlayer({
   const [isPlaying, setIsPlaying] = useState(false)
   // Muted by something other than the viewer (e.g. the clip preview duck); display only
   const [isElementMuted, setIsElementMuted] = useState(false)
-  const [isFullscreen, setIsFullscreen] = useState(false)
   const [isHoveringControls, setIsHoveringControls] = useState(false)
 
   // Detect TV mode
@@ -244,15 +244,8 @@ function LiveVideoPlayer({
     enabled: true,
   })
 
-  // Track fullscreen changes
-  useEffect(() => {
-    const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement)
-    }
-
-    document.addEventListener('fullscreenchange', handleFullscreenChange)
-    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
-  }, [])
+  // Fullscreen only when this player's container is the fullscreen element
+  const isFullscreen = useFullscreenState(containerRef)
 
   // Check mpegts.js support
   const isMpegtsSupported = mpegts.isSupported()
@@ -438,6 +431,15 @@ function HLSVideoPlayerWrapper({
 
   return (
     <div ref={containerRef} className="relative h-full w-full bg-black flex items-center justify-center">
+      {/* Video filter overlays. Before MediaPlayer: it creates no stacking
+          context, so the z-10 control bar inside it paints above these z-10
+          filters only if it comes later in the DOM. */}
+      <RetroTVFilter isActive={isRetroTVActive} />
+      <FilmGrainFilter isActive={isFilmGrainActive} />
+      <NoirFilter isActive={isNoirActive} />
+      <GrindhouseFilter isActive={isGrindhouseActive} />
+      <SportsHDFilter isActive={isSportsHDActive} />
+
       <MediaPlayer
         key={retryKey}
         src={streamUrl}
@@ -465,13 +467,6 @@ function HLSVideoPlayerWrapper({
           onTheaterModeToggle={onTheaterModeToggle}
         />
       </MediaPlayer>
-
-      {/* Video filter overlays */}
-      <RetroTVFilter isActive={isRetroTVActive} />
-      <FilmGrainFilter isActive={isFilmGrainActive} />
-      <NoirFilter isActive={isNoirActive} />
-      <GrindhouseFilter isActive={isGrindhouseActive} />
-      <SportsHDFilter isActive={isSportsHDActive} />
 
       {/* Buffering overlay */}
       {(isBuffering || status === 'retrying') && (

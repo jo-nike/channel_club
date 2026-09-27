@@ -5,6 +5,7 @@ import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useHighlightFeature } from '@/hooks/useHighlightFeature'
 import { useHighlightStatus } from '@/hooks/useHighlightStatus'
 import { useCanSetVolume } from '@/hooks/useCanSetVolume'
+import { useFullscreenState } from '@/hooks/useFullscreenState'
 import { HighlightButton } from '@/components/HighlightButton'
 import { HighlightModal } from '@/components/HighlightModal'
 import { CastButton } from '@/components/CastButton'
@@ -61,8 +62,14 @@ export function ErsatzTVVideoControls({
   // Get media state from Vidstack context
   const paused = useMediaState('paused')
   const isElementMuted = useMediaState('muted')
-  const fullscreen = useMediaState('fullscreen')
+  const isPlayerFullscreen = useMediaState('fullscreen')
   const remote = useMediaRemote()
+
+  // The fullscreen button fullscreens the container, which Vidstack's state
+  // never reports (it tracks only its own MediaPlayer element). Its state is
+  // only right for the no-container fallback that fullscreens MediaPlayer.
+  const isContainerFullscreen = useFullscreenState(containerRef)
+  const fullscreen = containerRef ? isContainerFullscreen : isPlayerFullscreen
 
   const isPlaying = !paused
 
