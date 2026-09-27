@@ -1,6 +1,7 @@
 import type { ComponentProps, ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { UnreadBadge } from '@/components/UnreadBadge'
 import { cn } from '@/lib/utils'
 
 interface HeaderActionProps extends Omit<ComponentProps<'button'>, 'children'> {
@@ -41,11 +42,7 @@ export function HeaderAction({
         >
           {icon}
           {visibleLabel && <span className="hidden lg:inline">{visibleLabel}</span>}
-          {badge !== undefined && badge > 0 && (
-            <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-0.5 text-xs font-bold text-destructive-foreground dark:bg-destructive/60">
-              {badge > 9 ? '9+' : badge}
-            </span>
-          )}
+          {badge !== undefined && <UnreadBadge count={badge} className="absolute -top-1.5 -right-1.5" />}
         </Button>
       </TooltipTrigger>
       <TooltipContent>
