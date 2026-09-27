@@ -1,5 +1,5 @@
 import { Fragment, useRef, useEffect, useLayoutEffect, useState, useCallback, type KeyboardEvent, type UIEvent } from 'react'
-import { X, Send, Pencil, Loader2, AlertCircle, WifiOff, ArrowDown } from 'lucide-react'
+import { X, Send, Pencil, Loader2, AlertCircle, WifiOff, ArrowDown, MessageCircle } from 'lucide-react'
 import type { ChatSendResult, WebSocketStatus } from '@/hooks/useWebSocket'
 import { createClientMessageId } from '@/lib/messageId'
 import { scrollBehavior } from '@/lib/motion'
@@ -548,9 +548,17 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
                   </p>
                 )}
                 {messages.length === 0 ? (
-                  <p className="text-center text-muted-foreground text-sm py-8">
-                    No messages yet. Say hello!
-                  </p>
+                  // Says what the room is: one chat for the whole club, kept in
+                  // server memory (backend/app/services/chat.py), so it doesn't last
+                  <div className="flex flex-col items-center gap-2 px-6 py-8 text-center">
+                    <span className="flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground" aria-hidden="true">
+                      <MessageCircle className="size-5" />
+                    </span>
+                    <p className="text-sm font-medium">No messages yet. Say hello!</p>
+                    <p className="max-w-60 text-xs text-muted-foreground">
+                      Everyone signed in shares this chat. Messages clear after 24 hours or when the server restarts.
+                    </p>
+                  </div>
                 ) : (
                   messages.map((msg, index) => (
                     <Fragment key={msg.messageId}>

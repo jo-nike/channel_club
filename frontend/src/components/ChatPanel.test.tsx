@@ -65,6 +65,19 @@ describe('ChatPanel', () => {
     expect(screen.getByText('No messages yet. Say hello!')).toBeInTheDocument()
   })
 
+  it('explains in the empty state that the club shares one chat that clears after 24 hours', () => {
+    render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+    expect(screen.getByText(
+      'Everyone signed in shares this chat. Messages clear after 24 hours or when the server restarts.'
+    )).toBeInTheDocument()
+  })
+
+  it('drops the explanation once there are messages', () => {
+    useChatStore.setState({ messages: [createMessage('1')] })
+    render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+    expect(screen.queryByText(/24 hours/)).not.toBeInTheDocument()
+  })
+
   it('renders messages', () => {
     useChatStore.setState({
       messages: [
