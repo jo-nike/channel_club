@@ -161,6 +161,34 @@ describe('TVHeader', () => {
     expect(screen.getByRole('button', { name: 'Refresh video' })).toBeVisible()
   })
 
+  it('keeps Host, Chat, Refresh and Settings on a phone, all 44px, and drops Feedback', () => {
+    auth.isAdmin = true
+    renderHeader({ isMobile: true })
+
+    const nav = screen.getByRole('navigation', { name: 'Watch controls' })
+    const actions = within(nav).getAllByRole('button')
+    expect(actions.map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Open admin panel',
+      'Open chat',
+      'Refresh video',
+    ])
+    for (const action of actions) expect(action).toHaveClass('size-11', 'md:size-9')
+    expect(within(nav).getByTestId('settings-menu')).toBeInTheDocument()
+    expect(screen.queryByTestId('feedback')).not.toBeInTheDocument()
+    // Tighter gaps so the 44px targets leave room for the title
+    expect(nav).toHaveClass('gap-1', 'md:gap-2')
+  })
+
+  it('keeps the live channel picker one tap away for a permitted viewer on a phone', () => {
+    appSettings.userChannelSelection = true
+    const props = renderHeader({ isMobile: true })
+
+    const picker = screen.getByRole('button', { name: 'Change live channel' })
+    expect(picker).toHaveClass('size-11')
+    fireEvent.click(picker)
+    expect(props.onOpenChannelPicker).toHaveBeenCalledTimes(1)
+  })
+
   it('reloads the video from Refresh video', () => {
     const props = renderHeader()
     fireEvent.click(screen.getByRole('button', { name: 'Refresh video' }))

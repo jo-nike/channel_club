@@ -46,7 +46,8 @@ export function TVHeader({
         <NowWatching isMobile={isMobile} />
       </div>
 
-      <nav aria-label="Watch controls" className="flex shrink-0 items-center gap-2">
+      {/* Phones keep Host or Change live, Chat, Refresh and Settings as 44px targets */}
+      <nav aria-label="Watch controls" className="flex shrink-0 items-center gap-1 md:gap-2">
         {/* Guide toggle - desktop only */}
         {!isMobile && (
           <HeaderAction
@@ -93,8 +94,8 @@ export function TVHeader({
         )}
         {/* Chat toggle, the one filled action */}
         <ChatToggleButton />
-        {/* Feedback (hidden unless the server is configured for it) */}
-        <FeedbackButton />
+        {/* Feedback (hidden unless the server is configured for it) - desktop only */}
+        {!isMobile && <FeedbackButton />}
         {/* Refresh video: remounts the player */}
         <HeaderAction icon={<RefreshCw />} label="Refresh video" onClick={onReload} />
         {/* User settings (theme + notifications + logout) */}
