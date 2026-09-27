@@ -221,3 +221,24 @@ describe('G-03 phone portrait layout', () => {
     expect(video).toHaveStyle({ flex: '1 1 100%' })
   })
 })
+
+describe('G-08 viewport height and header title', () => {
+  beforeEach(() => vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([]))
+
+  it('sizes the app to the dynamic viewport, keeping 100vh where dvh is unsupported', () => {
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    const root = screen.getByRole('banner').parentElement!
+    expect(root).toHaveClass('h-screen', 'supports-[height:100dvh]:h-dvh')
+    expect(root).not.toHaveClass('h-dvh')
+  })
+
+  it('keeps a long programme title on one truncated line', async () => {
+    const title = 'The Lord of the Rings: The War of the Rohirrim'
+    vi.mocked(fetchNowPlaying).mockResolvedValue({ channelId: 'a', currentProgram: { title, startTime: '2026-09-06T11:00:00Z', endTime: '2099-01-01T00:00:00Z' } })
+    useChannelStore.getState().setCurrentChannel({ id: 'a', name: 'PopCorn Movies', streamUrl: '/a', guideId: 'guide-a' })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    const titleEl = await screen.findByText(`PopCorn Movies - ${title}`)
+    expect(titleEl).toHaveClass('truncate')
+    expect(titleEl.parentElement).toHaveClass('min-w-0', 'flex-1')
+  })
+})
