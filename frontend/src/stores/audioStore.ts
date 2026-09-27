@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { persist, createJSONStorage } from 'zustand/middleware'
 
 export const AUDIO_STORAGE_KEY = 'audio-storage'
 // uiStore used to persist `volume`; it is read once to seed this store.
@@ -24,12 +24,21 @@ interface AudioState extends AudioLevels {
    * yet, so the player should say the sound is off. Never saved.
    */
   savedMuteNotice: boolean
+  /**
+   * How many previews (the clip editor) want the live player silent. While
+   * above zero every engine mutes its element; the saved mute is untouched.
+   * Never saved.
+   */
+  previewHolds: number
   /** Set the level (clamped to 0..1, snapped to hundredths). Below 0.01 mutes and keeps the previous level. */
   setVolume: (value: number) => void
   /** Mute or unmute. Unmuting below 0.1 raises the level to 0.25 so it is audible. */
   setMuted: (value: boolean) => void
   /** The saved-mute notice has been shown; don't show it again this page load. */
   dismissSavedMuteNotice: () => void
+  /** Silence the live player for a preview; pair each call with releasePreview */
+  acquirePreview: () => void
+  releasePreview: () => void
 }
 
 function snapVolume(value: number): number {
@@ -58,11 +67,21 @@ function readLegacySeed(): AudioLevels | null {
 
 const legacySeed = readLegacySeed()
 
+// persist writes after every set(), even one that changes nothing it saves
+// (the preview hold); skip those so audio-storage only changes with the levels.
+const storage = createJSONStorage<AudioLevels>(() => ({
+  getItem: (name: string) => localStorage.getItem(name),
+  setItem: (name: string, value: string) => {
+    if (localStorage.getItem(name) !== value) localStorage.setItem(name, value)
+  },
+  removeItem: (name: string) => localStorage.removeItem(name),
+}))
+
 /**
  * Volume and mute shared by every player, persisted on their own so channel
  * switches, stream retries and reloads all start from the viewer's choice.
- * Only user actions (mute button, M key, slider, arrow keys) write here;
- * temporary element mutes such as the clip preview duck never do.
+ * Only user actions (mute button, M key, slider, arrow keys) write the saved
+ * levels; temporary element mutes such as the clip preview hold never do.
  */
 export const useAudioStore = create<AudioState>()(
   persist(
@@ -70,6 +89,7 @@ export const useAudioStore = create<AudioState>()(
       volume: 1,
       muted: false,
       savedMuteNotice: false,
+      previewHolds: 0,
       // Any choice the viewer makes this session replaces the saved one
       setVolume: (value) => {
         const volume = snapVolume(value)
@@ -79,10 +99,13 @@ export const useAudioStore = create<AudioState>()(
       setMuted: (muted) =>
         set((s) => ({ muted, volume: muted ? s.volume : unmutedVolume(s.volume), savedMuteNotice: false })),
       dismissSavedMuteNotice: () => set({ savedMuteNotice: false }),
+      acquirePreview: () => set((s) => ({ previewHolds: s.previewHolds + 1 })),
+      releasePreview: () => set((s) => ({ previewHolds: Math.max(0, s.previewHolds - 1) })),
     }),
     {
       name: AUDIO_STORAGE_KEY,
       version: 1,
+      storage,
       partialize: (state) => ({ volume: state.volume, muted: state.muted }),
     }
   )

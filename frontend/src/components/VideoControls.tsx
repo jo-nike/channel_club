@@ -1,18 +1,16 @@
-import { useState, useCallback, useEffect, type RefObject } from 'react'
+import { useCallback, type RefObject } from 'react'
 import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Expand, Shrink } from 'lucide-react'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useHighlightFeature } from '@/hooks/useHighlightFeature'
 import { useHighlightStatus } from '@/hooks/useHighlightStatus'
 import { useCanSetVolume } from '@/hooks/useCanSetVolume'
 import { HighlightButton } from './HighlightButton'
-import { HighlightModal } from './HighlightModal'
 import { CastButton } from './CastButton'
 import { FilterMenu } from './FilterMenu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { useAudioStore } from '@/stores/audioStore'
+import { useClipStore } from '@/stores/clipStore'
 
 export interface VideoControlsProps {
-  videoRef: RefObject<HTMLVideoElement | null>
   /** Container ref for portal rendering (needed for fullscreen popover support) */
   containerRef?: RefObject<HTMLElement | null>
   isPlaying: boolean
@@ -38,7 +36,6 @@ export interface VideoControlsProps {
 }
 
 export function VideoControls({
-  videoRef,
   containerRef,
   isPlaying,
   volume,
@@ -75,19 +72,11 @@ export function VideoControls({
   // Always-on highlight status polling (independent of control visibility)
   const highlightStatus = useHighlightStatus(showHighlightButton ? channelId : undefined)
 
-  const [capture, setCapture] = useState<{ channel: string; container: HTMLElement | null } | null>(null)
-  useEffect(() => () => setCapture(null), [channelId])
+  // The editor lives in the player shell, so it outlives this control bar
+  const openClip = useClipStore((s) => s.open)
   const handleOpenHighlightModal = useCallback(() => {
-    if (channelId) setCapture({ channel: channelId, container: containerRef?.current ?? null })
-  }, [channelId, containerRef])
-  const handleCloseHighlightModal = useCallback(() => setCapture(null), [])
-  const acquirePreviewAudio = useCallback(() => {
-    const player = videoRef.current
-    if (!player) return () => {}
-    player.muted = true
-    // Restore the viewer's saved choice, which may have changed during the preview
-    return () => { player.muted = useAudioStore.getState().muted }
-  }, [videoRef])
+    if (channelId) openClip(channelId, channelName ?? channelId)
+  }, [channelId, channelName, openClip])
 
   return (
     <div
@@ -161,21 +150,12 @@ export function VideoControls({
 
       {/* Highlight capture */}
       {showHighlightButton && (
-        <>
-          <HighlightButton
-            channelId={channelId}
-            isVisible={isVisible}
-            highlightStatus={highlightStatus}
-            onOpenModal={handleOpenHighlightModal}
-          />
-          <HighlightModal
-            isOpen={capture?.channel === channelId}
-            onClose={handleCloseHighlightModal}
-            channelId={channelId}
-            acquirePreviewAudio={acquirePreviewAudio}
-            container={capture?.container}
-          />
-        </>
+        <HighlightButton
+          channelId={channelId}
+          isVisible={isVisible}
+          highlightStatus={highlightStatus}
+          onOpenModal={handleOpenHighlightModal}
+        />
       )}
 
       {/* Cast Button - for Chromecast streaming */}

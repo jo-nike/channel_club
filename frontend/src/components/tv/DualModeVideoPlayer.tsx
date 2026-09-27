@@ -25,8 +25,10 @@ import { AutoplayNotice } from '@/components/player/AutoplayNotice'
 import { PlayerShellContext, usePlayerShell } from '@/components/player/PlayerShellContext'
 import { FilterLayer } from '@/components/player/FilterLayer'
 import { NHLScoresOverlay } from '@/components/NHLScoresOverlay'
+import { HighlightModal } from '@/components/HighlightModal'
 import { useAudioStore, unmutedVolume } from '@/stores/audioStore'
 import { useChannelStore } from '@/stores/channelStore'
+import { useClipStore } from '@/stores/clipStore'
 import { useUIStore } from '@/stores/uiStore'
 import { getErsatzTVStreamUrl } from '@/services/ersatztvApi'
 import type { UnifiedChannel } from '@/types'
@@ -47,7 +49,9 @@ interface DualModeVideoPlayerProps {
 // element, so only the keyed engine inside it re-initialises (on a channel
 // change or a reload) and a viewer in fullscreen stays there. (Removing the
 // fullscreen element exits fullscreen; Vidstack's own exit on unmount is a
-// no-op unless MediaPlayer itself is the fullscreen element.)
+// no-op unless MediaPlayer itself is the fullscreen element.) The clip
+// editor lives in the shell too, so a channel change or a stream retry
+// leaves it, its capture and any export alone.
 export function DualModeVideoPlayer({
   channel,
   isTheaterMode,
@@ -57,8 +61,20 @@ export function DualModeVideoPlayer({
   reloadKey: pageReloadKey = 0,
 }: DualModeVideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
+  // The shell element again, as state: the clip editor portals into it
+  // (so it shows in fullscreen) and render can't read the ref
+  const [shellElement, setShellElement] = useState<HTMLDivElement | null>(null)
+  const attachShell = useCallback((node: HTMLDivElement | null) => {
+    containerRef.current = node
+    setShellElement(node)
+  }, [])
   const isFullscreen = useFullscreenState(containerRef)
   const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
+
+  const clipSession = useClipStore((s) => s.session)
+  const closeClip = useClipStore((s) => s.close)
+  // The editor belongs to this player: it closes when the player goes away
+  useEffect(() => closeClip, [closeClip])
 
   const toggleFullscreen = useCallback(() => {
     const container = containerRef.current
@@ -80,6 +96,14 @@ export function DualModeVideoPlayer({
     () => ({ containerRef, isFullscreen, toggleFullscreen, reload, reloadKey }),
     [isFullscreen, toggleFullscreen, reload, reloadKey]
   )
+
+  // What this viewer's player shows now, for the clip editor's notice: null
+  // while live TV is stopped, nothing before a channel is selected
+  const playingChannel = !channel
+    ? undefined
+    : channel.type === 'live' && !channel.streamUrl
+      ? null
+      : { id: channel.backendId || channel.id, name: channel.name }
 
   let engine: ReactNode
   if (!channel) {
@@ -121,13 +145,22 @@ export function DualModeVideoPlayer({
 
   return (
     <PlayerShellContext value={shell}>
-      <div ref={containerRef} className="video-player-container relative h-full w-full bg-black">
+      <div ref={attachShell} className="video-player-container relative h-full w-full bg-black">
         {/* Before the engine, so its control bar paints above the filters */}
         <FilterLayer />
         {engine}
         {/* In the shell, so the ticker shows in fullscreen too */}
         <NHLScoresOverlay isVisible={isNHLOverlayVisible} />
       </div>
+      {/* One editor for every engine, keyed by the capture's channel, not the one playing */}
+      <HighlightModal
+        isOpen={clipSession !== null}
+        onClose={closeClip}
+        channelId={clipSession?.channelId ?? ''}
+        channelName={clipSession?.channelName}
+        playingChannel={playingChannel}
+        container={shellElement}
+      />
     </PlayerShellContext>
   )
 }
@@ -228,7 +261,7 @@ function LiveVideoPlayer({
   // Video state
   const [isPlaying, setIsPlaying] = useState(false)
   const [hasStarted, setHasStarted] = useState(false)
-  // Muted by something other than the viewer (e.g. the clip preview duck); display only
+  // Muted by something other than the viewer (e.g. the clip preview hold); display only
   const [isElementMuted, setIsElementMuted] = useState(false)
   // Autoplay fallbacks: the browser only allowed muted playback, or none
   const [isSystemMutedState, setIsSystemMuted] = useState(false)
@@ -243,6 +276,8 @@ function LiveVideoPlayer({
   const isStoreMuted = useAudioStore((s) => s.muted)
   const setStoredVolume = useAudioStore((s) => s.setVolume)
   const setStoredMuted = useAudioStore((s) => s.setMuted)
+  // The clip editor is previewing: keep the element silent, the saved mute as it is
+  const isPreviewHeld = useAudioStore((s) => s.previewHolds > 0)
   const isMuted = isStoreMuted || isElementMuted
   const isSystemMuted = isSystemMutedState && !isStoreMuted
   const isSavedMuteNotice = useSavedMuteNotice(hasStarted, isStoreMuted)
@@ -326,15 +361,16 @@ function LiveVideoPlayer({
   // Check mpegts.js support
   const isMpegtsSupported = mpegts.isSupported()
 
-  // Apply the saved volume and mute to the element. Declared before the
-  // mpegts effect so a new stream starts at the viewer's level.
+  // Apply the saved volume and mute, and any preview hold, to the element.
+  // Declared before the mpegts effect so a new stream starts at the viewer's
+  // level, and silent under an open clip editor.
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
 
     video.volume = volume
-    video.muted = isStoreMuted
-  }, [volume, isStoreMuted])
+    video.muted = isStoreMuted || isPreviewHeld
+  }, [volume, isStoreMuted, isPreviewHeld])
 
   // Setup mpegts.js player
   useEffect(() => {
@@ -380,8 +416,14 @@ function LiveVideoPlayer({
     const handlePause = () => setIsPlaying(false)
     const handlePlay = () => setIsPlaying(true)
     const handleError = () => setError('Stream unavailable')
-    // Never saved: element-only mutes (the clip preview duck) must not stick
+    // Never saved: element-only mutes (the clip preview hold) must not stick
     const handleVolumeChangeEvent = () => {
+      // Read the hold now, not when the unmute was asked for: an unmute
+      // during a preview (the slider, another window) is undone
+      if (!video.muted && useAudioStore.getState().previewHolds > 0) {
+        video.muted = true
+        return
+      }
       setIsElementMuted(video.muted)
       // Any unmute (the notice, Mute button, M key, slider) ends the system mute
       if (!video.muted) setIsSystemMuted(false)
@@ -414,7 +456,6 @@ function LiveVideoPlayer({
       <video ref={videoRef} autoPlay className="h-full w-full object-contain" />
 
       <VideoControls
-        videoRef={videoRef}
         containerRef={containerRef}
         isPlaying={isPlaying}
         volume={volume}
@@ -485,6 +526,8 @@ function HLSVideoPlayerWrapper({
   const volume = useAudioStore((s) => s.volume)
   const muted = useAudioStore((s) => s.muted)
   const setStoredMuted = useAudioStore((s) => s.setMuted)
+  // The clip editor is previewing: the element is muted, the saved mute kept
+  const isPreviewHeld = useAudioStore((s) => s.previewHolds > 0)
   const isSavedMuteNotice = useSavedMuteNotice(hasStarted, muted)
 
   const { status, retryCount, retryKey, handleError, handlePlaying } = useHLSRetry({
@@ -558,9 +601,15 @@ function HLSVideoPlayerWrapper({
   )
 
   // Any unmute of the element (the notice, Mute button, M key, slider) ends
-  // the system mute
+  // the system mute. Vidstack reports it asynchronously, so the preview hold
+  // is read when the event arrives: an unmute during a preview is undone.
   const onVolumeChange = useCallback((detail: MediaVolumeChange) => {
-    if (!detail.muted) setSystemMutedKey(null)
+    if (detail.muted) return
+    if (useAudioStore.getState().previewHolds > 0) {
+      playerRef.current?.remoteControl.mute()
+      return
+    }
+    setSystemMutedKey(null)
   }, [])
 
   // The tap is a user gesture, so the browser lets the element unmute
@@ -605,7 +654,7 @@ function HLSVideoPlayerWrapper({
         autoPlay
         playsInline
         volume={volume}
-        muted={muted}
+        muted={muted || isPreviewHeld}
         // useVideoKeyboardShortcuts is the only keyboard map: Vidstack's own
         // keys seek, and change volume without saving it
         keyDisabled

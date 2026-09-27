@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, type RefObject } from 'react'
+import { useCallback, type RefObject } from 'react'
 import { useMediaState, useMediaRemote } from '@vidstack/react'
 import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Expand, Shrink } from 'lucide-react'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
@@ -7,11 +7,11 @@ import { useHighlightStatus } from '@/hooks/useHighlightStatus'
 import { useCanSetVolume } from '@/hooks/useCanSetVolume'
 import { useFullscreenState } from '@/hooks/useFullscreenState'
 import { HighlightButton } from '@/components/HighlightButton'
-import { HighlightModal } from '@/components/HighlightModal'
 import { CastButton } from '@/components/CastButton'
 import { FilterMenu } from '@/components/FilterMenu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useAudioStore } from '@/stores/audioStore'
+import { useClipStore } from '@/stores/clipStore'
 
 export interface ErsatzTVVideoControlsProps {
   /** Container ref for portal rendering (needed for fullscreen popover support) */
@@ -79,7 +79,7 @@ export function ErsatzTVVideoControls({
   const isStoreMuted = useAudioStore((s) => s.muted)
   const setStoredVolume = useAudioStore((s) => s.setVolume)
   const setStoredMuted = useAudioStore((s) => s.setMuted)
-  // The element can also be muted without the viewer asking (clip preview duck)
+  // The element can also be muted without the viewer asking (clip preview hold)
   const muted = isStoreMuted || isElementMuted
 
   const handlePlayPause = () => {
@@ -118,17 +118,11 @@ export function ErsatzTVVideoControls({
     }
   }, [containerRef, remote])
 
-  const [capture, setCapture] = useState<{ channel: string; container: HTMLElement | null } | null>(null)
-  useEffect(() => () => setCapture(null), [channelId])
+  // The editor lives in the player shell, so it outlives a retry remount
+  const openClip = useClipStore((s) => s.open)
   const handleOpenHighlightModal = useCallback(() => {
-    if (channelId) setCapture({ channel: channelId, container: containerRef?.current ?? null })
-  }, [channelId, containerRef])
-  const handleCloseHighlightModal = useCallback(() => setCapture(null), [])
-  const acquirePreviewAudio = useCallback(() => {
-    remote.mute()
-    // Restore the viewer's saved choice, which may have changed during the preview
-    return () => { if (!useAudioStore.getState().muted) remote.unmute() }
-  }, [remote])
+    if (channelId) openClip(channelId, channelName ?? channelId)
+  }, [channelId, channelName, openClip])
 
   return (
     <div
@@ -202,21 +196,12 @@ export function ErsatzTVVideoControls({
 
       {/* Highlight capture */}
       {showHighlightButton && (
-        <>
-          <HighlightButton
-            channelId={channelId}
-            isVisible={isVisible}
-            highlightStatus={highlightStatus}
-            onOpenModal={handleOpenHighlightModal}
-          />
-          <HighlightModal
-            isOpen={capture?.channel === channelId}
-            onClose={handleCloseHighlightModal}
-            channelId={channelId}
-            acquirePreviewAudio={acquirePreviewAudio}
-            container={capture?.container}
-          />
-        </>
+        <HighlightButton
+          channelId={channelId}
+          isVisible={isVisible}
+          highlightStatus={highlightStatus}
+          onOpenModal={handleOpenHighlightModal}
+        />
       )}
 
       {/* Cast Button - for Chromecast streaming (HLS direct, no transcoding needed) */}

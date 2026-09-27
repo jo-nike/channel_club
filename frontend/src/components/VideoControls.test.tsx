@@ -1,34 +1,29 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent } from '@/test/utils'
 import { VideoControls, VideoControlsProps } from './VideoControls'
+import { useClipStore } from '@/stores/clipStore'
 
 // Mock the highlight feature hook - disabled by default for existing tests
+const highlight = vi.hoisted(() => ({ enabled: false }))
 vi.mock('@/hooks/useHighlightFeature', () => ({
-  useHighlightFeature: () => ({ isEnabled: false, isLoading: false }),
+  useHighlightFeature: () => ({ isEnabled: highlight.enabled, isLoading: false }),
 }))
+vi.mock('@/hooks/useHighlightStatus', () => ({
+  useHighlightStatus: () => ({ recording: true, ready: true, bufferSeconds: 60 }),
+}))
+// Rendered once there is a channel; it would ask the server whether casting is on
+vi.mock('@/components/CastButton', () => ({ CastButton: () => null }))
 
 // Script volume detection (false on iOS/iPadOS Safari)
 const volumeSupport = vi.hoisted(() => ({ canSet: true }))
 vi.mock('@/hooks/useCanSetVolume', () => ({ useCanSetVolume: () => volumeSupport.canSet }))
 
-// Mock video element
-const createMockVideoRef = () => {
-  const video = document.createElement('video')
-  Object.defineProperty(video, 'paused', { value: true, writable: true })
-  Object.defineProperty(video, 'volume', { value: 1, writable: true })
-  Object.defineProperty(video, 'muted', { value: false, writable: true })
-  return { current: video }
-}
-
 describe('VideoControls', () => {
-  let mockVideoRef: ReturnType<typeof createMockVideoRef>
   let defaultProps: VideoControlsProps
 
   beforeEach(() => {
     volumeSupport.canSet = true
-    mockVideoRef = createMockVideoRef()
     defaultProps = {
-      videoRef: mockVideoRef as React.RefObject<HTMLVideoElement>,
       isPlaying: false,
       volume: 1,
       isMuted: false,
@@ -231,6 +226,34 @@ describe('VideoControls', () => {
       const toolbar = screen.getByRole('toolbar')
       expect(toolbar).not.toHaveClass('bottom-12')
       expect(toolbar).not.toHaveClass('bottom-24')
+    })
+  })
+
+  describe('Clip capture', () => {
+    beforeEach(() => {
+      highlight.enabled = true
+      useClipStore.setState({ session: null })
+    })
+    afterEach(() => {
+      highlight.enabled = false
+    })
+
+    it('opens the clip session on this channel and leaves the editor to the player shell', () => {
+      render(<VideoControls {...defaultProps} channelId="42" channelName="Sportsnet" />)
+
+      fireEvent.click(screen.getByRole('button', { name: /Capture clip/ }))
+
+      expect(useClipStore.getState().session).toEqual({ channelId: '42', channelName: 'Sportsnet' })
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    it('leaves the session open when the control bar unmounts', () => {
+      const { unmount } = render(<VideoControls {...defaultProps} channelId="42" channelName="Sportsnet" />)
+      fireEvent.click(screen.getByRole('button', { name: /Capture clip/ }))
+
+      unmount()
+
+      expect(useClipStore.getState().session).toEqual({ channelId: '42', channelName: 'Sportsnet' })
     })
   })
 

@@ -6,7 +6,7 @@ const readSaved = () => JSON.parse(localStorage.getItem('audio-storage') ?? 'nul
 describe('audioStore', () => {
   beforeEach(() => {
     localStorage.clear()
-    useAudioStore.setState({ volume: 1, muted: false, savedMuteNotice: false })
+    useAudioStore.setState({ volume: 1, muted: false, savedMuteNotice: false, previewHolds: 0 })
     localStorage.clear()
   })
 
@@ -85,6 +85,50 @@ describe('audioStore', () => {
     it('is never saved', () => {
       useAudioStore.setState({ volume: 0.3, muted: true, savedMuteNotice: true })
       expect(readSaved()).toEqual({ state: { volume: 0.3, muted: true }, version: 1 })
+    })
+  })
+
+  describe('preview hold', () => {
+    it('counts holds, so the player stays silent until the last preview ends', () => {
+      const { acquirePreview, releasePreview } = useAudioStore.getState()
+      acquirePreview()
+      acquirePreview()
+      releasePreview()
+      expect(useAudioStore.getState().previewHolds).toBe(1)
+      releasePreview()
+      expect(useAudioStore.getState().previewHolds).toBe(0)
+    })
+
+    it('never goes below zero', () => {
+      useAudioStore.getState().releasePreview()
+      expect(useAudioStore.getState().previewHolds).toBe(0)
+    })
+
+    it('leaves the saved level and mute alone', () => {
+      useAudioStore.setState({ volume: 0.3, muted: false })
+      useAudioStore.getState().acquirePreview()
+      expect(useAudioStore.getState()).toMatchObject({ volume: 0.3, muted: false })
+      useAudioStore.getState().releasePreview()
+      expect(useAudioStore.getState()).toMatchObject({ volume: 0.3, muted: false })
+    })
+
+    it('is never saved and never writes audio-storage', () => {
+      useAudioStore.getState().setVolume(0.4)
+      vi.mocked(localStorage.setItem).mockClear()
+
+      useAudioStore.getState().acquirePreview()
+      useAudioStore.getState().releasePreview()
+
+      expect(localStorage.setItem).not.toHaveBeenCalled()
+      expect(readSaved()).toEqual({ state: { volume: 0.4, muted: false }, version: 1 })
+    })
+
+    it('is not picked up from another window', async () => {
+      useAudioStore.getState().acquirePreview()
+      localStorage.setItem('audio-storage', JSON.stringify({ state: { volume: 0.6, muted: true }, version: 1 }))
+      window.dispatchEvent(new StorageEvent('storage', { key: 'audio-storage' }))
+      await vi.waitFor(() => expect(useAudioStore.getState()).toMatchObject({ volume: 0.6, muted: true }))
+      expect(useAudioStore.getState().previewHolds).toBe(1)
     })
   })
 

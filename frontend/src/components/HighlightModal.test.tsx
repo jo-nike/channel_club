@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@/test/utils'
 import { HighlightModal } from './HighlightModal'
 import * as api from '@/services/api'
+import { useAudioStore } from '@/stores/audioStore'
 
 vi.mock('@/services/api', () => ({
   createHighlightCapture: vi.fn(), highlightCaptureUrl: vi.fn(), fetchHighlightCapture: vi.fn(), deleteHighlightCapture: vi.fn(),
@@ -167,19 +168,53 @@ describe('Clip editor', () => {
   })
 
   it('restores audio, aborts requests and starts a fresh session after reopening', async () => {
-    const restore = vi.fn()
-    const acquirePreviewAudio = vi.fn(() => restore)
-    const { rerender } = render(<HighlightModal {...props} acquirePreviewAudio={acquirePreviewAudio} />)
+    useAudioStore.setState({ previewHolds: 0 })
+    const { rerender } = render(<HighlightModal {...props} />)
+    expect(useAudioStore.getState().previewHolds).toBe(1)
     await ready()
     fireEvent.click(screen.getByText('Last 10s'))
     const signal = vi.mocked(api.createHighlightCapture).mock.calls[0][1]!
-    rerender(<HighlightModal {...props} isOpen={false} acquirePreviewAudio={acquirePreviewAudio} />)
+    rerender(<HighlightModal {...props} isOpen={false} />)
     expect(signal.aborted).toBe(true)
-    expect(restore).toHaveBeenCalledTimes(1)
+    expect(useAudioStore.getState().previewHolds).toBe(0)
     expect(api.deleteHighlightCapture).toHaveBeenCalledExactlyOnceWith('capture-1')
-    rerender(<HighlightModal {...props} acquirePreviewAudio={acquirePreviewAudio} />)
+    rerender(<HighlightModal {...props} />)
+    expect(useAudioStore.getState().previewHolds).toBe(1)
     await ready()
     expect(screen.getByLabelText('Start (seconds)')).toHaveValue(40)
+  })
+
+  it('says live TV changed and the clip is kept when another channel is playing', async () => {
+    const { rerender } = render(<HighlightModal {...props} channelName="Sportsnet" playingChannel={{ id: 'channel-1', name: 'Sportsnet' }} />)
+    await ready()
+    expect(screen.queryByText(/Live TV changed/)).not.toBeInTheDocument()
+
+    rerender(<HighlightModal {...props} channelName="Sportsnet" playingChannel={{ id: 'channel-2', name: 'Post-game Show' }} />)
+
+    expect(screen.getByRole('status')).toHaveTextContent('Live TV changed to Post-game Show. Your clip from Sportsnet is kept.')
+    // The session stays on the capture's channel: nothing is captured again or deleted
+    expect(api.createHighlightCapture).toHaveBeenCalledExactlyOnceWith('channel-1', expect.any(AbortSignal))
+    expect(api.deleteHighlightCapture).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('Start (seconds)')).toHaveValue(40)
+  })
+
+  it('drops the notice when the capture channel is playing again', async () => {
+    const { rerender } = render(<HighlightModal {...props} channelName="Sportsnet" playingChannel={{ id: 'channel-2', name: 'TSN' }} />)
+    expect(screen.getByText(/Live TV changed to TSN/)).toBeInTheDocument()
+
+    rerender(<HighlightModal {...props} channelName="Sportsnet" playingChannel={{ id: 'channel-1', name: 'Sportsnet' }} />)
+
+    expect(screen.queryByText(/Live TV changed/)).not.toBeInTheDocument()
+  })
+
+  it('says live TV stopped and the clip is kept when nothing is playing', () => {
+    render(<HighlightModal {...props} channelName="Sportsnet" playingChannel={null} />)
+    expect(screen.getByText('Live TV stopped. Your clip from Sportsnet is kept.')).toBeInTheDocument()
+  })
+
+  it('says nothing about live TV when the player has no channel to report', () => {
+    render(<HighlightModal {...props} channelName="Sportsnet" />)
+    expect(screen.queryByText(/Live TV/)).not.toBeInTheDocument()
   })
 
   it('ignores a late capture response after switching channels', async () => {
