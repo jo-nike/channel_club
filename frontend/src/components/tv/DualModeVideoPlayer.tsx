@@ -214,10 +214,10 @@ export function DualModeVideoPlayer({
   // In fullscreen the page's search is hidden behind the shell
   const focusSearch = isFullscreen ? undefined : onFocusSearch
 
-  // Channel keys (PageUp/PageDown, ]/[, L, digits, Enter, /) and the panel
-  // keys (?, C, N) belong to the shell, not the engine: they must work on the
-  // empty live slot too, which has no engine. The shell stays mounted across
-  // the tune, so fullscreen survives it.
+  // Channel keys (PageUp/PageDown, ]/[, L, digits, Enter, /), the panel
+  // keys (?, C, N) and Clip that (X) belong to the shell, not the engine: they
+  // must work on the empty live slot too, which has no engine. The shell
+  // stays mounted across the tune, so fullscreen survives it.
   useVideoKeyboardShortcuts({
     containerRef,
     onChannelStep: zap?.step,
@@ -227,6 +227,7 @@ export function DualModeVideoPlayer({
     onShortcutSheet: openShortcutSheet,
     onChatToggle: chatEnabled ? (canReply ? openComposer : toggleChat) : undefined,
     onNHLToggle: toggleNHLOverlay,
+    onClipThat: clipThat,
     onFocusSearch: focusSearch,
   })
 
@@ -328,6 +329,7 @@ export function DualModeVideoPlayer({
         onOpenChange={setShortcutSheetOpen}
         container={shellElement}
         canSearch={focusSearch !== undefined}
+        canClip={clipThat !== undefined}
       />
     </PlayerShellContext>
   )

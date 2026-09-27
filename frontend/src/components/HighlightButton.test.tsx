@@ -343,6 +343,15 @@ describe('HighlightButton', () => {
       expect(clipThat()).toBeDisabled()
     })
 
+    it('names its key, X, in the tooltip and for assistive technology', async () => {
+      render(<HighlightButton isVisible highlightStatus={defaultStatus} loaded onClipThat={vi.fn()} />)
+
+      const button = clipThat()!
+      expect(button).toHaveAttribute('aria-keyshortcuts', 'X')
+      fireEvent.focus(button)
+      expect(await screen.findByRole('tooltip')).toHaveTextContent('Clip that · post the last 20s to chat (X)')
+    })
+
     it('is disabled while the clip editor is open', () => {
       render(<HighlightButton isVisible highlightStatus={defaultStatus} loaded onClipThat={vi.fn()} editing />)
       expect(clipThat()).toBeDisabled()

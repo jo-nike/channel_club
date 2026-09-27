@@ -140,6 +140,18 @@ describe('ShortcutSheet', () => {
     expect(keysFor('Close')).toEqual(['Esc'])
   })
 
+  it('lists X for Clip that where it is offered', () => {
+    render(<ShortcutSheet open onOpenChange={vi.fn()} container={document.body} canClip />)
+
+    expect(keysFor('Clip that: post the last 20s to chat')).toEqual(['X'])
+  })
+
+  it('leaves out X where Clip that is not offered (a TV, no Zipline or chat)', () => {
+    render(<ShortcutSheet open onOpenChange={vi.fn()} container={document.body} />)
+
+    expect(screen.queryByText(/Clip that/)).not.toBeInTheDocument()
+  })
+
   it('groups the keys under headings', () => {
     render(<ShortcutSheet open onOpenChange={vi.fn()} container={document.body} />)
 

@@ -35,6 +35,8 @@ interface UseVideoKeyboardShortcutsOptions {
   onChatToggle?: () => void
   /** Show or hide the NHL scores (N) */
   onNHLToggle?: () => void
+  /** Clip that: post the last 20s to chat (X) */
+  onClipThat?: () => void
   /** Focus the channel search (/) */
   onFocusSearch?: () => void
   /** Leave ArrowUp/ArrowDown alone (TV mode, where they belong to channel changes) */
@@ -80,6 +82,7 @@ export function useVideoKeyboardShortcuts({
   onShortcutSheet,
   onChatToggle,
   onNHLToggle,
+  onClipThat,
   onFocusSearch,
   ignoreVerticalArrows = false,
   remotePlayPause = false,
@@ -210,6 +213,11 @@ export function useVideoKeyboardShortcuts({
           onNHLToggle?.()
           break
 
+        case 'x':
+        case 'X': // X - Clip that
+          onClipThat?.()
+          break
+
         case '/': // / - Channel search
           if (!onFocusSearch) break
           // Not typed into the box it focuses, nor the browser's quick find
@@ -239,6 +247,7 @@ export function useVideoKeyboardShortcuts({
       onShortcutSheet,
       onChatToggle,
       onNHLToggle,
+      onClipThat,
       onFocusSearch,
       ignoreVerticalArrows,
       remotePlayPause,

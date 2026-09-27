@@ -2,6 +2,7 @@ import { useCallback } from 'react'
 import { Clapperboard, MessageSquareShare } from 'lucide-react'
 import { type HighlightStatusResponse } from '@/services/api'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { withKey } from '@/lib/keyHints'
 
 export interface HighlightButtonProps {
   isVisible: boolean
@@ -111,13 +112,14 @@ export function HighlightButton({ isVisible, highlightStatus, loaded, onOpenModa
               onClick={onClipThat}
               disabled={state !== 'ready' || clipping || editing}
               aria-label={clipThatLabel}
+              aria-keyshortcuts="X"
               className={`control-button flex ${size} shrink-0 items-center justify-center rounded-lg transition-colors disabled:opacity-50 hover:bg-white/10 focus-ring-media`}
             >
               <MessageSquareShare className="h-5 w-5 text-white" />
             </button>
           </TooltipTrigger>
           <TooltipContent>
-            <p>{clipThatLabel}</p>
+            <p>{withKey(clipThatLabel, 'X')}</p>
           </TooltipContent>
         </Tooltip>
       )}

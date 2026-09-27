@@ -2950,6 +2950,52 @@ describe('DualModeVideoPlayer panel keys', () => {
     })
   })
 
+  describe('X (Clip that)', () => {
+    beforeEach(() => {
+      chatFeature.enabled = true
+      clipApi.getHighlightFeatures.mockResolvedValue({ enabled: true, ziplineEnabled: true })
+      useClipStore.setState({ clipping: false })
+    })
+
+    it('clips the channel playing, and the sheet lists it', async () => {
+      renderPlayer({ ...liveChannel('https://fixture/a'), backendId: '42' })
+      await act(async () => {})
+
+      fireEvent.keyDown(window, { key: 'x' })
+
+      expect(clipApi.createHighlightCapture).toHaveBeenCalledExactlyOnceWith('42', expect.any(AbortSignal))
+      // This fake capture has no footage, so the run ends there
+      await waitFor(() => expect(useClipStore.getState().clipping).toBe(false))
+
+      fireEvent.keyDown(window, { key: '?' })
+      expect(within(sheet()!).getByText('Clip that: post the last 20s to chat')).toBeInTheDocument()
+    })
+
+    it('does nothing without Zipline, and the sheet leaves it out', async () => {
+      clipApi.getHighlightFeatures.mockResolvedValue({ enabled: true, ziplineEnabled: false })
+      renderPlayer(hlsChannel('1', 1))
+      await act(async () => {})
+
+      fireEvent.keyDown(window, { key: 'X' })
+      expect(clipApi.createHighlightCapture).not.toHaveBeenCalled()
+
+      fireEvent.keyDown(window, { key: '?' })
+      expect(within(sheet()!).queryByText(/Clip that/)).not.toBeInTheDocument()
+    })
+
+    it('is not a key on a TV, and the sheet leaves it out', async () => {
+      localStorage.setItem('tv-mode', 'true')
+      renderPlayer(hlsChannel('1', 1))
+      await act(async () => {})
+
+      fireEvent.keyDown(window, { key: 'x' })
+      expect(clipApi.createHighlightCapture).not.toHaveBeenCalled()
+
+      fireEvent.keyDown(window, { key: '?' })
+      expect(within(sheet()!).queryByText(/Clip that/)).not.toBeInTheDocument()
+    })
+  })
+
   it('one press is one toggle, whichever engine is playing', () => {
     chatFeature.enabled = true
     const { switchTo } = renderPlayer(liveChannel('https://fixture/a'))
