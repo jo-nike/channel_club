@@ -165,29 +165,30 @@ async def test_capture_store_replaces_per_owner_and_expires(preview, tmp_path, m
     monkeypatch.setattr(settings, "highlight_temp_dir", str(tmp_path))
 
     class CopyingRecorder(ChannelRecorder):
-        async def capture(self, output: Path) -> None:
+        async def capture(self, output: Path) -> float:
             shutil.copyfile(preview, output)
+            return 0.0
 
     class BrokenRecorder(ChannelRecorder):
-        async def capture(self, output: Path) -> None:
+        async def capture(self, output: Path) -> float:
             raise ValueError("Recorder not running")
 
     copying = CopyingRecorder("synthetic", "http://fixture")
     broken = BrokenRecorder("synthetic", "http://fixture")
     store = CaptureStore()
-    first = await store.create(copying, "viewer", "channel-1")
+    first = await store.create(copying, "viewer", "channel-1", 0.0)
     assert first.path.exists() and first.size == preview.stat().st_size
     assert abs(first.duration - 5) < 0.2
     assert store.get(first.id, "viewer") is first
     assert store.get(first.id, "other") is None
 
-    second = await store.create(copying, "viewer", "channel-1")
+    second = await store.create(copying, "viewer", "channel-1", 0.0)
     assert not first.path.parent.exists() and store.get(first.id, "viewer") is None
-    other = await store.create(copying, "other", "channel-1")
+    other = await store.create(copying, "other", "channel-1", 0.0)
     assert second.path.exists() and other.path.exists()
 
     with pytest.raises(ValueError):
-        await store.create(broken, "viewer", "channel-1")
+        await store.create(broken, "viewer", "channel-1", 0.0)
     assert sorted(item.name for item in (tmp_path / "captures").iterdir()) == sorted(
         [second.id, other.id]
     )

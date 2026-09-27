@@ -223,8 +223,10 @@ def capture(tmp_path):
     """A real file registered for `testuser`; removed after the test."""
     path = tmp_path / "snapshot.mp4"
     path.write_bytes(b"0123456789abcdefghijklmnopqrstuvwxyz")
+    now = time.time()
+    # Pressed 2s before the capture's last frame, so the press sits 10.5s into it.
     item = Capture(
-        CAPTURE_ID, "testuser", "channel-1", path, path.stat().st_size, 12.5, time.time()
+        CAPTURE_ID, "testuser", "channel-1", path, path.stat().st_size, 12.5, now, now - 2, now
     )
     highlight_service.captures.captures[CAPTURE_ID] = item
     yield item
@@ -269,7 +271,10 @@ class TestCreateCapture:
             "duration": 12.5,
             "bytes": 36,
             "expiresAt": pytest.approx(capture.created_at + CAPTURE_TTL_SECONDS),
+            "pressedAt": pytest.approx(capture.pressed_at),
+            "endsAt": pytest.approx(capture.ends_at),
         }
+        assert data["endsAt"] - data["pressedAt"] == pytest.approx(2)
         mock_service.create_capture.assert_awaited_once_with("channel-1", owner="testuser")
 
 

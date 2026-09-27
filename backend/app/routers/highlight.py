@@ -54,6 +54,9 @@ class CaptureResponse(BaseModel):
     duration: float
     bytes: int
     expiresAt: float
+    # Server time of the request and when the capture's last frame was recorded (Unix seconds)
+    pressedAt: float
+    endsAt: float
 
 
 CaptureIdPath = Path(..., pattern=r"^[A-Za-z0-9_-]{16,64}$", description="Capture id")
@@ -164,6 +167,8 @@ async def create_capture(
         duration=capture.duration,
         bytes=capture.size,
         expiresAt=capture.expires_at,
+        pressedAt=capture.pressed_at,
+        endsAt=capture.ends_at,
     )
 
 

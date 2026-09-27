@@ -8,13 +8,13 @@ import sys
 import time
 from io import StringIO
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from loguru import logger
 
 from app.config import settings
-from app.services.highlight import ChannelRecorder
+from app.services.highlight import ChannelRecorder, HighlightService
 from app.services.media_export import encode_file
 
 
@@ -75,7 +75,7 @@ async def test_export_failure_cleans_private_workspace(tmp_path, monkeypatch, fa
 
     def snapshot(directory):
         workspaces.append(directory)
-        return directory / "concat.txt"
+        return directory / "concat.txt", 0.0
 
     async def encode(*args, **kwargs):
         started.set()
@@ -135,7 +135,7 @@ def test_snapshot_logs_how_far_the_capture_ends_before_the_press(tmp_path):
     workspace.mkdir()
     try:
         with patch("os.killpg"), patch("os.waitpid", return_value=(123, 4991)):
-            recorder._snapshot(workspace)
+            _, ends_at = recorder._snapshot(workspace)
     finally:
         logger.remove(handler)
     records = [json.loads(line)["record"] for line in output.getvalue().splitlines()]
@@ -143,7 +143,29 @@ def test_snapshot_logs_how_far_the_capture_ends_before_the_press(tmp_path):
     assert extra["channel_id"] == "safe"
     assert extra["segments"] == 2
     assert 7.0 <= extra["tail_gap_seconds"] < 8.0
+    # The capture ends when its newest included segment was last written.
+    assert ends_at == pytest.approx(now - 7.0)
     assert sorted(path.name for path in workspace.glob("input_*.ts")) == [
         "input_000.ts",
         "input_001.ts",
     ]
+
+
+async def test_capture_records_the_press_and_when_the_capture_ends(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "highlight_temp_dir", str(tmp_path))
+    monkeypatch.setattr(settings, "highlight_enabled", True)
+
+    class EndingRecorder(ChannelRecorder):
+        async def capture(self, output: Path) -> float:
+            output.write_bytes(b"snapshot")
+            return 1_000.5
+
+    service = HighlightService()
+    service._recorders["channel-1"] = EndingRecorder("channel-1", "http://fixture")
+    before = time.time()
+    with patch("app.services.highlight.media_duration", AsyncMock(return_value=60.0)):
+        capture, error = await service.create_capture("channel-1", owner="viewer")
+    assert error is None and capture is not None
+    assert before <= capture.pressed_at <= capture.created_at
+    assert capture.ends_at == 1_000.5
+    await service.captures.clear()

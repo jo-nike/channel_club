@@ -39,7 +39,10 @@ def register():
     registered = []
 
     def add(path, owner="viewer", capture_id=CAPTURE_ID):
-        capture = Capture(capture_id, owner, "channel-1", path, path.stat().st_size, 2, time.time())
+        now = time.time()
+        capture = Capture(
+            capture_id, owner, "channel-1", path, path.stat().st_size, 2, now, now, now
+        )
         highlight_service.captures.captures[capture_id] = capture
         registered.append(capture_id)
         return capture_id
