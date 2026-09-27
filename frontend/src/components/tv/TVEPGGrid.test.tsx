@@ -221,6 +221,13 @@ describe('TVEPGGrid empty live slot', () => {
     expect(useTVStore.getState().selectedChannel).toBeNull()
   })
 
+  it('gives Pick a channel for everyone a 44px target on touch only', () => {
+    render(<TVEPGGrid programmesByChannel={{}} onPickLive={vi.fn()} />)
+
+    const pick = screen.getByRole('button', { name: 'Pick a channel for everyone' })
+    expect(pick).toHaveClass('h-8', 'pointer-coarse:h-11')
+  })
+
   it('shows the wait copy without the action', () => {
     render(<TVEPGGrid programmesByChannel={{}} />)
 
@@ -833,6 +840,19 @@ describe('TVEPGGrid time header', () => {
     expect(pill).toHaveTextContent(timeFormat.format(new Date(NOW)))
     // Half an hour into the grid: one slot
     expect(pill).toHaveStyle({ left: '150px' })
+  })
+
+  it('grows the time controls to 44px targets on touch, keeping their mouse sizes', () => {
+    render(<TVEPGGrid hours={48} programmesByChannel={{}} />)
+
+    for (const name of ['Scroll back 2 hours', 'Scroll forward 2 hours']) {
+      expect(screen.getByRole('button', { name })).toHaveClass('h-6', 'w-6', 'pointer-coarse:h-11', 'pointer-coarse:w-11')
+    }
+    expect(screen.getByRole('button', { name: 'Scroll to now' })).toHaveClass(
+      'px-1',
+      'pointer-coarse:h-11',
+      'pointer-coarse:px-3'
+    )
   })
 
   it('draws the pill, the now line and its dot in the live colour pair, not destructive', () => {

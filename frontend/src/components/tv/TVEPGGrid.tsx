@@ -406,21 +406,21 @@ export function TVEPGGrid({
             </span>
             <button
               onClick={() => scrollByHours(-2)}
-              className="flex h-6 w-6 items-center justify-center rounded hover:bg-accent"
+              className="flex h-6 w-6 items-center justify-center rounded hover:bg-accent pointer-coarse:h-11 pointer-coarse:w-11"
               aria-label="Scroll back 2 hours"
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
             <button
               onClick={scrollToNow}
-              className="px-1 text-xs font-medium hover:bg-accent rounded"
+              className="px-1 text-xs font-medium hover:bg-accent rounded pointer-coarse:h-11 pointer-coarse:px-3"
               aria-label="Scroll to now"
             >
               Now
             </button>
             <button
               onClick={() => scrollByHours(2)}
-              className="flex h-6 w-6 items-center justify-center rounded hover:bg-accent"
+              className="flex h-6 w-6 items-center justify-center rounded hover:bg-accent pointer-coarse:h-11 pointer-coarse:w-11"
               aria-label="Scroll forward 2 hours"
             >
               <ChevronRight className="h-4 w-4" />
@@ -600,6 +600,7 @@ const ChannelRow = memo(function ChannelRow({
             <LiveRowSlot>
               <Button
                 size="sm"
+                className="pointer-coarse:h-11"
                 onClick={onPickLive}
                 tabIndex={tabStopBlockId === PICK_LIVE_CELL ? 0 : -1}
                 data-grid-row={channel.id}

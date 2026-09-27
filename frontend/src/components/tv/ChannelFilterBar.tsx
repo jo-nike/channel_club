@@ -66,7 +66,7 @@ export function ChannelFilterBar({ layout = 'stacked', className }: ChannelFilte
           aria-keyshortcuts="/"
           autoComplete="off"
           spellCheck={false}
-          className="pr-8 pl-8"
+          className="pr-8 pl-8 pointer-coarse:h-11"
         />
         {/* The shortcut, while there's room for it */}
         {!query && (
@@ -82,7 +82,7 @@ export function ChannelFilterBar({ layout = 'stacked', className }: ChannelFilte
             type="button"
             onClick={clearQuery}
             aria-label="Clear search"
-            className="absolute top-1/2 right-1 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            className="absolute top-1/2 right-1 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground pointer-coarse:h-9 pointer-coarse:w-9"
           >
             <X className="h-4 w-4" />
           </button>
@@ -99,7 +99,7 @@ export function ChannelFilterBar({ layout = 'stacked', className }: ChannelFilte
               // Pressing the chip that's on goes back to All
               onClick={() => setFilterMode(isOn ? 'all' : chip.mode)}
               className={cn(
-                'inline-flex h-7 items-center gap-1 rounded-full border px-2.5 text-xs font-semibold whitespace-nowrap transition-colors',
+                'inline-flex h-7 items-center gap-1 rounded-full border px-2.5 text-xs font-semibold whitespace-nowrap transition-colors pointer-coarse:h-11',
                 isOn
                   ? 'border-transparent bg-foreground text-background'
                   : 'border-border text-muted-foreground hover:bg-accent hover:text-foreground'
