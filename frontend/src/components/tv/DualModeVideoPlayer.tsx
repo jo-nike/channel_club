@@ -13,7 +13,7 @@ import { useAutoHide } from '@/hooks/useAutoHide'
 import { useTVMode } from '@/hooks/useTVMode'
 import { useVideoKeyboardShortcuts } from '@/hooks/useVideoKeyboardShortcuts'
 import { useFullscreenState } from '@/hooks/useFullscreenState'
-import { useHLSRetry } from '@/hooks/useHLSRetry'
+import { useStreamRecovery } from '@/hooks/useStreamRecovery'
 import { ProjectorBeamLoader } from '@/components/ProjectorBeamLoader'
 import { Button } from '@/components/ui/button'
 import { AutoplayNotice } from '@/components/player/AutoplayNotice'
@@ -490,9 +490,7 @@ function HLSVideoPlayerWrapper({
   const isPreviewHeld = useAudioStore((s) => s.previewHolds > 0)
   const isSavedMuteNotice = useSavedMuteNotice(hasStarted, muted)
 
-  const { status, retryCount, retryKey, handleError, handlePlaying } = useHLSRetry({
-    streamUrl,
-  })
+  const { status, attempt, maxRetries, retryKey, fail, succeed } = useStreamRecovery()
 
   // Autoplay fallbacks, recorded against the MediaPlayer mount (retryKey) they
   // happened on, so a retry remount starts clean. They mute the element only:
@@ -506,8 +504,8 @@ function HLSVideoPlayerWrapper({
     setIsBuffering(false)
     setHasStarted(true)
     setPlayBlockedKey(null)
-    handlePlaying()
-  }, [handlePlaying])
+    succeed()
+  }, [succeed])
 
   const handleWaiting = useCallback(() => {
     setIsBuffering(true)
@@ -623,7 +621,7 @@ function HLSVideoPlayerWrapper({
         onPlaying={onPlaying}
         onAutoPlayFail={onAutoPlayFail}
         onVolumeChange={onVolumeChange}
-        onError={handleError}
+        onError={fail}
       >
         <MediaProvider />
         <HLSControlsWrapper
@@ -635,9 +633,9 @@ function HLSVideoPlayerWrapper({
       </MediaPlayer>
 
       {/* Buffering overlay */}
-      {(isBuffering || status === 'retrying') && (
+      {(isBuffering || status === 'reconnecting') && (
         <ProjectorBeamLoader
-          text={status === 'retrying' ? `Stream starting... (${retryCount + 1}/5)` : undefined}
+          text={status === 'reconnecting' ? `Stream starting... (${attempt}/${maxRetries})` : undefined}
         />
       )}
 

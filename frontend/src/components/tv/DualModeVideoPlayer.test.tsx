@@ -994,13 +994,29 @@ describe('DualModeVideoPlayer shell: fullscreen survives engine swaps', () => {
     expect(screen.getByRole('button', { name: 'Exit fullscreen' })).toBeInTheDocument()
   })
 
+  it('ErsatzTV: counts its retries from 1 of 5', async () => {
+    vi.useFakeTimers()
+    try {
+      renderPlayer(hlsChannel('1', 1))
+
+      act(() => lastPlayerProps().onError?.())
+      expect(screen.getByText('Stream starting... (1/5)')).toBeInTheDocument()
+
+      await act(() => vi.advanceTimersByTimeAsync(1000))
+      act(() => lastPlayerProps().onError?.())
+      expect(screen.getByText('Stream starting... (2/5)')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('the ErsatzTV failed state renders inside the shell', async () => {
     vi.useFakeTimers()
     try {
       renderPlayer(hlsChannel('1', 1))
       const fullscreen = enterFullscreen()
 
-      // useHLSRetry gives up after its retries
+      // useStreamRecovery gives up after its reconnects
       for (let i = 0; i < 10 && !screen.queryByText('Stream unavailable'); i++) {
         act(() => lastPlayerProps().onError?.())
         await act(() => vi.advanceTimersByTimeAsync(5000))
