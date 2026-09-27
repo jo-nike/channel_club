@@ -66,7 +66,7 @@ export function TVChannelSidebar({
   // Collapsed state
   if (isCollapsed) {
     return (
-      <aside className="flex h-full w-12 flex-col items-center border-r bg-card py-2 rounded-r-lg overflow-hidden">
+      <aside className="flex h-full w-16 flex-col items-center border-r bg-card py-2 rounded-r-lg overflow-hidden">
         <button
           onClick={onToggleCollapse}
           className="flex h-10 w-10 items-center justify-center rounded-md hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -74,7 +74,9 @@ export function TVChannelSidebar({
         >
           <ChevronRight className="h-5 w-5" />
         </button>
-        <div className="mt-2 flex flex-1 flex-col items-center gap-1 overflow-y-auto pt-1">
+        {/* No scrollbar: a classic 15px one would widen the list past the 64px rail
+            and push the tiles off-centre. Wheel, touch and keyboard focus still scroll it. */}
+        <div className="mt-2 flex w-full flex-1 flex-col items-center gap-1.5 overflow-y-auto px-3 pt-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {unifiedChannels.map((channel) => (
             <CollapsedChannelButton
               key={channel.id}
@@ -153,9 +155,9 @@ function CollapsedChannelButton({
         <button
           onClick={() => onSelect(channel)}
           className={`
-            flex h-8 items-center justify-center rounded text-xs font-medium overflow-hidden
+            flex h-10 shrink-0 items-center justify-center rounded-lg text-xs font-medium overflow-hidden
             hover:bg-foreground/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring
-            ${isLive ? 'w-auto min-w-8 px-1' : 'w-8'}
+            ${isLive ? 'w-auto min-w-10 px-1' : 'w-10'}
             ${isSelected ? 'ring-2 ring-primary bg-primary/10' : ''}
             ${isLive && hasLiveChannel ? 'bg-destructive/20 text-destructive' : 'bg-muted'}
           `}
