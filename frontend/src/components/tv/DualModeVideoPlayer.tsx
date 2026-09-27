@@ -9,7 +9,6 @@ import {
   type MediaVolumeChange,
 } from '@vidstack/react'
 import '@vidstack/react/player/styles/default/theme.css'
-import { ErsatzTVVideoControls } from '@/components/ersatztv/ErsatzTVVideoControls'
 import { useAutoHide } from '@/hooks/useAutoHide'
 import { useTVMode } from '@/hooks/useTVMode'
 import { useVideoKeyboardShortcuts } from '@/hooks/useVideoKeyboardShortcuts'
@@ -156,9 +155,7 @@ export function DualModeVideoPlayer({
         channelNumber={channel.number}
         streamUrl={getErsatzTVStreamUrl(channel.id)}
         title={channel.name}
-        isTheaterMode={isTheaterMode}
         isMobile={isMobile}
-        onTheaterModeToggle={onTheaterModeToggle}
       />
     )
   }
@@ -447,18 +444,14 @@ interface HLSVideoPlayerWrapperProps {
   channelNumber: number
   streamUrl: string
   title?: string
-  isTheaterMode: boolean
   isMobile: boolean
-  onTheaterModeToggle: () => void
 }
 
 function HLSVideoPlayerWrapper({
   channelId,
   streamUrl,
   title,
-  isTheaterMode,
   isMobile,
-  onTheaterModeToggle,
 }: HLSVideoPlayerWrapperProps) {
   const playerRef = useRef<MediaPlayerInstance>(null)
   const [isBuffering, setIsBuffering] = useState(true)
@@ -611,12 +604,10 @@ function HLSVideoPlayerWrapper({
       >
         <MediaProvider />
         <HLSControlsWrapper
-          isTheaterMode={isTheaterMode}
           isMobile={isMobile}
           channelId={channelId}
           streamUrl={streamUrl}
           channelName={title}
-          onTheaterModeToggle={onTheaterModeToggle}
         />
       </MediaPlayer>
 
@@ -639,25 +630,22 @@ function HLSVideoPlayerWrapper({
   )
 }
 
-// HLS Controls with Vidstack context
+// The control bar and keyboard shortcuts, inside MediaPlayer so the adapter
+// can read Vidstack's state
 function HLSControlsWrapper({
-  isTheaterMode,
   isMobile,
   channelId,
   streamUrl,
   channelName,
-  onTheaterModeToggle,
 }: {
-  isTheaterMode: boolean
   isMobile: boolean
   channelId: string
   streamUrl: string
   channelName?: string
-  onTheaterModeToggle: () => void
 }) {
   // Playing and the element's own mute, from the MediaPlayer around this
   const adapter = useVidstackAdapter()
-  const { containerRef, toggleFullscreen, controlsVisible, setHoveringControls } = usePlayerShell()
+  const { containerRef, toggleFullscreen, toggleTheaterMode } = usePlayerShell()
 
   // Detect TV mode
   const isTVMode = useTVMode()
@@ -673,7 +661,7 @@ function HLSControlsWrapper({
     onPlayPause: adapter.togglePaused,
     onMuteToggle: toggleMute,
     onFullscreenToggle: toggleFullscreen,
-    onTheaterModeToggle,
+    onTheaterModeToggle: toggleTheaterMode,
     onVolumeChange: changeVolume,
     onUnmute: unmute,
     volume,
@@ -682,18 +670,12 @@ function HLSControlsWrapper({
   })
 
   return (
-    <ErsatzTVVideoControls
-      containerRef={containerRef}
-      isTheaterMode={isTheaterMode}
-      isVisible={controlsVisible}
-      isMobile={isMobile}
-      isTVMode={isTVMode}
+    <PlayerChrome
+      adapter={adapter}
       channelId={channelId}
       streamUrl={streamUrl}
       channelName={channelName}
-      onTheaterModeToggle={onTheaterModeToggle}
-      onMouseEnter={() => setHoveringControls(true)}
-      onMouseLeave={() => setHoveringControls(false)}
+      isMobile={isMobile}
     />
   )
 }

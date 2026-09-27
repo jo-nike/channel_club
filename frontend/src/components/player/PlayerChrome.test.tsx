@@ -343,6 +343,15 @@ describe('PlayerChrome', () => {
       expect(screen.getByRole('button', { name: 'Fullscreen' })).toBeInTheDocument()
     })
 
+    it('the TV fullscreen button toggles the shell fullscreen', () => {
+      tv.mode = true
+      const { shell } = renderChrome({ props: { isMobile: true } })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Fullscreen' }))
+
+      expect(shell.toggleFullscreen).toHaveBeenCalledTimes(1)
+    })
+
     it('still hides the theater button in fullscreen on a TV', () => {
       tv.mode = true
       renderChrome({ shell: { isFullscreen: true } })
