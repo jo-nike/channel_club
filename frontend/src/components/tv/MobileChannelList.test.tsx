@@ -427,6 +427,29 @@ describe('MobileChannelList', () => {
     })
   })
 
+  it('keeps a long channel name to one line, beside the LIVE pill', () => {
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'Marvel Cinematic Universe', streamUrl: 'http://x/live', guideId: 'g1' },
+    })
+    render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={vi.fn()} />)
+
+    const name = screen.getByText('Marvel Cinematic Universe')
+    expect(name).toHaveClass('truncate')
+    // The name's row can shrink below its content, so the name truncates
+    // instead of pushing the pill out
+    expect(name.parentElement).toHaveClass('min-w-0')
+    expect(within(name.parentElement as HTMLElement).getByTestId('live-pill')).toHaveClass('shrink-0')
+  })
+
+  it('has a Channels heading unless showHeading is off', () => {
+    render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={vi.fn()} />)
+    expect(screen.getByRole('heading', { name: 'Channels' })).toBeInTheDocument()
+    cleanup()
+
+    render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={vi.fn()} showHeading={false} />)
+    expect(screen.queryByRole('heading', { name: 'Channels' })).toBeNull()
+  })
+
   it('reserves room under the last row for the install banner', () => {
     const { container } = render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={vi.fn()} />)
     // --install-prompt-h is set on <html> only while the banner shows; 0px otherwise

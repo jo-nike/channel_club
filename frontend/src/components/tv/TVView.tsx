@@ -627,6 +627,7 @@ export function TVView() {
                   onProgrammeClick={handleProgrammeClick}
                   liveEPGTitle={liveEPGTitle}
                   onPickLive={onPickLive}
+                  showHeading={false}
                 />
               </TabsContent>
             </Tabs>

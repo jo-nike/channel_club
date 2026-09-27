@@ -1075,7 +1075,9 @@ describe('G-07/E-02 Channels and Chat tabs on a phone', () => {
 
     const panel = screen.getByRole('tabpanel')
     expect(panel).toHaveAttribute('aria-labelledby', tab('Channels').id)
-    expect(within(panel).getByRole('heading', { name: 'Channels' })).toBeVisible()
+    expect(within(panel).getByRole('search', { name: 'Channels' })).toBeVisible()
+    // The tab names the list, so it has no Channels heading of its own
+    expect(within(panel).queryByRole('heading', { name: 'Channels' })).toBeNull()
     expect(panel).toHaveClass('epg-scroll', 'min-h-0', 'flex-1', 'overflow-y-auto')
     // The strip comes after the 16:9 video (and the arrival card's place), in the same column
     const video = screen.getByTestId('player').closest('.bg-black') as HTMLElement
@@ -1099,12 +1101,12 @@ describe('G-07/E-02 Channels and Chat tabs on a phone', () => {
     // Only the inline panel: none beside <main> over the whole screen
     expect(screen.getAllByTestId('chat')).toHaveLength(1)
     expect(screen.getByTestId('player')).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: 'Channels' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('search', { name: 'Channels' })).not.toBeInTheDocument()
 
     fireEvent.mouseDown(tab('Channels'))
     expect(useChatStore.getState().isOpen).toBe(false)
     expect(screen.queryByTestId('chat')).not.toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Channels' })).toBeVisible()
+    expect(screen.getByRole('search', { name: 'Channels' })).toBeVisible()
   })
 
   it('keeps the chat draft across a visit to Channels', async () => {
