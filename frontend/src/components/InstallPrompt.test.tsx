@@ -22,6 +22,7 @@ describe('InstallPrompt', () => {
       vi.spyOn(useInstallPromptModule, 'useInstallPrompt').mockReturnValue({
         canInstall: true,
         shouldPromote: false,
+        variant: 'native',
         install: mockInstall,
         dismiss: mockDismiss
       })
@@ -89,11 +90,38 @@ describe('InstallPrompt', () => {
     })
   })
 
+  describe('on iPhone and iPad', () => {
+    beforeEach(() => {
+      vi.spyOn(useInstallPromptModule, 'useInstallPrompt').mockReturnValue({
+        canInstall: true,
+        shouldPromote: true,
+        variant: 'ios',
+        install: mockInstall,
+        dismiss: mockDismiss
+      })
+    })
+
+    it('offers the Add to Home Screen steps instead of an Install button', () => {
+      render(<InstallPrompt />)
+      expect(screen.queryByRole('button', { name: 'Install' })).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Show me' }))
+
+      const sheet = screen.getByRole('dialog', { name: /Add Channel Club to your Home Screen/ })
+      expect(sheet).toHaveTextContent('Tap Share')
+      expect(sheet).toHaveTextContent('Add to Home Screen')
+      expect(mockInstall).not.toHaveBeenCalled()
+      // Seen once: the banner retires to the menu
+      expect(mockDismiss).toHaveBeenCalledTimes(1)
+    })
+  })
+
   describe('when the banner should be promoted', () => {
     beforeEach(() => {
       vi.spyOn(useInstallPromptModule, 'useInstallPrompt').mockReturnValue({
         canInstall: true,
         shouldPromote: true,
+        variant: 'native',
         install: mockInstall,
         dismiss: mockDismiss
       })

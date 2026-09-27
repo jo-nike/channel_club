@@ -4,6 +4,7 @@ import {
   PROMOTE_FROM_SESSION,
   initInstallStore,
   selectCanInstall,
+  selectInstallVariant,
   selectShouldPromote,
   useInstallStore,
   type BeforeInstallPromptEvent,
@@ -167,6 +168,54 @@ describe('installStore', () => {
       offer()
 
       expect(shouldPromote()).toBe(true)
+    })
+  })
+
+  describe('iPhone and iPad', () => {
+    const originalMatchMedia = window.matchMedia
+    const IPHONE =
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1'
+
+    beforeEach(() => {
+      Object.defineProperty(navigator, 'userAgent', { value: IPHONE, configurable: true })
+      initInstallStore()
+    })
+
+    afterEach(() => {
+      Reflect.deleteProperty(navigator, 'userAgent')
+      Reflect.deleteProperty(navigator, 'standalone')
+      window.matchMedia = originalMatchMedia
+    })
+
+    it('can install without a browser offer, by Add to Home Screen', () => {
+      expect(selectInstallVariant(useInstallStore.getState())).toBe('ios')
+      expect(canInstall()).toBe(true)
+      expect(shouldPromote()).toBe(true)
+    })
+
+    it('still waits for the third session', () => {
+      localStorage.setItem(SESSIONS_KEY, '0')
+      sessionStorage.clear()
+      initInstallStore()
+
+      expect(canInstall()).toBe(true)
+      expect(shouldPromote()).toBe(false)
+    })
+
+    it('offers nothing inside the installed app', () => {
+      Object.defineProperty(navigator, 'standalone', { value: true, configurable: true })
+      initInstallStore()
+
+      expect(canInstall()).toBe(false)
+      expect(shouldPromote()).toBe(false)
+    })
+
+    it('is the native variant elsewhere', () => {
+      Reflect.deleteProperty(navigator, 'userAgent')
+      initInstallStore()
+
+      expect(selectInstallVariant(useInstallStore.getState())).toBe('native')
+      expect(canInstall()).toBe(false)
     })
   })
 

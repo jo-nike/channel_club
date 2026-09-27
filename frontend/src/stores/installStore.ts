@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { logger } from '@/lib/logger'
 import { detectTVMode } from '@/hooks/useTVMode'
-import { isStandalone } from '@/lib/platform'
+import { isIOS, isStandalone } from '@/lib/platform'
 
 export interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>
@@ -65,6 +65,8 @@ interface InstallState {
   tv: boolean
   // Already running as the installed app
   standalone: boolean
+  // iPhone or iPad: installed by hand from the Share sheet
+  ios: boolean
   // Browser sessions the app has been opened in, this one included
   sessions: number
   install: () => Promise<boolean>
@@ -76,8 +78,10 @@ export const useInstallStore = create<InstallState>()((set, get) => ({
   snoozed: false,
   tv: false,
   standalone: false,
+  ios: false,
   sessions: 0,
 
+  // The browser's install dialog (the 'native' variant; on iOS the caller shows IosInstallDialog)
   install: async () => {
     const promptEvent = get().deferredPrompt
     if (!promptEvent) return false
@@ -112,8 +116,17 @@ export const useInstallStore = create<InstallState>()((set, get) => ({
   },
 }))
 
-/** The browser has offered installation (a menu can offer it even while the banner is snoozed). */
-export const selectCanInstall = (s: InstallState): boolean => s.deferredPrompt !== null
+export type InstallVariant = 'native' | 'ios'
+
+/**
+ * The app can be installed now: the browser has offered it, or this is iOS
+ * outside the installed app. The menu offers it even while the banner is snoozed.
+ */
+export const selectCanInstall = (s: InstallState): boolean =>
+  s.deferredPrompt !== null || (s.ios && !s.standalone)
+
+/** How to install: the browser's own dialog, or Add to Home Screen instructions on iOS. */
+export const selectInstallVariant = (s: InstallState): InstallVariant => (s.ios ? 'ios' : 'native')
 
 /**
  * Show the install banner: only once the app has seen real use (the third
@@ -144,6 +157,7 @@ export function initInstallStore(): void {
     snoozed: stored.installed || isRecentlyDismissed(stored),
     tv,
     standalone: isStandalone(),
+    ios: isIOS(),
     sessions: countSession(),
   })
 
