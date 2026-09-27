@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen, fireEvent, cleanup } from '@/test/utils'
+import { render, screen, fireEvent, cleanup, act } from '@/test/utils'
 import { MobileChannelList } from './MobileChannelList'
 import { useChannelStore } from '@/stores/channelStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
@@ -27,6 +27,7 @@ describe('MobileChannelList', () => {
 
   afterEach(() => {
     cleanup()
+    vi.useRealTimers()
     useChannelStore.setState({ currentChannel: null })
     useErsatztvStore.setState({ channels: [], programmesByChannel: {} })
   })
@@ -48,5 +49,25 @@ describe('MobileChannelList', () => {
     fireEvent.click(screen.getByText('Big Game').closest('button') as HTMLElement)
 
     expect(onChannelSelect).toHaveBeenCalledWith(expect.objectContaining({ type: 'live', name: 'Club' }))
+  })
+
+  it("shows each channel's programme and time left, moving on with the programme clock", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-06T12:00:00Z'))
+    useErsatztvStore.setState({ programmesByChannel: { etv1: [
+      { id: 'p1', channelId: 'etv1', title: 'First', start: '2026-09-06T11:00:00Z', stop: '2026-09-06T12:00:10Z' },
+      { id: 'p2', channelId: 'etv1', title: 'Second', start: '2026-09-06T12:00:10Z', stop: '2026-09-06T13:00:00Z' },
+    ] } })
+    render(<MobileChannelList onChannelSelect={vi.fn()} />)
+
+    expect(screen.getByText('First')).toBeVisible()
+    expect(screen.getByText('1m left')).toBeVisible()
+    // Cartoons has no schedule, so it shows its group
+    expect(screen.getByText('Kids')).toBeVisible()
+
+    await act(() => vi.advanceTimersByTimeAsync(30_000))
+    expect(screen.getByText('Second')).toBeVisible()
+    expect(screen.getByText('1h left')).toBeVisible()
+    expect(screen.queryByText('First')).not.toBeInTheDocument()
   })
 })
