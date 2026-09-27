@@ -35,20 +35,23 @@ interface DualModeVideoPlayerProps {
   onTheaterModeToggle: () => void
   // Opens the live channel picker; only for people allowed to change live TV
   onPickLive?: () => void
+  // Bumped by the page's Refresh: re-initialises the engine, keeps the shell
+  reloadKey?: number
 }
 
 // Main component - switches between live (mpegts) and ersatztv (HLS) players.
 // The shell div stays mounted across channel changes and is the fullscreen
-// element, so only the keyed engine inside it re-initialises and a viewer in
-// fullscreen stays there. (Removing the fullscreen element exits fullscreen;
-// Vidstack's own exit on unmount is a no-op unless MediaPlayer itself is the
-// fullscreen element.)
+// element, so only the keyed engine inside it re-initialises (on a channel
+// change or a reload) and a viewer in fullscreen stays there. (Removing the
+// fullscreen element exits fullscreen; Vidstack's own exit on unmount is a
+// no-op unless MediaPlayer itself is the fullscreen element.)
 export function DualModeVideoPlayer({
   channel,
   isTheaterMode,
   isMobile = false,
   onTheaterModeToggle,
   onPickLive,
+  reloadKey: pageReloadKey = 0,
 }: DualModeVideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const isFullscreen = useFullscreenState(containerRef)
@@ -64,9 +67,14 @@ export function DualModeVideoPlayer({
     }
   }, [])
 
+  // Both counters only grow, so their sum changes on every reload
+  const [shellReloads, setShellReloads] = useState(0)
+  const reloadKey = pageReloadKey + shellReloads
+  const reload = useCallback(() => setShellReloads((n) => n + 1), [])
+
   const shell = useMemo(
-    () => ({ containerRef, isFullscreen, toggleFullscreen }),
-    [isFullscreen, toggleFullscreen]
+    () => ({ containerRef, isFullscreen, toggleFullscreen, reload, reloadKey }),
+    [isFullscreen, toggleFullscreen, reload, reloadKey]
   )
 
   let engine: ReactNode
@@ -81,7 +89,7 @@ export function DualModeVideoPlayer({
     // Use backendId for highlight recording (real Dispatcharr ID), fallback to id
     engine = (
       <LiveVideoPlayer
-        key={`live-${channel.streamUrl}`}
+        key={`live-${channel.streamUrl}-${reloadKey}`}
         channelId={channel.backendId || channel.id}
         streamUrl={channel.streamUrl}
         channelName={channel.name}
@@ -95,7 +103,7 @@ export function DualModeVideoPlayer({
     // ErsatzTV channel - use HLS Vidstack player with proxied stream URL
     engine = (
       <HLSVideoPlayerWrapper
-        key={`hls-${channel.id}`}
+        key={`hls-${channel.id}-${reloadKey}`}
         channelId={channel.id}
         channelNumber={channel.number}
         streamUrl={getErsatzTVStreamUrl(channel.id)}

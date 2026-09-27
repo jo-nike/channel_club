@@ -15,7 +15,7 @@ const socket = vi.hoisted(() => ({ status: 'connected', reconnect: () => {} }))
 const chatProps = vi.hoisted(() => ({ last: null as null | { status?: string; onReconnect?: () => void } }))
 const auth = vi.hoisted(() => ({ isAdmin: false }))
 const appSettings = vi.hoisted(() => ({ userChannelSelection: false }))
-const playerProps = vi.hoisted(() => ({ onPickLive: undefined as undefined | (() => void), renders: 0 }))
+const playerProps = vi.hoisted(() => ({ onPickLive: undefined as undefined | (() => void), renders: 0, reloadKey: undefined as undefined | number, mounts: 0 }))
 vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn() }))
 import type { UnifiedChannel } from '@/types'
 
@@ -26,12 +26,17 @@ vi.mock('@/hooks/useAppSettings', () => ({ useAppSettings: () => ({ userChannelS
 vi.mock('@/components/LiveChannelPickerDialog', () => ({ LiveChannelPickerDialog: ({ open }: { open: boolean }) => (
   <div data-testid="live-picker" data-open={String(open)} />
 ) }))
-vi.mock('@/components/tv/DualModeVideoPlayer', () => ({ DualModeVideoPlayer: ({ channel, onPickLive }: { channel: UnifiedChannel | null; onPickLive?: () => void }) => {
-  playerProps.onPickLive = onPickLive
-  playerProps.renders += 1
-  if (crash.player) throw new Error('player exploded')
-  return <div data-testid="player">{channel?.streamUrl || 'No live broadcast'}</div>
-} }))
+vi.mock('@/components/tv/DualModeVideoPlayer', async () => {
+  const { useEffect } = await import('react')
+  return { DualModeVideoPlayer: ({ channel, onPickLive, reloadKey }: { channel: UnifiedChannel | null; onPickLive?: () => void; reloadKey?: number }) => {
+    playerProps.onPickLive = onPickLive
+    playerProps.reloadKey = reloadKey
+    playerProps.renders += 1
+    useEffect(() => { playerProps.mounts += 1 }, [])
+    if (crash.player) throw new Error('player exploded')
+    return <div data-testid="player">{channel?.streamUrl || 'No live broadcast'}</div>
+  } }
+})
 vi.mock('@/components/tv/TVEPGGrid', () => ({ TVEPGGrid: () => null }))
 vi.mock('@/components/ChatPanel', async () => {
   const { useChatStore } = await import('@/stores/chatStore')
@@ -179,6 +184,23 @@ describe('A-V1 contained player and chat crashes', () => {
 
     expect(useChatStore.getState().isOpen).toBe(false)
     expect(screen.queryByText('Chat hit an error')).not.toBeInTheDocument()
+  })
+})
+
+describe('C-V3 Refresh keeps the player shell', () => {
+  it('hands the player a new reloadKey instead of remounting it', async () => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+    const player = screen.getByTestId('player')
+    const mounts = playerProps.mounts
+    const before = playerProps.reloadKey
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh video' }))
+
+    expect(playerProps.reloadKey).not.toBe(before)
+    expect(playerProps.mounts).toBe(mounts)
+    expect(screen.getByTestId('player')).toBe(player)
   })
 })
 

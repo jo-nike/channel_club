@@ -6,6 +6,7 @@ import { useAudioStore } from '@/stores/audioStore'
 import { useFilterStore } from '@/stores/filterStore'
 import { useChannelStore } from '@/stores/channelStore'
 import type { UnifiedChannel } from '@/types'
+import type { PlayerShell } from '@/components/player/PlayerShellContext'
 
 // ----------------------------------------------------------------------------
 // Harness: both engines are mocked. mpegts.js gets a stub player; Vidstack's
@@ -93,7 +94,17 @@ vi.mock('@/components/HighlightModal', () => ({
     return null
   },
 }))
-vi.mock('@/components/CastButton', () => ({ CastButton: () => null }))
+// The cast button renders in both control bars, so it reports the shell it sits in
+const shellProbe = vi.hoisted(() => ({ current: null as PlayerShell | null }))
+vi.mock('@/components/CastButton', async () => {
+  const { usePlayerShell } = await import('@/components/player/PlayerShellContext')
+  return {
+    CastButton: () => {
+      shellProbe.current = usePlayerShell()
+      return null
+    },
+  }
+})
 
 // Script volume detection (false on iOS/iPadOS Safari)
 const volumeSupport = vi.hoisted(() => ({ canSet: true }))
@@ -616,6 +627,42 @@ describe('DualModeVideoPlayer shell: fullscreen survives engine swaps', () => {
     switchTo(liveChannel(''))
     expect(shell()).toBe(fullscreen)
     expect(fullscreen).toHaveTextContent('No live broadcast')
+  })
+
+  it.each([
+    ['live', liveChannel('https://fixture/a')],
+    ['ErsatzTV', hlsChannel('1', 1)],
+  ])('%s: a new reloadKey re-initialises only the engine', (_engine, channel) => {
+    const { rerender } = render(
+      <DualModeVideoPlayer channel={channel} isTheaterMode={false} onTheaterModeToggle={vi.fn()} reloadKey={0} />
+    )
+    const fullscreen = enterFullscreen()
+    const firstVideo = document.querySelector('video')
+    vidstack.mounted.mockClear()
+
+    rerender(
+      <DualModeVideoPlayer channel={channel} isTheaterMode={false} onTheaterModeToggle={vi.fn()} reloadKey={1} />
+    )
+
+    if (channel.type === 'live') expect(video()).not.toBe(firstVideo)
+    else expect(vidstack.mounted).toHaveBeenCalledTimes(1)
+    expect(shell()).toBe(fullscreen)
+    expect(fullscreen.isConnected).toBe(true)
+    expect(screen.getByRole('button', { name: 'Exit fullscreen' })).toBeInTheDocument()
+  })
+
+  it('reload() from inside the shell re-initialises only the engine', () => {
+    renderPlayer(liveChannel('https://fixture/a'))
+    const fullscreen = enterFullscreen()
+    const firstVideo = video()
+    const before = shellProbe.current?.reloadKey
+
+    act(() => shellProbe.current?.reload())
+
+    expect(video()).not.toBe(firstVideo)
+    expect(shellProbe.current?.reloadKey).not.toBe(before)
+    expect(shell()).toBe(fullscreen)
+    expect(screen.getByRole('button', { name: 'Exit fullscreen' })).toBeInTheDocument()
   })
 
   it('the ErsatzTV failed state renders inside the shell', async () => {
