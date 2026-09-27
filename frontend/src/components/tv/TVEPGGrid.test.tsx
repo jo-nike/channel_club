@@ -620,3 +620,96 @@ describe('TVEPGGrid programme states', () => {
     expect(onAir.querySelector('[data-testid="programme-elapsed"]')).toHaveClass('bg-live')
   })
 })
+
+describe('TVEPGGrid time header', () => {
+  // 8 PM local on Saturday 26 September: the 48-hour grid starts at 7:30 PM
+  // and crosses midnight into Sunday 27 and Monday 28
+  const NOW = new Date(2026, 8, 26, 20, 0).getTime()
+  const dayFormat = new Intl.DateTimeFormat([], { weekday: 'short', day: 'numeric' })
+  const timeFormat = new Intl.DateTimeFormat([], { hour: 'numeric', minute: '2-digit' })
+  const slotOffset = (date: Date) => ((date.getTime() - new Date(2026, 8, 26, 19, 30).getTime()) / (30 * 60_000)) * 150
+  const timeLabels = () => {
+    const header = screen.getByRole('button', { name: 'Scroll to now' }).parentElement!.parentElement!
+    return Array.from(header.lastElementChild!.children).filter((el) => el.tagName === 'DIV') as HTMLElement[]
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels: [] })
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+  })
+
+  it('keeps each time label sticky just right of the channel column, so the first clears the nav cell', () => {
+    render(<TVEPGGrid hours={48} programmesByChannel={{}} />)
+
+    const [first] = timeLabels()
+    expect(first).toHaveClass('overflow-clip')
+    expect(first).not.toHaveClass('overflow-hidden')
+    const label = first.firstElementChild as HTMLElement
+    expect(label).toHaveClass('sticky')
+    expect(label).toHaveStyle({ left: '216px' })
+    expect(label).toHaveTextContent(timeFormat.format(new Date(2026, 8, 26, 19, 30)))
+  })
+
+  it('hides a time label once the part of its slot in view is narrower than the label, rather than cutting it', () => {
+    render(<TVEPGGrid hours={48} programmesByChannel={{}} />)
+
+    const labels = timeLabels().map((slot) => slot.firstElementChild as HTMLElement)
+    // Each label is no wider than its slot less what has scrolled under the
+    // channel column, from the slot's own offset: 150px per slot
+    expect(labels[0].style.maxWidth).toBe('calc(100% - max(0px, var(--guide-scroll-x, 0px) - 0px))')
+    expect(labels[2].style.maxWidth).toBe('calc(100% - max(0px, var(--guide-scroll-x, 0px) - 300px))')
+    // One line tall: a label that doesn't fit wraps after the zero-width
+    // space onto a clipped second line
+    expect(labels[0]).toHaveClass('h-[1lh]', 'overflow-clip')
+    expect(labels[0].firstChild?.textContent).toBe('\u200B')
+    expect(labels[0].lastElementChild).toHaveClass('inline-block', 'whitespace-nowrap')
+  })
+
+  it('marks each midnight slot with its weekday and date', () => {
+    render(<TVEPGGrid hours={48} programmesByChannel={{}} />)
+
+    const markers = screen.getAllByTestId('day-marker')
+    expect(markers.map((m) => m.textContent)).toEqual([
+      dayFormat.format(new Date(2026, 8, 27)),
+      dayFormat.format(new Date(2026, 8, 28)),
+    ])
+    const sunday = markers[0].closest('div')!
+    expect(sunday).toHaveTextContent(timeFormat.format(new Date(2026, 8, 27, 0, 0)))
+    expect(timeLabels().indexOf(sunday)).toBe(9)
+  })
+
+  it('names the day in view next to the Now button, following the scroll across midnight', () => {
+    render(<TVEPGGrid hours={48} programmesByChannel={{}} />)
+    const grid = screen.getByTestId('tv-epg-grid')
+    const day = screen.getByTestId('guide-day')
+    expect(day).toHaveTextContent('Today')
+
+    grid.scrollLeft = slotOffset(new Date(2026, 8, 27, 1, 0))
+    fireEvent.scroll(grid)
+    expect(day).toHaveTextContent('Tomorrow')
+
+    grid.scrollLeft = slotOffset(new Date(2026, 8, 28, 9, 0))
+    fireEvent.scroll(grid)
+    expect(day).toHaveTextContent(dayFormat.format(new Date(2026, 8, 28)))
+
+    grid.scrollLeft = 0
+    fireEvent.scroll(grid)
+    expect(day).toHaveTextContent('Today')
+  })
+
+  it('shows the current time in a pill on the now marker', () => {
+    render(<TVEPGGrid hours={48} programmesByChannel={{}} />)
+
+    const pill = screen.getByTestId('now-pill')
+    expect(pill).toHaveTextContent(timeFormat.format(new Date(NOW)))
+    // Half an hour into the grid: one slot
+    expect(pill).toHaveStyle({ left: '150px' })
+  })
+})

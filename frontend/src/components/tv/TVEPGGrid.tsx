@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useMemo, useCallback, type ReactNode, type UIEvent } from 'react'
+import { memo, useEffect, useRef, useMemo, useCallback, useState, type ReactNode, type UIEvent } from 'react'
 import { ChevronLeft, ChevronRight, Radio } from 'lucide-react'
 import { useTVStore, LIVE_CHANNEL_ID, buildUnifiedChannels, describeLiveGuide } from '@/stores/tvStore'
 import { useChannelStore } from '@/stores/channelStore'
@@ -20,8 +20,8 @@ const ROW_HEIGHT = 64 // pixels per channel row
 // Wide enough for the channel name: with the guide open it's the only channel list
 const CHANNEL_LABEL_WIDTH = 208
 const PROGRAMME_GAP = 3 // pixels between programme boxes
-// Where a block's title sticks while the block scrolls under the channel column
-const PROGRAMME_TEXT_STICKY_LEFT = CHANNEL_LABEL_WIDTH + 8
+// Where block titles and header time labels stick while they scroll under the channel column
+const STICKY_TEXT_LEFT = CHANNEL_LABEL_WIDTH + 8
 // Narrower blocks show no text; a tooltip and their accessible name carry it
 const PROGRAMME_TEXT_MIN_WIDTH = 48
 // The grid's horizontal scroll, kept as a CSS variable on the scroller so
@@ -81,10 +81,17 @@ export function TVEPGGrid({
 
   const gridWidth = hours * HOUR_WIDTH
 
-  // Keeps the scroll offset the sticky titles read in step with the grid
-  const handleScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
-    syncScrollX(event.currentTarget)
-  }, [])
+  // The day at the left edge of the programmes, for the header's day label.
+  // Held as that day's midnight, so scrolling only re-renders across a day.
+  const [leftEdgeDay, setLeftEdgeDay] = useState(() => startOfDay(startTime.getTime()))
+  const handleScroll = useCallback(
+    (event: UIEvent<HTMLDivElement>) => {
+      syncScrollX(event.currentTarget)
+      const leftEdgeMs = startTime.getTime() + (event.currentTarget.scrollLeft / SLOT_WIDTH) * 30 * 60 * 1000
+      setLeftEdgeDay(startOfDay(leftEdgeMs))
+    },
+    [startTime]
+  )
 
   // Generate time slots for header
   const timeSlots = useMemo(() => {
@@ -194,6 +201,10 @@ export function TVEPGGrid({
           className="sticky left-0 z-30 flex shrink-0 items-center justify-center gap-0.5 bg-card px-1"
           style={{ width: CHANNEL_LABEL_WIDTH }}
         >
+          {/* Which day the programmes in view are on */}
+          <span data-testid="guide-day" className="mr-auto pl-2 text-xs font-semibold text-foreground">
+            {formatDay(leftEdgeDay, now)}
+          </span>
           <button
             onClick={() => scrollByHours(-2)}
             className="flex h-6 w-6 items-center justify-center rounded hover:bg-accent"
@@ -216,17 +227,54 @@ export function TVEPGGrid({
             <ChevronRight className="h-4 w-4" />
           </button>
         </div>
-        {/* Time slots */}
-        <div className="flex">
-          {timeSlots.map((slot, i) => (
-            <div
-              key={i}
-              className="shrink-0 border-l px-2 py-2 text-sm text-muted-foreground"
-              style={{ width: SLOT_WIDTH }}
+        {/* Time slots. Each label sticks just right of the channel column
+            while its slot scrolls under it, so the first one stays readable;
+            overflow-clip rather than hidden keeps the slot from becoming the
+            label's scroll container. Once the part of the slot in view is
+            narrower than its label, the label hides rather than showing a
+            fragment such as '0 PM'. */}
+        <div className="relative flex">
+          {timeSlots.map((slot, i) => {
+            const isMidnight = slot.getHours() === 0 && slot.getMinutes() === 0
+            return (
+              <div
+                key={i}
+                className={cn(
+                  'shrink-0 overflow-clip border-l px-2 py-2 text-sm text-muted-foreground',
+                  isMidnight && 'border-l-foreground/40'
+                )}
+                style={{ width: SLOT_WIDTH }}
+              >
+                <span
+                  className="sticky block h-[1lh] w-fit overflow-clip"
+                  style={{ left: STICKY_TEXT_LEFT, maxWidth: visiblePartWidth(i * SLOT_WIDTH) }}
+                >
+                  {/* A label too wide for that width wraps after the
+                      zero-width space onto a second line, which the one-line
+                      height clips */}
+                  {'\u200B'}
+                  <span className="inline-block whitespace-nowrap tabular-nums">
+                    {isMidnight && (
+                      <span data-testid="day-marker" className="mr-1.5 font-semibold text-foreground">
+                        {dayFormat.format(slot)}
+                      </span>
+                    )}
+                    {formatTime(slot)}
+                  </span>
+                </span>
+              </div>
+            )
+          })}
+          {/* Live time pill on the now marker */}
+          {nowMarkerOffset > 0 && nowMarkerOffset < gridWidth && (
+            <span
+              data-testid="now-pill"
+              className="absolute top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded bg-destructive px-1.5 py-0.5 text-xs font-bold leading-none tabular-nums text-destructive-foreground"
+              style={{ left: nowMarkerOffset }}
             >
-              {formatTime(slot)}
-            </div>
-          ))}
+              {formatTime(new Date(now))}
+            </span>
+          )}
         </div>
       </div>
 
@@ -561,7 +609,7 @@ const ProgrammeBox = memo(function ProgrammeBox({
         <div
           data-testid="programme-text"
           className="sticky w-fit"
-          style={{ left: PROGRAMME_TEXT_STICKY_LEFT, maxWidth: visiblePartWidth(visualLeft) }}
+          style={{ left: STICKY_TEXT_LEFT, maxWidth: visiblePartWidth(visualLeft) }}
         >
           <p
             className={cn(
@@ -637,8 +685,29 @@ function visiblePartWidth(left: number): string {
   return `calc(100% - max(0px, var(${SCROLL_X_VAR}, 0px) - ${left}px))`
 }
 
+// Built once: creating a formatter per call is slow across ~1,400 blocks
+const timeFormat = new Intl.DateTimeFormat([], { hour: 'numeric', minute: '2-digit' })
+const dayFormat = new Intl.DateTimeFormat([], { weekday: 'short', day: 'numeric' })
+
 function formatTime(date: Date): string {
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return timeFormat.format(date)
+}
+
+// Local midnight of the day ms falls on
+function startOfDay(ms: number): number {
+  const day = new Date(ms)
+  day.setHours(0, 0, 0, 0)
+  return day.getTime()
+}
+
+// 'Today', 'Tomorrow', or 'Mon 28' for the day starting at dayStartMs
+function formatDay(dayStartMs: number, nowMs: number): string {
+  const today = startOfDay(nowMs)
+  if (dayStartMs === today) return 'Today'
+  const tomorrow = new Date(today)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  if (dayStartMs === tomorrow.getTime()) return 'Tomorrow'
+  return dayFormat.format(dayStartMs)
 }
 
 function EPGGridSkeleton() {
