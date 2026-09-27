@@ -1018,6 +1018,65 @@ describe('PlayerChrome', () => {
 
       expect(screen.getByRole('group', { name: 'Channel' })).toHaveClass(fitClass)
     })
+
+    // The panel is drawn over the right 320px of the picture: the bar ends at
+    // its edge, so Reload and Fullscreen aren't under the composer
+    describe('while it is open over the picture', () => {
+      it.each([
+        ['a phone held sideways', () => matchMediaQueries([LANDSCAPE, COARSE]), {}, { isMobile: true }],
+        ['fullscreen on a desktop', () => {}, { isFullscreen: true }, {}],
+        ['theater on a phone', () => {}, { isTheaterMode: true }, { isMobile: true }],
+      ])('ends the bar at the panel on %s and drops the volume slider', (_device, media, shell, props) => {
+        media()
+        useChatStore.setState({ isOpen: true })
+        renderChrome({ shell, props })
+
+        expect(toolbar()).toHaveClass('left-0', 'right-80')
+        expect(toolbar()).not.toHaveClass('inset-x-0')
+        expect(toolbar()).toContainElement(screen.getByRole('button', { name: /fullscreen/i }))
+        // Mute stays; the slider would push the bar past the panel's edge
+        expect(slider()).toHaveClass('hidden')
+        expect(slider()).not.toHaveClass('sm:block')
+        expect(screen.getByRole('button', { name: 'Mute' })).toBeInTheDocument()
+      })
+
+      it('spans the picture again once chat closes', () => {
+        matchMediaQueries([LANDSCAPE, COARSE])
+        useChatStore.setState({ isOpen: true })
+        renderChrome({ props: { isMobile: true } })
+
+        act(() => useChatStore.setState({ isOpen: false }))
+
+        expect(toolbar()).toHaveClass('inset-x-0')
+        expect(toolbar()).not.toHaveClass('right-80')
+        expect(slider()).toHaveClass('sm:block')
+      })
+
+      // A touch screen keeps chat outside the fullscreen player, so the whole
+      // picture is clear
+      it.each([
+        ['a phone held sideways', () => matchMediaQueries([LANDSCAPE, COARSE]), { isFullscreen: true }, { isMobile: true }],
+        ['theater on a touch tablet', () => matchMediaQueries([COARSE]), { isFullscreen: true, isTheaterMode: true }, {}],
+      ])('keeps the full bar in fullscreen on %s', (_device, media, shell, props) => {
+        media()
+        useChatStore.setState({ isOpen: true })
+        renderChrome({ shell, props })
+
+        expect(toolbar()).toHaveClass('inset-x-0')
+        expect(toolbar()).not.toHaveClass('right-80')
+        expect(slider()).toHaveClass('sm:block')
+      })
+
+      // The picture stops short of the chat column there, so nothing is under it
+      it('keeps the full bar in theater on a desktop', () => {
+        useChatStore.setState({ isOpen: true })
+        renderChrome({ shell: { isTheaterMode: true } })
+
+        expect(toolbar()).toHaveClass('inset-x-0')
+        expect(toolbar()).not.toHaveClass('right-80')
+        expect(slider()).toHaveClass('sm:block')
+      })
+    })
   })
 
   describe('phone landscape', () => {

@@ -919,6 +919,31 @@ describe('E-01 chat placement', () => {
     expect(screen.getByRole('banner')).toBeVisible()
   })
 
+  // Like theater's docked chat: the player gives up the sheet's width, so its
+  // Reload, Theater and Fullscreen stay clear of the sheet
+  it('moves the player out from under the sheet on a tablet held sideways', async () => {
+    mockViewport({ width: 1024, height: 768, pointer: 'coarse' })
+    const chat = await openChat()
+    expect(chat).toHaveAttribute('data-variant', 'sheet')
+    expect(screen.getByRole('main')).toHaveClass('mr-80')
+
+    act(() => useChatStore.setState({ isOpen: false }))
+    expect(screen.getByRole('main')).not.toHaveClass('mr-80')
+  })
+
+  it('lets the sheet overlay the player where the row is too narrow to share', async () => {
+    mockViewport({ width: 900 })
+    await openChat()
+    expect(screen.getByRole('main')).not.toHaveClass('mr-80')
+  })
+
+  it('leaves the player full width on a tablet while chat is closed', async () => {
+    mockViewport({ width: 1024, height: 768, pointer: 'coarse' })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+    expect(screen.getByRole('main')).not.toHaveClass('mr-80')
+  })
+
   // This covers TVView's half, the panel's place in the tree. That ChatPanel
   // keeps its own DOM across the switch is tested in ChatPanel.test.tsx
   it('keeps the panel mounted in place when theater switches it from docked to overlay', async () => {
