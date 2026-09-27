@@ -434,4 +434,22 @@ describe('NHLScoresOverlay', () => {
     const title = screen.getByRole('heading', { name: 'NHL' })
     expect(title).toHaveAttribute('id', 'nhl-scores-title')
   })
+
+  it('sits at the top of the player, and moves under the info rail while the rail is up', () => {
+    mockUseNHLScores.mockReturnValue({
+      data: { games: [], date: '2026-01-15', liveGameCount: 0 },
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    const railOffset = 'top-[calc(3.75rem+var(--player-inset-top,0px))]'
+
+    const { rerender } = render(<NHLScoresOverlay isVisible={true} />)
+    expect(screen.getByRole('dialog')).toHaveClass('top-0')
+    expect(screen.getByRole('dialog')).not.toHaveClass(railOffset)
+
+    rerender(<NHLScoresOverlay isVisible={true} belowRail />)
+    expect(screen.getByRole('dialog')).toHaveClass(railOffset)
+    expect(screen.getByRole('dialog')).not.toHaveClass('top-0')
+  })
 })

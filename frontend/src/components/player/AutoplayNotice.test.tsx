@@ -19,14 +19,22 @@ describe('AutoplayNotice', () => {
 
     const pill = screen.getByRole('button', { name: /Sound is off/ })
     expect(pill).toHaveTextContent('Restore 62%')
-    // Top-left, clear of the bottom control bar
-    expect(pill).toHaveClass('top-4', 'left-4', 'z-30')
+    // Top-centre, clear of the bottom control bar and the rail's channel block
+    expect(pill).toHaveClass('top-4', 'left-1/2', '-translate-x-1/2', 'z-30')
     expect(screen.queryByRole('button', { name: 'Start playback' })).not.toBeInTheDocument()
 
     fireEvent.click(pill)
 
     expect(onUnmute).toHaveBeenCalledTimes(1)
     expect(onPlay).not.toHaveBeenCalled()
+  })
+
+  it("'sound-off' moves under the player's info rail while the rail is up", () => {
+    render(<AutoplayNotice mode="sound-off" volume={0.62} onUnmute={vi.fn()} onPlay={vi.fn()} belowRail />)
+
+    const pill = screen.getByRole('button', { name: /Sound is off/ })
+    expect(pill).toHaveClass('top-[calc(4.25rem+var(--player-inset-top,0px))]', 'left-1/2')
+    expect(pill).not.toHaveClass('top-4')
   })
 
   it("'sound-off' says Turn sound on when the saved level is 0%", () => {

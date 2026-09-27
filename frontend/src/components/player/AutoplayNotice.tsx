@@ -1,5 +1,6 @@
 import { Play, VolumeX } from 'lucide-react'
 import { useCanSetVolume } from '@/hooks/useCanSetVolume'
+import { cn } from '@/lib/utils'
 
 export type AutoplayNoticeMode = 'sound-off' | 'tap-to-play'
 
@@ -16,6 +17,8 @@ interface AutoplayNoticeProps {
   onUnmute: () => void
   /** Start playback from the tap */
   onPlay: () => void
+  /** The player's info rail is up: sit under it rather than on top of it */
+  belowRail?: boolean
 }
 
 /**
@@ -24,7 +27,7 @@ interface AutoplayNoticeProps {
  * `video-controls` so a tap on them counts as using the player controls, not
  * a tap on the picture.
  */
-export function AutoplayNotice({ mode, volume, onUnmute, onPlay }: AutoplayNoticeProps) {
+export function AutoplayNotice({ mode, volume, onUnmute, onPlay, belowRail = false }: AutoplayNoticeProps) {
   const canSetVolume = useCanSetVolume()
 
   if (mode === 'tap-to-play') {
@@ -44,7 +47,12 @@ export function AutoplayNotice({ mode, volume, onUnmute, onPlay }: AutoplayNotic
     <button
       type="button"
       onClick={onUnmute}
-      className="video-controls absolute left-4 top-4 z-30 flex min-h-[44px] items-center gap-3 rounded-full border border-white/15 bg-black/80 py-2 pl-3 pr-4 text-left text-base font-bold text-white shadow-lg backdrop-blur-md transition-colors hover:bg-black/90 focus-ring-media"
+      className={cn(
+        // Top-centre, clear of the rail's channel block and the bottom control bar
+        'video-controls absolute left-1/2 z-30 flex w-max max-w-[calc(100%-2rem)] -translate-x-1/2 min-h-[44px] items-center gap-3 rounded-full border border-white/15 bg-black/80 py-2 pl-3 pr-4 text-left text-base font-bold text-white shadow-lg backdrop-blur-md transition-colors hover:bg-black/90 focus-ring-media',
+        // The rail's height (0.75rem above its 3rem row, plus the shell's top inset) and a gap
+        belowRail ? 'top-[calc(4.25rem+var(--player-inset-top,0px))]' : 'top-4'
+      )}
     >
       <VolumeX className="h-6 w-6 shrink-0 text-primary" aria-hidden="true" />
       <span>Sound is off</span>

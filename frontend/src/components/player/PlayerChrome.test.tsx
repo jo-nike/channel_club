@@ -55,6 +55,8 @@ const fakeShell = (overrides: Partial<PlayerShell> = {}): PlayerShell => ({
   controlsVisible: true,
   setPlaying: vi.fn(),
   setHoveringControls: vi.fn(),
+  isInfoRailVisible: false,
+  setInfoRailVisible: vi.fn(),
   reload: vi.fn(),
   reloadKey: 0,
   ...overrides,

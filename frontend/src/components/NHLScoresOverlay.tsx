@@ -39,6 +39,8 @@ import type { NHLGame, NHLTeam } from '@/types/nhl'
 
 interface NHLScoresOverlayProps {
   isVisible: boolean
+  /** The player's info rail is up: sit under it rather than on top of it */
+  belowRail?: boolean
 }
 
 /**
@@ -50,7 +52,7 @@ interface NHLScoresOverlayProps {
  * - Clicking outside (on backdrop) closes the overlay
  * - aria-live region announces score updates to screen readers
  */
-export function NHLScoresOverlay({ isVisible }: NHLScoresOverlayProps) {
+export function NHLScoresOverlay({ isVisible, belowRail = false }: NHLScoresOverlayProps) {
   const { data, isLoading, error, refetch } = useNHLScores(isVisible)
   const toggleNHLOverlay = useUIStore((s) => s.toggleNHLOverlay)
 
@@ -86,7 +88,11 @@ export function NHLScoresOverlay({ isVisible }: NHLScoresOverlayProps) {
 
   return (
     <div
-      className="absolute inset-x-0 top-0 z-20 p-2"
+      className={cn(
+        'absolute inset-x-0 z-20 p-2',
+        // The rail's height: 0.75rem above its 3rem row, plus the shell's top inset
+        belowRail ? 'top-[calc(3.75rem+var(--player-inset-top,0px))]' : 'top-0'
+      )}
       onClick={handleBackdropClick}
       role="dialog"
       aria-modal="true"

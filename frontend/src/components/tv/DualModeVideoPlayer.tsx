@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, type CSSProperties, type ReactNode } from 'react'
 import mpegts from 'mpegts.js'
 import { Loader2 } from 'lucide-react'
 import {
@@ -20,14 +20,13 @@ import { AutoplayNotice } from '@/components/player/AutoplayNotice'
 import { PlayerShellContext, usePlayerShell, useShellPlayback } from '@/components/player/PlayerShellContext'
 import { FilterLayer } from '@/components/player/FilterLayer'
 import { PlayerChrome } from '@/components/player/PlayerChrome'
+import { PlayerInfoOverlay } from '@/components/player/PlayerInfoOverlay'
 import { useLiveAdapter, useVidstackAdapter } from '@/components/player/mediaAdapters'
 import { usePlayerAudio } from '@/components/player/usePlayerAudio'
-import { NHLScoresOverlay } from '@/components/NHLScoresOverlay'
 import { HighlightModal } from '@/components/HighlightModal'
 import { useAudioStore, unmutedVolume } from '@/stores/audioStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { useClipStore } from '@/stores/clipStore'
-import { useUIStore } from '@/stores/uiStore'
 import { getErsatzTVStreamUrl } from '@/services/ersatztvApi'
 import type { UnifiedChannel } from '@/types'
 
@@ -67,7 +66,6 @@ export function DualModeVideoPlayer({
     setShellElement(node)
   }, [])
   const isFullscreen = useFullscreenState(containerRef)
-  const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
 
   const clipSession = useClipStore((s) => s.session)
   const closeClip = useClipStore((s) => s.close)
@@ -97,6 +95,9 @@ export function DualModeVideoPlayer({
     isHoveringControls,
   })
 
+  // The info rail reports whether it is up; the sound-off pill moves under it
+  const [isInfoRailVisible, setInfoRailVisible] = useState(false)
+
   // Both counters only grow, so their sum changes on every reload
   const [shellReloads, setShellReloads] = useState(0)
   const reloadKey = pageReloadKey + shellReloads
@@ -112,10 +113,21 @@ export function DualModeVideoPlayer({
       controlsVisible,
       setPlaying: setEnginePlaying,
       setHoveringControls,
+      isInfoRailVisible,
+      setInfoRailVisible,
       reload,
       reloadKey,
     }),
-    [isFullscreen, toggleFullscreen, isTheaterMode, onTheaterModeToggle, controlsVisible, reload, reloadKey]
+    [
+      isFullscreen,
+      toggleFullscreen,
+      isTheaterMode,
+      onTheaterModeToggle,
+      controlsVisible,
+      isInfoRailVisible,
+      reload,
+      reloadKey,
+    ]
   )
 
   // What this viewer's player shows now, for the clip editor's notice: null
@@ -160,14 +172,23 @@ export function DualModeVideoPlayer({
     )
   }
 
+  // The notch and status bar only reach the player when it starts at the top
+  // of the viewport (theater, fullscreen). env() is viewport-wide, so inline
+  // under the page header (which takes the inset itself) it would still push
+  // the rail, and what sits under it, down into the picture.
+  const insetTop = {
+    '--player-inset-top': isTheaterMode || isFullscreen ? 'env(safe-area-inset-top, 0px)' : '0px',
+  } as CSSProperties
+
   return (
     <PlayerShellContext value={shell}>
-      <div ref={attachShell} className="video-player-container relative h-full w-full bg-black">
+      <div ref={attachShell} className="video-player-container relative h-full w-full bg-black" style={insetTop}>
         {/* Before the engine, so its control bar paints above the filters */}
         <FilterLayer />
         {engine}
-        {/* In the shell, so the ticker shows in fullscreen too */}
-        <NHLScoresOverlay isVisible={isNHLOverlayVisible} />
+        {/* The info rail and NHL ticker: in the shell, so they show in
+            fullscreen and stay put while the engine is swapped */}
+        <PlayerInfoOverlay channel={channel} />
       </div>
       {/* One editor for every engine, keyed by the capture's channel, not the one playing */}
       <HighlightModal
@@ -267,7 +288,7 @@ function LiveVideoPlayer({
   isMobile,
 }: LiveVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
-  const { containerRef, toggleFullscreen, toggleTheaterMode, controlsVisible } = usePlayerShell()
+  const { containerRef, toggleFullscreen, toggleTheaterMode, controlsVisible, isInfoRailVisible } = usePlayerShell()
   const playerRef = useRef<mpegts.Player | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isBuffering, setIsBuffering] = useState(false)
@@ -426,6 +447,7 @@ function LiveVideoPlayer({
           volume={isSystemMuted ? volume : unmutedVolume(volume)}
           onUnmute={isSystemMuted ? handleSoundOn : unmute}
           onPlay={handleStartPlayback}
+          belowRail={isInfoRailVisible}
         />
       )}
 
@@ -454,6 +476,7 @@ function HLSVideoPlayerWrapper({
   isMobile,
 }: HLSVideoPlayerWrapperProps) {
   const playerRef = useRef<MediaPlayerInstance>(null)
+  const { isInfoRailVisible } = usePlayerShell()
   const [isBuffering, setIsBuffering] = useState(true)
   const [hasStarted, setHasStarted] = useState(false)
 
@@ -624,6 +647,7 @@ function HLSVideoPlayerWrapper({
           volume={isSystemMuted ? volume : unmutedVolume(volume)}
           onUnmute={isSystemMuted ? handleSoundOn : handleRestoreSound}
           onPlay={handleStartPlayback}
+          belowRail={isInfoRailVisible}
         />
       )}
     </div>
