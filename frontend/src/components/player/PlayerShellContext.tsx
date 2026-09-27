@@ -53,6 +53,13 @@ export interface PlayerShell {
   isLivePaused: boolean
   /** The live engine reports its pause (see useShellLivePaused) */
   setLivePaused: (paused: boolean) => void
+  /**
+   * The engine's autoplay notice is up ('Sound is off', or the tap to play):
+   * cards that share the top of the picture wait for it rather than cover it
+   */
+  isAutoplayNoticeShown: boolean
+  /** The engine reports its autoplay notice (see useShellAutoplayNotice) */
+  setAutoplayNoticeShown: (shown: boolean) => void
   /** Re-initialises the engine; the shell (and fullscreen) stays */
   reload: () => void
   /** Changes on every reload, whether asked for here or by the page */
@@ -127,4 +134,18 @@ export function useShellLivePaused(isPaused: boolean): void {
   }, [isPaused, setLivePaused])
 
   useEffect(() => () => setLivePaused(false), [setLivePaused])
+}
+
+/**
+ * Reports to the shell whether the engine's autoplay notice is up. An engine
+ * that goes away takes its notice with it.
+ */
+export function useShellAutoplayNotice(isShown: boolean): void {
+  const { setAutoplayNoticeShown } = usePlayerShell()
+
+  useEffect(() => {
+    setAutoplayNoticeShown(isShown)
+  }, [isShown, setAutoplayNoticeShown])
+
+  useEffect(() => () => setAutoplayNoticeShown(false), [setAutoplayNoticeShown])
 }

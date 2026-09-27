@@ -28,6 +28,7 @@ import { CastErrorBanner, CastingCard } from '@/components/player/CastingCard'
 import {
   PlayerShellContext,
   usePlayerShell,
+  useShellAutoplayNotice,
   useShellLiveEdge,
   useShellLivePaused,
   useShellPlayback,
@@ -130,6 +131,8 @@ export function DualModeVideoPlayer({
   const [behindLive, setBehindLive] = useState<BehindLive | null>(null)
   // The live engine reports a pause; the info rail hints what it costs
   const [isLivePaused, setLivePaused] = useState(false)
+  // The engine reports its autoplay notice; the arrival card waits for it
+  const [isAutoplayNoticeShown, setAutoplayNoticeShown] = useState(false)
 
   // Both counters only grow, so their sum changes on every reload
   const [shellReloads, setShellReloads] = useState(0)
@@ -165,6 +168,8 @@ export function DualModeVideoPlayer({
       setBehindLive,
       isLivePaused,
       setLivePaused,
+      isAutoplayNoticeShown,
+      setAutoplayNoticeShown,
       stepChannel,
       reload,
       reloadKey,
@@ -179,6 +184,7 @@ export function DualModeVideoPlayer({
       isInfoRailVisible,
       behindLive,
       isLivePaused,
+      isAutoplayNoticeShown,
       stepChannel,
       reload,
       reloadKey,
@@ -472,6 +478,9 @@ function LiveVideoPlayer({
   // Paused after it started: not the casting hold, and not once the stream
   // has failed (the status card speaks then)
   useShellLivePaused(hasStarted && !isPlaying && !isCasting && !isStopped)
+  // The notices are about the local picture: not over the casting card
+  const isNoticeShown = !isCasting && (isPlayBlocked || isSystemMuted || isSavedMuteNotice)
+  useShellAutoplayNotice(isNoticeShown)
 
   // The tap is a user gesture, so the browser lets the element unmute
   const handleSoundOn = useCallback(() => {
@@ -676,7 +685,7 @@ function LiveVideoPlayer({
 
       {/* The notices and the status card are about the local picture: not
           over the casting card, which paints under them */}
-      {!isCasting && (isPlayBlocked || isSystemMuted || isSavedMuteNotice) && (
+      {isNoticeShown && (
         <AutoplayNotice
           mode={isPlayBlocked ? 'tap-to-play' : 'sound-off'}
           volume={isSystemMuted ? volume : unmutedVolume(volume)}
@@ -742,6 +751,9 @@ function HLSVideoPlayerWrapper({
   const [playBlockedKey, setPlayBlockedKey] = useState<number | null>(null)
   const isSystemMuted = systemMutedKey === retryKey && !muted
   const isPlayBlocked = playBlockedKey === retryKey
+  // The notices are about the local picture: not over the casting card
+  const isNoticeShown = !isCasting && (isPlayBlocked || isSystemMuted || isSavedMuteNotice)
+  useShellAutoplayNotice(isNoticeShown)
 
   const onPlaying = useCallback(() => {
     setIsBuffering(false)
@@ -889,7 +901,7 @@ function HLSVideoPlayerWrapper({
 
       {/* The notices and the status card are about the local picture: not
           over the casting card, which paints under them */}
-      {!isCasting && (isPlayBlocked || isSystemMuted || isSavedMuteNotice) && (
+      {isNoticeShown && (
         <AutoplayNotice
           mode={isPlayBlocked ? 'tap-to-play' : 'sound-off'}
           volume={isSystemMuted ? volume : unmutedVolume(volume)}
