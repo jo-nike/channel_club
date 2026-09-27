@@ -26,16 +26,23 @@ vi.mock('@/hooks/useTVMode', () => ({
   useTVMode: vi.fn(() => false),
 }))
 
-// Mock QRPlexLogin component for testing
+// Mock QRPlexLogin component for testing; its cancel button shows the label it is given
 vi.mock('@/components/QRPlexLogin', () => ({
-  QRPlexLogin: ({ onSuccess, onCancel, onError }: {
+  QRPlexLogin: ({ onSuccess, onCancel, onError, variant, autoRestart, cancelLabel }: {
     onSuccess: (token: string) => void
     onCancel: () => void
     onError?: (err: Error) => void
+    variant?: 'default' | 'tv'
+    autoRestart?: boolean
+    cancelLabel?: string
   }) => (
-    <div data-testid="qr-plex-login">
+    <div
+      data-testid="qr-plex-login"
+      data-variant={variant ?? 'default'}
+      data-auto-restart={String(autoRestart ?? false)}
+    >
       <button onClick={() => onSuccess('qr-auth-token')}>Mock QR Success</button>
-      <button onClick={onCancel}>Mock QR Cancel</button>
+      <button onClick={onCancel}>{cancelLabel ?? 'Cancel'}</button>
       <button onClick={() => onError?.(new Error('QR error'))}>Mock QR Error</button>
     </div>
   ),
@@ -712,20 +719,100 @@ describe('LoginForm', () => {
       })
     })
 
-    it('should show QR login on TV mode when Plex button clicked', async () => {
+    it('opens straight to the TV code screen on a TV, without a click', async () => {
       vi.mocked(useTVModeModule.useTVMode).mockReturnValue(true)
 
       render(<LoginForm />)
 
-      await waitFor(() => {
-        expect(screen.getByText('Sign in with Plex')).toBeInTheDocument()
+      const qr = await screen.findByTestId('qr-plex-login')
+      expect(qr).toHaveAttribute('data-variant', 'tv')
+      expect(qr).toHaveAttribute('data-auto-restart', 'true')
+      // The choice screen is skipped, not shown first
+      expect(screen.queryByText('Sign in with Plex')).not.toBeInTheDocument()
+      expect(plexAuth.openPlexAuthWindow).not.toHaveBeenCalled()
+    })
+
+    it('keeps the wordmark heading on the TV code screen', async () => {
+      vi.mocked(useTVModeModule.useTVMode).mockReturnValue(true)
+
+      render(<LoginForm />)
+
+      await screen.findByTestId('qr-plex-login')
+      expect(screen.getByRole('heading', { level: 1, name: 'Channel Club' })).toBeInTheDocument()
+    })
+
+    it('offers Cancel on a Plex-only TV, which returns to the Plex button', async () => {
+      vi.mocked(useTVModeModule.useTVMode).mockReturnValue(true)
+
+      render(<LoginForm />)
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
+
+      expect(await screen.findByRole('button', { name: 'Sign in with Plex' })).toHaveClass('h-14', 'text-2xl')
+      expect(screen.queryByTestId('qr-plex-login')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Use another sign-in method' })).not.toBeInTheDocument()
+    })
+
+    it('pressing Sign in with Plex on a TV goes back to the code screen', async () => {
+      vi.mocked(useTVModeModule.useTVMode).mockReturnValue(true)
+
+      render(<LoginForm />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Sign in with Plex' }))
+
+      expect(await screen.findByTestId('qr-plex-login')).toHaveAttribute('data-variant', 'tv')
+    })
+
+    describe('on a TV with local sign-in too', () => {
+      beforeEach(() => {
+        vi.mocked(useTVModeModule.useTVMode).mockReturnValue(true)
+        vi.mocked(api.getAuthConfig).mockResolvedValue({
+          localAuthEnabled: true,
+          plexAuthEnabled: true,
+        })
       })
 
-      fireEvent.click(screen.getByText('Sign in with Plex'))
+      it('still opens on the code screen, with Use another sign-in method', async () => {
+        render(<LoginForm />)
 
-      await waitFor(() => {
-        expect(screen.getByTestId('qr-plex-login')).toBeInTheDocument()
+        expect(await screen.findByTestId('qr-plex-login')).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Use another sign-in method' })).toBeInTheDocument()
+        expect(screen.queryByLabelText(/username/i)).not.toBeInTheDocument()
       })
+
+      it('Use another sign-in method shows the form and does not re-enter the code screen', async () => {
+        render(<LoginForm />)
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Use another sign-in method' }))
+
+        expect(await screen.findByLabelText(/username/i)).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Sign in with Plex' })).toBeInTheDocument()
+        // Let any pending effects and promises settle: the code screen stays closed
+        await new Promise((done) => setTimeout(done, 0))
+        expect(screen.queryByTestId('qr-plex-login')).not.toBeInTheDocument()
+        expect(api.getAuthConfig).toHaveBeenCalledTimes(1)
+      })
+    })
+
+    it('does not open the code screen on a TV when Plex sign-in is off', async () => {
+      vi.mocked(useTVModeModule.useTVMode).mockReturnValue(true)
+      vi.mocked(api.getAuthConfig).mockResolvedValue({
+        localAuthEnabled: true,
+        plexAuthEnabled: false,
+      })
+
+      render(<LoginForm />)
+
+      expect(await screen.findByLabelText(/username/i)).toBeInTheDocument()
+      expect(screen.queryByTestId('qr-plex-login')).not.toBeInTheDocument()
+    })
+
+    it('does not open the code screen on a desktop', async () => {
+      render(<LoginForm />)
+
+      expect(await screen.findByText('Sign in with Plex')).toBeInTheDocument()
+      await new Promise((done) => setTimeout(done, 0))
+      expect(screen.queryByTestId('qr-plex-login')).not.toBeInTheDocument()
     })
 
     it('should show the "Sign in with a code" link for desktop users', async () => {
@@ -744,6 +831,7 @@ describe('LoginForm', () => {
       vi.mocked(useTVModeModule.useTVMode).mockReturnValue(true)
 
       render(<LoginForm />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
 
       await waitFor(() => {
         expect(screen.getByText('Sign in with Plex')).toBeInTheDocument()
@@ -763,9 +851,11 @@ describe('LoginForm', () => {
 
       fireEvent.click(screen.getByRole('button', { name: 'Sign in with a code' }))
 
-      await waitFor(() => {
-        expect(screen.getByTestId('qr-plex-login')).toBeInTheDocument()
-      })
+      const qr = await screen.findByTestId('qr-plex-login')
+      // A desktop keeps the compact code screen inside the card, and no restarts
+      expect(qr).toHaveAttribute('data-variant', 'default')
+      expect(qr).toHaveAttribute('data-auto-restart', 'false')
+      expect(within(qr).getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
     })
 
     it('should handle successful QR auth flow', async () => {
@@ -782,12 +872,6 @@ describe('LoginForm', () => {
       render(<LoginForm />)
 
       await waitFor(() => {
-        expect(screen.getByText('Sign in with Plex')).toBeInTheDocument()
-      })
-
-      fireEvent.click(screen.getByText('Sign in with Plex'))
-
-      await waitFor(() => {
         expect(screen.getByTestId('qr-plex-login')).toBeInTheDocument()
       })
 
@@ -801,22 +885,18 @@ describe('LoginForm', () => {
     })
 
     it('should return to select mode on QR cancel', async () => {
-      vi.mocked(useTVModeModule.useTVMode).mockReturnValue(true)
+      vi.mocked(useTVModeModule.useTVMode).mockReturnValue(false)
 
       render(<LoginForm />)
 
-      await waitFor(() => {
-        expect(screen.getByText('Sign in with Plex')).toBeInTheDocument()
-      })
-
-      fireEvent.click(screen.getByText('Sign in with Plex'))
+      fireEvent.click(await screen.findByRole('button', { name: 'Sign in with a code' }))
 
       await waitFor(() => {
         expect(screen.getByTestId('qr-plex-login')).toBeInTheDocument()
       })
 
       // Trigger mock QR cancel
-      fireEvent.click(screen.getByText('Mock QR Cancel'))
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
 
       await waitFor(() => {
         expect(screen.queryByTestId('qr-plex-login')).not.toBeInTheDocument()
@@ -828,12 +908,6 @@ describe('LoginForm', () => {
       vi.mocked(useTVModeModule.useTVMode).mockReturnValue(true)
 
       render(<LoginForm />)
-
-      await waitFor(() => {
-        expect(screen.getByText('Sign in with Plex')).toBeInTheDocument()
-      })
-
-      fireEvent.click(screen.getByText('Sign in with Plex'))
 
       await waitFor(() => {
         expect(screen.getByTestId('qr-plex-login')).toBeInTheDocument()

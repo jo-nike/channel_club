@@ -1,5 +1,5 @@
 import { APP_TAGLINE } from '@/lib/appInfo'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useEffectEvent, useRef } from 'react'
 import { AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -44,10 +44,22 @@ export function LoginForm() {
   const plexAbortRef = useRef<AbortController | null>(null)
   const setAuth = useAuthStore((state) => state.setAuth)
   const isTVMode = useTVMode()
+  // The TV opens on the code screen once; leaving it doesn't bring it back
+  const autoStartedRef = useRef(false)
+
+  // A TV with Plex goes straight to the code screen: no D-pad trip to the
+  // Plex button first. Set with the config, so the choice screen never flashes.
+  const applyAuthConfig = useEffectEvent((config: AuthConfig) => {
+    setAuthConfig(config)
+    if (isTVMode && config.plexAuthEnabled && !autoStartedRef.current) {
+      autoStartedRef.current = true
+      setPlexAuthMode('qr')
+    }
+  })
 
   useEffect(() => {
     getAuthConfig()
-      .then(setAuthConfig)
+      .then((config) => applyAuthConfig(config))
       .catch((err) => {
         logger.error('Auth', 'Failed to load auth config', err)
         setError('Failed to load authentication configuration')
@@ -178,6 +190,58 @@ export function LoginForm() {
   const labelClass = cn('block text-foreground', isTVMode ? 'text-xl' : 'text-sm')
   const inputClass = isTVMode ? 'h-14 text-2xl px-4' : 'h-11 text-base md:text-base px-3'
 
+  const errorCallout = error && (
+    <div
+      role="alert"
+      className={cn(
+        'flex gap-3 p-4 text-foreground bg-destructive/10 border border-destructive rounded-md',
+        isTVMode ? 'text-2xl' : 'text-sm'
+      )}
+    >
+      <AlertCircle className="h-5 w-5 shrink-0 text-destructive" aria-hidden="true" />
+      <div className="space-y-3">
+        <p>{typeof error === 'string' ? error : PLEX_ERROR_COPY[error.code]}</p>
+        {error instanceof PlexAuthError && (
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" size="sm" onClick={handlePlexLogin}>
+              Try again
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={handleSignInWithCode}>
+              Sign in with a code
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+
+  // TV code screen: full width, large code and QR to read from the sofa
+  if (isTVMode && showPlexAuth && plexAuthMode === 'qr') {
+    return (
+      <div className="min-h-screen w-full flex items-center justify-center bg-background px-16 py-12">
+        <div className="w-full max-w-7xl space-y-12">
+          <div className="space-y-4">
+            <h1 className="text-foreground">
+              <Wordmark size="lg" className="gap-5 text-7xl" />
+            </h1>
+            <p className="text-3xl text-muted-foreground">{APP_TAGLINE}</p>
+          </div>
+
+          {errorCallout}
+
+          <QRPlexLogin
+            variant="tv"
+            autoRestart
+            cancelLabel={showLocalAuth ? 'Use another sign-in method' : 'Cancel'}
+            onSuccess={handleQRPlexSuccess}
+            onCancel={handleQRPlexCancel}
+            onError={handleQRPlexError}
+          />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
       <div className="w-full max-w-md space-y-6 p-8 border rounded-lg shadow-lg bg-card">
@@ -186,27 +250,7 @@ export function LoginForm() {
         </h1>
         <p className="text-center text-muted-foreground">{APP_TAGLINE}</p>
 
-        {error && (
-          <div
-            role="alert"
-            className="flex gap-3 p-4 text-sm text-foreground bg-destructive/10 border border-destructive rounded-md"
-          >
-            <AlertCircle className="h-5 w-5 shrink-0 text-destructive" aria-hidden="true" />
-            <div className="space-y-3">
-              <p>{typeof error === 'string' ? error : PLEX_ERROR_COPY[error.code]}</p>
-              {error instanceof PlexAuthError && (
-                <div className="flex flex-wrap gap-2">
-                  <Button type="button" size="sm" onClick={handlePlexLogin}>
-                    Try again
-                  </Button>
-                  <Button type="button" size="sm" variant="outline" onClick={handleSignInWithCode}>
-                    Sign in with a code
-                  </Button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+        {errorCallout}
 
         {/* Local Auth Form */}
         {showLocalAuth && (
