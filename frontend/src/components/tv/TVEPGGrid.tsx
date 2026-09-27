@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useMemo, useCallback, useState, type ReactNode, type UIEvent } from 'react'
 import { ChevronLeft, ChevronRight, Radio } from 'lucide-react'
-import { useTVStore, LIVE_CHANNEL_ID, buildUnifiedChannels, describeLiveGuide } from '@/stores/tvStore'
+import { useTVStore, LIVE_CHANNEL_ID, buildUnifiedChannels, describeLiveGuide, toLiveProgramme } from '@/stores/tvStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { getErsatzTVLogoUrl } from '@/services/ersatztvApi'
@@ -50,6 +50,7 @@ export function TVEPGGrid({
   onPickLive,
 }: TVEPGGridProps) {
   const { isLiveChannelActive, liveEPGStatus, selectedChannel } = useTVStore()
+  const liveSchedule = useTVStore((s) => s.liveProgrammes)
   const containerRef = useRef<HTMLDivElement>(null)
   const headerRef = useRef<HTMLDivElement>(null)
   // The shared programme clock: the now marker and the blocks' past/now/future
@@ -150,21 +151,14 @@ export function TVEPGGrid({
     }
   }, [startTime])
 
-  // Convert live EPG to programme format for display (current only, no next)
+  // Row 0: the live channel's schedule. Until it loads, or when its lookup
+  // fails, the now-playing answer's current and next programmes stand in.
   const liveProgrammes = useMemo(() => {
-    if (!liveEPG?.currentProgram) return []
-
-    return [
-      {
-        id: 'live-current',
-        channelId: LIVE_CHANNEL_ID,
-        title: liveEPG.currentProgram.title,
-        description: liveEPG.currentProgram.description,
-        start: liveEPG.currentProgram.startTime,
-        stop: liveEPG.currentProgram.endTime,
-      },
-    ]
-  }, [liveEPG])
+    if (liveSchedule.length > 0) return liveSchedule
+    return [liveEPG?.currentProgram, liveEPG?.nextProgram]
+      .filter((programme) => programme != null)
+      .map(toLiveProgramme)
+  }, [liveSchedule, liveEPG])
 
   // What's on now, for the channel labels' progress and time left. The
   // ErsatzTV index is cached per programmesByChannel and shared with the

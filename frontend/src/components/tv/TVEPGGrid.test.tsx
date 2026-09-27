@@ -4,12 +4,15 @@ import { TVEPGGrid } from './TVEPGGrid'
 import { focusOverrides } from '@/test/focus'
 import { useChannelStore } from '@/stores/channelStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
-import { useTVStore } from '@/stores/tvStore'
+import { useTVStore, LIVE_CHANNEL_ID, toLiveProgramme } from '@/stores/tvStore'
 import type { EPGResponse, ErsatzTVProgramme } from '@/types'
 
-// Putting a channel on live TV starts a guide lookup; leave it unanswered so
-// each test sets the live guide state itself
-vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn(() => new Promise(() => {})) }))
+// Putting a channel on live TV starts guide and schedule lookups; leave them
+// unanswered so each test sets the live guide state itself
+vi.mock('@/services/api', () => ({
+  fetchNowPlaying: vi.fn(() => new Promise(() => {})),
+  fetchLiveProgrammes: vi.fn(() => new Promise(() => {})),
+}))
 
 const hour = 60 * 60 * 1000
 const start = new Date(Date.now() - hour / 2).toISOString()
@@ -109,6 +112,77 @@ describe('TVEPGGrid live row without a programme', () => {
     const [liveRow] = screen.getAllByTestId('channel-row')
     expect(liveRow).toHaveTextContent('Club Broadcast')
     expect(liveRow).not.toHaveTextContent('No guide info')
+  })
+})
+
+describe('TVEPGGrid live schedule', () => {
+  // The grid starts at 19:30, 30 minutes before the half hour now falls in
+  const NOW = new Date('2026-09-26T20:00:00Z').getTime()
+  const MINUTE = 60_000
+  const at = (minutes: number) => new Date(NOW + minutes * MINUTE).toISOString()
+  const liveSchedule = [
+    { title: 'Pre-game', startTime: at(-45), endTime: at(-10) },
+    { title: 'Hockey Night', startTime: at(-10), endTime: at(170) },
+    { title: 'After Hours', startTime: at(170), endTime: at(230) },
+  ].map(toLiveProgramme)
+  const liveRow = () => within(screen.getAllByTestId('channel-row')[0])
+  const block = (title: string) => liveRow().getByText(title).closest('button')!
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    vi.setSystemTime(NOW)
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1' },
+    })
+    useErsatztvStore.setState({ channels: [] })
+    useTVStore.setState({ liveEPGStatus: 'ok' })
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+    useChannelStore.setState({ currentChannel: null })
+    useTVStore.setState({ liveProgrammes: [], liveEPGStatus: 'idle' })
+  })
+
+  it('draws every programme of the live schedule in row 0, with its past, now and future states', () => {
+    useTVStore.setState({ liveProgrammes: liveSchedule })
+    // Now-playing knows only the current show; the schedule wins
+    const onNow: EPGResponse = { channelId: 'g1', currentProgram: { title: 'Hockey Night', startTime: at(-10), endTime: at(170) } }
+    render(<TVEPGGrid programmesByChannel={{}} liveEPG={onNow} />)
+
+    expect(block('Pre-game')).toHaveAttribute('data-state', 'past')
+    expect(block('Hockey Night')).toHaveAttribute('data-state', 'now')
+    expect(block('After Hours')).toHaveAttribute('data-state', 'future')
+    // Upcoming live blocks keep the live tint and show their times
+    expect(block('After Hours')).toHaveClass('bg-live/15')
+    expect(within(block('After Hours')).getByText(/ - /)).toBeInTheDocument()
+    expect(liveRow().getAllByText('Hockey Night')).toHaveLength(1)
+  })
+
+  it("hands a clicked live block to onProgrammeClick as a live-slot programme keyed by its start", () => {
+    useTVStore.setState({ liveProgrammes: liveSchedule })
+    const onProgrammeClick = vi.fn()
+    render(<TVEPGGrid programmesByChannel={{}} liveEPG={null} onProgrammeClick={onProgrammeClick} />)
+
+    fireEvent.click(block('After Hours'))
+
+    expect(onProgrammeClick).toHaveBeenCalledWith(
+      expect.objectContaining({ id: `live-${at(170)}`, channelId: LIVE_CHANNEL_ID, title: 'After Hours', start: at(170), stop: at(230) }),
+      expect.objectContaining({ id: LIVE_CHANNEL_ID, type: 'live' })
+    )
+  })
+
+  it("falls back to now-playing's current and next programmes while there is no schedule", () => {
+    const nowPlaying: EPGResponse = {
+      channelId: 'g1',
+      currentProgram: { title: 'Hockey Night', startTime: at(-10), endTime: at(170) },
+      nextProgram: { title: 'After Hours', startTime: at(170), endTime: at(230) },
+    }
+    render(<TVEPGGrid programmesByChannel={{}} liveEPG={nowPlaying} />)
+
+    expect(block('Hockey Night')).toHaveAttribute('data-state', 'now')
+    expect(block('After Hours')).toHaveAttribute('data-state', 'future')
   })
 })
 
