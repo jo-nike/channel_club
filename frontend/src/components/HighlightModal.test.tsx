@@ -190,6 +190,33 @@ describe('Clip editor', () => {
     expect(props.onClose).toHaveBeenCalled()
   })
 
+  it('lets Escape in a time field revert the typed value without closing or deleting the capture', async () => {
+    render(<HighlightModal {...props} />)
+    await ready()
+    const field = screen.getByLabelText('Start (seconds)')
+    fireEvent.focus(field)
+    fireEvent.change(field, { target: { value: '12.5' } })
+    expect(field).toHaveValue(12.5)
+    fireEvent.keyDown(field, { key: 'Escape' })
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(field).toHaveValue(0)
+    expect(props.onClose).not.toHaveBeenCalled()
+    expect(api.deleteHighlightCapture).not.toHaveBeenCalled()
+  })
+
+  it('ignores a pointer press on the overlay once the capture is ready', async () => {
+    render(<HighlightModal {...props} />)
+    await ready()
+    const overlay = document.querySelector('[data-slot="dialog-overlay"]')!
+    // Radix registers its outside-press listener on the next tick.
+    await new Promise(resolve => setTimeout(resolve, 0))
+    fireEvent.pointerDown(overlay)
+    fireEvent.click(overlay)
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(props.onClose).not.toHaveBeenCalled()
+    expect(api.deleteHighlightCapture).not.toHaveBeenCalled()
+  })
+
   it('converts WebM with the same fractional selection', async () => {
     render(<HighlightModal {...props} />)
     await ready()

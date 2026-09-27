@@ -153,7 +153,11 @@ function ClipSession({ channelId, onClose, acquirePreviewAudio, container }: Omi
 
   return (
     <Dialog open onOpenChange={open => { if (!open) onClose() }}>
-      <DialogContent container={container} showCloseButton={false} className="max-h-[92dvh] max-w-[min(48rem,calc(100%-2rem))] overflow-y-auto" onKeyDown={event => event.stopPropagation()}>
+      <DialogContent container={container} showCloseButton={false} className="max-h-[92dvh] max-w-[min(48rem,calc(100%-2rem))] overflow-y-auto" onKeyDown={event => event.stopPropagation()}
+        // Radix sees Escape on the document before a field does; let the field revert its draft instead.
+        onEscapeKeyDown={event => { if ((event.target as HTMLElement | null)?.closest?.('input,select,textarea')) event.preventDefault() }}
+        // Closing deletes the capture, so a stray press outside must not discard a ready one.
+        onInteractOutside={event => { if (ready) event.preventDefault() }}>
         <DialogHeader className="sticky -top-6 z-20 -mx-6 -mt-6 border-b bg-background p-6 pr-14">
           <Button variant="ghost" size="icon" aria-label="Close editor" onClick={onClose} className="absolute right-3 top-3"><X /></Button>
           <DialogTitle>Create clip</DialogTitle>
