@@ -240,7 +240,7 @@ function ChannelRow({
 
   return (
     <div
-      className={`absolute left-0 flex ${showLiveHighlight ? 'bg-destructive/5' : ''}`}
+      className={`absolute left-0 flex ${showLiveHighlight ? 'bg-live/5' : ''}`}
       style={{ top: rowIndex * ROW_HEIGHT, height: ROW_HEIGHT }}
       data-testid="channel-row"
     >
@@ -250,7 +250,7 @@ function ChannelRow({
           <button
             onClick={() => onChannelClick?.(channel)}
             className={`sticky left-0 z-20 flex flex-shrink-0 items-center gap-1.5 px-2 text-sm font-medium border-r hover:bg-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${
-              showLiveHighlight ? 'bg-rose-50 dark:bg-rose-950' : 'bg-card'
+              showLiveHighlight ? 'bg-live-surface' : 'bg-card'
             }`}
             style={{ width: CHANNEL_LABEL_WIDTH }}
           >
@@ -345,8 +345,8 @@ function ProgrammeBox({
         transition-colors
         ${
           isLive
-            ? 'bg-destructive/20 text-destructive-foreground border-destructive/30'
-            : 'bg-accent text-accent-foreground'
+            ? 'bg-live/15 border-live/40 text-foreground'
+            : 'bg-guide-future text-foreground border-border'
         }
         ${isClipped ? 'text-right' : 'text-left'}
       `}

@@ -25,8 +25,7 @@ const ON_SOLID = 'oklch(0.985 0 0)'
  */
 function createDarkThemeColors(
   background: string,
-  primary: string,
-  accent: string = primary
+  primary: string
 ): Theme['colors'] {
   // Parse L value from background to derive other colors
   const bgParts = background.split(' ')
@@ -39,10 +38,6 @@ function createDarkThemeColors(
   const primaryL = parseFloat(primaryParts[0])
   const primaryC = parseFloat(primaryParts[1])
   const primaryH = primaryParts[2] || '0'
-
-  // Parse accent for foreground derivation
-  const accentParts = accent.split(' ')
-  const accentL = parseFloat(accentParts[0])
 
   // Card is slightly lighter than background
   const cardL = Math.min(bgL + 0.06, 0.3)
@@ -62,8 +57,11 @@ function createDarkThemeColors(
     secondaryForeground: 'oklch(0.985 0 0)',
     muted: `oklch(${mutedL} ${bgC * 0.5} ${bgH})`,
     mutedForeground: 'oklch(0.708 0 0)',
-    accent: `oklch(${accent})`,
-    accentForeground: accentL > 0.6 ? 'oklch(0.2 0 0)' : 'oklch(0.985 0 0)',
+    // Accent is the quiet hover/selected surface (shadcn convention): a
+    // low-chroma primary tint just above the card, so foreground stays above
+    // 11:1, muted text above 4.5:1 and a primary check icon above 3.5:1.
+    accent: `oklch(${Math.min(cardL + 0.06, 0.34)} ${primaryC * 0.35} ${primaryH})`,
+    accentForeground: 'oklch(0.985 0 0)',
     destructive: 'oklch(0.704 0.191 22.216)',
     destructiveForeground: ON_SOLID,
     live: LIVE,

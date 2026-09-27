@@ -141,6 +141,18 @@ describe('themes', () => {
   })
 
   describe('contrast', () => {
+    it.each(darkThemes.map((t) => [t.id, t] as const))(
+      '%s: accent is a quiet surface that keeps text and the primary check readable',
+      (_id, theme) => {
+        const { colors } = theme
+        expect(colors.accent).not.toBe(colors.primary)
+        expect(contrast(colors.foreground, colors.accent)).toBeGreaterThanOrEqual(7)
+        expect(contrast(colors.accentForeground, colors.accent)).toBeGreaterThanOrEqual(7)
+        expect(contrast(colors.mutedForeground, colors.accent)).toBeGreaterThanOrEqual(4.5)
+        expect(contrast(colors.primary, colors.accent)).toBeGreaterThanOrEqual(3)
+      }
+    )
+
     it.each(Object.values(themes).map((t) => [t.id, t] as const))(
       '%s: live foreground on live is at least 4.5:1',
       (_id, theme) => {
