@@ -773,6 +773,192 @@ describe('ChatPanel', () => {
     })
   })
 
+  describe('scroll position', () => {
+    const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView)
+    const originalMatchMedia = window.matchMedia
+
+    beforeEach(() => {
+      vi.useFakeTimers()
+      scrollIntoView.mockClear()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+      window.matchMedia = originalMatchMedia
+    })
+
+    // jsdom has no layout: give the list a 1000px tall history in a 300px viewport
+    const mockViewport = () => {
+      const viewport = document.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]')
+      if (!viewport) throw new Error('no scroll-area viewport')
+      Object.defineProperty(viewport, 'scrollHeight', { configurable: true, value: 1000 })
+      Object.defineProperty(viewport, 'clientHeight', { configurable: true, value: 300 })
+      return viewport
+    }
+    const scrollTo = (viewport: HTMLElement, top: number) => {
+      Object.defineProperty(viewport, 'scrollTop', { configurable: true, value: top })
+      fireEvent.scroll(viewport)
+    }
+    // Open over two messages, let the opening scroll run, and start at the bottom
+    const openAtBottom = () => {
+      useChatStore.setState({ messages: [createMessage('1', 'OtherUser'), createMessage('2', 'OtherUser')] })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      act(() => { vi.advanceTimersByTime(50) })
+      const viewport = mockViewport()
+      scrollTo(viewport, 700)
+      scrollIntoView.mockClear()
+      return viewport
+    }
+    // A message arrives, and any scroll it schedules has had time to run
+    const receive = (id: string, username = 'OtherUser') => {
+      act(() => { useChatStore.getState().addMessage(createMessage(id, username)) })
+      act(() => { vi.advanceTimersByTime(100) })
+    }
+
+    it('follows a new message down while the reader is at the bottom', () => {
+      openAtBottom()
+      receive('3')
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+      expect(screen.queryByRole('button', { name: /new message/ })).not.toBeInTheDocument()
+    })
+
+    it('holds the position when scrolled up and counts new messages in a pill', () => {
+      const viewport = openAtBottom()
+      scrollTo(viewport, 200)
+
+      receive('3')
+      expect(scrollIntoView).not.toHaveBeenCalled()
+      expect(screen.getByRole('button', { name: '1 new message' })).toBeInTheDocument()
+
+      receive('4')
+      expect(scrollIntoView).not.toHaveBeenCalled()
+      expect(screen.getByRole('button', { name: '2 new messages' })).toBeInTheDocument()
+    })
+
+    it('the pill scrolls down to the latest and goes away', () => {
+      const viewport = openAtBottom()
+      scrollTo(viewport, 200)
+      receive('3')
+
+      fireEvent.click(screen.getByRole('button', { name: '1 new message' }))
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+      expect(screen.queryByRole('button', { name: /new message/ })).not.toBeInTheDocument()
+
+      // Back to following: the next message scrolls
+      receive('4')
+      expect(scrollIntoView).toHaveBeenCalledTimes(2)
+    })
+
+    it('scrolling back to the bottom clears the pill', () => {
+      const viewport = openAtBottom()
+      scrollTo(viewport, 200)
+      receive('3')
+      // Within 80px of the bottom counts
+      scrollTo(viewport, 650)
+      expect(screen.queryByRole('button', { name: /new message/ })).not.toBeInTheDocument()
+    })
+
+    it('always scrolls to your own message, even when scrolled up', () => {
+      const viewport = openAtBottom()
+      scrollTo(viewport, 200)
+      receive('3', 'TestUser')
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+      expect(screen.queryByRole('button', { name: /new message/ })).not.toBeInTheDocument()
+    })
+
+    it('keeps following through a smooth scroll that is still on its way down', () => {
+      const viewport = openAtBottom()
+      receive('3')
+      // The smooth scroll to message 3 is mid-way when message 4 arrives
+      scrollTo(viewport, 710)
+      Object.defineProperty(viewport, 'scrollHeight', { configurable: true, value: 1200 })
+      scrollTo(viewport, 750)
+      receive('4')
+      expect(scrollIntoView).toHaveBeenCalledTimes(2)
+      expect(screen.queryByRole('button', { name: /new message/ })).not.toBeInTheDocument()
+    })
+
+    it("opens on the 'New' divider when there is unread", () => {
+      useChatStore.setState({
+        messages: [
+          { ...createMessage('1', 'OtherUser'), timestamp: '2026-09-26T20:00:01.000Z' },
+          { ...createMessage('2', 'OtherUser'), timestamp: '2026-09-26T20:00:03.000Z' },
+        ],
+        readMarker: Date.parse('2026-09-26T20:00:02.000Z'),
+      })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      act(() => { vi.advanceTimersByTime(50) })
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+      expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByRole('separator', { name: 'New messages' }))
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start', behavior: 'smooth' })
+    })
+
+    // Unread from someone else below the 'New' divider, in a viewport of the given height
+    const openOnDivider = (scrollHeight: number) => {
+      useChatStore.setState({
+        messages: [
+          { ...createMessage('1', 'OtherUser'), timestamp: '2026-09-26T20:00:01.000Z' },
+          { ...createMessage('2', 'OtherUser'), timestamp: '2026-09-26T20:00:03.000Z' },
+        ],
+        readMarker: Date.parse('2026-09-26T20:00:02.000Z'),
+      })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      const viewport = mockViewport()
+      Object.defineProperty(viewport, 'scrollHeight', { configurable: true, value: scrollHeight })
+      Object.defineProperty(viewport, 'scrollTop', { configurable: true, value: 0 })
+      // The opening scroll to the divider moves nothing and fires no scroll event
+      act(() => { vi.advanceTimersByTime(50) })
+      scrollIntoView.mockClear()
+    }
+
+    it("follows new messages after opening on the 'New' divider in a history that fits", () => {
+      openOnDivider(200)
+      receive('3')
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+      expect(screen.queryByRole('button', { name: /new message/ })).not.toBeInTheDocument()
+    })
+
+    it("holds on the 'New' divider when the unread runs past the panel", () => {
+      openOnDivider(1000)
+      receive('3')
+      expect(scrollIntoView).not.toHaveBeenCalled()
+      expect(screen.getByRole('button', { name: '1 new message' })).toBeInTheDocument()
+    })
+
+    it('opens at the bottom when nothing is unread', () => {
+      useChatStore.setState({ messages: [createMessage('1', 'OtherUser')] })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      act(() => { vi.advanceTimersByTime(50) })
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth' })
+    })
+
+    it('goes back to the bottom when the name editor closes over the list', () => {
+      useChatStore.setState({ me: { username: 'TestUser' } })
+      openAtBottom()
+      fireEvent.click(screen.getByRole('button', { name: 'Edit nickname' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+      act(() => { vi.advanceTimersByTime(50) })
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+    })
+
+    it('jumps instead of smooth-scrolling under reduced motion', () => {
+      window.matchMedia = vi.fn((query: string) => ({
+        matches: query === '(prefers-reduced-motion: reduce)',
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      }))
+      openAtBottom()
+      receive('3')
+      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto' })
+    })
+  })
+
   describe('iOS safe area', () => {
     afterEach(() => vi.mocked(useBreakpoint).mockReturnValue('desktop'))
 

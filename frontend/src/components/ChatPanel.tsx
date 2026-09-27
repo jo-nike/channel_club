@@ -1,7 +1,8 @@
-import { Fragment, useRef, useEffect, useState, useCallback, type KeyboardEvent } from 'react'
-import { X, Send, Pencil, Loader2, AlertCircle, WifiOff } from 'lucide-react'
+import { Fragment, useRef, useEffect, useState, useCallback, type KeyboardEvent, type UIEvent } from 'react'
+import { X, Send, Pencil, Loader2, AlertCircle, WifiOff, ArrowDown } from 'lucide-react'
 import type { ChatSendResult, WebSocketStatus } from '@/hooks/useWebSocket'
 import { createClientMessageId } from '@/lib/messageId'
+import { scrollBehavior } from '@/lib/motion'
 import { useChatStore, isOwnMessage } from '@/stores/chatStore'
 import { useBreakpoint } from '@/hooks/useBreakpoint'
 import { useNow } from '@/hooks/useNow'
@@ -21,6 +22,13 @@ export interface ChatPanelProps {
 
 // Quick reconnects (including the first connect) finish before the row would flicker in
 const RECONNECTING_ROW_DELAY = 2000
+
+// Within this many pixels of the bottom, the reader is following the conversation
+const AT_BOTTOM_THRESHOLD = 80
+
+function isNearBottom(viewport: HTMLElement): boolean {
+  return viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < AT_BOTTOM_THRESHOLD
+}
 
 // A send that failed, kept whole so a retry resends exactly it (a GIF stays a
 // GIF) under the same id, which the server recognises instead of reposting
@@ -61,6 +69,9 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
     }
   }
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const newDividerRef = useRef<HTMLDivElement>(null)
+  const lastScrollTop = useRef(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const nicknameInputRef = useRef<HTMLInputElement>(null)
   const isConnected = status === 'connected'
@@ -79,16 +90,91 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
   const showNicknamePrompt = isEditingNickname
   const displayName = nickname ?? me?.username
 
-  // Auto-scroll to bottom when new messages arrive or panel opens
-  useEffect(() => {
-    if (isOpen) {
-      // When opening, wait for animation/layout to settle before scrolling
-      const timer = setTimeout(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-      }, 50)
-      return () => clearTimeout(timer)
+  // Unread starts at the first message from someone else newer than what was read before opening
+  const firstUnreadId = readMarker === null ? undefined : messages.find(
+    (msg) => Date.parse(msg.timestamp) > readMarker && !isOwnMessage(msg, { nickname, me })
+  )?.messageId
+
+  // The list is on screen: the panel is open and the name editor isn't covering it
+  const listVisible = isOpen && !showNicknamePrompt
+  // Whether the reader is at the bottom, following new messages as they come.
+  // Scrolling up to read back holds the position; new messages then count up
+  // in a pill instead of pulling the list down.
+  const [isAtBottom, setIsAtBottom] = useState(true)
+  const [newCount, setNewCount] = useState(0)
+  const [scrollRequest, setScrollRequest] = useState(0)
+  const lastMessage = messages.at(-1)
+  const lastId = lastMessage?.messageId
+  const [shownList, setShownList] = useState(false)
+  const [seenLastId, setSeenLastId] = useState(lastId)
+  // (Adjusted while rendering, like connectionLost above.)
+  if (listVisible !== shownList || lastId !== seenLastId) {
+    setShownList(listVisible)
+    setSeenLastId(lastId)
+    if (listVisible && !shownList) {
+      // Coming into view: the list opens on the 'New' divider (unread below it) or the bottom
+      setNewCount(0)
+      setIsAtBottom(!firstUnreadId)
+    } else if (listVisible && lastMessage && lastId !== seenLastId) {
+      if (isAtBottom || isOwnMessage(lastMessage, { nickname, me })) {
+        // Follow it down; your own message always takes you to it
+        setIsAtBottom(true)
+        setNewCount(0)
+        setScrollRequest((n) => n + 1)
+      } else {
+        const seenIndex = messages.findIndex((msg) => msg.messageId === seenLastId)
+        setNewCount((n) => n + (seenIndex === -1 ? 1 : messages.length - 1 - seenIndex))
+      }
     }
-  }, [messages, isOpen])
+  }
+
+  // Show the 'New' divider, or the bottom, once the list is on screen
+  useEffect(() => {
+    if (!listVisible) return
+    // The list is freshly mounted at the top
+    lastScrollTop.current = viewportRef.current?.scrollTop ?? 0
+    // When opening, wait for animation/layout to settle before scrolling
+    const timer = setTimeout(() => {
+      const divider = newDividerRef.current
+      if (divider) divider.scrollIntoView({ block: 'start', behavior: scrollBehavior() })
+      else messagesEndRef.current?.scrollIntoView({ behavior: scrollBehavior() })
+      // A history that fits (or nearly fits) the panel is already at the bottom.
+      // Scrolling to the divider moves nothing there, so no scroll event would say so.
+      const viewport = viewportRef.current
+      if (viewport && isNearBottom(viewport)) {
+        setIsAtBottom(true)
+        setNewCount(0)
+      }
+    }, 50)
+    return () => clearTimeout(timer)
+  }, [listVisible])
+
+  // Follow new messages down while the reader is at the bottom
+  useEffect(() => {
+    if (scrollRequest === 0) return
+    messagesEndRef.current?.scrollIntoView({ behavior: scrollBehavior() })
+  }, [scrollRequest])
+
+  const handleViewportScroll = useCallback((e: UIEvent<HTMLDivElement>) => {
+    const viewport = e.currentTarget
+    const atBottom = isNearBottom(viewport)
+    const movedUp = viewport.scrollTop < lastScrollTop.current
+    lastScrollTop.current = viewport.scrollTop
+    if (atBottom) {
+      setIsAtBottom(true)
+      setNewCount(0)
+    } else if (movedUp) {
+      // Only scrolling up lets go of the bottom: a smooth scroll on its way down
+      // to a new message passes through positions short of it
+      setIsAtBottom(false)
+    }
+  }, [])
+
+  const handleShowNewMessages = useCallback(() => {
+    setIsAtBottom(true)
+    setNewCount(0)
+    messagesEndRef.current?.scrollIntoView({ behavior: scrollBehavior() })
+  }, [])
 
   // Focus input when panel opens
   useEffect(() => {
@@ -228,11 +314,6 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
 
   if (!isOpen) return null
 
-  // Unread starts at the first message from someone else newer than what was read before opening
-  const firstUnreadId = readMarker === null ? undefined : messages.find(
-    (msg) => Date.parse(msg.timestamp) > readMarker && !isOwnMessage(msg, { nickname, me })
-  )?.messageId
-
   // Panel styles based on viewport
   // Full-screen on phones: keep the header clear of the status bar and the
   // composer above the home indicator
@@ -343,38 +424,52 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
       ) : (
         <>
           {/* Messages */}
-          <ScrollArea className="flex-1">
-            <div className="py-2">
-              {historyReset && (
-                <p className="px-4 py-2 text-center text-xs text-muted-foreground">
-                  Chat history was cleared (server restart or an admin cleared it)
-                </p>
-              )}
-              {messages.length === 0 ? (
-                <p className="text-center text-muted-foreground text-sm py-8">
-                  No messages yet. Say hello!
-                </p>
-              ) : (
-                messages.map((msg) => (
-                  <Fragment key={msg.messageId}>
-                    {msg.messageId === firstUnreadId && (
-                      <div
-                        role="separator"
-                        aria-label="New messages"
-                        className="flex items-center gap-2 px-4 py-1 text-xs font-semibold text-primary"
-                      >
-                        <span className="h-px flex-1 bg-primary/50" aria-hidden="true" />
-                        New
-                        <span className="h-px flex-1 bg-primary/50" aria-hidden="true" />
-                      </div>
-                    )}
-                    <ChatMessage message={msg} isOwn={isOwnMessage(msg, { nickname, me })} now={now} />
-                  </Fragment>
-                ))
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-          </ScrollArea>
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            <ScrollArea className="flex-1" viewportRef={viewportRef} onViewportScroll={handleViewportScroll}>
+              <div className="py-2">
+                {historyReset && (
+                  <p className="px-4 py-2 text-center text-xs text-muted-foreground">
+                    Chat history was cleared (server restart or an admin cleared it)
+                  </p>
+                )}
+                {messages.length === 0 ? (
+                  <p className="text-center text-muted-foreground text-sm py-8">
+                    No messages yet. Say hello!
+                  </p>
+                ) : (
+                  messages.map((msg) => (
+                    <Fragment key={msg.messageId}>
+                      {msg.messageId === firstUnreadId && (
+                        <div
+                          ref={newDividerRef}
+                          role="separator"
+                          aria-label="New messages"
+                          className="flex items-center gap-2 px-4 py-1 text-xs font-semibold text-primary"
+                        >
+                          <span className="h-px flex-1 bg-primary/50" aria-hidden="true" />
+                          New
+                          <span className="h-px flex-1 bg-primary/50" aria-hidden="true" />
+                        </div>
+                      )}
+                      <ChatMessage message={msg} isOwn={isOwnMessage(msg, { nickname, me })} now={now} />
+                    </Fragment>
+                  ))
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+            </ScrollArea>
+            {newCount > 0 && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleShowNewMessages}
+                className="absolute bottom-2 left-1/2 h-7 -translate-x-1/2 rounded-full shadow-md"
+              >
+                <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
+                {newCount === 1 ? '1 new message' : `${newCount} new messages`}
+              </Button>
+            )}
+          </div>
 
           {/* Input */}
           <div className="border-t border-border p-3">
