@@ -145,6 +145,13 @@ describe('ClipTimeline', () => {
     expect(handle.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
+  it('widens the handles to a 44px touch target without changing how they look', () => {
+    renderTimeline()
+    for (const name of ['Start boundary', 'End boundary']) {
+      expect(screen.getByRole('slider', { name })).toHaveClass('w-6', 'pointer-coarse:before:absolute', 'pointer-coarse:before:-inset-x-2.5')
+    }
+  })
+
   it('shows frames as they arrive and pulses the empty slots while loading', () => {
     vi.mocked(useClipThumbnails).mockReturnValue({ frames: ['data:frame-0', null, ...Array(8).fill(null)], loading: true })
     const { container } = render(<ClipTimeline url="/clip.mp4" duration={60} start={0} end={60} playhead={0} press={60}

@@ -119,8 +119,9 @@ export function ClipTimeline({ url, duration, start, end, playhead, press, onCha
               onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerEnd} onPointerCancel={pointerEnd} onKeyDown={keyDown}
               className="absolute inset-0 cursor-pointer rounded-md focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring" />
           </Slider.Track>
+          {/* On touch, an invisible margin either side makes each handle a 44px target without widening it. */}
           {['Start', 'End'].map(label => <Slider.Thumb key={label} aria-label={`${label} boundary`} aria-keyshortcuts="I O Space"
-            className="relative flex h-24 w-6 cursor-ew-resize items-center justify-center rounded-md border-2 border-primary bg-primary text-primary-foreground shadow focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring">
+            className="relative flex h-24 w-6 cursor-ew-resize items-center justify-center rounded-md border-2 border-primary bg-primary text-primary-foreground shadow focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring pointer-coarse:before:absolute pointer-coarse:before:-inset-x-2.5 pointer-coarse:before:inset-y-0">
             <span aria-hidden="true">Ⅱ</span><span className="absolute -top-6 text-xs font-semibold text-foreground">{label}</span>
           </Slider.Thumb>)}
           {/* After the handles so the line stays visible over the Start handle at 0s. */}

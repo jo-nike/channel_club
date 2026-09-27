@@ -43,7 +43,7 @@ const tenths = (time: number) => Math.round(time * 10) / 10
 /** A selection boundary as a readout with nudges either side: the coarse step outermost. */
 function BoundaryReadout({ label, value, onNudge }: { label: 'Start' | 'End'; value: number; onNudge: (step: number) => void }) {
   const id = useId()
-  const nudge = (step: number) => <Button key={step} type="button" variant="outline" size="sm" className="px-2 tabular-nums"
+  const nudge = (step: number) => <Button key={step} type="button" variant="outline" size="sm" className="px-2 tabular-nums pointer-coarse:h-11 pointer-coarse:min-w-11"
     aria-label={`${label} ${step < 0 ? 'back' : 'forward'} ${Math.abs(step)} ${Math.abs(step) === 1 ? 'second' : 'seconds'}`}
     onClick={() => onNudge(step)}>{step < 0 ? '\u2212' : '+'}{Math.abs(step)}s</Button>
   return <div role="group" aria-labelledby={id} className="flex flex-col gap-1">
@@ -335,10 +335,10 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, captu
    * cannot be called back once sent, so Cancel stops working when the post starts.
    */
   function actionButton(destination: 'download' | 'zipline' | 'chat', idle: ReactNode, variant: 'default' | 'outline', disabled = false) {
-    if (task === destination) return <Button variant="outline" disabled={stage === 'posting'} onClick={cancelExport}>
+    if (task === destination) return <Button variant="outline" className="pointer-coarse:h-11" disabled={stage === 'posting'} onClick={cancelExport}>
       <Loader2 className="animate-spin" />Cancel<span aria-hidden="true" className="min-w-8 tabular-nums text-muted-foreground">{elapsed}s</span>
     </Button>
-    return <Button variant={variant} disabled={disabled || stage !== null} onClick={() => void output(destination)}>{idle}</Button>
+    return <Button variant={variant} className="pointer-coarse:h-11" disabled={disabled || stage !== null} onClick={() => void output(destination)}>{idle}</Button>
   }
 
   /** The `seconds` that end where the user pressed, or as much of them as the capture holds */
@@ -393,93 +393,104 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, captu
         }}
         // Closing deletes the capture, so a stray press outside must not discard a ready one.
         onInteractOutside={event => { if (ready) event.preventDefault() }}>
-        <DialogHeader className="relative shrink-0 border-b p-6 pr-14">
-          <Button ref={closeButton} variant="ghost" size="icon" aria-label="Close editor" onClick={requestClose} className="absolute right-3 top-3"><X /></Button>
+        <DialogHeader className="relative shrink-0 border-b p-4 pr-14 sm:p-6 sm:pr-14">
+          <Button ref={closeButton} variant="ghost" size="icon" aria-label="Close editor" onClick={requestClose} className="absolute right-3 top-3 pointer-coarse:size-11"><X /></Button>
           <DialogTitle>Create clip</DialogTitle>
-          <DialogDescription>Choose the moment to keep, preview your selection, then export it.</DialogDescription>
+          <DialogDescription className="max-sm:sr-only">Choose the moment to keep, preview your selection, then export it.</DialogDescription>
         </DialogHeader>
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-6">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-6">
           {liveChange && <p role="status" className="rounded-md border bg-muted px-3 py-2 text-sm">{liveChange} Your clip from {channelName} is kept.</p>}
           {captureError ? <div role="alert" className="space-y-3 py-8 text-center">
             <p>{captureError}</p><Button variant="outline" onClick={retryCapture}>Capture again</Button>
           </div> : !source ? <div role="status" className="flex items-center justify-center gap-3 py-16"><Loader2 className="animate-spin" />Capturing recent footage…</div> : (
-            <video ref={video} src={source.url} playsInline preload="auto" aria-label="Highlight preview"
-              className="max-h-[28dvh] w-full rounded-lg bg-black object-contain md:max-h-[45dvh]"
-              onLoadedMetadata={() => {
-                const length = video.current?.duration ?? 0
-                if (!Number.isFinite(length) || length < 0.1) { setCaptureError('This capture has no usable duration. Capture again once more footage is available.'); return }
-                // The capture's last frame was recorded at endsAt, so the press is that far before its end.
-                // Not clamped: the ruler and the kept selection count from the real press, even past the end.
-                const pressOffset = length - (source.endsAt - source.pressedAt)
-                // Not select(): its clamp reads the duration state, which is still 0 here.
-                let [defaultStart, defaultEnd] = pressRange(length, pressOffset)
-                if (keep.current) {
-                  defaultStart = Math.max(0, Math.min(length - 0.1, pressOffset + keep.current.start))
-                  defaultEnd = Math.min(length, Math.max(defaultStart + 0.1, pressOffset + keep.current.end))
-                  keep.current = null
-                }
-                setDuration(length); setPress(pressOffset); setRange([defaultStart, defaultEnd])
-                if (video.current) video.current.currentTime = defaultStart
-                setPlayhead(defaultStart)
-                // Play the selection once on open. This runs after the async capture, outside the Clip
-                // press's user activation, so iOS may refuse it; the editor then stays paused and ready.
-                if (video.current && !autoplayed.current) {
-                  autoplayed.current = true
-                  video.current.play().catch(() => {})
-                }
-              }}
-              onError={() => setCaptureError('This capture could not be played. Capture again to retry.')}
-              onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}
-              onTimeUpdate={() => {
-                const player = video.current
-                if (!player) return
-                if (!player.paused && player.currentTime >= end) { player.pause(); player.currentTime = end }
-                setPlayhead(player.currentTime)
-              }} />
-          )}
-          {ready && source && <fieldset disabled={stage !== null} className="min-w-0 space-y-4 disabled:opacity-70">
-            <legend className="sr-only">Clip selection</legend>
-            {missing >= 0.5 && <div role="status" className="flex flex-wrap items-center gap-3 rounded-md border bg-muted px-3 py-2 text-sm">
-              <span>This capture ends {missing.toFixed(1)}s before you pressed.</span>
-              <Button type="button" variant="outline" size="sm" onClick={includeLastSeconds}>Include the last few seconds</Button>
-            </div>}
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="flex flex-col gap-1">
-                <span id={lengthLabel} className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Length</span>
-                <div role="group" aria-labelledby={lengthLabel} className="grid grid-cols-4 gap-1 rounded-lg bg-muted p-1">
-                  {[...LENGTHS, 'full' as const].map(length => <button key={length} type="button" aria-pressed={chosenLength === length}
-                    onClick={() => length === 'full' ? select(0, duration) : select(...lengthRange(length))}
-                    className="inline-flex h-11 min-w-14 items-center justify-center rounded-md px-3 font-display text-lg font-bold tabular-nums text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-50 aria-pressed:bg-foreground aria-pressed:text-background md:h-9">
-                    {length === 'full' ? 'Full' : `${length}s`}
-                  </button>)}
+            // Side by side on a desktop screen: the preview with the timeline under it, and the controls
+            // beside them, so the trim strip shows without scrolling even on a short screen.
+            <div className="space-y-4 lg:grid lg:grid-cols-[minmax(0,1fr)_20rem] lg:gap-x-6 lg:gap-y-4 lg:space-y-0">
+              <video ref={video} src={source.url} playsInline preload="auto" aria-label="Highlight preview"
+                className="max-h-[28dvh] w-full rounded-lg bg-black object-contain md:max-h-[45dvh] lg:col-start-1 lg:row-start-1 lg:max-h-[40dvh] [@media(max-height:800px)]:max-h-[28dvh]"
+                onLoadedMetadata={() => {
+                  const length = video.current?.duration ?? 0
+                  if (!Number.isFinite(length) || length < 0.1) { setCaptureError('This capture has no usable duration. Capture again once more footage is available.'); return }
+                  // The capture's last frame was recorded at endsAt, so the press is that far before its end.
+                  // Not clamped: the ruler and the kept selection count from the real press, even past the end.
+                  const pressOffset = length - (source.endsAt - source.pressedAt)
+                  // Not select(): its clamp reads the duration state, which is still 0 here.
+                  let [defaultStart, defaultEnd] = pressRange(length, pressOffset)
+                  if (keep.current) {
+                    defaultStart = Math.max(0, Math.min(length - 0.1, pressOffset + keep.current.start))
+                    defaultEnd = Math.min(length, Math.max(defaultStart + 0.1, pressOffset + keep.current.end))
+                    keep.current = null
+                  }
+                  setDuration(length); setPress(pressOffset); setRange([defaultStart, defaultEnd])
+                  if (video.current) video.current.currentTime = defaultStart
+                  setPlayhead(defaultStart)
+                  // Play the selection once on open. This runs after the async capture, outside the Clip
+                  // press's user activation, so iOS may refuse it; the editor then stays paused and ready.
+                  if (video.current && !autoplayed.current) {
+                    autoplayed.current = true
+                    video.current.play().catch(() => {})
+                  }
+                }}
+                onError={() => setCaptureError('This capture could not be played. Capture again to retry.')}
+                onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}
+                onTimeUpdate={() => {
+                  const player = video.current
+                  if (!player) return
+                  if (!player.paused && player.currentTime >= end) { player.pause(); player.currentTime = end }
+                  setPlayhead(player.currentTime)
+                }} />
+            {/* Its children are the grid's cells on a desktop screen; a box-less fieldset can't fade, so they do. */}
+            {ready && <fieldset disabled={stage !== null} className="min-w-0 space-y-4 disabled:opacity-70 lg:contents lg:space-y-0 lg:disabled:*:opacity-70">
+              <legend className="sr-only">Clip selection</legend>
+              <div className="space-y-4 lg:col-start-2 lg:row-start-1">
+                {missing >= 0.5 && <div role="status" className="flex flex-wrap items-center gap-3 rounded-md border bg-muted px-3 py-2 text-sm">
+                  <span>This capture ends {missing.toFixed(1)}s before you pressed.</span>
+                  <Button type="button" variant="outline" size="sm" onClick={includeLastSeconds}>Include the last few seconds</Button>
+                </div>}
+                <div className="flex flex-wrap items-end gap-3">
+                  <div className="flex flex-col gap-1">
+                    <span id={lengthLabel} className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Length</span>
+                    <div role="group" aria-labelledby={lengthLabel} className="grid grid-cols-4 gap-1 rounded-lg bg-muted p-1">
+                      {[...LENGTHS, 'full' as const].map(length => <button key={length} type="button" aria-pressed={chosenLength === length}
+                        onClick={() => length === 'full' ? select(0, duration) : select(...lengthRange(length))}
+                        className="inline-flex h-11 min-w-14 items-center justify-center rounded-md px-3 font-display text-lg font-bold tabular-nums text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-50 aria-pressed:bg-foreground aria-pressed:text-background md:h-9 pointer-coarse:h-11">
+                        {length === 'full' ? 'Full' : `${length}s`}
+                      </button>)}
+                    </div>
+                  </div>
+                  <span className="ml-auto pb-2 text-sm text-muted-foreground">{duration.toFixed(1)}s captured</span>
                 </div>
               </div>
-              <span className="ml-auto pb-2 text-sm text-muted-foreground">{duration.toFixed(1)}s captured</span>
+              <div className="lg:col-start-1 lg:row-start-2">
+                <ClipTimeline url={source.url} duration={duration} start={start} end={end} playhead={playhead} press={press}
+                  onChange={select} onSeek={seek} onPlaySelection={() => void playSelection()} disabled={stage !== null} />
+              </div>
+              <div className="space-y-4 lg:col-start-2 lg:row-start-2">
+                <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+                  <BoundaryReadout label="Start" value={start} onNudge={nudgeStart} />
+                  <BoundaryReadout label="End" value={end} onNudge={nudgeEnd} />
+                  <span className="ml-auto pb-1.5 text-sm font-semibold tabular-nums">Selected: {(end - start).toFixed(1)}s</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button variant="outline" className="pointer-coarse:h-11" onClick={() => void playSelection()}>{playing ? <Pause /> : <Play />}{playing ? 'Pause preview' : 'Play selection'}</Button>
+                  {/* Typing a time is for precision; the readouts and nudges cover most edits. */}
+                  <Popover>
+                    <PopoverTrigger asChild><Button type="button" variant="ghost" className="pointer-coarse:h-11"><Pencil />Type exact times</Button></PopoverTrigger>
+                    <PopoverContent container={container} align="start" className="flex w-auto items-end gap-3"
+                      // Escape first reverts a half-typed time (the field does that), then closes.
+                      onEscapeKeyDown={event => { if ((event.target as HTMLElement | null)?.closest?.('[data-draft]')) event.preventDefault() }}>
+                      <ClipTimeField label="Start (seconds)" value={start} min={0} max={end - 0.1}
+                        onCommit={value => select(value, end)} />
+                      <ClipTimeField label="End (seconds)" value={end} min={start + 0.1} max={duration}
+                        onCommit={value => select(start, value, value)} />
+                    </PopoverContent>
+                  </Popover>
+                  <Button variant="ghost" className="pointer-coarse:h-11" onClick={() => select(...pressRange(duration, press))}><RotateCcw />Reset</Button>
+                </div>
+              </div>
+            </fieldset>}
             </div>
-            <ClipTimeline url={source.url} duration={duration} start={start} end={end} playhead={playhead} press={press}
-              onChange={select} onSeek={seek} onPlaySelection={() => void playSelection()} disabled={stage !== null} />
-            <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-              <BoundaryReadout label="Start" value={start} onNudge={nudgeStart} />
-              <BoundaryReadout label="End" value={end} onNudge={nudgeEnd} />
-              <span className="ml-auto pb-1.5 text-sm font-semibold tabular-nums">Selected: {(end - start).toFixed(1)}s</span>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button variant="outline" onClick={() => void playSelection()}>{playing ? <Pause /> : <Play />}{playing ? 'Pause preview' : 'Play selection'}</Button>
-              {/* Typing a time is for precision; the readouts and nudges cover most edits. */}
-              <Popover>
-                <PopoverTrigger asChild><Button type="button" variant="ghost"><Pencil />Type exact times</Button></PopoverTrigger>
-                <PopoverContent container={container} align="start" className="flex w-auto items-end gap-3"
-                  // Escape first reverts a half-typed time (the field does that), then closes.
-                  onEscapeKeyDown={event => { if ((event.target as HTMLElement | null)?.closest?.('[data-draft]')) event.preventDefault() }}>
-                  <ClipTimeField label="Start (seconds)" value={start} min={0} max={end - 0.1}
-                    onCommit={value => select(value, end)} />
-                  <ClipTimeField label="End (seconds)" value={end} min={start + 0.1} max={duration}
-                    onCommit={value => select(start, value, value)} />
-                </PopoverContent>
-              </Popover>
-              <Button variant="ghost" onClick={() => select(...pressRange(duration, press))}><RotateCcw />Reset</Button>
-            </div>
-          </fieldset>}
+          )}
           {uploaded && <div ref={uploadResult} className="space-y-2 rounded-lg border p-3" role="status">
             <p className="text-sm font-medium">Share link ready</p>
             <input readOnly aria-label="Uploaded clip link" value={uploaded.url} className="w-full rounded border bg-background p-2 text-sm" onFocus={e => e.target.select()} />
@@ -492,13 +503,13 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, captu
             </div>
           </div>}
         </div>
-        {ready && source && <div role="group" aria-label="Export" className="shrink-0 space-y-2 border-t bg-background px-6 py-4">
-          {canPost && <label className="flex flex-col gap-1 text-sm">Caption (optional)
+        {ready && source && <div role="group" aria-label="Export" className="shrink-0 space-y-2 border-t bg-background px-4 py-3 sm:px-6 sm:py-4">
+          {canPost && <label className="flex flex-col gap-1 text-sm"><span className="max-sm:sr-only">Caption (optional)</span>
             <input value={caption} maxLength={MAX_CAPTION} disabled={stage !== null} placeholder="Say something about it"
               onChange={e => setCaption(e.target.value)} className="h-10 rounded-md border bg-background px-3" />
           </label>}
           <div className="flex flex-wrap items-end gap-3">
-            <label className="flex flex-col gap-1 text-sm">Format
+            <label className="flex flex-col gap-1 text-sm"><span className="max-sm:sr-only">Format</span>
               <select value={format} disabled={stage !== null} onChange={e => { setFormat(e.target.value as HighlightFormat); setUploaded(null); setPosted(null) }} className="h-10 rounded-md border bg-background px-3">
                 <option value="mp4">MP4</option><option value="webm">WebM</option>
               </select>
@@ -506,10 +517,10 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, captu
             <div className="ml-auto flex flex-wrap items-center gap-2">
               {/* Named for what people want (a link to share), not the tool behind it */}
               {zipline && (task === 'zipline' ? actionButton('zipline', null, 'outline') : <Tooltip>
-                <TooltipTrigger asChild>{actionButton('zipline', <><Upload />{uploaded ? 'Share link ready' : 'Get share link'}</>, 'outline', uploaded !== null)}</TooltipTrigger>
+                <TooltipTrigger asChild>{actionButton('zipline', <><Upload /><span className="max-sm:sr-only">{uploaded ? 'Share link ready' : 'Get share link'}</span></>, 'outline', uploaded !== null)}</TooltipTrigger>
                 <TooltipContent container={container}>Uploads to Zipline</TooltipContent>
               </Tooltip>)}
-              {actionButton('download', <><Download />Download clip</>, canPost ? 'outline' : 'default')}
+              {actionButton('download', <><Download /><span className="max-sm:sr-only">Download clip</span></>, canPost ? 'outline' : 'default')}
               {/* The primary action when there is a chat to post to: the clip was made to show the club */}
               {canPost && actionButton('chat', posted === 'acknowledged' ? <><Check />Posted to chat</> : <><MessageSquare />Post to chat</>, 'default', posted === 'acknowledged')}
             </div>
