@@ -293,3 +293,59 @@ describe('TVChannelSidebar live row guide copy', () => {
     expect(liveRow()).not.toHaveTextContent('No guide info')
   })
 })
+
+describe('TVChannelSidebar empty live slot', () => {
+  beforeEach(() => {
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({
+      channels: [{ id: 'etv1', name: 'Movies', streamUrl: '', logoUrl: '', number: 1, group: 'Films' }],
+    })
+    useTVStore.setState({ selectedChannel: null })
+  })
+
+  afterEach(() => {
+    cleanup()
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels: [] })
+    useTVStore.setState({ selectedChannel: null })
+  })
+
+  it('offers Pick a channel beside the live row, which opens the picker instead of tuning', async () => {
+    const onPickLive = vi.fn()
+    render(<TVChannelSidebar onPickLive={onPickLive} />)
+    await act(async () => {})
+
+    const pick = screen.getByRole('button', { name: 'Pick a channel' })
+    const row = screen.getByRole('button', { name: 'Live Channel' })
+    // Siblings in the same list item, never a button inside a button
+    expect(row).not.toContainElement(pick)
+    expect(pick.parentElement).toBe(row.parentElement)
+
+    await act(async () => {
+      pick.click()
+    })
+
+    expect(onPickLive).toHaveBeenCalledTimes(1)
+    expect(useTVStore.getState().selectedChannel).toBeNull()
+  })
+
+  it("tells people who can't change live TV that they're waiting, with no action", async () => {
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+
+    expect(screen.queryByRole('button', { name: 'Pick a channel' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Live Channel' })).toHaveTextContent(
+      'Waiting for someone to put something on'
+    )
+  })
+
+  it('offers no picker once something is on live TV', async () => {
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1' },
+    })
+    render(<TVChannelSidebar onPickLive={vi.fn()} />)
+    await act(async () => {})
+
+    expect(screen.queryByRole('button', { name: 'Pick a channel' })).not.toBeInTheDocument()
+  })
+})

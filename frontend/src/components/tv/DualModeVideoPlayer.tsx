@@ -20,6 +20,7 @@ import { useOrientationFullscreen } from '@/hooks/useOrientationFullscreen'
 import { useFullscreenState } from '@/hooks/useFullscreenState'
 import { useHLSRetry } from '@/hooks/useHLSRetry'
 import { ProjectorBeamLoader } from '@/components/ProjectorBeamLoader'
+import { Button } from '@/components/ui/button'
 import { AutoplayNotice } from '@/components/player/AutoplayNotice'
 import { RetroTVFilter } from '@/components/filters/RetroTVFilter'
 import { FilmGrainFilter } from '@/components/filters/FilmGrainFilter'
@@ -36,6 +37,8 @@ interface DualModeVideoPlayerProps {
   isTheaterMode: boolean
   isMobile?: boolean
   onTheaterModeToggle: () => void
+  // Opens the live channel picker; only for people allowed to change live TV
+  onPickLive?: () => void
 }
 
 // Main component - switches between live (mpegts) and ersatztv (HLS) players
@@ -44,6 +47,7 @@ export function DualModeVideoPlayer({
   isTheaterMode,
   isMobile = false,
   onTheaterModeToggle,
+  onPickLive,
 }: DualModeVideoPlayerProps) {
   // No channel selected
   if (!channel) {
@@ -52,7 +56,7 @@ export function DualModeVideoPlayer({
 
   // Live channel (Channel 0) with no stream (admin hasn't selected)
   if (channel.type === 'live' && !channel.streamUrl) {
-    return <NoLiveChannelPlaceholder />
+    return <NoLiveChannelPlaceholder onPickLive={onPickLive} />
   }
 
   // Live channel - use mpegts.js player
@@ -105,14 +109,20 @@ function NoChannelPlaceholder() {
   )
 }
 
-function NoLiveChannelPlaceholder() {
+function NoLiveChannelPlaceholder({ onPickLive }: { onPickLive?: () => void }) {
   return (
     <div className="flex h-full w-full items-center justify-center bg-black">
       <div className="text-center">
         <p className="text-lg text-muted-foreground">No live broadcast</p>
-        <p className="mt-2 text-sm text-muted-foreground/70">
-          Waiting for admin to select a channel
-        </p>
+        {onPickLive ? (
+          <Button size="lg" className="mt-4" onClick={onPickLive}>
+            Pick a channel for everyone
+          </Button>
+        ) : (
+          <p className="mt-2 text-sm text-muted-foreground/70">
+            Waiting for someone to put something on
+          </p>
+        )}
       </div>
     </div>
   )

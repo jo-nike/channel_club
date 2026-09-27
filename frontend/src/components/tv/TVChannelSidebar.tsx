@@ -4,6 +4,7 @@ import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore, describeLiveGuide } from '@/stores/tvStore'
 import { getErsatzTVLogoUrl, fetchErsatzTVCurrentProgramme } from '@/services/ersatztvApi'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { Button } from '@/components/ui/button'
 import { useProgrammeClock } from '@/hooks/useProgrammeClock'
 import { findOnAir, getProgrammeState } from '@/lib/programmes'
 import type { UnifiedChannel, ErsatzTVProgramme } from '@/types'
@@ -12,12 +13,15 @@ interface TVChannelSidebarProps {
   isCollapsed?: boolean
   onToggleCollapse?: () => void
   liveEPGTitle?: string | null
+  // Opens the live channel picker; only for people allowed to change live TV
+  onPickLive?: () => void
 }
 
 export function TVChannelSidebar({
   isCollapsed = false,
   onToggleCollapse,
   liveEPGTitle,
+  onPickLive,
 }: TVChannelSidebarProps) {
   const { channels: ersatzTVChannels, channelsLoading, error, loadChannels } = useErsatztvStore()
   const { selectedChannel, selectChannel, getUnifiedChannels, isLiveChannelActive, liveEPGStatus } = useTVStore()
@@ -140,6 +144,7 @@ export function TVChannelSidebar({
             programme={channel.type === 'live' ? undefined : channelProgrammes[channel.id]}
             currentTime={currentTime}
             hasLiveChannel={hasLiveChannel}
+            onPickLive={onPickLive}
           />
         ))}
       </ul>
@@ -281,6 +286,7 @@ interface ChannelItemProps {
   programme?: ErsatzTVProgramme
   currentTime: number
   hasLiveChannel: boolean
+  onPickLive?: () => void
 }
 
 function formatTimeRemaining(programme: ErsatzTVProgramme, currentTime: number): string {
@@ -324,17 +330,21 @@ function ChannelItem({
   programme,
   currentTime,
   hasLiveChannel,
+  onPickLive,
 }: ChannelItemProps) {
   const isLive = channel.type === 'live'
   const progress = programme ? calculateProgress(programme, currentTime) : 0
   const timeRemaining = programme ? formatTimeRemaining(programme, currentTime) : null
+  // The empty live slot offers the picker next to the row (a sibling, since
+  // buttons can't nest)
+  const showPickLive = isLive && !hasLiveChannel && !!onPickLive
 
   return (
-    <li>
+    <li className={showPickLive ? 'flex items-center bg-destructive/5 pr-3' : undefined}>
       <button
         onClick={() => onSelect(channel)}
         className={`
-          flex w-full items-center gap-3 p-3 text-left transition-colors
+          flex ${showPickLive ? 'min-w-0 flex-1' : 'w-full'} items-center gap-3 p-3 text-left transition-colors
           hover:bg-accent focus:bg-accent focus:outline-none
           focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring
           ${isSelected ? 'bg-primary/10 border-l-4 border-primary' : ''}
@@ -382,7 +392,9 @@ function ChannelItem({
             {isLive
               ? hasLiveChannel
                 ? currentProgramme
-                : 'Awaiting broadcast...'
+                : onPickLive
+                  ? 'Nothing on yet'
+                  : 'Waiting for someone to put something on'
               : currentProgramme || 'Now playing...'}
           </p>
           {/* Progress bar and time remaining for ErsatzTV channels */}
@@ -412,6 +424,11 @@ function ChannelItem({
           </div>
         )}
       </button>
+      {showPickLive && (
+        <Button size="sm" onClick={onPickLive}>
+          Pick a channel
+        </Button>
+      )}
     </li>
   )
 }

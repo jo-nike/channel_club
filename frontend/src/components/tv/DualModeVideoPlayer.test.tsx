@@ -798,3 +798,35 @@ describe('DualModeVideoPlayer touch: a tap toggles the controls once', () => {
     expect(toolbar()).toHaveClass('opacity-0')
   })
 })
+
+describe('DualModeVideoPlayer empty live slot', () => {
+  const renderEmptySlot = (onPickLive?: () => void) =>
+    render(
+      <DualModeVideoPlayer
+        channel={liveChannel('')}
+        isTheaterMode={false}
+        onTheaterModeToggle={vi.fn()}
+        onPickLive={onPickLive}
+      />
+    )
+
+  it('offers Pick a channel for everyone to people allowed to change live TV', () => {
+    const onPickLive = vi.fn()
+    renderEmptySlot(onPickLive)
+
+    expect(screen.getByText('No live broadcast')).toBeInTheDocument()
+    const pick = screen.getByRole('button', { name: 'Pick a channel for everyone' })
+    expect(pick).toHaveClass('h-10', 'bg-primary')
+    fireEvent.click(pick)
+    expect(onPickLive).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText('Waiting for someone to put something on')).not.toBeInTheDocument()
+  })
+
+  it('tells everyone else they are waiting, without blaming the admin', () => {
+    renderEmptySlot()
+
+    expect(screen.getByText('Waiting for someone to put something on')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Pick a channel for everyone' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/admin/i)).not.toBeInTheDocument()
+  })
+})

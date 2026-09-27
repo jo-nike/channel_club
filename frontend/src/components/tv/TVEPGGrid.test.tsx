@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup } from '@/test/utils'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { render, screen, cleanup, fireEvent } from '@/test/utils'
 import { TVEPGGrid } from './TVEPGGrid'
 import { useChannelStore } from '@/stores/channelStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
@@ -93,5 +93,46 @@ describe('TVEPGGrid live row without a programme', () => {
     const [liveRow] = screen.getAllByTestId('channel-row')
     expect(liveRow).toHaveTextContent('Club Broadcast')
     expect(liveRow).not.toHaveTextContent('No guide info')
+  })
+})
+
+describe('TVEPGGrid empty live slot', () => {
+  beforeEach(() => {
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels: [] })
+  })
+
+  afterEach(() => {
+    cleanup()
+    useTVStore.setState({ selectedChannel: null })
+  })
+
+  it('turns the live row placeholder into Pick a channel for everyone, which opens the picker', () => {
+    const onPickLive = vi.fn()
+    const onChannelClick = vi.fn()
+    render(<TVEPGGrid programmesByChannel={{}} onPickLive={onPickLive} onChannelClick={onChannelClick} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pick a channel for everyone' }))
+
+    expect(onPickLive).toHaveBeenCalledTimes(1)
+    expect(onChannelClick).not.toHaveBeenCalled()
+    expect(useTVStore.getState().selectedChannel).toBeNull()
+  })
+
+  it('shows the wait copy without the action', () => {
+    render(<TVEPGGrid programmesByChannel={{}} />)
+
+    expect(screen.queryByRole('button', { name: 'Pick a channel for everyone' })).not.toBeInTheDocument()
+    const [liveRow] = screen.getAllByTestId('channel-row')
+    expect(liveRow).toHaveTextContent('Waiting for someone to put something on')
+  })
+
+  it('offers no picker once something is on live TV', () => {
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1' },
+    })
+    render(<TVEPGGrid programmesByChannel={{}} liveEPG={liveEPG} onPickLive={vi.fn()} />)
+
+    expect(screen.queryByRole('button', { name: 'Pick a channel for everyone' })).not.toBeInTheDocument()
   })
 })
