@@ -53,7 +53,12 @@ export function NowWatching({ isMobile }: { isMobile: boolean }) {
       className="inline-flex min-h-6 min-w-0 max-w-xs items-center gap-1.5 rounded-full bg-live-surface px-2 text-xs leading-tight text-foreground hover:bg-live/20"
     >
       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-live" aria-hidden="true" />
-      <span className="truncate">Live now: {liveChannel.name}</span>
+      {/* On phones the prefix is for screen readers only, so who's here beside
+          it squeezes nothing but the name; the dot and Join say it's live */}
+      <span className="truncate">
+        {/* The space sits outside, so the accessible name keeps it */}
+        <span className="sr-only md:not-sr-only md:whitespace-nowrap">Live now:</span> {liveChannel.name}
+      </span>
       <span aria-hidden="true">·</span>
       <span className="shrink-0 font-semibold text-live">Join</span>
     </button>

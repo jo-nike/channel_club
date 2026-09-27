@@ -1768,6 +1768,17 @@ describe('ChatPanel', () => {
       expect(close.parentElement).toContainElement(here)
     })
 
+    it("keeps 'Chatting as' out of the title row, so the stack can't squeeze the name", () => {
+      usePresenceStore.setState({ entries: [person('jonike', 'u_me'), person('maya', 'u_maya'), person('dev', 'u_dev')] })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      const titleRow = screen.getByRole('heading', { name: 'Chat' }).closest('[data-chat-title-row]')
+      expect(titleRow).not.toBeNull()
+      expect(titleRow).toContainElement(screen.getByRole('button', { name: '2 here' }))
+      const identity = screen.getByText('Chatting as jonike')
+      expect(identity.closest('[data-chat-title-row]')).toBeNull()
+      expect(titleRow).not.toContainElement(screen.getByRole('button', { name: 'Edit nickname' }))
+    })
+
     it('opens the Here-now list from the header', () => {
       usePresenceStore.setState({ entries: [person('maya', 'u_maya')] })
       render(<ChatPanel onSendMessage={mockOnSendMessage} />)

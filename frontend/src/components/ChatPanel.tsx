@@ -537,24 +537,8 @@ export function ChatPanel({ onSendMessage, onShare, onSetNickname, status = 'con
       className={cn(PANEL_CLASSES[variant], translucent && 'bg-background/85 backdrop-blur')}
     >
       {/* Header */}
-      <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <h2 className="text-lg font-semibold">Chat</h2>
-          {me && !isEditingNickname && (
-            <>
-              <span className="truncate text-sm text-muted-foreground">Chatting as {displayName}</span>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleEditNickname}
-                aria-label="Edit nickname"
-                className="h-6 w-6 shrink-0"
-              >
-                <Pencil className="h-3 w-3" />
-              </Button>
-            </>
-          )}
-        </div>
+      <div data-chat-title-row className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
+        <h2 className="text-lg font-semibold">Chat</h2>
         <div className="flex shrink-0 items-center gap-1">
           {/* Who else is here, and the Here-now list with Join */}
           <HereNowPopover variant="chat" container={container} />
@@ -572,6 +556,22 @@ export function ChatPanel({ onSendMessage, onShare, onSetNickname, status = 'con
           )}
         </div>
       </div>
+
+      {/* Its own row, so who's here in the header never squeezes the name */}
+      {me && !isEditingNickname && (
+        <div className="flex min-w-0 items-center gap-1 border-b border-border px-4 py-1.5 text-xs text-muted-foreground">
+          <span className="truncate">Chatting as {displayName}</span>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleEditNickname}
+            aria-label="Edit nickname"
+            className="h-6 w-6 shrink-0"
+          >
+            <Pencil className="h-3 w-3" />
+          </Button>
+        </div>
+      )}
 
       {/* One row for both states, so switching between them never moves the list */}
       {(showOfflineRow || (showReconnecting && isReconnecting)) && (
