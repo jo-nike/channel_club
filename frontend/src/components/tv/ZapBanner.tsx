@@ -77,7 +77,9 @@ function ZapBannerCard({ children, detail = null }: { children: ReactNode; detai
   if (!visible) return null
 
   return (
-    <div className="rounded-2xl bg-black/70 px-8 py-6 text-white shadow-2xl">
+    // A deeper scrim and a text shadow, so the hint reads over bright
+    // pictures (credits) as well as the letterbox
+    <div className="rounded-2xl bg-black/80 px-8 py-6 text-white shadow-2xl text-shadow-lg text-shadow-black/60">
       <p className="text-5xl font-bold">{children}</p>
       {detail && <p className="mt-3 text-3xl font-semibold">{detail}</p>}
       <p className="mt-3 text-2xl text-white/80">▲▼ change channel · 0-9 channel number · OK guide</p>

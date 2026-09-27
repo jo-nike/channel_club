@@ -136,7 +136,8 @@ export function PlayerInfoOverlay({ channel, pending = null, entry = null, missi
           />
         )
       )}
-      <NHLScoresOverlay isVisible={isNHLOverlayVisible} belowRail={isRailVisible} />
+      {/* Never on the TV layout, where N doesn't toggle it */}
+      <NHLScoresOverlay isVisible={isNHLOverlayVisible && !isTVMode} belowRail={isRailVisible} />
     </>
   )
 }

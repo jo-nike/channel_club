@@ -127,10 +127,15 @@ export function DualModeVideoPlayer({
   // control bar whether the pointer is over it
   const [isEnginePlaying, setEnginePlaying] = useState(false)
   const [isHoveringControls, setHoveringControls] = useState(false)
+  // The 10-foot TV layout: its remote can't reach the control bar, so only a
+  // pointer (a Magic Remote) brings it up, and it has its own remote keys,
+  // which the sheet lists there
+  const isTVMode = useTVMode()
   const { isVisible: controlsVisible } = useAutoHide({
     isPlaying: isEnginePlaying,
     containerRef,
     isHoveringControls,
+    pointerOnly: isTVMode,
   })
 
   // The info rail reports whether it is up; the sound-off pill moves under it
@@ -214,8 +219,6 @@ export function DualModeVideoPlayer({
   const [isShortcutSheetOpen, setShortcutSheetOpen] = useState(false)
   const openShortcutSheet = useCallback(() => setShortcutSheetOpen(true), [])
   const chatEnabled = useChatEnabled()
-  // The 10-foot TV layout has its own remote keys, which the sheet lists there
-  const isTVMode = useTVMode()
   const toggleChat = useChatStore((s) => s.toggleOpen)
   // In theater and fullscreen, where the chat over the video can take a
   // reply, C opens its composer instead of the panel. Each press is a new
@@ -247,7 +250,9 @@ export function DualModeVideoPlayer({
     // Not on the TV layout, which has no chat to show: C would open the panel
     // unseen, to spring open once the layout is turned off
     onChatToggle: chatEnabled && !isTVMode ? (canReply ? openComposer : toggleChat) : undefined,
-    onNHLToggle: toggleNHLOverlay,
+    // Not on the TV layout either: the strip is desktop-sized and outside the
+    // title-safe area there, as clip capture is off on TVs
+    onNHLToggle: isTVMode ? undefined : toggleNHLOverlay,
     onClipThat: clipThat,
     onFocusSearch: focusSearch,
   })
@@ -428,7 +433,8 @@ function NoLiveChannelPlaceholder({ onPickLive }: { onPickLive?: () => void }) {
   )
 
   return (
-    <div className="flex h-full w-full items-center justify-center bg-black">
+    // live-slot-idle: the couch sizes it for the TV (index.css)
+    <div className="live-slot-idle flex h-full w-full items-center justify-center bg-black">
       <div className="text-center">
         <p className="text-lg text-muted-foreground">No live broadcast</p>
         {stoppedBy && (

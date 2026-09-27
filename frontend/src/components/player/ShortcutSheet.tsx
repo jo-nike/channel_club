@@ -74,7 +74,8 @@ const panels = (chatEnabled: boolean, canReply: boolean, tvMode: boolean): Short
           { keys: [['Green'], ['W']], action: "Who's here" },
         ]
       : []),
-    { keys: [['N']], action: 'NHL scores' },
+    // No NHL scores on the TV layout
+    ...(tvMode ? [] : [{ keys: [['N']], action: 'NHL scores' }]),
     { keys: [['?']], action: 'This list' },
     { keys: [['Esc']], action: 'Close' },
   ],

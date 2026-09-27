@@ -27,6 +27,16 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
+describe('ZapBanner: legibility', () => {
+  it('gives every line a text shadow over a deeper scrim, so the hint reads over bright pictures', () => {
+    render(<ZapBanner channel={liveSlot('Sports')} />)
+
+    const card = screen.getByText(/change channel/).parentElement
+    expect(card).toHaveClass('bg-black/80', 'text-shadow-lg', 'text-shadow-black/60')
+    expect(card).not.toHaveClass('bg-black/70')
+  })
+})
+
 describe('ZapBanner: live changes in TV theater', () => {
   it('names who changed the live channel, in the toast\'s words, in the announced banner', () => {
     const { rerender } = render(<ZapBanner channel={liveSlot('TSN 5')} />)

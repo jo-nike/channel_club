@@ -1876,6 +1876,19 @@ describe('DualModeVideoPlayer NHL ticker', () => {
     expect(screen.getByText('No live broadcast')).toBeInTheDocument()
     expect(shell()).toContainElement(ticker())
   })
+
+  // A desktop strip outside the title-safe area there; clip capture is off on TVs too
+  it('stays off on the TV layout: N does nothing, and a strip left on elsewhere does not show', () => {
+    localStorage.setItem('tv-mode', 'true')
+    renderPlayer(liveChannel('https://fixture/a'))
+
+    fireEvent.keyDown(shell(), { key: 'n' })
+    expect(useUIStore.getState().isNHLOverlayVisible).toBe(false)
+    expect(ticker()).not.toBeInTheDocument()
+
+    act(() => useUIStore.setState({ isNHLOverlayVisible: true }))
+    expect(ticker()).not.toBeInTheDocument()
+  })
 })
 
 describe('DualModeVideoPlayer info rail', () => {
@@ -2502,6 +2515,43 @@ describe('DualModeVideoPlayer auto-hide: one visibility in the shell', () => {
 
     expect(toolbar()).toHaveClass('opacity-0')
   })
+
+  // The couch's remote can't reach the bar: only a pointer brings it up
+  describe('TV mode', () => {
+    beforeEach(() => {
+      localStorage.setItem('tv-mode', 'true')
+    })
+
+    it('keeps the bar off the picture on mount, when playback starts, on a key press and across a zap', () => {
+      const { switchTo } = renderPlayer(liveChannel('https://fixture/a'))
+      expect(toolbar()).toHaveClass('opacity-0')
+
+      startLive()
+      expect(toolbar()).toHaveClass('opacity-0')
+
+      fireEvent.keyDown(window, { key: 'm' })
+      expect(toolbar()).toHaveClass('opacity-0')
+
+      // The old engine reports stopped as it goes, the new one plays
+      switchTo(liveChannel('https://fixture/b'))
+      expect(toolbar()).toHaveClass('opacity-0')
+      startLive()
+      expect(toolbar()).toHaveClass('opacity-0')
+    })
+
+    it('a Magic Remote pointer move brings the bar up, and it hides 3s later', () => {
+      renderPlayer(liveChannel('https://fixture/a'))
+      startLive()
+
+      act(() => {
+        shell().dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerType: 'mouse', clientX: 40 }))
+      })
+      expect(toolbar()).toHaveClass('opacity-100')
+
+      waitOut()
+      expect(toolbar()).toHaveClass('opacity-0')
+    })
+  })
 })
 
 describe('DualModeVideoPlayer arrival card', () => {
@@ -2688,6 +2738,14 @@ describe('DualModeVideoPlayer empty live slot', () => {
     fireEvent.click(pick)
     expect(onPickLive).toHaveBeenCalledTimes(1)
     expect(screen.queryByText('Waiting for someone to put something on')).not.toBeInTheDocument()
+  })
+
+  it('carries the hook the couch sizes it by', () => {
+    renderEmptySlot(vi.fn())
+
+    expect(screen.getByText('No live broadcast').closest('.live-slot-idle')).toContainElement(
+      screen.getByRole('button', { name: 'Pick a channel for everyone' })
+    )
   })
 
   it('tells everyone else they are waiting, without blaming the admin', () => {

@@ -308,6 +308,39 @@ describe('CouchView: OK and fullscreen', () => {
     expect(requestFullscreen).not.toHaveBeenCalled()
   })
 
+  it('picks a channel for everyone on OK on the idle live slot, instead of opening the guide', () => {
+    useChannelStore.getState().setCurrentChannel(null)
+    useTVStore.setState({ selectedChannel: channel('live-channel-0') })
+    const onPickLive = vi.fn()
+    renderCouch({ onPickLive })
+
+    expect(press('Enter', { keyCode: 13 })).toBe(false)
+
+    expect(onPickLive).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('listbox', { name: 'Channels' })).not.toBeInTheDocument()
+  })
+
+  it('opens the guide on OK on channel 0 while something is live', () => {
+    useTVStore.setState({ selectedChannel: channel('live-channel-0') })
+    const onPickLive = vi.fn()
+    renderCouch({ onPickLive })
+
+    press('Enter', { keyCode: 13 })
+
+    expect(onPickLive).not.toHaveBeenCalled()
+    expect(screen.getByRole('listbox', { name: 'Channels' })).toBeInTheDocument()
+  })
+
+  it('opens the guide on OK on the idle live slot for someone not allowed to pick', () => {
+    useChannelStore.getState().setCurrentChannel(null)
+    useTVStore.setState({ selectedChannel: channel('live-channel-0') })
+    renderCouch()
+
+    press('Enter', { keyCode: 13 })
+
+    expect(screen.getByRole('listbox', { name: 'Channels' })).toBeInTheDocument()
+  })
+
   it('leaves OK on a focused button to the button', () => {
     renderCouch()
     const button = addToPage('button')
@@ -724,9 +757,14 @@ describe('couch styles', () => {
   it('never changes the root font size, which would rescale every dialog', () => {
     const couchRules = [...css.matchAll(/^([^\n{}]*\.couch[^\n{}]*)\{([^}]*)\}/gm)]
     expect(couchRules.length).toBeGreaterThan(0)
-    // Only the account menu's own rules size its text
+    // Only the account menu's and the idle live slot's own rules size their text
     for (const [, selector, body] of couchRules) {
-      if (!selector.startsWith('.couch [data-slot="dropdown-menu-content"] ')) expect(body).not.toMatch(/font-size/)
+      if (
+        !selector.startsWith('.couch [data-slot="dropdown-menu-content"] ') &&
+        !selector.startsWith('.couch .couch-view .live-slot-idle ')
+      ) {
+        expect(body).not.toMatch(/font-size/)
+      }
     }
   })
 
@@ -741,6 +779,11 @@ describe('couch styles', () => {
   it('shows remote focus in the couch focus colour with a non-colour cue: a thick outline and a scale', () => {
     expect(rule('.couch .couch-view :focus-visible')).toBe('outline: 5px solid var(--couch-focus);\n  outline-offset: 3px;')
     expect(rule('.couch .couch-view :is(button, [role="button"]):focus-visible')).toBe('transform: scale(1.1);')
+  })
+
+  it('sizes the idle live slot for the TV: 24px text and a bigger button', () => {
+    expect(rule('.couch .couch-view .live-slot-idle p')).toBe('font-size: 1.5rem;')
+    expect(rule('.couch .couch-view .live-slot-idle button')).toBe('height: 3.5rem;\n  font-size: 1.5rem;\n  padding-inline: 2rem;')
   })
 
   it('keeps the control bar inside the title-safe area', () => {

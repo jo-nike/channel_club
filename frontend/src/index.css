@@ -340,6 +340,17 @@
   padding-bottom: max(0.5rem, var(--couch-safe-y));
 }
 
+/* The idle live slot, legible from the sofa: 24px text and a bigger button */
+.couch .couch-view .live-slot-idle p {
+  font-size: 1.5rem;
+}
+
+.couch .couch-view .live-slot-idle button {
+  height: 3.5rem;
+  font-size: 1.5rem;
+  padding-inline: 2rem;
+}
+
 /* Focus from a remote, readable from the sofa: a thick outline in the brand
    colour, and a focused button grows a little, so focus never rests on
    colour alone. Unlayered, so it wins over focus-ring-media's white outline
