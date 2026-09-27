@@ -1153,6 +1153,21 @@ describe('DualModeVideoPlayer touch: a tap toggles the controls once', () => {
   })
 })
 
+describe('DualModeVideoPlayer before a channel is selected', () => {
+  it("says 'Tuning in...' with a spinner that only moves when motion is allowed", () => {
+    render(<DualModeVideoPlayer channel={null} isTheaterMode={false} onTheaterModeToggle={vi.fn()} />)
+
+    const status = screen.getByRole('status')
+    expect(status).toHaveTextContent('Tuning in...')
+    expect(shell()).toContainElement(status)
+    const spinner = status.querySelector('svg')
+    expect(spinner).toHaveClass('motion-safe:animate-spin')
+    expect(spinner).not.toHaveClass('animate-spin')
+    expect(spinner).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.queryByText(/Select a channel/)).not.toBeInTheDocument()
+  })
+})
+
 describe('DualModeVideoPlayer empty live slot', () => {
   afterEach(() => useChannelStore.setState({ lastChange: null }))
 

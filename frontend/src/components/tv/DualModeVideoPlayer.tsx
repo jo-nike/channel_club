@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react'
 import mpegts from 'mpegts.js'
+import { Loader2 } from 'lucide-react'
 import {
   MediaPlayer,
   MediaProvider,
@@ -159,10 +160,13 @@ function useSavedMuteNotice(hasStarted: boolean, isStoreMuted: boolean): boolean
 // Placeholders
 // ============================================================================
 
+// The live slot always exists, so there is no channel only until the TV
+// store initialises: this is startup, not a prompt to pick one
 function NoChannelPlaceholder() {
   return (
-    <div className="flex h-full w-full items-center justify-center bg-black">
-      <p className="text-lg text-muted-foreground">Select a channel to start watching</p>
+    <div role="status" className="flex h-full w-full items-center justify-center gap-3 bg-black">
+      <Loader2 className="h-6 w-6 text-muted-foreground motion-safe:animate-spin" aria-hidden="true" />
+      <p className="text-lg text-muted-foreground">Tuning in...</p>
     </div>
   )
 }
