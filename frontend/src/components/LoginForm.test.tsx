@@ -834,6 +834,19 @@ describe('LoginForm', () => {
         expect(within(alert).getByRole('button', { name: 'Sign in with a code' })).toBeInTheDocument()
       })
 
+      it('says it could not finish, not start, when Plex fails the check', async () => {
+        vi.useFakeTimers()
+        vi.mocked(fetch).mockResolvedValue({ ok: false, status: 500 } as Response)
+        render(<LoginForm />)
+
+        await act(() => vi.advanceTimersByTimeAsync(10_000))
+
+        const alert = screen.getByRole('alert')
+        expect(alert).toHaveTextContent("Couldn't finish Plex sign-in. Try again.")
+        expect(alert).not.toHaveTextContent("Couldn't start Plex sign-in.")
+        expect(within(alert).getByRole('button', { name: 'Try again' })).toBeInTheDocument()
+      })
+
       it('checks nothing on mount without a pending PIN', async () => {
         sessionStorage.clear()
         render(<LoginForm />)

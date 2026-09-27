@@ -26,12 +26,13 @@ import {
 
 type PlexAuthMode = 'select' | 'popup' | 'qr'
 
-/** What the sign-in callout says for each Plex popup failure. */
+/** What the sign-in callout says for each Plex sign-in failure (popup or redirect). */
 const PLEX_ERROR_COPY: Record<PlexAuthErrorCode, string> = {
   popup_blocked: 'Your browser blocked the Plex window.',
   timeout: 'Plex sign-in timed out.',
   rate_limited: 'Too many attempts, wait a minute.',
   pin_failed: "Couldn't start Plex sign-in.",
+  finish_failed: "Couldn't finish Plex sign-in. Try again.",
   cancelled: 'Plex sign-in was cancelled.',
 }
 

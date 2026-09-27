@@ -514,6 +514,17 @@ describe('plexAuth', () => {
       expect(fetch).toHaveBeenCalledTimes(5)
     })
 
+    it('rejects finish_failed, not pin_failed, when the last check fails otherwise', async () => {
+      vi.useFakeTimers()
+      vi.mocked(fetch).mockResolvedValue({ ok: false, status: 500 } as Response)
+
+      const outcome = finishPlexRedirect(42).catch((e: unknown) => e)
+      await vi.advanceTimersByTimeAsync(10_000)
+
+      expect(await outcome).toMatchObject({ name: 'PlexAuthError', code: 'finish_failed' })
+      expect(fetch).toHaveBeenCalledTimes(5)
+    })
+
     it('rejects cancelled and stops checking when the signal aborts', async () => {
       vi.useFakeTimers()
       vi.mocked(fetch).mockResolvedValue(tokenResponse(null))

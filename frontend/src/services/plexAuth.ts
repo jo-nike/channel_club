@@ -29,6 +29,7 @@ export type PlexAuthErrorCode =
   | 'timeout'
   | 'rate_limited'
   | 'pin_failed'
+  | 'finish_failed'
 
 /**
  * A Plex sign-in failure with a stable code, so callers can branch on what
@@ -293,7 +294,8 @@ export function takePendingPlexPin(): number | null {
  *
  * @throws PlexAuthError 'cancelled' if the PIN never got a token (the user came
  *         back without signing in) or `signal` aborts; the error itself
- *         (e.g. 'rate_limited') when the last check failed
+ *         (e.g. 'rate_limited') when the last check failed, with a failed
+ *         check reported as 'finish_failed' (sign-in was being finished)
  */
 export async function finishPlexRedirect(pinId: number, signal?: AbortSignal): Promise<string> {
   let lastError: unknown = null
@@ -312,7 +314,12 @@ export async function finishPlexRedirect(pinId: number, signal?: AbortSignal): P
       lastError = err
     }
   }
-  if (lastError && !signal?.aborted) throw lastError
+  if (lastError && !signal?.aborted) {
+    if (lastError instanceof PlexAuthError && lastError.code === 'pin_failed') {
+      throw new PlexAuthError('finish_failed', 'Failed to finish Plex sign-in')
+    }
+    throw lastError
+  }
   logger.info('Plex', 'Plex redirect returned without a sign-in')
   throw new PlexAuthError('cancelled', 'Authentication cancelled')
 }
