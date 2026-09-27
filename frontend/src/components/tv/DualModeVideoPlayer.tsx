@@ -28,7 +28,7 @@ import { NoirFilter } from '@/components/filters/NoirFilter'
 import { GrindhouseFilter } from '@/components/filters/GrindhouseFilter'
 import { SportsHDFilter } from '@/components/filters/SportsHDFilter'
 import { useFilterStore } from '@/stores/filterStore'
-import { useAudioStore } from '@/stores/audioStore'
+import { useAudioStore, unmutedVolume } from '@/stores/audioStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { getErsatzTVStreamUrl } from '@/services/ersatztvApi'
 import type { UnifiedChannel } from '@/types'
@@ -96,6 +96,24 @@ export function DualModeVideoPlayer({
 // allow it muted
 function isAutoplayPolicyError(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'name' in error && error.name === 'NotAllowedError'
+}
+
+/**
+ * Whether to say the sound is off because this page load started from a saved
+ * mute: once playback has started, until the viewer makes any audio choice.
+ * Shown once per page load, so a channel switch drops it for good.
+ */
+function useSavedMuteNotice(hasStarted: boolean, isStoreMuted: boolean): boolean {
+  const savedMuteNotice = useAudioStore((s) => s.savedMuteNotice)
+  const dismissSavedMuteNotice = useAudioStore((s) => s.dismissSavedMuteNotice)
+  const isShown = hasStarted && isStoreMuted && savedMuteNotice
+
+  useEffect(() => {
+    if (!isShown) return
+    return dismissSavedMuteNotice
+  }, [isShown, dismissSavedMuteNotice])
+
+  return isShown
 }
 
 // ============================================================================
@@ -166,6 +184,7 @@ function LiveVideoPlayer({
   const [isBuffering, setIsBuffering] = useState(false)
   // Video state
   const [isPlaying, setIsPlaying] = useState(false)
+  const [hasStarted, setHasStarted] = useState(false)
   // Muted by something other than the viewer (e.g. the clip preview duck); display only
   const [isElementMuted, setIsElementMuted] = useState(false)
   // Autoplay fallbacks: the browser only allowed muted playback, or none
@@ -183,6 +202,7 @@ function LiveVideoPlayer({
   const setStoredMuted = useAudioStore((s) => s.setMuted)
   const isMuted = isStoreMuted || isElementMuted
   const isSystemMuted = isSystemMutedState && !isStoreMuted
+  const isSavedMuteNotice = useSavedMuteNotice(hasStarted, isStoreMuted)
   const canSetVolume = useCanSetVolume()
 
   // Video filter state
@@ -238,6 +258,13 @@ function LiveVideoPlayer({
     setIsSystemMuted(false)
   }, [])
 
+  // Clears the saved mute; the store brings back the saved level
+  const handleRestoreSound = useCallback(() => {
+    setStoredMuted(false)
+    const video = videoRef.current
+    if (video) video.muted = false
+  }, [setStoredMuted])
+
   const handleStartPlayback = useCallback(() => {
     const video = videoRef.current
     if (!video) return
@@ -265,7 +292,9 @@ function LiveVideoPlayer({
     onFullscreenToggle: handleFullscreenToggle,
     onTheaterModeToggle,
     onVolumeChange: handleVolumeChange,
-    volume: isMuted ? 0 : volume,
+    onUnmute: handleRestoreSound,
+    volume,
+    isMuted,
     ignoreVerticalArrows: isTVMode,
   })
 
@@ -329,6 +358,7 @@ function LiveVideoPlayer({
       setIsBuffering(false)
       setError(null)
       setIsPlaying(true)
+      setHasStarted(true)
       setIsPlayBlocked(false)
     }
     const handlePause = () => setIsPlaying(false)
@@ -404,11 +434,11 @@ function LiveVideoPlayer({
 
       {isBuffering && <ProjectorBeamLoader />}
 
-      {(isPlayBlocked || isSystemMuted) && (
+      {(isPlayBlocked || isSystemMuted || isSavedMuteNotice) && (
         <AutoplayNotice
           mode={isPlayBlocked ? 'tap-to-play' : 'sound-off'}
-          volume={volume}
-          onUnmute={handleSoundOn}
+          volume={isSystemMuted ? volume : unmutedVolume(volume)}
+          onUnmute={isSystemMuted ? handleSoundOn : handleRestoreSound}
           onPlay={handleStartPlayback}
         />
       )}
@@ -444,12 +474,15 @@ function HLSVideoPlayerWrapper({
   const containerRef = useRef<HTMLDivElement>(null)
   const playerRef = useRef<MediaPlayerInstance>(null)
   const [isBuffering, setIsBuffering] = useState(true)
+  const [hasStarted, setHasStarted] = useState(false)
 
   // Saved volume and mute, passed as controlled props: Vidstack queues each
   // change until can-play, so channel switches, retry remounts and changes
   // made while the stream starts all land on the current values.
   const volume = useAudioStore((s) => s.volume)
   const muted = useAudioStore((s) => s.muted)
+  const setStoredMuted = useAudioStore((s) => s.setMuted)
+  const isSavedMuteNotice = useSavedMuteNotice(hasStarted, muted)
 
   const { status, retryCount, retryKey, handleError, handlePlaying } = useHLSRetry({
     streamUrl,
@@ -474,6 +507,7 @@ function HLSVideoPlayerWrapper({
 
   const onPlaying = useCallback(() => {
     setIsBuffering(false)
+    setHasStarted(true)
     setPlayBlockedKey(null)
     handlePlaying()
   }, [handlePlaying])
@@ -540,6 +574,13 @@ function HLSVideoPlayerWrapper({
     playerRef.current?.remoteControl.unmute()
     setSystemMutedKey(null)
   }, [])
+
+  // Clears the saved mute; the store brings back the saved level. An
+  // element-only mute leaves the muted prop unchanged, so ask Vidstack too.
+  const handleRestoreSound = useCallback(() => {
+    setStoredMuted(false)
+    playerRef.current?.remoteControl.unmute()
+  }, [setStoredMuted])
 
   const handleStartPlayback = useCallback(() => {
     const player = playerRef.current
@@ -609,11 +650,11 @@ function HLSVideoPlayerWrapper({
         />
       )}
 
-      {(isPlayBlocked || isSystemMuted) && (
+      {(isPlayBlocked || isSystemMuted || isSavedMuteNotice) && (
         <AutoplayNotice
           mode={isPlayBlocked ? 'tap-to-play' : 'sound-off'}
-          volume={volume}
-          onUnmute={handleSoundOn}
+          volume={isSystemMuted ? volume : unmutedVolume(volume)}
+          onUnmute={isSystemMuted ? handleSoundOn : handleRestoreSound}
           onPlay={handleStartPlayback}
         />
       )}
@@ -673,6 +714,11 @@ function HLSControlsWrapper({
     if (!next) remote.unmute()
   }, [isMuted, remote, setStoredMuted])
 
+  const handleUnmute = useCallback(() => {
+    setStoredMuted(false)
+    remote.unmute()
+  }, [remote, setStoredMuted])
+
   const isPlaying = !paused
 
   // A tap on the picture toggles the controls
@@ -692,7 +738,9 @@ function HLSControlsWrapper({
     },
     onTheaterModeToggle,
     onVolumeChange: handleVolumeChange,
-    volume: isMuted ? 0 : volume,
+    onUnmute: handleUnmute,
+    volume,
+    isMuted,
     ignoreVerticalArrows: isTVMode,
   })
 

@@ -17,7 +17,9 @@ describe('useVideoKeyboardShortcuts', () => {
       onFullscreenToggle: vi.fn(),
       onTheaterModeToggle: vi.fn(),
       onVolumeChange: vi.fn(),
+      onUnmute: vi.fn(),
       volume: 0.5,
+      isMuted: false,
     }
   })
 
@@ -100,6 +102,37 @@ describe('useVideoKeyboardShortcuts', () => {
     fireKeyEvent('ArrowDown')
 
     expect(mockProps.onVolumeChange).toHaveBeenCalledWith(0.4)
+  })
+
+  it.each(['ArrowUp', 'ArrowRight'])('%s while muted unmutes at the saved level instead of stepping from zero', (key) => {
+    renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, isMuted: true }))
+
+    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+    window.dispatchEvent(event)
+
+    expect(event.defaultPrevented).toBe(true)
+    expect(mockProps.onUnmute).toHaveBeenCalledTimes(1)
+    expect(mockProps.onVolumeChange).not.toHaveBeenCalled()
+  })
+
+  it.each(['ArrowDown', 'ArrowLeft'])('%s while muted leaves the mute and the level alone', (key) => {
+    renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, isMuted: true }))
+
+    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+    window.dispatchEvent(event)
+
+    expect(event.defaultPrevented).toBe(true)
+    expect(mockProps.onVolumeChange).not.toHaveBeenCalled()
+    expect(mockProps.onUnmute).not.toHaveBeenCalled()
+  })
+
+  it('volume keys never unmute while unmuted', () => {
+    renderHook(() => useVideoKeyboardShortcuts(mockProps))
+
+    for (const key of ['ArrowUp', 'ArrowRight', 'ArrowDown', 'ArrowLeft']) fireKeyEvent(key)
+
+    expect(mockProps.onUnmute).not.toHaveBeenCalled()
+    expect(mockProps.onVolumeChange).toHaveBeenCalledTimes(4)
   })
 
   it('leaves ArrowUp/ArrowDown alone when ignoreVerticalArrows is set (TV mode)', () => {

@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { useAudioStore } from './audioStore'
+import { useAudioStore, unmutedVolume } from './audioStore'
 
 const readSaved = () => JSON.parse(localStorage.getItem('audio-storage') ?? 'null')
 
 describe('audioStore', () => {
   beforeEach(() => {
     localStorage.clear()
-    useAudioStore.setState({ volume: 1, muted: false })
+    useAudioStore.setState({ volume: 1, muted: false, savedMuteNotice: false })
     localStorage.clear()
   })
 
@@ -61,6 +61,33 @@ describe('audioStore', () => {
     })
   })
 
+  describe('unmutedVolume', () => {
+    it('keeps an audible level and raises one below 0.1 to 0.25', () => {
+      expect(unmutedVolume(0.3)).toBe(0.3)
+      expect(unmutedVolume(0.1)).toBe(0.1)
+      expect(unmutedVolume(0.05)).toBe(0.25)
+      expect(unmutedVolume(0)).toBe(0.25)
+    })
+  })
+
+  describe('savedMuteNotice', () => {
+    it.each([
+      ['setMuted(false)', () => useAudioStore.getState().setMuted(false)],
+      ['setMuted(true)', () => useAudioStore.getState().setMuted(true)],
+      ['setVolume', () => useAudioStore.getState().setVolume(0.6)],
+      ['dismissSavedMuteNotice', () => useAudioStore.getState().dismissSavedMuteNotice()],
+    ])('%s clears it: any audio choice this session replaces the saved one', (_name, choose) => {
+      useAudioStore.setState({ volume: 0.3, muted: true, savedMuteNotice: true })
+      choose()
+      expect(useAudioStore.getState().savedMuteNotice).toBe(false)
+    })
+
+    it('is never saved', () => {
+      useAudioStore.setState({ volume: 0.3, muted: true, savedMuteNotice: true })
+      expect(readSaved()).toEqual({ state: { volume: 0.3, muted: true }, version: 1 })
+    })
+  })
+
   describe('persistence', () => {
     it('saves volume and mute under audio-storage', () => {
       useAudioStore.getState().setVolume(0.4)
@@ -80,6 +107,36 @@ describe('audioStore', () => {
       window.dispatchEvent(new StorageEvent('storage', { key: 'ui-storage' }))
       await Promise.resolve()
       expect(useAudioStore.getState()).toMatchObject({ volume: 1, muted: false })
+    })
+  })
+
+  describe('page load', () => {
+    const loadFresh = async () => {
+      vi.resetModules()
+      return (await import('./audioStore')).useAudioStore
+    }
+
+    it('flags a saved mute for the sound-off notice', async () => {
+      localStorage.setItem('audio-storage', JSON.stringify({ state: { volume: 0.4, muted: true }, version: 1 }))
+      const store = await loadFresh()
+      expect(store.getState()).toMatchObject({ volume: 0.4, muted: true, savedMuteNotice: true })
+    })
+
+    it('flags nothing when the saved state is unmuted', async () => {
+      localStorage.setItem('audio-storage', JSON.stringify({ state: { volume: 0.4, muted: false }, version: 1 }))
+      const store = await loadFresh()
+      expect(store.getState().savedMuteNotice).toBe(false)
+    })
+
+    it('flags nothing with nothing stored', async () => {
+      const store = await loadFresh()
+      expect(store.getState().savedMuteNotice).toBe(false)
+    })
+
+    it('flags a legacy level of 0, which was a mute', async () => {
+      localStorage.setItem('ui-storage', JSON.stringify({ state: { volume: 0 }, version: 0 }))
+      const store = await loadFresh()
+      expect(store.getState().savedMuteNotice).toBe(true)
     })
   })
 

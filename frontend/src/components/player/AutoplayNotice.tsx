@@ -1,27 +1,32 @@
 import { Play, VolumeX } from 'lucide-react'
+import { useCanSetVolume } from '@/hooks/useCanSetVolume'
 
 export type AutoplayNoticeMode = 'sound-off' | 'tap-to-play'
 
 interface AutoplayNoticeProps {
   /**
-   * 'sound-off': the browser only allowed muted playback.
+   * 'sound-off': the browser only allowed muted playback, or this page load
+   * started from a saved mute.
    * 'tap-to-play': the browser refused even muted playback.
    */
   mode: AutoplayNoticeMode
-  /** Saved level (0..1) the sound comes back at */
+  /** Level (0..1) the sound comes back at */
   volume: number
-  /** Unmute the element. Runs inside the tap, which the browser counts as consent. */
+  /** Unmute (the element, or the saved mute). Runs inside the tap, which the browser counts as consent. */
   onUnmute: () => void
   /** Start playback from the tap */
   onPlay: () => void
 }
 
 /**
- * Explains a blocked autoplay and offers the one tap that fixes it. Neither
- * mode touches the saved audio preference. Both carry `video-controls` so a
- * tap on them counts as using the player controls, not a tap on the picture.
+ * Explains a blocked autoplay or a saved mute and offers the one tap that
+ * fixes it; the caller decides what that tap changes. Both modes carry
+ * `video-controls` so a tap on them counts as using the player controls, not
+ * a tap on the picture.
  */
 export function AutoplayNotice({ mode, volume, onUnmute, onPlay }: AutoplayNoticeProps) {
+  const canSetVolume = useCanSetVolume()
+
   if (mode === 'tap-to-play') {
     return (
       <button
@@ -44,8 +49,15 @@ export function AutoplayNotice({ mode, volume, onUnmute, onPlay }: AutoplayNotic
       <VolumeX className="h-6 w-6 shrink-0 text-primary" aria-hidden="true" />
       <span>Sound is off</span>
       <span className="text-sm font-semibold text-white/70">
-        Restore {Math.round(volume * 100)}%
+        {soundOnLabel(volume, canSetVolume)}
       </span>
     </button>
   )
+}
+
+// A level is only worth naming when it is audible and the browser honours it
+// (iOS/iPadOS ignore script volume, so any stored level there is meaningless)
+function soundOnLabel(volume: number, canSetVolume: boolean): string {
+  const percent = Math.round(volume * 100)
+  return percent > 0 && canSetVolume ? `Restore ${percent}%` : 'Turn sound on'
 }

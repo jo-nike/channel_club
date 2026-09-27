@@ -179,7 +179,7 @@ const startPlaybackButton = () => screen.queryByRole('button', { name: 'Start pl
 
 beforeEach(() => {
   localStorage.clear()
-  useAudioStore.setState({ volume: 1, muted: false })
+  useAudioStore.setState({ volume: 1, muted: false, savedMuteNotice: false })
   useFilterStore.setState({ activeFilters: [] })
   vidstack.state = { paused: false, volume: 1, muted: false, fullscreen: false }
   vidstack.mediaPlayer.mockClear()
@@ -449,6 +449,34 @@ describe('DualModeVideoPlayer audio: keyboard', () => {
 
     expect(useAudioStore.getState().volume).toBe(0.4)
     expect(video().volume).toBe(0.4)
+  })
+
+  it.each([
+    ['live', liveChannel('https://fixture/a'), () => video().muted],
+    ['ErsatzTV', hlsChannel('1', 1), () => lastPlayerProps().muted],
+  ])('%s: ArrowUp while muted comes back at the saved level', (_engine, channel, elementMuted) => {
+    useAudioStore.setState({ volume: 0.6, muted: true })
+    renderPlayer(channel)
+
+    fireEvent.keyDown(window, { key: 'ArrowUp' })
+
+    expect(useAudioStore.getState()).toMatchObject({ volume: 0.6, muted: false })
+    expect(elementMuted()).toBe(false)
+  })
+
+  it.each([
+    ['live', liveChannel('https://fixture/a'), () => video().muted],
+    ['ErsatzTV', hlsChannel('1', 1), () => lastPlayerProps().muted],
+  ])('%s: ArrowDown while muted keeps the mute and the saved level', (_engine, channel, elementMuted) => {
+    useAudioStore.setState({ volume: 0.6, muted: true })
+    renderPlayer(channel)
+    vi.mocked(localStorage.setItem).mockClear()
+
+    fireEvent.keyDown(window, { key: 'ArrowDown' })
+
+    expect(useAudioStore.getState()).toMatchObject({ volume: 0.6, muted: true })
+    expect(elementMuted()).toBe(true)
+    expect(wroteAudioStorage()).toBe(false)
   })
 
   it('M and arrows work with a player button focused', () => {
@@ -737,6 +765,119 @@ describe('DualModeVideoPlayer autoplay: live channel (mpegts)', () => {
       video().dispatchEvent(new Event('playing'))
     })
     expect(startPlaybackButton()).not.toBeInTheDocument()
+  })
+})
+
+describe('DualModeVideoPlayer: a page load that starts from a saved mute', () => {
+  // What audioStore sets up when the page loads with a saved mute
+  const loadSavedMute = (volume: number) => useAudioStore.setState({ volume, muted: true, savedMuteNotice: true })
+
+  const engines = [
+    [
+      'live',
+      liveChannel('https://fixture/a'),
+      liveChannel('https://fixture/b'),
+      () =>
+        act(() => {
+          video().dispatchEvent(new Event('playing'))
+        }),
+      () => expect(video().muted).toBe(false),
+    ],
+    [
+      'ErsatzTV',
+      hlsChannel('1', 1),
+      hlsChannel('2', 2),
+      () => act(() => lastPlayerProps().onPlaying?.()),
+      () => {
+        expect(lastPlayerProps().muted).toBe(false)
+        expect(vidstack.remote.unmute).toHaveBeenCalled()
+      },
+    ],
+  ] as const
+
+  it.each(engines)(
+    '%s: says the sound is off once playback starts, and the notice unmutes at the saved level',
+    (_engine, channel, _next, startPlayback, expectElementUnmuted) => {
+      loadSavedMute(0.3)
+      renderPlayer(channel)
+      expect(soundOffNotice()).not.toBeInTheDocument()
+
+      startPlayback()
+      const notice = soundOffNotice()
+      expect(notice).toHaveTextContent('Restore 30%')
+      expect(notice).toHaveClass('top-4', 'left-4')
+
+      fireEvent.click(notice!)
+
+      expect(useAudioStore.getState()).toMatchObject({ volume: 0.3, muted: false, savedMuteNotice: false })
+      expectElementUnmuted()
+      expect(soundOffNotice()).not.toBeInTheDocument()
+    }
+  )
+
+  it.each(engines)(
+    '%s: names the level unmuting gives when the saved one is barely audible',
+    (_engine, channel, _next, startPlayback) => {
+      loadSavedMute(0.05)
+      renderPlayer(channel)
+      startPlayback()
+
+      expect(soundOffNotice()).toHaveTextContent('Restore 25%')
+      fireEvent.click(soundOffNotice()!)
+      expect(useAudioStore.getState()).toMatchObject({ volume: 0.25, muted: false })
+    }
+  )
+
+  it.each(engines)(
+    '%s: on iOS, where script volume is ignored, offers Turn sound on instead of a level',
+    (_engine, channel, _next, startPlayback) => {
+      volumeSupport.canSet = false
+      loadSavedMute(0.3)
+      renderPlayer(channel)
+      startPlayback()
+
+      expect(soundOffNotice()).toHaveTextContent('Turn sound on')
+      fireEvent.click(soundOffNotice()!)
+      expect(useAudioStore.getState().muted).toBe(false)
+    }
+  )
+
+  it.each(engines)('%s: shows it once per page load, not again after a channel switch', (_engine, channel, next, startPlayback) => {
+    loadSavedMute(0.3)
+    const { switchTo } = renderPlayer(channel)
+    startPlayback()
+    expect(soundOffNotice()).toBeInTheDocument()
+
+    switchTo(next)
+    startPlayback()
+
+    expect(soundOffNotice()).not.toBeInTheDocument()
+    expect(useAudioStore.getState().muted).toBe(true)
+  })
+
+  it.each(engines)('%s: goes when the viewer unmutes another way, and a later mute gets no notice', (_engine, channel, _next, startPlayback) => {
+    loadSavedMute(0.3)
+    renderPlayer(channel)
+    startPlayback()
+    expect(soundOffNotice()).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unmute' }))
+    expect(soundOffNotice()).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mute' }))
+    expect(useAudioStore.getState().muted).toBe(true)
+    expect(soundOffNotice()).not.toBeInTheDocument()
+  })
+
+  it.each(engines)('%s: a mute made during the session gets no notice', (_engine, channel, _next, startPlayback) => {
+    useAudioStore.setState({ volume: 0.3, muted: false })
+    renderPlayer(channel)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mute' }))
+    startPlayback()
+
+    expect(useAudioStore.getState().muted).toBe(true)
+    expect(soundOffNotice()).not.toBeInTheDocument()
   })
 })
 

@@ -8,7 +8,11 @@ interface UseVideoKeyboardShortcutsOptions {
   onFullscreenToggle: () => void
   onTheaterModeToggle: () => void
   onVolumeChange: (volume: number) => void
+  /** Unmute at the saved level (volume up while muted) */
+  onUnmute: () => void
+  /** Saved level, kept while muted */
   volume: number
+  isMuted: boolean
   /** Leave ArrowUp/ArrowDown alone (TV mode, where they belong to channel changes) */
   ignoreVerticalArrows?: boolean
 }
@@ -33,7 +37,9 @@ export function useVideoKeyboardShortcuts({
   onFullscreenToggle,
   onTheaterModeToggle,
   onVolumeChange,
+  onUnmute,
   volume,
+  isMuted,
   ignoreVerticalArrows = false,
 }: UseVideoKeyboardShortcutsOptions) {
   const handleKeyDown = useCallback(
@@ -84,13 +90,16 @@ export function useVideoKeyboardShortcuts({
         case 'ArrowUp': // Arrow Up - Volume up
         case 'ArrowRight': // Arrow Right - Volume up (alias)
           e.preventDefault()
-          onVolumeChange(Math.min(1, volume + VOLUME_STEP))
+          // From mute, come back at the saved level rather than stepping up from zero
+          if (isMuted) onUnmute()
+          else onVolumeChange(Math.min(1, volume + VOLUME_STEP))
           break
 
         case 'ArrowDown': // Arrow Down - Volume down
         case 'ArrowLeft': // Arrow Left - Volume down (alias)
           e.preventDefault()
-          onVolumeChange(Math.max(0, volume - VOLUME_STEP))
+          // Already silent: keep the mute and the saved level
+          if (!isMuted) onVolumeChange(Math.max(0, volume - VOLUME_STEP))
           break
 
         default:
@@ -104,7 +113,9 @@ export function useVideoKeyboardShortcuts({
       onFullscreenToggle,
       onTheaterModeToggle,
       onVolumeChange,
+      onUnmute,
       volume,
+      isMuted,
       ignoreVerticalArrows,
     ]
   )
