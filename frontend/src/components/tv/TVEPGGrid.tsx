@@ -5,6 +5,7 @@ import { useChannelStore } from '@/stores/channelStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { getErsatzTVLogoUrl } from '@/services/ersatztvApi'
 import { Button } from '@/components/ui/button'
+import { LivePill } from '@/components/LivePill'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useProgrammeClock } from '@/hooks/useProgrammeClock'
 import { useScrollViewport } from '@/hooks/useScrollViewport'
@@ -684,8 +685,8 @@ function ChannelLabel({
           {channel.number}
         </span>
         {isLive ? (
-          <div className="h-8 w-8 flex-shrink-0 rounded bg-destructive/20 flex items-center justify-center">
-            <Radio className="h-4 w-4 text-destructive" />
+          <div className="h-8 w-8 flex-shrink-0 rounded bg-live/20 flex items-center justify-center">
+            <Radio className="h-4 w-4 text-live" />
           </div>
         ) : channel.logoUrl ? (
           <img
@@ -702,11 +703,7 @@ function ChannelLabel({
         <span className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="flex min-w-0 items-center gap-1.5">
             <span className="truncate font-medium">{channel.name}</span>
-            {showLiveHighlight && (
-              <span className="shrink-0 rounded bg-live px-1 py-0.5 text-[11px] font-bold uppercase leading-none text-live-foreground">
-                Live
-              </span>
-            )}
+            {showLiveHighlight && <LivePill />}
           </span>
           {onAir && (
             <span className="flex items-center gap-1.5">
@@ -1014,7 +1011,7 @@ function EPGGridSkeleton() {
       <div className="h-12 bg-muted border-b" />
       <div className="space-y-1 p-2">
         {/* Live channel row skeleton */}
-        <div className="h-16 rounded bg-destructive/10" />
+        <div className="h-16 rounded bg-live/10" />
         {/* Regular channel row skeletons */}
         {Array.from({ length: 5 }).map((_, i) => (
           <div key={i} className="h-16 rounded bg-muted" />

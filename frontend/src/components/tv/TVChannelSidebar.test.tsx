@@ -80,6 +80,59 @@ describe('TVChannelSidebar colours', () => {
     const badge = screen.getByText('Live', { selector: 'span' })
     expect(badge).toHaveClass('bg-live', 'text-live-foreground')
     expect(badge).not.toHaveClass('bg-destructive')
+    // The shared pill, the same on every surface
+    expect(badge).toBe(screen.getByTestId('live-pill'))
+  })
+
+  describe('the expanded live row', () => {
+    // Plain background utilities only (hover:bg-* is a separate state)
+    const backgrounds = (element: Element) =>
+      Array.from(element.classList).filter((name) => name.startsWith('bg-'))
+    const liveRow = () => screen.getByRole('button', { name: LIVE_SLOT })
+
+    afterEach(() => {
+      useTVStore.setState({ selectedChannel: null })
+    })
+
+    it('tints the row, its icon box and its icon with the live token rather than destructive', async () => {
+      render(<TVChannelSidebar />)
+      await act(async () => {})
+
+      const item = liveRow().closest('li')!
+      expect(backgrounds(item)).toEqual(['bg-live/5'])
+      expect(item.innerHTML).not.toMatch(/destructive/)
+      const icon = liveRow().querySelector('.lucide-radio')!
+      expect(icon).toHaveClass('text-live')
+      expect(icon.parentElement).toHaveClass('bg-live/20')
+    })
+
+    it('gives a selected live row one background, the live tint, with the selection border', async () => {
+      useTVStore.setState({ selectedChannel: useTVStore.getState().getUnifiedChannels()[0] })
+      render(<TVChannelSidebar />)
+      await act(async () => {})
+
+      expect([...backgrounds(liveRow().closest('li')!), ...backgrounds(liveRow())]).toEqual(['bg-live/5'])
+      expect(liveRow()).toHaveClass('border-l-4', 'border-primary')
+    })
+
+    it('gives a selected channel row one background, the selection tint', async () => {
+      useTVStore.setState({ selectedChannel: useTVStore.getState().getUnifiedChannels()[1] })
+      render(<TVChannelSidebar />)
+      await act(async () => {})
+
+      const row = screen.getByRole('button', { name: '1 Movies' })
+      expect([...backgrounds(row.closest('li')!), ...backgrounds(row)]).toEqual(['bg-primary/10'])
+    })
+
+    it('keeps the live tint under the picker on the empty live slot', async () => {
+      useChannelStore.setState({ currentChannel: null })
+      render(<TVChannelSidebar onPickLive={vi.fn()} />)
+      await act(async () => {})
+
+      const item = liveRow().closest('li')!
+      expect(within(item).getByRole('button', { name: 'Pick a channel' })).toBeInTheDocument()
+      expect([...backgrounds(item), ...backgrounds(liveRow())]).toEqual(['bg-live/5'])
+    })
   })
 })
 

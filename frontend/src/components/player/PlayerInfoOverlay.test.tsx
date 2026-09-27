@@ -145,6 +145,7 @@ describe('PlayerInfoOverlay: what the rail says', () => {
     expect(rail()).toHaveTextContent('0')
     expect(rail()).toHaveTextContent('TSN 5')
     expect(screen.getByText('Live')).toHaveClass('bg-live')
+    expect(screen.getByText('Live')).toBe(screen.getByTestId('live-pill'))
     expect(rail()).toHaveTextContent('CFL Football · 1h 5m left')
   })
 

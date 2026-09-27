@@ -10,6 +10,7 @@ import { fetchNowPlaying, clearCurrentChannel as clearCurrentChannelApi } from '
 import { Button } from '@/components/ui/button'
 import { StopLiveTVDialog } from '@/components/StopLiveTVDialog'
 import { ChannelLogo } from '@/components/ChannelLogo'
+import { LivePill } from '@/components/LivePill'
 import type { Channel } from '@/types'
 
 interface OnAirCardProps {
@@ -85,9 +86,7 @@ export function OnAirCard({ onHeightChange }: OnAirCardProps) {
                 </p>
                 <p className="mt-1 flex min-w-0 items-center gap-2 text-lg font-semibold leading-tight">
                   <span className="truncate">{currentChannel.name}</span>
-                  <span className="shrink-0 rounded bg-live px-1.5 py-0.5 text-[11px] font-bold uppercase leading-none tracking-wide text-live-foreground">
-                    Live
-                  </span>
+                  <LivePill />
                 </p>
                 {/* Remounted per channel so the last channel's programme never shows */}
                 <CurrentProgramme key={currentChannel.id} channel={currentChannel} />

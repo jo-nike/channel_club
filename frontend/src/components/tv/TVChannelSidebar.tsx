@@ -11,6 +11,7 @@ import { useRovingTabIndex } from '@/hooks/useRovingTabIndex'
 import { useFilteredChannels } from '@/hooks/useFilteredChannels'
 import { useChannelPrefsStore } from '@/stores/channelPrefsStore'
 import { ChannelFilterBar } from '@/components/tv/ChannelFilterBar'
+import { LivePill } from '@/components/LivePill'
 import { calculateProgress, findOnAir, formatRemaining, getProgrammeState } from '@/lib/programmes'
 import { buildProgrammeIndex, findCurrentAndNext, type IndexedProgramme } from '@/lib/programmeIndex'
 import { favouritesFirst } from '@/lib/channelSearch'
@@ -429,30 +430,40 @@ function ChannelItem({
   const showStar = !isLive
 
   return (
-    <li className={showPickLive ? 'flex items-center bg-destructive/5 pr-3' : showStar ? 'relative' : undefined}>
+    // One background per row: the live row's tint is on the item, so it runs
+    // under the picker too; the selection tint is on the button
+    <li
+      className={cn(
+        isLive && 'bg-live/5',
+        showPickLive ? 'flex items-center pr-3' : showStar && 'relative'
+      )}
+    >
       {/* scroll-mt clears the sticky Channels header and filter when the row is scrolled into view */}
       <button
         ref={ref}
         onClick={() => onSelect(channel)}
         onFocus={onFocus}
         tabIndex={tabIndex}
-        className={`
-          flex ${showPickLive ? 'min-w-0 flex-1' : 'w-full'} scroll-mt-41 items-center gap-3 p-3 ${showStar ? 'pr-12' : ''} text-left transition-colors
-          hover:bg-accent focus-visible:-outline-offset-2
-          ${isSelected ? 'bg-primary/10 border-l-4 border-primary' : ''}
-          ${isLive ? 'bg-destructive/5' : ''}
-        `}
+        className={cn(
+          'flex scroll-mt-41 items-center gap-3 p-3 text-left transition-colors',
+          'hover:bg-accent focus-visible:-outline-offset-2',
+          showPickLive ? 'min-w-0 flex-1' : 'w-full',
+          showStar && 'pr-12',
+          // The live row's tint (on the item) wins; the border marks selection
+          isSelected && 'border-l-4 border-primary',
+          isSelected && !isLive && 'bg-primary/10'
+        )}
         aria-current={isSelected ? 'true' : undefined}
         aria-label={label}
       >
         {/* Channel logo / icon */}
         <div
           className={`h-12 w-12 shrink-0 overflow-hidden rounded flex items-center justify-center ${
-            isLive ? 'bg-destructive/20' : 'bg-muted'
+            isLive ? 'bg-live/20' : 'bg-muted'
           }`}
         >
           {isLive ? (
-            <Radio className="h-6 w-6 text-destructive" />
+            <Radio className="h-6 w-6 text-live" />
           ) : channel.logoUrl ? (
             <img
               src={getErsatzTVLogoUrl(channel.id)}
@@ -474,11 +485,7 @@ function ChannelItem({
             <span className="truncate font-medium">
               {isLive ? (hasLiveChannel ? channel.name : 'Live') : channel.name}
             </span>
-            {isLive && hasLiveChannel && (
-              <span className="rounded bg-live px-1.5 py-0.5 text-[11px] font-bold uppercase text-live-foreground">
-                Live
-              </span>
-            )}
+            {isLive && hasLiveChannel && <LivePill />}
           </div>
           <p className="truncate text-sm text-muted-foreground">
             {isLive

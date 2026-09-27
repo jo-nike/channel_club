@@ -70,6 +70,11 @@ describe('TVEPGGrid colours', () => {
     const label = liveRow.querySelector('button')
     expect(label).toHaveClass('bg-live-surface')
     expect(label?.className).not.toMatch(/rose/)
+    // The live slot's icon box is on the live token too
+    const icon = label!.querySelector('.lucide-radio')!
+    expect(icon).toHaveClass('text-live')
+    expect(icon.parentElement).toHaveClass('bg-live/20')
+    expect(label!.innerHTML).not.toMatch(/destructive/)
   })
 
   it('insets the keyboard outline on channel labels and programme blocks so the guide does not clip it', () => {
@@ -320,6 +325,7 @@ describe('TVEPGGrid channel column', () => {
 
     const label = labelFor('Club')
     expect(within(label).getByText('Live')).toHaveClass('bg-live', 'text-live-foreground')
+    expect(within(label).getByText('Live')).toBe(within(label).getByTestId('live-pill'))
     expect(label).toHaveTextContent('20m left')
   })
 })

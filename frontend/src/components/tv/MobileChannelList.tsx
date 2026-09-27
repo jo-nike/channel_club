@@ -7,6 +7,7 @@ import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore, describeLiveGuide, LIVE_CHANNEL_ID } from '@/stores/tvStore'
 import { getErsatzTVLogoUrl } from '@/services/ersatztvApi'
 import { Button } from '@/components/ui/button'
+import { LivePill } from '@/components/LivePill'
 import { cn } from '@/lib/utils'
 import type { ErsatzTVProgramme, UnifiedChannel } from '@/types'
 
@@ -89,11 +90,13 @@ export function MobileChannelList({
           const { current, next } = getNowAndNext(channel)
           // The live row's title comes from the now-playing lookup instead
           const currentProgramme = isLive ? null : current?.programme
-          const cardClassName = `
-            rounded-lg border
-            ${isSelected ? 'border-primary bg-primary/10' : ''}
-            ${isLive ? 'bg-destructive/5' : ''}
-          `
+          // One background: the live tint wins (the border marks selection),
+          // then selection
+          const cardClassName = cn(
+            'rounded-lg border',
+            isSelected && 'border-primary',
+            isLive ? 'bg-live/5' : isSelected && 'bg-primary/10'
+          )
           // The empty live slot offers the picker next to the tune button
           // (a sibling, since buttons can't nest)
           const showPickLive = isLive && !hasLiveChannel && !!onPickLive
@@ -119,11 +122,11 @@ export function MobileChannelList({
               </span>
               <div
                 className={`h-10 w-10 flex-shrink-0 overflow-hidden rounded flex items-center justify-center ${
-                  isLive ? 'bg-destructive/20' : 'bg-muted'
+                  isLive ? 'bg-live/20' : 'bg-muted'
                 }`}
               >
                 {isLive ? (
-                  <Radio className="h-5 w-5 text-destructive" />
+                  <Radio className="h-5 w-5 text-live" />
                 ) : channel.logoUrl ? (
                   <img
                     src={getErsatzTVLogoUrl(channel.id)}
@@ -140,11 +143,7 @@ export function MobileChannelList({
                   <p className="font-medium">
                     {isLive ? (hasLiveChannel ? channel.name : 'Live') : channel.name}
                   </p>
-                  {isLive && hasLiveChannel && (
-                    <span className="rounded bg-live px-1.5 py-0.5 text-xs font-bold uppercase text-live-foreground">
-                      Live
-                    </span>
-                  )}
+                  {isLive && hasLiveChannel && <LivePill />}
                 </div>
                 <p className="truncate text-sm text-muted-foreground">
                   {isLive ? getLiveProgrammeTitle() : currentProgramme?.title || channel.group}

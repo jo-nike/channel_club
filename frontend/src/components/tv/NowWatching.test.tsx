@@ -79,6 +79,7 @@ describe('NowWatching', () => {
 
     expect(screen.getByText('CFL Football: Stampeders at Redblacks')).toBeInTheDocument()
     expect(screen.getByText('Live')).toHaveClass('bg-live', 'text-live-foreground')
+    expect(screen.getByText('Live')).toBe(screen.getByTestId('live-pill'))
     expect(screen.getByText('Club channel · CA-S: TSN 5 · 1h 5m left')).toBeInTheDocument()
     expect(screen.queryByText(/CH 0/)).not.toBeInTheDocument()
   })
