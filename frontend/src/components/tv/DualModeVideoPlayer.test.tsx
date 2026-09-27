@@ -1704,6 +1704,57 @@ describe('DualModeVideoPlayer chat over the video', () => {
     expect(overlay).toHaveTextContent('maya goal!')
   })
 
+  describe('C in theater', () => {
+    const renderTheater = () =>
+      render(<DualModeVideoPlayer channel={liveChannel('https://fixture/a')} isTheaterMode onTheaterModeToggle={vi.fn()} />)
+    const composer = () => screen.queryByRole('textbox', { name: 'Message the club' })
+
+    it('opens the composer over the video, focused, rather than the panel', () => {
+      renderTheater()
+
+      fireEvent.keyDown(window, { key: 'c' })
+
+      expect(composer()).toHaveFocus()
+      expect(shell()).toContainElement(composer())
+      expect(useChatStore.getState().isOpen).toBe(false)
+    })
+
+    it('Enter sends through the sender TVView registered', async () => {
+      const sender = vi.fn(() => Promise.resolve('acknowledged' as const))
+      const unregister = useChatStore.getState().registerSender(sender)
+      renderTheater()
+      fireEvent.keyDown(window, { key: 'c' })
+
+      fireEvent.change(composer()!, { target: { value: 'what a goal' } })
+      await act(async () => {
+        fireEvent.submit(composer()!)
+      })
+
+      expect(sender).toHaveBeenCalledWith('what a goal', expect.any(String))
+      expect(composer()).not.toBeInTheDocument()
+      unregister()
+    })
+
+    it("toggles the panel as before with 'Show chat over the video' off", () => {
+      useUIStore.setState({ chatPreviews: false })
+      renderTheater()
+
+      fireEvent.keyDown(window, { key: 'c' })
+
+      expect(composer()).not.toBeInTheDocument()
+      expect(useChatStore.getState().isOpen).toBe(true)
+    })
+
+    it('closes the composer when the panel opens', () => {
+      renderTheater()
+      fireEvent.keyDown(window, { key: 'c' })
+
+      act(() => useChatStore.getState().setOpen(true))
+
+      expect(composer()).not.toBeInTheDocument()
+    })
+  })
+
   it('is not drawn in the page layout', () => {
     renderPlayer(liveChannel('https://fixture/a'))
     act(() => useChatStore.getState().addMessage({ messageId: 'm1', username: 'maya', content: 'goal!', timestamp: new Date().toISOString() }))

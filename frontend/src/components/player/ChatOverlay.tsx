@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { MessageCircle } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { AlertCircle, Loader2, MessageCircle, Send } from 'lucide-react'
+import type { ChatSendResult } from '@/hooks/useWebSocket'
 import { detectMediaUrls, type MediaType } from '@/lib/mediaDetection'
 import { memberColorStyle, memberKey } from '@/lib/memberColor'
+import { createClientMessageId } from '@/lib/messageId'
 import { cn } from '@/lib/utils'
 import { isSystemMessage, useChatStore } from '@/stores/chatStore'
 import type { ChatMessage } from '@/types'
@@ -77,19 +79,128 @@ function useHoldsControls<T extends HTMLElement>() {
   return { ref, onMouseEnter, onMouseLeave }
 }
 
+// A send that failed, kept so sending the same words again is a retry of it
+// under the same id, which the server recognises instead of posting twice
+interface ComposerFailure {
+  kind: Exclude<ChatSendResult, 'acknowledged'>
+  content: string
+  clientMessageId: string
+}
+
+interface OverlayComposerProps {
+  /** Changes on every C press, which brings focus back here */
+  request: number
+  onClose: () => void
+}
+
+/**
+ * One line to type into over the video. Enter sends through chatStore's
+ * registered sender and closes it; Escape, or leaving it empty, closes it.
+ * A failed send keeps the words and says so.
+ */
+function OverlayComposer({ request, onClose }: OverlayComposerProps) {
+  // It closes under the pointer after a send
+  const hold = useHoldsControls<HTMLFormElement>()
+  const sendMessage = useChatStore((s) => s.sendMessage)
+  const [draft, setDraft] = useState('')
+  const [failure, setFailure] = useState<ComposerFailure | null>(null)
+  const [isSending, setSending] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    inputRef.current?.focus()
+  }, [request])
+
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    const content = draft.trim()
+    if (!content || isSending) return
+    const clientMessageId = failure?.content === content ? failure.clientMessageId : createClientMessageId()
+    setSending(true)
+    const result = await sendMessage(content, clientMessageId)
+    setSending(false)
+    if (result === 'acknowledged') onClose()
+    else setFailure({ kind: result, content, clientMessageId })
+  }
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Escape') return
+    // Closes the composer only: not the chat, theater or fullscreen as well
+    e.preventDefault()
+    e.stopPropagation()
+    onClose()
+  }
+
+  return (
+    <form
+      onSubmit={handleSubmit}
+      // Clicking away from an empty composer puts it away
+      onBlur={(e) => {
+        if (!draft.trim() && !e.currentTarget.contains(e.relatedTarget)) onClose()
+      }}
+      {...hold}
+      className="video-controls pointer-events-auto flex w-full flex-col gap-1"
+    >
+      {failure && (
+        <p role="alert" className="flex items-center gap-1.5 self-end rounded-md bg-black/65 px-2 py-1 text-xs text-white backdrop-blur-sm">
+          <AlertCircle className="size-3.5 shrink-0 text-destructive" aria-hidden="true" />
+          {failure.kind === 'not-sent' ? "Not sent. You're offline or reconnecting." : "Couldn't confirm it was sent."}
+        </p>
+      )}
+      <div className="flex items-center gap-1 rounded-full bg-black/75 py-1 pl-3 pr-1 shadow-md backdrop-blur-sm">
+        <input
+          ref={inputRef}
+          value={draft}
+          onChange={(e) => {
+            setDraft(e.target.value)
+            setFailure(null)
+          }}
+          onKeyDown={handleKeyDown}
+          aria-label="Message the club"
+          placeholder="Message the club…"
+          maxLength={500}
+          className="min-w-0 flex-1 rounded-sm bg-transparent text-sm text-white placeholder:text-white/60 focus-ring-media"
+        />
+        <button
+          type="submit"
+          disabled={!draft.trim() || isSending}
+          aria-label="Send message"
+          className="grid size-8 shrink-0 place-items-center rounded-full text-white transition-colors hover:bg-white/15 disabled:opacity-50 focus-ring-media"
+        >
+          {isSending ? (
+            <Loader2 className="size-4 motion-safe:animate-spin" aria-hidden="true" />
+          ) : (
+            <Send className="size-4" aria-hidden="true" />
+          )}
+        </button>
+      </div>
+    </form>
+  )
+}
+
+interface ChatOverlayProps {
+  /** Set, and changed, by each C press asking for the composer; null while it is closed */
+  composerRequest?: number | null
+  onComposerClose?: () => void
+}
+
 /**
  * The latest chat messages over the video, bottom right above the control
  * bar, in theater and fullscreen (see useChatOverlayMode). Each one that
  * arrives while it shows stays 12s and then fades; at most the last 4. It
- * never takes the pointer, except for its 'Open chat' target, and animates
- * only opacity and transform.
+ * never takes the pointer, except for its 'Open chat' target and the
+ * composer, and animates only opacity and transform.
+ *
+ * C opens a composer under the messages on a fine pointer. On a touch
+ * screen it is read-only: in fullscreen its target says 'Exit fullscreen to
+ * reply', leaving fullscreen for the chat panel.
  *
  * Rendered in the player shell, so it is in fullscreen and stays put while
  * the engine is swapped.
  */
-export function ChatOverlay() {
-  const { isTheaterMode, isFullscreen } = usePlayerShell()
-  const { isShown } = useChatOverlayMode(isTheaterMode, isFullscreen)
+export function ChatOverlay({ composerRequest = null, onComposerClose }: ChatOverlayProps) {
+  const { isTheaterMode, isFullscreen, toggleFullscreen } = usePlayerShell()
+  const { isShown, canReply } = useChatOverlayMode(isTheaterMode, isFullscreen)
   const setChatOpen = useChatStore((s) => s.setOpen)
   const openChatHold = useHoldsControls<HTMLButtonElement>()
   const [previews, setPreviews] = useState<Preview[]>([])
@@ -136,6 +247,8 @@ export function ChatOverlay() {
 
   if (!isShown) return null
 
+  const isReadOnlyFullscreen = isFullscreen && !canReply
+
   return (
     <div
       data-testid="chat-overlay"
@@ -173,14 +286,21 @@ export function ChatOverlay() {
       {previews.length > 0 && (
         <button
           type="button"
-          onClick={() => setChatOpen(true)}
+          onClick={() => {
+            // A touch screen keeps chat outside fullscreen (see TVView)
+            if (isReadOnlyFullscreen) toggleFullscreen()
+            setChatOpen(true)
+          }}
           {...openChatHold}
           aria-controls="chat-panel"
           className="video-controls pointer-events-auto inline-flex min-h-9 items-center gap-1.5 rounded-full bg-black/65 px-3 text-xs font-semibold text-white backdrop-blur-sm transition-colors hover:bg-black/80 focus-ring-media"
         >
           <MessageCircle className="size-3.5" aria-hidden="true" />
-          Open chat
+          {isReadOnlyFullscreen ? 'Exit fullscreen to reply' : 'Open chat'}
         </button>
+      )}
+      {canReply && composerRequest !== null && onComposerClose && (
+        <OverlayComposer request={composerRequest} onClose={onComposerClose} />
       )}
     </div>
   )

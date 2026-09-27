@@ -1,8 +1,10 @@
+import { useState } from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, act } from '@/test/utils'
 import { ChatOverlay, CHAT_OVERLAY_FADE_MS, CHAT_OVERLAY_SHOW_MS } from './ChatOverlay'
 import { PlayerShellContext, type PlayerShell } from './PlayerShellContext'
-import { useChatStore } from '@/stores/chatStore'
+import { useChatStore, type ChatSender } from '@/stores/chatStore'
+import { mockViewport } from '@/test/viewport'
 import { useUIStore } from '@/stores/uiStore'
 import type { ChatMessage } from '@/types'
 
@@ -30,20 +32,25 @@ const makeShell = (overrides: Partial<PlayerShell> = {}): PlayerShell => ({
   ...overrides,
 })
 
-const renderOverlay = (shell: Partial<PlayerShell> = {}) => {
+interface Composer {
+  composerRequest?: number | null
+  onComposerClose?: () => void
+}
+
+const renderOverlay = (shell: Partial<PlayerShell> = {}, composer: Composer = {}) => {
   const value = makeShell(shell)
   const view = render(
     <PlayerShellContext value={value}>
-      <ChatOverlay />
+      <ChatOverlay {...composer} />
     </PlayerShellContext>
   )
   return {
     ...view,
     shell: value,
-    update: (next: Partial<PlayerShell>) =>
+    update: (next: Partial<PlayerShell>, nextComposer: Composer = composer) =>
       view.rerender(
         <PlayerShellContext value={makeShell(next)}>
-          <ChatOverlay />
+          <ChatOverlay {...nextComposer} />
         </PlayerShellContext>
       ),
   }
@@ -79,8 +86,10 @@ beforeEach(() => {
   useUIStore.setState({ chatPreviews: true })
 })
 
+const setupMatchMedia = window.matchMedia
 afterEach(() => {
   vi.useRealTimers()
+  window.matchMedia = setupMatchMedia
 })
 
 describe('ChatOverlay', () => {
@@ -260,5 +269,170 @@ describe('ChatOverlay', () => {
     const log = screen.getByRole('log', { name: 'Latest chat messages' })
     expect(log).toHaveAttribute('aria-live', 'polite')
     expect(log).toHaveTextContent('maya hello')
+  })
+})
+
+describe('ChatOverlay composer', () => {
+  let unregister: () => void = () => {}
+  afterEach(() => unregister())
+
+  const input = () => screen.queryByRole('textbox', { name: 'Message the club' })
+  const registerSender = (result: Awaited<ReturnType<ChatSender>> = 'acknowledged') => {
+    const sender = vi.fn<ChatSender>(() => Promise.resolve(result))
+    unregister = useChatStore.getState().registerSender(sender)
+    return sender
+  }
+
+  it('opens focused when C asks for it, in theater and fullscreen', () => {
+    renderOverlay({ isFullscreen: true, isTheaterMode: false }, { composerRequest: 1, onComposerClose: vi.fn() })
+    expect(input()).toHaveFocus()
+  })
+
+  it('is closed until asked for', () => {
+    renderOverlay()
+    expect(input()).not.toBeInTheDocument()
+  })
+
+  it('takes focus again on another C press while open', () => {
+    const onComposerClose = vi.fn()
+    const { update } = renderOverlay({}, { composerRequest: 1, onComposerClose })
+    fireEvent.change(input()!, { target: { value: 'half' } })
+    screen.getByRole('button', { name: 'Send message' }).focus()
+
+    update({ isTheaterMode: true }, { composerRequest: 2, onComposerClose })
+    expect(input()).toHaveFocus()
+    expect(input()).toHaveValue('half')
+  })
+
+  it('Enter sends through the registered sender, then closes', async () => {
+    const sender = registerSender()
+    const onComposerClose = vi.fn()
+    renderOverlay({}, { composerRequest: 1, onComposerClose })
+
+    fireEvent.change(input()!, { target: { value: '  what a save  ' } })
+    // Enter in the field submits its form
+    await act(async () => {
+      fireEvent.submit(input()!)
+    })
+
+    expect(sender).toHaveBeenCalledWith('what a save', expect.any(String))
+    expect(onComposerClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('sends nothing empty', async () => {
+    const sender = registerSender()
+    renderOverlay({}, { composerRequest: 1, onComposerClose: vi.fn() })
+
+    fireEvent.change(input()!, { target: { value: '   ' } })
+    await act(async () => {
+      fireEvent.submit(input()!)
+    })
+
+    expect(sender).not.toHaveBeenCalled()
+  })
+
+  // It closes under the pointer, which fires no mouseleave: without letting
+  // go, the control bar would never hide again
+  it('lets go of the control bar when it closes under the pointer after a send', async () => {
+    registerSender()
+    const shell = makeShell()
+    function Host() {
+      const [request, setRequest] = useState<number | null>(1)
+      return (
+        <PlayerShellContext value={shell}>
+          <ChatOverlay composerRequest={request} onComposerClose={() => setRequest(null)} />
+        </PlayerShellContext>
+      )
+    }
+    render(<Host />)
+
+    fireEvent.mouseEnter(input()!.closest('form')!)
+    expect(shell.setHoveringControls).toHaveBeenLastCalledWith(true)
+    fireEvent.change(input()!, { target: { value: 'what a save' } })
+    await act(async () => {
+      fireEvent.submit(input()!)
+    })
+
+    expect(input()).not.toBeInTheDocument()
+    expect(shell.setHoveringControls).toHaveBeenLastCalledWith(false)
+  })
+
+  it('keeps the words after a failed send and retries under the same id', async () => {
+    const sender = registerSender('not-sent')
+    const onComposerClose = vi.fn()
+    renderOverlay({}, { composerRequest: 1, onComposerClose })
+
+    fireEvent.change(input()!, { target: { value: 'offside' } })
+    await act(async () => {
+      fireEvent.submit(input()!)
+    })
+
+    expect(screen.getByRole('alert')).toHaveTextContent("Not sent. You're offline or reconnecting.")
+    expect(input()).toHaveValue('offside')
+    expect(onComposerClose).not.toHaveBeenCalled()
+
+    await act(async () => {
+      fireEvent.submit(input()!)
+    })
+    expect(sender).toHaveBeenCalledTimes(2)
+    expect(sender.mock.calls[1][1]).toBe(sender.mock.calls[0][1])
+  })
+
+  it('Escape closes it and nothing else: the event is marked handled', () => {
+    const onComposerClose = vi.fn()
+    renderOverlay({}, { composerRequest: 1, onComposerClose })
+
+    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    input()!.dispatchEvent(escape)
+
+    expect(onComposerClose).toHaveBeenCalledTimes(1)
+    expect(escape.defaultPrevented).toBe(true)
+  })
+
+  it('closes when focus leaves it empty, but keeps a draft', () => {
+    const onComposerClose = vi.fn()
+    renderOverlay({}, { composerRequest: 1, onComposerClose })
+
+    fireEvent.change(input()!, { target: { value: 'draft' } })
+    fireEvent.blur(input()!)
+    expect(onComposerClose).not.toHaveBeenCalled()
+
+    fireEvent.change(input()!, { target: { value: '' } })
+    fireEvent.blur(input()!)
+    expect(onComposerClose).toHaveBeenCalledTimes(1)
+  })
+
+  describe('on a touch screen', () => {
+    beforeEach(() => {
+      mockViewport({ width: 1024, height: 768, pointer: 'coarse' })
+    })
+
+    it('is read-only: no composer, even when asked for', () => {
+      renderOverlay({ isFullscreen: true }, { composerRequest: 1, onComposerClose: vi.fn() })
+      arrive(message('hello'))
+
+      expect(shownText()).toEqual(['maya hello'])
+      expect(input()).not.toBeInTheDocument()
+    })
+
+    it("offers 'Exit fullscreen to reply', which leaves fullscreen for the chat panel", () => {
+      const { shell } = renderOverlay({ isFullscreen: true, isTheaterMode: false })
+      arrive(message('hello'))
+
+      fireEvent.click(screen.getByRole('button', { name: 'Exit fullscreen to reply' }))
+
+      expect(shell.toggleFullscreen).toHaveBeenCalledTimes(1)
+      expect(useChatStore.getState().isOpen).toBe(true)
+    })
+
+    it('in theater its target just opens chat', () => {
+      const { shell } = renderOverlay({ isTheaterMode: true })
+      arrive(message('hello'))
+
+      fireEvent.click(screen.getByRole('button', { name: 'Open chat' }))
+
+      expect(shell.toggleFullscreen).not.toHaveBeenCalled()
+      expect(useChatStore.getState().isOpen).toBe(true)
+    })
   })
 })
