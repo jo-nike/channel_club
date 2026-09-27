@@ -165,7 +165,7 @@ export function TVView() {
   const containerRef = useRef<HTMLDivElement>(null)
 
   // Resize hook for EPG
-  const { isDragging, handleMouseDown } = useResizable({
+  const { heightPercent, isDragging, handlePointerDown, handleKeyDown: handleResizeKeyDown } = useResizable({
     initialHeightPercent: epgHeightPercent,
     minHeightPercent: EPG_HEIGHT_MIN,
     maxHeightPercent: EPG_HEIGHT_MAX,
@@ -403,7 +403,14 @@ export function TVView() {
 
           {/* Resize handle - only on desktop when EPG visible, hidden in theater/landscape */}
           {!isMobile && isEPGVisible && !isTheaterMode && !isMobileLandscape && (
-            <ResizeDragHandle onMouseDown={handleMouseDown} isDragging={isDragging} />
+            <ResizeDragHandle
+              onPointerDown={handlePointerDown}
+              onKeyDown={handleResizeKeyDown}
+              isDragging={isDragging}
+              valueNow={heightPercent}
+              valueMin={EPG_HEIGHT_MIN}
+              valueMax={EPG_HEIGHT_MAX}
+            />
           )}
 
           {/* EPG section - hidden in theater mode or mobile landscape */}

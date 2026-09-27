@@ -517,17 +517,47 @@ describe('B-06 guide mode', () => {
     await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
     const handle = screen.getByRole('separator', { name: 'Resize EPG section' })
 
+    // Pointer events, so touch and pen drag it as well as a mouse
+    expect(handle).toHaveClass('touch-none')
+
     // Up 400px of 1000: 50% + 40% stops at 75%
-    fireEvent.mouseDown(handle, { clientY: 500 })
-    fireEvent.mouseMove(document, { clientY: 100 })
-    fireEvent.mouseUp(document)
+    fireEvent.pointerDown(handle, { clientY: 500, pointerId: 1 })
+    fireEvent.pointerMove(handle, { clientY: 100, pointerId: 1 })
+    fireEvent.pointerUp(handle, { clientY: 100, pointerId: 1 })
     expect(useUIStore.getState().epgHeightPercent).toBe(75)
     expect(screen.getByTestId('tv-epg-grid').parentElement).toHaveStyle({ flex: '0 0 75%' })
+    expect(handle).toHaveAttribute('aria-valuenow', '75')
 
     // Down 600px: 75% - 60% stops at 30%
-    fireEvent.mouseDown(handle, { clientY: 100 })
-    fireEvent.mouseMove(document, { clientY: 700 })
-    fireEvent.mouseUp(document)
+    fireEvent.pointerDown(handle, { clientY: 100, pointerId: 2 })
+    fireEvent.pointerMove(handle, { clientY: 700, pointerId: 2 })
+    fireEvent.pointerUp(handle, { clientY: 700, pointerId: 2 })
+    expect(useUIStore.getState().epgHeightPercent).toBe(30)
+  })
+
+  it('lets the guide be resized from the keyboard on a focusable separator', async () => {
+    useUIStore.setState({ isEPGVisible: true, epgHeightPercent: 50 })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+    const handle = screen.getByRole('separator', { name: 'Resize EPG section' })
+
+    expect(handle).toHaveAttribute('tabindex', '0')
+    expect(handle).toHaveAttribute('aria-valuenow', '50')
+    expect(handle).toHaveAttribute('aria-valuemin', '30')
+    expect(handle).toHaveAttribute('aria-valuemax', '75')
+
+    fireEvent.keyDown(handle, { key: 'ArrowUp' })
+    expect(useUIStore.getState().epgHeightPercent).toBe(55)
+    expect(handle).toHaveAttribute('aria-valuenow', '55')
+    expect(screen.getByTestId('tv-epg-grid').parentElement).toHaveStyle({ flex: '0 0 55%' })
+
+    fireEvent.keyDown(handle, { key: 'ArrowDown' })
+    fireEvent.keyDown(handle, { key: 'ArrowDown' })
+    expect(useUIStore.getState().epgHeightPercent).toBe(45)
+
+    fireEvent.keyDown(handle, { key: 'End' })
+    expect(useUIStore.getState().epgHeightPercent).toBe(75)
+    fireEvent.keyDown(handle, { key: 'Home' })
     expect(useUIStore.getState().epgHeightPercent).toBe(30)
   })
 })
