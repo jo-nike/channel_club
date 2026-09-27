@@ -17,6 +17,8 @@ const socket = vi.hoisted(() => ({ status: 'connected', reconnect: () => {} }))
 const chatProps = vi.hoisted(() => ({ last: null as null | { status?: string; onReconnect?: () => void; variant?: string } }))
 const auth = vi.hoisted(() => ({ isAdmin: false }))
 const appSettings = vi.hoisted(() => ({ userChannelSelection: false }))
+// Chat is a build-time flag, off in tests unless a test turns it on
+const chatFlag = vi.hoisted(() => ({ enabled: false }))
 const playerProps = vi.hoisted(() => ({ onPickLive: undefined as undefined | (() => void), renders: 0, reloadKey: undefined as undefined | number, mounts: 0, zap: undefined as undefined | ChannelZap }))
 const guide = vi.hoisted(() => ({ onProgrammeClick: undefined as undefined | ((programme: ErsatzTVProgramme, channel: UnifiedChannel) => void) }))
 const modal = vi.hoisted(() => ({ last: null as null | { programme: ErsatzTVProgramme | null; channel: { id: string; name: string } | null; open: boolean; onWatch: (channel: { id: string; name: string }) => void } }))
@@ -27,6 +29,7 @@ import type { ChannelZap } from '@/hooks/useChannelZap'
 vi.mock('@/services/ersatztvApi', () => ({ fetchErsatzTVChannels: vi.fn(), fetchErsatzTVCurrentProgramme: vi.fn(), getErsatzTVLogoUrl: vi.fn() }))
 vi.mock('@/hooks/useWebSocket', () => ({ useWebSocket: () => ({ status: socket.status, reconnect: socket.reconnect, sendChannelUpdate: presence, sendChatMessage: vi.fn(), sendSetNickname: vi.fn() }) }))
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ isAdmin: auth.isAdmin, logout: vi.fn() }) }))
+vi.mock('@/hooks/useChatEnabled', () => ({ useChatEnabled: () => chatFlag.enabled }))
 vi.mock('@/hooks/useAppSettings', () => ({ useAppSettings: () => ({ userChannelSelection: appSettings.userChannelSelection }) }))
 vi.mock('@/components/LiveChannelPickerDialog', () => ({ LiveChannelPickerDialog: ({ open }: { open: boolean }) => (
   <div data-testid="live-picker" data-open={String(open)} />
@@ -49,12 +52,19 @@ vi.mock('@/components/tv/TVEPGGrid', () => ({ TVEPGGrid: ({ onProgrammeClick }: 
 } }))
 vi.mock('@/components/ChatPanel', async () => {
   const { useChatStore } = await import('@/stores/chatStore')
-  // Like the real panel, renders nothing (and so can't throw) while closed
+  const { useState } = await import('react')
+  // Like the real panel, renders nothing (and so can't throw) while closed,
+  // and keeps its draft in its own state
   return { ChatPanel: (props: { status?: string; onReconnect?: () => void; variant?: string }) => {
     chatProps.last = props
     const isOpen = useChatStore((s) => s.isOpen)
+    const [draft, setDraft] = useState('')
     if (crash.chat && isOpen) throw new Error('chat exploded')
-    return isOpen ? <div data-testid="chat" data-variant={props.variant} /> : null
+    return isOpen ? (
+      <div data-testid="chat" data-variant={props.variant}>
+        <input aria-label="Draft" value={draft} onChange={(e) => setDraft(e.target.value)} />
+      </div>
+    ) : null
   } }
 })
 vi.mock('@/components/ersatztv/ProgrammeDetailsModal', () => ({ ProgrammeDetailsModal: (props: NonNullable<typeof modal.last>) => {
@@ -71,11 +81,12 @@ beforeEach(() => {
   socket.status = 'connected'
   auth.isAdmin = false
   appSettings.userChannelSelection = false
+  chatFlag.enabled = false
   playerProps.onPickLive = undefined
   chatProps.last = null
   crash.player = false
   crash.chat = false
-  useChatStore.setState({ isOpen: false })
+  useChatStore.setState({ isOpen: false, unreadCount: 0 })
   useTVStore.setState({ selectedChannel: null, liveEPG: null, liveEPGStatus: 'idle' })
   useErsatztvStore.setState({ channels: [], channelsLoading: false, error: null })
   useUIStore.setState({ lastTVChannelId: null, isTheaterMode: false, isChannelSidebarCollapsed: false })
@@ -731,9 +742,13 @@ describe('E-01 chat placement', () => {
     const chat = await openChat()
     expect(chat).toHaveAttribute('data-variant', 'docked')
 
+    // In the chat slot after <main>, which has no box of its own, so the
+    // panel lays out as the row's third column
     const main = screen.getByRole('main')
-    expect(chat.parentElement).toBe(main.parentElement)
-    expect(main.nextElementSibling).toBe(chat)
+    const slot = chat.parentElement as HTMLElement
+    expect(slot).toHaveClass('contents')
+    expect(slot.parentElement).toBe(main.parentElement)
+    expect(main.nextElementSibling).toBe(slot)
     expect(screen.getByRole('banner')).not.toContainElement(chat)
     expect(within(screen.getByRole('banner')).getByRole('button', { name: 'Reload stream' })).toBeVisible()
   })
@@ -744,7 +759,9 @@ describe('E-01 chat placement', () => {
     expect(chat).toHaveAttribute('data-variant', 'sheet')
 
     const row = screen.getByRole('main').parentElement as HTMLElement
-    expect(chat.parentElement).toBe(row)
+    const slot = chat.parentElement as HTMLElement
+    expect(slot).toHaveClass('contents')
+    expect(slot.parentElement).toBe(row)
     expect(row).toHaveClass('relative')
     expect(screen.getByRole('banner')).toBeVisible()
   })
@@ -766,6 +783,188 @@ describe('E-01 chat placement', () => {
     useUIStore.setState({ isTheaterMode: true })
     const chat = await openChat()
     expect(chat).toHaveAttribute('data-variant', 'overlay')
+  })
+})
+
+describe('G-07/E-02 Channels and Chat tabs on a phone', () => {
+  beforeEach(() => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
+    chatFlag.enabled = true
+  })
+  afterEach(() => {
+    window.matchMedia = originalMatchMedia
+    useChatStore.setState({ isOpen: false, unreadCount: 0 })
+  })
+
+  const renderPhone = async (viewport: Parameters<typeof mockViewport>[0] = { width: 390, height: 844, pointer: 'coarse' }) => {
+    const view = mockViewport(viewport)
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+    return view
+  }
+  const tab = (name: string | RegExp) => screen.getByRole('tab', { name })
+
+  it('puts a Channels | Chat strip under the pinned player, on Channels', async () => {
+    await renderPhone()
+
+    const tablist = screen.getByRole('tablist', { name: 'Channels and chat' })
+    expect(within(tablist).getAllByRole('tab').map((t) => t.textContent)).toEqual(['Channels', 'Chat'])
+    expect(tab('Channels')).toHaveAttribute('aria-selected', 'true')
+    expect(tab('Chat')).toHaveAttribute('aria-selected', 'false')
+
+    const panel = screen.getByRole('tabpanel')
+    expect(panel).toHaveAttribute('aria-labelledby', tab('Channels').id)
+    expect(within(panel).getByRole('heading', { name: 'Channels' })).toBeVisible()
+    expect(panel).toHaveClass('epg-scroll', 'min-h-0', 'flex-1', 'overflow-y-auto')
+    // The strip comes after the 16:9 video, in the same column
+    const video = screen.getByTestId('player').closest('.bg-black') as HTMLElement
+    expect(video).toHaveClass('aspect-video')
+    expect(video.nextElementSibling).toContainElement(tablist)
+    expect(screen.queryByTestId('chat')).not.toBeInTheDocument()
+  })
+
+  it('opens chat inline in the Chat tab, keeping the video, and Channels closes it', async () => {
+    await renderPhone()
+
+    fireEvent.mouseDown(tab('Chat'))
+
+    expect(useChatStore.getState().isOpen).toBe(true)
+    expect(tab('Chat')).toHaveAttribute('aria-selected', 'true')
+    const panel = screen.getByRole('tabpanel')
+    expect(panel).toHaveAttribute('aria-labelledby', tab('Chat').id)
+    const chat = within(panel).getByTestId('chat')
+    expect(chat).toHaveAttribute('data-variant', 'inline')
+    // Only the inline panel: none beside <main> over the whole screen
+    expect(screen.getAllByTestId('chat')).toHaveLength(1)
+    expect(screen.getByTestId('player')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Channels' })).not.toBeInTheDocument()
+
+    fireEvent.mouseDown(tab('Channels'))
+    expect(useChatStore.getState().isOpen).toBe(false)
+    expect(screen.queryByTestId('chat')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Channels' })).toBeVisible()
+  })
+
+  it('keeps the chat draft across a visit to Channels', async () => {
+    await renderPhone()
+    fireEvent.mouseDown(tab('Chat'))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Draft' }), { target: { value: 'what channel is the game on?' } })
+
+    fireEvent.mouseDown(tab('Channels'))
+    expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', tab('Channels').id)
+    // The Chat tab's panel is still there, hidden, for its aria-controls
+    const chatPanel = document.getElementById(tab('Chat').getAttribute('aria-controls') ?? '')
+    expect(chatPanel).toHaveAttribute('hidden')
+
+    fireEvent.mouseDown(tab('Chat'))
+    expect(screen.getByRole('textbox', { name: 'Draft' })).toHaveValue('what channel is the game on?')
+    expect(document.getElementById(tab('Channels').getAttribute('aria-controls') ?? '')).toHaveAttribute('hidden')
+  })
+
+  it('stacks the Chat tab under the video and strip, in the one chat slot after <main>', async () => {
+    await renderPhone()
+    fireEvent.mouseDown(tab('Chat'))
+
+    const main = screen.getByRole('main')
+    const panel = screen.getByRole('tabpanel')
+    expect(panel).toHaveAttribute('id', tab('Chat').getAttribute('aria-controls'))
+    expect(main.nextElementSibling).toBe(panel)
+    expect(panel).toHaveClass('flex', 'min-h-0', 'flex-1', 'flex-col')
+    expect(main.parentElement).toHaveClass('flex-col')
+    // <main> keeps just the video and the strip; chat takes the rest
+    expect(main).toHaveClass('flex-none')
+    expect(main).not.toHaveClass('flex-1')
+
+    fireEvent.mouseDown(tab('Channels'))
+    expect(main).toHaveClass('flex-1')
+  })
+
+  // Rotating, or theater, moves the open chat between the Chat tab and the
+  // overlay. It stays the same panel, so a half-typed message (and a failed
+  // send, kept in the same state) survives
+  it('keeps the chat draft when the phone turns sideways and back', async () => {
+    const view = await renderPhone()
+    fireEvent.mouseDown(tab('Chat'))
+    const chat = screen.getByTestId('chat')
+    expect(chat).toHaveAttribute('data-variant', 'inline')
+    fireEvent.change(screen.getByRole('textbox', { name: 'Draft' }), { target: { value: 'what a goal, did anyone see the replay?' } })
+
+    act(() => view.resize({ width: 844, height: 390, pointer: 'coarse' }))
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+    expect(screen.getByTestId('chat')).toBe(chat)
+    expect(chat).toHaveAttribute('data-variant', 'overlay')
+    expect(screen.getByRole('textbox', { name: 'Draft' })).toHaveValue('what a goal, did anyone see the replay?')
+
+    act(() => view.resize({ width: 390, height: 844, pointer: 'coarse' }))
+    expect(tab('Chat')).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByTestId('chat')).toBe(chat)
+    expect(chat).toHaveAttribute('data-variant', 'inline')
+    expect(screen.getByRole('textbox', { name: 'Draft' })).toHaveValue('what a goal, did anyone see the replay?')
+  })
+
+  it('keeps the chat draft when the phone enters theater and leaves it', async () => {
+    await renderPhone()
+    fireEvent.mouseDown(tab('Chat'))
+    const chat = screen.getByTestId('chat')
+    fireEvent.change(screen.getByRole('textbox', { name: 'Draft' }), { target: { value: 'hello there' } })
+
+    act(() => useUIStore.setState({ isTheaterMode: true }))
+    expect(screen.getByTestId('chat')).toBe(chat)
+    expect(chat).toHaveAttribute('data-variant', 'overlay')
+    expect(screen.getByRole('textbox', { name: 'Draft' })).toHaveValue('hello there')
+
+    act(() => useUIStore.setState({ isTheaterMode: false }))
+    expect(screen.getByTestId('chat')).toBe(chat)
+    expect(chat).toHaveAttribute('data-variant', 'inline')
+    expect(screen.getByRole('textbox', { name: 'Draft' })).toHaveValue('hello there')
+  })
+
+  it('selects the Chat tab from the header chat button, and back', async () => {
+    await renderPhone()
+
+    fireEvent.click(within(screen.getByRole('banner')).getByRole('button', { name: 'Open chat' }))
+    expect(tab('Chat')).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByTestId('chat')).toHaveAttribute('data-variant', 'inline')
+
+    fireEvent.click(within(screen.getByRole('banner')).getByRole('button', { name: 'Open chat' }))
+    expect(tab('Channels')).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('shows the unread count on the Chat tab, and clears it on opening', async () => {
+    await renderPhone()
+    act(() => useChatStore.setState({ unreadCount: 3 }))
+
+    const chatTab = tab('Chat (3 new)')
+    expect(within(chatTab).getByText('3')).toHaveClass('bg-destructive')
+
+    fireEvent.mouseDown(chatTab)
+    expect(useChatStore.getState().unreadCount).toBe(0)
+    expect(tab('Chat').textContent).toBe('Chat')
+  })
+
+  it('keeps the plain channel list, with no tabs, when chat is off', async () => {
+    chatFlag.enabled = false
+    await renderPhone()
+
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Channels' }).closest('.epg-scroll')).not.toBeNull()
+  })
+
+  it('slides chat over the side in phone landscape, with no tabs', async () => {
+    await renderPhone({ width: 667, height: 375, pointer: 'coarse' })
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+
+    act(() => useChatStore.setState({ isOpen: true }))
+    expect(screen.getByTestId('chat')).toHaveAttribute('data-variant', 'overlay')
+  })
+
+  it('slides chat over the side in phone theater, with no tabs', async () => {
+    useUIStore.setState({ isTheaterMode: true })
+    await renderPhone()
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+
+    act(() => useChatStore.setState({ isOpen: true }))
+    expect(screen.getByTestId('chat')).toHaveAttribute('data-variant', 'overlay')
   })
 })
 

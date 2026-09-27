@@ -18,7 +18,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
  * - docked: a column beside the player that the picture shrinks for (desktop)
  * - sheet: over the right of the content, below the header (tablets)
  * - overlay: a drawer over the right edge (theater, phone landscape)
- * - takeover: the whole screen (phones)
+ * - takeover: the whole screen (a phone without the Chat tab)
  * - inline: the phone's Chat tab under the pinned player, filling the tab
  *   panel; the tab strip opens and closes it
  */
