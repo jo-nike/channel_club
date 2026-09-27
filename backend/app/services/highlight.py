@@ -292,6 +292,8 @@ class ChannelRecorder:
             paths = [path for path in paths if path.stat().st_mtime >= cutoff]
             if not paths:
                 raise ValueError("No recent segments available")
+            # The segment being written is left out, so the capture ends this long before the press.
+            tail_gap = time.time() - paths[-1].stat().st_mtime
             if sum(path.stat().st_size for path in paths) > settings.media_export_max_bytes:
                 raise ValueError("Highlight exceeds export size limit")
             names = []
@@ -301,6 +303,16 @@ class ChannelRecorder:
                 names.append(name)
             concat = workspace / "concat.txt"
             concat.write_text("".join(f"file '{name}'\n" for name in names))
+            log.bind(
+                event="highlight.capture",
+                channel_id=self.channel_id,
+                segments=len(paths),
+                tail_gap_seconds=round(tail_gap, 2),
+            ).info(
+                "Highlight capture of {} segments ends {:.1f}s before the press",
+                len(paths),
+                tail_gap,
+            )
             return concat
         finally:
             with suppress(ProcessLookupError):
