@@ -159,6 +159,26 @@
 }
 
 /* ============================
+   REDUCED MOTION
+   ============================ */
+
+/* Honour the OS "reduce motion" setting everywhere: animations run once,
+   near-instantly, and transitions and CSS smooth scrolling are skipped.
+   Unlayered and !important so it beats utilities and the animate-* rules
+   below. Spinners freeze too, so every loader needs a static cue (text). JS
+   smooth scrolling ignores this; use scrollBehavior() from lib/motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ============================
    iOS SAFE AREA
    ============================ */
 

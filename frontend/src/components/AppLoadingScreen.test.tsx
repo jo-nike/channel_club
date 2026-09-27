@@ -14,6 +14,11 @@ describe('AppLoadingScreen', () => {
     expect(spinner).toBeInTheDocument()
   })
 
+  it('says it is loading, since Reduce Motion freezes the spinner', () => {
+    render(<AppLoadingScreen />)
+    expect(screen.getByText('Loading…')).toBeVisible()
+  })
+
   it('renders app logo emoji', () => {
     render(<AppLoadingScreen />)
     expect(screen.getByText('📺')).toBeInTheDocument()
