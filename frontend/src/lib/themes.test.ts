@@ -6,7 +6,7 @@ import {
   getAllThemeIds,
   DEFAULT_THEME_ID,
 } from './themes'
-import { contrast } from './color'
+import { contrast, formatOklch, mix, parseOklch } from './color'
 import type { ThemeId } from '@/types/theme'
 
 const darkThemes = Object.values(themes).filter((t) => t.mode === 'dark')
@@ -193,6 +193,38 @@ describe('themes', () => {
         expect(contrast(colors.accentForeground, colors.accent)).toBeGreaterThanOrEqual(7)
         expect(contrast(colors.mutedForeground, colors.accent)).toBeGreaterThanOrEqual(4.5)
         expect(contrast(colors.primary, colors.accent)).toBeGreaterThanOrEqual(3)
+      }
+    )
+
+    it.each(Object.values(themes).map((t) => [t.id, t] as const))(
+      '%s: muted foreground on the muted surface is at least 4.5:1',
+      (_id, theme) => {
+        const { colors } = theme
+        expect(contrast(colors.mutedForeground, colors.muted)).toBeGreaterThanOrEqual(4.5)
+      }
+    )
+
+    it.each(Object.values(themes).map((t) => [t.id, t] as const))(
+      '%s: a pressed toolbar toggle keeps its label at 4.5:1 and its icon at 3:1',
+      (_id, theme) => {
+        const { colors } = theme
+        // aria-pressed:bg-primary/15 over the page
+        const pressed = formatOklch(mix(colors.background, colors.primary, 0.15))
+        expect(contrast(colors.foreground, pressed)).toBeGreaterThanOrEqual(4.5)
+        expect(contrast(colors.primary, pressed)).toBeGreaterThanOrEqual(3)
+      }
+    )
+
+    it.each(lightThemes.map((t) => [t.id, t] as const))(
+      '%s: accent is a readable hover surface that differs from muted and the card',
+      (_id, theme) => {
+        const { colors } = theme
+        const accentL = parseOklch(colors.accent).l
+        expect(colors.accent).not.toBe(colors.muted)
+        expect(Math.abs(accentL - parseOklch(colors.muted).l)).toBeGreaterThanOrEqual(0.03)
+        expect(Math.abs(accentL - parseOklch(colors.card).l)).toBeGreaterThanOrEqual(0.03)
+        expect(contrast(colors.accentForeground, colors.accent)).toBeGreaterThanOrEqual(7)
+        expect(contrast(colors.mutedForeground, colors.accent)).toBeGreaterThanOrEqual(4.5)
       }
     )
 

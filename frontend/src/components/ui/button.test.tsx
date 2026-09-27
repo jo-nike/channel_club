@@ -18,7 +18,7 @@ describe('Button toolbar variant', () => {
   it('shows a pressed toggle with a primary tint, not only a brighter icon', () => {
     render(<Button variant="toolbar" aria-label="Guide" aria-pressed />)
     const button = screen.getByRole('button', { name: 'Guide', pressed: true })
-    expect(button).toHaveClass('aria-pressed:bg-primary/15', 'aria-pressed:text-primary')
+    expect(button).toHaveClass('aria-pressed:bg-primary/15', 'aria-pressed:text-foreground', 'aria-pressed:[&_svg]:text-primary')
   })
 
   it('relies on the global focus outline', () => {

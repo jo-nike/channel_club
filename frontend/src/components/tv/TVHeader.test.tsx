@@ -228,7 +228,7 @@ describe('TVHeader', () => {
     const guide = screen.getByRole('button', { name: 'Guide', pressed: false })
     const nhl = screen.getByRole('button', { name: 'NHL scores', pressed: true })
     for (const toggle of [guide, nhl]) {
-      expect(toggle).toHaveClass('aria-pressed:bg-primary/15', 'aria-pressed:text-primary')
+      expect(toggle).toHaveClass('aria-pressed:bg-primary/15', 'aria-pressed:text-foreground')
     }
   })
 
