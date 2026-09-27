@@ -65,7 +65,9 @@ export function PlayerChrome({
   const showHighlightButton = highlightEnabled && !isTVMode && channelId
 
   // Always-on highlight status polling (independent of control visibility)
-  const highlightStatus = useHighlightStatus(showHighlightButton ? channelId : undefined)
+  const { status: highlightStatus, loaded: highlightLoaded } = useHighlightStatus(
+    showHighlightButton ? channelId : undefined,
+  )
 
   // The editor lives in the player shell, so it outlives this control bar
   const openClip = useClipStore((s) => s.open)
@@ -163,6 +165,7 @@ export function PlayerChrome({
           channelId={channelId}
           isVisible={isVisible}
           highlightStatus={highlightStatus}
+          loaded={highlightLoaded}
           onOpenModal={handleOpenHighlightModal}
         />
       )}

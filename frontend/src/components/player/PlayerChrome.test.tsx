@@ -12,8 +12,12 @@ const highlight = vi.hoisted(() => ({ enabled: false }))
 vi.mock('@/hooks/useHighlightFeature', () => ({
   useHighlightFeature: () => ({ isEnabled: highlight.enabled, isLoading: false }),
 }))
+const clipStatus = vi.hoisted(() => ({ loaded: true }))
 vi.mock('@/hooks/useHighlightStatus', () => ({
-  useHighlightStatus: () => ({ recording: true, ready: true, bufferSeconds: 60 }),
+  useHighlightStatus: () => ({
+    status: { enabled: true, recording: true, ready: true, bufferSeconds: 60, maxBufferSeconds: 60 },
+    loaded: clipStatus.loaded,
+  }),
 }))
 // Rendered once there is a channel; it would ask the server whether casting is on
 const cast = vi.hoisted(() => ({ props: null as Record<string, unknown> | null }))
@@ -437,7 +441,15 @@ describe('PlayerChrome', () => {
   describe('clip capture', () => {
     beforeEach(() => {
       highlight.enabled = true
+      clipStatus.loaded = true
       useClipStore.setState({ session: null })
+    })
+
+    it('shows the clip control as checking until the first status poll answers', () => {
+      clipStatus.loaded = false
+      renderChrome({ props: { channelId: '42', channelName: 'Sportsnet' } })
+
+      expect(screen.getByRole('button', { name: 'Checking clip…' })).toBeDisabled()
     })
 
     it('opens the clip session on this channel and leaves the editor to the player shell', () => {
