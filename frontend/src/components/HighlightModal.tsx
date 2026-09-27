@@ -61,10 +61,15 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
   const controller = useRef<AbortController | null>(null)
   const busy = useRef(false)
   const autoplayed = useRef(false)
+  // A re-capture replaces the capture (the server keeps one per user); this carries the original
+  // press and the selection, relative to it, across to the new one.
+  const keep = useRef<{ pressedAt: number; start: number; end: number } | null>(null)
   const cache = useRef<{ key: string; blob: Blob } | null>(null)
   const [start, end] = range
   const ready = duration >= 0.1 && source !== null && !captureError
   const needsConfirm = ready && delivered !== `${start}:${end}:${format}`
+  // Seconds between the capture's last frame and the press: the recorder had not closed them yet
+  const missing = source ? source.pressedAt - source.endsAt : 0
   // Live TV moved on (someone switched it, or stopped it) while this editor was open
   const liveChange = playingChannel === null ? 'Live TV stopped.'
     : playingChannel && playingChannel.id !== channelId ? `Live TV changed to ${playingChannel.name}.` : null
@@ -89,7 +94,8 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
     void createHighlightCapture(channelId, request.signal).then(capture => {
       if (request.signal.aborted) { void deleteHighlightCapture(capture.id); return }
       captureId = capture.id
-      setSource({ id: capture.id, url: highlightCaptureUrl(capture.id), pressedAt: capture.pressedAt, endsAt: capture.endsAt })
+      const pressedAt = keep.current?.pressedAt ?? capture.pressedAt
+      setSource({ id: capture.id, url: highlightCaptureUrl(capture.id), pressedAt, endsAt: capture.endsAt })
     }).catch(err => {
       if (!request.signal.aborted) setCaptureError(err instanceof Error ? err.message : 'Could not capture clip')
     })
@@ -184,7 +190,16 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
   function retryCapture() {
     setSource(null); setCaptureError(null); setDuration(0); setPress(0); setRange([0, 0])
     setPlayhead(0); setPlaying(false); cache.current = null
+    setUploaded(null); setError(null); setDelivered(null)
     setAttempt(value => value + 1)
+  }
+
+  /** Capture again now that the recorder has closed the seconds before the press. */
+  function includeLastSeconds() {
+    // The selection keeps its footage. One that ran to the capture's end (the default, a Last N chip)
+    // stopped there only because the footage did, so it now runs on to the press.
+    if (source) keep.current = { pressedAt: source.pressedAt, start: start - press, end: end >= duration - 0.05 ? 0 : end - press }
+    retryCapture()
   }
 
   return (
@@ -215,7 +230,12 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
               // Not clamped: the ruler and the kept selection count from the real press, even past the end.
               const pressOffset = length - (source.endsAt - source.pressedAt)
               // Not select(): its clamp reads the duration state, which is still 0 here.
-              const [defaultStart, defaultEnd] = pressRange(length, pressOffset)
+              let [defaultStart, defaultEnd] = pressRange(length, pressOffset)
+              if (keep.current) {
+                defaultStart = Math.max(0, Math.min(length - 0.1, pressOffset + keep.current.start))
+                defaultEnd = Math.min(length, Math.max(defaultStart + 0.1, pressOffset + keep.current.end))
+                keep.current = null
+              }
               setDuration(length); setPress(pressOffset); setRange([defaultStart, defaultEnd])
               if (video.current) video.current.currentTime = defaultStart
               setPlayhead(defaultStart)
@@ -238,6 +258,10 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
         {ready && source && <>
           <fieldset disabled={stage !== null} className="min-w-0 space-y-4 disabled:opacity-70">
             <legend className="sr-only">Clip selection</legend>
+            {missing >= 0.5 && <div role="status" className="flex flex-wrap items-center gap-3 rounded-md border bg-muted px-3 py-2 text-sm">
+              <span>This capture ends {missing.toFixed(1)}s before you pressed.</span>
+              <Button type="button" variant="outline" size="sm" onClick={includeLastSeconds}>Include the last few seconds</Button>
+            </div>}
             <div className="flex flex-wrap items-center gap-2">
               {[10, 15, 30].map(seconds => <Button key={seconds} type="button" variant="outline" size="sm"
                 onClick={() => { const [, pressEnd] = pressRange(duration, press); select(Math.max(0, pressEnd - seconds), pressEnd) }}>Last {seconds}s</Button>)}
