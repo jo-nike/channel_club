@@ -365,3 +365,55 @@ describe('DualModeVideoPlayer audio: ErsatzTV channel (Vidstack)', () => {
     expect(lastPlayerProps().muted).toBe(true)
   })
 })
+
+describe('DualModeVideoPlayer audio: keyboard', () => {
+  const focusedPlayer = () => {
+    const player = document.querySelector<HTMLElement>('[data-media-player]')
+    if (!player) throw new Error('no media player')
+    player.focus()
+    return player
+  }
+
+  it('ArrowDown on the focused ErsatzTV player lowers the saved level', () => {
+    useAudioStore.setState({ volume: 0.3, muted: false })
+    renderPlayer(hlsChannel('1', 1))
+
+    fireEvent.keyDown(focusedPlayer(), { key: 'ArrowDown' })
+
+    expect(useAudioStore.getState().volume).toBe(0.2)
+    expect(lastPlayerProps().volume).toBe(0.2)
+  })
+
+  it('ArrowUp raises the saved level on the live channel', () => {
+    useAudioStore.setState({ volume: 0.3, muted: false })
+    renderPlayer(liveChannel('https://fixture/a'))
+
+    fireEvent.keyDown(window, { key: 'ArrowUp' })
+
+    expect(useAudioStore.getState().volume).toBe(0.4)
+    expect(video().volume).toBe(0.4)
+  })
+
+  it('M and arrows work with a player button focused', () => {
+    useAudioStore.setState({ volume: 0.3, muted: false })
+    renderPlayer(hlsChannel('1', 1))
+    const mute = screen.getByRole('button', { name: 'Mute' })
+    mute.focus()
+
+    fireEvent.keyDown(mute, { key: 'ArrowDown' })
+    fireEvent.keyDown(mute, { key: 'm' })
+
+    expect(useAudioStore.getState()).toMatchObject({ volume: 0.2, muted: true })
+  })
+
+  it('leaves Up/Down to channel changes in TV mode', () => {
+    localStorage.setItem('tv-mode', 'true')
+    useAudioStore.setState({ volume: 0.3, muted: false })
+    renderPlayer(hlsChannel('1', 1))
+
+    fireEvent.keyDown(window, { key: 'ArrowUp' })
+    fireEvent.keyDown(focusedPlayer(), { key: 'ArrowDown' })
+
+    expect(useAudioStore.getState().volume).toBe(0.3)
+  })
+})

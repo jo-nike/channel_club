@@ -9,14 +9,21 @@ interface UseVideoKeyboardShortcutsOptions {
   onTheaterModeToggle: () => void
   onVolumeChange: (volume: number) => void
   volume: number
+  /** Leave ArrowUp/ArrowDown alone (TV mode, where they belong to channel changes) */
+  ignoreVerticalArrows?: boolean
 }
 
 const VOLUME_STEP = 0.1
 
-function isInteractiveTarget(target: EventTarget | null) {
-  return target instanceof Element && Boolean(target.closest(
-    'button, a[href], input, textarea, select, summary, [contenteditable]:not([contenteditable="false"]), [role="button"], [role="slider"], [role="menuitem"], [role="option"], [role="tab"], [role="checkbox"], [role="switch"], [role="textbox"], [role="combobox"], [role="spinbutton"]'
-  ))
+// Focus on these keeps every key: text entry, sliders, links and composite widgets
+const NATIVE_KEYS_SELECTOR =
+  'a[href], input, textarea, select, summary, [contenteditable]:not([contenteditable="false"]), [role="slider"], [role="menuitem"], [role="option"], [role="tab"], [role="checkbox"], [role="switch"], [role="textbox"], [role="combobox"], [role="spinbutton"]'
+// Buttons keep Space and Enter for activation; other shortcuts still apply
+const BUTTON_SELECTOR = 'button, [role="button"]'
+const ACTIVATION_KEYS = new Set([' ', 'Enter'])
+
+function matches(target: EventTarget | null, selector: string) {
+  return target instanceof Element && Boolean(target.closest(selector))
 }
 
 export function useVideoKeyboardShortcuts({
@@ -27,6 +34,7 @@ export function useVideoKeyboardShortcuts({
   onTheaterModeToggle,
   onVolumeChange,
   volume,
+  ignoreVerticalArrows = false,
 }: UseVideoKeyboardShortcutsOptions) {
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -35,14 +43,22 @@ export function useVideoKeyboardShortcuts({
       const container = containerRef.current
       const activeElement = document.activeElement
 
+      const focusMatches = (selector: string) =>
+        matches(e.target, selector) || matches(activeElement, selector)
+
       if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey ||
-        isInteractiveTarget(e.target) || isInteractiveTarget(activeElement)) return
+        focusMatches(NATIVE_KEYS_SELECTOR) || focusMatches('[role="dialog"]')) return
 
       // Check if event target is within video container or is the body
       const isWithinContainer =
         container?.contains(activeElement) || activeElement === document.body
 
       if (!isWithinContainer) return
+
+      // A focused player button keeps its native Space/Enter activation
+      if (ACTIVATION_KEYS.has(e.key) && focusMatches(BUTTON_SELECTOR)) return
+
+      if (ignoreVerticalArrows && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) return
 
       switch (e.key) {
         case ' ': // Space - Play/Pause
@@ -65,12 +81,14 @@ export function useVideoKeyboardShortcuts({
           onTheaterModeToggle()
           break
 
-        case 'ArrowRight': // Arrow Right - Volume up
+        case 'ArrowUp': // Arrow Up - Volume up
+        case 'ArrowRight': // Arrow Right - Volume up (alias)
           e.preventDefault()
           onVolumeChange(Math.min(1, volume + VOLUME_STEP))
           break
 
-        case 'ArrowLeft': // Arrow Left - Volume down
+        case 'ArrowDown': // Arrow Down - Volume down
+        case 'ArrowLeft': // Arrow Left - Volume down (alias)
           e.preventDefault()
           onVolumeChange(Math.max(0, volume - VOLUME_STEP))
           break
@@ -87,6 +105,7 @@ export function useVideoKeyboardShortcuts({
       onTheaterModeToggle,
       onVolumeChange,
       volume,
+      ignoreVerticalArrows,
     ]
   )
 

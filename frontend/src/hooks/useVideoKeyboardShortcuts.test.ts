@@ -86,6 +86,36 @@ describe('useVideoKeyboardShortcuts', () => {
     expect(mockProps.onVolumeChange).toHaveBeenCalledWith(0.4)
   })
 
+  it('increases volume when ArrowUp is pressed', () => {
+    renderHook(() => useVideoKeyboardShortcuts(mockProps))
+
+    fireKeyEvent('ArrowUp')
+
+    expect(mockProps.onVolumeChange).toHaveBeenCalledWith(0.6)
+  })
+
+  it('decreases volume when ArrowDown is pressed', () => {
+    renderHook(() => useVideoKeyboardShortcuts(mockProps))
+
+    fireKeyEvent('ArrowDown')
+
+    expect(mockProps.onVolumeChange).toHaveBeenCalledWith(0.4)
+  })
+
+  it('leaves ArrowUp/ArrowDown alone when ignoreVerticalArrows is set (TV mode)', () => {
+    renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, ignoreVerticalArrows: true }))
+
+    for (const key of ['ArrowUp', 'ArrowDown']) {
+      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+      window.dispatchEvent(event)
+      expect(event.defaultPrevented).toBe(false)
+    }
+    expect(mockProps.onVolumeChange).not.toHaveBeenCalled()
+
+    fireKeyEvent('ArrowLeft')
+    expect(mockProps.onVolumeChange).toHaveBeenCalledWith(0.4)
+  })
+
   it('does not exceed volume of 1', () => {
     mockProps.volume = 0.95
     renderHook(() => useVideoKeyboardShortcuts(mockProps))
@@ -117,16 +147,17 @@ describe('useVideoKeyboardShortcuts', () => {
 
     document.body.removeChild(input)
   })
-  it.each(['button', 'slider', 'menuitem', 'editable', 'link'])('FE-09 preserves focused %s native keyboard handling', (kind) => {
-    const element = document.createElement(kind === 'button' ? 'button' : kind === 'link' ? 'a' : 'div')
+  it.each(['slider', 'range input', 'menuitem', 'option', 'tab', 'switch', 'editable', 'link'])('FE-09 preserves focused %s native keyboard handling', (kind) => {
+    const element = document.createElement(kind === 'link' ? 'a' : kind === 'range input' ? 'input' : 'div')
     element.tabIndex = 0
     if (kind === 'editable') element.setAttribute('contenteditable', 'true')
     else if (kind === 'link') element.setAttribute('href', '#')
-    else if (kind !== 'button') element.setAttribute('role', kind)
+    else if (kind === 'range input') element.setAttribute('type', 'range')
+    else element.setAttribute('role', kind)
     container.append(element)
     element.focus()
     renderHook(() => useVideoKeyboardShortcuts(mockProps))
-    for (const key of [' ', 'ArrowRight', 'ArrowLeft', 'm', 'f']) {
+    for (const key of [' ', 'ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDown', 'm', 'f']) {
       const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
       element.dispatchEvent(event)
       expect(event.defaultPrevented).toBe(false)
@@ -135,6 +166,61 @@ describe('useVideoKeyboardShortcuts', () => {
     expect(mockProps.onVolumeChange).not.toHaveBeenCalled()
     expect(mockProps.onMuteToggle).not.toHaveBeenCalled()
   })
+  it('handles non-activation keys on a button inside the player but keeps Space/Enter native', () => {
+    const button = document.createElement('button')
+    container.append(button)
+    button.focus()
+    renderHook(() => useVideoKeyboardShortcuts(mockProps))
+
+    for (const key of [' ', 'Enter']) {
+      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+      button.dispatchEvent(event)
+      expect(event.defaultPrevented).toBe(false)
+    }
+    expect(mockProps.onPlayPause).not.toHaveBeenCalled()
+
+    for (const key of ['m', 'f', 't', 'ArrowUp', 'ArrowLeft']) {
+      button.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
+    }
+    expect(mockProps.onMuteToggle).toHaveBeenCalledTimes(1)
+    expect(mockProps.onFullscreenToggle).toHaveBeenCalledTimes(1)
+    expect(mockProps.onTheaterModeToggle).toHaveBeenCalledTimes(1)
+    expect(mockProps.onVolumeChange).toHaveBeenNthCalledWith(1, 0.6)
+    expect(mockProps.onVolumeChange).toHaveBeenNthCalledWith(2, 0.4)
+  })
+
+  it('ignores a focused button outside the player', () => {
+    const button = document.createElement('button')
+    document.body.appendChild(button)
+    button.focus()
+    renderHook(() => useVideoKeyboardShortcuts(mockProps))
+
+    for (const key of ['m', 'ArrowUp', 'ArrowLeft']) {
+      button.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
+    }
+    expect(mockProps.onMuteToggle).not.toHaveBeenCalled()
+    expect(mockProps.onVolumeChange).not.toHaveBeenCalled()
+
+    document.body.removeChild(button)
+  })
+
+  it('ignores keys from inside a dialog, even within the player', () => {
+    const dialog = document.createElement('div')
+    dialog.setAttribute('role', 'dialog')
+    const button = document.createElement('button')
+    dialog.append(button)
+    container.append(dialog)
+    button.focus()
+    renderHook(() => useVideoKeyboardShortcuts(mockProps))
+
+    for (const key of ['m', 'f', 'ArrowUp', 'ArrowLeft']) {
+      button.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
+    }
+    expect(mockProps.onMuteToggle).not.toHaveBeenCalled()
+    expect(mockProps.onFullscreenToggle).not.toHaveBeenCalled()
+    expect(mockProps.onVolumeChange).not.toHaveBeenCalled()
+  })
+
   it('FE-09 respects an already handled player-surface event', () => {
     renderHook(() => useVideoKeyboardShortcuts(mockProps))
     const event = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true })

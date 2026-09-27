@@ -231,6 +231,7 @@ function LiveVideoPlayer({
     onTheaterModeToggle,
     onVolumeChange: handleVolumeChange,
     volume: isMuted ? 0 : volume,
+    ignoreVerticalArrows: isTVMode,
   })
 
   // Auto-fullscreen on mobile landscape
@@ -570,6 +571,7 @@ function HLSControlsWrapper({
     onTheaterModeToggle,
     onVolumeChange: handleVolumeChange,
     volume: isMuted ? 0 : volume,
+    ignoreVerticalArrows: isTVMode,
   })
 
   return (
