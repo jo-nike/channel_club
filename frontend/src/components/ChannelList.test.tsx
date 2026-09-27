@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { toast } from 'sonner'
 import { render, screen, fireEvent, waitFor, act } from '@/test/utils'
 import { ChannelList } from './ChannelList'
 import { useChannelStore } from '@/stores/channelStore'
@@ -415,6 +416,27 @@ describe('ChannelList', () => {
       await waitFor(() => {
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
       })
+    })
+
+    it('should say it could not stop live TV and keep the channel when stopping fails', async () => {
+      const toastError = vi.spyOn(toast, 'error')
+      vi.mocked(api.fetchGroupedChannels).mockResolvedValueOnce(mockGroupedResponse)
+      vi.mocked(api.clearCurrentChannel).mockRejectedValueOnce(new Error('Failed to clear channel'))
+      const tsn = mockGroupedResponse.groups[0].channels[0]
+      useChannelStore.setState({ currentChannel: tsn })
+
+      render(<ChannelList />)
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Stop live TV…' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Stop live TV' }))
+
+      await waitFor(() => {
+        expect(toastError).toHaveBeenCalledWith('Could not stop live TV', {
+          description: 'Failed to clear channel',
+        })
+      })
+      expect(useChannelStore.getState().currentChannel).toEqual(tsn)
+      toastError.mockRestore()
     })
 
     it('should drop an open confirm when live TV stops elsewhere', async () => {

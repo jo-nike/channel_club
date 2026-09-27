@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@/test/utils'
 import { StopLiveTVDialog } from './StopLiveTVDialog'
+import { useAuthStore } from '@/stores/authStore'
 
 interface MockActiveUsers {
   data: { liveUsers: { username: string }[] } | null
@@ -37,6 +38,7 @@ describe('StopLiveTVDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockUseActiveUsers.mockReturnValue(withLiveUsers('alice', 'bob', 'carol'))
+    useAuthStore.setState({ username: 'admin' })
   })
 
   it('asks before stopping live TV for everyone', () => {
@@ -71,7 +73,24 @@ describe('StopLiveTVDialog', () => {
     mockUseActiveUsers.mockReturnValue(withLiveUsers())
     renderDialog()
 
-    expect(screen.getByText(/^No one is watching TSN right now\./)).toBeInTheDocument()
+    expect(screen.getByRole('dialog')).toHaveAccessibleDescription(
+      'Nobody else is watching TSN. Live TV will show "No live broadcast" until someone picks a channel.'
+    )
+  })
+
+  it('leaves the admin pressing Stop out of the count', () => {
+    mockUseActiveUsers.mockReturnValue(withLiveUsers('admin', 'admin', 'alice', 'bob'))
+    renderDialog()
+
+    expect(screen.getByText(/^2 people are watching TSN\./)).toBeInTheDocument()
+  })
+
+  it('says nobody else is watching when only the admin is', () => {
+    mockUseActiveUsers.mockReturnValue(withLiveUsers('admin'))
+    renderDialog()
+
+    expect(screen.getByText(/^Nobody else is watching TSN\./)).toBeInTheDocument()
+    expect(screen.queryByText(/person is watching/)).not.toBeInTheDocument()
   })
 
   it('leaves the count out while loading', () => {
