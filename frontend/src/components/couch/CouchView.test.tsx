@@ -677,7 +677,7 @@ describe('couch styles', () => {
   })
 
   it('shows remote focus in the couch focus colour with a non-colour cue: a thick outline and a scale', () => {
-    expect(rule('.couch .couch-view :focus-visible')).toBe('outline: 4px solid var(--couch-focus);\n  outline-offset: 3px;')
+    expect(rule('.couch .couch-view :focus-visible')).toBe('outline: 5px solid var(--couch-focus);\n  outline-offset: 3px;')
     expect(rule('.couch .couch-view :is(button, [role="button"]):focus-visible')).toBe('transform: scale(1.1);')
   })
 
