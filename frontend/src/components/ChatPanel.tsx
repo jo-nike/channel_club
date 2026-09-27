@@ -366,7 +366,7 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
     : 'animate-in fade-in-0 slide-in-from-right-4 duration-200'
 
   return (
-    <div className={`${panelClasses} ${animationClasses}`}>
+    <div id="chat-panel" className={`${panelClasses} ${animationClasses}`}>
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">

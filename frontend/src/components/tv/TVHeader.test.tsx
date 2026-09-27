@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen, fireEvent, cleanup, within } from '@/test/utils'
+import { render, screen, fireEvent, cleanup, within, act } from '@/test/utils'
 import { TVHeader } from './TVHeader'
 import { useTVStore } from '@/stores/tvStore'
 import { useUIStore } from '@/stores/uiStore'
@@ -107,6 +107,53 @@ describe('TVHeader', () => {
     expect(screen.getByRole('button', { name: 'Hide NHL Scores' })).toHaveAttribute('aria-pressed', 'true')
   })
 
+  it('groups the actions in a Watch controls landmark, in order', () => {
+    auth.isAdmin = true
+    renderHeader()
+
+    const nav = screen.getByRole('navigation', { name: 'Watch controls' })
+    expect(within(nav).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Hide guide',
+      'NHL Scores',
+      'Open admin panel',
+      'Open chat',
+      'Refresh video',
+    ])
+    expect(within(nav).getByTestId('feedback')).toBeInTheDocument()
+    expect(within(nav).getByTestId('settings-menu')).toBeInTheDocument()
+  })
+
+  it('labels Guide and Chat from lg, with Chat as the one filled action', () => {
+    renderHeader()
+
+    const guide = screen.getByRole('button', { name: 'Hide guide' })
+    expect(within(guide).getByText('Guide')).toHaveClass('hidden', 'lg:inline')
+    expect(guide).toHaveAttribute('data-variant', 'toolbar')
+
+    const chat = screen.getByRole('button', { name: 'Open chat' })
+    expect(within(chat).getByText('Chat')).toHaveClass('hidden', 'lg:inline')
+    expect(chat).toHaveAttribute('data-variant', 'default')
+  })
+
+  it('shows the pressed toggles with the toolbar pressed style', () => {
+    useUIStore.setState({ isEPGVisible: false, isNHLOverlayVisible: true })
+    renderHeader()
+
+    const guide = screen.getByRole('button', { name: 'Show guide', pressed: false })
+    const nhl = screen.getByRole('button', { name: 'Hide NHL Scores', pressed: true })
+    for (const toggle of [guide, nhl]) {
+      expect(toggle).toHaveClass('aria-pressed:bg-primary/15', 'aria-pressed:text-primary')
+    }
+  })
+
+  it('draws the NHL toggle as the word NHL, not the Arial shield', () => {
+    renderHeader()
+    const nhl = screen.getByRole('button', { name: 'NHL Scores' })
+    expect(nhl).toHaveTextContent('NHL')
+    expect(nhl.querySelector('svg')).toBeNull()
+    expect(within(nhl).getByText('NHL')).toHaveClass('size-[18px]', 'font-extrabold')
+  })
+
   it('leaves the guide and NHL toggles out on a phone', () => {
     renderHeader({ isMobile: true })
     expect(screen.queryByRole('button', { name: /guide/ })).not.toBeInTheDocument()
@@ -130,6 +177,19 @@ describe('TVHeader', () => {
     expect(screen.queryByRole('button', { name: 'Change live channel' })).not.toBeInTheDocument()
   })
 
+  it("labels the admin button 'Host' from lg and gives it a tooltip", async () => {
+    auth.isAdmin = true
+    renderHeader()
+
+    const host = screen.getByRole('button', { name: 'Open admin panel' })
+    expect(within(host).getByText('Host')).toHaveClass('hidden', 'lg:inline')
+
+    await act(async () => {
+      host.focus()
+    })
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Open admin panel')
+  })
+
   it('gives a viewer the live picker only when the admin allows it', () => {
     const props = renderHeader()
     expect(screen.queryByRole('button', { name: 'Change live channel' })).not.toBeInTheDocument()
@@ -138,7 +198,9 @@ describe('TVHeader', () => {
 
     appSettings.userChannelSelection = true
     const allowed = renderHeader()
-    fireEvent.click(screen.getByRole('button', { name: 'Change live channel' }))
+    const picker = screen.getByRole('button', { name: 'Change live channel' })
+    expect(within(picker).getByText('Change live')).toHaveClass('hidden', 'lg:inline')
+    fireEvent.click(picker)
     expect(allowed.onOpenChannelPicker).toHaveBeenCalledTimes(1)
     expect(props.onOpenChannelPicker).not.toHaveBeenCalled()
   })
