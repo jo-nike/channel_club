@@ -23,9 +23,6 @@ export interface PlayerChromeProps {
   /** Channel name for Chromecast display and the clip editor */
   channelName?: string
   isMobile?: boolean
-  isVisible: boolean
-  onMouseEnter?: () => void
-  onMouseLeave?: () => void
 }
 
 const CONTROL_BUTTON =
@@ -33,8 +30,8 @@ const CONTROL_BUTTON =
 
 /**
  * The player's control bar, the same for every engine: playback through the
- * engine's adapter, volume and mute through the audio store, fullscreen and
- * theater through the player shell.
+ * engine's adapter, volume and mute through the audio store, fullscreen,
+ * theater and its auto-hide visibility through the player shell.
  */
 export function PlayerChrome({
   adapter,
@@ -42,11 +39,16 @@ export function PlayerChrome({
   streamUrl,
   channelName,
   isMobile: isMobileProp = false,
-  isVisible,
-  onMouseEnter,
-  onMouseLeave,
 }: PlayerChromeProps) {
-  const { containerRef, isFullscreen, toggleFullscreen, isTheaterMode, toggleTheaterMode } = usePlayerShell()
+  const {
+    containerRef,
+    isFullscreen,
+    toggleFullscreen,
+    isTheaterMode,
+    toggleTheaterMode,
+    controlsVisible: isVisible,
+    setHoveringControls,
+  } = usePlayerShell()
   const { volume, isStoreMuted, isMuted, canSetVolume, changeVolume, toggleMute } = usePlayerAudio(adapter)
   const isTVMode = useTVMode()
 
@@ -81,8 +83,8 @@ export function PlayerChrome({
     <div
       role="toolbar"
       aria-label="Video controls"
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
+      onMouseEnter={() => setHoveringControls(true)}
+      onMouseLeave={() => setHoveringControls(false)}
       className={`video-controls absolute bottom-4 left-4 right-4 z-10 flex items-center gap-2 rounded-lg bg-black/70 p-2 sm:gap-4 sm:p-4 transition-opacity duration-300 ${
         isVisible ? 'opacity-100' : 'pointer-events-none opacity-0'
       }`}

@@ -48,6 +48,9 @@ const fakeShell = (overrides: Partial<PlayerShell> = {}): PlayerShell => ({
   toggleFullscreen: vi.fn(),
   isTheaterMode: false,
   toggleTheaterMode: vi.fn(),
+  controlsVisible: true,
+  setPlaying: vi.fn(),
+  setHoveringControls: vi.fn(),
   reload: vi.fn(),
   reloadKey: 0,
   ...overrides,
@@ -64,7 +67,7 @@ const renderChrome = ({ adapter: adapterOverrides, shell: shellOverrides, props 
   const shell = fakeShell(shellOverrides)
   const ui = (next: Setup = {}) => (
     <PlayerShellContext value={{ ...shell, ...next.shell }}>
-      <PlayerChrome adapter={{ ...adapter, ...next.adapter }} isVisible={true} {...props} {...next.props} />
+      <PlayerChrome adapter={{ ...adapter, ...next.adapter }} {...props} {...next.props} />
     </PlayerShellContext>
   )
   const view = render(ui())
@@ -441,29 +444,40 @@ describe('PlayerChrome', () => {
   })
 
   describe('visibility', () => {
-    it('is visible when isVisible is true', () => {
-      renderChrome({ props: { isVisible: true } })
+    // The shell's one auto-hide, which overlays read too
+    it('is visible while the shell shows the controls', () => {
+      renderChrome({ shell: { controlsVisible: true } })
 
       expect(toolbar()).toHaveClass('opacity-100')
       expect(toolbar()).not.toHaveClass('opacity-0')
     })
 
-    it('is hidden when isVisible is false', () => {
-      renderChrome({ props: { isVisible: false } })
+    it('is hidden while the shell hides the controls', () => {
+      renderChrome({ shell: { controlsVisible: false } })
 
       expect(toolbar()).toHaveClass('opacity-0')
       expect(toolbar()).toHaveClass('pointer-events-none')
     })
 
+    it('follows the shell as it hides and shows the controls', () => {
+      const { update } = renderChrome({ shell: { controlsVisible: true } })
+
+      update({ shell: { controlsVisible: false } })
+      expect(toolbar()).toHaveClass('opacity-0')
+
+      update({ shell: { controlsVisible: true } })
+      expect(toolbar()).toHaveClass('opacity-100')
+    })
+
     it('buttons are tabbable when visible', () => {
-      renderChrome({ props: { isVisible: true } })
+      renderChrome({ shell: { controlsVisible: true } })
 
       for (const button of screen.getAllByRole('button')) expect(button).toHaveAttribute('tabindex', '0')
       expect(slider()).toHaveAttribute('tabindex', '0')
     })
 
     it('buttons are not tabbable when hidden', () => {
-      renderChrome({ props: { isVisible: false } })
+      renderChrome({ shell: { controlsVisible: false } })
 
       for (const button of screen.getAllByRole('button')) expect(button).toHaveAttribute('tabindex', '-1')
       expect(slider()).toHaveAttribute('tabindex', '-1')
@@ -471,31 +485,23 @@ describe('PlayerChrome', () => {
   })
 
   describe('hover', () => {
-    it('calls onMouseEnter when mouse enters controls', () => {
-      const onMouseEnter = vi.fn()
-      renderChrome({ props: { onMouseEnter } })
+    // A pointer over the bar keeps the shell from hiding it
+    it('tells the shell when the mouse enters the controls', () => {
+      const { shell } = renderChrome()
 
       fireEvent.mouseEnter(toolbar())
 
-      expect(onMouseEnter).toHaveBeenCalledTimes(1)
+      expect(shell.setHoveringControls).toHaveBeenCalledTimes(1)
+      expect(shell.setHoveringControls).toHaveBeenLastCalledWith(true)
     })
 
-    it('calls onMouseLeave when mouse leaves controls', () => {
-      const onMouseLeave = vi.fn()
-      renderChrome({ props: { onMouseLeave } })
+    it('tells the shell when the mouse leaves the controls', () => {
+      const { shell } = renderChrome()
 
+      fireEvent.mouseEnter(toolbar())
       fireEvent.mouseLeave(toolbar())
 
-      expect(onMouseLeave).toHaveBeenCalledTimes(1)
-    })
-
-    it('does not throw when hover handlers are not provided', () => {
-      renderChrome()
-
-      expect(() => {
-        fireEvent.mouseEnter(toolbar())
-        fireEvent.mouseLeave(toolbar())
-      }).not.toThrow()
+      expect(shell.setHoveringControls).toHaveBeenLastCalledWith(false)
     })
   })
 })

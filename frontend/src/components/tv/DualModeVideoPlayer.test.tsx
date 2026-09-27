@@ -1399,6 +1399,79 @@ describe('DualModeVideoPlayer touch: a tap toggles the controls once', () => {
   })
 })
 
+describe('DualModeVideoPlayer auto-hide: one visibility in the shell', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const toolbar = () => screen.getByRole('toolbar', { name: 'Video controls' })
+  const startLive = () =>
+    act(() => {
+      video().dispatchEvent(new Event('playing'))
+    })
+  const waitOut = () =>
+    act(() => {
+      vi.advanceTimersByTime(5000)
+    })
+
+  it.each([
+    ['live', liveChannel('https://fixture/a')],
+    ['ErsatzTV', hlsChannel('1', 1)],
+  ])('%s: the control bar shows and hides with the shell', (engine, channel) => {
+    renderPlayer(channel)
+    if (engine === 'live') startLive()
+    expect(shellProbe.current?.controlsVisible).toBe(true)
+
+    waitOut()
+
+    expect(shellProbe.current?.controlsVisible).toBe(false)
+    expect(toolbar()).toHaveClass('opacity-0')
+  })
+
+  it('hides the pointer over the playing live picture with the controls', () => {
+    renderPlayer(liveChannel('https://fixture/a'))
+    startLive()
+    expect(video().parentElement).not.toHaveClass('cursor-none')
+
+    waitOut()
+
+    expect(video().parentElement).toHaveClass('cursor-none')
+  })
+
+  it('a new stream brings the controls back until it plays', () => {
+    const { switchTo } = renderPlayer(liveChannel('https://fixture/a'))
+    startLive()
+    waitOut()
+    expect(toolbar()).toHaveClass('opacity-0')
+
+    switchTo(liveChannel('https://fixture/b'))
+    expect(toolbar()).toHaveClass('opacity-100')
+
+    startLive()
+    waitOut()
+    expect(toolbar()).toHaveClass('opacity-0')
+  })
+
+  it('the pointer over the bar keeps it up, and a channel change under it does not pin it', () => {
+    const { switchTo } = renderPlayer(liveChannel('https://fixture/a'))
+    startLive()
+    fireEvent.mouseEnter(toolbar())
+    waitOut()
+    expect(toolbar()).toHaveClass('opacity-100')
+
+    // The old bar goes without a mouseleave
+    switchTo(liveChannel('https://fixture/b'))
+    startLive()
+    waitOut()
+
+    expect(toolbar()).toHaveClass('opacity-0')
+  })
+})
+
 describe('DualModeVideoPlayer before a channel is selected', () => {
   it("says 'Tuning in...' with a spinner that only moves when motion is allowed", () => {
     render(<DualModeVideoPlayer channel={null} isTheaterMode={false} onTheaterModeToggle={vi.fn()} />)
