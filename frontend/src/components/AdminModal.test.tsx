@@ -61,6 +61,18 @@ const mockSystemStatusData = {
     activeStreams: 5,
     totalViewers: 10,
   },
+  epg: {
+    name: 'Guide data (XMLTV)',
+    online: true,
+    lastChecked: '2026-01-04T12:00:00Z',
+    error: null,
+    stale: false,
+    channelCount: 109,
+    programmeCount: 5065,
+    lastAttemptAt: '2026-01-04T11:55:00Z',
+    lastSuccessAt: '2026-01-04T11:55:00Z',
+    nextRetryAt: null,
+  },
 }
 
 vi.mock('@/hooks/useSystemStatus', () => ({
