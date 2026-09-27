@@ -186,5 +186,6 @@ describe('ShortcutSheet', () => {
     expect(screen.queryByText('Theater mode')).not.toBeInTheDocument()
     expect(screen.queryByText('Open or close chat')).not.toBeInTheDocument()
     expect(screen.queryByText('Write in the chat over the video')).not.toBeInTheDocument()
+    expect(screen.queryByText('NHL scores')).not.toBeInTheDocument()
   })
 })

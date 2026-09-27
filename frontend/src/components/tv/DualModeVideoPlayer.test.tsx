@@ -1876,6 +1876,19 @@ describe('DualModeVideoPlayer NHL ticker', () => {
     expect(screen.getByText('No live broadcast')).toBeInTheDocument()
     expect(shell()).toContainElement(ticker())
   })
+
+  // A desktop strip outside the title-safe area there; clip capture is off on TVs too
+  it('stays off on the TV layout: N does nothing, and a strip left on elsewhere does not show', () => {
+    localStorage.setItem('tv-mode', 'true')
+    renderPlayer(liveChannel('https://fixture/a'))
+
+    fireEvent.keyDown(shell(), { key: 'n' })
+    expect(useUIStore.getState().isNHLOverlayVisible).toBe(false)
+    expect(ticker()).not.toBeInTheDocument()
+
+    act(() => useUIStore.setState({ isNHLOverlayVisible: true }))
+    expect(ticker()).not.toBeInTheDocument()
+  })
 })
 
 describe('DualModeVideoPlayer info rail', () => {

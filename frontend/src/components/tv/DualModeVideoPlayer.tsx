@@ -250,7 +250,9 @@ export function DualModeVideoPlayer({
     // Not on the TV layout, which has no chat to show: C would open the panel
     // unseen, to spring open once the layout is turned off
     onChatToggle: chatEnabled && !isTVMode ? (canReply ? openComposer : toggleChat) : undefined,
-    onNHLToggle: toggleNHLOverlay,
+    // Not on the TV layout either: the strip is desktop-sized and outside the
+    // title-safe area there, as clip capture is off on TVs
+    onNHLToggle: isTVMode ? undefined : toggleNHLOverlay,
     onClipThat: clipThat,
     onFocusSearch: focusSearch,
   })
