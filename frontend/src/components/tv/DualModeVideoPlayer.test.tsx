@@ -12,6 +12,7 @@ import { useTVStore } from '@/stores/tvStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useChannelZap, type ChannelZap } from '@/hooks/useChannelZap'
 import type { UnifiedChannel } from '@/types'
+import type { NHLGame } from '@/types/nhl'
 import type { PlayerShell } from '@/components/player/PlayerShellContext'
 
 // ----------------------------------------------------------------------------
@@ -153,10 +154,12 @@ vi.mock('@/components/CastButton', async () => {
   }
 })
 
-// The NHL ticker's scores: a day with no games, so nothing is fetched
+// The NHL ticker's scores: a day with no games unless a test adds some, so
+// nothing is fetched
+const nhlScores = vi.hoisted(() => ({ games: [] as NHLGame[] }))
 vi.mock('@/hooks/useNHLScores', () => ({
   useNHLScores: () => ({
-    data: { games: [], date: '2026-09-27', liveGameCount: 0 },
+    data: { games: nhlScores.games, date: '2026-09-27', liveGameCount: 0 },
     isLoading: false,
     error: null,
     refetch: vi.fn(),
@@ -185,6 +188,16 @@ const hlsChannel = (id: string, number: number): UnifiedChannel => ({
   number,
   streamUrl: '',
   type: 'ersatztv',
+})
+
+const nhlGame = (id: number): NHLGame => ({
+  id,
+  status: 'scheduled',
+  homeTeam: { name: `Home ${id}`, abbreviation: `H${id}`, score: 0, logo: '', logoDark: '' },
+  awayTeam: { name: `Away ${id}`, abbreviation: `A${id}`, score: 0, logo: '', logoDark: '' },
+  startTime: '2026-09-27T23:00:00Z',
+  gameCenterLink: 'https://nhl.com/gamecenter/test',
+  broadcasts: [],
 })
 
 const renderPlayer = (channel: UnifiedChannel) => {
@@ -270,6 +283,7 @@ beforeEach(() => {
   clipApi.getHighlightFeatures.mockReset().mockResolvedValue({ enabled: true, ziplineEnabled: false })
   volumeSupport.canSet = true
   chatFeature.enabled = false
+  nhlScores.games = []
   mpegtsHarness.players.length = 0
   mpegtsHarness.createPlayer.mockClear()
   vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
@@ -1609,7 +1623,7 @@ describe('DualModeVideoPlayer filters', () => {
 describe('DualModeVideoPlayer NHL ticker', () => {
   afterEach(() => useUIStore.setState({ isNHLOverlayVisible: false }))
 
-  const ticker = () => screen.queryByRole('dialog', { name: 'NHL' })
+  const ticker = () => screen.queryByRole('region', { name: 'NHL scores' })
 
   it('renders inside the shell, so it shows in fullscreen, and stays across a channel switch', () => {
     useUIStore.setState({ isNHLOverlayVisible: true })
@@ -2085,6 +2099,8 @@ describe('DualModeVideoPlayer touch: a tap toggles the controls once', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+    useUIStore.setState({ isNHLOverlayVisible: false })
+    delete (Element.prototype as Partial<Element>).scrollBy
   })
 
   const toolbar = () => screen.getByRole('toolbar', { name: 'Video controls' })
@@ -2096,7 +2112,7 @@ describe('DualModeVideoPlayer touch: a tap toggles the controls once', () => {
 
   // What a browser fires for one tap, in order. Each is a separate discrete
   // event, so React renders between them.
-  const tapPicture = () => {
+  const tap = (target: () => Element) => {
     const events = [
       new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch' }),
       new Event('touchstart', { bubbles: true }),
@@ -2109,10 +2125,11 @@ describe('DualModeVideoPlayer touch: a tap toggles the controls once', () => {
     ]
     for (const event of events) {
       act(() => {
-        picture().dispatchEvent(event)
+        target().dispatchEvent(event)
       })
     }
   }
+  const tapPicture = () => tap(picture)
 
   it.each([
     ['live', liveChannel('https://fixture/a')],
@@ -2134,6 +2151,24 @@ describe('DualModeVideoPlayer touch: a tap toggles the controls once', () => {
 
     tapPicture()
     expect(toolbar()).toHaveClass('opacity-0')
+  })
+
+  it('a tap on a chevron of the NHL ticker scrolls the games and leaves the controls up', () => {
+    // Twelve games in a row that holds about three, so the right chevron shows.
+    // jsdom has no layout scrolling, so there is no scrollBy to spy on.
+    nhlScores.games = Array.from({ length: 12 }, (_, i) => nhlGame(i + 1))
+    vi.spyOn(Element.prototype, 'scrollWidth', 'get').mockReturnValue(1200)
+    vi.spyOn(Element.prototype, 'clientWidth', 'get').mockReturnValue(300)
+    const scrollBy = vi.fn()
+    Element.prototype.scrollBy = scrollBy
+    useUIStore.setState({ isNHLOverlayVisible: true })
+    renderPlayer(hlsChannel('1', 1))
+    expect(toolbar()).toHaveClass('opacity-100')
+
+    tap(() => screen.getByRole('button', { name: 'Scroll games right' }))
+
+    expect(scrollBy).toHaveBeenCalledTimes(1)
+    expect(toolbar()).toHaveClass('opacity-100')
   })
 })
 
@@ -2490,14 +2525,15 @@ describe('DualModeVideoPlayer channel keys', () => {
     })
 
     describe('swipes on a phone held sideways', () => {
+      afterEach(() => useUIStore.setState({ isNHLOverlayVisible: false }))
+
       const LANDSCAPE = '(pointer: coarse) and (orientation: landscape) and (max-height: 500px)'
       // A swipe on the picture of an 844 x 390 phone, starting mid-height
-      const swipe = (dy: number) => {
-        const target = shell()
-        target.getBoundingClientRect = () => new DOMRect(0, 0, 844, 390)
+      const swipe = (dy: number, from: Element = shell()) => {
+        shell().getBoundingClientRect = () => new DOMRect(0, 0, 844, 390)
         for (const [type, y] of [['pointerdown', 195], ['pointerup', 195 + dy]] as const) {
           act(() => {
-            target.dispatchEvent(
+            from.dispatchEvent(
               new PointerEvent(type, { bubbles: true, pointerType: 'touch', pointerId: 1, clientX: 400, clientY: y })
             )
           })
@@ -2532,6 +2568,20 @@ describe('DualModeVideoPlayer channel keys', () => {
         })
 
         expect(tunes).toEqual(['e3'])
+      })
+
+      it('a swipe that starts on the NHL ticker changes nothing', () => {
+        matchMediaQueries([LANDSCAPE, '(pointer: coarse)'])
+        useUIStore.setState({ isNHLOverlayVisible: true })
+        render(<Page />)
+
+        const ticker = screen.getByRole('region', { name: 'NHL scores' })
+        swipe(80, within(ticker).getByText('No games today'))
+        act(() => {
+          vi.advanceTimersByTime(700)
+        })
+
+        expect(tunes).toEqual([])
       })
 
       it('the shell takes the touch gestures itself, so the browser does not scroll them away', () => {
