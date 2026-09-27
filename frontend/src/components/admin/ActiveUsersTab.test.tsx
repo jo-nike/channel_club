@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen } from '@/test/utils'
+import { render, screen, within } from '@/test/utils'
 import { ActiveUsersTab } from './ActiveUsersTab'
 
 // Mock useActiveUsers hook
@@ -172,6 +172,73 @@ describe('ActiveUsersTab', () => {
 
     // ErsatzTV section should show "No active users"
     expect(screen.getByText('No active users')).toBeInTheDocument()
+  })
+
+  it('shows one person with each session underneath when a username has two sessions', () => {
+    mockUseActiveUsers.mockReturnValue({
+      data: {
+        liveUsers: [
+          {
+            username: 'jon',
+            channel: 'TSN 1',
+            programme: 'NHL Hockey',
+            connectedSince: '2026-01-04T11:00:00Z',
+          },
+          {
+            username: 'alex',
+            channel: 'CBC',
+            programme: null,
+            connectedSince: '2026-01-04T11:10:00Z',
+          },
+          {
+            username: 'jon',
+            channel: 'Sportsnet ONE',
+            programme: null,
+            connectedSince: '2026-01-04T11:45:00Z',
+          },
+        ],
+        ersatztvUsers: [],
+        totals: {
+          liveCount: 3,
+          ersatztvCount: 0,
+        },
+      },
+      loading: false,
+      error: null,
+    })
+
+    render(<ActiveUsersTab />)
+
+    // Three sessions, two people
+    expect(screen.getByText('2 users')).toBeInTheDocument()
+    expect(screen.getAllByText('jon')).toHaveLength(1)
+    expect(screen.getByText('2 sessions')).toBeInTheDocument()
+
+    const jonSessions = within(screen.getByRole('list', { name: "jon's sessions" }))
+      .getAllByRole('listitem')
+      .map((item) => item.textContent)
+    expect(jonSessions).toEqual(['TSN 1 • NHL Hockey • 1h 0m', 'Sportsnet ONE • 15m'])
+
+    // A single session gets no session count
+    expect(within(screen.getByRole('list', { name: "alex's sessions" })).getAllByRole('listitem'))
+      .toHaveLength(1)
+    expect(screen.queryByText('1 sessions')).not.toBeInTheDocument()
+  })
+
+  it('titles the list so it reads on its own inside the People tab', () => {
+    mockUseActiveUsers.mockReturnValue({
+      data: {
+        liveUsers: [],
+        ersatztvUsers: [],
+        totals: { liveCount: 0, ersatztvCount: 0 },
+      },
+      loading: false,
+      error: null,
+    })
+
+    render(<ActiveUsersTab />)
+
+    expect(screen.getByRole('heading', { name: 'Active Users', level: 2 })).toBeInTheDocument()
   })
 
   it('should display "No channel" when user has no channel', () => {

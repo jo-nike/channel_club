@@ -1,6 +1,5 @@
-import { useState } from 'react'
-import { Tv, Check } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { useId, useState } from 'react'
+import { Tv } from 'lucide-react'
 import {
   Card,
   CardContent,
@@ -8,6 +7,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { Switch } from '@/components/ui/switch'
 import { useAppSettings } from '@/hooks/useAppSettings'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { updateAppSettings } from '@/services/api'
@@ -18,6 +18,8 @@ export function UserAccessTab() {
   const setUserChannelSelection = useSettingsStore((s) => s.setUserChannelSelection)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const labelId = useId()
+  const descriptionId = useId()
 
   const handleToggle = async () => {
     const next = !userChannelSelection
@@ -72,23 +74,20 @@ export function UserAccessTab() {
 
           <div className="flex items-center justify-between gap-4">
             <div className="min-w-0">
-              <p className="font-medium">Users can set the live channel</p>
-              <p className="text-sm text-muted-foreground">
+              <p id={labelId} className="font-medium">Users can set the live channel</p>
+              <p id={descriptionId} className="text-sm text-muted-foreground">
                 {userChannelSelection
                   ? 'Anyone watching can change the channel'
                   : 'Only admins can change the channel'}
               </p>
             </div>
-            <Button
-              variant={userChannelSelection ? 'default' : 'outline'}
+            <Switch
+              checked={userChannelSelection}
+              onCheckedChange={handleToggle}
               disabled={isLoading}
-              onClick={handleToggle}
-              aria-pressed={userChannelSelection}
-              className="gap-2 shrink-0"
-            >
-              {userChannelSelection && <Check className="h-4 w-4" />}
-              {userChannelSelection ? 'Enabled' : 'Disabled'}
-            </Button>
+              aria-labelledby={labelId}
+              aria-describedby={descriptionId}
+            />
           </div>
         </CardContent>
       </Card>

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@/test/utils'
+import { render, screen, fireEvent, waitFor, act } from '@/test/utils'
 import { UserAccessTab } from './UserAccessTab'
 import { useSettingsStore } from '@/stores/settingsStore'
 import * as api from '@/services/api'
@@ -16,13 +16,21 @@ describe('UserAccessTab', () => {
     vi.mocked(api.fetchAppSettings).mockResolvedValue({ userChannelSelection: false })
   })
 
-  it('renders the live channel selection setting', async () => {
+  // Let the mount fetch land first, so it can't overwrite the toggle mid-test
+  const settled = () => act(async () => {})
+
+  const liveChannelSwitch = () =>
+    screen.getByRole('switch', { name: 'Users can set the live channel' })
+
+  it('renders the live channel selection setting as a switch', async () => {
     render(<UserAccessTab />)
 
     expect(screen.getByText('Live Channel Selection')).toBeInTheDocument()
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /disabled/i })).toBeInTheDocument()
-    })
+    expect(liveChannelSwitch()).toHaveAttribute('aria-checked', 'false')
+    expect(liveChannelSwitch()).toHaveAccessibleDescription('Only admins can change the channel')
+    // Persistence is deferred, so the card stays honest about it
+    expect(screen.getByText(/resets when the\s+server restarts/)).toBeInTheDocument()
+    await waitFor(() => expect(api.fetchAppSettings).toHaveBeenCalled())
   })
 
   it('reflects the setting fetched from the server', async () => {
@@ -31,60 +39,71 @@ describe('UserAccessTab', () => {
     render(<UserAccessTab />)
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /enabled/i })).toBeInTheDocument()
+      expect(liveChannelSwitch()).toHaveAttribute('aria-checked', 'true')
     })
+    expect(liveChannelSwitch()).toHaveAccessibleDescription('Anyone watching can change the channel')
   })
 
-  it('enables the setting when toggled on', async () => {
-    vi.mocked(api.updateAppSettings).mockResolvedValue({ userChannelSelection: true })
+  it('turns on at once (optimistically) and saves the setting', async () => {
+    let resolveUpdate: (value: { userChannelSelection: boolean }) => void = () => {}
+    vi.mocked(api.updateAppSettings).mockReturnValue(
+      new Promise((resolve) => {
+        resolveUpdate = resolve
+      })
+    )
 
     render(<UserAccessTab />)
+    await settled()
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /disabled/i })).toBeInTheDocument()
-    })
-    fireEvent.click(screen.getByRole('button', { name: /disabled/i }))
+    fireEvent.click(liveChannelSwitch())
 
-    await waitFor(() => {
-      expect(vi.mocked(api.updateAppSettings)).toHaveBeenCalledWith({
-        userChannelSelection: true,
-      })
+    // On before the server answers, and locked until it does
+    expect(liveChannelSwitch()).toHaveAttribute('aria-checked', 'true')
+    expect(liveChannelSwitch()).toBeDisabled()
+    expect(vi.mocked(api.updateAppSettings)).toHaveBeenCalledWith({
+      userChannelSelection: true,
     })
+
+    await act(async () => resolveUpdate({ userChannelSelection: true }))
+
+    expect(liveChannelSwitch()).toBeEnabled()
+    expect(liveChannelSwitch()).toHaveAttribute('aria-checked', 'true')
     expect(useSettingsStore.getState().userChannelSelection).toBe(true)
   })
 
-  it('disables the setting when toggled off', async () => {
+  it('turns off when switched off', async () => {
     vi.mocked(api.fetchAppSettings).mockResolvedValue({ userChannelSelection: true })
     vi.mocked(api.updateAppSettings).mockResolvedValue({ userChannelSelection: false })
 
     render(<UserAccessTab />)
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /enabled/i })).toBeInTheDocument()
+      expect(liveChannelSwitch()).toHaveAttribute('aria-checked', 'true')
     })
-    fireEvent.click(screen.getByRole('button', { name: /enabled/i }))
+    fireEvent.click(liveChannelSwitch())
 
     await waitFor(() => {
       expect(vi.mocked(api.updateAppSettings)).toHaveBeenCalledWith({
         userChannelSelection: false,
       })
     })
+    expect(liveChannelSwitch()).toHaveAttribute('aria-checked', 'false')
     expect(useSettingsStore.getState().userChannelSelection).toBe(false)
   })
 
-  it('reverts and shows an error when the update fails', async () => {
+  it('reverts the switch and shows an error when the update fails', async () => {
     vi.mocked(api.updateAppSettings).mockRejectedValue(new Error('Only admins can change settings'))
 
     render(<UserAccessTab />)
+    await settled()
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /disabled/i })).toBeInTheDocument()
-    })
-    fireEvent.click(screen.getByRole('button', { name: /disabled/i }))
+    fireEvent.click(liveChannelSwitch())
 
     await waitFor(() => {
       expect(screen.getByText('Only admins can change settings')).toBeInTheDocument()
     })
+    expect(liveChannelSwitch()).toHaveAttribute('aria-checked', 'false')
+    expect(liveChannelSwitch()).toBeEnabled()
     expect(useSettingsStore.getState().userChannelSelection).toBe(false)
   })
 })
