@@ -13,7 +13,7 @@ import { useChannelPrefsStore } from '@/stores/channelPrefsStore'
 import { ChannelFilterBar, NoChannelsMatch } from '@/components/tv/ChannelFilterBar'
 import { LivePill } from '@/components/LivePill'
 import { ChannelLogo } from '@/components/ChannelLogo'
-import { ChannelPresenceSpace, ChannelPresenceStack } from '@/components/tv/ChannelPresenceStack'
+import { ChannelPresenceStack } from '@/components/tv/ChannelPresenceStack'
 import { presenceNames, usePresenceByChannel } from '@/hooks/usePresenceByChannel'
 import { calculateProgress, findOnAir, formatRemaining, getProgrammeState } from '@/lib/programmes'
 import { buildProgrammeIndex, findCurrentAndNext, type IndexedProgramme } from '@/lib/programmeIndex'
@@ -467,29 +467,34 @@ function ChannelItem({
   return (
     // One background per row: the live row's tint is on the item, so it runs
     // under the picker too; the selection tint is on the button
-    <li
-      className={cn(
-        isLive && 'bg-live/5',
-        showPickLive ? 'flex items-center pr-3' : (showStar || presence) && 'relative'
-      )}
-    >
-      {/* scroll-mt clears the sticky Channels header and filter when the row is scrolled into view */}
+    <li className={cn('relative', isLive && 'bg-live/5', showPickLive && 'flex items-center pr-3')}>
+      {/* The row's click target is stretched under its content, so the
+          presence stack can sit in the name line without a button inside a
+          button. scroll-mt clears the sticky Channels header and filter when
+          the row is scrolled into view. */}
       <button
         ref={ref}
         onClick={() => onSelect(channel)}
         onFocus={onFocus}
         tabIndex={tabIndex}
         className={cn(
-          'flex scroll-mt-41 items-center gap-3 p-3 text-left transition-colors',
+          'absolute inset-0 scroll-mt-41 transition-colors',
           'hover:bg-accent focus-visible:-outline-offset-2',
-          showPickLive ? 'min-w-0 flex-1' : 'w-full',
-          showStar && 'pr-12',
           // The live row's tint (on the item) wins; the border marks selection
           isSelected && 'border-l-4 border-primary',
           isSelected && !isLive && 'bg-primary/10'
         )}
         aria-current={isSelected ? 'true' : undefined}
         aria-label={label}
+      />
+      {/* What the row shows: clicks pass through to the button under it */}
+      <div
+        data-slot="channel-row-content"
+        className={cn(
+          'pointer-events-none relative flex items-center gap-3 p-3 text-left',
+          showPickLive ? 'min-w-0 flex-1' : 'w-full',
+          showStar && 'pr-12'
+        )}
       >
         {/* Channel logo, or the live slot's icon while it has none */}
         <ChannelLogo
@@ -508,6 +513,18 @@ function ChannelItem({
               {isLive ? (hasLiveChannel ? channel.name : 'Live') : channel.name}
             </span>
             {isLive && hasLiveChannel && <LivePill />}
+            {presence && (
+              // Inline after the name (mockup M1), so it only takes room from
+              // a long name. It shares the row's tab stop, like the star.
+              <ChannelPresenceStack
+                people={presence}
+                channelName={channel.name}
+                isWatching={isSelected}
+                onJoin={() => onSelect(channel)}
+                tabIndex={tabIndex}
+                className="pointer-events-auto self-center"
+              />
+            )}
           </div>
           {/* Beside Pick a channel the idle copy wraps rather than cutting to 'Nothing …' */}
           <p className={cn('text-sm text-muted-foreground', showPickLive ? 'line-clamp-2' : 'truncate')}>
@@ -551,23 +568,10 @@ function ChannelItem({
             />
           </div>
         )}
-        {/* Room for the people on the channel, laid over it below */}
-        {presence && <ChannelPresenceSpace people={presence} />}
-      </button>
-      {presence && (
-        // Over its room: centred like it, at the button's right padding. It
-        // shares the row's tab stop, like the star.
-        <ChannelPresenceStack
-          people={presence}
-          channelName={channel.name}
-          isWatching={isSelected}
-          onJoin={() => onSelect(channel)}
-          tabIndex={tabIndex}
-          className={cn('absolute top-1/2 -translate-y-1/2', showStar ? 'right-12' : 'right-3')}
-        />
-      )}
+      </div>
       {showPickLive && (
-        <Button size="sm" onClick={onPickLive}>
+        // Over the stretched row button, which spans the whole item
+        <Button size="sm" className="relative" onClick={onPickLive}>
           Pick a channel
         </Button>
       )}
