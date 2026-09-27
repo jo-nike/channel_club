@@ -12,16 +12,8 @@ import { useAudioStore } from '@/stores/audioStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useChatEnabled } from '@/hooks/useChatEnabled'
 import { createClientMessageId } from '@/lib/messageId'
+import { clipMessage, pressRange } from '@/lib/clip'
 import type { ChatSendResult } from '@/hooks/useWebSocket'
-
-/** The editor opens on the stretch ending at the press, which is short enough to share. */
-const DEFAULT_CLIP_SECONDS = 20
-
-/** The default selection: the DEFAULT_CLIP_SECONDS that end where the user pressed, or at the capture's end if it stops short of the press. */
-function pressRange(duration: number, press: number): [number, number] {
-  const end = Math.min(duration, Math.max(Math.min(duration, 0.1), press))
-  return [Math.max(0, end - DEFAULT_CLIP_SECONDS), end]
-}
 
 /**
  * How long closing the editor waits to delete a capture after handing the browser a direct download
@@ -40,12 +32,6 @@ const CANCEL_GUARD_MS = 500
  * well short of that: a long caption must never cut the link off.
  */
 const MAX_CAPTION = 200
-
-/** The chat message for a posted clip; chat plays a link ending in .mp4 or .webm inline. */
-function clipMessage(channelName: string, seconds: number, caption: string, url: string) {
-  const length = Number(seconds.toFixed(1))
-  return `Clip from ${channelName} (${length}s)${caption ? `: ${caption}` : ''} ${url}`
-}
 
 /** Lengths offered in the segmented control, each ending where the user pressed */
 const LENGTHS = [10, 20, 30] as const

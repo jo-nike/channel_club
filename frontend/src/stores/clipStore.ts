@@ -9,9 +9,16 @@ export interface ClipSession {
 interface ClipState {
   /** The open clip editor's session, or null when the editor is closed */
   session: ClipSession | null
+  /**
+   * A 'Clip that' is under way: it holds the server's one capture for this
+   * user until it posts, is cancelled or moves to the editor, so neither the
+   * editor nor another 'Clip that' may capture meanwhile
+   */
+  clipping: boolean
   /** Open the editor on a capture of this channel */
   open: (channelId: string, channelName: string) => void
   close: () => void
+  setClipping: (clipping: boolean) => void
 }
 
 /**
@@ -22,6 +29,8 @@ interface ClipState {
  */
 export const useClipStore = create<ClipState>()((set) => ({
   session: null,
+  clipping: false,
   open: (channelId, channelName) => set({ session: { channelId, channelName } }),
   close: () => set({ session: null }),
+  setClipping: (clipping) => set({ clipping }),
 }))

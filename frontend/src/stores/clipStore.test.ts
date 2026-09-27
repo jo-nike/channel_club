@@ -4,7 +4,7 @@ import { useClipStore } from './clipStore'
 describe('clipStore', () => {
   beforeEach(() => {
     localStorage.clear()
-    useClipStore.setState({ session: null })
+    useClipStore.setState({ session: null, clipping: false })
   })
 
   it('starts with no session', () => {
@@ -26,6 +26,14 @@ describe('clipStore', () => {
     useClipStore.getState().open('42', 'Sportsnet')
     useClipStore.getState().open('7', 'TSN')
     expect(useClipStore.getState().session).toEqual({ channelId: '7', channelName: 'TSN' })
+  })
+
+  it('records a Clip that under way until it is done', () => {
+    expect(useClipStore.getState().clipping).toBe(false)
+    useClipStore.getState().setClipping(true)
+    expect(useClipStore.getState().clipping).toBe(true)
+    useClipStore.getState().setClipping(false)
+    expect(useClipStore.getState().clipping).toBe(false)
   })
 
   it('is never saved', () => {

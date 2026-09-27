@@ -15,6 +15,7 @@ import { useVideoKeyboardShortcuts } from '@/hooks/useVideoKeyboardShortcuts'
 import { PLAYER_SHELL_ATTRIBUTE, useFullscreenState } from '@/hooks/useFullscreenState'
 import { useStreamRecovery } from '@/hooks/useStreamRecovery'
 import { useChatEnabled } from '@/hooks/useChatEnabled'
+import { useClipThat } from '@/hooks/useClipThat'
 import { useMobileLandscape } from '@/hooks/useMobileLandscape'
 import { useSwipeZap } from '@/hooks/useSwipeZap'
 import { useCastSdk } from '@/hooks/useChromecast'
@@ -136,6 +137,18 @@ export function DualModeVideoPlayer({
   const reload = useCallback(() => setShellReloads((n) => n + 1), [])
 
   const stepChannel = zap?.step
+
+  // What this viewer's player shows now, for the clip editor's notice and
+  // Clip that: null while live TV is stopped, nothing before a channel is
+  // selected
+  const playingChannel = !channel
+    ? undefined
+    : channel.type === 'live' && !channel.streamUrl
+      ? null
+      : { id: channel.backendId || channel.id, name: channel.name }
+  // One press posts the last 20s of it to chat
+  const clipThat = useClipThat(playingChannel)
+
   const shell = useMemo(
     () => ({
       containerRef,
@@ -155,6 +168,7 @@ export function DualModeVideoPlayer({
       stepChannel,
       reload,
       reloadKey,
+      clipThat,
     }),
     [
       isFullscreen,
@@ -168,6 +182,7 @@ export function DualModeVideoPlayer({
       stepChannel,
       reload,
       reloadKey,
+      clipThat,
     ]
   )
 
@@ -222,14 +237,6 @@ export function DualModeVideoPlayer({
   const isMobileLandscape = useMobileLandscape()
   const isSwipeZap = isMobileLandscape && zap !== undefined
   useSwipeZap({ containerRef, enabled: isSwipeZap, onStep: zap?.step })
-
-  // What this viewer's player shows now, for the clip editor's notice: null
-  // while live TV is stopped, nothing before a channel is selected
-  const playingChannel = !channel
-    ? undefined
-    : channel.type === 'live' && !channel.streamUrl
-      ? null
-      : { id: channel.backendId || channel.id, name: channel.name }
 
   let engine: ReactNode
   if (!channel) {
