@@ -243,6 +243,15 @@ describe('QRPlexLogin', () => {
         expect.objectContaining({ onError })
       )
     })
+
+    it('passes onCodeRequested to usePlexQRAuth, so the caller hears of each new code', () => {
+      const onCodeRequested = vi.fn()
+      render(<QRPlexLogin onSuccess={vi.fn()} onCancel={vi.fn()} onCodeRequested={onCodeRequested} />)
+
+      expect(usePlexQRAuthModule.usePlexQRAuth).toHaveBeenCalledWith(
+        expect.objectContaining({ onCodeRequested })
+      )
+    })
   })
 
   describe('tv variant', () => {

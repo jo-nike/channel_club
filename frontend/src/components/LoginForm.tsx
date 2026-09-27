@@ -154,6 +154,12 @@ export function LoginForm() {
     setError(err.message)
   }
 
+  // A fresh code replaces whatever went wrong before, so a TV never shows an
+  // old error above a code that works. The code screen reports its own timeout.
+  const handleQRCodeRequested = () => {
+    setError('')
+  }
+
   // While the config loads, carry on showing the app's loading screen
   if (configLoading) {
     return <AppLoadingScreen />
@@ -203,7 +209,8 @@ export function LoginForm() {
         <p>{typeof error === 'string' ? error : PLEX_ERROR_COPY[error.code]}</p>
         {error instanceof PlexAuthError && (
           <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" onClick={handlePlexLogin}>
+            {/* Not the amber default: the Plex button stays the one amber action */}
+            <Button type="button" size="sm" variant="secondary" onClick={handlePlexLogin}>
               Try again
             </Button>
             <Button type="button" size="sm" variant="outline" onClick={handleSignInWithCode}>
@@ -236,6 +243,7 @@ export function LoginForm() {
             onSuccess={handleQRPlexSuccess}
             onCancel={handleQRPlexCancel}
             onError={handleQRPlexError}
+            onCodeRequested={handleQRCodeRequested}
           />
         </div>
       </div>
@@ -342,6 +350,7 @@ export function LoginForm() {
             onSuccess={handleQRPlexSuccess}
             onCancel={handleQRPlexCancel}
             onError={handleQRPlexError}
+            onCodeRequested={handleQRCodeRequested}
           />
         )}
       </div>

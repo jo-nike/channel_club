@@ -1027,11 +1027,11 @@ describe('G-07/E-02 Channels and Chat tabs on a phone', () => {
   it('selects the Chat tab from the header chat button, and back', async () => {
     await renderPhone()
 
-    fireEvent.click(within(screen.getByRole('banner')).getByRole('button', { name: 'Open chat' }))
+    fireEvent.click(within(screen.getByRole('banner')).getByRole('button', { name: 'Chat' }))
     expect(tab('Chat')).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByTestId('chat')).toHaveAttribute('data-variant', 'inline')
 
-    fireEvent.click(within(screen.getByRole('banner')).getByRole('button', { name: 'Open chat' }))
+    fireEvent.click(within(screen.getByRole('banner')).getByRole('button', { name: 'Chat' }))
     expect(tab('Channels')).toHaveAttribute('aria-selected', 'true')
   })
 

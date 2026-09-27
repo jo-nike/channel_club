@@ -10,6 +10,8 @@ export interface QRPlexLoginProps {
   onSuccess: (authToken: string) => void
   onCancel: () => void
   onError?: (error: Error) => void
+  /** Each time a new code is asked for (the first, Try Again, auto-restarts). */
+  onCodeRequested?: () => void
   /** 'tv': two columns sized to read from the sofa (steps and code left, a 400px QR right). */
   variant?: QRPlexLoginVariant
   /** Start over with a fresh code on timeout, a few times, before showing Try Again. */
@@ -28,6 +30,7 @@ export function QRPlexLogin({
   onSuccess,
   onCancel,
   onError,
+  onCodeRequested,
   variant = 'default',
   autoRestart = false,
   cancelLabel = 'Cancel',
@@ -35,6 +38,7 @@ export function QRPlexLogin({
   const { shortPin, authUrl, status, timeRemaining, error, start, cancel } = usePlexQRAuth({
     onSuccess,
     onError,
+    onCodeRequested,
     autoRestart,
   })
   const tv = variant === 'tv'

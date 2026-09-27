@@ -38,6 +38,18 @@ describe('HeaderAction', () => {
     expect(await screen.findByRole('tooltip')).toHaveTextContent('Open admin panel')
   })
 
+  it('shows a given tooltip in place of the label, keeping the label as its name', async () => {
+    render(<HeaderAction icon={<LayoutList />} label="Chat" tooltip="Chat (C)" />)
+
+    const button = screen.getByRole('button', { name: 'Chat' })
+    await act(async () => {
+      button.focus()
+    })
+
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Chat (C)')
+    expect(button).toHaveAccessibleName('Chat')
+  })
+
   it('shows a short visible label from lg and widens to fit it', () => {
     render(<HeaderAction icon={<LayoutList />} label="Hide guide" visibleLabel="Guide" />)
 

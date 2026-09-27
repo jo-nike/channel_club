@@ -48,43 +48,52 @@ export function ConnectionStatus({ status, onReconnect }: ConnectionStatusProps)
     }
   }, [isDegraded])
 
-  if (!isDegraded || !isShown) return null
-
+  // The live region stays mounted, empty and out of the layout while all is
+  // well, so screen readers already track it when 'Chat offline' goes in. A
+  // region mounted together with its message often isn't announced.
+  const isVisible = isDegraded && isShown
   const isOffline = status === 'disconnected' || connectionLost
   const isTrying = status === 'connecting' || status === 'reconnecting'
   const label = isOffline ? 'Chat offline' : status === 'connecting' ? 'Connecting...' : 'Reconnecting...'
   const state = isOffline ? 'offline' : status === 'connecting' ? 'connecting' : 'reconnecting'
 
   return (
-    <span role="status" aria-live="polite" className="inline-flex shrink-0 items-center gap-1">
-      <Tooltip>
-        <TooltipTrigger asChild>
-          {/* Focusable so keyboard users can reach the explanation too */}
-          <span
-            tabIndex={0}
-            className={cn(
-              'inline-flex h-6 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 text-xs font-medium',
-              isOffline ? 'bg-destructive/15 text-destructive' : 'bg-warning/15 text-warning'
-            )}
-          >
-            {/* Pulses while an attempt is under way, including the slow ones behind 'Chat offline' */}
+    <span
+      role="status"
+      aria-live="polite"
+      data-slot="connection-status"
+      className={cn('inline-flex shrink-0 items-center gap-1', !isVisible && 'sr-only')}
+    >
+      {isVisible && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            {/* Focusable so keyboard users can reach the explanation too */}
             <span
-              aria-hidden="true"
-              data-testid="connection-dot"
+              tabIndex={0}
               className={cn(
-                'h-2 w-2 shrink-0 rounded-full',
-                isOffline ? 'bg-destructive' : 'bg-warning',
-                isTrying && 'motion-safe:animate-pulse'
+                'inline-flex h-6 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 text-xs font-medium',
+                isOffline ? 'bg-destructive/15 text-destructive' : 'bg-warning/15 text-warning'
               )}
-            />
-            {label}
-          </span>
-        </TooltipTrigger>
-        <TooltipContent>
-          <p>Chat and live-channel sync are {state}. Video is not affected.</p>
-        </TooltipContent>
-      </Tooltip>
-      {isOffline && onReconnect && (
+            >
+              {/* Pulses while an attempt is under way, including the slow ones behind 'Chat offline' */}
+              <span
+                aria-hidden="true"
+                data-testid="connection-dot"
+                className={cn(
+                  'h-2 w-2 shrink-0 rounded-full',
+                  isOffline ? 'bg-destructive' : 'bg-warning',
+                  isTrying && 'motion-safe:animate-pulse'
+                )}
+              />
+              {label}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>Chat and live-channel sync are {state}. Video is not affected.</p>
+          </TooltipContent>
+        </Tooltip>
+      )}
+      {isVisible && isOffline && onReconnect && (
         <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={onReconnect}>
           Retry
         </Button>
