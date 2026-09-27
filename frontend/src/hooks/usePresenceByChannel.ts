@@ -4,7 +4,7 @@ import { useSettingsStore } from '@/stores/settingsStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useChatStore, isOwnMessage, type ChatIdentity } from '@/stores/chatStore'
 import { LIVE_CHANNEL_ID } from '@/stores/tvStore'
-import type { PresenceEntry, UnifiedChannel } from '@/types'
+import type { ChatMessage, PresenceEntry, UnifiedChannel } from '@/types'
 
 /** Who this viewer is, as the chat knows them (chatStore's nickname and me). */
 export interface OwnIdentity {
@@ -28,7 +28,7 @@ export function isOwnPresence(entry: PresenceEntry, own: OwnIdentity): boolean {
  * backendId, which no row carries as its id. An ErsatzTV channel reports
  * its own id, which is the row's id.
  */
-export function presenceRowId(entry: PresenceEntry): string | null {
+export function presenceRowId(entry: Pick<PresenceEntry, 'view' | 'channelId'>): string | null {
   if (entry.view === 'live') return LIVE_CHANNEL_ID
   if (entry.view === 'ersatztv' && entry.channelId) return entry.channelId
   return null
@@ -39,7 +39,10 @@ export function presenceRowId(entry: PresenceEntry): string | null {
  * ErsatzTV channel is the row whose backendId ?? id is theirs. Null when
  * the row isn't in this viewer's list (or live TV has nothing on).
  */
-export function findPresenceChannel(entry: PresenceEntry, channels: UnifiedChannel[]): UnifiedChannel | null {
+export function findPresenceChannel(
+  entry: Pick<PresenceEntry, 'view' | 'channelId'>,
+  channels: UnifiedChannel[]
+): UnifiedChannel | null {
   if (presenceRowId(entry) === null) return null
   if (entry.view === 'live') {
     const live = channels[0]
@@ -50,6 +53,30 @@ export function findPresenceChannel(entry: PresenceEntry, channels: UnifiedChann
     channels.find((channel) => channel.type === 'ersatztv' && (channel.backendId ?? channel.id) === entry.channelId) ??
     null
   )
+}
+
+/**
+ * The channel row a chat message was sent from (its server stamp), as
+ * findPresenceChannel. A stamp is from the moment it was sent, so live TV
+ * only counts while it still shows the same Dispatcharr channel.
+ */
+export function findMessageChannel(message: ChatMessage, channels: UnifiedChannel[]): UnifiedChannel | null {
+  const stamp = { view: message.view ?? null, channelId: message.channelId ?? null }
+  const channel = findPresenceChannel(stamp, channels)
+  if (channel?.type === 'live' && channel.backendId !== stamp.channelId) return null
+  return channel
+}
+
+/**
+ * The people who share no channel while channels are shown: they hide what
+ * they watch. Keyed by userId (names can repeat), for dropping their chips.
+ */
+export function hidingUserIds(entries: PresenceEntry[]): Set<string> {
+  const hiding = new Set<string>()
+  for (const entry of entries) {
+    if (entry.userId && entry.view === null) hiding.add(entry.userId)
+  }
+  return hiding
 }
 
 /**

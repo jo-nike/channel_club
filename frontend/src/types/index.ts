@@ -134,8 +134,16 @@ export interface ChatMessage {
   content: string
   timestamp: string // ISO8601
   // 'system' is a line the server posts about a shared event (someone changing
-  // Live), with the whole sentence as content. Absent from older servers: 'user'
+  // Live), with the whole sentence as content; 'share' is a member's
+  // now-playing card, its content the same in words. Absent from older servers: 'user'
   kind?: 'user' | 'system' | 'share'
+  // Where the sender was watching when they posted, stamped by the server from
+  // presence (as in PresenceEntry). Null unless the admin shows what everyone
+  // is watching and the sender doesn't hide it; absent from older servers
+  channelId?: string | null
+  channelName?: string | null
+  programme?: string | null
+  view?: 'live' | 'ersatztv' | null
 }
 
 // Presence types

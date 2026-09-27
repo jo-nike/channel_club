@@ -89,7 +89,7 @@ export function TVView() {
   const { userChannelSelection } = useAppSettings()
 
   // WebSocket for presence tracking and chat
-  const { status, reconnect, sendChannelUpdate, sendChatMessage, sendSetNickname } = useWebSocket({ view: 'tv' })
+  const { status, reconnect, sendChannelUpdate, sendChatMessage, sendShare, sendSetNickname } = useWebSocket({ view: 'tv' })
 
   // ErsatzTV store - for loading channels and programmes. Field selectors,
   // so unrelated store updates don't re-render the whole view
@@ -653,6 +653,7 @@ export function TVView() {
           >
             <ChatPanel
               onSendMessage={sendChatMessage}
+              onShare={sendShare}
               onSetNickname={sendSetNickname}
               status={status}
               onReconnect={reconnect}

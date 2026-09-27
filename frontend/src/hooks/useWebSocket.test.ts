@@ -1146,6 +1146,58 @@ describe('useWebSocket', () => {
       expect(line.content).toBe('jon switched Live to TSN 5')
     })
 
+    test('passes the channel the server stamped through to the store', () => {
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({
+          type: 'chat_message',
+          messageId: 'msg-1',
+          username: 'maya',
+          userId: 'u_maya',
+          content: 'lol',
+          timestamp: '2026-01-08T12:00:00Z',
+          kind: 'user',
+          channelId: 'etv-2',
+          channelName: 'Cartoons',
+          programme: 'Futurama',
+          view: 'ersatztv',
+        })
+      })
+
+      expect(useChatStore.getState().messages[0]).toMatchObject({
+        channelId: 'etv-2',
+        channelName: 'Cartoons',
+        programme: 'Futurama',
+        view: 'ersatztv',
+      })
+    })
+
+    test('keeps a share card with its channel', () => {
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({
+          type: 'chat_message',
+          messageId: 'share-1',
+          username: 'maya',
+          content: 'Watching TSN 5 · CFL Football',
+          timestamp: '2026-01-08T12:00:00Z',
+          kind: 'share',
+          channelId: '42',
+          channelName: 'TSN 5',
+          programme: 'CFL Football',
+          view: 'live',
+        })
+      })
+
+      expect(useChatStore.getState().messages[0]).toMatchObject({ kind: 'share', channelName: 'TSN 5', view: 'live' })
+    })
+
     test('ignores chat_message when missing required fields', () => {
       renderHook(() => useWebSocket())
       const ws = MockWebSocket.instances[0]
@@ -1239,6 +1291,51 @@ describe('useWebSocket', () => {
         result.current.sendChatMessage('Hello everyone!')
       })
 
+      expect(ws.send).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('sendShare', () => {
+    test('sends a share with only its clientMessageId, never a channel', () => {
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+      act(() => ws.simulateOpen())
+
+      act(() => {
+        result.current.sendShare('share-id-1')
+      })
+
+      expect(JSON.parse(ws.send.mock.calls.at(-1)![0])).toEqual({ type: 'share', clientMessageId: 'share-id-1' })
+    })
+
+    test('resolves acknowledged when the server accepts it', async () => {
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+      act(() => ws.simulateOpen())
+
+      const sharing = result.current.sendShare()
+      const { clientMessageId } = JSON.parse(ws.send.mock.calls.at(-1)![0])
+      act(() => ws.simulateMessage({ type: 'chat_ack', clientMessageId, accepted: true, messageId: 'server-id' }))
+
+      await expect(sharing).resolves.toBe('acknowledged')
+    })
+
+    test('resolves not-sent when the server refuses it (channel private)', async () => {
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+      act(() => ws.simulateOpen())
+
+      const sharing = result.current.sendShare('share-id-2')
+      act(() => ws.simulateMessage({ type: 'chat_ack', clientMessageId: 'share-id-2', accepted: false }))
+
+      await expect(sharing).resolves.toBe('not-sent')
+    })
+
+    test('does not send when not connected', async () => {
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      await expect(result.current.sendShare()).resolves.toBe('not-sent')
       expect(ws.send).not.toHaveBeenCalled()
     })
   })

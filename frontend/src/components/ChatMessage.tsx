@@ -4,7 +4,24 @@ import type { ChatMessage as ChatMessageType } from '@/types'
 import { detectMediaUrls } from '@/lib/mediaDetection'
 import { MEMBER_COLOR_CLASS, memberColorStyle, memberKey } from '@/lib/memberColor'
 import { ChatMediaEmbed } from './ChatMediaEmbed'
+import { LivePill } from './LivePill'
 import { MemberAvatar } from './MemberAvatar'
+
+/**
+ * The channel a message was sent from (the server's stamp) or a share card
+ * shows, resolved against this viewer's channel list.
+ */
+export interface MessageChannel {
+  name: string
+  programme?: string | null
+  // Live TV (channel 0): marked with the LIVE pill instead of a number
+  live: boolean
+  // The row's number in this viewer's list; absent when it isn't listed
+  number?: number
+  // Tune to it. Absent on your own messages, when you're on it already, or
+  // when it can't be reached from here
+  onJoin?: () => void
+}
 
 export interface ChatMessageProps {
   message: ChatMessageType
@@ -17,6 +34,75 @@ export interface ChatMessageProps {
   isLastInGroup?: boolean
   // On a system line: go to Live (channel 0). Omitted, the line has no Watch
   onWatch?: () => void
+  // Where the sender was watching: a chip on a message ('on 2 Cartoons ·
+  // Join'), or the card of a share. Omitted, a message has no chip and a
+  // share shows its text
+  channel?: MessageChannel
+}
+
+/** The channel's mark: the LIVE pill for channel 0, otherwise its number. */
+function ChannelMark({ channel }: { channel: MessageChannel }) {
+  if (channel.live) return <LivePill />
+  if (channel.number === undefined) return null
+  return <span className="font-display font-bold tabular-nums">{channel.number}</span>
+}
+
+/**
+ * 'on 2 Cartoons · Join': where the sender was when they posted. Join is a
+ * button of its own; the rest is text. (The spaces between the flex items
+ * aren't drawn, but keep the words apart for screen readers.)
+ */
+function ChannelChip({ channel, sender }: { channel: MessageChannel; sender: string }) {
+  return (
+    <span data-slot="message-channel" className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+      <span className="shrink-0">on</span>{' '}
+      <ChannelMark channel={channel} />{' '}
+      <span className="truncate">{channel.name}</span>
+      {channel.onJoin && (
+        <>
+          {' '}<span aria-hidden="true">·</span>{' '}
+          <Button
+            variant="link"
+            size="sm"
+            className="h-auto shrink-0 p-0 text-xs"
+            aria-label={`Join ${sender} on ${channel.name}`}
+            onClick={channel.onJoin}
+          >
+            Join
+          </Button>
+        </>
+      )}
+    </span>
+  )
+}
+
+/** A member's now-playing card: what they're watching, with Watch to go there. */
+function ShareCard({ channel, sender, isOwn }: { channel: MessageChannel; sender: string; isOwn: boolean }) {
+  return (
+    <div
+      data-slot="share-card"
+      className="flex w-60 max-w-[85%] flex-col gap-1 rounded-lg border border-border bg-card px-3 py-2.5 text-card-foreground"
+    >
+      <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+        {isOwn ? "You're watching" : 'Watching'}
+      </p>
+      <p className="flex min-w-0 items-center gap-1.5 text-sm font-semibold">
+        <ChannelMark channel={channel} />{' '}
+        <span className="truncate">{channel.name}</span>
+      </p>
+      {channel.programme && <p className="truncate text-sm text-muted-foreground">{channel.programme}</p>}
+      {channel.onJoin && (
+        <Button
+          size="sm"
+          className="mt-1 self-start"
+          aria-label={`Watch ${channel.name} with ${sender}`}
+          onClick={channel.onJoin}
+        >
+          Watch
+        </Button>
+      )}
+    </div>
+  )
 }
 
 /**
@@ -96,6 +182,7 @@ export function ChatMessage({
   isFirstInGroup = true,
   isLastInGroup = true,
   onWatch,
+  channel,
 }: ChatMessageProps) {
   const formattedTime = formatTimestamp(message.timestamp, now)
 
@@ -123,6 +210,10 @@ export function ChatMessage({
     )
   }
 
+  const shareCard = message.kind === 'share' && channel
+  // The chip heads the sender's group (a new channel starts a new group)
+  const chip = !shareCard && channel && isFirstInGroup ? channel : undefined
+
   // Other people's names and faces, and your own bubble, take the sender's member colour
   return (
     <div
@@ -141,16 +232,29 @@ export function ChatMessage({
       <div className={`flex min-w-0 flex-1 flex-col gap-0.5 ${isOwn ? 'items-end' : 'items-start'}`}>
         {/* Above the bubble, on the panel, where the member colours keep 4.5:1 */}
         {!isOwn && isFirstInGroup && (
-          <span className="px-1 text-xs font-semibold text-(--member)">{message.username}</span>
+          <span className="flex max-w-full min-w-0 items-center gap-1.5 px-1">
+            <span className="shrink-0 text-xs font-semibold text-(--member)">{message.username}</span>
+            {chip && <ChannelChip channel={chip} sender={message.username} />}
+          </span>
         )}
-        {/* Your own bubble is tinted with your colour */}
-        <div
-          className={`max-w-[85%] rounded-lg px-3 py-2 overflow-hidden text-foreground ${
-            isOwn ? 'bg-member-surface' : 'bg-muted'
-          }`}
-        >
-          {renderedContent}
-        </div>
+        {/* Yours has no name above it, so the chip stands alone */}
+        {isOwn && chip && (
+          <span className="flex max-w-full min-w-0 px-1">
+            <ChannelChip channel={chip} sender={message.username} />
+          </span>
+        )}
+        {shareCard ? (
+          <ShareCard channel={shareCard} sender={message.username} isOwn={isOwn} />
+        ) : (
+          /* Your own bubble is tinted with your colour */
+          <div
+            className={`max-w-[85%] rounded-lg px-3 py-2 overflow-hidden text-foreground ${
+              isOwn ? 'bg-member-surface' : 'bg-muted'
+            }`}
+          >
+            {renderedContent}
+          </div>
+        )}
         {isLastInGroup && (
           <span className="text-xs text-muted-foreground px-1">{formattedTime}</span>
         )}

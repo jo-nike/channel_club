@@ -326,4 +326,104 @@ describe('ChatMessage', () => {
       expect(screen.queryByRole('button', { name: 'Watch' })).not.toBeInTheDocument()
     })
   })
+
+  describe('channel chip', () => {
+    const cartoons = { name: 'Cartoons', live: false, number: 2 }
+
+    it("reads 'on 2 Cartoons · Join' beside the sender's name, and Join calls back", () => {
+      const onJoin = vi.fn()
+      const { container } = render(
+        <ChatMessage message={createMessage({ username: 'maya' })} now={NOW} channel={{ ...cartoons, onJoin }} />
+      )
+      const chip = container.querySelector('[data-slot="message-channel"]') as HTMLElement
+      expect(chip).toHaveTextContent('on 2 Cartoons · Join')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Join maya on Cartoons' }))
+      expect(onJoin).toHaveBeenCalledTimes(1)
+    })
+
+    it('names the channel without Join when there is nothing to join', () => {
+      const { container } = render(<ChatMessage message={createMessage()} now={NOW} channel={cartoons} />)
+      expect(container.querySelector('[data-slot="message-channel"]')).toHaveTextContent('on 2 Cartoons')
+      expect(screen.queryByRole('button', { name: /join/i })).not.toBeInTheDocument()
+    })
+
+    it('marks live TV with the LIVE pill instead of a number', () => {
+      render(<ChatMessage message={createMessage()} now={NOW} channel={{ name: 'TSN 5', live: true }} />)
+      expect(screen.getByTestId('live-pill')).toBeInTheDocument()
+      expect(screen.getByText('TSN 5')).toBeInTheDocument()
+    })
+
+    it('heads the group only: later bubbles carry no chip', () => {
+      const { container } = render(
+        <ChatMessage message={createMessage()} now={NOW} channel={cartoons} isFirstInGroup={false} />
+      )
+      expect(container.querySelector('[data-slot="message-channel"]')).toBeNull()
+    })
+
+    it('shows on your own messages too, so you see what others see', () => {
+      const { container } = render(<ChatMessage message={createMessage()} now={NOW} isOwn channel={cartoons} />)
+      expect(container.querySelector('[data-slot="message-channel"]')).toHaveTextContent('on 2 Cartoons')
+    })
+
+    it('is absent without a channel', () => {
+      const { container } = render(<ChatMessage message={createMessage()} now={NOW} />)
+      expect(container.querySelector('[data-slot="message-channel"]')).toBeNull()
+    })
+  })
+
+  describe('share card', () => {
+    const share = (overrides: Partial<ChatMessageType> = {}) =>
+      createMessage({
+        username: 'maya',
+        kind: 'share',
+        content: 'Watching TSN 5 · CFL Football',
+        channelId: '42',
+        channelName: 'TSN 5',
+        programme: 'CFL Football',
+        view: 'live',
+        ...overrides,
+      })
+    const tsn = { name: 'TSN 5', programme: 'CFL Football', live: true }
+
+    it('shows what the sender is watching as a card instead of a bubble', () => {
+      const { container } = render(<ChatMessage message={share()} now={NOW} channel={tsn} />)
+      const card = container.querySelector('[data-slot="share-card"]') as HTMLElement
+      expect(card).toHaveTextContent('Watching')
+      expect(card).toHaveTextContent('TSN 5')
+      expect(card).toHaveTextContent('CFL Football')
+      expect(screen.getByTestId('live-pill')).toBeInTheDocument()
+      // The card replaces the text, and has no chip of its own
+      expect(screen.queryByText('Watching TSN 5 · CFL Football')).not.toBeInTheDocument()
+      expect(container.querySelector('[data-slot="message-channel"]')).toBeNull()
+      expect(screen.getByText('maya')).toBeInTheDocument()
+    })
+
+    it('has Watch to go there', () => {
+      const onJoin = vi.fn()
+      render(<ChatMessage message={share()} now={NOW} channel={{ ...tsn, onJoin }} />)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Watch TSN 5 with maya' }))
+      expect(onJoin).toHaveBeenCalledTimes(1)
+    })
+
+    it('shows an ErsatzTV channel by its number, without Watch when there is nothing to do', () => {
+      const { container } = render(
+        <ChatMessage message={share()} now={NOW} channel={{ name: 'Cartoons', live: false, number: 2 }} />
+      )
+      expect(container.querySelector('[data-slot="share-card"]')).toHaveTextContent('2 Cartoons')
+      expect(screen.queryByRole('button', { name: /watch/i })).not.toBeInTheDocument()
+    })
+
+    it("says 'You're watching' on your own card", () => {
+      render(<ChatMessage message={share()} now={NOW} isOwn channel={tsn} />)
+      expect(screen.getByText("You're watching")).toBeInTheDocument()
+    })
+
+    it('falls back to its text without a channel', () => {
+      const { container } = render(<ChatMessage message={share()} now={NOW} />)
+      expect(container.querySelector('[data-slot="share-card"]')).toBeNull()
+      expect(screen.getByText('Watching TSN 5 · CFL Football')).toBeInTheDocument()
+    })
+  })
 })

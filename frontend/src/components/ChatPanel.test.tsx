@@ -5,7 +5,10 @@ import { useChatStore } from '@/stores/chatStore'
 import { usePresenceStore } from '@/stores/presenceStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { useTVStore } from '@/stores/tvStore'
-import type { ChatMessage, PresenceEntry, UnifiedChannel } from '@/types'
+import { useErsatztvStore } from '@/stores/ersatztvStore'
+import { useSettingsStore } from '@/stores/settingsStore'
+import { useUIStore } from '@/stores/uiStore'
+import type { ChatMessage, ErsatzTVChannel, PresenceEntry, UnifiedChannel } from '@/types'
 
 // Stand-in for the GIF picker, which fetches its feature flag: a click picks one fixed GIF
 const GIF_URL = 'https://media.example/cat.gif'
@@ -1588,6 +1591,194 @@ describe('ChatPanel', () => {
       usePresenceStore.setState({ entries: [person('jonike', 'u_me')] })
       render(<ChatPanel onSendMessage={mockOnSendMessage} />)
       expect(screen.queryByRole('button', { name: /here$/ })).not.toBeInTheDocument()
+    })
+  })
+
+  describe('channel context', () => {
+    const base = new Date(2026, 8, 27, 12, 0).getTime()
+    const tsn5 = { id: '42', name: 'TSN 5', streamUrl: 'http://stream/5', guideId: 'guide-5' }
+    const cartoons: ErsatzTVChannel = {
+      id: 'etv-2', name: 'Cartoons', streamUrl: 'http://etv/2', logoUrl: '', number: 2, group: 'Kids',
+    }
+    const movies: ErsatzTVChannel = {
+      id: 'etv-3', name: 'Movies', streamUrl: 'http://etv/3', logoUrl: '', number: 3, group: 'Film',
+    }
+    const moviesRow: UnifiedChannel = { id: 'etv-3', name: 'Movies', number: 3, streamUrl: 'http://etv/3', type: 'ersatztv' }
+    const said = (id: string, overrides: Partial<ChatMessage> = {}): ChatMessage => ({
+      messageId: id,
+      username: 'maya',
+      userId: 'u_maya',
+      content: `Message ${id}`,
+      timestamp: new Date(base - 10_000).toISOString(),
+      kind: 'user',
+      channelId: 'etv-2',
+      channelName: 'Cartoons',
+      programme: 'Futurama',
+      view: 'ersatztv',
+      ...overrides,
+    })
+    const onLive = { channelId: '42', channelName: 'TSN 5', programme: 'CFL Football', view: 'live' as const }
+    const share = (id: string, overrides: Partial<ChatMessage> = {}) =>
+      said(id, { kind: 'share', content: 'Watching TSN 5 · CFL Football', ...onLive, ...overrides })
+    const chips = (container: HTMLElement) => container.querySelectorAll('[data-slot="message-channel"]')
+
+    beforeEach(() => {
+      vi.useFakeTimers()
+      vi.setSystemTime(base)
+      useChatStore.setState({ nickname: null, me: { username: 'jonike', userId: 'u_me' } })
+      useSettingsStore.setState({ presenceVisible: true })
+      useUIStore.setState({ hideMyActivity: false })
+      useChannelStore.setState({ currentChannel: tsn5 })
+      useErsatztvStore.setState({ channels: [cartoons, movies] })
+      useTVStore.setState({ selectedChannel: moviesRow, previousChannelId: null })
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+      useSettingsStore.setState({ presenceVisible: false })
+      useChannelStore.setState({ currentChannel: null })
+      useErsatztvStore.setState({ channels: [] })
+      useTVStore.setState({ selectedChannel: null, previousChannelId: null })
+      usePresenceStore.setState({ entries: [] })
+    })
+
+    it("chips a message with where its sender was, and Join tunes there", () => {
+      useChatStore.setState({ messages: [said('1')] })
+      const { container } = render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(chips(container)[0]).toHaveTextContent('on 2 Cartoons · Join')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Join maya on Cartoons' }))
+      expect(useTVStore.getState().selectedChannel?.id).toBe('etv-2')
+    })
+
+    it('offers no Join on the channel being watched, or on your own message', () => {
+      useTVStore.setState({ selectedChannel: { ...moviesRow, id: 'etv-2', name: 'Cartoons', number: 2 } })
+      useChatStore.setState({
+        messages: [said('1'), said('2', { username: 'jonike', userId: 'u_me', channelId: 'etv-3', channelName: 'Movies' })],
+      })
+      const { container } = render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(chips(container)).toHaveLength(2)
+      expect(screen.queryByRole('button', { name: /^Join/ })).not.toBeInTheDocument()
+    })
+
+    it('joins live TV only while it still shows the channel the message was sent from', () => {
+      useChatStore.setState({ messages: [said('1', onLive), said('2', { ...onLive, userId: 'u_dev', username: 'dev', channelId: '7', channelName: 'TSN 4' })] })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.queryByRole('button', { name: 'Join dev on TSN 4' })).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Join maya on TSN 5' }))
+      expect(useTVStore.getState().selectedChannel?.type).toBe('live')
+    })
+
+    it('shows no chips while the admin setting is off', () => {
+      useSettingsStore.setState({ presenceVisible: false })
+      useChatStore.setState({ messages: [said('1')] })
+      const { container } = render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(chips(container)).toHaveLength(0)
+      expect(screen.getByText('Message 1')).toBeInTheDocument()
+    })
+
+    it('shows no chips to a viewer who hides what they watch', () => {
+      useUIStore.setState({ hideMyActivity: true })
+      useChatStore.setState({ messages: [said('1')] })
+      const { container } = render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(chips(container)).toHaveLength(0)
+    })
+
+    it('drops the chips of a sender who now hides what they watch', () => {
+      usePresenceStore.setState({
+        entries: [{ userId: 'u_maya', displayName: 'maya', channelId: null, channelName: null, programme: null, view: null, since: null }],
+      })
+      useChatStore.setState({ messages: [said('1'), said('2', { userId: 'u_dev', username: 'dev' })] })
+      const { container } = render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(chips(container)).toHaveLength(1)
+      expect(screen.getByRole('button', { name: 'Join dev on Cartoons' })).toBeInTheDocument()
+    })
+
+    it("starts a new group when the sender's channel changes, so each chip heads its messages", () => {
+      useChatStore.setState({
+        messages: [said('1'), said('2'), said('3', { channelId: 'etv-3', channelName: 'Movies' })],
+      })
+      const { container } = render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(Array.from(chips(container)).map((chip) => chip.textContent)).toEqual([
+        expect.stringContaining('Cartoons'),
+        expect.stringContaining('Movies'),
+      ])
+      expect(screen.getAllByText('maya')).toHaveLength(2)
+    })
+
+    it('shows a share as a card with Watch, even while chips are off', () => {
+      useSettingsStore.setState({ presenceVisible: false })
+      useChatStore.setState({ messages: [share('s1')] })
+      const { container } = render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(container.querySelector('[data-slot="share-card"]')).toHaveTextContent('CFL Football')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Watch TSN 5 with maya' }))
+      expect(useTVStore.getState().selectedChannel?.type).toBe('live')
+    })
+
+    describe('Share what I\'m watching', () => {
+      const shareButton = () => screen.queryByRole('button', { name: "Share what I'm watching" })
+
+      it('posts a share through onShare, not as a message, and keeps the draft', async () => {
+        const onShare = vi.fn().mockReturnValue('acknowledged')
+        render(<ChatPanel onSendMessage={mockOnSendMessage} onShare={onShare} />)
+        const input = screen.getByPlaceholderText('Message the club…')
+        fireEvent.change(input, { target: { value: 'half a thought' } })
+
+        await act(async () => fireEvent.click(shareButton()!))
+        expect(onShare).toHaveBeenCalledExactlyOnceWith(expect.any(String))
+        expect(mockOnSendMessage).not.toHaveBeenCalled()
+        expect(input).toHaveValue('half a thought')
+        expect(screen.getByRole('status')).toHaveTextContent("Shared what you're watching")
+      })
+
+      it('says a refused share failed, and Retry shares again under the same id', async () => {
+        const onShare = vi.fn().mockReturnValueOnce('not-sent').mockReturnValueOnce('acknowledged')
+        render(<ChatPanel onSendMessage={mockOnSendMessage} onShare={onShare} />)
+
+        await act(async () => fireEvent.click(shareButton()!))
+        expect(screen.getByRole('alert')).toHaveTextContent("Couldn't share what you're watching.")
+        const [[clientMessageId]] = onShare.mock.calls
+
+        await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Retry' })))
+        expect(onShare).toHaveBeenLastCalledWith(clientMessageId)
+        expect(mockOnSendMessage).not.toHaveBeenCalled()
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      })
+
+      it('is offered only while others may see channels and something is on', () => {
+        const onShare = vi.fn()
+        const { rerender } = render(<ChatPanel onSendMessage={mockOnSendMessage} onShare={onShare} />)
+        expect(shareButton()).toBeInTheDocument()
+
+        act(() => useSettingsStore.setState({ presenceVisible: false }))
+        rerender(<ChatPanel onSendMessage={mockOnSendMessage} onShare={onShare} />)
+        expect(shareButton()).not.toBeInTheDocument()
+
+        act(() => {
+          useSettingsStore.setState({ presenceVisible: true })
+          useUIStore.setState({ hideMyActivity: true })
+        })
+        rerender(<ChatPanel onSendMessage={mockOnSendMessage} onShare={onShare} />)
+        expect(shareButton()).not.toBeInTheDocument()
+
+        act(() => {
+          useUIStore.setState({ hideMyActivity: false })
+          useTVStore.setState({ selectedChannel: null })
+        })
+        rerender(<ChatPanel onSendMessage={mockOnSendMessage} onShare={onShare} />)
+        expect(shareButton()).not.toBeInTheDocument()
+      })
+
+      it('is not offered without onShare', () => {
+        render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+        expect(shareButton()).not.toBeInTheDocument()
+      })
+
+      it('is disabled while offline', () => {
+        render(<ChatPanel onSendMessage={mockOnSendMessage} onShare={vi.fn()} status="disconnected" />)
+        expect(shareButton()).toBeDisabled()
+      })
     })
   })
 
