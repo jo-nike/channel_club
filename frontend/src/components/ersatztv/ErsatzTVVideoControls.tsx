@@ -9,7 +9,7 @@ import { HighlightModal } from '@/components/HighlightModal'
 import { CastButton } from '@/components/CastButton'
 import { FilterMenu } from '@/components/FilterMenu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { useUIStore } from '@/stores/uiStore'
+import { useAudioStore } from '@/stores/audioStore'
 
 export interface ErsatzTVVideoControlsProps {
   /** Container ref for portal rendering (needed for fullscreen popover support) */
@@ -58,27 +58,36 @@ export function ErsatzTVVideoControls({
 
   // Get media state from Vidstack context
   const paused = useMediaState('paused')
-  const volume = useMediaState('volume')
-  const muted = useMediaState('muted')
+  const isElementMuted = useMediaState('muted')
   const fullscreen = useMediaState('fullscreen')
   const remote = useMediaRemote()
 
   const isPlaying = !paused
 
-  // Volume persistence
-  const setStoredVolume = useUIStore((s) => s.setVolume)
+  // Volume and mute come from the audio store, never Vidstack's state, which
+  // reads 100% until the stream can play. MediaPlayer follows the store.
+  const volume = useAudioStore((s) => s.volume)
+  const isStoreMuted = useAudioStore((s) => s.muted)
+  const setStoredVolume = useAudioStore((s) => s.setVolume)
+  const setStoredMuted = useAudioStore((s) => s.setMuted)
+  // The element can also be muted without the viewer asking (clip preview duck)
+  const muted = isStoreMuted || isElementMuted
 
   const handlePlayPause = () => {
     remote.togglePaused()
   }
 
   const handleVolumeChange = (newVolume: number) => {
-    remote.changeVolume(newVolume)
     setStoredVolume(newVolume)
+    // Choosing an audible level also clears a mute that only the element had
+    if (!useAudioStore.getState().muted) remote.unmute()
   }
 
   const handleMuteToggle = () => {
-    remote.toggleMuted()
+    const next = !muted
+    setStoredMuted(next)
+    // An element-only mute leaves the muted prop unchanged, so ask Vidstack too
+    if (!next) remote.unmute()
   }
 
   const handleFullscreenToggle = useCallback(() => {
@@ -105,10 +114,10 @@ export function ErsatzTVVideoControls({
   }, [channelId, containerRef])
   const handleCloseHighlightModal = useCallback(() => setCapture(null), [])
   const acquirePreviewAudio = useCallback(() => {
-    const wasMuted = muted
     remote.mute()
-    return () => { if (!wasMuted) remote.unmute() }
-  }, [remote, muted])
+    // Restore the viewer's saved choice, which may have changed during the preview
+    return () => { if (!useAudioStore.getState().muted) remote.unmute() }
+  }, [remote])
 
   return (
     <div
@@ -170,7 +179,7 @@ export function ErsatzTVVideoControls({
           min="0"
           max="1"
           step="0.05"
-          value={muted ? 0 : volume}
+          value={isStoreMuted ? 0 : volume}
           onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
           aria-label="Volume"
           className="hidden h-2 w-24 cursor-pointer sm:block appearance-none rounded-full bg-white/30 accent-white"

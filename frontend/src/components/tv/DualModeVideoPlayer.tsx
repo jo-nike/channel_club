@@ -5,7 +5,6 @@ import {
   MediaProvider,
   useMediaState,
   useMediaRemote,
-  type MediaPlayerInstance,
 } from '@vidstack/react'
 import '@vidstack/react/player/styles/default/theme.css'
 import { VideoControls } from '@/components/VideoControls'
@@ -22,30 +21,9 @@ import { NoirFilter } from '@/components/filters/NoirFilter'
 import { GrindhouseFilter } from '@/components/filters/GrindhouseFilter'
 import { SportsHDFilter } from '@/components/filters/SportsHDFilter'
 import { useFilterStore } from '@/stores/filterStore'
-import { useUIStore } from '@/stores/uiStore'
 import { useAudioStore } from '@/stores/audioStore'
 import { getErsatzTVStreamUrl } from '@/services/ersatztvApi'
 import type { UnifiedChannel } from '@/types'
-
-// Constants
-const DEFAULT_VOLUME = 1
-
-// Get initial volume from Zustand's localStorage (shared with other players)
-function getInitialVolume(): number {
-  if (typeof window === 'undefined') return DEFAULT_VOLUME
-  try {
-    const stored = localStorage.getItem('ui-storage')
-    if (stored) {
-      const parsed = JSON.parse(stored)
-      if (typeof parsed.state?.volume === 'number') {
-        return parsed.state.volume
-      }
-    }
-  } catch {
-    // Ignore parse errors
-  }
-  return DEFAULT_VOLUME
-}
 
 interface DualModeVideoPlayerProps {
   channel: UnifiedChannel | null
@@ -411,23 +389,14 @@ function HLSVideoPlayerWrapper({
   isMobile,
   onTheaterModeToggle,
 }: HLSVideoPlayerWrapperProps) {
-  const playerRef = useRef<MediaPlayerInstance>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [isBuffering, setIsBuffering] = useState(true)
 
-  // Get initial volume synchronously from localStorage (shared with other players)
-  const [initialVolume] = useState(() => getInitialVolume())
-
-  // Set volume programmatically after player mounts (workaround for Vidstack #1416)
-  useEffect(() => {
-    const player = playerRef.current
-    if (player && initialVolume !== 1) {
-      const timer = setTimeout(() => {
-        player.volume = initialVolume
-      }, 0)
-      return () => clearTimeout(timer)
-    }
-  }, [initialVolume])
+  // Saved volume and mute, passed as controlled props: Vidstack queues each
+  // change until can-play, so channel switches, retry remounts and changes
+  // made while the stream starts all land on the current values.
+  const volume = useAudioStore((s) => s.volume)
+  const muted = useAudioStore((s) => s.muted)
 
   const { status, retryCount, retryKey, handleError, handlePlaying } = useHLSRetry({
     streamUrl,
@@ -466,12 +435,15 @@ function HLSVideoPlayerWrapper({
     <div ref={containerRef} className="relative h-full w-full bg-black flex items-center justify-center">
       <MediaPlayer
         key={retryKey}
-        ref={playerRef}
         src={streamUrl}
         title={title}
         autoPlay
         playsInline
-        volume={initialVolume}
+        volume={volume}
+        muted={muted}
+        // useVideoKeyboardShortcuts is the only keyboard map: Vidstack's own
+        // keys seek, and change volume without saving it
+        keyDisabled
         className="h-full w-full max-h-full max-w-full [&_video]:object-contain"
         onWaiting={handleWaiting}
         onPlaying={onPlaying}
@@ -525,23 +497,35 @@ function HLSControlsWrapper({
   onTheaterModeToggle: () => void
 }) {
   const paused = useMediaState('paused')
-  const volume = useMediaState('volume')
+  const isElementMuted = useMediaState('muted')
   const remote = useMediaRemote()
   const [isHoveringControls, setIsHoveringControls] = useState(false)
 
   // Detect TV mode
   const isTVMode = useTVMode()
 
-  // Volume persistence - persist changes from keyboard shortcuts
-  const setStoredVolume = useUIStore((s) => s.setVolume)
+  // Keyboard volume and mute write the audio store; MediaPlayer follows it
+  const volume = useAudioStore((s) => s.volume)
+  const isStoreMuted = useAudioStore((s) => s.muted)
+  const setStoredVolume = useAudioStore((s) => s.setVolume)
+  const setStoredMuted = useAudioStore((s) => s.setMuted)
+  const isMuted = isStoreMuted || isElementMuted
 
-  const changeVolumeAndPersist = useCallback(
+  const handleVolumeChange = useCallback(
     (newVolume: number) => {
-      remote.changeVolume(newVolume)
       setStoredVolume(newVolume)
+      // Choosing an audible level also clears a mute that only the element had
+      if (!useAudioStore.getState().muted) remote.unmute()
     },
     [remote, setStoredVolume]
   )
+
+  const handleMuteToggle = useCallback(() => {
+    const next = !isMuted
+    setStoredMuted(next)
+    // An element-only mute leaves the muted prop unchanged, so ask Vidstack too
+    if (!next) remote.unmute()
+  }, [isMuted, remote, setStoredMuted])
 
   const isPlaying = !paused
 
@@ -578,14 +562,14 @@ function HLSControlsWrapper({
   useVideoKeyboardShortcuts({
     containerRef,
     onPlayPause: () => remote.togglePaused(),
-    onMuteToggle: () => remote.toggleMuted(),
+    onMuteToggle: handleMuteToggle,
     onFullscreenToggle: () => {
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
       else containerRef.current?.requestFullscreen().catch(() => {})
     },
     onTheaterModeToggle,
-    onVolumeChange: changeVolumeAndPersist,
-    volume,
+    onVolumeChange: handleVolumeChange,
+    volume: isMuted ? 0 : volume,
   })
 
   return (
