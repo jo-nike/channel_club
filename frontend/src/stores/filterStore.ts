@@ -19,7 +19,7 @@ export const FILTER_REGISTRY: FilterDefinition[] = [
   {
     id: 'retro-tv',
     name: 'Retro TV',
-    description: 'CRT scanlines and VHS tracking effects',
+    description: 'CRT scanlines and VHS tracking effects. Includes flicker',
   },
   {
     id: 'film-grain',
@@ -34,7 +34,7 @@ export const FILTER_REGISTRY: FilterDefinition[] = [
   {
     id: 'grindhouse',
     name: 'Grindhouse',
-    description: 'Damaged film: scratches, burns, splices',
+    description: 'Damaged film: scratches, burns, splices. Includes flicker',
   },
   {
     id: 'sports-hd',
