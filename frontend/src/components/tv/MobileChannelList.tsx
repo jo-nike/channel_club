@@ -8,6 +8,8 @@ import { useTVStore, describeLiveGuide, LIVE_CHANNEL_ID } from '@/stores/tvStore
 import { Button } from '@/components/ui/button'
 import { LivePill } from '@/components/LivePill'
 import { ChannelLogo } from '@/components/ChannelLogo'
+import { ChannelPresenceStack } from '@/components/tv/ChannelPresenceStack'
+import { usePresenceByChannel } from '@/hooks/usePresenceByChannel'
 import { cn } from '@/lib/utils'
 import type { ErsatzTVProgramme, UnifiedChannel } from '@/types'
 
@@ -48,6 +50,8 @@ export function MobileChannelList({
 
   const unifiedChannels = getUnifiedChannels()
   const hasLiveChannel = isLiveChannelActive()
+  // Who else is on each card; empty unless this viewer sees channels
+  const presenceByChannel = usePresenceByChannel()
 
   // Now and next per channel: the ErsatzTV index is cached per
   // programmesByChannel (and shared with the guide); the live row gets its own
@@ -105,6 +109,8 @@ export function MobileChannelList({
           const isExpanded = canExpand && expandedChannelId === channel.id
           const scheduleId = `${scheduleIdPrefix}schedule-${index}`
           const channelName = isLive && !hasLiveChannel ? 'Live' : channel.name
+          // The people on the channel, but never on the empty live slot
+          const people = hasLiveChannel || !isLive ? presenceByChannel.get(channel.id) : undefined
 
           const tuneButton = (
             <button
@@ -175,12 +181,23 @@ export function MobileChannelList({
             </button>
           )
 
-          // The tune button, the picker and the chevron are siblings, since
-          // buttons can't nest: tapping the chevron never tunes
+          // The tune button, the people on the channel, the picker and the
+          // chevron are siblings, since buttons can't nest: tapping the
+          // chevron never tunes
           return (
             <div key={channel.id} className={cardClassName}>
               <div className={cn('flex items-center', showPickLive && 'pr-3')}>
                 {tuneButton}
+                {people && people.length > 0 && (
+                  <ChannelPresenceStack
+                    people={people}
+                    channelName={channelName}
+                    isWatching={isSelected}
+                    onJoin={() => onChannelSelect(channel)}
+                    // A 44px touch target
+                    className="h-11 px-1.5"
+                  />
+                )}
                 {showPickLive && (
                   <Button size="sm" onClick={onPickLive}>
                     Pick a channel

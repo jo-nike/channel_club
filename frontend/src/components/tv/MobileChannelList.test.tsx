@@ -3,7 +3,12 @@ import { render, screen, fireEvent, cleanup, act, within } from '@/test/utils'
 import { MobileChannelList } from './MobileChannelList'
 import { useChannelStore } from '@/stores/channelStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
-import { useTVStore } from '@/stores/tvStore'
+import { useTVStore, LIVE_CHANNEL_ID } from '@/stores/tvStore'
+import { usePresenceStore } from '@/stores/presenceStore'
+import { useSettingsStore } from '@/stores/settingsStore'
+import { useUIStore } from '@/stores/uiStore'
+import { useChatStore } from '@/stores/chatStore'
+import type { PresenceEntry, UnifiedChannel } from '@/types'
 
 vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn(() => new Promise(() => {})) }))
 vi.mock('@/services/ersatztvApi', () => ({
@@ -405,5 +410,133 @@ describe('MobileChannelList', () => {
     const { container } = render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={vi.fn()} />)
     // --install-prompt-h is set on <html> only while the banner shows; 0px otherwise
     expect(container.firstElementChild).toHaveClass('pb-[calc(1rem+var(--install-prompt-h,0px))]')
+  })
+})
+
+describe('MobileChannelList presence stacks', () => {
+  const person = (overrides: Partial<PresenceEntry> & Pick<PresenceEntry, 'displayName'>): PresenceEntry => ({
+    userId: `u_${overrides.displayName}`,
+    channelId: null,
+    channelName: null,
+    programme: null,
+    view: null,
+    since: null,
+    ...overrides,
+  })
+  const onCartoons = (displayName: string) =>
+    person({ displayName, view: 'ersatztv', channelId: 'etv2', channelName: 'Cartoons' })
+  // Live TV reports the Dispatcharr id, not the live slot's
+  const maya = person({ displayName: 'maya', view: 'live', channelId: '42', channelName: 'TSN 5' })
+  const me = person({ displayName: 'jonike', view: 'ersatztv', channelId: 'etv1', channelName: 'Movies' })
+
+  const joinButtons = () => screen.queryAllByRole('button', { name: /^Join / })
+
+  beforeEach(() => {
+    useChannelStore.setState({ currentChannel: { id: '42', name: 'TSN 5', streamUrl: '/live/42', guideId: 'tsn5' } })
+    useErsatztvStore.setState({
+      channels: [
+        { id: 'etv1', name: 'Movies', streamUrl: '/etv1', logoUrl: '', number: 1, group: 'Films' },
+        { id: 'etv2', name: 'Cartoons', streamUrl: '/etv2', logoUrl: '', number: 2, group: 'Kids' },
+      ],
+      programmesByChannel: {},
+    })
+    useTVStore.setState({ selectedChannel: null, liveEPG: null, liveEPGStatus: 'idle', liveProgrammes: [] })
+    usePresenceStore.setState({ entries: [maya, me, onCartoons('dev'), onCartoons('sam'), onCartoons('kim')] })
+    useSettingsStore.setState({ presenceVisible: true })
+    useUIStore.setState({ hideMyActivity: false })
+    useChatStore.setState({ nickname: null, me: { username: 'jonike', userId: 'u_jonike' } })
+  })
+
+  afterEach(() => {
+    cleanup()
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels: [], programmesByChannel: {} })
+    useTVStore.setState({ selectedChannel: null })
+    usePresenceStore.setState({ entries: [] })
+    useSettingsStore.setState({ presenceVisible: false })
+    useUIStore.setState({ hideMyActivity: false })
+    useChatStore.setState({ nickname: null, me: null })
+  })
+
+  it("stacks the viewers' avatars on a card, beside its tune button", () => {
+    render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={vi.fn()} />)
+
+    const join = screen.getByRole('button', { name: 'Join dev and 2 others on Cartoons' })
+    const stack = join.querySelector('[data-slot="presence-stack"]')!
+    expect(Array.from(stack.children).map((avatar) => avatar.textContent)).toEqual(['D', 'S', 'K'])
+    const tune = screen.getByText('Cartoons').closest('button')!
+    expect(tune.contains(join)).toBe(false)
+    expect(join.parentElement).toBe(tune.parentElement)
+    // A 44px touch target
+    expect(join).toHaveClass('h-11')
+  })
+
+  it('tunes to the channel when the stack is tapped', () => {
+    const onChannelSelect = vi.fn()
+    render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={onChannelSelect} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Join dev and 2 others on Cartoons' }))
+
+    expect(onChannelSelect).toHaveBeenCalledTimes(1)
+    expect(onChannelSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 'etv2', type: 'ersatztv' }))
+  })
+
+  it('joins people on live TV on the live card, and leaves this viewer out', () => {
+    const onChannelSelect = vi.fn()
+    render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={onChannelSelect} />)
+
+    expect(joinButtons().map((button) => button.getAttribute('aria-label'))).toEqual([
+      'Join maya on TSN 5',
+      'Join dev and 2 others on Cartoons',
+    ])
+    fireEvent.click(screen.getByRole('button', { name: 'Join maya on TSN 5' }))
+    expect(onChannelSelect).toHaveBeenCalledWith(expect.objectContaining({ id: LIVE_CHANNEL_ID, backendId: '42' }))
+  })
+
+  it('only says who is with you on the channel you are watching', () => {
+    useTVStore.setState({ selectedChannel: { id: 'etv2', name: 'Cartoons', number: 2, streamUrl: '/etv2', type: 'ersatztv' } })
+    const onChannelSelect = vi.fn()
+    render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={onChannelSelect} />)
+
+    expect(screen.queryByRole('button', { name: /on Cartoons$/ })).toBeNull()
+    const watching = screen.getByRole('button', { name: 'Watching with dev and 2 others' })
+    expect(watching).toHaveAttribute('aria-disabled', 'true')
+    fireEvent.click(watching)
+    expect(onChannelSelect).not.toHaveBeenCalled()
+  })
+
+  it('keeps focus on the stack once Join tunes the channel', () => {
+    const onChannelSelect = vi.fn((channel: UnifiedChannel) => useTVStore.setState({ selectedChannel: channel }))
+    render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={onChannelSelect} />)
+
+    const join = screen.getByRole('button', { name: 'Join dev and 2 others on Cartoons' })
+    join.focus()
+    act(() => join.click())
+
+    // The same button, now naming who you're with, so focus doesn't drop to the page
+    expect(onChannelSelect).toHaveBeenCalledTimes(1)
+    expect(document.activeElement).toBe(join)
+    expect(join).toHaveAccessibleName('Watching with dev and 2 others')
+  })
+
+  it('shows no stack on the empty live slot', () => {
+    useChannelStore.setState({ currentChannel: null })
+    render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={vi.fn()} />)
+
+    expect(screen.queryByRole('button', { name: /^Join maya/ })).toBeNull()
+  })
+
+  it('renders no stacks while the admin setting is off or the viewer hides what they watch', () => {
+    useSettingsStore.setState({ presenceVisible: false })
+    render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={vi.fn()} />)
+    expect(joinButtons()).toEqual([])
+    expect(document.querySelector('[data-slot="presence-stack"]')).toBeNull()
+    cleanup()
+
+    useSettingsStore.setState({ presenceVisible: true })
+    useUIStore.setState({ hideMyActivity: true })
+    render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={vi.fn()} />)
+    expect(joinButtons()).toEqual([])
+    expect(document.querySelector('[data-slot="presence-stack"]')).toBeNull()
   })
 })
