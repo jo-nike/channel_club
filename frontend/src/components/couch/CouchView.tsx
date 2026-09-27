@@ -89,8 +89,9 @@ function requestPageFullscreen() {
  * a keyboard, for testing with ?tv=1) shows who else is here (RoomPanel,
  * names only unless the admin shows channels), from the guide too, whose
  * hints name it; the panel likewise has the keys until it hides, and says
- * so briefly when nobody else is here. Back leaves fullscreen, and is
- * otherwise the browser's. Play/pause is the player's own (remotePlayPause
+ * so briefly when nobody else is here. Back first lets go of a focused
+ * button (the account menu hands focus back to its own), then leaves
+ * fullscreen, and is otherwise the browser's. Play/pause is the player's own (remotePlayPause
  * in its shortcuts). The pointer, and the account menu with it, hide after
  * 3s at rest.
  */
@@ -175,11 +176,21 @@ export function CouchView({
         e.preventDefault()
         e.stopPropagation()
         openRoom()
-      } else if (action === 'back' && getFullscreenElement()) {
-        // Stops webOS Back (461) and Backspace from also navigating history
-        e.preventDefault()
-        e.stopPropagation()
-        document.exitFullscreen().catch(() => {})
+      } else if (action === 'back') {
+        // A control the account menu handed focus back to lets go of it
+        // first, so OK opens the guide again and the corner fades with the
+        // pointer
+        const focused = document.activeElement
+        if (focused instanceof HTMLElement && focused !== document.body) {
+          e.preventDefault()
+          e.stopPropagation()
+          focused.blur()
+        } else if (getFullscreenElement()) {
+          // Stops webOS Back (461) and Backspace from also navigating history
+          e.preventDefault()
+          e.stopPropagation()
+          document.exitFullscreen().catch(() => {})
+        }
       }
     }
     window.addEventListener('keydown', handleKeyDown, true)
@@ -226,11 +237,12 @@ export function CouchView({
       {isRoomOpen && <RoomPanel onClose={closeRoom} />}
       {/* Without it, a TV layout switched On would have no way back: it shows
           while the pointer moves, so a Magic Remote or mouse can reach it, and
-          while it has keyboard focus, and fades with the idle pointer so it
-          stays off the picture */}
+          while it has keyboard focus or its menu is open (the menu portals
+          outside it), and fades with the idle pointer so it stays off the
+          picture */}
       <div
         className={cn(
-          'absolute right-(--couch-safe-x) top-(--couch-safe-y) z-20 transition-opacity duration-300 has-[:focus-visible]:opacity-100',
+          'absolute right-(--couch-safe-x) top-(--couch-safe-y) z-20 transition-opacity duration-300 has-[:focus-visible]:opacity-100 has-[[aria-expanded=true]]:opacity-100',
           isCursorIdle && 'opacity-0'
         )}
       >
