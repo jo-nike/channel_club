@@ -4,8 +4,8 @@ import { logger } from '@/lib/logger'
 import { useChannelStore } from './channelStore'
 import { useErsatztvStore } from './ersatztvStore'
 import { useUIStore } from './uiStore'
-import { fetchNowPlaying } from '@/services/api'
-import type { Channel, UnifiedChannel, ErsatzTVChannel, EPGResponse } from '@/types'
+import { fetchLiveProgrammes, fetchNowPlaying } from '@/services/api'
+import type { Channel, UnifiedChannel, ErsatzTVChannel, ErsatzTVProgramme, EPGResponse, Program } from '@/types'
 
 // Constants
 export const LIVE_CHANNEL_ID = 'live-channel-0'
@@ -19,6 +19,24 @@ export const LIVE_CHANNEL_ID = 'live-channel-0'
  * - unavailable: the guide couldn't be reached (e.g. the server's 503)
  */
 export type LiveEPGStatus = 'idle' | 'loading' | 'ok' | 'empty' | 'unavailable'
+
+// One empty schedule, so clearing an already empty one doesn't re-render its readers
+const NO_PROGRAMMES: ErsatzTVProgramme[] = []
+
+/**
+ * A live guide programme in the shape the guide grid draws: an ErsatzTV
+ * programme on the live slot, with an id from its start time.
+ */
+export function toLiveProgramme(programme: Program): ErsatzTVProgramme {
+  return {
+    id: `live-${programme.startTime}`,
+    channelId: LIVE_CHANNEL_ID,
+    title: programme.title,
+    description: programme.description,
+    start: programme.startTime,
+    stop: programme.endTime,
+  }
+}
 
 /** What to show for a live channel in place of a programme title. */
 export function describeLiveGuide(status: LiveEPGStatus): string {
@@ -38,9 +56,15 @@ interface TVState {
   // Monotonic id used to discard out-of-order loadLiveEPG responses (internal)
   epgRequestId: number
 
+  // The live channel's schedule (the guide's row 0), as grid programmes
+  liveProgrammes: ErsatzTVProgramme[]
+  // Monotonic id used to discard out-of-order loadLiveProgrammes responses (internal)
+  programmesRequestId: number
+
   // Actions
   selectChannel: (channel: UnifiedChannel) => void
   loadLiveEPG: () => Promise<void>
+  loadLiveProgrammes: () => Promise<void>
 
   // Helpers
   getUnifiedChannels: () => UnifiedChannel[]
@@ -97,6 +121,8 @@ export const useTVStore = create<TVState>()(
     liveEPGLoading: false,
     liveEPGStatus: 'idle',
     epgRequestId: 0,
+    liveProgrammes: NO_PROGRAMMES,
+    programmesRequestId: 0,
 
     selectChannel: (channel: UnifiedChannel) => {
       logger.debug('TVStore', `Selected channel: ${channel.name} (${channel.type})`)
@@ -161,6 +187,38 @@ export const useTVStore = create<TVState>()(
       }
     },
 
+    loadLiveProgrammes: async () => {
+      const liveChannel = useChannelStore.getState().currentChannel
+      // Its own request id: the one-minute now-playing refreshes would
+      // otherwise discard every schedule lookup in flight
+      const requestId = get().programmesRequestId + 1
+      set({ programmesRequestId: requestId })
+
+      // Nothing on live TV, or a channel without a guide id: no schedule
+      if (!liveChannel?.guideId) {
+        set({ liveProgrammes: NO_PROGRAMMES })
+        return
+      }
+
+      const guideId = liveChannel.guideId
+      // Stale like a loadLiveEPG response: a newer lookup started, or the live
+      // channel changed while this one was in flight
+      const isStale = () =>
+        get().programmesRequestId !== requestId ||
+        useChannelStore.getState().currentChannel?.guideId !== guideId
+
+      try {
+        const { programmes } = await fetchLiveProgrammes(guideId, liveChannel.name)
+        if (isStale()) return
+        set({ liveProgrammes: programmes.length > 0 ? programmes.map(toLiveProgramme) : NO_PROGRAMMES })
+      } catch {
+        // Like the now-playing lookup, a failure clears the schedule rather
+        // than leaving an old one up; liveEPGStatus says the guide is down
+        if (isStale()) return
+        set({ liveProgrammes: NO_PROGRAMMES })
+      }
+    },
+
     getUnifiedChannels: () =>
       buildUnifiedChannels(useChannelStore.getState().currentChannel, useErsatztvStore.getState().channels),
 
@@ -206,7 +264,7 @@ useChannelStore.subscribe((state) => {
   if (currentChannel !== previousChannel) {
     const liveChannelSwitched = !!currentChannel && currentChannel.id !== previousChannel?.id
     previousChannel = currentChannel
-    const { selectedChannel, loadLiveEPG } = useTVStore.getState()
+    const { selectedChannel, loadLiveEPG, loadLiveProgrammes } = useTVStore.getState()
 
     // If currently viewing Channel 0, follow it to the new channel
     if (selectedChannel?.type === 'live') {
@@ -216,13 +274,16 @@ useChannelStore.subscribe((state) => {
     if (liveChannelSwitched) {
       // A different channel is on live TV: drop the old one's programme now, so
       // row 0 never shows it under the new channel, and look the new one up
-      // straight away, whichever channel this viewer is watching
-      useTVStore.setState({ liveEPG: null, liveEPGStatus: 'loading' })
+      // straight away, whichever channel this viewer is watching. The same
+      // goes for its schedule.
+      useTVStore.setState({ liveEPG: null, liveEPGStatus: 'loading', liveProgrammes: NO_PROGRAMMES })
       loadLiveEPG()
+      loadLiveProgrammes()
     } else if (selectedChannel?.type === 'live' || !currentChannel) {
       // Same channel with new details, or live TV stopped (which drops its
       // guide state and any lookup in flight)
       loadLiveEPG()
+      if (!currentChannel) loadLiveProgrammes()
     }
 
     logger.debug('TVStore', `Live channel updated: ${currentChannel?.name || 'none'}`)

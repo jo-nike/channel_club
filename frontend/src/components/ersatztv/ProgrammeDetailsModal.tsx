@@ -10,15 +10,21 @@ import { Button } from '@/components/ui/button'
 import { useProgrammeClock } from '@/hooks/useProgrammeClock'
 import { findOnAir, formatRemaining, formatStartsIn, getProgrammeState } from '@/lib/programmes'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
-import { useTVStore } from '@/stores/tvStore'
-import type { ErsatzTVProgramme, ErsatzTVChannel } from '@/types'
+import { useTVStore, LIVE_CHANNEL_ID } from '@/stores/tvStore'
+import type { ErsatzTVProgramme } from '@/types'
+
+/** The channel a programme is on: an ErsatzTV channel, or the live slot. */
+export interface ProgrammeDetailsChannel {
+  id: string
+  name: string
+}
 
 interface ProgrammeDetailsModalProps {
   programme: ErsatzTVProgramme | null
-  channel: ErsatzTVChannel | null
+  channel: ProgrammeDetailsChannel | null
   open: boolean
   onOpenChange: (open: boolean) => void
-  onWatch: (channel: ErsatzTVChannel) => void
+  onWatch: (channel: ProgrammeDetailsChannel) => void
 }
 
 export function ProgrammeDetailsModal({
@@ -30,9 +36,13 @@ export function ProgrammeDetailsModal({
 }: ProgrammeDetailsModalProps) {
   const now = useProgrammeClock()
   const selectedChannelId = useTVStore((s) => s.selectedChannel?.id)
-  const channelProgrammes = useErsatztvStore((s) =>
-    channel ? s.programmesByChannel[channel.id] : undefined
+  // The live slot's schedule is the live channel's, from the live guide
+  const isLiveSlot = channel?.id === LIVE_CHANNEL_ID
+  const liveProgrammes = useTVStore((s) => (isLiveSlot ? s.liveProgrammes : undefined))
+  const ersatzProgrammes = useErsatztvStore((s) =>
+    channel && !isLiveSlot ? s.programmesByChannel[channel.id] : undefined
   )
+  const channelProgrammes = liveProgrammes ?? ersatzProgrammes
 
   if (!programme || !channel) return null
 

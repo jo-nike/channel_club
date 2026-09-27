@@ -2,7 +2,7 @@ import { render, screen, fireEvent, act } from '@/test/utils'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ProgrammeDetailsModal } from './ProgrammeDetailsModal'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
-import { useTVStore } from '@/stores/tvStore'
+import { useTVStore, LIVE_CHANNEL_ID, toLiveProgramme } from '@/stores/tvStore'
 import type { ErsatzTVProgramme, ErsatzTVChannel, UnifiedChannel } from '@/types'
 
 describe('ProgrammeDetailsModal', () => {
@@ -56,7 +56,7 @@ describe('ProgrammeDetailsModal', () => {
     vi.clearAllMocks()
     vi.useFakeTimers()
     vi.setSystemTime(DURING)
-    useTVStore.setState({ selectedChannel: null })
+    useTVStore.setState({ selectedChannel: null, liveProgrammes: [] })
     useErsatztvStore.setState({ programmesByChannel: {} })
   })
 
@@ -213,6 +213,41 @@ describe('ProgrammeDetailsModal', () => {
         vi.advanceTimersByTime(30_000)
       })
       expect(screen.getByRole('button', { name: 'Watch now' })).toBeInTheDocument()
+    })
+  })
+
+  describe('on the live slot', () => {
+    const liveSlot = { id: LIVE_CHANNEL_ID, name: 'CA-S: TSN 5' }
+    const [pregame, hockey] = [
+      { title: 'Pre-game', startTime: '2026-01-03T12:00:00Z', endTime: '2026-01-03T13:00:00Z' },
+      { title: 'Hockey Night', startTime: '2026-01-03T13:00:00Z', endTime: '2026-01-03T16:00:00Z', description: 'Leafs at Habs' },
+    ].map(toLiveProgramme)
+
+    it("upcoming: shows what's on the live channel now, from the live schedule, and offers the live slot", () => {
+      vi.setSystemTime(new Date('2026-01-03T12:30:00Z'))
+      useTVStore.setState({ liveProgrammes: [pregame, hockey] })
+      const onWatch = vi.fn()
+      render(<ProgrammeDetailsModal {...defaultProps} programme={hockey} channel={liveSlot} onWatch={onWatch} />)
+
+      expect(screen.getByText('Hockey Night')).toBeInTheDocument()
+      expect(screen.getByText('Leafs at Habs')).toBeInTheDocument()
+      expect(screen.getByText(/In 30m ·.*CA-S: TSN 5/)).toBeInTheDocument()
+      expect(screen.getByText('On now: Pre-game')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Watch CA-S: TSN 5 now' }))
+      expect(onWatch).toHaveBeenCalledWith(liveSlot)
+    })
+
+    it("upcoming while watching the live slot: says so and offers no watch button", () => {
+      vi.setSystemTime(new Date('2026-01-03T12:30:00Z'))
+      useTVStore.setState({
+        liveProgrammes: [pregame, hockey],
+        selectedChannel: { id: LIVE_CHANNEL_ID, name: 'CA-S: TSN 5', number: 0, streamUrl: '/live', type: 'live' },
+      })
+      render(<ProgrammeDetailsModal {...defaultProps} programme={hockey} channel={liveSlot} />)
+
+      expect(screen.getByText("You're watching CA-S: TSN 5")).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /watch/i })).not.toBeInTheDocument()
     })
   })
 

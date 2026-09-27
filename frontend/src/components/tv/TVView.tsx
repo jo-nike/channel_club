@@ -19,7 +19,7 @@ import { TVChannelSidebar } from '@/components/tv/TVChannelSidebar'
 import { ZapBanner } from '@/components/tv/ZapBanner'
 import { MobileChannelList } from '@/components/tv/MobileChannelList'
 import { TVHeader } from '@/components/tv/TVHeader'
-import { ProgrammeDetailsModal } from '@/components/ersatztv/ProgrammeDetailsModal'
+import { ProgrammeDetailsModal, type ProgrammeDetailsChannel } from '@/components/ersatztv/ProgrammeDetailsModal'
 import { ChatPanel } from '@/components/ChatPanel'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { Button } from '@/components/ui/button'
@@ -29,11 +29,15 @@ import { useResizable } from '@/hooks/useResizable'
 import { useMobileLandscape } from '@/hooks/useMobileLandscape'
 import { AdminModal } from '@/components/AdminModal'
 import { LiveChannelPickerDialog } from '@/components/LiveChannelPickerDialog'
+import { getProgrammeState } from '@/lib/programmes'
 import { cn } from '@/lib/utils'
-import type { ErsatzTVProgramme, UnifiedChannel, ErsatzTVChannel } from '@/types'
+import type { ErsatzTVProgramme, UnifiedChannel } from '@/types'
 
 // Refresh interval for programme data (120 minutes)
 const REFRESH_INTERVAL = 120 * 60 * 1000
+
+// Refresh interval for the live channel's schedule (30 minutes)
+const LIVE_SCHEDULE_REFRESH_INTERVAL = 30 * 60 * 1000
 
 // One fixed id, so repeated ErsatzTV failures replace the toast instead of stacking
 const ERSATZ_ERROR_TOAST_ID = 'ersatz-error'
@@ -65,6 +69,7 @@ export function TVView() {
   const selectChannel = useTVStore((s) => s.selectChannel)
   const liveEPG = useTVStore((s) => s.liveEPG)
   const loadLiveEPG = useTVStore((s) => s.loadLiveEPG)
+  const loadLiveProgrammes = useTVStore((s) => s.loadLiveProgrammes)
   const getUnifiedChannels = useTVStore((s) => s.getUnifiedChannels)
 
   // UI state
@@ -176,7 +181,7 @@ export function TVView() {
   // Modal state
   const [modalOpen, setModalOpen] = useState(false)
   const [selectedProgramme, setSelectedProgramme] = useState<ErsatzTVProgramme | null>(null)
-  const [modalChannel, setModalChannel] = useState<ErsatzTVChannel | null>(null)
+  const [modalChannel, setModalChannel] = useState<ProgrammeDetailsChannel | null>(null)
 
   // Admin modal state
   const [adminModalOpen, setAdminModalOpen] = useState(false)
@@ -263,6 +268,15 @@ export function TVView() {
     return () => { active = false; clearTimeout(timer) }
   }, [liveChannel?.guideId, liveEPG, loadLiveEPG])
 
+  // The live channel's schedule for the guide: now, then every 30 minutes.
+  // The store reloads it itself when live TV switches, and a lookup with
+  // nothing on live TV fetches nothing.
+  useEffect(() => {
+    loadLiveProgrammes()
+    const interval = setInterval(loadLiveProgrammes, LIVE_SCHEDULE_REFRESH_INTERVAL)
+    return () => clearInterval(interval)
+  }, [loadLiveProgrammes])
+
   // Auto-refresh programme data (silent to avoid flash)
   useEffect(() => {
     if (ersatzTVChannels.length === 0) return
@@ -280,7 +294,7 @@ export function TVView() {
   // Handle programme click from grid
   const handleProgrammeClick = useCallback(
     (programme: ErsatzTVProgramme, channel: UnifiedChannel) => {
-      // Convert UnifiedChannel to ErsatzTVChannel for modal compatibility
+      // An ErsatzTV programme opens its details, if its channel is still listed
       if (channel.type === 'ersatztv') {
         const ersatzChannel = ersatzTVChannels.find((c) => c.id === channel.id)
         if (ersatzChannel) {
@@ -289,9 +303,16 @@ export function TVView() {
           setModalOpen(true)
         }
       }
-      // For live channel, just select the channel
+      // Live row: the programme on now tunes to the live slot; any other
+      // opens its details, like an ErsatzTV programme
       if (channel.type === 'live') {
-        selectChannel(channel)
+        if (getProgrammeState(programme, Date.now()) === 'now') {
+          selectChannel(channel)
+        } else {
+          setSelectedProgramme(programme)
+          setModalChannel({ id: channel.id, name: channel.name })
+          setModalOpen(true)
+        }
       }
     },
     [ersatzTVChannels, selectChannel]
@@ -299,8 +320,8 @@ export function TVView() {
 
   // Handle watch from modal
   const handleWatch = useCallback(
-    (channel: ErsatzTVChannel) => {
-      // Find the unified channel and select it
+    (channel: ProgrammeDetailsChannel) => {
+      // Find the unified channel (the live slot too) and select it
       const unifiedChannels = getUnifiedChannels()
       const unified = unifiedChannels.find((c) => c.id === channel.id)
       if (unified) {

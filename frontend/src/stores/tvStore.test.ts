@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useTVStore, LIVE_CHANNEL_ID } from './tvStore'
 import { useChannelStore } from './channelStore'
-import { fetchNowPlaying } from '@/services/api'
-import type { Channel, EPGResponse } from '@/types'
+import { fetchLiveProgrammes, fetchNowPlaying } from '@/services/api'
+import type { Channel, EPGProgrammesResponse, EPGResponse } from '@/types'
 
-vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn() }))
+vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn(), fetchLiveProgrammes: vi.fn() }))
 
 const tsn: Channel = { id: '28', name: 'CA-S: TSN 5', streamUrl: 'http://x/28', guideId: '5' }
 const onNow: EPGResponse = {
@@ -30,6 +30,8 @@ describe('tvStore live guide status', () => {
     // reset below then discards (a newer request id makes it stale)
     useChannelStore.setState({ currentChannel: tsn })
     vi.mocked(fetchNowPlaying).mockReset()
+    vi.mocked(fetchLiveProgrammes).mockReset()
+    vi.mocked(fetchLiveProgrammes).mockResolvedValue({ channelId: '5', programmes: [] })
     useTVStore.setState({
       selectedChannel: null,
       liveEPG: null,
@@ -206,5 +208,144 @@ describe('tvStore live guide status', () => {
       expect(status()).toBe('ok')
       expect(fetchNowPlaying).not.toHaveBeenCalled()
     })
+  })
+})
+
+describe('tvStore live schedule', () => {
+  const schedule: EPGProgrammesResponse = {
+    channelId: '5',
+    programmes: [
+      { title: 'Pre-game', startTime: '2026-09-26T22:30:00Z', endTime: '2026-09-26T23:00:00Z' },
+      { title: 'Hockey Night', startTime: '2026-09-26T23:00:00Z', endTime: '2026-09-27T02:00:00Z', description: 'Leafs at Habs' },
+      { title: 'After Hours', startTime: '2026-09-27T02:00:00Z', endTime: '2026-09-27T03:00:00Z' },
+    ],
+  }
+  const sportsnet: Channel = { id: '31', name: 'CA-S: Sportsnet ONE', streamUrl: 'http://x/31', guideId: '9' }
+  const sportsnetSchedule: EPGProgrammesResponse = {
+    channelId: '9',
+    programmes: [{ title: 'Blue Jays Baseball', startTime: '2026-09-26T23:00:00Z', endTime: '2026-09-27T02:00:00Z' }],
+  }
+  const titles = () => useTVStore.getState().liveProgrammes.map((p) => p.title)
+
+  beforeEach(() => {
+    useChannelStore.setState({ currentChannel: tsn })
+    vi.mocked(fetchNowPlaying).mockReset()
+    vi.mocked(fetchNowPlaying).mockResolvedValue(onNow)
+    vi.mocked(fetchLiveProgrammes).mockReset()
+    useTVStore.setState({
+      selectedChannel: null,
+      liveProgrammes: [],
+      programmesRequestId: useTVStore.getState().programmesRequestId + 1,
+    })
+  })
+
+  it('loads the schedule by guide id with the channel name, as grid programmes on the live slot', async () => {
+    vi.mocked(fetchLiveProgrammes).mockResolvedValue(schedule)
+
+    await useTVStore.getState().loadLiveProgrammes()
+
+    expect(fetchLiveProgrammes).toHaveBeenCalledWith('5', 'CA-S: TSN 5')
+    expect(useTVStore.getState().liveProgrammes).toEqual([
+      { id: 'live-2026-09-26T22:30:00Z', channelId: LIVE_CHANNEL_ID, title: 'Pre-game', description: undefined, start: '2026-09-26T22:30:00Z', stop: '2026-09-26T23:00:00Z' },
+      { id: 'live-2026-09-26T23:00:00Z', channelId: LIVE_CHANNEL_ID, title: 'Hockey Night', description: 'Leafs at Habs', start: '2026-09-26T23:00:00Z', stop: '2026-09-27T02:00:00Z' },
+      { id: 'live-2026-09-27T02:00:00Z', channelId: LIVE_CHANNEL_ID, title: 'After Hours', description: undefined, start: '2026-09-27T02:00:00Z', stop: '2026-09-27T03:00:00Z' },
+    ])
+  })
+
+  it('ignores an older lookup that lands after a newer one answered', async () => {
+    const slow = deferred<EPGProgrammesResponse>()
+    vi.mocked(fetchLiveProgrammes)
+      .mockReturnValueOnce(slow.promise)
+      .mockResolvedValueOnce(schedule)
+
+    const first = useTVStore.getState().loadLiveProgrammes()
+    await useTVStore.getState().loadLiveProgrammes()
+    slow.resolve({ channelId: '5', programmes: [schedule.programmes[0]] })
+    await first
+
+    expect(titles()).toEqual(['Pre-game', 'Hockey Night', 'After Hours'])
+  })
+
+  it('ignores a failure that lands after a newer lookup answered', async () => {
+    const slow = deferred<EPGProgrammesResponse>()
+    vi.mocked(fetchLiveProgrammes).mockReturnValueOnce(slow.promise).mockResolvedValueOnce(schedule)
+
+    const first = useTVStore.getState().loadLiveProgrammes()
+    await useTVStore.getState().loadLiveProgrammes()
+    slow.reject(new Error('Failed to fetch programmes'))
+    await first
+
+    expect(titles()).toEqual(['Pre-game', 'Hockey Night', 'After Hours'])
+  })
+
+  it('clears the schedule when the lookup fails', async () => {
+    vi.mocked(fetchLiveProgrammes).mockResolvedValueOnce(schedule)
+    await useTVStore.getState().loadLiveProgrammes()
+    vi.mocked(fetchLiveProgrammes).mockRejectedValueOnce(new Error('Failed to fetch programmes'))
+
+    await useTVStore.getState().loadLiveProgrammes()
+
+    expect(useTVStore.getState().liveProgrammes).toEqual([])
+  })
+
+  it('has no schedule, without a lookup, for a live channel without a guide id', async () => {
+    useChannelStore.setState({ currentChannel: { ...tsn, guideId: '' } })
+
+    await useTVStore.getState().loadLiveProgrammes()
+
+    expect(fetchLiveProgrammes).not.toHaveBeenCalled()
+    expect(useTVStore.getState().liveProgrammes).toEqual([])
+  })
+
+  it("drops the old channel's schedule at once when live TV switches and loads the new one", async () => {
+    vi.mocked(fetchLiveProgrammes).mockResolvedValueOnce(schedule)
+    await useTVStore.getState().loadLiveProgrammes()
+    const pending = deferred<EPGProgrammesResponse>()
+    vi.mocked(fetchLiveProgrammes).mockReturnValue(pending.promise)
+
+    useChannelStore.getState().setCurrentChannel(sportsnet)
+
+    expect(useTVStore.getState().liveProgrammes).toEqual([])
+    expect(fetchLiveProgrammes).toHaveBeenLastCalledWith('9', 'CA-S: Sportsnet ONE')
+
+    pending.resolve(sportsnetSchedule)
+    await vi.waitFor(() => expect(titles()).toEqual(['Blue Jays Baseball']))
+  })
+
+  it("ignores the old channel's schedule if it lands after the switch", async () => {
+    const slowTSN = deferred<EPGProgrammesResponse>()
+    const sportsnetLookup = deferred<EPGProgrammesResponse>()
+    vi.mocked(fetchLiveProgrammes)
+      .mockReturnValueOnce(slowTSN.promise)
+      .mockReturnValueOnce(sportsnetLookup.promise)
+    const tsnLookup = useTVStore.getState().loadLiveProgrammes()
+
+    useChannelStore.getState().setCurrentChannel(sportsnet)
+    slowTSN.resolve(schedule)
+    await tsnLookup
+    expect(useTVStore.getState().liveProgrammes).toEqual([])
+
+    sportsnetLookup.resolve(sportsnetSchedule)
+    await vi.waitFor(() => expect(titles()).toEqual(['Blue Jays Baseball']))
+  })
+
+  it('drops the schedule when live TV stops', async () => {
+    vi.mocked(fetchLiveProgrammes).mockResolvedValueOnce(schedule)
+    await useTVStore.getState().loadLiveProgrammes()
+
+    useChannelStore.getState().setCurrentChannel(null)
+
+    expect(useTVStore.getState().liveProgrammes).toEqual([])
+  })
+
+  it('keeps the schedule, without a lookup, when the same channel comes through with new details', async () => {
+    vi.mocked(fetchLiveProgrammes).mockResolvedValueOnce(schedule)
+    await useTVStore.getState().loadLiveProgrammes()
+    vi.mocked(fetchLiveProgrammes).mockClear()
+
+    useChannelStore.getState().setCurrentChannel({ ...tsn, streamUrl: 'http://x/28?v=2' })
+
+    expect(titles()).toEqual(['Pre-game', 'Hockey Night', 'After Hours'])
+    expect(fetchLiveProgrammes).not.toHaveBeenCalled()
   })
 })

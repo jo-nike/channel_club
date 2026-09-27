@@ -387,6 +387,38 @@ describe('api service', () => {
     })
   })
 
+  describe('fetchLiveProgrammes', () => {
+    it('asks for 12 hours by guide id, with the channel name encoded, and returns the schedule', async () => {
+      const schedule = {
+        channelId: '5.1',
+        programmes: [{ title: 'Hockey Night', startTime: '2026-09-26T23:00:00Z', endTime: '2026-09-27T02:00:00Z' }],
+      }
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(schedule),
+      } as Response)
+      const { fetchLiveProgrammes } = await import('./api')
+
+      await expect(fetchLiveProgrammes('5.1', 'CA-S: TSN 5 & More')).resolves.toEqual(schedule)
+      expect(vi.mocked(fetch).mock.calls[0][0]).toBe(
+        '/api/epg/programmes?channel_id=5.1&hours=12&channel_name=CA-S%3A+TSN+5+%26+More'
+      )
+    })
+
+    it('throws when the guide is unavailable', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        json: () => Promise.resolve({ detail: 'EPG service unavailable' }),
+      } as Response)
+      const { fetchLiveProgrammes } = await import('./api')
+
+      await expect(fetchLiveProgrammes('28', undefined, 6)).rejects.toThrow('Failed to fetch programmes')
+      expect(vi.mocked(fetch).mock.calls[0][0]).toBe('/api/epg/programmes?channel_id=28&hours=6')
+    })
+  })
+
   describe('getAuthConfig', () => {
     it('should GET /auth/config and return auth methods', async () => {
       const mockConfig = {

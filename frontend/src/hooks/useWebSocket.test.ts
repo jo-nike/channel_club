@@ -23,10 +23,12 @@ vi.mock('sonner', () => ({
   toast: vi.fn(),
 }))
 
-// Selecting channel 0 from the toast's Watch action loads its EPG
+// Selecting channel 0 from the toast's Watch action loads its EPG, and a
+// live switch loads the channel's schedule
 vi.mock('@/services/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/services/api')>()),
   fetchNowPlaying: vi.fn(),
+  fetchLiveProgrammes: vi.fn(async () => ({ channelId: '', programmes: [] })),
 }))
 
 // Mock WebSocket - simple version without auto-open

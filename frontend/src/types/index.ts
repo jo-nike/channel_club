@@ -54,6 +54,12 @@ export interface EPGResponse {
   nextProgram?: Program | null
 }
 
+/** A channel's schedule from the XMLTV guide, in start order. */
+export interface EPGProgrammesResponse {
+  channelId: string
+  programmes: Program[]
+}
+
 /** Current programme per channel, keyed by Channel.guideId. */
 export interface NowPlayingBulkResponse {
   nowPlaying: Record<string, Program>

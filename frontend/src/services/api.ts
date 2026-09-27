@@ -3,6 +3,7 @@ import { logger } from '@/lib/logger'
 import type {
   AppSettings,
   Channel,
+  EPGProgrammesResponse,
   EPGResponse,
   GroupedChannelsResponse,
   NowPlayingBulkResponse,
@@ -256,6 +257,30 @@ export async function fetchNowPlaying(channelId: string, channelName?: string): 
   if (!response.ok) {
     logger.error('API', `Failed to fetch EPG: ${response.status}`, { channelId })
     throw new Error('Failed to fetch EPG')
+  }
+
+  return response.json()
+}
+
+/**
+ * A live channel's schedule, from programmes that ended in the last 30
+ * minutes to those starting within `hours` from now.
+ */
+export async function fetchLiveProgrammes(
+  channelId: string,
+  channelName?: string,
+  hours = 12
+): Promise<EPGProgrammesResponse> {
+  logger.debug('API', `Fetching programmes for channel: ${channelId}`)
+
+  // Same guide id and name fallback as fetchNowPlaying
+  const params = new URLSearchParams({ channel_id: channelId, hours: String(hours) })
+  if (channelName) params.set('channel_name', channelName)
+  const response = await fetchWithAuth(`/epg/programmes?${params}`)
+
+  if (!response.ok) {
+    logger.error('API', `Failed to fetch programmes: ${response.status}`, { channelId })
+    throw new Error('Failed to fetch programmes')
   }
 
   return response.json()
