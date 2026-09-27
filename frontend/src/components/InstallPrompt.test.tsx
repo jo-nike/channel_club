@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@/test/utils'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, fireEvent, act } from '@/test/utils'
 import { InstallPrompt } from './InstallPrompt'
 import * as useInstallPromptModule from '@/hooks/useInstallPrompt'
 
@@ -23,6 +23,43 @@ describe('InstallPrompt', () => {
       })
 
       const { container } = render(<InstallPrompt />)
+      expect(container.firstChild).toBeNull()
+    })
+  })
+
+  describe('with the real hook', () => {
+    beforeEach(async () => {
+      localStorage.clear()
+      const actual = await vi.importActual<typeof useInstallPromptModule>('@/hooks/useInstallPrompt')
+      vi.spyOn(useInstallPromptModule, 'useInstallPrompt').mockImplementation(actual.useInstallPrompt)
+    })
+
+    afterEach(() => {
+      localStorage.clear()
+    })
+
+    function fireBeforeInstallPrompt() {
+      const event = new Event('beforeinstallprompt') as Event & {
+        prompt: () => Promise<void>
+        userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
+      }
+      event.prompt = vi.fn().mockResolvedValue(undefined)
+      event.userChoice = Promise.resolve({ outcome: 'accepted' })
+      act(() => {
+        window.dispatchEvent(event)
+      })
+    }
+
+    it('shows the banner when the browser offers installation', () => {
+      render(<InstallPrompt />)
+      fireBeforeInstallPrompt()
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+
+    it('renders nothing in TV mode', () => {
+      localStorage.setItem('tv-mode', 'true')
+      const { container } = render(<InstallPrompt />)
+      fireBeforeInstallPrompt()
       expect(container.firstChild).toBeNull()
     })
   })

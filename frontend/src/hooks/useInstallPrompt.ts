@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { logger } from '@/lib/logger'
+import { detectTVMode } from '@/hooks/useTVMode'
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>
@@ -54,6 +55,11 @@ export function useInstallPrompt(): UseInstallPromptResult {
   const [canInstall, setCanInstall] = useState(false)
 
   useEffect(() => {
+    // Never offer installation on a TV: don't even listen for the event
+    if (detectTVMode()) {
+      return
+    }
+
     // Check if already installed or dismissed
     const state = getInstallState()
     if (state.installed || isRecentlyDismissed(state)) {

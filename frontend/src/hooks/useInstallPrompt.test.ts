@@ -102,6 +102,25 @@ describe('useInstallPrompt', () => {
     })
   })
 
+  describe('TV mode', () => {
+    it('ignores beforeinstallprompt when tv-mode is on', () => {
+      localStorage.setItem('tv-mode', 'true')
+      const addEventListenerSpy = vi.spyOn(window, 'addEventListener')
+
+      const { result } = renderHook(() => useInstallPrompt())
+
+      const event = createMockPromptEvent()
+      act(() => {
+        window.dispatchEvent(event)
+      })
+
+      expect(result.current.canInstall).toBe(false)
+      expect(addEventListenerSpy).not.toHaveBeenCalledWith('beforeinstallprompt', expect.any(Function))
+
+      addEventListenerSpy.mockRestore()
+    })
+  })
+
   describe('install function', () => {
     it('calls prompt() on the deferred event', async () => {
       const { result } = renderHook(() => useInstallPrompt())
