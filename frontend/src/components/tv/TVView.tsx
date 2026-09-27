@@ -2,7 +2,6 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { ShieldCheck, LayoutList, RefreshCw, Radio, Tv } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useAppSettings } from '@/hooks/useAppSettings'
-import { useTheme } from '@/hooks/useTheme'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
 import { useProgrammeClock } from '@/hooks/useProgrammeClock'
 import { useWebSocket } from '@/hooks/useWebSocket'
@@ -45,9 +44,6 @@ export function TVView() {
 
   // WebSocket for presence tracking and chat
   const { status, reconnect, sendChannelUpdate, sendChatMessage, sendSetNickname } = useWebSocket({ view: 'tv' })
-
-  // Initialize theme
-  useTheme()
 
   // ErsatzTV store - for loading channels and programmes
   const {
