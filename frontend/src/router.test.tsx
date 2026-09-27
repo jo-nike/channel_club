@@ -95,8 +95,8 @@ describe('Router', () => {
 
     render(<RouterProvider router={router} />)
 
-    // TVView should be rendered - check for User settings button
-    expect(screen.getByRole('button', { name: /user settings/i })).toBeInTheDocument()
+    // TVView should be rendered - check for the account menu
+    expect(screen.getByRole('button', { name: 'Account menu' })).toBeInTheDocument()
   })
 
   it('redirects /tv to root for backwards compatibility', async () => {
@@ -105,7 +105,7 @@ describe('Router', () => {
     render(<RouterProvider router={router} />)
 
     // Should redirect to root and show TVView
-    expect(screen.getByRole('button', { name: /user settings/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Account menu' })).toBeInTheDocument()
     // Verify we're at the root path after redirect
     expect(router.state.location.pathname).toBe('/')
   })
@@ -116,7 +116,7 @@ describe('Router', () => {
     render(<RouterProvider router={router} />)
 
     // Should redirect to root and show TVView
-    expect(screen.getByRole('button', { name: /user settings/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Account menu' })).toBeInTheDocument()
     // Verify we're at the root path after redirect
     expect(router.state.location.pathname).toBe('/')
   })
@@ -126,7 +126,7 @@ describe('Router', () => {
 
     render(<RouterProvider router={router} />)
 
-    expect(screen.getByRole('button', { name: /user settings/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Account menu' })).toBeInTheDocument()
     expect(router.state.location.pathname).toBe('/')
   })
 
@@ -162,7 +162,7 @@ describe('Router', () => {
     await waitFor(() => {
       expect(router.state.location.pathname).toBe('/')
     })
-    expect(screen.getByRole('button', { name: /user settings/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Account menu' })).toBeInTheDocument()
   })
 
   it('shows login form when not authenticated', async () => {
@@ -199,7 +199,7 @@ describe('Router', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument()
     })
-    expect(screen.queryByRole('button', { name: /user settings/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Account menu' })).not.toBeInTheDocument()
   })
 
   it('shows admin button for admin users', async () => {

@@ -153,7 +153,7 @@ describe('App', () => {
     it('should show TVView when authenticated with valid token', () => {
       renderWithRouter()
 
-      expect(screen.getByRole('button', { name: /user settings/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Account menu' })).toBeInTheDocument()
     })
 
     it('should not show LoginForm when authenticated', () => {

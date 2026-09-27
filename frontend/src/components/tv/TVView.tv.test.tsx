@@ -23,8 +23,7 @@ vi.mock('@/components/tv/TVEPGGrid', () => ({ TVEPGGrid: () => null }))
 vi.mock('@/components/tv/TVChannelSidebar', () => ({ TVChannelSidebar: () => null }))
 vi.mock('@/components/ChatPanel', () => ({ ChatPanel: () => null }))
 vi.mock('@/components/ersatztv/ProgrammeDetailsModal', () => ({ ProgrammeDetailsModal: () => null }))
-vi.mock('@/components/UserSettingsMenu', () => ({ UserSettingsMenu: () => null }))
-vi.mock('@/components/FeedbackButton', () => ({ FeedbackButton: () => null }))
+vi.mock('@/components/AccountMenu', () => ({ AccountMenu: () => null }))
 vi.mock('@/components/AdminModal', () => ({ AdminModal: () => null }))
 
 // Unified order: slot 0 (live), then ErsatzTV 1 and 2
