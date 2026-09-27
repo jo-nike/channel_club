@@ -217,6 +217,7 @@ export function TVView() {
   // Responsive
   const isMobile = useMediaQuery('(max-width: 768px)')
   const isMobileLandscape = useMobileLandscape()
+  const isPhonePortrait = isMobile && !isTheaterMode && !isMobileLandscape
 
   // Load channels on mount
   useEffect(() => {
@@ -454,17 +455,19 @@ export function TVView() {
 
         {/* Content area */}
         <main className="flex flex-1 flex-col min-h-0 overflow-hidden">
-          {/* Video player - fixed full viewport in theater mode or mobile landscape */}
+          {/* Video player - fixed full viewport in theater mode or mobile landscape,
+              a full-width 16:9 box in phone portrait */}
           <div
             className={cn(
               'relative w-full min-h-0 overflow-hidden bg-black',
               (isTheaterMode || isMobileLandscape) && 'fixed inset-0 z-50',
-              !isTheaterMode && !isMobileLandscape && 'rounded-lg'
+              isPhonePortrait && 'aspect-video flex-none',
+              !isTheaterMode && !isMobileLandscape && !isMobile && 'rounded-lg'
             )}
             style={
               !isTheaterMode && !isMobileLandscape && isEPGVisible && !isMobile
                 ? { flex: `1 1 ${100 - epgHeightPercent}%` }
-                : !isTheaterMode && !isMobileLandscape
+                : !isTheaterMode && !isMobileLandscape && !isMobile
                 ? { flex: '1 1 100%' }
                 : undefined
             }
@@ -510,7 +513,9 @@ export function TVView() {
               style={
                 !isMobile && isEPGVisible
                   ? { flex: `0 0 ${epgHeightPercent}%` }
-                  : { flex: '1 1 auto' }
+                  // Phone: a zero basis, so the list takes what the 16:9 video
+                  // leaves and scrolls, however many channels there are
+                  : { flex: '1 1 0%' }
               }
             >
               {isMobile ? (
