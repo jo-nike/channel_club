@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo, type CSSProperties, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import mpegts from 'mpegts.js'
 import { Loader2 } from 'lucide-react'
 import {
@@ -69,6 +70,9 @@ interface DualModeVideoPlayerProps {
   onFocusSearch?: () => void
   // Shrunk to a strip above the phone's chat composer: the chrome compacts
   isStrip?: boolean
+  // Where the page wants the arrival card under the player (a phone in
+  // portrait) rather than over the picture; absent or null keeps it over
+  arrivalHost?: HTMLElement | null
 }
 
 // Main component - switches between live (mpegts) and ersatztv (HLS) players.
@@ -89,6 +93,7 @@ export function DualModeVideoPlayer({
   zap,
   onFocusSearch,
   isStrip = false,
+  arrivalHost = null,
 }: DualModeVideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   // The shell element again, as state: the clip editor portals into it
@@ -321,8 +326,14 @@ export function DualModeVideoPlayer({
           entry={zap?.entry ?? null}
           missing={zap?.missing ?? null}
         />
-        {/* The arrival card: in the shell too, so a channel change leaves it up */}
-        <ArrivalCard channel={channel} />
+        {/* The arrival card: in the shell too, so a channel change leaves it up.
+            On a phone in portrait it is portalled under the player, where it
+            covers neither the picture nor the rail; in React it stays here,
+            so it still reads the shell. Not in fullscreen, where only the
+            shell is drawn. */}
+        {arrivalHost && !isFullscreen
+          ? createPortal(<ArrivalCard channel={channel} placement="inline" />, arrivalHost)
+          : <ArrivalCard channel={channel} />}
         {/* The latest chat over the video in theater and fullscreen, above
             the control bar */}
         <ChatOverlay composerRequest={composerRequest} onComposerClose={closeComposer} />

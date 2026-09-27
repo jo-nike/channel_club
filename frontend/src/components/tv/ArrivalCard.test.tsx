@@ -24,6 +24,10 @@ vi.mock('mpegts.js', () => ({
   default: { isSupported: () => mpegtsSupport.supported },
 }))
 
+// The layout classifier: a desktop unless a test says phone
+const layout = vi.hoisted(() => ({ mode: 'desktop' as 'phone' | 'tablet' | 'desktop' }))
+vi.mock('@/hooks/useLayoutMode', () => ({ useLayoutMode: () => layout.mode }))
+
 const cinema: UnifiedChannel = { id: 'e7', name: 'Cinema', number: 7, streamUrl: '', type: 'ersatztv' }
 const liveSlot: UnifiedChannel = {
   id: 'live-channel-0',
@@ -55,10 +59,14 @@ const makeShell = (overrides: Partial<PlayerShell> = {}): PlayerShell => ({
   ...overrides,
 })
 
-const renderCard = (channel: UnifiedChannel | null = cinema, shell: Partial<PlayerShell> = {}) => {
+const renderCard = (
+  channel: UnifiedChannel | null = cinema,
+  shell: Partial<PlayerShell> = {},
+  placement: 'overlay' | 'inline' = 'overlay'
+) => {
   const view = render(
     <PlayerShellContext value={makeShell(shell)}>
-      <ArrivalCard channel={channel} />
+      <ArrivalCard channel={channel} placement={placement} />
     </PlayerShellContext>
   )
   return {
@@ -66,7 +74,7 @@ const renderCard = (channel: UnifiedChannel | null = cinema, shell: Partial<Play
     update: (next: UnifiedChannel | null, nextShell: Partial<PlayerShell> = shell) =>
       view.rerender(
         <PlayerShellContext value={makeShell(nextShell)}>
-          <ArrivalCard channel={next} />
+          <ArrivalCard channel={next} placement={placement} />
         </PlayerShellContext>
       ),
   }
@@ -84,6 +92,7 @@ beforeEach(() => {
   sessionStorage.clear()
   vi.useFakeTimers()
   mpegtsSupport.supported = true
+  layout.mode = 'desktop'
   useAuthStore.setState({ username: 'maya' })
   useChannelStore.setState({
     currentChannel: { id: '55', name: 'TSN 5', streamUrl: 'https://fixture/tsn5', guideId: 'tsn5.ca' },
@@ -101,7 +110,7 @@ beforeEach(() => {
   })
   useSettingsStore.setState({ presenceVisible: false })
   usePresenceStore.setState({ entries: [] })
-  useChatStore.setState({ nickname: null, me: { username: 'maya', userId: 'u_maya' } })
+  useChatStore.setState({ nickname: null, me: { username: 'maya', userId: 'u_maya' }, isOpen: false })
 })
 
 afterEach(() => {
@@ -172,6 +181,21 @@ describe('ArrivalCard: first-run welcome', () => {
     expect(welcome()).not.toBeInTheDocument()
     expect(useUIStore.getState().hasSeenWelcome).toBe(true)
     expect(useTVStore.getState().selectedChannel).toBe(cinema)
+  })
+
+  it("Browse channels on a phone selects the Channels tab and leaves the desktop guide's flag alone", () => {
+    layout.mode = 'phone'
+    // On the Chat tab: the phone's tabs follow chat's isOpen
+    useChatStore.setState({ isOpen: true })
+    renderCard()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Browse channels' }), { detail: 1 })
+
+    expect(useChatStore.getState().isOpen).toBe(false)
+    expect(useUIStore.getState().isEPGVisible).toBe(false)
+    expect(useUIStore.getState().guideFocusRequested).toBe(false)
+    expect(welcome()).not.toBeInTheDocument()
+    expect(useUIStore.getState().hasSeenWelcome).toBe(true)
   })
 
   it('Browse channels from the keyboard hands the guide focus', () => {
@@ -294,8 +318,32 @@ describe('ArrivalCard: placement', () => {
     expect(welcome()).toBeInTheDocument()
   })
 
+  it('under a phone\'s player (inline) sits in the page flow, never over the picture or moving for the rail', () => {
+    const { update } = renderCard(cinema, { containerRef: phonePlayer, isInfoRailVisible: true }, 'inline')
+    const region = screen.getByRole('status')
+    expect(welcome()).toBeInTheDocument()
+    expect(region).toHaveClass('mx-4', 'mt-3')
+    expect(region).not.toHaveClass('absolute')
+    expect(region).not.toHaveClass(AT_TOP)
+    expect(region).not.toHaveClass(BELOW_RAIL)
+
+    // Even on a player tall enough to fit it under the rail
+    update(cinema, { containerRef: tallPlayer, isInfoRailVisible: true })
+    expect(screen.getByRole('status')).not.toHaveClass(BELOW_RAIL)
+    expect(screen.getByRole('status')).not.toHaveClass('absolute')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(useUIStore.getState().hasSeenWelcome).toBe(true)
+  })
+
+  it('under the player takes no room while it waits', () => {
+    renderCard(cinema, { containerRef: phonePlayer, isAutoplayNoticeShown: true }, 'inline')
+    const region = screen.getByRole('status')
+    expect(region).toBeEmptyDOMElement()
+    expect(region).not.toHaveClass('mt-3')
+  })
+
   it.each([
-    ["a phone's", phonePlayer],
     ["a laptop's with the guide open", playerOfHeight(290)],
   ])('on a player too short for it under the rail (%s) stays over the rail, still usable', (_player, player) => {
     const { update } = renderCard(cinema, { containerRef: player, isInfoRailVisible: true })
