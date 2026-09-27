@@ -14,6 +14,15 @@ function themeRow(name: string) {
   return screen.getByRole('button', { name })
 }
 
+describe('UserSettingsMenu trigger', () => {
+  it('is a toolbar button, a 44px target on phones', () => {
+    render(<UserSettingsMenu onLogout={vi.fn()} />)
+    const trigger = screen.getByRole('button', { name: 'User settings' })
+    expect(trigger).toHaveAttribute('data-variant', 'toolbar')
+    expect(trigger).toHaveClass('size-11', 'md:size-9')
+  })
+})
+
 describe('UserSettingsMenu theme options', () => {
   beforeEach(() => {
     useThemeStore.setState({ themeId: DEFAULT_THEME_ID })

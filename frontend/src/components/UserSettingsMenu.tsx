@@ -6,6 +6,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { Button } from '@/components/ui/button'
 import { useTheme } from '@/hooks/useTheme'
 import { useUIStore } from '@/stores/uiStore'
 import { getThemeCategories, getTheme } from '@/lib/themes'
@@ -28,12 +29,9 @@ export function UserSettingsMenu({ onLogout }: UserSettingsMenuProps) {
       <Tooltip>
         <TooltipTrigger asChild>
           <PopoverTrigger asChild>
-            <button
-              className="h-8 w-8 flex items-center justify-center bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-              aria-label="User settings"
-            >
-              <Settings className="h-4 w-4 shrink-0" />
-            </button>
+            <Button variant="toolbar" size="toolbar" aria-label="User settings">
+              <Settings />
+            </Button>
           </PopoverTrigger>
         </TooltipTrigger>
         <TooltipContent>

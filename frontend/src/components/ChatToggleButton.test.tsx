@@ -38,6 +38,25 @@ describe('ChatToggleButton', () => {
     expect(useChatStore.getState().isOpen).toBe(true)
   })
 
+  it('is a disclosure for the chat panel, not a pressed toggle', () => {
+    render(<ChatToggleButton />)
+    const button = screen.getByRole('button', { name: 'Open chat' })
+    expect(button).toHaveAttribute('aria-expanded', 'false')
+    expect(button).toHaveAttribute('aria-controls', 'chat-panel')
+    expect(button).not.toHaveAttribute('aria-pressed')
+
+    fireEvent.click(button)
+    expect(button).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('is the filled primary header action, labelled Chat from lg', () => {
+    render(<ChatToggleButton />)
+    const button = screen.getByRole('button', { name: 'Open chat' })
+    expect(button).toHaveClass('bg-primary', 'text-primary-foreground')
+    expect(button).toHaveAttribute('data-size', 'toolbar')
+    expect(screen.getByText('Chat')).toHaveClass('hidden', 'lg:inline')
+  })
+
   it('shows unread badge when there are unread messages', () => {
     useChatStore.setState({ unreadCount: 5 })
     render(<ChatToggleButton />)

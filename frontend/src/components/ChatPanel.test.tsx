@@ -55,6 +55,11 @@ describe('ChatPanel', () => {
     expect(screen.getByText('Chat')).toBeInTheDocument()
   })
 
+  it('is the chat-panel element the header chat toggle controls', () => {
+    render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+    expect(screen.getByRole('heading', { name: 'Chat' }).closest('#chat-panel')).not.toBeNull()
+  })
+
   it('does not render when isOpen is false', () => {
     useChatStore.setState({ isOpen: false })
     render(<ChatPanel onSendMessage={mockOnSendMessage} />)

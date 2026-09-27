@@ -8,7 +8,7 @@ import { FeedbackButton } from '@/components/FeedbackButton'
 import { UserSettingsMenu } from '@/components/UserSettingsMenu'
 import { ConnectionStatus } from '@/components/ConnectionStatus'
 import { NowWatching } from '@/components/tv/NowWatching'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { HeaderAction } from '@/components/HeaderAction'
 
 interface TVHeaderProps {
   status: WebSocketStatus
@@ -38,7 +38,7 @@ export function TVHeader({
   const toggleNHLOverlay = useUIStore((s) => s.toggleNHLOverlay)
 
   return (
-    <header className="flex justify-between items-center px-4 pt-header-safe pb-2 bg-background border-b rounded-b-lg">
+    <header className="flex justify-between items-center gap-3 px-4 pt-header-safe pb-2 bg-background border-b rounded-b-lg">
       <div className="flex min-w-0 flex-1 items-center gap-4">
         {/* Connection status indicator */}
         <ConnectionStatus status={status} onReconnect={onReconnect} />
@@ -46,108 +46,61 @@ export function TVHeader({
         <NowWatching isMobile={isMobile} />
       </div>
 
-      <div className="flex items-center gap-2">
-        {/* Guide toggle button - desktop only */}
+      {/* Phones keep Host or Change live, Chat, Refresh and Settings as 44px targets */}
+      <nav aria-label="Watch controls" className="flex shrink-0 items-center gap-1 md:gap-2">
+        {/* Guide toggle - desktop only */}
         {!isMobile && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={toggleEPG}
-                className={`
-                  h-8 w-8 flex items-center justify-center rounded-md
-                  focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2
-                  ${isEPGVisible ? 'bg-secondary text-secondary-foreground hover:bg-secondary/80' : 'bg-muted text-muted-foreground hover:bg-muted/80'}
-                `}
-                aria-pressed={isEPGVisible}
-                aria-label={isEPGVisible ? 'Hide guide' : 'Show guide'}
-              >
-                <LayoutList className="h-4 w-4 shrink-0" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>{isEPGVisible ? 'Hide guide' : 'Show guide'}</p>
-            </TooltipContent>
-          </Tooltip>
+          <HeaderAction
+            icon={<LayoutList />}
+            label={isEPGVisible ? 'Hide guide' : 'Show guide'}
+            visibleLabel="Guide"
+            pressed={isEPGVisible}
+            onClick={toggleEPG}
+          />
         )}
-        {/* NHL Scores button - desktop only */}
+        {/* NHL scores toggle - desktop only. The glyph is the word itself. */}
         {!isMobile && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={toggleNHLOverlay}
-                className={`
-                  h-8 w-8 flex items-center justify-center rounded-md
-                  focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2
-                  ${isNHLOverlayVisible ? 'bg-secondary text-secondary-foreground hover:bg-secondary/80' : 'bg-muted text-muted-foreground hover:bg-muted/80'}
-                `}
-                aria-pressed={isNHLOverlayVisible}
-                aria-label={isNHLOverlayVisible ? 'Hide NHL Scores' : 'NHL Scores'}
+          <HeaderAction
+            icon={
+              <span
+                aria-hidden="true"
+                className="grid size-[18px] place-items-center font-display text-[11px] font-extrabold leading-none tracking-tight"
               >
-                <svg
-                  viewBox="0 0 105 150"
-                  className="h-4 w-4"
-                  fill="currentColor"
-                  aria-hidden="true"
-                >
-                  <path d="M52.5 0C23.5 0 0 10 0 10v90c0 30 52.5 50 52.5 50S105 130 105 100V10S81.5 0 52.5 0z" />
-                  <text x="52.5" y="85" textAnchor="middle" fontSize="36" fontWeight="bold" fontFamily="Arial" fill="var(--background, #fff)">NHL</text>
-                </svg>
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>{isNHLOverlayVisible ? 'Hide NHL Scores' : 'NHL Scores'}</p>
-            </TooltipContent>
-          </Tooltip>
+                NHL
+              </span>
+            }
+            label={isNHLOverlayVisible ? 'Hide NHL Scores' : 'NHL Scores'}
+            pressed={isNHLOverlayVisible}
+            onClick={toggleNHLOverlay}
+          />
         )}
-        {/* Channel picker - non-admins, only when the admin has enabled it */}
-        {!isAdmin && userChannelSelection && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={onOpenChannelPicker}
-                className="h-8 w-8 flex items-center justify-center bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                aria-label="Change live channel"
-              >
-                <Tv className="h-4 w-4 shrink-0" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Change live channel</p>
-            </TooltipContent>
-          </Tooltip>
-        )}
-        {/* Admin button */}
-        {isAdmin && (
-          <button
+        {/* Host tools for admins; the live channel picker for non-admins the admin allows */}
+        {isAdmin ? (
+          <HeaderAction
+            icon={<ShieldCheck />}
+            label="Open admin panel"
+            visibleLabel="Host"
             onClick={onOpenAdmin}
-            className="h-8 w-8 flex items-center justify-center bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-            aria-label="Open admin panel"
-          >
-            <ShieldCheck className="h-4 w-4 shrink-0" />
-          </button>
+          />
+        ) : (
+          userChannelSelection && (
+            <HeaderAction
+              icon={<Tv />}
+              label="Change live channel"
+              visibleLabel="Change live"
+              onClick={onOpenChannelPicker}
+            />
+          )
         )}
-        {/* Refresh video button */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={onReload}
-              className="h-8 w-8 flex items-center justify-center bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-              aria-label="Refresh video"
-            >
-              <RefreshCw className="h-4 w-4 shrink-0" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>Refresh video</p>
-          </TooltipContent>
-        </Tooltip>
-        {/* Feedback (hidden unless the server is configured for it) */}
-        <FeedbackButton />
-        {/* Chat toggle */}
+        {/* Chat toggle, the one filled action */}
         <ChatToggleButton />
+        {/* Feedback (hidden unless the server is configured for it) - desktop only */}
+        {!isMobile && <FeedbackButton />}
+        {/* Refresh video: remounts the player */}
+        <HeaderAction icon={<RefreshCw />} label="Refresh video" onClick={onReload} />
         {/* User settings (theme + notifications + logout) */}
         <UserSettingsMenu onLogout={logout} />
-      </div>
+      </nav>
     </header>
   )
 }
