@@ -2,6 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen } from '@/test/utils'
 import { ChatMessage } from './ChatMessage'
 import type { ChatMessage as ChatMessageType } from '@/types'
+import type { ThemeId } from '@/types/theme'
+import { MEMBER_HUES, memberColor, memberHue } from '@/lib/memberColor'
+import { contrast, mix } from '@/lib/color'
+import { themes } from '@/lib/themes'
 
 const createMessage = (
   overrides: Partial<ChatMessageType> = {}
@@ -127,7 +131,88 @@ describe('ChatMessage', () => {
 
     rerender(<ChatMessage message={createMessage()} isOwn={true} now={NOW} />)
     const ownMessage = screen.getByText('Hello world!').closest('div')
-    expect(ownMessage).toHaveClass('bg-primary')
+    expect(ownMessage).not.toHaveClass('bg-muted')
+  })
+
+  describe('member colours', () => {
+    // Ids whose hashes land on different hues
+    const idsByHue = new Map<number, string>()
+    for (let i = 0; idsByHue.size < MEMBER_HUES.length; i++) {
+      const id = `u_${i.toString(16).padStart(16, '0')}`
+      if (!idsByHue.has(memberHue(id))) idsByHue.set(memberHue(id), id)
+    }
+    const [samId, devId] = [...idsByHue.values()]
+
+    /** The member colour (dark mode) in force where `element` sits. */
+    const memberColorAt = (element: HTMLElement) =>
+      (element.closest('[style*="--member-dark"]') as HTMLElement).style.getPropertyValue('--member-dark')
+
+    it("writes other people's names in their colour", () => {
+      const { rerender } = render(
+        <ChatMessage message={createMessage({ username: 'Sam', userId: samId })} now={NOW} />
+      )
+      const sam = screen.getByText('Sam')
+      expect(sam).toHaveClass('text-(--member)')
+      expect(memberColorAt(sam)).toBe(memberColor(samId, 'dark'))
+
+      rerender(<ChatMessage message={createMessage({ username: 'Dev', userId: devId })} now={NOW} />)
+      const dev = screen.getByText('Dev')
+      expect(memberColorAt(dev)).toBe(memberColor(devId, 'dark'))
+      expect(memberColorAt(dev)).not.toBe(memberColor(samId, 'dark'))
+    })
+
+    it('keeps a colour through a rename, and falls back to the name without an id', () => {
+      const { rerender } = render(
+        <ChatMessage message={createMessage({ username: 'Sammy', userId: samId })} now={NOW} />
+      )
+      expect(memberColorAt(screen.getByText('Sammy'))).toBe(memberColor(samId, 'dark'))
+
+      rerender(<ChatMessage message={createMessage({ username: 'Sam' })} now={NOW} />)
+      expect(memberColorAt(screen.getByText('Sam'))).toBe(memberColor('Sam', 'dark'))
+    })
+
+    it('tints your own bubble with your colour instead of the primary', () => {
+      render(
+        <ChatMessage message={createMessage({ username: 'Me', userId: samId })} isOwn={true} now={NOW} />
+      )
+      const bubble = screen.getByText('Hello world!').closest('div') as HTMLElement
+      expect(bubble).not.toHaveClass('bg-primary')
+      expect(bubble).not.toHaveClass('text-primary-foreground')
+      expect(bubble).toHaveClass('bg-member-surface', 'text-foreground')
+      expect(memberColorAt(bubble)).toBe(memberColor(samId, 'dark'))
+    })
+
+    // lib/color mixes in OKLab, like the bubble's --color-member-surface
+    it.each(Object.keys(themes) as ThemeId[])(
+      'keeps text on your own bubble readable in %s for every colour',
+      (themeId) => {
+        const { mode, colors } = themes[themeId]
+        for (const id of idsByHue.values()) {
+          const bubble = mix(colors.card, memberColor(id, mode), 0.18)
+          expect(contrast(colors.foreground, bubble)).toBeGreaterThanOrEqual(4.5)
+        }
+      }
+    )
+
+    it("puts a face on the first bubble of someone else's group only", () => {
+      const message = createMessage({ username: 'Sam Lee', userId: samId })
+      const { container, rerender } = render(<ChatMessage message={message} now={NOW} isLastInGroup={false} />)
+      const avatar = container.querySelector('[aria-hidden="true"].rounded-full') as HTMLElement
+      expect(avatar).toHaveTextContent(/^SL$/)
+      expect(avatar.style.getPropertyValue('--member-dark')).toBe(memberColor(samId, 'dark'))
+
+      rerender(<ChatMessage message={message} now={NOW} isFirstInGroup={false} />)
+      expect(screen.queryByText('SL')).not.toBeInTheDocument()
+
+      rerender(<ChatMessage message={message} isOwn={true} now={NOW} />)
+      expect(screen.queryByText('SL')).not.toBeInTheDocument()
+    })
+
+    it('leaves the face to the written name for screen readers', () => {
+      render(<ChatMessage message={createMessage({ username: 'Sam', userId: samId })} now={NOW} />)
+      expect(screen.queryByRole('img', { name: 'Sam' })).not.toBeInTheDocument()
+      expect(screen.getByText('Sam')).toBeInTheDocument()
+    })
   })
 
   it('preserves whitespace in messages', () => {
@@ -135,7 +220,7 @@ describe('ChatMessage', () => {
     render(<ChatMessage message={createMessage({ content })} now={NOW} />)
     // Query by matching function for multiline content
     const messageEl = screen.getByText((_, element) => {
-      return element?.textContent === content
+      return element?.tagName === 'P' && element.textContent === content
     })
     expect(messageEl).toHaveClass('whitespace-pre-wrap')
   })
