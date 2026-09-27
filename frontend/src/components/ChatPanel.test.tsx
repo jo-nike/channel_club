@@ -1,3 +1,4 @@
+import { Profiler } from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, render, screen, fireEvent, waitFor } from '@/test/utils'
 import { ChatPanel } from './ChatPanel'
@@ -67,6 +68,25 @@ describe('ChatPanel', () => {
     useChatStore.setState({ isOpen: false })
     render(<ChatPanel onSendMessage={mockOnSendMessage} />)
     expect(screen.queryByText('Chat')).not.toBeInTheDocument()
+  })
+
+  it("doesn't re-render for chat store fields it doesn't read", async () => {
+    const onRender = vi.fn()
+    render(
+      <Profiler id="chat" onRender={onRender}>
+        <ChatPanel onSendMessage={mockOnSendMessage} />
+      </Profiler>
+    )
+    await act(async () => {})
+    onRender.mockClear()
+
+    act(() => {
+      useChatStore.setState({ unreadCount: 3 })
+      useChatStore.setState({ lastReadAt: 1_000 })
+      useChatStore.setState({ revertNickname: 'OldName' })
+    })
+
+    expect(onRender).not.toHaveBeenCalled()
   })
 
   it('shows empty state when no messages', () => {

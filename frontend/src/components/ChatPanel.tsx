@@ -127,10 +127,17 @@ function chipKey(message: ChatMessageData, channel: MessageChannel | undefined):
 }
 
 export function ChatPanel({ onSendMessage, onShare, onSetNickname, status = 'connected', onReconnect, variant = 'overlay', translucent = false, onComposerFocusChange, container = null }: ChatPanelProps) {
-  const {
-    messages, isOpen, setOpen, nickname, me, readMarker, historyReset, nicknameRejection,
-    setNickname, clearNickname, clearNicknameRejection,
-  } = useChatStore()
+  const messages = useChatStore((s) => s.messages)
+  const isOpen = useChatStore((s) => s.isOpen)
+  const setOpen = useChatStore((s) => s.setOpen)
+  const nickname = useChatStore((s) => s.nickname)
+  const me = useChatStore((s) => s.me)
+  const readMarker = useChatStore((s) => s.readMarker)
+  const historyReset = useChatStore((s) => s.historyReset)
+  const nicknameRejection = useChatStore((s) => s.nicknameRejection)
+  const setNickname = useChatStore((s) => s.setNickname)
+  const clearNickname = useChatStore((s) => s.clearNickname)
+  const clearNicknameRejection = useChatStore((s) => s.clearNicknameRejection)
   // One shared tick for every message's relative time, only while they show
   const now = useNow(30_000, isOpen)
 
