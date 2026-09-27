@@ -43,6 +43,15 @@ function renderTV() {
   render(<MemoryRouter><TVView /></MemoryRouter>)
 }
 
+// Elements outside the app (a text field, a focusable button), removed after each test
+const extras: Element[] = []
+function addToPage<K extends keyof HTMLElementTagNameMap>(tag: K): HTMLElementTagNameMap[K] {
+  const element = document.createElement(tag)
+  document.body.appendChild(element)
+  extras.push(element)
+  return element
+}
+
 beforeEach(() => {
   vi.useFakeTimers()
   tv.mode = true
@@ -61,7 +70,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers()
-  document.body.innerHTML = ''
+  extras.splice(0).forEach((element) => element.remove())
 })
 
 describe('TV browsers: theater and zapping', () => {
@@ -141,8 +150,7 @@ describe('TV browsers: theater and zapping', () => {
 
   it('ignores zap keys typed into an input', () => {
     renderTV()
-    const input = document.createElement('input')
-    document.body.appendChild(input)
+    const input = addToPage('input')
 
     const notPrevented = press('ArrowUp', {}, input)
     act(() => { vi.advanceTimersByTime(700) })
@@ -161,5 +169,92 @@ describe('TV browsers: theater and zapping', () => {
     expect(notPrevented).toBe(true)
     expect(selectedId()).toBe('e1')
     expect(screen.queryByText(/change channel/)).not.toBeInTheDocument()
+  })
+})
+
+describe('TV browsers: Back and OK', () => {
+  afterEach(() => {
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null })
+  })
+
+  it.each([
+    ['webOS Back', 'Unidentified', 461],
+    ['Tizen Return', 'Unidentified', 10009],
+    ['GoBack', 'GoBack', 0],
+    ['Backspace', 'Backspace', 8],
+  ])('%s leaves theater and cancels the browser default', (_label, key, keyCode) => {
+    renderTV()
+
+    const notPrevented = press(key, { keyCode })
+
+    expect(notPrevented).toBe(false)
+    expect(isTheater()).toBe(false)
+  })
+
+  it('Escape still leaves theater', () => {
+    renderTV()
+
+    press('Escape', { keyCode: 27 })
+
+    expect(isTheater()).toBe(false)
+  })
+
+  it('Back exits fullscreen before leaving theater', () => {
+    renderTV()
+    const exitFullscreen = vi.fn(() => Promise.resolve())
+    Object.defineProperty(document, 'exitFullscreen', { configurable: true, value: exitFullscreen })
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: document.body })
+
+    press('Unidentified', { keyCode: 461 })
+
+    expect(exitFullscreen).toHaveBeenCalledTimes(1)
+    expect(isTheater()).toBe(true)
+  })
+
+  it('Backspace in an input stays with the input', () => {
+    renderTV()
+    const input = addToPage('input')
+
+    const notPrevented = press('Backspace', { keyCode: 8 }, input)
+
+    expect(notPrevented).toBe(true)
+    expect(isTheater()).toBe(true)
+  })
+
+  it('leaves Back to the browser outside theater', () => {
+    renderTV()
+    act(() => useUIStore.getState().setTheaterMode(false))
+
+    expect(press('Unidentified', { keyCode: 461 })).toBe(true)
+  })
+
+  it('OK with nothing focused returns to theater', () => {
+    renderTV()
+    press('Unidentified', { keyCode: 461 })
+    expect(isTheater()).toBe(false)
+
+    press('Enter', { keyCode: 13 })
+
+    expect(isTheater()).toBe(true)
+  })
+
+  it('OK on a focused button presses the button instead', () => {
+    renderTV()
+    act(() => useUIStore.getState().setTheaterMode(false))
+    const button = addToPage('button')
+    button.focus()
+
+    press('Enter', { keyCode: 13 }, button)
+
+    expect(isTheater()).toBe(false)
+  })
+
+  it('does not handle Back or OK off a TV', () => {
+    tv.mode = false
+    renderTV()
+    act(() => useUIStore.getState().setTheaterMode(true))
+
+    expect(press('Unidentified', { keyCode: 461 })).toBe(true)
+    expect(isTheater()).toBe(true)
   })
 })

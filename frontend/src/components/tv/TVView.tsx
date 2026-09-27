@@ -128,6 +128,29 @@ export function TVView() {
     return () => window.removeEventListener('keydown', handleKeyDown, true)
   }, [isTVTheater, zapStep])
 
+  // TV remotes: Back leaves theater (the header comes back) and OK returns to
+  // it. A 5-way remote can't move focus in the desktop layout, so without OK
+  // a viewer who pressed Back would be stuck there. Back outside theater is
+  // left to the browser.
+  useEffect(() => {
+    if (!isTVMode) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || isKeyForFocusedControl(e)) return
+      const action = getRemoteAction(e)
+      if (isTheaterMode) {
+        // Escape already goes through useEscapeKey
+        if (action !== 'back' || e.key === 'Escape') return
+        // Stops webOS Back (461) and Backspace from navigating history
+        e.preventDefault()
+        handleEscape()
+      } else if (action === 'ok' && (!document.activeElement || document.activeElement === document.body)) {
+        setTheaterMode(true)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isTVMode, isTheaterMode, handleEscape, setTheaterMode])
+
   const programmeTime = useProgrammeClock()
 
   // Get currently playing programme for presence tracking
