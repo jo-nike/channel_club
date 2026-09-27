@@ -72,6 +72,21 @@ describe('uiStore', () => {
       const { useAudioStore } = await import('./audioStore')
       expect(useAudioStore.getState()).toMatchObject({ volume: 0.3, muted: false })
     })
+
+    it('seeds audio-storage from a legacy save even though importing uiStore rewrites ui-storage', async () => {
+      localStorage.setItem('ui-storage', JSON.stringify({ state: { volume: 0.3 }, version: 0 }))
+      expect(localStorage.getItem('audio-storage')).toBeNull()
+      vi.resetModules()
+
+      // Importing alone hydrates, migrates and writes ui-storage back without volume
+      await import('./uiStore')
+
+      const ui = JSON.parse(localStorage.getItem('ui-storage') ?? 'null')
+      expect(ui.version).toBe(1)
+      expect(ui.state).not.toHaveProperty('volume')
+      const audio = JSON.parse(localStorage.getItem('audio-storage') ?? 'null')
+      expect(audio?.state).toEqual({ volume: 0.3, muted: false })
+    })
   })
 
   describe('isSidebarOpen', () => {
@@ -239,7 +254,7 @@ describe('uiStore', () => {
       expect(useUIStore.getState().notificationsEnabled).toBe(false)
     })
 
-    it('leaves the legacy volume in place for the audio store', () => {
+    it('passes unknown fields such as the legacy volume through (partialize drops them on write)', () => {
       const migrate = useUIStore.persist.getOptions().migrate
       expect(migrate).toBeDefined()
 

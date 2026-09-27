@@ -1,8 +1,11 @@
+// Required side-effect import; it must stay the first import. The audio
+// store seeds itself once from the `volume` this store used to persist, so
+// it has to read ui-storage before this module is evaluated: hydrating an
+// old save below migrates it and immediately writes the partialized state
+// back, which drops `volume`.
+import './audioStore'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-// Evaluate the audio store first: its one-time seed reads the `volume` this
-// store used to persist, which the next write here drops.
-import './audioStore'
 
 interface UIState {
   isTheaterMode: boolean
@@ -81,8 +84,11 @@ export const useUIStore = create<UIState>()(
       // Chained: one `if (fromVersion < n)` guard per version, in order, so an
       // old save runs every step after it. (Not a fall-through switch:
       // noFallthroughCasesInSwitch rejects that once a second case exists.)
-      // Leave unknown fields (such as the legacy `volume` the audio store
-      // seeds from) in place.
+      // Unknown fields (such as the legacy `volume`) pass through migrate,
+      // but persist writes the partialized state right after migrating, so
+      // they are gone from ui-storage as soon as this store is created. The
+      // audio store's volume seed survives only because the import at the
+      // top of this file evaluates it first.
       migrate: (persistedState, fromVersion) => {
         const state = { ...(persistedState as Record<string, unknown>) }
         if (fromVersion < 1) {
