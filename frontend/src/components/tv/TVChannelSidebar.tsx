@@ -4,6 +4,8 @@ import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore } from '@/stores/tvStore'
 import { getErsatzTVLogoUrl, fetchErsatzTVCurrentProgramme } from '@/services/ersatztvApi'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useProgrammeClock } from '@/hooks/useProgrammeClock'
+import { findOnAir, getProgrammeState } from '@/lib/programmes'
 import type { UnifiedChannel, ErsatzTVProgramme } from '@/types'
 
 interface TVChannelSidebarProps {
@@ -155,7 +157,7 @@ function CollapsedChannelButton({
         <button
           onClick={() => onSelect(channel)}
           className={`
-            flex h-10 shrink-0 items-center justify-center rounded-lg text-xs font-medium overflow-hidden
+            relative flex h-10 shrink-0 items-center justify-center rounded-lg text-xs font-medium overflow-hidden
             hover:bg-foreground/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring
             ${isLive ? 'w-auto min-w-10 px-1' : 'w-10'}
             ${isSelected ? 'ring-2 ring-primary bg-primary/10' : ''}
@@ -171,23 +173,81 @@ function CollapsedChannelButton({
               '0'
             )
           ) : channel.logoUrl ? (
-            <img
-              src={getErsatzTVLogoUrl(channel.id)}
-              alt=""
-              className="h-full w-full object-contain"
-              onError={(e) => {
-                ;(e.target as HTMLImageElement).style.display = 'none'
-              }}
-            />
+            <>
+              <img
+                src={getErsatzTVLogoUrl(channel.id)}
+                alt=""
+                className="h-full w-full object-contain"
+                onError={(e) => {
+                  ;(e.target as HTMLImageElement).style.display = 'none'
+                }}
+              />
+              {/* The aria-label already carries the number */}
+              <span
+                aria-hidden="true"
+                className="absolute bottom-0 right-0 flex h-4 min-w-4 items-center justify-center rounded-tl-md bg-background/85 px-0.5 text-[10px] font-semibold leading-none tabular-nums text-foreground"
+              >
+                {channel.number}
+              </span>
+            </>
           ) : (
             channel.number
           )}
         </button>
       </TooltipTrigger>
       <TooltipContent side="right">
-        <p>{channel.name}</p>
+        <ChannelTooltipBody channel={channel} hasLiveChannel={hasLiveChannel} />
       </TooltipContent>
     </Tooltip>
+  )
+}
+
+// Radix mounts tooltip content only while it's open, so the clock and the
+// store reads below run only for the tile being hovered or focused.
+function ChannelTooltipBody({
+  channel,
+  hasLiveChannel,
+}: {
+  channel: UnifiedChannel
+  hasLiveChannel: boolean
+}) {
+  const now = useProgrammeClock()
+  const programmes = useErsatztvStore((s) => s.programmesByChannel[channel.id])
+  const liveEPG = useTVStore((s) => s.liveEPG)
+
+  const isLive = channel.type === 'live'
+  let nowTitle: string | undefined
+  let nextTitle: string | undefined
+  if (isLive) {
+    nowTitle = liveEPG?.currentProgram?.title
+    nextTitle = liveEPG?.nextProgram?.title
+  } else if (programmes) {
+    nowTitle = findOnAir(programmes, now)?.title
+    nextTitle = programmes.find((p) => getProgrammeState(p, now) === 'future')?.title
+  }
+
+  return (
+    <div className="max-w-56 space-y-0.5">
+      <p className="font-medium">
+        <span className="tabular-nums">{channel.number}</span> {channel.name}
+      </p>
+      {isLive && !hasLiveChannel ? (
+        <p className="text-muted-foreground">Awaiting broadcast...</p>
+      ) : (
+        <>
+          {nowTitle && (
+            <p className="truncate">
+              <span className="text-muted-foreground">Now</span> {nowTitle}
+            </p>
+          )}
+          {nextTitle && (
+            <p className="truncate">
+              <span className="text-muted-foreground">Next</span> {nextTitle}
+            </p>
+          )}
+        </>
+      )}
+    </div>
   )
 }
 
