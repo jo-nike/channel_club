@@ -2,6 +2,7 @@ import { useState, forwardRef, useImperativeHandle } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Badge } from '@/components/ui/badge'
+import { ChannelLogo } from '@/components/ChannelLogo'
 import { cn } from '@/lib/utils'
 import type { Channel, ChannelGroupWithChannels, Program } from '@/types'
 
@@ -138,6 +139,7 @@ function ChannelGroupItem({
         !canSelect && 'cursor-default'
       )}
     >
+      <ChannelLogo channel={channel} />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
           <span className="font-medium truncate">{channel.name}</span>

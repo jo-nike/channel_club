@@ -20,6 +20,8 @@ export interface Channel {
   name: string
   streamUrl: string
   guideId: string
+  /** Our logo route (/api/channels/logos/{id}); null or absent without a logo */
+  logoUrl?: string | null
 }
 
 export interface ChannelGroupWithChannels {
