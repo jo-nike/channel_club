@@ -9,6 +9,7 @@ import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
 import * as api from '@/services/ersatztvApi'
 import { fetchNowPlaying } from '@/services/api'
+import { toast } from 'sonner'
 const presence = vi.hoisted(() => vi.fn())
 const crash = vi.hoisted(() => ({ player: false, chat: false }))
 const socket = vi.hoisted(() => ({ status: 'connected', reconnect: () => {} }))
@@ -489,5 +490,43 @@ describe('B-08 store subscriptions', () => {
     // A field it does use still re-renders it
     act(() => useErsatztvStore.setState({ error: 'Guide failed' }))
     expect(playerProps.renders).toBeGreaterThan(before)
+  })
+})
+
+describe('A-06 ErsatzTV errors', () => {
+  it('shows one toast with a fixed id and Retry instead of a fixed error box, and dismisses it when the error clears', async () => {
+    const toastError = vi.spyOn(toast, 'error')
+    const toastDismiss = vi.spyOn(toast, 'dismiss')
+    vi.mocked(api.fetchErsatzTVChannels).mockRejectedValue(new Error('ErsatzTV unreachable'))
+    const loadAllProgrammes = vi.fn().mockResolvedValue(undefined)
+    useErsatztvStore.setState({ loadAllProgrammes })
+
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1))
+    expect(toastError).toHaveBeenCalledWith('ErsatzTV unreachable', expect.objectContaining({
+      id: 'ersatz-error',
+      action: expect.objectContaining({ label: 'Retry' }),
+    }))
+    // The old fixed bottom-right box is gone; the sidebar keeps an inline Retry
+    expect(document.querySelector('.fixed.bottom-4.right-4')).toBeNull()
+    expect(screen.getByText("Couldn't load channels 1-36")).toBeVisible()
+    // Unrelated re-renders don't raise it again
+    act(() => useUIStore.setState({ isTheaterMode: false, isChannelSidebarCollapsed: false, lastTVChannelId: 'x' }))
+    expect(toastError).toHaveBeenCalledTimes(1)
+
+    // Retry reloads the channels and the guide
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([{ id: 'e', name: 'Cinema', number: 1, streamUrl: '/e', group: '' }])
+    const options = toastError.mock.calls[0][1] as { action: { onClick: () => void } }
+    toastDismiss.mockClear()
+    vi.mocked(api.fetchErsatzTVChannels).mockClear()
+    await act(async () => { options.action.onClick() })
+    expect(api.fetchErsatzTVChannels).toHaveBeenCalledTimes(1)
+    expect(loadAllProgrammes).toHaveBeenCalledWith(48)
+    // The error cleared, so the toast goes
+    expect(useErsatztvStore.getState().error).toBeNull()
+    expect(toastDismiss).toHaveBeenCalledWith('ersatz-error')
+
+    toastError.mockRestore()
+    toastDismiss.mockRestore()
   })
 })

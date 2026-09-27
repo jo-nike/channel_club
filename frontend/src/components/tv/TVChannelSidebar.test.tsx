@@ -807,3 +807,57 @@ describe('TVChannelSidebar focus', () => {
     }
   })
 })
+
+describe('TVChannelSidebar loading and error states', () => {
+  const realLoadChannels = useErsatztvStore.getState().loadChannels
+
+  beforeEach(() => {
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1' },
+    })
+  })
+
+  afterEach(() => {
+    cleanup()
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels: [], channelsLoading: false, error: null, loadChannels: realLoadChannels })
+  })
+
+  it('shows skeleton rows under the live row while the channels load', async () => {
+    useErsatztvStore.setState({ channels: [], channelsLoading: true, error: null })
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+
+    const loading = screen.getByRole('status')
+    expect(loading).toHaveTextContent('Loading channels')
+    expect(within(loading).getByText('Loading channels')).toHaveClass('sr-only')
+    expect(loading.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThanOrEqual(6)
+    expect(screen.queryByText(/Loading additional channels/)).toBeNull()
+    // The live row doesn't wait for ErsatzTV
+    expect(screen.getByRole('button', { name: 'Live Channel' })).toBeVisible()
+  })
+
+  it('shows no skeleton once channels are there, even during a reload', async () => {
+    useErsatztvStore.setState({
+      channels: [{ id: 'etv1', name: 'Movies', streamUrl: '', logoUrl: '', number: 1, group: 'Films' }],
+      channelsLoading: true,
+    })
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+    expect(screen.queryByTestId('sidebar-skeleton')).toBeNull()
+  })
+
+  it('shows an inline error card whose Retry reloads the channels', async () => {
+    const loadChannels = vi.fn().mockResolvedValue(undefined)
+    useErsatztvStore.setState({ channels: [], channelsLoading: false, error: 'HTTP 503', loadChannels })
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+
+    expect(screen.getByText("Couldn't load channels 1-36")).toHaveClass('text-destructive')
+    expect(screen.queryByTestId('sidebar-skeleton')).toBeNull()
+    const retry = screen.getByRole('button', { name: 'Retry' })
+    expect(retry).toHaveAttribute('data-variant', 'outline')
+    act(() => retry.click())
+    expect(loadChannels).toHaveBeenCalledTimes(1)
+  })
+})

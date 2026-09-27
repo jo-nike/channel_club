@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { toast } from 'sonner'
 import { useAuth } from '@/hooks/useAuth'
 import { useAppSettings } from '@/hooks/useAppSettings'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
@@ -33,6 +34,9 @@ import type { ErsatzTVProgramme, UnifiedChannel, ErsatzTVChannel } from '@/types
 
 // Refresh interval for programme data (120 minutes)
 const REFRESH_INTERVAL = 120 * 60 * 1000
+
+// One fixed id, so repeated ErsatzTV failures replace the toast instead of stacking
+const ERSATZ_ERROR_TOAST_ID = 'ersatz-error'
 
 export function TVView() {
   const { isAdmin } = useAuth()
@@ -200,6 +204,26 @@ export function TVView() {
   useEffect(() => {
     loadChannels()
   }, [loadChannels])
+
+  // ErsatzTV errors show once, as a toast with Retry. The error stays in the
+  // store (no clearError), so the sidebar keeps its inline Retry; the toast
+  // goes when the error clears.
+  useEffect(() => {
+    if (!error) {
+      toast.dismiss(ERSATZ_ERROR_TOAST_ID)
+      return
+    }
+    toast.error(error, {
+      id: ERSATZ_ERROR_TOAST_ID,
+      action: {
+        label: 'Retry',
+        onClick: () => {
+          loadChannels()
+          loadAllProgrammes(48)
+        },
+      },
+    })
+  }, [error, loadChannels, loadAllProgrammes])
 
   // Load all programmes after channels are loaded
   useEffect(() => {
@@ -433,13 +457,6 @@ export function TVView() {
           open={channelPickerOpen}
           onOpenChange={setChannelPickerOpen}
         />
-      )}
-
-      {/* Error toast */}
-      {error && (
-        <div className="fixed bottom-4 right-4 rounded-lg bg-destructive px-4 py-2 text-destructive-foreground dark:bg-destructive/60">
-          {error}
-        </div>
       )}
 
       {/* Chat Panel */}

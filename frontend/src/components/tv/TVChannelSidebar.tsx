@@ -5,6 +5,7 @@ import { useTVStore, describeLiveGuide } from '@/stores/tvStore'
 import { getErsatzTVLogoUrl } from '@/services/ersatztvApi'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useProgrammeClock } from '@/hooks/useProgrammeClock'
 import { calculateProgress, findOnAir, formatRemaining, getProgrammeState } from '@/lib/programmes'
 import { buildProgrammeIndex, findCurrentAndNext, type IndexedProgramme } from '@/lib/programmeIndex'
@@ -25,7 +26,7 @@ export function TVChannelSidebar({
   liveEPGTitle,
   onPickLive,
 }: TVChannelSidebarProps) {
-  const { channelsLoading, error, loadChannels } = useErsatztvStore()
+  const { channels: ersatzTVChannels, channelsLoading, error, loadChannels } = useErsatztvStore()
   const { selectedChannel, selectChannel, getUnifiedChannels, isLiveChannelActive, liveEPGStatus } = useTVStore()
   // Now/next come from the guide's programmes, which TVView refreshes every
   // 2h, so a schedule edit in ErsatzTV shows here on that refresh
@@ -100,11 +101,6 @@ export function TVChannelSidebar({
         </button>
       </div>
 
-      {channelsLoading && <p role="status">Loading additional channels...</p>}
-      {error && <div role="status" className="p-4">
-        <p>{error}</p>
-        <button onClick={() => loadChannels()}>Retry additional channels</button>
-      </div>}
       <ul className="divide-y" role="list">
         {unifiedChannels.map((channel) => {
           const { current: onAir, next } =
@@ -130,6 +126,17 @@ export function TVChannelSidebar({
           )
         })}
       </ul>
+      {/* The live row above doesn't wait for ErsatzTV */}
+      {channelsLoading && ersatzTVChannels.length === 0 && <SidebarSkeleton />}
+      {/* The error's details are in the toast TVView shows; this keeps a retry where the channels would be */}
+      {error && (
+        <div className="m-3 rounded-lg border bg-background/50 p-4">
+          <p className="text-sm text-destructive">Couldn't load channels 1-36</p>
+          <Button variant="outline" size="sm" className="mt-3" onClick={() => loadChannels()}>
+            Retry
+          </Button>
+        </div>
+      )}
     </aside>
   )
 }
@@ -417,3 +424,23 @@ function ChannelItem({
 // Skeleton
 // ============================================================================
 
+// Placeholder rows shaped like ChannelItem (48px logo, name, programme line)
+// while the ErsatzTV channels load
+const SKELETON_ROWS = 6
+
+function SidebarSkeleton() {
+  return (
+    <div role="status" className="divide-y" data-testid="sidebar-skeleton">
+      <span className="sr-only">Loading channels</span>
+      {Array.from({ length: SKELETON_ROWS }, (_, i) => (
+        <div key={i} className="flex items-center gap-3 p-3" aria-hidden="true">
+          <Skeleton className="h-12 w-12 shrink-0 rounded" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <Skeleton className="h-4 w-3/5" />
+            <Skeleton className="h-3 w-4/5" />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
