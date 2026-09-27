@@ -78,7 +78,7 @@ export function OnAirCard({ onHeightChange }: OnAirCardProps) {
               </p>
               <p className="mt-1 flex min-w-0 items-center gap-2 text-lg font-semibold leading-tight">
                 <span className="truncate">{currentChannel.name}</span>
-                <span className="shrink-0 rounded bg-live px-1.5 py-0.5 text-[10px] font-bold uppercase leading-none tracking-wide text-live-foreground">
+                <span className="shrink-0 rounded bg-live px-1.5 py-0.5 text-[11px] font-bold uppercase leading-none tracking-wide text-live-foreground">
                   Live
                 </span>
               </p>
