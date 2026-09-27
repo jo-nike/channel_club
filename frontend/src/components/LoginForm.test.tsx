@@ -651,6 +651,66 @@ describe('LoginForm', () => {
         expect(assign).not.toHaveBeenCalled()
         expect(screen.getByRole('button', { name: 'Sign in with Plex' })).toBeEnabled()
       })
+
+      describe('Back from Plex restores the page from the back-forward cache', () => {
+        const restorePage = () =>
+          act(() => {
+            window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))
+          })
+
+        async function waitingForPlex() {
+          userAgent(IPHONE)
+          render(<LoginForm />)
+          fireEvent.click(await screen.findByText('Sign in with Plex'))
+          await expectSentToPlex()
+          expect(screen.getByRole('button', { name: 'Waiting for Plex...' })).toBeDisabled()
+          vi.mocked(fetch).mockClear()
+        }
+
+        it('checks the pending PIN, as a normal return would, and signs in', async () => {
+          const mockSetAuth = vi.fn()
+          useAuthStore.setState({ setAuth: mockSetAuth } as unknown as Parameters<typeof useAuthStore.setState>[0])
+          vi.mocked(api.loginWithPlex).mockResolvedValue({
+            accessToken: 'jwt-token',
+            tokenType: 'bearer',
+            role: 'viewer',
+          })
+          await waitingForPlex()
+          vi.mocked(fetch).mockResolvedValue({
+            ok: true,
+            json: () => Promise.resolve({ authToken: 'plex-token' }),
+          } as Response)
+
+          await restorePage()
+
+          await waitFor(() => expect(mockSetAuth).toHaveBeenCalledWith('jwt-token', 'viewer'))
+          expect(fetch).toHaveBeenCalledWith('https://plex.tv/api/v2/pins/42', expect.anything())
+          expect(sessionStorage.getItem(plexAuth.PLEX_PENDING_PIN_KEY)).toBeNull()
+        })
+
+        it('stops waiting when no PIN is pending', async () => {
+          await waitingForPlex()
+          sessionStorage.clear()
+
+          await restorePage()
+
+          expect(await screen.findByRole('button', { name: 'Sign in with Plex' })).toBeEnabled()
+          expect(fetch).not.toHaveBeenCalled()
+          expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+        })
+
+        it('ignores a normal page show', async () => {
+          await waitingForPlex()
+
+          await act(() => {
+            window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: false }))
+          })
+
+          expect(screen.getByRole('button', { name: 'Waiting for Plex...' })).toBeDisabled()
+          expect(sessionStorage.getItem(plexAuth.PLEX_PENDING_PIN_KEY)).toBe('42')
+          expect(fetch).not.toHaveBeenCalled()
+        })
+      })
     })
 
     describe('coming back from the Plex redirect', () => {

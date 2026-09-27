@@ -140,6 +140,29 @@ export function LoginForm() {
     return () => controller.abort()
   }, [])
 
+  // Back from Plex with the Back button: the browser may restore this page
+  // from its back-forward cache, still "Waiting for Plex..." with no check
+  // running. Finish the pending PIN as a normal return would, or let go.
+  const handleRestoredPage = useEffectEvent((event: PageTransitionEvent) => {
+    if (!event.persisted) return
+    plexAbortRef.current?.abort()
+    plexAbortRef.current = null
+    const pinId = takePendingPlexPin()
+    if (pinId === null) {
+      setPlexLoading(false)
+      return
+    }
+    setError('')
+    setPlexLoading(true)
+    resumePlexRedirect(pinId, new AbortController())
+  })
+
+  useEffect(() => {
+    const onPageShow = (event: PageTransitionEvent) => handleRestoredPage(event)
+    window.addEventListener('pageshow', onPageShow)
+    return () => window.removeEventListener('pageshow', onPageShow)
+  }, [])
+
   const handlePlexLogin = async () => {
     // On TV, default to QR mode
     if (isTVMode) {
