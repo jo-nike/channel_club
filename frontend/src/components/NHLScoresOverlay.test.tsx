@@ -1,23 +1,59 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, within, act } from '@/test/utils'
+import { toast } from 'sonner'
+import { render, screen, fireEvent, within, act, waitFor } from '@/test/utils'
 import { NHLScoresOverlay } from './NHLScoresOverlay'
-import type { NHLGame, NHLScoresResponse } from '@/types/nhl'
+import { PlayerShellContext, type PlayerShell } from '@/components/player/PlayerShellContext'
+import * as api from '@/services/api'
+import { useAuthStore } from '@/stores/authStore'
+import { useChannelStore } from '@/stores/channelStore'
+import { useChatStore } from '@/stores/chatStore'
+import { useNhlMappingStore } from '@/stores/nhlMappingStore'
+import { useSettingsStore } from '@/stores/settingsStore'
+import { LIVE_CHANNEL_ID, useTVStore } from '@/stores/tvStore'
+import { useUIStore } from '@/stores/uiStore'
+import type { ChatSendResult } from '@/hooks/useWebSocket'
+import type { Channel, GroupedChannelsResponse } from '@/types'
+import type { GameStatus, NHLBroadcast, NHLGame, NHLScoresResponse } from '@/types/nhl'
 
 // Mock the useNHLScores hook
 vi.mock('@/hooks/useNHLScores', () => ({
   useNHLScores: vi.fn(),
 }))
 
-// Mock the uiStore
-const mockToggleNHLOverlay = vi.fn()
-vi.mock('@/stores/uiStore', () => ({
-  useUIStore: vi.fn((selector) =>
-    selector({ toggleNHLOverlay: mockToggleNHLOverlay })
-  ),
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }))
+
+vi.mock('@/services/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/services/api')>()),
+  fetchGroupedChannels: vi.fn(),
+  setCurrentChannel: vi.fn(),
 }))
+
+const chatFlag = vi.hoisted(() => ({ enabled: true }))
+vi.mock('@/hooks/useChatEnabled', () => ({ useChatEnabled: () => chatFlag.enabled }))
 
 import { useNHLScores } from '@/hooks/useNHLScores'
 const mockUseNHLScores = vi.mocked(useNHLScores)
+
+const mockToggleNHLOverlay = vi.fn()
+
+const ch = (id: string, name: string): Channel => ({ id, name, streamUrl: `http://stream${id}.m3u8`, guideId: id })
+const tsn5 = ch('1', 'TSN 5')
+const sportsnet = ch('2', 'Sportsnet')
+const cbc = ch('3', 'CBC')
+
+// Any signed-in viewer can read the lineup the ticker matches games against
+const lineup: GroupedChannelsResponse = {
+  groups: [{ id: 1, name: 'Sports', channelCount: 2, channels: [tsn5, sportsnet] }],
+  ungrouped: [cbc],
+}
+
+beforeEach(() => {
+  useUIStore.setState({ toggleNHLOverlay: mockToggleNHLOverlay })
+  useNhlMappingStore.setState({ overrides: {} })
+  // Still loading, unless a test needs the lineup
+  vi.mocked(api.fetchGroupedChannels).mockReturnValue(new Promise(() => {}))
+  vi.mocked(api.setCurrentChannel).mockImplementation(async (channel) => channel)
+})
 
 describe('NHLScoresOverlay', () => {
   beforeEach(() => {
@@ -109,6 +145,7 @@ describe('NHLScoresOverlay', () => {
           },
           startTime: '2026-01-15T00:00:00Z',
           gameCenterLink: 'https://nhl.com/gamecenter/test',
+          broadcasts: [],
           period: '2nd',
           timeRemaining: '08:45',
           isIntermission: false,
@@ -165,6 +202,7 @@ describe('NHLScoresOverlay', () => {
           },
           startTime: startTime.toISOString(),
           gameCenterLink: 'https://nhl.com/gamecenter/test',
+          broadcasts: [],
         },
       ],
       date: '2026-01-15',
@@ -207,6 +245,7 @@ describe('NHLScoresOverlay', () => {
           },
           startTime: '2026-01-15T00:00:00Z',
           gameCenterLink: 'https://nhl.com/gamecenter/test',
+          broadcasts: [],
           outcomeType: 'OT',
         },
       ],
@@ -254,6 +293,7 @@ describe('NHLScoresOverlay', () => {
           },
           startTime: '2026-01-15T00:00:00Z',
           gameCenterLink: 'https://nhl.com/gamecenter/test',
+          broadcasts: [],
           period: '2nd',
           timeRemaining: '00:00',
           isIntermission: true,
@@ -297,6 +337,7 @@ describe('NHLScoresOverlay', () => {
           },
           startTime: '2026-01-15T00:00:00Z',
           gameCenterLink: 'https://nhl.com/gamecenter/test',
+          broadcasts: [],
           period: '2nd',
           timeRemaining: '15:30',
           isIntermission: false,
@@ -321,6 +362,59 @@ describe('NHLScoresOverlay', () => {
     render(<NHLScoresOverlay isVisible={true} />)
 
     expect(screen.getByText('PP')).toBeInTheDocument()
+  })
+
+  it("names each game's button with the scores and status the pill shows", () => {
+    const team = (name: string, abbreviation: string, score: number) => ({ name, abbreviation, score, logo: '', logoDark: '' })
+    const base = { startTime: '2026-01-15T00:00:00Z', gameCenterLink: '', broadcasts: [] }
+    mockUseNHLScores.mockReturnValue({
+      data: {
+        games: [
+          {
+            ...base,
+            id: 1,
+            status: 'live',
+            awayTeam: team('Toronto Maple Leafs', 'TOR', 2),
+            homeTeam: team('Montreal Canadiens', 'MTL', 3),
+            period: '2nd',
+            timeRemaining: '08:45',
+            isIntermission: false,
+            situation: { homeStrength: '5', awayStrength: '4', timeRemaining: '1:45' },
+          },
+          {
+            ...base,
+            id: 2,
+            status: 'final',
+            awayTeam: team('Florida Panthers', 'FLA', 2),
+            homeTeam: team('Tampa Bay Lightning', 'TBL', 3),
+            outcomeType: 'OT',
+          },
+          {
+            ...base,
+            id: 3,
+            status: 'scheduled',
+            awayTeam: team('Ottawa Senators', 'OTT', 0),
+            homeTeam: team('Boston Bruins', 'BOS', 0),
+          },
+        ],
+        date: '2026-01-15',
+        liveGameCount: 1,
+      },
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+
+    render(<NHLScoresOverlay isVisible={true} />)
+
+    expect(
+      screen.getByRole('button', { name: 'Toronto Maple Leafs 2 at Montreal Canadiens 3, 2nd 08:45, power play' })
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Florida Panthers 2 at Tampa Bay Lightning 3, F/OT' })).toBeInTheDocument()
+    // Not started: no scores, and the start time in their time zone
+    expect(
+      screen.getByRole('button', { name: /^Ottawa Senators at Boston Bruins, \d{1,2}:\d{2}\s[AP]M$/ })
+    ).toBeInTheDocument()
   })
 
   it('should enable hook polling when visible', () => {
@@ -590,6 +684,17 @@ describe('NHLScoresOverlay: the row of games', () => {
     expect(scrollBy).toHaveBeenCalledTimes(2)
   })
 
+  it("the arrow keys in a game's popover leave the row where it is", async () => {
+    renderRow()
+    fireEvent.click(screen.getByRole('button', { name: /^Away 1 at Home 1,/ }))
+    const popover = await screen.findByRole('dialog', { name: 'A1 @ H1' })
+
+    // Portalled out of the row, but React still bubbles its keys through it
+    fireEvent.keyDown(popover, { key: 'ArrowRight' })
+
+    expect(scrollBy).not.toHaveBeenCalled()
+  })
+
   it('never scrolls by itself', () => {
     vi.useFakeTimers()
     const frame = vi.spyOn(window, 'requestAnimationFrame')
@@ -610,7 +715,244 @@ describe('NHLScoresOverlay: the row of games', () => {
     const row = renderRow()
 
     expect(row).toHaveClass('overflow-x-auto', 'snap-x', 'snap-mandatory')
-    const pill = screen.getByLabelText('Away 1 vs Home 1')
+    const pill = screen.getByLabelText(/^Away 1 at Home 1,/)
     expect(pill).toHaveClass('snap-start')
+  })
+})
+
+describe('NHLScoresOverlay: watching a game together', () => {
+  const team = (abbreviation: string, name: string) => ({ name, abbreviation, score: 2, logo: '', logoDark: '' })
+  const broadcast = (network: string): NHLBroadcast => ({ network, market: 'N', countryCode: 'CA' })
+  function game(id: number, status: GameStatus, broadcasts: NHLBroadcast[]): NHLGame {
+    return {
+      id,
+      status,
+      awayTeam: team('TOR', 'Toronto Maple Leafs'),
+      homeTeam: team('MTL', 'Montreal Canadiens'),
+      startTime: '2026-10-11T23:00:00Z',
+      gameCenterLink: '',
+      period: '3RD',
+      timeRemaining: '4:32',
+      broadcasts,
+    }
+  }
+
+  const sender = vi.fn<(content: string) => Promise<ChatSendResult>>()
+  let unregister = () => {}
+
+  function renderTicker(games: NHLGame[]) {
+    mockUseNHLScores.mockReturnValue({
+      data: { games, date: '2026-10-11', liveGameCount: games.filter((g) => g.status === 'live').length },
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    return render(<NHLScoresOverlay isVisible={true} />)
+  }
+
+  // The game's button, then its popover once the lineup has matched it
+  async function openGame(name: string | RegExp = /^Toronto Maple Leafs 2 at Montreal Canadiens 2,/) {
+    fireEvent.click(screen.getByRole('button', { name }))
+    const popover = await screen.findByRole('dialog', { name: 'TOR @ MTL' })
+    await waitFor(() => expect(within(popover).queryByText(/Finding it/)).not.toBeInTheDocument())
+    return popover
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    chatFlag.enabled = true
+    vi.mocked(api.fetchGroupedChannels).mockResolvedValue(lineup)
+    useChannelStore.setState({ currentChannel: cbc })
+    useTVStore.setState({ selectedChannel: null })
+    useAuthStore.setState({ token: 'test-token', role: 'viewer', username: 'sam', isAuthenticated: true })
+    useSettingsStore.setState({ userChannelSelection: false })
+    sender.mockResolvedValue('acknowledged')
+    unregister = useChatStore.getState().registerSender(sender)
+  })
+
+  afterEach(() => {
+    unregister()
+  })
+
+  it('each game is a button that opens a popover about it', async () => {
+    renderTicker([game(1, 'live', [broadcast('TSN5')])])
+
+    const pill = screen.getByRole('button', { name: 'Toronto Maple Leafs 2 at Montreal Canadiens 2, 3RD 4:32' })
+    expect(pill).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    fireEvent.click(pill)
+
+    expect(pill).toHaveAttribute('aria-expanded', 'true')
+    expect(await screen.findByRole('dialog', { name: 'TOR @ MTL' })).toBeInTheDocument()
+  })
+
+  it("an admin gets 'Watch together' on each channel showing the game, which puts it on live TV and tunes them to it", async () => {
+    useAuthStore.setState({ role: 'admin' })
+    renderTicker([game(1, 'live', [broadcast('TSN5'), broadcast('SN')])])
+
+    const popover = await openGame()
+    expect(within(popover).queryByRole('button', { name: 'Ask the group' })).not.toBeInTheDocument()
+    const channels = within(popover).getByRole('list', { name: 'Channels showing TOR @ MTL' })
+    // In broadcast order (national feeds by network name)
+    expect(within(channels).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Watch together on Sportsnet',
+      'Watch together on TSN 5',
+    ])
+
+    fireEvent.click(within(popover).getByRole('button', { name: 'Watch together on Sportsnet' }))
+
+    expect(api.setCurrentChannel).toHaveBeenCalledWith(sportsnet)
+    expect(useChannelStore.getState().currentChannel).toEqual(sportsnet)
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    await waitFor(() =>
+      expect(useTVStore.getState().selectedChannel).toMatchObject({ id: LIVE_CHANNEL_ID, streamUrl: sportsnet.streamUrl })
+    )
+    expect(sender).not.toHaveBeenCalled()
+  })
+
+  it("anyone gets 'Watch together' while the admin lets viewers change live TV", async () => {
+    useSettingsStore.setState({ userChannelSelection: true })
+    renderTicker([game(1, 'live', [broadcast('TSN5')])])
+
+    const popover = await openGame()
+    fireEvent.click(within(popover).getByRole('button', { name: 'Watch together on TSN 5' }))
+
+    expect(api.setCurrentChannel).toHaveBeenCalledWith(tsn5)
+  })
+
+  it("everyone else gets 'Ask the group', which posts the game and its channels in chat", async () => {
+    renderTicker([game(1, 'live', [broadcast('TSN5'), broadcast('SN')])])
+
+    const popover = await openGame()
+    expect(within(popover).queryByRole('button', { name: /Watch together/ })).not.toBeInTheDocument()
+    expect(within(popover).getByText('On Sportsnet, TSN 5')).toBeInTheDocument()
+
+    fireEvent.click(within(popover).getByRole('button', { name: 'Ask the group' }))
+
+    expect(sender).toHaveBeenCalledWith("Can we watch TOR @ MTL? It's on Sportsnet or TSN 5.", undefined)
+    expect(api.setCurrentChannel).not.toHaveBeenCalled()
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Asked the group in chat'))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('says when the question could not be sent, or may not have been', async () => {
+    sender.mockResolvedValueOnce('not-sent').mockResolvedValueOnce('unconfirmed')
+    renderTicker([game(1, 'live', [broadcast('TSN5')])])
+
+    fireEvent.click(within(await openGame()).getByRole('button', { name: 'Ask the group' }))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Couldn't ask the group", expect.anything()))
+
+    fireEvent.click(within(await openGame()).getByRole('button', { name: 'Ask the group' }))
+    await waitFor(() =>
+      expect(toast.warning).toHaveBeenCalledWith('Your question may not have been posted', expect.anything())
+    )
+    expect(toast.success).not.toHaveBeenCalled()
+  })
+
+  it("with chat off, 'Ask the group' is disabled and says why", async () => {
+    chatFlag.enabled = false
+    renderTicker([game(1, 'live', [broadcast('TSN5')])])
+
+    const ask = within(await openGame()).getByRole('button', { name: 'Ask the group' })
+
+    expect(ask).toBeDisabled()
+    expect(ask).toHaveAccessibleDescription(/Chat is off, so you can't ask the group/)
+    fireEvent.click(ask)
+    expect(sender).not.toHaveBeenCalled()
+  })
+
+  it('offers nothing for a game on none of your channels, and says where it is on', async () => {
+    useAuthStore.setState({ role: 'admin' })
+    renderTicker([game(1, 'live', [broadcast('KCOP-13'), broadcast('Victory+')])])
+
+    const popover = await openGame()
+
+    expect(within(popover).getByText('Not on any of your channels (on KCOP-13, Victory+).')).toBeInTheDocument()
+    expect(within(popover).queryByRole('button')).not.toBeInTheDocument()
+  })
+
+  it('offers nothing for a game that is over', async () => {
+    renderTicker([game(1, 'final', [broadcast('TSN5')])])
+
+    const popover = await openGame()
+
+    expect(within(popover).getByText('This game is over.')).toBeInTheDocument()
+    expect(within(popover).queryByRole('button')).not.toBeInTheDocument()
+  })
+
+  it('uses your pinned channel for a network', async () => {
+    useAuthStore.setState({ role: 'admin' })
+    useNhlMappingStore.setState({ overrides: { Scripps: cbc.id } })
+    renderTicker([game(1, 'live', [broadcast('Scripps')])])
+
+    const popover = await openGame()
+
+    expect(within(popover).getByRole('button', { name: 'Watch together on CBC' })).toBeInTheDocument()
+  })
+
+  describe("when your channels can't be loaded", () => {
+    beforeEach(() => {
+      vi.mocked(api.fetchGroupedChannels).mockRejectedValue(new Error('503'))
+    })
+
+    it("says so, and still lets a viewer who can't switch ask for the game by name", async () => {
+      renderTicker([game(1, 'live', [broadcast('TSN5')])])
+
+      const popover = await openGame()
+      expect(
+        await within(popover).findByText("Couldn't load your channels. Reopen the scores to try again.")
+      ).toBeInTheDocument()
+      expect(within(popover).queryByText(/Finding it/)).not.toBeInTheDocument()
+
+      fireEvent.click(within(popover).getByRole('button', { name: 'Ask the group' }))
+
+      expect(sender).toHaveBeenCalledWith('Can we watch TOR @ MTL?', undefined)
+    })
+
+    it('says so to someone who can switch, with nothing to put on', async () => {
+      useAuthStore.setState({ role: 'admin' })
+      renderTicker([game(1, 'live', [broadcast('TSN5')])])
+
+      const popover = await openGame()
+
+      expect(
+        await within(popover).findByText("Couldn't load your channels. Reopen the scores to try again.")
+      ).toBeInTheDocument()
+      expect(within(popover).queryByRole('button')).not.toBeInTheDocument()
+    })
+  })
+
+  it('Escape closes the popover and leaves the ticker up', async () => {
+    renderTicker([game(1, 'live', [broadcast('TSN5')])])
+    const popover = await openGame()
+
+    fireEvent.keyDown(within(popover).getByRole('button', { name: 'Ask the group' }), { key: 'Escape' })
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(mockToggleNHLOverlay).not.toHaveBeenCalled()
+    expect(screen.getByRole('region', { name: 'NHL scores' })).toBeInTheDocument()
+  })
+
+  it('opens inside the player shell, so it shows in fullscreen', async () => {
+    const shellElement = document.createElement('div')
+    document.body.appendChild(shellElement)
+    const shell = { containerRef: { current: shellElement } } as unknown as PlayerShell
+    mockUseNHLScores.mockReturnValue({
+      data: { games: [game(1, 'live', [broadcast('TSN5')])], date: '2026-10-11', liveGameCount: 1 },
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    render(
+      <PlayerShellContext.Provider value={shell}>
+        <NHLScoresOverlay isVisible={true} />
+      </PlayerShellContext.Provider>
+    )
+
+    const popover = await openGame()
+
+    expect(shellElement).toContainElement(popover)
+    shellElement.remove()
   })
 })

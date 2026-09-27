@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { gamesOnNow, matchGames } from './nhlWatch'
+import { askGroupMessage, channelsOf, gamesOnNow, matchGames } from './nhlWatch'
 import type { Channel } from '@/types'
 import type { BroadcastMarket, GameStatus, NHLBroadcast, NHLGame, NHLScoresResponse } from '@/types/nhl'
 
@@ -118,5 +118,48 @@ describe('matchGames', () => {
       ['SCU', false],
       ['FIN', true],
     ])
+  })
+})
+
+describe('channelsOf', () => {
+  it('lists every matched channel in broadcast order, each once', () => {
+    const [row] = matchGames(
+      [game(1, 'EDM', 'live', '2026-10-11T23:00:00Z', [broadcast('SNW', 'CA', 'H'), broadcast('SN'), broadcast('ESPN', 'US')])],
+      CHANNELS,
+    )
+
+    // SN (national) sorts first and matches both Sportsnet feeds; SNW repeats one
+    expect(ids(channelsOf(row.broadcasts))).toEqual(['sn', 'snw', 'espn'])
+  })
+
+  it('is empty when no broadcast is on your channels', () => {
+    const [row] = matchGames([game(1, 'ANA', 'live', '2026-10-11T23:00:00Z', [broadcast('KCOP-13', 'US', 'H')])], CHANNELS)
+
+    expect(channelsOf(row.broadcasts)).toEqual([])
+  })
+})
+
+describe('askGroupMessage', () => {
+  const tor = game(1, 'TOR', 'live', '2026-10-11T23:00:00Z', [])
+
+  it('names the matchup and the one channel it is on', () => {
+    expect(askGroupMessage(tor, [CHANNELS[0]])).toBe("Can we watch TOR @ HOM? It's on CA-S: TSN 5.")
+  })
+
+  it('offers the channels as alternatives', () => {
+    expect(askGroupMessage(tor, CHANNELS.slice(0, 2))).toBe("Can we watch TOR @ HOM? It's on CA-S: TSN 5 or CA-S: Sportsnet.")
+    expect(askGroupMessage(tor, CHANNELS.slice(0, 3))).toBe(
+      "Can we watch TOR @ HOM? It's on CA-S: TSN 5, CA-S: Sportsnet or CA-S: Sportsnet West.",
+    )
+  })
+
+  it('names at most three channels, so the message stays short', () => {
+    expect(askGroupMessage(tor, CHANNELS)).toBe(
+      "Can we watch TOR @ HOM? It's on CA-S: TSN 5, CA-S: Sportsnet or CA-S: Sportsnet West.",
+    )
+  })
+
+  it('asks for the game alone when it is on none of your channels', () => {
+    expect(askGroupMessage(tor, [])).toBe('Can we watch TOR @ HOM?')
   })
 })
