@@ -7,8 +7,11 @@ import { useSettingsStore } from '@/stores/settingsStore'
 import { useRecentLiveStore } from '@/stores/recentLiveStore'
 import { useNhlMappingStore } from '@/stores/nhlMappingStore'
 import { useTVStore, LIVE_CHANNEL_ID } from '@/stores/tvStore'
+import { usePresenceStore } from '@/stores/presenceStore'
+import { useChatStore } from '@/stores/chatStore'
+import { useUIStore } from '@/stores/uiStore'
 import * as api from '@/services/api'
-import type { Channel, GroupedChannelsResponse, UnifiedChannel } from '@/types'
+import type { Channel, GroupedChannelsResponse, PresenceEntry, UnifiedChannel } from '@/types'
 import type { GameStatus, NHLBroadcast, NHLGame, NHLScoresResponse } from '@/types/nhl'
 
 vi.mock('@/services/api', () => ({
@@ -73,12 +76,25 @@ function renderSheet() {
 
 const section = (name: string) => screen.getByRole('region', { name })
 
+const here = (userId: string, displayName: string, view: PresenceEntry['view'], channelName: string | null = null): PresenceEntry => ({
+  userId,
+  displayName,
+  channelId: null,
+  channelName,
+  programme: null,
+  view,
+  since: null,
+})
+
 describe('LiveSwitcherSheet', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useChannelStore.setState({ currentChannel: cbc })
     useAuthStore.setState({ token: 'test-token', role: 'viewer', username: 'sam', isAuthenticated: true })
-    useSettingsStore.setState({ userChannelSelection: true })
+    useSettingsStore.setState({ userChannelSelection: true, presenceVisible: false })
+    useUIStore.setState({ hideMyActivity: false })
+    usePresenceStore.setState({ entries: [] })
+    useChatStore.setState({ nickname: null, me: { username: 'sam', userId: 'u_sam' } })
     useRecentLiveStore.setState({ byUser: {} })
     useNhlMappingStore.setState({ overrides: {} })
     // The person opening the switcher is watching an ErsatzTV channel
@@ -221,6 +237,71 @@ describe('LiveSwitcherSheet', () => {
 
     await screen.findByRole('region', { name: 'Sports on now' })
     expect(within(section('On air')).getByRole('button', { name: /stop live tv/i })).toBeInTheDocument()
+  })
+
+  describe("who's watching", () => {
+    beforeEach(() => {
+      usePresenceStore.setState({
+        entries: [
+          here('u_sam', 'sam', 'live', 'CBC'),
+          here('u_maya', 'maya', 'live', 'CBC'),
+          here('u_dev', 'dev', 'live', 'CBC'),
+          here('u_ali', 'ali', 'ersatztv', 'Movies'),
+        ],
+      })
+    })
+
+    it('names the others on live TV while presence is visible', async () => {
+      useSettingsStore.setState({ presenceVisible: true })
+      renderSheet()
+
+      await screen.findByRole('region', { name: 'Sports on now' })
+      // Not the person looking, nor someone on another channel
+      expect(within(section('On air')).getByText('maya and dev are watching')).toBeInTheDocument()
+      expect(within(section('On air')).queryByText(/ali/)).not.toBeInTheDocument()
+    })
+
+    it('says "is" for one person', async () => {
+      useSettingsStore.setState({ presenceVisible: true })
+      usePresenceStore.setState({ entries: [here('u_maya', 'maya', 'live', 'CBC')] })
+      renderSheet()
+
+      expect(await within(section('On air')).findByText('maya is watching')).toBeInTheDocument()
+    })
+
+    it('names nobody while the admin keeps what everyone watches private', async () => {
+      renderSheet()
+
+      await screen.findByRole('region', { name: 'Sports on now' })
+      expect(within(section('On air')).queryByText(/watching/)).not.toBeInTheDocument()
+    })
+
+    it('names nobody to someone who hides what they watch', async () => {
+      useSettingsStore.setState({ presenceVisible: true })
+      useUIStore.setState({ hideMyActivity: true })
+      renderSheet()
+
+      await screen.findByRole('region', { name: 'Sports on now' })
+      expect(within(section('On air')).queryByText(/watching/)).not.toBeInTheDocument()
+    })
+
+    it('has no line while nobody else is on live TV', async () => {
+      useSettingsStore.setState({ presenceVisible: true })
+      usePresenceStore.setState({ entries: [here('u_sam', 'sam', 'live', 'CBC'), here('u_ali', 'ali', 'ersatztv', 'Movies')] })
+      renderSheet()
+
+      await screen.findByRole('region', { name: 'Sports on now' })
+      expect(within(section('On air')).queryByText(/watching/)).not.toBeInTheDocument()
+    })
+
+    it('follows the presence snapshot as people come and go', async () => {
+      useSettingsStore.setState({ presenceVisible: true })
+      renderSheet()
+
+      expect(await within(section('On air')).findByText('maya and dev are watching')).toBeInTheDocument()
+      act(() => usePresenceStore.setState({ entries: [here('u_dev', 'dev', 'live', 'CBC')] }))
+      expect(within(section('On air')).getByText('dev is watching')).toBeInTheDocument()
+    })
   })
 
   it('loads nothing while closed', async () => {
