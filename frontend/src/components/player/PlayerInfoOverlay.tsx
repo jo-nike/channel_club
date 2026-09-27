@@ -8,6 +8,7 @@ import { withKey } from '@/lib/keyHints'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
 import { useChannelStore, type LiveChannelChange } from '@/stores/channelStore'
+import { describeLiveGuide, useTVStore } from '@/stores/tvStore'
 import { useUIStore } from '@/stores/uiStore'
 import type { UnifiedChannel } from '@/types'
 import { usePlayerShell } from './PlayerShellContext'
@@ -148,17 +149,19 @@ function InfoRail({ channel, isVisible, liveChange }: InfoRailProps) {
   const { title, timeLeft, isLive, hasLiveChannel } = useNowPlaying(channel)
   // The live slot's logo is the live channel's, which the slot doesn't carry
   const liveChannel = useChannelStore((s) => s.currentChannel)
+  const liveEPGStatus = useTVStore((s) => s.liveEPGStatus)
   const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
   const toggleNHLOverlay = useUIStore((s) => s.toggleNHLOverlay)
 
   const isClubChannel = isLive && hasLiveChannel
   const logoChannel = isLive ? liveChannel : channel
-  // The live slot usually has no guide data: say so plainly rather than
-  // leave the line empty or pretend something is 'broadcasting'
+  // The live slot often has no guide data: say why, in the header's and the
+  // guide's words (unavailable, loading or nothing on now), rather than leave
+  // the line empty or pretend something is 'broadcasting'
   const details = title
     ? [title, timeLeft].filter(Boolean).join(' · ')
     : isClubChannel
-      ? 'Live · no guide info'
+      ? describeLiveGuide(liveEPGStatus)
       : isLive
         ? 'Nothing on yet'
         : 'No guide info'

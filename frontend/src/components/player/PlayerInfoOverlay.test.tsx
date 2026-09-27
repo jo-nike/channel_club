@@ -166,11 +166,31 @@ describe('PlayerInfoOverlay: what the rail says', () => {
     )
   })
 
-  it("says 'Live · no guide info' when the live channel has no guide data, never 'Now broadcasting'", () => {
-    renderOverlay(liveSlot())
+  it.each([
+    ['empty', 'No guide info'],
+    ['unavailable', 'Guide unavailable'],
+    ['loading', 'Loading guide...'],
+    ['idle', 'Loading guide...'],
+  ] as const)(
+    "says why the live channel has no programme when the guide is %s, as the header does, never 'Now broadcasting'",
+    (liveEPGStatus, text) => {
+      useTVStore.setState({ liveEPG: null, liveEPGStatus })
+      renderOverlay(liveSlot())
 
-    expect(rail()).toHaveTextContent('Live · no guide info')
-    expect(rail()).not.toHaveTextContent(/broadcasting/i)
+      expect(rail()).toHaveTextContent(text)
+      expect(rail()).not.toHaveTextContent(/broadcasting/i)
+    }
+  )
+
+  it('follows the guide from loading to unavailable', () => {
+    useTVStore.setState({ liveEPG: null, liveEPGStatus: 'loading' })
+    renderOverlay(liveSlot())
+    expect(rail()).toHaveTextContent('Loading guide...')
+
+    act(() => useTVStore.setState({ liveEPGStatus: 'unavailable' }))
+
+    expect(rail()).toHaveTextContent('Guide unavailable')
+    expect(rail()).not.toHaveTextContent('Loading guide...')
   })
 
   it('says there is no guide info for an ErsatzTV channel with a gap in its schedule', () => {
@@ -352,7 +372,7 @@ describe('PlayerInfoOverlay: shared live-channel changes', () => {
     expect(status()).toBeEmptyDOMElement()
     expect(rail()).toHaveClass('opacity-0')
     // The programme line is back
-    expect(rail()).toHaveTextContent('Live · no guide info')
+    expect(rail()).toHaveTextContent('No guide info')
   })
 
   it('names nobody for a system change', () => {
