@@ -851,6 +851,75 @@ describe('ChatPanel', () => {
     })
   })
 
+  describe('day separators', () => {
+    // Local times, so the days hold in any time zone
+    const at = (day: number, hour: number, minute: number) => new Date(2026, 8, day, hour, minute)
+    const sentAt = (id: string, username: string, when: Date): ChatMessage => ({
+      messageId: id,
+      username,
+      content: `Message ${id}`,
+      timestamp: when.toISOString(),
+    })
+    const daySeparators = () =>
+      screen.getAllByRole('separator').filter((el) => el.getAttribute('aria-label') !== 'New messages')
+
+    beforeEach(() => {
+      vi.useFakeTimers()
+      vi.setSystemTime(at(27, 12, 0))
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it("puts 'Yesterday' and 'Today' before the first message of each day", () => {
+      useChatStore.setState({
+        messages: [
+          sentAt('1', 'OtherUser', at(26, 22, 0)),
+          sentAt('2', 'OtherUser', at(26, 22, 1)),
+          sentAt('3', 'OtherUser', at(27, 9, 0)),
+          sentAt('4', 'OtherUser', at(27, 11, 59)),
+        ],
+      })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(daySeparators().map((el) => el.textContent)).toEqual(['Yesterday', 'Today'])
+
+      const yesterday = screen.getByRole('separator', { name: 'Yesterday' })
+      const today = screen.getByRole('separator', { name: 'Today' })
+      const follows = (a: Element, b: Element) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
+      expect(follows(yesterday, screen.getByText('Message 1'))).toBe(true)
+      expect(follows(screen.getByText('Message 2'), today)).toBe(true)
+      expect(follows(today, screen.getByText('Message 3'))).toBe(true)
+    })
+
+    it('names the date for anything older than yesterday', () => {
+      const older = at(24, 20, 0)
+      useChatStore.setState({ messages: [sentAt('1', 'OtherUser', older)] })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      const label = older.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })
+      expect(screen.getByRole('separator', { name: label })).toHaveTextContent(label)
+    })
+
+    it('splits a group at midnight', () => {
+      useChatStore.setState({
+        messages: [sentAt('1', 'OtherUser', at(26, 23, 59)), sentAt('2', 'OtherUser', at(27, 0, 1))],
+      })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.getAllByText('OtherUser')).toHaveLength(2)
+    })
+
+    it("turns 'Today' into 'Yesterday' once midnight passes with the panel open", () => {
+      vi.setSystemTime(at(27, 23, 59))
+      useChatStore.setState({ messages: [sentAt('1', 'OtherUser', at(27, 23, 0))] })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.getByRole('separator', { name: 'Today' })).toBeInTheDocument()
+
+      act(() => { vi.advanceTimersByTime(90_000) })
+      expect(screen.queryByRole('separator', { name: 'Today' })).not.toBeInTheDocument()
+      expect(screen.getByRole('separator', { name: 'Yesterday' })).toBeInTheDocument()
+    })
+  })
+
   describe('scroll position', () => {
     const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView)
     const originalMatchMedia = window.matchMedia

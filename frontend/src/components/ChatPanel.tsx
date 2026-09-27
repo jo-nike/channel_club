@@ -47,6 +47,15 @@ function continuesGroup(previous: ChatMessageData | undefined, message: ChatMess
   return gap >= 0 && gap <= GROUP_GAP_MS && at.toDateString() === previousAt.toDateString()
 }
 
+/** 'Today', 'Yesterday' or the date, for the local day a message was sent on. */
+function dayLabel(sentAt: Date, now: number): string {
+  const today = new Date(now)
+  if (sentAt.toDateString() === today.toDateString()) return 'Today'
+  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1)
+  if (sentAt.toDateString() === yesterday.toDateString()) return 'Yesterday'
+  return sentAt.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })
+}
+
 // A send that failed, kept whole so a retry resends exactly it (a GIF stays a
 // GIF) under the same id, which the server recognises instead of reposting
 interface SendFailure {
@@ -336,6 +345,14 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
   const startsGroup = messages.map(
     (msg, index) => msg.messageId === firstUnreadId || !continuesGroup(messages[index - 1], msg)
   )
+  // A day separator goes before the first message of each local day
+  const daySeparators = messages.map((msg, index) => {
+    const sentAt = new Date(msg.timestamp)
+    if (Number.isNaN(sentAt.getTime())) return null
+    const previous = messages[index - 1]
+    if (previous && new Date(previous.timestamp).toDateString() === sentAt.toDateString()) return null
+    return dayLabel(sentAt, now)
+  })
 
   // Panel styles based on viewport
   // Full-screen on phones: keep the header clear of the status bar and the
@@ -462,6 +479,17 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
                 ) : (
                   messages.map((msg, index) => (
                     <Fragment key={msg.messageId}>
+                      {daySeparators[index] && (
+                        <div
+                          role="separator"
+                          aria-label={daySeparators[index]}
+                          className="flex items-center gap-2 px-4 py-2 text-xs font-medium text-muted-foreground"
+                        >
+                          <span className="h-px flex-1 bg-border" aria-hidden="true" />
+                          {daySeparators[index]}
+                          <span className="h-px flex-1 bg-border" aria-hidden="true" />
+                        </div>
+                      )}
                       {msg.messageId === firstUnreadId && (
                         <div
                           ref={newDividerRef}
