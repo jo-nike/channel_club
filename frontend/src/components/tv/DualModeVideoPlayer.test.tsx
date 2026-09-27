@@ -5,6 +5,7 @@ import { DualModeVideoPlayer } from './DualModeVideoPlayer'
 import { useAudioStore } from '@/stores/audioStore'
 import { useFilterStore } from '@/stores/filterStore'
 import { useChannelStore } from '@/stores/channelStore'
+import { useUIStore } from '@/stores/uiStore'
 import type { UnifiedChannel } from '@/types'
 import type { PlayerShell } from '@/components/player/PlayerShellContext'
 
@@ -105,6 +106,16 @@ vi.mock('@/components/CastButton', async () => {
     },
   }
 })
+
+// The NHL ticker's scores: a day with no games, so nothing is fetched
+vi.mock('@/hooks/useNHLScores', () => ({
+  useNHLScores: () => ({
+    data: { games: [], date: '2026-09-27', liveGameCount: 0 },
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
+}))
 
 // Script volume detection (false on iOS/iPadOS Safari)
 const volumeSupport = vi.hoisted(() => ({ canSet: true }))
@@ -714,6 +725,44 @@ describe('DualModeVideoPlayer filters', () => {
 
     expect(document.querySelectorAll('.noir-filter')).toHaveLength(1)
     expect(document.querySelector('.noir-filter')).toBe(noir)
+  })
+})
+
+describe('DualModeVideoPlayer NHL ticker', () => {
+  afterEach(() => useUIStore.setState({ isNHLOverlayVisible: false }))
+
+  const ticker = () => screen.queryByRole('dialog', { name: 'NHL' })
+
+  it('renders inside the shell, so it shows in fullscreen, and stays across a channel switch', () => {
+    useUIStore.setState({ isNHLOverlayVisible: true })
+    const { switchTo } = renderPlayer(liveChannel('https://fixture/a'))
+
+    const first = ticker()
+    expect(shell()).toContainElement(first)
+    expect(first).toHaveTextContent('No games today')
+
+    switchTo(hlsChannel('1', 1))
+    expect(ticker()).toBe(first)
+    expect(shell()).toContainElement(ticker())
+  })
+
+  it('follows the NHL toggle', () => {
+    renderPlayer(liveChannel('https://fixture/a'))
+    expect(ticker()).not.toBeInTheDocument()
+
+    act(() => useUIStore.getState().toggleNHLOverlay())
+    expect(shell()).toContainElement(ticker())
+
+    act(() => useUIStore.getState().toggleNHLOverlay())
+    expect(ticker()).not.toBeInTheDocument()
+  })
+
+  it('shows over the empty live slot too', () => {
+    useUIStore.setState({ isNHLOverlayVisible: true })
+    renderPlayer(liveChannel(''))
+
+    expect(screen.getByText('No live broadcast')).toBeInTheDocument()
+    expect(shell()).toContainElement(ticker())
   })
 })
 

@@ -28,7 +28,6 @@ import { useResizable } from '@/hooks/useResizable'
 import { useMobileLandscape } from '@/hooks/useMobileLandscape'
 import { AdminModal } from '@/components/AdminModal'
 import { LiveChannelPickerDialog } from '@/components/LiveChannelPickerDialog'
-import { NHLScoresOverlay } from '@/components/NHLScoresOverlay'
 import { cn } from '@/lib/utils'
 import type { ErsatzTVProgramme, UnifiedChannel, ErsatzTVChannel } from '@/types'
 
@@ -74,7 +73,6 @@ export function TVView() {
   const isTheaterMode = useUIStore((s) => s.isTheaterMode)
   const setTheaterMode = useUIStore((s) => s.setTheaterMode)
   const toggleTheaterMode = useUIStore((s) => s.toggleTheaterMode)
-  const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
 
   // Handle Escape key
   const handleEscape = useCallback(() => {
@@ -372,8 +370,6 @@ export function TVView() {
                 reloadKey={videoRefreshKey}
               />
             </ErrorBoundary>
-            {/* NHL Scores Overlay - positioned over video */}
-            <NHLScoresOverlay isVisible={isNHLOverlayVisible} />
             {/* Channel banner while zapping in TV theater */}
             {isTVTheater && <ZapBanner channel={zapPending ?? selectedChannel} />}
           </div>

@@ -52,7 +52,6 @@ vi.mock('@/components/ersatztv/ProgrammeDetailsModal', () => ({ ProgrammeDetails
 vi.mock('@/components/UserSettingsMenu', () => ({ UserSettingsMenu: () => null }))
 vi.mock('@/components/FeedbackButton', () => ({ FeedbackButton: () => null }))
 vi.mock('@/components/AdminModal', () => ({ AdminModal: () => null }))
-vi.mock('@/components/NHLScoresOverlay', () => ({ NHLScoresOverlay: () => null }))
 
 beforeEach(() => {
   socket.status = 'connected'

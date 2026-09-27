@@ -23,8 +23,10 @@ import { Button } from '@/components/ui/button'
 import { AutoplayNotice } from '@/components/player/AutoplayNotice'
 import { PlayerShellContext, usePlayerShell } from '@/components/player/PlayerShellContext'
 import { FilterLayer } from '@/components/player/FilterLayer'
+import { NHLScoresOverlay } from '@/components/NHLScoresOverlay'
 import { useAudioStore, unmutedVolume } from '@/stores/audioStore'
 import { useChannelStore } from '@/stores/channelStore'
+import { useUIStore } from '@/stores/uiStore'
 import { getErsatzTVStreamUrl } from '@/services/ersatztvApi'
 import type { UnifiedChannel } from '@/types'
 
@@ -55,6 +57,7 @@ export function DualModeVideoPlayer({
 }: DualModeVideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const isFullscreen = useFullscreenState(containerRef)
+  const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
 
   const toggleFullscreen = useCallback(() => {
     const container = containerRef.current
@@ -121,6 +124,8 @@ export function DualModeVideoPlayer({
         {/* Before the engine, so its control bar paints above the filters */}
         <FilterLayer />
         {engine}
+        {/* In the shell, so the ticker shows in fullscreen too */}
+        <NHLScoresOverlay isVisible={isNHLOverlayVisible} />
       </div>
     </PlayerShellContext>
   )
