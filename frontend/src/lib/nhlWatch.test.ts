@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { gamesOnNow, matchGames } from './nhlWatch'
+import { askGroupMessage, channelsOf, gamesOnNow, liveGameId, matchGames } from './nhlWatch'
 import type { Channel } from '@/types'
 import type { BroadcastMarket, GameStatus, NHLBroadcast, NHLGame, NHLScoresResponse } from '@/types/nhl'
 
@@ -118,5 +118,103 @@ describe('matchGames', () => {
       ['SCU', false],
       ['FIN', true],
     ])
+  })
+})
+
+describe('channelsOf', () => {
+  it('lists every matched channel in broadcast order, each once', () => {
+    const [row] = matchGames(
+      [game(1, 'EDM', 'live', '2026-10-11T23:00:00Z', [broadcast('SNW', 'CA', 'H'), broadcast('SN'), broadcast('ESPN', 'US')])],
+      CHANNELS,
+    )
+
+    // SN (national) sorts first and matches both Sportsnet feeds; SNW repeats one
+    expect(ids(channelsOf(row.broadcasts))).toEqual(['sn', 'snw', 'espn'])
+  })
+
+  it('is empty when no broadcast is on your channels', () => {
+    const [row] = matchGames([game(1, 'ANA', 'live', '2026-10-11T23:00:00Z', [broadcast('KCOP-13', 'US', 'H')])], CHANNELS)
+
+    expect(channelsOf(row.broadcasts)).toEqual([])
+  })
+})
+
+describe('askGroupMessage', () => {
+  const tor = game(1, 'TOR', 'live', '2026-10-11T23:00:00Z', [])
+
+  it('names the matchup and the one channel it is on', () => {
+    expect(askGroupMessage(tor, [CHANNELS[0]])).toBe("Can we watch TOR @ HOM? It's on CA-S: TSN 5.")
+  })
+
+  it('offers the channels as alternatives', () => {
+    expect(askGroupMessage(tor, CHANNELS.slice(0, 2))).toBe("Can we watch TOR @ HOM? It's on CA-S: TSN 5 or CA-S: Sportsnet.")
+    expect(askGroupMessage(tor, CHANNELS.slice(0, 3))).toBe(
+      "Can we watch TOR @ HOM? It's on CA-S: TSN 5, CA-S: Sportsnet or CA-S: Sportsnet West.",
+    )
+  })
+
+  it('names at most three channels, so the message stays short', () => {
+    expect(askGroupMessage(tor, CHANNELS)).toBe(
+      "Can we watch TOR @ HOM? It's on CA-S: TSN 5, CA-S: Sportsnet or CA-S: Sportsnet West.",
+    )
+  })
+
+  it('asks for the game alone when it is on none of your channels', () => {
+    expect(askGroupMessage(tor, [])).toBe('Can we watch TOR @ HOM?')
+  })
+})
+
+describe('liveGameId', () => {
+  it('finds the live game with a broadcast on the live channel', () => {
+    const rows = matchGames(
+      [
+        game(1, 'TOR', 'live', '2026-10-11T23:00:00Z', [broadcast('TSN5')]),
+        game(2, 'EDM', 'live', '2026-10-11T23:00:00Z', [broadcast('KCOP-13', 'US', 'H'), broadcast('ESPN', 'US')]),
+      ],
+      CHANNELS,
+    )
+
+    expect(liveGameId(rows, 'espn')).toBe(2)
+    expect(liveGameId(rows, 'tsn5')).toBe(1)
+  })
+
+  it('never picks a game that has not started or is over, even on the live channel', () => {
+    const rows = matchGames(
+      [
+        game(1, 'FIN', 'final', '2026-10-11T17:00:00Z', [broadcast('TSN5')]),
+        game(2, 'SCH', 'scheduled', '2026-10-12T02:00:00Z', [broadcast('TSN5')]),
+      ],
+      CHANNELS,
+    )
+
+    expect(liveGameId(rows, 'tsn5')).toBeNull()
+  })
+
+  it('picks the live game over earlier and later games on the same channel', () => {
+    const rows = matchGames(
+      [
+        game(1, 'FIN', 'final', '2026-10-11T17:00:00Z', [broadcast('TSN5')]),
+        game(2, 'LIV', 'live', '2026-10-11T23:00:00Z', [broadcast('TSN5')]),
+        game(3, 'SCH', 'scheduled', '2026-10-12T02:00:00Z', [broadcast('TSN5')]),
+      ],
+      CHANNELS,
+    )
+
+    expect(liveGameId(rows, 'tsn5')).toBe(2)
+  })
+
+  it('follows a pinned network to its channel', () => {
+    const rows = matchGames([game(1, 'VGK', 'live', '2026-10-11T23:00:00Z', [broadcast('Scripps', 'US', 'H')])], CHANNELS, {
+      Scripps: 'nhln',
+    })
+
+    expect(liveGameId(rows, 'nhln')).toBe(1)
+  })
+
+  it('is null with nothing on live TV, or no game on the live channel', () => {
+    const rows = matchGames([game(1, 'TOR', 'live', '2026-10-11T23:00:00Z', [broadcast('TSN5')])], CHANNELS)
+
+    expect(liveGameId(rows, null)).toBeNull()
+    expect(liveGameId(rows, 'espn')).toBeNull()
   })
 })

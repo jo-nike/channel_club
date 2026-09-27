@@ -68,6 +68,42 @@ export function matchGames(
   return games.map((game) => matchGame(game, channels, overrides)).sort(sortGames)
 }
 
+/** Every channel carrying a game, in broadcast order, each once. */
+export function channelsOf(broadcasts: readonly BroadcastMatch[]): Channel[] {
+  const byId = new Map(broadcasts.flatMap((b) => b.result.matched).map((c) => [c.id, c]))
+  return [...byId.values()]
+}
+
+/**
+ * The game on the shared live channel: the first live game (in matchGames
+ * order) with a broadcast on that channel. Games not started or over are
+ * never on it, even when their channel is; null with nothing on live TV.
+ */
+export function liveGameId(rows: readonly GameRow[], liveChannelId: string | null): number | null {
+  if (liveChannelId === null) return null
+  const row = rows.find(
+    ({ game, broadcasts }) =>
+      game.status === 'live' && broadcasts.some((b) => b.result.matched.some((c) => c.id === liveChannelId)),
+  )
+  return row ? row.game.id : null
+}
+
+// Channels named in an 'Ask the group' message; the rest go unnamed, so a
+// game on many feeds still makes a short message
+const ASK_CHANNELS_NAMED = 3
+
+/**
+ * The chat message a viewer who can't change live TV sends to ask for a game:
+ * the matchup, and where it's on when it is on your channels.
+ */
+export function askGroupMessage(game: NHLGame, channels: readonly Channel[]): string {
+  const matchup = `${game.awayTeam.abbreviation} @ ${game.homeTeam.abbreviation}`
+  const names = channels.slice(0, ASK_CHANNELS_NAMED).map((c) => c.name)
+  if (names.length === 0) return `Can we watch ${matchup}?`
+  const where = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`
+  return `Can we watch ${matchup}? It's on ${where}.`
+}
+
 /**
  * The live games you can put on right now, by start time: each live game
  * with a broadcast on one of your channels, keeping only those broadcasts.
@@ -82,7 +118,6 @@ export function gamesOnNow(
   return matchGames(live, channels, overrides).flatMap(({ game, broadcasts }) => {
     const matched = broadcasts.filter((b) => b.result.matched.length > 0)
     if (matched.length === 0) return []
-    const byId = new Map(matched.flatMap((b) => b.result.matched).map((c) => [c.id, c]))
-    return [{ game, broadcasts: matched, channels: [...byId.values()] }]
+    return [{ game, broadcasts: matched, channels: channelsOf(matched) }]
   })
 }

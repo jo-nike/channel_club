@@ -1,6 +1,14 @@
-import { useEffect, useCallback, useRef, useState } from 'react'
+import { useContext, useEffect, useCallback, useId, useMemo, useRef, useState } from 'react'
 import { RefreshCw, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react'
+import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { PlayerShellContext } from '@/components/player/PlayerShellContext'
+import { useChannelCatalogueLoad } from '@/hooks/useChannelCatalogue'
+import { useChatEnabled } from '@/hooks/useChatEnabled'
 import { useNHLScores } from '@/hooks/useNHLScores'
+import { useSetLiveChannel } from '@/hooks/useSetLiveChannel'
+import type { ChatSendResult } from '@/hooks/useWebSocket'
 
 /**
  * NHL shield logo as inline SVG.
@@ -34,8 +42,15 @@ function NHLLogo({ className }: { className?: string }) {
   )
 }
 import { useUIStore } from '@/stores/uiStore'
+import { useAuthStore } from '@/stores/authStore'
+import { useChannelStore } from '@/stores/channelStore'
+import { useChatStore } from '@/stores/chatStore'
+import { useNhlMappingStore } from '@/stores/nhlMappingStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { cn } from '@/lib/utils'
 import { scrollBehavior } from '@/lib/motion'
+import { askGroupMessage, channelsOf, liveGameId, matchGames, type GameRow } from '@/lib/nhlWatch'
+import type { Channel } from '@/types'
 import type { NHLGame, NHLTeam } from '@/types/nhl'
 
 interface NHLScoresOverlayProps {
@@ -127,7 +142,7 @@ export function NHLScoresOverlay({ isVisible, belowRail = false }: NHLScoresOver
             {error && <ErrorStateCompact onRetry={refetch} />}
             {data?.games.length === 0 && <EmptyStateCompact />}
             {data && data.games.length > 0 && (
-              <TickerScroll games={sortGames(data.games)} />
+              <TickerScroll games={data.games} />
             )}
           </div>
         </div>
@@ -187,11 +202,29 @@ const KEY_STEP_PX = 160
  * The games in a row that scrolls by hand: swipe, wheel, the chevrons, or the
  * arrow keys once it has focus. It never moves by itself. The ends fade, with
  * a chevron, only while there is more that way.
+ *
+ * Each game opens what you can do about it, so the channel lineup loads while
+ * the row is up (any signed-in viewer can read it) to match each game's
+ * broadcasts to channels, pins first, as the Live TV switcher does. The game
+ * on the shared live channel is marked 'On Live'. If the lineup can't be
+ * loaded, the games say so rather than wait for it.
  */
 function TickerScroll({ games }: { games: NHLGame[] }) {
   const scrollerRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   const [more, setMore] = useState({ before: false, after: false })
+  const { catalogue, failed: lineupFailed } = useChannelCatalogueLoad()
+  const overrides = useNhlMappingStore((s) => s.overrides)
+  const liveChannelId = useChannelStore((s) => s.currentChannel?.id ?? null)
+
+  const sorted = useMemo(() => sortGames(games), [games])
+  // Each game's broadcasts on your channels; null until the lineup loads
+  const matched = useMemo(
+    () => (catalogue ? matchGames(games, [...catalogue.values()], overrides) : null),
+    [games, catalogue, overrides]
+  )
+  const rows = useMemo(() => matched && new Map(matched.map((row) => [row.game.id, row])), [matched])
+  const onLiveId = matched ? liveGameId(matched, liveChannelId) : null
 
   // Whether there is more to see on either side, re-read on scroll and when
   // the row or its games change size
@@ -227,9 +260,11 @@ function TickerScroll({ games }: { games: NHLGame[] }) {
     scrollRow(direction * width * PAGE_FRACTION)
   }
 
-  // The arrows scroll the row rather than change the volume
+  // The arrows scroll the row rather than change the volume. Only from the
+  // row: a game's popover is portalled out of it, but its keys still bubble here
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+    if (!(e.target instanceof Node) || !scrollerRef.current?.contains(e.target)) return
     e.preventDefault()
     scrollRow(e.key === 'ArrowRight' ? KEY_STEP_PX : -KEY_STEP_PX)
   }
@@ -245,8 +280,14 @@ function TickerScroll({ games }: { games: NHLGame[] }) {
         className="overflow-x-auto snap-x snap-mandatory scroll-px-8 rounded [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
       >
         <div ref={contentRef} className="flex w-max gap-3">
-          {games.map((game) => (
-            <GameCardCompact key={game.id} game={game} />
+          {sorted.map((game) => (
+            <GameCardCompact
+              key={game.id}
+              game={game}
+              row={rows?.get(game.id)}
+              lineupFailed={lineupFailed}
+              onLive={game.id === onLiveId}
+            />
           ))}
         </div>
       </div>
@@ -308,9 +349,26 @@ function sortGames(games: NHLGame[]): NHLGame[] {
 }
 
 /**
- * Compact horizontal game card for sports ticker panel.
+ * Compact horizontal game card for sports ticker panel: a button that opens
+ * what you can do about the game (see GameActions).
  */
-function GameCardCompact({ game }: { game: NHLGame }) {
+function GameCardCompact({
+  game,
+  row,
+  lineupFailed,
+  onLive,
+}: {
+  game: NHLGame
+  /** The game's broadcasts matched to your channels; undefined until the lineup loads */
+  row: GameRow | undefined
+  /** The lineup couldn't be loaded, so row never comes */
+  lineupFailed: boolean
+  /** The game is on the shared live channel */
+  onLive: boolean
+}) {
+  const shell = useContext(PlayerShellContext)
+  const [isOpen, setIsOpen] = useState(false)
+  const [portalContainer, setPortalContainer] = useState<HTMLElement | undefined>(undefined)
   const isLive = game.status === 'live'
   const isFinal = game.status === 'final'
   const isScheduled = game.status === 'scheduled'
@@ -318,36 +376,234 @@ function GameCardCompact({ game }: { game: NHLGame }) {
     game.situation &&
     game.situation.homeStrength !== game.situation.awayStrength
 
+  // The popover portals into the player shell, which is also the element the
+  // player fullscreens, so it shows in and out of fullscreen alike (outside a
+  // shell, into the page). Refs are not render-time values: resolve it as the
+  // popover opens, when it is populated.
+  const handleOpenChange = (open: boolean) => {
+    if (open) setPortalContainer(shell?.containerRef.current ?? undefined)
+    setIsOpen(open)
+  }
+
   return (
-    <div
-      className={cn(
-        'flex items-center gap-2 px-2 py-1 rounded border shrink-0 snap-start',
-        isLive && 'border-green-500 bg-green-500/5'
-      )}
-      aria-label={`${game.awayTeam.name} vs ${game.homeTeam.name}`}
+    <Popover open={isOpen} onOpenChange={handleOpenChange}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            'flex items-center gap-2 px-2 py-1 rounded border shrink-0 snap-start text-left transition-colors hover:bg-accent focus-visible:-outline-offset-2',
+            isLive && 'border-green-500 bg-green-500/5'
+          )}
+          aria-label={gameLabel(game, !!showPowerPlay, onLive)}
+        >
+          {/* Away team */}
+          <TeamBadge
+            team={game.awayTeam}
+            score={isScheduled ? undefined : game.awayTeam.score}
+            isWinner={isFinal && game.awayTeam.score > game.homeTeam.score}
+          />
+
+          {/* VS / Score separator */}
+          <span className="text-xs text-muted-foreground">@</span>
+
+          {/* Home team */}
+          <TeamBadge
+            team={game.homeTeam}
+            score={isScheduled ? undefined : game.homeTeam.score}
+            isWinner={isFinal && game.homeTeam.score > game.awayTeam.score}
+          />
+
+          {/* Status */}
+          <span className="flex items-center gap-1 pl-1 border-l border-border/50">
+            <GameStatusBadge game={game} />
+            {showPowerPlay && <PowerPlayIndicator />}
+          </span>
+          {onLive && <OnLiveBadge />}
+        </button>
+      </PopoverTrigger>
+      {/* video-controls: a tap in here uses the popover rather than toggling
+          the player's controls. Escape closes the popover, not the ticker. */}
+      <PopoverContent
+        container={portalContainer}
+        side="bottom"
+        align="start"
+        className="video-controls w-72 p-3"
+        aria-label={`${game.awayTeam.abbreviation} @ ${game.homeTeam.abbreviation}`}
+        onEscapeKeyDown={(e) => e.stopPropagation()}
+      >
+        <GameActions
+          game={game}
+          row={row}
+          lineupFailed={lineupFailed}
+          onLive={onLive}
+          onDone={() => setIsOpen(false)}
+        />
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+/** Marks the game on the shared live channel, in the LIVE pill's look. */
+function OnLiveBadge() {
+  return (
+    <span
+      aria-hidden="true"
+      className="shrink-0 rounded bg-live px-1.5 py-1 font-display text-[11px] font-extrabold uppercase leading-none tracking-[0.12em] text-live-foreground"
     >
-      {/* Away team */}
-      <TeamBadge
-        team={game.awayTeam}
-        score={isScheduled ? undefined : game.awayTeam.score}
-        isWinner={isFinal && game.awayTeam.score > game.homeTeam.score}
-      />
+      On Live
+    </span>
+  )
+}
 
-      {/* VS / Score separator */}
-      <span className="text-xs text-muted-foreground">@</span>
+/**
+ * The game's button name: the teams with their scores, the status, any power
+ * play and the On Live mark, as the pill shows them. A button's label
+ * replaces its content for assistive tech, so all of it goes in here.
+ */
+function gameLabel(game: NHLGame, powerPlay: boolean, onLive: boolean): string {
+  const scored = game.status !== 'scheduled'
+  const team = (t: NHLTeam) => (scored ? `${t.name} ${t.score}` : t.name)
+  const parts = [`${team(game.awayTeam)} at ${team(game.homeTeam)}`, getStatusDisplay(game)]
+  if (powerPlay) parts.push('power play')
+  if (onLive) parts.push('On Live')
+  return parts.filter(Boolean).join(', ')
+}
 
-      {/* Home team */}
-      <TeamBadge
-        team={game.homeTeam}
-        score={isScheduled ? undefined : game.homeTeam.score}
-        isWinner={isFinal && game.homeTeam.score > game.awayTeam.score}
-      />
+/**
+ * Tell the asker how their question went. The popover has closed by then, so
+ * this is all they hear of it.
+ */
+async function reportAsk(sending: Promise<ChatSendResult>) {
+  const result = await sending
+  if (result === 'acknowledged') {
+    toast.success('Asked the group in chat')
+  } else if (result === 'not-sent') {
+    toast.error("Couldn't ask the group", { description: 'Please try again' })
+  } else {
+    toast.warning('Your question may not have been posted', {
+      description: 'Check the chat before asking again',
+    })
+  }
+}
 
-      {/* Status */}
-      <div className="flex items-center gap-1 pl-1 border-l border-border/50">
-        <GameStatusBadge game={game} />
-        {showPowerPlay && <PowerPlayIndicator />}
-      </div>
+/**
+ * What you can do about a game: the channels it is on, each with 'Watch
+ * together' (put it on live TV for everyone, then join it) for admins, and
+ * for everyone when the admin lets viewers change live TV. Everyone else can
+ * 'Ask the group' in chat instead, with the game and its channels filled in;
+ * that needs chat, so with chat off it is disabled and says why. A game that
+ * is over, or on none of your channels, has nothing to do, and one already on
+ * Live has nothing to ask for; the channel on Live can't be put on again.
+ * When the lineup can't be loaded it says so, and those who can't switch can
+ * still ask for the game by name.
+ */
+function GameActions({
+  game,
+  row,
+  lineupFailed,
+  onLive,
+  onDone,
+}: {
+  game: NHLGame
+  row: GameRow | undefined
+  /** The lineup couldn't be loaded, so row never comes */
+  lineupFailed: boolean
+  /** The game is on the shared live channel */
+  onLive: boolean
+  /** Close the popover */
+  onDone: () => void
+}) {
+  const isAdmin = useAuthStore((s) => s.role === 'admin')
+  const userChannelSelection = useSettingsStore((s) => s.userChannelSelection)
+  const chatEnabled = useChatEnabled()
+  const sendMessage = useChatStore((s) => s.sendMessage)
+  const setLiveChannel = useSetLiveChannel({ tuneActor: true })
+  const liveChannelId = useChannelStore((s) => s.currentChannel?.id ?? null)
+  const canSwitch = isAdmin || userChannelSelection
+  const hintId = useId()
+
+  const matchup = `${game.awayTeam.abbreviation} @ ${game.homeTeam.abbreviation}`
+  const channels = row ? channelsOf(row.broadcasts) : []
+  const networks = game.broadcasts.map((b) => b.network).join(', ')
+
+  // The switch is optimistic and synchronous, so the popover can close at once
+  const watch = (channel: Channel) => {
+    void setLiveChannel(channel)
+    onDone()
+  }
+  const ask = () => {
+    void reportAsk(sendMessage(askGroupMessage(game, channels)))
+    onDone()
+  }
+
+  // Asking needs chat, not the lineup: without it the message names no channel
+  const askTheGroup = (note: string) => (
+    <div className="grid gap-2">
+      <p className="text-sm text-muted-foreground">{note}</p>
+      <Button
+        size="sm"
+        disabled={!chatEnabled}
+        aria-describedby={chatEnabled ? undefined : hintId}
+        onClick={ask}
+      >
+        Ask the group
+      </Button>
+      {!chatEnabled && (
+        <p id={hintId} className="text-xs text-muted-foreground">
+          Chat is off, so you can't ask the group. Only an admin can change live TV.
+        </p>
+      )}
+    </div>
+  )
+  const lineupError = "Couldn't load your channels. Reopen the scores to try again."
+
+  let body
+  if (game.status === 'final') {
+    body = <p className="text-sm text-muted-foreground">This game is over.</p>
+  } else if (lineupFailed) {
+    body = canSwitch ? <p className="text-sm text-muted-foreground">{lineupError}</p> : askTheGroup(lineupError)
+  } else if (row === undefined) {
+    body = <p className="text-sm text-muted-foreground">Finding it on your channels…</p>
+  } else if (channels.length === 0) {
+    body = (
+      <p className="text-sm text-muted-foreground">
+        Not on any of your channels{networks ? ` (on ${networks})` : ''}.
+      </p>
+    )
+  } else if (canSwitch) {
+    body = (
+      <ul aria-label={`Channels showing ${matchup}`} className="grid gap-1.5">
+        {channels.map((channel) => (
+          <li key={channel.id} className="flex items-center justify-between gap-2">
+            <span className="min-w-0 truncate text-sm">{channel.name}</span>
+            {channel.id === liveChannelId ? (
+              <Button size="sm" variant="secondary" className="shrink-0" disabled aria-label={`${channel.name} is on Live`}>
+                On Live
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                className="shrink-0"
+                aria-label={`Watch together on ${channel.name}`}
+                onClick={() => watch(channel)}
+              >
+                Watch together
+              </Button>
+            )}
+          </li>
+        ))}
+      </ul>
+    )
+  } else if (onLive) {
+    body = <p className="text-sm text-muted-foreground">It's on Live now.</p>
+  } else {
+    body = askTheGroup(`On ${channels.map((c) => c.name).join(', ')}`)
+  }
+
+  return (
+    <div className="grid gap-2">
+      <p className="font-display text-base font-extrabold tabular-nums">{matchup}</p>
+      {body}
     </div>
   )
 }
@@ -364,8 +620,9 @@ function TeamBadge({
   score?: number
   isWinner: boolean
 }) {
+  // Spans, not divs: this sits inside the game's button
   return (
-    <div className="flex items-center gap-1">
+    <span className="flex items-center gap-1">
       <img
         src={team.logoDark}
         alt=""
@@ -397,7 +654,7 @@ function TeamBadge({
           {score}
         </span>
       )}
-    </div>
+    </span>
   )
 }
 
@@ -409,7 +666,7 @@ function GameStatusBadge({ game }: { game: NHLGame }) {
   const statusText = getStatusDisplay(game)
 
   return (
-    <div
+    <span
       className={cn('flex items-center gap-1.5', isLive && 'text-green-500')}
     >
       {isLive && (
@@ -426,7 +683,7 @@ function GameStatusBadge({ game }: { game: NHLGame }) {
       >
         {statusText}
       </span>
-    </div>
+    </span>
   )
 }
 
