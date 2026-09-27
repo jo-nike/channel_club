@@ -61,7 +61,7 @@ export function AppearancePicker() {
               type="button"
               aria-pressed={appearance === value}
               onClick={() => choose(value)}
-              className="inline-flex h-11 items-center justify-center gap-1.5 rounded-md text-sm font-medium text-muted-foreground transition-colors hover:text-foreground aria-pressed:bg-background aria-pressed:text-foreground aria-pressed:shadow-sm md:h-9"
+              className="inline-flex h-11 items-center justify-center gap-1.5 rounded-md text-sm font-medium text-muted-foreground transition-colors hover:text-foreground aria-pressed:bg-background aria-pressed:text-foreground aria-pressed:shadow-sm pointer-fine:md:h-9"
             >
               <Icon className="size-4" aria-hidden="true" />
               {label}

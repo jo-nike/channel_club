@@ -22,7 +22,7 @@ export type HereNowVariant = 'chat' | 'header' | 'phone'
 
 const TRIGGER_CLASSES: Record<HereNowVariant, string> = {
   chat: 'h-8 gap-1.5 rounded-full px-2 text-xs font-semibold text-muted-foreground hover:text-foreground',
-  header: 'h-11 gap-2 rounded-full border border-border bg-card pr-3 pl-1.5 text-sm font-semibold md:h-9',
+  header: 'h-11 gap-2 rounded-full border border-border bg-card pr-3 pl-1.5 text-sm font-semibold pointer-fine:md:h-9',
   phone: 'h-11 rounded-full px-1.5',
 }
 
