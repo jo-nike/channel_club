@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback, type KeyboardEvent } from 'react'
+import { Fragment, useRef, useEffect, useState, useCallback, type KeyboardEvent } from 'react'
 import { X, Send, Pencil, Loader2, AlertCircle, WifiOff } from 'lucide-react'
 import type { ChatSendResult, WebSocketStatus } from '@/hooks/useWebSocket'
 import { createClientMessageId } from '@/lib/messageId'
@@ -31,7 +31,7 @@ interface SendFailure {
 }
 
 export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', onReconnect }: ChatPanelProps) {
-  const { messages, isOpen, setOpen, nickname, me, setNickname, clearNickname } = useChatStore()
+  const { messages, isOpen, setOpen, nickname, me, readMarker, setNickname, clearNickname } = useChatStore()
   const breakpoint = useBreakpoint()
   const isMobile = breakpoint === 'mobile'
 
@@ -184,6 +184,11 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
 
   if (!isOpen) return null
 
+  // Unread starts at the first message from someone else newer than what was read before opening
+  const firstUnreadId = readMarker === null ? undefined : messages.find(
+    (msg) => Date.parse(msg.timestamp) > readMarker && !isOwnMessage(msg, { nickname, me })
+  )?.messageId
+
   // Panel styles based on viewport
   const panelClasses = isMobile
     ? 'fixed inset-0 z-50 bg-background flex flex-col'
@@ -281,11 +286,20 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
                 </p>
               ) : (
                 messages.map((msg) => (
-                  <ChatMessage
-                    key={msg.messageId}
-                    message={msg}
-                    isOwn={isOwnMessage(msg, { nickname, me })}
-                  />
+                  <Fragment key={msg.messageId}>
+                    {msg.messageId === firstUnreadId && (
+                      <div
+                        role="separator"
+                        aria-label="New messages"
+                        className="flex items-center gap-2 px-4 py-1 text-xs font-semibold text-primary"
+                      >
+                        <span className="h-px flex-1 bg-primary/50" aria-hidden="true" />
+                        New
+                        <span className="h-px flex-1 bg-primary/50" aria-hidden="true" />
+                      </div>
+                    )}
+                    <ChatMessage message={msg} isOwn={isOwnMessage(msg, { nickname, me })} />
+                  </Fragment>
                 ))
               )}
               <div ref={messagesEndRef} />

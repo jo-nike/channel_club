@@ -40,6 +40,8 @@ describe('ChatPanel', () => {
       unreadCount: 0,
       nickname: 'TestUser',
       me: null,
+      lastReadAt: null,
+      readMarker: null,
     })
     mockOnSendMessage.mockReset().mockReturnValue('acknowledged')
   })
@@ -299,6 +301,60 @@ describe('ChatPanel', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent("Couldn't confirm it was sent."))
     expect(input).toHaveValue('Uncertain')
+  })
+
+  describe("'New' divider", () => {
+    const at = (second: number) => `2026-09-26T20:00:${String(second).padStart(2, '0')}.000000+00:00`
+    const message = (id: string, username: string, second: number): ChatMessage => ({
+      messageId: id,
+      username,
+      content: `Message ${id}`,
+      timestamp: at(second),
+    })
+
+    it('sits right before the first unread message from someone else', () => {
+      useChatStore.setState({
+        messages: [
+          message('1', 'OtherUser', 1),
+          message('2', 'TestUser', 3), // own, newer than the marker
+          message('3', 'OtherUser', 4),
+          message('4', 'OtherUser', 5),
+        ],
+        readMarker: Date.parse(at(2)),
+      })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+
+      const divider = screen.getByRole('separator', { name: 'New messages' })
+      expect(divider).toHaveTextContent('New')
+      expect(screen.getAllByRole('separator', { name: 'New messages' })).toHaveLength(1)
+      const follows = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
+      expect(follows(screen.getByText('Message 2'), divider)).toBe(true)
+      expect(follows(divider, screen.getByText('Message 3'))).toBe(true)
+    })
+
+    it('is not shown without a marker', () => {
+      useChatStore.setState({ messages: [message('1', 'OtherUser', 1)], readMarker: null })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.queryByRole('separator', { name: 'New messages' })).not.toBeInTheDocument()
+    })
+
+    it('is not shown when only your own messages are newer than the marker', () => {
+      useChatStore.setState({
+        messages: [message('1', 'OtherUser', 1), message('2', 'TestUser', 3)],
+        readMarker: Date.parse(at(2)),
+      })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.queryByRole('separator', { name: 'New messages' })).not.toBeInTheDocument()
+    })
+
+    it('appears when opening the panel over messages that came in through history', () => {
+      useChatStore.setState({ isOpen: false, lastReadAt: Date.parse(at(1)) })
+      useChatStore.getState().setMessages([message('1', 'OtherUser', 1), message('2', 'OtherUser', 2)])
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      act(() => useChatStore.getState().setOpen(true))
+      const divider = screen.getByRole('separator', { name: 'New messages' })
+      expect(Boolean(divider.compareDocumentPosition(screen.getByText('Message 2')) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
+    })
   })
 
   describe('connection row', () => {
