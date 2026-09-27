@@ -3,14 +3,11 @@ import { toast } from 'sonner'
 import { Square } from 'lucide-react'
 import { useChannelStore } from '@/stores/channelStore'
 import { useAuthStore } from '@/stores/authStore'
-import { useRecentLiveChannelIds, useRecentLiveStore } from '@/stores/recentLiveStore'
+import { useRecentLiveChannelIds } from '@/stores/recentLiveStore'
 import { useActiveUsers } from '@/hooks/useActiveUsers'
+import { useChannelCatalogue } from '@/hooks/useChannelCatalogue'
 import { useSetLiveChannel } from '@/hooks/useSetLiveChannel'
-import {
-  fetchGroupedChannels,
-  fetchNowPlaying,
-  clearCurrentChannel as clearCurrentChannelApi,
-} from '@/services/api'
+import { fetchNowPlaying, clearCurrentChannel as clearCurrentChannelApi } from '@/services/api'
 import { Button } from '@/components/ui/button'
 import { StopLiveTVDialog } from '@/components/StopLiveTVDialog'
 import { ChannelLogo } from '@/components/ChannelLogo'
@@ -24,21 +21,25 @@ interface OnAirCardProps {
    * can keep a focused row clear of it.
    */
   onHeightChange?: (height: number) => void
+  /**
+   * Whether the card has its own row of Recent chips (the default). The Live
+   * TV switcher lists recents in a section of its own, so it turns them off.
+   */
+  showRecents?: boolean
 }
 
 /**
- * The top of the admin Channels tab: what's on live TV for everyone, the
- * programme on it, how many people are watching, one-tap recents and the
- * (confirmed) Stop live TV. Sticky at the top of the tab's scroll container,
- * with the page background so the channel list scrolls underneath it.
+ * What's on live TV for everyone and the programme on it. On the admin
+ * Channels tab it also has how many people are watching, one-tap recents and
+ * the (confirmed) Stop live TV; the Live TV switcher shows it to everyone
+ * allowed to change live TV, and the watching count (from an admin-only
+ * endpoint) and Stop are for admins only. Sticky at the top of its scroll
+ * container, with the page background so the channel list scrolls underneath.
  */
-export function OnAirCard({ onHeightChange }: OnAirCardProps) {
+export function OnAirCard({ onHeightChange, showRecents = true }: OnAirCardProps) {
   const currentChannel = useChannelStore((s) => s.currentChannel)
   const setCurrentChannel = useChannelStore((s) => s.setCurrentChannel)
-  const username = useAuthStore((s) => s.username)
-  const recentIds = useRecentLiveChannelIds(username)
-  const catalogue = useChannelCatalogue()
-  const setLiveChannel = useSetLiveChannel()
+  const isAdmin = useAuthStore((s) => s.role === 'admin')
 
   const cardRef = useRef<HTMLElement>(null)
   useEffect(() => {
@@ -49,14 +50,6 @@ export function OnAirCard({ onHeightChange }: OnAirCardProps) {
     observer.observe(card)
     return () => observer.disconnect()
   }, [onHeightChange])
-
-  // Each recent id as the catalogue has it now (its current name and stream),
-  // leaving out channels that are gone and, as it already has the card's
-  // headline, the channel on air. None until the catalogue has loaded.
-  const otherRecents = recentIds.flatMap((id) => {
-    const channel = catalogue?.get(id)
-    return channel && channel.id !== currentChannel?.id ? [channel] : []
-  })
 
   async function stopLiveTV() {
     const previousChannel = useChannelStore.getState().currentChannel
@@ -100,16 +93,18 @@ export function OnAirCard({ onHeightChange }: OnAirCardProps) {
                 </p>
                 {/* Remounted per channel so the last channel's programme never shows */}
                 <CurrentProgramme key={currentChannel.id} channel={currentChannel} />
-                <WatchingCount />
+                {isAdmin && <WatchingCount />}
               </div>
             </div>
             {/* Keyed by channel so an open confirm is dropped when live TV stops or
                 changes elsewhere, instead of reopening when a channel is next picked */}
-            <StopLiveTVControl
-              key={currentChannel.id}
-              channelName={currentChannel.name}
-              onConfirm={stopLiveTV}
-            />
+            {isAdmin && (
+              <StopLiveTVControl
+                key={currentChannel.id}
+                channelName={currentChannel.name}
+                onConfirm={stopLiveTV}
+              />
+            )}
           </div>
         ) : (
           <div>
@@ -120,59 +115,49 @@ export function OnAirCard({ onHeightChange }: OnAirCardProps) {
           </div>
         )}
 
-        {otherRecents.length > 0 && (
-          <div role="group" aria-label="Recent live channels" className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Recent
-            </span>
-            {otherRecents.map((channel) => (
-              <Button
-                key={channel.id}
-                variant="outline"
-                size="sm"
-                className="max-w-full"
-                title={`Put ${channel.name} on live TV`}
-                onClick={() => setLiveChannel(channel)}
-              >
-                <span className="truncate">{channel.name}</span>
-              </Button>
-            ))}
-          </div>
-        )}
+        {showRecents && <RecentChips currentChannelId={currentChannel?.id ?? null} />}
       </div>
     </section>
   )
 }
 
 /**
- * The grouped channel catalogue by channel id, loaded once per mount; null
- * while loading or when it can't be loaded. Once loaded, recent channels that
- * are no longer in it are forgotten.
+ * One-tap chips for the channels the signed-in person recently put on live
+ * TV, each as the catalogue has it now (its current name and stream), leaving
+ * out channels that are gone and, as it already has the card's headline, the
+ * channel on air. Nothing until the catalogue has loaded.
  */
-function useChannelCatalogue(): Map<string, Channel> | null {
-  const [catalogue, setCatalogue] = useState<Map<string, Channel> | null>(null)
-  const pruneRecents = useRecentLiveStore((s) => s.prune)
+function RecentChips({ currentChannelId }: { currentChannelId: string | null }) {
+  const username = useAuthStore((s) => s.username)
+  const recentIds = useRecentLiveChannelIds(username)
+  const catalogue = useChannelCatalogue()
+  const setLiveChannel = useSetLiveChannel()
 
-  useEffect(() => {
-    let cancelled = false
-    fetchGroupedChannels().then(
-      ({ groups, ungrouped }) => {
-        if (cancelled) return
-        const channels = [...groups.flatMap((group) => group.channels), ...ungrouped]
-        const byId = new Map(channels.map((channel) => [channel.id, channel]))
-        setCatalogue(byId)
-        pruneRecents(new Set(byId.keys()))
-      },
-      () => {
-        // Non-fatal: the card just goes without the Recent row
-      },
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [pruneRecents])
+  const otherRecents = recentIds.flatMap((id) => {
+    const channel = catalogue?.get(id)
+    return channel && channel.id !== currentChannelId ? [channel] : []
+  })
+  if (otherRecents.length === 0) return null
 
-  return catalogue
+  return (
+    <div role="group" aria-label="Recent live channels" className="flex flex-wrap items-center gap-2">
+      <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        Recent
+      </span>
+      {otherRecents.map((channel) => (
+        <Button
+          key={channel.id}
+          variant="outline"
+          size="sm"
+          className="max-w-full"
+          title={`Put ${channel.name} on live TV`}
+          onClick={() => setLiveChannel(channel)}
+        >
+          <span className="truncate">{channel.name}</span>
+        </Button>
+      ))}
+    </div>
+  )
 }
 
 /** The programme on the live channel now; nothing while loading, without guide data or on error. */

@@ -94,7 +94,7 @@ describe('useSetLiveChannel', () => {
     expect(recents()).toEqual(['1', '3'])
   })
 
-  it('records nothing for a viewer allowed to pick channels', async () => {
+  it('remembers the switches of a viewer allowed to pick channels, who sees them in the switcher', async () => {
     useAuthStore.setState({ username: 'sam', role: 'viewer' })
     vi.mocked(api.setCurrentChannel).mockImplementation(async (channel) => channel)
     const { result } = renderHook(() => useSetLiveChannel())
@@ -104,6 +104,6 @@ describe('useSetLiveChannel', () => {
     })
 
     expect(useChannelStore.getState().currentChannel).toEqual(cnn)
-    expect(useRecentLiveStore.getState().byUser).toEqual({})
+    expect(useRecentLiveStore.getState().byUser).toEqual({ sam: ['3'] })
   })
 })

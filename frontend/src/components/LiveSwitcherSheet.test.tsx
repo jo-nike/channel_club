@@ -1,0 +1,220 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { render, screen, fireEvent, waitFor, within } from '@/test/utils'
+import { LiveSwitcherSheet } from './LiveSwitcherSheet'
+import { useChannelStore } from '@/stores/channelStore'
+import { useAuthStore } from '@/stores/authStore'
+import { useSettingsStore } from '@/stores/settingsStore'
+import { useRecentLiveStore } from '@/stores/recentLiveStore'
+import { useNhlMappingStore } from '@/stores/nhlMappingStore'
+import * as api from '@/services/api'
+import type { Channel, GroupedChannelsResponse } from '@/types'
+import type { GameStatus, NHLBroadcast, NHLGame, NHLScoresResponse } from '@/types/nhl'
+
+vi.mock('@/services/api', () => ({
+  fetchGroupedChannels: vi.fn(),
+  fetchNowPlaying: vi.fn(),
+  fetchNowPlayingAll: vi.fn(),
+  setCurrentChannel: vi.fn(),
+  clearCurrentChannel: vi.fn(),
+}))
+
+const scores = vi.hoisted(() => ({ data: null as NHLScoresResponse | null }))
+vi.mock('@/hooks/useNHLScores', () => ({
+  useNHLScores: () => ({ data: scores.data, isLoading: false, error: null, refetch: vi.fn() }),
+}))
+
+// The watching count's admin-only presence poll
+const mockUseActiveUsers = vi.fn(() => ({ data: { liveUsers: [] }, loading: false, error: null }))
+vi.mock('@/hooks/useActiveUsers', () => ({
+  useActiveUsers: () => mockUseActiveUsers(),
+}))
+
+const ch = (id: string, name: string): Channel => ({ id, name, streamUrl: `http://stream${id}.m3u8`, guideId: id })
+const tsn5 = ch('1', 'TSN 5')
+const sportsnet = ch('2', 'Sportsnet')
+const cnn = ch('3', 'CNN')
+const cbc = ch('4', 'CBC')
+
+const lineup: GroupedChannelsResponse = {
+  groups: [
+    { id: 1, name: 'Sports', channelCount: 2, channels: [tsn5, sportsnet] },
+    { id: 2, name: 'News', channelCount: 1, channels: [cnn] },
+  ],
+  ungrouped: [cbc],
+}
+
+const team = (abbreviation: string) => ({ name: abbreviation, abbreviation, score: 2, logo: '', logoDark: '' })
+const broadcast = (network: string): NHLBroadcast => ({ network, market: 'N', countryCode: 'CA' })
+function game(id: number, away: string, home: string, status: GameStatus, broadcasts: NHLBroadcast[]): NHLGame {
+  return {
+    id,
+    status,
+    awayTeam: team(away),
+    homeTeam: team(home),
+    startTime: `2026-10-11T2${id}:00:00Z`,
+    gameCenterLink: '',
+    period: '3RD',
+    timeRemaining: '4:32',
+    broadcasts,
+  }
+}
+function setGames(games: NHLGame[]) {
+  scores.data = { games, date: '2026-10-11', liveGameCount: games.filter((g) => g.status === 'live').length }
+}
+
+function renderSheet() {
+  const onOpenChange = vi.fn()
+  render(<LiveSwitcherSheet open onOpenChange={onOpenChange} />)
+  return onOpenChange
+}
+
+const section = (name: string) => screen.getByRole('region', { name })
+
+describe('LiveSwitcherSheet', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useChannelStore.setState({ currentChannel: cbc })
+    useAuthStore.setState({ token: 'test-token', role: 'viewer', username: 'sam', isAuthenticated: true })
+    useSettingsStore.setState({ userChannelSelection: true })
+    useRecentLiveStore.setState({ byUser: {} })
+    useNhlMappingStore.setState({ overrides: {} })
+    vi.mocked(api.fetchGroupedChannels).mockResolvedValue(lineup)
+    vi.mocked(api.fetchNowPlaying).mockResolvedValue({ channelId: 'x', currentProgram: null })
+    vi.mocked(api.fetchNowPlayingAll).mockResolvedValue({})
+    vi.mocked(api.setCurrentChannel).mockImplementation(async (channel) => channel)
+    setGames([
+      game(1, 'TOR', 'MTL', 'live', [broadcast('TSN5')]),
+      // Live but on no channel in the lineup, and one on your channels not started yet
+      game(2, 'LAK', 'ANA', 'live', [broadcast('KCOP-13')]),
+      game(3, 'EDM', 'CGY', 'scheduled', [broadcast('SN')]),
+    ])
+  })
+
+  it('shows on air, sports on now, recents, then the full lineup, in that order', async () => {
+    useRecentLiveStore.getState().record('sam', cnn.id)
+    renderSheet()
+
+    await screen.findByRole('region', { name: 'Sports on now' })
+    await screen.findByRole('region', { name: 'Recent' })
+    await screen.findByText('Sports')
+    expect(screen.getByRole('dialog', { name: 'Live TV' })).toBeInTheDocument()
+    expect(screen.getAllByRole('region').map((r) => r.getAttribute('aria-label'))).toEqual([
+      'On air',
+      'Sports on now',
+      'Recent',
+      'All channels',
+    ])
+    expect(within(section('On air')).getByText('CBC')).toBeInTheDocument()
+  })
+
+  it('lists only the live games on your channels, each with the channels showing it', async () => {
+    renderSheet()
+
+    const sports = await screen.findByRole('region', { name: 'Sports on now' })
+    expect(within(sports).getByText('TOR')).toBeInTheDocument()
+    expect(within(sports).getByText('3RD 4:32')).toBeInTheDocument()
+    expect(within(sports).queryByText('LAK')).not.toBeInTheDocument()
+    expect(within(sports).queryByText('EDM')).not.toBeInTheDocument()
+    const channels = within(sports).getByRole('group', { name: 'Channels showing TOR at MTL' })
+    expect(within(channels).getAllByRole('button').map((b) => b.textContent)).toEqual(['TSN 5'])
+  })
+
+  it('puts a game on live TV from its chip and closes', async () => {
+    const onOpenChange = renderSheet()
+
+    const sports = await screen.findByRole('region', { name: 'Sports on now' })
+    fireEvent.click(within(sports).getByRole('button', { name: 'TSN 5' }))
+
+    expect(api.setCurrentChannel).toHaveBeenCalledWith(tsn5)
+    expect(useChannelStore.getState().currentChannel).toEqual(tsn5)
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+    await waitFor(() => expect(useRecentLiveStore.getState().byUser.sam).toEqual([tsn5.id]))
+  })
+
+  it('marks the channel already on air instead of offering it', async () => {
+    useChannelStore.setState({ currentChannel: tsn5 })
+    renderSheet()
+
+    const sports = await screen.findByRole('region', { name: 'Sports on now' })
+    const chip = within(sports).getByRole('button', { name: /TSN 5/ })
+    expect(chip).toBeDisabled()
+    expect(chip).toHaveTextContent('On air')
+  })
+
+  it('leaves Sports on now out when no live game is on your channels', async () => {
+    setGames([game(2, 'LAK', 'ANA', 'live', [broadcast('KCOP-13')])])
+    renderSheet()
+
+    await screen.findByText('Sports')
+    expect(screen.queryByRole('region', { name: 'Sports on now' })).not.toBeInTheDocument()
+  })
+
+  it('uses a network pinned on this browser', async () => {
+    useNhlMappingStore.setState({ overrides: { 'KCOP-13': cnn.id } })
+    renderSheet()
+
+    const sports = await screen.findByRole('region', { name: 'Sports on now' })
+    const lak = within(sports).getByRole('group', { name: 'Channels showing LAK at ANA' })
+    expect(within(lak).getByRole('button', { name: 'CNN' })).toBeInTheDocument()
+  })
+
+  it("offers the person's recent channels except the one on air, and switches to one", async () => {
+    const { record } = useRecentLiveStore.getState()
+    record('sam', sportsnet.id)
+    record('sam', cbc.id)
+    record('sam', cnn.id)
+    const onOpenChange = renderSheet()
+
+    const recent = await screen.findByRole('region', { name: 'Recent' })
+    expect(within(recent).getAllByRole('button').map((b) => b.textContent)).toEqual(['CNN', 'Sportsnet'])
+
+    fireEvent.click(within(recent).getByRole('button', { name: 'Sportsnet' }))
+    expect(api.setCurrentChannel).toHaveBeenCalledWith(sportsnet)
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+    await waitFor(() => expect(useRecentLiveStore.getState().byUser.sam?.[0]).toBe(sportsnet.id))
+  })
+
+  it('has no Recent section for someone who has not switched yet', async () => {
+    useRecentLiveStore.getState().record('jon', cnn.id)
+    renderSheet()
+
+    await screen.findByText('Sports')
+    await screen.findByRole('region', { name: 'Sports on now' })
+    expect(screen.queryByRole('region', { name: 'Recent' })).not.toBeInTheDocument()
+  })
+
+  it('puts a channel from the full lineup on live TV and closes', async () => {
+    const onOpenChange = renderSheet()
+
+    const all = section('All channels')
+    fireEvent.click(await within(all).findByText('News'))
+    fireEvent.click(within(all).getByText('CNN'))
+
+    expect(api.setCurrentChannel).toHaveBeenCalledWith(cnn)
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+    await waitFor(() => expect(useRecentLiveStore.getState().byUser.sam).toEqual([cnn.id]))
+  })
+
+  it('keeps Stop live TV and the watching count from viewers', async () => {
+    renderSheet()
+
+    await screen.findByRole('region', { name: 'Sports on now' })
+    expect(within(section('On air')).queryByRole('button', { name: /stop live tv/i })).not.toBeInTheDocument()
+    expect(mockUseActiveUsers).not.toHaveBeenCalled()
+  })
+
+  it('gives admins Stop live TV', async () => {
+    useAuthStore.setState({ role: 'admin', username: 'jon' })
+    renderSheet()
+
+    await screen.findByRole('region', { name: 'Sports on now' })
+    expect(within(section('On air')).getByRole('button', { name: /stop live tv/i })).toBeInTheDocument()
+  })
+
+  it('loads nothing while closed', async () => {
+    render(<LiveSwitcherSheet open={false} onOpenChange={vi.fn()} />)
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(api.fetchGroupedChannels).not.toHaveBeenCalled()
+  })
+})

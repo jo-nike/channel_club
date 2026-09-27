@@ -32,8 +32,8 @@ vi.mock('@/hooks/useWebSocket', () => ({ useWebSocket: () => ({ status: socket.s
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ isAdmin: auth.isAdmin, logout: vi.fn() }) }))
 vi.mock('@/hooks/useChatEnabled', () => ({ useChatEnabled: () => chatFlag.enabled }))
 vi.mock('@/hooks/useAppSettings', () => ({ useAppSettings: () => ({ userChannelSelection: appSettings.userChannelSelection }) }))
-vi.mock('@/components/LiveChannelPickerDialog', () => ({ LiveChannelPickerDialog: ({ open }: { open: boolean }) => (
-  <div data-testid="live-picker" data-open={String(open)} />
+vi.mock('@/components/LiveSwitcherSheet', () => ({ LiveSwitcherSheet: ({ open }: { open: boolean }) => (
+  <div data-testid="live-switcher" data-open={String(open)} />
 ) }))
 vi.mock('@/components/tv/DualModeVideoPlayer', async () => {
   const { useEffect } = await import('react')
@@ -523,7 +523,7 @@ describe('B-V2 picking a channel from the empty live slot', () => {
   })
   afterEach(() => { window.matchMedia = originalMatchMedia })
 
-  const picker = () => screen.queryByTestId('live-picker')
+  const picker = () => screen.queryByTestId('live-switcher')
 
   it('gives an admin the picker from the sidebar and the player', async () => {
     auth.isAdmin = true
@@ -542,6 +542,17 @@ describe('B-V2 picking a channel from the empty live slot', () => {
     await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('No live broadcast'))
 
     act(() => playerProps.onPickLive?.())
+    expect(picker()).toHaveAttribute('data-open', 'true')
+  })
+
+  it("opens the Live TV switcher from the header's Change live for a viewer the admin allowed", async () => {
+    appSettings.userChannelSelection = true
+    useChannelStore.getState().setCurrentChannel({ id: 'a', name: 'A', streamUrl: 'https://fixture/a' })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+
+    expect(picker()).toHaveAttribute('data-open', 'false')
+    fireEvent.click(screen.getByRole('button', { name: 'Change live channel' }))
     expect(picker()).toHaveAttribute('data-open', 'true')
   })
 

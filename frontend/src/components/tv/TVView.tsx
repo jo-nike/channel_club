@@ -36,7 +36,7 @@ import { useChatEnabled } from '@/hooks/useChatEnabled'
 import { useVisualViewportHeight } from '@/hooks/useVisualViewportHeight'
 import { useUnreadTitleBadge } from '@/hooks/useUnreadTitleBadge'
 import { AdminModal } from '@/components/AdminModal'
-import { LiveChannelPickerDialog } from '@/components/LiveChannelPickerDialog'
+import { LiveSwitcherSheet } from '@/components/LiveSwitcherSheet'
 import { getProgrammeState } from '@/lib/programmes'
 import { cn } from '@/lib/utils'
 import type { ErsatzTVProgramme, UnifiedChannel } from '@/types'
@@ -260,7 +260,7 @@ export function TVView() {
   const [adminModalOpen, setAdminModalOpen] = useState(false)
   const openAdmin = useCallback(() => setAdminModalOpen(true), [])
 
-  // Live channel picker: admins, and everyone else when the admin has enabled it
+  // Live TV switcher: admins, and everyone else when the admin has enabled it
   const canControl = isAdmin || userChannelSelection
   const [channelPickerOpen, setChannelPickerOpen] = useState(false)
   const openLivePicker = useCallback(() => setChannelPickerOpen(true), [])
@@ -723,9 +723,9 @@ export function TVView() {
         <AdminModal open={adminModalOpen} onOpenChange={setAdminModalOpen} />
       )}
 
-      {/* Live channel picker (Stop live TV is on the admin panel's On-air card) */}
+      {/* Live TV switcher (Stop live TV is on its On-air card, for admins only) */}
       {canControl && (
-        <LiveChannelPickerDialog
+        <LiveSwitcherSheet
           open={channelPickerOpen}
           onOpenChange={setChannelPickerOpen}
         />

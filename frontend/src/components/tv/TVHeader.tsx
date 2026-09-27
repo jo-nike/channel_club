@@ -14,7 +14,7 @@ interface TVHeaderProps {
   status: WebSocketStatus
   onReconnect: () => void
   onOpenAdmin: () => void
-  // Opens the live channel picker (the button shows only for non-admins the admin allows)
+  // Opens the Live TV switcher (the button shows only for non-admins the admin allows)
   onOpenChannelPicker: () => void
   // Reloads the video player (the account menu's Reload stream)
   onReload: () => void
@@ -90,7 +90,7 @@ export function TVHeader({
             onClick={toggleNHLOverlay}
           />
         )}
-        {/* Host tools for admins; the live channel picker for non-admins the admin allows */}
+        {/* Host tools for admins; the Live TV switcher for non-admins the admin allows */}
         {isAdmin ? (
           <HeaderAction
             icon={<ShieldCheck />}

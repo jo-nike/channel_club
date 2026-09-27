@@ -184,6 +184,37 @@ describe('OnAirCard', () => {
     expect(screen.queryByText(/watching/)).not.toBeInTheDocument()
   })
 
+  describe('for a viewer allowed to change live TV (in the switcher)', () => {
+    beforeEach(() => {
+      useAuthStore.setState({ token: 'test-token', role: 'viewer', username: 'sam', isAuthenticated: true })
+    })
+
+    it('names the channel on air without Stop live TV', () => {
+      render(<OnAirCard showRecents={false} />)
+
+      expect(screen.getByText('TSN')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /stop live tv/i })).not.toBeInTheDocument()
+    })
+
+    it('does not poll the admin-only presence for a watching count', () => {
+      render(<OnAirCard showRecents={false} />)
+
+      expect(mockUseActiveUsers).not.toHaveBeenCalled()
+      expect(screen.queryByText(/watching/)).not.toBeInTheDocument()
+    })
+  })
+
+  it('leaves its Recent row out, without loading the catalogue, when the switcher lists recents itself', async () => {
+    vi.mocked(api.fetchGroupedChannels).mockResolvedValue(catalogue(tsn, sportsnet, cnn))
+    useRecentLiveStore.getState().record('jon', cnn.id)
+
+    render(<OnAirCard showRecents={false} />)
+
+    expect(await screen.findByRole('button', { name: /stop live tv/i })).toBeInTheDocument()
+    expect(api.fetchGroupedChannels).not.toHaveBeenCalled()
+    expect(screen.queryByRole('group', { name: 'Recent live channels' })).not.toBeInTheDocument()
+  })
+
   describe('Nothing on live TV', () => {
     beforeEach(() => {
       useChannelStore.setState({ currentChannel: null })
