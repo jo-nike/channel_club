@@ -197,6 +197,48 @@ class TestPrivacy:
         assert presence_broadcast.build_snapshot()[0]["channelName"] == "Movies"
 
 
+class TestShownChannel:
+    """shown_channel and hidden_people apply the snapshot's rule to one connection."""
+
+    def test_private_while_visibility_is_off(self) -> None:
+        watch("c1", "jon", "u_1", "Movies")
+
+        assert presence_broadcast.shown_channel("c1") is None
+
+    @pytest.mark.usefixtures("visible")
+    def test_shown_when_visible(self) -> None:
+        user = watch("c1", "jon", "u_1", "Movies", channel_id="ch-7")
+
+        assert presence_broadcast.shown_channel("c1") is user
+
+    @pytest.mark.usefixtures("visible")
+    def test_private_before_the_first_channel(self) -> None:
+        presence.track_user("c1", "jon", "live", user_id="u_1")
+
+        assert presence_broadcast.shown_channel("c1") is None
+
+    @pytest.mark.usefixtures("visible")
+    def test_unknown_connection(self) -> None:
+        assert presence_broadcast.shown_channel("nobody") is None
+
+    @pytest.mark.usefixtures("visible")
+    def test_hiding_on_another_connection_keeps_it_private(self) -> None:
+        watch("phone", "jon", "u_1", "News")
+        watch("tv", "jon", "u_1", "Movies")
+        watch("c3", "amy", "u_2", "Sports")
+        presence.set_hide_activity("phone", True)
+
+        assert presence_broadcast.hidden_people() == {"u_1"}
+        assert presence_broadcast.shown_channel("tv") is None
+        assert presence_broadcast.shown_channel("c3") is not None
+
+    def test_hidden_people_falls_back_to_the_username(self) -> None:
+        watch("c1", "jon", None, "Movies")
+        presence.set_hide_activity("c1", True)
+
+        assert presence_broadcast.hidden_people() == {"jon"}
+
+
 @pytest.fixture
 async def broadcasts(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[AsyncMock]:
     """Turn presence broadcasts back on with a short debounce; returns the sender."""

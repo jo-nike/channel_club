@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import {
+  findMessageChannel,
+  findPresenceChannel,
+  hidingUserIds,
   isOwnPresence,
   mapPresenceByChannel,
   presenceRowId,
@@ -11,8 +14,8 @@ import { usePresenceStore } from '@/stores/presenceStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
-import { LIVE_CHANNEL_ID } from '@/stores/tvStore'
-import type { PresenceEntry } from '@/types'
+import { LIVE_CHANNEL_ID, buildUnifiedChannels } from '@/stores/tvStore'
+import type { ChatMessage, PresenceEntry } from '@/types'
 
 function entry(overrides: Partial<PresenceEntry> & Pick<PresenceEntry, 'displayName'>): PresenceEntry {
   return {
@@ -49,6 +52,59 @@ describe('presenceRowId', () => {
   it('has no row for an entry without a channel', () => {
     expect(presenceRowId(kim)).toBeNull()
     expect(presenceRowId({ ...sam, channelId: null })).toBeNull()
+  })
+})
+
+describe('findPresenceChannel', () => {
+  const tsn5 = { id: '42', name: 'TSN 5', streamUrl: 'http://stream/5', guideId: 'g5' }
+  const channels = buildUnifiedChannels(tsn5, [
+    { id: 'etv-8', name: 'Taskmaster', streamUrl: 'http://etv/8', logoUrl: '', number: 8, group: 'TV' },
+  ])
+
+  it('finds the live slot for someone on live TV', () => {
+    expect(findPresenceChannel(maya, channels)?.id).toBe(LIVE_CHANNEL_ID)
+  })
+
+  it('has no live slot to join while live TV is off', () => {
+    expect(findPresenceChannel(maya, buildUnifiedChannels(null, []))).toBeNull()
+  })
+
+  it('finds an ErsatzTV row by its id, never a live id', () => {
+    expect(findPresenceChannel(sam, channels)?.number).toBe(8)
+    expect(findPresenceChannel({ view: 'ersatztv', channelId: '42' }, channels)).toBeNull()
+  })
+
+  it('finds nothing for an entry without a channel', () => {
+    expect(findPresenceChannel(kim, channels)).toBeNull()
+  })
+})
+
+describe('findMessageChannel', () => {
+  const tsn5 = { id: '42', name: 'TSN 5', streamUrl: 'http://stream/5', guideId: 'g5' }
+  const channels = buildUnifiedChannels(tsn5, [
+    { id: 'etv-8', name: 'Taskmaster', streamUrl: 'http://etv/8', logoUrl: '', number: 8, group: 'TV' },
+  ])
+  const message = (overrides: Partial<ChatMessage>): ChatMessage => ({
+    messageId: 'm1', username: 'maya', content: 'hi', timestamp: '2026-09-27T12:00:00Z', ...overrides,
+  })
+
+  it('finds the row a message was sent from', () => {
+    expect(findMessageChannel(message({ view: 'ersatztv', channelId: 'etv-8' }), channels)?.id).toBe('etv-8')
+    expect(findMessageChannel(message({ view: 'live', channelId: '42' }), channels)?.id).toBe(LIVE_CHANNEL_ID)
+  })
+
+  it('skips live TV once it has moved on to another channel', () => {
+    expect(findMessageChannel(message({ view: 'live', channelId: '7' }), channels)).toBeNull()
+  })
+
+  it('finds nothing for an unstamped message', () => {
+    expect(findMessageChannel(message({}), channels)).toBeNull()
+  })
+})
+
+describe('hidingUserIds', () => {
+  it('lists the people who share no channel', () => {
+    expect(hidingUserIds([maya, sam, kim, entry({ displayName: 'anon' })])).toEqual(new Set(['u_kim']))
   })
 })
 

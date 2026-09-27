@@ -1,15 +1,18 @@
-import { Fragment, useRef, useEffect, useLayoutEffect, useEffectEvent, useState, useCallback, type KeyboardEvent, type UIEvent } from 'react'
-import { X, Send, Pencil, Loader2, AlertCircle, WifiOff, ArrowDown, MessageCircle } from 'lucide-react'
+import { Fragment, useRef, useEffect, useLayoutEffect, useEffectEvent, useMemo, useState, useCallback, type KeyboardEvent, type UIEvent } from 'react'
+import { X, Send, Pencil, Loader2, AlertCircle, WifiOff, ArrowDown, MessageCircle, Tv } from 'lucide-react'
 import type { ChatSendResult, WebSocketStatus } from '@/hooks/useWebSocket'
+import { findMessageChannel, hidingUserIds, isOwnPresence, useSeesPresenceChannels } from '@/hooks/usePresenceByChannel'
 import { createClientMessageId } from '@/lib/messageId'
 import { scrollBehavior } from '@/lib/motion'
 import { useChatStore, isOwnMessage, isSystemMessage, countsAsUnread } from '@/stores/chatStore'
 import { useChannelStore } from '@/stores/channelStore'
-import { useTVStore } from '@/stores/tvStore'
-import type { ChatMessage as ChatMessageData } from '@/types'
+import { useErsatztvStore } from '@/stores/ersatztvStore'
+import { usePresenceStore } from '@/stores/presenceStore'
+import { useTVStore, buildUnifiedChannels } from '@/stores/tvStore'
+import type { ChatMessage as ChatMessageData, PresenceEntry } from '@/types'
 import { useNow } from '@/hooks/useNow'
 import { cn } from '@/lib/utils'
-import { ChatMessage } from './ChatMessage'
+import { ChatMessage, type MessageChannel } from './ChatMessage'
 import { GifButton } from './GifButton'
 import { HereNowPopover } from './HereNowPopover'
 import { Button } from '@/components/ui/button'
@@ -37,6 +40,9 @@ const PANEL_CLASSES: Record<ChatPanelVariant, string> = {
 
 export interface ChatPanelProps {
   onSendMessage: (content: string, clientMessageId: string) => Promise<ChatSendResult> | ChatSendResult
+  // Post a card of what this viewer is watching (the server fills in the
+  // channel). Omitted, the composer has no Share
+  onShare?: (clientMessageId: string) => Promise<ChatSendResult> | ChatSendResult
   onSetNickname?: (nickname: string) => void
   // The chat socket's state; sends are held while it isn't connected
   status?: WebSocketStatus
@@ -70,10 +76,11 @@ const GROUP_GAP_MS = 3 * 60_000
  * Whether a message carries on its sender's group from the one before it. The
  * sender is their account id where the server sends one, so two people who
  * picked the same name never merge; older servers only give the name. A system
- * line stands alone and breaks the group around it.
+ * line stands alone and breaks the group around it, and so does a change of
+ * the channel chip (sameChip), which heads the group.
  */
-function continuesGroup(previous: ChatMessageData | undefined, message: ChatMessageData): boolean {
-  if (!previous || isSystemMessage(previous) || isSystemMessage(message)) return false
+function continuesGroup(previous: ChatMessageData | undefined, message: ChatMessageData, sameChip: boolean): boolean {
+  if (!previous || isSystemMessage(previous) || isSystemMessage(message) || !sameChip) return false
   if ((previous.userId ?? previous.username) !== (message.userId ?? message.username)) return false
   const previousAt = new Date(previous.timestamp)
   const at = new Date(message.timestamp)
@@ -96,9 +103,29 @@ interface SendFailure {
   kind: 'not-sent' | 'unconfirmed'
   content: string
   clientMessageId: string
+  // A 'share what I'm watching', which has no content of its own
+  share?: boolean
 }
 
-export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', onReconnect, variant = 'overlay', translucent = false, onComposerFocusChange }: ChatPanelProps) {
+// Openers for an empty room. They fill the composer rather than send, so a
+// stray tap on a phone never posts. No 'Come watch': Share covers that.
+const STARTERS = ['Hi everyone 👋', "What's everyone watching?", 'Anything good on tonight?']
+
+/** 'maya is here', 'maya and dev are here', or 'maya and 2 others are here'. */
+function hereLine(people: readonly PresenceEntry[]): string {
+  const [first, second] = people
+  if (people.length === 1) return `${first.displayName} is here`
+  if (people.length === 2) return `${first.displayName} and ${second.displayName} are here`
+  return `${first.displayName} and ${people.length - 1} others are here`
+}
+
+// Which channel a message's chip shows, to compare neighbours; null for none
+function chipKey(message: ChatMessageData, channel: MessageChannel | undefined): string | null {
+  if (!channel || message.kind === 'share') return null
+  return `${message.view}|${message.channelId}|${message.channelName}`
+}
+
+export function ChatPanel({ onSendMessage, onShare, onSetNickname, status = 'connected', onReconnect, variant = 'overlay', translucent = false, onComposerFocusChange }: ChatPanelProps) {
   const {
     messages, isOpen, setOpen, nickname, me, readMarker, historyReset, nicknameRejection,
     setNickname, clearNickname, clearNicknameRejection,
@@ -163,6 +190,36 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
     const tv = useTVStore.getState()
     tv.selectChannel(tv.getUnifiedChannels()[0])
   }, [])
+
+  // Channel chips follow presence: shown only while this viewer sees what
+  // everyone is watching, and not for a sender who now hides theirs. A share
+  // card is the sender's own post, so it always shows.
+  const seesChannels = useSeesPresenceChannels()
+  const presenceEntries = usePresenceStore((s) => s.entries)
+  const hiding = useMemo(() => hidingUserIds(presenceEntries), [presenceEntries])
+  // Everyone else here, for the empty room (names show whatever the setting)
+  const othersHere = useMemo(
+    () => presenceEntries.filter((entry) => !isOwnPresence(entry, { nickname, me })),
+    [presenceEntries, nickname, me]
+  )
+  const liveChannel = useChannelStore((s) => s.currentChannel)
+  const ersatzTVChannels = useErsatztvStore((s) => s.channels)
+  const channelRows = useMemo(() => buildUnifiedChannels(liveChannel, ersatzTVChannels), [liveChannel, ersatzTVChannels])
+  const selectedChannelId = useTVStore((s) => s.selectedChannel?.id)
+  const selectChannel = useTVStore((s) => s.selectChannel)
+  const messageChannel = (msg: ChatMessageData, isOwn: boolean): MessageChannel | undefined => {
+    if (!msg.channelName) return undefined
+    if (msg.kind !== 'share' && (!seesChannels || (msg.userId && hiding.has(msg.userId)))) return undefined
+    const row = findMessageChannel(msg, channelRows)
+    const canJoin = !isOwn && row !== null && row.id !== selectedChannelId
+    return {
+      name: msg.channelName,
+      programme: msg.programme,
+      live: msg.view === 'live',
+      number: row?.type === 'ersatztv' ? row.number : undefined,
+      onJoin: canJoin ? () => selectChannel(row) : undefined,
+    }
+  }
 
   // The list is on screen: the panel is open and the name editor isn't covering it
   const listVisible = isOpen && !showNicknamePrompt
@@ -314,25 +371,27 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
 
   // Note: nickname input is pre-filled in handleEditNickname callback below
 
-  const send = useCallback(async (content: string, clientMessageId: string = createClientMessageId()) => {
+  const send = useCallback(async (content: string, clientMessageId: string = createClientMessageId(), share = false) => {
     if (sending.current) return 'not-sent' as const
     sending.current = true
     setIsSending(true)
     setSendStatus('Sending…')
     let result: ChatSendResult
-    try { result = await onSendMessage(content, clientMessageId) } catch { result = 'unconfirmed' }
+    try {
+      result = await (share && onShare ? onShare(clientMessageId) : onSendMessage(content, clientMessageId))
+    } catch { result = 'unconfirmed' }
     if (result === 'acknowledged') {
-      setSendStatus('Message sent')
+      setSendStatus(share ? "Shared what you're watching" : 'Message sent')
       setFailure(null)
     } else {
       // The alert row announces the failure
       setSendStatus('')
-      setFailure({ kind: result, content, clientMessageId })
+      setFailure({ kind: result, content, clientMessageId, share })
     }
     sending.current = false
     setIsSending(false)
     return result
-  }, [onSendMessage])
+  }, [onSendMessage, onShare])
 
   const handleSend = useCallback(async () => {
     const trimmed = inputValue.trim()
@@ -349,9 +408,23 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
     // The row goes away when the draft changes, so a failed text send is still the draft
     const isDraft = failure.content === inputValue.trim()
     const version = draftVersion.current
-    const result = await send(failure.content, failure.clientMessageId)
+    const result = await send(failure.content, failure.clientMessageId, failure.share)
     if (result === 'acknowledged' && isDraft && draftVersion.current === version) setInputValue('')
   }, [failure, inputValue, send])
+
+  // A starter becomes the draft, to edit or send; it is never sent for them
+  const handleStarter = useCallback((text: string) => {
+    draftVersion.current += 1
+    setFailure(null)
+    setInputValue(text)
+    inputRef.current?.focus()
+  }, [])
+
+  // Posts a card of the channel being watched; the draft stays as it is
+  const handleShare = useCallback(async () => {
+    if (sending.current || !isConnected) return
+    await send('', undefined, true)
+  }, [isConnected, send])
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLInputElement>) => {
@@ -424,10 +497,15 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
 
   if (!isOpen) return null
 
+  // Each message's chip (or share card), resolved once for the list and grouping
+  const owns = messages.map((msg) => isOwnMessage(msg, { nickname, me }))
+  const channels = messages.map((msg, index) => messageChannel(msg, owns[index]))
+  const chipKeys = messages.map((msg, index) => chipKey(msg, channels[index]))
   // Where each sender's group begins. The 'New' divider ends a group, so the
   // first unread message always shows who sent it
   const startsGroup = messages.map(
-    (msg, index) => msg.messageId === firstUnreadId || !continuesGroup(messages[index - 1], msg)
+    (msg, index) =>
+      msg.messageId === firstUnreadId || !continuesGroup(messages[index - 1], msg, chipKeys[index] === chipKeys[index - 1])
   )
   // A day separator goes before the first message of each local day
   const daySeparators = messages.map((msg, index) => {
@@ -574,16 +652,33 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
                   </p>
                 )}
                 {messages.length === 0 ? (
-                  // Says what the room is: one chat for the whole club, kept in
-                  // server memory (backend/app/services/chat.py), so it doesn't last
+                  // Says who's here and what the room is: one chat for the whole
+                  // club, kept in server memory (backend/app/services/chat.py),
+                  // so it doesn't last
                   <div className="flex flex-col items-center gap-2 px-6 py-8 text-center">
                     <span className="flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground" aria-hidden="true">
                       <MessageCircle className="size-5" />
                     </span>
+                    {othersHere.length > 0 && (
+                      <p className="text-sm font-semibold">{hereLine(othersHere)}</p>
+                    )}
                     <p className="text-sm font-medium">No messages yet. Say hello!</p>
                     <p className="max-w-60 text-xs text-muted-foreground">
                       Everyone signed in shares this chat. Messages clear after 24 hours or when the server restarts.
                     </p>
+                    <div className="mt-1 flex flex-wrap justify-center gap-1.5" role="group" aria-label="Conversation starters">
+                      {STARTERS.map((starter) => (
+                        <Button
+                          key={starter}
+                          variant="outline"
+                          size="sm"
+                          className="h-8 rounded-full text-xs"
+                          onClick={() => handleStarter(starter)}
+                        >
+                          {starter}
+                        </Button>
+                      ))}
+                    </div>
                   </div>
                 ) : (
                   messages.map((msg, index) => (
@@ -613,11 +708,12 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
                       )}
                       <ChatMessage
                         message={msg}
-                        isOwn={isOwnMessage(msg, { nickname, me })}
+                        isOwn={owns[index]}
                         now={now}
                         isFirstInGroup={startsGroup[index]}
                         isLastInGroup={startsGroup[index + 1] ?? true}
                         onWatch={msg.messageId === watchLineId ? handleWatchLive : undefined}
+                        channel={channels[index]}
                       />
                     </Fragment>
                   ))
@@ -645,9 +741,13 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
               <div role="alert" className="mb-2 flex h-8 items-center gap-2 text-sm">
                 <AlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" aria-hidden="true" />
                 <span className="min-w-0 flex-1 truncate">
-                  {failure.kind === 'not-sent'
-                    ? "Not sent. You're offline or reconnecting."
-                    : "Couldn't confirm it was sent."}
+                  {failure.share
+                    ? failure.kind === 'not-sent'
+                      ? "Couldn't share what you're watching."
+                      : "Couldn't confirm it was shared."
+                    : failure.kind === 'not-sent'
+                      ? "Not sent. You're offline or reconnecting."
+                      : "Couldn't confirm it was sent."}
                 </span>
                 <Button variant="ghost" size="sm" className="h-7" onClick={handleRetry} disabled={isSending || !isConnected}>
                   {failure.kind === 'not-sent' ? 'Retry' : 'Send again'}
@@ -671,6 +771,19 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
                 className="flex-1"
                 maxLength={500}
               />
+              {/* Only where others may see channels: the server refuses it otherwise */}
+              {onShare && seesChannels && selectedChannelId && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleShare}
+                  disabled={isSending || !isConnected}
+                  aria-label="Share what I'm watching"
+                  title="Share what I'm watching"
+                >
+                  <Tv className="h-4 w-4" aria-hidden="true" />
+                </Button>
+              )}
               <GifButton onSelect={async (url) => (await send(url)) === 'acknowledged'} disabled={isSending || !isConnected} />
               {/* Filled only once there is something to send */}
               <Button

@@ -33,6 +33,10 @@ interface WebSocketMessage {
   content?: string
   timestamp?: string
   kind?: ChatMessage['kind']
+  channelId?: ChatMessage['channelId']
+  channelName?: ChatMessage['channelName']
+  programme?: ChatMessage['programme']
+  view?: ChatMessage['view']
   messages?: ChatMessage[]
   // error: what went wrong, and for nickname_taken the refused nickname
   code?: string
@@ -96,6 +100,8 @@ interface UseWebSocketReturn {
   reconnect: () => void
   sendChannelUpdate: (channelName: string | null, programmeTitle?: string | null, viewType?: 'live' | 'ersatztv', channelId?: string | null) => void
   sendChatMessage: (content: string, clientMessageId?: string) => Promise<ChatSendResult>
+  // Post a card of what this viewer is watching; the server fills in the channel
+  sendShare: (clientMessageId?: string) => Promise<ChatSendResult>
   sendSetNickname: (nickname: string) => void
 }
 
@@ -231,6 +237,10 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
               content: message.content,
               timestamp: message.timestamp,
               kind: message.kind,
+              channelId: message.channelId,
+              channelName: message.channelName,
+              programme: message.programme,
+              view: message.view,
             })
           }
           break
@@ -457,8 +467,9 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     []
   )
 
-  const sendChatMessage = useCallback(
-    (content: string, clientMessageId: string = createClientMessageId()): Promise<ChatSendResult> => {
+  // A chat send the server acknowledges by clientMessageId (a message or a share)
+  const sendAcknowledged = useCallback(
+    (payload: Record<string, unknown>, clientMessageId: string): Promise<ChatSendResult> => {
       const socket = wsRef.current
       if (!chatEnabled || socket?.readyState !== WebSocket.OPEN || pendingChat.current.size >= 20) return Promise.resolve('not-sent')
       return new Promise((finish) => {
@@ -468,7 +479,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         }, 10_000)
         pendingChat.current.set(clientMessageId, { finish, timer })
         try {
-          socket.send(JSON.stringify({ type: 'chat_message', content, clientMessageId }))
+          socket.send(JSON.stringify({ ...payload, clientMessageId }))
         } catch {
           clearTimeout(timer)
           pendingChat.current.delete(clientMessageId)
@@ -477,6 +488,20 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       })
     },
     [chatEnabled]
+  )
+
+  const sendChatMessage = useCallback(
+    (content: string, clientMessageId: string = createClientMessageId()): Promise<ChatSendResult> =>
+      sendAcknowledged({ type: 'chat_message', content }, clientMessageId),
+    [sendAcknowledged]
+  )
+
+  // No channel is sent: the server takes it from presence, so a card can't
+  // name a channel its sender isn't on
+  const sendShare = useCallback(
+    (clientMessageId: string = createClientMessageId()): Promise<ChatSendResult> =>
+      sendAcknowledged({ type: 'share' }, clientMessageId),
+    [sendAcknowledged]
   )
 
   const sendSetNickname = useCallback((nicknameValue: string) => {
@@ -501,5 +526,5 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     return () => disconnect()
   }, [token, connect, disconnect])
 
-  return { status, reconnect, sendChannelUpdate, sendChatMessage, sendSetNickname }
+  return { status, reconnect, sendChannelUpdate, sendChatMessage, sendShare, sendSetNickname }
 }

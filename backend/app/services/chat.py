@@ -16,6 +16,7 @@ from uuid import uuid4
 from loguru import logger
 
 from app.config import settings
+from app.services.presence import View
 
 # Module-level logger with service context
 log = logger.bind(service="chat")
@@ -37,6 +38,20 @@ SYSTEM_USERNAME = "Live TV"
 MessageKind = Literal["user", "system", "share"]
 
 
+@dataclass(frozen=True)
+class ChannelStamp:
+    """Where a sender was watching when they posted, taken from presence.
+
+    Only set when others may see it: the admin shows what everyone is
+    watching and the sender doesn't hide it (see presence_broadcast).
+    """
+
+    channel_name: str
+    channel_id: str | None = None
+    programme: str | None = None
+    view: View | None = None
+
+
 @dataclass
 class ChatMessage:
     """Represents a single chat message."""
@@ -48,9 +63,21 @@ class ChatMessage:
     user_id: str = ""
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     kind: MessageKind = "user"
+    # The sender's channel when they posted, or None when it isn't shown
+    channel: ChannelStamp | None = None
 
-    def to_dict(self) -> dict:
-        """Convert to JSON-serializable dictionary with camelCase keys."""
+    def to_dict(self, show_channel: bool = True) -> dict:
+        """Convert to JSON-serializable dictionary with camelCase keys.
+
+        Args:
+            show_channel: Include the sender's channel. False empties the
+                channel fields, e.g. replaying history after the admin has
+                turned presence off or for a sender who now hides it. A
+                share card always keeps its channel.
+        """
+        # A share card is the sender's own post about their channel, so it
+        # keeps it (its content names the channel anyway)
+        channel = self.channel if show_channel or self.kind == "share" else None
         return {
             "messageId": self.message_id,
             "username": self.username,
@@ -58,6 +85,10 @@ class ChatMessage:
             "content": self.content,
             "timestamp": self.timestamp.isoformat(),
             "kind": self.kind,
+            "channelId": channel.channel_id if channel else None,
+            "channelName": channel.channel_name if channel else None,
+            "programme": channel.programme if channel else None,
+            "view": channel.view if channel else None,
         }
 
 
@@ -141,7 +172,9 @@ def sanitize_message(content: str) -> str | None:
     return sanitized
 
 
-def add_message(username: str, content: str, user_id: str = "") -> ChatMessage | None:
+def add_message(
+    username: str, content: str, user_id: str = "", channel: ChannelStamp | None = None
+) -> ChatMessage | None:
     """Add a new chat message to the history.
 
     The content will be sanitized before adding. If the content is empty
@@ -151,6 +184,7 @@ def add_message(username: str, content: str, user_id: str = "") -> ChatMessage |
         username: The username of the message sender.
         content: The raw message content.
         user_id: The sender's stable chat id (see user_id_for).
+        channel: The sender's channel, when others may see it.
 
     Returns:
         The created ChatMessage, or None if the message was rejected.
@@ -166,6 +200,7 @@ def add_message(username: str, content: str, user_id: str = "") -> ChatMessage |
         username=username,
         content=sanitized_content,
         user_id=user_id,
+        channel=channel,
     )
 
     _prune_expired()
@@ -176,6 +211,40 @@ def add_message(username: str, content: str, user_id: str = "") -> ChatMessage |
         username,
         len(_chat_history),
     )
+
+    return message
+
+
+def add_share(username: str, channel: ChannelStamp, user_id: str = "") -> ChatMessage:
+    """Add a 'share what I'm watching' card to the history.
+
+    The channel comes from the server's presence, never from the client. The
+    content says the same in words, so clients that predate `kind` show it
+    as an ordinary message.
+
+    Args:
+        username: The display name of the sender.
+        channel: The sender's channel, programme and view.
+        user_id: The sender's stable chat id (see user_id_for).
+
+    Returns:
+        The stored ChatMessage of kind 'share'.
+    """
+    content = f"Watching {channel.channel_name}"
+    if channel.programme:
+        content += f" · {channel.programme}"
+    message = ChatMessage(
+        message_id=str(uuid4()),
+        username=username,
+        content=content[:MAX_MESSAGE_LENGTH],
+        user_id=user_id,
+        kind="share",
+        channel=channel,
+    )
+
+    _prune_expired()
+    _chat_history.append(message)
+    log.debug("Share added: {} from {}", message.message_id[:8], username)
 
     return message
 
