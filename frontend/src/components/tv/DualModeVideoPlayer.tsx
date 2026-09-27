@@ -21,6 +21,7 @@ import { useCastSdk } from '@/hooks/useChromecast'
 import { ProjectorBeamLoader } from '@/components/ProjectorBeamLoader'
 import { Button } from '@/components/ui/button'
 import { AutoplayNotice } from '@/components/player/AutoplayNotice'
+import { ChatOverlay } from '@/components/player/ChatOverlay'
 import { CastErrorBanner, CastingCard } from '@/components/player/CastingCard'
 import {
   PlayerShellContext,
@@ -288,6 +289,9 @@ export function DualModeVideoPlayer({
           entry={zap?.entry ?? null}
           missing={zap?.missing ?? null}
         />
+        {/* The latest chat over the video in theater and fullscreen, above
+            the control bar */}
+        <ChatOverlay />
         <CastErrorBanner />
       </div>
       {/* One editor for every engine, keyed by the capture's channel, not the one playing */}

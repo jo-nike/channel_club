@@ -62,7 +62,7 @@ beforeEach(() => {
   installPrompt.canInstall = false
   installPrompt.variant = 'native'
   installPrompt.install = vi.fn(() => Promise.resolve(true))
-  useUIStore.setState({ notificationsEnabled: true, isNHLOverlayVisible: false, hideMyActivity: false })
+  useUIStore.setState({ notificationsEnabled: true, isNHLOverlayVisible: false, hideMyActivity: false, chatPreviews: true })
   useThemeStore.setState(useThemeStore.getInitialState())
   localStorage.removeItem('tv-mode')
 })
@@ -253,6 +253,39 @@ describe("AccountMenu 'Hide what I'm watching'", () => {
     expect(toggle).toHaveAttribute('aria-checked', 'true')
     fireEvent.click(toggle)
     expect(useUIStore.getState().hideMyActivity).toBe(false)
+  })
+})
+
+describe("AccountMenu 'Show chat over the video'", () => {
+  const toggle = () => screen.queryByRole('menuitemcheckbox', { name: 'Show chat over the video' })
+
+  it('is on by default and turns the chat over the video off and on again', () => {
+    chatFlag.enabled = true
+    renderMenu()
+    openMenu()
+
+    expect(toggle()).toHaveAttribute('aria-checked', 'true')
+    fireEvent.click(toggle()!)
+    expect(useUIStore.getState().chatPreviews).toBe(false)
+
+    openMenu()
+    expect(toggle()).toHaveAttribute('aria-checked', 'false')
+    fireEvent.click(toggle()!)
+    expect(useUIStore.getState().chatPreviews).toBe(true)
+  })
+
+  it('is left out without chat', () => {
+    renderMenu()
+    openMenu()
+    expect(toggle()).not.toBeInTheDocument()
+  })
+
+  it('is left out on the TV layout, which never draws chat over the video', () => {
+    chatFlag.enabled = true
+    localStorage.setItem('tv-mode', 'true')
+    renderMenu()
+    openMenu()
+    expect(toggle()).not.toBeInTheDocument()
   })
 })
 

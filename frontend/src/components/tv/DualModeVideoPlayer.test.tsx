@@ -1684,6 +1684,34 @@ describe('DualModeVideoPlayer filters', () => {
   })
 })
 
+describe('DualModeVideoPlayer chat over the video', () => {
+  beforeEach(() => {
+    chatFeature.enabled = true
+    useChatStore.setState({ messages: [], isOpen: false })
+    useUIStore.setState({ chatPreviews: true })
+  })
+
+  it('shows in theater inside the shell, so it is in fullscreen too, and stays across a channel switch', () => {
+    const view = render(<DualModeVideoPlayer channel={liveChannel('https://fixture/a')} isTheaterMode onTheaterModeToggle={vi.fn()} />)
+    act(() => useChatStore.getState().addMessage({ messageId: 'm1', username: 'maya', content: 'goal!', timestamp: new Date().toISOString() }))
+
+    const overlay = screen.getByTestId('chat-overlay')
+    expect(shell()).toContainElement(overlay)
+    expect(overlay).toHaveTextContent('maya goal!')
+
+    view.rerender(<DualModeVideoPlayer channel={hlsChannel('1', 1)} isTheaterMode onTheaterModeToggle={vi.fn()} />)
+    expect(screen.getByTestId('chat-overlay')).toBe(overlay)
+    expect(overlay).toHaveTextContent('maya goal!')
+  })
+
+  it('is not drawn in the page layout', () => {
+    renderPlayer(liveChannel('https://fixture/a'))
+    act(() => useChatStore.getState().addMessage({ messageId: 'm1', username: 'maya', content: 'goal!', timestamp: new Date().toISOString() }))
+
+    expect(screen.queryByTestId('chat-overlay')).not.toBeInTheDocument()
+  })
+})
+
 describe('DualModeVideoPlayer NHL ticker', () => {
   afterEach(() => useUIStore.setState({ isNHLOverlayVisible: false }))
 
