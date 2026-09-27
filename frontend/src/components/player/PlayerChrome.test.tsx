@@ -587,7 +587,7 @@ describe('PlayerChrome', () => {
       highlight.enabled = true
       clipStatus.loaded = true
       clipStatus.recording = true
-      useClipStore.setState({ session: null, clipping: false })
+      useClipStore.setState({ session: null, clipping: false, buffer: null })
     })
 
     it('shows the clip control as checking until the first status poll answers', () => {
@@ -654,6 +654,45 @@ describe('PlayerChrome', () => {
       renderChrome({ props: { channelId: '42', channelName: 'Sportsnet' } })
 
       expect(screen.queryByRole('button', { name: /Capture clip/ })).not.toBeInTheDocument()
+    })
+
+    describe('the buffer it tells the X key about', () => {
+      it('is ready, with the clip control\'s label, while the control can capture', () => {
+        renderChrome({ props: { channelId: '42', channelName: 'Sportsnet' } })
+
+        expect(useClipStore.getState().buffer).toEqual({
+          channelId: '42',
+          state: 'ready',
+          label: 'Capture clip · 60s available',
+        })
+      })
+
+      it('follows the control: checking, then not recording', () => {
+        clipStatus.loaded = false
+        const { update } = renderChrome({ props: { channelId: '42', channelName: 'Sportsnet' } })
+        expect(useClipStore.getState().buffer).toMatchObject({ channelId: '42', state: 'checking' })
+
+        clipStatus.loaded = true
+        clipStatus.recording = false
+        update({})
+
+        expect(useClipStore.getState().buffer).toEqual({ channelId: '42', state: 'unavailable', label: 'Clip unavailable' })
+      })
+
+      it('is cleared when the control bar unmounts', () => {
+        const { unmount } = renderChrome({ props: { channelId: '42', channelName: 'Sportsnet' } })
+
+        unmount()
+
+        expect(useClipStore.getState().buffer).toBeNull()
+      })
+
+      it('is not reported where there is no clip control, such as on a TV', () => {
+        tv.mode = true
+        renderChrome({ props: { channelId: '42', channelName: 'Sportsnet' } })
+
+        expect(useClipStore.getState().buffer).toBeNull()
+      })
     })
   })
 

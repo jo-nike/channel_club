@@ -3,6 +3,7 @@ import { Clapperboard, MessageSquareShare } from 'lucide-react'
 import { type HighlightStatusResponse } from '@/services/api'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { withKey } from '@/lib/keyHints'
+import { clipBufferStatus } from '@/lib/clip'
 
 export interface HighlightButtonProps {
   isVisible: boolean
@@ -30,8 +31,6 @@ export interface HighlightButtonProps {
   editing?: boolean
 }
 
-type ClipState = 'checking' | 'unavailable' | 'buffering' | 'ready'
-
 // The ring around the icon, in a 40-unit box
 const RING_RADIUS = 18
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS
@@ -48,14 +47,7 @@ export function HighlightButton({ isVisible, highlightStatus, loaded, onOpenModa
     }
   }, [onOpenModal])
 
-  const seconds = Math.max(0, Math.floor(highlightStatus.bufferSeconds || 0))
-  const maxSeconds = Math.max(0, Math.floor(highlightStatus.maxBufferSeconds || 0))
-  const state: ClipState = !loaded ? 'checking'
-    : !highlightStatus.recording ? 'unavailable'
-      : (highlightStatus.ready ?? seconds > 0) ? 'ready' : 'buffering'
-  const label = state === 'ready' ? `Capture clip · ${seconds}s available`
-    : state === 'buffering' ? `Buffering clip · ${seconds}s of ${maxSeconds}s`
-      : state === 'checking' ? 'Checking clip…' : 'Clip unavailable'
+  const { state, label, seconds, maxSeconds } = clipBufferStatus(highlightStatus, loaded)
   const filled = maxSeconds > 0 ? Math.min(1, seconds / maxSeconds) : 0
   const clipThatLabel = clipping ? 'Clip that · posting…'
     : editing ? 'Clip that · close the clip editor first' : 'Clip that · post the last 20s to chat'

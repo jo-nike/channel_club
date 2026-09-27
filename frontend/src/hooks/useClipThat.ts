@@ -24,6 +24,9 @@ export interface ClipThatChannel {
   name: string
 }
 
+// One hint at a time, however often X is pressed while the buffer fills
+const CLIP_NOT_READY_TOAST_ID = 'clip-that-not-ready'
+
 // Each run has its own toast, updated in place as the run moves on
 let runs = 0
 
@@ -139,7 +142,8 @@ async function runClipThat(channelId: string, channelName: string) {
  * 'Clip that' for the channel playing, or undefined where it isn't offered:
  * it needs clips, Zipline to host them and chat to post them to, and isn't
  * offered on a TV. Pressing it while the clip editor is open, or while
- * another Clip that runs, does nothing.
+ * another Clip that runs, does nothing; before the clip buffer is ready (see
+ * ClipBuffer) it only shows the clip control's label in a short toast.
  */
 export function useClipThat(channel: ClipThatChannel | null | undefined): (() => void) | undefined {
   const isTVMode = useTVMode()
@@ -160,7 +164,18 @@ export function useClipThat(channel: ClipThatChannel | null | undefined): (() =>
   const channelId = channel?.id
   const channelName = channel?.name
   const clipThat = useCallback(() => {
-    if (channelId) void runClipThat(channelId, channelName ?? channelId)
+    if (!channelId) return
+    // Like the clip control: nothing is captured until the buffer is ready,
+    // so a press (the X key) while it fills only says so
+    const { buffer } = useClipStore.getState()
+    if (buffer?.channelId !== channelId || buffer.state !== 'ready') {
+      toast(buffer?.channelId === channelId ? buffer.label : 'Clip unavailable', {
+        id: CLIP_NOT_READY_TOAST_ID,
+        duration: 2000,
+      })
+      return
+    }
+    void runClipThat(channelId, channelName ?? channelId)
   }, [channelId, channelName])
   return wanted && available && channelId ? clipThat : undefined
 }
