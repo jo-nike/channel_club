@@ -62,6 +62,13 @@ export function TVChannelSidebar({
   const toggleFavourite = useChannelPrefsStore((s) => s.toggleFavourite)
   const listedChannels = isCollapsed ? favouritesFirst(unifiedChannels, favouriteChannelIds) : filteredChannels
 
+  // '/' on the rail: expand it, and the search box in the list takes focus
+  // once it's there
+  const searchFocusRequested = useChannelPrefsStore((s) => s.searchFocusRequested)
+  useEffect(() => {
+    if (isCollapsed && searchFocusRequested) onToggleCollapse?.()
+  }, [isCollapsed, searchFocusRequested, onToggleCollapse])
+
   // One tab stop for the channels: arrow keys, Home and End move between
   // them. The list and the rail share it (only one is mounted), and the tab
   // stop follows whichever channel was last focused.

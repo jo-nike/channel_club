@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { Search, Star, X } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { useChannelPrefsStore, type ChannelFilterMode } from '@/stores/channelPrefsStore'
@@ -28,6 +28,17 @@ export function ChannelFilterBar({ layout = 'stacked', className }: ChannelFilte
   const setFilterMode = useChannelPrefsStore((s) => s.setFilterMode)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  // '/' asks for the search box; this one is on screen, so it takes focus,
+  // with what's there selected so typing replaces it
+  const searchFocusRequested = useChannelPrefsStore((s) => s.searchFocusRequested)
+  const clearSearchFocusRequest = useChannelPrefsStore((s) => s.clearSearchFocusRequest)
+  useEffect(() => {
+    if (!searchFocusRequested) return
+    clearSearchFocusRequest()
+    inputRef.current?.focus()
+    inputRef.current?.select()
+  }, [searchFocusRequested, clearSearchFocusRequest])
+
   const clearQuery = () => {
     setFilterQuery('')
     // Back to the box, rather than losing focus with the button that went away
@@ -51,10 +62,20 @@ export function ChannelFilterBar({ layout = 'stacked', className }: ChannelFilte
           onChange={(e) => setFilterQuery(e.target.value)}
           placeholder="Search channels and shows"
           aria-label="Search channels and shows"
+          aria-keyshortcuts="/"
           autoComplete="off"
           spellCheck={false}
           className="pr-8 pl-8"
         />
+        {/* The shortcut, while there's room for it */}
+        {!query && (
+          <kbd
+            aria-hidden="true"
+            className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded border border-b-2 border-border bg-muted px-1.5 font-mono text-xs font-semibold text-muted-foreground pointer-coarse:hidden"
+          >
+            /
+          </kbd>
+        )}
         {query && (
           <button
             type="button"

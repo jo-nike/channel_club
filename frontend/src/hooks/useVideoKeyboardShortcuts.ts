@@ -34,6 +34,8 @@ interface UseVideoKeyboardShortcutsOptions {
   onChatToggle?: () => void
   /** Show or hide the NHL scores (N) */
   onNHLToggle?: () => void
+  /** Focus the channel search (/) */
+  onFocusSearch?: () => void
   /** Leave ArrowUp/ArrowDown alone (TV mode, where they belong to channel changes) */
   ignoreVerticalArrows?: boolean
 }
@@ -75,6 +77,7 @@ export function useVideoKeyboardShortcuts({
   onShortcutSheet,
   onChatToggle,
   onNHLToggle,
+  onFocusSearch,
   ignoreVerticalArrows = false,
 }: UseVideoKeyboardShortcutsOptions) {
   const handleKeyDown = useCallback(
@@ -190,6 +193,13 @@ export function useVideoKeyboardShortcuts({
           onNHLToggle?.()
           break
 
+        case '/': // / - Channel search
+          if (!onFocusSearch) break
+          // Not typed into the box it focuses, nor the browser's quick find
+          e.preventDefault()
+          onFocusSearch()
+          break
+
         default:
           break
       }
@@ -212,6 +222,7 @@ export function useVideoKeyboardShortcuts({
       onShortcutSheet,
       onChatToggle,
       onNHLToggle,
+      onFocusSearch,
       ignoreVerticalArrows,
     ]
   )

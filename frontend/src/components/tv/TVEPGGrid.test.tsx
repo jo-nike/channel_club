@@ -1403,6 +1403,15 @@ describe('TVEPGGrid channel filter', () => {
     expect(rowChannels()).toEqual([expect.stringMatching(/^0 /), '3 Drama'])
   })
 
+  it("takes focus in its search box when '/' asks for the search", () => {
+    render(<TVEPGGrid programmesByChannel={schedule} liveEPG={liveEPG} />)
+
+    act(() => useChannelPrefsStore.getState().requestSearchFocus())
+
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Search channels and shows' }))
+    expect(useChannelPrefsStore.getState().searchFocusRequested).toBe(false)
+  })
+
   it('moves the arrow keys between the rows left', () => {
     useChannelPrefsStore.setState({ filter: { query: 'simpsons', mode: 'all' } })
     render(<TVEPGGrid programmesByChannel={schedule} liveEPG={liveEPG} />)

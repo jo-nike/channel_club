@@ -34,6 +34,12 @@ interface ChannelPrefsState {
   setFilterQuery: (query: string) => void
   setFilterMode: (mode: ChannelFilterMode) => void
   clearFilter: () => void
+
+  // Set by the '/' shortcut, for whichever search box is on screen to take
+  // focus once it has rendered (the collapsed rail expands first). Not persisted.
+  searchFocusRequested: boolean
+  requestSearchFocus: () => void
+  clearSearchFocusRequest: () => void
 }
 
 // Its own persisted store rather than part of ui-storage, so favourites stay
@@ -68,6 +74,10 @@ export const useChannelPrefsStore = create<ChannelPrefsState>()(
       setFilterQuery: (query) => set((state) => ({ filter: { ...state.filter, query } })),
       setFilterMode: (mode) => set((state) => ({ filter: { ...state.filter, mode } })),
       clearFilter: () => set({ filter: NO_FILTER }),
+
+      searchFocusRequested: false,
+      requestSearchFocus: () => set({ searchFocusRequested: true }),
+      clearSearchFocusRequest: () => set({ searchFocusRequested: false }),
     }),
     {
       name: 'channel-prefs',

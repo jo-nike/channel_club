@@ -7,6 +7,7 @@ import { useTVStore, LIVE_CHANNEL_ID } from '@/stores/tvStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
+import { useChannelPrefsStore } from '@/stores/channelPrefsStore'
 import * as api from '@/services/ersatztvApi'
 import { fetchLiveProgrammes, fetchNowPlaying } from '@/services/api'
 import { toast } from 'sonner'
@@ -19,7 +20,7 @@ const auth = vi.hoisted(() => ({ isAdmin: false }))
 const appSettings = vi.hoisted(() => ({ userChannelSelection: false }))
 // Chat is a build-time flag, off in tests unless a test turns it on
 const chatFlag = vi.hoisted(() => ({ enabled: false }))
-const playerProps = vi.hoisted(() => ({ onPickLive: undefined as undefined | (() => void), renders: 0, reloadKey: undefined as undefined | number, mounts: 0, zap: undefined as undefined | ChannelZap }))
+const playerProps = vi.hoisted(() => ({ onPickLive: undefined as undefined | (() => void), renders: 0, reloadKey: undefined as undefined | number, mounts: 0, zap: undefined as undefined | ChannelZap, onFocusSearch: undefined as undefined | (() => void) }))
 const guide = vi.hoisted(() => ({ onProgrammeClick: undefined as undefined | ((programme: ErsatzTVProgramme, channel: UnifiedChannel) => void) }))
 const modal = vi.hoisted(() => ({ last: null as null | { programme: ErsatzTVProgramme | null; channel: { id: string; name: string } | null; open: boolean; onWatch: (channel: { id: string; name: string }) => void } }))
 vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn(), fetchLiveProgrammes: vi.fn(async () => ({ channelId: '', programmes: [] })) }))
@@ -36,8 +37,9 @@ vi.mock('@/components/LiveChannelPickerDialog', () => ({ LiveChannelPickerDialog
 ) }))
 vi.mock('@/components/tv/DualModeVideoPlayer', async () => {
   const { useEffect } = await import('react')
-  return { DualModeVideoPlayer: ({ channel, onPickLive, reloadKey, zap }: { channel: UnifiedChannel | null; onPickLive?: () => void; reloadKey?: number; zap?: ChannelZap }) => {
+  return { DualModeVideoPlayer: ({ channel, onPickLive, reloadKey, zap, onFocusSearch }: { channel: UnifiedChannel | null; onPickLive?: () => void; reloadKey?: number; zap?: ChannelZap; onFocusSearch?: () => void }) => {
     playerProps.onPickLive = onPickLive
+    playerProps.onFocusSearch = onFocusSearch
     playerProps.reloadKey = reloadKey
     playerProps.zap = zap
     playerProps.renders += 1
@@ -1267,5 +1269,58 @@ describe('C-07 channel keys', () => {
     act(() => playerProps.zap?.tuneLast())
 
     expect(selected()).toBe('e1')
+  })
+})
+
+describe("B-10 '/' focuses the channel search", () => {
+  beforeEach(() => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
+    playerProps.onFocusSearch = undefined
+  })
+  afterEach(() => {
+    useUIStore.setState({ isEPGVisible: false, isTheaterMode: false, isChannelSidebarCollapsed: false })
+    useChannelPrefsStore.setState({ searchFocusRequested: false })
+  })
+
+  const renderView = async () => {
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+  }
+  const search = () => screen.getByRole('textbox', { name: 'Search channels and shows' })
+
+  it("focuses the sidebar's search box", async () => {
+    await renderView()
+
+    act(() => playerProps.onFocusSearch?.())
+
+    expect(document.activeElement).toBe(search())
+    expect(useChannelPrefsStore.getState().searchFocusRequested).toBe(false)
+  })
+
+  it('expands the collapsed rail first, then focuses its search box', async () => {
+    useUIStore.setState({ isChannelSidebarCollapsed: true })
+    await renderView()
+    expect(screen.queryByRole('textbox', { name: 'Search channels and shows' })).toBeNull()
+
+    act(() => playerProps.onFocusSearch?.())
+
+    expect(screen.getByRole('button', { name: 'Collapse channel sidebar' })).toBeInTheDocument()
+    expect(useUIStore.getState().isChannelSidebarCollapsed).toBe(false)
+    expect(document.activeElement).toBe(search())
+  })
+
+  it('is not offered in theater mode, where the player covers the page', async () => {
+    useUIStore.setState({ isTheaterMode: true })
+    await renderView()
+
+    expect(playerProps.onFocusSearch).toBeUndefined()
+  })
+
+  it('is not offered on a phone, whose list has no search box', async () => {
+    matchOnly('(max-width: 768px)')
+    await renderView()
+
+    expect(playerProps.onFocusSearch).toBeUndefined()
+    window.matchMedia = originalMatchMedia
   })
 })

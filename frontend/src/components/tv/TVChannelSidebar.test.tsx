@@ -1210,6 +1210,30 @@ describe('TVChannelSidebar search and filter chips', () => {
     expect(rowNames()).toEqual([expect.stringMatching(/^0 /), '3 News'])
   })
 
+  it("takes focus when '/' asks for the search, selecting what's there so typing replaces it", async () => {
+    useChannelPrefsStore.setState({ filter: { query: 'news', mode: 'all' } })
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+
+    act(() => useChannelPrefsStore.getState().requestSearchFocus())
+
+    expect(document.activeElement).toBe(search())
+    expect([search().selectionStart, search().selectionEnd]).toEqual([0, 4])
+    expect(useChannelPrefsStore.getState().searchFocusRequested).toBe(false)
+    expect(search()).toHaveAttribute('aria-keyshortcuts', '/')
+  })
+
+  it("expands the collapsed rail when '/' asks for the search", async () => {
+    const onToggleCollapse = vi.fn()
+    render(<TVChannelSidebar isCollapsed onToggleCollapse={onToggleCollapse} />)
+    await act(async () => {})
+
+    act(() => useChannelPrefsStore.getState().requestSearchFocus())
+
+    expect(onToggleCollapse).toHaveBeenCalledTimes(1)
+    act(() => useChannelPrefsStore.setState({ searchFocusRequested: false }))
+  })
+
   it('lists every channel on the collapsed rail, which has no search box', async () => {
     useChannelPrefsStore.setState({ filter: { query: 'news', mode: 'all' } })
     render(<TVChannelSidebar isCollapsed />)
