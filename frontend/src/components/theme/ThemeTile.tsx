@@ -65,7 +65,8 @@ export function ThemeTile({ theme, selected, onSelect }: ThemeTileProps) {
         </span>
       </span>
       <span className="flex min-h-9 items-center justify-between gap-1 px-2.5 py-2 text-sm font-medium">
-        <span className="truncate">{theme.name}</span>
+        {/* Long names ('Catppuccin Macchiato') wrap to a second line rather than being cut off */}
+        <span className="min-w-0 leading-tight [overflow-wrap:anywhere]">{theme.name}</span>
         {selected && <Check className="size-4 shrink-0 text-primary" aria-hidden="true" />}
       </span>
     </button>

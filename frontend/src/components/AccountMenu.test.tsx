@@ -439,6 +439,24 @@ describe('AccountMenu appearance', () => {
     await waitFor(() => expect(trigger()).toHaveFocus())
   })
 
+  it('opens with focus on the selected mode, not on Auto', async () => {
+    useThemeStore.setState({ followSystem: false, mode: 'dark' })
+    const dialog = await openAppearanceSettled()
+
+    const dark = within(dialog).getByRole('button', { name: 'Dark' })
+    expect(dark).toHaveAttribute('aria-pressed', 'true')
+    expect(dark).toHaveFocus()
+  })
+
+  it('opens with focus on Auto when the device follows the system', async () => {
+    useThemeStore.setState({ followSystem: true })
+    const dialog = await openAppearanceSettled()
+
+    const auto = within(dialog).getByRole('button', { name: 'Auto' })
+    expect(auto).toHaveAttribute('aria-pressed', 'true')
+    expect(auto).toHaveFocus()
+  })
+
   it('no longer has a theme submenu', () => {
     renderMenu()
     openMenu()

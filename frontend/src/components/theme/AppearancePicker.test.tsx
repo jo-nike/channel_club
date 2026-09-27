@@ -29,6 +29,17 @@ beforeEach(() => {
 })
 
 describe('AppearancePicker tiles', () => {
+  it('shows long theme names in full, wrapping instead of truncating', () => {
+    useThemeStore.setState({ darkThemeId: 'catppuccin-macchiato' })
+    render(<AppearancePicker />)
+
+    for (const name of ['Catppuccin Macchiato', 'Catppuccin Frappé', 'Catppuccin Mocha']) {
+      const label = within(tile(name)).getByText(name)
+      expect(label).not.toHaveClass('truncate')
+      expect(label).toHaveClass('min-w-0', '[overflow-wrap:anywhere]')
+    }
+  })
+
   it('sets the theme from a tile and marks only that tile pressed', () => {
     render(<AppearancePicker />)
     expect(tile('Club Night')).toHaveAttribute('aria-pressed', 'true')
