@@ -37,13 +37,19 @@ export function TVChannelSidebar({
   const unifiedChannels = getUnifiedChannels()
   const hasLiveChannel = isLiveChannelActive()
 
-  // Keep the selected tile in view when the rail collapses or the selection
-  // changes while collapsed
-  const tileRefs = useRef(new Map<string, HTMLButtonElement>())
+  // Keep the selected channel in view: when the list mounts (a restored
+  // channel may be far down), when the rail collapses or expands, and when
+  // the selection changes. Only one of the rail or the list is mounted, so
+  // they share the map.
+  const channelRefs = useRef(new Map<string, HTMLButtonElement>())
+  const setChannelRef = (channelId: string) => (element: HTMLButtonElement | null) => {
+    if (element) channelRefs.current.set(channelId, element)
+    else channelRefs.current.delete(channelId)
+  }
   const selectedChannelId = selectedChannel?.id
   useEffect(() => {
-    if (!isCollapsed || !selectedChannelId) return
-    tileRefs.current.get(selectedChannelId)?.scrollIntoView({ block: 'nearest' })
+    if (!selectedChannelId) return
+    channelRefs.current.get(selectedChannelId)?.scrollIntoView({ block: 'nearest' })
   }, [isCollapsed, selectedChannelId])
 
   const handleChannelClick = (channel: UnifiedChannel) => {
@@ -67,10 +73,7 @@ export function TVChannelSidebar({
           {unifiedChannels.map((channel) => (
             <CollapsedChannelButton
               key={channel.id}
-              ref={(tile) => {
-                if (tile) tileRefs.current.set(channel.id, tile)
-                else tileRefs.current.delete(channel.id)
-              }}
+              ref={setChannelRef(channel.id)}
               channel={channel}
               isSelected={selectedChannel?.id === channel.id}
               hasLiveChannel={hasLiveChannel}
@@ -104,11 +107,14 @@ export function TVChannelSidebar({
       </div>}
       <ul className="divide-y" role="list">
         {unifiedChannels.map((channel) => {
-          const onAir =
-            channel.type === 'live' ? null : findCurrentAndNext(programmeIndex, channel.id, now).current
+          const { current: onAir, next } =
+            channel.type === 'live'
+              ? { current: null, next: null }
+              : findCurrentAndNext(programmeIndex, channel.id, now)
           return (
             <ChannelItem
               key={channel.id}
+              ref={setChannelRef(channel.id)}
               channel={channel}
               isSelected={selectedChannel?.id === channel.id}
               onSelect={handleChannelClick}
@@ -116,6 +122,7 @@ export function TVChannelSidebar({
                 channel.type === 'live' ? liveEPGTitle || describeLiveGuide(liveEPGStatus) : onAir?.programme.title
               }
               onAir={onAir}
+              next={next}
               currentTime={now}
               hasLiveChannel={hasLiveChannel}
               onPickLive={onPickLive}
@@ -268,24 +275,32 @@ function ChannelTooltipBody({
 // Expanded Channel Item
 // ============================================================================
 
+// Created once: the Next line formats a time on every row on every tick
+const nextTimeFormat = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' })
+
 interface ChannelItemProps {
+  ref?: Ref<HTMLButtonElement>
   channel: UnifiedChannel
   isSelected: boolean
   onSelect: (channel: UnifiedChannel) => void
   currentProgramme?: string | null
   // The ErsatzTV programme on air, with its parsed times
   onAir: IndexedProgramme | null
+  // The ErsatzTV programme after it (or after the gap)
+  next: IndexedProgramme | null
   currentTime: number
   hasLiveChannel: boolean
   onPickLive?: () => void
 }
 
 function ChannelItem({
+  ref,
   channel,
   isSelected,
   onSelect,
   currentProgramme,
   onAir,
+  next,
   currentTime,
   hasLiveChannel,
   onPickLive,
@@ -299,10 +314,12 @@ function ChannelItem({
 
   return (
     <li className={showPickLive ? 'flex items-center bg-destructive/5 pr-3' : undefined}>
+      {/* scroll-mt clears the sticky Channels header when the row is scrolled into view */}
       <button
+        ref={ref}
         onClick={() => onSelect(channel)}
         className={`
-          flex ${showPickLive ? 'min-w-0 flex-1' : 'w-full'} items-center gap-3 p-3 text-left transition-colors
+          flex ${showPickLive ? 'min-w-0 flex-1' : 'w-full'} scroll-mt-17 items-center gap-3 p-3 text-left transition-colors
           hover:bg-accent focus-visible:-outline-offset-2
           ${isSelected ? 'bg-primary/10 border-l-4 border-primary' : ''}
           ${isLive ? 'bg-destructive/5' : ''}
@@ -367,6 +384,12 @@ function ChannelItem({
                 {timeRemaining}
               </span>
             </div>
+          )}
+          {/* The line is always there on ErsatzTV rows, so rows don't grow when the guide arrives */}
+          {!isLive && (
+            <p className="mt-1 h-4 truncate text-xs leading-4 text-muted-foreground">
+              {next && `Next ${nextTimeFormat.format(next.startMs)} · ${next.programme.title}`}
+            </p>
           )}
         </div>
 
