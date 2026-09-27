@@ -19,14 +19,26 @@ interface AudioLevels {
 }
 
 interface AudioState extends AudioLevels {
+  /**
+   * This page load started from a saved mute that the viewer has not acted on
+   * yet, so the player should say the sound is off. Never saved.
+   */
+  savedMuteNotice: boolean
   /** Set the level (clamped to 0..1, snapped to hundredths). Below 0.01 mutes and keeps the previous level. */
   setVolume: (value: number) => void
   /** Mute or unmute. Unmuting below 0.1 raises the level to 0.25 so it is audible. */
   setMuted: (value: boolean) => void
+  /** The saved-mute notice has been shown; don't show it again this page load. */
+  dismissSavedMuteNotice: () => void
 }
 
 function snapVolume(value: number): number {
   return Math.round(Math.max(0, Math.min(1, value)) * 100) / 100
+}
+
+/** The level unmuting gives: a saved level below 0.1 comes back at 0.25. */
+export function unmutedVolume(volume: number): number {
+  return volume < UNMUTE_FLOOR ? UNMUTE_VOLUME : volume
 }
 
 // Read the level uiStore used to persist, but only before this store has ever been saved.
@@ -57,13 +69,16 @@ export const useAudioStore = create<AudioState>()(
     (set) => ({
       volume: 1,
       muted: false,
+      savedMuteNotice: false,
+      // Any choice the viewer makes this session replaces the saved one
       setVolume: (value) => {
         const volume = snapVolume(value)
-        if (volume < MUTE_THRESHOLD) set({ muted: true })
-        else set({ volume, muted: false })
+        if (volume < MUTE_THRESHOLD) set({ muted: true, savedMuteNotice: false })
+        else set({ volume, muted: false, savedMuteNotice: false })
       },
       setMuted: (muted) =>
-        set((s) => (!muted && s.volume < UNMUTE_FLOOR ? { muted, volume: UNMUTE_VOLUME } : { muted })),
+        set((s) => ({ muted, volume: muted ? s.volume : unmutedVolume(s.volume), savedMuteNotice: false })),
+      dismissSavedMuteNotice: () => set({ savedMuteNotice: false }),
     }),
     {
       name: AUDIO_STORAGE_KEY,
@@ -76,6 +91,10 @@ export const useAudioStore = create<AudioState>()(
 // zustand's persist only writes on set(), so write the seed now: once uiStore
 // saves without its old `volume` field, the legacy level is gone.
 if (legacySeed) useAudioStore.setState(legacySeed)
+
+// A reload can start muted (the mute is saved), which is easy to miss on a
+// phone without a slider or on a TV, so the player points it out once.
+if (useAudioStore.getState().muted) useAudioStore.setState({ savedMuteNotice: true })
 
 // Another window (the PWA plus a tab) saved a change: pick it up so this
 // window's next write doesn't overwrite it with a stale level.

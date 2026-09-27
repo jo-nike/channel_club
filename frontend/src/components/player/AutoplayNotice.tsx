@@ -4,22 +4,24 @@ export type AutoplayNoticeMode = 'sound-off' | 'tap-to-play'
 
 interface AutoplayNoticeProps {
   /**
-   * 'sound-off': the browser only allowed muted playback.
+   * 'sound-off': the browser only allowed muted playback, or this page load
+   * started from a saved mute.
    * 'tap-to-play': the browser refused even muted playback.
    */
   mode: AutoplayNoticeMode
-  /** Saved level (0..1) the sound comes back at */
+  /** Level (0..1) the sound comes back at */
   volume: number
-  /** Unmute the element. Runs inside the tap, which the browser counts as consent. */
+  /** Unmute (the element, or the saved mute). Runs inside the tap, which the browser counts as consent. */
   onUnmute: () => void
   /** Start playback from the tap */
   onPlay: () => void
 }
 
 /**
- * Explains a blocked autoplay and offers the one tap that fixes it. Neither
- * mode touches the saved audio preference. Both carry `video-controls` so a
- * tap on them counts as using the player controls, not a tap on the picture.
+ * Explains a blocked autoplay or a saved mute and offers the one tap that
+ * fixes it; the caller decides what that tap changes. Both modes carry
+ * `video-controls` so a tap on them counts as using the player controls, not
+ * a tap on the picture.
  */
 export function AutoplayNotice({ mode, volume, onUnmute, onPlay }: AutoplayNoticeProps) {
   if (mode === 'tap-to-play') {
