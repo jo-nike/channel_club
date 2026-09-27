@@ -8,6 +8,8 @@ import type { ChatMessage } from '@/types'
 const LEGACY_NICKNAME_STORAGE_KEY = 'chat_nickname'
 const nicknameStorageKey = (username: string) => `chat_nickname:${username}`
 const MAX_NICKNAME_LENGTH = 30
+// When this user last had the chat in front of them (server time, ms), per user like the nickname
+const lastReadStorageKey = (username: string) => `chat_last_read:${username}`
 
 export interface ChatIdentity {
   username: string
@@ -20,6 +22,10 @@ interface ChatState {
   nickname: string | null
   // Who the server says this socket is signed in as (from connection_ack)
   me: ChatIdentity | null
+  // Newest message timestamp this user has seen (ms); null until the first history
+  lastReadAt: number | null
+  // While open: lastReadAt from before opening, if anything unread was newer
+  readMarker: number | null
   addMessage: (message: ChatMessage) => void
   setMessages: (messages: ChatMessage[]) => void
   toggleOpen: () => void
@@ -52,6 +58,29 @@ const loadNickname = (username: string): string | null => {
   return localStorage.getItem(key)
 }
 
+/** This user's stored lastReadAt, or null if none is stored. */
+const loadLastRead = (username: string): number | null => {
+  const stored = localStorage.getItem(lastReadStorageKey(username))
+  const value = stored === null ? NaN : Number(stored)
+  return Number.isFinite(value) ? value : null
+}
+
+/** Remember lastReadAt for this user; without a known identity it stays in memory. */
+const saveLastRead = (me: ChatIdentity | null, lastReadAt: number | null) => {
+  if (me && lastReadAt !== null) localStorage.setItem(lastReadStorageKey(me.username), String(lastReadAt))
+}
+
+/** The later of two read times; read state never moves backwards. */
+const laterOf = (a: number | null, b: number | null): number | null =>
+  a === null ? b : b === null ? a : Math.max(a, b)
+
+/** Newest server timestamp in a list (ms), or null for none. Never the client clock. */
+const newestTimestamp = (messages: ChatMessage[]): number | null =>
+  messages.reduce<number | null>((newest, m) => {
+    const at = Date.parse(m.timestamp)
+    return Number.isNaN(at) ? newest : laterOf(newest, at)
+  }, null)
+
 /**
  * Whether a message was sent by this user: its name matches the nickname, or
  * the sign-in name when no nickname is set (the server posts under it then).
@@ -64,6 +93,26 @@ export const isOwnMessage = (
   return ownName ? message.username === ownName : false
 }
 
+/** Other people's messages newer than a read time. */
+const countUnreadSince = (
+  messages: ChatMessage[],
+  since: number,
+  state: Pick<ChatState, 'nickname' | 'me'>
+): number => messages.filter((m) => Date.parse(m.timestamp) > since && !isOwnMessage(m, state)).length
+
+/**
+ * Open or close the panel. Opening marks where unread starts (for the 'New'
+ * divider) and reads everything; closing reads everything and drops the mark.
+ */
+const openState = (state: ChatState, open: boolean): Partial<ChatState> => {
+  if (open === state.isOpen) return { isOpen: open, unreadCount: open ? 0 : state.unreadCount }
+  const lastReadAt = laterOf(state.lastReadAt, newestTimestamp(state.messages))
+  saveLastRead(state.me, lastReadAt)
+  if (!open) return { isOpen: false, lastReadAt, readMarker: null }
+  const hasUnread = state.lastReadAt !== null && countUnreadSince(state.messages, state.lastReadAt, state) > 0
+  return { isOpen: true, unreadCount: 0, lastReadAt, readMarker: hasUnread ? state.lastReadAt : null }
+}
+
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   isOpen: false,
@@ -71,6 +120,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // Unknown until connection_ack says who we are; setIdentity loads it
   nickname: null,
   me: null,
+  lastReadAt: null,
+  readMarker: null,
 
   addMessage: (message) => {
     // Deduplicate by messageId (prevents double-adds from React StrictMode)
@@ -82,33 +133,39 @@ export const useChatStore = create<ChatState>((set, get) => ({
     logger.debug('ChatStore', `New message from ${message.username}`)
     set((state) => {
       const newMessages = [...state.messages, message].slice(-MAX_MESSAGES)
-      return {
-        messages: newMessages,
-        unreadCount: state.isOpen ? 0 : state.unreadCount + 1,
-      }
+      if (!state.isOpen) return { messages: newMessages, unreadCount: state.unreadCount + 1 }
+      // Seen as it arrives
+      const lastReadAt = laterOf(state.lastReadAt, newestTimestamp([message]))
+      saveLastRead(state.me, lastReadAt)
+      return { messages: newMessages, unreadCount: 0, lastReadAt }
     })
   },
 
   setMessages: (messages) => {
     logger.debug('ChatStore', `Setting ${messages.length} messages (history)`)
-    set({ messages: messages.slice(-MAX_MESSAGES) })
+    set((state) => {
+      const history = messages.slice(-MAX_MESSAGES)
+      if (state.lastReadAt === null || state.isOpen) {
+        // A first load counts nothing (no '9+' for newcomers); an open panel has read it all.
+        // An empty first history still counts as seen: read up to the epoch, so anything after it is unread
+        const lastReadAt = laterOf(state.lastReadAt, newestTimestamp(history)) ?? 0
+        saveLastRead(state.me, lastReadAt)
+        return { messages: history, lastReadAt }
+      }
+      // Recount rather than add, so messages addMessage already counted aren't counted twice
+      return { messages: history, unreadCount: countUnreadSince(history, state.lastReadAt, state) }
+    })
   },
 
   toggleOpen: () => {
     const isOpening = !get().isOpen
     logger.debug('ChatStore', `Toggle chat: ${isOpening ? 'open' : 'close'}`)
-    set({
-      isOpen: isOpening,
-      unreadCount: isOpening ? 0 : get().unreadCount,
-    })
+    set((state) => openState(state, isOpening))
   },
 
   setOpen: (open) => {
     logger.debug('ChatStore', `Set chat open: ${open}`)
-    set({
-      isOpen: open,
-      unreadCount: open ? 0 : get().unreadCount,
-    })
+    set((state) => openState(state, open))
   },
 
   clearUnread: () => set({ unreadCount: 0 }),
@@ -145,12 +202,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // Replace, never merge: the previous user's nickname must not carry over
     const nickname = loadNickname(me.username)
     logger.debug('ChatStore', `Chatting as ${me.username}${nickname ? ` (nickname ${nickname})` : ''}`)
-    set({ me: { username: me.username }, nickname })
+    set((state) => {
+      // A reconnect as the same user keeps its read state; anyone else gets their own
+      const sameUser = state.me?.username === me.username
+      const stored = loadLastRead(me.username)
+      return {
+        me: { username: me.username },
+        nickname,
+        lastReadAt: sameUser ? laterOf(state.lastReadAt, stored) : stored,
+        readMarker: sameUser ? state.readMarker : null,
+      }
+    })
   },
 
   resetIdentity: () => {
     logger.debug('ChatStore', 'Identity reset')
-    set({ me: null, nickname: null })
+    set({ me: null, nickname: null, lastReadAt: null, readMarker: null })
   },
 }))
 
