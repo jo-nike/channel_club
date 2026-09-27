@@ -13,11 +13,15 @@ function createPromptEvent(): BeforeInstallPromptEvent {
 describe('useInstallPrompt', () => {
   beforeEach(() => {
     localStorage.clear()
+    sessionStorage.clear()
+    // Past the engagement gate: this is the third session
+    localStorage.setItem('pwa-sessions', '2')
     initInstallStore()
   })
 
   afterEach(() => {
     localStorage.clear()
+    sessionStorage.clear()
   })
 
   it('starts with nothing to install or promote', () => {

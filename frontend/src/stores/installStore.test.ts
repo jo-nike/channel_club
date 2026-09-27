@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act } from '@testing-library/react'
 import {
+  PROMOTE_FROM_SESSION,
   initInstallStore,
   selectCanInstall,
   selectShouldPromote,
@@ -10,6 +11,7 @@ import {
 import { logger } from '@/lib/logger'
 
 const STORAGE_KEY = 'pwa-install-state'
+const SESSIONS_KEY = 'pwa-sessions'
 const DAY = 24 * 60 * 60 * 1000
 
 function createPromptEvent(outcome: 'accepted' | 'dismissed' = 'accepted'): BeforeInstallPromptEvent {
@@ -34,13 +36,88 @@ const stored = () => JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
 describe('installStore', () => {
   beforeEach(() => {
     localStorage.clear()
+    sessionStorage.clear()
     vi.clearAllMocks()
+    // Past the engagement gate unless a test says otherwise: this is the third session
+    localStorage.setItem(SESSIONS_KEY, String(PROMOTE_FROM_SESSION - 1))
     // Replaces the module-scope listeners with fresh ones over clean storage
     initInstallStore()
   })
 
   afterEach(() => {
     localStorage.clear()
+    sessionStorage.clear()
+  })
+
+  describe('engagement gate', () => {
+    /** Start the app in a new browser session (a new tab or a relaunch). */
+    function newSession() {
+      sessionStorage.clear()
+      initInstallStore()
+    }
+
+    beforeEach(() => {
+      localStorage.clear()
+      sessionStorage.clear()
+    })
+
+    it('holds the banner in the first two sessions and shows it from the third', () => {
+      newSession()
+      offer()
+      expect(useInstallStore.getState().sessions).toBe(1)
+      expect(canInstall()).toBe(true)
+      expect(shouldPromote()).toBe(false)
+
+      newSession()
+      offer()
+      expect(useInstallStore.getState().sessions).toBe(2)
+      expect(shouldPromote()).toBe(false)
+
+      newSession()
+      offer()
+      expect(useInstallStore.getState().sessions).toBe(3)
+      expect(shouldPromote()).toBe(true)
+    })
+
+    it('counts a browser session once, however often the page reloads', () => {
+      newSession()
+      initInstallStore()
+      initInstallStore()
+
+      expect(useInstallStore.getState().sessions).toBe(1)
+      expect(localStorage.getItem(SESSIONS_KEY)).toBe('1')
+    })
+  })
+
+  describe('installed app', () => {
+    const originalMatchMedia = window.matchMedia
+
+    afterEach(() => {
+      window.matchMedia = originalMatchMedia
+      Reflect.deleteProperty(navigator, 'standalone')
+    })
+
+    it('does not promote when running in standalone display mode', () => {
+      window.matchMedia = vi.fn((query: string) => ({
+        ...originalMatchMedia(query),
+        matches: query === '(display-mode: standalone)',
+      }))
+      initInstallStore()
+
+      offer()
+
+      expect(useInstallStore.getState().standalone).toBe(true)
+      expect(shouldPromote()).toBe(false)
+    })
+
+    it("does not promote from an iPhone's home screen (navigator.standalone)", () => {
+      Object.defineProperty(navigator, 'standalone', { value: true, configurable: true })
+      initInstallStore()
+
+      offer()
+
+      expect(shouldPromote()).toBe(false)
+    })
   })
 
   describe('the browser offer', () => {

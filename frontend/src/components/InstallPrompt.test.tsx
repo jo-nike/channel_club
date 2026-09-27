@@ -3,6 +3,7 @@ import { render, screen, fireEvent, act } from '@/test/utils'
 import { InstallPrompt } from './InstallPrompt'
 import * as useInstallPromptModule from '@/hooks/useInstallPrompt'
 import { initInstallStore } from '@/stores/installStore'
+import { useChatStore } from '@/stores/chatStore'
 
 vi.mock('@/hooks/useInstallPrompt')
 
@@ -13,6 +14,7 @@ describe('InstallPrompt', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockInstall.mockResolvedValue(true)
+    useChatStore.setState({ isOpen: false })
   })
 
   describe('when the banner should not be promoted', () => {
@@ -32,6 +34,9 @@ describe('InstallPrompt', () => {
   describe('with the real hook', () => {
     beforeEach(async () => {
       localStorage.clear()
+      sessionStorage.clear()
+      // Past the engagement gate: this is the third session
+      localStorage.setItem('pwa-sessions', '2')
       initInstallStore()
       const actual = await vi.importActual<typeof useInstallPromptModule>('@/hooks/useInstallPrompt')
       vi.spyOn(useInstallPromptModule, 'useInstallPrompt').mockImplementation(actual.useInstallPrompt)
@@ -39,6 +44,7 @@ describe('InstallPrompt', () => {
 
     afterEach(() => {
       localStorage.clear()
+      sessionStorage.clear()
     })
 
     function fireBeforeInstallPrompt() {
@@ -65,6 +71,15 @@ describe('InstallPrompt', () => {
       expect(screen.getByRole('dialog')).toBeInTheDocument()
     })
 
+    it('waits for the third session', () => {
+      localStorage.setItem('pwa-sessions', '0')
+      sessionStorage.clear()
+      initInstallStore()
+      const { container } = render(<InstallPrompt />)
+      fireBeforeInstallPrompt()
+      expect(container.firstChild).toBeNull()
+    })
+
     it('renders nothing in TV mode', () => {
       localStorage.setItem('tv-mode', 'true')
       initInstallStore()
@@ -82,6 +97,17 @@ describe('InstallPrompt', () => {
         install: mockInstall,
         dismiss: mockDismiss
       })
+    })
+
+    it('stays hidden while chat is open and comes back when it closes', () => {
+      useChatStore.setState({ isOpen: true })
+      render(<InstallPrompt />)
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+      act(() => {
+        useChatStore.setState({ isOpen: false })
+      })
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
     })
 
     it('renders the install prompt banner', () => {

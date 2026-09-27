@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { logger } from '@/lib/logger'
 import { detectTVMode } from '@/hooks/useTVMode'
+import { isStandalone } from '@/lib/platform'
 
 export interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>
@@ -9,6 +10,12 @@ export interface BeforeInstallPromptEvent extends Event {
 
 const STORAGE_KEY = 'pwa-install-state'
 const SNOOZE_MS = 7 * 24 * 60 * 60 * 1000
+// Sessions this browser has started the app in, and the per-session flag that
+// stops a reload from counting twice
+const SESSIONS_KEY = 'pwa-sessions'
+const SESSION_COUNTED_KEY = 'pwa-session-counted'
+/** The banner waits until the app has been opened in this many sessions. */
+export const PROMOTE_FROM_SESSION = 3
 
 interface StoredInstallState {
   installed: boolean
@@ -29,6 +36,21 @@ function setStoredState(state: StoredInstallState): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
 }
 
+/** Count this browser session once and return the running total (0 when storage is unavailable). */
+function countSession(): number {
+  try {
+    let sessions = Number(localStorage.getItem(SESSIONS_KEY)) || 0
+    if (sessionStorage.getItem(SESSION_COUNTED_KEY) === null) {
+      sessions += 1
+      localStorage.setItem(SESSIONS_KEY, String(sessions))
+      sessionStorage.setItem(SESSION_COUNTED_KEY, '1')
+    }
+    return sessions
+  } catch {
+    return 0
+  }
+}
+
 function isRecentlyDismissed(state: StoredInstallState): boolean {
   if (!state.dismissed || !state.dismissedAt) return false
   return Date.now() - state.dismissedAt < SNOOZE_MS
@@ -41,6 +63,10 @@ interface InstallState {
   snoozed: boolean
   // A TV browser at startup: never offer installation there
   tv: boolean
+  // Already running as the installed app
+  standalone: boolean
+  // Browser sessions the app has been opened in, this one included
+  sessions: number
   install: () => Promise<boolean>
   dismiss: () => void
 }
@@ -49,6 +75,8 @@ export const useInstallStore = create<InstallState>()((set, get) => ({
   deferredPrompt: null,
   snoozed: false,
   tv: false,
+  standalone: false,
+  sessions: 0,
 
   install: async () => {
     const promptEvent = get().deferredPrompt
@@ -87,14 +115,21 @@ export const useInstallStore = create<InstallState>()((set, get) => ({
 /** The browser has offered installation (a menu can offer it even while the banner is snoozed). */
 export const selectCanInstall = (s: InstallState): boolean => s.deferredPrompt !== null
 
-/** Show the install banner. */
+/**
+ * Show the install banner: only once the app has seen real use (the third
+ * session), never on a TV or in the installed app, and not while snoozed.
+ */
 export const selectShouldPromote = (s: InstallState): boolean =>
-  selectCanInstall(s) && !s.tv && !s.snoozed
+  selectCanInstall(s) &&
+  s.sessions >= PROMOTE_FROM_SESSION &&
+  !s.standalone &&
+  !s.tv &&
+  !s.snoozed
 
 let stopListening: (() => void) | null = null
 
 /**
- * Read the stored install state and listen for the browser's install offer.
+ * Count this browser session, read the stored install state and listen for the browser's install offer.
  * Runs once at module load, which is at app startup (App imports
  * InstallPrompt statically), so an offer made while the sign-in screen is up
  * is kept. Calling it again replaces the listeners (tests do this between cases).
@@ -108,6 +143,8 @@ export function initInstallStore(): void {
     deferredPrompt: null,
     snoozed: stored.installed || isRecentlyDismissed(stored),
     tv,
+    standalone: isStandalone(),
+    sessions: countSession(),
   })
 
   stopListening = null

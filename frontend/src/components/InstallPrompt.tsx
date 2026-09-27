@@ -1,11 +1,14 @@
 import { Download, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useInstallPrompt } from '@/hooks/useInstallPrompt'
+import { useChatStore } from '@/stores/chatStore'
 
 export function InstallPrompt() {
   const { shouldPromote, install, dismiss } = useInstallPrompt()
+  // Never over the conversation (on phones, the Chat tab)
+  const isChatOpen = useChatStore((s) => s.isOpen)
 
-  if (!shouldPromote) return null
+  if (!shouldPromote || isChatOpen) return null
 
   return (
     <div
