@@ -831,6 +831,77 @@ describe('TVEPGGrid time header', () => {
     // Half an hour into the grid: one slot
     expect(pill).toHaveStyle({ left: '150px' })
   })
+
+  it('draws the pill, the now line and its dot in the live colour pair, not destructive', () => {
+    render(<TVEPGGrid hours={48} programmesByChannel={{}} />)
+
+    const pill = screen.getByTestId('now-pill')
+    expect(pill).toHaveClass('bg-live', 'text-live-foreground')
+    expect(pill).not.toHaveClass('bg-destructive')
+    expect(pill).not.toHaveClass('text-destructive-foreground')
+    expect(screen.getByTestId('now-line')).toHaveClass('bg-live')
+    expect(screen.getByTestId('now-line')).not.toHaveClass('bg-destructive')
+    expect(screen.getByTestId('now-dot')).toHaveClass('bg-live')
+    expect(screen.getByTestId('now-dot')).not.toHaveClass('bg-destructive')
+  })
+})
+
+describe('TVEPGGrid now pill over the time labels', () => {
+  const timeFormat = new Intl.DateTimeFormat([], { hour: 'numeric', minute: '2-digit' })
+  const label = (hours: number, minutes: number) => {
+    const text = timeFormat.format(new Date(2026, 8, 26, hours, minutes))
+    const header = screen.getByRole('button', { name: 'Scroll to now' }).parentElement!.parentElement!
+    const slots = Array.from(header.lastElementChild!.children).filter((el) => el.tagName === 'DIV')
+    const slot = slots.find((el) => el.textContent?.replace('​', '') === text)!
+    return slot.firstElementChild as HTMLElement
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels: [] })
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+  })
+
+  it('hides the half-hour label the pill sits on, and shows it again once the pill moves on', () => {
+    // The grid starts at 1 PM: the 1:30 label spans about 158-218px
+    vi.setSystemTime(new Date(2026, 8, 26, 13, 31))
+    render(<TVEPGGrid programmesByChannel={{}} />)
+
+    expect(screen.getByTestId('now-pill')).toHaveTextContent(timeFormat.format(new Date(2026, 8, 26, 13, 31)))
+    expect(label(13, 30)).toHaveClass('invisible')
+    expect(label(14, 0)).not.toHaveClass('invisible')
+    expect(label(13, 0)).not.toHaveClass('invisible')
+
+    // 19 minutes on (the clock ticks every 30 s), the pill is clear of it
+    act(() => vi.advanceTimersByTime(19 * 60_000))
+    expect(screen.getByTestId('now-pill')).toHaveTextContent(timeFormat.format(new Date(2026, 8, 26, 13, 50)))
+    expect(label(13, 30)).not.toHaveClass('invisible')
+    expect(document.querySelectorAll('.invisible')).toHaveLength(0)
+  })
+
+  it('hides the next label as the pill reaches it before the half hour, and none once it is clear', () => {
+    vi.setSystemTime(new Date(2026, 8, 26, 13, 27))
+    render(<TVEPGGrid programmesByChannel={{}} />)
+    expect(label(13, 30)).toHaveClass('invisible')
+    expect(label(13, 0)).not.toHaveClass('invisible')
+    cleanup()
+
+    // At 1:45 the pill (about 195-255px) still overlaps the 1:30 label's
+    // end; by 1:52 it is clear of it and short of the 2:00 label
+    vi.setSystemTime(new Date(2026, 8, 26, 13, 45))
+    render(<TVEPGGrid programmesByChannel={{}} />)
+    expect(label(13, 30)).toHaveClass('invisible')
+    cleanup()
+
+    vi.setSystemTime(new Date(2026, 8, 26, 13, 52))
+    render(<TVEPGGrid programmesByChannel={{}} />)
+    expect(document.querySelectorAll('.invisible')).toHaveLength(0)
+  })
 })
 
 describe('TVEPGGrid re-renders', () => {
