@@ -324,9 +324,12 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     }
     const onVisible = () => { if (document.visibilityState === 'visible') recover() }
     window.addEventListener('online', recover)
+    // Foreground tabs and TVs never fire online or visibilitychange, but they do regain focus
+    window.addEventListener('focus', recover)
     document.addEventListener('visibilitychange', onVisible)
     return () => {
       window.removeEventListener('online', recover)
+      window.removeEventListener('focus', recover)
       document.removeEventListener('visibilitychange', onVisible)
     }
   }, [reconnect])

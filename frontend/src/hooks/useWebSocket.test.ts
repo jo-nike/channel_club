@@ -1074,6 +1074,60 @@ describe('useWebSocket', () => {
       expect(ws.send).not.toHaveBeenCalled()
     })
   })
+  describe('focus recovery', () => {
+    test('reconnects on window focus when the socket is closed', () => {
+      vi.useFakeTimers()
+      const { result, unmount } = renderHook(() => useWebSocket())
+      act(() => MockWebSocket.instances[0].simulateOpen())
+      // Exhaust the fast retries so only the 30s slow timer is pending
+      act(() => MockWebSocket.instances[0].simulateClose(1006))
+      for (let attempt = 1; attempt <= 5; attempt++) {
+        act(() => vi.advanceTimersByTime(10000))
+        act(() => MockWebSocket.instances.at(-1)!.simulateClose(1006))
+      }
+      expect(result.current.status).toBe('disconnected')
+      expect(MockWebSocket.instances).toHaveLength(6)
+
+      act(() => window.dispatchEvent(new Event('focus')))
+      expect(MockWebSocket.instances).toHaveLength(7)
+      expect(result.current.status).toBe('reconnecting')
+      unmount()
+      vi.useRealTimers()
+    })
+
+    test('does not reconnect on window focus while the socket is open', () => {
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+      act(() => ws.simulateOpen())
+
+      act(() => window.dispatchEvent(new Event('focus')))
+
+      expect(MockWebSocket.instances).toHaveLength(1)
+      expect(ws.close).not.toHaveBeenCalled()
+      expect(result.current.status).toBe('connected')
+    })
+
+    test('does not reconnect on window focus while a connection attempt is in progress', () => {
+      renderHook(() => useWebSocket())
+
+      act(() => window.dispatchEvent(new Event('focus')))
+
+      expect(MockWebSocket.instances).toHaveLength(1)
+      expect(MockWebSocket.instances[0].close).not.toHaveBeenCalled()
+    })
+
+    test('stops listening for focus after unmount', () => {
+      const { unmount } = renderHook(() => useWebSocket())
+      act(() => MockWebSocket.instances[0].simulateOpen())
+      // The token is still valid, so only a removed listener keeps focus from reconnecting
+      unmount()
+
+      act(() => window.dispatchEvent(new Event('focus')))
+
+      expect(MockWebSocket.instances).toHaveLength(1)
+    })
+  })
+
   test('FE-10 online recovery reconnects after exhausting retries but never after expiry', async () => {
     vi.useFakeTimers()
     const { result, unmount } = renderHook(() => useWebSocket())
