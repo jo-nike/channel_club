@@ -40,6 +40,12 @@ describe('filterStore', () => {
         expect(filter.description).toBeTruthy()
       })
     })
+
+    it("says Retro TV and Grindhouse include flicker, which reduce motion can't stop", () => {
+      const description = (id: string) => FILTER_REGISTRY.find((filter) => filter.id === id)?.description
+      expect(description('retro-tv')).toMatch(/Includes flicker$/)
+      expect(description('grindhouse')).toMatch(/Includes flicker$/)
+    })
   })
 
   describe('toggleFilter', () => {

@@ -57,7 +57,7 @@ export function ConnectionStatus({ status, onReconnect }: ConnectionStatusProps)
           className={cn(
             'h-3 w-3 rounded-full cursor-pointer transition-colors',
             isHidden ? 'bg-background' : config.color,
-            !isHidden && config.pulse && 'animate-pulse'
+            !isHidden && config.pulse && 'motion-safe:animate-pulse'
           )}
           role="status"
           aria-label={isHidden ? `${config.text} (hidden - click to show)` : `${config.text} (click to hide)`}

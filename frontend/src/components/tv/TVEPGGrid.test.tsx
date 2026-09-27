@@ -136,3 +136,69 @@ describe('TVEPGGrid empty live slot', () => {
     expect(screen.queryByRole('button', { name: 'Pick a channel for everyone' })).not.toBeInTheDocument()
   })
 })
+
+describe('TVEPGGrid navigation scrolling', () => {
+  // jsdom has no layout scrolling, so there's no scrollBy/scrollTo to spy on
+  const scrollBy = vi.fn()
+  const scrollTo = vi.fn()
+  const originalMatchMedia = window.matchMedia
+
+  function mockReducedMotion(reduce: boolean) {
+    window.matchMedia = vi.fn((query: string) => ({
+      matches: reduce && query === '(prefers-reduced-motion: reduce)',
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }))
+  }
+
+  beforeEach(() => {
+    Element.prototype.scrollBy = scrollBy
+    Element.prototype.scrollTo = scrollTo
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1' },
+    })
+    useErsatztvStore.setState({
+      channels: [
+        { id: 'etv1', name: 'Movies', streamUrl: '', logoUrl: '', number: 1, group: 'Films' },
+      ],
+    })
+  })
+
+  afterEach(() => {
+    cleanup()
+    scrollBy.mockReset()
+    scrollTo.mockReset()
+    delete (Element.prototype as Partial<Element>).scrollBy
+    delete (Element.prototype as Partial<Element>).scrollTo
+    window.matchMedia = originalMatchMedia
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels: [] })
+  })
+
+  function clickNav() {
+    render(<TVEPGGrid programmesByChannel={programmesByChannel} liveEPG={liveEPG} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Scroll forward 2 hours' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Scroll to now' }))
+  }
+
+  it('jumps instead of smooth-scrolling under reduced motion', () => {
+    mockReducedMotion(true)
+    clickNav()
+
+    expect(scrollBy).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'auto' }))
+    expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'auto' }))
+  })
+
+  it('scrolls smoothly when motion is allowed', () => {
+    mockReducedMotion(false)
+    clickNav()
+
+    expect(scrollBy).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'smooth' }))
+    expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'smooth' }))
+  })
+})

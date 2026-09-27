@@ -50,6 +50,61 @@ describe('TVChannelSidebar colours', () => {
   })
 })
 
+describe('TVChannelSidebar now-playing indicator', () => {
+  beforeEach(() => {
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1' },
+    })
+    useErsatztvStore.setState({
+      channels: [
+        { id: 'etv1', name: 'Movies', streamUrl: '', logoUrl: '', number: 1, group: 'Films' },
+      ],
+    })
+  })
+
+  afterEach(() => {
+    cleanup()
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels: [] })
+    useTVStore.setState({ selectedChannel: null })
+  })
+
+  function select(index: number) {
+    useTVStore.setState({ selectedChannel: useTVStore.getState().getUnifiedChannels()[index] })
+  }
+
+  it('marks the selected row with a static primary AudioLines icon, not a pulsing dot', async () => {
+    select(1)
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+
+    const indicator = screen.getByTestId('now-playing-indicator')
+    expect(indicator.closest('button')).toHaveTextContent('Movies')
+    expect(indicator).toHaveClass('lucide-audio-lines', 'h-4', 'w-4', 'text-primary')
+    expect(indicator).toHaveAttribute('aria-hidden', 'true')
+    expect(indicator).not.toHaveClass('animate-pulse')
+    expect(document.querySelector('.animate-pulse')).toBeNull()
+  })
+
+  it('uses the live colour on the live slot', async () => {
+    select(0)
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+
+    const indicator = screen.getByTestId('now-playing-indicator')
+    expect(indicator.closest('button')).toBe(screen.getByRole('button', { name: 'Live Channel' }))
+    expect(indicator).toHaveClass('text-live')
+    expect(indicator).not.toHaveClass('text-primary')
+  })
+
+  it('shows no indicator when nothing is selected', async () => {
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+
+    expect(screen.queryByTestId('now-playing-indicator')).not.toBeInTheDocument()
+  })
+})
+
 const RAIL_CHANNELS = Array.from({ length: 36 }, (_, i) => ({
   id: `etv${i + 1}`,
   name: `Channel ${i + 1}`,

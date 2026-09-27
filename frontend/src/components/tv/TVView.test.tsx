@@ -233,6 +233,42 @@ describe('G-03 phone portrait layout', () => {
   })
 })
 
+describe('H-07 now-playing indicator on the phone list', () => {
+  const movies = { id: 'e1', name: 'Movies', number: 1, streamUrl: '/e1', logoUrl: '', group: '' }
+
+  beforeEach(() => {
+    matchOnly('(max-width: 768px)')
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([movies])
+    useErsatztvStore.setState({ loadAllProgrammes: vi.fn().mockResolvedValue(undefined) })
+  })
+  afterEach(() => { window.matchMedia = originalMatchMedia })
+
+  it('marks the selected row with a static AudioLines icon and nothing pulsing', async () => {
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('/e1'))
+
+    const indicator = screen.getByTestId('now-playing-indicator')
+    expect(indicator.closest('button')).toHaveTextContent('Movies')
+    expect(indicator).toHaveClass('lucide-audio-lines', 'h-4', 'w-4', 'text-primary')
+    expect(indicator).toHaveAttribute('aria-hidden', 'true')
+    const list = screen.getByRole('heading', { name: 'Channels' }).closest('.epg-scroll') as HTMLElement
+    expect(list.querySelector('.animate-pulse')).toBeNull()
+  })
+
+  it('uses the live colour when the live slot is selected', async () => {
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('/e1'))
+
+    // The live slot is carrying channel A, so its card has the LIVE badge
+    const liveCard = screen.getByText('Live', { selector: 'span' }).closest('button') as HTMLElement
+    fireEvent.click(liveCard)
+    const indicator = screen.getByTestId('now-playing-indicator')
+    expect(liveCard).toContainElement(indicator)
+    expect(indicator).toHaveClass('text-live')
+    expect(indicator).not.toHaveClass('text-primary')
+  })
+})
+
 describe('G-08 viewport height and header title', () => {
   beforeEach(() => vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([]))
 

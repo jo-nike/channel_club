@@ -4,6 +4,7 @@ import { useTVStore, LIVE_CHANNEL_ID, describeLiveGuide } from '@/stores/tvStore
 import { getErsatzTVLogoUrl } from '@/services/ersatztvApi'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
+import { scrollBehavior } from '@/lib/motion'
 import type { UnifiedChannel, ErsatzTVProgramme, EPGResponse } from '@/types'
 
 // Grid constants
@@ -92,14 +93,14 @@ export function TVEPGGrid({
   const scrollByHours = useCallback((hoursToScroll: number) => {
     if (containerRef.current) {
       const pixelsToScroll = hoursToScroll * HOUR_WIDTH
-      containerRef.current.scrollBy({ left: pixelsToScroll, behavior: 'smooth' })
+      containerRef.current.scrollBy({ left: pixelsToScroll, behavior: scrollBehavior() })
     }
   }, [])
 
   const scrollToNow = useCallback(() => {
     if (containerRef.current) {
       const nowOffset = calculateTimeOffset(new Date(), startTime)
-      containerRef.current.scrollTo({ left: Math.max(0, nowOffset - 100), behavior: 'smooth' })
+      containerRef.current.scrollTo({ left: Math.max(0, nowOffset - 100), behavior: scrollBehavior() })
     }
   }, [startTime])
 

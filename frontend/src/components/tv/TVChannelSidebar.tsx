@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type Ref } from 'react'
-import { ChevronLeft, ChevronRight, Radio } from 'lucide-react'
+import { AudioLines, ChevronLeft, ChevronRight, Radio } from 'lucide-react'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore, describeLiveGuide } from '@/stores/tvStore'
 import { getErsatzTVLogoUrl, fetchErsatzTVCurrentProgramme } from '@/services/ersatztvApi'
@@ -413,13 +413,13 @@ function ChannelItem({
           )}
         </div>
 
-        {/* Playing indicator */}
+        {/* Playing indicator: static, so nothing blinks beside the video */}
         {isSelected && (
           <div className="shrink-0">
-            <span
-              className={`inline-flex h-3 w-3 animate-pulse rounded-full ${
-                isLive ? 'bg-destructive' : 'bg-primary'
-              }`}
+            <AudioLines
+              className={`h-4 w-4 ${isLive ? 'text-live' : 'text-primary'}`}
+              aria-hidden="true"
+              data-testid="now-playing-indicator"
             />
           </div>
         )}
