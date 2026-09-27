@@ -170,6 +170,34 @@ describe('CouchGuide: layout', () => {
       expect(nextTrack).toBe('minmax(0,2fr)')
     }
   })
+
+  it('keeps the rows on a near-opaque backdrop, fading only above the via stop', () => {
+    renderGuide()
+
+    const panel = screen.getByRole('listbox').parentElement!
+    const from = panel.className.match(/(?:^| )from-(\d+)%/)?.[1]
+    const via = panel.className.match(/(?:^| )via-(\d+)%/)?.[1]
+    // Without an explicit via position Tailwind puts it at 50%, below the
+    // from stop, and the browser fades the whole top of the panel to nothing
+    expect(from).toBe('62')
+    expect(via).toBe('82')
+    expect(panel).toHaveClass('from-background/97', 'via-background/75')
+    // The panel sizes to its content rather than a share of the screen
+    expect(panel.className).not.toMatch(/(?:^| )h-\[/)
+  })
+
+  it('shows exactly four whole rows and snaps to a row, so none is cut at the edge', () => {
+    renderGuide()
+
+    // Four 96px rows (h-24), three 8px gaps (space-y-2) and 12px padding
+    // top and bottom (py-3): 432px, h-108
+    const list = screen.getByRole('listbox')
+    expect(list).toHaveClass('h-108', 'snap-y', 'snap-mandatory', 'space-y-2', 'py-3')
+    expect(list).not.toHaveClass('flex-1')
+    for (const option of screen.getAllByRole('option')) {
+      expect(option).toHaveClass('h-24', 'snap-start')
+    }
+  })
 })
 
 describe('CouchGuide: the remote', () => {

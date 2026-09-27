@@ -159,7 +159,7 @@ export function CouchGuide({ onClose, canPickLive, onOpenRoom }: CouchGuideProps
   return (
     // Over the bottom of the picture, fading into it; inside the TV's
     // title-safe area (index.css .couch tokens)
-    <div className="absolute inset-x-0 bottom-0 z-30 flex h-[56%] flex-col bg-linear-to-t from-background from-60% via-background/80 to-transparent px-(--couch-safe-x) pt-16 pb-(--couch-safe-y) text-foreground">
+    <div className="absolute inset-x-0 bottom-0 z-30 flex flex-col bg-linear-to-t from-background/97 from-62% via-background/75 via-82% to-transparent px-(--couch-safe-x) pt-16 pb-(--couch-safe-y) text-foreground">
       <div className="mb-3 flex items-baseline justify-between px-14">
         <h2 id={titleId} className="font-display text-3xl font-extrabold uppercase tracking-[0.14em] text-foreground/80">
           Channels
@@ -168,14 +168,15 @@ export function CouchGuide({ onClose, canPickLive, onOpenRoom }: CouchGuideProps
       </div>
       {/* Padding leaves room for the focused row's outline and scale: a
           scrolling list clips both ways, and at 1920px wide the scale adds
-          about 13px a side and the outline 7px more. No scrollbar, since a
-          remote scrolls it by moving focus */}
+          about 13px a side and the outline 8px more. Exactly four whole rows
+          tall, snapping to a row as focus scrolls it, so no row is ever cut
+          at an edge. No scrollbar, since a remote scrolls it by moving focus */}
       <ul
         role="listbox"
         aria-labelledby={titleId}
         onKeyDown={handleListKeyDown}
         onBlur={handleListBlur}
-        className="min-h-0 flex-1 space-y-2 overflow-y-auto px-8 py-3 [scrollbar-width:none] motion-safe:scroll-smooth [&::-webkit-scrollbar]:hidden"
+        className="h-108 snap-y snap-mandatory space-y-2 overflow-y-auto px-8 py-3 [scrollbar-width:none] motion-safe:scroll-smooth [&::-webkit-scrollbar]:hidden"
       >
         {channels.map((channel, index) => {
           const isLive = channel.type === 'live'
@@ -197,7 +198,7 @@ export function CouchGuide({ onClose, canPickLive, onOpenRoom }: CouchGuideProps
               onFocus={() => setFocusedIndex(index)}
               onClick={() => watch(channel)}
               className={cn(
-                'grid h-24 scroll-my-3 grid-cols-[4.5rem_4.75rem_minmax(0,18rem)_minmax(0,3fr)_minmax(0,2fr)] items-center gap-6 rounded-2xl px-6',
+                'grid h-24 snap-start scroll-my-3 grid-cols-[4.5rem_4.75rem_minmax(0,18rem)_minmax(0,3fr)_minmax(0,2fr)] items-center gap-6 rounded-2xl px-6',
                 'transition-transform duration-150 motion-reduce:transition-none',
                 // Focus shows by more than colour: the row lifts and scales
                 // (the couch's outline marks it too)

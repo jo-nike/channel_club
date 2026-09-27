@@ -345,7 +345,7 @@
    colour alone. Unlayered, so it wins over focus-ring-media's white outline
    (whose dark band stays). */
 .couch .couch-view :focus-visible {
-  outline: 4px solid var(--couch-focus);
+  outline: 5px solid var(--couch-focus);
   outline-offset: 3px;
 }
 
