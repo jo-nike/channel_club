@@ -154,7 +154,7 @@ function CollapsedChannelButton({
           onClick={() => onSelect(channel)}
           className={`
             flex h-8 items-center justify-center rounded text-xs font-medium overflow-hidden
-            hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring
+            hover:bg-foreground/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring
             ${isLive ? 'w-auto min-w-8 px-1' : 'w-8'}
             ${isSelected ? 'ring-2 ring-primary bg-primary/10' : ''}
             ${isLive && hasLiveChannel ? 'bg-destructive/20 text-destructive' : 'bg-muted'}
@@ -293,7 +293,7 @@ function ChannelItem({
               {isLive ? (hasLiveChannel ? channel.name : 'Live') : channel.name}
             </span>
             {isLive && hasLiveChannel && (
-              <span className="rounded bg-destructive px-1.5 py-0.5 text-[10px] font-bold uppercase text-destructive-foreground">
+              <span className="rounded bg-live px-1.5 py-0.5 text-[10px] font-bold uppercase text-live-foreground">
                 Live
               </span>
             )}

@@ -264,5 +264,19 @@ describe('QRPlexLogin', () => {
 
       expect(screen.getByRole('alert')).toBeInTheDocument()
     })
+
+    it('shows the error text in the foreground colour on its translucent red tint', () => {
+      vi.mocked(usePlexQRAuthModule.usePlexQRAuth).mockReturnValue({
+        ...defaultMockReturn,
+        status: 'error',
+        error: new Error('Network error'),
+      })
+
+      render(<QRPlexLogin onSuccess={vi.fn()} onCancel={vi.fn()} />)
+
+      const alert = screen.getByRole('alert')
+      expect(alert).toHaveClass('text-foreground', 'bg-destructive/10')
+      expect(alert).not.toHaveClass('text-destructive-foreground')
+    })
   })
 })

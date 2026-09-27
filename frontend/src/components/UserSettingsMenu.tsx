@@ -137,8 +137,8 @@ function ThemeOption({ id, name, isSelected, onSelect }: ThemeOptionProps) {
   const theme = getTheme(id)
 
   const bgColor = theme.colors.background
+  const cardColor = theme.colors.card
   const primaryColor = theme.colors.primary
-  const accentColor = theme.colors.accent
 
   return (
     <button
@@ -147,7 +147,7 @@ function ThemeOption({ id, name, isSelected, onSelect }: ThemeOptionProps) {
         'w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-left',
         'hover:bg-accent hover:text-accent-foreground',
         'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1',
-        isSelected && 'bg-accent'
+        isSelected && 'bg-accent text-accent-foreground'
       )}
       aria-pressed={isSelected}
     >
@@ -159,12 +159,12 @@ function ThemeOption({ id, name, isSelected, onSelect }: ThemeOptionProps) {
         />
         <div
           className="w-3 h-3 rounded-sm border border-border"
-          style={{ backgroundColor: primaryColor }}
+          style={{ backgroundColor: cardColor }}
           aria-hidden="true"
         />
         <div
           className="w-3 h-3 rounded-sm border border-border"
-          style={{ backgroundColor: accentColor }}
+          style={{ backgroundColor: primaryColor }}
           aria-hidden="true"
         />
       </div>

@@ -122,6 +122,27 @@ describe('useTheme', () => {
       expect(document.documentElement.style.getPropertyValue('--chart-3')).toBeTruthy()
     })
 
+    it('should set the live, destructive-foreground and guide variables', () => {
+      renderHook(() => useTheme())
+
+      const style = document.documentElement.style
+      expect(style.getPropertyValue('--live')).toBe('oklch(0.55 0.22 27)')
+      expect(style.getPropertyValue('--live-foreground')).toBe('oklch(0.985 0 0)')
+      expect(style.getPropertyValue('--destructive-foreground')).toBe('oklch(0.985 0 0)')
+      expect(style.getPropertyValue('--guide-now')).toContain('oklch')
+      expect(style.getPropertyValue('--guide-future')).toContain('oklch')
+    })
+
+    it('should set the status variables', () => {
+      renderHook(() => useTheme())
+
+      const style = document.documentElement.style
+      for (const name of ['success', 'warning', 'info']) {
+        expect(style.getPropertyValue(`--${name}`)).toContain('oklch')
+        expect(style.getPropertyValue(`--${name}-foreground`)).toContain('oklch')
+      }
+    })
+
     it('should set sidebar CSS variables', () => {
       renderHook(() => useTheme())
 

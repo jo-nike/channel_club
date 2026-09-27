@@ -6,7 +6,11 @@ import {
   getAllThemeIds,
   DEFAULT_THEME_ID,
 } from './themes'
+import { contrast } from './color'
 import type { ThemeId } from '@/types/theme'
+
+const darkThemes = Object.values(themes).filter((t) => t.mode === 'dark')
+const lightThemes = Object.values(themes).filter((t) => t.mode === 'light')
 
 describe('themes', () => {
   describe('theme definitions', () => {
@@ -84,6 +88,17 @@ describe('themes', () => {
         'accent',
         'accentForeground',
         'destructive',
+        'destructiveForeground',
+        'live',
+        'liveForeground',
+        'guideNow',
+        'guideFuture',
+        'success',
+        'successForeground',
+        'warning',
+        'warningForeground',
+        'info',
+        'infoForeground',
         'border',
         'input',
         'ring',
@@ -123,6 +138,89 @@ describe('themes', () => {
         expect(theme.name.length).toBeGreaterThan(0)
       })
     })
+  })
+
+  describe('contrast', () => {
+    it.each(Object.values(themes).map((t) => [t.id, t] as const))(
+      '%s: primary foreground on primary is at least 4.5:1',
+      (_id, theme) => {
+        expect(
+          contrast(theme.colors.primaryForeground, theme.colors.primary)
+        ).toBeGreaterThanOrEqual(4.5)
+      }
+    )
+
+    it('gives Camouflage dark text on its mid-green primary', () => {
+      expect(themes.camouflage.colors.primaryForeground).toBe('oklch(0.2 0 0)')
+    })
+
+    it.each(darkThemes.map((t) => [t.id, t] as const))(
+      '%s: accent is a quiet surface that keeps text and the primary check readable',
+      (_id, theme) => {
+        const { colors } = theme
+        expect(colors.accent).not.toBe(colors.primary)
+        expect(contrast(colors.foreground, colors.accent)).toBeGreaterThanOrEqual(7)
+        expect(contrast(colors.accentForeground, colors.accent)).toBeGreaterThanOrEqual(7)
+        expect(contrast(colors.mutedForeground, colors.accent)).toBeGreaterThanOrEqual(4.5)
+        expect(contrast(colors.primary, colors.accent)).toBeGreaterThanOrEqual(3)
+      }
+    )
+
+    it.each(Object.values(themes).map((t) => [t.id, t] as const))(
+      '%s: live foreground on live is at least 4.5:1',
+      (_id, theme) => {
+        expect(contrast(theme.colors.liveForeground, theme.colors.live)).toBeGreaterThanOrEqual(4.5)
+      }
+    )
+
+    it.each(lightThemes.map((t) => [t.id, t] as const))(
+      '%s: destructive foreground on destructive is at least 4.5:1',
+      (_id, theme) => {
+        expect(
+          contrast(theme.colors.destructiveForeground, theme.colors.destructive)
+        ).toBeGreaterThanOrEqual(4.5)
+      }
+    )
+
+    it.each(darkThemes.map((t) => [t.id, t] as const))(
+      '%s: foreground on the airing-now guide block is at least 7:1',
+      (_id, theme) => {
+        expect(contrast(theme.colors.foreground, theme.colors.guideNow)).toBeGreaterThanOrEqual(7)
+      }
+    )
+
+    it.each(lightThemes.map((t) => [t.id, t] as const))(
+      '%s: foreground on the airing-now guide block is at least 4.5:1',
+      (_id, theme) => {
+        expect(contrast(theme.colors.foreground, theme.colors.guideNow)).toBeGreaterThanOrEqual(4.5)
+      }
+    )
+
+    it.each(Object.values(themes).map((t) => [t.id, t] as const))(
+      '%s: muted foreground on a later guide block is at least 4.5:1',
+      (_id, theme) => {
+        expect(
+          contrast(theme.colors.mutedForeground, theme.colors.guideFuture)
+        ).toBeGreaterThanOrEqual(4.5)
+      }
+    )
+
+    it.each(Object.values(themes).map((t) => [t.id, t] as const))(
+      '%s: status colours carry readable text and stand out from the page',
+      (_id, theme) => {
+        const { colors } = theme
+        const pairs = [
+          [colors.success, colors.successForeground],
+          [colors.warning, colors.warningForeground],
+          [colors.info, colors.infoForeground],
+        ] as const
+        pairs.forEach(([status, foreground]) => {
+          expect(contrast(foreground, status)).toBeGreaterThanOrEqual(4.5)
+          // Non-text contrast (WCAG 1.4.11) for status dots on the page
+          expect(contrast(status, colors.background)).toBeGreaterThanOrEqual(3)
+        })
+      }
+    )
   })
 
   describe('getTheme', () => {

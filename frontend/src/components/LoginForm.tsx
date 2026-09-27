@@ -119,7 +119,7 @@ export function LoginForm() {
           <p className="mb-6 text-muted-foreground">{APP_TAGLINE}</p>
           <div
             role="alert"
-            className="p-4 text-xl text-destructive-foreground bg-destructive/10 border border-destructive rounded-md"
+            className="p-4 text-xl text-foreground bg-destructive/10 border border-destructive rounded-md"
           >
             No authentication methods configured
           </div>
@@ -146,7 +146,7 @@ export function LoginForm() {
         {error && (
           <div
             role="alert"
-            className="p-4 text-xl text-destructive-foreground bg-destructive/10 border border-destructive rounded-md"
+            className="p-4 text-xl text-foreground bg-destructive/10 border border-destructive rounded-md"
           >
             {error}
           </div>

@@ -45,6 +45,17 @@ describe('ChatToggleButton', () => {
     expect(screen.getByText('5')).toBeInTheDocument()
   })
 
+  it('keeps the unread badge on destructive, dimmed in dark themes so white text passes', () => {
+    useChatStore.setState({ unreadCount: 5 })
+    render(<ChatToggleButton />)
+
+    expect(screen.getByText('5')).toHaveClass(
+      'bg-destructive',
+      'text-destructive-foreground',
+      'dark:bg-destructive/60'
+    )
+  })
+
   it('shows 9+ when unread count exceeds 9', () => {
     useChatStore.setState({ unreadCount: 15 })
     render(<ChatToggleButton />)
