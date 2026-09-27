@@ -112,6 +112,58 @@ class TestClearCurrentChannel:
         assert channel_state.get_current_channel() is None
 
 
+class TestChannelUpdateAttribution:
+    """Tests for the changedBy field on channel_update broadcasts."""
+
+    @pytest.mark.asyncio
+    async def test_set_broadcast_names_the_user(self) -> None:
+        """Setting a channel with a user broadcasts changedBy as that user."""
+        channel = Channel(
+            id="uuid-1",
+            name="TSN",
+            stream_url="https://streams.example.com/stream/uuid-1",
+            guide_id="guide-1",
+        )
+
+        with patch.object(channel_state, "broadcast", new_callable=AsyncMock) as mock_broadcast:
+            await channel_state.set_current_channel(channel, user="alice")
+
+        mock_broadcast.assert_awaited_once()
+        assert mock_broadcast.await_args is not None
+        message = mock_broadcast.await_args.args[0]
+        assert message["type"] == "channel_update"
+        assert message["channel"]["id"] == "uuid-1"
+        assert message["changedBy"] == "alice"
+
+    @pytest.mark.asyncio
+    async def test_set_broadcast_without_user_has_null_changed_by(self) -> None:
+        """A system change (no user) broadcasts changedBy as None."""
+        channel = Channel(
+            id="uuid-1",
+            name="TSN",
+            stream_url="https://streams.example.com/stream/uuid-1",
+            guide_id="guide-1",
+        )
+
+        with patch.object(channel_state, "broadcast", new_callable=AsyncMock) as mock_broadcast:
+            await channel_state.set_current_channel(channel)
+
+        assert mock_broadcast.await_args is not None
+        message = mock_broadcast.await_args.args[0]
+        assert "changedBy" in message
+        assert message["changedBy"] is None
+
+    @pytest.mark.asyncio
+    async def test_clear_broadcast_names_the_user(self) -> None:
+        """Clearing with a user broadcasts a null channel with changedBy."""
+        with patch.object(channel_state, "broadcast", new_callable=AsyncMock) as mock_broadcast:
+            await channel_state.clear_current_channel_async(user="alice")
+
+        mock_broadcast.assert_awaited_once_with(
+            {"type": "channel_update", "channel": None, "changedBy": "alice"}
+        )
+
+
 class TestConnectionManagement:
     """Tests for WebSocket connection management."""
 

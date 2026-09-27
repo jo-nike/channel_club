@@ -263,6 +263,29 @@ class TestChannelBroadcast:
             assert data["channel"]["name"] == "Test Channel"
             assert data["channel"]["streamUrl"] == "http://test"
             assert data["channel"]["guideId"] == "guide-123"
+            assert data["changedBy"] == "admin"
+
+    def test_broadcast_when_channel_cleared(
+        self,
+        client: TestClient,
+        valid_token: str,
+        admin_token: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Clearing the channel broadcasts a null channel naming the admin."""
+        monkeypatch.setattr(settings, "chat_enabled", False)
+
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            ws.receive_json()  # Consume connection_ack
+
+            response = client.delete(
+                "/api/channels/current",
+                headers={"Authorization": f"Bearer {admin_token}"},
+            )
+            assert response.status_code == 200
+
+            data = ws.receive_json()
+            assert data == {"type": "channel_update", "channel": None, "changedBy": "admin"}
 
     def test_multiple_clients_receive_broadcast(
         self,

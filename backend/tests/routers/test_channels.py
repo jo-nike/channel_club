@@ -557,6 +557,18 @@ class TestClearCurrentChannel:
         data = response.json()
         assert data["currentChannel"] is None
 
+    def test_clear_passes_the_admin_as_the_changer(
+        self, client: TestClient, admin_auth_header: dict[str, str]
+    ) -> None:
+        """Clearing names the admin so clients can say who stopped live TV."""
+        with patch.object(
+            channel_state, "clear_current_channel_async", new_callable=AsyncMock
+        ) as mock_clear:
+            response = client.delete("/api/channels/current", headers=admin_auth_header)
+
+        assert response.status_code == 200
+        mock_clear.assert_awaited_once_with(user="admin")
+
     def test_clear_when_no_channel_set(
         self, client: TestClient, admin_auth_header: dict[str, str]
     ) -> None:
