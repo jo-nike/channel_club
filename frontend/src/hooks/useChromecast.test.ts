@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, renderHook, waitFor } from '@/
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useChromecast } from './useChromecast'
 import * as api from '@/services/api'
+import { INITIAL_CAST_STATE, useCastStore } from '@/stores/castStore'
 vi.mock('@/services/api', () => ({ getCastFeatureEnabled: vi.fn().mockResolvedValue(true), createCastSession: vi.fn(), stopCastSession: vi.fn().mockResolvedValue(undefined), getCastHlsUrl: (id: string) => `https://fixture/${id}`, getCastBaseUrl: () => 'https://fixture/api' }))
 const listeners = new Map<string, Set<(event: { sessionState: string }) => void>>()
 const session = { getCastDevice: () => ({ friendlyName: 'Fixture receiver' }), loadMedia: vi.fn().mockResolvedValue(undefined) }
@@ -14,10 +15,42 @@ const controllerStop = vi.fn()
 let remoteState = 'PLAYING'
 beforeEach(() => {
   vi.clearAllMocks(); listeners.clear(); remoteState = 'PLAYING'
+  useCastStore.setState(INITIAL_CAST_STATE)
   vi.stubGlobal('cast', { framework: { CastContext: { getInstance: () => context }, RemotePlayer: class { isConnected = true; isMediaLoaded = true; playerState = remoteState }, RemotePlayerController: class { addEventListener() {} removeEventListener() {} stop = controllerStop }, CastContextEventType: { CAST_STATE_CHANGED: 'cast', SESSION_STATE_CHANGED: 'session' }, RemotePlayerEventType: {}, CastState: { NO_DEVICES_AVAILABLE: 'NONE', CONNECTED: 'CONNECTED' }, SessionState: { SESSION_ENDED: 'ENDED', NO_SESSION: 'NONE', SESSION_STARTED: 'STARTED', SESSION_RESUMED: 'RESUMED' } } })
   vi.stubGlobal('chrome', { cast: { media: { MediaInfo: class { constructor(public url: string) {} }, LoadRequest: class { constructor(public media: unknown) {} }, StreamType: { LIVE: 'LIVE', BUFFERED: 'BUFFERED' } } } })
 })
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+describe('one SDK initialisation for every consumer', () => {
+  it('two consumers register the Cast SDK listeners once and share its state', async () => {
+    const addListener = vi.spyOn(context, 'addEventListener')
+    const button = renderHook(useChromecast)
+    const player = renderHook(useChromecast)
+    await waitFor(() => expect(button.result.current.isLoading).toBe(false))
+
+    expect(api.getCastFeatureEnabled).toHaveBeenCalledTimes(1)
+    expect(context.setOptions).toHaveBeenCalledTimes(1)
+    expect(addListener.mock.calls.map(([name]) => name)).toEqual(['cast', 'session'])
+    expect(player.result.current).toMatchObject({ isLoading: false, isCasting: true, deviceName: 'Fixture receiver' })
+
+    act(() => listeners.get('session')?.forEach((fn) => fn({ sessionState: 'ENDED' })))
+    expect(button.result.current.isCasting).toBe(false)
+    expect(player.result.current.isCasting).toBe(false)
+  })
+
+  it('keeps the listeners while any consumer is mounted and detaches them with the last', async () => {
+    const first = renderHook(useChromecast)
+    const second = renderHook(useChromecast)
+    await waitFor(() => expect(first.result.current.isLoading).toBe(false))
+    expect(listeners.get('session')?.size).toBe(1)
+
+    first.unmount()
+    expect(listeners.get('session')?.size).toBe(1)
+    second.unmount()
+    expect(listeners.get('session')?.size).toBe(0)
+    expect(listeners.get('cast')?.size).toBe(0)
+  })
+})
+
 describe('FE-07 SDK snapshot hydration (mock receiver)', () => {
   it('shows the existing receiver stop action after actual CastButton remount', async () => {
     const props = { channelId: 'a', streamType: 'mpegts' as const, isVisible: true }

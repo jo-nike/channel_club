@@ -42,7 +42,7 @@ export function CastButton({
     isConnected,
     isCasting,
     deviceName,
-    error,
+    lastError,
     isLoading,
     playerState,
     startCasting,
@@ -97,8 +97,8 @@ export function CastButton({
 
   // Build tooltip text based on state
   let tooltipText: string
-  if (error) {
-    tooltipText = error
+  if (lastError) {
+    tooltipText = lastError.message
   } else if (isCasting && deviceName) {
     tooltipText = `Casting to ${deviceName} [${playerState ?? '?'}] - Click to stop`
   } else if (isConnected && deviceName) {
