@@ -45,7 +45,7 @@ export function AppErrorScreen() {
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background p-6 text-center text-foreground">
-      <img src="/favicon.svg" alt="" className="h-14 w-14" />
+      <img src="/favicon.svg" alt="" className="h-14 w-14 rounded-xl" />
       <h1 className="text-2xl font-bold">Something went wrong</h1>
       <p className="max-w-md text-muted-foreground">
         Channel Club hit an error. Reloading usually fixes it.

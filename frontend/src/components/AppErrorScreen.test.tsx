@@ -65,6 +65,15 @@ describe('AppErrorScreen', () => {
     expect(document.documentElement.style.getPropertyValue('--background')).toContain('oklch')
   })
 
+  it('shows the app icon as a rounded tile so its square background never shows hard corners', () => {
+    const { container } = renderThrowingRoute()
+
+    const logo = container.querySelector('img[src="/favicon.svg"]')
+    expect(logo).not.toBeNull()
+    expect(logo).toHaveAttribute('alt', '')
+    expect(logo).toHaveClass('rounded-xl')
+  })
+
   it('logs the error through the logger', () => {
     const logError = vi.spyOn(logger, 'error')
 
