@@ -51,6 +51,9 @@ interface UIState {
   notificationsEnabled: boolean
   setNotificationsEnabled: (value: boolean) => void
   toggleNotifications: () => void
+  // Keep what I'm watching out of what other members see (admins still see it)
+  hideMyActivity: boolean
+  setHideMyActivity: (value: boolean) => void
   // NHL scores overlay (ephemeral - not persisted)
   isNHLOverlayVisible: boolean
   setNHLOverlayVisible: (value: boolean) => void
@@ -90,6 +93,9 @@ export const useUIStore = create<UIState>()(
       notificationsEnabled: true,
       setNotificationsEnabled: (value) => set({ notificationsEnabled: value }),
       toggleNotifications: () => set((s) => ({ notificationsEnabled: !s.notificationsEnabled })),
+      // Shared unless the person hides it (the admin setting decides whether anyone sees it)
+      hideMyActivity: false,
+      setHideMyActivity: (value) => set({ hideMyActivity: value }),
       // NHL scores overlay (ephemeral - not persisted)
       isNHLOverlayVisible: false,
       setNHLOverlayVisible: (value) => set({ isNHLOverlayVisible: value }),
@@ -133,6 +139,7 @@ export const useUIStore = create<UIState>()(
         lastErsatzTVChannelId: state.lastErsatzTVChannelId,
         lastTVChannelId: state.lastTVChannelId,
         notificationsEnabled: state.notificationsEnabled,
+        hideMyActivity: state.hideMyActivity,
       }),
     }
   )

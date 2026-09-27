@@ -104,6 +104,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   const setCurrentChannel = useChannelStore((s) => s.setCurrentChannel)
   const setLastChange = useChannelStore((s) => s.setLastChange)
   const notificationsEnabled = useUIStore((s) => s.notificationsEnabled)
+  const hideMyActivity = useUIStore((s) => s.hideMyActivity)
   const chatEnabled = useChatEnabled()
   const addChatMessage = useChatStore((s) => s.addMessage)
   const setChatMessages = useChatStore((s) => s.setMessages)
@@ -174,6 +175,15 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           }
           if (Array.isArray(message.presence)) {
             setPresence(message.presence)
+          }
+          // The server shares each new connection's channel unless told otherwise.
+          // Read from the store so a change doesn't recreate the socket handlers
+          if (useUIStore.getState().hideMyActivity) {
+            const socket = wsRef.current
+            if (socket?.readyState === WebSocket.OPEN) {
+              socket.send(JSON.stringify({ type: 'set_presence_prefs', hideActivity: true }))
+              logger.debug('WebSocket', 'Sent presence prefs after connection_ack: hidden')
+            }
           }
           break
 
@@ -417,6 +427,15 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       document.removeEventListener('visibilitychange', onVisible)
     }
   }, [reconnect])
+
+  // Tell the server when the person changes it; each new socket gets it after its connection_ack
+  useEffect(() => {
+    const socket = wsRef.current
+    if (socket?.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: 'set_presence_prefs', hideActivity: hideMyActivity }))
+      logger.debug('WebSocket', `Sent presence prefs: ${hideMyActivity ? 'hidden' : 'shared'}`)
+    }
+  }, [hideMyActivity])
 
   const sendChannelUpdate = useCallback(
     (channelName: string | null, programmeTitle?: string | null, viewType?: 'live' | 'ersatztv', channelId?: string | null) => {

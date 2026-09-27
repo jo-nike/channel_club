@@ -111,6 +111,7 @@ describe('useWebSocket', () => {
     useTVStore.setState({ selectedChannel: null })
     useUIStore.setState({
       notificationsEnabled: false,
+      hideMyActivity: false,
     })
     useChatStore.setState({
       messages: [],
@@ -1488,6 +1489,68 @@ describe('useWebSocket', () => {
       act(() => ws.simulateMessage({ type: 'settings_update', settings: { userChannelSelection: false } }))
 
       expect(useSettingsStore.getState().presenceVisible).toBe(false)
+    })
+
+    const presencePrefs = (ws: MockWebSocket) =>
+      ws.send.mock.calls
+        .map(([data]) => JSON.parse(data as string) as { type: string; hideActivity?: boolean })
+        .filter((message) => message.type === 'set_presence_prefs')
+
+    test('tells the server to hide after connection_ack, not on open', () => {
+      useUIStore.setState({ hideMyActivity: true })
+      const { ws } = connect()
+      expect(presencePrefs(ws)).toEqual([])
+
+      act(() => ws.simulateMessage({ type: 'connection_ack', currentChannel: null, presence: [] }))
+
+      expect(presencePrefs(ws)).toEqual([{ type: 'set_presence_prefs', hideActivity: true }])
+    })
+
+    test('sends nothing after connection_ack for someone who shares (the server default)', () => {
+      const { ws } = connect()
+
+      act(() => ws.simulateMessage({ type: 'connection_ack', currentChannel: null, presence: [] }))
+
+      expect(presencePrefs(ws)).toEqual([])
+    })
+
+    test('sends the preference whenever it changes', () => {
+      const { ws } = connect()
+      act(() => ws.simulateMessage({ type: 'connection_ack', currentChannel: null, presence: [] }))
+
+      act(() => useUIStore.getState().setHideMyActivity(true))
+      act(() => useUIStore.getState().setHideMyActivity(false))
+
+      expect(presencePrefs(ws)).toEqual([
+        { type: 'set_presence_prefs', hideActivity: true },
+        { type: 'set_presence_prefs', hideActivity: false },
+      ])
+    })
+
+    test('keeps a change made while offline and sends it with the next connection_ack', () => {
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => useUIStore.getState().setHideMyActivity(true))
+      expect(ws.send).not.toHaveBeenCalled()
+
+      act(() => ws.simulateOpen())
+      act(() => ws.simulateMessage({ type: 'connection_ack', currentChannel: null, presence: [] }))
+
+      expect(presencePrefs(ws)).toEqual([{ type: 'set_presence_prefs', hideActivity: true }])
+    })
+
+    test('hides again on every reconnect', () => {
+      useUIStore.setState({ hideMyActivity: true })
+      const { result, ws: first } = connect()
+      act(() => first.simulateMessage({ type: 'connection_ack', currentChannel: null, presence: [] }))
+
+      act(() => result.current.reconnect())
+      const second = MockWebSocket.instances[1]
+      act(() => second.simulateOpen())
+      act(() => second.simulateMessage({ type: 'connection_ack', currentChannel: null, presence: [] }))
+
+      expect(presencePrefs(second)).toEqual([{ type: 'set_presence_prefs', hideActivity: true }])
     })
 
     test('forgets who is here on sign-out or unmount', () => {

@@ -58,7 +58,7 @@ beforeEach(() => {
   installPrompt.canInstall = false
   installPrompt.variant = 'native'
   installPrompt.install = vi.fn(() => Promise.resolve(true))
-  useUIStore.setState({ notificationsEnabled: true, isNHLOverlayVisible: false })
+  useUIStore.setState({ notificationsEnabled: true, isNHLOverlayVisible: false, hideMyActivity: false })
   useThemeStore.setState(useThemeStore.getInitialState())
   localStorage.removeItem('tv-mode')
 })
@@ -203,6 +203,31 @@ describe('AccountMenu live-change pop-up checkbox', () => {
     expect(
       screen.getByRole('menuitemcheckbox', { name: 'Pop-up when the live channel changes' }),
     ).toHaveAttribute('aria-checked', 'false')
+  })
+})
+
+describe("AccountMenu 'Hide what I'm watching'", () => {
+  it('is off by default and says admins still see what you watch', () => {
+    renderMenu()
+    openMenu()
+
+    const toggle = screen.getByRole('menuitemcheckbox', { name: "Hide what I'm watching" })
+    expect(toggle).toHaveAttribute('aria-checked', 'false')
+    expect(toggle).toHaveAccessibleDescription('Others see only your name. Admins still see it.')
+  })
+
+  it('hides and shares again from the menu', () => {
+    renderMenu()
+    openMenu()
+
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: "Hide what I'm watching" }))
+    expect(useUIStore.getState().hideMyActivity).toBe(true)
+
+    openMenu()
+    const toggle = screen.getByRole('menuitemcheckbox', { name: "Hide what I'm watching" })
+    expect(toggle).toHaveAttribute('aria-checked', 'true')
+    fireEvent.click(toggle)
+    expect(useUIStore.getState().hideMyActivity).toBe(false)
   })
 })
 
