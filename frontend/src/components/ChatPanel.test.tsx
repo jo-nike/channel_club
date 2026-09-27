@@ -78,6 +78,74 @@ describe('ChatPanel', () => {
     )).toBeInTheDocument()
   })
 
+  describe('empty room', () => {
+    const person = (displayName: string, userId: string): PresenceEntry => ({
+      userId, displayName, channelId: null, channelName: null, programme: null, view: null, since: null,
+    })
+
+    beforeEach(() => {
+      useChatStore.setState({ nickname: null, me: { username: 'jonike', userId: 'u_me' } })
+    })
+    afterEach(() => {
+      usePresenceStore.setState({ entries: [] })
+    })
+
+    it.each([
+      [[person('maya', 'u_maya')], 'maya is here'],
+      [[person('maya', 'u_maya'), person('dev', 'u_dev')], 'maya and dev are here'],
+      [[person('Jon', 'u_jon'), person('maya', 'u_maya'), person('dev', 'u_dev')], 'Jon and 2 others are here'],
+    ])('says who else is here (%#)', (entries, line) => {
+      usePresenceStore.setState({ entries: [person('jonike', 'u_me'), ...entries] })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.getByText(line)).toBeInTheDocument()
+      expect(screen.getByText('No messages yet. Say hello!')).toBeInTheDocument()
+    })
+
+    it("doesn't count you, and says nothing about presence while you're alone", () => {
+      usePresenceStore.setState({ entries: [person('jonike', 'u_me')] })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.queryByText(/ here$/)).not.toBeInTheDocument()
+      expect(screen.getByText('No messages yet. Say hello!')).toBeInTheDocument()
+    })
+
+    it('offers three starters, none of them Come watch', () => {
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      const starters = screen.getByRole('group', { name: 'Conversation starters' })
+      expect(starters.querySelectorAll('button')).toHaveLength(3)
+      expect(starters).not.toHaveTextContent(/come watch/i)
+    })
+
+    it('fills the composer with a starter without sending it', () => {
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      fireEvent.click(screen.getByRole('button', { name: "What's everyone watching?" }))
+
+      const input = screen.getByPlaceholderText('Message the club…')
+      expect(input).toHaveValue("What's everyone watching?")
+      expect(input).toHaveFocus()
+      expect(mockOnSendMessage).not.toHaveBeenCalled()
+      // Ready to send: Send is enabled and filled
+      expect(screen.getByRole('button', { name: 'Send message' })).toBeEnabled()
+    })
+
+    it('replaces the draft, which then sends like one typed', async () => {
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      const input = screen.getByPlaceholderText('Message the club…')
+      fireEvent.change(input, { target: { value: 'something else' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Hi everyone 👋' }))
+      expect(input).toHaveValue('Hi everyone 👋')
+
+      fireEvent.keyDown(input, { key: 'Enter' })
+      await waitFor(() => expect(input).toHaveValue(''))
+      expect(mockOnSendMessage).toHaveBeenCalledExactlyOnceWith('Hi everyone 👋', expect.any(String))
+    })
+
+    it('goes away with the first message', () => {
+      useChatStore.setState({ messages: [createMessage('1')] })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.queryByRole('group', { name: 'Conversation starters' })).not.toBeInTheDocument()
+    })
+  })
+
   it('drops the explanation once there are messages', () => {
     useChatStore.setState({ messages: [createMessage('1')] })
     render(<ChatPanel onSendMessage={mockOnSendMessage} />)
