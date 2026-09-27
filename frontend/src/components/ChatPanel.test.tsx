@@ -146,6 +146,25 @@ describe('ChatPanel', () => {
     expect(screen.getByText('OtherUser')).toBeInTheDocument()
   })
 
+  it("moves 'just now' on to a clock time while the panel stays open", () => {
+    vi.useFakeTimers()
+    try {
+      const sentAt = new Date('2026-01-08T12:00:00Z')
+      vi.setSystemTime(sentAt)
+      useChatStore.setState({ messages: [{ ...createMessage('1', 'OtherUser'), timestamp: sentAt.toISOString() }] })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.getByText('just now')).toBeInTheDocument()
+
+      // Two 30s ticks of the shared clock
+      act(() => { vi.advanceTimersByTime(60_000) })
+      const clock = sentAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      expect(screen.queryByText('just now')).not.toBeInTheDocument()
+      expect(screen.getByText(clock)).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('has max length on input', () => {
     render(<ChatPanel onSendMessage={mockOnSendMessage} />)
     const input = screen.getByPlaceholderText('Type a message...')

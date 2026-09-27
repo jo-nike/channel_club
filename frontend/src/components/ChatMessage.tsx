@@ -6,16 +6,17 @@ import { ChatMediaEmbed } from './ChatMediaEmbed'
 export interface ChatMessageProps {
   message: ChatMessageType
   isOwn?: boolean
+  // The current time (ms) from the panel's shared tick, so 'just now' moves on
+  now: number
 }
 
 /**
  * Format timestamp to display time only (HH:MM)
- * For recent messages (< 1 minute), shows "just now"
+ * For recent messages (< 1 minute before now), shows "just now"
  */
-function formatTimestamp(timestamp: string): string {
+function formatTimestamp(timestamp: string, now: number): string {
   const date = new Date(timestamp)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
+  const diffMs = now - date.getTime()
   const diffMins = Math.floor(diffMs / 60000)
 
   if (diffMins < 1) {
@@ -79,11 +80,8 @@ function renderContent(content: string): ReactNode {
   return <div className="flex flex-col gap-1 text-sm break-words">{segments}</div>
 }
 
-export function ChatMessage({ message, isOwn = false }: ChatMessageProps) {
-  const formattedTime = useMemo(
-    () => formatTimestamp(message.timestamp),
-    [message.timestamp]
-  )
+export function ChatMessage({ message, isOwn = false, now }: ChatMessageProps) {
+  const formattedTime = formatTimestamp(message.timestamp, now)
 
   const renderedContent = useMemo(
     () => renderContent(message.content),

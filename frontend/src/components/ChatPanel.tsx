@@ -4,6 +4,7 @@ import type { ChatSendResult, WebSocketStatus } from '@/hooks/useWebSocket'
 import { createClientMessageId } from '@/lib/messageId'
 import { useChatStore, isOwnMessage } from '@/stores/chatStore'
 import { useBreakpoint } from '@/hooks/useBreakpoint'
+import { useNow } from '@/hooks/useNow'
 import { ChatMessage } from './ChatMessage'
 import { GifButton } from './GifButton'
 import { Button } from '@/components/ui/button'
@@ -36,6 +37,8 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
   } = useChatStore()
   const breakpoint = useBreakpoint()
   const isMobile = breakpoint === 'mobile'
+  // One shared tick for every message's relative time
+  const now = useNow(30_000)
 
   const [inputValue, setInputValue] = useState('')
   // Screen readers only: the message bubble is the visible confirmation
@@ -365,7 +368,7 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
                         <span className="h-px flex-1 bg-primary/50" aria-hidden="true" />
                       </div>
                     )}
-                    <ChatMessage message={msg} isOwn={isOwnMessage(msg, { nickname, me })} />
+                    <ChatMessage message={msg} isOwn={isOwnMessage(msg, { nickname, me })} now={now} />
                   </Fragment>
                 ))
               )}
