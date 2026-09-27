@@ -7,6 +7,17 @@ import './audioStore'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
+// Guide height as a share of the content area: half by default, so it shows
+// several channels at once, and never so small or large that the guide or
+// the video becomes useless
+export const EPG_HEIGHT_DEFAULT = 50
+export const EPG_HEIGHT_MIN = 30
+export const EPG_HEIGHT_MAX = 75
+// The default before v2, which nearly everyone still has
+const LEGACY_EPG_HEIGHT_DEFAULT = 25
+
+const clampEPGHeight = (value: number) => Math.max(EPG_HEIGHT_MIN, Math.min(EPG_HEIGHT_MAX, value))
+
 interface UIState {
   isTheaterMode: boolean
   setTheaterMode: (value: boolean) => void
@@ -57,8 +68,8 @@ export const useUIStore = create<UIState>()(
       isEPGVisible: false,
       setEPGVisible: (value) => set({ isEPGVisible: value }),
       toggleEPG: () => set((s) => ({ isEPGVisible: !s.isEPGVisible })),
-      epgHeightPercent: 25,
-      setEPGHeightPercent: (value) => set({ epgHeightPercent: Math.max(15, Math.min(50, value)) }),
+      epgHeightPercent: EPG_HEIGHT_DEFAULT,
+      setEPGHeightPercent: (value) => set({ epgHeightPercent: clampEPGHeight(value) }),
       // Channel sidebar collapse
       isChannelSidebarCollapsed: false,
       setChannelSidebarCollapsed: (value) => set({ isChannelSidebarCollapsed: value }),
@@ -80,7 +91,7 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: 'ui-storage',
-      version: 1,
+      version: 2,
       // Chained: one `if (fromVersion < n)` guard per version, in order, so an
       // old save runs every step after it. (Not a fall-through switch:
       // noFallthroughCasesInSwitch rejects that once a second case exists.)
@@ -95,6 +106,14 @@ export const useUIStore = create<UIState>()(
           // v1: live-change pop-ups default on. An old `false` can't be told
           // apart from the old default, so everyone is switched on once.
           state.notificationsEnabled = true
+        }
+        if (fromVersion < 2) {
+          // v2: the guide defaults to 50% (was 25%) within 30-75% (was
+          // 15-50%). A stored 25 is the untouched old default, so it moves
+          // to the new one; a height someone dragged to is kept, clamped.
+          const height = state.epgHeightPercent
+          if (height === LEGACY_EPG_HEIGHT_DEFAULT) state.epgHeightPercent = EPG_HEIGHT_DEFAULT
+          else if (typeof height === 'number') state.epgHeightPercent = clampEPGHeight(height)
         }
         // Fields missing from old saves are filled from the defaults on merge
         return state as unknown as UIState

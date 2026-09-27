@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen, cleanup, fireEvent } from '@/test/utils'
+import { act, render, screen, cleanup, fireEvent, within } from '@/test/utils'
 import { TVEPGGrid } from './TVEPGGrid'
 import { focusOverrides } from '@/test/focus'
 import { useChannelStore } from '@/stores/channelStore'
@@ -150,6 +150,207 @@ describe('TVEPGGrid empty live slot', () => {
     render(<TVEPGGrid programmesByChannel={{}} liveEPG={liveEPG} onPickLive={vi.fn()} />)
 
     expect(screen.queryByRole('button', { name: 'Pick a channel for everyone' })).not.toBeInTheDocument()
+  })
+})
+
+describe('TVEPGGrid channel column', () => {
+  const NOW = new Date('2026-09-26T20:00:00Z').getTime()
+  const MINUTE = 60_000
+  const movies = { id: 'etv1', name: 'Movies', streamUrl: '/etv1', logoUrl: '', number: 1, group: 'Films' }
+  const cartoons = { id: 'etv2', name: 'Cartoons', streamUrl: '/etv2', logoUrl: '', number: 2, group: 'Kids' }
+  // 30 of 95 minutes in, 65 to go
+  const onNow: Record<string, ErsatzTVProgramme[]> = {
+    etv1: [{
+      id: 'p1',
+      channelId: 'etv1',
+      title: 'Movie Night',
+      start: new Date(NOW - 30 * MINUTE).toISOString(),
+      stop: new Date(NOW + 65 * MINUTE).toISOString(),
+    }],
+  }
+  const labelFor = (name: string) => screen.getByRole('button', { name: new RegExp(`^Switch to \\d+ ${name}$`) })
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels: [movies, cartoons] })
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels: [] })
+    useTVStore.setState({ selectedChannel: null })
+  })
+
+  it('shows each channel by number and name, with the old tooltip text kept as the label', () => {
+    render(<TVEPGGrid programmesByChannel={{}} />)
+
+    const label = labelFor('Cartoons')
+    expect(label).toHaveAccessibleName('Switch to 2 Cartoons')
+    expect(label).toHaveTextContent('2')
+    expect(label).toHaveTextContent('Cartoons')
+    expect(label).toHaveStyle({ width: '208px' })
+    fireEvent.focus(label)
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
+  })
+
+  it("shows the on-air programme's progress and time left", () => {
+    render(<TVEPGGrid programmesByChannel={onNow} />)
+
+    const label = labelFor('Movies')
+    expect(label).toHaveTextContent('1h 5m left')
+    const fill = label.querySelector('[data-testid="label-progress"]') as HTMLElement
+    expect(parseFloat(fill.style.width)).toBeCloseTo((30 / 95) * 100, 5)
+    // Nothing on air, nothing to show
+    expect(labelFor('Cartoons').querySelector('[data-testid="label-progress"]')).toBeNull()
+    expect(labelFor('Cartoons')).not.toHaveTextContent('left')
+  })
+
+  it('marks the channel being watched with aria-current and a primary bar', () => {
+    useTVStore.setState({ selectedChannel: { ...cartoons, type: 'ersatztv' } })
+    render(<TVEPGGrid programmesByChannel={onNow} />)
+
+    const watched = labelFor('Cartoons')
+    expect(watched).toHaveAttribute('aria-current', 'true')
+    expect(watched.querySelector('[data-testid="watching-bar"]')).toHaveClass('bg-primary')
+    const other = labelFor('Movies')
+    expect(other).not.toHaveAttribute('aria-current')
+    expect(other.querySelector('[data-testid="watching-bar"]')).toBeNull()
+  })
+
+  it("badges the live row LIVE, with its programme's time left, only while something is on", () => {
+    const { unmount } = render(<TVEPGGrid programmesByChannel={{}} />)
+    const [emptyLiveRow] = screen.getAllByTestId('channel-row')
+    expect(within(emptyLiveRow.querySelector('button')!).queryByText('Live', { selector: '.bg-live' })).toBeNull()
+    unmount()
+
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1' },
+    })
+    const live: EPGResponse = {
+      channelId: 'live',
+      currentProgram: {
+        title: 'Club Broadcast',
+        startTime: new Date(NOW - 10 * MINUTE).toISOString(),
+        endTime: new Date(NOW + 20 * MINUTE).toISOString(),
+      },
+    }
+    render(<TVEPGGrid programmesByChannel={{}} liveEPG={live} />)
+
+    const label = labelFor('Club')
+    expect(within(label).getByText('Live')).toHaveClass('bg-live', 'text-live-foreground')
+    expect(label).toHaveTextContent('20m left')
+  })
+})
+
+describe('TVEPGGrid scrolling', () => {
+  afterEach(() => cleanup())
+
+  it('is the only scroller, both ways, with the time header sticking inside it', () => {
+    render(<TVEPGGrid programmesByChannel={programmesByChannel} liveEPG={liveEPG} />)
+
+    const grid = screen.getByTestId('tv-epg-grid')
+    expect(grid).toHaveClass('h-full', 'overflow-auto')
+    expect(grid).not.toHaveClass('overflow-y-hidden')
+    const header = screen.getByRole('button', { name: 'Scroll to now' }).parentElement!.parentElement!
+    expect(header).toHaveClass('sticky', 'top-0')
+    expect(header.parentElement).toBe(grid)
+  })
+
+  it('layers the time header above the channel labels that scroll up under it', () => {
+    render(<TVEPGGrid programmesByChannel={programmesByChannel} liveEPG={liveEPG} />)
+
+    // jsdom doesn't paint, so compare the z-index classes. The header, the
+    // labels and the now marker share one stacking context in the grid.
+    const zIndex = (el: Element) => Number(/(?:^|\s)z-(\d+)(?:\s|$)/.exec(el.className)?.[1] ?? 0)
+    const header = screen.getByRole('button', { name: 'Scroll to now' }).parentElement!.parentElement!
+    const label = screen.getAllByTestId('channel-row')[0].firstElementChild!
+    expect(label).toHaveClass('sticky', 'left-0')
+    expect(zIndex(header)).toBeGreaterThan(zIndex(label))
+  })
+})
+
+describe('TVEPGGrid scrolls to the watched channel', () => {
+  // Ten ErsatzTV channels under the live row: 11 rows of 64px. jsdom has no
+  // layout, so the grid gets a 300px viewport; the time header measures 0.
+  const channels = Array.from({ length: 10 }, (_, i) => ({
+    id: `etv${i + 1}`, name: `Channel ${i + 1}`, streamUrl: `/etv${i + 1}`, logoUrl: '', number: i + 1, group: '',
+  }))
+  const isGrid = (el: Element) => el instanceof HTMLElement && el.dataset.testid === 'tv-epg-grid'
+  const watch = (n: number) => act(() => useTVStore.setState({ selectedChannel: { ...channels[n - 1], type: 'ersatztv' } }))
+
+  beforeEach(() => {
+    vi.spyOn(Element.prototype, 'clientHeight', 'get').mockImplementation(function (this: Element) {
+      return isGrid(this) ? 300 : 0
+    })
+    vi.spyOn(Element.prototype, 'scrollHeight', 'get').mockImplementation(function (this: Element) {
+      return isGrid(this) ? 11 * 64 : 0
+    })
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels })
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+    useErsatztvStore.setState({ channels: [] })
+    useTVStore.setState({ selectedChannel: null, liveEPGStatus: 'idle' })
+  })
+
+  it('centres the watched row when the guide opens with it off-screen', () => {
+    useTVStore.setState({ selectedChannel: { ...channels[7], type: 'ersatztv' } })
+    render(<TVEPGGrid programmesByChannel={{}} />)
+
+    // Row 8 starts at 512px; its centre (544) sits mid-viewport at 544 - 150
+    expect(screen.getByTestId('tv-epg-grid').scrollTop).toBe(394)
+  })
+
+  it('waits for the programmes to load, then scrolls', () => {
+    useTVStore.setState({ selectedChannel: { ...channels[7], type: 'ersatztv' } })
+    const { rerender } = render(<TVEPGGrid programmesByChannel={{}} loading />)
+    expect(screen.queryByTestId('tv-epg-grid')).not.toBeInTheDocument()
+
+    rerender(<TVEPGGrid programmesByChannel={{}} />)
+
+    expect(screen.getByTestId('tv-epg-grid').scrollTop).toBe(394)
+  })
+
+  it('follows a channel change while open, leaving a row already in view where it is', () => {
+    render(<TVEPGGrid programmesByChannel={{}} />)
+    const grid = screen.getByTestId('tv-epg-grid')
+    expect(grid.scrollTop).toBe(0)
+
+    watch(8)
+    expect(grid.scrollTop).toBe(394)
+
+    // Row 7 (448-512px) is inside 394-694px: no jump
+    watch(7)
+    expect(grid.scrollTop).toBe(394)
+
+    // Back near the top, clamped at 0
+    watch(1)
+    expect(grid.scrollTop).toBe(0)
+
+    // The last row can't be centred: clamped to the end of the grid (704 - 300)
+    watch(10)
+    expect(grid.scrollTop).toBe(404)
+  })
+
+  it("doesn't pull the guide back after the viewer scrolls away, or when nothing is watched", () => {
+    render(<TVEPGGrid programmesByChannel={{}} />)
+    const grid = screen.getByTestId('tv-epg-grid')
+    watch(8)
+    expect(grid.scrollTop).toBe(394)
+
+    grid.scrollTop = 0
+    act(() => useTVStore.setState({ liveEPGStatus: 'empty' }))
+    expect(grid.scrollTop).toBe(0)
+
+    act(() => useTVStore.setState({ selectedChannel: null }))
+    expect(grid.scrollTop).toBe(0)
   })
 })
 

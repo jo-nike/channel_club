@@ -8,7 +8,7 @@ describe('uiStore', () => {
       isTheaterMode: false,
       isSidebarOpen: false,
       isEPGVisible: false,
-      epgHeightPercent: 25,
+      epgHeightPercent: 50,
       isChannelSidebarCollapsed: false,
       notificationsEnabled: false,
     })
@@ -82,7 +82,7 @@ describe('uiStore', () => {
       await import('./uiStore')
 
       const ui = JSON.parse(localStorage.getItem('ui-storage') ?? 'null')
-      expect(ui.version).toBe(1)
+      expect(ui.version).toBe(2)
       expect(ui.state).not.toHaveProperty('volume')
       const audio = JSON.parse(localStorage.getItem('audio-storage') ?? 'null')
       expect(audio?.state).toEqual({ volume: 0.3, muted: false })
@@ -144,24 +144,23 @@ describe('uiStore', () => {
   })
 
   describe('epgHeightPercent', () => {
-    it('defaults to 25', () => {
-      const state = useUIStore.getState()
-      expect(state.epgHeightPercent).toBe(25)
+    it('defaults to 50', () => {
+      expect(useUIStore.getInitialState().epgHeightPercent).toBe(50)
     })
 
     it('can be set to a valid value', () => {
-      useUIStore.getState().setEPGHeightPercent(30)
+      useUIStore.getState().setEPGHeightPercent(60)
+      expect(useUIStore.getState().epgHeightPercent).toBe(60)
+    })
+
+    it('clamps to minimum of 30', () => {
+      useUIStore.getState().setEPGHeightPercent(20)
       expect(useUIStore.getState().epgHeightPercent).toBe(30)
     })
 
-    it('clamps to minimum of 15', () => {
-      useUIStore.getState().setEPGHeightPercent(10)
-      expect(useUIStore.getState().epgHeightPercent).toBe(15)
-    })
-
-    it('clamps to maximum of 50', () => {
-      useUIStore.getState().setEPGHeightPercent(60)
-      expect(useUIStore.getState().epgHeightPercent).toBe(50)
+    it('clamps to maximum of 75', () => {
+      useUIStore.getState().setEPGHeightPercent(80)
+      expect(useUIStore.getState().epgHeightPercent).toBe(75)
     })
   })
 
@@ -220,13 +219,13 @@ describe('uiStore', () => {
 
   describe('ui-storage migration', () => {
     afterEach(() => {
-      useUIStore.setState({ lastTVChannelId: null })
+      useUIStore.setState({ lastTVChannelId: null, epgHeightPercent: 50 })
     })
 
-    it('saves at version 1', () => {
-      expect(useUIStore.persist.getOptions().version).toBe(1)
+    it('saves at version 2', () => {
+      expect(useUIStore.persist.getOptions().version).toBe(2)
       useUIStore.getState().setSidebarOpen(true)
-      expect(JSON.parse(localStorage.getItem('ui-storage') ?? 'null').version).toBe(1)
+      expect(JSON.parse(localStorage.getItem('ui-storage') ?? 'null').version).toBe(2)
     })
 
     it('turns live-change pop-ups on once for a version 0 save that had them off', async () => {
@@ -242,7 +241,7 @@ describe('uiStore', () => {
       // The migrated state is saved at the new version, so this runs only once
       expect(JSON.parse(localStorage.getItem('ui-storage') ?? 'null')).toMatchObject({
         state: { notificationsEnabled: true },
-        version: 1,
+        version: 2,
       })
     })
 
@@ -261,6 +260,57 @@ describe('uiStore', () => {
       const migrated = migrate?.({ volume: 0.3, notificationsEnabled: false }, 0)
 
       expect(migrated).toEqual({ volume: 0.3, notificationsEnabled: true })
+    })
+
+    it.each([0, 1])('moves the untouched old 25%% guide height to 50%% and clamps others to 30-75%% (from v%i)', (fromVersion) => {
+      const migrate = useUIStore.persist.getOptions().migrate!
+      const height = (epgHeightPercent: number) =>
+        (migrate({ epgHeightPercent, notificationsEnabled: false }, fromVersion) as { epgHeightPercent: number }).epgHeightPercent
+
+      expect(height(25)).toBe(50)
+      expect(height(45)).toBe(45)
+      expect(height(10)).toBe(30)
+      expect(height(15)).toBe(30)
+      expect(height(90)).toBe(75)
+    })
+
+    it('chains the v1 step before the v2 one for a version 0 save', () => {
+      const migrate = useUIStore.persist.getOptions().migrate!
+
+      expect(migrate({ epgHeightPercent: 25, notificationsEnabled: false }, 0)).toEqual({
+        epgHeightPercent: 50,
+        notificationsEnabled: true,
+      })
+      // A v1 save keeps its pop-up choice
+      expect(migrate({ epgHeightPercent: 25, notificationsEnabled: false }, 1)).toEqual({
+        epgHeightPercent: 50,
+        notificationsEnabled: false,
+      })
+    })
+
+    it('leaves a save without a guide height to the default', () => {
+      const migrate = useUIStore.persist.getOptions().migrate!
+      expect(migrate({ lastTVChannelId: 'ersatz-7' }, 1)).toEqual({ lastTVChannelId: 'ersatz-7' })
+    })
+
+    it('rehydrates a version 1 save at the old default as 50% and saves it at version 2', async () => {
+      localStorage.setItem('ui-storage', JSON.stringify({ state: { epgHeightPercent: 25 }, version: 1 }))
+
+      await useUIStore.persist.rehydrate()
+
+      expect(useUIStore.getState().epgHeightPercent).toBe(50)
+      expect(JSON.parse(localStorage.getItem('ui-storage') ?? 'null')).toMatchObject({
+        state: { epgHeightPercent: 50 },
+        version: 2,
+      })
+    })
+
+    it('runs the height step only once (a version 2 save is taken as it is)', async () => {
+      localStorage.setItem('ui-storage', JSON.stringify({ state: { epgHeightPercent: 25 }, version: 2 }))
+
+      await useUIStore.persist.rehydrate()
+
+      expect(useUIStore.getState().epgHeightPercent).toBe(25)
     })
   })
 

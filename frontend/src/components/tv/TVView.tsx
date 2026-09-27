@@ -11,7 +11,7 @@ import { useWebSocket } from '@/hooks/useWebSocket'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { useTVStore, initializeTVStore } from '@/stores/tvStore'
-import { useUIStore } from '@/stores/uiStore'
+import { useUIStore, EPG_HEIGHT_MIN, EPG_HEIGHT_MAX } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
 import { DualModeVideoPlayer } from '@/components/tv/DualModeVideoPlayer'
 import { TVEPGGrid } from '@/components/tv/TVEPGGrid'
@@ -167,8 +167,8 @@ export function TVView() {
   // Resize hook for EPG
   const { isDragging, handleMouseDown } = useResizable({
     initialHeightPercent: epgHeightPercent,
-    minHeightPercent: 15,
-    maxHeightPercent: 50,
+    minHeightPercent: EPG_HEIGHT_MIN,
+    maxHeightPercent: EPG_HEIGHT_MAX,
     containerRef,
     onHeightChange: setEPGHeightPercent,
   })
@@ -340,8 +340,11 @@ export function TVView() {
 
       {/* Main content */}
       <div ref={containerRef} className="flex flex-1 min-h-0 overflow-hidden">
-        {/* Desktop: Collapsible Sidebar - hidden in theater mode/landscape */}
-        {!isMobile && !isTheaterMode && !isMobileLandscape && (
+        {/* Desktop: Collapsible Sidebar - hidden in theater mode/landscape, and
+            while the guide is open, whose channel column is then the one
+            channel list. Its collapsed state stays in the store for when the
+            guide closes. */}
+        {!isMobile && !isTheaterMode && !isMobileLandscape && !isEPGVisible && (
           <TVChannelSidebar
             isCollapsed={isChannelSidebarCollapsed}
             onToggleCollapse={toggleChannelSidebar}
@@ -406,7 +409,12 @@ export function TVView() {
           {/* EPG section - hidden in theater mode or mobile landscape */}
           {!isTheaterMode && !isMobileLandscape && (isMobile || isEPGVisible) && (
             <div
-              className="epg-scroll min-h-0 overflow-y-auto rounded-t-lg"
+              className={cn(
+                'min-h-0 rounded-t-lg',
+                // Desktop: the guide grid scrolls itself (both ways), so its
+                // time header can stick. Phone: this box scrolls the list.
+                isMobile ? 'epg-scroll overflow-y-auto' : 'overflow-hidden'
+              )}
               style={
                 !isMobile && isEPGVisible
                   ? { flex: `0 0 ${epgHeightPercent}%` }

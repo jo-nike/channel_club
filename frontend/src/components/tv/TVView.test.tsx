@@ -38,7 +38,7 @@ vi.mock('@/components/tv/DualModeVideoPlayer', async () => {
     return <div data-testid="player">{channel?.streamUrl || 'No live broadcast'}</div>
   } }
 })
-vi.mock('@/components/tv/TVEPGGrid', () => ({ TVEPGGrid: () => null }))
+vi.mock('@/components/tv/TVEPGGrid', () => ({ TVEPGGrid: () => <div data-testid="tv-epg-grid" /> }))
 vi.mock('@/components/ChatPanel', async () => {
   const { useChatStore } = await import('@/stores/chatStore')
   // Like the real panel, renders nothing (and so can't throw) while closed
@@ -471,6 +471,64 @@ describe('programme progress on the phone list', () => {
 
     const label = await screen.findByText('2h left')
     expect(parseFloat(fillBefore(label).style.width)).toBeCloseTo((60 / 180) * 100, 5)
+  })
+})
+
+describe('B-06 guide mode', () => {
+  beforeEach(() => vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([]))
+  afterEach(() => {
+    useUIStore.setState({ isEPGVisible: false, epgHeightPercent: 50 })
+    vi.restoreAllMocks()
+  })
+
+  it('leaves the scrolling to the guide grid on desktop, so its time header can stick', async () => {
+    useUIStore.setState({ isEPGVisible: true })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+
+    const wrapper = screen.getByTestId('tv-epg-grid').parentElement as HTMLElement
+    expect(wrapper).toHaveClass('min-h-0', 'overflow-hidden')
+    expect(wrapper).not.toHaveClass('overflow-y-auto')
+    expect(wrapper).toHaveStyle({ flex: `0 0 ${useUIStore.getState().epgHeightPercent}%` })
+  })
+
+  it.each([false, true])('hides the channel sidebar while the guide is open and brings it back as it was (collapsed: %s)', async (collapsed) => {
+    useUIStore.setState({ isChannelSidebarCollapsed: collapsed })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+    const sidebarToggle = () => screen.queryByRole('button', { name: collapsed ? 'Expand channel sidebar' : 'Collapse channel sidebar' })
+    expect(sidebarToggle()).toBeInTheDocument()
+
+    act(() => useUIStore.setState({ isEPGVisible: true }))
+    expect(screen.queryByRole('heading', { name: 'Channels' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /channel sidebar/ })).not.toBeInTheDocument()
+    expect(screen.getByTestId('tv-epg-grid')).toBeInTheDocument()
+    expect(useUIStore.getState().isChannelSidebarCollapsed).toBe(collapsed)
+
+    act(() => useUIStore.setState({ isEPGVisible: false }))
+    expect(sidebarToggle()).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Channels' }) !== null).toBe(!collapsed)
+  })
+
+  it('lets the guide be dragged between 30% and 75% of the height', async () => {
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(1000)
+    useUIStore.setState({ isEPGVisible: true, epgHeightPercent: 50 })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+    const handle = screen.getByRole('separator', { name: 'Resize EPG section' })
+
+    // Up 400px of 1000: 50% + 40% stops at 75%
+    fireEvent.mouseDown(handle, { clientY: 500 })
+    fireEvent.mouseMove(document, { clientY: 100 })
+    fireEvent.mouseUp(document)
+    expect(useUIStore.getState().epgHeightPercent).toBe(75)
+    expect(screen.getByTestId('tv-epg-grid').parentElement).toHaveStyle({ flex: '0 0 75%' })
+
+    // Down 600px: 75% - 60% stops at 30%
+    fireEvent.mouseDown(handle, { clientY: 100 })
+    fireEvent.mouseMove(document, { clientY: 700 })
+    fireEvent.mouseUp(document)
+    expect(useUIStore.getState().epgHeightPercent).toBe(30)
   })
 })
 
