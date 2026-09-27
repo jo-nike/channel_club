@@ -28,7 +28,6 @@ import { useResizable } from '@/hooks/useResizable'
 import { useMobileLandscape } from '@/hooks/useMobileLandscape'
 import { AdminModal } from '@/components/AdminModal'
 import { LiveChannelPickerDialog } from '@/components/LiveChannelPickerDialog'
-import { NHLScoresOverlay } from '@/components/NHLScoresOverlay'
 import { cn } from '@/lib/utils'
 import type { ErsatzTVProgramme, UnifiedChannel, ErsatzTVChannel } from '@/types'
 
@@ -74,7 +73,6 @@ export function TVView() {
   const isTheaterMode = useUIStore((s) => s.isTheaterMode)
   const setTheaterMode = useUIStore((s) => s.setTheaterMode)
   const toggleTheaterMode = useUIStore((s) => s.toggleTheaterMode)
-  const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
 
   // Handle Escape key
   const handleEscape = useCallback(() => {
@@ -347,32 +345,31 @@ export function TVView() {
                 : undefined
             }
           >
-            <div key={videoRefreshKey} className="h-full w-full">
-              <ErrorBoundary
-                name="Player"
-                // The live slot keeps one id across channel changes, so the
-                // stream URL is part of the key too
-                resetKey={selectedChannel ? `${selectedChannel.id} ${selectedChannel.streamUrl}` : null}
-                fallback={() => (
-                  <div role="alert" className="flex h-full w-full flex-col items-center justify-center gap-3 text-white">
-                    <p>The player hit an error</p>
-                    <Button variant="secondary" onClick={() => setVideoRefreshKey((k) => k + 1)}>
-                      Reload player
-                    </Button>
-                  </div>
-                )}
-              >
-                <DualModeVideoPlayer
-                  channel={selectedChannel}
-                  isTheaterMode={isTheaterMode}
-                  isMobile={isMobile}
-                  onTheaterModeToggle={toggleTheaterMode}
-                  onPickLive={onPickLive}
-                />
-              </ErrorBoundary>
-            </div>
-            {/* NHL Scores Overlay - positioned over video */}
-            <NHLScoresOverlay isVisible={isNHLOverlayVisible} />
+            <ErrorBoundary
+              name="Player"
+              // The live slot keeps one id across channel changes, so the
+              // stream URL is part of the key too. A reload also clears it.
+              resetKey={`${selectedChannel ? `${selectedChannel.id} ${selectedChannel.streamUrl}` : ''} ${videoRefreshKey}`}
+              fallback={() => (
+                <div role="alert" className="flex h-full w-full flex-col items-center justify-center gap-3 text-white">
+                  <p>The player hit an error</p>
+                  <Button variant="secondary" onClick={reloadVideo}>
+                    Reload player
+                  </Button>
+                </div>
+              )}
+            >
+              {/* Refresh re-initialises only the video engine: the player
+                  shell stays mounted, so fullscreen survives it */}
+              <DualModeVideoPlayer
+                channel={selectedChannel}
+                isTheaterMode={isTheaterMode}
+                isMobile={isMobile}
+                onTheaterModeToggle={toggleTheaterMode}
+                onPickLive={onPickLive}
+                reloadKey={videoRefreshKey}
+              />
+            </ErrorBoundary>
             {/* Channel banner while zapping in TV theater */}
             {isTVTheater && <ZapBanner channel={zapPending ?? selectedChannel} />}
           </div>

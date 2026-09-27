@@ -5,7 +5,9 @@ import { DualModeVideoPlayer } from './DualModeVideoPlayer'
 import { useAudioStore } from '@/stores/audioStore'
 import { useFilterStore } from '@/stores/filterStore'
 import { useChannelStore } from '@/stores/channelStore'
+import { useUIStore } from '@/stores/uiStore'
 import type { UnifiedChannel } from '@/types'
+import type { PlayerShell } from '@/components/player/PlayerShellContext'
 
 // ----------------------------------------------------------------------------
 // Harness: both engines are mocked. mpegts.js gets a stub player; Vidstack's
@@ -93,7 +95,27 @@ vi.mock('@/components/HighlightModal', () => ({
     return null
   },
 }))
-vi.mock('@/components/CastButton', () => ({ CastButton: () => null }))
+// The cast button renders in both control bars, so it reports the shell it sits in
+const shellProbe = vi.hoisted(() => ({ current: null as PlayerShell | null }))
+vi.mock('@/components/CastButton', async () => {
+  const { usePlayerShell } = await import('@/components/player/PlayerShellContext')
+  return {
+    CastButton: () => {
+      shellProbe.current = usePlayerShell()
+      return null
+    },
+  }
+})
+
+// The NHL ticker's scores: a day with no games, so nothing is fetched
+vi.mock('@/hooks/useNHLScores', () => ({
+  useNHLScores: () => ({
+    data: { games: [], date: '2026-09-27', liveGameCount: 0 },
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
+}))
 
 // Script volume detection (false on iOS/iPadOS Safari)
 const volumeSupport = vi.hoisted(() => ({ canSet: true }))
@@ -129,6 +151,13 @@ const renderPlayer = (channel: UnifiedChannel) => {
 const video = () => {
   const element = document.querySelector('video')
   if (!element) throw new Error('no video element')
+  return element
+}
+
+// The stable player shell: the fullscreen element around the engine
+const shell = () => {
+  const element = document.querySelector<HTMLElement>('.video-player-container')
+  if (!element) throw new Error('no player shell')
   return element
 }
 
@@ -515,23 +544,156 @@ describe('DualModeVideoPlayer fullscreen state', () => {
     Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null })
   })
 
-  // The element each engine's fullscreen button sends fullscreen
-  const liveContainer = () => document.querySelector('.video-player-container')
-  const hlsContainer = () => document.querySelector('[data-media-player]')?.parentElement ?? null
-
   it.each([
-    ['live', liveChannel('https://fixture/a'), liveContainer],
-    ['ErsatzTV', hlsChannel('1', 1), hlsContainer],
-  ])('%s: Exit fullscreen and no Theater only while its container is fullscreen', (_engine, channel, container) => {
+    ['live', liveChannel('https://fixture/a')],
+    ['ErsatzTV', hlsChannel('1', 1)],
+  ])('%s: Exit fullscreen and no Theater only while the shell is fullscreen', (_engine, channel) => {
     renderPlayer(channel)
 
     setFullscreenElement(document.createElement('div'))
     expect(screen.getByRole('button', { name: 'Fullscreen' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Theater mode' })).toBeInTheDocument()
 
-    setFullscreenElement(container())
+    setFullscreenElement(shell())
     expect(screen.getByRole('button', { name: 'Exit fullscreen' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Theater mode' })).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['live', liveChannel('https://fixture/a')],
+    ['ErsatzTV', hlsChannel('1', 1)],
+  ])('%s: the Fullscreen button and F key fullscreen the shell', (_engine, channel) => {
+    const original = HTMLElement.prototype.requestFullscreen
+    const requestFullscreen = vi.fn(() => Promise.resolve())
+    HTMLElement.prototype.requestFullscreen = requestFullscreen
+    try {
+      renderPlayer(channel)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Fullscreen' }))
+      fireEvent.keyDown(window, { key: 'f' })
+
+      expect(requestFullscreen).toHaveBeenCalledTimes(2)
+      for (const target of requestFullscreen.mock.contexts) expect(target).toBe(shell())
+    } finally {
+      HTMLElement.prototype.requestFullscreen = original
+    }
+  })
+})
+
+describe('DualModeVideoPlayer shell: fullscreen survives engine swaps', () => {
+  // A getter, so the stub always reports the element the test captured
+  let fullscreenElement: Element | null = null
+  beforeEach(() => {
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, get: () => fullscreenElement })
+  })
+  afterEach(() => {
+    fullscreenElement = null
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null })
+  })
+
+  const enterFullscreen = () => {
+    const element = shell()
+    act(() => {
+      fullscreenElement = element
+      document.dispatchEvent(new Event('fullscreenchange'))
+    })
+    return element
+  }
+
+  it('a new live stream re-initialises only the engine', () => {
+    const { switchTo } = renderPlayer(liveChannel('https://fixture/a'))
+    const fullscreen = enterFullscreen()
+    const firstVideo = video()
+
+    switchTo(liveChannel('https://fixture/b'))
+
+    expect(video()).not.toBe(firstVideo)
+    expect(shell()).toBe(fullscreen)
+    expect(fullscreen.isConnected).toBe(true)
+    expect(fullscreen).toContainElement(video())
+    expect(screen.getByRole('button', { name: 'Exit fullscreen' })).toBeInTheDocument()
+  })
+
+  it('a new ErsatzTV channel re-initialises only the engine', () => {
+    const { switchTo } = renderPlayer(hlsChannel('1', 1))
+    const fullscreen = enterFullscreen()
+    vidstack.mounted.mockClear()
+
+    switchTo(hlsChannel('2', 2))
+
+    expect(vidstack.mounted).toHaveBeenCalledTimes(1)
+    expect(shell()).toBe(fullscreen)
+    expect(fullscreen.isConnected).toBe(true)
+    expect(screen.getByRole('button', { name: 'Exit fullscreen' })).toBeInTheDocument()
+  })
+
+  it('switching between engine types keeps the shell', () => {
+    const { switchTo } = renderPlayer(liveChannel('https://fixture/a'))
+    const fullscreen = enterFullscreen()
+
+    switchTo(hlsChannel('1', 1))
+    expect(shell()).toBe(fullscreen)
+    expect(fullscreen).toContainElement(document.querySelector<HTMLElement>('[data-media-player]'))
+
+    switchTo(liveChannel(''))
+    expect(shell()).toBe(fullscreen)
+    expect(fullscreen).toHaveTextContent('No live broadcast')
+  })
+
+  it.each([
+    ['live', liveChannel('https://fixture/a')],
+    ['ErsatzTV', hlsChannel('1', 1)],
+  ])('%s: a new reloadKey re-initialises only the engine', (_engine, channel) => {
+    const { rerender } = render(
+      <DualModeVideoPlayer channel={channel} isTheaterMode={false} onTheaterModeToggle={vi.fn()} reloadKey={0} />
+    )
+    const fullscreen = enterFullscreen()
+    const firstVideo = document.querySelector('video')
+    vidstack.mounted.mockClear()
+
+    rerender(
+      <DualModeVideoPlayer channel={channel} isTheaterMode={false} onTheaterModeToggle={vi.fn()} reloadKey={1} />
+    )
+
+    if (channel.type === 'live') expect(video()).not.toBe(firstVideo)
+    else expect(vidstack.mounted).toHaveBeenCalledTimes(1)
+    expect(shell()).toBe(fullscreen)
+    expect(fullscreen.isConnected).toBe(true)
+    expect(screen.getByRole('button', { name: 'Exit fullscreen' })).toBeInTheDocument()
+  })
+
+  it('reload() from inside the shell re-initialises only the engine', () => {
+    renderPlayer(liveChannel('https://fixture/a'))
+    const fullscreen = enterFullscreen()
+    const firstVideo = video()
+    const before = shellProbe.current?.reloadKey
+
+    act(() => shellProbe.current?.reload())
+
+    expect(video()).not.toBe(firstVideo)
+    expect(shellProbe.current?.reloadKey).not.toBe(before)
+    expect(shell()).toBe(fullscreen)
+    expect(screen.getByRole('button', { name: 'Exit fullscreen' })).toBeInTheDocument()
+  })
+
+  it('the ErsatzTV failed state renders inside the shell', async () => {
+    vi.useFakeTimers()
+    try {
+      renderPlayer(hlsChannel('1', 1))
+      const fullscreen = enterFullscreen()
+
+      // useHLSRetry gives up after its retries
+      for (let i = 0; i < 10 && !screen.queryByText('Stream unavailable'); i++) {
+        act(() => lastPlayerProps().onError?.())
+        await act(() => vi.advanceTimersByTimeAsync(5000))
+      }
+
+      expect(screen.getByText('Stream unavailable')).toBeInTheDocument()
+      expect(shell()).toBe(fullscreen)
+      expect(fullscreen).toContainElement(screen.getByText('Stream unavailable'))
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
@@ -551,6 +713,56 @@ describe('DualModeVideoPlayer filters', () => {
       if (!filter) throw new Error(`${selector} not rendered`)
       expect(filter.compareDocumentPosition(toolbar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     }
+  })
+
+  it('renders each filter once in the shell, and keeps it across a channel switch', () => {
+    useFilterStore.setState({ activeFilters: ['noir'] })
+    const { switchTo } = renderPlayer(liveChannel('https://fixture/a'))
+    const noir = document.querySelector('.noir-filter')
+    expect(noir?.parentElement).toBe(shell())
+
+    switchTo(hlsChannel('1', 1))
+
+    expect(document.querySelectorAll('.noir-filter')).toHaveLength(1)
+    expect(document.querySelector('.noir-filter')).toBe(noir)
+  })
+})
+
+describe('DualModeVideoPlayer NHL ticker', () => {
+  afterEach(() => useUIStore.setState({ isNHLOverlayVisible: false }))
+
+  const ticker = () => screen.queryByRole('dialog', { name: 'NHL' })
+
+  it('renders inside the shell, so it shows in fullscreen, and stays across a channel switch', () => {
+    useUIStore.setState({ isNHLOverlayVisible: true })
+    const { switchTo } = renderPlayer(liveChannel('https://fixture/a'))
+
+    const first = ticker()
+    expect(shell()).toContainElement(first)
+    expect(first).toHaveTextContent('No games today')
+
+    switchTo(hlsChannel('1', 1))
+    expect(ticker()).toBe(first)
+    expect(shell()).toContainElement(ticker())
+  })
+
+  it('follows the NHL toggle', () => {
+    renderPlayer(liveChannel('https://fixture/a'))
+    expect(ticker()).not.toBeInTheDocument()
+
+    act(() => useUIStore.getState().toggleNHLOverlay())
+    expect(shell()).toContainElement(ticker())
+
+    act(() => useUIStore.getState().toggleNHLOverlay())
+    expect(ticker()).not.toBeInTheDocument()
+  })
+
+  it('shows over the empty live slot too', () => {
+    useUIStore.setState({ isNHLOverlayVisible: true })
+    renderPlayer(liveChannel(''))
+
+    expect(screen.getByText('No live broadcast')).toBeInTheDocument()
+    expect(shell()).toContainElement(ticker())
   })
 })
 
@@ -938,6 +1150,21 @@ describe('DualModeVideoPlayer touch: a tap toggles the controls once', () => {
 
     tapPicture()
     expect(toolbar()).toHaveClass('opacity-0')
+  })
+})
+
+describe('DualModeVideoPlayer before a channel is selected', () => {
+  it("says 'Tuning in...' with a spinner that only moves when motion is allowed", () => {
+    render(<DualModeVideoPlayer channel={null} isTheaterMode={false} onTheaterModeToggle={vi.fn()} />)
+
+    const status = screen.getByRole('status')
+    expect(status).toHaveTextContent('Tuning in...')
+    expect(shell()).toContainElement(status)
+    const spinner = status.querySelector('svg')
+    expect(spinner).toHaveClass('motion-safe:animate-spin')
+    expect(spinner).not.toHaveClass('animate-spin')
+    expect(spinner).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.queryByText(/Select a channel/)).not.toBeInTheDocument()
   })
 })
 
