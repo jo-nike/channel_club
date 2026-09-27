@@ -13,7 +13,8 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace />
+    // App renders the sign-in screen at '/'; there is no /login route
+    return <Navigate to="/" replace />
   }
 
   return <>{children}</>

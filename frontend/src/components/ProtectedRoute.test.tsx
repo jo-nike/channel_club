@@ -9,7 +9,7 @@ describe('ProtectedRoute', () => {
     vi.clearAllMocks()
   })
 
-  it('redirects to login when not authenticated', () => {
+  it('redirects to the root when not authenticated', () => {
     useAuthStore.setState({
       token: null,
       role: null,
@@ -20,7 +20,7 @@ describe('ProtectedRoute', () => {
     render(
       <MemoryRouter initialEntries={['/protected']}>
         <Routes>
-          <Route path="/login" element={<div>Login Page</div>} />
+          <Route path="/" element={<div>Login Page</div>} />
           <Route
             path="/protected"
             element={

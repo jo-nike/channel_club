@@ -28,6 +28,12 @@ export const routes: RouteObject[] = [
         path: 'ersatztv',
         element: <Navigate to="/" replace />,
       },
+      {
+        // Unknown paths (old bookmarks such as /login or /admin) go home
+        // instead of showing a 404 error page
+        path: '*',
+        element: <Navigate to="/" replace />,
+      },
     ],
   },
 ]
