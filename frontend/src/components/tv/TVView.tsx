@@ -3,6 +3,9 @@ import { ShieldCheck, LayoutList, RefreshCw, Radio, Tv } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useAppSettings } from '@/hooks/useAppSettings'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
+import { useTVMode } from '@/hooks/useTVMode'
+import { useChannelZap } from '@/hooks/useChannelZap'
+import { getRemoteAction, isKeyForFocusedControl } from '@/lib/remoteKeys'
 import { useProgrammeClock } from '@/hooks/useProgrammeClock'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
@@ -14,6 +17,7 @@ import { useChatStore } from '@/stores/chatStore'
 import { DualModeVideoPlayer } from '@/components/tv/DualModeVideoPlayer'
 import { TVEPGGrid } from '@/components/tv/TVEPGGrid'
 import { TVChannelSidebar } from '@/components/tv/TVChannelSidebar'
+import { ZapBanner } from '@/components/tv/ZapBanner'
 import { ProgrammeDetailsModal } from '@/components/ersatztv/ProgrammeDetailsModal'
 import { ChatPanel } from '@/components/ChatPanel'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
@@ -92,6 +96,60 @@ export function TVView() {
   }, [isTheaterMode, setTheaterMode])
 
   useEscapeKey({ onEscape: handleEscape })
+
+  // TV browsers (webOS/Tizen) start in theater, the only layout that fills the
+  // screen from a remote. Runs once, so leaving theater sticks.
+  const isTVMode = useTVMode()
+  useEffect(() => {
+    if (isTVMode) setTheaterMode(true)
+  }, [isTVMode, setTheaterMode])
+
+  // CH+/CH- and Up/Down zap in TV theater. Tuning waits for the presses to stop.
+  const { pending: zapPending, step: zapStep } = useChannelZap({
+    getChannels: getUnifiedChannels,
+    selected: selectedChannel,
+    onTune: selectChannel,
+  })
+  const isTVTheater = isTVMode && isTheaterMode
+
+  useEffect(() => {
+    if (!isTVTheater) return
+    // Capture phase, so the zap runs before (and instead of) the player's and
+    // the page's own arrow-key handlers
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (isKeyForFocusedControl(e)) return
+      const action = getRemoteAction(e)
+      if (action !== 'channelUp' && action !== 'channelDown') return
+      e.preventDefault()
+      e.stopPropagation()
+      zapStep(action === 'channelUp' ? 1 : -1)
+    }
+    window.addEventListener('keydown', handleKeyDown, true)
+    return () => window.removeEventListener('keydown', handleKeyDown, true)
+  }, [isTVTheater, zapStep])
+
+  // TV remotes: Back leaves theater (the header comes back) and OK returns to
+  // it. A 5-way remote can't move focus in the desktop layout, so without OK
+  // a viewer who pressed Back would be stuck there. Back outside theater is
+  // left to the browser.
+  useEffect(() => {
+    if (!isTVMode) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || isKeyForFocusedControl(e)) return
+      const action = getRemoteAction(e)
+      if (isTheaterMode) {
+        // Escape already goes through useEscapeKey
+        if (action !== 'back' || e.key === 'Escape') return
+        // Stops webOS Back (461) and Backspace from navigating history
+        e.preventDefault()
+        handleEscape()
+      } else if (action === 'ok' && (!document.activeElement || document.activeElement === document.body)) {
+        setTheaterMode(true)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isTVMode, isTheaterMode, handleEscape, setTheaterMode])
 
   const programmeTime = useProgrammeClock()
 
@@ -436,6 +494,8 @@ export function TVView() {
             </div>
             {/* NHL Scores Overlay - positioned over video */}
             <NHLScoresOverlay isVisible={isNHLOverlayVisible} />
+            {/* Channel banner while zapping in TV theater */}
+            {isTVTheater && <ZapBanner channel={zapPending ?? selectedChannel} />}
           </div>
 
           {/* Resize handle - only on desktop when EPG visible, hidden in theater/landscape */}

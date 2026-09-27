@@ -195,8 +195,9 @@ export function VideoControls({
       {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Theater Mode Button - hidden on mobile, TV, and fullscreen */}
-      {!isMobile && !isTVMode && !isFullscreen && (
+      {/* Theater Mode Button - hidden on touch/small screens and in fullscreen. TV browsers
+          always get it: webOS pointer mode can report pointer:coarse. */}
+      {(isTVMode || !isMobile) && !isFullscreen && (
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -219,29 +220,27 @@ export function VideoControls({
         </Tooltip>
       )}
 
-      {/* Fullscreen Button - hidden on TV (TV has native fullscreen) */}
-      {!isTVMode && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              tabIndex={isVisible ? 0 : -1}
-              onClick={onFullscreenToggle}
-              aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-              className="control-button flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-400/80"
-            >
-              {isFullscreen ? (
-                <Minimize className="h-6 w-6 text-white" />
-              ) : (
-                <Maximize className="h-6 w-6 text-white" />
-              )}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>{isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}</p>
-          </TooltipContent>
-        </Tooltip>
-      )}
+      {/* Fullscreen Button */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            tabIndex={isVisible ? 0 : -1}
+            onClick={onFullscreenToggle}
+            aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+            className="control-button flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-400/80"
+          >
+            {isFullscreen ? (
+              <Minimize className="h-6 w-6 text-white" />
+            ) : (
+              <Maximize className="h-6 w-6 text-white" />
+            )}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>
+          <p>{isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}</p>
+        </TooltipContent>
+      </Tooltip>
     </div>
   )
 }
