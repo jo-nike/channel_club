@@ -1,6 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act } from '@/test/utils'
-import { useLiveAdapter } from './mediaAdapters'
+import { useLiveAdapter, useVidstackAdapter } from './mediaAdapters'
+
+// Vidstack's hooks read the nearest MediaPlayer; this stands in for its state
+// and its remote control
+const vidstack = vi.hoisted(() => ({
+  state: {} as Record<string, unknown>,
+  remote: { togglePaused: vi.fn(), unmute: vi.fn(), mute: vi.fn(), changeVolume: vi.fn() },
+}))
+vi.mock('@vidstack/react', () => ({
+  useMediaState: (prop: string) => vidstack.state[prop],
+  useMediaRemote: () => vidstack.remote,
+}))
 
 describe('useLiveAdapter', () => {
   let video: HTMLVideoElement
@@ -106,5 +117,62 @@ describe('useLiveAdapter', () => {
     fire('playing')
 
     expect(result.current.isPlaying).toBe(false)
+  })
+})
+
+describe('useVidstackAdapter', () => {
+  beforeEach(() => {
+    vidstack.state = { paused: true, muted: false, canPlay: false, volume: 1 }
+    Object.values(vidstack.remote).forEach((fn) => fn.mockClear())
+  })
+
+  it('starts paused, unmuted, not ready, as an HLS stream', () => {
+    const { result } = renderHook(() => useVidstackAdapter())
+
+    expect(result.current).toMatchObject({
+      isPlaying: false,
+      elementMuted: false,
+      canPlay: false,
+      streamType: 'hls',
+    })
+  })
+
+  it("follows the player's paused, muted and can-play state", () => {
+    const { result, rerender } = renderHook(() => useVidstackAdapter())
+
+    vidstack.state = { paused: false, muted: true, canPlay: true, volume: 1 }
+    rerender()
+
+    expect(result.current).toMatchObject({ isPlaying: true, elementMuted: true, canPlay: true })
+  })
+
+  it('togglePaused asks the player to toggle', () => {
+    const { result } = renderHook(() => useVidstackAdapter())
+
+    result.current.togglePaused()
+
+    expect(vidstack.remote.togglePaused).toHaveBeenCalledTimes(1)
+  })
+
+  it('unmuteElement asks the player to unmute and never touches the volume', () => {
+    const { result } = renderHook(() => useVidstackAdapter())
+
+    result.current.unmuteElement()
+
+    expect(vidstack.remote.unmute).toHaveBeenCalledTimes(1)
+    expect(vidstack.remote.changeVolume).not.toHaveBeenCalled()
+  })
+
+  it('stays the same object until the player state changes', () => {
+    const { result, rerender } = renderHook(() => useVidstackAdapter())
+    const first = result.current
+
+    rerender()
+    expect(result.current).toBe(first)
+
+    vidstack.state = { ...vidstack.state, paused: false }
+    rerender()
+    expect(result.current).not.toBe(first)
+    expect(result.current.togglePaused).toBe(first.togglePaused)
   })
 })

@@ -4,8 +4,6 @@ import { Loader2 } from 'lucide-react'
 import {
   MediaPlayer,
   MediaProvider,
-  useMediaState,
-  useMediaRemote,
   type MediaAutoPlayFailEventDetail,
   type MediaPlayerInstance,
   type MediaVolumeChange,
@@ -14,7 +12,6 @@ import '@vidstack/react/player/styles/default/theme.css'
 import { ErsatzTVVideoControls } from '@/components/ersatztv/ErsatzTVVideoControls'
 import { useAutoHide } from '@/hooks/useAutoHide'
 import { useTVMode } from '@/hooks/useTVMode'
-import { useCanSetVolume } from '@/hooks/useCanSetVolume'
 import { useVideoKeyboardShortcuts } from '@/hooks/useVideoKeyboardShortcuts'
 import { useFullscreenState } from '@/hooks/useFullscreenState'
 import { useHLSRetry } from '@/hooks/useHLSRetry'
@@ -24,7 +21,7 @@ import { AutoplayNotice } from '@/components/player/AutoplayNotice'
 import { PlayerShellContext, usePlayerShell, useShellPlayback } from '@/components/player/PlayerShellContext'
 import { FilterLayer } from '@/components/player/FilterLayer'
 import { PlayerChrome } from '@/components/player/PlayerChrome'
-import { useLiveAdapter } from '@/components/player/mediaAdapters'
+import { useLiveAdapter, useVidstackAdapter } from '@/components/player/mediaAdapters'
 import { usePlayerAudio } from '@/components/player/usePlayerAudio'
 import { NHLScoresOverlay } from '@/components/NHLScoresOverlay'
 import { HighlightModal } from '@/components/HighlightModal'
@@ -658,58 +655,27 @@ function HLSControlsWrapper({
   channelName?: string
   onTheaterModeToggle: () => void
 }) {
-  const paused = useMediaState('paused')
-  const isElementMuted = useMediaState('muted')
-  const remote = useMediaRemote()
+  // Playing and the element's own mute, from the MediaPlayer around this
+  const adapter = useVidstackAdapter()
   const { containerRef, toggleFullscreen, controlsVisible, setHoveringControls } = usePlayerShell()
 
   // Detect TV mode
   const isTVMode = useTVMode()
 
   // Keyboard volume and mute write the audio store; MediaPlayer follows it
-  const volume = useAudioStore((s) => s.volume)
-  const isStoreMuted = useAudioStore((s) => s.muted)
-  const setStoredVolume = useAudioStore((s) => s.setVolume)
-  const setStoredMuted = useAudioStore((s) => s.setMuted)
-  const isMuted = isStoreMuted || isElementMuted
-  const canSetVolume = useCanSetVolume()
-
-  const handleVolumeChange = useCallback(
-    (newVolume: number) => {
-      // A level the browser ignores (iOS/iPadOS) would only save a meaningless value
-      if (!canSetVolume) return
-      setStoredVolume(newVolume)
-      // Choosing an audible level also clears a mute that only the element had
-      if (!useAudioStore.getState().muted) remote.unmute()
-    },
-    [canSetVolume, remote, setStoredVolume]
-  )
-
-  const handleMuteToggle = useCallback(() => {
-    const next = !isMuted
-    setStoredMuted(next)
-    // An element-only mute leaves the muted prop unchanged, so ask Vidstack too
-    if (!next) remote.unmute()
-  }, [isMuted, remote, setStoredMuted])
-
-  const handleUnmute = useCallback(() => {
-    setStoredMuted(false)
-    remote.unmute()
-  }, [remote, setStoredMuted])
-
-  const isPlaying = !paused
+  const { volume, isMuted, changeVolume, toggleMute, unmute } = usePlayerAudio(adapter)
 
   // The shell's auto-hide follows this engine; a tap on the picture toggles it
-  useShellPlayback(isPlaying)
+  useShellPlayback(adapter.isPlaying)
 
   useVideoKeyboardShortcuts({
     containerRef,
-    onPlayPause: () => remote.togglePaused(),
-    onMuteToggle: handleMuteToggle,
+    onPlayPause: adapter.togglePaused,
+    onMuteToggle: toggleMute,
     onFullscreenToggle: toggleFullscreen,
     onTheaterModeToggle,
-    onVolumeChange: handleVolumeChange,
-    onUnmute: handleUnmute,
+    onVolumeChange: changeVolume,
+    onUnmute: unmute,
     volume,
     isMuted,
     ignoreVerticalArrows: isTVMode,
