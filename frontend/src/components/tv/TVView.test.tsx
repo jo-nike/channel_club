@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@/test/utils'
+import { act, fireEvent, render, screen, waitFor, within } from '@/test/utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 import { TVView } from './TVView'
@@ -102,9 +102,11 @@ describe('FE-12 programme boundary clock', () => {
     useUIStore.setState({ lastTVChannelId: 'e' })
     vi.mocked(api.fetchErsatzTVCurrentProgramme).mockResolvedValue({ current: null, next: null })
     render(<MemoryRouter><TVView /></MemoryRouter>)
-    expect(screen.getByText('Cinema - First')).toBeVisible()
+    const header = within(screen.getByTestId('now-watching'))
+    expect(header.getByText('First')).toBeVisible()
     await act(() => vi.advanceTimersByTimeAsync(30000))
-    expect(screen.getByText('Cinema - Second')).toBeVisible()
+    expect(header.getByText('Second')).toBeVisible()
+    expect(header.getByText('CH 1 · Cinema · 1h left')).toBeVisible()
     expect(presence).toHaveBeenLastCalledWith('Cinema', 'Second', 'ersatztv', 'e')
   })
   it('refreshes live EPG at programme end with no optional catalogue', async () => {
@@ -117,9 +119,10 @@ describe('FE-12 programme boundary clock', () => {
     useChannelStore.getState().setCurrentChannel({ id: 'a', name: 'A', streamUrl: '/a', guideId: 'guide-a' })
     render(<MemoryRouter><TVView /></MemoryRouter>)
     await act(() => vi.advanceTimersByTimeAsync(1))
-    expect(screen.getByText('A - First live')).toBeVisible()
+    const header = within(screen.getByTestId('now-watching'))
+    expect(header.getByText('First live')).toBeVisible()
     await act(() => vi.advanceTimersByTimeAsync(10000))
-    expect(screen.getByText('A - Next live')).toBeVisible()
+    expect(header.getByText('Next live')).toBeVisible()
     expect(presence).toHaveBeenLastCalledWith('A', 'Next live', 'live', 'a')
   })
 })
@@ -285,9 +288,12 @@ describe('G-08 viewport height and header title', () => {
     vi.mocked(fetchNowPlaying).mockResolvedValue({ channelId: 'a', currentProgram: { title, startTime: '2026-09-06T11:00:00Z', endTime: '2099-01-01T00:00:00Z' } })
     useChannelStore.getState().setCurrentChannel({ id: 'a', name: 'PopCorn Movies', streamUrl: '/a', guideId: 'guide-a' })
     render(<MemoryRouter><TVView /></MemoryRouter>)
-    const titleEl = await screen.findByText(`PopCorn Movies - ${title}`)
+    const block = screen.getByTestId('now-watching')
+    const titleEl = await within(block).findByText(title)
     expect(titleEl).toHaveClass('truncate')
-    expect(titleEl.parentElement).toHaveClass('min-w-0', 'flex-1')
+    expect(within(block).getByText(/^Club channel · PopCorn Movies · .* left$/)).toHaveClass('truncate')
+    expect(block).toHaveClass('min-w-0', 'flex-1')
+    expect(block.parentElement).toHaveClass('min-w-0', 'flex-1')
   })
 })
 

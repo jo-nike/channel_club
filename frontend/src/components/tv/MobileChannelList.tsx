@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
 import { Radio, AudioLines } from 'lucide-react'
-import { calculateProgress, formatRemaining } from '@/lib/programmes'
+import { useProgrammeClock } from '@/hooks/useProgrammeClock'
+import { calculateProgress, findOnAir, formatRemaining } from '@/lib/programmes'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore, describeLiveGuide } from '@/stores/tvStore'
 import { getErsatzTVLogoUrl } from '@/services/ersatztvApi'
@@ -18,26 +18,18 @@ interface MobileChannelListProps {
 export function MobileChannelList({ onChannelSelect, liveEPGTitle, onPickLive }: MobileChannelListProps) {
   const { getUnifiedChannels, isLiveChannelActive, selectedChannel, liveEPGStatus } = useTVStore()
   const { programmesByChannel } = useErsatztvStore()
-  const [currentTime, setCurrentTime] = useState(() => Date.now())
+  // Shared 30s clock for the current programme, progress and time remaining
+  const currentTime = useProgrammeClock()
 
   const unifiedChannels = getUnifiedChannels()
   const hasLiveChannel = isLiveChannelActive()
 
-  // Update current time every 30 seconds for time remaining calculations
-  useEffect(() => {
-    const interval = setInterval(() => setCurrentTime(Date.now()), 30 * 1000)
-    return () => clearInterval(interval)
-  }, [])
-
   // Helper to get current programme for a channel
-  const getCurrentProgramme = (channel: UnifiedChannel): ErsatzTVProgramme | undefined => {
-    if (channel.type === 'live') return undefined
+  const getCurrentProgramme = (channel: UnifiedChannel): ErsatzTVProgramme | null => {
+    if (channel.type === 'live') return null
     const programmes = programmesByChannel[channel.id]
-    if (!programmes) return undefined
-    const now = new Date()
-    return programmes.find(
-      (p) => new Date(p.start) <= now && new Date(p.stop) > now
-    )
+    if (!programmes) return null
+    return findOnAir(programmes, currentTime)
   }
 
   // Helper to get live programme title
