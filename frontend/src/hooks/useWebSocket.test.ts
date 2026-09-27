@@ -112,6 +112,8 @@ describe('useWebSocket', () => {
       messages: [],
       isOpen: false,
       unreadCount: 0,
+      nickname: null,
+      me: null,
     })
     vi.mocked(toast).mockClear()
   })
@@ -1180,8 +1182,12 @@ describe('useWebSocket', () => {
   })
 
   describe('nickname handling', () => {
-    test('sends set_nickname on connect when nickname is set', () => {
-      useChatStore.setState({ nickname: 'TestNick' })
+    beforeEach(() => {
+      localStorage.clear()
+    })
+
+    test('sends the stored nickname after connection_ack, not on open', () => {
+      localStorage.setItem('chat_nickname:testuser', 'TestNick')
 
       renderHook(() => useWebSocket())
       const ws = MockWebSocket.instances[0]
@@ -1190,6 +1196,14 @@ describe('useWebSocket', () => {
         ws.simulateOpen()
       })
 
+      expect(ws.send).not.toHaveBeenCalledWith(expect.stringContaining('set_nickname'))
+
+      act(() => {
+        ws.simulateMessage({ type: 'connection_ack', currentChannel: null, you: { username: 'testuser' } })
+      })
+
+      expect(useChatStore.getState().me).toEqual({ username: 'testuser' })
+      expect(useChatStore.getState().nickname).toBe('TestNick')
       expect(ws.send).toHaveBeenCalledWith(
         JSON.stringify({
           type: 'set_nickname',
@@ -1198,20 +1212,53 @@ describe('useWebSocket', () => {
       )
     })
 
-    test('does not send set_nickname on connect when nickname is null', () => {
-      useChatStore.setState({ nickname: null })
+    test('does not send set_nickname after connection_ack when that user has none stored', () => {
+      // Someone else's nickname on the same browser must not be used
+      localStorage.setItem('chat_nickname:someoneelse', 'OtherNick')
+      useChatStore.setState({ nickname: 'OtherNick', me: { username: 'someoneelse' } })
 
       renderHook(() => useWebSocket())
       const ws = MockWebSocket.instances[0]
 
       act(() => {
         ws.simulateOpen()
+        ws.simulateMessage({ type: 'connection_ack', currentChannel: null, you: { username: 'testuser' } })
       })
 
-      // Should not have sent set_nickname (no calls at all since ping hasn't fired)
-      expect(ws.send).not.toHaveBeenCalledWith(
-        expect.stringContaining('set_nickname')
-      )
+      expect(useChatStore.getState().me).toEqual({ username: 'testuser' })
+      expect(useChatStore.getState().nickname).toBeNull()
+      expect(ws.send).not.toHaveBeenCalledWith(expect.stringContaining('set_nickname'))
+    })
+
+    test('resets the chat identity on sign-out, although the view holding the socket unmounts', () => {
+      // Like App.tsx: the view that owns the socket only renders while signed in,
+      // so it unmounts in the same update that clears the token
+      function SocketOwner() {
+        useWebSocket()
+        return null
+      }
+      function SignedInOnly() {
+        const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+        return isAuthenticated ? createElement(SocketOwner) : null
+      }
+      render(createElement(SignedInOnly))
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({ type: 'connection_ack', currentChannel: null, you: { username: 'testuser' } })
+      })
+      act(() => {
+        useChatStore.getState().setNickname('TestNick')
+      })
+      expect(useChatStore.getState().me).toEqual({ username: 'testuser' })
+
+      act(() => {
+        useAuthStore.getState().logout()
+      })
+
+      expect(useChatStore.getState().me).toBeNull()
+      expect(useChatStore.getState().nickname).toBeNull()
     })
 
     test('sendSetNickname sends nickname to server when connected', () => {

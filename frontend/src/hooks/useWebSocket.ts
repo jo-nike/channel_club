@@ -18,6 +18,8 @@ interface WebSocketMessage {
   changedBy?: string | null
   currentChannel?: Channel | null
   settings?: AppSettings
+  // Who this socket is signed in as (connection_ack); absent from older servers
+  you?: { username: string }
   // Chat message fields
   clientMessageId?: string
   accepted?: boolean
@@ -97,6 +99,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   const chatEnabled = useChatEnabled()
   const addChatMessage = useChatStore((s) => s.addMessage)
   const setChatMessages = useChatStore((s) => s.setMessages)
+  const setChatIdentity = useChatStore((s) => s.setIdentity)
   const setUserChannelSelection = useSettingsStore((s) => s.setUserChannelSelection)
 
   const pendingChat = useRef(new Map<string, { finish: (result: ChatSendResult) => void; timer: ReturnType<typeof setTimeout> }>())
@@ -144,6 +147,17 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           setCurrentChannel(message.currentChannel ?? null)
           if (message.settings) {
             setUserChannelSelection(message.settings.userChannelSelection)
+          }
+          if (typeof message.you?.username === 'string') {
+            // Loads this user's own nickname, replacing whoever chatted here before
+            setChatIdentity(message.you)
+            // Without a nickname the server already posts under the sign-in name
+            const storedNickname = useChatStore.getState().nickname
+            const socket = wsRef.current
+            if (storedNickname && socket?.readyState === WebSocket.OPEN) {
+              socket.send(JSON.stringify({ type: 'set_nickname', nickname: storedNickname }))
+              logger.debug('WebSocket', `Sent nickname after connection_ack: ${storedNickname}`)
+            }
           }
           break
 
@@ -196,7 +210,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           logger.warn('WebSocket', `Unknown message type: ${message.type}`, message)
       }
     },
-    [setCurrentChannel, setLastChange, chatEnabled, addChatMessage, setChatMessages, setUserChannelSelection]
+    [setCurrentChannel, setLastChange, chatEnabled, addChatMessage, setChatMessages, setChatIdentity, setUserChannelSelection]
   )
 
   const connect = useCallback(
@@ -231,13 +245,6 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         logger.info('WebSocket', 'Connected successfully')
         setStatus('connected')
         retryCountRef.current = 0
-
-        // Send nickname if set (for chat display name)
-        const currentNickname = useChatStore.getState().nickname
-        if (currentNickname) {
-          ws.send(JSON.stringify({ type: 'set_nickname', nickname: currentNickname }))
-          logger.debug('WebSocket', `Sent nickname on connect: ${currentNickname}`)
-        }
 
         // Start ping interval for keep-alive
         pingIntervalRef.current = window.setInterval(() => {
