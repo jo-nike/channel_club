@@ -8,14 +8,13 @@ import {
 } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ChannelList } from '@/components/ChannelList'
-import { ActiveUsersTab } from '@/components/admin/ActiveUsersTab'
 import { ChatTab } from '@/components/admin/ChatTab'
 import { NHLGamesTab } from '@/components/admin/NHLGamesTab'
+import { PeopleTab } from '@/components/admin/PeopleTab'
 import { StatusTab } from '@/components/admin/StatusTab'
-import { UserAccessTab } from '@/components/admin/UserAccessTab'
 import { cn } from '@/lib/utils'
 
-type TabType = 'channels' | 'active-users' | 'user-access' | 'chat' | 'nhl' | 'status'
+type TabType = 'channels' | 'people' | 'chat' | 'nhl' | 'status'
 
 interface AdminModalProps {
   open: boolean
@@ -24,8 +23,7 @@ interface AdminModalProps {
 
 const tabs: { id: TabType; label: string }[] = [
   { id: 'channels', label: 'Channels' },
-  { id: 'active-users', label: 'Active Users' },
-  { id: 'user-access', label: 'User Access' },
+  { id: 'people', label: 'People' },
   { id: 'chat', label: 'Chat' },
   { id: 'nhl', label: 'NHL' },
   { id: 'status', label: 'Status' },
@@ -38,10 +36,8 @@ export function AdminModal({ open, onOpenChange }: AdminModalProps) {
     switch (tabId) {
       case 'channels':
         return <ChannelList />
-      case 'active-users':
-        return <ActiveUsersTab />
-      case 'user-access':
-        return <UserAccessTab />
+      case 'people':
+        return <PeopleTab />
       case 'chat':
         return <ChatTab />
       case 'nhl':

@@ -15,7 +15,7 @@ vi.mock('@/services/api', () => ({
   updateAppSettings: vi.fn(),
 }))
 
-// Mock useActiveUsers for Active Users tab
+// Mock useActiveUsers for the People tab
 const mockActiveUsersData = {
   liveUsers: [
     {
@@ -130,16 +130,18 @@ describe('AdminModal', () => {
   })
 
   describe('Tab rendering', () => {
-    it('renders all six tabs (AC #3 - context-agnostic)', () => {
+    it('renders all five tabs (AC #3 - context-agnostic)', () => {
       render(<AdminModal {...defaultProps} />)
 
       expect(screen.getByRole('tab', { name: /channels/i })).toBeInTheDocument()
-      expect(screen.getByRole('tab', { name: /active users/i })).toBeInTheDocument()
-      expect(screen.getByRole('tab', { name: /user access/i })).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: /people/i })).toBeInTheDocument()
       expect(screen.getByRole('tab', { name: /chat/i })).toBeInTheDocument()
       expect(screen.getByRole('tab', { name: /nhl/i })).toBeInTheDocument()
       expect(screen.getByRole('tab', { name: /status/i })).toBeInTheDocument()
       expect(screen.queryByRole('tab', { name: /plugins/i })).not.toBeInTheDocument()
+      // Active Users and User Access are merged into People
+      expect(screen.queryByRole('tab', { name: /active users/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('tab', { name: /user access/i })).not.toBeInTheDocument()
     })
 
     it('all tabs are always visible regardless of context', () => {
@@ -147,8 +149,8 @@ describe('AdminModal', () => {
       render(<AdminModal {...defaultProps} />)
 
       const tabs = screen.getAllByRole('tab')
-      expect(tabs).toHaveLength(6)
-      expect(tabs.map(t => t.textContent)).toEqual(['Channels', 'Active Users', 'User Access', 'Chat', 'NHL', 'Status'])
+      expect(tabs).toHaveLength(5)
+      expect(tabs.map(t => t.textContent)).toEqual(['Channels', 'People', 'Chat', 'NHL', 'Status'])
     })
   })
 
@@ -164,11 +166,11 @@ describe('AdminModal', () => {
     it('switches to another tab when pressed', () => {
       render(<AdminModal {...defaultProps} />)
 
-      const activeUsersTab = screen.getByRole('tab', { name: /active users/i })
+      const peopleTab = screen.getByRole('tab', { name: /people/i })
       // Radix Tabs activate on mousedown (the press), not on the later click
-      fireEvent.mouseDown(activeUsersTab)
+      fireEvent.mouseDown(peopleTab)
 
-      expect(activeUsersTab).toHaveAttribute('aria-selected', 'true')
+      expect(peopleTab).toHaveAttribute('aria-selected', 'true')
       expect(screen.getByRole('tab', { name: /channels/i })).toHaveAttribute('aria-selected', 'false')
     })
   })
@@ -221,7 +223,7 @@ describe('AdminModal', () => {
       render(<AdminModal {...defaultProps} />)
 
       const tabs = screen.getAllByRole('tab')
-      expect(tabs.length).toBe(6)
+      expect(tabs.length).toBe(5)
 
       // Each tab should have aria-selected attribute
       tabs.forEach(tab => {
@@ -301,39 +303,39 @@ describe('AdminModal', () => {
     it('arrowing onto a tab does not open it (manual activation)', async () => {
       render(<AdminModal {...defaultProps} />)
       const channelsTab = screen.getByRole('tab', { name: /channels/i })
-      const activeUsersTab = screen.getByRole('tab', { name: /active users/i })
+      const peopleTab = screen.getByRole('tab', { name: /people/i })
 
       act(() => channelsTab.focus())
       fireEvent.keyDown(channelsTab, { key: 'ArrowRight' })
-      await waitFor(() => expect(activeUsersTab).toHaveFocus())
+      await waitFor(() => expect(peopleTab).toHaveFocus())
 
-      expect(activeUsersTab).toHaveAttribute('aria-selected', 'false')
+      expect(peopleTab).toHaveAttribute('aria-selected', 'false')
       expect(channelsTab).toHaveAttribute('aria-selected', 'true')
       expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', channelsTab.id)
-      // The Active Users panel (and its polling) is not mounted
+      // The People panel (and its active-user polling) is not mounted
       expect(screen.queryByText('testUser')).not.toBeInTheDocument()
     })
 
     it('activates tab on Enter key', () => {
       render(<AdminModal {...defaultProps} />)
 
-      const activeUsersTab = screen.getByRole('tab', { name: /active users/i })
-      activeUsersTab.focus()
-      fireEvent.keyDown(activeUsersTab, { key: 'Enter' })
+      const peopleTab = screen.getByRole('tab', { name: /people/i })
+      peopleTab.focus()
+      fireEvent.keyDown(peopleTab, { key: 'Enter' })
 
-      expect(activeUsersTab).toHaveAttribute('aria-selected', 'true')
-      expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', activeUsersTab.id)
+      expect(peopleTab).toHaveAttribute('aria-selected', 'true')
+      expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', peopleTab.id)
       expect(screen.getByText('testUser')).toBeInTheDocument()
     })
 
     it('activates tab on Space key', () => {
       render(<AdminModal {...defaultProps} />)
 
-      const userAccessTab = screen.getByRole('tab', { name: /user access/i })
-      userAccessTab.focus()
-      fireEvent.keyDown(userAccessTab, { key: ' ' })
+      const statusTab = screen.getByRole('tab', { name: /status/i })
+      statusTab.focus()
+      fireEvent.keyDown(statusTab, { key: ' ' })
 
-      expect(userAccessTab).toHaveAttribute('aria-selected', 'true')
+      expect(statusTab).toHaveAttribute('aria-selected', 'true')
     })
   })
 
@@ -448,11 +450,11 @@ describe('AdminModal', () => {
     })
   })
 
-  describe('Active Users tab (Story 11.6)', () => {
+  describe('People tab (Story 11.6)', () => {
     it('shows ActiveUsersTab component content', async () => {
       render(<AdminModal {...defaultProps} />)
 
-      fireEvent.mouseDown(screen.getByRole('tab', { name: /active users/i }))
+      fireEvent.mouseDown(screen.getByRole('tab', { name: /people/i }))
 
       // Should show Live TV section
       await waitFor(() => {
@@ -463,10 +465,10 @@ describe('AdminModal', () => {
       expect(screen.getByText('ErsatzTV')).toBeInTheDocument()
     })
 
-    it('shows user information in Active Users tab', async () => {
+    it('shows user information in the People tab', async () => {
       render(<AdminModal {...defaultProps} />)
 
-      fireEvent.mouseDown(screen.getByRole('tab', { name: /active users/i }))
+      fireEvent.mouseDown(screen.getByRole('tab', { name: /people/i }))
 
       await waitFor(() => {
         expect(screen.getByText('testUser')).toBeInTheDocument()
@@ -475,13 +477,15 @@ describe('AdminModal', () => {
   })
 
   describe('Tab content (Story 11.7)', () => {
-    it('shows the live channel selection toggle for the User Access tab', () => {
+    it('shows the live channel selection switch in the People tab', () => {
       render(<AdminModal {...defaultProps} />)
 
-      fireEvent.mouseDown(screen.getByRole('tab', { name: /user access/i }))
+      fireEvent.mouseDown(screen.getByRole('tab', { name: /people/i }))
 
       expect(screen.getByText('Live Channel Selection')).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /disabled/i })).toBeInTheDocument()
+      expect(
+        screen.getByRole('switch', { name: 'Users can set the live channel' })
+      ).toHaveAttribute('aria-checked', 'false')
     })
 
     it('shows StatusTab content for Status tab (Story 12.2)', () => {
