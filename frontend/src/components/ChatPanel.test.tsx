@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, render, screen, fireEvent, waitFor } from '@/test/utils'
 import { ChatPanel } from './ChatPanel'
 import { useChatStore } from '@/stores/chatStore'
@@ -9,10 +9,11 @@ vi.mock('@/hooks/useBreakpoint', () => ({
   useBreakpoint: vi.fn(() => 'desktop'),
 }))
 
-// Stand-in for the GIF picker, which fetches its feature flag; only its disabled state matters here
+// Stand-in for the GIF picker, which fetches its feature flag: a click picks one fixed GIF
+const GIF_URL = 'https://media.example/cat.gif'
 vi.mock('./GifButton', () => ({
-  GifButton: ({ disabled }: { disabled?: boolean }) => (
-    <button type="button" aria-label="Send GIF" disabled={disabled} />
+  GifButton: ({ disabled, onSelect }: { disabled?: boolean; onSelect: (url: string) => void }) => (
+    <button type="button" aria-label="Send GIF" disabled={disabled} onClick={() => onSelect(GIF_URL)} />
   ),
 }))
 
@@ -39,6 +40,9 @@ describe('ChatPanel', () => {
       unreadCount: 0,
       nickname: 'TestUser',
       me: null,
+      lastReadAt: null,
+      readMarker: null,
+      historyReset: false,
     })
     mockOnSendMessage.mockReset().mockReturnValue('acknowledged')
   })
@@ -79,7 +83,7 @@ describe('ChatPanel', () => {
     fireEvent.change(input, { target: { value: 'Hello world!' } })
     fireEvent.keyDown(input, { key: 'Enter' })
 
-    expect(mockOnSendMessage).toHaveBeenCalledWith('Hello world!')
+    expect(mockOnSendMessage).toHaveBeenCalledWith('Hello world!', expect.stringMatching(/^[0-9a-f]{32}$/))
   })
 
   it('sends message on button click', () => {
@@ -90,7 +94,7 @@ describe('ChatPanel', () => {
     fireEvent.change(input, { target: { value: 'Hello world!' } })
     fireEvent.click(sendButton)
 
-    expect(mockOnSendMessage).toHaveBeenCalledWith('Hello world!')
+    expect(mockOnSendMessage).toHaveBeenCalledWith('Hello world!', expect.stringMatching(/^[0-9a-f]{32}$/))
   })
 
   it('clears input after sending', async () => {
@@ -267,11 +271,12 @@ describe('ChatPanel', () => {
     const input = screen.getByPlaceholderText('Type a message...')
     fireEvent.change(input, { target: { value: 'Keep this message' } })
     fireEvent.keyDown(input, { key: 'Enter' })
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Message not sent'))
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent("Not sent. You're offline or reconnecting."))
     expect(input).toHaveValue('Keep this message')
     fireEvent.keyDown(input, { key: 'Enter' })
     await waitFor(() => expect(input).toHaveValue(''))
-    expect(screen.getByRole('status')).toHaveTextContent('Message accepted by server')
+    // The acknowledged send clears the failure row
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(mockOnSendMessage).toHaveBeenCalledTimes(2)
   })
   it('FE-11 keeps the draft pending and preserves new edits when its old send is acknowledged', async () => {
@@ -282,7 +287,7 @@ describe('ChatPanel', () => {
     fireEvent.change(input, { target: { value: 'First' } })
     fireEvent.keyDown(input, { key: 'Enter' })
     expect(input).toHaveValue('First')
-    expect(screen.getByRole('status')).toHaveTextContent('waiting for server acknowledgement')
+    expect(screen.getByRole('status')).toHaveTextContent('Sending…')
     fireEvent.keyDown(input, { key: 'Enter' })
     expect(mockOnSendMessage).toHaveBeenCalledTimes(1)
     fireEvent.change(input, { target: { value: 'New draft' } })
@@ -295,7 +300,281 @@ describe('ChatPanel', () => {
     const input = screen.getByPlaceholderText('Type a message...')
     fireEvent.change(input, { target: { value: 'Uncertain' } })
     fireEvent.keyDown(input, { key: 'Enter' })
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Delivery is unconfirmed'))
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent("Couldn't confirm it was sent."))
     expect(input).toHaveValue('Uncertain')
+  })
+
+  describe('history reset', () => {
+    const notice = 'Chat history was cleared (server restart or an admin cleared it)'
+
+    it('says so when the server sends an empty history over earlier messages', () => {
+      useChatStore.getState().setMessages([createMessage('1', 'OtherUser')])
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.queryByText(notice)).not.toBeInTheDocument()
+
+      act(() => useChatStore.getState().setMessages([]))
+      expect(screen.getByText(notice)).toBeInTheDocument()
+      expect(screen.queryByText('Message 1')).not.toBeInTheDocument()
+
+      // It stays above messages posted after the reset
+      act(() => useChatStore.getState().addMessage(createMessage('2', 'OtherUser')))
+      expect(screen.getByText(notice)).toBeInTheDocument()
+      expect(screen.getByText('Message 2')).toBeInTheDocument()
+    })
+
+    it('says nothing on an empty first history', () => {
+      useChatStore.getState().setMessages([])
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.queryByText(notice)).not.toBeInTheDocument()
+      expect(screen.getByText('No messages yet. Say hello!')).toBeInTheDocument()
+    })
+  })
+
+  describe("'New' divider", () => {
+    const at = (second: number) => `2026-09-26T20:00:${String(second).padStart(2, '0')}.000000+00:00`
+    const message = (id: string, username: string, second: number): ChatMessage => ({
+      messageId: id,
+      username,
+      content: `Message ${id}`,
+      timestamp: at(second),
+    })
+
+    it('sits right before the first unread message from someone else', () => {
+      useChatStore.setState({
+        messages: [
+          message('1', 'OtherUser', 1),
+          message('2', 'TestUser', 3), // own, newer than the marker
+          message('3', 'OtherUser', 4),
+          message('4', 'OtherUser', 5),
+        ],
+        readMarker: Date.parse(at(2)),
+      })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+
+      const divider = screen.getByRole('separator', { name: 'New messages' })
+      expect(divider).toHaveTextContent('New')
+      expect(screen.getAllByRole('separator', { name: 'New messages' })).toHaveLength(1)
+      const follows = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
+      expect(follows(screen.getByText('Message 2'), divider)).toBe(true)
+      expect(follows(divider, screen.getByText('Message 3'))).toBe(true)
+    })
+
+    it('is not shown without a marker', () => {
+      useChatStore.setState({ messages: [message('1', 'OtherUser', 1)], readMarker: null })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.queryByRole('separator', { name: 'New messages' })).not.toBeInTheDocument()
+    })
+
+    it('is not shown when only your own messages are newer than the marker', () => {
+      useChatStore.setState({
+        messages: [message('1', 'OtherUser', 1), message('2', 'TestUser', 3)],
+        readMarker: Date.parse(at(2)),
+      })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.queryByRole('separator', { name: 'New messages' })).not.toBeInTheDocument()
+    })
+
+    it('appears when opening the panel over messages that came in through history', () => {
+      useChatStore.setState({ isOpen: false, lastReadAt: Date.parse(at(1)) })
+      useChatStore.getState().setMessages([message('1', 'OtherUser', 1), message('2', 'OtherUser', 2)])
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      act(() => useChatStore.getState().setOpen(true))
+      const divider = screen.getByRole('separator', { name: 'New messages' })
+      expect(Boolean(divider.compareDocumentPosition(screen.getByText('Message 2')) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
+    })
+  })
+
+  describe('connection row', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('shows no row and allows sending while connected', () => {
+      render(<ChatPanel onSendMessage={mockOnSendMessage} status="connected" onReconnect={vi.fn()} />)
+      fireEvent.change(screen.getByPlaceholderText('Type a message...'), { target: { value: 'Hi' } })
+      expect(screen.queryByText('Reconnecting…')).not.toBeInTheDocument()
+      expect(screen.queryByText('Chat is offline')).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Send message' })).toBeEnabled()
+      expect(screen.getByRole('button', { name: 'Send GIF' })).toBeEnabled()
+    })
+
+    it("says 'Reconnecting…' only after 2s, and holds sends while keeping the draft editable", () => {
+      vi.useFakeTimers()
+      render(<ChatPanel onSendMessage={mockOnSendMessage} status="reconnecting" onReconnect={vi.fn()} />)
+      const input = screen.getByPlaceholderText('Type a message...')
+      fireEvent.change(input, { target: { value: 'Keep me' } })
+
+      act(() => vi.advanceTimersByTime(1999))
+      expect(screen.queryByText('Reconnecting…')).not.toBeInTheDocument()
+      act(() => vi.advanceTimersByTime(1))
+      expect(screen.getByText('Reconnecting…')).toBeInTheDocument()
+
+      expect(input).toBeEnabled()
+      expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled()
+      expect(screen.getByRole('button', { name: 'Send GIF' })).toBeDisabled()
+      fireEvent.keyDown(input, { key: 'Enter' })
+      expect(mockOnSendMessage).not.toHaveBeenCalled()
+      expect(input).toHaveValue('Keep me')
+    })
+
+    it('waits the full delay again after a reconnect succeeds and the connection drops again', () => {
+      vi.useFakeTimers()
+      const { rerender } = render(<ChatPanel onSendMessage={mockOnSendMessage} status="connecting" />)
+      act(() => vi.advanceTimersByTime(2000))
+      expect(screen.getByText('Reconnecting…')).toBeInTheDocument()
+
+      rerender(<ChatPanel onSendMessage={mockOnSendMessage} status="connected" />)
+      expect(screen.queryByText('Reconnecting…')).not.toBeInTheDocument()
+
+      rerender(<ChatPanel onSendMessage={mockOnSendMessage} status="reconnecting" />)
+      expect(screen.queryByText('Reconnecting…')).not.toBeInTheDocument()
+      act(() => vi.advanceTimersByTime(2000))
+      expect(screen.getByText('Reconnecting…')).toBeInTheDocument()
+    })
+
+    it("says 'Chat is offline' with a Reconnect button that reconnects", () => {
+      const onReconnect = vi.fn()
+      render(<ChatPanel onSendMessage={mockOnSendMessage} status="disconnected" onReconnect={onReconnect} />)
+      const input = screen.getByPlaceholderText('Type a message...')
+      fireEvent.change(input, { target: { value: 'Draft' } })
+
+      expect(screen.getByText('Chat is offline')).toBeInTheDocument()
+      expect(input).toBeEnabled()
+      expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled()
+      expect(screen.getByRole('button', { name: 'Send GIF' })).toBeDisabled()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Reconnect' }))
+      expect(onReconnect).toHaveBeenCalledTimes(1)
+    })
+
+    it('holds Retry while offline', async () => {
+      mockOnSendMessage.mockReturnValue('not-sent')
+      const { rerender } = render(<ChatPanel onSendMessage={mockOnSendMessage} status="connected" />)
+      const input = screen.getByPlaceholderText('Type a message...')
+      fireEvent.change(input, { target: { value: 'Offline soon' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      await screen.findByRole('alert')
+
+      rerender(<ChatPanel onSendMessage={mockOnSendMessage} status="disconnected" />)
+      expect(screen.getByRole('button', { name: 'Retry' })).toBeDisabled()
+      rerender(<ChatPanel onSendMessage={mockOnSendMessage} status="connected" />)
+      expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled()
+    })
+  })
+
+  describe('send feedback', () => {
+    it('confirms an acknowledged send to screen readers only, with no visible status line', async () => {
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      const input = screen.getByPlaceholderText('Type a message...')
+      fireEvent.change(input, { target: { value: 'Hello' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      await waitFor(() => expect(input).toHaveValue(''))
+      const status = screen.getByRole('status')
+      expect(status).toHaveTextContent('Message sent')
+      expect(status).toHaveClass('sr-only')
+      expect(screen.queryByText(/accepted by server/)).not.toBeInTheDocument()
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    })
+
+    it('shows a spinner in the Send button while sending', async () => {
+      let finish!: (result: string) => void
+      mockOnSendMessage.mockReturnValue(new Promise((resolve) => { finish = resolve }))
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      const input = screen.getByPlaceholderText('Type a message...')
+      fireEvent.change(input, { target: { value: 'Hello' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      const sendButton = screen.getByRole('button', { name: 'Send message' })
+      expect(sendButton).toBeDisabled()
+      expect(sendButton.querySelector('.lucide-loader-circle')).toHaveClass('motion-safe:animate-spin')
+      await act(async () => finish('acknowledged'))
+      expect(sendButton.querySelector('.lucide-loader-circle')).toBeNull()
+    })
+
+    it('puts the failure row in the composer, below the message list', async () => {
+      mockOnSendMessage.mockReturnValue('not-sent')
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      const input = screen.getByPlaceholderText('Type a message...')
+      fireEvent.change(input, { target: { value: 'Offline' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      const alert = await screen.findByRole('alert')
+      // The row sits right above the input, not above the panel header
+      expect(alert.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      expect(alert.compareDocumentPosition(screen.getByText('Chat')) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
+    })
+
+    it('Retry after a failed GIF resends the GIF with the same id and keeps the text draft', async () => {
+      mockOnSendMessage.mockReturnValueOnce('not-sent').mockReturnValueOnce('acknowledged')
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      const input = screen.getByPlaceholderText('Type a message...')
+      fireEvent.change(input, { target: { value: 'A half-typed thought' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Send GIF' }))
+      await screen.findByRole('alert')
+      const [[content, clientMessageId]] = mockOnSendMessage.mock.calls
+      expect(content).toBe(GIF_URL)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+      await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
+      expect(mockOnSendMessage).toHaveBeenLastCalledWith(GIF_URL, clientMessageId)
+      expect(input).toHaveValue('A half-typed thought')
+    })
+
+    it('Retry resends a failed text message with the same id and then clears the draft', async () => {
+      mockOnSendMessage.mockReturnValueOnce('not-sent').mockReturnValueOnce('acknowledged')
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      const input = screen.getByPlaceholderText('Type a message...')
+      fireEvent.change(input, { target: { value: 'Goal!' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      await screen.findByRole('alert')
+      const clientMessageId = mockOnSendMessage.mock.calls[0][1]
+
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+      await waitFor(() => expect(input).toHaveValue(''))
+      expect(mockOnSendMessage).toHaveBeenLastCalledWith('Goal!', clientMessageId)
+    })
+
+    it("offers 'Send again' with the same id when delivery couldn't be confirmed", async () => {
+      mockOnSendMessage.mockResolvedValueOnce('unconfirmed').mockResolvedValueOnce('acknowledged')
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      const input = screen.getByPlaceholderText('Type a message...')
+      fireEvent.change(input, { target: { value: 'Did this land?' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent("Couldn't confirm it was sent.")
+      expect(alert).not.toHaveTextContent(/check/i)
+      const clientMessageId = mockOnSendMessage.mock.calls[0][1]
+
+      fireEvent.click(screen.getByRole('button', { name: 'Send again' }))
+      await waitFor(() => expect(input).toHaveValue(''))
+      expect(mockOnSendMessage).toHaveBeenLastCalledWith('Did this land?', clientMessageId)
+    })
+
+    it('reuses the id when the unchanged draft is sent again, but not after an edit', async () => {
+      mockOnSendMessage.mockReturnValue('not-sent')
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      const input = screen.getByPlaceholderText('Type a message...')
+      fireEvent.change(input, { target: { value: 'Same words' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      await screen.findByRole('alert')
+      fireEvent.keyDown(input, { key: 'Enter' })
+      await waitFor(() => expect(mockOnSendMessage).toHaveBeenCalledTimes(2))
+      await screen.findByRole('alert')
+      fireEvent.change(input, { target: { value: 'Other words' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      await waitFor(() => expect(mockOnSendMessage).toHaveBeenCalledTimes(3))
+      const ids = mockOnSendMessage.mock.calls.map((call) => call[1])
+      expect(ids[1]).toBe(ids[0])
+      expect(ids[2]).not.toBe(ids[0])
+    })
+
+    it('clears the failure row when the draft changes', async () => {
+      mockOnSendMessage.mockReturnValue('not-sent')
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      const input = screen.getByPlaceholderText('Type a message...')
+      fireEvent.change(input, { target: { value: 'Offline' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      await screen.findByRole('alert')
+      fireEvent.change(input, { target: { value: 'Offline!' } })
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    })
   })
 })

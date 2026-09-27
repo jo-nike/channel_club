@@ -1,6 +1,7 @@
-import { useRef, useEffect, useState, useCallback, type KeyboardEvent } from 'react'
-import { X, Send, Pencil } from 'lucide-react'
-import type { ChatSendResult } from '@/hooks/useWebSocket'
+import { Fragment, useRef, useEffect, useState, useCallback, type KeyboardEvent } from 'react'
+import { X, Send, Pencil, Loader2, AlertCircle, WifiOff } from 'lucide-react'
+import type { ChatSendResult, WebSocketStatus } from '@/hooks/useWebSocket'
+import { createClientMessageId } from '@/lib/messageId'
 import { useChatStore, isOwnMessage } from '@/stores/chatStore'
 import { useBreakpoint } from '@/hooks/useBreakpoint'
 import { ChatMessage } from './ChatMessage'
@@ -10,18 +11,34 @@ import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 
 export interface ChatPanelProps {
-  onSendMessage: (content: string) => Promise<ChatSendResult> | ChatSendResult
+  onSendMessage: (content: string, clientMessageId: string) => Promise<ChatSendResult> | ChatSendResult
   currentUsername?: string
   onSetNickname?: (nickname: string) => void
+  // The chat socket's state; sends are held while it isn't connected
+  status?: WebSocketStatus
+  onReconnect?: () => void
 }
 
-export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
-  const { messages, isOpen, setOpen, nickname, me, setNickname, clearNickname } = useChatStore()
+// Quick reconnects (including the first connect) finish before the row would flicker in
+const RECONNECTING_ROW_DELAY = 2000
+
+// A send that failed, kept whole so a retry resends exactly it (a GIF stays a
+// GIF) under the same id, which the server recognises instead of reposting
+interface SendFailure {
+  kind: 'not-sent' | 'unconfirmed'
+  content: string
+  clientMessageId: string
+}
+
+export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', onReconnect }: ChatPanelProps) {
+  const { messages, isOpen, setOpen, nickname, me, readMarker, historyReset, setNickname, clearNickname } = useChatStore()
   const breakpoint = useBreakpoint()
   const isMobile = breakpoint === 'mobile'
 
   const [inputValue, setInputValue] = useState('')
-  const [deliveryStatus, setDeliveryStatus] = useState('')
+  // Screen readers only: the message bubble is the visible confirmation
+  const [sendStatus, setSendStatus] = useState('')
+  const [failure, setFailure] = useState<SendFailure | null>(null)
   const [isSending, setIsSending] = useState(false)
   const sending = useRef(false)
   const draftVersion = useRef(0)
@@ -30,6 +47,9 @@ export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const nicknameInputRef = useRef<HTMLInputElement>(null)
+  const isConnected = status === 'connected'
+  const isReconnecting = status === 'connecting' || status === 'reconnecting'
+  const [showReconnecting, setShowReconnecting] = useState(false)
 
   // Nobody has to pick a name: chat uses the sign-in name until they choose one
   const showNicknamePrompt = isEditingNickname
@@ -61,18 +81,34 @@ export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
     }
   }, [isOpen, showNicknamePrompt])
 
+  // Say 'Reconnecting…' only once a reconnect has taken a while
+  // (state is only set from the timer and the cleanup, never in the effect body)
+  useEffect(() => {
+    if (!isReconnecting) return
+    const timer = setTimeout(() => setShowReconnecting(true), RECONNECTING_ROW_DELAY)
+    return () => {
+      clearTimeout(timer)
+      setShowReconnecting(false)
+    }
+  }, [isReconnecting])
+
   // Note: nickname input is pre-filled in handleEditNickname callback below
 
-  const send = useCallback(async (content: string) => {
+  const send = useCallback(async (content: string, clientMessageId: string = createClientMessageId()) => {
     if (sending.current) return 'not-sent' as const
     sending.current = true
     setIsSending(true)
-    setDeliveryStatus('Sending; waiting for server acknowledgement...')
+    setSendStatus('Sending…')
     let result: ChatSendResult
-    try { result = await onSendMessage(content) } catch { result = 'unconfirmed' }
-    setDeliveryStatus(result === 'acknowledged' ? 'Message accepted by server.' : result === 'not-sent'
-      ? 'Message not sent. Reconnect and try again; your draft is saved.'
-      : 'Delivery is unconfirmed. Your draft is saved; check chat before retrying to avoid duplicates.')
+    try { result = await onSendMessage(content, clientMessageId) } catch { result = 'unconfirmed' }
+    if (result === 'acknowledged') {
+      setSendStatus('Message sent')
+      setFailure(null)
+    } else {
+      // The alert row announces the failure
+      setSendStatus('')
+      setFailure({ kind: result, content, clientMessageId })
+    }
     sending.current = false
     setIsSending(false)
     return result
@@ -80,11 +116,22 @@ export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
 
   const handleSend = useCallback(async () => {
     const trimmed = inputValue.trim()
-    if (!trimmed || sending.current) return
+    if (!trimmed || sending.current || !isConnected) return
+    // Sending the unchanged draft again after a failure is a retry of it
+    const clientMessageId = failure?.content === trimmed ? failure.clientMessageId : undefined
     const version = draftVersion.current
-    const result = await send(trimmed)
+    const result = await send(trimmed, clientMessageId)
     if (result === 'acknowledged' && draftVersion.current === version) setInputValue('')
-  }, [inputValue, send])
+  }, [inputValue, failure, isConnected, send])
+
+  const handleRetry = useCallback(async () => {
+    if (!failure || sending.current) return
+    // The row goes away when the draft changes, so a failed text send is still the draft
+    const isDraft = failure.content === inputValue.trim()
+    const version = draftVersion.current
+    const result = await send(failure.content, failure.clientMessageId)
+    if (result === 'acknowledged' && isDraft && draftVersion.current === version) setInputValue('')
+  }, [failure, inputValue, send])
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLInputElement>) => {
@@ -137,6 +184,11 @@ export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
 
   if (!isOpen) return null
 
+  // Unread starts at the first message from someone else newer than what was read before opening
+  const firstUnreadId = readMarker === null ? undefined : messages.find(
+    (msg) => Date.parse(msg.timestamp) > readMarker && !isOwnMessage(msg, { nickname, me })
+  )?.messageId
+
   // Panel styles based on viewport
   const panelClasses = isMobile
     ? 'fixed inset-0 z-50 bg-background flex flex-col'
@@ -148,7 +200,6 @@ export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
 
   return (
     <div className={`${panelClasses} ${animationClasses}`}>
-      {deliveryStatus && <p role="status" className="px-4 py-2 text-sm">{deliveryStatus}</p>}
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">
@@ -178,6 +229,24 @@ export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
           <X className="h-5 w-5" />
         </Button>
       </div>
+
+      {showReconnecting && isReconnecting && (
+        <div role="status" className="flex h-8 shrink-0 items-center gap-2 border-b border-border px-4 text-sm text-muted-foreground">
+          <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden="true" />
+          Reconnecting…
+        </div>
+      )}
+      {status === 'disconnected' && (
+        <div role="status" className="flex h-8 shrink-0 items-center gap-2 border-b border-border px-4 text-sm text-muted-foreground">
+          <WifiOff className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span className="flex-1">Chat is offline</span>
+          {onReconnect && (
+            <Button variant="ghost" size="sm" className="h-7" onClick={onReconnect}>
+              Reconnect
+            </Button>
+          )}
+        </div>
+      )}
 
       {showNicknamePrompt ? (
         /* Nickname Prompt */
@@ -211,17 +280,31 @@ export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
           {/* Messages */}
           <ScrollArea className="flex-1">
             <div className="py-2">
+              {historyReset && (
+                <p className="px-4 py-2 text-center text-xs text-muted-foreground">
+                  Chat history was cleared (server restart or an admin cleared it)
+                </p>
+              )}
               {messages.length === 0 ? (
                 <p className="text-center text-muted-foreground text-sm py-8">
                   No messages yet. Say hello!
                 </p>
               ) : (
                 messages.map((msg) => (
-                  <ChatMessage
-                    key={msg.messageId}
-                    message={msg}
-                    isOwn={isOwnMessage(msg, { nickname, me })}
-                  />
+                  <Fragment key={msg.messageId}>
+                    {msg.messageId === firstUnreadId && (
+                      <div
+                        role="separator"
+                        aria-label="New messages"
+                        className="flex items-center gap-2 px-4 py-1 text-xs font-semibold text-primary"
+                      >
+                        <span className="h-px flex-1 bg-primary/50" aria-hidden="true" />
+                        New
+                        <span className="h-px flex-1 bg-primary/50" aria-hidden="true" />
+                      </div>
+                    )}
+                    <ChatMessage message={msg} isOwn={isOwnMessage(msg, { nickname, me })} />
+                  </Fragment>
                 ))
               )}
               <div ref={messagesEndRef} />
@@ -230,24 +313,40 @@ export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
 
           {/* Input */}
           <div className="border-t border-border p-3">
+            <p role="status" className="sr-only">{sendStatus}</p>
+            {failure && (
+              <div role="alert" className="mb-2 flex h-8 items-center gap-2 text-sm">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" aria-hidden="true" />
+                <span className="min-w-0 flex-1 truncate">
+                  {failure.kind === 'not-sent'
+                    ? "Not sent. You're offline or reconnecting."
+                    : "Couldn't confirm it was sent."}
+                </span>
+                <Button variant="ghost" size="sm" className="h-7" onClick={handleRetry} disabled={isSending || !isConnected}>
+                  {failure.kind === 'not-sent' ? 'Retry' : 'Send again'}
+                </Button>
+              </div>
+            )}
             <div className="flex gap-2">
               <Input
                 ref={inputRef}
                 value={inputValue}
-                onChange={(e) => { draftVersion.current += 1; setInputValue(e.target.value) }}
+                onChange={(e) => { draftVersion.current += 1; setFailure(null); setInputValue(e.target.value) }}
                 onKeyDown={handleKeyDown}
                 placeholder="Type a message..."
                 className="flex-1"
                 maxLength={500}
               />
-              <GifButton onSelect={async (url) => (await send(url)) === 'acknowledged'} disabled={isSending} />
+              <GifButton onSelect={async (url) => (await send(url)) === 'acknowledged'} disabled={isSending || !isConnected} />
               <Button
                 onClick={handleSend}
-                disabled={!inputValue.trim() || isSending}
+                disabled={!inputValue.trim() || isSending || !isConnected}
                 size="icon"
                 aria-label="Send message"
               >
-                <Send className="h-4 w-4" />
+                {isSending
+                  ? <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden="true" />
+                  : <Send className="h-4 w-4" />}
               </Button>
             </div>
           </div>

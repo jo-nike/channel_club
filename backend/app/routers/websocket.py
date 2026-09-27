@@ -3,6 +3,7 @@
 import asyncio
 import json
 import time
+from collections import OrderedDict
 from uuid import uuid4
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
@@ -23,6 +24,12 @@ log = logger.bind(router="websocket")
 # connection's cleanup cannot clobber a nickname set by a newer one.
 _nickname_map: dict[str, tuple[WebSocket, str]] = {}
 MAX_NICKNAME_LENGTH = 30
+
+# Recently accepted chat sends as (username, clientMessageId) -> stored message
+# id, so a client retrying a send it couldn't confirm gets the original
+# acknowledgement instead of posting a duplicate. Per process, like the history.
+_recent_chat_sends: OrderedDict[tuple[str, str], str] = OrderedDict()
+MAX_RECENT_CHAT_SENDS = 256
 
 
 def _clear_nickname(client_id: str, websocket: WebSocket) -> None:
@@ -230,6 +237,22 @@ async def handle_client_message(
                 )
             return
 
+        client_message_id = validated.get("clientMessageId")
+        send_key = (username, client_message_id) if client_message_id else None
+        original_id = _recent_chat_sends.get(send_key) if send_key else None
+        if original_id is not None:
+            # A retry of a send we already stored and broadcast: confirm it again
+            log.debug("Repeated chat send from {} acknowledged without reposting", username)
+            await websocket.send_json(
+                {
+                    "type": "chat_ack",
+                    "clientMessageId": client_message_id,
+                    "accepted": True,
+                    "messageId": original_id,
+                }
+            )
+            return
+
         content = validated.get("content", "")
         # Use nickname if set, otherwise fall back to auth username
         nickname_entry = _nickname_map.get(client_id)
@@ -237,6 +260,11 @@ async def handle_client_message(
         chat_msg = chat.add_message(display_name, content)
 
         if chat_msg:
+            if send_key:
+                # Recorded before the broadcast awaits, so a retry can't slip in between
+                _recent_chat_sends[send_key] = chat_msg.message_id
+                if len(_recent_chat_sends) > MAX_RECENT_CHAT_SENDS:
+                    _recent_chat_sends.popitem(last=False)
             # Broadcast to all connected clients
             broadcast_message = {
                 "type": "chat_message",

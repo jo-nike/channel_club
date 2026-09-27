@@ -19,6 +19,9 @@ describe('useChatStore', () => {
       unreadCount: 0,
       nickname: null,
       me: null,
+      lastReadAt: null,
+      readMarker: null,
+      historyReset: false,
     })
   })
 
@@ -273,6 +276,166 @@ describe('useChatStore', () => {
 
       expect(useChatStore.getState().me).toEqual({ username: 'alice' })
       expect(useChatStore.getState().nickname).toBe('Ally')
+    })
+  })
+
+  describe('unread from history', () => {
+    // Server timestamps, in the Python isoformat the backend sends
+    const at = (second: number) => `2026-09-26T20:00:${String(second).padStart(2, '0')}.123456+00:00`
+    const ms = (second: number) => Date.parse(`2026-09-26T20:00:${String(second).padStart(2, '0')}.123Z`)
+    const message = (id: string, username: string, second: number): ChatMessage => ({
+      messageId: id,
+      username,
+      content: `Message ${id}`,
+      timestamp: at(second),
+    })
+
+    beforeEach(() => {
+      useChatStore.getState().setIdentity({ username: 'me' })
+    })
+
+    it('the first history counts nothing and remembers its newest message as read', () => {
+      useChatStore.getState().setMessages([message('1', 'alice', 1), message('2', 'bob', 2)])
+      expect(useChatStore.getState().unreadCount).toBe(0)
+      expect(useChatStore.getState().lastReadAt).toBe(ms(2))
+      expect(localStorage.getItem('chat_last_read:me')).toBe(String(ms(2)))
+    })
+
+    it('after an empty first history, messages that later arrive through history are unread', () => {
+      // A restarted (or quiet) server sends an empty history to someone with no stored read time
+      useChatStore.getState().setMessages([])
+      useChatStore.getState().addMessage(message('1', 'alice', 1))
+      expect(useChatStore.getState().unreadCount).toBe(1)
+      // The socket drops, alice posts twice more, and the reconnect brings them in through history
+      useChatStore.getState().setMessages([message('1', 'alice', 1), message('2', 'alice', 2), message('3', 'alice', 3)])
+      expect(useChatStore.getState().unreadCount).toBe(3)
+      expect(localStorage.getItem('chat_last_read:me')).toBe('0')
+      useChatStore.getState().setOpen(true)
+      expect(useChatStore.getState().readMarker).toBe(0)
+      expect(useChatStore.getState().lastReadAt).toBe(ms(3))
+    })
+
+    it('history while closed counts newer messages from other people, not your own', () => {
+      useChatStore.setState({ lastReadAt: ms(1) })
+      useChatStore.getState().setMessages([
+        message('1', 'alice', 1),
+        message('2', 'alice', 2),
+        message('3', 'me', 3),
+        message('4', 'bob', 4),
+      ])
+      expect(useChatStore.getState().unreadCount).toBe(2)
+    })
+
+    it('history while open counts nothing and marks it read', () => {
+      useChatStore.setState({ isOpen: true, lastReadAt: ms(1) })
+      useChatStore.getState().setMessages([message('1', 'alice', 1), message('2', 'bob', 2)])
+      expect(useChatStore.getState().unreadCount).toBe(0)
+      expect(useChatStore.getState().lastReadAt).toBe(ms(2))
+    })
+
+    it('a message counted as it arrived is not counted again when history repeats it', () => {
+      useChatStore.setState({ lastReadAt: ms(1) })
+      const late = message('2', 'alice', 2)
+      useChatStore.getState().addMessage(late)
+      expect(useChatStore.getState().unreadCount).toBe(1)
+      useChatStore.getState().setMessages([message('1', 'bob', 1), late])
+      expect(useChatStore.getState().unreadCount).toBe(1)
+    })
+
+    it('opening marks where unread starts, reads everything and clears the badge', () => {
+      useChatStore.setState({ lastReadAt: ms(1) })
+      useChatStore.getState().setMessages([message('1', 'alice', 1), message('2', 'bob', 2)])
+      useChatStore.getState().setOpen(true)
+      const state = useChatStore.getState()
+      expect(state.unreadCount).toBe(0)
+      expect(state.readMarker).toBe(ms(1))
+      expect(state.lastReadAt).toBe(ms(2))
+      expect(localStorage.getItem('chat_last_read:me')).toBe(String(ms(2)))
+    })
+
+    it('opening with nothing unread sets no marker', () => {
+      useChatStore.setState({ lastReadAt: ms(2) })
+      useChatStore.getState().setMessages([message('1', 'alice', 1), message('2', 'me', 3)])
+      useChatStore.getState().toggleOpen()
+      expect(useChatStore.getState().readMarker).toBeNull()
+    })
+
+    it('closing reads everything and drops the marker', () => {
+      useChatStore.setState({ lastReadAt: ms(1) })
+      useChatStore.getState().setMessages([message('1', 'alice', 1), message('2', 'bob', 2)])
+      useChatStore.getState().toggleOpen()
+      useChatStore.setState({ messages: [...useChatStore.getState().messages, message('3', 'bob', 3)] })
+      useChatStore.getState().toggleOpen()
+      expect(useChatStore.getState().readMarker).toBeNull()
+      expect(useChatStore.getState().lastReadAt).toBe(ms(3))
+    })
+
+    it('a message arriving while open is read', () => {
+      useChatStore.setState({ lastReadAt: ms(1) })
+      useChatStore.getState().setOpen(true)
+      useChatStore.getState().addMessage(message('5', 'alice', 5))
+      expect(useChatStore.getState().lastReadAt).toBe(ms(5))
+      expect(localStorage.getItem('chat_last_read:me')).toBe(String(ms(5)))
+    })
+
+    it('read state never moves backwards', () => {
+      useChatStore.setState({ isOpen: true, lastReadAt: ms(9) })
+      useChatStore.getState().setMessages([message('1', 'alice', 1)])
+      expect(useChatStore.getState().lastReadAt).toBe(ms(9))
+    })
+
+    it('is kept per user: each sign-in loads its own last-read time', () => {
+      localStorage.setItem('chat_last_read:alice', String(ms(4)))
+      useChatStore.getState().setIdentity({ username: 'alice' })
+      expect(useChatStore.getState().lastReadAt).toBe(ms(4))
+      useChatStore.getState().setIdentity({ username: 'bob' })
+      expect(useChatStore.getState().lastReadAt).toBeNull()
+      useChatStore.getState().resetIdentity()
+      expect(useChatStore.getState().lastReadAt).toBeNull()
+    })
+
+    it('a reconnect as the same user keeps the marker of an open panel', () => {
+      useChatStore.setState({ lastReadAt: ms(1) })
+      useChatStore.getState().setMessages([message('1', 'alice', 1), message('2', 'bob', 2)])
+      useChatStore.getState().setOpen(true)
+      useChatStore.getState().setIdentity({ username: 'me' })
+      expect(useChatStore.getState().readMarker).toBe(ms(1))
+      expect(useChatStore.getState().lastReadAt).toBe(ms(2))
+    })
+  })
+
+  describe('historyReset', () => {
+    it('is raised when an empty history replaces messages', () => {
+      useChatStore.getState().setMessages([createMessage('1'), createMessage('2')])
+      useChatStore.getState().setMessages([])
+      expect(useChatStore.getState().historyReset).toBe(true)
+      expect(useChatStore.getState().messages).toHaveLength(0)
+    })
+
+    it('is not raised by an empty first history', () => {
+      useChatStore.getState().setMessages([])
+      expect(useChatStore.getState().historyReset).toBe(false)
+    })
+
+    it('stays up while new messages arrive, and another empty history keeps it', () => {
+      useChatStore.getState().setMessages([createMessage('1')])
+      useChatStore.getState().setMessages([])
+      useChatStore.getState().addMessage(createMessage('2'))
+      expect(useChatStore.getState().historyReset).toBe(true)
+      useChatStore.setState({ messages: [] })
+      useChatStore.getState().setMessages([])
+      expect(useChatStore.getState().historyReset).toBe(true)
+    })
+
+    it('is cleared by a history with messages and by clearMessages', () => {
+      useChatStore.getState().setMessages([createMessage('1')])
+      useChatStore.getState().setMessages([])
+      useChatStore.getState().setMessages([createMessage('2')])
+      expect(useChatStore.getState().historyReset).toBe(false)
+
+      useChatStore.getState().setMessages([])
+      useChatStore.getState().clearMessages()
+      expect(useChatStore.getState().historyReset).toBe(false)
     })
   })
 

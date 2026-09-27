@@ -1167,6 +1167,18 @@ describe('useWebSocket', () => {
       expect(JSON.parse(ws.send.mock.calls.at(-1)![0])).toMatchObject({ type: 'chat_message', content: 'Hello everyone!', clientMessageId: expect.any(String) })
     })
 
+    test('sends the clientMessageId it is given, so a retry keeps its id', () => {
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+      act(() => ws.simulateOpen())
+
+      act(() => {
+        result.current.sendChatMessage('Hello again', 'retry-id-1')
+      })
+
+      expect(JSON.parse(ws.send.mock.calls.at(-1)![0])).toEqual({ type: 'chat_message', content: 'Hello again', clientMessageId: 'retry-id-1' })
+    })
+
     test('does not send when not connected', () => {
       const { result } = renderHook(() => useWebSocket())
       const ws = MockWebSocket.instances[0]
@@ -1416,8 +1428,8 @@ describe('useWebSocket', () => {
     Element.prototype.scrollIntoView = vi.fn() // jsdom has no layout scrolling implementation
     useChatStore.setState({ isOpen: true, nickname: 'Synthetic sender' })
     function ChatHarness() {
-      const { sendChatMessage } = useWebSocket()
-      return createElement(ChatPanel, { onSendMessage: sendChatMessage })
+      const { sendChatMessage, status } = useWebSocket()
+      return createElement(ChatPanel, { onSendMessage: sendChatMessage, status })
     }
     render(createElement(ChatHarness))
     const first = MockWebSocket.instances.at(-1)!
@@ -1428,7 +1440,7 @@ describe('useWebSocket', () => {
     const oldId = JSON.parse(first.send.mock.calls.at(-1)![0]).clientMessageId
     expect(input).toHaveValue('Keep until acknowledged')
     act(() => first.simulateClose(1006))
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Delivery is unconfirmed'))
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent("Couldn't confirm it was sent."))
     act(() => window.dispatchEvent(new Event('online')))
     const replacement = MockWebSocket.instances.at(-1)!
     act(() => replacement.simulateOpen())
@@ -1438,7 +1450,8 @@ describe('useWebSocket', () => {
     expect(input).toHaveValue('Keep until acknowledged')
     act(() => replacement.simulateMessage({ type: 'chat_ack', clientMessageId: newId, accepted: true, messageId: 'new-server-id' }))
     await waitFor(() => expect(input).toHaveValue(''))
-    expect(screen.getByRole('status')).toHaveTextContent('Message accepted by server')
+    expect(screen.getByRole('status')).toHaveTextContent('Message sent')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
 })

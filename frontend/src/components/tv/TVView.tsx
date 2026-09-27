@@ -578,6 +578,8 @@ export function TVView() {
         <ChatPanel
           onSendMessage={sendChatMessage}
           onSetNickname={sendSetNickname}
+          status={status}
+          onReconnect={reconnect}
         />
       </ErrorBoundary>
     </div>
