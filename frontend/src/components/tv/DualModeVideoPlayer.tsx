@@ -95,8 +95,16 @@ export function DualModeVideoPlayer({
   const reload = useCallback(() => setShellReloads((n) => n + 1), [])
 
   const shell = useMemo(
-    () => ({ containerRef, isFullscreen, toggleFullscreen, reload, reloadKey }),
-    [isFullscreen, toggleFullscreen, reload, reloadKey]
+    () => ({
+      containerRef,
+      isFullscreen,
+      toggleFullscreen,
+      isTheaterMode,
+      toggleTheaterMode: onTheaterModeToggle,
+      reload,
+      reloadKey,
+    }),
+    [isFullscreen, toggleFullscreen, isTheaterMode, onTheaterModeToggle, reload, reloadKey]
   )
 
   // What this viewer's player shows now, for the clip editor's notice: null

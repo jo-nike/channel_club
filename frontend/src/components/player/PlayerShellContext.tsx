@@ -5,7 +5,7 @@ import { createContext, useContext, type RefObject } from 'react'
  * inside it is swapped (a live channel change, an ErsatzTV channel switch).
  * It is the fullscreen element, so fullscreen survives those swaps and a
  * reload, and the scope for the engines' auto-hide, keyboard shortcuts and
- * portals.
+ * portals. The control bar (PlayerChrome) reads fullscreen and theater here.
  */
 export interface PlayerShell {
   /** The shell element: fullscreen target, portal container, event scope */
@@ -13,6 +13,9 @@ export interface PlayerShell {
   /** Whether the shell is the fullscreen element */
   isFullscreen: boolean
   toggleFullscreen: () => void
+  /** The page's theater layout, which the player's controls switch */
+  isTheaterMode: boolean
+  toggleTheaterMode: () => void
   /** Re-initialises the engine; the shell (and fullscreen) stays */
   reload: () => void
   /** Changes on every reload, whether asked for here or by the page */
