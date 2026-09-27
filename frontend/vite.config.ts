@@ -62,8 +62,8 @@ export default defineConfig({
         name: 'Channel Club',
         short_name: 'Channel Club',
         description: 'Good TV. Better company.',
-        theme_color: '#0f172a',
-        background_color: '#0f172a',
+        theme_color: '#0d0f18',
+        background_color: '#0d0f18',
         display: 'standalone',
         start_url: '/',
         icons: [
