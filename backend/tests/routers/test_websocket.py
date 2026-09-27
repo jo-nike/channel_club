@@ -137,6 +137,13 @@ class TestConnectionAck:
             # Check camelCase serialization
             assert "streamUrl" in data["currentChannel"]
 
+    def test_connection_ack_names_the_signed_in_user(self, client: TestClient, valid_token: str):
+        """Connection ack tells the socket which username it is signed in as."""
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            data = ws.receive_json()
+            assert data["type"] == "connection_ack"
+            assert data["you"] == {"username": "testuser"}
+
 
 class TestPingPong:
     """Tests for ping/pong functionality."""

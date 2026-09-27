@@ -115,6 +115,9 @@ async def websocket_endpoint(
                 "type": "connection_ack",
                 "currentChannel": current.model_dump(by_alias=True) if current else None,
                 "settings": app_settings.get_app_settings().model_dump(by_alias=True),
+                # Tell the client who it is signed in as, so chat can default
+                # to the sign-in name (Plex logins don't store a username).
+                "you": {"username": payload["sub"]},
             }
             await websocket.send_json(ack_message)
 

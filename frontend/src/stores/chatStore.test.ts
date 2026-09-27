@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { useChatStore } from './chatStore'
+import { useChatStore, isOwnMessage } from './chatStore'
+import { useAuthStore } from './authStore'
 import type { ChatMessage } from '@/types'
 
 const createMessage = (id: string, username: string = 'user'): ChatMessage => ({
@@ -17,6 +18,7 @@ describe('useChatStore', () => {
       isOpen: false,
       unreadCount: 0,
       nickname: null,
+      me: null,
     })
   })
 
@@ -148,10 +150,18 @@ describe('useChatStore', () => {
       expect(useChatStore.getState().nickname).toBeNull()
     })
 
-    it('setNickname updates state and persists to localStorage', () => {
+    it('setNickname updates state and persists under the signed-in user', () => {
+      useChatStore.getState().setIdentity({ username: 'alice' })
       useChatStore.getState().setNickname('TestUser')
       expect(useChatStore.getState().nickname).toBe('TestUser')
-      expect(localStorage.getItem('chat_nickname')).toBe('TestUser')
+      expect(localStorage.getItem('chat_nickname:alice')).toBe('TestUser')
+      expect(localStorage.getItem('chat_nickname')).toBeNull()
+    })
+
+    it('setNickname without a known identity keeps the name in memory only', () => {
+      useChatStore.getState().setNickname('TestUser')
+      expect(useChatStore.getState().nickname).toBe('TestUser')
+      expect(localStorage.length).toBe(0)
     })
 
     it('setNickname trims whitespace', () => {
@@ -166,10 +176,11 @@ describe('useChatStore', () => {
     })
 
     it('setNickname with empty string sets null', () => {
+      useChatStore.getState().setIdentity({ username: 'alice' })
       useChatStore.getState().setNickname('TestUser')
       useChatStore.getState().setNickname('')
       expect(useChatStore.getState().nickname).toBeNull()
-      expect(localStorage.getItem('chat_nickname')).toBeNull()
+      expect(localStorage.getItem('chat_nickname:alice')).toBeNull()
     })
 
     it('setNickname with whitespace-only sets null', () => {
@@ -179,10 +190,107 @@ describe('useChatStore', () => {
     })
 
     it('clearNickname removes nickname and localStorage', () => {
+      useChatStore.getState().setIdentity({ username: 'alice' })
       useChatStore.getState().setNickname('TestUser')
       useChatStore.getState().clearNickname()
       expect(useChatStore.getState().nickname).toBeNull()
+      expect(localStorage.getItem('chat_nickname:alice')).toBeNull()
+    })
+  })
+
+  describe('identity', () => {
+    it('setIdentity records who we are and loads only that user\'s nickname', () => {
+      localStorage.setItem('chat_nickname:alice', 'Ally')
+      localStorage.setItem('chat_nickname:bob', 'Bobby')
+      useChatStore.getState().setIdentity({ username: 'alice' })
+      expect(useChatStore.getState().me).toEqual({ username: 'alice' })
+      expect(useChatStore.getState().nickname).toBe('Ally')
+    })
+
+    it('setIdentity leaves the nickname null when that user has none stored', () => {
+      localStorage.setItem('chat_nickname:bob', 'Bobby')
+      useChatStore.getState().setIdentity({ username: 'alice' })
+      expect(useChatStore.getState().nickname).toBeNull()
+    })
+
+    it('a different user replaces the previous user\'s in-memory nickname', () => {
+      useChatStore.getState().setIdentity({ username: 'alice' })
+      useChatStore.getState().setNickname('Ally')
+      useChatStore.getState().setIdentity({ username: 'bob' })
+      expect(useChatStore.getState().me).toEqual({ username: 'bob' })
+      expect(useChatStore.getState().nickname).toBeNull()
+      // Alice keeps hers for next time
+      expect(localStorage.getItem('chat_nickname:alice')).toBe('Ally')
+    })
+
+    it('adopts the legacy shared nickname once, for the first user only', () => {
+      localStorage.setItem('chat_nickname', 'OldName')
+      useChatStore.getState().setIdentity({ username: 'alice' })
+      expect(useChatStore.getState().nickname).toBe('OldName')
+      expect(localStorage.getItem('chat_nickname:alice')).toBe('OldName')
       expect(localStorage.getItem('chat_nickname')).toBeNull()
+
+      useChatStore.getState().setIdentity({ username: 'bob' })
+      expect(useChatStore.getState().nickname).toBeNull()
+      expect(localStorage.getItem('chat_nickname:bob')).toBeNull()
+    })
+
+    it('a stored per-user nickname wins over the legacy key, which is still deleted', () => {
+      localStorage.setItem('chat_nickname', 'OldName')
+      localStorage.setItem('chat_nickname:alice', 'Ally')
+      useChatStore.getState().setIdentity({ username: 'alice' })
+      expect(useChatStore.getState().nickname).toBe('Ally')
+      expect(localStorage.getItem('chat_nickname')).toBeNull()
+    })
+
+    it('resetIdentity forgets who we are and the nickname in memory', () => {
+      useChatStore.getState().setIdentity({ username: 'alice' })
+      useChatStore.getState().setNickname('Ally')
+      useChatStore.getState().resetIdentity()
+      expect(useChatStore.getState().me).toBeNull()
+      expect(useChatStore.getState().nickname).toBeNull()
+      expect(localStorage.getItem('chat_nickname:alice')).toBe('Ally')
+    })
+
+    it('signing out resets the identity but keeps the stored nickname', () => {
+      useAuthStore.getState().setAuth('alice-token', 'viewer', 'alice')
+      useChatStore.getState().setIdentity({ username: 'alice' })
+      useChatStore.getState().setNickname('Ally')
+
+      useAuthStore.getState().logout()
+
+      expect(useChatStore.getState().me).toBeNull()
+      expect(useChatStore.getState().nickname).toBeNull()
+      expect(localStorage.getItem('chat_nickname:alice')).toBe('Ally')
+    })
+
+    it('a new token for a signed-in user keeps the identity', () => {
+      useAuthStore.getState().setAuth('alice-token', 'viewer', 'alice')
+      useChatStore.getState().setIdentity({ username: 'alice' })
+      useChatStore.getState().setNickname('Ally')
+
+      useAuthStore.getState().setAuth('alice-token-2', 'viewer', 'alice')
+
+      expect(useChatStore.getState().me).toEqual({ username: 'alice' })
+      expect(useChatStore.getState().nickname).toBe('Ally')
+    })
+  })
+
+  describe('isOwnMessage', () => {
+    it('matches the nickname when one is set', () => {
+      const state = { nickname: 'Ally', me: { username: 'alice' } }
+      expect(isOwnMessage({ username: 'Ally' }, state)).toBe(true)
+      expect(isOwnMessage({ username: 'alice' }, state)).toBe(false)
+    })
+
+    it('falls back to the sign-in name without a nickname', () => {
+      const state = { nickname: null, me: { username: 'alice' } }
+      expect(isOwnMessage({ username: 'alice' }, state)).toBe(true)
+      expect(isOwnMessage({ username: 'bob' }, state)).toBe(false)
+    })
+
+    it('owns nothing while the identity is unknown', () => {
+      expect(isOwnMessage({ username: 'alice' }, { nickname: null, me: null })).toBe(false)
     })
   })
 })
