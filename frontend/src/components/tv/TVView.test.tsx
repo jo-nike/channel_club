@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 import { TVView } from './TVView'
 import { useChannelStore } from '@/stores/channelStore'
-import { useTVStore } from '@/stores/tvStore'
+import { useTVStore, LIVE_CHANNEL_ID } from '@/stores/tvStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
@@ -17,8 +17,10 @@ const chatProps = vi.hoisted(() => ({ last: null as null | { status?: string; on
 const auth = vi.hoisted(() => ({ isAdmin: false }))
 const appSettings = vi.hoisted(() => ({ userChannelSelection: false }))
 const playerProps = vi.hoisted(() => ({ onPickLive: undefined as undefined | (() => void), renders: 0, reloadKey: undefined as undefined | number, mounts: 0 }))
+const guide = vi.hoisted(() => ({ onProgrammeClick: undefined as undefined | ((programme: ErsatzTVProgramme, channel: UnifiedChannel) => void) }))
+const modal = vi.hoisted(() => ({ last: null as null | { programme: ErsatzTVProgramme | null; channel: { id: string; name: string } | null; open: boolean; onWatch: (channel: { id: string; name: string }) => void } }))
 vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn(), fetchLiveProgrammes: vi.fn(async () => ({ channelId: '', programmes: [] })) }))
-import type { UnifiedChannel } from '@/types'
+import type { ErsatzTVProgramme, UnifiedChannel } from '@/types'
 
 vi.mock('@/services/ersatztvApi', () => ({ fetchErsatzTVChannels: vi.fn(), fetchErsatzTVCurrentProgramme: vi.fn(), getErsatzTVLogoUrl: vi.fn() }))
 vi.mock('@/hooks/useWebSocket', () => ({ useWebSocket: () => ({ status: socket.status, reconnect: socket.reconnect, sendChannelUpdate: presence, sendChatMessage: vi.fn(), sendSetNickname: vi.fn() }) }))
@@ -38,7 +40,10 @@ vi.mock('@/components/tv/DualModeVideoPlayer', async () => {
     return <div data-testid="player">{channel?.streamUrl || 'No live broadcast'}</div>
   } }
 })
-vi.mock('@/components/tv/TVEPGGrid', () => ({ TVEPGGrid: () => <div data-testid="tv-epg-grid" /> }))
+vi.mock('@/components/tv/TVEPGGrid', () => ({ TVEPGGrid: ({ onProgrammeClick }: { onProgrammeClick?: (programme: ErsatzTVProgramme, channel: UnifiedChannel) => void }) => {
+  guide.onProgrammeClick = onProgrammeClick
+  return <div data-testid="tv-epg-grid" />
+} }))
 vi.mock('@/components/ChatPanel', async () => {
   const { useChatStore } = await import('@/stores/chatStore')
   // Like the real panel, renders nothing (and so can't throw) while closed
@@ -49,7 +54,10 @@ vi.mock('@/components/ChatPanel', async () => {
     return null
   } }
 })
-vi.mock('@/components/ersatztv/ProgrammeDetailsModal', () => ({ ProgrammeDetailsModal: () => null }))
+vi.mock('@/components/ersatztv/ProgrammeDetailsModal', () => ({ ProgrammeDetailsModal: (props: NonNullable<typeof modal.last>) => {
+  modal.last = props
+  return null
+} }))
 vi.mock('@/components/AccountMenu', () => ({ AccountMenu: () => null }))
 vi.mock('@/components/AdminModal', () => ({ AdminModal: () => null }))
 
@@ -156,6 +164,50 @@ describe('B-01 live channel schedule', () => {
     expect(fetchLiveProgrammes).toHaveBeenCalledTimes(1)
     await act(() => vi.advanceTimersByTimeAsync(60 * 1000))
     expect(fetchLiveProgrammes).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('B-01 live row programme clicks', () => {
+  const minute = 60_000
+  const live = (title: string, fromMinutes: number, toMinutes: number): ErsatzTVProgramme => ({
+    id: `live-${title}`,
+    channelId: LIVE_CHANNEL_ID,
+    title,
+    start: new Date(Date.now() + fromMinutes * minute).toISOString(),
+    stop: new Date(Date.now() + toMinutes * minute).toISOString(),
+  })
+  const liveSlot = () => useTVStore.getState().getUnifiedChannels()[0]
+
+  beforeEach(async () => {
+    modal.last = null
+    guide.onProgrammeClick = undefined
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([{ id: 'e', name: 'Cinema', number: 1, streamUrl: '/e', group: '' }])
+    useErsatztvStore.setState({ loadAllProgrammes: vi.fn().mockResolvedValue(undefined) })
+    useUIStore.setState({ isEPGVisible: true })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    // Opens on the ErsatzTV channel, not the live slot
+    await waitFor(() => expect(useTVStore.getState().selectedChannel?.id).toBe('e'))
+  })
+  afterEach(() => useUIStore.setState({ isEPGVisible: false }))
+
+  it('opens the details of an upcoming live programme, on the live slot, without tuning', () => {
+    const upcoming = live('After Hours', 60, 120)
+
+    act(() => guide.onProgrammeClick?.(upcoming, liveSlot()))
+
+    expect(modal.last).toMatchObject({ open: true, programme: upcoming, channel: { id: LIVE_CHANNEL_ID, name: 'A' } })
+    expect(useTVStore.getState().selectedChannel?.id).toBe('e')
+
+    // Its Watch action tunes to the live slot
+    act(() => modal.last?.onWatch({ id: LIVE_CHANNEL_ID, name: 'A' }))
+    expect(useTVStore.getState().selectedChannel).toMatchObject({ id: LIVE_CHANNEL_ID, type: 'live' })
+  })
+
+  it('tunes to the live slot for the live programme on now, without opening details', () => {
+    act(() => guide.onProgrammeClick?.(live('Hockey Night', -10, 50), liveSlot()))
+
+    expect(useTVStore.getState().selectedChannel).toMatchObject({ id: LIVE_CHANNEL_ID, type: 'live' })
+    expect(modal.last?.open).toBe(false)
   })
 })
 
