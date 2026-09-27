@@ -28,6 +28,7 @@ type MediaPlayerProps = {
   onError?: () => void
   onPlaying?: () => void
   onAutoPlayFail?: (detail: { muted: boolean; error: Error }) => void
+  onVolumeChange?: (detail: { volume: number; muted: boolean }) => void
 }
 
 const vidstack = vi.hoisted(() => {
@@ -171,6 +172,9 @@ const refuseAutoplay = (error: Error) =>
   act(() => lastPlayerProps().onAutoPlayFail?.({ muted: false, error }))
 const reducedMotionError = () =>
   new Error('[vidstack] autoplay is blocked due to user preference for reduced motion')
+const policyError = () => new DOMException('play() failed because the user did not interact', 'NotAllowedError')
+const soundOffNotice = () => screen.queryByRole('button', { name: /Sound is off/ })
+const startPlaybackButton = () => screen.queryByRole('button', { name: 'Start playback' })
 
 beforeEach(() => {
   localStorage.clear()
@@ -587,5 +591,150 @@ describe('DualModeVideoPlayer autoplay: ErsatzTV channel (Vidstack)', () => {
 
     expect(loader()).not.toBeInTheDocument()
     expect(vidstack.player.play).not.toHaveBeenCalled()
+  })
+
+  it('a policy refusal mutes the element only, plays on the next tick and says the sound is off', async () => {
+    useAudioStore.setState({ volume: 0.62, muted: false })
+    renderPlayer(hlsChannel('1', 1))
+    vi.mocked(localStorage.setItem).mockClear()
+
+    refuseAutoplay(policyError())
+    expect(vidstack.remote.mute).toHaveBeenCalledTimes(1)
+    expect(vidstack.player.play).not.toHaveBeenCalled()
+
+    await act(() => vi.advanceTimersByTimeAsync(0))
+
+    expect(vidstack.player.play).toHaveBeenCalledTimes(1)
+    expect(vidstack.remote.mute.mock.invocationCallOrder[0]).toBeLessThan(
+      vidstack.player.play.mock.invocationCallOrder[0]
+    )
+    expect(soundOffNotice()).toHaveTextContent('Restore 62%')
+    expect(loader()).not.toBeInTheDocument()
+    // The saved preference and the controlled prop keep the viewer's choice
+    expect(useAudioStore.getState().muted).toBe(false)
+    expect(lastPlayerProps().muted).toBe(false)
+    expect(wroteAudioStorage()).toBe(false)
+  })
+
+  it('tapping the notice unmutes the element and dismisses it', async () => {
+    renderPlayer(hlsChannel('1', 1))
+    refuseAutoplay(policyError())
+    await act(() => vi.advanceTimersByTimeAsync(0))
+
+    fireEvent.click(soundOffNotice()!)
+
+    expect(vidstack.remote.unmute).toHaveBeenCalledTimes(1)
+    expect(soundOffNotice()).not.toBeInTheDocument()
+    expect(useAudioStore.getState().muted).toBe(false)
+  })
+
+  it('the notice goes away when the element is unmuted some other way', async () => {
+    renderPlayer(hlsChannel('1', 1))
+    refuseAutoplay(policyError())
+    await act(() => vi.advanceTimersByTimeAsync(0))
+    expect(soundOffNotice()).toBeInTheDocument()
+
+    act(() => lastPlayerProps().onVolumeChange?.({ volume: 1, muted: true }))
+    expect(soundOffNotice()).toBeInTheDocument()
+
+    act(() => lastPlayerProps().onVolumeChange?.({ volume: 1, muted: false }))
+    expect(soundOffNotice()).not.toBeInTheDocument()
+  })
+
+  it('when even muted playback is refused, hides the loader and shows a Play button that plays with sound', async () => {
+    vidstack.player.play.mockRejectedValueOnce(policyError())
+    renderPlayer(hlsChannel('1', 1))
+
+    refuseAutoplay(policyError())
+    await act(() => vi.advanceTimersByTimeAsync(0))
+
+    expect(loader()).not.toBeInTheDocument()
+    expect(soundOffNotice()).not.toBeInTheDocument()
+    fireEvent.click(startPlaybackButton()!)
+
+    expect(vidstack.remote.unmute).toHaveBeenCalledTimes(1)
+    expect(vidstack.player.play).toHaveBeenCalledTimes(2)
+    expect(startPlaybackButton()).not.toBeInTheDocument()
+  })
+
+  it('with sound saved as muted, a refusal goes straight to the Play button', async () => {
+    useAudioStore.setState({ volume: 0.5, muted: true })
+    renderPlayer(hlsChannel('1', 1))
+
+    act(() => lastPlayerProps().onAutoPlayFail?.({ muted: true, error: policyError() }))
+    await act(() => vi.advanceTimersByTimeAsync(0))
+
+    expect(vidstack.remote.mute).not.toHaveBeenCalled()
+    fireEvent.click(startPlaybackButton()!)
+    // The tap plays but keeps the saved mute
+    expect(vidstack.remote.unmute).not.toHaveBeenCalled()
+    expect(vidstack.player.play).toHaveBeenCalledTimes(1)
+  })
+
+  it('under Reduce Motion, a policy refusal of the retry falls back to muted playback', async () => {
+    matchMediaQueries([REDUCED_MOTION])
+    vidstack.player.play.mockRejectedValueOnce(policyError())
+    renderPlayer(hlsChannel('1', 1))
+
+    refuseAutoplay(reducedMotionError())
+    await act(() => vi.advanceTimersByTimeAsync(0))
+    // The fake clock schedules a 0ms timer set during a tick 1ms out
+    await act(() => vi.advanceTimersByTimeAsync(1))
+
+    expect(vidstack.remote.mute).toHaveBeenCalledTimes(1)
+    expect(vidstack.player.play).toHaveBeenCalledTimes(2)
+    expect(soundOffNotice()).toBeInTheDocument()
+  })
+
+  it('a stream retry remount drops the notice from the previous mount', async () => {
+    renderPlayer(hlsChannel('1', 1))
+    refuseAutoplay(policyError())
+    await act(() => vi.advanceTimersByTimeAsync(0))
+    expect(soundOffNotice()).toBeInTheDocument()
+
+    vidstack.mounted.mockClear()
+    act(() => lastPlayerProps().onError?.())
+    await act(() => vi.advanceTimersByTimeAsync(1000))
+
+    expect(vidstack.mounted).toHaveBeenCalledTimes(1)
+    expect(soundOffNotice()).not.toBeInTheDocument()
+  })
+})
+
+describe('DualModeVideoPlayer autoplay: live channel (mpegts)', () => {
+  const playSpy = () => vi.mocked(HTMLMediaElement.prototype.play)
+
+  it('a policy refusal mutes the element, retries and says the sound is off, leaving the saved mute alone', async () => {
+    useAudioStore.setState({ volume: 0.4, muted: false })
+    playSpy().mockRejectedValueOnce(policyError())
+    vi.mocked(localStorage.setItem).mockClear()
+    renderPlayer(liveChannel('https://fixture/a'))
+
+    await waitFor(() => expect(soundOffNotice()).toHaveTextContent('Restore 40%'))
+    expect(video().muted).toBe(true)
+    expect(playSpy()).toHaveBeenCalledTimes(2)
+    expect(useAudioStore.getState().muted).toBe(false)
+    expect(wroteAudioStorage()).toBe(false)
+
+    fireEvent.click(soundOffNotice()!)
+
+    expect(video().muted).toBe(false)
+    expect(soundOffNotice()).not.toBeInTheDocument()
+    expect(useAudioStore.getState().muted).toBe(false)
+  })
+
+  it('when even muted playback is refused, shows a Play button that goes once playback starts', async () => {
+    playSpy().mockRejectedValueOnce(policyError()).mockRejectedValueOnce(policyError())
+    renderPlayer(liveChannel('https://fixture/a'))
+
+    await waitFor(() => expect(startPlaybackButton()).toBeInTheDocument())
+    fireEvent.click(startPlaybackButton()!)
+
+    expect(video().muted).toBe(false)
+    expect(playSpy()).toHaveBeenCalledTimes(3)
+    act(() => {
+      video().dispatchEvent(new Event('playing'))
+    })
+    expect(startPlaybackButton()).not.toBeInTheDocument()
   })
 })
