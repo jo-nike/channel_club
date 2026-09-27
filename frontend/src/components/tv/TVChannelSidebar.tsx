@@ -1,7 +1,8 @@
-import { useEffect, useRef, type Ref } from 'react'
+import { useEffect, useMemo, useRef, type Ref } from 'react'
 import { AudioLines, ChevronLeft, ChevronRight, Radio, Star } from 'lucide-react'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
-import { useTVStore, describeLiveGuide } from '@/stores/tvStore'
+import { useTVStore, buildUnifiedChannels, describeLiveGuide } from '@/stores/tvStore'
+import { useChannelStore } from '@/stores/channelStore'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -46,17 +47,29 @@ export function TVChannelSidebar({
   liveEPGTitle,
   onPickLive,
 }: TVChannelSidebarProps) {
-  const { channels: ersatzTVChannels, channelsLoading, error, loadChannels } = useErsatztvStore()
-  const { selectedChannel, selectChannel, getUnifiedChannels, isLiveChannelActive, liveEPGStatus } = useTVStore()
+  // Field selectors: the sidebar re-renders for what it shows, not on every
+  // update to the stores it reads
+  const ersatzTVChannels = useErsatztvStore((s) => s.channels)
+  const channelsLoading = useErsatztvStore((s) => s.channelsLoading)
+  const error = useErsatztvStore((s) => s.error)
+  const loadChannels = useErsatztvStore((s) => s.loadChannels)
+  const selectedChannel = useTVStore((s) => s.selectedChannel)
+  const selectChannel = useTVStore((s) => s.selectChannel)
+  const liveEPGStatus = useTVStore((s) => s.liveEPGStatus)
+  const liveChannel = useChannelStore((s) => s.currentChannel)
   // Now/next come from the guide's programmes, which TVView refreshes every
   // 2h, so a schedule edit in ErsatzTV shows here on that refresh
   const programmesByChannel = useErsatztvStore((s) => s.programmesByChannel)
   const now = useProgrammeClock()
   const programmeIndex = buildProgrammeIndex(programmesByChannel)
 
-  // Get unified channel list
-  const unifiedChannels = getUnifiedChannels()
-  const hasLiveChannel = isLiveChannelActive()
+  // The unified list, built from the two stores it comes from, so the live
+  // slot follows live TV and the search keeps its memo between renders
+  const unifiedChannels = useMemo(
+    () => buildUnifiedChannels(liveChannel, ersatzTVChannels),
+    [liveChannel, ersatzTVChannels]
+  )
+  const hasLiveChannel = liveChannel !== null
   const liveProgramme = liveEPGTitle || describeLiveGuide(liveEPGStatus)
 
   // The expanded list goes through the search and chips; the rail, which

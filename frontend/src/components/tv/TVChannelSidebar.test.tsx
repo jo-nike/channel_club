@@ -1,3 +1,4 @@
+import { Profiler } from 'react'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, act, cleanup, within, fireEvent } from '@/test/utils'
 import { TVChannelSidebar } from './TVChannelSidebar'
@@ -1456,5 +1457,88 @@ describe('TVChannelSidebar favourites', () => {
       '2 Cartoons',
       '3 News',
     ])
+  })
+})
+
+describe('TVChannelSidebar store subscriptions', () => {
+  beforeEach(() => {
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1' },
+    })
+    useErsatztvStore.setState({
+      channels: [{ id: 'etv1', name: 'Movies', streamUrl: '', logoUrl: '', number: 1, group: 'Films' }],
+    })
+  })
+
+  afterEach(() => {
+    cleanup()
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels: [], programmesLoading: false })
+    useTVStore.setState({ liveEPG: null, liveEPGLoading: false })
+  })
+
+  async function renderCounted(isCollapsed: boolean) {
+    const onRender = vi.fn()
+    render(
+      <Profiler id="sidebar" onRender={onRender}>
+        <TVChannelSidebar isCollapsed={isCollapsed} />
+      </Profiler>
+    )
+    await act(async () => {})
+    onRender.mockClear()
+    return onRender
+  }
+
+  it.each([false, true])(
+    "doesn't re-render for store fields it doesn't read (collapsed: %s)",
+    async (isCollapsed) => {
+      const onRender = await renderCounted(isCollapsed)
+
+      act(() => {
+        useTVStore.setState({ liveEPGLoading: true })
+        useTVStore.setState({ epgRequestId: useTVStore.getState().epgRequestId + 1 })
+        useErsatztvStore.setState({ programmesLoading: true })
+      })
+
+      expect(onRender).not.toHaveBeenCalled()
+    }
+  )
+
+  it('re-renders for the fields it shows: live TV changing, the selection and the channel list', async () => {
+    const onRender = await renderCounted(false)
+
+    act(() => {
+      useChannelStore.setState({
+        currentChannel: { id: 'live2', name: 'Arena', streamUrl: 'http://x/live2', guideId: 'g2' },
+      })
+    })
+    expect(onRender).toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: /^0 Live: Arena, / })).toBeInTheDocument()
+
+    onRender.mockClear()
+    act(() => {
+      useTVStore.setState({ selectedChannel: useTVStore.getState().getUnifiedChannels()[1] })
+    })
+    expect(onRender).toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: '1 Movies' })).toHaveAttribute('aria-current', 'true')
+
+    act(() => {
+      useErsatztvStore.setState({
+        channels: [
+          { id: 'etv1', name: 'Movies', streamUrl: '', logoUrl: '', number: 1, group: 'Films' },
+          { id: 'etv2', name: 'Cartoons', streamUrl: '', logoUrl: '', number: 2, group: 'Kids' },
+        ],
+      })
+    })
+    expect(screen.getByRole('button', { name: '2 Cartoons' })).toBeInTheDocument()
+    useTVStore.setState({ selectedChannel: null })
+  })
+
+  it('shows the empty live slot once live TV stops', async () => {
+    await renderCounted(false)
+
+    act(() => useChannelStore.setState({ currentChannel: null }))
+
+    expect(screen.getByRole('button', { name: 'Live slot, nothing on' })).toBeInTheDocument()
   })
 })
