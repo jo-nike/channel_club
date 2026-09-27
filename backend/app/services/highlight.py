@@ -283,7 +283,8 @@ class ChannelRecorder:
         Returns False when the wait timed out (a stalled stream) or the recorder stopped;
         the capture then ends at the last closed segment, as before.
         """
-        listed = self._newest_listed_segment()
+        # The list is read in a worker thread, like the rest of the recorder's file I/O.
+        listed = await asyncio.to_thread(self._newest_listed_segment)
         limit = min(
             settings.highlight_segment_seconds + TAIL_WAIT_SLACK_SECONDS, TAIL_WAIT_CAP_SECONDS
         )
@@ -292,7 +293,7 @@ class ChannelRecorder:
             await asyncio.sleep(TAIL_POLL_SECONDS)
             if not self.is_running:
                 return False
-            if self._newest_listed_segment() != listed:
+            if await asyncio.to_thread(self._newest_listed_segment) != listed:
                 return True
         log.info(
             "Capture on channel {} stopped waiting for a segment after {}s", self.channel_id, limit

@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from io import StringIO
 from pathlib import Path
@@ -243,3 +244,20 @@ async def test_capture_stops_waiting_when_the_recorder_exits(tmp_path, monkeypat
     started = time.monotonic()
     assert await recorder.wait_for_current_segment() is False
     assert time.monotonic() - started < 1
+
+
+async def test_tail_wait_reads_the_segment_list_off_the_event_loop(tmp_path, monkeypatch):
+    monkeypatch.setattr(highlight, "TAIL_POLL_SECONDS", 0.01)
+    monkeypatch.setattr(highlight, "TAIL_WAIT_CAP_SECONDS", 0.05)
+    recorder = recording(tmp_path, time.time())
+    readers: list[int] = []
+    read = ChannelRecorder._newest_listed_segment
+
+    def reading(self: ChannelRecorder) -> str | None:
+        readers.append(threading.get_ident())
+        return read(self)
+
+    monkeypatch.setattr(ChannelRecorder, "_newest_listed_segment", reading)
+    assert await recorder.wait_for_current_segment() is False
+    assert len(readers) >= 2
+    assert threading.get_ident() not in readers
