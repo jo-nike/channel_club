@@ -245,6 +245,57 @@ describe('HighlightButton', () => {
     })
   })
 
+  describe('Compact (phone landscape)', () => {
+    const notRecording: HighlightStatusResponse = { ...defaultStatus, recording: false, bufferSeconds: 0 }
+
+    it('leaves the button out while the channel is not recording', () => {
+      render(<HighlightButton channelId="channel-1" isVisible loaded highlightStatus={notRecording} compact />)
+
+      expect(screen.queryByRole('button')).not.toBeInTheDocument()
+      expect(screen.queryByText('Clip unavailable')).not.toBeInTheDocument()
+    })
+
+    it('keeps the disabled, named button when not compact', () => {
+      render(<HighlightButton channelId="channel-1" isVisible loaded highlightStatus={notRecording} />)
+
+      expect(screen.getByRole('button', { name: 'Clip unavailable' })).toBeDisabled()
+    })
+
+    it.each([
+      ['checking', defaultStatus, false],
+      ['buffering', { ...defaultStatus, ready: false, bufferSeconds: 12 }, true],
+      ['ready', { ...defaultStatus, ready: true }, true],
+    ] as [string, HighlightStatusResponse, boolean][])(
+      'shows the %s state as a 44px icon with no text',
+      (state, status, loaded) => {
+        render(<HighlightButton channelId="channel-1" isVisible loaded={loaded} highlightStatus={status} compact />)
+
+        const button = screen.getByRole('button')
+        expect(button).toHaveAttribute('data-state', state)
+        expect(button.textContent).toBe('')
+        expect(button).toHaveClass('h-11', 'w-11', 'min-h-[44px]', 'min-w-[44px]', 'shrink-0')
+        expect(button).not.toHaveClass('w-12')
+      }
+    )
+
+    it('still opens the editor when a clip is ready', () => {
+      const onOpenModal = vi.fn()
+      render(
+        <HighlightButton
+          channelId="channel-1"
+          isVisible
+          loaded
+          highlightStatus={{ ...defaultStatus, ready: true }}
+          onOpenModal={onOpenModal}
+          compact
+        />
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: 'Capture clip · 30s available' }))
+      expect(onOpenModal).toHaveBeenCalledTimes(1)
+    })
+  })
+
   describe('Styling', () => {
     it('has control button styling', () => {
       render(

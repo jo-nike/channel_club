@@ -13,10 +13,16 @@ const highlight = vi.hoisted(() => ({ enabled: false }))
 vi.mock('@/hooks/useHighlightFeature', () => ({
   useHighlightFeature: () => ({ isEnabled: highlight.enabled, isLoading: false }),
 }))
-const clipStatus = vi.hoisted(() => ({ loaded: true }))
+const clipStatus = vi.hoisted(() => ({ loaded: true, recording: true }))
 vi.mock('@/hooks/useHighlightStatus', () => ({
   useHighlightStatus: () => ({
-    status: { enabled: true, recording: true, ready: true, bufferSeconds: 60, maxBufferSeconds: 60 },
+    status: {
+      enabled: true,
+      recording: clipStatus.recording,
+      ready: clipStatus.recording,
+      bufferSeconds: clipStatus.recording ? 60 : 0,
+      maxBufferSeconds: 60,
+    },
     loaded: clipStatus.loaded,
   }),
 }))
@@ -511,6 +517,7 @@ describe('PlayerChrome', () => {
     beforeEach(() => {
       highlight.enabled = true
       clipStatus.loaded = true
+      clipStatus.recording = true
       useClipStore.setState({ session: null })
     })
 
@@ -830,6 +837,105 @@ describe('PlayerChrome', () => {
       renderChrome({ shell: { ...shell, stepChannel: vi.fn() } })
 
       expect(screen.getByRole('group', { name: 'Channel' })).toHaveClass(fitClass)
+    })
+  })
+
+  describe('phone landscape', () => {
+    const LANDSCAPE = '(pointer: coarse) and (orientation: landscape) and (max-height: 500px)'
+    const COARSE = '(pointer: coarse)'
+    const ROOMY = '(min-width: 768px)'
+    const setupMatchMedia = window.matchMedia
+    // setup.ts answers every media query with false; this reports the given ones as matching
+    const matchMediaQueries = (matching: string[]) => {
+      Object.defineProperty(window, 'matchMedia', {
+        writable: true,
+        configurable: true,
+        value: (query: string) => ({
+          matches: matching.includes(query),
+          media: query,
+          onchange: null,
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+          dispatchEvent: vi.fn(() => true),
+        }),
+      })
+    }
+    // An 844 x 390 phone held sideways
+    const holdSideways = () => matchMediaQueries([LANDSCAPE, COARSE, ROOMY])
+    beforeEach(() => {
+      highlight.enabled = true
+      clipStatus.loaded = true
+      clipStatus.recording = true
+    })
+    afterEach(() => {
+      Object.defineProperty(window, 'matchMedia', { writable: true, configurable: true, value: setupMatchMedia })
+    })
+
+    it('tightens the strip to a thin scrim', () => {
+      holdSideways()
+      renderChrome({ props: { isMobile: true } })
+
+      expect(toolbar()).toHaveClass('p-1.5')
+      expect(toolbar()).not.toHaveClass('pt-8')
+      expect(toolbar()).not.toHaveClass('px-3')
+    })
+
+    it('keeps the roomy strip elsewhere', () => {
+      renderChrome()
+
+      expect(toolbar()).toHaveClass('px-3', 'pb-2', 'pt-8')
+      expect(toolbar()).not.toHaveClass('p-1.5')
+    })
+
+    it('gives every button a 44px target and keeps the over-video focus ring', () => {
+      holdSideways()
+      renderChrome({ props: { isMobile: true, channelId: '42', channelName: 'Sportsnet' } })
+
+      for (const name of ['Play', 'Mute', 'Reload stream', 'Fullscreen', /Capture clip/]) {
+        const button = screen.getByRole('button', { name })
+        expect(button).toHaveClass('min-h-[44px]', 'min-w-[44px]', 'focus-ring-media')
+        expect(button).not.toHaveClass('min-h-[48px]')
+      }
+      // The Cast and filter buttons are drawn elsewhere at 48px; the strip brings them down
+      expect(toolbar()).toHaveClass('[&_.control-button]:min-h-[44px]', '[&_.control-button]:min-w-[44px]')
+    })
+
+    it('shows the rocker at 44px when fullscreen leaves room for it', () => {
+      holdSideways()
+      renderChrome({ shell: { isFullscreen: true, stepChannel: vi.fn() }, props: { isMobile: true } })
+
+      expect(screen.getByRole('button', { name: 'Channel up' })).toHaveClass('min-h-[44px]')
+    })
+
+    it('leaves out the clip control while the channel is not recording', () => {
+      clipStatus.recording = false
+      holdSideways()
+      renderChrome({ props: { isMobile: true, channelId: '42', channelName: 'Sportsnet' } })
+
+      expect(screen.queryByRole('button', { name: 'Clip unavailable' })).not.toBeInTheDocument()
+      expect(screen.queryByText('Clip unavailable')).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Fullscreen' })).toBeInTheDocument()
+    })
+
+    it('keeps the disabled clip control, with its tooltip, on a desktop', async () => {
+      clipStatus.recording = false
+      renderChrome({ props: { channelId: '42', channelName: 'Sportsnet' } })
+
+      const button = screen.getByRole('button', { name: 'Clip unavailable' })
+      expect(button).toBeDisabled()
+      expect(button).toHaveClass('min-h-[48px]')
+      fireEvent.focus(button)
+      expect(await screen.findByRole('tooltip')).toHaveTextContent('Clip unavailable')
+    })
+
+    it('keeps the disabled clip control on a phone in portrait', () => {
+      clipStatus.recording = false
+      matchMediaQueries([COARSE])
+      renderChrome({ props: { isMobile: true, channelId: '42', channelName: 'Sportsnet' } })
+
+      expect(screen.getByRole('button', { name: 'Clip unavailable' })).toBeDisabled()
     })
   })
 
