@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, render, screen, fireEvent, waitFor } from '@/test/utils'
 import { ChatPanel } from './ChatPanel'
 import { useChatStore } from '@/stores/chatStore'
-import type { ChatMessage } from '@/types'
+import { usePresenceStore } from '@/stores/presenceStore'
+import type { ChatMessage, PresenceEntry } from '@/types'
 
 // Stand-in for the GIF picker, which fetches its feature flag: a click picks one fixed GIF
 const GIF_URL = 'https://media.example/cat.gif'
@@ -1454,6 +1455,51 @@ describe('ChatPanel', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Edit nickname' }))
       fireEvent.focus(screen.getByPlaceholderText('Display name'))
       expect(onComposerFocusChange).not.toHaveBeenCalled()
+    })
+  })
+
+  describe("who's here", () => {
+    const person = (displayName: string, userId: string): PresenceEntry => ({
+      userId, displayName, channelId: null, channelName: null, programme: null, view: null, since: null,
+    })
+
+    beforeEach(() => {
+      useChatStore.setState({ nickname: null, me: { username: 'jonike', userId: 'u_me' } })
+    })
+
+    afterEach(() => {
+      usePresenceStore.setState({ entries: [] })
+    })
+
+    it("heads the panel with the others here, beside Close", () => {
+      usePresenceStore.setState({ entries: [person('jonike', 'u_me'), person('maya', 'u_maya'), person('dev', 'u_dev')] })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      const here = screen.getByRole('button', { name: '2 here' })
+      const stack = here.querySelector('[data-slot="presence-stack"]')!
+      expect(Array.from(stack.children).map((a) => a.textContent)).toEqual(['M', 'D'])
+      // In the header row, before the close button
+      const close = screen.getByRole('button', { name: 'Close chat' })
+      expect(here.compareDocumentPosition(close) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      expect(close.parentElement).toContainElement(here)
+    })
+
+    it('opens the Here-now list from the header', () => {
+      usePresenceStore.setState({ entries: [person('maya', 'u_maya')] })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      fireEvent.click(screen.getByRole('button', { name: '1 here' }))
+      expect(screen.getByRole('region', { name: 'Here now' })).toHaveTextContent('maya')
+    })
+
+    it('shows the stack in the phone Chat tab too', () => {
+      usePresenceStore.setState({ entries: [person('maya', 'u_maya')] })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} variant="inline" />)
+      expect(screen.getByRole('button', { name: '1 here' })).toBeInTheDocument()
+    })
+
+    it('shows no stack while nobody else is here', () => {
+      usePresenceStore.setState({ entries: [person('jonike', 'u_me')] })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.queryByRole('button', { name: /here$/ })).not.toBeInTheDocument()
     })
   })
 

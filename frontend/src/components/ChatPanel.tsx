@@ -9,6 +9,7 @@ import { useNow } from '@/hooks/useNow'
 import { cn } from '@/lib/utils'
 import { ChatMessage } from './ChatMessage'
 import { GifButton } from './GifButton'
+import { HereNowPopover } from './HereNowPopover'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -439,7 +440,7 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
       className={cn(PANEL_CLASSES[variant], translucent && 'bg-background/85 backdrop-blur')}
     >
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-border px-4 py-3">
+      <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">
           <h2 className="text-lg font-semibold">Chat</h2>
           {me && !isEditingNickname && (
@@ -457,18 +458,22 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
             </>
           )}
         </div>
-        {/* Inline, the Channels tab is the way back */}
-        {variant !== 'inline' && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleClose}
-            aria-label="Close chat"
-            className="h-8 w-8"
-          >
-            <X className="h-5 w-5" />
-          </Button>
-        )}
+        <div className="flex shrink-0 items-center gap-1">
+          {/* Who else is here, and the Here-now list with Join */}
+          <HereNowPopover variant="chat" />
+          {/* Inline, the Channels tab is the way back */}
+          {variant !== 'inline' && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleClose}
+              aria-label="Close chat"
+              className="h-8 w-8"
+            >
+              <X className="h-5 w-5" />
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* One row for both states, so switching between them never moves the list */}
