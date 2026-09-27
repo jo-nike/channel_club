@@ -1,13 +1,22 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, act } from '@/test/utils'
-import { ArrivalCard, ARRIVAL_DISMISS_MS, ARRIVAL_SHOWN_KEY, UNDER_RAIL_MIN_PLAYER_HEIGHT } from './ArrivalCard'
+import {
+  ArrivalCard,
+  ARRIVAL_DISMISS_MS,
+  ARRIVAL_SHOWN_KEY,
+  ARRIVAL_WINDOW_MS,
+  UNDER_RAIL_MIN_PLAYER_HEIGHT,
+} from './ArrivalCard'
 import { PlayerShellContext, type PlayerShell } from '@/components/player/PlayerShellContext'
 import { useAuthStore } from '@/stores/authStore'
 import { useChannelStore } from '@/stores/channelStore'
+import { useChatStore } from '@/stores/chatStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
+import { usePresenceStore } from '@/stores/presenceStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { useTVStore } from '@/stores/tvStore'
 import { useUIStore } from '@/stores/uiStore'
-import type { UnifiedChannel } from '@/types'
+import type { PresenceEntry, UnifiedChannel } from '@/types'
 
 // The live stream needs MSE; iPhone Safari has none
 const mpegtsSupport = vi.hoisted(() => ({ supported: true }))
@@ -82,13 +91,17 @@ beforeEach(() => {
   useErsatztvStore.setState({
     channels: [{ id: 'e7', name: 'Cinema', number: 7, streamUrl: '', logoUrl: '', group: '' }],
   })
-  useTVStore.setState({ selectedChannel: cinema, previousChannelId: null })
+  useTVStore.setState({ selectedChannel: cinema, previousChannelId: null, liveEPG: null })
   useUIStore.setState({
     hasSeenWelcome: false,
+    hideMyActivity: false,
     isNHLOverlayVisible: false,
     isEPGVisible: false,
     guideFocusRequested: false,
   })
+  useSettingsStore.setState({ presenceVisible: false })
+  usePresenceStore.setState({ entries: [] })
+  useChatStore.setState({ nickname: null, me: { username: 'maya', userId: 'u_maya' } })
 })
 
 afterEach(() => {
@@ -355,5 +368,184 @@ describe('ArrivalCard: placement', () => {
 
     expect(welcome()).not.toBeInTheDocument()
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+})
+
+describe("ArrivalCard: returning while friends are on live", () => {
+  const person = (displayName: string, overrides: Partial<PresenceEntry> = {}): PresenceEntry => ({
+    userId: `u_${displayName}`,
+    displayName,
+    channelId: '55',
+    channelName: 'TSN 5',
+    programme: null,
+    view: 'live',
+    since: null,
+    ...overrides,
+  })
+  const onCinema = (displayName: string) =>
+    person(displayName, { channelId: 'e7', channelName: 'Cinema', view: 'ersatztv' })
+  const friendsLine = () => screen.queryByText(/watching TSN 5$/)
+  const join = () => screen.queryByRole('button', { name: 'Join' })
+  const stay = () => screen.queryByRole('button', { name: 'Stay' })
+
+  beforeEach(() => {
+    useUIStore.setState({ hasSeenWelcome: true })
+    useSettingsStore.setState({ presenceVisible: true })
+    // You, three friends on live and one on another channel
+    usePresenceStore.setState({ entries: [onCinema('maya'), person('dev'), person('sam'), person('lee'), onCinema('kim')] })
+  })
+
+  it('says how many friends are on live and what they are watching, with Join and Stay', () => {
+    useTVStore.setState({
+      liveEPG: {
+        channelId: '55',
+        currentProgram: { title: 'CFL Football', startTime: '2026-09-27T19:00:00Z', endTime: '2026-09-27T22:00:00Z' },
+      },
+    })
+    renderCard()
+
+    const card = screen.getByRole('status')
+    // You and the friend on another channel don't count
+    expect(card).toHaveTextContent('3 friends are watching TSN 5')
+    expect(card).toHaveTextContent('CFL Football, live on channel 0')
+    expect(card.querySelectorAll('[data-slot="presence-stack"] > *')).toHaveLength(3)
+    expect(join()).toBeInTheDocument()
+    expect(stay()).toBeInTheDocument()
+    expect(welcome()).not.toBeInTheDocument()
+  })
+
+  it('says one friend in the singular', () => {
+    usePresenceStore.setState({ entries: [person('dev')] })
+    renderCard()
+
+    expect(friendsLine()).toHaveTextContent('1 friend is watching TSN 5')
+    expect(screen.getByRole('status')).toHaveTextContent('Live on channel 0, the club channel')
+  })
+
+  it('Join tunes to channel 0 and closes', () => {
+    renderCard()
+
+    fireEvent.click(join()!)
+
+    expect(useTVStore.getState().selectedChannel).toEqual(useTVStore.getState().getUnifiedChannels()[0])
+    expect(useTVStore.getState().selectedChannel?.id).toBe('live-channel-0')
+    expect(friendsLine()).not.toBeInTheDocument()
+  })
+
+  it('Stay closes it and leaves the channel alone', () => {
+    renderCard()
+
+    fireEvent.click(stay()!)
+
+    expect(friendsLine()).not.toBeInTheDocument()
+    expect(useTVStore.getState().selectedChannel).toBe(cinema)
+  })
+
+  it("is not shown while the admin keeps what everyone watches private", () => {
+    useSettingsStore.setState({ presenceVisible: false })
+    renderCard()
+
+    expect(friendsLine()).not.toBeInTheDocument()
+    expect(welcome()).not.toBeInTheDocument()
+  })
+
+  it('is not shown to a viewer hiding their own', () => {
+    useUIStore.setState({ hideMyActivity: true })
+    renderCard()
+
+    expect(friendsLine()).not.toBeInTheDocument()
+  })
+
+  it('is not shown with nobody else on live', () => {
+    usePresenceStore.setState({ entries: [onCinema('kim')] })
+    renderCard()
+
+    expect(friendsLine()).not.toBeInTheDocument()
+  })
+
+  it('is not shown to a viewer already on live', () => {
+    renderCard(liveSlot)
+
+    expect(friendsLine()).not.toBeInTheDocument()
+  })
+
+  it('is not shown while live TV has nothing on', () => {
+    useChannelStore.setState({ currentChannel: null })
+    renderCard()
+
+    expect(friendsLine()).not.toBeInTheDocument()
+  })
+
+  it('gives the first visit the welcome instead', () => {
+    useUIStore.setState({ hasSeenWelcome: false })
+    renderCard()
+
+    expect(welcome()).toBeInTheDocument()
+    expect(friendsLine()).not.toBeInTheDocument()
+  })
+
+  it('shows when presence arrives just after the player opens', () => {
+    usePresenceStore.setState({ entries: [] })
+    renderCard()
+    expect(friendsLine()).not.toBeInTheDocument()
+
+    advance(2000)
+    act(() => usePresenceStore.setState({ entries: [person('dev'), person('sam')] }))
+
+    expect(friendsLine()).toHaveTextContent('2 friends are watching TSN 5')
+  })
+
+  it('is not an arrival any more once the first 30s have passed', () => {
+    usePresenceStore.setState({ entries: [] })
+    renderCard()
+
+    advance(ARRIVAL_WINDOW_MS)
+    act(() => usePresenceStore.setState({ entries: [person('dev')] }))
+
+    expect(friendsLine()).not.toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(sessionStorage.getItem(ARRIVAL_SHOWN_KEY)).toBeNull()
+  })
+
+  it('closes once the viewer is on live, or nobody else is', () => {
+    const { update, unmount } = renderCard()
+    expect(friendsLine()).toBeInTheDocument()
+    update(liveSlot)
+    expect(friendsLine()).not.toBeInTheDocument()
+    unmount()
+
+    sessionStorage.clear()
+    renderCard()
+    expect(friendsLine()).toBeInTheDocument()
+    act(() => usePresenceStore.setState({ entries: [onCinema('kim')] }))
+    expect(friendsLine()).not.toBeInTheDocument()
+  })
+
+  it('follows the count while it is up', () => {
+    renderCard()
+    expect(friendsLine()).toHaveTextContent('3 friends')
+
+    act(() => usePresenceStore.setState({ entries: [person('dev'), person('sam'), person('lee'), person('ann')] }))
+
+    expect(friendsLine()).toHaveTextContent('4 friends')
+  })
+
+  it("leaves out Join and Stay where the browser can't play the live stream", () => {
+    mpegtsSupport.supported = false
+    renderCard()
+
+    expect(friendsLine()).toBeInTheDocument()
+    expect(join()).not.toBeInTheDocument()
+    expect(stay()).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument()
+  })
+
+  it('shows once per session, like the welcome', () => {
+    const { unmount } = renderCard()
+    expect(friendsLine()).toBeInTheDocument()
+    unmount()
+
+    renderCard()
+    expect(friendsLine()).not.toBeInTheDocument()
   })
 })

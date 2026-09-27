@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useState, useSyncExternalStore, type FocusEvent, type MouseEvent } from 'react'
 import mpegts from 'mpegts.js'
 import { X } from 'lucide-react'
+import { PresenceStack } from '@/components/PresenceStack'
 import { Button } from '@/components/ui/button'
 import { usePlayerShell } from '@/components/player/PlayerShellContext'
+import { usePresenceByChannel } from '@/hooks/usePresenceByChannel'
 import { useTVMode } from '@/hooks/useTVMode'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
 import { useChannelStore } from '@/stores/channelStore'
-import { useTVStore } from '@/stores/tvStore'
+import { LIVE_CHANNEL_ID, useTVStore } from '@/stores/tvStore'
 import { useUIStore } from '@/stores/uiStore'
 import type { UnifiedChannel } from '@/types'
 
@@ -15,6 +17,13 @@ import type { UnifiedChannel } from '@/types'
 export const ARRIVAL_SHOWN_KEY = 'arrival-shown'
 /** How long the card stays up untouched */
 export const ARRIVAL_DISMISS_MS = 12_000
+/**
+ * How long after the player opens friends on live still count as where the
+ * group was on arrival: presence comes over the WebSocket a moment after load
+ */
+export const ARRIVAL_WINDOW_MS = 30_000
+// Friends' faces before the rest become '+n'
+const FRIENDS_SHOWN_MAX = 4
 /**
  * The shortest player the card fits in under the info rail without reaching
  * the control bar: the rail's 4.25rem, the card (about 150px, more when its
@@ -40,7 +49,7 @@ function markShownThisSession(): void {
   }
 }
 
-type Phase = 'waiting' | 'welcome' | 'done'
+type Phase = 'waiting' | 'welcome' | 'friends' | 'done'
 
 interface ArrivalCardProps {
   /** The channel the player is on; null before the TV store has one */
@@ -79,6 +88,14 @@ function useFitsUnderRail(): boolean {
  * as on iPhone Safari). Closing the welcome in any of those ways marks it
  * seen; letting it time out doesn't, so it comes back next session.
  *
+ * After that, arriving while live TV is on, the viewer is elsewhere and
+ * others are on channel 0 says '3 friends are watching TSN 5', with Join and
+ * Stay. That needs presence to show channels to this viewer (the admin
+ * setting, and not hiding their own), and it only counts in the first 30s,
+ * the arrival, not whenever someone tunes in later. It goes once the viewer
+ * is on live or nobody else is. Join and Stay are hidden where the live
+ * stream can't play, which leaves the close button.
+ *
  * It sits in the player shell beside the info rail and NHL ticker, so it
  * shows in theater and fullscreen and stays put across channel changes. It
  * waits for the first tune, and hides while the NHL ticker is open. It waits
@@ -106,18 +123,38 @@ export function ArrivalCard({ channel }: ArrivalCardProps) {
   const isOnLive = channel?.type === 'live'
   // The live channel is an MPEG-TS stream, which needs Media Source Extensions
   const [canPlayLive] = useState(() => mpegts.isSupported())
+  const liveName = useChannelStore((s) => s.currentChannel?.name ?? null)
+  const liveTitle = useTVStore((s) => s.liveEPG?.currentProgram?.title ?? null)
+  // Empty unless presence shows channels to this viewer; this viewer isn't in it
+  const friends = usePresenceByChannel().get(LIVE_CHANNEL_ID) ?? []
 
   const [phase, setPhase] = useState<Phase>(() => (wasShownThisSession() ? 'done' : 'waiting'))
   const [isPointerOver, setPointerOver] = useState(false)
   const [hasFocusWithin, setFocusWithin] = useState(false)
+  const [isArriving, setArriving] = useState(true)
+
+  const isWaiting = phase === 'waiting'
+  useEffect(() => {
+    if (!isWaiting) return
+    const timer = setTimeout(() => setArriving(false), ARRIVAL_WINDOW_MS)
+    return () => clearTimeout(timer)
+  }, [isWaiting])
+
+  // Friends are where the group is only while this viewer is somewhere else
+  const hasFriendsOnLive = isLiveOn && hasTuned && !isOnLive && friends.length > 0
 
   // Shown once the player has a channel, as it arrives rather than over the
   // empty player (adjusted while rendering, React's pattern for state that
   // follows other state)
-  if (phase === 'waiting' && !isTVMode && hasTuned && !isNHLOverlayVisible && !hasSeenWelcome) {
-    setPhase('welcome')
+  if (isWaiting && !isTVMode && hasTuned && !isNHLOverlayVisible) {
+    if (!hasSeenWelcome) setPhase('welcome')
+    else if (isArriving && hasFriendsOnLive) setPhase('friends')
   }
-  const isShowing = phase === 'welcome'
+  // The arrival is over with nobody to point at
+  if (isWaiting && hasSeenWelcome && !isArriving) setPhase('done')
+  // Nothing left to join: the viewer went to live, or everyone left it
+  if (phase === 'friends' && !hasFriendsOnLive) setPhase('done')
+  const isShowing = phase === 'welcome' || phase === 'friends'
   // Clear of the sound-off pill
   const isDeferred = isAutoplayNoticeShown
   // Clear of the control bar on a short player
@@ -193,8 +230,15 @@ export function ArrivalCard({ channel }: ArrivalCardProps) {
           onBlur={handleBlur}
         >
           <div className="flex items-start gap-2">
+            {phase === 'friends' && (
+              <PresenceStack people={friends} max={FRIENDS_SHOWN_MAX} className="shrink-0 pt-1.5" />
+            )}
             <p className="min-w-0 flex-1 pt-1.5 text-base font-bold leading-tight">
-              {username ? `Welcome, ${username}` : 'Welcome'}
+              {phase === 'friends'
+                ? describeFriends(friends.length, liveName ?? 'live TV')
+                : username
+                  ? `Welcome, ${username}`
+                  : 'Welcome'}
             </p>
             <button
               type="button"
@@ -205,21 +249,46 @@ export function ArrivalCard({ channel }: ArrivalCardProps) {
               <X className="h-4 w-4" aria-hidden="true" />
             </button>
           </div>
-          <p className="mt-1 text-sm leading-snug text-white/80">
-            Channel 0 is the club channel: whoever hosts picks it and everyone can join.
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {showJoin && (
-              <Button size="sm" onClick={joinLive} className="focus-ring-media">
-                Join live
-              </Button>
-            )}
-            <Button variant="secondary" size="sm" onClick={browseChannels} className="focus-ring-media">
-              Browse channels
-            </Button>
-          </div>
+          {phase === 'friends' ? (
+            <>
+              <p className="mt-1 text-sm leading-snug text-white/80">
+                {liveTitle ? `${liveTitle}, live on channel 0` : 'Live on channel 0, the club channel'}
+              </p>
+              {showJoin && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button size="sm" onClick={joinLive} className="focus-ring-media">
+                    Join
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={close} className="focus-ring-media">
+                    Stay
+                  </Button>
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <p className="mt-1 text-sm leading-snug text-white/80">
+                Channel 0 is the club channel: whoever hosts picks it and everyone can join.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {showJoin && (
+                  <Button size="sm" onClick={joinLive} className="focus-ring-media">
+                    Join live
+                  </Button>
+                )}
+                <Button variant="secondary" size="sm" onClick={browseChannels} className="focus-ring-media">
+                  Browse channels
+                </Button>
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>
   )
+}
+
+/** '1 friend is watching TSN 5', '3 friends are watching TSN 5' */
+function describeFriends(count: number, channelName: string): string {
+  return count === 1 ? `1 friend is watching ${channelName}` : `${count} friends are watching ${channelName}`
 }
