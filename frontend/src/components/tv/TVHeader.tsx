@@ -4,6 +4,7 @@ import { useAppSettings } from '@/hooks/useAppSettings'
 import type { WebSocketStatus } from '@/hooks/useWebSocket'
 import { useUIStore } from '@/stores/uiStore'
 import { ChatToggleButton } from '@/components/ChatToggleButton'
+import { HereNowPopover } from '@/components/HereNowPopover'
 import { AccountMenu } from '@/components/AccountMenu'
 import { ConnectionStatus } from '@/components/ConnectionStatus'
 import { NowWatching } from '@/components/tv/NowWatching'
@@ -108,6 +109,9 @@ export function TVHeader({
             />
           )
         )}
+        {/* Who else is here, beside Chat; nothing while nobody else is.
+            Phones draw the avatars only, beside Chat's badge */}
+        <HereNowPopover variant={isMobile ? 'phone' : 'header'} />
         {/* Chat toggle, the one filled action */}
         <ChatToggleButton />
         {/* Account menu: live channel, admin, reload, feedback, pop-ups, theme, sign out */}
