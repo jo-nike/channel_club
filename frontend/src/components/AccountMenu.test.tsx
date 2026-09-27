@@ -11,10 +11,18 @@ const auth = vi.hoisted(() => ({
 }))
 const appSettings = vi.hoisted(() => ({ userChannelSelection: false }))
 const feedback = vi.hoisted(() => ({ isEnabled: false, isLoading: false }))
+const installPrompt = vi.hoisted(() => ({
+  canInstall: false,
+  shouldPromote: false,
+  variant: 'native' as 'native' | 'ios',
+  install: (() => Promise.resolve(false)) as () => Promise<boolean>,
+  dismiss: (() => {}) as () => void,
+}))
 
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => auth }))
 vi.mock('@/hooks/useAppSettings', () => ({ useAppSettings: () => appSettings }))
 vi.mock('@/hooks/useFeedbackFeature', () => ({ useFeedbackFeature: () => feedback }))
+vi.mock('@/hooks/useInstallPrompt', () => ({ useInstallPrompt: () => installPrompt }))
 vi.mock('@/components/FeedbackDialog', () => ({
   FeedbackDialog: ({ open }: { open: boolean }) => (open ? <div role="dialog">Feedback form</div> : null),
 }))
@@ -46,6 +54,9 @@ beforeEach(() => {
   auth.logout = vi.fn()
   appSettings.userChannelSelection = false
   feedback.isEnabled = false
+  installPrompt.canInstall = false
+  installPrompt.variant = 'native'
+  installPrompt.install = vi.fn(() => Promise.resolve(true))
   useUIStore.setState({ notificationsEnabled: true, isNHLOverlayVisible: false })
   useThemeStore.setState(useThemeStore.getInitialState())
 })
@@ -138,6 +149,40 @@ describe('AccountMenu feedback', () => {
 
     expect(screen.getByRole('dialog')).toHaveTextContent('Feedback form')
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  })
+})
+
+describe('AccountMenu install', () => {
+  it('leaves installation out when the app cannot be installed', () => {
+    renderMenu()
+    openMenu()
+    expect(screen.queryByRole('menuitem', { name: 'Install app' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Add to Home Screen' })).not.toBeInTheDocument()
+  })
+
+  it("offers Install app when the browser can install it, opening the browser's dialog", () => {
+    installPrompt.canInstall = true
+    renderMenu()
+    openMenu()
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Install app' }))
+
+    expect(installPrompt.install).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('menuitem', { name: 'Add to Home Screen' })).not.toBeInTheDocument()
+  })
+
+  it('offers Add to Home Screen on iOS, opening the instructions', async () => {
+    installPrompt.canInstall = true
+    installPrompt.variant = 'ios'
+    renderMenu()
+    openMenu()
+    expect(screen.queryByRole('menuitem', { name: 'Install app' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Add to Home Screen' }))
+
+    const sheet = await screen.findByRole('dialog', { name: /Add Channel Club to your Home Screen/ })
+    expect(sheet).toHaveTextContent('Tap Share')
+    expect(installPrompt.install).not.toHaveBeenCalled()
   })
 })
 

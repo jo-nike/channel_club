@@ -127,6 +127,27 @@ describe('InstallPrompt', () => {
       })
     })
 
+    it('publishes the room it takes as --install-prompt-h only while it shows', () => {
+      const root = document.documentElement
+      const { unmount } = render(<InstallPrompt />)
+      expect(root.style.getPropertyValue('--install-prompt-h')).toMatch(
+        /^calc\(\d+px \+ max\(1rem, env\(safe-area-inset-bottom\)\)\)$/,
+      )
+
+      act(() => {
+        useChatStore.setState({ isOpen: true })
+      })
+      expect(root.style.getPropertyValue('--install-prompt-h')).toBe('')
+
+      act(() => {
+        useChatStore.setState({ isOpen: false })
+      })
+      expect(root.style.getPropertyValue('--install-prompt-h')).not.toBe('')
+
+      unmount()
+      expect(root.style.getPropertyValue('--install-prompt-h')).toBe('')
+    })
+
     it('stays hidden while chat is open and comes back when it closes', () => {
       useChatStore.setState({ isOpen: true })
       render(<InstallPrompt />)

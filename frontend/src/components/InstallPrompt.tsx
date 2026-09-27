@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { Download, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { IosInstallDialog } from '@/components/IosInstallDialog'
@@ -11,6 +11,30 @@ export function InstallPrompt() {
   const isChatOpen = useChatStore((s) => s.isOpen)
   const [iosHelpOpen, setIosHelpOpen] = useState(false)
   const isIOS = variant === 'ios'
+  const visible = shouldPromote && !isChatOpen
+  const bannerRef = useRef<HTMLDivElement>(null)
+
+  // While the banner shows, publish the room it takes at the bottom of the
+  // screen (its height plus its offset) as --install-prompt-h on <html>, so
+  // the phone channel list can scroll its last row clear of it
+  useLayoutEffect(() => {
+    const banner = bannerRef.current
+    if (!visible || !banner) return
+    const root = document.documentElement
+    const publish = () =>
+      root.style.setProperty(
+        '--install-prompt-h',
+        `calc(${banner.offsetHeight}px + max(1rem, env(safe-area-inset-bottom)))`,
+      )
+    publish()
+    // The copy wraps on narrow screens, so follow the banner's height
+    const observer = new ResizeObserver(publish)
+    observer.observe(banner)
+    return () => {
+      observer.disconnect()
+      root.style.removeProperty('--install-prompt-h')
+    }
+  }, [visible])
 
   // iOS has no install dialog to open: show the instructions, and retire the
   // banner (the account menu keeps 'Add to Home Screen')
@@ -21,8 +45,9 @@ export function InstallPrompt() {
 
   return (
     <>
-      {shouldPromote && !isChatOpen && (
+      {visible && (
         <div
+          ref={bannerRef}
           className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-4 right-4 md:left-auto md:right-4 md:w-96
                      bg-card text-card-foreground border border-border rounded-lg shadow-lg p-4
                      flex items-center gap-4 z-40 animate-in slide-in-from-bottom duration-300"
