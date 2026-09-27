@@ -82,7 +82,7 @@ vi.mock('@vidstack/react', async () => {
 
 const highlight = vi.hoisted(() => ({
   enabled: false,
-  modal: vi.fn<(props: { acquirePreviewAudio?: () => () => void }) => void>(),
+  modal: vi.fn<(props: Record<string, unknown>) => void>(),
 }))
 vi.mock('@/hooks/useHighlightFeature', () => ({
   useHighlightFeature: () => ({ isEnabled: highlight.enabled, isLoading: false }),
@@ -90,7 +90,7 @@ vi.mock('@/hooks/useHighlightFeature', () => ({
 vi.mock('@/hooks/useHighlightStatus', () => ({ useHighlightStatus: () => ({}) }))
 vi.mock('@/components/HighlightButton', () => ({ HighlightButton: () => null }))
 vi.mock('@/components/HighlightModal', () => ({
-  HighlightModal: (props: { acquirePreviewAudio?: () => () => void }) => {
+  HighlightModal: (props: Record<string, unknown>) => {
     highlight.modal(props)
     return null
   },
@@ -167,11 +167,9 @@ const lastPlayerProps = () => {
   return props as MediaPlayerProps
 }
 
-const lastPreviewAudio = () => {
-  const acquire = highlight.modal.mock.lastCall?.[0].acquirePreviewAudio
-  if (!acquire) throw new Error('HighlightModal did not receive acquirePreviewAudio')
-  return acquire
-}
+// What the clip editor does while it is open
+const holdPreview = () => act(() => useAudioStore.getState().acquirePreview())
+const releasePreview = () => act(() => useAudioStore.getState().releasePreview())
 
 const wroteAudioStorage = () =>
   vi.mocked(localStorage.setItem).mock.calls.some(([key]) => key === 'audio-storage')
@@ -208,7 +206,7 @@ const startPlaybackButton = () => screen.queryByRole('button', { name: 'Start pl
 
 beforeEach(() => {
   localStorage.clear()
-  useAudioStore.setState({ volume: 1, muted: false, savedMuteNotice: false })
+  useAudioStore.setState({ volume: 1, muted: false, savedMuteNotice: false, previewHolds: 0 })
   useFilterStore.setState({ activeFilters: [] })
   vidstack.state = { paused: false, volume: 1, muted: false, fullscreen: false }
   vidstack.mediaPlayer.mockClear()
@@ -290,37 +288,68 @@ describe('DualModeVideoPlayer audio: live channel (mpegts)', () => {
     expect(video().volume).toBe(0.2)
   })
 
-  it('the clip preview duck mutes the element but never writes audio-storage', () => {
-    highlight.enabled = true
+  it('the clip preview hold mutes the element but never writes audio-storage', () => {
     useAudioStore.setState({ volume: 0.3, muted: false })
     renderPlayer(liveChannel('https://fixture/a'))
     vi.mocked(localStorage.setItem).mockClear()
 
-    let release = () => {}
-    act(() => {
-      release = lastPreviewAudio()()
-    })
+    holdPreview()
     expect(video().muted).toBe(true)
     expect(useAudioStore.getState().muted).toBe(false)
     expect(wroteAudioStorage()).toBe(false)
 
-    act(() => release())
+    releasePreview()
     expect(video().muted).toBe(false)
+    expect(video().volume).toBe(0.3)
     expect(wroteAudioStorage()).toBe(false)
   })
 
   it('the clip preview release restores a mute saved during the preview', () => {
-    highlight.enabled = true
     renderPlayer(liveChannel('https://fixture/a'))
 
-    let release = () => {}
-    act(() => {
-      release = lastPreviewAudio()()
-    })
+    holdPreview()
     act(() => useAudioStore.getState().setMuted(true))
-    act(() => release())
+    releasePreview()
 
     expect(video().muted).toBe(true)
+  })
+
+  it('an unmute during the preview hold is undone when the volume change arrives', () => {
+    renderPlayer(liveChannel('https://fixture/a'))
+    holdPreview()
+
+    act(() => {
+      video().muted = false
+    })
+
+    expect(video().muted).toBe(true)
+    expect(useAudioStore.getState().muted).toBe(false)
+  })
+
+  it('choosing a level during the preview hold saves it but keeps the element silent', () => {
+    useAudioStore.setState({ volume: 0.3, muted: false })
+    renderPlayer(liveChannel('https://fixture/a'))
+    holdPreview()
+
+    fireEvent.change(screen.getByRole('slider', { name: 'Volume' }), { target: { value: '0.6' } })
+
+    expect(useAudioStore.getState()).toMatchObject({ volume: 0.6, muted: false })
+    expect(video().muted).toBe(true)
+    releasePreview()
+    expect(video().muted).toBe(false)
+    expect(video().volume).toBe(0.6)
+  })
+
+  it('a new live stream under the preview hold starts silent', () => {
+    const { switchTo } = renderPlayer(liveChannel('https://fixture/a'))
+    holdPreview()
+
+    switchTo(liveChannel('https://fixture/b'))
+    expect(video().muted).toBe(true)
+    expect(useAudioStore.getState().muted).toBe(false)
+
+    releasePreview()
+    expect(video().muted).toBe(false)
   })
 })
 
@@ -417,38 +446,49 @@ describe('DualModeVideoPlayer audio: ErsatzTV channel (Vidstack)', () => {
     expect(vidstack.remote.unmute).toHaveBeenCalled()
   })
 
-  it('the clip preview duck mutes through Vidstack but never writes audio-storage', () => {
-    highlight.enabled = true
+  it('the clip preview hold mutes MediaPlayer but never writes audio-storage', () => {
     useAudioStore.setState({ volume: 0.3, muted: false })
     renderPlayer(hlsChannel('1', 1))
     vi.mocked(localStorage.setItem).mockClear()
 
-    let release = () => {}
-    act(() => {
-      release = lastPreviewAudio()()
-    })
-    expect(vidstack.remote.mute).toHaveBeenCalledTimes(1)
+    holdPreview()
+    expect(lastPlayerProps()).toMatchObject({ volume: 0.3, muted: true })
     expect(useAudioStore.getState().muted).toBe(false)
-    expect(lastPlayerProps().muted).toBe(false)
 
-    act(() => release())
-    expect(vidstack.remote.unmute).toHaveBeenCalledTimes(1)
+    releasePreview()
+    expect(lastPlayerProps()).toMatchObject({ volume: 0.3, muted: false })
     expect(wroteAudioStorage()).toBe(false)
   })
 
   it('the clip preview release keeps a mute saved during the preview', () => {
-    highlight.enabled = true
     renderPlayer(hlsChannel('1', 1))
 
-    let release = () => {}
-    act(() => {
-      release = lastPreviewAudio()()
-    })
+    holdPreview()
     act(() => useAudioStore.getState().setMuted(true))
-    act(() => release())
+    releasePreview()
 
-    expect(vidstack.remote.unmute).not.toHaveBeenCalled()
     expect(lastPlayerProps().muted).toBe(true)
+  })
+
+  it('an unmute Vidstack reports during the preview hold is undone', () => {
+    renderPlayer(hlsChannel('1', 1))
+    holdPreview()
+
+    // Vidstack's volume events arrive after the request that caused them
+    act(() => lastPlayerProps().onVolumeChange?.({ volume: 1, muted: false }))
+
+    expect(vidstack.remote.mute).toHaveBeenCalledTimes(1)
+    expect(useAudioStore.getState().muted).toBe(false)
+  })
+
+  it('an unmute reported after the preview hold ends is left alone', () => {
+    renderPlayer(hlsChannel('1', 1))
+    holdPreview()
+    releasePreview()
+
+    act(() => lastPlayerProps().onVolumeChange?.({ volume: 1, muted: false }))
+
+    expect(vidstack.remote.mute).not.toHaveBeenCalled()
   })
 })
 

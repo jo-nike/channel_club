@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@/test/utils'
 import { HighlightModal } from './HighlightModal'
 import * as api from '@/services/api'
+import { useAudioStore } from '@/stores/audioStore'
 
 vi.mock('@/services/api', () => ({
   createHighlightCapture: vi.fn(), highlightCaptureUrl: vi.fn(), fetchHighlightCapture: vi.fn(), deleteHighlightCapture: vi.fn(),
@@ -167,17 +168,18 @@ describe('Clip editor', () => {
   })
 
   it('restores audio, aborts requests and starts a fresh session after reopening', async () => {
-    const restore = vi.fn()
-    const acquirePreviewAudio = vi.fn(() => restore)
-    const { rerender } = render(<HighlightModal {...props} acquirePreviewAudio={acquirePreviewAudio} />)
+    useAudioStore.setState({ previewHolds: 0 })
+    const { rerender } = render(<HighlightModal {...props} />)
+    expect(useAudioStore.getState().previewHolds).toBe(1)
     await ready()
     fireEvent.click(screen.getByText('Last 10s'))
     const signal = vi.mocked(api.createHighlightCapture).mock.calls[0][1]!
-    rerender(<HighlightModal {...props} isOpen={false} acquirePreviewAudio={acquirePreviewAudio} />)
+    rerender(<HighlightModal {...props} isOpen={false} />)
     expect(signal.aborted).toBe(true)
-    expect(restore).toHaveBeenCalledTimes(1)
+    expect(useAudioStore.getState().previewHolds).toBe(0)
     expect(api.deleteHighlightCapture).toHaveBeenCalledExactlyOnceWith('capture-1')
-    rerender(<HighlightModal {...props} acquirePreviewAudio={acquirePreviewAudio} />)
+    rerender(<HighlightModal {...props} />)
+    expect(useAudioStore.getState().previewHolds).toBe(1)
     await ready()
     expect(screen.getByLabelText('Start (seconds)')).toHaveValue(40)
   })

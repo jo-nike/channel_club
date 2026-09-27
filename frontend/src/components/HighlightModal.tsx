@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { ClipTimeline } from './ClipTimeline'
 import { ClipTimeField } from './ClipTimeField'
+import { useAudioStore } from '@/stores/audioStore'
 
 /** The editor opens on the most recent stretch, which is short enough to share. */
 const DEFAULT_CLIP_SECONDS = 20
@@ -14,8 +15,6 @@ export interface HighlightModalProps {
   isOpen: boolean
   onClose: () => void
   channelId: string
-  /** Acquire temporary audio suppression; returned cleanup restores it. */
-  acquirePreviewAudio?: () => () => void
   container?: HTMLElement | null
 }
 
@@ -24,7 +23,7 @@ export function HighlightModal({ isOpen, ...props }: HighlightModalProps) {
   return isOpen ? <ClipSession key={props.channelId} {...props} /> : null
 }
 
-function ClipSession({ channelId, onClose, acquirePreviewAudio, container }: Omit<HighlightModalProps, 'isOpen'>) {
+function ClipSession({ channelId, onClose, container }: Omit<HighlightModalProps, 'isOpen'>) {
   const [source, setSource] = useState<{ id: string; url: string } | null>(null)
   const [duration, setDuration] = useState(0)
   const [range, setRange] = useState<[number, number]>([0, 0])
@@ -46,7 +45,6 @@ function ClipSession({ channelId, onClose, acquirePreviewAudio, container }: Omi
   const controller = useRef<AbortController | null>(null)
   const busy = useRef(false)
   const cache = useRef<{ key: string; blob: Blob } | null>(null)
-  const [acquireAudio] = useState(() => acquirePreviewAudio)
   const [start, end] = range
   const ready = duration >= 0.1 && source !== null && !captureError
   const needsConfirm = ready && delivered !== `${start}:${end}:${format}`
@@ -55,7 +53,12 @@ function ClipSession({ channelId, onClose, acquirePreviewAudio, container }: Omi
     if (needsConfirm) setConfirmDiscard(true); else onClose()
   }
 
-  useEffect(() => acquireAudio?.(), [acquireAudio])
+  // Silence the live player while the editor is open; the saved mute is untouched
+  useEffect(() => {
+    const { acquirePreview, releasePreview } = useAudioStore.getState()
+    acquirePreview()
+    return releasePreview
+  }, [])
   useEffect(() => { if (uploaded) uploadResult.current?.scrollIntoView?.({ block: 'nearest' }) }, [uploaded])
   useEffect(() => {
     const request = new AbortController()

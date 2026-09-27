@@ -79,7 +79,7 @@ export function ErsatzTVVideoControls({
   const isStoreMuted = useAudioStore((s) => s.muted)
   const setStoredVolume = useAudioStore((s) => s.setVolume)
   const setStoredMuted = useAudioStore((s) => s.setMuted)
-  // The element can also be muted without the viewer asking (clip preview duck)
+  // The element can also be muted without the viewer asking (clip preview hold)
   const muted = isStoreMuted || isElementMuted
 
   const handlePlayPause = () => {
@@ -124,11 +124,6 @@ export function ErsatzTVVideoControls({
     if (channelId) setCapture({ channel: channelId, container: containerRef?.current ?? null })
   }, [channelId, containerRef])
   const handleCloseHighlightModal = useCallback(() => setCapture(null), [])
-  const acquirePreviewAudio = useCallback(() => {
-    remote.mute()
-    // Restore the viewer's saved choice, which may have changed during the preview
-    return () => { if (!useAudioStore.getState().muted) remote.unmute() }
-  }, [remote])
 
   return (
     <div
@@ -213,7 +208,6 @@ export function ErsatzTVVideoControls({
             isOpen={capture?.channel === channelId}
             onClose={handleCloseHighlightModal}
             channelId={channelId}
-            acquirePreviewAudio={acquirePreviewAudio}
             container={capture?.container}
           />
         </>

@@ -11,24 +11,12 @@ vi.mock('@/hooks/useHighlightFeature', () => ({
 const volumeSupport = vi.hoisted(() => ({ canSet: true }))
 vi.mock('@/hooks/useCanSetVolume', () => ({ useCanSetVolume: () => volumeSupport.canSet }))
 
-// Mock video element
-const createMockVideoRef = () => {
-  const video = document.createElement('video')
-  Object.defineProperty(video, 'paused', { value: true, writable: true })
-  Object.defineProperty(video, 'volume', { value: 1, writable: true })
-  Object.defineProperty(video, 'muted', { value: false, writable: true })
-  return { current: video }
-}
-
 describe('VideoControls', () => {
-  let mockVideoRef: ReturnType<typeof createMockVideoRef>
   let defaultProps: VideoControlsProps
 
   beforeEach(() => {
     volumeSupport.canSet = true
-    mockVideoRef = createMockVideoRef()
     defaultProps = {
-      videoRef: mockVideoRef as React.RefObject<HTMLVideoElement>,
       isPlaying: false,
       volume: 1,
       isMuted: false,

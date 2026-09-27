@@ -228,7 +228,7 @@ function LiveVideoPlayer({
   // Video state
   const [isPlaying, setIsPlaying] = useState(false)
   const [hasStarted, setHasStarted] = useState(false)
-  // Muted by something other than the viewer (e.g. the clip preview duck); display only
+  // Muted by something other than the viewer (e.g. the clip preview hold); display only
   const [isElementMuted, setIsElementMuted] = useState(false)
   // Autoplay fallbacks: the browser only allowed muted playback, or none
   const [isSystemMutedState, setIsSystemMuted] = useState(false)
@@ -243,6 +243,8 @@ function LiveVideoPlayer({
   const isStoreMuted = useAudioStore((s) => s.muted)
   const setStoredVolume = useAudioStore((s) => s.setVolume)
   const setStoredMuted = useAudioStore((s) => s.setMuted)
+  // The clip editor is previewing: keep the element silent, the saved mute as it is
+  const isPreviewHeld = useAudioStore((s) => s.previewHolds > 0)
   const isMuted = isStoreMuted || isElementMuted
   const isSystemMuted = isSystemMutedState && !isStoreMuted
   const isSavedMuteNotice = useSavedMuteNotice(hasStarted, isStoreMuted)
@@ -326,15 +328,16 @@ function LiveVideoPlayer({
   // Check mpegts.js support
   const isMpegtsSupported = mpegts.isSupported()
 
-  // Apply the saved volume and mute to the element. Declared before the
-  // mpegts effect so a new stream starts at the viewer's level.
+  // Apply the saved volume and mute, and any preview hold, to the element.
+  // Declared before the mpegts effect so a new stream starts at the viewer's
+  // level, and silent under an open clip editor.
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
 
     video.volume = volume
-    video.muted = isStoreMuted
-  }, [volume, isStoreMuted])
+    video.muted = isStoreMuted || isPreviewHeld
+  }, [volume, isStoreMuted, isPreviewHeld])
 
   // Setup mpegts.js player
   useEffect(() => {
@@ -380,8 +383,14 @@ function LiveVideoPlayer({
     const handlePause = () => setIsPlaying(false)
     const handlePlay = () => setIsPlaying(true)
     const handleError = () => setError('Stream unavailable')
-    // Never saved: element-only mutes (the clip preview duck) must not stick
+    // Never saved: element-only mutes (the clip preview hold) must not stick
     const handleVolumeChangeEvent = () => {
+      // Read the hold now, not when the unmute was asked for: an unmute
+      // during a preview (the slider, another window) is undone
+      if (!video.muted && useAudioStore.getState().previewHolds > 0) {
+        video.muted = true
+        return
+      }
       setIsElementMuted(video.muted)
       // Any unmute (the notice, Mute button, M key, slider) ends the system mute
       if (!video.muted) setIsSystemMuted(false)
@@ -414,7 +423,6 @@ function LiveVideoPlayer({
       <video ref={videoRef} autoPlay className="h-full w-full object-contain" />
 
       <VideoControls
-        videoRef={videoRef}
         containerRef={containerRef}
         isPlaying={isPlaying}
         volume={volume}
@@ -485,6 +493,8 @@ function HLSVideoPlayerWrapper({
   const volume = useAudioStore((s) => s.volume)
   const muted = useAudioStore((s) => s.muted)
   const setStoredMuted = useAudioStore((s) => s.setMuted)
+  // The clip editor is previewing: the element is muted, the saved mute kept
+  const isPreviewHeld = useAudioStore((s) => s.previewHolds > 0)
   const isSavedMuteNotice = useSavedMuteNotice(hasStarted, muted)
 
   const { status, retryCount, retryKey, handleError, handlePlaying } = useHLSRetry({
@@ -558,9 +568,15 @@ function HLSVideoPlayerWrapper({
   )
 
   // Any unmute of the element (the notice, Mute button, M key, slider) ends
-  // the system mute
+  // the system mute. Vidstack reports it asynchronously, so the preview hold
+  // is read when the event arrives: an unmute during a preview is undone.
   const onVolumeChange = useCallback((detail: MediaVolumeChange) => {
-    if (!detail.muted) setSystemMutedKey(null)
+    if (detail.muted) return
+    if (useAudioStore.getState().previewHolds > 0) {
+      playerRef.current?.remoteControl.mute()
+      return
+    }
+    setSystemMutedKey(null)
   }, [])
 
   // The tap is a user gesture, so the browser lets the element unmute
@@ -605,7 +621,7 @@ function HLSVideoPlayerWrapper({
         autoPlay
         playsInline
         volume={volume}
-        muted={muted}
+        muted={muted || isPreviewHeld}
         // useVideoKeyboardShortcuts is the only keyboard map: Vidstack's own
         // keys seek, and change volume without saving it
         keyDisabled
