@@ -360,6 +360,33 @@ describe('api service', () => {
     })
   })
 
+  describe('fetchNowPlaying', () => {
+    const ok = () =>
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ channelId: '28', currentProgram: null }),
+      } as Response)
+
+    it('sends the channel name, encoded, for the guide lookup', async () => {
+      ok()
+      const { fetchNowPlaying } = await import('./api')
+      await fetchNowPlaying('5.1', 'CA-S: TSN 5 & More')
+
+      expect(vi.mocked(fetch).mock.calls[0][0]).toBe(
+        '/api/epg/now-playing?channel_id=5.1&channel_name=CA-S%3A+TSN+5+%26+More'
+      )
+    })
+
+    it('leaves the name out when there is none', async () => {
+      ok()
+      const { fetchNowPlaying } = await import('./api')
+      await fetchNowPlaying('28')
+
+      expect(vi.mocked(fetch).mock.calls[0][0]).toBe('/api/epg/now-playing?channel_id=28')
+    })
+  })
+
   describe('getAuthConfig', () => {
     it('should GET /auth/config and return auth methods', async () => {
       const mockConfig = {

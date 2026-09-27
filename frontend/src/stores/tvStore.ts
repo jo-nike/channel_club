@@ -10,6 +10,16 @@ import type { UnifiedChannel, ErsatzTVChannel, EPGResponse } from '@/types'
 // Constants
 export const LIVE_CHANNEL_ID = 'live-channel-0'
 
+/**
+ * What the live channel's guide lookup came back with:
+ * - idle: nothing on live TV
+ * - loading: the first lookup for the live channel hasn't answered yet
+ * - ok: there's a current programme
+ * - empty: the guide answered but has nothing on now for this channel
+ * - unavailable: the guide couldn't be reached (e.g. the server's 503)
+ */
+export type LiveEPGStatus = 'idle' | 'loading' | 'ok' | 'empty' | 'unavailable'
+
 interface TVState {
   // Selected channel (can be Channel 0 or ErsatzTV channel)
   selectedChannel: UnifiedChannel | null
@@ -17,6 +27,7 @@ interface TVState {
   // Live channel EPG data (for Channel 0)
   liveEPG: EPGResponse | null
   liveEPGLoading: boolean
+  liveEPGStatus: LiveEPGStatus
   // Monotonic id used to discard out-of-order loadLiveEPG responses (internal)
   epgRequestId: number
 
@@ -47,6 +58,7 @@ export const useTVStore = create<TVState>()(
     selectedChannel: null,
     liveEPG: null,
     liveEPGLoading: false,
+    liveEPGStatus: 'idle',
     epgRequestId: 0,
 
     selectChannel: (channel: UnifiedChannel) => {
@@ -72,13 +84,20 @@ export const useTVStore = create<TVState>()(
       const requestId = get().epgRequestId + 1
       set({ epgRequestId: requestId })
 
-      if (!liveChannel?.guideId) {
-        set({ liveEPG: null, liveEPGLoading: false })
+      if (!liveChannel) {
+        set({ liveEPG: null, liveEPGLoading: false, liveEPGStatus: 'idle' })
+        return
+      }
+      // A live channel without a guide id can't have guide data
+      if (!liveChannel.guideId) {
+        set({ liveEPG: null, liveEPGLoading: false, liveEPGStatus: 'empty' })
         return
       }
 
       const guideId = liveChannel.guideId
-      set({ liveEPGLoading: true })
+      // Periodic refreshes keep the last answer on screen rather than flashing
+      // back to loading
+      set(get().liveEPGStatus === 'idle' ? { liveEPGLoading: true, liveEPGStatus: 'loading' } : { liveEPGLoading: true })
 
       // A response is stale if a newer loadLiveEPG has started (epgRequestId
       // moved on, which also orders two in-flight requests for the same guideId)
@@ -88,20 +107,20 @@ export const useTVStore = create<TVState>()(
         useChannelStore.getState().currentChannel?.guideId !== guideId
 
       try {
-        const epg = await fetchNowPlaying(guideId)
+        const epg = await fetchNowPlaying(guideId, liveChannel.name)
         if (isStale()) {
           // Don't clobber fresher EPG. Only clear the loading flag if no newer
           // request owns it, otherwise that request clears it when it lands.
           if (get().epgRequestId === requestId) set({ liveEPGLoading: false })
           return
         }
-        set({ liveEPG: epg, liveEPGLoading: false })
+        set({ liveEPG: epg, liveEPGLoading: false, liveEPGStatus: epg.currentProgram ? 'ok' : 'empty' })
       } catch {
         if (isStale()) {
           if (get().epgRequestId === requestId) set({ liveEPGLoading: false })
           return
         }
-        set({ liveEPG: null, liveEPGLoading: false })
+        set({ liveEPG: null, liveEPGLoading: false, liveEPGStatus: 'unavailable' })
       }
     },
 
@@ -176,6 +195,9 @@ useChannelStore.subscribe((state) => {
     // If currently viewing Channel 0, update the EPG
     if (selectedChannel?.type === 'live') {
       useTVStore.setState({ selectedChannel: useTVStore.getState().getUnifiedChannels()[0] })
+      loadLiveEPG()
+    } else if (!currentChannel) {
+      // Live TV stopped: drop its guide state (and any lookup in flight)
       loadLiveEPG()
     }
 

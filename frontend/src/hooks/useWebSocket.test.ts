@@ -901,7 +901,7 @@ describe('useWebSocket', () => {
       expect(selected?.id).toBe(LIVE_CHANNEL_ID)
       expect(selected?.type).toBe('live')
       expect(selected?.name).toBe('ESPN')
-      expect(fetchNowPlaying).toHaveBeenCalledWith('espn.guide')
+      expect(fetchNowPlaying).toHaveBeenCalledWith('espn.guide', 'ESPN')
     })
 
     test('Watch selects the first unified channel even when ErsatzTV channels are loaded', () => {
