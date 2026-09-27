@@ -260,3 +260,100 @@ describe('TV layout override', () => {
     removeEventListener.mockRestore()
   })
 })
+
+describe('TV mode with blocked storage', () => {
+  const realStorage = window.localStorage
+  const blocked = () => {
+    throw new DOMException('The operation is insecure.', 'SecurityError')
+  }
+  const goTo = (path: string) => window.history.replaceState(null, '', path)
+  const address = () => window.location.pathname + window.location.search + window.location.hash
+
+  // A fresh copy of the module, so a page-only choice from one test can't leak into the next
+  const freshModule = async () => {
+    vi.resetModules()
+    return import('./useTVMode')
+  }
+
+  beforeEach(() => {
+    Object.defineProperty(window, 'localStorage', {
+      value: { getItem: blocked, setItem: blocked, removeItem: blocked, clear: blocked },
+      writable: true,
+    })
+  })
+
+  afterEach(() => {
+    Object.defineProperty(window, 'localStorage', { value: realStorage, writable: true })
+    Object.defineProperty(navigator, 'userAgent', {
+      writable: true,
+      configurable: true,
+      value: 'Mozilla/5.0 Chrome/120.0.0.0',
+    })
+    goTo('/')
+  })
+
+  it('the startup module still loads with ?tv=1, and the layout is on for this page load', async () => {
+    goTo('/?tv=1')
+    vi.resetModules()
+
+    await expect(import('@/tvModeParam')).resolves.toBeDefined()
+
+    const { detectTVMode, readTVModeOverride } = await import('./useTVMode')
+    expect(detectTVMode()).toBe(true)
+    expect(readTVModeOverride()).toBe('on')
+    expect(address()).toBe('/')
+  })
+
+  it('?tv=0 turns it off for this page load, even on a TV browser', async () => {
+    Object.defineProperty(navigator, 'userAgent', {
+      writable: true,
+      configurable: true,
+      value: 'Mozilla/5.0 (webOS; Linux) AppleWebKit/537.36 LG Browser/8.00.00',
+    })
+    goTo('/?tv=0')
+    const { applyTVModeQueryParam, detectTVMode } = await freshModule()
+
+    expect(() => applyTVModeQueryParam()).not.toThrow()
+    expect(detectTVMode()).toBe(false)
+  })
+
+  it('without a choice, falls back to the user agent check', async () => {
+    const { detectTVMode, readTVModeOverride } = await freshModule()
+    expect(detectTVMode()).toBe(false)
+    expect(readTVModeOverride()).toBe('auto')
+
+    Object.defineProperty(navigator, 'userAgent', {
+      writable: true,
+      configurable: true,
+      value: 'Mozilla/5.0 (SMART-TV; Linux; Tizen 5.0) AppleWebKit/537.36',
+    })
+    expect(detectTVMode()).toBe(true)
+  })
+
+  it('the account menu choice applies for this page load instead of throwing', async () => {
+    const { setTVModeOverride, readTVModeOverride, detectTVMode } = await freshModule()
+
+    expect(() => setTVModeOverride('on')).not.toThrow()
+    expect(readTVModeOverride()).toBe('on')
+    expect(detectTVMode()).toBe(true)
+
+    setTVModeOverride('auto')
+    expect(readTVModeOverride()).toBe('auto')
+    expect(detectTVMode()).toBe(false)
+  })
+
+  it('once storage works again, a stored choice replaces the page-only one', async () => {
+    goTo('/?tv=1')
+    const { applyTVModeQueryParam, setTVModeOverride, readTVModeOverride } = await freshModule()
+    applyTVModeQueryParam()
+    expect(readTVModeOverride()).toBe('on')
+
+    Object.defineProperty(window, 'localStorage', { value: realStorage, writable: true })
+    realStorage.clear()
+    setTVModeOverride('off')
+
+    expect(realStorage.getItem('tv-mode')).toBe('false')
+    expect(readTVModeOverride()).toBe('off')
+    realStorage.clear()
+  })
+})

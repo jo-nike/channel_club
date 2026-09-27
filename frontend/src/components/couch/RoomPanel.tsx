@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, type FocusEvent, type KeyboardEvent } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react'
 import { findPresenceChannel, presenceRowId, useOthersHere, useSeesPresenceChannels } from '@/hooks/usePresenceByChannel'
 import { useRovingTabIndex } from '@/hooks/useRovingTabIndex'
 import { useChannelStore } from '@/stores/channelStore'
@@ -14,7 +14,8 @@ import { KeyHint } from './CouchGuide'
 interface RoomPanelProps {
   /**
    * Hides the panel: after joining someone, on Back or the green key, when
-   * focus leaves it, or once nobody else is here
+   * focus leaves it, once nobody else is here, or after the 'Nobody else is
+   * here' message
    */
   onClose: () => void
 }
@@ -31,12 +32,16 @@ interface RoomRow {
 
 const getRowKey = (row: RoomRow) => row.key
 
+// How long 'Nobody else is here' shows before the panel hides
+export const NOBODY_HERE_MS = 3000
+
 /**
  * Who else is here, for the couch: each friend's name, large, and what
  * they're on while channels are shown (the admin's 'Show what everyone is
  * watching', and this viewer not hiding their own). Otherwise names only,
- * with nothing to join. It shows nothing, and closes, while nobody else is
- * here.
+ * with nothing to join. Opened while nobody else is here, it says so for
+ * NOBODY_HERE_MS and hides, even if a friend arrives meanwhile; once the
+ * last friend leaves an open list, it closes.
  *
  * A one-column list for the D-pad, like the guide: Up and Down move, OK on a
  * friend on another channel joins them and hides the panel, Back (or the
@@ -45,6 +50,30 @@ const getRowKey = (row: RoomRow) => row.key
  * goes elsewhere, such as a Magic Remote click on the picture.
  */
 export function RoomPanel({ onClose }: RoomPanelProps) {
+  const people = useOthersHere()
+  // Decided as it opens: an arrival doesn't turn the message into the list
+  const [openedEmpty] = useState(people.length === 0)
+  return openedEmpty ? <NobodyElseHere onClose={onClose} /> : <RoomList onClose={onClose} />
+}
+
+/** Opened with nobody else here: a brief message where the list would be */
+function NobodyElseHere({ onClose }: RoomPanelProps) {
+  useEffect(() => {
+    const timer = setTimeout(onClose, NOBODY_HERE_MS)
+    return () => clearTimeout(timer)
+  }, [onClose])
+
+  return (
+    <div
+      role="status"
+      className="absolute top-(--couch-safe-y) right-(--couch-safe-x) z-30 rounded-3xl bg-background/90 px-12 py-8 text-foreground shadow-2xl"
+    >
+      <p className="text-3xl font-bold">Nobody else is here</p>
+    </div>
+  )
+}
+
+function RoomList({ onClose }: RoomPanelProps) {
   const people = useOthersHere()
   const seesChannels = useSeesPresenceChannels()
   const liveChannel = useChannelStore((s) => s.currentChannel)
@@ -90,7 +119,7 @@ export function RoomPanel({ onClose }: RoomPanelProps) {
     if (!listRef.current?.contains(document.activeElement)) itemRefs.current[focusedIndex]?.focus()
   }, [rows, focusedIndex, itemRefs])
 
-  // Nobody else here, or the last one left: nothing to show
+  // The last one left: nothing to show
   const isEmpty = rows.length === 0
   useEffect(() => {
     if (isEmpty) onClose()

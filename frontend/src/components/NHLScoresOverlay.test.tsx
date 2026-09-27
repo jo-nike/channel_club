@@ -737,7 +737,9 @@ describe('NHLScoresOverlay: watching a game together', () => {
     }
   }
 
+  // Plain chat messages, and suggestion cards (what the Live TV switcher posts)
   const sender = vi.fn<(content: string) => Promise<ChatSendResult>>()
+  const suggester = vi.fn<(channelId: string) => Promise<ChatSendResult>>()
   let unregister = () => {}
 
   function renderTicker(games: NHLGame[]) {
@@ -767,7 +769,13 @@ describe('NHLScoresOverlay: watching a game together', () => {
     useAuthStore.setState({ token: 'test-token', role: 'viewer', username: 'sam', isAuthenticated: true })
     useSettingsStore.setState({ userChannelSelection: false })
     sender.mockResolvedValue('acknowledged')
-    unregister = useChatStore.getState().registerSender(sender)
+    suggester.mockResolvedValue('acknowledged')
+    const unregisterSender = useChatStore.getState().registerSender(sender)
+    const unregisterSuggester = useChatStore.getState().registerSuggester(suggester)
+    unregister = () => {
+      unregisterSender()
+      unregisterSuggester()
+    }
   })
 
   afterEach(() => {
@@ -792,7 +800,7 @@ describe('NHLScoresOverlay: watching a game together', () => {
     renderTicker([game(1, 'live', [broadcast('TSN5'), broadcast('SN')])])
 
     const popover = await openGame()
-    expect(within(popover).queryByRole('button', { name: 'Ask the group' })).not.toBeInTheDocument()
+    expect(within(popover).queryByRole('button', { name: /^Suggest/ })).not.toBeInTheDocument()
     const channels = within(popover).getByRole('list', { name: 'Channels showing TOR @ MTL' })
     // In broadcast order (national feeds by network name)
     expect(within(channels).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual([
@@ -809,6 +817,7 @@ describe('NHLScoresOverlay: watching a game together', () => {
       expect(useTVStore.getState().selectedChannel).toMatchObject({ id: LIVE_CHANNEL_ID, streamUrl: sportsnet.streamUrl })
     )
     expect(sender).not.toHaveBeenCalled()
+    expect(suggester).not.toHaveBeenCalled()
   })
 
   it("anyone gets 'Watch together' while the admin lets viewers change live TV", async () => {
@@ -821,45 +830,59 @@ describe('NHLScoresOverlay: watching a game together', () => {
     expect(api.setCurrentChannel).toHaveBeenCalledWith(tsn5)
   })
 
-  it("everyone else gets 'Ask the group', which posts the game and its channels in chat", async () => {
+  it("everyone else can 'Suggest' each channel, posting the same suggestion card as the Live TV switcher", async () => {
     renderTicker([game(1, 'live', [broadcast('TSN5'), broadcast('SN')])])
 
     const popover = await openGame()
     expect(within(popover).queryByRole('button', { name: /Watch together/ })).not.toBeInTheDocument()
-    expect(within(popover).getByText('On Sportsnet, TSN 5')).toBeInTheDocument()
+    const channels = within(popover).getByRole('list', { name: 'Channels showing TOR @ MTL' })
+    expect(within(channels).getAllByRole('button').map((b) => [b.textContent, b.getAttribute('aria-label')])).toEqual([
+      ['Suggest', 'Suggest Sportsnet in chat'],
+      ['Suggest', 'Suggest TSN 5 in chat'],
+    ])
 
-    fireEvent.click(within(popover).getByRole('button', { name: 'Ask the group' }))
+    fireEvent.click(within(popover).getByRole('button', { name: 'Suggest TSN 5 in chat' }))
 
-    expect(sender).toHaveBeenCalledWith("Can we watch TOR @ MTL? It's on Sportsnet or TSN 5.", undefined)
+    expect(suggester).toHaveBeenCalledExactlyOnceWith(tsn5.id, undefined)
+    expect(sender).not.toHaveBeenCalled()
     expect(api.setCurrentChannel).not.toHaveBeenCalled()
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Asked the group in chat'))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Suggested TSN 5 in chat'))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
-  it('says when the question could not be sent, or may not have been', async () => {
-    sender.mockResolvedValueOnce('not-sent').mockResolvedValueOnce('unconfirmed')
+  it('says when the suggestion could not be sent, or may not have been, as the switcher does', async () => {
+    suggester.mockResolvedValueOnce('not-sent').mockResolvedValueOnce('unconfirmed')
     renderTicker([game(1, 'live', [broadcast('TSN5')])])
 
-    fireEvent.click(within(await openGame()).getByRole('button', { name: 'Ask the group' }))
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Couldn't ask the group", expect.anything()))
+    fireEvent.click(within(await openGame()).getByRole('button', { name: 'Suggest TSN 5 in chat' }))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Could not suggest TSN 5', expect.anything()))
 
-    fireEvent.click(within(await openGame()).getByRole('button', { name: 'Ask the group' }))
+    fireEvent.click(within(await openGame()).getByRole('button', { name: 'Suggest TSN 5 in chat' }))
     await waitFor(() =>
-      expect(toast.warning).toHaveBeenCalledWith('Your question may not have been posted', expect.anything())
+      expect(toast.warning).toHaveBeenCalledWith('Your suggestion of TSN 5 may not have been posted', expect.anything())
     )
     expect(toast.success).not.toHaveBeenCalled()
   })
 
-  it("with chat off, 'Ask the group' is disabled and says why", async () => {
+  it("can't suggest the channel already on Live, only the others", async () => {
+    useChannelStore.setState({ currentChannel: sportsnet })
+    // Not started, so not the game on Live, but one of its channels is
+    renderTicker([game(1, 'scheduled', [broadcast('TSN5'), broadcast('SN')])])
+
+    const popover = await openGame(/Toronto/)
+
+    expect(within(popover).getByRole('button', { name: 'Sportsnet is on Live' })).toBeDisabled()
+    expect(within(popover).getByRole('button', { name: 'Suggest TSN 5 in chat' })).toBeEnabled()
+  })
+
+  it('with chat off, offers no Suggest and says where the game is on', async () => {
     chatFlag.enabled = false
     renderTicker([game(1, 'live', [broadcast('TSN5')])])
 
-    const ask = within(await openGame()).getByRole('button', { name: 'Ask the group' })
+    const popover = await openGame()
 
-    expect(ask).toBeDisabled()
-    expect(ask).toHaveAccessibleDescription(/Chat is off, so you can't ask the group/)
-    fireEvent.click(ask)
-    expect(sender).not.toHaveBeenCalled()
+    expect(within(popover).getByText('On TSN 5. Only an admin can change live TV.')).toBeInTheDocument()
+    expect(within(popover).queryByRole('button')).not.toBeInTheDocument()
   })
 
   it('offers nothing for a game on none of your channels, and says where it is on', async () => {
@@ -896,7 +919,7 @@ describe('NHLScoresOverlay: watching a game together', () => {
       vi.mocked(api.fetchGroupedChannels).mockRejectedValue(new Error('503'))
     })
 
-    it("says so, and still lets a viewer who can't switch ask for the game by name", async () => {
+    it("says so to a viewer who can't switch, with no channel to suggest", async () => {
       renderTicker([game(1, 'live', [broadcast('TSN5')])])
 
       const popover = await openGame()
@@ -904,10 +927,7 @@ describe('NHLScoresOverlay: watching a game together', () => {
         await within(popover).findByText("Couldn't load your channels. Reopen the scores to try again.")
       ).toBeInTheDocument()
       expect(within(popover).queryByText(/Finding it/)).not.toBeInTheDocument()
-
-      fireEvent.click(within(popover).getByRole('button', { name: 'Ask the group' }))
-
-      expect(sender).toHaveBeenCalledWith('Can we watch TOR @ MTL?', undefined)
+      expect(within(popover).queryByRole('button')).not.toBeInTheDocument()
     })
 
     it('says so to someone who can switch, with nothing to put on', async () => {
@@ -927,7 +947,7 @@ describe('NHLScoresOverlay: watching a game together', () => {
     renderTicker([game(1, 'live', [broadcast('TSN5')])])
     const popover = await openGame()
 
-    fireEvent.keyDown(within(popover).getByRole('button', { name: 'Ask the group' }), { key: 'Escape' })
+    fireEvent.keyDown(within(popover).getByRole('button', { name: 'Suggest TSN 5 in chat' }), { key: 'Escape' })
 
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(mockToggleNHLOverlay).not.toHaveBeenCalled()
@@ -986,14 +1006,14 @@ describe('NHLScoresOverlay: watching a game together', () => {
       expect(api.setCurrentChannel).toHaveBeenCalledWith(sportsnet)
     })
 
-    it('has nothing to ask for when the game is already on Live', async () => {
+    it('has nothing to suggest when the game is already on Live', async () => {
       useChannelStore.setState({ currentChannel: tsn5 })
       renderTicker([game(1, 'live', [broadcast('TSN5')])])
 
       const popover = await openGame('Toronto Maple Leafs 2 at Montreal Canadiens 2, 3RD 4:32, On Live')
 
       expect(within(popover).getByText("It's on Live now.")).toBeInTheDocument()
-      expect(within(popover).queryByRole('button', { name: 'Ask the group' })).not.toBeInTheDocument()
+      expect(within(popover).queryByRole('button', { name: /^Suggest/ })).not.toBeInTheDocument()
     })
   })
 

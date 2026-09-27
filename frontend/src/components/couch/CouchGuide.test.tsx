@@ -42,8 +42,9 @@ const press = (key: string, init: { keyCode?: number } = {}) => fireEvent.keyDow
 
 function renderGuide({ canPickLive = true }: { canPickLive?: boolean } = {}) {
   const onClose = vi.fn()
-  render(<CouchGuide onClose={onClose} canPickLive={canPickLive} />)
-  return { onClose }
+  const onOpenRoom = vi.fn()
+  render(<CouchGuide onClose={onClose} canPickLive={canPickLive} onOpenRoom={onOpenRoom} />)
+  return { onClose, onOpenRoom }
 }
 
 // The store's own, put back before each test: a spy set on the store's state
@@ -215,6 +216,21 @@ describe('CouchGuide: the remote', () => {
 
     expect(selectChannel).not.toHaveBeenCalled()
     expect(onClose).toHaveBeenCalled()
+  })
+
+  it("names the green key for who's here, and hands it over, however it arrives", () => {
+    const { onClose, onOpenRoom } = renderGuide()
+
+    expect(screen.getByText('Green', { selector: 'kbd' }).parentElement).toHaveTextContent("Who's here")
+
+    // Named, with no name (an older remote), and W from a keyboard; the
+    // guide keeps each from the page
+    for (const [key, keyCode] of [['ColorF1Green', 404], ['Unidentified', 404], ['w', 87]] as const) {
+      expect(fireEvent.keyDown(focused(), { key, keyCode })).toBe(false)
+    }
+
+    expect(onOpenRoom).toHaveBeenCalledTimes(3)
+    expect(onClose).not.toHaveBeenCalled()
   })
 
   it('tunes a row a Magic Remote pointer clicks', () => {

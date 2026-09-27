@@ -70,7 +70,12 @@ beforeEach(() => {
   vi.clearAllMocks()
   env.chat = true
   env.tv = false
-  useClipStore.setState({ session: null, clipping: false })
+  // The player's controls report Sportsnet's buffer ready (see PlayerChrome)
+  useClipStore.setState({
+    session: null,
+    clipping: false,
+    buffer: { channelId: '42', state: 'ready', label: 'Capture clip · 30s available' },
+  })
   vi.mocked(api.getHighlightFeatures).mockResolvedValue({ enabled: true, ziplineEnabled: true })
   vi.mocked(api.createHighlightCapture).mockResolvedValue(capture)
   vi.mocked(api.deleteHighlightCapture).mockResolvedValue()
@@ -287,6 +292,64 @@ describe('useClipThat', () => {
     await flush(5000)
     expect(api.createHighlightCapture).not.toHaveBeenCalled()
     expect(toast.loading).not.toHaveBeenCalled()
+  })
+
+  describe('before the clip buffer is ready', () => {
+    it('captures nothing while it fills, and says so with the clip control\'s label', async () => {
+      useClipStore.setState({ buffer: { channelId: '42', state: 'buffering', label: 'Buffering clip · 4s of 60s' } })
+      const { result } = await clipThatFor()
+      act(() => result.current?.())
+      await flush(5000)
+
+      expect(api.createHighlightCapture).not.toHaveBeenCalled()
+      expect(toast.loading).not.toHaveBeenCalled()
+      expect(toast.error).not.toHaveBeenCalled()
+      expect(useClipStore.getState().clipping).toBe(false)
+      expect(toast).toHaveBeenCalledExactlyOnceWith(
+        'Buffering clip · 4s of 60s',
+        expect.objectContaining({ id: 'clip-that-not-ready' }),
+      )
+    })
+
+    it('captures nothing while the channel is not recording', async () => {
+      useClipStore.setState({ buffer: { channelId: '42', state: 'unavailable', label: 'Clip unavailable' } })
+      const { result } = await clipThatFor()
+      act(() => result.current?.())
+      await flush()
+
+      expect(api.createHighlightCapture).not.toHaveBeenCalled()
+      expect(toast).toHaveBeenCalledWith('Clip unavailable', expect.anything())
+    })
+
+    it('captures nothing while the first status check is out', async () => {
+      useClipStore.setState({ buffer: { channelId: '42', state: 'checking', label: 'Checking clip…' } })
+      const { result } = await clipThatFor()
+      act(() => result.current?.())
+      await flush()
+
+      expect(api.createHighlightCapture).not.toHaveBeenCalled()
+      expect(toast).toHaveBeenCalledWith('Checking clip…', expect.anything())
+    })
+
+    it('captures nothing when no controls report a buffer', async () => {
+      useClipStore.setState({ buffer: null })
+      const { result } = await clipThatFor()
+      act(() => result.current?.())
+      await flush()
+
+      expect(api.createHighlightCapture).not.toHaveBeenCalled()
+      expect(toast).toHaveBeenCalledWith('Clip unavailable', expect.anything())
+    })
+
+    it('does not take another channel\'s ready buffer for this one', async () => {
+      useClipStore.setState({ buffer: { channelId: '7', state: 'ready', label: 'Capture clip · 30s available' } })
+      const { result } = await clipThatFor()
+      act(() => result.current?.())
+      await flush()
+
+      expect(api.createHighlightCapture).not.toHaveBeenCalled()
+      expect(toast).toHaveBeenCalledWith('Clip unavailable', expect.anything())
+    })
   })
 
   it('a second press while one runs does nothing', async () => {

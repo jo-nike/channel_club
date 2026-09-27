@@ -83,9 +83,11 @@ function requestPageFullscreen() {
  * Otherwise OK, with nothing focused, opens the guide, as does the remote's
  * Guide or Info key; the first also takes the page fullscreen (a browser
  * only allows that from a key press or a click, so it can't happen on load).
- * The open guide has the keys until it hides. The remote's green key shows
- * who else is here (RoomPanel, names only unless the admin shows channels),
- * which likewise has the keys until it hides. Back leaves fullscreen, and is
+ * The open guide has the keys until it hides. The remote's green key (W on
+ * a keyboard, for testing with ?tv=1) shows who else is here (RoomPanel,
+ * names only unless the admin shows channels), from the guide too, whose
+ * hints name it; the panel likewise has the keys until it hides, and says
+ * so briefly when nobody else is here. Back leaves fullscreen, and is
  * otherwise the browser's. Play/pause is the player's own (remotePlayPause
  * in its shortcuts). The pointer, and the account menu with it, hide after
  * 3s at rest.
@@ -117,6 +119,11 @@ export function CouchView({ onPickLive, onOpenChannelPicker, onOpenAdmin }: Couc
 
   const [isRoomOpen, setRoomOpen] = useState(false)
   const closeRoom = useCallback(() => setRoomOpen(false), [])
+  // From the guide too, whose hints offer it: the room panel takes its place
+  const openRoom = useCallback(() => {
+    setGuideOpen(false)
+    setRoomOpen(true)
+  }, [])
 
   useEffect(() => {
     // The guide, and the page fullscreen if it isn't yet: this key press is
@@ -160,7 +167,7 @@ export function CouchView({ onPickLive, onOpenChannelPicker, onOpenAdmin }: Couc
         // The open panel has focus, so it takes the key that hides it
         e.preventDefault()
         e.stopPropagation()
-        setRoomOpen(true)
+        openRoom()
       } else if (action === 'back' && getFullscreenElement()) {
         // Stops webOS Back (461) and Backspace from also navigating history
         e.preventDefault()
@@ -170,7 +177,7 @@ export function CouchView({ onPickLive, onOpenChannelPicker, onOpenAdmin }: Couc
     }
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [zapStep, zapDigit, commitDigits])
+  }, [zapStep, zapDigit, commitDigits, openRoom])
 
   const isCursorIdle = useIdleCursor()
 
@@ -208,7 +215,7 @@ export function CouchView({ onPickLive, onOpenChannelPicker, onOpenAdmin }: Couc
         missing={zap.missing}
         liveChange={zapPending ? null : liveChange}
       />
-      {isGuideOpen && <CouchGuide onClose={closeGuide} canPickLive={!!onPickLive} />}
+      {isGuideOpen && <CouchGuide onClose={closeGuide} canPickLive={!!onPickLive} onOpenRoom={openRoom} />}
       {isRoomOpen && <RoomPanel onClose={closeRoom} />}
       {/* Without it, a TV layout switched On would have no way back: it shows
           while the pointer moves, so a Magic Remote or mouse can reach it, and

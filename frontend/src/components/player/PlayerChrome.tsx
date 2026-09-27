@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect } from 'react'
 import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Expand, Shrink, RotateCw, MessageCircle } from 'lucide-react'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useMobileLandscape } from '@/hooks/useMobileLandscape'
@@ -12,6 +12,7 @@ import { FilterMenu } from '@/components/FilterMenu'
 import { UnreadBadge } from '@/components/UnreadBadge'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { withKey } from '@/lib/keyHints'
+import { clipBufferStatus } from '@/lib/clip'
 import { unmutedVolume } from '@/stores/audioStore'
 import { useClipStore } from '@/stores/clipStore'
 import { useChatStore } from '@/stores/chatStore'
@@ -134,6 +135,17 @@ export function PlayerChrome({
   const { status: highlightStatus, loaded: highlightLoaded } = useHighlightStatus(
     showHighlightButton ? channelId : undefined,
   )
+
+  // The X key lives in the shell, which doesn't poll: publish the buffer's
+  // readiness so X follows the same rule as the clip control
+  const setClipBuffer = useClipStore((s) => s.setBuffer)
+  const bufferChannelId = showHighlightButton ? channelId : undefined
+  const { state: clipBufferState, label: clipBufferLabel } = clipBufferStatus(highlightStatus, highlightLoaded)
+  useEffect(() => {
+    if (!bufferChannelId) return
+    setClipBuffer({ channelId: bufferChannelId, state: clipBufferState, label: clipBufferLabel })
+    return () => setClipBuffer(null)
+  }, [bufferChannelId, clipBufferState, clipBufferLabel, setClipBuffer])
 
   // The editor lives in the player shell, so it outlives this control bar
   const openClip = useClipStore((s) => s.open)

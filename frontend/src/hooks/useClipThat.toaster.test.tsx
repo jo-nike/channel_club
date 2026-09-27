@@ -48,7 +48,12 @@ async function startCountdown(toasterProps: Parameters<typeof Toaster>[0] = {}) 
 beforeEach(() => {
   vi.useFakeTimers()
   vi.clearAllMocks()
-  useClipStore.setState({ session: null, clipping: false })
+  // The player's controls report the buffer ready (see PlayerChrome)
+  useClipStore.setState({
+    session: null,
+    clipping: false,
+    buffer: { channelId: '42', state: 'ready', label: 'Capture clip · 30s available' },
+  })
   vi.mocked(api.getHighlightFeatures).mockResolvedValue({ enabled: true, ziplineEnabled: true })
   vi.mocked(api.createHighlightCapture).mockResolvedValue(capture)
   vi.mocked(api.deleteHighlightCapture).mockResolvedValue()
@@ -65,6 +70,23 @@ afterEach(() => {
 })
 
 describe('useClipThat with the real Toaster', () => {
+  it('while the buffer fills, a press shows one short hint and captures nothing', async () => {
+    useClipStore.setState({ buffer: { channelId: '42', state: 'buffering', label: 'Buffering clip · 4s of 60s' } })
+    render(<Toaster />)
+    const { result } = renderHook(() => useClipThat({ id: '42', name: 'Sportsnet' }))
+    await flush()
+
+    act(() => result.current?.())
+    act(() => result.current?.())
+    await flush()
+
+    expect(screen.getAllByText('Buffering clip · 4s of 60s')).toHaveLength(1)
+    expect(api.createHighlightCapture).not.toHaveBeenCalled()
+
+    await flush(3000)
+    expect(screen.queryByText('Buffering clip · 4s of 60s')).not.toBeInTheDocument()
+  })
+
   it('posts the clip once the countdown runs out', async () => {
     await startCountdown()
     await flush(3000)

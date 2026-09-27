@@ -1,5 +1,4 @@
 import { useMemo, type ReactNode } from 'react'
-import { toast } from 'sonner'
 import {
   Dialog,
   DialogContent,
@@ -20,6 +19,7 @@ import { useSettingsStore } from '@/stores/settingsStore'
 import { useNhlMappingStore } from '@/stores/nhlMappingStore'
 import { useRecentLiveChannelIds } from '@/stores/recentLiveStore'
 import { gamesOnNow, type GameOnNow } from '@/lib/nhlWatch'
+import { reportSuggestion } from '@/lib/suggestion'
 import type { Channel } from '@/types'
 import type { NHLGame } from '@/types/nhl'
 
@@ -66,23 +66,6 @@ export function LiveSwitcherSheet({ open, onOpenChange, onSuggest }: LiveSwitche
       </DialogContent>
     </Dialog>
   )
-}
-
-/**
- * Tell the suggester how their suggestion went. The sheet has closed by
- * then, so this is all they hear of it.
- */
-async function reportSuggestion(channel: Channel, sending: Promise<ChatSendResult>) {
-  const result = await sending
-  if (result === 'acknowledged') {
-    toast.success(`Suggested ${channel.name} in chat`)
-  } else if (result === 'not-sent') {
-    toast.error(`Could not suggest ${channel.name}`, { description: 'Please try again' })
-  } else {
-    toast.warning(`Your suggestion of ${channel.name} may not have been posted`, {
-      description: 'Check the chat before suggesting it again',
-    })
-  }
 }
 
 function SwitcherBody({

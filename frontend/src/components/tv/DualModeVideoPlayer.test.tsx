@@ -129,11 +129,18 @@ vi.mock('@vidstack/react', async () => {
   }
 })
 
-const highlight = vi.hoisted(() => ({ enabled: false }))
+// A recording channel with a clip's worth of buffer, unless a test says otherwise
+const readyBuffer = { enabled: true, recording: true, bufferSeconds: 30, maxBufferSeconds: 60 }
+const highlight = vi.hoisted(() => ({
+  enabled: false,
+  status: { enabled: true, recording: true, bufferSeconds: 30, maxBufferSeconds: 60 },
+}))
 vi.mock('@/hooks/useHighlightFeature', () => ({
   useHighlightFeature: () => ({ isEnabled: highlight.enabled, isLoading: false }),
 }))
-vi.mock('@/hooks/useHighlightStatus', () => ({ useHighlightStatus: () => ({}) }))
+vi.mock('@/hooks/useHighlightStatus', () => ({
+  useHighlightStatus: () => ({ status: highlight.status, loaded: true }),
+}))
 vi.mock('@/components/HighlightButton', () => ({
   HighlightButton: ({ onOpenModal }: { onOpenModal?: () => void }) => (
     <button type="button" onClick={onOpenModal}>
@@ -301,6 +308,7 @@ beforeEach(() => {
   vidstack.player.play.mockReset().mockResolvedValue(undefined)
   vidstack.player.pause.mockClear()
   highlight.enabled = false
+  highlight.status = readyBuffer
   useClipStore.setState({ session: null })
   clipApi.createHighlightCapture.mockReset().mockResolvedValue({ id: 'capture-1' })
   clipApi.deleteHighlightCapture.mockReset().mockResolvedValue(undefined)
@@ -3082,6 +3090,7 @@ describe('DualModeVideoPlayer panel keys', () => {
     beforeEach(() => {
       chatFeature.enabled = true
       clipApi.getHighlightFeatures.mockResolvedValue({ enabled: true, ziplineEnabled: true })
+      highlight.enabled = true
       useClipStore.setState({ clipping: false })
     })
 
@@ -3097,6 +3106,25 @@ describe('DualModeVideoPlayer panel keys', () => {
 
       fireEvent.keyDown(window, { key: '?' })
       expect(within(sheet()!).getByText('Clip that: post the last 20s to chat')).toBeInTheDocument()
+    })
+
+    it('captures nothing while the clip buffer fills, like the clip control', async () => {
+      highlight.status = { ...readyBuffer, bufferSeconds: 0 }
+      renderPlayer({ ...liveChannel('https://fixture/a'), backendId: '42' })
+      await act(async () => {})
+
+      fireEvent.keyDown(window, { key: 'x' })
+      expect(clipApi.createHighlightCapture).not.toHaveBeenCalled()
+      expect(useClipStore.getState().clipping).toBe(false)
+    })
+
+    it('captures nothing while the channel is not recording', async () => {
+      highlight.status = { ...readyBuffer, recording: false }
+      renderPlayer({ ...liveChannel('https://fixture/a'), backendId: '42' })
+      await act(async () => {})
+
+      fireEvent.keyDown(window, { key: 'x' })
+      expect(clipApi.createHighlightCapture).not.toHaveBeenCalled()
     })
 
     it('does nothing without Zipline, and the sheet leaves it out', async () => {
