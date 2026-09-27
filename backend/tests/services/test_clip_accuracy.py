@@ -181,9 +181,16 @@ async def test_capture_store_replaces_per_owner_and_expires(preview, tmp_path, m
     assert abs(first.duration - 5) < 0.2
     assert store.get(first.id, "viewer") is first
     assert store.get(first.id, "other") is None
+    assert store.issue_download_token(first.id, "other") is None
+    replaced_link = store.issue_download_token(first.id, "viewer")
+    assert replaced_link is not None
 
     second = await store.create(copying, "viewer", "channel-1", 0.0)
     assert not first.path.parent.exists() and store.get(first.id, "viewer") is None
+    # A replaced capture takes its download links with it.
+    assert store.redeem_download_token(replaced_link) is None
+    second_link = store.issue_download_token(second.id, "viewer")
+    assert second_link is not None
     other = await store.create(copying, "other", "channel-1", 0.0)
     assert second.path.exists() and other.path.exists()
 
@@ -195,3 +202,4 @@ async def test_capture_store_replaces_per_owner_and_expires(preview, tmp_path, m
 
     await store.sweep(now=other.created_at + CAPTURE_TTL_SECONDS)
     assert store.captures == {} and not (second.path.exists() or other.path.exists())
+    assert store.download_tokens == {}
