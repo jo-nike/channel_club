@@ -150,7 +150,7 @@ describe('TVChannelSidebar colours', () => {
       expect(logo(movies).querySelector('[data-monogram]')).toHaveAttribute('data-monogram', 'M')
     })
 
-    it('keeps the live tint under the picker on the empty live slot', async () => {
+    it('keeps the live tint under Pick a channel on the empty live slot', async () => {
       useChannelStore.setState({ currentChannel: null })
       render(<TVChannelSidebar onPickLive={vi.fn()} />)
       await act(async () => {})
@@ -697,7 +697,7 @@ describe('TVChannelSidebar empty live slot', () => {
     useTVStore.setState({ selectedChannel: null })
   })
 
-  it('offers Pick a channel beside the live row, which opens the picker instead of tuning', async () => {
+  it('offers Pick a channel beside the live row, which opens the live switcher instead of tuning', async () => {
     const onPickLive = vi.fn()
     render(<TVChannelSidebar onPickLive={onPickLive} />)
     await act(async () => {})
@@ -739,7 +739,7 @@ describe('TVChannelSidebar empty live slot', () => {
     )
   })
 
-  it('offers no picker once something is on live TV', async () => {
+  it('offers no Pick a channel once something is on live TV', async () => {
     useChannelStore.setState({
       currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1' },
     })

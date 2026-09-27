@@ -151,10 +151,15 @@ export function PlayerChrome({
   const setClipBuffer = useClipStore((s) => s.setBuffer)
   const bufferChannelId = showHighlightButton ? channelId : undefined
   const { state: clipBufferState, label: clipBufferLabel } = clipBufferStatus(highlightStatus, highlightLoaded)
+  // Cleared only when the channel changes or the controls go: the label's
+  // seconds change on every status poll, which the next effect just rewrites
+  useEffect(() => {
+    if (!bufferChannelId) return
+    return () => setClipBuffer(null)
+  }, [bufferChannelId, setClipBuffer])
   useEffect(() => {
     if (!bufferChannelId) return
     setClipBuffer({ channelId: bufferChannelId, state: clipBufferState, label: clipBufferLabel })
-    return () => setClipBuffer(null)
   }, [bufferChannelId, clipBufferState, clipBufferLabel, setClipBuffer])
 
   // The editor lives in the player shell, so it outlives this control bar

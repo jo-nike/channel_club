@@ -209,7 +209,7 @@ describe('TVEPGGrid empty live slot', () => {
     useTVStore.setState({ selectedChannel: null })
   })
 
-  it('turns the live row placeholder into Pick a channel for everyone, which opens the picker', () => {
+  it('turns the live row placeholder into Pick a channel for everyone, which opens the live switcher', () => {
     const onPickLive = vi.fn()
     const onChannelClick = vi.fn()
     render(<TVEPGGrid programmesByChannel={{}} onPickLive={onPickLive} onChannelClick={onChannelClick} />)
@@ -236,7 +236,7 @@ describe('TVEPGGrid empty live slot', () => {
     expect(liveRow).toHaveTextContent('Waiting for someone to put something on')
   })
 
-  it('offers no picker once something is on live TV', () => {
+  it('offers no Pick a channel once something is on live TV', () => {
     useChannelStore.setState({
       currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1' },
     })
@@ -1361,7 +1361,7 @@ describe('TVEPGGrid keyboard grid', () => {
     expect(onProgrammeClick).toHaveBeenCalledTimes(2)
   })
 
-  it('reaches Pick a channel for everyone in the empty live row and opens the picker from the keyboard', () => {
+  it('reaches Pick a channel for everyone in the empty live row and opens the live switcher from the keyboard', () => {
     const onPickLive = vi.fn()
     render(<TVEPGGrid programmesByChannel={schedule} onPickLive={onPickLive} />)
     act(() => block('Quiz').focus())

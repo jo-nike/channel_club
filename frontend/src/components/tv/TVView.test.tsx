@@ -553,26 +553,26 @@ describe('B-V2 picking a channel from the empty live slot', () => {
   })
   afterEach(() => { window.matchMedia = originalMatchMedia })
 
-  const picker = () => screen.queryByTestId('live-switcher')
+  const switcher = () => screen.queryByTestId('live-switcher')
 
-  it('gives an admin the picker from the sidebar and the player', async () => {
+  it('gives an admin the live switcher from the sidebar and the player', async () => {
     auth.isAdmin = true
     render(<MemoryRouter><TVView /></MemoryRouter>)
     await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('No live broadcast'))
 
-    expect(picker()).toHaveAttribute('data-open', 'false')
+    expect(switcher()).toHaveAttribute('data-open', 'false')
     fireEvent.click(screen.getByRole('button', { name: 'Pick a channel' }))
-    expect(picker()).toHaveAttribute('data-open', 'true')
+    expect(switcher()).toHaveAttribute('data-open', 'true')
     expect(playerProps.onPickLive).toBeTypeOf('function')
   })
 
-  it('gives a viewer the admin allowed to change live TV the picker', async () => {
+  it('gives a viewer the admin allowed to change live TV the live switcher', async () => {
     appSettings.userChannelSelection = true
     render(<MemoryRouter><TVView /></MemoryRouter>)
     await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('No live broadcast'))
 
     act(() => playerProps.onPickLive?.())
-    expect(picker()).toHaveAttribute('data-open', 'true')
+    expect(switcher()).toHaveAttribute('data-open', 'true')
   })
 
   it("opens the Live TV switcher from the header's Change live for a viewer the admin allowed", async () => {
@@ -581,9 +581,9 @@ describe('B-V2 picking a channel from the empty live slot', () => {
     render(<MemoryRouter><TVView /></MemoryRouter>)
     await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
 
-    expect(picker()).toHaveAttribute('data-open', 'false')
+    expect(switcher()).toHaveAttribute('data-open', 'false')
     fireEvent.click(screen.getByRole('button', { name: 'Change live channel' }))
-    expect(picker()).toHaveAttribute('data-open', 'true')
+    expect(switcher()).toHaveAttribute('data-open', 'true')
   })
 
   it('gives a viewer without permission Suggest a channel while chat is on, posting through the socket', async () => {
@@ -591,9 +591,9 @@ describe('B-V2 picking a channel from the empty live slot', () => {
     render(<MemoryRouter><TVView /></MemoryRouter>)
     await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('No live broadcast'))
 
-    expect(picker()).toHaveAttribute('data-open', 'false')
+    expect(switcher()).toHaveAttribute('data-open', 'false')
     fireEvent.click(screen.getByRole('button', { name: 'Suggest a channel' }))
-    expect(picker()).toHaveAttribute('data-open', 'true')
+    expect(switcher()).toHaveAttribute('data-open', 'true')
     switcherProps.onSuggest?.({ id: '42', name: 'TSN 5' })
     expect(socket.sendSuggest).toHaveBeenCalledWith('42')
     // The empty live slot still only waits: suggesting is from the header
@@ -605,15 +605,15 @@ describe('B-V2 picking a channel from the empty live slot', () => {
     render(<MemoryRouter><TVView /></MemoryRouter>)
     await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('No live broadcast'))
 
-    expect(picker()).toBeInTheDocument()
+    expect(switcher()).toBeInTheDocument()
     expect(switcherProps.onSuggest).toBeUndefined()
   })
 
-  it("shows a viewer without permission the wait copy and no picker", async () => {
+  it("shows a viewer without permission the wait copy and no live switcher", async () => {
     render(<MemoryRouter><TVView /></MemoryRouter>)
     await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('No live broadcast'))
 
-    expect(picker()).not.toBeInTheDocument()
+    expect(switcher()).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Pick a channel' })).not.toBeInTheDocument()
     // The row's text sits beside its stretched button, in the same list item
     expect(screen.getByRole('button', { name: 'Live slot, nothing on' }).closest('li')).toHaveTextContent('Waiting for someone to put something on')
@@ -631,7 +631,7 @@ describe('B-V2 picking a channel from the empty live slot', () => {
       useErsatztvStore.setState({ loadAllProgrammes: vi.fn().mockResolvedValue(undefined) })
     })
 
-    it('puts Pick a channel beside the live card, opening the picker without tuning', async () => {
+    it('puts Pick a channel beside the live card, opening the live switcher without tuning', async () => {
       render(<MemoryRouter><TVView /></MemoryRouter>)
       await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('/e1'))
 
@@ -640,7 +640,7 @@ describe('B-V2 picking a channel from the empty live slot', () => {
       expect(pick.parentElement).toBe(liveCard().parentElement)
 
       fireEvent.click(pick)
-      expect(picker()).toHaveAttribute('data-open', 'true')
+      expect(switcher()).toHaveAttribute('data-open', 'true')
       expect(useTVStore.getState().selectedChannel?.id).toBe('e1')
     })
 
@@ -650,7 +650,7 @@ describe('B-V2 picking a channel from the empty live slot', () => {
 
       fireEvent.click(liveCard())
       expect(useTVStore.getState().selectedChannel?.type).toBe('live')
-      expect(picker()).toHaveAttribute('data-open', 'false')
+      expect(switcher()).toHaveAttribute('data-open', 'false')
     })
   })
 })
