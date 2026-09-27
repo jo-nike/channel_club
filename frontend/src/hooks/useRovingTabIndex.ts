@@ -8,6 +8,9 @@ interface UseRovingTabIndexOptions<T> {
   // The element that holds the items. Arrow keys move focus only while focus
   // is inside it. Without it the items must sit in a role="listbox".
   containerRef?: RefObject<HTMLElement | null>
+  // The item that holds the tab stop at first, such as the one playing
+  // (default 0). Read on mount only.
+  initialIndex?: number
 }
 
 interface UseRovingTabIndexResult {
@@ -23,8 +26,9 @@ export function useRovingTabIndex<T>({
   onSelect,
   getItemId,
   containerRef,
+  initialIndex = 0,
 }: UseRovingTabIndexOptions<T>): UseRovingTabIndexResult {
-  const [focusedIndex, setFocusedIndex] = useState(0)
+  const [focusedIndex, setFocusedIndex] = useState(initialIndex)
   const itemRefs = useRef<(HTMLElement | null)[]>([])
 
   // Keep focusedIndex in bounds when items change

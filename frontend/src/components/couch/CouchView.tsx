@@ -10,6 +10,7 @@ import { ZapBanner } from '@/components/tv/ZapBanner'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { AccountMenu } from '@/components/AccountMenu'
 import { Button } from '@/components/ui/button'
+import { CouchGuide } from './CouchGuide'
 
 interface CouchViewProps {
   /** Opens the live TV switcher; only for people allowed to change live TV */
@@ -67,7 +68,8 @@ function requestPageFullscreen() {
  * The 10-foot layout for TV browsers (useTVMode): the player fills the
  * screen, driven from a remote, with the channel banner over it. No header,
  * guide grid, channel list, resize handle or chat: a remote can't reach them,
- * and a 48-hour grid is too heavy for a TV's chip. The account menu sits in
+ * and a 48-hour grid is too heavy for a TV's chip. Its guide is a now/next
+ * list over the picture (CouchGuide). The account menu sits in
  * the top corner, the couch's way to sign out, reach Admin or Feedback, or
  * turn the TV layout off.
  *
@@ -77,11 +79,13 @@ function requestPageFullscreen() {
  *
  * CH+/CH- and Up/Down zap, tuning once the presses stop. The number keys
  * type a channel number, tuned 1.5s after the last digit or at once on OK.
- * Otherwise OK, with nothing focused, takes the page fullscreen (a browser
+ * Otherwise OK, with nothing focused, opens the guide, as does the remote's
+ * Guide or Info key; the first also takes the page fullscreen (a browser
  * only allows that from a key press or a click, so it can't happen on load).
- * Back leaves fullscreen, and is otherwise the browser's. Play/pause is the
- * player's own (remotePlayPause in its shortcuts). The pointer, and the
- * account menu with it, hide after 3s at rest.
+ * The open guide has the keys until it hides. Back leaves fullscreen, and is
+ * otherwise the browser's. Play/pause is the player's own (remotePlayPause
+ * in its shortcuts). The pointer, and the account menu with it, hide after
+ * 3s at rest.
  */
 export function CouchView({ onPickLive, onOpenChannelPicker, onOpenAdmin }: CouchViewProps) {
   const selectedChannel = useTVStore((s) => s.selectedChannel)
@@ -105,7 +109,16 @@ export function CouchView({ onPickLive, onOpenChannelPicker, onOpenAdmin }: Couc
   const [reloadKey, setReloadKey] = useState(0)
   const reload = useCallback(() => setReloadKey((k) => k + 1), [])
 
+  const [isGuideOpen, setGuideOpen] = useState(false)
+  const closeGuide = useCallback(() => setGuideOpen(false), [])
+
   useEffect(() => {
+    // The guide, and the page fullscreen if it isn't yet: this key press is
+    // the user gesture a browser asks for
+    const openGuide = () => {
+      if (!getFullscreenElement()) requestPageFullscreen()
+      setGuideOpen(true)
+    }
     // Capture phase, so the remote's keys run before (and instead of) the
     // player's and the page's own handlers
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -127,15 +140,16 @@ export function CouchView({ onPickLive, onOpenChannelPicker, onOpenAdmin }: Couc
         if (commitDigits()) {
           e.preventDefault()
           e.stopPropagation()
-        } else if (
-          !getFullscreenElement() &&
-          (!document.activeElement || document.activeElement === document.body)
-        ) {
+        } else if (!document.activeElement || document.activeElement === document.body) {
           // Otherwise a focused control keeps OK to press it
           e.preventDefault()
           e.stopPropagation()
-          requestPageFullscreen()
+          openGuide()
         }
+      } else if (action === 'guide') {
+        e.preventDefault()
+        e.stopPropagation()
+        openGuide()
       } else if (action === 'back' && getFullscreenElement()) {
         // Stops webOS Back (461) and Backspace from also navigating history
         e.preventDefault()
@@ -183,6 +197,7 @@ export function CouchView({ onPickLive, onOpenChannelPicker, onOpenAdmin }: Couc
         missing={zap.missing}
         liveChange={zapPending ? null : liveChange}
       />
+      {isGuideOpen && <CouchGuide onClose={closeGuide} canPickLive={!!onPickLive} />}
       {/* Without it, a TV layout switched On would have no way back: it shows
           while the pointer moves, so a Magic Remote or mouse can reach it, and
           while it has keyboard focus, and fades with the idle pointer so it
