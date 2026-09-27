@@ -20,10 +20,11 @@ describe('ConnectionStatus', () => {
     // Status is shown via aria-label on the button
     expect(screen.getByRole('status', { name: /connecting/i })).toBeInTheDocument()
 
-    // Check for the warning indicator
+    // Check for the warning indicator, pulsing only when motion is allowed
     const indicator = document.querySelector('.bg-warning')
     expect(indicator).toBeInTheDocument()
-    expect(indicator).toHaveClass('animate-pulse')
+    expect(indicator).toHaveClass('motion-safe:animate-pulse')
+    expect(indicator).not.toHaveClass('animate-pulse')
   })
 
   test('shows Reconnecting with the warning pulsing indicator', () => {
@@ -35,7 +36,7 @@ describe('ConnectionStatus', () => {
     // Check for the warning indicator with pulse
     const indicator = document.querySelector('.bg-warning')
     expect(indicator).toBeInTheDocument()
-    expect(indicator).toHaveClass('animate-pulse')
+    expect(indicator).toHaveClass('motion-safe:animate-pulse')
   })
 
   test('shows Disconnected with the destructive indicator', () => {
@@ -47,7 +48,7 @@ describe('ConnectionStatus', () => {
     // Check for the destructive indicator (no pulse)
     const indicator = document.querySelector('.bg-destructive')
     expect(indicator).toBeInTheDocument()
-    expect(indicator).not.toHaveClass('animate-pulse')
+    expect(indicator).not.toHaveClass('motion-safe:animate-pulse')
   })
 
   test('clicking hides indicator by changing to background color', () => {
@@ -87,13 +88,13 @@ describe('ConnectionStatus', () => {
     const button = screen.getByRole('status')
 
     // Initially pulsing
-    expect(button).toHaveClass('animate-pulse')
+    expect(button).toHaveClass('motion-safe:animate-pulse')
 
     // Click to hide
     fireEvent.click(button)
 
     // No longer pulsing
-    expect(button).not.toHaveClass('animate-pulse')
+    expect(button).not.toHaveClass('motion-safe:animate-pulse')
   })
 
   test('aria-label updates when hidden', () => {
