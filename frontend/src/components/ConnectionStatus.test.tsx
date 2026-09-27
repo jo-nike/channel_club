@@ -8,21 +8,42 @@ beforeEach(() => vi.useFakeTimers())
 afterEach(() => vi.useRealTimers())
 
 const advance = (ms: number) => act(() => { vi.advanceTimersByTime(ms) })
+// The live region is always mounted; "shows nothing" means it's empty
+const region = () => screen.getByRole('status')
 
 describe('ConnectionStatus', () => {
-  test('renders nothing while connected, however long it lasts', () => {
-    const { container } = render(<ConnectionStatus status="connected" onReconnect={vi.fn()} />)
+  test('shows nothing while connected, however long it lasts', () => {
+    render(<ConnectionStatus status="connected" onReconnect={vi.fn()} />)
     advance(10_000)
-    expect(container).toBeEmptyDOMElement()
-    expect(screen.queryByRole('status')).toBeNull()
+    expect(region()).toBeEmptyDOMElement()
+    // Kept out of the layout, so the header has no gap for it
+    expect(region()).toHaveClass('sr-only')
   })
 
-  test.each<Status>(['connecting', 'reconnecting', 'disconnected'])('renders nothing for the first 3s of %s', (status) => {
-    const { container } = render(<ConnectionStatus status={status} onReconnect={vi.fn()} />)
+  test.each<Status>(['connecting', 'reconnecting', 'disconnected'])('shows nothing for the first 3s of %s', (status) => {
+    render(<ConnectionStatus status={status} onReconnect={vi.fn()} />)
     advance(2999)
-    expect(container).toBeEmptyDOMElement()
+    expect(region()).toBeEmptyDOMElement()
     advance(1)
-    expect(screen.getByRole('status')).toBeInTheDocument()
+    expect(region()).not.toBeEmptyDOMElement()
+    expect(region()).not.toHaveClass('sr-only')
+  })
+
+  test('keeps one live region mounted, so the message is announced when it goes in', () => {
+    const { rerender } = render(<ConnectionStatus status="connected" onReconnect={vi.fn()} />)
+    const live = region()
+    expect(live).toHaveAttribute('aria-live', 'polite')
+    expect(live).toBeEmptyDOMElement()
+
+    rerender(<ConnectionStatus status="disconnected" onReconnect={vi.fn()} />)
+    advance(3000)
+    // The same element, now holding the message
+    expect(region()).toBe(live)
+    expect(live).toHaveTextContent('Chat offline')
+
+    rerender(<ConnectionStatus status="connected" onReconnect={vi.fn()} />)
+    expect(region()).toBe(live)
+    expect(live).toBeEmptyDOMElement()
   })
 
   test('shows an amber Reconnecting pill once a reconnect has lasted 3s', () => {
@@ -40,20 +61,20 @@ describe('ConnectionStatus', () => {
   })
 
   test('a blip that recovers within 3s never shows anything', () => {
-    const { container, rerender } = render(<ConnectionStatus status="connected" />)
+    const { rerender } = render(<ConnectionStatus status="connected" />)
     rerender(<ConnectionStatus status="reconnecting" />)
     advance(2500)
     rerender(<ConnectionStatus status="connected" />)
     advance(10_000)
-    expect(container).toBeEmptyDOMElement()
+    expect(region()).toBeEmptyDOMElement()
   })
 
   test('the first connect after load reads as connecting, never as offline', () => {
     // useWebSocket starts at 'disconnected' and moves to 'connecting' in an effect
-    const { container, rerender } = render(<ConnectionStatus status="disconnected" onReconnect={vi.fn()} />)
+    const { rerender } = render(<ConnectionStatus status="disconnected" onReconnect={vi.fn()} />)
     rerender(<ConnectionStatus status="connecting" onReconnect={vi.fn()} />)
     advance(2999)
-    expect(container).toBeEmptyDOMElement()
+    expect(region()).toBeEmptyDOMElement()
     advance(1)
     expect(screen.getByText('Connecting...')).toHaveClass('text-warning')
     expect(screen.queryByText('Chat offline')).toBeNull()
@@ -94,7 +115,7 @@ describe('ConnectionStatus', () => {
 
   test('stays offline with Retry through slow reconnect attempts until connected', () => {
     const reconnect = vi.fn()
-    const { container, rerender } = render(<ConnectionStatus status="connected" onReconnect={reconnect} />)
+    const { rerender } = render(<ConnectionStatus status="connected" onReconnect={reconnect} />)
     // Fast retries, then the socket gives up
     rerender(<ConnectionStatus status="reconnecting" onReconnect={reconnect} />)
     advance(3000)
@@ -113,7 +134,7 @@ describe('ConnectionStatus', () => {
 
     // Back: gone at once, and a later drop starts amber again
     rerender(<ConnectionStatus status="connected" onReconnect={reconnect} />)
-    expect(container).toBeEmptyDOMElement()
+    expect(region()).toBeEmptyDOMElement()
     rerender(<ConnectionStatus status="reconnecting" onReconnect={reconnect} />)
     advance(3000)
     expect(screen.getByText('Reconnecting...')).toBeInTheDocument()
