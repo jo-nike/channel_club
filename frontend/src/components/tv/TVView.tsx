@@ -84,14 +84,28 @@ export function TVView() {
   const setTheaterMode = useUIStore((s) => s.setTheaterMode)
   const toggleTheaterMode = useUIStore((s) => s.toggleTheaterMode)
 
-  // Handle Escape key
-  const handleEscape = useCallback(() => {
-    if (document.fullscreenElement) {
+  // Escape, and a TV remote's Back, close the top layer: chat, then
+  // fullscreen, then theater. One handler for all three, because
+  // stopPropagation can't keep one window listener from another. Browsers
+  // take Esc for themselves in real fullscreen, so chat can't promise it there.
+  const dismissTopLayer = useCallback(() => {
+    const { isOpen: isChatOpen, setOpen: setChatOpen } = useChatStore.getState()
+    const fullscreen = document.fullscreenElement
+    // Chat outside the fullscreen element is hidden behind it, so fullscreen goes first
+    if (isChatOpen && (!fullscreen || fullscreen.contains(document.getElementById('chat-panel')))) {
+      setChatOpen(false)
+    } else if (fullscreen) {
       document.exitFullscreen().catch(() => {})
     } else if (isTheaterMode) {
       setTheaterMode(false)
     }
   }, [isTheaterMode, setTheaterMode])
+
+  const handleEscape = useCallback((e: KeyboardEvent) => {
+    // A Radix layer (the GIF popover, a dialog) marks the Escape that dismissed it
+    if (e.defaultPrevented) return
+    dismissTopLayer()
+  }, [dismissTopLayer])
 
   useEscapeKey({ onEscape: handleEscape })
 
@@ -126,28 +140,37 @@ export function TVView() {
     return () => window.removeEventListener('keydown', handleKeyDown, true)
   }, [isTVTheater, zapStep])
 
-  // TV remotes: Back leaves theater (the header comes back) and OK returns to
-  // it. A 5-way remote can't move focus in the desktop layout, so without OK
-  // a viewer who pressed Back would be stuck there. Back outside theater is
-  // left to the browser.
+  // TV remotes: Back closes chat, then leaves theater (the header comes back),
+  // and OK returns to theater. A 5-way remote can't move focus in the desktop
+  // layout, so without OK a viewer who pressed Back would be stuck there. Back
+  // outside theater with chat closed is left to the browser.
   useEffect(() => {
     if (!isTVMode) return
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || isKeyForFocusedControl(e)) return
+      if (e.defaultPrevented) return
       const action = getRemoteAction(e)
-      if (isTheaterMode) {
-        // Escape already goes through useEscapeKey
-        if (action !== 'back' || e.key === 'Escape') return
+      // Escape already goes through useEscapeKey
+      if (action === 'back' && e.key !== 'Escape') {
+        const isChatOpen = useChatStore.getState().isOpen
+        // Chat focuses its message field, so a remote's Back there still closes
+        // chat. Backspace in the field keeps editing the text.
+        const isRemoteBackInChat = isChatOpen && e.key !== 'Backspace' && e.keyCode !== 8 &&
+          e.target instanceof Element && e.target.closest('#chat-panel') !== null
+        if (isKeyForFocusedControl(e) && !isRemoteBackInChat) return
+        if (!isTheaterMode && !isChatOpen) return
         // Stops webOS Back (461) and Backspace from navigating history
         e.preventDefault()
-        handleEscape()
-      } else if (action === 'ok' && (!document.activeElement || document.activeElement === document.body)) {
+        dismissTopLayer()
+      } else if (
+        !isTheaterMode && action === 'ok' && !isKeyForFocusedControl(e) &&
+        (!document.activeElement || document.activeElement === document.body)
+      ) {
         setTheaterMode(true)
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isTVMode, isTheaterMode, handleEscape, setTheaterMode])
+  }, [isTVMode, isTheaterMode, dismissTopLayer, setTheaterMode])
 
   // Get currently playing programme for presence tracking
   const { title: currentProgrammeTitle } = useNowPlaying(selectedChannel)
