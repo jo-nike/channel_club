@@ -36,7 +36,7 @@ export function ResizeDragHandle({
       tabIndex={0}
       role="separator"
       aria-orientation="horizontal"
-      aria-label="Resize EPG section"
+      aria-label="Resize guide"
       aria-valuenow={Math.round(valueNow)}
       aria-valuemin={valueMin}
       aria-valuemax={valueMax}

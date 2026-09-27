@@ -723,7 +723,7 @@ describe('B-06 guide mode', () => {
     useUIStore.setState({ isEPGVisible: true, epgHeightPercent: 50 })
     render(<MemoryRouter><TVView /></MemoryRouter>)
     await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
-    const handle = screen.getByRole('separator', { name: 'Resize EPG section' })
+    const handle = screen.getByRole('separator', { name: 'Resize guide' })
 
     // Pointer events, so touch and pen drag it as well as a mouse
     expect(handle).toHaveClass('touch-none')
@@ -747,7 +747,7 @@ describe('B-06 guide mode', () => {
     useUIStore.setState({ isEPGVisible: true, epgHeightPercent: 50 })
     render(<MemoryRouter><TVView /></MemoryRouter>)
     await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
-    const handle = screen.getByRole('separator', { name: 'Resize EPG section' })
+    const handle = screen.getByRole('separator', { name: 'Resize guide' })
 
     expect(handle).toHaveAttribute('tabindex', '0')
     expect(handle).toHaveAttribute('aria-valuenow', '50')
