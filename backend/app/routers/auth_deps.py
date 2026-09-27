@@ -94,8 +94,8 @@ def _admin_in_current_config(username: str) -> bool:
       - the local admin username (ADMIN_USERNAME)
       - the Plex admin username list (PLEX_ADMIN_USERS_STR)
       - PLEX_DEFAULT_ROLE == "admin" (every authenticated Plex user is admin)
-      - the Plex server owner: a live plex.tv lookup keyed on the Plex user *id*,
-        which TokenPayload does not carry, so it cannot be re-derived here
+      - the Plex server owner: a live plex.tv lookup keyed on the Plex user *id*;
+        the token carries the id, but settings alone can't answer the lookup
 
     All checks read from settings, so this costs no network call.
     """

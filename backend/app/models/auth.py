@@ -28,6 +28,9 @@ class TokenPayload(BaseModel):
     sub: str  # username
     role: str  # "admin" or "viewer"
     exp: datetime
+    # Plex account id, present on Plex sign-ins. Unlike the username (sub) it
+    # survives a Plex rename, so it is the stable way to tell accounts apart.
+    plex_id: str | None = None
 
 
 class AuthConfigResponse(BaseModel):

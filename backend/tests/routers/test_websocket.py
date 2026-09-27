@@ -854,6 +854,20 @@ async def test_sec06_verified_payload_retains_signed_expiry(valid_token):
     assert payload["exp"] == verify_token(valid_token).exp.timestamp()
 
 
+async def test_verified_payload_carries_plex_id():
+    """The WebSocket payload keeps a Plex sign-in's account id; local tokens have none."""
+    plex_token = create_access_token({"sub": "plexuser", "role": "viewer", "plex_id": "12345"})
+    local_token = create_access_token({"sub": "testuser", "role": "viewer"})
+
+    plex_payload = await websocket_router.verify_websocket_token(plex_token)
+    local_payload = await websocket_router.verify_websocket_token(local_token)
+
+    assert plex_payload is not None
+    assert plex_payload["plex_id"] == "12345"
+    assert local_payload is not None
+    assert local_payload["plex_id"] is None
+
+
 async def test_sec07_failed_broadcast_closes_and_cleans_endpoint(monkeypatch, valid_token):
     import asyncio
     from unittest.mock import AsyncMock, MagicMock

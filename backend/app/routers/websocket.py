@@ -58,7 +58,12 @@ async def verify_websocket_token(token: str) -> dict | None:
     """
     try:
         payload = verify_token(token)
-        return {"sub": payload.sub, "role": payload.role, "exp": payload.exp.timestamp()}
+        return {
+            "sub": payload.sub,
+            "role": payload.role,
+            "exp": payload.exp.timestamp(),
+            "plex_id": payload.plex_id,
+        }
     except JWTError:
         return None
 

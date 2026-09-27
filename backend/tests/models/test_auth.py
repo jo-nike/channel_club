@@ -70,3 +70,19 @@ def test_token_payload_role_values():
 
     viewer = TokenPayload(sub="viewer", role="viewer", exp=now)
     assert viewer.role == "viewer"
+
+
+def test_token_payload_plex_id_defaults_to_none():
+    """Local sign-in tokens carry no Plex account id."""
+    from app.models.auth import TokenPayload
+
+    payload = TokenPayload(sub="admin", role="admin", exp=datetime.now(UTC))
+    assert payload.plex_id is None
+
+
+def test_token_payload_parses_plex_id():
+    """A Plex sign-in token's account id is kept, not dropped."""
+    from app.models.auth import TokenPayload
+
+    payload = TokenPayload(sub="plexuser", role="viewer", exp=datetime.now(UTC), plex_id="12345")
+    assert payload.plex_id == "12345"
