@@ -1707,6 +1707,52 @@ describe('TVChannelSidebar presence stacks', () => {
     expect(document.querySelector('[data-slot="presence-stack"]')).toBeNull()
   })
 
+  describe('on the collapsed rail', () => {
+    const dot = (tile: HTMLElement) => tile.querySelector('[data-testid="presence-dot"]')
+
+    it('marks a tile with people on it with a dot, and names them', async () => {
+      render(<TVChannelSidebar isCollapsed />)
+      await act(async () => {})
+
+      const cartoons = screen.getByRole('button', { name: '2 Cartoons, dev and 3 others watching' })
+      expect(dot(cartoons)).toHaveClass('bg-success')
+      expect(dot(screen.getByRole('button', { name: /^0 Live: .*, maya watching$/ }))).not.toBeNull()
+      // Only this viewer is on Movies
+      const movies = screen.getByRole('button', { name: '1 Movies' })
+      expect(dot(movies)).toBeNull()
+    })
+
+    it('says who is there in the tooltip', async () => {
+      render(<TVChannelSidebar isCollapsed />)
+      await act(async () => {})
+
+      await act(async () => {
+        screen.getByRole('button', { name: /^2 Cartoons/ }).focus()
+      })
+
+      expect(await screen.findByRole('tooltip')).toHaveTextContent('dev and 3 others watching')
+    })
+
+    it('puts no dot on the empty live slot', async () => {
+      useChannelStore.setState({ currentChannel: null })
+      usePresenceStore.setState({ entries: [person({ displayName: 'maya', view: 'live', channelId: null })] })
+      render(<TVChannelSidebar isCollapsed />)
+      await act(async () => {})
+
+      expect(dot(screen.getByRole('button', { name: 'Live slot, nothing on' }))).toBeNull()
+      expect(screen.queryByTestId('presence-dot')).toBeNull()
+    })
+
+    it('puts no dots on the rail while the admin setting is off', async () => {
+      useSettingsStore.setState({ presenceVisible: false })
+      render(<TVChannelSidebar isCollapsed />)
+      await act(async () => {})
+
+      expect(screen.queryByTestId('presence-dot')).toBeNull()
+      expect(screen.getByRole('button', { name: '2 Cartoons' })).toBeInTheDocument()
+    })
+  })
+
   it('follows the snapshot as people come and go', async () => {
     render(<TVChannelSidebar />)
     await act(async () => {})

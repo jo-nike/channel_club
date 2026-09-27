@@ -14,7 +14,7 @@ import { ChannelFilterBar, NoChannelsMatch } from '@/components/tv/ChannelFilter
 import { LivePill } from '@/components/LivePill'
 import { ChannelLogo } from '@/components/ChannelLogo'
 import { ChannelPresenceSpace, ChannelPresenceStack } from '@/components/tv/ChannelPresenceStack'
-import { usePresenceByChannel } from '@/hooks/usePresenceByChannel'
+import { presenceNames, usePresenceByChannel } from '@/hooks/usePresenceByChannel'
 import { calculateProgress, findOnAir, formatRemaining, getProgrammeState } from '@/lib/programmes'
 import { buildProgrammeIndex, findCurrentAndNext, type IndexedProgramme } from '@/lib/programmeIndex'
 import { favouritesFirst } from '@/lib/channelSearch'
@@ -156,6 +156,7 @@ export function TVChannelSidebar({
               onSelect={handleChannelClick}
               tabIndex={getTabIndex(index)}
               onFocus={() => setFocusedIndex(index)}
+              people={presenceByChannel.get(channel.id)}
             />
           ))}
         </div>
@@ -245,6 +246,8 @@ interface CollapsedChannelButtonProps {
   // Roving focus: 0 on the one tab stop, -1 on the rest
   tabIndex: 0 | -1
   onFocus: () => void
+  // Who else is on the channel (usePresenceByChannel)
+  people?: PresenceEntry[]
 }
 
 function CollapsedChannelButton({
@@ -258,9 +261,12 @@ function CollapsedChannelButton({
   onSelect,
   tabIndex,
   onFocus,
+  people,
 }: CollapsedChannelButtonProps) {
   const isLive = channel.type === 'live'
   const isLiveOn = isLive && hasLiveChannel
+  // The people on the channel, but never on the empty live slot (as on the expanded row)
+  const presence = people && people.length > 0 && (!isLive || hasLiveChannel) ? people : null
 
   return (
     <Tooltip>
@@ -279,7 +285,7 @@ function CollapsedChannelButton({
             isLiveOn ? 'bg-live/20 text-live' : isSelected ? 'bg-primary/10' : 'bg-muted'
           )}
           // The favourites lead the rail; the label says why this one is up there
-          aria-label={isFavourite ? `${label}, favourite` : label}
+          aria-label={`${label}${isFavourite ? ', favourite' : ''}${presence ? `, ${presenceNames(presence)} watching` : ''}`}
           aria-current={isSelected ? 'true' : undefined}
         >
           {isFavourite && (
@@ -287,6 +293,14 @@ function CollapsedChannelButton({
               aria-hidden="true"
               data-testid="favourite-mark"
               className="absolute top-0.5 left-0.5 z-10 h-2.5 w-2.5 fill-current text-primary"
+            />
+          )}
+          {/* A friend is here: top-right, clear of the star and the number badge */}
+          {presence && (
+            <span
+              aria-hidden="true"
+              data-testid="presence-dot"
+              className="absolute top-0.5 right-0.5 z-10 h-2 w-2 rounded-full bg-success ring-2 ring-card"
             />
           )}
           {isLive ? (
@@ -317,7 +331,12 @@ function CollapsedChannelButton({
         </button>
       </TooltipTrigger>
       <TooltipContent side="right">
-        <ChannelTooltipBody channel={channel} hasLiveChannel={hasLiveChannel} canPickLive={canPickLive} />
+        <ChannelTooltipBody
+          channel={channel}
+          hasLiveChannel={hasLiveChannel}
+          canPickLive={canPickLive}
+          people={presence}
+        />
       </TooltipContent>
     </Tooltip>
   )
@@ -329,10 +348,12 @@ function ChannelTooltipBody({
   channel,
   hasLiveChannel,
   canPickLive,
+  people,
 }: {
   channel: UnifiedChannel
   hasLiveChannel: boolean
   canPickLive: boolean
+  people: PresenceEntry[] | null
 }) {
   const now = useProgrammeClock()
   const programmes = useErsatztvStore((s) => s.programmesByChannel[channel.id])
@@ -378,6 +399,7 @@ function ChannelTooltipBody({
           )}
         </>
       )}
+      {people && <p className="text-muted-foreground">{presenceNames(people)} watching</p>}
     </div>
   )
 }
