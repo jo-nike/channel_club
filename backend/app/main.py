@@ -23,6 +23,7 @@ from app.routers.highlight import router as highlight_router
 from app.routers.nhl import router as nhl_router
 from app.routers.settings import router as settings_router
 from app.routers.websocket import router as websocket_router
+from app.services import presence
 from app.services.cast import cast_service
 from app.services.dispatcharr import (
     DispatchrrUnavailableError,
@@ -127,6 +128,10 @@ async def lifespan(app: FastAPI):
         # Start background task to clean up idle sessions
         cast_service.start_idle_cleanup_task()
 
+    # Sweep presence for tabs that vanished without closing their socket, so
+    # stale viewers disappear even when no admin is polling Active Users.
+    presence.start_cleanup_task()
+
     # Warm the channel groups cache in the background so the first admin
     # modal open doesn't block on a cold Dispatcharr fetch.
     async def _warm_channels_cache() -> None:
@@ -151,6 +156,7 @@ async def lifespan(app: FastAPI):
     app.state.warmup_task.cancel()
     with suppress(asyncio.CancelledError):
         await app.state.warmup_task
+    presence.stop_cleanup_task()
     # Stop idle cleanup task and all highlight recorders
     highlight_service.stop_idle_cleanup_task()
     await highlight_service.stop_all()

@@ -1,7 +1,9 @@
 """Tests for presence service."""
 
-from datetime import datetime
-from unittest.mock import MagicMock
+import asyncio
+from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -9,11 +11,12 @@ from app.services import presence
 
 
 @pytest.fixture(autouse=True)
-def reset_presence_state():
+def reset_presence_state() -> Iterator[None]:
     """Reset presence state before each test."""
     presence._active_users.clear()
     yield
     presence._active_users.clear()
+    presence.stop_cleanup_task()
 
 
 class TestTrackUser:
@@ -301,3 +304,76 @@ class TestGetUsersByView:
         assert len(result) == 1
         assert result[0].username == "user2"
         assert result[0].view == "ersatztv"
+
+
+class TestCleanupTask:
+    """Tests for the background stale-user cleanup task."""
+
+    async def test_timer_removes_stale_users(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A tab that stopped pinging is removed without anyone polling Active Users."""
+        monkeypatch.setattr(presence, "CLEANUP_INTERVAL_SECONDS", 0.01)
+        presence.track_user(connection_id="gone", username="ghost", view="live")
+        presence.track_user(connection_id="here", username="friend", view="live")
+        presence._active_users["gone"].last_activity = datetime.now(UTC) - timedelta(
+            seconds=presence.STALE_USER_TIMEOUT_SECONDS + 1
+        )
+
+        presence.start_cleanup_task()
+        for _ in range(100):
+            await asyncio.sleep(0.01)
+            if "gone" not in presence._active_users:
+                break
+
+        assert "gone" not in presence._active_users
+        assert "here" in presence._active_users
+
+    async def test_keeps_running_after_a_sweep(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The loop sweeps repeatedly, not just once."""
+        monkeypatch.setattr(presence, "CLEANUP_INTERVAL_SECONDS", 0.01)
+        sweep = MagicMock(return_value=0)
+        monkeypatch.setattr(presence, "cleanup_stale_users", sweep)
+
+        presence.start_cleanup_task()
+        for _ in range(100):
+            await asyncio.sleep(0.01)
+            if sweep.call_count >= 2:
+                break
+
+        assert sweep.call_count >= 2
+
+    async def test_start_is_idempotent(self) -> None:
+        """Starting twice keeps the one running task."""
+        presence.start_cleanup_task()
+        first = presence._cleanup_task
+
+        presence.start_cleanup_task()
+
+        assert presence._cleanup_task is first
+
+    async def test_stop_cancels_the_task(self) -> None:
+        """Stopping cancels the running task and forgets it."""
+        presence.start_cleanup_task()
+        task = presence._cleanup_task
+        assert task is not None
+
+        presence.stop_cleanup_task()
+        await asyncio.sleep(0)
+
+        assert presence._cleanup_task is None
+        assert task.done()
+
+    def test_app_lifespan_starts_and_stops_the_task(self) -> None:
+        """The app runs the sweep for its whole lifetime."""
+        from fastapi.testclient import TestClient
+
+        from app.main import app
+
+        with (
+            patch("app.main.get_grouped_channels", new=AsyncMock(return_value=[])),
+            TestClient(app),
+        ):
+            task = presence._cleanup_task
+            assert task is not None
+            assert not task.done()
+
+        assert presence._cleanup_task is None

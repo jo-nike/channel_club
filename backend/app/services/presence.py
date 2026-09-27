@@ -10,6 +10,7 @@ with bound fields, so viewing history can be queried from the log store
 (Loki: ``| json | record_extra_event="watch.stop"``) without a database.
 """
 
+import asyncio
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Literal
@@ -254,6 +255,14 @@ def update_last_activity(connection_id: str) -> None:
 # Must be longer than client ping interval (30s) to avoid false positives
 STALE_USER_TIMEOUT_SECONDS = 60
 
+# How often the background task sweeps for stale users. With the 60s timeout a
+# tab that vanished without closing its socket is gone within about 90s.
+CLEANUP_INTERVAL_SECONDS = 30
+
+# Strong reference to the running cleanup task (the event loop only keeps a
+# weak one)
+_cleanup_task: asyncio.Task | None = None
+
 
 def cleanup_stale_users(timeout_seconds: int = STALE_USER_TIMEOUT_SECONDS) -> int:
     """Remove users who haven't sent a ping within the timeout period.
@@ -278,3 +287,34 @@ def cleanup_stale_users(timeout_seconds: int = STALE_USER_TIMEOUT_SECONDS) -> in
         if user:
             _close_session(user, "stale")
     return len(stale)
+
+
+def start_cleanup_task() -> None:
+    """Start the background task that removes stale users every 30 seconds."""
+    global _cleanup_task
+    if _cleanup_task is None or _cleanup_task.done():
+        _cleanup_task = asyncio.create_task(_cleanup_loop())
+        log.debug("Started stale presence cleanup task")
+
+
+def stop_cleanup_task() -> None:
+    """Stop the background stale-user cleanup task."""
+    global _cleanup_task
+    if _cleanup_task and not _cleanup_task.done():
+        _cleanup_task.cancel()
+        _cleanup_task = None
+        log.debug("Stopped stale presence cleanup task")
+
+
+async def _cleanup_loop() -> None:
+    """Background loop that periodically removes stale users."""
+    while True:
+        try:
+            await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
+            removed = cleanup_stale_users()
+            if removed > 0:
+                log.info("Cleaned up {} stale users", removed)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            log.warning("Error in presence cleanup loop: {}", e)
