@@ -3,9 +3,9 @@ import { Button } from '@/components/ui/button'
 import { useInstallPrompt } from '@/hooks/useInstallPrompt'
 
 export function InstallPrompt() {
-  const { canInstall, install, dismiss } = useInstallPrompt()
+  const { shouldPromote, install, dismiss } = useInstallPrompt()
 
-  if (!canInstall) return null
+  if (!shouldPromote) return null
 
   return (
     <div

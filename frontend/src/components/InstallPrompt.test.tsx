@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, act } from '@/test/utils'
 import { InstallPrompt } from './InstallPrompt'
 import * as useInstallPromptModule from '@/hooks/useInstallPrompt'
+import { initInstallStore } from '@/stores/installStore'
 
 vi.mock('@/hooks/useInstallPrompt')
 
@@ -14,10 +15,11 @@ describe('InstallPrompt', () => {
     mockInstall.mockResolvedValue(true)
   })
 
-  describe('when canInstall is false', () => {
+  describe('when the banner should not be promoted', () => {
     it('renders nothing', () => {
       vi.spyOn(useInstallPromptModule, 'useInstallPrompt').mockReturnValue({
-        canInstall: false,
+        canInstall: true,
+        shouldPromote: false,
         install: mockInstall,
         dismiss: mockDismiss
       })
@@ -30,6 +32,7 @@ describe('InstallPrompt', () => {
   describe('with the real hook', () => {
     beforeEach(async () => {
       localStorage.clear()
+      initInstallStore()
       const actual = await vi.importActual<typeof useInstallPromptModule>('@/hooks/useInstallPrompt')
       vi.spyOn(useInstallPromptModule, 'useInstallPrompt').mockImplementation(actual.useInstallPrompt)
     })
@@ -56,18 +59,26 @@ describe('InstallPrompt', () => {
       expect(screen.getByRole('dialog')).toBeInTheDocument()
     })
 
+    it('shows the banner for an offer made before it mounted (on the sign-in screen)', () => {
+      fireBeforeInstallPrompt()
+      render(<InstallPrompt />)
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+
     it('renders nothing in TV mode', () => {
       localStorage.setItem('tv-mode', 'true')
+      initInstallStore()
       const { container } = render(<InstallPrompt />)
       fireBeforeInstallPrompt()
       expect(container.firstChild).toBeNull()
     })
   })
 
-  describe('when canInstall is true', () => {
+  describe('when the banner should be promoted', () => {
     beforeEach(() => {
       vi.spyOn(useInstallPromptModule, 'useInstallPrompt').mockReturnValue({
         canInstall: true,
+        shouldPromote: true,
         install: mockInstall,
         dismiss: mockDismiss
       })
