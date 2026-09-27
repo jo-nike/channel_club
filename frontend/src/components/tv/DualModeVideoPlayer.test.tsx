@@ -451,6 +451,34 @@ describe('DualModeVideoPlayer audio: keyboard', () => {
     expect(video().volume).toBe(0.4)
   })
 
+  it.each([
+    ['live', liveChannel('https://fixture/a'), () => video().muted],
+    ['ErsatzTV', hlsChannel('1', 1), () => lastPlayerProps().muted],
+  ])('%s: ArrowUp while muted comes back at the saved level', (_engine, channel, elementMuted) => {
+    useAudioStore.setState({ volume: 0.6, muted: true })
+    renderPlayer(channel)
+
+    fireEvent.keyDown(window, { key: 'ArrowUp' })
+
+    expect(useAudioStore.getState()).toMatchObject({ volume: 0.6, muted: false })
+    expect(elementMuted()).toBe(false)
+  })
+
+  it.each([
+    ['live', liveChannel('https://fixture/a'), () => video().muted],
+    ['ErsatzTV', hlsChannel('1', 1), () => lastPlayerProps().muted],
+  ])('%s: ArrowDown while muted keeps the mute and the saved level', (_engine, channel, elementMuted) => {
+    useAudioStore.setState({ volume: 0.6, muted: true })
+    renderPlayer(channel)
+    vi.mocked(localStorage.setItem).mockClear()
+
+    fireEvent.keyDown(window, { key: 'ArrowDown' })
+
+    expect(useAudioStore.getState()).toMatchObject({ volume: 0.6, muted: true })
+    expect(elementMuted()).toBe(true)
+    expect(wroteAudioStorage()).toBe(false)
+  })
+
   it('M and arrows work with a player button focused', () => {
     useAudioStore.setState({ volume: 0.3, muted: false })
     renderPlayer(hlsChannel('1', 1))

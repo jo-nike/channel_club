@@ -292,7 +292,9 @@ function LiveVideoPlayer({
     onFullscreenToggle: handleFullscreenToggle,
     onTheaterModeToggle,
     onVolumeChange: handleVolumeChange,
-    volume: isMuted ? 0 : volume,
+    onUnmute: handleRestoreSound,
+    volume,
+    isMuted,
     ignoreVerticalArrows: isTVMode,
   })
 
@@ -712,6 +714,11 @@ function HLSControlsWrapper({
     if (!next) remote.unmute()
   }, [isMuted, remote, setStoredMuted])
 
+  const handleUnmute = useCallback(() => {
+    setStoredMuted(false)
+    remote.unmute()
+  }, [remote, setStoredMuted])
+
   const isPlaying = !paused
 
   // A tap on the picture toggles the controls
@@ -731,7 +738,9 @@ function HLSControlsWrapper({
     },
     onTheaterModeToggle,
     onVolumeChange: handleVolumeChange,
-    volume: isMuted ? 0 : volume,
+    onUnmute: handleUnmute,
+    volume,
+    isMuted,
     ignoreVerticalArrows: isTVMode,
   })
 
