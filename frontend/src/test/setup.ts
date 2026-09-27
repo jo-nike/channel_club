@@ -40,6 +40,11 @@ class MockResizeObserver implements ResizeObserver {
 }
 window.ResizeObserver = MockResizeObserver
 
+// jsdom has no layout scrolling, so no scrollIntoView. Components that keep a
+// selected item in view (the channel sidebar) call it on mount; tests that
+// assert on scrolling install their own spy.
+Element.prototype.scrollIntoView = vi.fn()
+
 // Mock window.matchMedia for tests that use media queries
 Object.defineProperty(window, 'matchMedia', {
   writable: true,

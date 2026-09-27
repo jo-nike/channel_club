@@ -1,14 +1,15 @@
-import { useEffect, useRef, useState, type Ref } from 'react'
+import { useEffect, useRef, type Ref } from 'react'
 import { AudioLines, ChevronLeft, ChevronRight, Radio } from 'lucide-react'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore, describeLiveGuide } from '@/stores/tvStore'
-import { getErsatzTVLogoUrl, fetchErsatzTVCurrentProgramme } from '@/services/ersatztvApi'
+import { getErsatzTVLogoUrl } from '@/services/ersatztvApi'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
 import { useProgrammeClock } from '@/hooks/useProgrammeClock'
 import { calculateProgress, findOnAir, formatRemaining, getProgrammeState } from '@/lib/programmes'
+import { buildProgrammeIndex, findCurrentAndNext, type IndexedProgramme } from '@/lib/programmeIndex'
 import { cn } from '@/lib/utils'
-import type { UnifiedChannel, ErsatzTVProgramme } from '@/types'
+import type { UnifiedChannel } from '@/types'
 
 interface TVChannelSidebarProps {
   isCollapsed?: boolean
@@ -24,55 +25,31 @@ export function TVChannelSidebar({
   liveEPGTitle,
   onPickLive,
 }: TVChannelSidebarProps) {
-  const { channels: ersatzTVChannels, channelsLoading, error, loadChannels } = useErsatztvStore()
+  const { channelsLoading, error, loadChannels } = useErsatztvStore()
   const { selectedChannel, selectChannel, getUnifiedChannels, isLiveChannelActive, liveEPGStatus } = useTVStore()
-
-  const [channelProgrammes, setChannelProgrammes] = useState<Record<string, ErsatzTVProgramme>>({})
-  const [currentTime, setCurrentTime] = useState(() => Date.now())
+  // Now/next come from the guide's programmes, which TVView refreshes every
+  // 2h, so a schedule edit in ErsatzTV shows here on that refresh
+  const programmesByChannel = useErsatztvStore((s) => s.programmesByChannel)
+  const now = useProgrammeClock()
+  const programmeIndex = buildProgrammeIndex(programmesByChannel)
 
   // Get unified channel list
   const unifiedChannels = getUnifiedChannels()
   const hasLiveChannel = isLiveChannelActive()
 
-  // Update current time every 30 seconds for time remaining calculations
-  useEffect(() => {
-    const interval = setInterval(() => setCurrentTime(Date.now()), 30 * 1000)
-    return () => clearInterval(interval)
-  }, [])
-
-  // Fetch current programmes for ErsatzTV channels every 30 seconds
-  useEffect(() => {
-    const fetchAllCurrentProgrammes = async () => {
-      const results: Record<string, ErsatzTVProgramme> = {}
-      await Promise.all(
-        ersatzTVChannels.map(async (channel) => {
-          try {
-            const data = await fetchErsatzTVCurrentProgramme(channel.id)
-            if (data.current) {
-              results[channel.id] = data.current
-            }
-          } catch {
-            // Ignore individual failures
-          }
-        })
-      )
-      setChannelProgrammes(results)
-    }
-
-    if (ersatzTVChannels.length > 0) {
-      fetchAllCurrentProgrammes()
-      const interval = setInterval(fetchAllCurrentProgrammes, 30 * 1000)
-      return () => clearInterval(interval)
-    }
-  }, [ersatzTVChannels])
-
-  // Keep the selected tile in view when the rail collapses or the selection
-  // changes while collapsed
-  const tileRefs = useRef(new Map<string, HTMLButtonElement>())
+  // Keep the selected channel in view: when the list mounts (a restored
+  // channel may be far down), when the rail collapses or expands, and when
+  // the selection changes. Only one of the rail or the list is mounted, so
+  // they share the map.
+  const channelRefs = useRef(new Map<string, HTMLButtonElement>())
+  const setChannelRef = (channelId: string) => (element: HTMLButtonElement | null) => {
+    if (element) channelRefs.current.set(channelId, element)
+    else channelRefs.current.delete(channelId)
+  }
   const selectedChannelId = selectedChannel?.id
   useEffect(() => {
-    if (!isCollapsed || !selectedChannelId) return
-    tileRefs.current.get(selectedChannelId)?.scrollIntoView({ block: 'nearest' })
+    if (!selectedChannelId) return
+    channelRefs.current.get(selectedChannelId)?.scrollIntoView({ block: 'nearest' })
   }, [isCollapsed, selectedChannelId])
 
   const handleChannelClick = (channel: UnifiedChannel) => {
@@ -96,10 +73,7 @@ export function TVChannelSidebar({
           {unifiedChannels.map((channel) => (
             <CollapsedChannelButton
               key={channel.id}
-              ref={(tile) => {
-                if (tile) tileRefs.current.set(channel.id, tile)
-                else tileRefs.current.delete(channel.id)
-              }}
+              ref={setChannelRef(channel.id)}
               channel={channel}
               isSelected={selectedChannel?.id === channel.id}
               hasLiveChannel={hasLiveChannel}
@@ -132,23 +106,29 @@ export function TVChannelSidebar({
         <button onClick={() => loadChannels()}>Retry additional channels</button>
       </div>}
       <ul className="divide-y" role="list">
-        {unifiedChannels.map((channel) => (
-          <ChannelItem
-            key={channel.id}
-            channel={channel}
-            isSelected={selectedChannel?.id === channel.id}
-            onSelect={handleChannelClick}
-            currentProgramme={
-              channel.type === 'live'
-                ? liveEPGTitle || describeLiveGuide(liveEPGStatus)
-                : channelProgrammes[channel.id]?.title
-            }
-            programme={channel.type === 'live' ? undefined : channelProgrammes[channel.id]}
-            currentTime={currentTime}
-            hasLiveChannel={hasLiveChannel}
-            onPickLive={onPickLive}
-          />
-        ))}
+        {unifiedChannels.map((channel) => {
+          const { current: onAir, next } =
+            channel.type === 'live'
+              ? { current: null, next: null }
+              : findCurrentAndNext(programmeIndex, channel.id, now)
+          return (
+            <ChannelItem
+              key={channel.id}
+              ref={setChannelRef(channel.id)}
+              channel={channel}
+              isSelected={selectedChannel?.id === channel.id}
+              onSelect={handleChannelClick}
+              currentProgramme={
+                channel.type === 'live' ? liveEPGTitle || describeLiveGuide(liveEPGStatus) : onAir?.programme.title
+              }
+              onAir={onAir}
+              next={next}
+              currentTime={now}
+              hasLiveChannel={hasLiveChannel}
+              onPickLive={onPickLive}
+            />
+          )
+        })}
       </ul>
     </aside>
   )
@@ -295,42 +275,51 @@ function ChannelTooltipBody({
 // Expanded Channel Item
 // ============================================================================
 
+// Created once: the Next line formats a time on every row on every tick
+const nextTimeFormat = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' })
+
 interface ChannelItemProps {
+  ref?: Ref<HTMLButtonElement>
   channel: UnifiedChannel
   isSelected: boolean
   onSelect: (channel: UnifiedChannel) => void
   currentProgramme?: string | null
-  programme?: ErsatzTVProgramme
+  // The ErsatzTV programme on air, with its parsed times
+  onAir: IndexedProgramme | null
+  // The ErsatzTV programme after it (or after the gap)
+  next: IndexedProgramme | null
   currentTime: number
   hasLiveChannel: boolean
   onPickLive?: () => void
 }
 
 function ChannelItem({
+  ref,
   channel,
   isSelected,
   onSelect,
   currentProgramme,
-  programme,
+  onAir,
+  next,
   currentTime,
   hasLiveChannel,
   onPickLive,
 }: ChannelItemProps) {
   const isLive = channel.type === 'live'
-  const startMs = programme ? new Date(programme.start).getTime() : 0
-  const stopMs = programme ? new Date(programme.stop).getTime() : 0
-  const progress = programme ? calculateProgress(startMs, stopMs, currentTime) : 0
-  const timeRemaining = programme ? formatRemaining(stopMs, currentTime) : null
+  const progress = onAir ? calculateProgress(onAir.startMs, onAir.stopMs, currentTime) : 0
+  const timeRemaining = onAir ? formatRemaining(onAir.stopMs, currentTime) : null
   // The empty live slot offers the picker next to the row (a sibling, since
   // buttons can't nest)
   const showPickLive = isLive && !hasLiveChannel && !!onPickLive
 
   return (
     <li className={showPickLive ? 'flex items-center bg-destructive/5 pr-3' : undefined}>
+      {/* scroll-mt clears the sticky Channels header when the row is scrolled into view */}
       <button
+        ref={ref}
         onClick={() => onSelect(channel)}
         className={`
-          flex ${showPickLive ? 'min-w-0 flex-1' : 'w-full'} items-center gap-3 p-3 text-left transition-colors
+          flex ${showPickLive ? 'min-w-0 flex-1' : 'w-full'} scroll-mt-17 items-center gap-3 p-3 text-left transition-colors
           hover:bg-accent focus-visible:-outline-offset-2
           ${isSelected ? 'bg-primary/10 border-l-4 border-primary' : ''}
           ${isLive ? 'bg-destructive/5' : ''}
@@ -383,7 +372,7 @@ function ChannelItem({
               : currentProgramme || 'Now playing...'}
           </p>
           {/* Progress bar and time remaining for ErsatzTV channels */}
-          {!isLive && programme && (
+          {!isLive && onAir && (
             <div className="mt-1.5 flex items-center gap-2">
               <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
                 <div
@@ -395,6 +384,12 @@ function ChannelItem({
                 {timeRemaining}
               </span>
             </div>
+          )}
+          {/* The line is always there on ErsatzTV rows, so rows don't grow when the guide arrives */}
+          {!isLive && (
+            <p className="mt-1 h-4 truncate text-xs leading-4 text-muted-foreground">
+              {next && `Next ${nextTimeFormat.format(next.startMs)} · ${next.programme.title}`}
+            </p>
           )}
         </div>
 

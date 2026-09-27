@@ -17,6 +17,13 @@ vi.mock('@/services/ersatztvApi', () => ({
   getErsatzTVLogoUrl: vi.fn((id: string) => `/api/ersatztv/logo/${id}`),
 }))
 
+// The sidebar scrolls the selected channel into view. The scrolling tests
+// below install their own spy and delete it afterwards, which also removes
+// the no-op from test/setup, so put one back before every test
+beforeEach(() => {
+  Element.prototype.scrollIntoView = vi.fn()
+})
+
 describe('TVChannelSidebar colours', () => {
   beforeEach(() => {
     useChannelStore.setState({
@@ -38,7 +45,6 @@ describe('TVChannelSidebar colours', () => {
 
   it('hovers collapsed rail tiles with a foreground tint, which stays visible on bg-muted', async () => {
     render(<TVChannelSidebar isCollapsed />)
-    // Let the current-programme fetch settle
     await act(async () => {})
 
     const tile = screen.getByRole('button', { name: '1 Movies' })
@@ -390,7 +396,8 @@ describe('TVChannelSidebar collapsed rail scrolling', () => {
   it('scrolls the selected tile into view when the rail collapses', async () => {
     const { rerender } = render(<TVChannelSidebar />)
     await act(async () => {})
-    expect(scrollIntoView).not.toHaveBeenCalled()
+    // The expanded list scrolled its own row into view on mount
+    scrollIntoView.mockClear()
 
     rerender(<TVChannelSidebar isCollapsed />)
     await act(async () => {})
@@ -418,6 +425,78 @@ describe('TVChannelSidebar collapsed rail scrolling', () => {
     expect(scrollIntoView.mock.contexts[0]).toBe(
       screen.getByRole('button', { name: '5 Channel 5' })
     )
+  })
+})
+
+describe('TVChannelSidebar expanded list scrolling', () => {
+  const scrollIntoView = vi.fn()
+  const channel = (id: string) => useTVStore.getState().getUnifiedChannels().find((c) => c.id === id) ?? null
+
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = scrollIntoView
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1' },
+    })
+    useErsatztvStore.setState({ channels: RAIL_CHANNELS })
+    useTVStore.setState({ selectedChannel: channel('etv30') })
+  })
+
+  afterEach(() => {
+    cleanup()
+    scrollIntoView.mockReset()
+    delete (Element.prototype as Partial<Element>).scrollIntoView
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels: [] })
+    useTVStore.setState({ selectedChannel: null })
+  })
+
+  it('scrolls the restored channel into view when the list mounts', async () => {
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+
+    expect(scrollIntoView).toHaveBeenCalledTimes(1)
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
+    const row = screen.getByRole('button', { name: '30 Channel 30' })
+    expect(scrollIntoView.mock.contexts[0]).toBe(row)
+    // 'nearest' scrolling up would tuck the row under the sticky Channels header
+    expect(row).toHaveClass('scroll-mt-17')
+  })
+
+  it('follows the selection to its row', async () => {
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+    scrollIntoView.mockClear()
+
+    await act(async () => {
+      useTVStore.setState({ selectedChannel: channel('etv5') })
+    })
+
+    expect(scrollIntoView).toHaveBeenCalledTimes(1)
+    expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByRole('button', { name: '5 Channel 5' }))
+  })
+
+  it('scrolls the row into view when the rail expands', async () => {
+    const { rerender } = render(<TVChannelSidebar isCollapsed />)
+    await act(async () => {})
+    scrollIntoView.mockClear()
+
+    rerender(<TVChannelSidebar />)
+    await act(async () => {})
+
+    expect(scrollIntoView).toHaveBeenCalledTimes(1)
+    expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByRole('button', { name: '30 Channel 30' }))
+  })
+
+  it('does not scroll again when the guide refreshes', async () => {
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+    scrollIntoView.mockClear()
+
+    await act(async () => {
+      useErsatztvStore.setState({ programmesByChannel: {} })
+    })
+
+    expect(scrollIntoView).not.toHaveBeenCalled()
   })
 })
 
@@ -520,22 +599,23 @@ describe('TVChannelSidebar programme progress', () => {
   const NOW = new Date('2026-09-26T20:00:00Z').getTime()
   const MINUTE = 60_000
 
-  function onNow(startOffsetMin: number, stopOffsetMin: number): ErsatzTVProgramme {
+  function programme(id: string, title: string, startOffsetMin: number, stopOffsetMin: number): ErsatzTVProgramme {
     return {
-      id: 'p1',
+      id,
       channelId: 'etv1',
-      title: 'Evening News',
+      title,
       start: new Date(NOW + startOffsetMin * MINUTE).toISOString(),
       stop: new Date(NOW + stopOffsetMin * MINUTE).toISOString(),
     }
   }
 
+  const row = () => screen.getByRole('button', { name: '1 Movies' })
   // The bar's fill sits in the track just before the time-left label
   const fillBefore = (label: HTMLElement) => label.previousElementSibling?.firstElementChild as HTMLElement
 
   beforeEach(() => {
-    // Only the clock: the programme fetch still resolves on real timers
-    vi.useFakeTimers({ toFake: ['Date'] })
+    // The clock and its 30s interval, so the tick can be stepped
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
     vi.setSystemTime(NOW)
     useErsatztvStore.setState({
       channels: [{ id: 'etv1', name: 'Movies', streamUrl: '', logoUrl: '', number: 1, group: 'Films' }],
@@ -545,25 +625,135 @@ describe('TVChannelSidebar programme progress', () => {
   afterEach(() => {
     cleanup()
     vi.useRealTimers()
-    vi.mocked(fetchErsatzTVCurrentProgramme).mockResolvedValue({ current: null, nextUp: null })
-    useErsatztvStore.setState({ channels: [] })
+    vi.mocked(fetchErsatzTVCurrentProgramme).mockClear()
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels: [], programmesByChannel: {} })
   })
 
-  it("shows the time left and fills the bar by the share that's been on", async () => {
+  it("shows the title and time left from the guide's programmes and fills the bar by the share that's been on", async () => {
     // 30 of 95 minutes in, 65 to go
-    vi.mocked(fetchErsatzTVCurrentProgramme).mockResolvedValue({ current: onNow(-30, 65), nextUp: null })
+    useErsatztvStore.setState({ programmesByChannel: { etv1: [programme('p1', 'Evening News', -30, 65)] } })
     render(<TVChannelSidebar />)
+    await act(async () => {})
 
-    const label = await screen.findByText('1h 5m left')
+    expect(row()).toHaveTextContent('Evening News')
+    const label = screen.getByText('1h 5m left')
     expect(parseFloat(fillBefore(label).style.width)).toBeCloseTo((30 / 95) * 100, 5)
   })
 
-  it("says 'Ending...' with a full bar once the stop time has passed", async () => {
-    vi.mocked(fetchErsatzTVCurrentProgramme).mockResolvedValue({ current: onNow(-60, -1), nextUp: null })
+  it('never asks the backend for current programmes, even as the clock ticks', async () => {
+    useErsatztvStore.setState({ programmesByChannel: { etv1: [programme('p1', 'Evening News', -30, 65)] } })
     render(<TVChannelSidebar />)
+    await act(async () => {})
+    await act(() => vi.advanceTimersByTimeAsync(5 * MINUTE))
 
-    const label = await screen.findByText('Ending...')
-    expect(fillBefore(label).style.width).toBe('100%')
+    expect(fetchErsatzTVCurrentProgramme).not.toHaveBeenCalled()
+  })
+
+  it('counts down on the 30s tick and moves to the next programme at its start', async () => {
+    useErsatztvStore.setState({
+      programmesByChannel: {
+        etv1: [programme('p1', 'Evening News', -30, 1), programme('p2', 'Late Movie', 1, 91)],
+      },
+    })
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+    expect(row()).toHaveTextContent('Evening News')
+    expect(row()).toHaveTextContent('1m left')
+
+    // 30s later the news has 30s to go, which still rounds up to a minute
+    await act(() => vi.advanceTimersByTimeAsync(30_000))
+    expect(row()).toHaveTextContent('Evening News')
+    expect(row()).toHaveTextContent('1m left')
+
+    // The next tick lands on the stop instant, where the movie takes over
+    await act(() => vi.advanceTimersByTimeAsync(30_000))
+    expect(row()).toHaveTextContent('Late Movie')
+    expect(row()).not.toHaveTextContent('Evening News')
+    expect(row()).toHaveTextContent('1h 30m left')
+  })
+
+  it('shows no bar in a gap between programmes', async () => {
+    useErsatztvStore.setState({
+      programmesByChannel: {
+        etv1: [programme('p1', 'Evening News', -60, -5), programme('p2', 'Late Movie', 10, 100)],
+      },
+    })
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+
+    expect(row()).not.toHaveTextContent('Evening News')
+    expect(screen.queryByText(/ left$/)).toBeNull()
+  })
+
+  it('shows the next programme with its start time under the progress bar', async () => {
+    useErsatztvStore.setState({
+      programmesByChannel: {
+        etv1: [programme('p1', 'Evening News', -30, 65), programme('p2', 'Late Movie', 65, 155)],
+      },
+    })
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+
+    const startsAt = new Date(NOW + 65 * MINUTE).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    const nextLine = within(row()).getByText(`Next ${startsAt} · Late Movie`)
+    // After the bar and its time-left label
+    expect(nextLine.previousElementSibling).toHaveTextContent('1h 5m left')
+  })
+
+  it('shows what comes after a gap on the Next line', async () => {
+    useErsatztvStore.setState({
+      programmesByChannel: {
+        etv1: [programme('p1', 'Evening News', -60, -5), programme('p2', 'Late Movie', 10, 100)],
+      },
+    })
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+
+    expect(row()).toHaveTextContent(/Next .* · Late Movie/)
+  })
+
+  it('keeps an empty Next line of the same height until the guide arrives, so rows do not jump', async () => {
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+    const emptyLine = row().querySelector('p.h-4')
+    expect(emptyLine).not.toBeNull()
+    expect(emptyLine).toBeEmptyDOMElement()
+
+    await act(async () => {
+      useErsatztvStore.setState({
+        programmesByChannel: {
+          etv1: [programme('p1', 'Evening News', -30, 65), programme('p2', 'Late Movie', 65, 155)],
+        },
+      })
+    })
+
+    const filledLine = row().querySelector('p.h-4')
+    expect(filledLine).toHaveTextContent('Late Movie')
+    expect(filledLine).toHaveClass('h-4', 'leading-4', 'truncate')
+  })
+
+  it('has no Next line on the live row', async () => {
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1' },
+    })
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+
+    expect(screen.getByRole('button', { name: 'Live Channel' })).not.toHaveTextContent('Next')
+  })
+
+  it('follows a refresh of the guide programmes', async () => {
+    useErsatztvStore.setState({ programmesByChannel: { etv1: [programme('p1', 'Evening News', -30, 65)] } })
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+
+    await act(async () => {
+      useErsatztvStore.setState({ programmesByChannel: { etv1: [programme('p9', 'Breaking News', -5, 25)] } })
+    })
+
+    expect(row()).toHaveTextContent('Breaking News')
+    expect(row()).toHaveTextContent('25m left')
   })
 })
 
