@@ -38,10 +38,24 @@ export interface PlayerShell {
    * bar's rocker; absent where the page gives the player no zap
    */
   stepChannel?: (dir: 1 | -1) => void
+  /**
+   * The engine is well behind its own live edge, and how to get back to it;
+   * null while it is at the edge, or there is no engine. This is the local
+   * stream only, never the group (see useShellLiveEdge).
+   */
+  behindLive: BehindLive | null
+  /** The engine reports whether it is behind (see useShellLiveEdge) */
+  setBehindLive: (behind: BehindLive | null) => void
   /** Re-initialises the engine; the shell (and fullscreen) stays */
   reload: () => void
   /** Changes on every reload, whether asked for here or by the page */
   reloadKey: number
+}
+
+/** An engine that has fallen behind its own live edge */
+export interface BehindLive {
+  /** Back to the live edge, playing */
+  jumpToLive: () => void
 }
 
 export const PlayerShellContext = createContext<PlayerShell | null>(null)
@@ -71,4 +85,19 @@ export function useShellPlayback(isPlaying: boolean): void {
     },
     [setPlaying, setHoveringControls]
   )
+}
+
+/**
+ * Reports to the shell whether the engine is behind its own live edge, for
+ * the info rail's 'Behind live' chip. An engine that goes away is behind
+ * nothing.
+ */
+export function useShellLiveEdge(isBehind: boolean, jumpToLive: () => void): void {
+  const { setBehindLive } = usePlayerShell()
+
+  useEffect(() => {
+    setBehindLive(isBehind ? { jumpToLive } : null)
+  }, [isBehind, jumpToLive, setBehindLive])
+
+  useEffect(() => () => setBehindLive(null), [setBehindLive])
 }

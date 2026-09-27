@@ -79,6 +79,8 @@ const vidstack = vi.hoisted(() => {
     mute: vi.fn(),
     unmute: vi.fn(),
     toggleFullscreen: vi.fn(),
+    seekToLiveEdge: vi.fn(),
+    play: vi.fn(),
   }
   const harness = {
     mediaPlayer: vi.fn<(props: Record<string, unknown>) => void>(),
@@ -86,7 +88,9 @@ const vidstack = vi.hoisted(() => {
     // Vidstack reports a placeholder volume of 1 until can-play
     state: { paused: false, volume: 1, muted: false, fullscreen: false, canPlay: false } as Record<string, unknown>,
     remote,
-    // What the MediaPlayer ref exposes
+    // The provider under the player (its seeks skip Vidstack's own checks)
+    provider: { setCurrentTime: vi.fn<(time: number) => void>() },
+    // What the MediaPlayer ref (and useMediaPlayer) exposes
     player: {
       play: vi.fn<() => Promise<void>>(),
       pause: vi.fn(),
@@ -94,6 +98,10 @@ const vidstack = vi.hoisted(() => {
       get state() {
         return harness.state
       },
+      get provider() {
+        return harness.provider
+      },
+      listen: () => () => {},
     },
   }
   return harness
@@ -115,6 +123,7 @@ vi.mock('@vidstack/react', async () => {
     MediaProvider: () => null,
     useMediaState: (prop: string) => vidstack.state[prop] ?? null,
     useMediaRemote: () => vidstack.remote,
+    useMediaPlayer: () => vidstack.player,
   }
 })
 
@@ -3019,5 +3028,163 @@ describe('DualModeVideoPlayer casting', () => {
     act(() => useCastStore.getState().reportError('Living Room stopped playing'))
 
     expect(within(shell()).getByRole('alert')).toHaveTextContent('Living Room stopped playing')
+  })
+})
+
+describe('DualModeVideoPlayer behind live', () => {
+  const jumpButton = () => screen.queryByRole('button', { name: 'Behind live Jump to live' })
+  const clickJump = () => {
+    const button = jumpButton()
+    if (!button) throw new Error('no Jump to live button')
+    fireEvent.click(button)
+  }
+
+  describe('live channel (mpegts): its own buffer', () => {
+    // jsdom buffers nothing and keeps the picture at 0s; these stand in
+    let bufferedEnd: number
+    let currentTime: number
+    let isPaused: boolean
+
+    beforeEach(() => {
+      vi.useFakeTimers()
+      bufferedEnd = 0
+      currentTime = 0
+      isPaused = true
+      useCastStore.setState(INITIAL_CAST_STATE)
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+      useCastStore.setState(INITIAL_CAST_STATE)
+    })
+
+    const renderLive = ({ started = true } = {}) => {
+      const view = renderPlayer(liveChannel('https://fixture/a'))
+      Object.defineProperty(video(), 'buffered', {
+        configurable: true,
+        get: (): TimeRanges => ({ length: 1, start: () => 0, end: () => bufferedEnd }),
+      })
+      Object.defineProperty(video(), 'currentTime', {
+        configurable: true,
+        get: () => currentTime,
+        set: (time: number) => {
+          currentTime = time
+        },
+      })
+      Object.defineProperty(video(), 'paused', { configurable: true, get: () => isPaused })
+      if (started) {
+        act(() => {
+          video().dispatchEvent(new Event('playing'))
+        })
+      }
+      return view
+    }
+    // A paused picture while the stream keeps buffering, measured a second later
+    const fallBehind = (seconds: number) => {
+      currentTime = 100
+      bufferedEnd = 100 + seconds
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
+    }
+
+    it('says it is behind once the picture is more than 10s short of its buffer, and jumps to the edge, playing', () => {
+      renderLive()
+      fallBehind(10)
+      expect(jumpButton()).not.toBeInTheDocument()
+
+      fallBehind(25)
+      expect(jumpButton()).toBeInTheDocument()
+      const play = vi.mocked(HTMLMediaElement.prototype.play)
+      play.mockClear()
+
+      clickJump()
+
+      expect(currentTime).toBe(122)
+      expect(play).toHaveBeenCalledTimes(1)
+      act(() => {
+        video().dispatchEvent(new Event('seeked'))
+      })
+      expect(jumpButton()).not.toBeInTheDocument()
+    })
+
+    it('says nothing before playback has started: the autoplay notice speaks then', () => {
+      renderLive({ started: false })
+
+      fallBehind(25)
+
+      expect(jumpButton()).not.toBeInTheDocument()
+    })
+
+    it('says nothing under the casting card, which pauses the picture on purpose', () => {
+      vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
+      renderLive()
+      act(() => useCastStore.setState({ isLoading: false, isConnected: true, isCasting: true, deviceName: 'Living Room' }))
+
+      fallBehind(25)
+
+      expect(jumpButton()).not.toBeInTheDocument()
+    })
+
+    it('a channel change leaves nothing behind', () => {
+      const { switchTo } = renderLive()
+      fallBehind(25)
+      expect(jumpButton()).toBeInTheDocument()
+
+      switchTo(hlsChannel('1', 1))
+
+      expect(jumpButton()).not.toBeInTheDocument()
+    })
+  })
+
+  describe("ErsatzTV channel (Vidstack): hls.js's live position", () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+      vidstack.provider.setCurrentTime.mockClear()
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    // A sliding-window live playlist: Vidstack can't seek it and calls every
+    // picture on it at the live edge, however far behind hls.js's position
+    const liveAt = (behind: number, paused: boolean) => {
+      vidstack.state = {
+        ...vidstack.state,
+        paused,
+        canPlay: true,
+        live: true,
+        canSeek: false,
+        liveEdge: true,
+        currentTime: 100,
+        liveSyncPosition: 100 + behind,
+      }
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
+    }
+
+    it("says it is behind once more than 10s short of hls.js's live position, and jumps there, playing", () => {
+      renderPlayer(hlsChannel('1', 1))
+      liveAt(10, true)
+      expect(jumpButton()).not.toBeInTheDocument()
+
+      liveAt(45, true)
+      clickJump()
+
+      expect(vidstack.provider.setCurrentTime).toHaveBeenCalledExactlyOnceWith(145)
+      expect(vidstack.remote.play).toHaveBeenCalledTimes(1)
+      expect(vidstack.remote.seekToLiveEdge).not.toHaveBeenCalled()
+    })
+
+    it('says nothing without a live position (no hls.js)', () => {
+      renderPlayer(hlsChannel('1', 1))
+      liveAt(45, false)
+      vidstack.state = { ...vidstack.state, liveSyncPosition: null }
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
+
+      expect(jumpButton()).not.toBeInTheDocument()
+    })
   })
 })

@@ -12,7 +12,7 @@ import { describeLiveChange, useChannelStore, type LiveChannelChange } from '@/s
 import { describeLiveGuide, useTVStore } from '@/stores/tvStore'
 import { useUIStore } from '@/stores/uiStore'
 import type { UnifiedChannel } from '@/types'
-import { usePlayerShell } from './PlayerShellContext'
+import { usePlayerShell, type BehindLive } from './PlayerShellContext'
 
 /** How long the rail stays up after a tune */
 const TUNE_BANNER_MS = 4000
@@ -55,9 +55,14 @@ interface PlayerInfoOverlayProps {
  * are heading for at once; the tune itself waits until they stop pressing.
  * A typed number shows the channel it matches, just the digits while it
  * matches none, and 'No channel 99' when it is entered and no channel has it.
+ *
+ * When the picture falls well behind its own live edge (a pause, a stall, a
+ * slow buffer), the LIVE pill's place says 'Behind live · Jump to live'. That
+ * is this viewer's stream, not the group: someone who reconnected 30s behind
+ * their friends is at their own live edge, so it never claims to be in sync.
  */
 export function PlayerInfoOverlay({ channel, pending = null, entry = null, missing = null }: PlayerInfoOverlayProps) {
-  const { controlsVisible, isTheaterMode, setInfoRailVisible } = usePlayerShell()
+  const { controlsVisible, isTheaterMode, setInfoRailVisible, behindLive } = usePlayerShell()
   const isTVMode = useTVMode()
   const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
 
@@ -106,6 +111,7 @@ export function PlayerInfoOverlay({ channel, pending = null, entry = null, missi
             channel={railChannel}
             isVisible={isRailVisible}
             liveChange={pending ? null : liveChange}
+            behindLive={pending ? null : behindLive}
           />
         )
       )}
@@ -119,9 +125,11 @@ interface InfoRailProps {
   isVisible: boolean
   /** A live-channel change to announce, while on channel 0 */
   liveChange: LiveChannelChange | null
+  /** The engine is behind its own live edge */
+  behindLive: BehindLive | null
 }
 
-function InfoRail({ channel, isVisible, liveChange }: InfoRailProps) {
+function InfoRail({ channel, isVisible, liveChange, behindLive }: InfoRailProps) {
   const { setHoveringControls } = usePlayerShell()
   const { title, timeLeft, isLive, hasLiveChannel } = useNowPlaying(channel)
   // The live slot's logo is the live channel's, which the slot doesn't carry
@@ -155,7 +163,11 @@ function InfoRail({ channel, isVisible, liveChange }: InfoRailProps) {
         <div className="min-w-0">
           <p className="flex min-w-0 items-center gap-2 text-base font-bold leading-tight">
             <span className="truncate">{channel.name}</span>
-            {isClubChannel && <LivePill />}
+            {behindLive ? (
+              <BehindLiveButton behindLive={behindLive} isVisible={isVisible} />
+            ) : (
+              isClubChannel && <LivePill />
+            )}
           </p>
           {!liveChange && <p className="mt-0.5 truncate text-sm leading-tight text-white/80">{details}</p>}
           {/* Always there on channel 0, so screen readers hear the change.
@@ -203,6 +215,37 @@ function InfoRail({ channel, isVisible, liveChange }: InfoRailProps) {
         </Tooltip>
       </div>
     </div>
+  )
+}
+
+/**
+ * The LIVE pill's behind state: the same shape, outlined rather than filled,
+ * and a button back to the edge. video-controls: a tap here jumps rather than
+ * hiding the controls.
+ */
+function BehindLiveButton({ behindLive, isVisible }: { behindLive: BehindLive; isVisible: boolean }) {
+  const { setHoveringControls } = usePlayerShell()
+
+  return (
+    <button
+      type="button"
+      tabIndex={isVisible ? 0 : -1}
+      onClick={behindLive.jumpToLive}
+      onMouseEnter={() => setHoveringControls(true)}
+      onMouseLeave={() => setHoveringControls(false)}
+      className={cn(
+        // The hit area reaches past the chip, which sits in the name's line
+        'video-controls relative inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded border border-live px-2 py-1 before:absolute before:-inset-2',
+        'font-display text-[11px] font-extrabold uppercase leading-none tracking-[0.12em] text-white',
+        'transition-colors hover:bg-live/25 focus-ring-media',
+        isVisible && 'pointer-events-auto'
+      )}
+    >
+      <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full border border-live" />
+      Behind live{' '}
+      <span aria-hidden="true">·</span>{' '}
+      <span className="underline underline-offset-2">Jump to live</span>
+    </button>
   )
 }
 

@@ -1,5 +1,17 @@
 import { useCallback, useEffect, useMemo, useState, type RefObject } from 'react'
-import { useMediaRemote, useMediaState } from '@vidstack/react'
+import { useMediaPlayer, useMediaRemote, useMediaState } from '@vidstack/react'
+import { useLiveLag, useVidstackLiveLag } from '@/hooks/useLiveLag'
+
+/**
+ * How far behind its own live edge, in seconds, either engine may fall
+ * before it says so.
+ */
+export const BEHIND_LIVE_SECONDS = 10
+/**
+ * Where Jump to live lands on the live engine: this far short of the end of
+ * the buffer, so playback doesn't stall at once. liveSync's target latency.
+ */
+export const LIVE_EDGE_MARGIN_SECONDS = 3
 
 /**
  * What PlayerChrome needs from a playback engine. Volume and the viewer's
@@ -21,6 +33,13 @@ export interface PlayerMediaAdapter {
   unmuteElement: () => void
   /** How a cast receiver should fetch this stream */
   streamType: 'hls' | 'mpegts'
+  /**
+   * The picture is well behind the stream's live edge (a pause, a stall, a
+   * slow buffer). Measured against this player's own stream, never the group.
+   */
+  isBehindLive: boolean
+  /** Back to the live edge, playing */
+  jumpToLive: () => void
 }
 
 /**
@@ -72,9 +91,36 @@ export function useLiveAdapter(videoRef: RefObject<HTMLVideoElement | null>): Pl
     if (video) video.muted = false
   }, [videoRef])
 
+  // The distance to the end of what the element has buffered
+  const lag = useLiveLag(videoRef)
+  const isBehindLive = lag !== null && lag > BEHIND_LIVE_SECONDS
+
+  // Just short of the buffer's end, then play: a viewer who paused wants the
+  // live picture, not a still one that falls behind again
+  const jumpToLive = useCallback(() => {
+    const video = videoRef.current
+    if (!video) return
+
+    const { buffered } = video
+    if (buffered.length > 0) {
+      const edge = buffered.end(buffered.length - 1) - LIVE_EDGE_MARGIN_SECONDS
+      if (edge > video.currentTime) video.currentTime = edge
+    }
+    if (video.paused) video.play().catch(() => {})
+  }, [videoRef])
+
   return useMemo(
-    () => ({ isPlaying, elementMuted, canPlay, togglePaused, unmuteElement, streamType: 'mpegts' as const }),
-    [isPlaying, elementMuted, canPlay, togglePaused, unmuteElement]
+    () => ({
+      isPlaying,
+      elementMuted,
+      canPlay,
+      togglePaused,
+      unmuteElement,
+      streamType: 'mpegts' as const,
+      isBehindLive,
+      jumpToLive,
+    }),
+    [isPlaying, elementMuted, canPlay, togglePaused, unmuteElement, isBehindLive, jumpToLive]
   )
 }
 
@@ -87,16 +133,41 @@ export function useVidstackAdapter(): PlayerMediaAdapter {
   const paused = useMediaState('paused')
   const elementMuted = useMediaState('muted')
   const canPlay = useMediaState('canPlay')
-  // The same controller for the player's lifetime
+  // The same player and controller for the player's lifetime
+  const player = useMediaPlayer()
   const remote = useMediaRemote()
+  // The distance to where hls.js plays the live stream from
+  const lag = useVidstackLiveLag(player)
+  const isBehindLive = lag !== null && lag > BEHIND_LIVE_SECONDS
 
   const togglePaused = useCallback(() => remote.togglePaused(), [remote])
   // Asks Vidstack directly: a mute only the element has (an autoplay
   // fallback) leaves the muted prop, which follows the saved mute, unchanged
   const unmuteElement = useCallback(() => remote.unmute(), [remote])
+  // Straight to hls.js's live position, through the provider: Vidstack's own
+  // seeks (remote.seek, remote.seekToLiveEdge) do nothing on a live stream
+  // without DVR, which ErsatzTV's are. Then play, as on the live engine.
+  const jumpToLive = useCallback(() => {
+    if (!player) return
+
+    const { liveSyncPosition, currentTime } = player.state
+    if (liveSyncPosition !== null && Number.isFinite(liveSyncPosition) && liveSyncPosition > currentTime) {
+      player.provider?.setCurrentTime(liveSyncPosition)
+    }
+    if (paused) remote.play()
+  }, [player, remote, paused])
 
   return useMemo(
-    () => ({ isPlaying: !paused, elementMuted, canPlay, togglePaused, unmuteElement, streamType: 'hls' as const }),
-    [paused, elementMuted, canPlay, togglePaused, unmuteElement]
+    () => ({
+      isPlaying: !paused,
+      elementMuted,
+      canPlay,
+      togglePaused,
+      unmuteElement,
+      streamType: 'hls' as const,
+      isBehindLive,
+      jumpToLive,
+    }),
+    [paused, elementMuted, canPlay, togglePaused, unmuteElement, isBehindLive, jumpToLive]
   )
 }

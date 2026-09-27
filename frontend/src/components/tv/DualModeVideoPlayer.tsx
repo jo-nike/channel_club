@@ -22,7 +22,13 @@ import { ProjectorBeamLoader } from '@/components/ProjectorBeamLoader'
 import { Button } from '@/components/ui/button'
 import { AutoplayNotice } from '@/components/player/AutoplayNotice'
 import { CastErrorBanner, CastingCard } from '@/components/player/CastingCard'
-import { PlayerShellContext, usePlayerShell, useShellPlayback } from '@/components/player/PlayerShellContext'
+import {
+  PlayerShellContext,
+  usePlayerShell,
+  useShellLiveEdge,
+  useShellPlayback,
+  type BehindLive,
+} from '@/components/player/PlayerShellContext'
 import { FilterLayer } from '@/components/player/FilterLayer'
 import { PlayerChrome } from '@/components/player/PlayerChrome'
 import { PlayerInfoOverlay } from '@/components/player/PlayerInfoOverlay'
@@ -116,6 +122,9 @@ export function DualModeVideoPlayer({
   // The info rail reports whether it is up; the sound-off pill moves under it
   const [isInfoRailVisible, setInfoRailVisible] = useState(false)
 
+  // The engine reports when it is behind its live edge; the info rail says so
+  const [behindLive, setBehindLive] = useState<BehindLive | null>(null)
+
   // Both counters only grow, so their sum changes on every reload
   const [shellReloads, setShellReloads] = useState(0)
   const reloadKey = pageReloadKey + shellReloads
@@ -134,6 +143,8 @@ export function DualModeVideoPlayer({
       setHoveringControls,
       isInfoRailVisible,
       setInfoRailVisible,
+      behindLive,
+      setBehindLive,
       stepChannel,
       reload,
       reloadKey,
@@ -145,6 +156,7 @@ export function DualModeVideoPlayer({
       onTheaterModeToggle,
       controlsVisible,
       isInfoRailVisible,
+      behindLive,
       stepChannel,
       reload,
       reloadKey,
@@ -419,6 +431,10 @@ function LiveVideoPlayer({
 
   // The shell's auto-hide follows this engine; a tap on the picture toggles it
   useShellPlayback(isPlaying)
+
+  // Behind its own live edge: only once playback has started (before that the
+  // autoplay notice speaks), and not under the casting card, which pauses it
+  useShellLiveEdge(hasStarted && adapter.isBehindLive && !isCasting, adapter.jumpToLive)
 
   // The tap is a user gesture, so the browser lets the element unmute
   const handleSoundOn = useCallback(() => {
@@ -887,6 +903,9 @@ function HLSControlsWrapper({
 
   // The shell's auto-hide follows this engine; a tap on the picture toggles it
   useShellPlayback(adapter.isPlaying)
+
+  // Behind its own live edge; not under the casting card, which pauses it
+  useShellLiveEdge(adapter.isBehindLive && !isCasting, adapter.jumpToLive)
 
   useVideoKeyboardShortcuts({
     containerRef,
