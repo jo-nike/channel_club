@@ -7,7 +7,7 @@
  * matches its legacy keyCode.
  */
 
-export type RemoteAction = 'channelUp' | 'channelDown' | 'back' | 'ok' | 'digit' | 'playPause' | 'guide'
+export type RemoteAction = 'channelUp' | 'channelDown' | 'back' | 'ok' | 'digit' | 'playPause' | 'guide' | 'room'
 
 // webOS sends CH+/CH- as PageUp/PageDown (33/34)
 const CHANNEL_UP_KEYS = new Set(['ArrowUp', 'PageUp', 'ChannelUp'])
@@ -24,6 +24,11 @@ const PLAY_PAUSE_CODES = new Set([179, 10252])
 // browser may keep them); verify on each set.
 const GUIDE_KEYS = new Set(['Guide', 'Info'])
 const GUIDE_CODES = new Set([457, 458])
+// The remote's green key shows who's here (the couch room panel). 404 is
+// green on webOS and Tizen (a Tizen packaged app registers it; the stock
+// browser may keep it); verify on each set.
+const ROOM_KEYS = new Set(['ColorF1Green'])
+const ROOM_CODES = new Set([404])
 
 /**
  * The digit ('0'-'9') a keydown types, or null: the number row and the
@@ -45,6 +50,7 @@ export function getRemoteAction(e: Pick<KeyboardEvent, 'key' | 'keyCode'>): Remo
   if (e.key === 'Enter' || e.keyCode === 13) return 'ok'
   if (e.key === 'MediaPlayPause' || PLAY_PAUSE_CODES.has(e.keyCode)) return 'playPause'
   if (GUIDE_KEYS.has(e.key) || GUIDE_CODES.has(e.keyCode)) return 'guide'
+  if (ROOM_KEYS.has(e.key) || ROOM_CODES.has(e.keyCode)) return 'room'
   if (getRemoteDigit(e) !== null) return 'digit'
   return null
 }

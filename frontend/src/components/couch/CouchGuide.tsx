@@ -246,7 +246,7 @@ export function CouchGuide({ onClose, canPickLive }: CouchGuideProps) {
 }
 
 /** A remote key hint: the keys as key caps, then what they do */
-function KeyHint({ keys, children }: { keys: string[]; children: ReactNode }) {
+export function KeyHint({ keys, children }: { keys: string[]; children: ReactNode }) {
   return (
     <span className="flex items-center gap-3">
       {keys.map((key) => (
