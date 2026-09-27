@@ -27,6 +27,12 @@ vi.mock('@/services/ersatztvApi', () => ({
 // The live row or tile, whatever is on it (its full label is tested below)
 const LIVE_SLOT = /^(0 Live: |Live slot, nothing on$)/
 
+// What an expanded row shows: its logo and text sit over its stretched
+// button, as siblings, so a presence stack can sit in the name line
+function rowContent(row: HTMLElement) {
+  return row.parentElement!.querySelector<HTMLElement>('[data-slot="channel-row-content"]')!
+}
+
 // The sidebar scrolls the selected channel into view. The scrolling tests
 // below install their own spy and delete it afterwards, which also removes
 // the no-op from test/setup, so put one back before every test
@@ -75,7 +81,7 @@ describe('TVChannelSidebar colours', () => {
     render(<TVChannelSidebar />)
     await act(async () => {})
     const row = screen.getByRole('button', { name: '1 Movies' })
-    expect(within(row).getByText('1')).toHaveClass('font-display', 'font-extrabold', 'tabular-nums')
+    expect(within(rowContent(row)).getByText('1')).toHaveClass('font-display', 'font-extrabold', 'tabular-nums')
   })
 
   it('shows the LIVE badge on the live token rather than destructive', async () => {
@@ -106,7 +112,7 @@ describe('TVChannelSidebar colours', () => {
       const item = liveRow().closest('li')!
       expect(backgrounds(item)).toEqual(['bg-live/5'])
       expect(item.innerHTML).not.toMatch(/destructive/)
-      const icon = liveRow().querySelector('.lucide-radio')!
+      const icon = rowContent(liveRow()).querySelector('.lucide-radio')!
       expect(icon).toHaveClass('text-live')
       expect(icon.parentElement).toHaveClass('bg-live/20')
     })
@@ -136,7 +142,7 @@ describe('TVChannelSidebar colours', () => {
       render(<TVChannelSidebar />)
       await act(async () => {})
 
-      const logo = (row: HTMLElement) => row.querySelector('[data-testid="channel-logo"]')!
+      const logo = (row: HTMLElement) => rowContent(row).querySelector('[data-testid="channel-logo"]')!
       expect(logo(liveRow())).toHaveClass('size-12', 'bg-live/20')
       expect(logo(liveRow()).querySelector('img')).toHaveAttribute('src', '/api/channels/logos/17')
       const movies = screen.getByRole('button', { name: '1 Movies' })
@@ -185,7 +191,9 @@ describe('TVChannelSidebar now-playing indicator', () => {
     await act(async () => {})
 
     const indicator = screen.getByTestId('now-playing-indicator')
-    expect(indicator.closest('button')).toHaveTextContent('Movies')
+    expect(indicator.closest('[data-slot="channel-row-content"]')).toBe(
+      rowContent(screen.getByRole('button', { name: '1 Movies' }))
+    )
     expect(indicator).toHaveClass('lucide-audio-lines', 'h-4', 'w-4', 'text-primary')
     expect(indicator).toHaveAttribute('aria-hidden', 'true')
     expect(indicator).not.toHaveClass('animate-pulse')
@@ -198,7 +206,9 @@ describe('TVChannelSidebar now-playing indicator', () => {
     await act(async () => {})
 
     const indicator = screen.getByTestId('now-playing-indicator')
-    expect(indicator.closest('button')).toBe(screen.getByRole('button', { name: LIVE_SLOT }))
+    expect(indicator.closest('[data-slot="channel-row-content"]')).toBe(
+      rowContent(screen.getByRole('button', { name: LIVE_SLOT }))
+    )
     expect(indicator).toHaveClass('text-live')
     expect(indicator).not.toHaveClass('text-primary')
   })
@@ -646,7 +656,7 @@ describe('TVChannelSidebar live row guide copy', () => {
     useTVStore.setState({ liveEPG: null, liveEPGStatus: 'idle' })
   })
 
-  const liveRow = () => screen.getByRole('button', { name: LIVE_SLOT })
+  const liveRow = () => rowContent(screen.getByRole('button', { name: LIVE_SLOT }))
 
   it.each([
     ['unavailable', 'Guide unavailable'],
@@ -706,12 +716,25 @@ describe('TVChannelSidebar empty live slot', () => {
     expect(useTVStore.getState().selectedChannel).toBeNull()
   })
 
+  it('lets the idle copy wrap beside Pick a channel instead of cutting it short', async () => {
+    render(<TVChannelSidebar onPickLive={vi.fn()} />)
+    await act(async () => {})
+
+    const idle = screen.getByText('Nothing on yet')
+    expect(idle).toHaveClass('line-clamp-2')
+    expect(idle).not.toHaveClass('truncate')
+    // Channel rows keep their one-line programme
+    expect(within(rowContent(screen.getByRole('button', { name: '1 Movies' }))).getByText('Now playing...')).toHaveClass(
+      'truncate'
+    )
+  })
+
   it("tells people who can't change live TV that they're waiting, with no action", async () => {
     render(<TVChannelSidebar />)
     await act(async () => {})
 
     expect(screen.queryByRole('button', { name: 'Pick a channel' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: LIVE_SLOT })).toHaveTextContent(
+    expect(rowContent(screen.getByRole('button', { name: LIVE_SLOT }))).toHaveTextContent(
       'Waiting for someone to put something on'
     )
   })
@@ -741,7 +764,7 @@ describe('TVChannelSidebar programme progress', () => {
     }
   }
 
-  const row = () => screen.getByRole('button', { name: '1 Movies' })
+  const row = () => rowContent(screen.getByRole('button', { name: '1 Movies' }))
   // The bar's fill sits in the track just before the time-left label
   const fillBefore = (label: HTMLElement) => label.previousElementSibling?.firstElementChild as HTMLElement
 
@@ -872,7 +895,7 @@ describe('TVChannelSidebar programme progress', () => {
     render(<TVChannelSidebar />)
     await act(async () => {})
 
-    expect(screen.getByRole('button', { name: LIVE_SLOT })).not.toHaveTextContent('Next')
+    expect(rowContent(screen.getByRole('button', { name: LIVE_SLOT }))).not.toHaveTextContent('Next')
   })
 
   it('follows a refresh of the guide programmes', async () => {
@@ -1604,6 +1627,30 @@ describe('TVChannelSidebar presence stacks', () => {
     expect(join.closest('li')).toBe(row.closest('li'))
   })
 
+  it('sits in the name line after the name, so it takes no column from the row', async () => {
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+
+    const row = screen.getByRole('button', { name: '2 Cartoons' })
+    const join = screen.getByRole('button', { name: 'Join dev and 3 others on Cartoons' })
+    const nameLine = within(rowContent(row)).getByText('Cartoons').parentElement!
+    expect(join.parentElement).toBe(nameLine)
+    expect(nameLine.lastElementChild).toBe(join)
+    // The row's content lets clicks through to the stretched row button; the stack takes its own
+    expect(rowContent(row)).toHaveClass('pointer-events-none')
+    expect(row).toHaveClass('absolute', 'inset-0')
+    expect(join).toHaveClass('pointer-events-auto')
+  })
+
+  it('still selects the channel from the row around the stack', async () => {
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+
+    fireEvent.click(screen.getByRole('button', { name: '2 Cartoons' }))
+
+    expect(useTVStore.getState().selectedChannel?.id).toBe('etv2')
+  })
+
   it("tunes to the channel when the stack is clicked", async () => {
     render(<TVChannelSidebar />)
     await act(async () => {})
@@ -1694,6 +1741,52 @@ describe('TVChannelSidebar presence stacks', () => {
 
     expect(joinButtons()).toEqual([])
     expect(document.querySelector('[data-slot="presence-stack"]')).toBeNull()
+  })
+
+  describe('on the collapsed rail', () => {
+    const dot = (tile: HTMLElement) => tile.querySelector('[data-testid="presence-dot"]')
+
+    it('marks a tile with people on it with a dot, and names them', async () => {
+      render(<TVChannelSidebar isCollapsed />)
+      await act(async () => {})
+
+      const cartoons = screen.getByRole('button', { name: '2 Cartoons, dev and 3 others watching' })
+      expect(dot(cartoons)).toHaveClass('bg-success')
+      expect(dot(screen.getByRole('button', { name: /^0 Live: .*, maya watching$/ }))).not.toBeNull()
+      // Only this viewer is on Movies
+      const movies = screen.getByRole('button', { name: '1 Movies' })
+      expect(dot(movies)).toBeNull()
+    })
+
+    it('says who is there in the tooltip', async () => {
+      render(<TVChannelSidebar isCollapsed />)
+      await act(async () => {})
+
+      await act(async () => {
+        screen.getByRole('button', { name: /^2 Cartoons/ }).focus()
+      })
+
+      expect(await screen.findByRole('tooltip')).toHaveTextContent('dev and 3 others watching')
+    })
+
+    it('puts no dot on the empty live slot', async () => {
+      useChannelStore.setState({ currentChannel: null })
+      usePresenceStore.setState({ entries: [person({ displayName: 'maya', view: 'live', channelId: null })] })
+      render(<TVChannelSidebar isCollapsed />)
+      await act(async () => {})
+
+      expect(dot(screen.getByRole('button', { name: 'Live slot, nothing on' }))).toBeNull()
+      expect(screen.queryByTestId('presence-dot')).toBeNull()
+    })
+
+    it('puts no dots on the rail while the admin setting is off', async () => {
+      useSettingsStore.setState({ presenceVisible: false })
+      render(<TVChannelSidebar isCollapsed />)
+      await act(async () => {})
+
+      expect(screen.queryByTestId('presence-dot')).toBeNull()
+      expect(screen.getByRole('button', { name: '2 Cartoons' })).toBeInTheDocument()
+    })
   })
 
   it('follows the snapshot as people come and go', async () => {

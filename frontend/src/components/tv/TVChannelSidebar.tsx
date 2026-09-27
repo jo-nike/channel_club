@@ -13,8 +13,8 @@ import { useChannelPrefsStore } from '@/stores/channelPrefsStore'
 import { ChannelFilterBar, NoChannelsMatch } from '@/components/tv/ChannelFilterBar'
 import { LivePill } from '@/components/LivePill'
 import { ChannelLogo } from '@/components/ChannelLogo'
-import { ChannelPresenceSpace, ChannelPresenceStack } from '@/components/tv/ChannelPresenceStack'
-import { usePresenceByChannel } from '@/hooks/usePresenceByChannel'
+import { ChannelPresenceStack } from '@/components/tv/ChannelPresenceStack'
+import { presenceNames, usePresenceByChannel } from '@/hooks/usePresenceByChannel'
 import { calculateProgress, findOnAir, formatRemaining, getProgrammeState } from '@/lib/programmes'
 import { buildProgrammeIndex, findCurrentAndNext, type IndexedProgramme } from '@/lib/programmeIndex'
 import { favouritesFirst } from '@/lib/channelSearch'
@@ -156,6 +156,7 @@ export function TVChannelSidebar({
               onSelect={handleChannelClick}
               tabIndex={getTabIndex(index)}
               onFocus={() => setFocusedIndex(index)}
+              people={presenceByChannel.get(channel.id)}
             />
           ))}
         </div>
@@ -245,6 +246,8 @@ interface CollapsedChannelButtonProps {
   // Roving focus: 0 on the one tab stop, -1 on the rest
   tabIndex: 0 | -1
   onFocus: () => void
+  // Who else is on the channel (usePresenceByChannel)
+  people?: PresenceEntry[]
 }
 
 function CollapsedChannelButton({
@@ -258,9 +261,12 @@ function CollapsedChannelButton({
   onSelect,
   tabIndex,
   onFocus,
+  people,
 }: CollapsedChannelButtonProps) {
   const isLive = channel.type === 'live'
   const isLiveOn = isLive && hasLiveChannel
+  // The people on the channel, but never on the empty live slot (as on the expanded row)
+  const presence = people && people.length > 0 && (!isLive || hasLiveChannel) ? people : null
 
   return (
     <Tooltip>
@@ -279,7 +285,7 @@ function CollapsedChannelButton({
             isLiveOn ? 'bg-live/20 text-live' : isSelected ? 'bg-primary/10' : 'bg-muted'
           )}
           // The favourites lead the rail; the label says why this one is up there
-          aria-label={isFavourite ? `${label}, favourite` : label}
+          aria-label={`${label}${isFavourite ? ', favourite' : ''}${presence ? `, ${presenceNames(presence)} watching` : ''}`}
           aria-current={isSelected ? 'true' : undefined}
         >
           {isFavourite && (
@@ -287,6 +293,14 @@ function CollapsedChannelButton({
               aria-hidden="true"
               data-testid="favourite-mark"
               className="absolute top-0.5 left-0.5 z-10 h-2.5 w-2.5 fill-current text-primary"
+            />
+          )}
+          {/* A friend is here: top-right, clear of the star and the number badge */}
+          {presence && (
+            <span
+              aria-hidden="true"
+              data-testid="presence-dot"
+              className="absolute top-0.5 right-0.5 z-10 h-2 w-2 rounded-full bg-success ring-2 ring-card"
             />
           )}
           {isLive ? (
@@ -317,7 +331,12 @@ function CollapsedChannelButton({
         </button>
       </TooltipTrigger>
       <TooltipContent side="right">
-        <ChannelTooltipBody channel={channel} hasLiveChannel={hasLiveChannel} canPickLive={canPickLive} />
+        <ChannelTooltipBody
+          channel={channel}
+          hasLiveChannel={hasLiveChannel}
+          canPickLive={canPickLive}
+          people={presence}
+        />
       </TooltipContent>
     </Tooltip>
   )
@@ -329,10 +348,12 @@ function ChannelTooltipBody({
   channel,
   hasLiveChannel,
   canPickLive,
+  people,
 }: {
   channel: UnifiedChannel
   hasLiveChannel: boolean
   canPickLive: boolean
+  people: PresenceEntry[] | null
 }) {
   const now = useProgrammeClock()
   const programmes = useErsatztvStore((s) => s.programmesByChannel[channel.id])
@@ -378,6 +399,7 @@ function ChannelTooltipBody({
           )}
         </>
       )}
+      {people && <p className="text-muted-foreground">{presenceNames(people)} watching</p>}
     </div>
   )
 }
@@ -445,29 +467,34 @@ function ChannelItem({
   return (
     // One background per row: the live row's tint is on the item, so it runs
     // under the picker too; the selection tint is on the button
-    <li
-      className={cn(
-        isLive && 'bg-live/5',
-        showPickLive ? 'flex items-center pr-3' : (showStar || presence) && 'relative'
-      )}
-    >
-      {/* scroll-mt clears the sticky Channels header and filter when the row is scrolled into view */}
+    <li className={cn('relative', isLive && 'bg-live/5', showPickLive && 'flex items-center pr-3')}>
+      {/* The row's click target is stretched under its content, so the
+          presence stack can sit in the name line without a button inside a
+          button. scroll-mt clears the sticky Channels header and filter when
+          the row is scrolled into view. */}
       <button
         ref={ref}
         onClick={() => onSelect(channel)}
         onFocus={onFocus}
         tabIndex={tabIndex}
         className={cn(
-          'flex scroll-mt-41 items-center gap-3 p-3 text-left transition-colors',
+          'absolute inset-0 scroll-mt-41 transition-colors',
           'hover:bg-accent focus-visible:-outline-offset-2',
-          showPickLive ? 'min-w-0 flex-1' : 'w-full',
-          showStar && 'pr-12',
           // The live row's tint (on the item) wins; the border marks selection
           isSelected && 'border-l-4 border-primary',
           isSelected && !isLive && 'bg-primary/10'
         )}
         aria-current={isSelected ? 'true' : undefined}
         aria-label={label}
+      />
+      {/* What the row shows: clicks pass through to the button under it */}
+      <div
+        data-slot="channel-row-content"
+        className={cn(
+          'pointer-events-none relative flex items-center gap-3 p-3 text-left',
+          showPickLive ? 'min-w-0 flex-1' : 'w-full',
+          showStar && 'pr-12'
+        )}
       >
         {/* Channel logo, or the live slot's icon while it has none */}
         <ChannelLogo
@@ -486,8 +513,21 @@ function ChannelItem({
               {isLive ? (hasLiveChannel ? channel.name : 'Live') : channel.name}
             </span>
             {isLive && hasLiveChannel && <LivePill />}
+            {presence && (
+              // Inline after the name (mockup M1), so it only takes room from
+              // a long name. It shares the row's tab stop, like the star.
+              <ChannelPresenceStack
+                people={presence}
+                channelName={channel.name}
+                isWatching={isSelected}
+                onJoin={() => onSelect(channel)}
+                tabIndex={tabIndex}
+                className="pointer-events-auto self-center"
+              />
+            )}
           </div>
-          <p className="truncate text-sm text-muted-foreground">
+          {/* Beside Pick a channel the idle copy wraps rather than cutting to 'Nothing …' */}
+          <p className={cn('text-sm text-muted-foreground', showPickLive ? 'line-clamp-2' : 'truncate')}>
             {isLive
               ? hasLiveChannel
                 ? currentProgramme
@@ -528,23 +568,10 @@ function ChannelItem({
             />
           </div>
         )}
-        {/* Room for the people on the channel, laid over it below */}
-        {presence && <ChannelPresenceSpace people={presence} />}
-      </button>
-      {presence && (
-        // Over its room: centred like it, at the button's right padding. It
-        // shares the row's tab stop, like the star.
-        <ChannelPresenceStack
-          people={presence}
-          channelName={channel.name}
-          isWatching={isSelected}
-          onJoin={() => onSelect(channel)}
-          tabIndex={tabIndex}
-          className={cn('absolute top-1/2 -translate-y-1/2', showStar ? 'right-12' : 'right-3')}
-        />
-      )}
+      </div>
       {showPickLive && (
-        <Button size="sm" onClick={onPickLive}>
+        // Over the stretched row button, which spans the whole item
+        <Button size="sm" className="relative" onClick={onPickLive}>
           Pick a channel
         </Button>
       )}
