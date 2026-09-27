@@ -5,6 +5,7 @@ import { createHighlightCapture, highlightCaptureUrl, fetchHighlightCapture, cre
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ClipTimeline } from './ClipTimeline'
 import { ClipTimeField } from './ClipTimeField'
 import { useAudioStore } from '@/stores/audioStore'
@@ -332,7 +333,7 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
     <Dialog open onOpenChange={open => { if (!open) onClose() }}>
       {/* The header and footer stay put; only the body between them scrolls, so the actions and their
           progress are always on screen, including in phone landscape inside the fullscreen player. */}
-      <DialogContent container={container} showCloseButton={false} className="flex max-h-[92dvh] max-w-[min(48rem,calc(100%-2rem))] flex-col gap-0 overflow-hidden p-0" onKeyDown={event => event.stopPropagation()}
+      <DialogContent container={container} showCloseButton={false} className="flex max-h-[92dvh] max-w-[min(64rem,calc(100%-2rem))] flex-col gap-0 overflow-hidden p-0" onKeyDown={event => event.stopPropagation()}
         // Radix sees Escape on the document before a field does; let the field revert its draft instead.
         onEscapeKeyDown={event => {
           if ((event.target as HTMLElement | null)?.closest?.('input,select,textarea')) { event.preventDefault(); return }
@@ -351,7 +352,7 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
             <p>{captureError}</p><Button variant="outline" onClick={retryCapture}>Capture again</Button>
           </div> : !source ? <div role="status" className="flex items-center justify-center gap-3 py-16"><Loader2 className="animate-spin" />Capturing recent footage…</div> : (
             <video ref={video} src={source.url} playsInline preload="auto" aria-label="Highlight preview"
-              className="max-h-[28dvh] w-full rounded-lg bg-black object-contain"
+              className="max-h-[28dvh] w-full rounded-lg bg-black object-contain md:max-h-[45dvh]"
               onLoadedMetadata={() => {
                 const length = video.current?.duration ?? 0
                 if (!Number.isFinite(length) || length < 0.1) { setCaptureError('This capture has no usable duration. Capture again once more footage is available.'); return }
@@ -428,7 +429,7 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
             </div>
           </fieldset>}
           {uploaded && <div ref={uploadResult} className="space-y-2 rounded-lg border p-3" role="status">
-            <p className="text-sm font-medium">Uploaded to Zipline</p>
+            <p className="text-sm font-medium">Share link ready</p>
             <input readOnly aria-label="Uploaded clip link" value={uploaded.url} className="w-full rounded border bg-background p-2 text-sm" onFocus={e => e.target.select()} />
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={async () => {
@@ -447,7 +448,11 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
               </select>
             </label>
             <div className="ml-auto flex flex-wrap items-center gap-2">
-              {zipline && actionButton('zipline', <><Upload />{uploaded ? 'Uploaded to Zipline' : 'Upload to Zipline'}</>, 'outline', uploaded !== null)}
+              {/* Named for what people want (a link to share), not the tool behind it */}
+              {zipline && (task === 'zipline' ? actionButton('zipline', null, 'outline') : <Tooltip>
+                <TooltipTrigger asChild>{actionButton('zipline', <><Upload />{uploaded ? 'Share link ready' : 'Get share link'}</>, 'outline', uploaded !== null)}</TooltipTrigger>
+                <TooltipContent container={container}>Uploads to Zipline</TooltipContent>
+              </Tooltip>)}
               {actionButton('download', <><Download />Download clip</>, 'default')}
             </div>
           </div>
