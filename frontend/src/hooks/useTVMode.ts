@@ -24,11 +24,31 @@ export function detectTVMode(): boolean {
 }
 
 /**
+ * Turn a `?tv=1` / `?tv=0` link into the stored TV layout override
+ * (localStorage 'tv-mode' = 'true' / 'false'), then drop the parameter from
+ * the address bar so a bookmark or reload doesn't carry it. For TV browsers
+ * the user agent check misses (Android TV, Fire TV) and for testing.
+ * Any other value, or no parameter, changes nothing.
+ *
+ * Runs before the router and the stores are created (see tvModeParam.ts), so
+ * everything that reads TV mode at startup already sees the override.
+ */
+export function applyTVModeQueryParam(): void {
+  const url = new URL(window.location.href)
+  const value = url.searchParams.get('tv')
+  if (value !== '1' && value !== '0') return
+
+  localStorage.setItem('tv-mode', value === '1' ? 'true' : 'false')
+  url.searchParams.delete('tv')
+  window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash)
+}
+
+/**
  * Custom hook to detect TV browsers (WebOS, Tizen).
  * Enables 10-foot UI mode for better viewing from a distance.
  *
  * Detection order:
- * 1. localStorage override (tv-mode: 'true' | 'false')
+ * 1. localStorage override (tv-mode: 'true' | 'false'), also set by ?tv=1 / ?tv=0
  * 2. WebOS user agent detection
  * 3. Tizen user agent detection
  *
