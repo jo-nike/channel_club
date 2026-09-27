@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useId, type MouseEvent, type ReactNode } from 'react'
 import { Download, Upload, Play, Pause, RotateCcw, Loader2, Copy, ExternalLink, X, Pencil, MessageSquare, Check } from 'lucide-react'
 import { toast } from 'sonner'
-import { createHighlightCapture, highlightCaptureUrl, fetchHighlightCapture, createCaptureDownloadUrl, deleteHighlightCapture, exportHighlight, uploadHighlight, getHighlightFeatures, type HighlightFormat, type UploadedHighlight } from '@/services/api'
+import { createHighlightCapture, highlightCaptureUrl, fetchHighlightCapture, createCaptureDownloadUrl, deleteHighlightCapture, exportHighlight, uploadHighlight, getHighlightFeatures, type HighlightCapture, type HighlightFormat, type UploadedHighlight } from '@/services/api'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -67,6 +67,8 @@ export interface HighlightModalProps {
    * clip is kept, null means live TV stopped, undefined says nothing.
    */
   playingChannel?: { id: string; name: string } | null
+  /** A capture already taken (Clip that's Edit): the editor opens on it instead of capturing again */
+  capture?: HighlightCapture
   container?: HTMLElement | null
 }
 
@@ -75,7 +77,7 @@ export function HighlightModal({ isOpen, ...props }: HighlightModalProps) {
   return isOpen ? <ClipSession key={props.channelId} {...props} /> : null
 }
 
-function ClipSession({ channelId, channelName = channelId, playingChannel, onClose, container }: Omit<HighlightModalProps, 'isOpen'>) {
+function ClipSession({ channelId, channelName = channelId, playingChannel, capture: handed, onClose, container }: Omit<HighlightModalProps, 'isOpen'>) {
   const [source, setSource] = useState<{ id: string; url: string; pressedAt: number; endsAt: number } | null>(null)
   const [duration, setDuration] = useState(0)
   // Where the user pressed Clip, in seconds into the capture; past its end when the capture stops short of the press
@@ -119,6 +121,11 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
   // press and the selection, relative to it, across to the new one.
   const keep = useRef<{ pressedAt: number; start: number; end: number } | null>(null)
   const cache = useRef<{ key: string; blob: Blob } | null>(null)
+  // The capture this session was opened on, if any; only the first attempt adopts it; Capture again takes a new one.
+  const handedCapture = useRef(handed)
+  // Its delete on close, held back a moment: StrictMode runs the effect's cleanup and then the effect again at
+  // once in development, and the second run must still find the capture on the server.
+  const release = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const [start, end] = range
   const lengthLabel = useId()
   const ready = duration >= 0.1 && source !== null && !captureError
@@ -155,10 +162,12 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
     const delivery = { at: 0 }
     handoff.current = delivery
     let captureId: string | undefined
+    const adopted = attempt === 0 ? handedCapture.current : undefined
+    if (adopted) clearTimeout(release.current)
     // The server keeps the snapshot; the video element streams it by range, so the
     // editor appears once the metadata arrives instead of after a full download.
-    void createHighlightCapture(channelId, request.signal).then(capture => {
-      if (request.signal.aborted) { void deleteHighlightCapture(capture.id); return }
+    void (adopted ? Promise.resolve(adopted) : createHighlightCapture(channelId, request.signal)).then(capture => {
+      if (request.signal.aborted) { if (!adopted) void deleteHighlightCapture(capture.id); return }
       captureId = capture.id
       const pressedAt = keep.current?.pressedAt ?? capture.pressedAt
       setSource({ id: capture.id, url: highlightCaptureUrl(capture.id), pressedAt, endsAt: capture.endsAt })
@@ -170,6 +179,12 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, onClo
     }).catch(() => {})
     return () => {
       request.abort()
+      if (adopted) {
+        // This session's from the start, whether or not the source is set yet
+        const wait = Math.max(0, delivery.at + DOWNLOAD_HANDOFF_MS - Date.now())
+        release.current = setTimeout(() => void deleteHighlightCapture(adopted.id), wait)
+        return
+      }
       if (!captureId) return
       const id = captureId
       const wait = delivery.at + DOWNLOAD_HANDOFF_MS - Date.now()

@@ -1630,6 +1630,22 @@ describe('DualModeVideoPlayer clip editor: one editor in the shell', () => {
     expect(wroteAudioStorage()).toBe(false)
   })
 
+  it("opens on the capture Clip that's Edit hands over, without capturing again", async () => {
+    renderPlayer({ ...liveChannel('https://fixture/a'), name: 'Sportsnet', backendId: '42' })
+    const capture = { id: 'clip-that-capture', duration: 60, bytes: 1, expiresAt: 0, pressedAt: 1_000, endsAt: 1_000 }
+
+    act(() => useClipStore.getState().open('42', 'Sportsnet', capture))
+
+    const preview = await screen.findByLabelText('Highlight preview')
+    expect(shell()).toContainElement(preview)
+    expect(preview).toHaveAttribute('src', '/api/highlight/capture/clip-that-capture')
+    expect(clipApi.createHighlightCapture).not.toHaveBeenCalled()
+
+    // The capture isn't ready, so the editor closes without asking, and deletes it
+    fireEvent.click(screen.getByRole('button', { name: 'Close editor' }))
+    await waitFor(() => expect(clipApi.deleteHighlightCapture).toHaveBeenCalledExactlyOnceWith('clip-that-capture'))
+  })
+
   it('closing the editor ends the session and deletes the capture', async () => {
     renderPlayer(liveChannel('https://fixture/a'))
     await openEditor()

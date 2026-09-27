@@ -16,6 +16,12 @@ describe('clipStore', () => {
     expect(useClipStore.getState().session).toEqual({ channelId: '42', channelName: 'Sportsnet' })
   })
 
+  it('open can hand the editor a capture already taken', () => {
+    const capture = { id: 'capture-1', duration: 60, bytes: 17, expiresAt: 0, pressedAt: 1_000, endsAt: 1_000 }
+    useClipStore.getState().open('42', 'Sportsnet', capture)
+    expect(useClipStore.getState().session).toEqual({ channelId: '42', channelName: 'Sportsnet', capture })
+  })
+
   it('close ends the session', () => {
     useClipStore.getState().open('42', 'Sportsnet')
     useClipStore.getState().close()

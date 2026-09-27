@@ -319,6 +319,7 @@ export function DualModeVideoPlayer({
         onClose={closeClip}
         channelId={clipSession?.channelId ?? ''}
         channelName={clipSession?.channelName}
+        capture={clipSession?.capture}
         playingChannel={playingChannel}
         container={shellElement}
       />

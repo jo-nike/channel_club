@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { toast } from 'sonner'
+import { toast, type ExternalToast } from 'sonner'
 import {
   createHighlightCapture,
   deleteHighlightCapture,
@@ -44,7 +44,8 @@ function delay(ms: number, signal: AbortSignal) {
  * One press posts the last 20s to chat: capture, export the stretch ending at
  * the press, and after a 'Posting in 3s' toast with Cancel, upload it to
  * Zipline and post the link. Cancel stops everything before the upload's
- * link reaches chat; the capture is always deleted.
+ * link reaches chat. Edit stops it too and opens the editor on the same
+ * capture; otherwise the capture is deleted.
  */
 async function runClipThat(channelId: string, channelName: string) {
   const clips = useClipStore.getState()
@@ -56,10 +57,12 @@ async function runClipThat(channelId: string, channelName: string) {
   const request = new AbortController()
   const { signal } = request
   let capture: HighlightCapture | null = null
+  // Edit hands the capture to the editor, which deletes it when it closes
+  let handedOver = false
   // Until the chat send starts the toast stays, and closing it (Cancel, a
   // swipe, the close button) cancels the run. It stays dismissible: sonner
   // ignores the Cancel button of a toast that isn't.
-  const pending = {
+  const pending: ExternalToast = {
     id,
     duration: Infinity,
     cancel: { label: 'Cancel', onClick: () => request.abort() },
@@ -72,6 +75,15 @@ async function runClipThat(channelId: string, channelName: string) {
     capture = await createHighlightCapture(channelId, signal)
     if (signal.aborted) return
     if (!(capture.duration >= 0.1)) throw new Error('No footage to clip yet. Try again in a moment.')
+    const taken = capture
+    pending.action = {
+      label: 'Edit',
+      onClick: () => {
+        handedOver = true
+        request.abort()
+        useClipStore.getState().open(channelId, channelName, taken)
+      },
+    }
     // The press is this far before the capture's last frame (see HighlightCapture)
     const press = capture.duration - (capture.endsAt - capture.pressedAt)
     const [start, end] = pressRange(capture.duration, press)
@@ -94,7 +106,7 @@ async function runClipThat(channelId: string, channelName: string) {
     const uploaded = await uploadHighlight(blob, 'mp4', signal)
     if (signal.aborted) return
     // A chat message can't be called back: from here there is nothing to cancel
-    toast.loading('Posting to chat…', { ...pending, description, cancel: undefined, onDismiss: undefined })
+    toast.loading('Posting to chat…', { ...pending, description, cancel: undefined, action: undefined, onDismiss: undefined })
     const result = await useChatStore
       .getState()
       .sendMessage(clipMessage(channelName, end - start, '', uploaded.url), createClientMessageId())
@@ -118,7 +130,7 @@ async function runClipThat(channelId: string, channelName: string) {
       toast.error(err instanceof Error ? err.message : 'Could not post the clip', { ...finished, description: undefined })
     }
   } finally {
-    if (capture) void deleteHighlightCapture(capture.id)
+    if (capture && !handedOver) void deleteHighlightCapture(capture.id)
     useClipStore.getState().setClipping(false)
   }
 }

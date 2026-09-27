@@ -86,6 +86,18 @@ describe('useClipThat with the real Toaster', () => {
     expect(useClipStore.getState().clipping).toBe(false)
   })
 
+  it('Edit in the countdown opens the editor on the same capture and posts nothing', async () => {
+    await startCountdown()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    await flush(5000)
+
+    expect(useClipStore.getState().session).toEqual({ channelId: '42', channelName: 'Sportsnet', capture })
+    expect(api.uploadHighlight).not.toHaveBeenCalled()
+    expect(sender).not.toHaveBeenCalled()
+    expect(api.deleteHighlightCapture).not.toHaveBeenCalled()
+  })
+
   it('closing the countdown toast with its close button cancels too', async () => {
     await startCountdown({ closeButton: true })
 

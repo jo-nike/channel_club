@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, within, act } from '@/test/utils'
+import { render, screen, fireEvent, waitFor, within, act, cleanup } from '@/test/utils'
 import { HighlightModal } from './HighlightModal'
 import * as api from '@/services/api'
 import { useAudioStore } from '@/stores/audioStore'
@@ -931,5 +931,58 @@ describe('Post to chat', () => {
     await act(async () => { await vi.mocked(api.getHighlightFeatures).mock.results[0].value })
     expect(screen.queryByRole('button', { name: 'Post to chat' })).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Caption (optional)')).not.toBeInTheDocument()
+  })
+})
+
+describe('Clip editor opened on a capture already taken (Clip that\'s Edit)', () => {
+  const handed = { ...capture, id: 'clip-that-capture' }
+  // Closing holds the adopted capture's delete back a tick: let it land in the test that closed it
+  afterEach(async () => {
+    cleanup()
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+  })
+
+  it('adopts the capture instead of capturing again, so it shows the same moment', async () => {
+    render(<HighlightModal {...props} capture={handed} />)
+    const video = await ready()
+
+    expect(api.createHighlightCapture).not.toHaveBeenCalled()
+    expect(video).toHaveAttribute('src', '/api/highlight/capture/clip-that-capture?token=t')
+    // The same 20s Clip that would have posted
+    expect(shown('Start')).toBe('40.0s')
+    expect(shown('End')).toBe('60.0s')
+  })
+
+  it('deletes the adopted capture when it closes', async () => {
+    const { rerender } = render(<HighlightModal {...props} capture={handed} />)
+    await ready()
+
+    rerender(<HighlightModal {...props} capture={handed} isOpen={false} />)
+
+    await waitFor(() => expect(api.deleteHighlightCapture).toHaveBeenCalledExactlyOnceWith('clip-that-capture'))
+  })
+
+  it('keeps the adopted capture through StrictMode\'s second run of its effects', async () => {
+    const { rerender } = render(<HighlightModal {...props} capture={handed} />, { reactStrictMode: true })
+    const video = await ready()
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)) })
+
+    expect(api.deleteHighlightCapture).not.toHaveBeenCalled()
+    expect(api.createHighlightCapture).not.toHaveBeenCalled()
+    expect(video).toHaveAttribute('src', '/api/highlight/capture/clip-that-capture?token=t')
+
+    rerender(<HighlightModal {...props} capture={handed} isOpen={false} />)
+    await waitFor(() => expect(api.deleteHighlightCapture).toHaveBeenCalledExactlyOnceWith('clip-that-capture'))
+  })
+
+  it('Capture again takes a new capture', async () => {
+    render(<HighlightModal {...props} capture={{ ...handed, pressedAt: 1_000, endsAt: 996 }} />)
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: 'Include the last few seconds' }))
+
+    const video = await ready()
+    expect(api.createHighlightCapture).toHaveBeenCalledExactlyOnceWith('channel-1', expect.any(AbortSignal))
+    expect(video).toHaveAttribute('src', '/api/highlight/capture/capture-1?token=t')
+    await waitFor(() => expect(api.deleteHighlightCapture).toHaveBeenCalledExactlyOnceWith('clip-that-capture'))
   })
 })

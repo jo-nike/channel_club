@@ -211,6 +211,50 @@ describe('useClipThat', () => {
     expect(useClipStore.getState().clipping).toBe(false)
   })
 
+  it('Edit opens the editor on the same capture and posts nothing', async () => {
+    let exportSignal: AbortSignal | undefined
+    vi.mocked(api.exportHighlight).mockImplementation((_id, _format, _trim, signal) => {
+      exportSignal = signal
+      return new Promise(() => {})
+    })
+    const { result } = await clipThatFor()
+    act(() => result.current?.())
+    await flush(1000)
+
+    clickToast('action')
+    await flush(5000)
+
+    expect(useClipStore.getState().session).toEqual({ channelId: '42', channelName: 'Sportsnet', capture })
+    expect(api.createHighlightCapture).toHaveBeenCalledTimes(1)
+    expect(exportSignal?.aborted).toBe(true)
+    expect(api.uploadHighlight).not.toHaveBeenCalled()
+    expect(sender).not.toHaveBeenCalled()
+    // The editor owns the capture now, and deletes it when it closes
+    expect(api.deleteHighlightCapture).not.toHaveBeenCalled()
+    expect(useClipStore.getState().clipping).toBe(false)
+  })
+
+  it('offers Edit from the moment there is a capture to edit, until the post starts', async () => {
+    let arrive: (value: api.HighlightCapture) => void = () => {}
+    vi.mocked(api.createHighlightCapture).mockImplementation(() => new Promise((resolve) => { arrive = resolve }))
+    let sent: (result: 'acknowledged') => void = () => {}
+    sender.mockImplementation(() => new Promise((resolve) => { sent = resolve }))
+    const { result } = await clipThatFor()
+    act(() => result.current?.())
+    await flush()
+    expect(currentToast().options.action).toBeUndefined()
+
+    arrive(capture)
+    await flush()
+    expect(currentToast().options.action).toMatchObject({ label: 'Edit' })
+
+    await flush(3000)
+    expect(currentToast()).toMatchObject({ message: 'Posting to chat…', options: { action: undefined, cancel: undefined } })
+    expect(currentToast().options).toHaveProperty('onDismiss', undefined)
+    sent('acknowledged')
+    await flush()
+  })
+
   it('keeps the countdown toast up until it is closed', async () => {
     const { result } = await clipThatFor()
     act(() => result.current?.())
