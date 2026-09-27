@@ -64,6 +64,7 @@ export function PlayerChrome({
     toggleFullscreen,
     isTheaterMode,
     toggleTheaterMode,
+    isStrip = false,
     controlsVisible: isVisible,
     setHoveringControls,
     stepChannel,
@@ -95,8 +96,9 @@ export function PlayerChrome({
   // left out. Not on a TV until couch mode gives chat a remote-friendly home.
   const chatEnabled = useChatEnabled()
   // Sideways, a 390px-tall picture can't spare a 48px bar with room around
-  // it: the bar tightens to 44px targets and a thin scrim
-  const isCompact = isMobileLandscape
+  // it: the bar tightens to 44px targets and a thin scrim. So does the 96px
+  // strip above the phone's chat composer.
+  const isCompact = isMobileLandscape || isStrip
   const buttonClass = isCompact ? COMPACT_CONTROL_BUTTON : CONTROL_BUTTON
   const isChatOpen = useChatStore((s) => s.isOpen)
   const unreadCount = useChatStore((s) => s.unreadCount)

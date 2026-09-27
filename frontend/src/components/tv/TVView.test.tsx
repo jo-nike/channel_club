@@ -21,7 +21,7 @@ const auth = vi.hoisted(() => ({ isAdmin: false }))
 const appSettings = vi.hoisted(() => ({ userChannelSelection: false }))
 // Chat is a build-time flag, off in tests unless a test turns it on
 const chatFlag = vi.hoisted(() => ({ enabled: false }))
-const playerProps = vi.hoisted(() => ({ onPickLive: undefined as undefined | (() => void), renders: 0, reloadKey: undefined as undefined | number, mounts: 0, zap: undefined as undefined | ChannelZap, onFocusSearch: undefined as undefined | (() => void) }))
+const playerProps = vi.hoisted(() => ({ onPickLive: undefined as undefined | (() => void), renders: 0, reloadKey: undefined as undefined | number, mounts: 0, zap: undefined as undefined | ChannelZap, onFocusSearch: undefined as undefined | (() => void), isStrip: undefined as undefined | boolean }))
 const guide = vi.hoisted(() => ({ onProgrammeClick: undefined as undefined | ((programme: ErsatzTVProgramme, channel: UnifiedChannel) => void) }))
 const modal = vi.hoisted(() => ({ last: null as null | { programme: ErsatzTVProgramme | null; channel: { id: string; name: string } | null; open: boolean; onWatch: (channel: { id: string; name: string }) => void } }))
 vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn(), fetchLiveProgrammes: vi.fn(async () => ({ channelId: '', programmes: [] })) }))
@@ -40,8 +40,9 @@ vi.mock('@/components/LiveSwitcherSheet', () => ({ LiveSwitcherSheet: ({ open, o
 } }))
 vi.mock('@/components/tv/DualModeVideoPlayer', async () => {
   const { useEffect } = await import('react')
-  return { DualModeVideoPlayer: ({ channel, onPickLive, reloadKey, zap, onFocusSearch }: { channel: UnifiedChannel | null; onPickLive?: () => void; reloadKey?: number; zap?: ChannelZap; onFocusSearch?: () => void }) => {
+  return { DualModeVideoPlayer: ({ channel, onPickLive, reloadKey, zap, onFocusSearch, isStrip }: { channel: UnifiedChannel | null; onPickLive?: () => void; reloadKey?: number; zap?: ChannelZap; onFocusSearch?: () => void; isStrip?: boolean }) => {
     playerProps.onPickLive = onPickLive
+    playerProps.isStrip = isStrip
     playerProps.onFocusSearch = onFocusSearch
     playerProps.reloadKey = reloadKey
     playerProps.zap = zap
@@ -1209,10 +1210,13 @@ describe('G-07/E-02 Channels and Chat tabs on a phone', () => {
       expect(video()).toHaveClass('aspect-video')
       expect(appHeight()).toBe('')
 
+      expect(playerProps.isStrip).toBe(false)
       focusComposer(true)
       expect(appHeight()).toBe('844px')
       expect(video()).toHaveClass('h-24', 'flex-none')
       expect(video()).not.toHaveClass('aspect-video')
+      // The player is told, so its chrome fits the strip (see PlayerChrome)
+      expect(playerProps.isStrip).toBe(true)
 
       viewport.height = 508
       act(() => { viewport.dispatchEvent(new Event('resize')) })
@@ -1221,6 +1225,7 @@ describe('G-07/E-02 Channels and Chat tabs on a phone', () => {
       focusComposer(false)
       expect(appHeight()).toBe('')
       expect(video()).toHaveClass('aspect-video')
+      expect(playerProps.isStrip).toBe(false)
     })
 
     it('lets go when chat closes with the composer still focused', async () => {

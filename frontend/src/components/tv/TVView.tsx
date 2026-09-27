@@ -578,6 +578,7 @@ export function TVView() {
                 reloadKey={videoRefreshKey}
                 zap={zap}
                 onFocusSearch={canSearchChannels ? requestSearchFocus : undefined}
+                isStrip={isVideoStrip}
               />
             </ErrorBoundary>
           </div>

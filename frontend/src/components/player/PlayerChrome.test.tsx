@@ -1121,6 +1121,17 @@ describe('PlayerChrome', () => {
       expect(toolbar()).not.toHaveClass('px-3')
     })
 
+    it('tightens the bar the same way in the strip above the phone\'s composer', () => {
+      matchMediaQueries([COARSE])
+      renderChrome({ shell: { isStrip: true }, props: { isMobile: true } })
+
+      expect(toolbar()).toHaveClass('p-1.5', '[&_.control-button]:min-h-[44px]')
+      expect(toolbar()).not.toHaveClass('pt-8')
+      for (const name of ['Play', 'Mute', 'Fullscreen']) {
+        expect(screen.getByRole('button', { name })).toHaveClass('min-h-[44px]', 'min-w-[44px]')
+      }
+    })
+
     it('keeps the roomy strip elsewhere', () => {
       renderChrome()
 

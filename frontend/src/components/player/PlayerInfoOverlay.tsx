@@ -73,7 +73,7 @@ interface PlayerInfoOverlayProps {
  * setting, and not hiding their own), and never for someone who hides theirs.
  */
 export function PlayerInfoOverlay({ channel, pending = null, entry = null, missing = null }: PlayerInfoOverlayProps) {
-  const { controlsVisible, isTheaterMode, setInfoRailVisible, behindLive, isLivePaused } = usePlayerShell()
+  const { controlsVisible, isTheaterMode, isStrip = false, setInfoRailVisible, behindLive, isLivePaused } = usePlayerShell()
   const isTVMode = useTVMode()
   const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
 
@@ -102,7 +102,9 @@ export function PlayerInfoOverlay({ channel, pending = null, entry = null, missi
   // Digits with no channel to show for them
   const railNumber = missing ?? (entry !== null && pending === null ? entry : null)
   const isPreview = pending !== null || railNumber !== null
-  const hasRail = (railNumber !== null || railChannel !== null) && !(isTVMode && isTheaterMode)
+  // The 96px strip above the phone's composer has room for the bar only; the
+  // header names the channel
+  const hasRail = (railNumber !== null || railChannel !== null) && !(isTVMode && isTheaterMode) && !isStrip
   const isRailVisible = hasRail && (controlsVisible || isTuneBanner || liveChange !== null || isPreview)
 
   // The pause hint shows for the first pause of the live channel only, while

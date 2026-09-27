@@ -278,6 +278,23 @@ describe('PlayerInfoOverlay: showing and hiding with the controls', () => {
     fireEvent.mouseLeave(nhlToggle().parentElement as HTMLElement)
     expect(setHoveringControls).toHaveBeenLastCalledWith(false)
   })
+
+  // The 96px strip above the phone's composer has room for the control bar only
+  it('leaves the rail out while the player is a strip, and brings it back after', () => {
+    const setInfoRailVisible = vi.fn()
+    const { update } = renderOverlay(cinema, { controlsVisible: true, isStrip: true, setInfoRailVisible })
+
+    expect(queryRail()).not.toBeInTheDocument()
+    expect(screen.queryByText('Cinema')).not.toBeInTheDocument()
+    expect(screen.queryByText(/The Two Towers/)).not.toBeInTheDocument()
+    // So the sound-off pill keeps its usual place
+    expect(setInfoRailVisible).toHaveBeenLastCalledWith(false)
+
+    update(cinema, { controlsVisible: true, isStrip: false, setInfoRailVisible })
+
+    expect(rail()).toHaveClass('opacity-100')
+    expect(setInfoRailVisible).toHaveBeenLastCalledWith(true)
+  })
 })
 
 describe('PlayerInfoOverlay: channel banner on every tune', () => {
