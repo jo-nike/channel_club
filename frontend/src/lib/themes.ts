@@ -10,7 +10,7 @@
  */
 
 import type { Theme, ThemeId, ThemeCategory } from '@/types/theme'
-import { formatOklch, mix } from '@/lib/color'
+import { contrast, formatOklch, mix } from '@/lib/color'
 
 /**
  * Colours shared by every theme. Live is the on-air red used for LIVE badges
@@ -18,6 +18,11 @@ import { formatOklch, mix } from '@/lib/color'
  */
 const LIVE = 'oklch(0.55 0.22 27)'
 const ON_SOLID = 'oklch(0.985 0 0)'
+
+/** Whichever of a dark and a light text colour has more contrast on `background`. */
+function readableOn(background: string, dark: string, light: string): string {
+  return contrast(dark, background) >= contrast(light, background) ? dark : light
+}
 
 /**
  * Helper to create derived colors from base background/primary
@@ -52,7 +57,7 @@ function createDarkThemeColors(
     popover: `oklch(${cardL} ${bgC} ${bgH})`,
     popoverForeground: 'oklch(0.985 0 0)',
     primary: `oklch(${primary})`,
-    primaryForeground: primaryL > 0.6 ? 'oklch(0.2 0 0)' : 'oklch(0.985 0 0)',
+    primaryForeground: readableOn(`oklch(${primary})`, 'oklch(0.2 0 0)', 'oklch(0.985 0 0)'),
     secondary: `oklch(${mutedL} ${bgC * 0.5} ${bgH})`,
     secondaryForeground: 'oklch(0.985 0 0)',
     muted: `oklch(${mutedL} ${bgC * 0.5} ${bgH})`,
@@ -124,7 +129,7 @@ function createLightThemeColors(
     popover: `oklch(${cardL} ${bgC * 0.5} ${bgH})`,
     popoverForeground: 'oklch(0.145 0 0)',
     primary: `oklch(${primary})`,
-    primaryForeground: primaryL > 0.6 ? 'oklch(0.145 0 0)' : 'oklch(0.985 0 0)',
+    primaryForeground: readableOn(`oklch(${primary})`, 'oklch(0.145 0 0)', 'oklch(0.985 0 0)'),
     secondary: `oklch(${mutedL} ${bgC * 0.3} ${bgH})`,
     secondaryForeground: 'oklch(0.205 0 0)',
     muted: `oklch(${mutedL} ${bgC * 0.3} ${bgH})`,

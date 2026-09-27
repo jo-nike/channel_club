@@ -141,6 +141,19 @@ describe('themes', () => {
   })
 
   describe('contrast', () => {
+    it.each(Object.values(themes).map((t) => [t.id, t] as const))(
+      '%s: primary foreground on primary is at least 4.5:1',
+      (_id, theme) => {
+        expect(
+          contrast(theme.colors.primaryForeground, theme.colors.primary)
+        ).toBeGreaterThanOrEqual(4.5)
+      }
+    )
+
+    it('gives Camouflage dark text on its mid-green primary', () => {
+      expect(themes.camouflage.colors.primaryForeground).toBe('oklch(0.2 0 0)')
+    })
+
     it.each(darkThemes.map((t) => [t.id, t] as const))(
       '%s: accent is a quiet surface that keeps text and the primary check readable',
       (_id, theme) => {
