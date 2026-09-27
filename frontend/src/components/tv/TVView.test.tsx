@@ -1369,3 +1369,24 @@ describe("B-10 '/' focuses the channel search", () => {
     window.matchMedia = originalMatchMedia
   })
 })
+
+describe('G-09 tablet layout', () => {
+  beforeEach(() => vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([]))
+  afterEach(() => { window.matchMedia = originalMatchMedia })
+
+  const renderView = async () => {
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+  }
+  const video = () => screen.getByTestId('player').closest('.bg-black') as HTMLElement
+
+  it('stacks a 16:9 player over the channel list on a tablet held upright, like a phone', async () => {
+    mockViewport({ width: 820, height: 1180, pointer: 'coarse' })
+    await renderView()
+
+    expect(video()).toHaveClass('aspect-video', 'w-full', 'flex-none')
+    expect(screen.getByRole('heading', { name: 'Channels' }).closest('.epg-scroll')).not.toBeNull()
+    // No side list beside the picture
+    expect(screen.queryByRole('button', { name: /channel sidebar/ })).toBeNull()
+  })
+})
