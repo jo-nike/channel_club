@@ -27,7 +27,7 @@ import { UnreadBadge } from '@/components/UnreadBadge'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ResizeDragHandle } from '@/components/ui/ResizeDragHandle'
-import { useLayoutMode } from '@/hooks/useLayoutMode'
+import { useLayoutMode, useTouchTablet } from '@/hooks/useLayoutMode'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useResizable } from '@/hooks/useResizable'
 import { useMobileLandscape } from '@/hooks/useMobileLandscape'
@@ -322,12 +322,18 @@ export function TVView() {
   // (Adjusted while rendering, React's pattern for state that follows a prop.)
   if (!isChatOpen && railOverride) setRailOverride(false)
   const forcedRail = isChatOpen && chatVariant === 'docked' && isNarrowDesktop && !railOverride
+  // A tablet held sideways keeps the list at its slim logo rail, with no
+  // expand button, so the picture gets the width. Like the fold above, it is
+  // never written to the persisted flag, so a desktop keeps the viewer's list.
+  const isTabletRail = useTouchTablet()
   // '/' focuses the channel search: the sidebar's, or the guide's while it
   // is open. Only where one is on screen: not in theater (or a phone
   // turned sideways), whose player covers the page, not on the phone
-  // layout, which has no search, and not on a TV, where a remote has no '/'
+  // layout or the tablet's rail without the guide, which have no search,
+  // and not on a TV, where a remote has no '/'
   const requestSearchFocus = useChannelPrefsStore((s) => s.requestSearchFocus)
-  const canSearchChannels = !isMobile && !isTheaterMode && !isMobileLandscape && !isTVMode
+  const canSearchChannels = !isMobile && !isTheaterMode && !isMobileLandscape && !isTVMode &&
+    (!isTabletRail || isEPGVisible)
 
   const handleToggleSidebar = useCallback(() => {
     if (forcedRail) {
@@ -506,8 +512,9 @@ export function TVView() {
             guide closes. */}
         {!isMobile && !isTheaterMode && !isMobileLandscape && !isEPGVisible && (
           <TVChannelSidebar
-            isCollapsed={isChannelSidebarCollapsed || forcedRail}
+            isCollapsed={isChannelSidebarCollapsed || forcedRail || isTabletRail}
             onToggleCollapse={handleToggleSidebar}
+            canExpand={!isTabletRail}
             liveEPGTitle={liveEPGTitle}
             onPickLive={onPickLive}
           />
