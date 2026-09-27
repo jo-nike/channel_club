@@ -8,8 +8,8 @@ import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useProgrammeClock } from '@/hooks/useProgrammeClock'
 import { scrollBehavior } from '@/lib/motion'
-import { buildProgrammeIndex, findCurrentAndNext, type ProgrammeIndex } from '@/lib/programmeIndex'
-import { calculateProgress, formatRemaining, getProgrammeState, type ProgrammeState } from '@/lib/programmes'
+import { buildProgrammeIndex, findCurrentAndNext, type IndexedProgramme, type ProgrammeIndex } from '@/lib/programmeIndex'
+import { calculateProgress, formatRemaining, type ProgrammeState } from '@/lib/programmes'
 import { cn } from '@/lib/utils'
 import type { UnifiedChannel, ErsatzTVProgramme, EPGResponse } from '@/types'
 
@@ -49,7 +49,9 @@ export function TVEPGGrid({
   onChannelClick,
   onPickLive,
 }: TVEPGGridProps) {
-  const { isLiveChannelActive, liveEPGStatus, selectedChannel } = useTVStore()
+  // Field selectors: the grid re-renders for what it draws, not every tvStore update
+  const selectedChannelId = useTVStore((s) => s.selectedChannel?.id)
+  const liveEPGStatus = useTVStore((s) => s.liveEPGStatus)
   const liveSchedule = useTVStore((s) => s.liveProgrammes)
   const containerRef = useRef<HTMLDivElement>(null)
   const headerRef = useRef<HTMLDivElement>(null)
@@ -64,7 +66,7 @@ export function TVEPGGrid({
     () => buildUnifiedChannels(liveChannel, ersatzTVChannels),
     [liveChannel, ersatzTVChannels]
   )
-  const hasLiveChannel = isLiveChannelActive()
+  const hasLiveChannel = liveChannel !== null
 
   // Calculate time range - start 30 min before current rounded time
   const startTime = useMemo(() => {
@@ -118,7 +120,7 @@ export function TVEPGGrid({
   // Centre the watched row when it's off-screen: when the guide opens (this
   // mounts then, and again once the programmes have loaded) and when the
   // channel changes while it's open. A row already in view stays put.
-  const selectedRowIndex = unifiedChannels.findIndex((c) => c.id === selectedChannel?.id)
+  const selectedRowIndex = unifiedChannels.findIndex((c) => c.id === selectedChannelId)
   useEffect(() => {
     const container = containerRef.current
     if (!container || loading || selectedRowIndex < 0 || container.clientHeight === 0) return
@@ -228,37 +230,7 @@ export function TVEPGGrid({
             narrower than its label, the label hides rather than showing a
             fragment such as '0 PM'. */}
         <div className="relative flex">
-          {timeSlots.map((slot, i) => {
-            const isMidnight = slot.getHours() === 0 && slot.getMinutes() === 0
-            return (
-              <div
-                key={i}
-                className={cn(
-                  'shrink-0 overflow-clip border-l px-2 py-2 text-sm text-muted-foreground',
-                  isMidnight && 'border-l-foreground/40'
-                )}
-                style={{ width: SLOT_WIDTH }}
-              >
-                <span
-                  className="sticky block h-[1lh] w-fit overflow-clip"
-                  style={{ left: STICKY_TEXT_LEFT, maxWidth: visiblePartWidth(i * SLOT_WIDTH) }}
-                >
-                  {/* A label too wide for that width wraps after the
-                      zero-width space onto a second line, which the one-line
-                      height clips */}
-                  {'\u200B'}
-                  <span className="inline-block whitespace-nowrap tabular-nums">
-                    {isMidnight && (
-                      <span data-testid="day-marker" className="mr-1.5 font-semibold text-foreground">
-                        {dayFormat.format(slot)}
-                      </span>
-                    )}
-                    {formatTime(slot)}
-                  </span>
-                </span>
-              </div>
-            )
-          })}
+          <TimeSlotLabels slots={timeSlots} />
           {/* Live time pill on the now marker */}
           {nowMarkerOffset > 0 && nowMarkerOffset < gridWidth && (
             <span
@@ -295,17 +267,12 @@ export function TVEPGGrid({
           <ChannelRow
             key={channel.id}
             channel={channel}
-            programmes={
-              channel.type === 'live'
-                ? liveProgrammes
-                : programmesByChannel[channel.id] || []
-            }
-            startTime={startTime}
+            gridStartMs={startTime.getTime()}
             now={now}
             gridWidth={gridWidth}
             rowIndex={rowIndex}
             programmeIndex={channel.type === 'live' ? liveProgrammeIndex : programmeIndex}
-            isWatching={selectedChannel?.id === channel.id}
+            isWatching={selectedChannelId === channel.id}
             hasLiveChannel={hasLiveChannel}
             liveGuideText={describeLiveGuide(liveEPGStatus)}
             onProgrammeClick={onProgrammeClick}
@@ -320,8 +287,8 @@ export function TVEPGGrid({
 
 interface ChannelRowProps {
   channel: UnifiedChannel
-  programmes: ErsatzTVProgramme[]
-  startTime: Date
+  // Where the programmes start, epoch ms
+  gridStartMs: number
   // The shared programme clock, epoch ms
   now: number
   gridWidth: number
@@ -339,8 +306,7 @@ interface ChannelRowProps {
 
 function ChannelRow({
   channel,
-  programmes,
-  startTime,
+  gridStartMs,
   now,
   gridWidth,
   rowIndex,
@@ -353,6 +319,8 @@ function ChannelRow({
   onPickLive,
 }: ChannelRowProps) {
   const isLive = channel.type === 'live'
+  // Sorted, with start and stop parsed once per programme refresh
+  const entries = programmeIndex.get(channel.id) ?? NO_ENTRIES
 
   // Only show red background when live channel has active broadcast
   const showLiveHighlight = isLive && hasLiveChannel
@@ -383,28 +351,36 @@ function ChannelRow({
           ) : (
             <LiveRowPlaceholder>Waiting for someone to put something on</LiveRowPlaceholder>
           )
-        ) : isLive && programmes.length === 0 ? (
+        ) : isLive && entries.length === 0 ? (
           <LiveRowPlaceholder>{liveGuideText}</LiveRowPlaceholder>
         ) : (
-          programmes.map((programme) => {
-            // Each block gets its state as primitives, so a clock tick
-            // re-renders only the blocks whose state or progress changed
-            const state = getProgrammeState(programme, now)
+          entries.map(({ programme, startMs, stopMs }) => {
+            const left = msToPixels(startMs - gridStartMs)
+            const width = msToPixels(stopMs - startMs)
+            // Ends before the grid starts
+            if (left + width < 0) return null
+            // A programme that started before the grid is drawn from the grid's start
+            const visualLeft = Math.max(0, left)
+            // Each block gets its state and geometry as primitives, so a clock
+            // tick re-renders only the blocks whose state or progress changed
+            const state = stateAt(startMs, stopMs, now)
             const isNow = state === 'now'
-            const startMs = new Date(programme.start).getTime()
-            const stopMs = new Date(programme.stop).getTime()
             return (
               <ProgrammeBox
                 key={programme.id}
                 programme={programme}
                 channel={channel}
-                startTime={startTime}
                 isLive={isLive}
                 state={state}
+                left={visualLeft}
+                // True to its duration: short fillers no longer grow over their neighbours
+                width={Math.max(0, width - (visualLeft - left) - PROGRAMME_GAP)}
+                startMs={startMs}
+                stopMs={stopMs}
                 // Elapsed across the part of the block that's drawn, so the
                 // line ends at the now marker even when the block starts
                 // before the grid does
-                progressPct={isNow ? calculateProgress(Math.max(startMs, startTime.getTime()), stopMs, now) : undefined}
+                progressPct={isNow ? calculateProgress(Math.max(startMs, gridStartMs), stopMs, now) : undefined}
                 timeLeft={isNow ? formatRemaining(stopMs, now) : undefined}
                 isWatching={isNow && isWatching}
                 onClick={onProgrammeClick}
@@ -527,9 +503,14 @@ function LiveRowPlaceholder({ children }: { children: ReactNode }) {
 interface ProgrammeBoxProps {
   programme: ErsatzTVProgramme
   channel: UnifiedChannel
-  startTime: Date
   isLive: boolean
   state: ProgrammeState
+  // Drawn position and width in the programmes area, px
+  left: number
+  width: number
+  // The programme's times, epoch ms
+  startMs: number
+  stopMs: number
   // Only for the block on now: elapsed share of the drawn block (0-100) and '32m left'
   progressPct?: number
   timeLeft?: string
@@ -538,34 +519,25 @@ interface ProgrammeBoxProps {
   onClick?: (programme: ErsatzTVProgramme, channel: UnifiedChannel) => void
 }
 
-// Memoised on primitive state props, so a clock tick skips blocks that stay
-// past or future
+// Memoised on primitive state and geometry props (the programme and channel
+// objects keep their identity between refreshes), so a clock tick skips
+// blocks that stay past or future, and their times aren't re-formatted
 const ProgrammeBox = memo(function ProgrammeBox({
   programme,
   channel,
-  startTime,
   isLive,
   state,
+  left,
+  width,
+  startMs,
+  stopMs,
   progressPct,
   timeLeft,
   isWatching,
   onClick,
 }: ProgrammeBoxProps) {
-  const progStart = new Date(programme.start)
-  const progEnd = new Date(programme.stop)
-
-  const left = calculateTimeOffset(progStart, startTime)
-  const width = calculateDurationWidth(progStart, progEnd)
-
-  // Skip if programme ends before grid starts
-  if (left + width < 0) return null
-
-  // A programme that started before the grid is drawn from the grid's start
-  const visualLeft = Math.max(0, left)
-  // True to its duration: short fillers no longer grow over their neighbours
-  const visualWidth = Math.max(0, width - (visualLeft - left) - PROGRAMME_GAP)
-  const showsText = visualWidth >= PROGRAMME_TEXT_MIN_WIDTH
-  const meta = state === 'now' ? timeLeft : `${formatTime(progStart)} - ${formatTime(progEnd)}`
+  const showsText = width >= PROGRAMME_TEXT_MIN_WIDTH
+  const meta = state === 'now' ? timeLeft : `${formatTime(startMs)} - ${formatTime(stopMs)}`
 
   const block = (
     <button
@@ -586,10 +558,7 @@ const ProgrammeBox = memo(function ProgrammeBox({
         state === 'future' && (isLive ? 'bg-live/15 border-live/40 text-foreground' : 'bg-guide-future border-border text-foreground'),
         isWatching && 'border-primary'
       )}
-      style={{
-        left: visualLeft,
-        width: visualWidth,
-      }}
+      style={{ left, width }}
       data-state={state}
       data-watching={isWatching || undefined}
       aria-label={showsText ? undefined : `${programme.title}, ${meta}`}
@@ -603,7 +572,7 @@ const ProgrammeBox = memo(function ProgrammeBox({
         <div
           data-testid="programme-text"
           className="sticky w-fit"
-          style={{ left: STICKY_TEXT_LEFT, maxWidth: visiblePartWidth(visualLeft) }}
+          style={{ left: STICKY_TEXT_LEFT, maxWidth: visiblePartWidth(left) }}
         >
           <p
             className={cn(
@@ -657,10 +626,18 @@ function calculateTimeOffset(time: Date, startTime: Date): number {
   return (diffMinutes / 30) * SLOT_WIDTH
 }
 
-function calculateDurationWidth(start: Date, end: Date): number {
-  const diffMinutes = (end.getTime() - start.getTime()) / (1000 * 60)
-  return (diffMinutes / 30) * SLOT_WIDTH
+function msToPixels(ms: number): number {
+  return (ms / (30 * 60 * 1000)) * SLOT_WIDTH
 }
+
+// Where a programme sits relative to now: start is inclusive, stop is exclusive
+function stateAt(startMs: number, stopMs: number, nowMs: number): ProgrammeState {
+  if (nowMs < startMs) return 'future'
+  if (nowMs < stopMs) return 'now'
+  return 'past'
+}
+
+const NO_ENTRIES: readonly IndexedProgramme[] = []
 
 // Writes the grid's horizontal scroll to SCROLL_X_VAR. Skipped when it hasn't
 // changed, as on a vertical scroll, since a change restyles every block.
@@ -683,7 +660,7 @@ function visiblePartWidth(left: number): string {
 const timeFormat = new Intl.DateTimeFormat([], { hour: 'numeric', minute: '2-digit' })
 const dayFormat = new Intl.DateTimeFormat([], { weekday: 'short', day: 'numeric' })
 
-function formatTime(date: Date): string {
+function formatTime(date: Date | number): string {
   return timeFormat.format(date)
 }
 
@@ -703,6 +680,46 @@ function formatDay(dayStartMs: number, nowMs: number): string {
   if (dayStartMs === tomorrow.getTime()) return 'Tomorrow'
   return dayFormat.format(dayStartMs)
 }
+
+interface TimeSlotLabelsProps {
+  slots: Date[]
+}
+
+// The header's half-hour labels. Memoised on the slot list, which only
+// changes with the grid's range, so clock ticks don't re-format them.
+const TimeSlotLabels = memo(function TimeSlotLabels({ slots }: TimeSlotLabelsProps) {
+  return slots.map((slot, i) => {
+    const isMidnight = slot.getHours() === 0 && slot.getMinutes() === 0
+    return (
+      <div
+        key={i}
+        className={cn(
+          'shrink-0 overflow-clip border-l px-2 py-2 text-sm text-muted-foreground',
+          isMidnight && 'border-l-foreground/40'
+        )}
+        style={{ width: SLOT_WIDTH }}
+      >
+        <span
+          className="sticky block h-[1lh] w-fit overflow-clip"
+          style={{ left: STICKY_TEXT_LEFT, maxWidth: visiblePartWidth(i * SLOT_WIDTH) }}
+        >
+          {/* A label too wide for that width wraps after the
+              zero-width space onto a second line, which the one-line
+              height clips */}
+          {'\u200B'}
+          <span className="inline-block whitespace-nowrap tabular-nums">
+            {isMidnight && (
+              <span data-testid="day-marker" className="mr-1.5 font-semibold text-foreground">
+                {dayFormat.format(slot)}
+              </span>
+            )}
+            {formatTime(slot)}
+          </span>
+        </span>
+      </div>
+    )
+  })
+})
 
 function EPGGridSkeleton() {
   return (

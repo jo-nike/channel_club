@@ -1,3 +1,4 @@
+import { Profiler } from 'react'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { act, render, screen, cleanup, fireEvent, within } from '@/test/utils'
 import { TVEPGGrid } from './TVEPGGrid'
@@ -785,5 +786,81 @@ describe('TVEPGGrid time header', () => {
     expect(pill).toHaveTextContent(timeFormat.format(new Date(NOW)))
     // Half an hour into the grid: one slot
     expect(pill).toHaveStyle({ left: '150px' })
+  })
+})
+
+describe('TVEPGGrid re-renders', () => {
+  const NOW = new Date('2026-09-26T20:00:00Z').getTime()
+  const MINUTE = 60_000
+  const at = (minutes: number) => new Date(NOW + minutes * MINUTE).toISOString()
+  const channels = Array.from({ length: 3 }, (_, i) => ({
+    id: `etv${i + 1}`, name: `Channel ${i + 1}`, streamUrl: `/etv${i + 1}`, logoUrl: '', number: i + 1, group: '',
+  }))
+  // Half-hour programmes from 19:15 to a day ahead on every channel; the
+  // ones on now end at 20:15
+  const schedule: Record<string, ErsatzTVProgramme[]> = Object.fromEntries(
+    channels.map((channel) => [
+      channel.id,
+      Array.from({ length: 50 }, (_, i) => ({
+        id: `${channel.id}-${i}`,
+        channelId: channel.id,
+        title: `Show ${i}`,
+        start: at(-45 + i * 30),
+        stop: at(-15 + i * 30),
+      })),
+    ])
+  )
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    vi.setSystemTime(NOW)
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels })
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+    vi.useRealTimers()
+    useErsatztvStore.setState({ channels: [] })
+    useTVStore.setState({ liveEPGLoading: false })
+  })
+
+  it('re-formats no programme or header times on a clock tick that changes no block state', () => {
+    render(<TVEPGGrid hours={48} programmesByChannel={schedule} />)
+    // Every Intl time or day format reads the formatter's format getter.
+    // format is an accessor at runtime (ECMA-402) but TypeScript's lib
+    // declares it as a method, and vitest's 'get' overload rejects any key
+    // whose value is typed as a function. The cast types the getter's value
+    // as unknown; the test only counts the reads
+    const formats = vi.spyOn(
+      Intl.DateTimeFormat.prototype as unknown as { readonly format: unknown },
+      'format',
+      'get'
+    )
+
+    // Two ticks: 15 minutes left becomes 14
+    act(() => vi.advanceTimersByTime(60_000))
+
+    const onNow = screen.getAllByRole('button').filter((el) => el.dataset.state === 'now')
+    expect(onNow).toHaveLength(3)
+    onNow.forEach((block) => expect(block).toHaveTextContent('14m left'))
+    // Only the live time pill, once a tick: the other 147 blocks and the 96
+    // header labels keep what they formatted on mount
+    expect(formats.mock.calls.length).toBeLessThanOrEqual(2)
+  })
+
+  it('does not re-render for a tvStore change it does not draw', () => {
+    const onRender = vi.fn()
+    render(
+      <Profiler id="guide" onRender={onRender}>
+        <TVEPGGrid hours={48} programmesByChannel={schedule} />
+      </Profiler>
+    )
+    onRender.mockClear()
+
+    act(() => useTVStore.setState({ liveEPGLoading: true }))
+
+    expect(onRender).not.toHaveBeenCalled()
   })
 })
