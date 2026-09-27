@@ -5,7 +5,8 @@ import { useChannelStore } from '@/stores/channelStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useUIStore } from '@/stores/uiStore'
-import { fetchGroupedChannels, fetchNowPlayingAll, setCurrentChannel as setCurrentChannelApi, clearCurrentChannel as clearCurrentChannelApi } from '@/services/api'
+import { fetchGroupedChannels, fetchNowPlayingAll, clearCurrentChannel as clearCurrentChannelApi } from '@/services/api'
+import { useSetLiveChannel } from '@/hooks/useSetLiveChannel'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -22,6 +23,7 @@ export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
   const { role } = useAuthStore()
   const userChannelSelection = useSettingsStore((s) => s.userChannelSelection)
   const setSidebarOpen = useUIStore((s) => s.setSidebarOpen)
+  const setLiveChannel = useSetLiveChannel()
   const isAdmin = role === 'admin'
   // Admins always may; everyone else only when the admin has opened it up
   const canSelect = isAdmin || userChannelSelection
@@ -74,9 +76,8 @@ export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
   const handleSelectChannel = useCallback(async (channel: Channel) => {
     if (!canSelect) return
 
-    // Optimistic update
-    const previousChannel = currentChannel
-    setCurrentChannel(channel)
+    // Switches the store straight away; the request settles below
+    const switching = setLiveChannel(channel)
 
     // If callback provided (modal context), call it
     // Otherwise use existing sidebar close behavior
@@ -86,16 +87,8 @@ export function ChannelList({ onChannelSelected }: ChannelListProps = {}) {
       setSidebarOpen(false)
     }
 
-    try {
-      await setCurrentChannelApi(channel)
-    } catch (e) {
-      // Revert on failure
-      setCurrentChannel(previousChannel)
-      toast.error('Failed to change channel', {
-        description: e instanceof Error ? e.message : 'Please try again',
-      })
-    }
-  }, [canSelect, currentChannel, setCurrentChannel, setSidebarOpen, onChannelSelected])
+    await switching
+  }, [canSelect, setLiveChannel, setSidebarOpen, onChannelSelected])
 
   const handleClearChannel = useCallback(async () => {
     if (!isAdmin) return
