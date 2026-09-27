@@ -1,8 +1,16 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 
 const AUTO_HIDE_DELAY_MS = 3000
+// Touch viewers need longer to read the bar and reach for a control
+const TOUCH_AUTO_HIDE_DELAY_MS = 4000
 // A touch that moves further than this is a scroll or drag, not a tap
 const TAP_SLOP_PX = 10
+
+// Read each time a timer is scheduled, so a device that changes pointer
+// (a tablet gaining a mouse) gets the right delay
+function autoHideDelay(): number {
+  return window.matchMedia('(pointer: coarse)').matches ? TOUCH_AUTO_HIDE_DELAY_MS : AUTO_HIDE_DELAY_MS
+}
 
 interface UseAutoHideOptions {
   isPlaying: boolean
@@ -49,18 +57,19 @@ export function useAutoHide({ isPlaying, containerRef, isHoveringControls = fals
     if (isPlaying && !isHoveringControls) {
       timeoutRef.current = window.setTimeout(() => {
         setVisible(false)
-      }, AUTO_HIDE_DELAY_MS)
+      }, autoHideDelay())
     }
   }, [isPlaying, isHoveringControls, setVisible])
 
-  // Toggle controls visibility (a tap on touch devices)
+  // Toggle controls visibility (a tap on touch devices). A paused video keeps
+  // its controls, so a tap never leaves it with none.
   const toggleControls = useCallback(() => {
-    if (visibleRef.current) {
+    if (visibleRef.current && isPlaying) {
       hideControls()
     } else {
       showControls()
     }
-  }, [hideControls, showControls])
+  }, [isPlaying, hideControls, showControls])
 
   // Handle activity events. Pointer events tell a mouse from a finger or pen:
   // mouse movement shows the controls, a tap toggles them exactly once. The
@@ -160,7 +169,7 @@ export function useAutoHide({ isPlaying, containerRef, isHoveringControls = fals
       }
       timeoutRef.current = window.setTimeout(() => {
         setVisible(false)
-      }, AUTO_HIDE_DELAY_MS)
+      }, autoHideDelay())
     } else if (isHoveringControls && timeoutRef.current) {
       // Started hovering, cancel the hide timer
       window.clearTimeout(timeoutRef.current)

@@ -437,4 +437,100 @@ describe('useAutoHide', () => {
       expect(result.current.isVisible).toBe(true)
     })
   })
+
+  describe('paused', () => {
+    it('a tap on a paused video leaves the controls up', () => {
+      const containerRef = createContainerRef()
+      const { result } = renderHook(() => useAutoHide({ isPlaying: false, containerRef }))
+
+      tap(containerRef.current)
+      expect(result.current.isVisible).toBe(true)
+
+      tap(containerRef.current)
+      expect(result.current.isVisible).toBe(true)
+    })
+
+    it('toggleControls never hides the controls of a paused video', () => {
+      const containerRef = createContainerRef()
+      const { result } = renderHook(() => useAutoHide({ isPlaying: false, containerRef }))
+
+      act(() => {
+        result.current.toggleControls()
+      })
+
+      expect(result.current.isVisible).toBe(true)
+    })
+  })
+
+  describe('touch delay', () => {
+    const setupMatchMedia = window.matchMedia
+
+    afterEach(() => {
+      Object.defineProperty(window, 'matchMedia', { writable: true, configurable: true, value: setupMatchMedia })
+    })
+
+    const reportCoarsePointer = () => {
+      Object.defineProperty(window, 'matchMedia', {
+        writable: true,
+        configurable: true,
+        value: (query: string) => ({
+          matches: query === '(pointer: coarse)',
+          media: query,
+          onchange: null,
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+          dispatchEvent: vi.fn(() => true),
+        }),
+      })
+    }
+
+    it('keeps the controls up for 4 seconds on a coarse pointer', () => {
+      reportCoarsePointer()
+      const containerRef = createContainerRef()
+      const { result } = renderHook(() => useAutoHide({ isPlaying: true, containerRef }))
+
+      act(() => {
+        vi.advanceTimersByTime(3999)
+      })
+      expect(result.current.isVisible).toBe(true)
+
+      act(() => {
+        vi.advanceTimersByTime(1)
+      })
+      expect(result.current.isVisible).toBe(false)
+    })
+
+    it('a tap brings them back for 4 seconds too', () => {
+      reportCoarsePointer()
+      const containerRef = createContainerRef()
+      const { result } = renderHook(() => useAutoHide({ isPlaying: true, containerRef }))
+      act(() => {
+        vi.advanceTimersByTime(4000)
+      })
+
+      tap(containerRef.current)
+      act(() => {
+        vi.advanceTimersByTime(3000)
+      })
+      expect(result.current.isVisible).toBe(true)
+
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
+      expect(result.current.isVisible).toBe(false)
+    })
+
+    it('stays at 3 seconds for a fine pointer', () => {
+      const containerRef = createContainerRef()
+      const { result } = renderHook(() => useAutoHide({ isPlaying: true, containerRef }))
+
+      act(() => {
+        vi.advanceTimersByTime(3000)
+      })
+
+      expect(result.current.isVisible).toBe(false)
+    })
+  })
 })
