@@ -33,6 +33,7 @@ class UserPresence:
     view: View
     user_id: str | None = None  # Opaque chat id (chat.user_id_for), safe to show others
     nickname: str | None = None  # Chat display name, None means the username
+    hide_activity: bool = False  # "Hide what I'm watching": others see the name only
     current_channel: str | None = None
     current_channel_id: str | None = None
     current_programme: str | None = None
@@ -231,6 +232,19 @@ def set_nickname(connection_id: str, nickname: str | None) -> None:
     """
     if connection_id in _active_users:
         _active_users[connection_id].nickname = nickname
+
+
+def set_hide_activity(connection_id: str, hide: bool) -> None:
+    """Record whether a connection's owner hides what they watch from others.
+
+    The admin Active Users list still shows the channel.
+
+    Args:
+        connection_id: The connection ID to update.
+        hide: True to show only the person's name to other members.
+    """
+    if connection_id in _active_users:
+        _active_users[connection_id].hide_activity = hide
 
 
 def get_active_users() -> dict[str, UserPresence]:

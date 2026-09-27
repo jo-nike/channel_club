@@ -203,7 +203,8 @@ async def handle_client_message(
     if (
         isinstance(message, dict)
         and isinstance(message.get("type"), str)
-        and message["type"] not in {"ping", "channel_update", "set_nickname", "chat_message"}
+        and message["type"]
+        not in {"ping", "channel_update", "set_nickname", "set_presence_prefs", "chat_message"}
     ):
         return
     try:
@@ -250,6 +251,10 @@ async def handle_client_message(
             _clear_nickname(client_id, websocket)
             presence.set_nickname(client_id, None)
             log.debug("Nickname cleared for client {}", client_id)
+
+    elif msg_type == "set_presence_prefs":
+        presence.set_hide_activity(client_id, validated["hideActivity"])
+        log.debug("Presence prefs from client {}: hide={}", client_id, validated["hideActivity"])
 
     elif msg_type == "chat_message":
         # Handle chat messages only if chat is enabled

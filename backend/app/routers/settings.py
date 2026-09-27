@@ -48,9 +48,14 @@ async def update_settings(
     Returns:
         The updated settings.
     """
+    result = app_settings.get_app_settings()
     if request.user_channel_selection is not None:
-        return await app_settings.set_user_channel_selection(
+        result = await app_settings.set_user_channel_selection(
             request.user_channel_selection, user=current_user.sub
         )
+    if request.presence_visible is not None:
+        result = await app_settings.set_presence_visible(
+            request.presence_visible, user=current_user.sub
+        )
 
-    return app_settings.get_app_settings()
+    return result

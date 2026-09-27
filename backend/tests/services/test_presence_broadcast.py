@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.services import presence, presence_broadcast
+from app.services import app_settings, presence, presence_broadcast
 
 
 @pytest.fixture(autouse=True)
@@ -14,6 +14,21 @@ def reset_presence_state() -> Iterator[None]:
     presence._active_users.clear()
     yield
     presence._active_users.clear()
+
+
+@pytest.fixture
+def visible(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An admin has turned on "Show what everyone is watching"."""
+    monkeypatch.setattr(app_settings, "_presence_visible", True)
+
+
+NAME_ONLY = {
+    "channelId": None,
+    "channelName": None,
+    "programme": None,
+    "view": None,
+    "since": None,
+}
 
 
 def watch(
@@ -35,8 +50,9 @@ def watch(
     return user
 
 
+@pytest.mark.usefixtures("visible")
 class TestBuildSnapshot:
-    """Tests for build_snapshot."""
+    """Tests for build_snapshot while presence is visible."""
 
     def test_empty_when_nobody_is_connected(self) -> None:
         assert presence_broadcast.build_snapshot() == []
@@ -130,3 +146,47 @@ class TestBuildSnapshot:
 
         assert [e["channelName"] for e in snapshot] == ["Sports"]
         assert snapshot[0]["since"] is None
+
+
+class TestPrivacy:
+    """Channel fields are stripped while visibility is off or a person hides."""
+
+    def test_names_only_while_visibility_is_off(self) -> None:
+        """The default: others see who is here, not what they watch."""
+        watch("c1", "jon", "u_1", "Movies", channel_id="ch-7", programme="Heat")
+
+        assert presence_broadcast.build_snapshot() == [
+            {"userId": "u_1", "displayName": "jon", **NAME_ONLY}
+        ]
+
+    @pytest.mark.usefixtures("visible")
+    def test_person_who_hides_shows_name_only(self) -> None:
+        """Hiding strips that person's channel, not anyone else's."""
+        watch("c1", "jon", "u_1", "Movies", channel_id="ch-7", programme="Heat")
+        watch("c2", "amy", "u_2", "News", channel_id="ch-2")
+        presence.set_hide_activity("c1", True)
+
+        snapshot = presence_broadcast.build_snapshot()
+
+        assert snapshot[0]["displayName"] == "amy"
+        assert snapshot[0]["channelName"] == "News"
+        assert snapshot[1] == {"userId": "u_1", "displayName": "jon", **NAME_ONLY}
+
+    @pytest.mark.usefixtures("visible")
+    def test_hiding_on_any_connection_hides_the_person(self) -> None:
+        """Hiding on one device also covers the person's other connections."""
+        watch("phone", "jon", "u_1", "News", started_ago=600)
+        watch("tv", "jon", "u_1", "Movies", started_ago=5)
+        presence.set_hide_activity("phone", True)
+
+        assert presence_broadcast.build_snapshot() == [
+            {"userId": "u_1", "displayName": "jon", **NAME_ONLY}
+        ]
+
+    @pytest.mark.usefixtures("visible")
+    def test_unhiding_shows_the_channel_again(self) -> None:
+        watch("c1", "jon", "u_1", "Movies")
+        presence.set_hide_activity("c1", True)
+        presence.set_hide_activity("c1", False)
+
+        assert presence_broadcast.build_snapshot()[0]["channelName"] == "Movies"

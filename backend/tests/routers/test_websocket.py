@@ -523,6 +523,50 @@ class TestPresenceTracking:
 
                 assert presence._active_users["a1"].nickname is None
 
+    def test_presence_prefs_set_hide_activity(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """set_presence_prefs records "Hide what I'm watching" for the connection."""
+        monkeypatch.setattr(settings, "chat_enabled", False)
+        with client.websocket_connect(f"/api/ws?token={valid_token}&session_id=s1") as ws:
+            ws.receive_json()  # Consume connection_ack
+            ws.send_json({"type": "set_presence_prefs", "hideActivity": True})
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json()["type"] == "pong"
+
+            assert presence._active_users["s1"].hide_activity is True
+
+            ws.send_json({"type": "set_presence_prefs", "hideActivity": False})
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json()["type"] == "pong"
+
+            assert presence._active_users["s1"].hide_activity is False
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            {"type": "set_presence_prefs"},
+            {"type": "set_presence_prefs", "hideActivity": "true"},
+            {"type": "set_presence_prefs", "hideActivity": 1},
+            {"type": "set_presence_prefs", "hideActivity": None},
+        ],
+    )
+    def test_invalid_presence_prefs_are_rejected(
+        self,
+        client: TestClient,
+        valid_token: str,
+        monkeypatch: pytest.MonkeyPatch,
+        message: dict[str, object],
+    ):
+        """A malformed prefs message gets invalid_message and changes nothing."""
+        monkeypatch.setattr(settings, "chat_enabled", False)
+        with client.websocket_connect(f"/api/ws?token={valid_token}&session_id=s1") as ws:
+            ws.receive_json()  # Consume connection_ack
+            ws.send_json(message)
+
+            assert ws.receive_json() == {"type": "error", "code": "invalid_message"}
+            assert presence._active_users["s1"].hide_activity is False
+
     def test_multiple_users_tracked(self, client: TestClient, valid_token: str, admin_token: str):
         """Multiple users should be tracked separately."""
         with client.websocket_connect(f"/api/ws?token={valid_token}&view=live") as ws1:

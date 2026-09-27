@@ -231,6 +231,22 @@ class TestUserIdAndNickname:
         presence.set_nickname("c1", None)
         assert presence._active_users["c1"].nickname is None
 
+    def test_hide_activity_defaults_off_and_can_be_set(self) -> None:
+        """A connection shares its channel until its owner hides it."""
+        user = presence.track_user("c1", "jon", "live")
+        assert user.hide_activity is False
+
+        presence.set_hide_activity("c1", True)
+        assert presence._active_users["c1"].hide_activity is True
+
+        presence.set_hide_activity("c1", False)
+        assert presence._active_users["c1"].hide_activity is False
+
+    def test_set_hide_activity_for_unknown_connection_is_safe(self) -> None:
+        presence.set_hide_activity("nobody", True)
+
+        assert presence._active_users == {}
+
     def test_set_nickname_for_unknown_connection_is_safe(self) -> None:
         """Nothing is created for a connection that isn't tracked."""
         presence.set_nickname("nobody", "Ghost")
