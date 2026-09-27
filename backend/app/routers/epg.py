@@ -4,8 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from loguru import logger
 
 from app.models.auth import TokenPayload
+from app.models.channel import Channel
 from app.models.epg import EPGResponse, NowPlayingBulkResponse
 from app.routers.auth_deps import get_current_user
+from app.services.dispatcharr import DispatchrrUnavailableError, get_grouped_channels
 from app.services.epg_service import EPGServiceError, get_epg_service
 
 router = APIRouter(tags=["epg"])
@@ -21,6 +23,10 @@ async def get_now_playing_all(
     Requires JWT authentication. Lets a channel list show what is on each
     channel without one request per channel.
 
+    The grouped channel catalogue (the list the channel picker shows) is
+    resolved by guide id with the same display-name fallback as the single
+    lookup. When the catalogue is unavailable, only XMLTV ids are returned.
+
     Args:
         current_user: Authenticated user from JWT token.
 
@@ -34,8 +40,15 @@ async def get_now_playing_all(
     log.debug("EPG bulk now-playing request")
     epg_service = get_epg_service()
 
+    channels: list[Channel] = []
     try:
-        now_playing = await epg_service.get_now_playing_bulk()
+        grouped = await get_grouped_channels()
+        channels = [ch for group in grouped.groups for ch in group.channels] + grouped.ungrouped
+    except DispatchrrUnavailableError:
+        log.warning("Channel catalogue unavailable; bulk now-playing keyed by XMLTV id only")
+
+    try:
+        now_playing = await epg_service.get_now_playing_bulk(channels)
         log.debug("EPG bulk response with {} channels on air", len(now_playing))
         return NowPlayingBulkResponse(now_playing=now_playing)
     except EPGServiceError:
