@@ -1,6 +1,8 @@
 """Tests for EPG service."""
 
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -536,3 +538,184 @@ class TestCacheValidity:
         service = EPGService("http://test:9191")
 
         assert service._is_cache_valid() is False
+
+
+HEALTH_XMLTV = """<?xml version="1.0" encoding="UTF-8"?>
+<tv>
+  <programme start="20260103200000 +0000" stop="20260103210000 +0000" channel="ch-a">
+    <title>A1</title>
+  </programme>
+  <programme start="20260103210000 +0000" stop="20260103220000 +0000" channel="ch-a">
+    <title>A2</title>
+  </programme>
+  <programme start="20260103200000 +0000" stop="20260103210000 +0000" channel="ch-b">
+    <title>B1</title>
+  </programme>
+</tv>
+"""
+
+
+def _raise(error: Exception) -> Callable[[httpx.Request], httpx.Response]:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise error
+
+    return handler
+
+
+class _Upstream:
+    """Mock XMLTV upstream that records how many requests reached it."""
+
+    def __init__(self, handler: Callable[[httpx.Request], httpx.Response]) -> None:
+        self.handler = handler
+        self.requests = 0
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.requests += 1
+        return self.handler(request)
+
+
+def _patch_upstream(monkeypatch: pytest.MonkeyPatch, upstream: _Upstream) -> None:
+    factory = httpx.AsyncClient
+
+    def client(**kwargs: Any) -> httpx.AsyncClient:
+        return factory(transport=httpx.MockTransport(upstream), **kwargs)
+
+    monkeypatch.setattr("app.services.epg_service.httpx.AsyncClient", client)
+
+
+class TestHealth:
+    """Tests for guide data health reporting."""
+
+    @pytest.mark.asyncio
+    async def test_health_after_403(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A refused XMLTV download reports the status code, not the URL."""
+        upstream = _Upstream(lambda request: httpx.Response(403, text="Forbidden"))
+        _patch_upstream(monkeypatch, upstream)
+        service = EPGService("http://dispatcharr.synthetic:9191")
+
+        before = datetime.now(UTC)
+        health = await service.check_health()
+
+        assert health.online is False
+        assert health.stale is False
+        assert health.error == "HTTP 403"
+        assert health.channel_count == 0
+        assert health.programme_count == 0
+        assert health.last_success_at is None
+        assert health.last_attempt_at is not None
+        assert health.last_attempt_at >= before
+        assert health.next_retry_at is not None
+        assert health.next_retry_at - before >= timedelta(seconds=30)
+        assert "dispatcharr.synthetic" not in health.model_dump_json()
+
+    @pytest.mark.asyncio
+    async def test_health_checks_wait_out_the_backoff(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Status polls during the backoff do not reach Dispatcharr."""
+        upstream = _Upstream(lambda request: httpx.Response(403))
+        _patch_upstream(monkeypatch, upstream)
+        service = EPGService("http://dispatcharr.synthetic:9191")
+
+        health = await service.check_health()
+        for _ in range(2):
+            health = await service.check_health()
+
+        assert upstream.requests == 1
+        assert health.error == "HTTP 403"
+
+    @pytest.mark.asyncio
+    async def test_health_after_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A successful refresh reports counts and when it succeeded."""
+        _patch_upstream(
+            monkeypatch, _Upstream(lambda request: httpx.Response(200, text=HEALTH_XMLTV))
+        )
+        service = EPGService("http://dispatcharr.synthetic:9191")
+
+        before = datetime.now(UTC)
+        health = await service.check_health()
+
+        assert health.online is True
+        assert health.stale is False
+        assert health.error is None
+        assert health.channel_count == 2
+        assert health.programme_count == 3
+        assert health.last_success_at is not None
+        assert health.last_success_at >= before
+        assert health.next_retry_at is None
+        dumped = health.model_dump(by_alias=True)
+        assert dumped["channelCount"] == 2
+        assert dumped["programmeCount"] == 3
+        assert dumped["lastSuccessAt"] == health.last_success_at
+
+    @pytest.mark.asyncio
+    async def test_health_is_stale_when_refresh_fails_with_cached_data(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Expired guide data stays online but is flagged stale with the reason."""
+        _patch_upstream(monkeypatch, _Upstream(lambda request: httpx.Response(403)))
+        service = EPGService("http://dispatcharr.synthetic:9191")
+        now = datetime.now(UTC)
+        service._cache = {
+            "ch-a": [Program(title="Old", start_time=now, end_time=now + timedelta(hours=1))]
+        }
+        service._cache_expires = now - timedelta(seconds=1)
+
+        health = await service.check_health()
+
+        assert health.online is True
+        assert health.stale is True
+        assert health.error == "HTTP 403"
+        assert health.channel_count == 1
+        assert health.programme_count == 1
+
+    @pytest.mark.asyncio
+    async def test_success_clears_previous_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Recovering from a failure clears the error and the retry deadline."""
+        responses = iter([httpx.Response(403), httpx.Response(200, text=HEALTH_XMLTV)])
+        _patch_upstream(monkeypatch, _Upstream(lambda request: next(responses)))
+        service = EPGService("http://dispatcharr.synthetic:9191")
+
+        assert (await service.check_health()).error == "HTTP 403"
+        service._retry_at = datetime.now(UTC) - timedelta(seconds=1)
+        health = await service.check_health()
+
+        assert health.online is True
+        assert health.error is None
+        assert health.next_retry_at is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("handler", "reason"),
+        [
+            (_raise(httpx.ConnectError("refused")), "connection failed"),
+            (_raise(httpx.ReadTimeout("slow")), "timeout"),
+            (_raise(httpx.RemoteProtocolError("reset")), "request failed"),
+            (lambda request: httpx.Response(200, text="<tv><broken"), "invalid XMLTV"),
+        ],
+    )
+    async def test_health_reports_short_failure_reason(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        handler: Callable[[httpx.Request], httpx.Response],
+        reason: str,
+    ) -> None:
+        """Each failure kind maps to a short reason without upstream details."""
+        _patch_upstream(monkeypatch, _Upstream(handler))
+        service = EPGService("http://dispatcharr.synthetic:9191")
+
+        health = await service.check_health()
+
+        assert health.online is False
+        assert health.error == reason
+
+    def test_get_health_does_not_refresh(self) -> None:
+        """get_health reads local state only."""
+        service = EPGService("http://dispatcharr.synthetic:9191")
+
+        with patch.object(service, "refresh_cache", new=AsyncMock()) as refresh:
+            health = service.get_health()
+
+        refresh.assert_not_called()
+        assert health.online is False
+        assert health.last_attempt_at is None

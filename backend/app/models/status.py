@@ -77,6 +77,22 @@ class DispatchrrStatus(ServiceStatus):
     streams: list[DispatcharrStream] = Field(default_factory=list)
 
 
+class EPGHealthStatus(ServiceStatus):
+    """Status model for the guide data (XMLTV) cache.
+
+    ``online`` means guide data is cached; ``stale`` means it is past its expiry
+    because refreshes are failing. ``error`` is a short reason from the latest
+    refresh ('HTTP 403', 'timeout', ...) and never contains the upstream URL.
+    """
+
+    stale: bool = False
+    channel_count: int = Field(default=0, alias="channelCount")
+    programme_count: int = Field(default=0, alias="programmeCount")
+    last_attempt_at: datetime | None = Field(default=None, alias="lastAttemptAt")
+    last_success_at: datetime | None = Field(default=None, alias="lastSuccessAt")
+    next_retry_at: datetime | None = Field(default=None, alias="nextRetryAt")
+
+
 class SystemStatusResponse(BaseModel):
     """Response model for GET /api/admin/status endpoint."""
 

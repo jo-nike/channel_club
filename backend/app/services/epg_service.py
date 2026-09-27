@@ -1,6 +1,7 @@
 """EPG service for fetching and caching XMLTV data from Dispatcharr."""
 
 import asyncio
+import contextlib
 from datetime import UTC, datetime, timedelta, timezone
 
 import httpx
@@ -9,6 +10,7 @@ from loguru import logger
 
 from app.config import settings
 from app.models.epg import EPGResponse, Program
+from app.models.status import EPGHealthStatus
 
 # Module-level logger with service context
 log = logger.bind(service="epg")
@@ -16,6 +18,8 @@ log = logger.bind(service="epg")
 # Failed XMLTV refreshes back off from 30s, doubling per consecutive failure, up to 5 min
 RETRY_BASE_SECONDS = 30
 RETRY_MAX_SECONDS = 300
+
+EPG_HEALTH_NAME = "Guide data (XMLTV)"
 
 
 class EPGServiceError(Exception):
@@ -36,6 +40,10 @@ class EPGService:
         self._refresh_lock = asyncio.Lock()
         self._retry_at: datetime | None = None
         self._consecutive_failures = 0
+        # Refresh health for admin status; _last_error is a short reason, never the URL
+        self._last_attempt_at: datetime | None = None
+        self._last_success_at: datetime | None = None
+        self._last_error: str | None = None
 
     def _is_cache_valid(self) -> bool:
         """Check if cache is still valid."""
@@ -149,6 +157,7 @@ class EPGService:
         """
         url = f"{self.dispatcharr_url}/output/epg"
         log.debug("Fetching EPG data from {}", url)
+        self._last_attempt_at = datetime.now(UTC)
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.get(url)
@@ -158,6 +167,8 @@ class EPGService:
                 # feed is CPU-bound and would otherwise block the event loop
                 self._cache = await asyncio.to_thread(self._parse_xmltv, response.text)
                 self._cache_expires = datetime.now(UTC) + self._cache_ttl
+                self._last_success_at = datetime.now(UTC)
+                self._last_error = None
 
                 total_programmes = sum(len(progs) for progs in self._cache.values())
                 log.info(
@@ -169,18 +180,23 @@ class EPGService:
 
         except httpx.HTTPStatusError as e:
             log.error("XMLTV HTTP error from {}: {} - {}", url, e.response.status_code, e)
+            self._last_error = f"HTTP {e.response.status_code}"
             return False
         except httpx.ConnectError as e:
             log.error("Failed to connect to Dispatcharr at {}: {}", url, e)
+            self._last_error = "connection failed"
             return False
         except httpx.TimeoutException as e:
             log.error("Timeout fetching XMLTV from {}: {}", url, e)
+            self._last_error = "timeout"
             return False
         except httpx.HTTPError as e:
             log.error("Failed to fetch XMLTV from {}: {}", url, e)
+            self._last_error = "request failed"
             return False
         except EPGServiceError as e:
             log.error("Failed to parse XMLTV data: {}", e)
+            self._last_error = "invalid XMLTV"
             return False
 
     async def _ensure_cache(self) -> None:
@@ -218,6 +234,38 @@ class EPGService:
                 log.warning("Using stale EPG cache after refresh failure")
             else:
                 raise EPGServiceError("EPG service unavailable")
+
+    def get_health(self) -> EPGHealthStatus:
+        """Report the guide data cache and the outcome of recent refreshes.
+
+        Reads local state only; it never contacts Dispatcharr.
+        """
+        now = datetime.now(UTC)
+        has_data = bool(self._cache)
+        expired = self._cache_expires is None or now >= self._cache_expires
+        return EPGHealthStatus(
+            name=EPG_HEALTH_NAME,
+            online=has_data,
+            last_checked=now,
+            error=self._last_error,
+            stale=has_data and expired,
+            channel_count=len(self._cache),
+            programme_count=sum(len(programs) for programs in self._cache.values()),
+            last_attempt_at=self._last_attempt_at,
+            last_success_at=self._last_success_at,
+            next_retry_at=self._retry_at,
+        )
+
+    async def check_health(self) -> EPGHealthStatus:
+        """Refresh the cache if it is due, then report its health.
+
+        Goes through _ensure_cache, so a status poll shares the single in-flight
+        refresh and waits out the failure backoff instead of hitting Dispatcharr.
+        """
+        # A failed refresh is what get_health reports, so it is not an error here
+        with contextlib.suppress(EPGServiceError):
+            await self._ensure_cache()
+        return self.get_health()
 
     def _find_current_and_next(
         self, programs: list[Program], now: datetime
