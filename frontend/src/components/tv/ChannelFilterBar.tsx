@@ -11,6 +11,8 @@ const CHIPS: { mode: ChannelFilterMode; label: string }[] = [
 ]
 
 interface ChannelFilterBarProps {
+  // Stacked in the sidebar; one row in the guide, which is wide but short
+  layout?: 'stacked' | 'inline'
   className?: string
 }
 
@@ -19,7 +21,7 @@ interface ChannelFilterBarProps {
  * filter lives in channelPrefsStore, so the sidebar and the guide show the
  * same channels and it survives either one unmounting.
  */
-export function ChannelFilterBar({ className }: ChannelFilterBarProps) {
+export function ChannelFilterBar({ layout = 'stacked', className }: ChannelFilterBarProps) {
   const query = useChannelPrefsStore((s) => s.filter.query)
   const mode = useChannelPrefsStore((s) => s.filter.mode)
   const setFilterQuery = useChannelPrefsStore((s) => s.setFilterQuery)
@@ -33,8 +35,12 @@ export function ChannelFilterBar({ className }: ChannelFilterBarProps) {
   }
 
   return (
-    <div role="search" aria-label="Channels" className={cn('space-y-2', className)}>
-      <div className="relative">
+    <div
+      role="search"
+      aria-label="Channels"
+      className={cn(layout === 'inline' ? 'flex items-center gap-3' : 'space-y-2', className)}
+    >
+      <div className={cn('relative', layout === 'inline' && 'w-72 min-w-0 shrink')}>
         <Search
           aria-hidden="true"
           className="pointer-events-none absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2 text-muted-foreground"

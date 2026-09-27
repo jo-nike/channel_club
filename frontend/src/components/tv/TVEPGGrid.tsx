@@ -17,6 +17,8 @@ import {
   type TimeWindow,
 } from '@/hooks/useGridNavigation'
 import { useUIStore } from '@/stores/uiStore'
+import { useFilteredChannels } from '@/hooks/useFilteredChannels'
+import { ChannelFilterBar } from '@/components/tv/ChannelFilterBar'
 import { scrollBehavior } from '@/lib/motion'
 import {
   buildProgrammeIndex,
@@ -92,10 +94,14 @@ export function TVEPGGrid({
   // get their channel, can skip re-rendering
   const liveChannel = useChannelStore((s) => s.currentChannel)
   const ersatzTVChannels = useErsatztvStore((s) => s.channels)
-  const unifiedChannels = useMemo(
+  const allChannels = useMemo(
     () => buildUnifiedChannels(liveChannel, ersatzTVChannels),
     [liveChannel, ersatzTVChannels]
   )
+  // With the guide open its channel column is the one channel list, so it
+  // takes the sidebar's search and chips (shared in channelPrefsStore), and
+  // shows them above the grid. Row 0 always stays.
+  const { channels: unifiedChannels } = useFilteredChannels(allChannels, programmesByChannel)
   const hasLiveChannel = liveChannel !== null
 
   // Calculate time range - start 30 min before current rounded time
@@ -337,127 +343,130 @@ export function TVEPGGrid({
   }
 
   return (
-    <div
-      ref={containerRef}
-      // The only scroller in both directions, so the sticky time header and
-      // its Now/2h buttons stay in view while scrolling channels, and the
-      // horizontal scrollbar sits at the bottom of the visible guide
-      className="epg-scroll relative h-full overflow-auto"
-      data-testid="tv-epg-grid"
-      onScroll={handleScroll}
-    >
-      {/* Time header - sticky top, scrolls horizontally with grid. It layers
-          above the sticky channel labels (z-20), which scroll up under it */}
+    <div className="flex h-full flex-col">
+      <ChannelFilterBar layout="inline" className="shrink-0 border-b bg-card px-3 py-2" />
       <div
-        ref={headerRef}
-        className="sticky top-0 z-30 flex bg-card border-b"
-        style={{ width: CHANNEL_LABEL_WIDTH + gridWidth }}
+        ref={containerRef}
+        // The only scroller in both directions, so the sticky time header and
+        // its Now/2h buttons stay in view while scrolling channels, and the
+        // horizontal scrollbar sits at the bottom of the visible guide
+        className="epg-scroll relative min-h-0 flex-1 overflow-auto"
+        data-testid="tv-epg-grid"
+        onScroll={handleScroll}
       >
-        {/* Navigation controls */}
+        {/* Time header - sticky top, scrolls horizontally with grid. It layers
+            above the sticky channel labels (z-20), which scroll up under it */}
         <div
-          className="sticky left-0 z-30 flex shrink-0 items-center justify-center gap-0.5 bg-card px-1"
-          style={{ width: CHANNEL_LABEL_WIDTH }}
+          ref={headerRef}
+          className="sticky top-0 z-30 flex bg-card border-b"
+          style={{ width: CHANNEL_LABEL_WIDTH + gridWidth }}
         >
-          {/* Which day the programmes in view are on */}
-          <span data-testid="guide-day" className="mr-auto pl-2 text-xs font-semibold text-foreground">
-            {formatDay(leftEdgeDay, now)}
-          </span>
-          <button
-            onClick={() => scrollByHours(-2)}
-            className="flex h-6 w-6 items-center justify-center rounded hover:bg-accent"
-            aria-label="Scroll back 2 hours"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <button
-            onClick={scrollToNow}
-            className="px-1 text-xs font-medium hover:bg-accent rounded"
-            aria-label="Scroll to now"
-          >
-            Now
-          </button>
-          <button
-            onClick={() => scrollByHours(2)}
-            className="flex h-6 w-6 items-center justify-center rounded hover:bg-accent"
-            aria-label="Scroll forward 2 hours"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-        </div>
-        {/* Time slots. Each label sticks just right of the channel column
-            while its slot scrolls under it, so the first one stays readable;
-            overflow-clip rather than hidden keeps the slot from becoming the
-            label's scroll container. Once the part of the slot in view is
-            narrower than its label, the label hides rather than showing a
-            fragment such as '0 PM'. */}
-        <div className="relative flex">
-          <TimeSlotLabels slots={timeSlots} />
-          {/* Live time pill on the now marker */}
-          {nowMarkerOffset > 0 && nowMarkerOffset < gridWidth && (
-            <span
-              data-testid="now-pill"
-              className="absolute top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded bg-destructive px-1.5 py-0.5 text-xs font-bold leading-none tabular-nums text-destructive-foreground"
-              style={{ left: nowMarkerOffset }}
-            >
-              {formatTime(new Date(now))}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Grid container: the keyboard grid. The rows alone, not the time
-          header, whose buttons a grid can't hold. Rows off screen aren't
-          rendered, so each row carries its index out of the total. */}
-      <div
-        role="grid"
-        aria-label="Guide"
-        aria-rowcount={unifiedChannels.length}
-        className="relative"
-        style={{
-          height: unifiedChannels.length * ROW_HEIGHT,
-          width: CHANNEL_LABEL_WIDTH + gridWidth,
-        }}
-        onKeyDown={handleKeyDown}
-      >
-        {/* Now marker */}
-        {nowMarkerOffset > 0 && nowMarkerOffset < gridWidth && (
+          {/* Navigation controls */}
           <div
-            aria-hidden="true"
-            className="absolute top-0 bottom-0 z-10 w-0.5 bg-destructive"
-            style={{ left: CHANNEL_LABEL_WIDTH + nowMarkerOffset }}
+            className="sticky left-0 z-30 flex shrink-0 items-center justify-center gap-0.5 bg-card px-1"
+            style={{ width: CHANNEL_LABEL_WIDTH }}
           >
-            <div className="absolute -top-1 -left-1.5 h-3 w-3 rounded-full bg-destructive" />
+            {/* Which day the programmes in view are on */}
+            <span data-testid="guide-day" className="mr-auto pl-2 text-xs font-semibold text-foreground">
+              {formatDay(leftEdgeDay, now)}
+            </span>
+            <button
+              onClick={() => scrollByHours(-2)}
+              className="flex h-6 w-6 items-center justify-center rounded hover:bg-accent"
+              aria-label="Scroll back 2 hours"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <button
+              onClick={scrollToNow}
+              className="px-1 text-xs font-medium hover:bg-accent rounded"
+              aria-label="Scroll to now"
+            >
+              Now
+            </button>
+            <button
+              onClick={() => scrollByHours(2)}
+              className="flex h-6 w-6 items-center justify-center rounded hover:bg-accent"
+              aria-label="Scroll forward 2 hours"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
           </div>
-        )}
+          {/* Time slots. Each label sticks just right of the channel column
+              while its slot scrolls under it, so the first one stays readable;
+              overflow-clip rather than hidden keeps the slot from becoming the
+              label's scroll container. Once the part of the slot in view is
+              narrower than its label, the label hides rather than showing a
+              fragment such as '0 PM'. */}
+          <div className="relative flex">
+            <TimeSlotLabels slots={timeSlots} />
+            {/* Live time pill on the now marker */}
+            {nowMarkerOffset > 0 && nowMarkerOffset < gridWidth && (
+              <span
+                data-testid="now-pill"
+                className="absolute top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded bg-destructive px-1.5 py-0.5 text-xs font-bold leading-none tabular-nums text-destructive-foreground"
+                style={{ left: nowMarkerOffset }}
+              >
+                {formatTime(new Date(now))}
+              </span>
+            )}
+          </div>
+        </div>
 
-        {/* Channel rows near the viewport, plus the watched row and the tab
-            stop's (the focused cell's), which are always rendered */}
-        {unifiedChannels.map((channel, rowIndex) => {
-          const isTabStopRow = tabStop?.rowId === channel.id
-          const inView = !rowsWindowed || (rowIndex >= firstRow && rowIndex <= lastRow)
-          if (!inView && rowIndex !== selectedRowIndex && !isTabStopRow) return null
-          return (
-            <ChannelRow
-              key={channel.id}
-              channel={channel}
-              gridStartMs={gridStartMs}
-              now={now}
-              gridWidth={gridWidth}
-              rowIndex={rowIndex}
-              programmeIndex={channel.type === 'live' ? liveProgrammeIndex : programmeIndex}
-              fromMs={fromMs}
-              toMs={toMs}
-              tabStopBlockId={isTabStopRow ? tabStop.blockId : undefined}
-              isWatching={selectedChannelId === channel.id}
-              hasLiveChannel={hasLiveChannel}
-              liveGuideText={describeLiveGuide(liveEPGStatus)}
-              onProgrammeClick={onProgrammeClick}
-              onChannelClick={onChannelClick}
-              onPickLive={onPickLive}
-              onCellFocus={handleCellFocus}
-            />
-          )
-        })}
+        {/* Grid container: the keyboard grid. The rows alone, not the time
+            header, whose buttons a grid can't hold. Rows off screen aren't
+            rendered, so each row carries its index out of the total. */}
+        <div
+          role="grid"
+          aria-label="Guide"
+          aria-rowcount={unifiedChannels.length}
+          className="relative"
+          style={{
+            height: unifiedChannels.length * ROW_HEIGHT,
+            width: CHANNEL_LABEL_WIDTH + gridWidth,
+          }}
+          onKeyDown={handleKeyDown}
+        >
+          {/* Now marker */}
+          {nowMarkerOffset > 0 && nowMarkerOffset < gridWidth && (
+            <div
+              aria-hidden="true"
+              className="absolute top-0 bottom-0 z-10 w-0.5 bg-destructive"
+              style={{ left: CHANNEL_LABEL_WIDTH + nowMarkerOffset }}
+            >
+              <div className="absolute -top-1 -left-1.5 h-3 w-3 rounded-full bg-destructive" />
+            </div>
+          )}
+
+          {/* Channel rows near the viewport, plus the watched row and the tab
+              stop's (the focused cell's), which are always rendered */}
+          {unifiedChannels.map((channel, rowIndex) => {
+            const isTabStopRow = tabStop?.rowId === channel.id
+            const inView = !rowsWindowed || (rowIndex >= firstRow && rowIndex <= lastRow)
+            if (!inView && rowIndex !== selectedRowIndex && !isTabStopRow) return null
+            return (
+              <ChannelRow
+                key={channel.id}
+                channel={channel}
+                gridStartMs={gridStartMs}
+                now={now}
+                gridWidth={gridWidth}
+                rowIndex={rowIndex}
+                programmeIndex={channel.type === 'live' ? liveProgrammeIndex : programmeIndex}
+                fromMs={fromMs}
+                toMs={toMs}
+                tabStopBlockId={isTabStopRow ? tabStop.blockId : undefined}
+                isWatching={selectedChannelId === channel.id}
+                hasLiveChannel={hasLiveChannel}
+                liveGuideText={describeLiveGuide(liveEPGStatus)}
+                onProgrammeClick={onProgrammeClick}
+                onChannelClick={onChannelClick}
+                onPickLive={onPickLive}
+                onCellFocus={handleCellFocus}
+              />
+            )
+          })}
+        </div>
       </div>
     </div>
   )

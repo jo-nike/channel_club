@@ -56,7 +56,7 @@ export function TVChannelSidebar({
 
   // The expanded list goes through the search and chips; the rail, which
   // has no search box, lists every channel with the favourites first
-  const { channels: filteredChannels, isFiltering } = useFilteredChannels(unifiedChannels)
+  const { channels: filteredChannels, isFiltering } = useFilteredChannels(unifiedChannels, programmesByChannel)
   const clearFilter = useChannelPrefsStore((s) => s.clearFilter)
   const favouriteChannelIds = useChannelPrefsStore((s) => s.favouriteChannelIds)
   const toggleFavourite = useChannelPrefsStore((s) => s.toggleFavourite)

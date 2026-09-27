@@ -1,10 +1,9 @@
 import { useMemo } from 'react'
 import { useChannelPrefsStore } from '@/stores/channelPrefsStore'
-import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useDebounce } from '@/hooks/useDebounce'
 import { useProgrammeClock } from '@/hooks/useProgrammeClock'
 import { buildTitleIndex, filterChannels, isFilterActive } from '@/lib/channelSearch'
-import type { UnifiedChannel } from '@/types'
+import type { ErsatzTVProgramme, UnifiedChannel } from '@/types'
 
 /** How long typing must pause before the list follows the search box. */
 export const SEARCH_DEBOUNCE_MS = 150
@@ -19,15 +18,18 @@ interface FilteredChannels {
 /**
  * The channel list through the shared filter (channelPrefsStore), for the
  * sidebar and the guide. The search box writes every keystroke to the
- * store; the list follows once typing pauses.
+ * store; the list follows once typing pauses. Titles are searched in
+ * programmesByChannel (the ErsatzTV guide).
  */
-export function useFilteredChannels(channels: UnifiedChannel[]): FilteredChannels {
+export function useFilteredChannels(
+  channels: UnifiedChannel[],
+  programmesByChannel: Record<string, readonly ErsatzTVProgramme[]>
+): FilteredChannels {
   const mode = useChannelPrefsStore((s) => s.filter.mode)
   const typedQuery = useChannelPrefsStore((s) => s.filter.query)
   const favouriteChannelIds = useChannelPrefsStore((s) => s.favouriteChannelIds)
   const recentChannelIds = useChannelPrefsStore((s) => s.recentChannelIds)
   const query = useDebounce(typedQuery, SEARCH_DEBOUNCE_MS)
-  const programmesByChannel = useErsatztvStore((s) => s.programmesByChannel)
   const now = useProgrammeClock()
   // Cached per programme refresh and hour, so this is a lookup on most renders
   const titleIndex = buildTitleIndex(programmesByChannel, now)
