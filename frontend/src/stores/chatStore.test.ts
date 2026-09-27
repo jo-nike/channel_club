@@ -82,7 +82,7 @@ describe('useChatStore', () => {
       messageId: id,
       username: 'Live TV',
       userId: '',
-      content: 'jon switched Live to TSN 5',
+      content: 'jon put on TSN 5',
       timestamp,
       kind: 'system',
     })

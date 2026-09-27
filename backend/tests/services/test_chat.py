@@ -356,13 +356,13 @@ class TestSystemMessage:
 
     def test_builds_a_system_line_from_live_tv(self) -> None:
         """The line is kind 'system', from 'Live TV', with the sentence as content."""
-        line = chat.system_message("jon switched Live to TSN 5")
+        line = chat.system_message("jon put on TSN 5")
 
         data = line.to_dict()
         assert data["kind"] == "system"
         assert data["username"] == "Live TV"
         assert data["userId"] == ""
-        assert data["content"] == "jon switched Live to TSN 5"
+        assert data["content"] == "jon put on TSN 5"
         assert data["messageId"]
 
     def test_is_not_stored_in_history(self) -> None:
@@ -380,7 +380,7 @@ class TestSystemMessage:
             chat.add_message("testuser", f"Message {i}")
 
         for _ in range(10):
-            chat.system_message("jon switched Live to TSN 5")
+            chat.system_message("jon put on TSN 5")
 
         history = chat.get_history(limit=chat.MAX_HISTORY_SIZE)
         assert len(history) == chat.MAX_HISTORY_SIZE

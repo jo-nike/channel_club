@@ -298,7 +298,7 @@ def system_message(content: str) -> ChatMessage:
     sentence, so clients that ignore `kind` still render it as a message.
 
     Args:
-        content: The line to show, e.g. "jon switched Live to TSN 5".
+        content: The line to show, e.g. "jon put on TSN 5".
 
     Returns:
         A ChatMessage of kind 'system' from SYSTEM_USERNAME.

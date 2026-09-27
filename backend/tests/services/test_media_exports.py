@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from io import StringIO
 from pathlib import Path
@@ -120,7 +121,7 @@ async def test_cancel_encoding_kills_and_reaps_actual_harmless_child(tmp_path):
     assert children[0].poll() is not None
 
 
-def test_snapshot_logs_how_far_the_capture_ends_before_the_press(tmp_path):
+def test_snapshot_logs_how_far_the_capture_ends_before_the_snapshot(tmp_path):
     recorder = ChannelRecorder("safe", "http://fixture")
     recorder.segment_dir = tmp_path
     now = time.time()
@@ -143,7 +144,8 @@ def test_snapshot_logs_how_far_the_capture_ends_before_the_press(tmp_path):
     extra = next(r["extra"] for r in records if r["extra"].get("event") == "highlight.capture")
     assert extra["channel_id"] == "safe"
     assert extra["segments"] == 2
-    assert 7.0 <= extra["tail_gap_seconds"] < 8.0
+    assert 7.0 <= extra["ends_before_snapshot_seconds"] < 8.0
+    assert "tail_gap_seconds" not in extra
     # The capture ends when its newest included segment was last written.
     assert ends_at == pytest.approx(now - 7.0)
     assert sorted(path.name for path in workspace.glob("input_*.ts")) == [
@@ -243,3 +245,20 @@ async def test_capture_stops_waiting_when_the_recorder_exits(tmp_path, monkeypat
     started = time.monotonic()
     assert await recorder.wait_for_current_segment() is False
     assert time.monotonic() - started < 1
+
+
+async def test_tail_wait_reads_the_segment_list_off_the_event_loop(tmp_path, monkeypatch):
+    monkeypatch.setattr(highlight, "TAIL_POLL_SECONDS", 0.01)
+    monkeypatch.setattr(highlight, "TAIL_WAIT_CAP_SECONDS", 0.05)
+    recorder = recording(tmp_path, time.time())
+    readers: list[int] = []
+    read = ChannelRecorder._newest_listed_segment
+
+    def reading(self: ChannelRecorder) -> str | None:
+        readers.append(threading.get_ident())
+        return read(self)
+
+    monkeypatch.setattr(ChannelRecorder, "_newest_listed_segment", reading)
+    assert await recorder.wait_for_current_segment() is False
+    assert len(readers) >= 2
+    assert threading.get_ident() not in readers

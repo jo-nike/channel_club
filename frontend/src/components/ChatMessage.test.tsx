@@ -306,14 +306,14 @@ describe('ChatMessage', () => {
         username: 'Live TV',
         userId: '',
         kind: 'system',
-        content: 'jon switched Live to TSN 5',
+        content: 'jon put on TSN 5',
         timestamp: new Date(NOW).toISOString(),
         ...overrides,
       })
 
     it('shows the sentence and its time as one line, without a sender, face or bubble', () => {
       const { container } = render(<ChatMessage message={systemLine()} now={NOW} />)
-      expect(screen.getByText('jon switched Live to TSN 5 · just now')).toBeInTheDocument()
+      expect(screen.getByText('jon put on TSN 5 · just now')).toBeInTheDocument()
       expect(screen.queryByText('Live TV')).not.toBeInTheDocument()
       expect(screen.queryByText('LT')).not.toBeInTheDocument()
       expect(container.querySelector('.rounded-lg')).toBeNull()
@@ -323,12 +323,12 @@ describe('ChatMessage', () => {
       const { container } = render(<ChatMessage message={systemLine()} now={NOW} />)
       const line = container.firstElementChild as HTMLElement
       expect(line).toHaveClass('text-muted-foreground')
-      expect(screen.getByText(/jon switched Live/)).toHaveClass('text-center')
+      expect(screen.getByText(/jon put on/)).toHaveClass('text-center')
       expect(line.querySelectorAll('.h-px')).toHaveLength(2)
     })
 
     it('stays text: a link in a system line is not embedded', () => {
-      render(<ChatMessage message={systemLine({ content: 'jon switched Live to https://a.com/1.gif' })} now={NOW} />)
+      render(<ChatMessage message={systemLine({ content: 'jon put on https://a.com/1.gif' })} now={NOW} />)
       expect(screen.queryByRole('img')).not.toBeInTheDocument()
     })
 

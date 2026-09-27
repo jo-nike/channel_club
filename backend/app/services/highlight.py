@@ -283,7 +283,8 @@ class ChannelRecorder:
         Returns False when the wait timed out (a stalled stream) or the recorder stopped;
         the capture then ends at the last closed segment, as before.
         """
-        listed = self._newest_listed_segment()
+        # The list is read in a worker thread, like the rest of the recorder's file I/O.
+        listed = await asyncio.to_thread(self._newest_listed_segment)
         limit = min(
             settings.highlight_segment_seconds + TAIL_WAIT_SLACK_SECONDS, TAIL_WAIT_CAP_SECONDS
         )
@@ -292,7 +293,7 @@ class ChannelRecorder:
             await asyncio.sleep(TAIL_POLL_SECONDS)
             if not self.is_running:
                 return False
-            if self._newest_listed_segment() != listed:
+            if await asyncio.to_thread(self._newest_listed_segment) != listed:
                 return True
         log.info(
             "Capture on channel {} stopped waiting for a segment after {}s", self.channel_id, limit
@@ -334,9 +335,10 @@ class ChannelRecorder:
             if not paths:
                 raise ValueError("No recent segments available")
             # The segment being written is left out, so the capture ends this long before the
-            # snapshot. Captures first wait for the segment written at the press to close.
+            # snapshot. Captures first wait for the segment written at the press to close, so
+            # this is near zero for them; highlight.capture_ready logs the gap to the press.
             ends_at = paths[-1].stat().st_mtime
-            tail_gap = time.time() - ends_at
+            before_snapshot = time.time() - ends_at
             if sum(path.stat().st_size for path in paths) > settings.media_export_max_bytes:
                 raise ValueError("Highlight exceeds export size limit")
             names = []
@@ -350,11 +352,11 @@ class ChannelRecorder:
                 event="highlight.capture",
                 channel_id=self.channel_id,
                 segments=len(paths),
-                tail_gap_seconds=round(tail_gap, 2),
+                ends_before_snapshot_seconds=round(before_snapshot, 2),
             ).info(
                 "Highlight capture of {} segments ends {:.1f}s before the snapshot",
                 len(paths),
-                tail_gap,
+                before_snapshot,
             )
             return concat, ends_at
         finally:
