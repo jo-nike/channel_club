@@ -24,4 +24,9 @@ describe('AppLoadingScreen', () => {
     const wrapper = container.firstChild as HTMLElement
     expect(wrapper.className).toContain('h-screen')
   })
+
+  it('keeps its content clear of the status bar and home indicator', () => {
+    const { container } = render(<AppLoadingScreen />)
+    expect(container.firstChild).toHaveClass('pt-safe', 'pb-safe')
+  })
 })

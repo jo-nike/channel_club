@@ -96,7 +96,7 @@ export function LoginForm() {
   // Loading state while fetching config
   if (configLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <div className="min-h-screen flex items-center justify-center bg-background p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
         <div className="w-full max-w-md p-8 border rounded-lg shadow-lg bg-card">
           <div className="animate-pulse space-y-4">
             <div className="h-8 bg-muted rounded w-3/4 mx-auto" />
@@ -113,7 +113,7 @@ export function LoginForm() {
   const noAuthConfigured = authConfig && !authConfig.localAuthEnabled && !authConfig.plexAuthEnabled
   if (noAuthConfigured) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <div className="min-h-screen flex items-center justify-center bg-background p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
         <div className="w-full max-w-md p-8 border rounded-lg shadow-lg bg-card text-center">
           <h1 className="text-3xl font-bold text-foreground mb-4">{APP_NAME}</h1>
           <p className="mb-6 text-muted-foreground">{APP_TAGLINE}</p>
@@ -136,7 +136,7 @@ export function LoginForm() {
   const showSeparator = showLocalAuth && showPlexAuth
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+    <div className="min-h-screen flex items-center justify-center bg-background p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
       <div className="w-full max-w-md space-y-6 p-8 border rounded-lg shadow-lg bg-card">
         <h1 className="text-3xl font-bold text-center text-foreground">
           {APP_NAME}
