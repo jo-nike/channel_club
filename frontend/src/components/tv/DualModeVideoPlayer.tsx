@@ -244,7 +244,9 @@ export function DualModeVideoPlayer({
     onDigit: zap?.digit,
     onDigitCommit: zap?.commitDigits,
     onShortcutSheet: openShortcutSheet,
-    onChatToggle: chatEnabled ? (canReply ? openComposer : toggleChat) : undefined,
+    // Not on the TV layout, which has no chat to show: C would open the panel
+    // unseen, to spring open once the layout is turned off
+    onChatToggle: chatEnabled && !isTVMode ? (canReply ? openComposer : toggleChat) : undefined,
     onNHLToggle: toggleNHLOverlay,
     onClipThat: clipThat,
     onFocusSearch: focusSearch,

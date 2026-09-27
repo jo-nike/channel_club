@@ -1820,6 +1820,18 @@ describe('DualModeVideoPlayer chat over the video', () => {
     })
   })
 
+  // The couch has no chat: C would open a hidden panel that springs open,
+  // composer focused, once the TV layout is turned off
+  it('C does nothing on the TV layout, leaving no chat open for later', () => {
+    localStorage.setItem('tv-mode', 'true')
+    render(<DualModeVideoPlayer channel={liveChannel('https://fixture/a')} isTheaterMode onTheaterModeToggle={vi.fn()} />)
+
+    fireEvent.keyDown(window, { key: 'c' })
+
+    expect(useChatStore.getState().isOpen).toBe(false)
+    expect(screen.queryByRole('textbox', { name: 'Message the club' })).not.toBeInTheDocument()
+  })
+
   it('is not drawn in the page layout', () => {
     renderPlayer(liveChannel('https://fixture/a'))
     act(() => useChatStore.getState().addMessage({ messageId: 'm1', username: 'maya', content: 'goal!', timestamp: new Date().toISOString() }))
