@@ -415,40 +415,147 @@ describe('useWebSocket', () => {
       expect(MockWebSocket.instances).toHaveLength(3)
     })
 
-    test('stops reconnecting after max retries', async () => {
-      const { result } = renderHook(() => useWebSocket())
+    // Opens the first socket, drops it, then fails every fast retry so the hook reaches the slow-retry phase
+    const exhaustFastRetries = () => {
       const MAX_RETRIES = 5
-
-      // Initial connection that opens successfully then drops
       act(() => {
         MockWebSocket.instances[0].simulateOpen()
       })
       act(() => {
         MockWebSocket.instances[0].simulateClose(1006, 'Abnormal closure')
       })
-
-      // Now simulate MAX_RETRIES failed reconnection attempts
-      // Each reconnect attempt fails immediately (connection closes without opening)
       for (let i = 0; i < MAX_RETRIES; i++) {
-        // Advance timer to trigger reconnect
         const delay = Math.min(1000 * Math.pow(2, i), 10000)
         act(() => {
           vi.advanceTimersByTime(delay)
         })
-
-        // New connection created but fails immediately (simulating network failure)
-        const wsIdx = i + 1
-        expect(MockWebSocket.instances).toHaveLength(wsIdx + 1)
-
-        // Close without ever opening - simulates failed connection attempt
+        expect(MockWebSocket.instances).toHaveLength(i + 2)
         act(() => {
-          MockWebSocket.instances[wsIdx].simulateClose(1006, 'Connection failed')
+          MockWebSocket.instances[i + 1].simulateClose(1006, 'Connection failed')
         })
       }
-
-      // After max retries (5), status should be disconnected (no more reconnects)
-      expect(result.current.status).toBe('disconnected')
       expect(MockWebSocket.instances).toHaveLength(MAX_RETRIES + 1)
+    }
+
+    test('keeps retrying every 30s after the fast retries run out', () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0)
+      const { result } = renderHook(() => useWebSocket())
+
+      exhaustFastRetries()
+      expect(result.current.status).toBe('disconnected')
+
+      // No slow retry before 30s
+      act(() => {
+        vi.advanceTimersByTime(29999)
+      })
+      expect(MockWebSocket.instances).toHaveLength(6)
+      expect(result.current.status).toBe('disconnected')
+
+      // Slow retry at exactly 30s (jitter is 0)
+      act(() => {
+        vi.advanceTimersByTime(1)
+      })
+      expect(MockWebSocket.instances).toHaveLength(7)
+      expect(result.current.status).toBe('reconnecting')
+
+      // A failed slow attempt schedules another slow attempt, not a fast one
+      act(() => {
+        MockWebSocket.instances[6].simulateClose(1006, 'Connection failed')
+      })
+      expect(result.current.status).toBe('disconnected')
+      act(() => {
+        vi.advanceTimersByTime(29999)
+      })
+      expect(MockWebSocket.instances).toHaveLength(7)
+      act(() => {
+        vi.advanceTimersByTime(1)
+      })
+      expect(MockWebSocket.instances).toHaveLength(8)
+
+      // Success resets to the fast backoff
+      act(() => {
+        MockWebSocket.instances[7].simulateOpen()
+      })
+      expect(result.current.status).toBe('connected')
+      act(() => {
+        MockWebSocket.instances[7].simulateClose(1006, 'Abnormal closure')
+      })
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
+      expect(MockWebSocket.instances).toHaveLength(9)
+    })
+
+    test('adds up to 5s of jitter to the slow retry', () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0.999)
+      renderHook(() => useWebSocket())
+
+      exhaustFastRetries()
+
+      act(() => {
+        vi.advanceTimersByTime(34990)
+      })
+      expect(MockWebSocket.instances).toHaveLength(6)
+      act(() => {
+        vi.advanceTimersByTime(10)
+      })
+      expect(MockWebSocket.instances).toHaveLength(7)
+    })
+
+    test('stops slow retries after an auth error (code 4001)', () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0)
+      renderHook(() => useWebSocket())
+
+      exhaustFastRetries()
+      act(() => {
+        vi.advanceTimersByTime(30000)
+      })
+      expect(MockWebSocket.instances).toHaveLength(7)
+
+      // The slow attempt is rejected because the token expired
+      act(() => {
+        MockWebSocket.instances[6].simulateClose(4001, 'Token expired')
+      })
+
+      act(() => {
+        vi.advanceTimersByTime(120000)
+      })
+      expect(MockWebSocket.instances).toHaveLength(7)
+    })
+
+    test('unmount cancels the pending slow retry', () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0)
+      const { unmount } = renderHook(() => useWebSocket())
+
+      exhaustFastRetries()
+      unmount()
+
+      act(() => {
+        vi.advanceTimersByTime(120000)
+      })
+      expect(MockWebSocket.instances).toHaveLength(6)
+    })
+
+    test('a token change cancels the pending slow retry', () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0)
+      renderHook(() => useWebSocket())
+
+      exhaustFastRetries()
+
+      // New token: disconnect() clears the slow timer and a fresh connection starts at once
+      act(() => {
+        useAuthStore.setState({ token: 'refreshed-jwt-token' })
+      })
+      expect(MockWebSocket.instances).toHaveLength(7)
+      expect(MockWebSocket.instances[6].url).toContain('token=refreshed-jwt-token')
+
+      act(() => {
+        MockWebSocket.instances[6].simulateOpen()
+      })
+      act(() => {
+        vi.advanceTimersByTime(120000)
+      })
+      expect(MockWebSocket.instances).toHaveLength(7)
     })
 
     test('does not reconnect on intentional close (logout)', () => {
