@@ -9,6 +9,13 @@ vi.mock('@/hooks/useBreakpoint', () => ({
   useBreakpoint: vi.fn(() => 'desktop'),
 }))
 
+// Stand-in for the GIF picker, which fetches its feature flag; only its disabled state matters here
+vi.mock('./GifButton', () => ({
+  GifButton: ({ disabled }: { disabled?: boolean }) => (
+    <button type="button" aria-label="Send GIF" disabled={disabled} />
+  ),
+}))
+
 // Mock scrollIntoView
 Element.prototype.scrollIntoView = vi.fn()
 
@@ -30,7 +37,8 @@ describe('ChatPanel', () => {
       messages: [],
       isOpen: true,
       unreadCount: 0,
-      nickname: 'TestUser', // Set default nickname so chat UI shows
+      nickname: 'TestUser',
+      me: null,
     })
     mockOnSendMessage.mockReset().mockReturnValue('acknowledged')
   })
@@ -137,44 +145,49 @@ describe('ChatPanel', () => {
     expect(input).toHaveAttribute('maxLength', '500')
   })
 
-  describe('nickname prompt', () => {
+  describe('chat identity', () => {
     beforeEach(() => {
-      useChatStore.setState({ nickname: null, isOpen: true })
+      localStorage.clear()
+      useChatStore.setState({ nickname: null, me: { username: 'testuser' }, isOpen: true })
     })
 
-    it('shows nickname prompt when no nickname is set', () => {
+    it('goes straight to chat without asking for a display name', () => {
       render(<ChatPanel onSendMessage={mockOnSendMessage} />)
-      expect(screen.getByPlaceholderText('Enter display name...')).toBeInTheDocument()
-      expect(screen.getByText('Choose a display name')).toBeInTheDocument()
-    })
-
-    it('does not show chat input when nickname not set', () => {
-      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
-      expect(screen.queryByPlaceholderText('Type a message...')).not.toBeInTheDocument()
-    })
-
-    it('saves nickname when form is submitted', () => {
-      render(
-        <ChatPanel
-          onSendMessage={mockOnSendMessage}
-          onSetNickname={vi.fn()}
-        />
-      )
-      const input = screen.getByPlaceholderText('Enter display name...')
-      const saveButton = screen.getByRole('button', { name: 'Save' })
-
-      fireEvent.change(input, { target: { value: 'TestNick' } })
-      fireEvent.click(saveButton)
-
-      expect(useChatStore.getState().nickname).toBe('TestNick')
-    })
-
-    it('shows chat after nickname is set', () => {
-      useChatStore.setState({ nickname: 'TestNick', isOpen: true })
-      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
-
+      expect(screen.queryByText('Choose a display name')).not.toBeInTheDocument()
       expect(screen.queryByPlaceholderText('Enter display name...')).not.toBeInTheDocument()
       expect(screen.getByPlaceholderText('Type a message...')).toBeInTheDocument()
+    })
+
+    it('says you are chatting as your sign-in name', () => {
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.getByText('Chatting as testuser')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Edit nickname' })).toBeInTheDocument()
+    })
+
+    it('says you are chatting as your nickname when one is set', () => {
+      useChatStore.setState({ nickname: 'TestNick' })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.getByText('Chatting as TestNick')).toBeInTheDocument()
+    })
+
+    it('shows no identity line until the server says who you are', () => {
+      useChatStore.setState({ me: null })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.queryByText(/Chatting as/)).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Edit nickname' })).not.toBeInTheDocument()
+      expect(screen.getByPlaceholderText('Type a message...')).toBeInTheDocument()
+    })
+
+    it('treats messages under the sign-in name as your own when no nickname is set', () => {
+      useChatStore.setState({
+        messages: [createMessage('1', 'testuser'), createMessage('2', 'OtherUser')],
+      })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+
+      // Own message should not show username
+      expect(screen.queryByText('testuser')).not.toBeInTheDocument()
+      // Other user's message should show username
+      expect(screen.getByText('OtherUser')).toBeInTheDocument()
     })
 
     it('uses store nickname for own message detection', () => {
@@ -184,7 +197,6 @@ describe('ChatPanel', () => {
           createMessage('1', 'MyNickname'),
           createMessage('2', 'OtherUser'),
         ],
-        isOpen: true,
       })
       render(<ChatPanel onSendMessage={mockOnSendMessage} />)
 
@@ -194,7 +206,12 @@ describe('ChatPanel', () => {
       expect(screen.getByText('OtherUser')).toBeInTheDocument()
     })
 
-    it('calls onSetNickname when nickname is saved', () => {
+    it('does not disable the GIF button for want of a nickname', () => {
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.getByRole('button', { name: 'Send GIF' })).toBeEnabled()
+    })
+
+    it('opens the editor from the pencil and saves a nickname', () => {
       const mockSetNickname = vi.fn()
       render(
         <ChatPanel
@@ -202,30 +219,46 @@ describe('ChatPanel', () => {
           onSetNickname={mockSetNickname}
         />
       )
-      const input = screen.getByPlaceholderText('Enter display name...')
-      const saveButton = screen.getByRole('button', { name: 'Save' })
 
+      fireEvent.click(screen.getByRole('button', { name: 'Edit nickname' }))
+      const input = screen.getByPlaceholderText('Enter display name...')
       fireEvent.change(input, { target: { value: 'TestNick' } })
-      fireEvent.click(saveButton)
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
       expect(mockSetNickname).toHaveBeenCalledWith('TestNick')
+      expect(useChatStore.getState().nickname).toBe('TestNick')
+      expect(localStorage.getItem('chat_nickname:testuser')).toBe('TestNick')
+      expect(screen.queryByPlaceholderText('Enter display name...')).not.toBeInTheDocument()
+      expect(screen.getByText('Chatting as TestNick')).toBeInTheDocument()
     })
 
-    it('shows edit button when nickname is set', () => {
-      useChatStore.setState({ nickname: 'TestNick', isOpen: true })
+    it('pre-fills the editor with the current nickname', () => {
+      useChatStore.setState({ nickname: 'TestNick' })
       render(<ChatPanel onSendMessage={mockOnSendMessage} />)
 
-      expect(screen.getByRole('button', { name: 'Edit nickname' })).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Edit nickname' }))
+
+      expect(screen.getByPlaceholderText('Enter display name...')).toHaveValue('TestNick')
     })
 
-    it('shows nickname prompt when edit button is clicked', () => {
-      useChatStore.setState({ nickname: 'TestNick', isOpen: true })
-      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+    it('goes back to the sign-in name with an empty set_nickname', () => {
+      const mockSetNickname = vi.fn()
+      useChatStore.getState().setNickname('TestNick')
+      render(
+        <ChatPanel
+          onSendMessage={mockOnSendMessage}
+          onSetNickname={mockSetNickname}
+        />
+      )
 
-      const editButton = screen.getByRole('button', { name: 'Edit nickname' })
-      fireEvent.click(editButton)
+      fireEvent.click(screen.getByRole('button', { name: 'Edit nickname' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Use my sign-in name' }))
 
-      expect(screen.getByPlaceholderText('Enter display name...')).toBeInTheDocument()
+      expect(mockSetNickname).toHaveBeenCalledWith('')
+      expect(useChatStore.getState().nickname).toBeNull()
+      expect(localStorage.getItem('chat_nickname:testuser')).toBeNull()
+      expect(screen.getByText('Chatting as testuser')).toBeInTheDocument()
+      expect(screen.getByPlaceholderText('Type a message...')).toBeInTheDocument()
     })
   })
   it('FE-11 preserves failed drafts and clears only after matching acknowledgement', async () => {

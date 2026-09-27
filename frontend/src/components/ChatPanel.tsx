@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState, useCallback, type KeyboardEvent } from 'react'
 import { X, Send, Pencil } from 'lucide-react'
 import type { ChatSendResult } from '@/hooks/useWebSocket'
-import { useChatStore } from '@/stores/chatStore'
+import { useChatStore, isOwnMessage } from '@/stores/chatStore'
 import { useBreakpoint } from '@/hooks/useBreakpoint'
 import { ChatMessage } from './ChatMessage'
 import { GifButton } from './GifButton'
@@ -16,7 +16,7 @@ export interface ChatPanelProps {
 }
 
 export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
-  const { messages, isOpen, setOpen, nickname, setNickname } = useChatStore()
+  const { messages, isOpen, setOpen, nickname, me, setNickname, clearNickname } = useChatStore()
   const breakpoint = useBreakpoint()
   const isMobile = breakpoint === 'mobile'
 
@@ -31,8 +31,9 @@ export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const nicknameInputRef = useRef<HTMLInputElement>(null)
 
-  // Show nickname prompt if no nickname set or editing
-  const showNicknamePrompt = !nickname || isEditingNickname
+  // Nobody has to pick a name: chat uses the sign-in name until they choose one
+  const showNicknamePrompt = isEditingNickname
+  const displayName = nickname ?? me?.username
 
   // Auto-scroll to bottom when new messages arrive or panel opens
   useEffect(() => {
@@ -109,6 +110,14 @@ export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
     setNicknameInput('')
   }, [nicknameInput, setNickname, onSetNickname])
 
+  const handleUseSignInName = useCallback(() => {
+    // An empty set_nickname makes the server post under the sign-in name again
+    clearNickname()
+    onSetNickname?.('')
+    setIsEditingNickname(false)
+    setNicknameInput('')
+  }, [clearNickname, onSetNickname])
+
   const handleNicknameKeyDown = useCallback(
     (e: KeyboardEvent<HTMLInputElement>) => {
       if (e.key === 'Enter' && !e.shiftKey) {
@@ -142,18 +151,21 @@ export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
       {deliveryStatus && <p role="status" className="px-4 py-2 text-sm">{deliveryStatus}</p>}
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           <h2 className="text-lg font-semibold">Chat</h2>
-          {nickname && !isEditingNickname && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleEditNickname}
-              aria-label="Edit nickname"
-              className="h-6 w-6"
-            >
-              <Pencil className="h-3 w-3" />
-            </Button>
+          {me && !isEditingNickname && (
+            <>
+              <span className="truncate text-sm text-muted-foreground">Chatting as {displayName}</span>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleEditNickname}
+                aria-label="Edit nickname"
+                className="h-6 w-6 shrink-0"
+              >
+                <Pencil className="h-3 w-3" />
+              </Button>
+            </>
           )}
         </div>
         <Button
@@ -188,6 +200,11 @@ export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
               Save
             </Button>
           </div>
+          {me && (
+            <Button variant="link" size="sm" onClick={handleUseSignInName} className="mt-2">
+              Use my sign-in name
+            </Button>
+          )}
         </div>
       ) : (
         <>
@@ -203,7 +220,7 @@ export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
                   <ChatMessage
                     key={msg.messageId}
                     message={msg}
-                    isOwn={nickname ? msg.username === nickname : false}
+                    isOwn={isOwnMessage(msg, { nickname, me })}
                   />
                 ))
               )}
@@ -223,7 +240,7 @@ export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
                 className="flex-1"
                 maxLength={500}
               />
-              <GifButton onSelect={async (url) => (await send(url)) === 'acknowledged'} disabled={!nickname || isSending} />
+              <GifButton onSelect={async (url) => (await send(url)) === 'acknowledged'} disabled={isSending} />
               <Button
                 onClick={handleSend}
                 disabled={!inputValue.trim() || isSending}
