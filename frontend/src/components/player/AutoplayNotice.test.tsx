@@ -1,8 +1,16 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@/test/utils'
 import { AutoplayNotice } from './AutoplayNotice'
 
+// Script volume detection (false on iOS/iPadOS Safari)
+const volumeSupport = vi.hoisted(() => ({ canSet: true }))
+vi.mock('@/hooks/useCanSetVolume', () => ({ useCanSetVolume: () => volumeSupport.canSet }))
+
 describe('AutoplayNotice', () => {
+  beforeEach(() => {
+    volumeSupport.canSet = true
+  })
+
   it("'sound-off' says the sound is off, names the saved level and unmutes on tap", () => {
     const onUnmute = vi.fn()
     const onPlay = vi.fn()
@@ -18,6 +26,23 @@ describe('AutoplayNotice', () => {
 
     expect(onUnmute).toHaveBeenCalledTimes(1)
     expect(onPlay).not.toHaveBeenCalled()
+  })
+
+  it("'sound-off' says Turn sound on when the saved level is 0%", () => {
+    render(<AutoplayNotice mode="sound-off" volume={0.004} onUnmute={vi.fn()} onPlay={vi.fn()} />)
+
+    const pill = screen.getByRole('button', { name: /Sound is off/ })
+    expect(pill).toHaveTextContent('Turn sound on')
+    expect(pill).not.toHaveTextContent('Restore')
+  })
+
+  it("'sound-off' says Turn sound on where the browser ignores script volume (iOS)", () => {
+    volumeSupport.canSet = false
+    render(<AutoplayNotice mode="sound-off" volume={0.62} onUnmute={vi.fn()} onPlay={vi.fn()} />)
+
+    const pill = screen.getByRole('button', { name: /Sound is off/ })
+    expect(pill).toHaveTextContent('Turn sound on')
+    expect(pill).not.toHaveTextContent('62%')
   })
 
   it("'tap-to-play' is a centre Play button that starts playback", () => {

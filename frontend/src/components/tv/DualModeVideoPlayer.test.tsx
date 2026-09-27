@@ -828,6 +828,20 @@ describe('DualModeVideoPlayer: a page load that starts from a saved mute', () =>
     }
   )
 
+  it.each(engines)(
+    '%s: on iOS, where script volume is ignored, offers Turn sound on instead of a level',
+    (_engine, channel, _next, startPlayback) => {
+      volumeSupport.canSet = false
+      loadSavedMute(0.3)
+      renderPlayer(channel)
+      startPlayback()
+
+      expect(soundOffNotice()).toHaveTextContent('Turn sound on')
+      fireEvent.click(soundOffNotice()!)
+      expect(useAudioStore.getState().muted).toBe(false)
+    }
+  )
+
   it.each(engines)('%s: shows it once per page load, not again after a channel switch', (_engine, channel, next, startPlayback) => {
     loadSavedMute(0.3)
     const { switchTo } = renderPlayer(channel)
