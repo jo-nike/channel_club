@@ -1446,4 +1446,44 @@ describe('TVEPGGrid channel filter', () => {
 
     expect(document.activeElement).toBe(screen.getByRole('button', { name: /^Switch to 4 Classics/ }))
   })
+
+  it('says when nothing matches, below row 0, and Clear brings every channel back', async () => {
+    useChannelPrefsStore.setState({ filter: { query: 'zzz', mode: 'all' } })
+    render(<TVEPGGrid programmesByChannel={schedule} liveEPG={liveEPG} />)
+
+    expect(rowChannels()).toEqual([expect.stringMatching(/^0 /)])
+    const message = screen.getByText('No channels match')
+    // In the scroller after the rows, not in the keyboard grid
+    expect(grid().contains(message)).toBe(false)
+    expect(screen.getByTestId('tv-epg-grid').contains(message)).toBe(true)
+    expect(message.parentElement).toHaveClass('sticky', 'left-0')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, SEARCH_DEBOUNCE_MS + 20))
+    })
+
+    expect(useChannelPrefsStore.getState().filter).toEqual({ query: '', mode: 'all' })
+    expect(screen.queryByText('No channels match')).toBeNull()
+    expect(rowChannels()).toHaveLength(5)
+  })
+
+  it('shows no empty state while a filter matches, with no filter, or with no ErsatzTV channels', () => {
+    useChannelPrefsStore.setState({ filter: { query: 'simpsons', mode: 'all' } })
+    const { unmount } = render(<TVEPGGrid programmesByChannel={schedule} liveEPG={liveEPG} />)
+    expect(screen.queryByText('No channels match')).toBeNull()
+    unmount()
+
+    // Row 0 alone because there's nothing else, not because of the filter
+    useChannelPrefsStore.setState({ filter: { query: '', mode: 'all' } })
+    useErsatztvStore.setState({ channels: [] })
+    const second = render(<TVEPGGrid programmesByChannel={{}} liveEPG={liveEPG} />)
+    expect(rowChannels()).toHaveLength(1)
+    expect(screen.queryByText('No channels match')).toBeNull()
+    second.unmount()
+
+    useChannelPrefsStore.setState({ filter: { query: 'zzz', mode: 'all' } })
+    render(<TVEPGGrid programmesByChannel={{}} liveEPG={liveEPG} />)
+    expect(screen.queryByText('No channels match')).toBeNull()
+  })
 })

@@ -19,7 +19,7 @@ import {
 } from '@/hooks/useGridNavigation'
 import { useUIStore } from '@/stores/uiStore'
 import { useFilteredChannels } from '@/hooks/useFilteredChannels'
-import { ChannelFilterBar } from '@/components/tv/ChannelFilterBar'
+import { ChannelFilterBar, NoChannelsMatch } from '@/components/tv/ChannelFilterBar'
 import { scrollBehavior } from '@/lib/motion'
 import {
   buildProgrammeIndex,
@@ -102,7 +102,7 @@ export function TVEPGGrid({
   // With the guide open its channel column is the one channel list, so it
   // takes the sidebar's search and chips (shared in channelPrefsStore), and
   // shows them above the grid. Row 0 always stays.
-  const { channels: unifiedChannels } = useFilteredChannels(allChannels, programmesByChannel)
+  const { channels: unifiedChannels, isFiltering } = useFilteredChannels(allChannels, programmesByChannel)
   const hasLiveChannel = liveChannel !== null
 
   // Calculate time range - start 30 min before current rounded time
@@ -468,6 +468,12 @@ export function TVEPGGrid({
             )
           })}
         </div>
+        {/* Row 0 always stays, so nothing matching means nothing after it.
+            A block in the scroller is as wide as its view, and sticks to its
+            left edge however far the guide is scrolled sideways. */}
+        {isFiltering && unifiedChannels.length <= 1 && ersatzTVChannels.length > 0 && (
+          <NoChannelsMatch className="sticky left-0" />
+        )}
       </div>
     </div>
   )

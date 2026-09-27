@@ -10,7 +10,7 @@ import { useProgrammeClock } from '@/hooks/useProgrammeClock'
 import { useRovingTabIndex } from '@/hooks/useRovingTabIndex'
 import { useFilteredChannels } from '@/hooks/useFilteredChannels'
 import { useChannelPrefsStore } from '@/stores/channelPrefsStore'
-import { ChannelFilterBar } from '@/components/tv/ChannelFilterBar'
+import { ChannelFilterBar, NoChannelsMatch } from '@/components/tv/ChannelFilterBar'
 import { LivePill } from '@/components/LivePill'
 import { ChannelLogo } from '@/components/ChannelLogo'
 import { calculateProgress, findOnAir, formatRemaining, getProgrammeState } from '@/lib/programmes'
@@ -75,7 +75,6 @@ export function TVChannelSidebar({
   // The expanded list goes through the search and chips; the rail, which
   // has no search box, lists every channel with the favourites first
   const { channels: filteredChannels, isFiltering } = useFilteredChannels(unifiedChannels, programmesByChannel)
-  const clearFilter = useChannelPrefsStore((s) => s.clearFilter)
   const favouriteChannelIds = useChannelPrefsStore((s) => s.favouriteChannelIds)
   const toggleFavourite = useChannelPrefsStore((s) => s.toggleFavourite)
   const listedChannels = isCollapsed ? favouritesFirst(unifiedChannels, favouriteChannelIds) : filteredChannels
@@ -208,14 +207,7 @@ export function TVChannelSidebar({
         })}
       </ul>
       {/* Row 0 always stays, so nothing matching means nothing after it */}
-      {isFiltering && listedChannels.length <= 1 && ersatzTVChannels.length > 0 && (
-        <div className="flex flex-col items-center gap-3 p-6 text-center">
-          <p className="text-sm text-muted-foreground">No channels match</p>
-          <Button variant="outline" size="sm" onClick={clearFilter}>
-            Clear
-          </Button>
-        </div>
-      )}
+      {isFiltering && listedChannels.length <= 1 && ersatzTVChannels.length > 0 && <NoChannelsMatch />}
       {/* The live row above doesn't wait for ErsatzTV */}
       {channelsLoading && ersatzTVChannels.length === 0 && <SidebarSkeleton />}
       {/* The error's details are in the toast TVView shows; this keeps a retry where the channels would be */}
