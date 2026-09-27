@@ -8,6 +8,8 @@ import { usePresenceStore } from '@/stores/presenceStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
+import { useChannelPrefsStore } from '@/stores/channelPrefsStore'
+import { SEARCH_DEBOUNCE_MS } from '@/hooks/useFilteredChannels'
 import type { PresenceEntry, UnifiedChannel } from '@/types'
 
 vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn(() => new Promise(() => {})) }))
@@ -425,10 +427,118 @@ describe('MobileChannelList', () => {
     })
   })
 
+  it('keeps a long channel name to one line, beside the LIVE pill', () => {
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'Marvel Cinematic Universe', streamUrl: 'http://x/live', guideId: 'g1' },
+    })
+    render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={vi.fn()} />)
+
+    const name = screen.getByText('Marvel Cinematic Universe')
+    expect(name).toHaveClass('truncate')
+    // The name's row can shrink below its content, so the name truncates
+    // instead of pushing the pill out
+    expect(name.parentElement).toHaveClass('min-w-0')
+    expect(within(name.parentElement as HTMLElement).getByTestId('live-pill')).toHaveClass('shrink-0')
+  })
+
+  it('has a Channels heading unless showHeading is off', () => {
+    render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={vi.fn()} />)
+    expect(screen.getByRole('heading', { name: 'Channels' })).toBeInTheDocument()
+    cleanup()
+
+    render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={vi.fn()} showHeading={false} />)
+    expect(screen.queryByRole('heading', { name: 'Channels' })).toBeNull()
+  })
+
   it('reserves room under the last row for the install banner', () => {
     const { container } = render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={vi.fn()} />)
     // --install-prompt-h is set on <html> only while the banner shows; 0px otherwise
     expect(container.firstElementChild).toHaveClass('pb-[calc(1rem+var(--install-prompt-h,0px))]')
+  })
+})
+
+describe('MobileChannelList search and chips', () => {
+  const search = () => screen.getByRole('textbox', { name: 'Search channels and shows' })
+
+  async function type(text: string) {
+    fireEvent.change(search(), { target: { value: text } })
+    // The list follows once typing pauses
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, SEARCH_DEBOUNCE_MS + 20))
+    })
+  }
+
+  beforeEach(() => {
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1' },
+    })
+    useErsatztvStore.setState({
+      channels: [
+        { id: 'etv1', name: 'Movies', streamUrl: '/etv1', logoUrl: '', number: 1, group: 'Films' },
+        { id: 'etv2', name: 'Cartoons', streamUrl: '/etv2', logoUrl: '', number: 2, group: 'Kids' },
+        { id: 'etv3', name: 'News', streamUrl: '/etv3', logoUrl: '', number: 3, group: 'Current affairs' },
+      ],
+      programmesByChannel: {},
+    })
+    useTVStore.setState({ selectedChannel: null, liveEPG: null, liveEPGStatus: 'idle', liveProgrammes: [] })
+  })
+
+  afterEach(() => {
+    cleanup()
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels: [], programmesByChannel: {} })
+    useChannelPrefsStore.setState({ favouriteChannelIds: [], recentChannelIds: [], filter: { query: '', mode: 'all' } })
+  })
+
+  it("narrows the list to the matching channels, keeping the live row", async () => {
+    render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={vi.fn()} />)
+
+    await type('cart')
+
+    expect(screen.getByText('Club')).toBeInTheDocument()
+    expect(screen.getByText('Cartoons')).toBeInTheDocument()
+    expect(screen.queryByText('Movies')).toBeNull()
+    expect(screen.queryByText('News')).toBeNull()
+    expect(screen.queryByText('No channels match')).toBeNull()
+  })
+
+  it('says when nothing matches, and Clear brings every channel back', async () => {
+    render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={vi.fn()} />)
+
+    await type('zzz')
+    expect(screen.getByText('No channels match')).toBeInTheDocument()
+    expect(screen.getByText('Club')).toBeInTheDocument()
+    expect(screen.queryByText('Movies')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, SEARCH_DEBOUNCE_MS + 20))
+    })
+
+    expect(screen.queryByText('No channels match')).toBeNull()
+    for (const name of ['Club', 'Movies', 'Cartoons', 'News']) {
+      expect(screen.getByText(name)).toBeInTheDocument()
+    }
+  })
+
+  it('the Favourites chip leaves the live row and the favourite channels', () => {
+    useChannelPrefsStore.setState({ favouriteChannelIds: ['etv3'] })
+    render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={vi.fn()} />)
+
+    const chip = screen.getByRole('button', { name: 'Favourites' })
+    fireEvent.click(chip)
+
+    expect(chip).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('Club')).toBeInTheDocument()
+    expect(screen.getByText('News')).toBeInTheDocument()
+    expect(screen.queryByText('Movies')).toBeNull()
+    expect(screen.queryByText('Cartoons')).toBeNull()
+  })
+
+  it('keeps the search bar at the top of the list while it scrolls', () => {
+    render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={vi.fn()} />)
+
+    expect(screen.getByRole('search', { name: 'Channels' })).toHaveClass('sticky', 'top-0', 'bg-background')
   })
 })
 

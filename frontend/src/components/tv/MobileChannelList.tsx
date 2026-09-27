@@ -11,6 +11,8 @@ import { LivePill } from '@/components/LivePill'
 import { ChannelLogo } from '@/components/ChannelLogo'
 import { ChannelPresenceStack } from '@/components/tv/ChannelPresenceStack'
 import { usePresenceByChannel } from '@/hooks/usePresenceByChannel'
+import { useFilteredChannels } from '@/hooks/useFilteredChannels'
+import { ChannelFilterBar, NoChannelsMatch } from '@/components/tv/ChannelFilterBar'
 import { cn } from '@/lib/utils'
 import type { ErsatzTVProgramme, UnifiedChannel } from '@/types'
 
@@ -30,6 +32,8 @@ interface MobileChannelListProps {
   liveEPGTitle?: string | null
   // Opens the Live TV switcher; only for people allowed to change live TV
   onPickLive?: () => void
+  // Off under the phone tabs, whose Channels tab already names the list
+  showHeading?: boolean
 }
 
 export function MobileChannelList({
@@ -37,6 +41,7 @@ export function MobileChannelList({
   onProgrammeClick,
   liveEPGTitle,
   onPickLive,
+  showHeading = true,
 }: MobileChannelListProps) {
   // Field selectors: the list re-renders for what it shows, not on every
   // update to the stores it reads
@@ -60,6 +65,9 @@ export function MobileChannelList({
     () => buildUnifiedChannels(liveChannel, ersatzTVChannels),
     [liveChannel, ersatzTVChannels]
   )
+  // Through the search and chips shared with the sidebar and the guide;
+  // row 0, the live slot, always stays
+  const { channels: filteredChannels, isFiltering } = useFilteredChannels(unifiedChannels, programmesByChannel)
   const hasLiveChannel = liveChannel !== null
   // Who else is on each card; empty unless this viewer sees channels
   const presenceByChannel = usePresenceByChannel()
@@ -97,9 +105,12 @@ export function MobileChannelList({
   // so the last channel can scroll out from under it
   return (
     <div className="space-y-2 px-4 pt-4 pb-[calc(1rem+var(--install-prompt-h,0px))]">
-      <h2 className="text-lg font-semibold">Channels</h2>
+      {showHeading && <h2 className="text-lg font-semibold">Channels</h2>}
+      {/* Stays in view while the list scrolls under it, edge to edge so rows
+          don't show beside it */}
+      <ChannelFilterBar className="sticky top-0 z-10 -mx-4 bg-background px-4 pb-2" />
       <div className="grid grid-cols-1 gap-2">
-        {unifiedChannels.map((channel, index) => {
+        {filteredChannels.map((channel, index) => {
           const isLive = channel.type === 'live'
           const isSelected = selectedChannel?.id === channel.id
           const { current, next } = getNowAndNext(channel)
@@ -144,8 +155,9 @@ export function MobileChannelList({
                 fallback={isLive ? <Radio className="h-5 w-5 text-live" /> : undefined}
               />
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <p className="font-medium">
+                {/* One line per name, however long, so rows keep one height */}
+                <div className="flex min-w-0 items-center gap-2">
+                  <p className="truncate font-medium">
                     {isLive ? (hasLiveChannel ? channel.name : 'Live') : channel.name}
                   </p>
                   {isLive && hasLiveChannel && <LivePill />}
@@ -242,6 +254,8 @@ export function MobileChannelList({
           )
         })}
       </div>
+      {/* Row 0 always stays, so nothing matching means nothing after it */}
+      {isFiltering && filteredChannels.length <= 1 && ersatzTVChannels.length > 0 && <NoChannelsMatch />}
     </div>
   )
 }
