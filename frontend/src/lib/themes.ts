@@ -40,7 +40,6 @@ function createDarkThemeColors(
 
   // Parse primary for foreground derivation
   const primaryParts = primary.split(' ')
-  const primaryL = parseFloat(primaryParts[0])
   const primaryC = parseFloat(primaryParts[1])
   const primaryH = primaryParts[2] || '0'
 
@@ -83,7 +82,9 @@ function createDarkThemeColors(
     infoForeground: 'oklch(0.2 0 0)',
     border: 'oklch(1 0 0 / 10%)',
     input: 'oklch(1 0 0 / 15%)',
-    ring: `oklch(${Math.max(primaryL - 0.2, 0.4)} ${primaryC * 0.8} ${primaryH})`,
+    // Focus outline: primary clears 3:1 on the background in every theme
+    // (WCAG 1.4.11), where a darkened or 50%-alpha ring did not.
+    ring: `oklch(${primary})`,
     chart1: `oklch(${primary})`,
     chart2: 'oklch(0.696 0.17 162.48)',
     chart3: 'oklch(0.769 0.188 70.08)',
@@ -96,7 +97,7 @@ function createDarkThemeColors(
     sidebarAccent: `oklch(${mutedL} ${bgC * 0.5} ${bgH})`,
     sidebarAccentForeground: 'oklch(0.985 0 0)',
     sidebarBorder: 'oklch(1 0 0 / 10%)',
-    sidebarRing: `oklch(${Math.max(primaryL - 0.2, 0.4)} ${primaryC * 0.8} ${primaryH})`,
+    sidebarRing: `oklch(${primary})`,
   }
 }
 
@@ -108,11 +109,6 @@ function createLightThemeColors(
   const bgL = parseFloat(bgParts[0])
   const bgC = parseFloat(bgParts[1])
   const bgH = bgParts[2] || '0'
-
-  const primaryParts = primary.split(' ')
-  const primaryL = parseFloat(primaryParts[0])
-  const primaryC = parseFloat(primaryParts[1])
-  const primaryH = primaryParts[2] || '0'
 
   // Light theme cards are white or very light
   const cardL = Math.min(bgL + 0.02, 1)
@@ -154,7 +150,8 @@ function createLightThemeColors(
     infoForeground: ON_SOLID,
     border: `oklch(${borderL} ${bgC * 0.2} ${bgH})`,
     input: `oklch(${borderL} ${bgC * 0.2} ${bgH})`,
-    ring: `oklch(${primaryL} ${primaryC * 0.8} ${primaryH})`,
+    // Focus outline: primary, like the dark themes.
+    ring: `oklch(${primary})`,
     chart1: `oklch(${primary})`,
     chart2: 'oklch(0.6 0.118 184.704)',
     chart3: 'oklch(0.398 0.07 227.392)',
@@ -167,7 +164,7 @@ function createLightThemeColors(
     sidebarAccent: `oklch(${mutedL} ${bgC * 0.3} ${bgH})`,
     sidebarAccentForeground: 'oklch(0.205 0 0)',
     sidebarBorder: `oklch(${borderL} ${bgC * 0.2} ${bgH})`,
-    sidebarRing: `oklch(${primaryL} ${primaryC * 0.8} ${primaryH})`,
+    sidebarRing: `oklch(${primary})`,
   }
 }
 
