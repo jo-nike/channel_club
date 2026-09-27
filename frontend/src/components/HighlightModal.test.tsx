@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { useState } from 'react'
 import { render, screen, fireEvent, waitFor, within, act, cleanup } from '@/test/utils'
 import { HighlightModal } from './HighlightModal'
 import * as api from '@/services/api'
@@ -717,6 +718,50 @@ describe('Clip editor', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close editor' }))
     fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
     expect(props.onClose).toHaveBeenCalledTimes(1)
+  })
+
+  describe('focus on close', () => {
+    // The player opens the editor by state from Capture clip; no Radix trigger returns focus to it
+    function Player() {
+      const [open, setOpen] = useState(false)
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>Capture clip</button>
+          <HighlightModal {...props} isOpen={open} onClose={() => setOpen(false)} />
+        </>
+      )
+    }
+
+    function openEditor() {
+      render(<Player />)
+      const opener = screen.getByRole('button', { name: 'Capture clip' })
+      opener.focus()
+      fireEvent.click(opener)
+      return opener
+    }
+
+    it('returns focus to Capture clip when the editor closes before the capture is ready', async () => {
+      vi.mocked(api.createHighlightCapture).mockImplementationOnce(() => new Promise(() => {}))
+      const opener = openEditor()
+      expect(await screen.findByText('Capturing recent footage…')).toBeInTheDocument()
+      await waitFor(() => expect(opener).not.toHaveFocus())
+
+      fireEvent.click(screen.getByRole('button', { name: 'Close editor' }))
+
+      expect(screen.queryByRole('dialog', { name: 'Create clip' })).not.toBeInTheDocument()
+      await waitFor(() => expect(opener).toHaveFocus())
+    })
+
+    it('returns focus to Capture clip after X > Discard', async () => {
+      const opener = openEditor()
+      await ready()
+      fireEvent.click(screen.getByRole('button', { name: 'Close editor' }))
+
+      fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      await waitFor(() => expect(opener).toHaveFocus())
+    })
   })
 
   it('opens the confirm on Escape from the dialog body, and Escape there only closes the confirm', async () => {

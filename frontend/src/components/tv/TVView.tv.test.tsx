@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen } from '@/test/utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { RefObject } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { TVView } from './TVView'
 import { useChannelStore } from '@/stores/channelStore'
@@ -47,10 +48,17 @@ vi.mock('@/components/tv/TVChannelSidebar', () => ({ TVChannelSidebar: () => <di
 vi.mock('@/components/ChatPanel', () => ({ ChatPanel: () => <div data-testid="chat-panel" /> }))
 vi.mock('@/components/ersatztv/ProgrammeDetailsModal', () => ({ ProgrammeDetailsModal: () => null }))
 vi.mock('@/components/AccountMenu', () => ({
-  AccountMenu: ({ onOpenAdmin }: { onOpenAdmin: () => void }) => <button type="button" onClick={onOpenAdmin}>Account menu</button>,
+  AccountMenu: ({ onOpenAdmin, triggerRef }: { onOpenAdmin: () => void; triggerRef?: RefObject<HTMLButtonElement | null> }) => (
+    <button ref={triggerRef} type="button" onClick={onOpenAdmin}>Account menu</button>
+  ),
 }))
+// Where the admin panel last returned focus to when its opener has gone
+const adminModal = vi.hoisted(() => ({ returnFocusTo: undefined as { current: HTMLElement | null } | undefined }))
 vi.mock('@/components/AdminModal', () => ({
-  AdminModal: ({ open }: { open: boolean }) => (open ? <div role="dialog" aria-label="Admin panel" /> : null),
+  AdminModal: ({ open, returnFocusTo }: { open: boolean; returnFocusTo?: { current: HTMLElement | null } }) => {
+    adminModal.returnFocusTo = returnFocusTo
+    return open ? <div role="dialog" aria-label="Admin panel" /> : null
+  },
 }))
 
 // Unified order: slot 0 (live), then ErsatzTV 1 and 2
@@ -192,5 +200,13 @@ describe('TV browsers: the couch view', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
 
     expect(screen.getByRole('dialog', { name: 'Admin panel' })).toBeInTheDocument()
+  })
+
+  // A remote can open Admin only from the account menu, whose item unmounts with the menu
+  it('has the admin panel return focus to the account menu button', () => {
+    auth.isAdmin = true
+    renderTV()
+
+    expect(adminModal.returnFocusTo?.current).toBe(screen.getByRole('button', { name: 'Account menu' }))
   })
 })

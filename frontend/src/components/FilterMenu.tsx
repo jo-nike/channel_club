@@ -1,7 +1,7 @@
 import { useState, type RefObject } from 'react'
 import { SlidersHorizontal } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useFilterStore, FILTER_REGISTRY } from '@/stores/filterStore'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
@@ -108,7 +108,8 @@ export function FilterMenu({ isVisible, containerRef }: FilterMenuProps) {
         <Dialog open={isOpen} onOpenChange={handleOpenChange}>
           <Tooltip>
             <TooltipTrigger asChild>
-              <div onClick={() => handleOpenChange(true)}>{TriggerButton}</div>
+              {/* A Radix trigger, so closing the sheet returns focus to this button */}
+              <DialogTrigger asChild>{TriggerButton}</DialogTrigger>
             </TooltipTrigger>
             <TooltipContent>
               <p>Filters</p>

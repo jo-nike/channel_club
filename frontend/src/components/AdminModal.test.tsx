@@ -1,5 +1,6 @@
 import { render, screen, fireEvent, waitFor, act, within } from '@/test/utils'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { useState } from 'react'
 import { AdminModal } from './AdminModal'
 import { focusOverrides } from '@/test/focus'
 import { useChannelStore } from '@/stores/channelStore'
@@ -217,6 +218,36 @@ describe('AdminModal', () => {
       expect(dialogCloseButton).toBeDefined()
       fireEvent.click(dialogCloseButton!)
       expect(onOpenChange).toHaveBeenCalledWith(false)
+    })
+  })
+
+  // The Host button opens it by state, with no Radix trigger to return focus to
+  describe('Focus on close', () => {
+    function Header() {
+      const [open, setOpen] = useState(false)
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Host
+          </button>
+          <AdminModal open={open} onOpenChange={setOpen} />
+        </>
+      )
+    }
+
+    it('returns focus to the button that opened it when Escape closes it', async () => {
+      render(<Header />)
+      const host = screen.getByRole('button', { name: 'Host' })
+      host.focus()
+      fireEvent.click(host)
+      const dialog = screen.getByRole('dialog')
+      // Radix moves focus on the next tick
+      await waitFor(() => expect(host).not.toHaveFocus())
+
+      fireEvent.keyDown(dialog, { key: 'Escape' })
+
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+      await waitFor(() => expect(host).toHaveFocus())
     })
   })
 

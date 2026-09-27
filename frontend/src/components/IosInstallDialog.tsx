@@ -1,3 +1,4 @@
+import type { RefObject } from 'react'
 import { Share, SquarePlus } from 'lucide-react'
 import {
   Dialog,
@@ -7,10 +8,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { APP_NAME } from '@/lib/appInfo'
+import { useReturnFocus } from '@/hooks/useReturnFocus'
 
 interface IosInstallDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Where focus goes on close when the element that opened it has gone (a menu item) */
+  returnFocusTo?: RefObject<HTMLElement | null>
 }
 
 /**
@@ -18,11 +22,17 @@ interface IosInstallDialogProps {
  * themselves: Share, then Add to Home Screen. Instructions only, so the X is
  * the only control.
  */
-export function IosInstallDialog({ open, onOpenChange }: IosInstallDialogProps) {
+export function IosInstallDialog({ open, onOpenChange, returnFocusTo }: IosInstallDialogProps) {
+  // Opened by state, not a trigger Radix could return focus to
+  const returnFocus = useReturnFocus(returnFocusTo)
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* A bottom sheet on phones, near Safari's toolbar; centred from sm */}
-      <DialogContent className="max-sm:top-auto max-sm:bottom-0 max-sm:max-w-full max-sm:translate-y-0 max-sm:rounded-b-none max-sm:pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] sm:max-w-md">
+      <DialogContent
+        className="max-sm:top-auto max-sm:bottom-0 max-sm:max-w-full max-sm:translate-y-0 max-sm:rounded-b-none max-sm:pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] sm:max-w-md"
+        {...returnFocus}
+      >
         <DialogHeader>
           <DialogTitle>Add {APP_NAME} to your Home Screen</DialogTitle>
           <DialogDescription>It opens full screen, like an app.</DialogDescription>

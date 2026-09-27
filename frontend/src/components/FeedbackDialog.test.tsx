@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { useRef, useState } from 'react'
 import { render, screen, fireEvent, waitFor } from '@/test/utils'
 import { toast } from 'sonner'
 import { FeedbackDialog } from './FeedbackDialog'
@@ -86,6 +87,32 @@ describe('FeedbackDialog', () => {
 
     expect(onKeyDown).not.toHaveBeenCalled()
     window.removeEventListener('keydown', onKeyDown)
+  })
+
+  // Opened from a menu item that unmounts with its menu, so focus goes to the menu's button instead
+  it('returns focus to returnFocusTo when the item that opened it has gone', async () => {
+    function Menu() {
+      const [open, setOpen] = useState(false)
+      const trigger = useRef<HTMLButtonElement>(null)
+      return (
+        <>
+          <button ref={trigger} type="button">Account menu</button>
+          {!open && <button type="button" onClick={() => setOpen(true)}>Send feedback</button>}
+          <FeedbackDialog open={open} onOpenChange={setOpen} returnFocusTo={trigger} />
+        </>
+      )
+    }
+    render(<Menu />)
+    const item = screen.getByRole('button', { name: 'Send feedback' })
+    item.focus()
+    fireEvent.click(item)
+    const dialog = screen.getByRole('dialog', { name: 'Send feedback' })
+
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    // Radix moves focus on the next tick
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Account menu' })).toHaveFocus())
   })
 
   it('renders nothing when closed', () => {

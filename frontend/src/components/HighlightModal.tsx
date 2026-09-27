@@ -11,6 +11,7 @@ import { ClipTimeField } from './ClipTimeField'
 import { useAudioStore } from '@/stores/audioStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useChatEnabled } from '@/hooks/useChatEnabled'
+import { useReturnFocus } from '@/hooks/useReturnFocus'
 import { createClientMessageId } from '@/lib/messageId'
 import { clipMessage, pressRange } from '@/lib/clip'
 import type { ChatSendResult } from '@/hooks/useWebSocket'
@@ -108,6 +109,8 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, captu
   const video = useRef<HTMLVideoElement>(null)
   const uploadResult = useRef<HTMLDivElement>(null)
   const closeButton = useRef<HTMLButtonElement>(null)
+  // The editor mounts open, with no trigger Radix could return focus to: give it back to Capture clip
+  const returnFocus = useReturnFocus()
   const controller = useRef<AbortController | null>(null)
   // When this capture was last handed to the browser as a direct download (ms), for the delete on close
   const handoff = useRef({ at: 0 })
@@ -382,6 +385,7 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, captu
       {/* The header and footer stay put; only the body between them scrolls, so the actions and their
           progress are always on screen, including in phone landscape inside the fullscreen player. */}
       <DialogContent container={container} showCloseButton={false} className="flex max-h-[92dvh] max-w-[min(64rem,calc(100%-2rem))] flex-col gap-0 overflow-hidden p-0" onKeyDown={event => event.stopPropagation()}
+        {...returnFocus}
         // Radix sees Escape on the document before a field does; let the field revert its draft instead.
         onEscapeKeyDown={event => {
           if ((event.target as HTMLElement | null)?.closest?.('input,select,textarea')) { event.preventDefault(); return }

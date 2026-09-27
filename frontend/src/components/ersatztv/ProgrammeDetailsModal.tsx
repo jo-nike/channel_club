@@ -9,6 +9,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Bell, BellRing } from 'lucide-react'
 import { useProgrammeClock } from '@/hooks/useProgrammeClock'
+import { useReturnFocus } from '@/hooks/useReturnFocus'
 import { findOnAir, formatRemaining, formatStartsIn, getProgrammeState } from '@/lib/programmes'
 import { APP_NAME } from '@/lib/appInfo'
 import { useChannelStore } from '@/stores/channelStore'
@@ -53,6 +54,9 @@ export function ProgrammeDetailsModal({
   const hasReminder = useHasReminder(channel?.id, programme?.id, liveChannelId)
   const addReminder = useReminderStore((s) => s.add)
   const removeReminder = useReminderStore((s) => s.remove)
+  // Opened by state from the guide, not a trigger Radix could return focus to:
+  // go back to the programme cell (the grid's tab stop) or schedule row
+  const returnFocus = useReturnFocus()
 
   if (!programme || !channel) return null
 
@@ -104,7 +108,7 @@ export function ProgrammeDetailsModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* A long synopsis scrolls inside the dialog rather than pushing its
           title and actions off a phone screen */}
-      <DialogContent className="max-h-[85dvh] max-w-lg overflow-y-auto">
+      <DialogContent className="max-h-[85dvh] max-w-lg overflow-y-auto" {...returnFocus}>
         <DialogHeader>
           <DialogTitle className="text-2xl">{programme.title}</DialogTitle>
           <DialogDescription asChild>

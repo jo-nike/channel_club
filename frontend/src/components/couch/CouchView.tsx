@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type RefObject } from 'react'
 import { useChannelZap } from '@/hooks/useChannelZap'
 import { useLiveChangeAnnouncement } from '@/hooks/useLiveChangeAnnouncement'
 import { getFullscreenElement } from '@/hooks/useFullscreenState'
@@ -19,6 +19,8 @@ interface CouchViewProps {
   /** The account menu's Change live channel (it offers it only to those allowed) */
   onOpenChannelPicker: () => void
   onOpenAdmin: () => void
+  /** Set on the account menu's button, where the Admin panel returns focus */
+  accountMenuTriggerRef?: RefObject<HTMLButtonElement | null>
 }
 
 // The couch has no theater layout to switch: the player always fills the screen
@@ -92,7 +94,12 @@ function requestPageFullscreen() {
  * in its shortcuts). The pointer, and the account menu with it, hide after
  * 3s at rest.
  */
-export function CouchView({ onPickLive, onOpenChannelPicker, onOpenAdmin }: CouchViewProps) {
+export function CouchView({
+  onPickLive,
+  onOpenChannelPicker,
+  onOpenAdmin,
+  accountMenuTriggerRef,
+}: CouchViewProps) {
   const selectedChannel = useTVStore((s) => s.selectedChannel)
   const previousChannelId = useTVStore((s) => s.previousChannelId)
   const selectChannel = useTVStore((s) => s.selectChannel)
@@ -232,6 +239,7 @@ export function CouchView({ onPickLive, onOpenChannelPicker, onOpenAdmin }: Couc
           onOpenAdmin={onOpenAdmin}
           onReload={reload}
           isMobile={false}
+          triggerRef={accountMenuTriggerRef}
         />
       </div>
     </div>

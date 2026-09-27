@@ -1,3 +1,4 @@
+import type { RefObject } from 'react'
 import { ShieldCheck, LayoutList, Lightbulb, Tv } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useAppSettings } from '@/hooks/useAppSettings'
@@ -22,6 +23,8 @@ interface TVHeaderProps {
   // Reloads the video player (the account menu's Reload stream)
   onReload: () => void
   isMobile: boolean
+  // Set on the account menu's button, where the Admin panel returns focus
+  accountMenuTriggerRef?: RefObject<HTMLButtonElement | null>
 }
 
 export function TVHeader({
@@ -31,6 +34,7 @@ export function TVHeader({
   onOpenChannelPicker,
   onReload,
   isMobile,
+  accountMenuTriggerRef,
 }: TVHeaderProps) {
   const { isAdmin } = useAuth()
   // Admin-controlled: lets non-admins change the live channel for everyone
@@ -132,6 +136,7 @@ export function TVHeader({
           onOpenAdmin={onOpenAdmin}
           onReload={onReload}
           isMobile={isMobile}
+          triggerRef={accountMenuTriggerRef}
         />
       </nav>
     </header>

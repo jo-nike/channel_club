@@ -1,5 +1,6 @@
 import { render, screen, fireEvent, act } from '@/test/utils'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { useState } from 'react'
 import { ProgrammeDetailsModal } from './ProgrammeDetailsModal'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore, LIVE_CHANNEL_ID, toLiveProgramme } from '@/stores/tvStore'
@@ -408,6 +409,56 @@ describe('ProgrammeDetailsModal', () => {
   it('caps its height and scrolls inside, so a long synopsis fits a phone screen', () => {
     render(<ProgrammeDetailsModal {...defaultProps} />)
     expect(screen.getByRole('dialog')).toHaveClass('max-h-[85dvh]', 'overflow-y-auto')
+  })
+
+  // The guide opens it by state from a programme cell, with no Radix trigger to return focus to
+  describe('focus on close', () => {
+    function Guide() {
+      const [open, setOpen] = useState(false)
+      return (
+        <>
+          <button type="button" tabIndex={0} onClick={() => setOpen(true)}>
+            Test Movie cell
+          </button>
+          <ProgrammeDetailsModal {...defaultProps} open={open} onOpenChange={setOpen} />
+        </>
+      )
+    }
+
+    // Radix moves focus on the next tick
+    const tick = () => act(() => vi.advanceTimersByTime(1))
+
+    it('returns focus to the programme cell that opened it when Escape closes it', () => {
+      render(<Guide />)
+      const cell = screen.getByRole('button', { name: 'Test Movie cell' })
+      cell.focus()
+      fireEvent.click(cell)
+      const dialog = screen.getByRole('dialog')
+      tick()
+      expect(cell).not.toHaveFocus()
+
+      fireEvent.keyDown(dialog, { key: 'Escape' })
+      tick()
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(cell).toHaveFocus()
+      expect(cell).toHaveAttribute('tabindex', '0')
+    })
+
+    it('returns focus to the programme cell when the Close button closes it', () => {
+      render(<Guide />)
+      const cell = screen.getByRole('button', { name: 'Test Movie cell' })
+      cell.focus()
+      fireEvent.click(cell)
+      tick()
+
+      fireEvent.click(
+        screen.getAllByRole('button', { name: /close/i }).find((btn) => btn.getAttribute('data-slot') === 'dialog-close')!
+      )
+      tick()
+
+      expect(cell).toHaveFocus()
+    })
   })
 
   it('closes modal on X button click', () => {

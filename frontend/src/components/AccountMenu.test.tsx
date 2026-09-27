@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, renderHook, screen, fireEvent, waitFor, within } from '@/test/utils'
+import { act, render, renderHook, screen, fireEvent, waitFor, within } from '@/test/utils'
+import { useRef, useState } from 'react'
 import { AccountMenu } from './AccountMenu'
+import { AdminModal } from './AdminModal'
 import { useTVMode } from '@/hooks/useTVMode'
 import { activeThemeId, useThemeStore } from '@/stores/themeStore'
 import { useUIStore } from '@/stores/uiStore'
@@ -27,9 +29,22 @@ vi.mock('@/hooks/useAppSettings', () => ({ useAppSettings: () => appSettings }))
 vi.mock('@/hooks/useChatEnabled', () => ({ useChatEnabled: () => chatFlag.enabled }))
 vi.mock('@/hooks/useFeedbackFeature', () => ({ useFeedbackFeature: () => feedback }))
 vi.mock('@/hooks/useInstallPrompt', () => ({ useInstallPrompt: () => installPrompt }))
+// The props the menu last passed the feedback dialog
+const feedbackDialog = vi.hoisted(() => ({ returnFocusTo: undefined as { current: HTMLElement | null } | undefined }))
 vi.mock('@/components/FeedbackDialog', () => ({
-  FeedbackDialog: ({ open }: { open: boolean }) => (open ? <div role="dialog">Feedback form</div> : null),
+  FeedbackDialog: ({ open, returnFocusTo }: { open: boolean; returnFocusTo?: { current: HTMLElement | null } }) => {
+    feedbackDialog.returnFocusTo = returnFocusTo
+    return open ? <div role="dialog">Feedback form</div> : null
+  },
 }))
+
+// The admin panel's tabs fetch on mount; only its dialog matters here
+vi.mock('@/components/ChannelList', () => ({ ChannelList: () => null }))
+vi.mock('@/components/admin/ChatTab', () => ({ ChatTab: () => null }))
+vi.mock('@/components/admin/OnAirCard', () => ({ OnAirCard: () => null }))
+vi.mock('@/components/admin/NHLGamesTab', () => ({ NHLGamesTab: () => null }))
+vi.mock('@/components/admin/PeopleTab', () => ({ PeopleTab: () => null }))
+vi.mock('@/components/admin/StatusTab', () => ({ StatusTab: () => null }))
 
 function renderMenu(overrides: { isMobile?: boolean } = {}) {
   const props = {
@@ -145,6 +160,41 @@ describe('AccountMenu live channel and admin items', () => {
     expect(screen.queryByRole('menuitem', { name: /Suggest a channel/ })).not.toBeInTheDocument()
   })
 
+  // The page renders the admin panel outside the menu, as TVView and the couch view do
+  function MenuWithAdmin() {
+    const triggerRef = useRef<HTMLButtonElement>(null)
+    const [adminOpen, setAdminOpen] = useState(false)
+    return (
+      <>
+        <AccountMenu
+          onOpenChannelPicker={() => {}}
+          onOpenAdmin={() => setAdminOpen(true)}
+          onReload={() => {}}
+          isMobile={false}
+          triggerRef={triggerRef}
+        />
+        <AdminModal open={adminOpen} onOpenChange={setAdminOpen} returnFocusTo={triggerRef} />
+      </>
+    )
+  }
+
+  // The Admin panel item unmounts with the menu, so focus goes back to the avatar, not <body>
+  it('returns focus to the account menu button when the admin panel closes', async () => {
+    auth.isAdmin = true
+    render(<MenuWithAdmin />)
+    trigger().focus()
+    openMenu()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Admin panel' }))
+    const dialog = screen.getByRole('dialog', { name: 'Admin Panel' })
+    // Radix moves focus on the next tick
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)))
+
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    await waitFor(() => expect(trigger()).toHaveFocus())
+  })
+
   it('reloads the stream', () => {
     const props = renderMenu()
     openMenu()
@@ -177,6 +227,13 @@ describe('AccountMenu feedback', () => {
 
     expect(screen.getByRole('dialog')).toHaveTextContent('Feedback form')
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  })
+  // The item that opened it unmounts with the menu, so the dialog falls back to the avatar
+  it('has the feedback dialog return focus to the account menu button', () => {
+    feedback.isEnabled = true
+    renderMenu()
+
+    expect(feedbackDialog.returnFocusTo?.current).toBe(trigger())
   })
 })
 
@@ -211,6 +268,21 @@ describe('AccountMenu install', () => {
     const sheet = await screen.findByRole('dialog', { name: /Add Channel Club to your Home Screen/ })
     expect(sheet).toHaveTextContent('Tap Share')
     expect(installPrompt.install).not.toHaveBeenCalled()
+  })
+
+  it('returns focus to the account menu button when the iOS steps close', async () => {
+    installPrompt.canInstall = true
+    installPrompt.variant = 'ios'
+    renderMenu()
+    openMenu()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Install app' }))
+    const sheet = await screen.findByRole('dialog', { name: /Add Channel Club to your Home Screen/ })
+
+    fireEvent.keyDown(sheet, { key: 'Escape' })
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    // Radix moves focus on the next tick
+    await waitFor(() => expect(trigger()).toHaveFocus())
   })
 })
 
@@ -336,6 +408,33 @@ describe('AccountMenu appearance', () => {
     const dialog = openAppearance()
 
     expect(dialog).toHaveClass('max-h-[85dvh]', 'overflow-y-auto', 'max-sm:bottom-0', 'max-sm:top-auto')
+  })
+
+  // Lets the menu finish closing (Radix defers its own focus work a tick), as it has by the time anyone
+  // closes the dialog again
+  async function openAppearanceSettled() {
+    const dialog = openAppearance()
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)))
+    return dialog
+  }
+
+  // The Appearance… item unmounts with the menu, so focus goes back to the avatar, not <body>
+  it('returns focus to the account menu button when closed with Escape', async () => {
+    const dialog = await openAppearanceSettled()
+
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    await waitFor(() => expect(trigger()).toHaveFocus())
+  })
+
+  it('returns focus to the account menu button when closed with the Close button', async () => {
+    const dialog = await openAppearanceSettled()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    await waitFor(() => expect(trigger()).toHaveFocus())
   })
 
   it('no longer has a theme submenu', () => {

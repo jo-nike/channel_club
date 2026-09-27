@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent } from '@/test/utils'
+import { render, screen, fireEvent, waitFor } from '@/test/utils'
 import { FilterMenu } from './FilterMenu'
 import { focusOverrides } from '@/test/focus'
 import { useFilterStore, FILTER_REGISTRY } from '@/stores/filterStore'
+import { useMediaQuery } from '@/hooks/useMediaQuery'
 
 // Mock useMediaQuery hook
 vi.mock('@/hooks/useMediaQuery', () => ({
@@ -155,6 +156,39 @@ describe('FilterMenu', () => {
       fireEvent.click(screen.getByRole('button', { name: /video filters/i }))
 
       expect(container).toContainElement(await screen.findByText('Video Filters'))
+    })
+  })
+
+  describe('mobile sheet', () => {
+    beforeEach(() => {
+      vi.mocked(useMediaQuery).mockReturnValue(true)
+    })
+
+    afterEach(() => {
+      vi.mocked(useMediaQuery).mockReturnValue(false)
+    })
+
+    it('opens the filters as a dialog from the button', async () => {
+      render(<FilterMenu isVisible={true} />)
+
+      fireEvent.click(screen.getByRole('button', { name: /video filters/i }))
+
+      expect(await screen.findByRole('dialog', { name: 'Video Filters' })).toBeInTheDocument()
+    })
+
+    it('returns focus to the Video filters button when Escape closes it', async () => {
+      render(<FilterMenu isVisible={true} />)
+      const button = screen.getByRole('button', { name: /video filters/i })
+      button.focus()
+      fireEvent.click(button)
+      const dialog = await screen.findByRole('dialog', { name: 'Video Filters' })
+      // Radix moves focus on the next tick
+      await waitFor(() => expect(button).not.toHaveFocus())
+
+      fireEvent.keyDown(dialog, { key: 'Escape' })
+
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+      await waitFor(() => expect(button).toHaveFocus())
     })
   })
 

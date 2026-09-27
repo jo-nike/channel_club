@@ -1,4 +1,4 @@
-import { useId, useState, type FormEvent } from 'react'
+import { useId, useState, type FormEvent, type RefObject } from 'react'
 import { Loader2, Send } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -12,6 +12,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { useReturnFocus } from '@/hooks/useReturnFocus'
 import { submitFeedback, type FeedbackType } from '@/services/feedbackApi'
 import { getSessionId } from '@/lib/sessionId'
 import { APP_VERSION } from '@/lib/appInfo'
@@ -22,15 +23,19 @@ export const MAX_FEEDBACK_LENGTH = 2000
 interface FeedbackDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Where focus goes on close when the element that opened it has gone (a menu item) */
+  returnFocusTo?: RefObject<HTMLElement | null>
 }
 
-export function FeedbackDialog({ open, onOpenChange }: FeedbackDialogProps) {
+export function FeedbackDialog({ open, onOpenChange, returnFocusTo }: FeedbackDialogProps) {
   const [type, setType] = useState<FeedbackType>('bug')
   const [message, setMessage] = useState('')
   const [contact, setContact] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const messageId = useId()
+  // Opened by state, not a trigger Radix could return focus to
+  const returnFocus = useReturnFocus(returnFocusTo)
 
   const canSubmit = message.trim().length > 0 && !isSubmitting
 
@@ -76,6 +81,7 @@ export function FeedbackDialog({ open, onOpenChange }: FeedbackDialogProps) {
       <DialogContent
         className="max-h-[92dvh] w-[95vw] max-w-lg overflow-y-auto"
         onKeyDown={(event) => event.stopPropagation()}
+        {...returnFocus}
       >
         <DialogHeader>
           <DialogTitle>Send feedback</DialogTitle>

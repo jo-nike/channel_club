@@ -1,6 +1,7 @@
-import { useId, useRef } from 'react'
+import { useId } from 'react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useChatEnabled } from '@/hooks/useChatEnabled'
+import { useReturnFocus } from '@/hooks/useReturnFocus'
 
 interface ShortcutSheetProps {
   open: boolean
@@ -84,7 +85,7 @@ export function ShortcutSheet({
   const groups = [player(canClip), channels(canSearch), panels(chatEnabled, canReply)]
   // A key opens the sheet, not a trigger Radix could return focus to: go back
   // to whatever had focus (a channel button just clicked), or the page
-  const returnFocusRef = useRef<Element | null>(null)
+  const returnFocus = useReturnFocus()
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -94,15 +95,7 @@ export function ShortcutSheet({
         // Keys pressed in the sheet stay in it: Escape closes the sheet only,
         // not the NHL scores too, whose Escape listener is on the document
         onKeyDown={(event) => event.stopPropagation()}
-        onOpenAutoFocus={() => {
-          returnFocusRef.current = document.activeElement
-        }}
-        onCloseAutoFocus={(event) => {
-          event.preventDefault()
-          const previous = returnFocusRef.current
-          returnFocusRef.current = null
-          if (previous instanceof HTMLElement && previous.isConnected) previous.focus()
-        }}
+        {...returnFocus}
       >
         <DialogHeader>
           <DialogTitle>Keyboard shortcuts</DialogTitle>
