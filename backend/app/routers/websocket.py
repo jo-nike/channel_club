@@ -47,6 +47,24 @@ def _clear_nickname(client_id: str, websocket: WebSocket) -> None:
     _nickname_map.pop(client_id, None)
 
 
+def _is_another_members_name(nickname: str, username: str) -> bool:
+    """Whether a nickname is the sign-in name of another connected member.
+
+    Compared case-insensitively, so nobody can post as 'Jon' while jon is
+    here. Only members connected right now are known, so this is partial
+    protection: it can't reserve the names of people who are offline.
+
+    Args:
+        nickname: The requested nickname (already trimmed).
+        username: The requester's own sign-in name, which they may always use.
+    """
+    folded = nickname.casefold()
+    return any(
+        user.username != username and user.username.casefold() == folded
+        for user in presence.get_active_users().values()
+    )
+
+
 async def verify_websocket_token(token: str) -> dict | None:
     """Verify JWT token for WebSocket connection.
 
@@ -216,7 +234,13 @@ async def handle_client_message(
     elif msg_type == "set_nickname":
         # Handle nickname setting for chat display name
         nickname = validated.get("nickname", "").strip()[:MAX_NICKNAME_LENGTH]
-        if nickname:
+        if nickname and _is_another_members_name(nickname, username):
+            # Refused: the previous name (or the sign-in name) stays in use
+            log.debug("Nickname refused for client {}: another member's name", client_id)
+            await websocket.send_json(
+                {"type": "error", "code": "nickname_taken", "nickname": nickname}
+            )
+        elif nickname:
             _nickname_map[client_id] = (websocket, nickname)
             log.debug("Nickname set for client {}: {}", client_id, nickname)
         else:

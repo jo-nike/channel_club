@@ -828,6 +828,104 @@ class TestChatNickname:
                 assert msg2["username"] == "User2Nick"
 
 
+class TestNicknameTaken:
+    """A nickname can't be another connected member's sign-in name."""
+
+    def test_colliding_nickname_is_refused_and_name_unchanged(
+        self,
+        client: TestClient,
+        valid_token: str,
+        admin_token: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Taking a connected member's sign-in name (any case) is refused; the old name stays."""
+        monkeypatch.setattr(settings, "chat_enabled", True)
+
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws1:
+            ws1.receive_json()  # connection_ack
+            ws1.receive_json()  # chat_history
+
+            with client.websocket_connect(f"/api/ws?token={admin_token}") as ws2:
+                ws2.receive_json()  # connection_ack
+                ws2.receive_json()  # chat_history
+
+                ws2.send_json({"type": "set_nickname", "nickname": "Ace"})
+                ws2.send_json({"type": "set_nickname", "nickname": "  TestUser  "})
+                assert ws2.receive_json() == {
+                    "type": "error",
+                    "code": "nickname_taken",
+                    "nickname": "TestUser",
+                }
+
+                ws2.send_json({"type": "chat_message", "content": "Still me"})
+                msg = ws2.receive_json()
+                ws1.receive_json()  # ws1 also receives the broadcast
+
+                assert msg["type"] == "chat_message"
+                assert msg["username"] == "Ace"
+
+    def test_refused_first_nickname_keeps_the_sign_in_name(
+        self,
+        client: TestClient,
+        valid_token: str,
+        admin_token: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """With no earlier nickname, a refused one leaves the sign-in name in use."""
+        monkeypatch.setattr(settings, "chat_enabled", True)
+
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws1:
+            ws1.receive_json()  # connection_ack
+            ws1.receive_json()  # chat_history
+
+            with client.websocket_connect(f"/api/ws?token={admin_token}") as ws2:
+                ws2.receive_json()  # connection_ack
+                ws2.receive_json()  # chat_history
+
+                ws2.send_json({"type": "set_nickname", "nickname": "testuser"})
+                assert ws2.receive_json()["code"] == "nickname_taken"
+
+                ws2.send_json({"type": "chat_message", "content": "Hi"})
+                msg = ws2.receive_json()
+                ws1.receive_json()
+
+                assert msg["username"] == "admin"
+
+    def test_own_sign_in_name_is_allowed(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Members may use their own sign-in name in any case."""
+        monkeypatch.setattr(settings, "chat_enabled", True)
+
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            ws.receive_json()  # connection_ack
+            ws.receive_json()  # chat_history
+
+            ws.send_json({"type": "set_nickname", "nickname": "TestUser"})
+            ws.send_json({"type": "chat_message", "content": "Hi"})
+            msg = ws.receive_json()
+
+            assert msg["type"] == "chat_message"
+            assert msg["username"] == "TestUser"
+
+    def test_name_of_someone_not_connected_is_allowed(
+        self, client: TestClient, admin_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Only connected members' names are known, so an offline member's name is free."""
+        monkeypatch.setattr(settings, "chat_enabled", True)
+
+        with client.websocket_connect(f"/api/ws?token={admin_token}") as ws:
+            ws.receive_json()  # connection_ack
+            ws.receive_json()  # chat_history
+
+            ws.send_json({"type": "set_nickname", "nickname": "testuser"})
+            ws.send_json({"type": "chat_message", "content": "Hi"})
+            msg = ws.receive_json()
+
+            assert msg["type"] == "chat_message"
+            assert msg["username"] == "testuser"
+
+
 @pytest.mark.parametrize(
     "message",
     [
