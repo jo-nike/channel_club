@@ -74,7 +74,8 @@ class DispatchrrFullChannel(BaseModel):
 
     id: int
     name: str
-    channel_number: int | None = None
+    # Dispatcharr channel numbers are floats: 5.1 is a valid channel number
+    channel_number: float | None = None
     channel_group_id: int | None = None
     uuid: str
 

@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.models.channel import Channel, DispatchrrChannel
+from app.models.channel import Channel, DispatchrrChannel, DispatchrrFullChannel
 
 
 class TestDispatchrrChannel:
@@ -60,6 +60,28 @@ class TestDispatchrrChannel:
 
         with pytest.raises(ValidationError):
             DispatchrrChannel(**raw_data)
+
+
+class TestDispatchrrFullChannel:
+    """Tests for DispatchrrFullChannel model."""
+
+    def test_accepts_fractional_channel_number(self) -> None:
+        """Dispatcharr allows numbers like 5.1; one must not fail the whole catalogue."""
+        channel = DispatchrrFullChannel.model_validate(
+            {"id": 1, "name": "TVA", "channel_number": 5.1, "uuid": "uuid-1"}
+        )
+
+        assert channel.channel_number == 5.1
+
+    def test_accepts_whole_and_missing_channel_numbers(self) -> None:
+        """Whole numbers still parse, and a channel may have no number."""
+        whole = DispatchrrFullChannel.model_validate(
+            {"id": 1, "name": "TSN", "channel_number": 28, "uuid": "uuid-1"}
+        )
+        missing = DispatchrrFullChannel.model_validate({"id": 2, "name": "X", "uuid": "uuid-2"})
+
+        assert whole.channel_number == 28
+        assert missing.channel_number is None
 
 
 class TestChannel:
