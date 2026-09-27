@@ -1,24 +1,23 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { ShieldCheck, LayoutList, RefreshCw, Radio, Tv, AudioLines } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useAppSettings } from '@/hooks/useAppSettings'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
 import { useTVMode } from '@/hooks/useTVMode'
 import { useChannelZap } from '@/hooks/useChannelZap'
 import { getRemoteAction, isKeyForFocusedControl } from '@/lib/remoteKeys'
-import { calculateProgress, formatRemaining } from '@/lib/programmes'
-import { useProgrammeClock } from '@/hooks/useProgrammeClock'
+import { useNowPlaying } from '@/hooks/useNowPlaying'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useChannelStore } from '@/stores/channelStore'
-import { useTVStore, initializeTVStore, describeLiveGuide } from '@/stores/tvStore'
-import { getErsatzTVLogoUrl } from '@/services/ersatztvApi'
+import { useTVStore, initializeTVStore } from '@/stores/tvStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
 import { DualModeVideoPlayer } from '@/components/tv/DualModeVideoPlayer'
 import { TVEPGGrid } from '@/components/tv/TVEPGGrid'
 import { TVChannelSidebar } from '@/components/tv/TVChannelSidebar'
 import { ZapBanner } from '@/components/tv/ZapBanner'
+import { MobileChannelList } from '@/components/tv/MobileChannelList'
+import { TVHeader } from '@/components/tv/TVHeader'
 import { ProgrammeDetailsModal } from '@/components/ersatztv/ProgrammeDetailsModal'
 import { ChatPanel } from '@/components/ChatPanel'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
@@ -27,14 +26,9 @@ import { ResizeDragHandle } from '@/components/ui/ResizeDragHandle'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useResizable } from '@/hooks/useResizable'
 import { useMobileLandscape } from '@/hooks/useMobileLandscape'
-import { ChatToggleButton } from '@/components/ChatToggleButton'
-import { FeedbackButton } from '@/components/FeedbackButton'
-import { UserSettingsMenu } from '@/components/UserSettingsMenu'
 import { AdminModal } from '@/components/AdminModal'
 import { LiveChannelPickerDialog } from '@/components/LiveChannelPickerDialog'
-import { ConnectionStatus } from '@/components/ConnectionStatus'
 import { NHLScoresOverlay } from '@/components/NHLScoresOverlay'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import type { ErsatzTVProgramme, UnifiedChannel, ErsatzTVChannel } from '@/types'
 
@@ -42,7 +36,7 @@ import type { ErsatzTVProgramme, UnifiedChannel, ErsatzTVChannel } from '@/types
 const REFRESH_INTERVAL = 120 * 60 * 1000
 
 export function TVView() {
-  const { logout, isAdmin } = useAuth()
+  const { isAdmin } = useAuth()
 
   // Admin-controlled: lets non-admins change the live channel for everyone
   const { userChannelSelection } = useAppSettings()
@@ -50,33 +44,29 @@ export function TVView() {
   // WebSocket for presence tracking and chat
   const { status, reconnect, sendChannelUpdate, sendChatMessage, sendSetNickname } = useWebSocket({ view: 'tv' })
 
-  // ErsatzTV store - for loading channels and programmes
-  const {
-    channels: ersatzTVChannels,
-    channelsLoading,
-    programmesLoading,
-    programmesByChannel,
-    error,
-    loadChannels,
-    loadAllProgrammes,
-  } = useErsatztvStore()
+  // ErsatzTV store - for loading channels and programmes. Field selectors,
+  // so unrelated store updates don't re-render the whole view
+  const ersatzTVChannels = useErsatztvStore((s) => s.channels)
+  const channelsLoading = useErsatztvStore((s) => s.channelsLoading)
+  const programmesLoading = useErsatztvStore((s) => s.programmesLoading)
+  const programmesByChannel = useErsatztvStore((s) => s.programmesByChannel)
+  const error = useErsatztvStore((s) => s.error)
+  const loadChannels = useErsatztvStore((s) => s.loadChannels)
+  const loadAllProgrammes = useErsatztvStore((s) => s.loadAllProgrammes)
 
   // Live channel from channel store
   const liveChannel = useChannelStore((s) => s.currentChannel)
 
   // TV store - unified channel management
-  const {
-    selectedChannel,
-    selectChannel,
-    liveEPG,
-    loadLiveEPG,
-    getUnifiedChannels,
-  } = useTVStore()
+  const selectedChannel = useTVStore((s) => s.selectedChannel)
+  const selectChannel = useTVStore((s) => s.selectChannel)
+  const liveEPG = useTVStore((s) => s.liveEPG)
+  const loadLiveEPG = useTVStore((s) => s.loadLiveEPG)
+  const getUnifiedChannels = useTVStore((s) => s.getUnifiedChannels)
 
   // UI state
   const setLastRoute = useUIStore((s) => s.setLastRoute)
   const isEPGVisible = useUIStore((s) => s.isEPGVisible)
-  const toggleEPG = useUIStore((s) => s.toggleEPG)
   const epgHeightPercent = useUIStore((s) => s.epgHeightPercent)
   const setEPGHeightPercent = useUIStore((s) => s.setEPGHeightPercent)
   const isChannelSidebarCollapsed = useUIStore((s) => s.isChannelSidebarCollapsed)
@@ -85,7 +75,6 @@ export function TVView() {
   const setTheaterMode = useUIStore((s) => s.setTheaterMode)
   const toggleTheaterMode = useUIStore((s) => s.toggleTheaterMode)
   const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
-  const toggleNHLOverlay = useUIStore((s) => s.toggleNHLOverlay)
 
   // Handle Escape key
   const handleEscape = useCallback(() => {
@@ -152,24 +141,8 @@ export function TVView() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isTVMode, isTheaterMode, handleEscape, setTheaterMode])
 
-  const programmeTime = useProgrammeClock()
-
   // Get currently playing programme for presence tracking
-  const currentProgrammeTitle = (() => {
-    if (!selectedChannel) return null
-
-    if (selectedChannel.type === 'live') {
-      return liveEPG?.currentProgram?.title ?? null
-    }
-
-    const programmes = programmesByChannel[selectedChannel.id]
-    if (!programmes) return null
-    const now = new Date(programmeTime)
-    const current = programmes.find(
-      (p) => new Date(p.start) <= now && new Date(p.stop) > now
-    )
-    return current?.title ?? null
-  })()
+  const { title: currentProgrammeTitle } = useNowPlaying(selectedChannel)
 
   // Track that user visited this route (now at root)
   useEffect(() => {
@@ -205,6 +178,7 @@ export function TVView() {
 
   // Admin modal state
   const [adminModalOpen, setAdminModalOpen] = useState(false)
+  const openAdmin = useCallback(() => setAdminModalOpen(true), [])
 
   // Live channel picker: admins, and everyone else when the admin has enabled it
   const canControl = isAdmin || userChannelSelection
@@ -214,6 +188,7 @@ export function TVView() {
 
   // Video refresh key
   const [videoRefreshKey, setVideoRefreshKey] = useState(0)
+  const reloadVideo = useCallback(() => setVideoRefreshKey((k) => k + 1), [])
 
   // Resets the chat error boundary when chat is closed or reopened
   const isChatOpen = useChatStore((s) => s.isOpen)
@@ -331,121 +306,14 @@ export function TVView() {
     <div className="flex h-screen supports-[height:100dvh]:h-dvh flex-col overflow-hidden bg-background">
       {/* Header - hidden in theater mode or mobile landscape */}
       {!isTheaterMode && !isMobileLandscape && (
-        <header className="flex justify-between items-center px-4 pt-header-safe pb-2 bg-background border-b rounded-b-lg">
-          <div className="flex min-w-0 flex-1 items-center gap-4">
-            {/* Connection status indicator */}
-            <ConnectionStatus status={status} onReconnect={reconnect} />
-            {/* Current channel/programme info: one line, so a long title can't push the video down */}
-            <span className="truncate text-muted-foreground text-sm">
-              {selectedChannel?.name && currentProgrammeTitle
-                ? `${selectedChannel.name} - ${currentProgrammeTitle}`
-                : selectedChannel?.name || 'Select a channel'}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {/* Guide toggle button - desktop only */}
-            {!isMobile && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={toggleEPG}
-                    className={`
-                      h-8 w-8 flex items-center justify-center rounded-md
-                      focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2
-                      ${isEPGVisible ? 'bg-secondary text-secondary-foreground hover:bg-secondary/80' : 'bg-muted text-muted-foreground hover:bg-muted/80'}
-                    `}
-                    aria-pressed={isEPGVisible}
-                    aria-label={isEPGVisible ? 'Hide guide' : 'Show guide'}
-                  >
-                    <LayoutList className="h-4 w-4 shrink-0" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>{isEPGVisible ? 'Hide guide' : 'Show guide'}</p>
-                </TooltipContent>
-              </Tooltip>
-            )}
-            {/* NHL Scores button - desktop only */}
-            {!isMobile && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={toggleNHLOverlay}
-                    className={`
-                      h-8 w-8 flex items-center justify-center rounded-md
-                      focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2
-                      ${isNHLOverlayVisible ? 'bg-secondary text-secondary-foreground hover:bg-secondary/80' : 'bg-muted text-muted-foreground hover:bg-muted/80'}
-                    `}
-                    aria-pressed={isNHLOverlayVisible}
-                    aria-label={isNHLOverlayVisible ? 'Hide NHL Scores' : 'NHL Scores'}
-                  >
-                    <svg
-                      viewBox="0 0 105 150"
-                      className="h-4 w-4"
-                      fill="currentColor"
-                      aria-hidden="true"
-                    >
-                      <path d="M52.5 0C23.5 0 0 10 0 10v90c0 30 52.5 50 52.5 50S105 130 105 100V10S81.5 0 52.5 0z" />
-                      <text x="52.5" y="85" textAnchor="middle" fontSize="36" fontWeight="bold" fontFamily="Arial" fill="var(--background, #fff)">NHL</text>
-                    </svg>
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>{isNHLOverlayVisible ? 'Hide NHL Scores' : 'NHL Scores'}</p>
-                </TooltipContent>
-              </Tooltip>
-            )}
-            {/* Channel picker - non-admins, only when the admin has enabled it */}
-            {!isAdmin && userChannelSelection && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={() => setChannelPickerOpen(true)}
-                    className="h-8 w-8 flex items-center justify-center bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                    aria-label="Change live channel"
-                  >
-                    <Tv className="h-4 w-4 shrink-0" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Change live channel</p>
-                </TooltipContent>
-              </Tooltip>
-            )}
-            {/* Admin button */}
-            {isAdmin && (
-              <button
-                onClick={() => setAdminModalOpen(true)}
-                className="h-8 w-8 flex items-center justify-center bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                aria-label="Open admin panel"
-              >
-                <ShieldCheck className="h-4 w-4 shrink-0" />
-              </button>
-            )}
-            {/* Refresh video button */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => setVideoRefreshKey((k) => k + 1)}
-                  className="h-8 w-8 flex items-center justify-center bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                  aria-label="Refresh video"
-                >
-                  <RefreshCw className="h-4 w-4 shrink-0" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>Refresh video</p>
-              </TooltipContent>
-            </Tooltip>
-            {/* Feedback (hidden unless the server is configured for it) */}
-            <FeedbackButton />
-            {/* Chat toggle */}
-            <ChatToggleButton />
-            {/* User settings (theme + notifications + logout) */}
-            <UserSettingsMenu onLogout={logout} />
-          </div>
-        </header>
+        <TVHeader
+          status={status}
+          onReconnect={reconnect}
+          onOpenAdmin={openAdmin}
+          onOpenChannelPicker={openLivePicker}
+          onReload={reloadVideo}
+          isMobile={isMobile}
+        />
       )}
 
       {/* Main content */}
@@ -597,158 +465,6 @@ export function TVView() {
           onReconnect={reconnect}
         />
       </ErrorBoundary>
-    </div>
-  )
-}
-
-// Mobile card layout
-interface MobileChannelListProps {
-  onChannelSelect: (channel: UnifiedChannel) => void
-  liveEPGTitle?: string | null
-  // Opens the live channel picker; only for people allowed to change live TV
-  onPickLive?: () => void
-}
-
-function MobileChannelList({ onChannelSelect, liveEPGTitle, onPickLive }: MobileChannelListProps) {
-  const { getUnifiedChannels, isLiveChannelActive, selectedChannel, liveEPGStatus } = useTVStore()
-  const { programmesByChannel } = useErsatztvStore()
-  const [currentTime, setCurrentTime] = useState(() => Date.now())
-
-  const unifiedChannels = getUnifiedChannels()
-  const hasLiveChannel = isLiveChannelActive()
-
-  // Update current time every 30 seconds for time remaining calculations
-  useEffect(() => {
-    const interval = setInterval(() => setCurrentTime(Date.now()), 30 * 1000)
-    return () => clearInterval(interval)
-  }, [])
-
-  // Helper to get current programme for a channel
-  const getCurrentProgramme = (channel: UnifiedChannel): ErsatzTVProgramme | undefined => {
-    if (channel.type === 'live') return undefined
-    const programmes = programmesByChannel[channel.id]
-    if (!programmes) return undefined
-    const now = new Date()
-    return programmes.find(
-      (p) => new Date(p.start) <= now && new Date(p.stop) > now
-    )
-  }
-
-  // Helper to get live programme title
-  const getLiveProgrammeTitle = (): string => {
-    if (liveEPGTitle) return liveEPGTitle
-    if (hasLiveChannel) return describeLiveGuide(liveEPGStatus)
-    return onPickLive ? 'Nothing on yet' : 'Waiting for someone to put something on'
-  }
-
-  return (
-    <div className="space-y-2 p-4">
-      <h2 className="text-lg font-semibold">Channels</h2>
-      <div className="grid grid-cols-1 gap-2">
-        {unifiedChannels.map((channel) => {
-          const isLive = channel.type === 'live'
-          const currentProgramme = getCurrentProgramme(channel)
-          const cardClassName = `
-            rounded-lg border
-            ${selectedChannel?.id === channel.id ? 'border-primary bg-primary/10' : ''}
-            ${isLive ? 'bg-destructive/5' : ''}
-          `
-          // The empty live slot offers the picker next to the tune button
-          // (a sibling, since buttons can't nest)
-          const showPickLive = isLive && !hasLiveChannel && !!onPickLive
-
-          const tuneButton = (
-            <button
-              key={channel.id}
-              onClick={() => onChannelSelect(channel)}
-              className={`
-                flex items-center gap-3 p-3 text-left
-                transition-colors hover:bg-accent
-                ${showPickLive ? 'min-w-0 flex-1 rounded-lg' : cardClassName}
-              `}
-            >
-              <div
-                className={`h-12 w-12 flex-shrink-0 overflow-hidden rounded flex items-center justify-center ${
-                  isLive ? 'bg-destructive/20' : 'bg-muted'
-                }`}
-              >
-                {isLive ? (
-                  hasLiveChannel ? (
-                    <Radio className="h-6 w-6 text-destructive" />
-                  ) : (
-                    <span className="text-xs font-bold text-destructive">0</span>
-                  )
-                ) : channel.logoUrl ? (
-                  <img
-                    src={getErsatzTVLogoUrl(channel.id)}
-                    alt=""
-                    className="h-full w-full object-contain"
-                    onError={(e) => {
-                      ;(e.target as HTMLImageElement).style.display = 'none'
-                    }}
-                  />
-                ) : (
-                  <span className="text-sm font-medium">{channel.number}</span>
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <p className="font-medium">
-                    {isLive ? (hasLiveChannel ? channel.name : 'Live') : channel.name}
-                  </p>
-                  {isLive && hasLiveChannel && (
-                    <span className="rounded bg-live px-1.5 py-0.5 text-[10px] font-bold uppercase text-live-foreground">
-                      Live
-                    </span>
-                  )}
-                </div>
-                <p className="truncate text-sm text-muted-foreground">
-                  {isLive ? getLiveProgrammeTitle() : currentProgramme?.title || channel.group}
-                </p>
-                {/* Progress bar and time remaining for ErsatzTV channels */}
-                {!isLive && currentProgramme && (
-                  <div className="mt-1.5 flex items-center gap-2">
-                    <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
-                      <div
-                        className="h-full rounded-full bg-primary/60 transition-all duration-300"
-                        style={{
-                          width: `${calculateProgress(
-                            new Date(currentProgramme.start).getTime(),
-                            new Date(currentProgramme.stop).getTime(),
-                            currentTime
-                          )}%`,
-                        }}
-                      />
-                    </div>
-                    <span className="shrink-0 text-[10px] text-muted-foreground">
-                      {formatRemaining(new Date(currentProgramme.stop).getTime(), currentTime)}
-                    </span>
-                  </div>
-                )}
-              </div>
-              {/* Static, so nothing blinks beside the video */}
-              {selectedChannel?.id === channel.id && (
-                <AudioLines
-                  className={`h-4 w-4 shrink-0 ${isLive ? 'text-live' : 'text-primary'}`}
-                  aria-hidden="true"
-                  data-testid="now-playing-indicator"
-                />
-              )}
-            </button>
-          )
-
-          if (!showPickLive) return tuneButton
-
-          return (
-            <div key={channel.id} className={`flex items-center pr-3 ${cardClassName}`}>
-              {tuneButton}
-              <Button size="sm" onClick={onPickLive}>
-                Pick a channel
-              </Button>
-            </div>
-          )
-        })}
-      </div>
     </div>
   )
 }

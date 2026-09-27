@@ -1,0 +1,138 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { render, screen, fireEvent, cleanup } from '@/test/utils'
+import { TVHeader } from './TVHeader'
+import { useTVStore } from '@/stores/tvStore'
+import { useUIStore } from '@/stores/uiStore'
+import { useChatStore } from '@/stores/chatStore'
+
+const auth = vi.hoisted(() => ({ isAdmin: false, logout: () => {} }))
+const appSettings = vi.hoisted(() => ({ userChannelSelection: false }))
+const settingsMenu = vi.hoisted(() => ({ onLogout: undefined as undefined | (() => void) }))
+
+vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn(() => new Promise(() => {})) }))
+vi.mock('@/hooks/useAuth', () => ({ useAuth: () => auth }))
+vi.mock('@/hooks/useAppSettings', () => ({ useAppSettings: () => appSettings }))
+vi.mock('@/hooks/useChatEnabled', () => ({ useChatEnabled: () => true }))
+vi.mock('@/components/FeedbackButton', () => ({ FeedbackButton: () => <div data-testid="feedback" /> }))
+vi.mock('@/components/UserSettingsMenu', () => ({ UserSettingsMenu: ({ onLogout }: { onLogout: () => void }) => {
+  settingsMenu.onLogout = onLogout
+  return <div data-testid="settings-menu" />
+} }))
+
+const movies = { id: 'e1', name: 'Movies', number: 1, streamUrl: '/e1', type: 'ersatztv' as const, group: '' }
+
+function renderHeader(overrides: Partial<Parameters<typeof TVHeader>[0]> = {}) {
+  const props = {
+    status: 'connected' as const,
+    onReconnect: vi.fn(),
+    onOpenAdmin: vi.fn(),
+    onOpenChannelPicker: vi.fn(),
+    onReload: vi.fn(),
+    isMobile: false,
+    ...overrides,
+  }
+  render(<TVHeader {...props} />)
+  return props
+}
+
+beforeEach(() => {
+  auth.isAdmin = false
+  auth.logout = vi.fn()
+  appSettings.userChannelSelection = false
+  settingsMenu.onLogout = undefined
+  useTVStore.setState({ selectedChannel: null, liveEPG: null })
+  useUIStore.setState({ isEPGVisible: true, isNHLOverlayVisible: false })
+  useChatStore.setState({ isOpen: false, unreadCount: 0 })
+})
+
+afterEach(() => cleanup())
+
+describe('TVHeader', () => {
+  it('is the page banner, padded below the status bar', () => {
+    renderHeader()
+    expect(screen.getByRole('banner')).toHaveClass('pt-header-safe', 'pb-2')
+  })
+
+  it('shows the channel and programme, or asks for a channel', () => {
+    renderHeader()
+    expect(screen.getByText('Select a channel')).toBeVisible()
+    cleanup()
+
+    useTVStore.setState({ selectedChannel: movies })
+    renderHeader()
+    expect(screen.getByText('Movies')).toBeVisible()
+    cleanup()
+
+    useTVStore.setState({
+      selectedChannel: { id: 'live-channel-0', name: 'Sports', number: 0, streamUrl: '/a', type: 'live' },
+      liveEPG: { channelId: 'a', currentProgram: { title: 'Big Game', startTime: '2026-09-06T11:00:00Z', endTime: '2099-01-01T00:00:00Z' } },
+    })
+    renderHeader()
+    expect(screen.getByText('Sports - Big Game')).toHaveClass('truncate')
+  })
+
+  it('reports the connection and reconnects from it', () => {
+    const props = renderHeader({ status: 'disconnected' })
+    fireEvent.click(screen.getByRole('button', { name: 'Reconnect' }))
+    expect(props.onReconnect).toHaveBeenCalledTimes(1)
+  })
+
+  it('toggles the guide and NHL scores on desktop', () => {
+    renderHeader()
+
+    const guide = screen.getByRole('button', { name: 'Hide guide' })
+    expect(guide).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(guide)
+    expect(useUIStore.getState().isEPGVisible).toBe(false)
+    expect(screen.getByRole('button', { name: 'Show guide' })).toHaveAttribute('aria-pressed', 'false')
+
+    fireEvent.click(screen.getByRole('button', { name: 'NHL Scores' }))
+    expect(useUIStore.getState().isNHLOverlayVisible).toBe(true)
+    expect(screen.getByRole('button', { name: 'Hide NHL Scores' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('leaves the guide and NHL toggles out on a phone', () => {
+    renderHeader({ isMobile: true })
+    expect(screen.queryByRole('button', { name: /guide/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /NHL Scores/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Refresh video' })).toBeVisible()
+  })
+
+  it('reloads the video from Refresh video', () => {
+    const props = renderHeader()
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh video' }))
+    expect(props.onReload).toHaveBeenCalledTimes(1)
+  })
+
+  it('gives an admin the admin panel and no separate live picker', () => {
+    auth.isAdmin = true
+    appSettings.userChannelSelection = true
+    const props = renderHeader()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open admin panel' }))
+    expect(props.onOpenAdmin).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('button', { name: 'Change live channel' })).not.toBeInTheDocument()
+  })
+
+  it('gives a viewer the live picker only when the admin allows it', () => {
+    const props = renderHeader()
+    expect(screen.queryByRole('button', { name: 'Change live channel' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Open admin panel' })).not.toBeInTheDocument()
+    cleanup()
+
+    appSettings.userChannelSelection = true
+    const allowed = renderHeader()
+    fireEvent.click(screen.getByRole('button', { name: 'Change live channel' }))
+    expect(allowed.onOpenChannelPicker).toHaveBeenCalledTimes(1)
+    expect(props.onOpenChannelPicker).not.toHaveBeenCalled()
+  })
+
+  it('keeps feedback, chat and the settings menu, which signs out through auth', () => {
+    renderHeader()
+    expect(screen.getByTestId('feedback')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Open chat' }))
+    expect(useChatStore.getState().isOpen).toBe(true)
+    expect(screen.getByTestId('settings-menu')).toBeInTheDocument()
+    expect(settingsMenu.onLogout).toBe(auth.logout)
+  })
+})
