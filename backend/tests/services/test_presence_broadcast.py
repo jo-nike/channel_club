@@ -1,11 +1,16 @@
 """Tests for the presence snapshot."""
 
-from collections.abc import Iterator
+import asyncio
+from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from app.services import app_settings, presence, presence_broadcast
+
+# Captured at import, before conftest swaps it for a no-op in every test
+REAL_SCHEDULE = presence_broadcast.schedule_broadcast
 
 
 @pytest.fixture(autouse=True)
@@ -190,3 +195,102 @@ class TestPrivacy:
         presence.set_hide_activity("c1", False)
 
         assert presence_broadcast.build_snapshot()[0]["channelName"] == "Movies"
+
+
+@pytest.fixture
+async def broadcasts(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[AsyncMock]:
+    """Turn presence broadcasts back on with a short debounce; returns the sender."""
+    sender = AsyncMock()
+    monkeypatch.setattr(presence_broadcast, "schedule_broadcast", REAL_SCHEDULE)
+    monkeypatch.setattr(presence_broadcast, "BROADCAST_DEBOUNCE_SECONDS", 0.05)
+    monkeypatch.setattr(presence_broadcast.channel_state, "broadcast", sender)
+    monkeypatch.setattr(presence_broadcast, "_pending", None)
+    yield sender
+    presence_broadcast.cancel_pending()
+    await asyncio.sleep(0)
+
+
+async def settle() -> None:
+    """Wait past the debounce window."""
+    await asyncio.sleep(0.15)
+
+
+class TestScheduleBroadcast:
+    """Tests for the debounced presence_update broadcast."""
+
+    async def test_rapid_updates_send_one_broadcast_with_the_latest_state(
+        self, broadcasts: AsyncMock, visible: None
+    ) -> None:
+        """A burst of changes becomes one presence_update carrying the last of them."""
+        watch("c1", "jon", "u_1", "News")
+        for programme in ("One", "Two", "Three"):
+            presence.update_user_channel("c1", "News", programme)
+            presence_broadcast.schedule_broadcast()
+
+        await settle()
+
+        broadcasts.assert_awaited_once()
+        message = broadcasts.await_args_list[0].args[0]
+        assert message["type"] == "presence_update"
+        assert [e["programme"] for e in message["presence"]] == ["Three"]
+
+    async def test_nothing_is_sent_before_the_debounce_window(self, broadcasts: AsyncMock) -> None:
+        presence_broadcast.schedule_broadcast()
+        await asyncio.sleep(0)
+
+        broadcasts.assert_not_awaited()
+
+    async def test_a_later_change_gets_its_own_broadcast(self, broadcasts: AsyncMock) -> None:
+        """Once a broadcast has gone out, the next change schedules another."""
+        presence_broadcast.schedule_broadcast()
+        await settle()
+        watch("c1", "jon", "u_1", "News")
+        presence_broadcast.schedule_broadcast()
+        await settle()
+
+        assert broadcasts.await_count == 2
+        assert broadcasts.await_args_list[0].args[0]["presence"] == []
+        assert [e["displayName"] for e in broadcasts.await_args_list[1].args[0]["presence"]] == [
+            "jon"
+        ]
+
+    async def test_broadcast_respects_privacy(self, broadcasts: AsyncMock) -> None:
+        """While visibility is off (the default) the broadcast carries names only."""
+        watch("c1", "jon", "u_1", "News", channel_id="ch-1", programme="Weather")
+        presence_broadcast.schedule_broadcast()
+
+        await settle()
+
+        assert broadcasts.await_args_list[0].args[0]["presence"] == [
+            {"userId": "u_1", "displayName": "jon", **NAME_ONLY}
+        ]
+
+    async def test_cancel_pending_stops_a_scheduled_broadcast(self, broadcasts: AsyncMock) -> None:
+        presence_broadcast.schedule_broadcast()
+
+        presence_broadcast.cancel_pending()
+        await settle()
+
+        broadcasts.assert_not_awaited()
+
+    def test_stale_cleanup_schedules_a_broadcast(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Removing a stale tab tells everyone, whether the timer or an admin swept it."""
+        schedule = MagicMock()
+        monkeypatch.setattr(presence_broadcast, "schedule_broadcast", schedule)
+        presence.track_user("gone", "ghost", "live")
+        presence._active_users["gone"].last_activity = datetime.now(UTC) - timedelta(hours=1)
+
+        presence.cleanup_stale_users()
+
+        schedule.assert_called_once_with()
+
+    def test_sweep_that_removes_nobody_does_not_broadcast(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        schedule = MagicMock()
+        monkeypatch.setattr(presence_broadcast, "schedule_broadcast", schedule)
+        presence.track_user("here", "friend", "live")
+
+        presence.cleanup_stale_users()
+
+        schedule.assert_not_called()

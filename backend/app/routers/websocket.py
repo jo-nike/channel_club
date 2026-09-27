@@ -12,7 +12,7 @@ from pydantic import ValidationError
 
 from app.config import settings
 from app.models.websocket import MAX_MESSAGE_BYTES, client_message_adapter
-from app.services import app_settings, channel_state, chat, presence
+from app.services import app_settings, channel_state, chat, presence, presence_broadcast
 from app.services.auth import verify_token
 
 router = APIRouter()
@@ -131,6 +131,7 @@ async def websocket_endpoint(
         websocket=websocket,
         user_id=user_id,
     )
+    presence_broadcast.schedule_broadcast()
 
     try:
         async with asyncio.timeout(max(0, payload["exp"] - time.time())):
@@ -144,6 +145,8 @@ async def websocket_endpoint(
                 # to the sign-in name (Plex logins don't store a username), and
                 # the id its own messages carry whatever name they show.
                 "you": {"username": payload["sub"], "userId": user_id},
+                # Who else is here (and, if the admin allows it, what they watch)
+                "presence": presence_broadcast.build_snapshot(),
             }
             await websocket.send_json(ack_message)
 
@@ -185,6 +188,7 @@ async def websocket_endpoint(
         channel_state.disconnect(websocket)
         # Clean up nickname (same websocket-identity guard as presence)
         _clear_nickname(client_id, websocket)
+        presence_broadcast.schedule_broadcast()
 
 
 async def handle_client_message(
@@ -226,6 +230,8 @@ async def handle_client_message(
         presence.update_user_channel(
             client_id, channel, programme, view, channel_id=validated.get("channelId")
         )
+        # Every update, including a programme rollover on the same channel
+        presence_broadcast.schedule_broadcast()
         log.debug(
             "Channel update from client {}: {} - {} (view: {})",
             client_id,
@@ -245,15 +251,18 @@ async def handle_client_message(
         elif nickname:
             _nickname_map[client_id] = (websocket, nickname)
             presence.set_nickname(client_id, nickname)
+            presence_broadcast.schedule_broadcast()
             log.debug("Nickname set for client {}: {}", client_id, nickname)
         else:
             # Empty nickname - remove from map (fall back to auth username)
             _clear_nickname(client_id, websocket)
             presence.set_nickname(client_id, None)
+            presence_broadcast.schedule_broadcast()
             log.debug("Nickname cleared for client {}", client_id)
 
     elif msg_type == "set_presence_prefs":
         presence.set_hide_activity(client_id, validated["hideActivity"])
+        presence_broadcast.schedule_broadcast()
         log.debug("Presence prefs from client {}: hide={}", client_id, validated["hideActivity"])
 
     elif msg_type == "chat_message":

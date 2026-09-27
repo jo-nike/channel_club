@@ -6,7 +6,7 @@ from loguru import logger
 from app.models.admin import AppSettings, UpdateAppSettingsRequest
 from app.models.auth import TokenPayload
 from app.routers.auth_deps import get_current_user, require_admin
-from app.services import app_settings
+from app.services import app_settings, presence_broadcast
 
 router = APIRouter(tags=["settings"])
 log = logger.bind(router="settings")
@@ -57,5 +57,7 @@ async def update_settings(
         result = await app_settings.set_presence_visible(
             request.presence_visible, user=current_user.sub
         )
+        # Called here rather than in app_settings, which presence_broadcast imports
+        presence_broadcast.schedule_broadcast()
 
     return result

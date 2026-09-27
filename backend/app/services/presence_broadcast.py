@@ -8,11 +8,17 @@ started watching something.
 Channels are private by default: unless an admin turns on "Show what everyone
 is watching" (app_settings.presence_visible), and for anyone who chose "Hide
 what I'm watching", the entry carries the name only.
+
+Every change (connect, disconnect, channel or programme change, nickname,
+privacy preference, visibility setting, stale cleanup) calls
+schedule_broadcast(), which coalesces bursts into one presence_update per
+second carrying the snapshot as it is when sent.
 """
 
+import asyncio
 from typing import TypedDict
 
-from app.services import app_settings, presence
+from app.services import app_settings, channel_state, presence
 from app.services.presence import UserPresence, View
 
 
@@ -85,3 +91,43 @@ def build_snapshot() -> list[PresenceEntry]:
     entries = [_entry(user, visible and key not in hidden) for key, user in latest.items()]
     entries.sort(key=lambda e: (e["displayName"].casefold(), e["userId"] or ""))
     return entries
+
+
+# Changes within this window share one presence_update
+BROADCAST_DEBOUNCE_SECONDS = 1.0
+
+# The broadcast waiting out the debounce window, if any
+_pending: asyncio.Task | None = None
+# Strong references to broadcast tasks until they finish (the event loop only
+# keeps weak ones)
+_tasks: set[asyncio.Task] = set()
+
+
+def schedule_broadcast() -> None:
+    """Send everyone a presence_update within about a second.
+
+    Calls while one is already waiting are folded into it. The snapshot is
+    built when the message is sent, so it reflects the last of the changes.
+    Must be called from the event loop.
+    """
+    global _pending
+    if _pending is not None and not _pending.done():
+        return
+    task = asyncio.create_task(_broadcast_after_debounce())
+    _pending = task
+    _tasks.add(task)
+    task.add_done_callback(_tasks.discard)
+
+
+async def _broadcast_after_debounce() -> None:
+    global _pending
+    await asyncio.sleep(BROADCAST_DEBOUNCE_SECONDS)
+    # Let changes made while this broadcast is being sent schedule a new one
+    _pending = None
+    await channel_state.broadcast({"type": "presence_update", "presence": build_snapshot()})
+
+
+def cancel_pending() -> None:
+    """Cancel scheduled and in-flight presence broadcasts (on shutdown)."""
+    for task in list(_tasks):
+        task.cancel()

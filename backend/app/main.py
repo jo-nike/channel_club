@@ -23,7 +23,7 @@ from app.routers.highlight import router as highlight_router
 from app.routers.nhl import router as nhl_router
 from app.routers.settings import router as settings_router
 from app.routers.websocket import router as websocket_router
-from app.services import presence
+from app.services import presence, presence_broadcast
 from app.services.cast import cast_service
 from app.services.dispatcharr import (
     DispatchrrUnavailableError,
@@ -157,6 +157,7 @@ async def lifespan(app: FastAPI):
     with suppress(asyncio.CancelledError):
         await app.state.warmup_task
     presence.stop_cleanup_task()
+    presence_broadcast.cancel_pending()
     # Stop idle cleanup task and all highlight recorders
     highlight_service.stop_idle_cleanup_task()
     await highlight_service.stop_all()

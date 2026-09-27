@@ -29,6 +29,17 @@ with patch.object(DotEnvSettingsSource, "_read_env_files", return_value={}):
 
 
 @pytest.fixture(autouse=True)
+def no_presence_broadcasts(monkeypatch):
+    """Keep presence_update out of socket tests' receive order.
+
+    Presence tests turn broadcasts back on by restoring the real function.
+    """
+    from app.services import presence_broadcast
+
+    monkeypatch.setattr(presence_broadcast, "schedule_broadcast", lambda: None)
+
+
+@pytest.fixture(autouse=True)
 def hermetic_environment(monkeypatch):
     monkeypatch.setitem(Settings.model_config, "env_file", None)
     monkeypatch.setattr(DotEnvSettingsSource, "_read_env_files", lambda self: {})

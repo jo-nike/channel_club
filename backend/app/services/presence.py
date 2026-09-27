@@ -316,6 +316,11 @@ def cleanup_stale_users(timeout_seconds: int = STALE_USER_TIMEOUT_SECONDS) -> in
         user = _active_users.pop(cid, None)
         if user:
             _close_session(user, "stale")
+    if stale:
+        # Import here to avoid a circular dependency (presence_broadcast reads presence)
+        from app.services import presence_broadcast
+
+        presence_broadcast.schedule_broadcast()
     return len(stale)
 
 

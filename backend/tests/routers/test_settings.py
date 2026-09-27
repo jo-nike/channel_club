@@ -1,10 +1,12 @@
 """Tests for settings router."""
 
+from unittest.mock import MagicMock
+
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services import app_settings
+from app.services import app_settings, presence_broadcast
 from app.services.auth import create_access_token
 
 
@@ -185,3 +187,30 @@ class TestPresenceVisibleSetting:
         assert response.json() == {"userChannelSelection": True, "presenceVisible": True}
         assert app_settings.user_channel_selection_enabled() is True
         assert app_settings.presence_visible_enabled() is True
+
+    def test_changing_visibility_rebroadcasts_presence(
+        self,
+        client: TestClient,
+        admin_auth_header: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Members' presence lists gain or lose channels as soon as the admin flips it."""
+        schedule = MagicMock()
+        monkeypatch.setattr(presence_broadcast, "schedule_broadcast", schedule)
+
+        client.put("/api/settings", json={"presenceVisible": True}, headers=admin_auth_header)
+
+        schedule.assert_called_once_with()
+
+    def test_other_settings_do_not_rebroadcast_presence(
+        self,
+        client: TestClient,
+        admin_auth_header: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        schedule = MagicMock()
+        monkeypatch.setattr(presence_broadcast, "schedule_broadcast", schedule)
+
+        client.put("/api/settings", json={"userChannelSelection": True}, headers=admin_auth_header)
+
+        schedule.assert_not_called()
