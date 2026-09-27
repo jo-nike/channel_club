@@ -174,14 +174,14 @@ describe('AccountMenu install', () => {
     expect(screen.queryByRole('menuitem', { name: 'Add to Home Screen' })).not.toBeInTheDocument()
   })
 
-  it('offers Add to Home Screen on iOS, opening the instructions', async () => {
+  it('offers the same Install app on iOS, opening the Add to Home Screen steps', async () => {
     installPrompt.canInstall = true
     installPrompt.variant = 'ios'
     renderMenu()
     openMenu()
-    expect(screen.queryByRole('menuitem', { name: 'Install app' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Add to Home Screen' })).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Add to Home Screen' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Install app' }))
 
     const sheet = await screen.findByRole('dialog', { name: /Add Channel Club to your Home Screen/ })
     expect(sheet).toHaveTextContent('Tap Share')

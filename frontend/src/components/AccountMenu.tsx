@@ -135,18 +135,15 @@ export function AccountMenu({ onOpenChannelPicker, onOpenAdmin, onReload, isMobi
               Send feedback
             </DropdownMenuItem>
           )}
-          {canInstall &&
-            (installVariant === 'ios' ? (
-              <DropdownMenuItem onSelect={() => setIosInstallOpen(true)}>
-                <Download />
-                Add to Home Screen
-              </DropdownMenuItem>
-            ) : (
-              <DropdownMenuItem onSelect={() => void install()}>
-                <Download />
-                Install app
-              </DropdownMenuItem>
-            ))}
+          {/* On iOS it opens the Add to Home Screen steps; elsewhere the browser's dialog */}
+          {canInstall && (
+            <DropdownMenuItem
+              onSelect={() => (installVariant === 'ios' ? setIosInstallOpen(true) : void install())}
+            >
+              <Download />
+              Install app
+            </DropdownMenuItem>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuCheckboxItem
             checked={notificationsEnabled}
