@@ -50,6 +50,8 @@ const makeShell = (overrides: Partial<PlayerShell> = {}): PlayerShell => ({
   setInfoRailVisible: vi.fn(),
   behindLive: null,
   setBehindLive: vi.fn(),
+  isLivePaused: false,
+  setLivePaused: vi.fn(),
   reload: vi.fn(),
   reloadKey: 0,
   ...overrides,
@@ -684,5 +686,63 @@ describe('PlayerInfoOverlay: behind live', () => {
 
     expect(rail()).toHaveTextContent('Cinema')
     expect(jumpButton()).not.toBeInTheDocument()
+  })
+})
+
+describe('PlayerInfoOverlay: pausing the shared live channel', () => {
+  const HINT = "You'll fall behind the group"
+  const liveStatus = () => screen.getByRole('status')
+
+  it('hints that pausing puts the viewer behind the group, in the live status line', () => {
+    renderOverlay(liveSlot(), { isLivePaused: true })
+
+    expect(liveStatus()).toHaveTextContent(HINT)
+  })
+
+  it('shows the hint once: gone on play, and not for the next pause', () => {
+    const { update } = renderOverlay(liveSlot(), { isLivePaused: false })
+    expect(rail()).not.toHaveTextContent(HINT)
+
+    update(liveSlot(), { isLivePaused: true })
+    expect(liveStatus()).toHaveTextContent(HINT)
+
+    update(liveSlot(), { isLivePaused: false })
+    expect(rail()).not.toHaveTextContent(HINT)
+
+    update(liveSlot(), { isLivePaused: true })
+    expect(rail()).not.toHaveTextContent(HINT)
+  })
+
+  it('gives way to a live-channel change announcement', () => {
+    renderOverlay(liveSlot(), { isLivePaused: true })
+    expect(liveStatus()).toHaveTextContent(HINT)
+
+    act(() => useChannelStore.getState().setLastChange({ by: 'jon', at: Date.now(), channelName: 'TSN 5' }))
+
+    expect(liveStatus()).toHaveTextContent('jon put on TSN 5')
+    expect(liveStatus()).not.toHaveTextContent(HINT)
+  })
+
+  it('is only about the shared live channel', () => {
+    renderOverlay(cinema, { isLivePaused: true })
+
+    expect(rail()).not.toHaveTextContent(HINT)
+  })
+
+  it('waits while a channel is previewed with the channel keys', () => {
+    const view = render(
+      <PlayerShellContext value={makeShell({ isLivePaused: true })}>
+        <PlayerInfoOverlay channel={liveSlot()} pending={cinema} />
+      </PlayerShellContext>
+    )
+    expect(rail()).not.toHaveTextContent(HINT)
+
+    view.rerender(
+      <PlayerShellContext value={makeShell({ isLivePaused: true })}>
+        <PlayerInfoOverlay channel={liveSlot()} />
+      </PlayerShellContext>
+    )
+
+    expect(liveStatus()).toHaveTextContent(HINT)
   })
 })

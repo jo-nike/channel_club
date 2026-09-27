@@ -46,6 +46,13 @@ export interface PlayerShell {
   behindLive: BehindLive | null
   /** The engine reports whether it is behind (see useShellLiveEdge) */
   setBehindLive: (behind: BehindLive | null) => void
+  /**
+   * The live (mpegts) engine's picture had started and is now paused, by the
+   * viewer or the browser: the shared channel moves on without them
+   */
+  isLivePaused: boolean
+  /** The live engine reports its pause (see useShellLivePaused) */
+  setLivePaused: (paused: boolean) => void
   /** Re-initialises the engine; the shell (and fullscreen) stays */
   reload: () => void
   /** Changes on every reload, whether asked for here or by the page */
@@ -100,4 +107,19 @@ export function useShellLiveEdge(isBehind: boolean, jumpToLive: () => void): voi
   }, [isBehind, jumpToLive, setBehindLive])
 
   useEffect(() => () => setBehindLive(null), [setBehindLive])
+}
+
+/**
+ * Reports to the shell whether the live engine's picture is paused after it
+ * started, for the info rail's one-time 'fall behind' hint. An engine that
+ * goes away is paused no longer.
+ */
+export function useShellLivePaused(isPaused: boolean): void {
+  const { setLivePaused } = usePlayerShell()
+
+  useEffect(() => {
+    setLivePaused(isPaused)
+  }, [isPaused, setLivePaused])
+
+  useEffect(() => () => setLivePaused(false), [setLivePaused])
 }

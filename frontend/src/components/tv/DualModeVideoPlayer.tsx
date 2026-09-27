@@ -26,6 +26,7 @@ import {
   PlayerShellContext,
   usePlayerShell,
   useShellLiveEdge,
+  useShellLivePaused,
   useShellPlayback,
   type BehindLive,
 } from '@/components/player/PlayerShellContext'
@@ -124,6 +125,8 @@ export function DualModeVideoPlayer({
 
   // The engine reports when it is behind its live edge; the info rail says so
   const [behindLive, setBehindLive] = useState<BehindLive | null>(null)
+  // The live engine reports a pause; the info rail hints what it costs
+  const [isLivePaused, setLivePaused] = useState(false)
 
   // Both counters only grow, so their sum changes on every reload
   const [shellReloads, setShellReloads] = useState(0)
@@ -145,6 +148,8 @@ export function DualModeVideoPlayer({
       setInfoRailVisible,
       behindLive,
       setBehindLive,
+      isLivePaused,
+      setLivePaused,
       stepChannel,
       reload,
       reloadKey,
@@ -157,6 +162,7 @@ export function DualModeVideoPlayer({
       controlsVisible,
       isInfoRailVisible,
       behindLive,
+      isLivePaused,
       stepChannel,
       reload,
       reloadKey,
@@ -435,6 +441,9 @@ function LiveVideoPlayer({
   // Behind its own live edge: only once playback has started (before that the
   // autoplay notice speaks), and not under the casting card, which pauses it
   useShellLiveEdge(hasStarted && adapter.isBehindLive && !isCasting, adapter.jumpToLive)
+  // Paused after it started: not the casting hold, and not once the stream
+  // has failed (the status card speaks then)
+  useShellLivePaused(hasStarted && !isPlaying && !isCasting && !isStopped)
 
   // The tap is a user gesture, so the browser lets the element unmute
   const handleSoundOn = useCallback(() => {

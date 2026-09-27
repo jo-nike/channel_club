@@ -3188,3 +3188,52 @@ describe('DualModeVideoPlayer behind live', () => {
     })
   })
 })
+
+describe('DualModeVideoPlayer pausing the shared live channel', () => {
+  const HINT = "You'll fall behind the group"
+  const fire = (type: string) =>
+    act(() => {
+      video().dispatchEvent(new Event(type))
+    })
+
+  beforeEach(() => {
+    useCastStore.setState(INITIAL_CAST_STATE)
+  })
+  afterEach(() => {
+    useCastStore.setState(INITIAL_CAST_STATE)
+  })
+
+  it('hints once, on the first pause after playback started', () => {
+    renderPlayer(liveChannel('https://fixture/a'))
+    fire('playing')
+    expect(screen.queryByText(HINT)).not.toBeInTheDocument()
+
+    fire('pause')
+    expect(screen.getByText(HINT)).toBeInTheDocument()
+
+    fire('play')
+    expect(screen.queryByText(HINT)).not.toBeInTheDocument()
+
+    fire('pause')
+    expect(screen.queryByText(HINT)).not.toBeInTheDocument()
+  })
+
+  it('says nothing about a picture that never started', () => {
+    renderPlayer(liveChannel('https://fixture/a'))
+
+    fire('pause')
+
+    expect(screen.queryByText(HINT)).not.toBeInTheDocument()
+  })
+
+  it('says nothing about the casting hold, which pauses the picture on purpose', () => {
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
+    renderPlayer(liveChannel('https://fixture/a'))
+    fire('playing')
+
+    act(() => useCastStore.setState({ isLoading: false, isConnected: true, isCasting: true, deviceName: 'Living Room' }))
+    fire('pause')
+
+    expect(screen.queryByText(HINT)).not.toBeInTheDocument()
+  })
+})

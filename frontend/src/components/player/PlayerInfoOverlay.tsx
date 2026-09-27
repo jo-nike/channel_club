@@ -60,9 +60,12 @@ interface PlayerInfoOverlayProps {
  * slow buffer), the LIVE pill's place says 'Behind live · Jump to live'. That
  * is this viewer's stream, not the group: someone who reconnected 30s behind
  * their friends is at their own live edge, so it never claims to be in sync.
+ *
+ * The first time the viewer pauses the shared live channel, the rail says
+ * 'You'll fall behind the group' until they play again. Once per player.
  */
 export function PlayerInfoOverlay({ channel, pending = null, entry = null, missing = null }: PlayerInfoOverlayProps) {
-  const { controlsVisible, isTheaterMode, setInfoRailVisible, behindLive } = usePlayerShell()
+  const { controlsVisible, isTheaterMode, setInfoRailVisible, behindLive, isLivePaused } = usePlayerShell()
   const isTVMode = useTVMode()
   const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
 
@@ -94,6 +97,13 @@ export function PlayerInfoOverlay({ channel, pending = null, entry = null, missi
   const hasRail = (railNumber !== null || railChannel !== null) && !(isTVMode && isTheaterMode)
   const isRailVisible = hasRail && (controlsVisible || isTuneBanner || liveChange !== null || isPreview)
 
+  // The pause hint shows for the first pause of the live channel only, while
+  // the rail can say it (paused keeps the controls, and so the rail, up)
+  const isLivePauseShown = hasRail && !isPreview && channel?.type === 'live' && isLivePaused
+  const [pauseHint, setPauseHint] = useState<'unseen' | 'showing' | 'seen'>('unseen')
+  if (isLivePauseShown && pauseHint === 'unseen') setPauseHint('showing')
+  if (!isLivePauseShown && pauseHint === 'showing') setPauseHint('seen')
+
   // The engine's sound-off pill moves under the rail while it is up
   useEffect(() => {
     setInfoRailVisible(isRailVisible)
@@ -112,6 +122,7 @@ export function PlayerInfoOverlay({ channel, pending = null, entry = null, missi
             isVisible={isRailVisible}
             liveChange={pending ? null : liveChange}
             behindLive={pending ? null : behindLive}
+            isPauseHint={isLivePauseShown && pauseHint !== 'seen'}
           />
         )
       )}
@@ -127,9 +138,11 @@ interface InfoRailProps {
   liveChange: LiveChannelChange | null
   /** The engine is behind its own live edge */
   behindLive: BehindLive | null
+  /** Say that pausing the live channel puts the viewer behind the group */
+  isPauseHint: boolean
 }
 
-function InfoRail({ channel, isVisible, liveChange, behindLive }: InfoRailProps) {
+function InfoRail({ channel, isVisible, liveChange, behindLive, isPauseHint }: InfoRailProps) {
   const { setHoveringControls } = usePlayerShell()
   const { title, timeLeft, isLive, hasLiveChannel } = useNowPlaying(channel)
   // The live slot's logo is the live channel's, which the slot doesn't carry
@@ -170,13 +183,16 @@ function InfoRail({ channel, isVisible, liveChange, behindLive }: InfoRailProps)
             )}
           </p>
           {!liveChange && <p className="mt-0.5 truncate text-sm leading-tight text-white/80">{details}</p>}
-          {/* Always there on channel 0, so screen readers hear the change.
-              Empty between announcements, which takes no height; never
-              display:none, which would take it out of the accessibility tree
-              and make each change a new region that screen readers skip */}
+          {/* Always there on channel 0, so screen readers hear the change
+              (and the pause hint). Empty between announcements, which takes
+              no height; never display:none, which would take it out of the
+              accessibility tree and make each change a new region that
+              screen readers skip */}
           {isLive && (
             <p role="status" className="mt-0.5 truncate text-sm font-semibold leading-tight empty:mt-0">
-              {liveChange && describeLiveChange(liveChange.channelName, liveChange.by)}
+              {liveChange
+                ? describeLiveChange(liveChange.channelName, liveChange.by)
+                : isPauseHint && "You'll fall behind the group"}
             </p>
           )}
         </div>
