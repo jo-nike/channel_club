@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@/test/utils'
+import { act, fireEvent, render, screen, waitFor } from '@/test/utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 import { TVView } from './TVView'
@@ -6,9 +6,11 @@ import { useChannelStore } from '@/stores/channelStore'
 import { useTVStore } from '@/stores/tvStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useUIStore } from '@/stores/uiStore'
+import { useChatStore } from '@/stores/chatStore'
 import * as api from '@/services/ersatztvApi'
 import { fetchNowPlaying } from '@/services/api'
 const presence = vi.hoisted(() => vi.fn())
+const crash = vi.hoisted(() => ({ player: false, chat: false }))
 vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn() }))
 import type { UnifiedChannel } from '@/types'
 
@@ -17,9 +19,20 @@ vi.mock('@/hooks/useWebSocket', () => ({ useWebSocket: () => ({ status: 'connect
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ isAdmin: false, logout: vi.fn() }) }))
 vi.mock('@/hooks/useAppSettings', () => ({ useAppSettings: () => ({ userChannelSelection: false }) }))
 vi.mock('@/hooks/useTheme', () => ({ useTheme: vi.fn() }))
-vi.mock('@/components/tv/DualModeVideoPlayer', () => ({ DualModeVideoPlayer: ({ channel }: { channel: UnifiedChannel | null }) => <div data-testid="player">{channel?.streamUrl || 'No live broadcast'}</div> }))
+vi.mock('@/components/tv/DualModeVideoPlayer', () => ({ DualModeVideoPlayer: ({ channel }: { channel: UnifiedChannel | null }) => {
+  if (crash.player) throw new Error('player exploded')
+  return <div data-testid="player">{channel?.streamUrl || 'No live broadcast'}</div>
+} }))
 vi.mock('@/components/tv/TVEPGGrid', () => ({ TVEPGGrid: () => null }))
-vi.mock('@/components/ChatPanel', () => ({ ChatPanel: () => null }))
+vi.mock('@/components/ChatPanel', async () => {
+  const { useChatStore } = await import('@/stores/chatStore')
+  // Like the real panel, renders nothing (and so can't throw) while closed
+  return { ChatPanel: () => {
+    const isOpen = useChatStore((s) => s.isOpen)
+    if (crash.chat && isOpen) throw new Error('chat exploded')
+    return null
+  } }
+})
 vi.mock('@/components/ersatztv/ProgrammeDetailsModal', () => ({ ProgrammeDetailsModal: () => null }))
 vi.mock('@/components/UserSettingsMenu', () => ({ UserSettingsMenu: () => null }))
 vi.mock('@/components/FeedbackButton', () => ({ FeedbackButton: () => null }))
@@ -27,6 +40,9 @@ vi.mock('@/components/AdminModal', () => ({ AdminModal: () => null }))
 vi.mock('@/components/NHLScoresOverlay', () => ({ NHLScoresOverlay: () => null }))
 
 beforeEach(() => {
+  crash.player = false
+  crash.chat = false
+  useChatStore.setState({ isOpen: false })
   useTVStore.setState({ selectedChannel: null, liveEPG: null })
   useErsatztvStore.setState({ channels: [], channelsLoading: false, error: null })
   useUIStore.setState({ lastTVChannelId: null, isTheaterMode: false, isChannelSidebarCollapsed: false })
@@ -90,5 +106,60 @@ describe('FE-12 programme boundary clock', () => {
     await act(() => vi.advanceTimersByTimeAsync(10000))
     expect(screen.getByText('A - Next live')).toBeVisible()
     expect(presence).toHaveBeenLastCalledWith('A', 'Next live', 'live', 'a')
+  })
+})
+
+describe('A-V1 contained player and chat crashes', () => {
+  beforeEach(() => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
+    // React reports caught render errors to console.error; keep the output quiet.
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  it('keeps the header and channel list when the player throws, and Reload player remounts it', async () => {
+    crash.player = true
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+
+    // The boundary resets (and the player throws again) as the channel resolves
+    await waitFor(() => expect(useTVStore.getState().selectedChannel?.streamUrl).toBe('https://fixture/a'))
+    expect(screen.getByText('The player hit an error')).toBeVisible()
+    expect(screen.getByRole('banner')).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Channels' })).toBeVisible()
+    expect(screen.queryByTestId('player')).not.toBeInTheDocument()
+
+    crash.player = false
+    fireEvent.click(screen.getByRole('button', { name: 'Reload player' }))
+
+    expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a')
+    expect(screen.queryByText('The player hit an error')).not.toBeInTheDocument()
+  })
+
+  it('retries the player when the live channel changes', async () => {
+    crash.player = true
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    // The boundary resets (and the player throws again) as the channel resolves
+    await waitFor(() => expect(useTVStore.getState().selectedChannel?.streamUrl).toBe('https://fixture/a'))
+    expect(screen.getByText('The player hit an error')).toBeVisible()
+
+    crash.player = false
+    act(() => useChannelStore.getState().setCurrentChannel({ id: 'b', name: 'B', streamUrl: 'https://fixture/b' }))
+
+    expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/b')
+  })
+
+  it('shows a small card when chat throws, and Close closes chat and clears it', async () => {
+    crash.chat = true
+    useChatStore.setState({ isOpen: true })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+
+    expect(await screen.findByText('Chat hit an error')).toBeVisible()
+    expect(screen.getByRole('banner')).toBeVisible()
+    expect(screen.getByTestId('player')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+
+    expect(useChatStore.getState().isOpen).toBe(false)
+    expect(screen.queryByText('Chat hit an error')).not.toBeInTheDocument()
   })
 })

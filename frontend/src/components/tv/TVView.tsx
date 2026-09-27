@@ -11,11 +11,14 @@ import { useChannelStore } from '@/stores/channelStore'
 import { useTVStore, initializeTVStore } from '@/stores/tvStore'
 import { getErsatzTVLogoUrl } from '@/services/ersatztvApi'
 import { useUIStore } from '@/stores/uiStore'
+import { useChatStore } from '@/stores/chatStore'
 import { DualModeVideoPlayer } from '@/components/tv/DualModeVideoPlayer'
 import { TVEPGGrid } from '@/components/tv/TVEPGGrid'
 import { TVChannelSidebar } from '@/components/tv/TVChannelSidebar'
 import { ProgrammeDetailsModal } from '@/components/ersatztv/ProgrammeDetailsModal'
 import { ChatPanel } from '@/components/ChatPanel'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { Button } from '@/components/ui/button'
 import { ResizeDragHandle } from '@/components/ui/ResizeDragHandle'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useResizable } from '@/hooks/useResizable'
@@ -153,6 +156,9 @@ export function TVView() {
 
   // Video refresh key
   const [videoRefreshKey, setVideoRefreshKey] = useState(0)
+
+  // Resets the chat error boundary when chat is closed or reopened
+  const isChatOpen = useChatStore((s) => s.isOpen)
 
   // Responsive
   const isMobile = useMediaQuery('(max-width: 768px)')
@@ -410,12 +416,27 @@ export function TVView() {
             }
           >
             <div key={videoRefreshKey} className="h-full w-full">
-              <DualModeVideoPlayer
-                channel={selectedChannel}
-                isTheaterMode={isTheaterMode}
-                isMobile={isMobile}
-                onTheaterModeToggle={toggleTheaterMode}
-              />
+              <ErrorBoundary
+                name="Player"
+                // The live slot keeps one id across channel changes, so the
+                // stream URL is part of the key too
+                resetKey={selectedChannel ? `${selectedChannel.id} ${selectedChannel.streamUrl}` : null}
+                fallback={() => (
+                  <div role="alert" className="flex h-full w-full flex-col items-center justify-center gap-3 text-white">
+                    <p>The player hit an error</p>
+                    <Button variant="secondary" onClick={() => setVideoRefreshKey((k) => k + 1)}>
+                      Reload player
+                    </Button>
+                  </div>
+                )}
+              >
+                <DualModeVideoPlayer
+                  channel={selectedChannel}
+                  isTheaterMode={isTheaterMode}
+                  isMobile={isMobile}
+                  onTheaterModeToggle={toggleTheaterMode}
+                />
+              </ErrorBoundary>
             </div>
             {/* NHL Scores Overlay - positioned over video */}
             <NHLScoresOverlay isVisible={isNHLOverlayVisible} />
@@ -486,10 +507,23 @@ export function TVView() {
       )}
 
       {/* Chat Panel */}
-      <ChatPanel
-        onSendMessage={sendChatMessage}
-        onSetNickname={sendSetNickname}
-      />
+      <ErrorBoundary
+        name="Chat"
+        resetKey={isChatOpen}
+        fallback={() => (
+          <div role="alert" className="fixed top-4 right-4 z-50 flex items-center gap-3 rounded-lg border bg-card p-4 text-card-foreground shadow-lg">
+            <p className="text-sm">Chat hit an error</p>
+            <Button size="sm" variant="outline" onClick={() => useChatStore.getState().setOpen(false)}>
+              Close
+            </Button>
+          </div>
+        )}
+      >
+        <ChatPanel
+          onSendMessage={sendChatMessage}
+          onSetNickname={sendSetNickname}
+        />
+      </ErrorBoundary>
     </div>
   )
 }
