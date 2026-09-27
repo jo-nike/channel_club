@@ -1,6 +1,9 @@
 # Channel Club CI/CD. Master builds deploy by immutable digest; vX.Y.Z tags
 # publish a matching fixed Docker release tag without another deployment.
-# Registry and SSH credentials remain the existing Gitea organization secrets.
+# Registry credentials are Gitea organization secrets. The deploy key and the
+# pinned host keys are repository secrets, which shadow org secrets of the same
+# name. Secrets reach scripts only through env: a ${{ secrets.X }} inside run:
+# is pasted into the script Gitea prints, and a multi-line key isn't masked.
 # The host directory and Infisical path stay unchanged during the rename.
 
 name: CI + Deploy
@@ -172,7 +175,10 @@ jobs:
             --source "$(git rev-parse HEAD)" --output "$GITHUB_OUTPUT"
 
       - name: Login to Gitea registry
-        run: echo "${{ secrets.REGISTRY_TOKEN }}" | docker login "$REGISTRY" -u "${{ secrets.REGISTRY_USER }}" --password-stdin
+        env:
+          REGISTRY_USER: ${{ secrets.REGISTRY_USER }}
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+        run: printf '%s\n' "$REGISTRY_TOKEN" | docker login "$REGISTRY" -u "$REGISTRY_USER" --password-stdin
 
       - name: Reuse an already published matching release
         id: existing
@@ -188,13 +194,16 @@ jobs:
 
       # Tag publication needs registry access only; master also deploys.
       - name: Preflight deploy secrets
+        env:
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
           if [ -n "${{ steps.ver.outputs.release_tag }}" ]; then exit 0; fi
-          if [ -z "${{ secrets.DEPLOY_KNOWN_HOSTS }}" ]; then
+          if [ -z "$DEPLOY_KNOWN_HOSTS" ]; then
             echo "::error::DEPLOY_KNOWN_HOSTS secret is not set — populate it with \`ssh-keyscan $DEPLOY_HOST\` output captured from a trusted vantage point before deploying."
             exit 1
           fi
-          if [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
+          if [ -z "$SSH_PRIVATE_KEY" ]; then
             echo "::error::SSH_PRIVATE_KEY secret is not set — cannot deploy."
             exit 1
           fi
@@ -238,23 +247,26 @@ jobs:
             --release-tag "${{ steps.ver.outputs.release_tag }}" --output "$GITHUB_OUTPUT"
 
       - name: Deploy to plex-stack
+        env:
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
           if [ -n "${{ steps.ver.outputs.release_tag }}" ]; then exit 0; fi
           VERSION="${{ steps.ver.outputs.version }}"
           IMAGE_REFERENCE="${{ steps.artifact.outputs.image_reference }}"
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           # Pin the deploy host's key instead of trusting whatever answers at
           # run time: ssh-keyscan here would be trust-on-every-run and is
           # spoofable by anyone on-path for $DEPLOY_HOST. DEPLOY_KNOWN_HOSTS
           # must be populated with `ssh-keyscan 192.168.50.108` output
           # captured once from a trusted vantage point.
-          if [ -z "${{ secrets.DEPLOY_KNOWN_HOSTS }}" ]; then
+          if [ -z "$DEPLOY_KNOWN_HOSTS" ]; then
             echo "::error::DEPLOY_KNOWN_HOSTS secret is not set — refusing to deploy with an unpinned host key. Populate it with \`ssh-keyscan $DEPLOY_HOST\` output from a trusted vantage point."
             exit 1
           fi
-          echo "${{ secrets.DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           SSH="ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes"
           REMOTE="$DEPLOY_USER@$DEPLOY_HOST"
           $SSH "$REMOTE" "mkdir -p '$DEPLOY_DIR'"
