@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { getRemoteAction, type RemoteAction } from './remoteKeys'
+import { describe, it, expect, afterEach } from 'vitest'
+import { getRemoteAction, isKeyForFocusedControl, type RemoteAction } from './remoteKeys'
 
 const press = (key: string, keyCode = 0) => new KeyboardEvent('keydown', { key, keyCode })
 
@@ -33,5 +33,48 @@ describe('getRemoteAction', () => {
     [13, 'ok'],
   ])('maps keyCode %i with an unidentified key to %s', (keyCode, action) => {
     expect(getRemoteAction(press('Unidentified', keyCode))).toBe(action)
+  })
+})
+
+describe('isKeyForFocusedControl', () => {
+  // A dispatched event keeps its target
+  const keydownOn = (target: EventTarget, init: KeyboardEventInit = {}) => {
+    const event = new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, ...init })
+    target.dispatchEvent(event)
+    return event
+  }
+
+  afterEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  const mount = (html: string) => {
+    document.body.innerHTML = html
+    return document.querySelector('[data-target]')!
+  }
+
+  it('leaves keys on the page body to the TV view', () => {
+    expect(isKeyForFocusedControl(keydownOn(document.body))).toBe(false)
+  })
+
+  it('leaves keys on a plain button to the TV view', () => {
+    expect(isKeyForFocusedControl(keydownOn(mount('<button data-target>Play</button>')))).toBe(false)
+  })
+
+  it.each([
+    ['an input', '<input data-target />'],
+    ['a textarea', '<textarea data-target></textarea>'],
+    ['a select', '<select data-target></select>'],
+    ['contenteditable', '<div contenteditable="true" data-target></div>'],
+    ['a slider', '<div role="slider" data-target></div>'],
+    ['a dialog', '<div role="dialog"><button data-target>OK</button></div>'],
+    ['a menu', '<div role="menu"><div role="menuitem" data-target>Item</div></div>'],
+    ['a listbox', '<div role="listbox"><div role="option" data-target>One</div></div>'],
+  ])('keeps keys inside %s for the control', (_label, html) => {
+    expect(isKeyForFocusedControl(keydownOn(mount(html)))).toBe(true)
+  })
+
+  it.each(['altKey', 'ctrlKey', 'metaKey'] as const)('keeps keys with %s for the browser', (modifier) => {
+    expect(isKeyForFocusedControl(keydownOn(document.body, { [modifier]: true }))).toBe(true)
   })
 })

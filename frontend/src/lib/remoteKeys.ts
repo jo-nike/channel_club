@@ -25,3 +25,18 @@ export function getRemoteAction(e: Pick<KeyboardEvent, 'key' | 'keyCode'>): Remo
   if (e.key === 'Enter' || e.keyCode === 13) return 'ok'
   return null
 }
+
+// Focus here keeps its keys: text entry, sliders, and open dialogs, menus and lists
+const FOCUSED_CONTROL_SELECTOR =
+  'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="dialog"], [role="menu"], [role="listbox"], [role="slider"]'
+
+/**
+ * True when a keydown belongs to the focused control rather than to the TV
+ * view, or carries a modifier (Ctrl+PageUp switches browser tabs).
+ */
+export function isKeyForFocusedControl(
+  e: Pick<KeyboardEvent, 'target' | 'altKey' | 'ctrlKey' | 'metaKey'>
+): boolean {
+  if (e.altKey || e.ctrlKey || e.metaKey) return true
+  return e.target instanceof Element && e.target.closest(FOCUSED_CONTROL_SELECTOR) !== null
+}
