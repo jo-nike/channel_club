@@ -11,7 +11,7 @@ from loguru import logger
 
 from app.main import app
 from app.models.channel import Channel, ChannelGroupWithChannels, GroupedChannelsResponse
-from app.models.epg import EPGResponse, Program
+from app.models.epg import EPGProgrammesResponse, EPGResponse, Program
 from app.services.auth import create_access_token
 from app.services.dispatcharr import DispatchrrUnavailableError
 from app.services.epg_service import EPGServiceError
@@ -423,3 +423,139 @@ class TestGetNowPlayingAll:
         assert response.status_code == 200
         assert response.json()["nowPlaying"]["tsn5.ca"]["title"] == "Test Show"
         mock_service.get_now_playing_bulk.assert_awaited_once_with([])
+
+
+class TestGetProgrammes:
+    """Tests for GET /api/epg/programmes endpoint."""
+
+    def test_requires_authentication(self, client: TestClient) -> None:
+        """Unauthenticated request returns 401."""
+        response = client.get("/api/epg/programmes?channel_id=28")
+
+        assert response.status_code == 401
+
+    def test_requires_channel_id_param(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Missing channel_id returns 422."""
+        response = client.get("/api/epg/programmes", headers=auth_header)
+
+        assert response.status_code == 422
+
+    def test_returns_schedule_in_camel_case(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Returns the channel id and its programmes with camelCase fields."""
+        now = datetime.now(UTC)
+        mock_response = EPGProgrammesResponse(
+            channel_id="28",
+            programmes=[
+                Program(
+                    title="Hockey Night",
+                    start_time=now - timedelta(minutes=30),
+                    end_time=now + timedelta(minutes=30),
+                    description="Leafs at Habs",
+                ),
+                Program(
+                    title="Post-game",
+                    start_time=now + timedelta(minutes=30),
+                    end_time=now + timedelta(hours=1),
+                ),
+            ],
+        )
+
+        with patch("app.routers.epg.get_epg_service") as mock_get_service:
+            mock_service = AsyncMock()
+            mock_service.get_programmes.return_value = mock_response
+            mock_get_service.return_value = mock_service
+
+            response = client.get("/api/epg/programmes?channel_id=28", headers=auth_header)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["channelId"] == "28"
+        assert [p["title"] for p in data["programmes"]] == ["Hockey Night", "Post-game"]
+        assert data["programmes"][0]["description"] == "Leafs at Habs"
+        assert "startTime" in data["programmes"][0]
+        assert "endTime" in data["programmes"][0]
+        assert "channel_id" not in data
+
+    def test_defaults_to_twelve_hours_without_a_name(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Without hours or channel_name, the service gets 12 hours and no name."""
+        with patch("app.routers.epg.get_epg_service") as mock_get_service:
+            mock_service = AsyncMock()
+            mock_service.get_programmes.return_value = EPGProgrammesResponse(
+                channel_id="28", programmes=[]
+            )
+            mock_get_service.return_value = mock_service
+
+            response = client.get("/api/epg/programmes?channel_id=28", headers=auth_header)
+
+        assert response.status_code == 200
+        assert response.json() == {"channelId": "28", "programmes": []}
+        mock_service.get_programmes.assert_awaited_once_with("28", 12, channel_name=None)
+
+    def test_passes_hours_and_channel_name_to_service(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """The window length and the fallback name are forwarded."""
+        with patch("app.routers.epg.get_epg_service") as mock_get_service:
+            mock_service = AsyncMock()
+            mock_service.get_programmes.return_value = EPGProgrammesResponse(
+                channel_id="28", programmes=[]
+            )
+            mock_get_service.return_value = mock_service
+
+            response = client.get(
+                "/api/epg/programmes",
+                params={"channel_id": "28", "hours": 48, "channel_name": "CA-S: TSN 5"},
+                headers=auth_header,
+            )
+
+        assert response.status_code == 200
+        mock_service.get_programmes.assert_awaited_once_with("28", 48, channel_name="CA-S: TSN 5")
+
+    @pytest.mark.parametrize("hours", [0, 49, -1])
+    def test_rejects_hours_out_of_range(
+        self, client: TestClient, auth_header: dict[str, str], hours: int
+    ) -> None:
+        """hours must be between 1 and 48; anything else never reaches the service."""
+        with patch("app.routers.epg.get_epg_service") as mock_get_service:
+            response = client.get(
+                "/api/epg/programmes",
+                params={"channel_id": "28", "hours": hours},
+                headers=auth_header,
+            )
+
+        assert response.status_code == 422
+        mock_get_service.assert_not_called()
+
+    def test_rejects_overlong_channel_name(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """A channel name over 256 characters is rejected before reaching the service."""
+        with patch("app.routers.epg.get_epg_service") as mock_get_service:
+            response = client.get(
+                "/api/epg/programmes",
+                params={"channel_id": "28", "channel_name": "x" * 257},
+                headers=auth_header,
+            )
+
+        assert response.status_code == 422
+        mock_get_service.assert_not_called()
+
+    def test_returns_503_when_service_unavailable(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Returns 503 when EPG service is unavailable."""
+        with patch("app.routers.epg.get_epg_service") as mock_get_service:
+            mock_service = AsyncMock()
+            mock_service.get_programmes.side_effect = EPGServiceError("EPG service unavailable")
+            mock_get_service.return_value = mock_service
+
+            response = client.get("/api/epg/programmes?channel_id=28", headers=auth_header)
+
+        assert response.status_code == 503
+        assert response.json() == {"detail": "EPG service unavailable"}

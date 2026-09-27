@@ -5,7 +5,7 @@ from loguru import logger
 
 from app.models.auth import TokenPayload
 from app.models.channel import Channel
-from app.models.epg import EPGResponse, NowPlayingBulkResponse
+from app.models.epg import EPGProgrammesResponse, EPGResponse, NowPlayingBulkResponse
 from app.routers.auth_deps import get_current_user
 from app.services.dispatcharr import DispatchrrUnavailableError, get_grouped_channels
 from app.services.epg_service import EPGServiceError, get_epg_service
@@ -94,6 +94,49 @@ async def get_now_playing(
         return result
     except EPGServiceError:
         log.warning("EPG service unavailable for channel: {}", channel_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="EPG service unavailable",
+        ) from None
+
+
+@router.get("/epg/programmes", response_model=EPGProgrammesResponse)
+async def get_programmes(
+    channel_id: str = Query(..., description="Guide id of the channel to get the schedule for"),
+    hours: int = Query(12, ge=1, le=48, description="How many hours ahead of now to include"),
+    channel_name: str | None = Query(
+        None,
+        max_length=256,
+        description="Channel name, matched to an XMLTV display name when the id has no data",
+    ),
+    current_user: TokenPayload = Depends(get_current_user),
+) -> EPGProgrammesResponse:
+    """Get a channel's schedule from the XMLTV guide.
+
+    Requires JWT authentication. Returns the programmes that end after
+    30 minutes ago and start within the next `hours` hours, in start order.
+
+    Args:
+        channel_id: Guide id of the channel to look up.
+        hours: How many hours ahead of now to include (1-48).
+        channel_name: Optional channel name to fall back on.
+        current_user: Authenticated user from JWT token.
+
+    Returns:
+        EPGProgrammesResponse with the channel's programmes in the window.
+
+    Raises:
+        HTTPException: 503 if EPG service is unavailable.
+    """
+    log.debug("EPG programmes request for channel_id: {} ({}h)", channel_id, hours)
+    epg_service = get_epg_service()
+
+    try:
+        result = await epg_service.get_programmes(channel_id, hours, channel_name=channel_name)
+        log.debug("EPG programmes returned {} for channel: {}", len(result.programmes), channel_id)
+        return result
+    except EPGServiceError:
+        log.warning("EPG service unavailable for programmes of channel: {}", channel_id)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="EPG service unavailable",

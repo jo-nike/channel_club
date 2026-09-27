@@ -1,7 +1,7 @@
 """Tests for EPG service."""
 
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -745,6 +745,132 @@ class TestGetNowPlayingBulkNameFallback:
         result = await service.get_now_playing_bulk([_catalogue_channel("28", "CA-S: TSN 5")])
 
         assert result == {}
+
+
+def _programme(title: str, start: datetime, end: datetime) -> Program:
+    return Program(title=title, start_time=start, end_time=end)
+
+
+class TestGetProgrammes:
+    """Tests for the schedule window of a single channel."""
+
+    @pytest.mark.asyncio
+    async def test_returns_programmes_inside_the_window_in_start_order(self) -> None:
+        """Programmes ending after now-30min and starting before now+hours are returned."""
+        service = EPGService("http://test:9191")
+        now = datetime.now(UTC)
+        service._cache = {
+            "28": [
+                _programme("Ended 45m ago", now - timedelta(hours=2), now - timedelta(minutes=45)),
+                _programme(
+                    "Ended 10m ago", now - timedelta(minutes=45), now - timedelta(minutes=10)
+                ),
+                _programme("On now", now - timedelta(minutes=10), now + timedelta(minutes=50)),
+                _programme(
+                    "Later", now + timedelta(minutes=50), now + timedelta(hours=2, minutes=55)
+                ),
+                _programme(
+                    "Just inside", now + timedelta(hours=2, minutes=55), now + timedelta(hours=4)
+                ),
+                _programme(
+                    "Past the end", now + timedelta(hours=3, minutes=5), now + timedelta(hours=5)
+                ),
+            ]
+        }
+        service._cache_expires = now + timedelta(hours=1)
+
+        result = await service.get_programmes("28", hours=3)
+
+        assert result.channel_id == "28"
+        assert [p.title for p in result.programmes] == [
+            "Ended 10m ago",
+            "On now",
+            "Later",
+            "Just inside",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_window_bounds_hold_for_programmes_in_other_timezones(self) -> None:
+        """XMLTV offsets other than UTC are compared as instants, not wall-clock times."""
+        service = EPGService("http://test:9191")
+        now = datetime.now(UTC)
+        eastern = timezone(timedelta(hours=-5))
+        service._cache = {
+            "28": [
+                _programme(
+                    "On now",
+                    (now - timedelta(minutes=10)).astimezone(eastern),
+                    (now + timedelta(minutes=50)).astimezone(eastern),
+                ),
+                _programme(
+                    "Tomorrow",
+                    (now + timedelta(hours=20)).astimezone(eastern),
+                    (now + timedelta(hours=21)).astimezone(eastern),
+                ),
+            ]
+        }
+        service._cache_expires = now + timedelta(hours=1)
+
+        result = await service.get_programmes("28", hours=12)
+
+        assert [p.title for p in result.programmes] == ["On now"]
+
+    @pytest.mark.asyncio
+    async def test_unknown_channel_returns_no_programmes(self) -> None:
+        """A guide id with no data and no name is an empty schedule, not an error."""
+        service = EPGService("http://test:9191")
+        now = datetime.now(UTC)
+        service._cache = {"29": _on_air("Other Channel", now)}
+        service._cache_expires = now + timedelta(hours=1)
+
+        result = await service.get_programmes("28", hours=12)
+
+        assert result.channel_id == "28"
+        assert result.programmes == []
+
+    @pytest.mark.asyncio
+    async def test_name_fallback_returns_that_channels_schedule(self) -> None:
+        """A guide id missing from the feed resolves through the display name."""
+        service = EPGService("http://test:9191")
+        now = datetime.now(UTC)
+        service._cache = {
+            "tsn5.ca": [
+                _programme("Hockey Night", now - timedelta(minutes=30), now + timedelta(hours=1)),
+                _programme("Post-game", now + timedelta(hours=1), now + timedelta(hours=2)),
+            ],
+            "cbc.ca": _on_air("The National", now),
+        }
+        service._channel_names = {"ca-s: tsn 5": "tsn5.ca", "cbc": "cbc.ca"}
+        service._cache_expires = now + timedelta(hours=1)
+
+        result = await service.get_programmes("28", hours=12, channel_name="  CA-S:  TSN 5 ")
+
+        assert result.channel_id == "28"
+        assert [p.title for p in result.programmes] == ["Hockey Night", "Post-game"]
+
+    @pytest.mark.asyncio
+    async def test_exact_guide_id_wins_over_name(self) -> None:
+        """The name map is only consulted when the guide id has no programmes."""
+        service = EPGService("http://test:9191")
+        now = datetime.now(UTC)
+        service._cache = {"28": _on_air("By Id", now), "tsn5.ca": _on_air("By Name", now)}
+        service._channel_names = {"ca-s: tsn 5": "tsn5.ca"}
+        service._cache_expires = now + timedelta(hours=1)
+
+        result = await service.get_programmes("28", hours=12, channel_name="CA-S: TSN 5")
+
+        assert [p.title for p in result.programmes] == ["By Id"]
+
+    @pytest.mark.asyncio
+    async def test_raises_when_no_cache_and_refresh_fails(self) -> None:
+        """An empty cache with a failed refresh is an outage, reported as an error."""
+        service = EPGService("http://test:9191")
+
+        with (
+            patch.object(service, "refresh_cache", new=AsyncMock(return_value=False)),
+            pytest.raises(EPGServiceError),
+        ):
+            await service.get_programmes("28", hours=12)
 
 
 class TestCacheValidity:
