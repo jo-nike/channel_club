@@ -5,8 +5,6 @@ import { useAppSettings } from '@/hooks/useAppSettings'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
 import { useTVMode } from '@/hooks/useTVMode'
 import { useChannelZap } from '@/hooks/useChannelZap'
-import { useLiveChangeAnnouncement } from '@/hooks/useLiveChangeAnnouncement'
-import { getRemoteAction, isKeyForFocusedControl } from '@/lib/remoteKeys'
 import { useNowPlaying } from '@/hooks/useNowPlaying'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
@@ -18,7 +16,6 @@ import { useChannelPrefsStore } from '@/stores/channelPrefsStore'
 import { DualModeVideoPlayer } from '@/components/tv/DualModeVideoPlayer'
 import { TVEPGGrid } from '@/components/tv/TVEPGGrid'
 import { TVChannelSidebar } from '@/components/tv/TVChannelSidebar'
-import { ZapBanner } from '@/components/tv/ZapBanner'
 import { MobileChannelList } from '@/components/tv/MobileChannelList'
 import { TVHeader } from '@/components/tv/TVHeader'
 import { ProgrammeDetailsModal, type ProgrammeDetailsChannel } from '@/components/ersatztv/ProgrammeDetailsModal'
@@ -37,6 +34,7 @@ import { useVisualViewportHeight } from '@/hooks/useVisualViewportHeight'
 import { useUnreadTitleBadge } from '@/hooks/useUnreadTitleBadge'
 import { AdminModal } from '@/components/AdminModal'
 import { LiveSwitcherSheet } from '@/components/LiveSwitcherSheet'
+import { CouchView } from '@/components/couch/CouchView'
 import { getProgrammeState } from '@/lib/programmes'
 import { cn } from '@/lib/utils'
 import type { ErsatzTVProgramme, UnifiedChannel } from '@/types'
@@ -127,7 +125,7 @@ export function TVView() {
   const setTheaterMode = useUIStore((s) => s.setTheaterMode)
   const toggleTheaterMode = useUIStore((s) => s.toggleTheaterMode)
 
-  // Escape, and a TV remote's Back, close the top layer: chat, then
+  // Escape closes the top layer: chat, then
   // fullscreen, then theater. One handler for all three, because
   // stopPropagation can't keep one window listener from another. Browsers
   // take Esc for themselves in real fullscreen, so chat can't promise it there.
@@ -150,76 +148,26 @@ export function TVView() {
     dismissTopLayer()
   }, [dismissTopLayer])
 
-  useEscapeKey({ onEscape: handleEscape })
-
-  // TV browsers (webOS/Tizen) start in theater, the only layout that fills the
-  // screen from a remote. Runs once, so leaving theater sticks.
+  // TV browsers (webOS/Tizen, or ?tv=1) get the couch layout, whose remote
+  // keys (Back among them) are its own
   const isTVMode = useTVMode()
-  useEffect(() => {
-    if (isTVMode) setTheaterMode(true)
-  }, [isTVMode, setTheaterMode])
+  useEscapeKey({ onEscape: handleEscape, enabled: !isTVMode })
 
-  // CH+/CH- and Up/Down zap in TV theater, and the player's channel keys
-  // everywhere else. Tuning waits for the presses to stop.
+  // The couch's styles (index.css) apply under html.couch
+  useEffect(() => {
+    if (!isTVMode) return
+    document.documentElement.classList.add('couch')
+    return () => document.documentElement.classList.remove('couch')
+  }, [isTVMode])
+
+  // The player's channel keys (PageUp/PageDown, digits, L). Tuning waits for
+  // the presses to stop.
   const zap = useChannelZap({
     getChannels: getUnifiedChannels,
     selected: selectedChannel,
     previousId: previousChannelId,
     onTune: selectChannel,
   })
-  const { pending: zapPending, step: zapStep } = zap
-  const isTVTheater = isTVMode && isTheaterMode
-  // The info rail stays out of TV theater: the channel banner tells a viewer
-  // on channel 0 who changed the live channel instead
-  const liveChange = useLiveChangeAnnouncement(isTVTheater && selectedChannel?.type === 'live')
-
-  useEffect(() => {
-    if (!isTVTheater) return
-    // Capture phase, so the zap runs before (and instead of) the player's and
-    // the page's own arrow-key handlers
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (isKeyForFocusedControl(e)) return
-      const action = getRemoteAction(e)
-      if (action !== 'channelUp' && action !== 'channelDown') return
-      e.preventDefault()
-      e.stopPropagation()
-      zapStep(action === 'channelUp' ? 1 : -1)
-    }
-    window.addEventListener('keydown', handleKeyDown, true)
-    return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [isTVTheater, zapStep])
-
-  // TV remotes: Back closes chat, then leaves theater (the header comes back),
-  // and OK returns to theater. A 5-way remote can't move focus in the desktop
-  // layout, so without OK a viewer who pressed Back would be stuck there. Back
-  // outside theater with chat closed is left to the browser.
-  useEffect(() => {
-    if (!isTVMode) return
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.defaultPrevented) return
-      const action = getRemoteAction(e)
-      // Escape already goes through useEscapeKey
-      if (action === 'back' && e.key !== 'Escape') {
-        const isChatOpen = useChatStore.getState().isOpen
-        // Chat focuses its message field, so a remote's Back there still closes
-        // chat. Backspace in the field keeps editing the text.
-        const isRemoteBackInChat = isChatOpen && e.key !== 'Backspace' && e.keyCode !== 8 &&
-          e.target instanceof Element && e.target.closest('#chat-panel') !== null
-        if (isKeyForFocusedControl(e) && !isRemoteBackInChat) return
-        if (!isTheaterMode && !isChatOpen) return
-        // Stops webOS Back (461) and Backspace from navigating history
-        e.preventDefault()
-        dismissTopLayer()
-      } else if (
-        !isTheaterMode && action === 'ok' && !isKeyForFocusedControl(e) &&
-        (!document.activeElement || document.activeElement === document.body)
-      ) {
-        setTheaterMode(true)
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isTVMode, isTheaterMode, dismissTopLayer, setTheaterMode])
 
   // Get currently playing programme for presence tracking
   const { title: currentProgrammeTitle } = useNowPlaying(selectedChannel)
@@ -333,11 +281,10 @@ export function TVView() {
   const isTabletRail = useTouchTablet()
   // '/' focuses the channel search: the sidebar's, or the guide's while it
   // is open. Only where one is on screen: not in theater (or a phone
-  // turned sideways), whose player covers the page, not on the phone
-  // layout or the tablet's rail without the guide, which have no search,
-  // and not on a TV, where a remote has no '/'
+  // turned sideways), whose player covers the page, and not on the phone
+  // layout or the tablet's rail without the guide, which have no search
   const requestSearchFocus = useChannelPrefsStore((s) => s.requestSearchFocus)
-  const canSearchChannels = !isMobile && !isTheaterMode && !isMobileLandscape && !isTVMode &&
+  const canSearchChannels = !isMobile && !isTheaterMode && !isMobileLandscape &&
     (!isTabletRail || isEPGVisible)
 
   const handleToggleSidebar = useCallback(() => {
@@ -488,6 +435,22 @@ export function TVView() {
 
   const handlePhoneTabChange = useCallback((tab: string) => setChatOpen(tab === 'chat'), [setChatOpen])
 
+  // A TV gets the couch layout instead of the page, after every shared hook
+  // above, so the WebSocket and the programme loading are the same for both
+  if (isTVMode) {
+    return (
+      <>
+        <CouchView onPickLive={onPickLive} />
+        {canControl && (
+          <LiveSwitcherSheet
+            open={channelPickerOpen}
+            onOpenChange={setChannelPickerOpen}
+          />
+        )}
+      </>
+    )
+  }
+
   return (
     // 100vh where dvh is unsupported (older webOS/Tizen), the dynamic viewport
     // elsewhere, so Safari's toolbar doesn't hide the bottom of the list. On
@@ -575,17 +538,6 @@ export function TVView() {
                 onFocusSearch={canSearchChannels ? requestSearchFocus : undefined}
               />
             </ErrorBoundary>
-            {/* Channel banner while zapping in TV theater, where the info
-                rail stays away. A typed number shows its channel once it
-                matches one, and its digits until then. */}
-            {isTVTheater && (
-              <ZapBanner
-                channel={zapPending ?? selectedChannel}
-                entry={zapPending ? null : zap.entry}
-                missing={zap.missing}
-                liveChange={zapPending ? null : liveChange}
-              />
-            )}
           </div>
 
           {/* Resize handle - only on desktop when EPG visible, hidden in theater/landscape */}

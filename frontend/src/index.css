@@ -308,6 +308,17 @@
 }
 
 /* ============================
+   COUCH (10-FOOT) VIEW
+   ============================ */
+
+/* TVView sets html.couch while a TV browser has the couch view (CouchView).
+   Tooltips follow a hovering pointer, which a remote hasn't got: under a
+   Magic Remote's pointer they would only cover the picture. */
+.couch [data-slot="tooltip-content"] {
+  display: none;
+}
+
+/* ============================
    PROJECTOR BEAM LOADER
    ============================ */
 

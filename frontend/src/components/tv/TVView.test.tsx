@@ -1531,34 +1531,16 @@ describe('G-09 tablet layout', () => {
 
       expect(playerProps.onFocusSearch).toBeDefined()
     })
-
-    // webOS pointer mode can report a coarse pointer
-    it('keeps the list a TV viewer chose', async () => {
-      localStorage.setItem('tv-mode', 'true')
-      try {
-        mockViewport({ width: 1280, height: 720, pointer: 'coarse' })
-        render(<MemoryRouter><TVView /></MemoryRouter>)
-        await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
-        // TV mode starts in theater; leave it to see the page layout
-        act(() => useUIStore.setState({ isTheaterMode: false }))
-
-        expect(screen.getByRole('heading', { name: 'Channels' })).toBeVisible()
-      } finally {
-        localStorage.removeItem('tv-mode')
-        useUIStore.setState({ isTheaterMode: false })
-      }
-    })
   })
 })
 
-describe('C-04 live changes in TV theater', () => {
+describe('C-04 live changes in the couch view', () => {
   beforeEach(() => {
     vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
     localStorage.setItem('tv-mode', 'true')
   })
   afterEach(() => {
     localStorage.removeItem('tv-mode')
-    useUIStore.setState({ isTheaterMode: false })
   })
 
   const liveChange = (name: string, by: string | null) =>
@@ -1570,7 +1552,6 @@ describe('C-04 live changes in TV theater', () => {
   it('names who changed the live channel in the channel banner, where the info rail stays away', async () => {
     render(<MemoryRouter><TVView /></MemoryRouter>)
     await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
-    expect(useUIStore.getState().isTheaterMode).toBe(true)
 
     liveChange('TSN 5', 'jon')
 

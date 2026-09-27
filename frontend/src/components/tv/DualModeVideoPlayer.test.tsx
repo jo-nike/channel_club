@@ -895,7 +895,7 @@ describe('DualModeVideoPlayer fullscreen state', () => {
   it.each([
     ['live', liveChannel('https://fixture/a')],
     ['ErsatzTV', hlsChannel('1', 1)],
-  ])('%s: on a TV that looks like a touch device, Theater and Fullscreen stay, and Fullscreen fullscreens the shell', (_engine, channel) => {
+  ])('%s: on a TV that looks like a touch device, Fullscreen stays and fullscreens the shell, with no Theater', (_engine, channel) => {
     // webOS pointer mode can report pointer:coarse, so TV mode must win
     localStorage.setItem('tv-mode', 'true')
     matchMediaQueries(['(pointer: coarse)'])
@@ -905,7 +905,8 @@ describe('DualModeVideoPlayer fullscreen state', () => {
     try {
       renderPlayer(channel)
 
-      expect(screen.getByRole('button', { name: 'Theater mode' })).toBeInTheDocument()
+      // The couch layout always fills the screen
+      expect(screen.queryByRole('button', { name: /theater/i })).not.toBeInTheDocument()
       fireEvent.click(screen.getByRole('button', { name: 'Fullscreen' }))
 
       expect(requestFullscreen).toHaveBeenCalledTimes(1)

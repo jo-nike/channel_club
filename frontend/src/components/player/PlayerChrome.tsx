@@ -73,9 +73,10 @@ export function PlayerChrome({
   // and sideways the player already fills the screen. A touch tablet gets it,
   // since a tap brings the bar and its Exit theater button back. Once theater
   // is on the button stays, whatever the layout: an iPad turned upright in
-  // theater becomes a 'phone', and this button is its only way out.
+  // theater becomes a 'phone', and this button is its only way out. Never
+  // on a TV, whose couch layout always fills the screen.
   const isPhone = isMobileProp || isMobileQuery || isMobileLandscape
-  const showTheaterButton = (isTVMode || !isPhone || isTheaterMode) && !isFullscreen
+  const showTheaterButton = !isTVMode && (!isPhone || isTheaterMode) && !isFullscreen
 
   // Chat, where the page header and its chat button are gone: theater, a
   // phone held sideways, and fullscreen. In fullscreen only where isMobile is
@@ -313,9 +314,8 @@ export function PlayerChrome({
         </TooltipContent>
       </Tooltip>
 
-      {/* Theater Mode Button - hidden on phones and in fullscreen (see
-          showTheaterButton). TV browsers always get it, whatever their
-          viewport or pointer. */}
+      {/* Theater Mode Button - hidden on phones, on TVs and in fullscreen
+          (see showTheaterButton) */}
       {showTheaterButton && (
         <Tooltip>
           <TooltipTrigger asChild>

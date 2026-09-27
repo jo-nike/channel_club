@@ -17,18 +17,17 @@ interface ZapBannerProps {
 }
 
 /**
- * Channel banner for TV theater mode. It appears when it mounts (entering
- * theater) and again whenever the channel changes, then hides 3s later. The
- * hint tells remote users how to zap and how to get the header back, since
- * theater hides it.
+ * Channel banner for the couch (TV) view. It appears when it mounts and again
+ * whenever the channel changes, then hides 3s later. The hint tells remote
+ * users how to change channel, since the couch view has no guide.
  *
  * A typed number that matches no channel (yet) shows its digits instead of a
  * channel, and 'No channel 99' once it is entered, so the banner never
  * implies the number was taken.
  *
- * The info rail stays out of TV theater, so the banner also tells a viewer on
- * channel 0 who changed the live channel, in the rail's and the toast's words
- * ('jon put on TSN 5'), and comes up again for it.
+ * The info rail stays out of the couch view, so the banner also tells a
+ * viewer on channel 0 who changed the live channel, in the rail's and the
+ * toast's words ('jon put on TSN 5'), and comes up again for it.
  */
 export function ZapBanner({ channel, entry = null, missing = null, liveChange = null }: ZapBannerProps) {
   const number = missing ?? entry
@@ -80,7 +79,7 @@ function ZapBannerCard({ children, detail = null }: { children: ReactNode; detai
     <div className="rounded-2xl bg-black/70 px-8 py-6 text-white shadow-2xl">
       <p className="text-5xl font-bold">{children}</p>
       {detail && <p className="mt-3 text-3xl font-semibold">{detail}</p>}
-      <p className="mt-3 text-2xl text-white/80">▲▼ change channel · Back for menu</p>
+      <p className="mt-3 text-2xl text-white/80">▲▼ change channel · 0-9 channel number</p>
     </div>
   )
 }
