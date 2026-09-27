@@ -57,11 +57,12 @@ export function TVHeader({
 
       {/* Phones keep Host or Change live, Chat and the account menu as 44px targets */}
       <nav aria-label="Watch controls" className="flex shrink-0 items-center gap-1 md:gap-2">
-        {/* Guide toggle - desktop only */}
+        {/* Guide toggle - desktop only. The toggles keep a fixed name and
+            aria-pressed carries the state, so it reads "Guide, pressed". */}
         {!isMobile && (
           <HeaderAction
             icon={<LayoutList />}
-            label={isEPGVisible ? 'Hide guide' : 'Show guide'}
+            label="Guide"
             visibleLabel="Guide"
             pressed={isEPGVisible}
             onClick={(e) => {
@@ -84,7 +85,7 @@ export function TVHeader({
                 NHL
               </span>
             }
-            label={isNHLOverlayVisible ? 'Hide NHL Scores' : 'NHL Scores'}
+            label="NHL scores"
             pressed={isNHLOverlayVisible}
             onClick={toggleNHLOverlay}
           />

@@ -136,15 +136,36 @@ describe('TVHeader', () => {
   it('toggles the guide and NHL scores on desktop', () => {
     renderHeader()
 
-    const guide = screen.getByRole('button', { name: 'Hide guide' })
+    const guide = screen.getByRole('button', { name: 'Guide' })
     expect(guide).toHaveAttribute('aria-pressed', 'true')
     fireEvent.click(guide)
     expect(useUIStore.getState().isEPGVisible).toBe(false)
-    expect(screen.getByRole('button', { name: 'Show guide' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: 'Guide' })).toHaveAttribute('aria-pressed', 'false')
 
-    fireEvent.click(screen.getByRole('button', { name: 'NHL Scores' }))
+    fireEvent.click(screen.getByRole('button', { name: 'NHL scores' }))
     expect(useUIStore.getState().isNHLOverlayVisible).toBe(true)
-    expect(screen.getByRole('button', { name: 'Hide NHL Scores' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'NHL scores' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('keeps the toggle names fixed and lets aria-pressed carry the state', async () => {
+    renderHeader()
+    const guide = screen.getByRole('button', { name: 'Guide', pressed: true })
+    const nhl = screen.getByRole('button', { name: 'NHL scores', pressed: false })
+
+    fireEvent.click(guide)
+    fireEvent.click(nhl)
+    // Same elements, same names; only the pressed state flips
+    expect(guide).toHaveAccessibleName('Guide')
+    expect(guide).toHaveAttribute('aria-pressed', 'false')
+    expect(nhl).toHaveAccessibleName('NHL scores')
+    expect(nhl).toHaveAttribute('aria-pressed', 'true')
+
+    // The tooltip agrees with the name rather than naming an action
+    await act(async () => {
+      nhl.focus()
+    })
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('NHL scores')
+    expect(screen.queryByText(/Hide|Show/)).not.toBeInTheDocument()
   })
 
   it('asks the guide to take focus only when it is opened from the keyboard', () => {
@@ -152,16 +173,16 @@ describe('TVHeader', () => {
     renderHeader()
 
     // A pointer click counts its presses in detail
-    fireEvent.click(screen.getByRole('button', { name: 'Show guide' }), { detail: 1 })
+    fireEvent.click(screen.getByRole('button', { name: 'Guide' }), { detail: 1 })
     expect(useUIStore.getState()).toMatchObject({ isEPGVisible: true, guideFocusRequested: false })
-    fireEvent.click(screen.getByRole('button', { name: 'Hide guide' }), { detail: 1 })
+    fireEvent.click(screen.getByRole('button', { name: 'Guide' }), { detail: 1 })
 
     // Enter, Space and a remote's OK click with detail 0
-    fireEvent.click(screen.getByRole('button', { name: 'Show guide' }), { detail: 0 })
+    fireEvent.click(screen.getByRole('button', { name: 'Guide' }), { detail: 0 })
     expect(useUIStore.getState()).toMatchObject({ isEPGVisible: true, guideFocusRequested: true })
 
     // Closing withdraws a request the guide hasn't taken up
-    fireEvent.click(screen.getByRole('button', { name: 'Hide guide' }), { detail: 0 })
+    fireEvent.click(screen.getByRole('button', { name: 'Guide' }), { detail: 0 })
     expect(useUIStore.getState()).toMatchObject({ isEPGVisible: false, guideFocusRequested: false })
   })
 
@@ -171,8 +192,8 @@ describe('TVHeader', () => {
 
     const nav = screen.getByRole('navigation', { name: 'Watch controls' })
     expect(within(nav).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual([
-      'Hide guide',
-      'NHL Scores',
+      'Guide',
+      'NHL scores',
       'Open admin panel',
       'Open chat',
     ])
@@ -187,7 +208,7 @@ describe('TVHeader', () => {
   it('labels Guide and Chat from lg, with Chat as the one filled action', () => {
     renderHeader()
 
-    const guide = screen.getByRole('button', { name: 'Hide guide' })
+    const guide = screen.getByRole('button', { name: 'Guide' })
     expect(within(guide).getByText('Guide')).toHaveClass('hidden', 'lg:inline')
     expect(guide).toHaveAttribute('data-variant', 'toolbar')
 
@@ -200,8 +221,8 @@ describe('TVHeader', () => {
     useUIStore.setState({ isEPGVisible: false, isNHLOverlayVisible: true })
     renderHeader()
 
-    const guide = screen.getByRole('button', { name: 'Show guide', pressed: false })
-    const nhl = screen.getByRole('button', { name: 'Hide NHL Scores', pressed: true })
+    const guide = screen.getByRole('button', { name: 'Guide', pressed: false })
+    const nhl = screen.getByRole('button', { name: 'NHL scores', pressed: true })
     for (const toggle of [guide, nhl]) {
       expect(toggle).toHaveClass('aria-pressed:bg-primary/15', 'aria-pressed:text-primary')
     }
@@ -209,7 +230,7 @@ describe('TVHeader', () => {
 
   it('draws the NHL toggle as the word NHL, not the Arial shield', () => {
     renderHeader()
-    const nhl = screen.getByRole('button', { name: 'NHL Scores' })
+    const nhl = screen.getByRole('button', { name: 'NHL scores' })
     expect(nhl).toHaveTextContent('NHL')
     expect(nhl.querySelector('svg')).toBeNull()
     expect(within(nhl).getByText('NHL')).toHaveClass('size-[18px]', 'font-extrabold')
@@ -217,8 +238,8 @@ describe('TVHeader', () => {
 
   it('leaves the guide and NHL toggles out on a phone', () => {
     renderHeader({ isMobile: true })
-    expect(screen.queryByRole('button', { name: /guide/ })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /NHL Scores/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /guide/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /NHL scores/i })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open chat' })).toBeVisible()
   })
 
