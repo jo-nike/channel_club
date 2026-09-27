@@ -120,7 +120,8 @@ export function MobileChannelList({
             isSelected && 'border-primary',
             isLive ? 'bg-live/5' : isSelected && 'bg-primary/10'
           )
-          // The empty live slot offers the picker next to the tune button
+          // The empty live slot offers Pick a channel, which opens the live
+          // switcher, next to the tune button
           // (a sibling, since buttons can't nest)
           const showPickLive = isLive && !hasLiveChannel && !!onPickLive
           // Every row has a schedule to show but the empty live slot
@@ -201,7 +202,7 @@ export function MobileChannelList({
             </button>
           )
 
-          // The tune button, the people on the channel, the picker and the
+          // The tune button, the people on the channel, Pick a channel and the
           // chevron are siblings, since buttons can't nest: tapping the
           // chevron never tunes
           return (

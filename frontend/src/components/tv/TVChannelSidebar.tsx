@@ -452,8 +452,8 @@ function ChannelItem({
   const isLive = channel.type === 'live'
   const progress = onAir ? calculateProgress(onAir.startMs, onAir.stopMs, currentTime) : 0
   const timeRemaining = onAir ? formatRemaining(onAir.stopMs, currentTime) : null
-  // The empty live slot offers the picker next to the row (a sibling, since
-  // buttons can't nest)
+  // The empty live slot offers Pick a channel, which opens the live switcher,
+  // next to the row (a sibling, since buttons can't nest)
   const showPickLive = isLive && !hasLiveChannel && !!onPickLive
   // Every channel but the live slot, which is always the first row anyway,
   // can be starred. The star is the row's sibling, since buttons can't nest.
@@ -463,7 +463,7 @@ function ChannelItem({
 
   return (
     // One background per row: the live row's tint is on the item, so it runs
-    // under the picker too; the selection tint is on the button
+    // under Pick a channel too; the selection tint is on the button
     <li className={cn('relative', isLive && 'bg-live/5', showPickLive && 'flex items-center pr-3')}>
       {/* The row's click target is stretched under its content, so the
           presence stack can sit in the name line without a button inside a
