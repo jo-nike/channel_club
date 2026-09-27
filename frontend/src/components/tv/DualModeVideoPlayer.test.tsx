@@ -3056,6 +3056,20 @@ describe('DualModeVideoPlayer panel keys', () => {
     expect(sheet()).toBeInTheDocument()
   })
 
+  it("the sheet lists the remote's keys on a TV: ↑↓ change channel, OK opens the guide", () => {
+    chatFeature.enabled = true
+    localStorage.setItem('tv-mode', 'true')
+    renderPlayer(hlsChannel('1', 1))
+
+    fireEvent.keyDown(window, { key: '?' })
+
+    const dialog = within(sheet()!)
+    expect(dialog.getByText('Guide', { selector: 'dt' })).toBeInTheDocument()
+    expect(dialog.getByText("Who's here", { selector: 'dt' })).toBeInTheDocument()
+    expect(dialog.queryByText('Theater mode')).not.toBeInTheDocument()
+    expect(dialog.queryByText('Open or close chat')).not.toBeInTheDocument()
+  })
+
   it('C opens and closes chat', () => {
     chatFeature.enabled = true
     renderPlayer(hlsChannel('1', 1))
