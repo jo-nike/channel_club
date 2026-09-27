@@ -306,6 +306,33 @@ describe('ErsatzTVVideoControls', () => {
     })
   })
 
+  describe('TV browsers', () => {
+    // webOS pointer mode can report pointer:coarse, so TV mode must win over isMobile
+    it('renders Theater and Fullscreen on a TV that looks like a touch device', () => {
+      render(<ErsatzTVVideoControls {...defaultProps} isTVMode={true} isMobile={true} />)
+
+      expect(screen.getByRole('button', { name: 'Theater mode' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Fullscreen' })).toBeInTheDocument()
+    })
+
+    it('fullscreens the container from the TV fullscreen button', () => {
+      const { container, containerRef } = makeContainer()
+      container.requestFullscreen = vi.fn(() => Promise.resolve())
+      render(
+        <ErsatzTVVideoControls
+          {...defaultProps}
+          isTVMode={true}
+          isMobile={true}
+          containerRef={containerRef}
+        />
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: 'Fullscreen' }))
+
+      expect(container.requestFullscreen).toHaveBeenCalledTimes(1)
+    })
+  })
+
   describe('Control Bar Positioning', () => {
     it('has consistent bottom-4 position regardless of theater mode', () => {
       const { rerender } = render(<ErsatzTVVideoControls {...defaultProps} isTheaterMode={false} />)

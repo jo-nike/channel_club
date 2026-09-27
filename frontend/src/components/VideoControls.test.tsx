@@ -189,6 +189,29 @@ describe('VideoControls', () => {
 
       expect(screen.getByRole('button', { name: /theater/i })).toBeInTheDocument()
     })
+
+    it('hides theater mode button on mobile', () => {
+      render(<VideoControls {...defaultProps} isMobile={true} />)
+
+      expect(screen.queryByRole('button', { name: /theater/i })).not.toBeInTheDocument()
+    })
+  })
+
+  describe('TV browsers', () => {
+    // webOS pointer mode can report pointer:coarse, so TV mode must win over isMobile
+    it('renders Theater and Fullscreen on a TV that looks like a touch device', () => {
+      render(<VideoControls {...defaultProps} isTVMode={true} isMobile={true} />)
+
+      expect(screen.getByRole('button', { name: 'Theater mode' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Fullscreen' })).toBeInTheDocument()
+    })
+
+    it('still hides the theater button in fullscreen on a TV', () => {
+      render(<VideoControls {...defaultProps} isTVMode={true} isFullscreen={true} />)
+
+      expect(screen.queryByRole('button', { name: /theater/i })).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Exit fullscreen' })).toBeInTheDocument()
+    })
   })
 
   describe('Control Bar Positioning', () => {
