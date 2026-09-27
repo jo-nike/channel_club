@@ -24,7 +24,8 @@ vi.mock('@/hooks/useWebSocket', async () => {
     return { status: 'connected', sendChannelUpdate: socket.sendChannelUpdate, sendChatMessage: vi.fn(), sendSetNickname: vi.fn() }
   } }
 })
-vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ isAdmin: false, logout: vi.fn() }) }))
+const auth = vi.hoisted(() => ({ isAdmin: false }))
+vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ isAdmin: auth.isAdmin, logout: vi.fn() }) }))
 vi.mock('@/hooks/useAppSettings', () => ({ useAppSettings: () => ({ userChannelSelection: false }) }))
 // The real shell's channel keys, so digits and Enter reach the page's zap as they do in the app
 vi.mock('@/components/tv/DualModeVideoPlayer', async () => {
@@ -45,8 +46,12 @@ vi.mock('@/components/tv/TVEPGGrid', () => ({ TVEPGGrid: () => <div data-testid=
 vi.mock('@/components/tv/TVChannelSidebar', () => ({ TVChannelSidebar: () => <div data-testid="tv-channel-sidebar" /> }))
 vi.mock('@/components/ChatPanel', () => ({ ChatPanel: () => <div data-testid="chat-panel" /> }))
 vi.mock('@/components/ersatztv/ProgrammeDetailsModal', () => ({ ProgrammeDetailsModal: () => null }))
-vi.mock('@/components/AccountMenu', () => ({ AccountMenu: () => null }))
-vi.mock('@/components/AdminModal', () => ({ AdminModal: () => null }))
+vi.mock('@/components/AccountMenu', () => ({
+  AccountMenu: ({ onOpenAdmin }: { onOpenAdmin: () => void }) => <button type="button" onClick={onOpenAdmin}>Account menu</button>,
+}))
+vi.mock('@/components/AdminModal', () => ({
+  AdminModal: ({ open }: { open: boolean }) => (open ? <div role="dialog" aria-label="Admin panel" /> : null),
+}))
 
 // Unified order: slot 0 (live), then ErsatzTV 1 and 2
 const ersatz: ErsatzTVChannel[] = [
@@ -66,6 +71,7 @@ function renderTV() {
 beforeEach(() => {
   vi.useFakeTimers()
   tv.mode = true
+  auth.isAdmin = false
   socket.opened.mockClear()
   socket.sendChannelUpdate.mockClear()
   useChatStore.setState({ isOpen: false })
@@ -177,5 +183,14 @@ describe('TV browsers: the couch view', () => {
   it("offers the player no channel search, as a remote has no '/'", () => {
     renderTV()
     expect(player.onFocusSearch).toBeUndefined()
+  })
+
+  it('keeps the account menu, the way back to the page layout, and its admin panel', () => {
+    auth.isAdmin = true
+    renderTV()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
+
+    expect(screen.getByRole('dialog', { name: 'Admin panel' })).toBeInTheDocument()
   })
 })

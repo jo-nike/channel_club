@@ -440,7 +440,10 @@ export function TVView() {
   if (isTVMode) {
     return (
       <>
-        <CouchView onPickLive={onPickLive} />
+        <CouchView onPickLive={onPickLive} onOpenChannelPicker={openLivePicker} onOpenAdmin={openAdmin} />
+        {isAdmin && (
+          <AdminModal open={adminModalOpen} onOpenChange={setAdminModalOpen} />
+        )}
         {canControl && (
           <LiveSwitcherSheet
             open={channelPickerOpen}

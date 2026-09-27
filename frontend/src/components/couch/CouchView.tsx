@@ -8,11 +8,15 @@ import { useTVStore } from '@/stores/tvStore'
 import { DualModeVideoPlayer } from '@/components/tv/DualModeVideoPlayer'
 import { ZapBanner } from '@/components/tv/ZapBanner'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { AccountMenu } from '@/components/AccountMenu'
 import { Button } from '@/components/ui/button'
 
 interface CouchViewProps {
   /** Opens the live TV switcher; only for people allowed to change live TV */
   onPickLive?: () => void
+  /** The account menu's Change live channel (it offers it only to those allowed) */
+  onOpenChannelPicker: () => void
+  onOpenAdmin: () => void
 }
 
 // The couch has no theater layout to switch: the player always fills the screen
@@ -63,7 +67,9 @@ function requestPageFullscreen() {
  * The 10-foot layout for TV browsers (useTVMode): the player fills the
  * screen, driven from a remote, with the channel banner over it. No header,
  * guide grid, channel list, resize handle or chat: a remote can't reach them,
- * and a 48-hour grid is too heavy for a TV's chip.
+ * and a 48-hour grid is too heavy for a TV's chip. The account menu sits in
+ * the top corner, the couch's way to sign out, reach Admin or Feedback, or
+ * turn the TV layout off.
  *
  * TVView renders it after its shared hooks, so the one WebSocket, the
  * presence updates and the programme loading stay there. This view reads the
@@ -74,10 +80,10 @@ function requestPageFullscreen() {
  * Otherwise OK, with nothing focused, takes the page fullscreen (a browser
  * only allows that from a key press or a click, so it can't happen on load).
  * Back leaves fullscreen, and is otherwise the browser's. Play/pause is the
- * player's own (remotePlayPause in its shortcuts). The pointer hides after
- * 3s at rest.
+ * player's own (remotePlayPause in its shortcuts). The pointer, and the
+ * account menu with it, hide after 3s at rest.
  */
-export function CouchView({ onPickLive }: CouchViewProps) {
+export function CouchView({ onPickLive, onOpenChannelPicker, onOpenAdmin }: CouchViewProps) {
   const selectedChannel = useTVStore((s) => s.selectedChannel)
   const previousChannelId = useTVStore((s) => s.previousChannelId)
   const selectChannel = useTVStore((s) => s.selectChannel)
@@ -177,6 +183,23 @@ export function CouchView({ onPickLive }: CouchViewProps) {
         missing={zap.missing}
         liveChange={zapPending ? null : liveChange}
       />
+      {/* Without it, a TV layout switched On would have no way back: it shows
+          while the pointer moves, so a Magic Remote or mouse can reach it, and
+          while it has keyboard focus, and fades with the idle pointer so it
+          stays off the picture */}
+      <div
+        className={cn(
+          'absolute right-(--couch-safe-x) top-(--couch-safe-y) z-20 transition-opacity duration-300 has-[:focus-visible]:opacity-100',
+          isCursorIdle && 'opacity-0'
+        )}
+      >
+        <AccountMenu
+          onOpenChannelPicker={onOpenChannelPicker}
+          onOpenAdmin={onOpenAdmin}
+          onReload={reload}
+          isMobile={false}
+        />
+      </div>
     </div>
   )
 }

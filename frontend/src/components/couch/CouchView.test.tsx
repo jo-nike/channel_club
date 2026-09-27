@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@/test/utils'
+import { act, fireEvent, render, renderHook, screen } from '@/test/utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { CouchView } from './CouchView'
@@ -7,6 +7,7 @@ import { useTVStore } from '@/stores/tvStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import type { ErsatzTVChannel, UnifiedChannel } from '@/types'
 import type { ChannelZap } from '@/hooks/useChannelZap'
+import { useTVMode } from '@/hooks/useTVMode'
 
 const player = vi.hoisted(() => ({
   props: null as null | { isTheaterMode: boolean; onFocusSearch?: () => void; onPickLive?: () => void },
@@ -28,6 +29,14 @@ vi.mock('@/components/tv/DualModeVideoPlayer', async () => {
     return <div data-testid="player">{props.channel?.streamUrl || 'No live broadcast'}</div>
   } }
 })
+// The real account menu, with the hooks it reads stubbed
+const auth = vi.hoisted(() => ({ username: 'jon', isAdmin: true, logout: (() => {}) as () => void }))
+vi.mock('@/hooks/useAuth', () => ({ useAuth: () => auth }))
+vi.mock('@/hooks/useAppSettings', () => ({ useAppSettings: () => ({ userChannelSelection: false }) }))
+vi.mock('@/hooks/useFeedbackFeature', () => ({ useFeedbackFeature: () => ({ isEnabled: false, isLoading: false }) }))
+vi.mock('@/hooks/useInstallPrompt', () => ({
+  useInstallPrompt: () => ({ canInstall: false, shouldPromote: false, variant: 'native', install: () => Promise.resolve(false), dismiss: () => {} }),
+}))
 vi.mock('@/components/tv/TVHeader', () => ({ TVHeader: () => <header data-testid="tv-header" /> }))
 vi.mock('@/components/tv/TVEPGGrid', () => ({ TVEPGGrid: () => <div data-testid="tv-epg-grid" /> }))
 
@@ -37,6 +46,11 @@ const ersatz: ErsatzTVChannel[] = [
   { id: 'e2', name: 'Cartoons', number: 2, streamUrl: '/e2', logoUrl: '', group: '' },
   { id: 'e12', name: 'Westerns', number: 12, streamUrl: '/e12', logoUrl: '', group: '' },
 ]
+
+type CouchViewProps = Parameters<typeof CouchView>[0]
+function renderCouch(props: Partial<CouchViewProps> = {}) {
+  return render(<CouchView onOpenChannelPicker={vi.fn()} onOpenAdmin={vi.fn()} {...props} />)
+}
 
 const selectedId = () => useTVStore.getState().selectedChannel?.id
 const channel = (id: string) => useTVStore.getState().getUnifiedChannels().find((c) => c.id === id)!
@@ -71,11 +85,12 @@ afterEach(() => {
   // jsdom has neither; tests that need them define their own
   Reflect.deleteProperty(document.documentElement, 'requestFullscreen')
   Reflect.deleteProperty(document, 'exitFullscreen')
+  localStorage.removeItem('tv-mode')
 })
 
 describe('CouchView: layout', () => {
   it('renders only the player, filling the screen: no header and no guide grid', () => {
-    render(<CouchView />)
+    renderCouch()
 
     expect(screen.getByTestId('player')).toHaveTextContent('/e1')
     expect(screen.queryByTestId('tv-header')).not.toBeInTheDocument()
@@ -87,14 +102,14 @@ describe('CouchView: layout', () => {
   })
 
   it("offers the player no channel search, as a remote has no '/'", () => {
-    render(<CouchView />)
+    renderCouch()
 
     expect(player.props?.onFocusSearch).toBeUndefined()
   })
 
   it('passes the live TV switcher to the player for the empty live slot', () => {
     const onPickLive = vi.fn()
-    render(<CouchView onPickLive={onPickLive} />)
+    renderCouch({ onPickLive })
 
     expect(player.props?.onPickLive).toBe(onPickLive)
   })
@@ -102,7 +117,7 @@ describe('CouchView: layout', () => {
 
 describe('CouchView: zapping', () => {
   it('tunes to the next channel 700ms after ArrowUp', () => {
-    render(<CouchView />)
+    renderCouch()
 
     press('ArrowUp')
     act(() => { vi.advanceTimersByTime(699) })
@@ -114,7 +129,7 @@ describe('CouchView: zapping', () => {
   })
 
   it('tunes once to where a burst of presses lands, wrapping through slot 0', () => {
-    render(<CouchView />)
+    renderCouch()
     const tune = vi.spyOn(useTVStore.getState(), 'selectChannel')
 
     press('ArrowDown') // wraps to 0
@@ -129,7 +144,7 @@ describe('CouchView: zapping', () => {
   })
 
   it('keeps zap keys from the player and page handlers', () => {
-    render(<CouchView />)
+    renderCouch()
     const bubble = vi.fn()
     window.addEventListener('keydown', bubble)
 
@@ -141,7 +156,7 @@ describe('CouchView: zapping', () => {
   })
 
   it('ignores zap keys typed into an input', () => {
-    render(<CouchView />)
+    renderCouch()
     const input = addToPage('input')
 
     const notPrevented = press('ArrowUp', {}, input)
@@ -152,7 +167,7 @@ describe('CouchView: zapping', () => {
   })
 
   it('shows a banner for the channel being zapped to, then hides it 3s after the last change', () => {
-    render(<CouchView />)
+    renderCouch()
     const banner = screen.getByRole('status')
     // Opening the view shows the playing channel and the hint
     expect(banner).toHaveTextContent('CH 1 · Movies')
@@ -170,7 +185,7 @@ describe('CouchView: zapping', () => {
 
   it('names who changed the live channel in the banner, on channel 0', () => {
     useTVStore.setState({ selectedChannel: channel('live-channel-0') })
-    render(<CouchView />)
+    renderCouch()
 
     act(() => {
       useChannelStore.getState().setCurrentChannel({ id: 'tsn5', name: 'TSN 5', streamUrl: 'https://fixture/tsn5' })
@@ -181,7 +196,7 @@ describe('CouchView: zapping', () => {
   })
 
   it('announces no live change on other channels, which get the toast', () => {
-    render(<CouchView />)
+    renderCouch()
 
     act(() => {
       useChannelStore.getState().setCurrentChannel({ id: 'tsn5', name: 'TSN 5', streamUrl: 'https://fixture/tsn5' })
@@ -194,7 +209,7 @@ describe('CouchView: zapping', () => {
 
 describe('CouchView: channel numbers', () => {
   it("tunes channel 12 1.5s after '1', '2'", () => {
-    render(<CouchView />)
+    renderCouch()
     const banner = screen.getByRole('status')
 
     press('1', { keyCode: 49 })
@@ -208,7 +223,7 @@ describe('CouchView: channel numbers', () => {
   })
 
   it('reads number keys a remote sends without a key name, number pad included', () => {
-    render(<CouchView />)
+    renderCouch()
 
     press('Unidentified', { keyCode: 49 }) // 1
     press('Unidentified', { keyCode: 98 }) // number pad 2
@@ -220,7 +235,7 @@ describe('CouchView: channel numbers', () => {
   it('tunes the number at once on OK, without going fullscreen', () => {
     const requestFullscreen = vi.fn(() => Promise.resolve())
     Object.defineProperty(document.documentElement, 'requestFullscreen', { configurable: true, value: requestFullscreen })
-    render(<CouchView />)
+    renderCouch()
 
     press('2', { keyCode: 50 })
     const notPrevented = press('Enter', { keyCode: 13 })
@@ -231,7 +246,7 @@ describe('CouchView: channel numbers', () => {
   })
 
   it('keeps digits from the player, which would read them a second time', () => {
-    render(<CouchView />)
+    renderCouch()
     const bubble = vi.fn()
     window.addEventListener('keydown', bubble)
 
@@ -244,7 +259,7 @@ describe('CouchView: channel numbers', () => {
   })
 
   it('leaves digits typed into an input to the input', () => {
-    render(<CouchView />)
+    renderCouch()
     const input = addToPage('input')
 
     expect(press('1', { keyCode: 49 }, input)).toBe(true)
@@ -262,7 +277,7 @@ describe('CouchView: OK and fullscreen', () => {
   })
 
   it('takes the page fullscreen on the first OK, a user gesture', () => {
-    render(<CouchView />)
+    renderCouch()
     expect(requestFullscreen).not.toHaveBeenCalled()
 
     const notPrevented = press('Enter', { keyCode: 13 })
@@ -273,7 +288,7 @@ describe('CouchView: OK and fullscreen', () => {
   })
 
   it('reads a remote OK with no key name', () => {
-    render(<CouchView />)
+    renderCouch()
 
     press('Unidentified', { keyCode: 13 })
 
@@ -282,14 +297,14 @@ describe('CouchView: OK and fullscreen', () => {
 
   it('does nothing more once the page is fullscreen', () => {
     setFullscreenElement(document.documentElement)
-    render(<CouchView />)
+    renderCouch()
 
     expect(press('Enter', { keyCode: 13 })).toBe(true)
     expect(requestFullscreen).not.toHaveBeenCalled()
   })
 
   it('leaves OK on a focused button to the button', () => {
-    render(<CouchView />)
+    renderCouch()
     const button = addToPage('button')
     button.focus()
 
@@ -299,7 +314,7 @@ describe('CouchView: OK and fullscreen', () => {
 
   it('shrugs off a refused fullscreen request', async () => {
     requestFullscreen.mockReturnValue(Promise.reject(new TypeError('Permissions check failed')))
-    render(<CouchView />)
+    renderCouch()
 
     press('Enter', { keyCode: 13 })
     await act(async () => {})
@@ -312,7 +327,7 @@ describe('CouchView: pointer', () => {
   const view = () => screen.getByTestId('player').closest('.couch-view')!
 
   it('hides the pointer after 3s at rest, over the player controls too', () => {
-    render(<CouchView />)
+    renderCouch()
     expect(view()).not.toHaveClass('cursor-none')
 
     act(() => { vi.advanceTimersByTime(2999) })
@@ -323,7 +338,7 @@ describe('CouchView: pointer', () => {
   })
 
   it('shows it again when the Magic Remote pointer moves or clicks, and hides it 3s later', () => {
-    render(<CouchView />)
+    renderCouch()
     act(() => { vi.advanceTimersByTime(3000) })
 
     fireEvent.mouseMove(window)
@@ -338,6 +353,70 @@ describe('CouchView: pointer', () => {
   })
 })
 
+describe('CouchView: account menu', () => {
+  const avatar = () => screen.getByRole('button', { name: 'Account menu' })
+  const corner = () => avatar().parentElement!
+
+  function openMenu() {
+    avatar().focus()
+    press('Enter', { keyCode: 13 }, avatar())
+    return screen.getByRole('menu')
+  }
+
+  it('offers the account menu in the top corner, inside the title-safe area', () => {
+    renderCouch()
+
+    expect(corner()).toHaveClass('absolute', 'right-(--couch-safe-x)', 'top-(--couch-safe-y)')
+  })
+
+  it('fades it with the idle pointer, and brings it back on a move or when focus reaches it', () => {
+    renderCouch()
+    expect(corner()).not.toHaveClass('opacity-0')
+
+    act(() => { vi.advanceTimersByTime(3000) })
+    expect(corner()).toHaveClass('opacity-0', 'has-[:focus-visible]:opacity-100')
+
+    fireEvent.mouseMove(window)
+    expect(corner()).not.toHaveClass('opacity-0')
+  })
+
+  it('opens the menu on OK from the avatar, instead of going fullscreen', () => {
+    const requestFullscreen = vi.fn(() => Promise.resolve())
+    Object.defineProperty(document.documentElement, 'requestFullscreen', { configurable: true, value: requestFullscreen })
+    renderCouch()
+
+    expect(openMenu()).toBeInTheDocument()
+    expect(requestFullscreen).not.toHaveBeenCalled()
+  })
+
+  it('turns the TV layout off from the couch, back to the page layout', () => {
+    localStorage.setItem('tv-mode', 'true')
+    const { result } = renderHook(() => useTVMode())
+    renderCouch()
+    expect(result.current).toBe(true)
+
+    openMenu()
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Off' }))
+
+    expect(localStorage.getItem('tv-mode')).toBe('false')
+    expect(result.current).toBe(false)
+  })
+
+  it('reaches the admin panel and sign out', () => {
+    auth.logout = vi.fn()
+    const onOpenAdmin = vi.fn()
+    renderCouch({ onOpenAdmin })
+
+    openMenu()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Admin panel' }))
+    expect(onOpenAdmin).toHaveBeenCalledTimes(1)
+
+    openMenu()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Sign out' }))
+    expect(auth.logout).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('CouchView: Back', () => {
   it.each([
     ['webOS Back', 'Unidentified', 461],
@@ -348,7 +427,7 @@ describe('CouchView: Back', () => {
     const exitFullscreen = vi.fn(() => Promise.resolve())
     Object.defineProperty(document, 'exitFullscreen', { configurable: true, value: exitFullscreen })
     setFullscreenElement(document.documentElement)
-    render(<CouchView />)
+    renderCouch()
 
     const notPrevented = press(key, { keyCode })
 
@@ -357,7 +436,7 @@ describe('CouchView: Back', () => {
   })
 
   it('leaves Back to the browser when nothing is fullscreen', () => {
-    render(<CouchView />)
+    renderCouch()
 
     expect(press('Unidentified', { keyCode: 461 })).toBe(true)
   })
@@ -366,7 +445,7 @@ describe('CouchView: Back', () => {
     const exitFullscreen = vi.fn(() => Promise.resolve())
     Object.defineProperty(document, 'exitFullscreen', { configurable: true, value: exitFullscreen })
     setFullscreenElement(document.documentElement)
-    render(<CouchView />)
+    renderCouch()
     const input = addToPage('input')
 
     expect(press('Backspace', { keyCode: 8 }, input)).toBe(true)
@@ -409,7 +488,7 @@ describe('couch styles', () => {
   })
 
   it('places the channel banner inside the title-safe area', () => {
-    render(<CouchView />)
+    renderCouch()
 
     expect(screen.getByRole('status')).toHaveClass('left-(--couch-safe-x)', 'top-(--couch-safe-y)')
   })
