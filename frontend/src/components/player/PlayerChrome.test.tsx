@@ -585,7 +585,7 @@ describe('PlayerChrome', () => {
       highlight.enabled = true
       clipStatus.loaded = true
       clipStatus.recording = true
-      useClipStore.setState({ session: null })
+      useClipStore.setState({ session: null, clipping: false })
     })
 
     it('shows the clip control as checking until the first status poll answers', () => {
@@ -611,6 +611,40 @@ describe('PlayerChrome', () => {
       unmount()
 
       expect(useClipStore.getState().session).toEqual({ channelId: '42', channelName: 'Sportsnet' })
+    })
+
+    it('offers Clip that beside the clip control when the shell has it', () => {
+      const clipThat = vi.fn()
+      renderChrome({ shell: { clipThat }, props: { channelId: '42', channelName: 'Sportsnet' } })
+
+      fireEvent.click(screen.getByRole('button', { name: /^Clip that/ }))
+
+      expect(clipThat).toHaveBeenCalledTimes(1)
+      expect(useClipStore.getState().session).toBeNull()
+    })
+
+    it('leaves Clip that out where the shell does not offer it', () => {
+      renderChrome({ props: { channelId: '42', channelName: 'Sportsnet' } })
+
+      expect(screen.getByRole('button', { name: /Capture clip/ })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /^Clip that/ })).not.toBeInTheDocument()
+    })
+
+    it('holds both clip actions while a Clip that runs', () => {
+      renderChrome({ shell: { clipThat: vi.fn() }, props: { channelId: '42', channelName: 'Sportsnet' } })
+
+      act(() => useClipStore.getState().setClipping(true))
+
+      expect(screen.getByRole('button', { name: /Capture clip/ })).toBeDisabled()
+      expect(screen.getByRole('button', { name: /^Clip that/ })).toBeDisabled()
+    })
+
+    it('holds Clip that while the clip editor is open', () => {
+      renderChrome({ shell: { clipThat: vi.fn() }, props: { channelId: '42', channelName: 'Sportsnet' } })
+
+      act(() => useClipStore.getState().open('42', 'Sportsnet'))
+
+      expect(screen.getByRole('button', { name: /^Clip that/ })).toBeDisabled()
     })
 
     it('is not offered on a TV', () => {
@@ -716,6 +750,17 @@ describe('PlayerChrome', () => {
       expect(screen.queryByRole('button', { name: /theater/i })).not.toBeInTheDocument()
       expect(rocker()).toHaveClass('@max-[44rem]:hidden')
       expect(rocker()).not.toHaveClass('@max-[48rem]:hidden')
+    })
+
+    it('needs a wider bar again with Clip that beside the clip control', () => {
+      matchMediaQueries([WIDE])
+      highlight.enabled = true
+      clipStatus.loaded = true
+      clipStatus.recording = true
+      renderChrome({ shell: { stepChannel: vi.fn(), clipThat: vi.fn() }, props: { channelId: '42' } })
+
+      expect(screen.getByRole('button', { name: /^Clip that/ })).toBeInTheDocument()
+      expect(rocker()).toHaveClass('@max-[52rem]:hidden')
     })
 
     it('is not there without a zap to step through', () => {

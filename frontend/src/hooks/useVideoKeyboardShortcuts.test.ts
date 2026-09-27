@@ -668,6 +668,49 @@ describe('useVideoKeyboardShortcuts', () => {
       document.body.removeChild(dialog)
     })
 
+    it.each(['x', 'X'])('%s runs Clip that', (key) => {
+      const onClipThat = vi.fn()
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onClipThat }))
+
+      press(window, key)
+
+      expect(onClipThat).toHaveBeenCalledTimes(1)
+    })
+
+    it('X works with focus on a sidebar channel button, and is left to text fields and dialogs', () => {
+      const onClipThat = vi.fn()
+      const button = document.createElement('button')
+      const input = document.createElement('input')
+      const dialog = document.createElement('div')
+      dialog.setAttribute('role', 'dialog')
+      const inDialog = document.createElement('button')
+      dialog.append(inDialog)
+      document.body.append(button, input, dialog)
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onClipThat }))
+
+      button.focus()
+      press(button, 'x')
+      expect(onClipThat).toHaveBeenCalledTimes(1)
+      for (const target of [input, inDialog]) {
+        target.focus()
+        press(target, 'x')
+      }
+      expect(onClipThat).toHaveBeenCalledTimes(1)
+      button.remove()
+      input.remove()
+      dialog.remove()
+    })
+
+    it('Ctrl+X (cut) is not Clip that', () => {
+      const onClipThat = vi.fn()
+      renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, onClipThat }))
+
+      press(window, 'x', { ctrlKey: true })
+      press(window, 'x', { metaKey: true })
+
+      expect(onClipThat).not.toHaveBeenCalled()
+    })
+
     it('ignore modifiers (Ctrl+C copies, Ctrl+N opens a window)', () => {
       const actions = panelActions()
       renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, ...actions }))

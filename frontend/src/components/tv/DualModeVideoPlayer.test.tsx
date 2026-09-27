@@ -1630,6 +1630,22 @@ describe('DualModeVideoPlayer clip editor: one editor in the shell', () => {
     expect(wroteAudioStorage()).toBe(false)
   })
 
+  it("opens on the capture Clip that's Edit hands over, without capturing again", async () => {
+    renderPlayer({ ...liveChannel('https://fixture/a'), name: 'Sportsnet', backendId: '42' })
+    const capture = { id: 'clip-that-capture', duration: 60, bytes: 1, expiresAt: 0, pressedAt: 1_000, endsAt: 1_000 }
+
+    act(() => useClipStore.getState().open('42', 'Sportsnet', capture))
+
+    const preview = await screen.findByLabelText('Highlight preview')
+    expect(shell()).toContainElement(preview)
+    expect(preview).toHaveAttribute('src', '/api/highlight/capture/clip-that-capture')
+    expect(clipApi.createHighlightCapture).not.toHaveBeenCalled()
+
+    // The capture isn't ready, so the editor closes without asking, and deletes it
+    fireEvent.click(screen.getByRole('button', { name: 'Close editor' }))
+    await waitFor(() => expect(clipApi.deleteHighlightCapture).toHaveBeenCalledExactlyOnceWith('clip-that-capture'))
+  })
+
   it('closing the editor ends the session and deletes the capture', async () => {
     renderPlayer(liveChannel('https://fixture/a'))
     await openEditor()
@@ -2931,6 +2947,52 @@ describe('DualModeVideoPlayer panel keys', () => {
       fireEvent.keyDown(window, { key: '?' })
 
       expect(within(sheet()!).queryByText('Search channels')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('X (Clip that)', () => {
+    beforeEach(() => {
+      chatFeature.enabled = true
+      clipApi.getHighlightFeatures.mockResolvedValue({ enabled: true, ziplineEnabled: true })
+      useClipStore.setState({ clipping: false })
+    })
+
+    it('clips the channel playing, and the sheet lists it', async () => {
+      renderPlayer({ ...liveChannel('https://fixture/a'), backendId: '42' })
+      await act(async () => {})
+
+      fireEvent.keyDown(window, { key: 'x' })
+
+      expect(clipApi.createHighlightCapture).toHaveBeenCalledExactlyOnceWith('42', expect.any(AbortSignal))
+      // This fake capture has no footage, so the run ends there
+      await waitFor(() => expect(useClipStore.getState().clipping).toBe(false))
+
+      fireEvent.keyDown(window, { key: '?' })
+      expect(within(sheet()!).getByText('Clip that: post the last 20s to chat')).toBeInTheDocument()
+    })
+
+    it('does nothing without Zipline, and the sheet leaves it out', async () => {
+      clipApi.getHighlightFeatures.mockResolvedValue({ enabled: true, ziplineEnabled: false })
+      renderPlayer(hlsChannel('1', 1))
+      await act(async () => {})
+
+      fireEvent.keyDown(window, { key: 'X' })
+      expect(clipApi.createHighlightCapture).not.toHaveBeenCalled()
+
+      fireEvent.keyDown(window, { key: '?' })
+      expect(within(sheet()!).queryByText(/Clip that/)).not.toBeInTheDocument()
+    })
+
+    it('is not a key on a TV, and the sheet leaves it out', async () => {
+      localStorage.setItem('tv-mode', 'true')
+      renderPlayer(hlsChannel('1', 1))
+      await act(async () => {})
+
+      fireEvent.keyDown(window, { key: 'x' })
+      expect(clipApi.createHighlightCapture).not.toHaveBeenCalled()
+
+      fireEvent.keyDown(window, { key: '?' })
+      expect(within(sheet()!).queryByText(/Clip that/)).not.toBeInTheDocument()
     })
   })
 

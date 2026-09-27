@@ -36,6 +36,14 @@ const CONTROL_BUTTON =
 // The phone-landscape bar: 44px targets, the smallest a finger reliably hits
 const COMPACT_CONTROL_BUTTON =
   'control-button flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-ring-media'
+// The narrowest bar the channel rocker fits in, by how many of Theater, Chat
+// and Clip that are on it besides the rest (see rockerFitClass)
+const ROCKER_FIT_CLASSES = [
+  '@max-[44rem]:hidden',
+  '@max-[48rem]:hidden',
+  '@max-[52rem]:hidden',
+  '@max-[56rem]:hidden',
+] as const
 
 /**
  * The player's control bar, the same for every engine: playback through the
@@ -59,6 +67,7 @@ export function PlayerChrome({
     setHoveringControls,
     stepChannel,
     reload,
+    clipThat,
   } = usePlayerShell()
   const { volume, isStoreMuted, isMuted, canSetVolume, changeVolume, toggleMute } = usePlayerAudio(adapter)
   const isTVMode = useTVMode()
@@ -108,16 +117,18 @@ export function PlayerChrome({
   // Cast and clip on that is about 742px inside the padding, or 678px without
   // the Theater button (measured in Chrome); the thresholds leave some slack
   // for the CH label's fallback fonts. The Chat button takes another 64px
-  // (48px and the gap), so with it each threshold moves up by 4rem.
-  const rockerFitClass = showTheaterButton
-    ? showChatButton ? '@max-[52rem]:hidden' : '@max-[48rem]:hidden'
-    : showChatButton ? '@max-[48rem]:hidden' : '@max-[44rem]:hidden'
+  // (48px and the gap), so with it each threshold moves up by 4rem, and so
+  // does Clip that beside the clip control (rockerFitClass, below).
 
   // Check if highlight feature is enabled (server-side feature flag)
   const { isEnabled: highlightEnabled } = useHighlightFeature()
 
   // Show highlight capture on pointer/touch players when feature is enabled
   const showHighlightButton = highlightEnabled && !isTVMode && channelId
+  const showClipThat = Boolean(showHighlightButton && clipThat)
+  const rockerFitClass = ROCKER_FIT_CLASSES[
+    (showTheaterButton ? 1 : 0) + (showChatButton ? 1 : 0) + (showClipThat ? 1 : 0)
+  ]
 
   // Always-on highlight status polling (independent of control visibility)
   const { status: highlightStatus, loaded: highlightLoaded } = useHighlightStatus(
@@ -126,6 +137,8 @@ export function PlayerChrome({
 
   // The editor lives in the player shell, so it outlives this control bar
   const openClip = useClipStore((s) => s.open)
+  const isClipping = useClipStore((s) => s.clipping)
+  const isEditingClip = useClipStore((s) => s.session !== null)
   const handleOpenHighlightModal = useCallback(() => {
     if (channelId) openClip(channelId, channelName ?? channelId)
   }, [channelId, channelName, openClip])
@@ -250,6 +263,9 @@ export function PlayerChrome({
           loaded={highlightLoaded}
           onOpenModal={handleOpenHighlightModal}
           compact={isCompact}
+          onClipThat={showClipThat ? clipThat : undefined}
+          clipping={isClipping}
+          editing={isEditingClip}
         />
       )}
 

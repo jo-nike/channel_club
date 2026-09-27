@@ -317,6 +317,65 @@ describe('HighlightButton', () => {
     })
   })
 
+  describe('Clip that', () => {
+    const clipThat = () => screen.queryByRole('button', { name: /^Clip that/ })
+    const capture = () => screen.getByRole('button', { name: /Capture clip/ })
+
+    it('is left out unless offered', () => {
+      render(<HighlightButton isVisible highlightStatus={defaultStatus} loaded />)
+      expect(clipThat()).not.toBeInTheDocument()
+    })
+
+    it('posts the last 20s in one press, beside the editor button', () => {
+      const onClipThat = vi.fn()
+      const onOpenModal = vi.fn()
+      render(<HighlightButton isVisible highlightStatus={defaultStatus} loaded onOpenModal={onOpenModal} onClipThat={onClipThat} />)
+
+      const button = clipThat()
+      expect(button).toHaveAccessibleName('Clip that · post the last 20s to chat')
+      fireEvent.click(button!)
+      expect(onClipThat).toHaveBeenCalledTimes(1)
+      expect(onOpenModal).not.toHaveBeenCalled()
+    })
+
+    it('waits, like the editor button, until the clip buffer is ready', () => {
+      render(<HighlightButton isVisible highlightStatus={{ ...defaultStatus, ready: false }} loaded onClipThat={vi.fn()} />)
+      expect(clipThat()).toBeDisabled()
+    })
+
+    it('names its key, X, in the tooltip and for assistive technology', async () => {
+      render(<HighlightButton isVisible highlightStatus={defaultStatus} loaded onClipThat={vi.fn()} />)
+
+      const button = clipThat()!
+      expect(button).toHaveAttribute('aria-keyshortcuts', 'X')
+      fireEvent.focus(button)
+      expect(await screen.findByRole('tooltip')).toHaveTextContent('Clip that · post the last 20s to chat (X)')
+    })
+
+    it('is disabled while the clip editor is open', () => {
+      render(<HighlightButton isVisible highlightStatus={defaultStatus} loaded onClipThat={vi.fn()} editing />)
+      expect(clipThat()).toBeDisabled()
+      expect(clipThat()).toHaveAccessibleName('Clip that · close the clip editor first')
+    })
+
+    it('disables both actions while a Clip that runs, which holds the one capture', () => {
+      render(<HighlightButton isVisible highlightStatus={defaultStatus} loaded onOpenModal={vi.fn()} onClipThat={vi.fn()} clipping />)
+      expect(clipThat()).toBeDisabled()
+      expect(clipThat()).toHaveAccessibleName('Clip that · posting…')
+      expect(capture()).toBeDisabled()
+    })
+
+    it('follows the controls out of the tab order', () => {
+      render(<HighlightButton isVisible={false} highlightStatus={defaultStatus} loaded onClipThat={vi.fn()} />)
+      expect(clipThat()).toHaveAttribute('tabindex', '-1')
+    })
+
+    it('is left out with the editor button on the compact bar while not recording', () => {
+      render(<HighlightButton isVisible highlightStatus={{ ...defaultStatus, recording: false }} loaded compact onClipThat={vi.fn()} />)
+      expect(screen.queryByRole('button')).not.toBeInTheDocument()
+    })
+  })
+
   describe('Focus', () => {
     it('marks keyboard focus with the over-video ring, not a blue ring', () => {
       render(

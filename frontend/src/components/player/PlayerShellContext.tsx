@@ -57,6 +57,11 @@ export interface PlayerShell {
   reload: () => void
   /** Changes on every reload, whether asked for here or by the page */
   reloadKey: number
+  /**
+   * 'Clip that' on the channel playing (see useClipThat), for the control
+   * bar's clip control; absent where it isn't offered
+   */
+  clipThat?: () => void
 }
 
 /** An engine that has fallen behind its own live edge */

@@ -9,6 +9,8 @@ interface ShortcutSheetProps {
   container: HTMLElement | null
   /** Whether '/' has a channel search to focus here */
   canSearch?: boolean
+  /** Whether X has Clip that to run here (never on a TV) */
+  canClip?: boolean
 }
 
 interface Shortcut {
@@ -24,7 +26,7 @@ interface ShortcutGroup {
 
 // The map useVideoKeyboardShortcuts implements. Letters are shown in capitals,
 // as on the keycaps; they work either way.
-const PLAYER: ShortcutGroup = {
+const player = (canClip: boolean): ShortcutGroup => ({
   title: 'Player',
   shortcuts: [
     { keys: [['Space']], action: 'Play or pause' },
@@ -33,8 +35,9 @@ const PLAYER: ShortcutGroup = {
     { keys: [['F']], action: 'Fullscreen' },
     { keys: [['T']], action: 'Theater mode' },
     { keys: [['R']], action: 'Reload the stream' },
+    ...(canClip ? [{ keys: [['X']], action: 'Clip that: post the last 20s to chat' }] : []),
   ],
-}
+})
 
 const channels = (canSearch: boolean): ShortcutGroup => ({
   title: 'Channels',
@@ -62,10 +65,10 @@ const panels = (chatEnabled: boolean): ShortcutGroup => ({
  * player shell, so it shows in fullscreen, where anything on the page is
  * hidden behind the shell.
  */
-export function ShortcutSheet({ open, onOpenChange, container, canSearch = false }: ShortcutSheetProps) {
+export function ShortcutSheet({ open, onOpenChange, container, canSearch = false, canClip = false }: ShortcutSheetProps) {
   const id = useId()
   const chatEnabled = useChatEnabled()
-  const groups = [PLAYER, channels(canSearch), panels(chatEnabled)]
+  const groups = [player(canClip), channels(canSearch), panels(chatEnabled)]
   // A key opens the sheet, not a trigger Radix could return focus to: go back
   // to whatever had focus (a channel button just clicked), or the page
   const returnFocusRef = useRef<Element | null>(null)
