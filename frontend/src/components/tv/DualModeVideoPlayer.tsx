@@ -29,6 +29,7 @@ import { GrindhouseFilter } from '@/components/filters/GrindhouseFilter'
 import { SportsHDFilter } from '@/components/filters/SportsHDFilter'
 import { useFilterStore } from '@/stores/filterStore'
 import { useAudioStore } from '@/stores/audioStore'
+import { useChannelStore } from '@/stores/channelStore'
 import { getErsatzTVStreamUrl } from '@/services/ersatztvApi'
 import type { UnifiedChannel } from '@/types'
 
@@ -110,10 +111,18 @@ function NoChannelPlaceholder() {
 }
 
 function NoLiveChannelPlaceholder({ onPickLive }: { onPickLive?: () => void }) {
+  // Say who stopped live TV, so it doesn't look like the app broke
+  const stoppedBy = useChannelStore((s) =>
+    s.lastChange && s.lastChange.channelName === null ? s.lastChange.by : null
+  )
+
   return (
     <div className="flex h-full w-full items-center justify-center bg-black">
       <div className="text-center">
         <p className="text-lg text-muted-foreground">No live broadcast</p>
+        {stoppedBy && (
+          <p className="mt-1 text-sm text-muted-foreground">{stoppedBy} stopped live TV</p>
+        )}
         {onPickLive ? (
           <Button size="lg" className="mt-4" onClick={onPickLive}>
             Pick a channel for everyone

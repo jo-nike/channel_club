@@ -4,6 +4,7 @@ import { render, screen, fireEvent, act, waitFor } from '@/test/utils'
 import { DualModeVideoPlayer } from './DualModeVideoPlayer'
 import { useAudioStore } from '@/stores/audioStore'
 import { useFilterStore } from '@/stores/filterStore'
+import { useChannelStore } from '@/stores/channelStore'
 import type { UnifiedChannel } from '@/types'
 
 // ----------------------------------------------------------------------------
@@ -800,6 +801,8 @@ describe('DualModeVideoPlayer touch: a tap toggles the controls once', () => {
 })
 
 describe('DualModeVideoPlayer empty live slot', () => {
+  afterEach(() => useChannelStore.setState({ lastChange: null }))
+
   const renderEmptySlot = (onPickLive?: () => void) =>
     render(
       <DualModeVideoPlayer
@@ -828,5 +831,26 @@ describe('DualModeVideoPlayer empty live slot', () => {
     expect(screen.getByText('Waiting for someone to put something on')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Pick a channel for everyone' })).not.toBeInTheDocument()
     expect(screen.queryByText(/admin/i)).not.toBeInTheDocument()
+  })
+
+  it('says who stopped live TV', () => {
+    useChannelStore.setState({ lastChange: { by: 'alice', at: 1000, channelName: null } })
+    renderEmptySlot()
+
+    expect(screen.getByText('alice stopped live TV')).toBeInTheDocument()
+  })
+
+  it('names nobody when the stop came from the system', () => {
+    useChannelStore.setState({ lastChange: { by: null, at: 1000, channelName: null } })
+    renderEmptySlot(vi.fn())
+
+    expect(screen.queryByText(/stopped live TV/)).not.toBeInTheDocument()
+  })
+
+  it('names nobody when the last change put a channel on', () => {
+    useChannelStore.setState({ lastChange: { by: 'alice', at: 1000, channelName: 'ESPN' } })
+    renderEmptySlot()
+
+    expect(screen.queryByText(/stopped live TV/)).not.toBeInTheDocument()
   })
 })
