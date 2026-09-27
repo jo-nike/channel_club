@@ -16,7 +16,6 @@ import { useAutoHide } from '@/hooks/useAutoHide'
 import { useTVMode } from '@/hooks/useTVMode'
 import { useCanSetVolume } from '@/hooks/useCanSetVolume'
 import { useVideoKeyboardShortcuts } from '@/hooks/useVideoKeyboardShortcuts'
-import { useOrientationFullscreen } from '@/hooks/useOrientationFullscreen'
 import { useFullscreenState } from '@/hooks/useFullscreenState'
 import { useHLSRetry } from '@/hooks/useHLSRetry'
 import { ProjectorBeamLoader } from '@/components/ProjectorBeamLoader'
@@ -298,12 +297,6 @@ function LiveVideoPlayer({
     ignoreVerticalArrows: isTVMode,
   })
 
-  // Auto-fullscreen on mobile landscape
-  useOrientationFullscreen({
-    containerRef,
-    enabled: true,
-  })
-
   // Fullscreen only when this player's container is the fullscreen element
   const isFullscreen = useFullscreenState(containerRef)
 
@@ -502,8 +495,6 @@ function HLSVideoPlayerWrapper({
   const isNoirActive = useFilterStore((s) => s.isFilterActive('noir'))
   const isGrindhouseActive = useFilterStore((s) => s.isFilterActive('grindhouse'))
   const isSportsHDActive = useFilterStore((s) => s.isFilterActive('sports-hd'))
-
-  useOrientationFullscreen({ containerRef, enabled: true })
 
   const onPlaying = useCallback(() => {
     setIsBuffering(false)
