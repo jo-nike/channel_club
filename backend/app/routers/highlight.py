@@ -8,6 +8,8 @@ Provides endpoints for:
 
 import asyncio
 import tempfile
+from collections.abc import Awaitable
+from contextlib import suppress
 from datetime import datetime
 from pathlib import Path as FilePath
 from typing import Literal
@@ -64,6 +66,9 @@ class DownloadLinkResponse(BaseModel):
 
     url: str
 
+
+# How often a running export checks whether the browser is still waiting for it
+DISCONNECT_POLL_SECONDS = 0.5
 
 CaptureIdPath = Path(..., pattern=r"^[A-Za-z0-9_-]{16,64}$", description="Capture id")
 
@@ -233,8 +238,31 @@ async def delete_capture(
     return Response(status_code=204)
 
 
+async def unless_disconnected[T](request: Request, work: Awaitable[T]) -> T:
+    """Starlette keeps running a handler after the client leaves; stop the work when it does.
+
+    Cancelling an encode kills its FFmpeg process, so the caller's export slot is freed
+    as soon as the browser cancels instead of when the encode finishes.
+    """
+    task = asyncio.ensure_future(work)
+    try:
+        while True:
+            done, _ = await asyncio.wait({task}, timeout=DISCONNECT_POLL_SECONDS)
+            if done:
+                return task.result()
+            if await request.is_disconnected():
+                log.info("Client left during a clip export; stopping the encode")
+                raise HTTPException(499, "Client closed the request")
+    finally:
+        if not task.done():
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+
+
 @router.post("/export")
 async def export_preview(
+    request: Request,
     capture: str = Query(..., pattern=r"^[A-Za-z0-9_-]{16,64}$"),
     format: Literal["mp4", "webm"] = Query("mp4"),
     start_time: float | None = Query(None, ge=0, allow_inf_nan=False),
@@ -254,8 +282,15 @@ async def export_preview(
         tempfile.TemporaryDirectory(prefix="highlight-preview-") as directory,
     ):
         try:
-            video = await encode_file(
-                source.path, FilePath(directory) / f"export.{format}", format, start_time, end_time
+            video = await unless_disconnected(
+                request,
+                encode_file(
+                    source.path,
+                    FilePath(directory) / f"export.{format}",
+                    format,
+                    start_time,
+                    end_time,
+                ),
             )
         except TimeoutError:
             raise HTTPException(408, "Clip conversion timed out") from None

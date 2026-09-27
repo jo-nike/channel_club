@@ -1,19 +1,23 @@
 """Immutable capture contract with real generated local media and HTTP requests."""
 
+import asyncio
 import shutil
 import subprocess
+import sys
 import time
 from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
 from app.config import settings
 from app.models.auth import TokenPayload
+from app.routers import highlight as highlight_router
 from app.routers.auth_deps import get_current_user
-from app.routers.highlight import router
+from app.routers.highlight import export_preview, router
 from app.services.highlight import Capture, highlight_service
 from app.services.media_limits import export_budget
 
@@ -145,3 +149,93 @@ def test_capture_lookup_and_validation_precede_encoder(client, tmp_path, registe
             == 400
         )
         encode.assert_not_called()
+
+
+class BrowserRequest(Request):
+    """A request whose client is still waiting until `leave` is set."""
+
+    def __init__(self, leave: asyncio.Event):
+        super().__init__({"type": "http", "method": "POST", "headers": []})
+        self.leave = leave
+
+    async def is_disconnected(self) -> bool:
+        return self.leave.is_set()
+
+
+def viewer() -> TokenPayload:
+    return TokenPayload(sub="viewer", role="viewer", exp=datetime(2099, 1, 1, tzinfo=UTC))
+
+
+@pytest.fixture
+def encoder(monkeypatch):
+    """Stand in for FFmpeg with a harmless child that runs until it is killed."""
+    monkeypatch.setattr(settings, "highlight_enabled", True)
+    monkeypatch.setattr(highlight_router, "DISCONNECT_POLL_SECONDS", 0.01)
+    real_popen = subprocess.Popen
+    children: list[subprocess.Popen] = []
+
+    def launch(_command, **kwargs):
+        child = real_popen([sys.executable, "-c", "import time; time.sleep(30)"], **kwargs)
+        children.append(child)
+        return child
+
+    with patch("subprocess.Popen", launch):
+        yield children
+    for child in children:
+        if child.poll() is None:
+            child.kill()
+            child.wait()
+
+
+async def test_export_stops_the_encoder_when_the_browser_cancels(tmp_path, register, encoder):
+    snapshot = tmp_path / "snapshot.mp4"
+    snapshot.write_bytes(b"mp4")
+    capture = register(snapshot)
+    leave = asyncio.Event()
+    export = asyncio.create_task(
+        export_preview(
+            BrowserRequest(leave),
+            capture=capture,
+            format="webm",
+            start_time=None,
+            end_time=None,
+            user=viewer(),
+        )
+    )
+    for _ in range(200):
+        if encoder:
+            break
+        await asyncio.sleep(0.01)
+    await asyncio.sleep(0.05)
+    assert encoder[0].poll() is None and export_budget.owners["viewer"] == 1
+
+    leave.set()
+    with pytest.raises(HTTPException) as closed:
+        await asyncio.wait_for(export, 5)
+    assert closed.value.status_code == 499
+    assert encoder[0].poll() is not None
+    assert not export_budget.owners
+
+
+async def test_export_returns_the_encode_while_the_browser_waits(tmp_path, register, monkeypatch):
+    monkeypatch.setattr(settings, "highlight_enabled", True)
+    monkeypatch.setattr(highlight_router, "DISCONNECT_POLL_SECONDS", 0.01)
+    snapshot = tmp_path / "snapshot.mp4"
+    snapshot.write_bytes(b"mp4")
+    capture = register(snapshot)
+
+    async def slow_encode(*_args: object) -> bytes:
+        await asyncio.sleep(0.05)
+        return b"encoded clip"
+
+    with patch("app.routers.highlight.encode_file", slow_encode):
+        response = await export_preview(
+            BrowserRequest(asyncio.Event()),
+            capture=capture,
+            format="mp4",
+            start_time=1,
+            end_time=2,
+            user=viewer(),
+        )
+    assert response.body == b"encoded clip"
+    assert not export_budget.owners
