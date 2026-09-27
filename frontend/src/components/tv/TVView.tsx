@@ -32,6 +32,7 @@ import { useMobileLandscape } from '@/hooks/useMobileLandscape'
 import { useChatEnabled } from '@/hooks/useChatEnabled'
 import { useVisualViewportHeight } from '@/hooks/useVisualViewportHeight'
 import { useUnreadTitleBadge } from '@/hooks/useUnreadTitleBadge'
+import { usePlayerFullscreenElement } from '@/hooks/useFullscreenState'
 import { AdminModal } from '@/components/AdminModal'
 import { LiveSwitcherSheet } from '@/components/LiveSwitcherSheet'
 import { CouchView } from '@/components/couch/CouchView'
@@ -91,6 +92,10 @@ export function TVView() {
   // WebSocket for presence tracking and chat
   const { status, reconnect, sendChannelUpdate, sendChatMessage, sendShare, sendSuggest, sendSetNickname } = useWebSocket({ view: 'tv' })
 
+  // In-player features (the chat over the video, Post to chat) send through
+  // chatStore, so the sender needn't be threaded down to them
+  useEffect(() => useChatStore.getState().registerSender(sendChatMessage), [sendChatMessage])
+
   // ErsatzTV store - for loading channels and programmes. Field selectors,
   // so unrelated store updates don't re-render the whole view
   const ersatzTVChannels = useErsatztvStore((s) => s.channels)
@@ -132,7 +137,10 @@ export function TVView() {
   const dismissTopLayer = useCallback(() => {
     const { isOpen: isChatOpen, setOpen: setChatOpen } = useChatStore.getState()
     const fullscreen = document.fullscreenElement
-    // Chat outside the fullscreen element is hidden behind it, so fullscreen goes first
+    // Chat is drawn inside the fullscreen player (see chatHost), so it closes
+    // first there. Chat left outside a fullscreen element (on a touch screen,
+    // or when something else is fullscreen) is hidden behind it, so
+    // fullscreen goes first.
     if (isChatOpen && (!fullscreen || fullscreen.contains(document.getElementById('chat-panel')))) {
       setChatOpen(false)
     } else if (fullscreen) {
@@ -256,7 +264,16 @@ export function TVView() {
   // opens as a sheet below the header on a tablet, so the header's controls
   // stay reachable. Phone portrait has it in the Chat tab (inline); a phone
   // without chat has no tab and no way to open it.
-  const chatVariant: ChatPanelVariant = isTheaterMode || isMobileLandscape
+  //
+  // While the player is fullscreen only it is drawn, so on a fine pointer
+  // chat is portalled into it as the see-through overlay, and opening chat
+  // there keeps fullscreen. Not on a touch screen: typing needs the soft
+  // keyboard, which real fullscreen fights, so chat stays outside and the
+  // player offers 'Exit fullscreen to reply' instead.
+  const fullscreenPlayer = usePlayerFullscreenElement()
+  const isCoarsePointer = useMediaQuery('(pointer: coarse)')
+  const chatHost = isCoarsePointer ? null : fullscreenPlayer
+  const chatVariant: ChatPanelVariant = chatHost || isTheaterMode || isMobileLandscape
     ? 'overlay'
     : isMobile
       ? 'inline'
@@ -663,8 +680,9 @@ export function TVView() {
               status={status}
               onReconnect={reconnect}
               variant={chatVariant}
-              translucent={!showPhoneTabs && isChatOverPicture}
+              translucent={chatHost !== null || (!showPhoneTabs && isChatOverPicture)}
               onComposerFocusChange={setComposerFocused}
+              container={chatHost}
             />
           </ErrorBoundary>
         </div>

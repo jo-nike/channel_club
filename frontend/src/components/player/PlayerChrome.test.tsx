@@ -858,14 +858,40 @@ describe('PlayerChrome', () => {
       expect(shell.toggleFullscreen).not.toHaveBeenCalled()
     })
 
-    // The panel is outside the shell, so it would open hidden behind fullscreen
-    it('leaves fullscreen to open chat', () => {
+    // The page portals the panel into the fullscreen shell, so it opens there
+    it('opens chat in fullscreen without leaving it', () => {
       const { shell } = renderChrome({ shell: { isFullscreen: true } })
 
       fireEvent.click(screen.getByRole('button', { name: 'Open chat' }))
 
-      expect(shell.toggleFullscreen).toHaveBeenCalledTimes(1)
+      expect(shell.toggleFullscreen).not.toHaveBeenCalled()
       expect(useChatStore.getState().isOpen).toBe(true)
+    })
+
+    // A touch screen keeps the panel outside the shell (see TVView), where it
+    // would open hidden behind fullscreen
+    it.each([
+      ['a phone held sideways', { width: 900, height: 400 }, {}],
+      ['a tablet in theater', { width: 1024, height: 768 }, { isTheaterMode: true }],
+    ])('leaves fullscreen to open chat on %s', (_device, size, shell) => {
+      mockViewport({ ...size, pointer: 'coarse' })
+      const { shell: fake } = renderChrome({ shell: { isFullscreen: true, ...shell } })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Open chat' }))
+
+      expect(fake.toggleFullscreen).toHaveBeenCalledTimes(1)
+      expect(useChatStore.getState().isOpen).toBe(true)
+    })
+
+    it('closes chat on a touch screen without touching fullscreen', () => {
+      mockViewport({ width: 900, height: 400, pointer: 'coarse' })
+      useChatStore.setState({ isOpen: true })
+      const { shell } = renderChrome({ shell: { isFullscreen: true } })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Open chat' }))
+
+      expect(shell.toggleFullscreen).not.toHaveBeenCalled()
+      expect(useChatStore.getState().isOpen).toBe(false)
     })
 
     it('closes chat in fullscreen without leaving it', () => {

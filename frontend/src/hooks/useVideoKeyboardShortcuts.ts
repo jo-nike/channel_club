@@ -199,7 +199,10 @@ export function useVideoKeyboardShortcuts({
 
         case 'c':
         case 'C': // C - Chat
-          onChatToggle?.()
+          if (!onChatToggle) break
+          // Not typed into a composer it opens and focuses
+          e.preventDefault()
+          onChatToggle()
           break
 
         case 'n':

@@ -1,4 +1,5 @@
 import { Fragment, useRef, useEffect, useLayoutEffect, useEffectEvent, useMemo, useState, useCallback, type KeyboardEvent, type UIEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { X, Send, Pencil, Loader2, AlertCircle, WifiOff, ArrowDown, MessageCircle, Tv } from 'lucide-react'
 import type { ChatSendResult, WebSocketStatus } from '@/hooks/useWebSocket'
 import { findMessageChannel, hidingUserIds, isOwnPresence, useSeesPresenceChannels } from '@/hooks/usePresenceByChannel'
@@ -54,6 +55,10 @@ export interface ChatPanelProps {
   // Whether focus is in the composer (the message field, GIF and Send), so
   // the view can make room above a soft keyboard
   onComposerFocusChange?: (focused: boolean) => void
+  // Where to draw it instead of in place: the player while it is fullscreen,
+  // where nothing outside the fullscreen element shows. Its GIF picker and
+  // Here-now list open there too.
+  container?: HTMLElement | null
 }
 
 // Quick reconnects (including the first connect) finish before the row would flicker in
@@ -125,7 +130,7 @@ function chipKey(message: ChatMessageData, channel: MessageChannel | undefined):
   return `${message.view}|${message.channelId}|${message.channelName}`
 }
 
-export function ChatPanel({ onSendMessage, onShare, onSetNickname, status = 'connected', onReconnect, variant = 'overlay', translucent = false, onComposerFocusChange }: ChatPanelProps) {
+export function ChatPanel({ onSendMessage, onShare, onSetNickname, status = 'connected', onReconnect, variant = 'overlay', translucent = false, onComposerFocusChange, container = null }: ChatPanelProps) {
   const {
     messages, isOpen, setOpen, nickname, me, readMarker, historyReset, nicknameRejection,
     setNickname, clearNickname, clearNicknameRejection,
@@ -524,7 +529,9 @@ export function ChatPanel({ onSendMessage, onShare, onSetNickname, status = 'con
   // the variant would remount the list and drop its scroll and focus
   const isLandmark = variant !== 'inline'
 
-  return (
+  // Portalled, only the panel's element is new: its draft, a failed send and
+  // the name editor live in this component, which stays where it is
+  const panel = (
     <div
       ref={panelRef}
       id="chat-panel"
@@ -553,7 +560,7 @@ export function ChatPanel({ onSendMessage, onShare, onSetNickname, status = 'con
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {/* Who else is here, and the Here-now list with Join */}
-          <HereNowPopover variant="chat" />
+          <HereNowPopover variant="chat" container={container} />
           {/* Inline, the Channels tab is the way back */}
           {variant !== 'inline' && (
             <Button
@@ -785,7 +792,7 @@ export function ChatPanel({ onSendMessage, onShare, onSetNickname, status = 'con
                   <Tv className="h-4 w-4" aria-hidden="true" />
                 </Button>
               )}
-              <GifButton onSelect={async (url) => (await send(url)) === 'acknowledged'} disabled={isSending || !isConnected} />
+              <GifButton onSelect={async (url) => (await send(url)) === 'acknowledged'} disabled={isSending || !isConnected} container={container} />
               {/* Filled only once there is something to send */}
               <Button
                 onClick={handleSend}
@@ -804,4 +811,6 @@ export function ChatPanel({ onSendMessage, onShare, onSetNickname, status = 'con
       )}
     </div>
   )
+
+  return container ? createPortal(panel, container) : panel
 }

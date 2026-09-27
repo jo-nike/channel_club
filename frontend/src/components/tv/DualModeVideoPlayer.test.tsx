@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { ReactNode, Ref } from 'react'
-import { render, screen, fireEvent, act, waitFor, within } from '@/test/utils'
+import { render, renderHook, screen, fireEvent, act, waitFor, within } from '@/test/utils'
 import { DualModeVideoPlayer } from './DualModeVideoPlayer'
 import { useAudioStore } from '@/stores/audioStore'
 import { useFilterStore } from '@/stores/filterStore'
@@ -12,6 +12,7 @@ import { useTVStore } from '@/stores/tvStore'
 import { useChatStore } from '@/stores/chatStore'
 import { INITIAL_CAST_STATE, useCastStore } from '@/stores/castStore'
 import { useChannelZap, type ChannelZap } from '@/hooks/useChannelZap'
+import { usePlayerFullscreenElement } from '@/hooks/useFullscreenState'
 import type { UnifiedChannel } from '@/types'
 import type { NHLGame } from '@/types/nhl'
 import type { PlayerShell } from '@/components/player/PlayerShellContext'
@@ -925,6 +926,15 @@ describe('DualModeVideoPlayer fullscreen state', () => {
     expect(screen.getByRole('button', { name: 'Theater mode' })).toBeInTheDocument()
   })
 
+  // The page finds it by the mark to portal chat and toasts into it
+  it('marks the shell for the page to find in fullscreen', () => {
+    renderPlayer(liveChannel('https://fixture/a'))
+    setFullscreenElement(shell())
+
+    const { result } = renderHook(() => usePlayerFullscreenElement())
+    expect(result.current).toBe(shell())
+  })
+
   // Vidstack only reports its own MediaPlayer element as fullscreen, never the shell
   it("ErsatzTV: the bar ignores Vidstack's own fullscreen state", () => {
     vidstack.state.fullscreen = true
@@ -1671,6 +1681,85 @@ describe('DualModeVideoPlayer filters', () => {
 
     expect(document.querySelectorAll('.noir-filter')).toHaveLength(1)
     expect(document.querySelector('.noir-filter')).toBe(noir)
+  })
+})
+
+describe('DualModeVideoPlayer chat over the video', () => {
+  beforeEach(() => {
+    chatFeature.enabled = true
+    useChatStore.setState({ messages: [], isOpen: false })
+    useUIStore.setState({ chatPreviews: true })
+  })
+
+  it('shows in theater inside the shell, so it is in fullscreen too, and stays across a channel switch', () => {
+    const view = render(<DualModeVideoPlayer channel={liveChannel('https://fixture/a')} isTheaterMode onTheaterModeToggle={vi.fn()} />)
+    act(() => useChatStore.getState().addMessage({ messageId: 'm1', username: 'maya', content: 'goal!', timestamp: new Date().toISOString() }))
+
+    const overlay = screen.getByTestId('chat-overlay')
+    expect(shell()).toContainElement(overlay)
+    expect(overlay).toHaveTextContent('maya goal!')
+
+    view.rerender(<DualModeVideoPlayer channel={hlsChannel('1', 1)} isTheaterMode onTheaterModeToggle={vi.fn()} />)
+    expect(screen.getByTestId('chat-overlay')).toBe(overlay)
+    expect(overlay).toHaveTextContent('maya goal!')
+  })
+
+  describe('C in theater', () => {
+    const renderTheater = () =>
+      render(<DualModeVideoPlayer channel={liveChannel('https://fixture/a')} isTheaterMode onTheaterModeToggle={vi.fn()} />)
+    const composer = () => screen.queryByRole('textbox', { name: 'Message the club' })
+
+    it('opens the composer over the video, focused, rather than the panel', () => {
+      renderTheater()
+
+      fireEvent.keyDown(window, { key: 'c' })
+
+      expect(composer()).toHaveFocus()
+      expect(shell()).toContainElement(composer())
+      expect(useChatStore.getState().isOpen).toBe(false)
+    })
+
+    it('Enter sends through the sender TVView registered', async () => {
+      const sender = vi.fn(() => Promise.resolve('acknowledged' as const))
+      const unregister = useChatStore.getState().registerSender(sender)
+      renderTheater()
+      fireEvent.keyDown(window, { key: 'c' })
+
+      fireEvent.change(composer()!, { target: { value: 'what a goal' } })
+      await act(async () => {
+        fireEvent.submit(composer()!)
+      })
+
+      expect(sender).toHaveBeenCalledWith('what a goal', expect.any(String))
+      expect(composer()).not.toBeInTheDocument()
+      unregister()
+    })
+
+    it("toggles the panel as before with 'Show chat over the video' off", () => {
+      useUIStore.setState({ chatPreviews: false })
+      renderTheater()
+
+      fireEvent.keyDown(window, { key: 'c' })
+
+      expect(composer()).not.toBeInTheDocument()
+      expect(useChatStore.getState().isOpen).toBe(true)
+    })
+
+    it('closes the composer when the panel opens', () => {
+      renderTheater()
+      fireEvent.keyDown(window, { key: 'c' })
+
+      act(() => useChatStore.getState().setOpen(true))
+
+      expect(composer()).not.toBeInTheDocument()
+    })
+  })
+
+  it('is not drawn in the page layout', () => {
+    renderPlayer(liveChannel('https://fixture/a'))
+    act(() => useChatStore.getState().addMessage({ messageId: 'm1', username: 'maya', content: 'goal!', timestamp: new Date().toISOString() }))
+
+    expect(screen.queryByTestId('chat-overlay')).not.toBeInTheDocument()
   })
 })
 

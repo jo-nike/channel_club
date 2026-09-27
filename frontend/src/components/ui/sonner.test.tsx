@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { afterEach, describe, it, expect } from 'vitest'
 import { act, render, waitFor } from '@/test/utils'
 import { toast } from 'sonner'
 import { Toaster } from './sonner'
@@ -18,5 +18,48 @@ describe('Toaster', () => {
     for (const prefix of ['--offset', '--mobile-offset']) {
       expect(toaster.style.getPropertyValue(`${prefix}-top`)).toBe('calc(16px + env(safe-area-inset-top, 0px))')
     }
+  })
+
+  describe('with the player fullscreen', () => {
+    const setFullscreenElement = (element: Element | null) => act(() => {
+      Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: element })
+      document.dispatchEvent(new Event('fullscreenchange'))
+    })
+    const toasterElement = () => document.querySelector<HTMLElement>('[data-sonner-toaster]')
+
+    afterEach(() => {
+      setFullscreenElement(null)
+      toast.dismiss()
+    })
+
+    it('shows toasts inside the fullscreen player, where they stay in view, and back on the page after', async () => {
+      const shell = document.createElement('div')
+      shell.setAttribute('data-player-shell', '')
+      document.body.appendChild(shell)
+      const { container } = render(<Toaster />)
+
+      setFullscreenElement(shell)
+      act(() => { toast('Match starts now on TSN') })
+      await waitFor(() => expect(shell).toHaveTextContent('Match starts now on TSN'))
+      expect(shell).toContainElement(toasterElement())
+
+      setFullscreenElement(null)
+      act(() => { toast('Live changed to CBC') })
+      await waitFor(() => expect(container).toHaveTextContent('Live changed to CBC'))
+      expect(shell).not.toContainElement(toasterElement())
+      shell.remove()
+    })
+
+    it('stays on the page while something other than the player is fullscreen', async () => {
+      const other = document.createElement('div')
+      document.body.appendChild(other)
+      const { container } = render(<Toaster />)
+
+      setFullscreenElement(other)
+      act(() => { toast('Hello') })
+      await waitFor(() => expect(container).toHaveTextContent('Hello'))
+      expect(other).toBeEmptyDOMElement()
+      other.remove()
+    })
   })
 })

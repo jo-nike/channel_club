@@ -54,6 +54,10 @@ interface UIState {
   // Keep what I'm watching out of what other members see (admins still see it)
   hideMyActivity: boolean
   setHideMyActivity: (value: boolean) => void
+  // The latest chat messages over the video in theater and fullscreen
+  // (never on the TV layout, which has no overlay)
+  chatPreviews: boolean
+  setChatPreviews: (value: boolean) => void
   // NHL scores overlay (ephemeral - not persisted)
   isNHLOverlayVisible: boolean
   setNHLOverlayVisible: (value: boolean) => void
@@ -96,6 +100,9 @@ export const useUIStore = create<UIState>()(
       // Shared unless the person hides it (the admin setting decides whether anyone sees it)
       hideMyActivity: false,
       setHideMyActivity: (value) => set({ hideMyActivity: value }),
+      // On by default; an old save without it gets this on merge
+      chatPreviews: true,
+      setChatPreviews: (value) => set({ chatPreviews: value }),
       // NHL scores overlay (ephemeral - not persisted)
       isNHLOverlayVisible: false,
       setNHLOverlayVisible: (value) => set({ isNHLOverlayVisible: value }),
@@ -140,6 +147,7 @@ export const useUIStore = create<UIState>()(
         lastTVChannelId: state.lastTVChannelId,
         notificationsEnabled: state.notificationsEnabled,
         hideMyActivity: state.hideMyActivity,
+        chatPreviews: state.chatPreviews,
       }),
     }
   )

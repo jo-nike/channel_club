@@ -130,12 +130,14 @@ export function PlayerChrome({
     if (channelId) openClip(channelId, channelName ?? channelId)
   }, [channelId, channelName, openClip])
 
-  // The chat panel is drawn outside the player shell, so in fullscreen it
-  // would open hidden behind it: opening chat there leaves fullscreen first.
+  // In fullscreen the page portals the panel into the shell on a fine
+  // pointer, so it opens there and fullscreen stays. A touch screen keeps
+  // chat outside fullscreen (see TVView's chatHost), where it would open
+  // hidden behind it: there opening chat leaves fullscreen first.
   const handleChatToggle = useCallback(() => {
-    if (isFullscreen && !isChatOpen) toggleFullscreen()
+    if (isFullscreen && isTouchDevice && !isChatOpen) toggleFullscreen()
     toggleChat()
-  }, [isFullscreen, isChatOpen, toggleFullscreen, toggleChat])
+  }, [isFullscreen, isTouchDevice, isChatOpen, toggleFullscreen, toggleChat])
 
   const playLabel = adapter.isPlaying ? 'Pause' : 'Play'
   const muteLabel = isMuted ? unmuteLabel(volume, canSetVolume) : 'Mute'

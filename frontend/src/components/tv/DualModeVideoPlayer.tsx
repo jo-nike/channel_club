@@ -12,7 +12,7 @@ import '@vidstack/react/player/styles/default/theme.css'
 import { useAutoHide } from '@/hooks/useAutoHide'
 import { useTVMode } from '@/hooks/useTVMode'
 import { useVideoKeyboardShortcuts } from '@/hooks/useVideoKeyboardShortcuts'
-import { useFullscreenState } from '@/hooks/useFullscreenState'
+import { PLAYER_SHELL_ATTRIBUTE, useFullscreenState } from '@/hooks/useFullscreenState'
 import { useStreamRecovery } from '@/hooks/useStreamRecovery'
 import { useChatEnabled } from '@/hooks/useChatEnabled'
 import { useMobileLandscape } from '@/hooks/useMobileLandscape'
@@ -21,6 +21,8 @@ import { useCastSdk } from '@/hooks/useChromecast'
 import { ProjectorBeamLoader } from '@/components/ProjectorBeamLoader'
 import { Button } from '@/components/ui/button'
 import { AutoplayNotice } from '@/components/player/AutoplayNotice'
+import { ChatOverlay } from '@/components/player/ChatOverlay'
+import { useChatOverlayMode } from '@/components/player/useChatOverlayMode'
 import { CastErrorBanner, CastingCard } from '@/components/player/CastingCard'
 import {
   PlayerShellContext,
@@ -181,6 +183,17 @@ export function DualModeVideoPlayer({
   const openShortcutSheet = useCallback(() => setShortcutSheetOpen(true), [])
   const chatEnabled = useChatEnabled()
   const toggleChat = useChatStore((s) => s.toggleOpen)
+  // In theater and fullscreen, where the chat over the video can take a
+  // reply, C opens its composer instead of the panel. Each press is a new
+  // request, so C also brings focus back to a composer already open. It
+  // closes when the overlay can no longer reply (the panel opened, theater
+  // ended). (Adjusted while rendering, React's pattern for state that
+  // follows a prop.)
+  const { canReply } = useChatOverlayMode(isTheaterMode, isFullscreen)
+  const [composerRequest, setComposerRequest] = useState<number | null>(null)
+  if (!canReply && composerRequest !== null) setComposerRequest(null)
+  const openComposer = useCallback(() => setComposerRequest((n) => (n ?? 0) + 1), [])
+  const closeComposer = useCallback(() => setComposerRequest(null), [])
   const toggleNHLOverlay = useUIStore((s) => s.toggleNHLOverlay)
 
   // In fullscreen the page's search is hidden behind the shell
@@ -197,7 +210,7 @@ export function DualModeVideoPlayer({
     onDigit: zap?.digit,
     onDigitCommit: zap?.commitDigits,
     onShortcutSheet: openShortcutSheet,
-    onChatToggle: chatEnabled ? toggleChat : undefined,
+    onChatToggle: chatEnabled ? (canReply ? openComposer : toggleChat) : undefined,
     onNHLToggle: toggleNHLOverlay,
     onFocusSearch: focusSearch,
   })
@@ -260,8 +273,10 @@ export function DualModeVideoPlayer({
 
   return (
     <PlayerShellContext value={shell}>
+      {/* Marked, so the page can portal chat and toasts into it in fullscreen */}
       <div
         ref={attachShell}
+        {...{ [PLAYER_SHELL_ATTRIBUTE]: '' }}
         className={`video-player-container relative h-full w-full bg-black${isSwipeZap ? ' touch-none' : ''}`}
         style={insetTop}
       >
@@ -286,6 +301,9 @@ export function DualModeVideoPlayer({
           entry={zap?.entry ?? null}
           missing={zap?.missing ?? null}
         />
+        {/* The latest chat over the video in theater and fullscreen, above
+            the control bar */}
+        <ChatOverlay composerRequest={composerRequest} onComposerClose={closeComposer} />
         <CastErrorBanner />
       </div>
       {/* One editor for every engine, keyed by the capture's channel, not the one playing */}

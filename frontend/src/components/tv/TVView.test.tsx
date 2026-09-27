@@ -13,9 +13,10 @@ import { fetchLiveProgrammes, fetchNowPlaying } from '@/services/api'
 import { toast } from 'sonner'
 import { mockViewport } from '@/test/viewport'
 const presence = vi.hoisted(() => vi.fn())
+const sendChat = vi.hoisted(() => vi.fn())
 const crash = vi.hoisted(() => ({ player: false, chat: false }))
 const socket = vi.hoisted(() => ({ status: 'connected', reconnect: () => {}, sendSuggest: vi.fn() }))
-const chatProps = vi.hoisted(() => ({ last: null as null | { status?: string; onReconnect?: () => void; variant?: string; translucent?: boolean; onComposerFocusChange?: (focused: boolean) => void } }))
+const chatProps = vi.hoisted(() => ({ last: null as null | { status?: string; onReconnect?: () => void; variant?: string; translucent?: boolean; onComposerFocusChange?: (focused: boolean) => void; container?: HTMLElement | null } }))
 const auth = vi.hoisted(() => ({ isAdmin: false }))
 const appSettings = vi.hoisted(() => ({ userChannelSelection: false }))
 // Chat is a build-time flag, off in tests unless a test turns it on
@@ -28,7 +29,7 @@ import type { ErsatzTVProgramme, UnifiedChannel } from '@/types'
 import type { ChannelZap } from '@/hooks/useChannelZap'
 
 vi.mock('@/services/ersatztvApi', () => ({ fetchErsatzTVChannels: vi.fn(), fetchErsatzTVCurrentProgramme: vi.fn(), getErsatzTVLogoUrl: vi.fn() }))
-vi.mock('@/hooks/useWebSocket', () => ({ useWebSocket: () => ({ status: socket.status, reconnect: socket.reconnect, sendChannelUpdate: presence, sendChatMessage: vi.fn(), sendSuggest: socket.sendSuggest, sendSetNickname: vi.fn() }) }))
+vi.mock('@/hooks/useWebSocket', () => ({ useWebSocket: () => ({ status: socket.status, reconnect: socket.reconnect, sendChannelUpdate: presence, sendChatMessage: sendChat, sendSuggest: socket.sendSuggest, sendSetNickname: vi.fn() }) }))
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ isAdmin: auth.isAdmin, logout: vi.fn() }) }))
 vi.mock('@/hooks/useChatEnabled', () => ({ useChatEnabled: () => chatFlag.enabled }))
 vi.mock('@/hooks/useAppSettings', () => ({ useAppSettings: () => ({ userChannelSelection: appSettings.userChannelSelection }) }))
@@ -57,18 +58,21 @@ vi.mock('@/components/tv/TVEPGGrid', () => ({ TVEPGGrid: ({ onProgrammeClick }: 
 vi.mock('@/components/ChatPanel', async () => {
   const { useChatStore } = await import('@/stores/chatStore')
   const { useState } = await import('react')
+  const { createPortal } = await import('react-dom')
   // Like the real panel, renders nothing (and so can't throw) while closed,
-  // and keeps its draft in its own state
-  return { ChatPanel: (props: { status?: string; onReconnect?: () => void; variant?: string; translucent?: boolean; onComposerFocusChange?: (focused: boolean) => void }) => {
+  // keeps its draft in its own state and portals into a container
+  return { ChatPanel: (props: { status?: string; onReconnect?: () => void; variant?: string; translucent?: boolean; onComposerFocusChange?: (focused: boolean) => void; container?: HTMLElement | null }) => {
     chatProps.last = props
     const isOpen = useChatStore((s) => s.isOpen)
     const [draft, setDraft] = useState('')
     if (crash.chat && isOpen) throw new Error('chat exploded')
-    return isOpen ? (
-      <div data-testid="chat" data-variant={props.variant}>
+    if (!isOpen) return null
+    const panel = (
+      <div id="chat-panel" data-testid="chat" data-variant={props.variant}>
         <input aria-label="Draft" value={draft} onChange={(e) => setDraft(e.target.value)} />
       </div>
-    ) : null
+    )
+    return props.container ? createPortal(panel, props.container) : panel
   } }
 })
 vi.mock('@/components/ersatztv/ProgrammeDetailsModal', () => ({ ProgrammeDetailsModal: (props: NonNullable<typeof modal.last>) => {
@@ -1324,6 +1328,24 @@ describe('E-01 channel list folds to its rail beside docked chat at 1024-1279px'
   })
 })
 
+describe('chat sender for in-player features', () => {
+  beforeEach(() => vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([]))
+
+  it("registers the socket's chat send in chatStore while mounted", async () => {
+    sendChat.mockResolvedValue('acknowledged')
+    const { unmount } = render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+
+    await expect(useChatStore.getState().sendMessage('over the video', 'c-1')).resolves.toBe('acknowledged')
+    expect(sendChat).toHaveBeenCalledWith('over the video', 'c-1')
+
+    unmount()
+    sendChat.mockClear()
+    await expect(useChatStore.getState().sendMessage('after leaving')).resolves.toBe('not-sent')
+    expect(sendChat).not.toHaveBeenCalled()
+  })
+})
+
 describe('E-10 Escape closes chat before leaving theater', () => {
   beforeEach(() => vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([]))
   afterEach(() => {
@@ -1360,6 +1382,64 @@ describe('E-10 Escape closes chat before leaving theater', () => {
 
     expect(useChatStore.getState().isOpen).toBe(true)
     expect(useUIStore.getState().isTheaterMode).toBe(true)
+  })
+
+  describe('with the player shell fullscreen', () => {
+    let shell: HTMLDivElement
+    const enterFullscreen = (element: Element) => act(() => {
+      Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: element })
+      document.dispatchEvent(new Event('fullscreenchange'))
+    })
+
+    beforeEach(() => {
+      shell = document.createElement('div')
+      shell.setAttribute('data-player-shell', '')
+      document.body.appendChild(shell)
+    })
+    afterEach(() => {
+      shell.remove()
+      window.matchMedia = originalMatchMedia
+    })
+
+    it('draws chat inside it as the see-through overlay', async () => {
+      mockViewport({ width: 1440 })
+      render(<MemoryRouter><TVView /></MemoryRouter>)
+      await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+      enterFullscreen(shell)
+      act(() => useChatStore.setState({ isOpen: true }))
+
+      const chat = screen.getByTestId('chat')
+      expect(shell).toContainElement(chat)
+      expect(chat).toHaveAttribute('data-variant', 'overlay')
+      expect(chatProps.last?.translucent).toBe(true)
+    })
+
+    it('closes chat on Escape and stays fullscreen', async () => {
+      await renderInTheaterWithChat()
+      const exitFullscreen = vi.fn(() => Promise.resolve())
+      Object.defineProperty(document, 'exitFullscreen', { configurable: true, value: exitFullscreen })
+      enterFullscreen(shell)
+      expect(shell).toContainElement(screen.getByTestId('chat'))
+
+      fireEvent.keyDown(document.body, { key: 'Escape' })
+
+      expect(useChatStore.getState().isOpen).toBe(false)
+      expect(exitFullscreen).not.toHaveBeenCalled()
+    })
+
+    it('keeps chat outside it on a touch screen, where fullscreen goes first', async () => {
+      mockViewport({ width: 1024, height: 768, pointer: 'coarse' })
+      await renderInTheaterWithChat()
+      const exitFullscreen = vi.fn(() => Promise.resolve())
+      Object.defineProperty(document, 'exitFullscreen', { configurable: true, value: exitFullscreen })
+      enterFullscreen(shell)
+
+      expect(shell).not.toContainElement(screen.getByTestId('chat'))
+      expect(chatProps.last?.container).toBeNull()
+      fireEvent.keyDown(document.body, { key: 'Escape' })
+      expect(exitFullscreen).toHaveBeenCalledTimes(1)
+      expect(useChatStore.getState().isOpen).toBe(true)
+    })
   })
 
   it('leaves fullscreen first when chat is hidden behind it', async () => {

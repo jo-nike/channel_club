@@ -12,6 +12,7 @@ describe('uiStore', () => {
       isChannelSidebarCollapsed: false,
       notificationsEnabled: false,
       hideMyActivity: false,
+      chatPreviews: true,
     })
     localStorage.clear()
   })
@@ -347,6 +348,39 @@ describe('uiStore', () => {
       await useUIStore.persist.rehydrate()
 
       expect(useUIStore.getState().hideMyActivity).toBe(true)
+    })
+  })
+
+  describe('chatPreviews', () => {
+    it('shows chat over the video by default', () => {
+      expect(useUIStore.getInitialState().chatPreviews).toBe(true)
+    })
+
+    it('is saved, so turning it off survives a reload', () => {
+      useUIStore.getState().setChatPreviews(false)
+
+      const saved = JSON.parse(localStorage.getItem('ui-storage') ?? 'null')
+      expect(saved.state.chatPreviews).toBe(false)
+      // A new field, filled from the default on merge, so no version bump
+      expect(saved.version).toBe(2)
+    })
+
+    it('comes back from a saved choice', async () => {
+      localStorage.setItem('ui-storage', JSON.stringify({ state: { chatPreviews: false }, version: 2 }))
+
+      await useUIStore.persist.rehydrate()
+
+      expect(useUIStore.getState().chatPreviews).toBe(false)
+    })
+
+    it('is on for a save from before it existed', async () => {
+      // As at startup: the defaults, then the save merged over them
+      useUIStore.setState(useUIStore.getInitialState())
+      localStorage.setItem('ui-storage', JSON.stringify({ state: { hideMyActivity: true }, version: 2 }))
+
+      await useUIStore.persist.rehydrate()
+
+      expect(useUIStore.getState().chatPreviews).toBe(true)
     })
   })
 

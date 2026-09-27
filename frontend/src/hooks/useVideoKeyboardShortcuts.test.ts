@@ -606,6 +606,21 @@ describe('useVideoKeyboardShortcuts', () => {
       expect(actions.onNHLToggle).not.toHaveBeenCalled()
     })
 
+    // It may open a composer and focus it within the same keydown
+    it('C is not typed anywhere once chat takes it, and left alone without chat', () => {
+      const actions = panelActions()
+      const { unmount } = renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, ...actions }))
+      const withChat = new KeyboardEvent('keydown', { key: 'c', bubbles: true, cancelable: true })
+      window.dispatchEvent(withChat)
+      expect(withChat.defaultPrevented).toBe(true)
+      unmount()
+
+      renderHook(() => useVideoKeyboardShortcuts(mockProps))
+      const withoutChat = new KeyboardEvent('keydown', { key: 'c', bubbles: true, cancelable: true })
+      window.dispatchEvent(withoutChat)
+      expect(withoutChat.defaultPrevented).toBe(false)
+    })
+
     it.each(['n', 'N'])('%s toggles the NHL scores', (key) => {
       const actions = panelActions()
       renderHook(() => useVideoKeyboardShortcuts({ ...mockProps, ...actions }))

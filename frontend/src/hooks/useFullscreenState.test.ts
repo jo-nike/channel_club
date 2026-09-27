@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
-import { useFullscreenState } from './useFullscreenState'
+import { PLAYER_SHELL_ATTRIBUTE, useFullscreenState, usePlayerFullscreenElement } from './useFullscreenState'
 
 const setFullscreenElement = (key: 'fullscreenElement' | 'webkitFullscreenElement', element: Element | null) => {
   Object.defineProperty(document, key, { configurable: true, value: element })
@@ -69,5 +69,57 @@ describe('useFullscreenState', () => {
 
     expect(noRef.current).toBe(false)
     expect(emptyRef.current).toBe(false)
+  })
+})
+
+describe('usePlayerFullscreenElement', () => {
+  afterEach(() => {
+    setFullscreenElement('fullscreenElement', null)
+    setFullscreenElement('webkitFullscreenElement', null)
+  })
+
+  const shell = () => {
+    const element = document.createElement('div')
+    element.setAttribute(PLAYER_SHELL_ATTRIBUTE, '')
+    return element
+  }
+
+  it('is the player shell while it is fullscreen, and null once it leaves', () => {
+    const element = shell()
+    const { result } = renderHook(() => usePlayerFullscreenElement())
+    expect(result.current).toBeNull()
+
+    act(() => {
+      setFullscreenElement('fullscreenElement', element)
+      document.dispatchEvent(new Event('fullscreenchange'))
+    })
+    expect(result.current).toBe(element)
+
+    act(() => {
+      setFullscreenElement('fullscreenElement', null)
+      document.dispatchEvent(new Event('fullscreenchange'))
+    })
+    expect(result.current).toBeNull()
+  })
+
+  it("follows Safari's webkit fullscreen element", () => {
+    const element = shell()
+    const { result } = renderHook(() => usePlayerFullscreenElement())
+
+    act(() => {
+      setFullscreenElement('webkitFullscreenElement', element)
+      document.dispatchEvent(new Event('webkitfullscreenchange'))
+    })
+    expect(result.current).toBe(element)
+  })
+
+  it('is null while something other than the player is fullscreen', () => {
+    const { result } = renderHook(() => usePlayerFullscreenElement())
+
+    act(() => {
+      setFullscreenElement('fullscreenElement', document.createElement('video'))
+      document.dispatchEvent(new Event('fullscreenchange'))
+    })
+    expect(result.current).toBeNull()
   })
 })

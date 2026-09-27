@@ -38,7 +38,7 @@ import { useAppSettings } from '@/hooks/useAppSettings'
 import { useChatEnabled } from '@/hooks/useChatEnabled'
 import { useFeedbackFeature } from '@/hooks/useFeedbackFeature'
 import { useInstallPrompt } from '@/hooks/useInstallPrompt'
-import { readTVModeOverride, setTVModeOverride, type TVModeOverride } from '@/hooks/useTVMode'
+import { readTVModeOverride, setTVModeOverride, useTVMode, type TVModeOverride } from '@/hooks/useTVMode'
 import { useUIStore } from '@/stores/uiStore'
 
 interface AccountMenuProps {
@@ -76,6 +76,10 @@ export function AccountMenu({ onOpenChannelPicker, onOpenAdmin, onReload, isMobi
   const setHideMyActivity = useUIStore((s) => s.setHideMyActivity)
   const hideActivityLabelId = useId()
   const hideActivityHintId = useId()
+  const chatPreviews = useUIStore((s) => s.chatPreviews)
+  const setChatPreviews = useUIStore((s) => s.setChatPreviews)
+  // Only where there is chat over the video: not without chat (chatEnabled), nor on the TV layout
+  const isTVMode = useTVMode()
   const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
   const setNHLOverlayVisible = useUIStore((s) => s.setNHLOverlayVisible)
   const initial = initialOf(username)
@@ -175,7 +179,11 @@ export function AccountMenu({ onOpenChannelPicker, onOpenAdmin, onReload, isMobi
               </span>
             </span>
           </DropdownMenuCheckboxItem>
-          {/* 'Chat previews' (W3) goes here */}
+          {chatEnabled && !isTVMode && (
+            <DropdownMenuCheckboxItem checked={chatPreviews} onCheckedChange={setChatPreviews}>
+              Show chat over the video
+            </DropdownMenuCheckboxItem>
+          )}
           <DropdownMenuItem onSelect={() => setAppearanceOpen(true)}>
             <Palette />
             Appearance…
