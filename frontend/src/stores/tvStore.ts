@@ -48,6 +48,10 @@ export function describeLiveGuide(status: LiveEPGStatus): string {
 interface TVState {
   // Selected channel (can be Channel 0 or ErsatzTV channel)
   selectedChannel: UnifiedChannel | null
+  // The channel this viewer picked before the current one, for 'Back to' when
+  // a stream stops. Only selectChannel writes it: live TV following a new
+  // channel is the same pick, not a new one.
+  previousChannelId: string | null
 
   // Live channel EPG data (for Channel 0)
   liveEPG: EPGResponse | null
@@ -117,6 +121,7 @@ export function buildUnifiedChannels(
 export const useTVStore = create<TVState>()(
   subscribeWithSelector((set, get) => ({
     selectedChannel: null,
+    previousChannelId: null,
     liveEPG: null,
     liveEPGLoading: false,
     liveEPGStatus: 'idle',
@@ -126,7 +131,12 @@ export const useTVStore = create<TVState>()(
 
     selectChannel: (channel: UnifiedChannel) => {
       logger.debug('TVStore', `Selected channel: ${channel.name} (${channel.type})`)
-      set({ selectedChannel: channel })
+      const current = get().selectedChannel
+      set(
+        current && current.id !== channel.id
+          ? { selectedChannel: channel, previousChannelId: current.id }
+          : { selectedChannel: channel }
+      )
 
       // Save to UI store for persistence
       if (channel.type === 'ersatztv') {

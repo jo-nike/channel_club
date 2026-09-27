@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useTVStore, LIVE_CHANNEL_ID } from './tvStore'
 import { useChannelStore } from './channelStore'
 import { fetchLiveProgrammes, fetchNowPlaying } from '@/services/api'
-import type { Channel, EPGProgrammesResponse, EPGResponse } from '@/types'
+import type { Channel, EPGProgrammesResponse, EPGResponse, UnifiedChannel } from '@/types'
 
 vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn(), fetchLiveProgrammes: vi.fn() }))
 
@@ -347,5 +347,48 @@ describe('tvStore live schedule', () => {
 
     expect(titles()).toEqual(['Pre-game', 'Hockey Night', 'After Hours'])
     expect(fetchLiveProgrammes).not.toHaveBeenCalled()
+  })
+})
+
+describe('tvStore previous channel', () => {
+  const cartoons: UnifiedChannel = { id: 'e2', name: 'Cartoons', number: 2, streamUrl: '/e2', type: 'ersatztv' }
+  const movies: UnifiedChannel = { id: 'e3', name: 'Movies', number: 3, streamUrl: '/e3', type: 'ersatztv' }
+  const sportsnet: Channel = { id: '31', name: 'CA-S: Sportsnet ONE', streamUrl: 'http://x/31', guideId: '9' }
+
+  beforeEach(() => {
+    vi.mocked(fetchNowPlaying).mockReset().mockResolvedValue(onNow)
+    vi.mocked(fetchLiveProgrammes).mockReset().mockResolvedValue({ channelId: '5', programmes: [] })
+    useChannelStore.setState({ currentChannel: tsn })
+    useTVStore.setState({ selectedChannel: null, previousChannelId: null })
+  })
+
+  it('has none until the viewer picks a second channel', () => {
+    useTVStore.getState().selectChannel(cartoons)
+    expect(useTVStore.getState().previousChannelId).toBeNull()
+
+    useTVStore.getState().selectChannel(movies)
+    expect(useTVStore.getState().previousChannelId).toBe('e2')
+
+    useTVStore.getState().selectChannel(useTVStore.getState().getUnifiedChannels()[0])
+    expect(useTVStore.getState().previousChannelId).toBe('e3')
+  })
+
+  it('keeps it when the same channel is picked again', () => {
+    useTVStore.getState().selectChannel(cartoons)
+    useTVStore.getState().selectChannel(movies)
+
+    useTVStore.getState().selectChannel({ ...movies, name: 'Movies HD' })
+
+    expect(useTVStore.getState().previousChannelId).toBe('e2')
+  })
+
+  it('keeps it when live TV changes under a viewer on the live slot', () => {
+    useTVStore.getState().selectChannel(cartoons)
+    useTVStore.getState().selectChannel(useTVStore.getState().getUnifiedChannels()[0])
+
+    useChannelStore.getState().setCurrentChannel(sportsnet)
+
+    expect(useTVStore.getState().selectedChannel).toMatchObject({ id: LIVE_CHANNEL_ID, name: 'CA-S: Sportsnet ONE' })
+    expect(useTVStore.getState().previousChannelId).toBe('e2')
   })
 })

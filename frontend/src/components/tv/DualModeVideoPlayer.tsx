@@ -21,6 +21,7 @@ import { PlayerShellContext, usePlayerShell, useShellPlayback } from '@/componen
 import { FilterLayer } from '@/components/player/FilterLayer'
 import { PlayerChrome } from '@/components/player/PlayerChrome'
 import { PlayerInfoOverlay } from '@/components/player/PlayerInfoOverlay'
+import { StreamStatusCard } from '@/components/player/StreamStatusCard'
 import { useLiveAdapter, useVidstackAdapter } from '@/components/player/mediaAdapters'
 import { usePlayerAudio } from '@/components/player/usePlayerAudio'
 import { HighlightModal } from '@/components/HighlightModal'
@@ -297,7 +298,7 @@ function LiveVideoPlayer({
   const playerRef = useRef<mpegts.Player | null>(null)
   const [isBuffering, setIsBuffering] = useState(false)
   // Errors, the upstream closing and stalls reconnect with backoff, then stop
-  const { status, attempt, maxRetries, retryKey, fail, succeed } = useStreamRecovery()
+  const { status, attempt, maxRetries, retryKey, fail, succeed, retryNow } = useStreamRecovery()
   const isStopped = status === 'failed'
   // Playing and the element's own mute, for the chrome and the auto-hide
   const adapter = useLiveAdapter(videoRef)
@@ -490,11 +491,8 @@ function LiveVideoPlayer({
         isMobile={isMobile}
       />
 
-      {(isBuffering || status === 'reconnecting') && (
-        <ProjectorBeamLoader
-          text={status === 'reconnecting' ? `Reconnecting... ${attempt} of ${maxRetries}` : undefined}
-        />
-      )}
+      {/* The status card speaks for the stream once it has failed */}
+      {isBuffering && (status === 'loading' || status === 'ready') && <ProjectorBeamLoader />}
 
       {(isPlayBlocked || isSystemMuted || isSavedMuteNotice) && (
         <AutoplayNotice
@@ -506,8 +504,13 @@ function LiveVideoPlayer({
         />
       )}
 
-      {!isMpegtsSupported && <ErrorOverlay message="MPEG-TS playback not supported" />}
-      {isStopped && isMpegtsSupported && <ErrorOverlay message="Stream unavailable" />}
+      <StreamStatusCard
+        status={isMpegtsSupported ? status : 'unsupported'}
+        attempt={attempt}
+        maxAttempts={maxRetries}
+        isStarting={!hasStarted}
+        onRetry={retryNow}
+      />
     </div>
   )
 }
@@ -545,7 +548,7 @@ function HLSVideoPlayerWrapper({
   const isPreviewHeld = useAudioStore((s) => s.previewHolds > 0)
   const isSavedMuteNotice = useSavedMuteNotice(hasStarted, muted)
 
-  const { status, attempt, maxRetries, retryKey, fail, succeed } = useStreamRecovery()
+  const { status, attempt, maxRetries, retryKey, fail, succeed, retryNow } = useStreamRecovery()
 
   // Autoplay fallbacks, recorded against the MediaPlayer mount (retryKey) they
   // happened on, so a retry remount starts clean. They mute the element only:
@@ -646,17 +649,6 @@ function HLSVideoPlayerWrapper({
     player.play().catch(() => setPlayBlockedKey(retryKey))
   }, [retryKey])
 
-  if (status === 'failed') {
-    return (
-      <div className="flex h-full w-full items-center justify-center bg-black">
-        <div className="rounded-lg bg-destructive/20 p-6 text-center">
-          <p className="text-xl font-semibold text-destructive-foreground">Stream unavailable</p>
-          <p className="mt-2 text-sm text-muted-foreground">Select another channel</p>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="relative h-full w-full bg-black flex items-center justify-center">
       <MediaPlayer
@@ -687,12 +679,8 @@ function HLSVideoPlayerWrapper({
         />
       </MediaPlayer>
 
-      {/* Buffering overlay */}
-      {(isBuffering || status === 'reconnecting') && (
-        <ProjectorBeamLoader
-          text={status === 'reconnecting' ? `Stream starting... (${attempt}/${maxRetries})` : undefined}
-        />
-      )}
+      {/* Buffering overlay; the status card speaks for the stream once it has failed */}
+      {isBuffering && (status === 'loading' || status === 'ready') && <ProjectorBeamLoader />}
 
       {(isPlayBlocked || isSystemMuted || isSavedMuteNotice) && (
         <AutoplayNotice
@@ -703,6 +691,15 @@ function HLSVideoPlayerWrapper({
           belowRail={isInfoRailVisible}
         />
       )}
+
+      {/* Over the player, which stays mounted with its controls when the retries stop */}
+      <StreamStatusCard
+        status={status}
+        attempt={attempt}
+        maxAttempts={maxRetries}
+        isStarting={!hasStarted}
+        onRetry={retryNow}
+      />
     </div>
   )
 }
@@ -754,20 +751,5 @@ function HLSControlsWrapper({
       channelName={channelName}
       isMobile={isMobile}
     />
-  )
-}
-
-// ============================================================================
-// Shared Components
-// ============================================================================
-
-function ErrorOverlay({ message }: { message: string }) {
-  return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/80">
-      <div className="rounded-lg bg-destructive/20 p-6 text-center">
-        <p className="text-xl font-semibold text-destructive-foreground">{message}</p>
-        <p className="mt-2 text-sm text-muted-foreground">Select another channel</p>
-      </div>
-    </div>
   )
 }
