@@ -203,7 +203,8 @@ export function LoginForm() {
         <p>{typeof error === 'string' ? error : PLEX_ERROR_COPY[error.code]}</p>
         {error instanceof PlexAuthError && (
           <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" onClick={handlePlexLogin}>
+            {/* Not the amber default: the Plex button stays the one amber action */}
+            <Button type="button" size="sm" variant="secondary" onClick={handlePlexLogin}>
               Try again
             </Button>
             <Button type="button" size="sm" variant="outline" onClick={handleSignInWithCode}>

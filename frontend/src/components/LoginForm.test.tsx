@@ -401,6 +401,15 @@ describe('LoginForm', () => {
         expect(within(alert).getByRole('button', { name: 'Sign in with a code' })).toBeEnabled()
       })
 
+      it('keeps the Plex button the only amber action, with Try again stepped back', async () => {
+        const alert = await blockedWindow()
+
+        expect(within(alert).getByRole('button', { name: 'Try again' })).toHaveAttribute('data-variant', 'secondary')
+        // The default variant is bg-primary, amber under Club Night; only Plex's own button is filled
+        const filled = screen.getAllByRole('button').filter((b) => b.getAttribute('data-variant') === 'default')
+        expect(filled.map((b) => b.textContent)).toEqual(['Sign in with Plex'])
+      })
+
       it('is a small callout with an icon, in the foreground colour on the red tint', async () => {
         const alert = await blockedWindow()
 
