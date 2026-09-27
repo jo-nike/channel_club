@@ -362,21 +362,35 @@ describe('PlayerChrome', () => {
   })
 
   describe('control bar positioning', () => {
-    it('has consistent bottom-4 position regardless of theater mode', () => {
+    it('is a full-width strip along the bottom edge, not an inset card', () => {
+      renderChrome()
+
+      const bar = toolbar()
+      expect(bar).toHaveClass('absolute', 'inset-x-0', 'bottom-0')
+      expect(bar).not.toHaveClass('bottom-4', 'left-4', 'right-4', 'rounded-lg')
+    })
+
+    it('sits on a gradient scrim that fades up from black, not a solid box', () => {
+      renderChrome()
+
+      expect(toolbar()).toHaveClass('bg-gradient-to-t', 'from-black/80', 'to-transparent')
+      expect(toolbar()).not.toHaveClass('bg-black/70')
+    })
+
+    it('uses the padding classes index.css widens to clear the notch and home indicator', () => {
+      renderChrome()
+
+      expect(toolbar()).toHaveClass('px-3', 'pb-2')
+    })
+
+    it('keeps its position regardless of theater mode', () => {
       const { update } = renderChrome({ shell: { isTheaterMode: false } })
 
       const bar = toolbar()
-      expect(bar).toHaveClass('bottom-4')
+      expect(bar).toHaveClass('bottom-0')
 
       update({ shell: { isTheaterMode: true } })
-      expect(bar).toHaveClass('bottom-4')
-    })
-
-    it('does not change position between theater and non-theater modes', () => {
-      renderChrome({ shell: { isTheaterMode: false } })
-
-      expect(toolbar()).not.toHaveClass('bottom-12')
-      expect(toolbar()).not.toHaveClass('bottom-24')
+      expect(bar).toHaveClass('bottom-0', 'inset-x-0')
     })
   })
 

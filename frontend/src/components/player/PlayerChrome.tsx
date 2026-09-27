@@ -79,13 +79,17 @@ export function PlayerChrome({
   const fullscreenLabel = isFullscreen ? 'Exit fullscreen' : 'Fullscreen'
   const tabIndex = isVisible ? 0 : -1
 
+  // A full-width strip on a gradient scrim rather than a boxed card: it
+  // covers less of the picture (a broadcaster's score bug sits in the lower
+  // corners), and the top of the scrim fades out instead of ending in an edge.
+  // index.css keeps its padding clear of the notch and home indicator.
   return (
     <div
       role="toolbar"
       aria-label="Video controls"
       onMouseEnter={() => setHoveringControls(true)}
       onMouseLeave={() => setHoveringControls(false)}
-      className={`video-controls absolute bottom-4 left-4 right-4 z-10 flex items-center gap-2 rounded-lg bg-black/70 p-2 sm:gap-4 sm:p-4 transition-opacity duration-300 ${
+      className={`video-controls absolute inset-x-0 bottom-0 z-10 flex items-center gap-2 bg-gradient-to-t from-black/80 via-black/50 to-transparent px-3 pb-2 pt-8 sm:gap-4 transition-opacity duration-300 ${
         isVisible ? 'opacity-100' : 'pointer-events-none opacity-0'
       }`}
     >
