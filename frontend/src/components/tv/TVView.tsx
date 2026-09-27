@@ -32,6 +32,7 @@ import { useResizable } from '@/hooks/useResizable'
 import { useMobileLandscape } from '@/hooks/useMobileLandscape'
 import { useChatEnabled } from '@/hooks/useChatEnabled'
 import { useVisualViewportHeight } from '@/hooks/useVisualViewportHeight'
+import { useUnreadTitleBadge } from '@/hooks/useUnreadTitleBadge'
 import { AdminModal } from '@/components/AdminModal'
 import { LiveChannelPickerDialog } from '@/components/LiveChannelPickerDialog'
 import { getProgrammeState } from '@/lib/programmes'
@@ -268,6 +269,8 @@ export function TVView() {
   const isChatOpen = useChatStore((s) => s.isOpen)
   const setChatOpen = useChatStore((s) => s.setOpen)
   const chatEnabled = useChatEnabled()
+  // The unread count in the tab title and on the installed app's icon
+  useUnreadTitleBadge()
 
   // Responsive
   const layoutMode = useLayoutMode()

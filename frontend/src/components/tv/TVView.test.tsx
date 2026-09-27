@@ -1087,6 +1087,30 @@ describe('G-07/E-02 Channels and Chat tabs on a phone', () => {
   })
 })
 
+describe('E-06 unread count outside the page', () => {
+  beforeEach(() => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
+    document.title = 'Channel Club'
+  })
+  afterEach(() => {
+    delete (navigator as unknown as { setAppBadge?: unknown }).setAppBadge
+  })
+
+  it('puts the unread count in the tab title and on the app badge, and takes it off on opening chat', async () => {
+    const setAppBadge = vi.fn(() => Promise.resolve())
+    Object.defineProperty(navigator, 'setAppBadge', { value: setAppBadge, configurable: true, writable: true })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+
+    act(() => useChatStore.setState({ unreadCount: 3 }))
+    expect(document.title).toBe('(3) Channel Club')
+    expect(setAppBadge).toHaveBeenLastCalledWith(3)
+
+    act(() => useChatStore.getState().setOpen(true))
+    expect(document.title).toBe('Channel Club')
+  })
+})
+
 describe('E-01 channel list folds to its rail beside docked chat at 1024-1279px', () => {
   beforeEach(() => vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([]))
   afterEach(() => {
