@@ -5,6 +5,9 @@ interface UseRovingTabIndexOptions<T> {
   items: T[]
   onSelect?: (item: T, index: number) => void
   getItemId?: (item: T) => string | number
+  // The element that holds the items. Arrow keys move focus only while focus
+  // is inside it. Without it the items must sit in a role="listbox".
+  containerRef?: RefObject<HTMLElement | null>
 }
 
 interface UseRovingTabIndexResult {
@@ -19,6 +22,7 @@ export function useRovingTabIndex<T>({
   items,
   onSelect,
   getItemId,
+  containerRef,
 }: UseRovingTabIndexOptions<T>): UseRovingTabIndexResult {
   const [focusedIndex, setFocusedIndex] = useState(0)
   const itemRefs = useRef<(HTMLElement | null)[]>([])
@@ -79,8 +83,10 @@ export function useRovingTabIndex<T>({
 
         case 'Enter':
         case ' ':
+          // Without onSelect the focused element (a button) activates itself
+          if (!onSelect) break
           e.preventDefault()
-          if (onSelect && items[focusedIndex]) {
+          if (items[focusedIndex]) {
             onSelect(items[focusedIndex], focusedIndex)
           }
           break
@@ -104,12 +110,12 @@ export function useRovingTabIndex<T>({
     const element = itemRefs.current[focusedIndex]
     if (element && document.activeElement !== element) {
       // Only focus if the container has focus (user is navigating with keyboard)
-      const container = element.closest('[role="listbox"]')
+      const container = containerRef?.current ?? element.closest('[role="listbox"]')
       if (container?.contains(document.activeElement)) {
         element.focus()
       }
     }
-  }, [focusedIndex])
+  }, [focusedIndex, containerRef])
 
   return {
     focusedIndex,
