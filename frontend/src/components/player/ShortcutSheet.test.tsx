@@ -160,6 +160,13 @@ describe('ShortcutSheet', () => {
     }
   })
 
+  it('says C writes over the video where it opens the composer there', () => {
+    render(<ShortcutSheet open onOpenChange={vi.fn()} container={document.body} canReply />)
+
+    expect(keysFor('Write in the chat over the video')).toEqual(['C'])
+    expect(screen.queryByText('Open or close chat')).not.toBeInTheDocument()
+  })
+
   it('leaves out C where chat is turned off', () => {
     chat.enabled = false
     render(<ShortcutSheet open onOpenChange={vi.fn()} container={document.body} />)

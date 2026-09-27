@@ -339,6 +339,7 @@ export function DualModeVideoPlayer({
         container={shellElement}
         canSearch={focusSearch !== undefined}
         canClip={clipThat !== undefined}
+        canReply={canReply}
       />
     </PlayerShellContext>
   )
