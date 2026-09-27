@@ -20,6 +20,7 @@ import { useOrientationFullscreen } from '@/hooks/useOrientationFullscreen'
 import { useFullscreenState } from '@/hooks/useFullscreenState'
 import { useHLSRetry } from '@/hooks/useHLSRetry'
 import { ProjectorBeamLoader } from '@/components/ProjectorBeamLoader'
+import { Button } from '@/components/ui/button'
 import { AutoplayNotice } from '@/components/player/AutoplayNotice'
 import { RetroTVFilter } from '@/components/filters/RetroTVFilter'
 import { FilmGrainFilter } from '@/components/filters/FilmGrainFilter'
@@ -28,6 +29,7 @@ import { GrindhouseFilter } from '@/components/filters/GrindhouseFilter'
 import { SportsHDFilter } from '@/components/filters/SportsHDFilter'
 import { useFilterStore } from '@/stores/filterStore'
 import { useAudioStore } from '@/stores/audioStore'
+import { useChannelStore } from '@/stores/channelStore'
 import { getErsatzTVStreamUrl } from '@/services/ersatztvApi'
 import type { UnifiedChannel } from '@/types'
 
@@ -36,6 +38,8 @@ interface DualModeVideoPlayerProps {
   isTheaterMode: boolean
   isMobile?: boolean
   onTheaterModeToggle: () => void
+  // Opens the live channel picker; only for people allowed to change live TV
+  onPickLive?: () => void
 }
 
 // Main component - switches between live (mpegts) and ersatztv (HLS) players
@@ -44,6 +48,7 @@ export function DualModeVideoPlayer({
   isTheaterMode,
   isMobile = false,
   onTheaterModeToggle,
+  onPickLive,
 }: DualModeVideoPlayerProps) {
   // No channel selected
   if (!channel) {
@@ -52,7 +57,7 @@ export function DualModeVideoPlayer({
 
   // Live channel (Channel 0) with no stream (admin hasn't selected)
   if (channel.type === 'live' && !channel.streamUrl) {
-    return <NoLiveChannelPlaceholder />
+    return <NoLiveChannelPlaceholder onPickLive={onPickLive} />
   }
 
   // Live channel - use mpegts.js player
@@ -105,14 +110,28 @@ function NoChannelPlaceholder() {
   )
 }
 
-function NoLiveChannelPlaceholder() {
+function NoLiveChannelPlaceholder({ onPickLive }: { onPickLive?: () => void }) {
+  // Say who stopped live TV, so it doesn't look like the app broke
+  const stoppedBy = useChannelStore((s) =>
+    s.lastChange && s.lastChange.channelName === null ? s.lastChange.by : null
+  )
+
   return (
     <div className="flex h-full w-full items-center justify-center bg-black">
       <div className="text-center">
         <p className="text-lg text-muted-foreground">No live broadcast</p>
-        <p className="mt-2 text-sm text-muted-foreground/70">
-          Waiting for admin to select a channel
-        </p>
+        {stoppedBy && (
+          <p className="mt-1 text-sm text-muted-foreground">{stoppedBy} stopped live TV</p>
+        )}
+        {onPickLive ? (
+          <Button size="lg" className="mt-4" onClick={onPickLive}>
+            Pick a channel for everyone
+          </Button>
+        ) : (
+          <p className="mt-2 text-sm text-muted-foreground/70">
+            Waiting for someone to put something on
+          </p>
+        )}
       </div>
     </div>
   )

@@ -10,7 +10,7 @@ import { useProgrammeClock } from '@/hooks/useProgrammeClock'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useChannelStore } from '@/stores/channelStore'
-import { useTVStore, initializeTVStore } from '@/stores/tvStore'
+import { useTVStore, initializeTVStore, describeLiveGuide } from '@/stores/tvStore'
 import { getErsatzTVLogoUrl } from '@/services/ersatztvApi'
 import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
@@ -205,8 +205,11 @@ export function TVView() {
   // Admin modal state
   const [adminModalOpen, setAdminModalOpen] = useState(false)
 
-  // Channel picker state (non-admin users, when the admin has enabled it)
+  // Live channel picker: admins, and everyone else when the admin has enabled it
+  const canControl = isAdmin || userChannelSelection
   const [channelPickerOpen, setChannelPickerOpen] = useState(false)
+  const openLivePicker = useCallback(() => setChannelPickerOpen(true), [])
+  const onPickLive = canControl ? openLivePicker : undefined
 
   // Video refresh key
   const [videoRefreshKey, setVideoRefreshKey] = useState(0)
@@ -452,6 +455,7 @@ export function TVView() {
             isCollapsed={isChannelSidebarCollapsed}
             onToggleCollapse={toggleChannelSidebar}
             liveEPGTitle={liveEPGTitle}
+            onPickLive={onPickLive}
           />
         )}
 
@@ -494,6 +498,7 @@ export function TVView() {
                   isTheaterMode={isTheaterMode}
                   isMobile={isMobile}
                   onTheaterModeToggle={toggleTheaterMode}
+                  onPickLive={onPickLive}
                 />
               </ErrorBoundary>
             </div>
@@ -524,6 +529,7 @@ export function TVView() {
                 <MobileChannelList
                   onChannelSelect={handleChannelSelect}
                   liveEPGTitle={liveEPGTitle}
+                  onPickLive={onPickLive}
                 />
               ) : (
                 <TVEPGGrid
@@ -533,6 +539,7 @@ export function TVView() {
                   liveEPG={liveEPG}
                   onProgrammeClick={handleProgrammeClick}
                   onChannelClick={handleChannelSelect}
+                  onPickLive={onPickLive}
                 />
               )}
             </div>
@@ -554,8 +561,8 @@ export function TVView() {
         <AdminModal open={adminModalOpen} onOpenChange={setAdminModalOpen} />
       )}
 
-      {/* Channel picker for non-admin users */}
-      {!isAdmin && userChannelSelection && (
+      {/* Live channel picker (admins also get Stop live TV in it) */}
+      {canControl && (
         <LiveChannelPickerDialog
           open={channelPickerOpen}
           onOpenChange={setChannelPickerOpen}
@@ -597,10 +604,12 @@ export function TVView() {
 interface MobileChannelListProps {
   onChannelSelect: (channel: UnifiedChannel) => void
   liveEPGTitle?: string | null
+  // Opens the live channel picker; only for people allowed to change live TV
+  onPickLive?: () => void
 }
 
-function MobileChannelList({ onChannelSelect, liveEPGTitle }: MobileChannelListProps) {
-  const { getUnifiedChannels, isLiveChannelActive, selectedChannel } = useTVStore()
+function MobileChannelList({ onChannelSelect, liveEPGTitle, onPickLive }: MobileChannelListProps) {
+  const { getUnifiedChannels, isLiveChannelActive, selectedChannel, liveEPGStatus } = useTVStore()
   const { programmesByChannel } = useErsatztvStore()
   const [currentTime, setCurrentTime] = useState(() => Date.now())
 
@@ -626,7 +635,9 @@ function MobileChannelList({ onChannelSelect, liveEPGTitle }: MobileChannelListP
 
   // Helper to get live programme title
   const getLiveProgrammeTitle = (): string => {
-    return liveEPGTitle ?? (hasLiveChannel ? 'Broadcasting...' : 'Awaiting broadcast...')
+    if (liveEPGTitle) return liveEPGTitle
+    if (hasLiveChannel) return describeLiveGuide(liveEPGStatus)
+    return onPickLive ? 'Nothing on yet' : 'Waiting for someone to put something on'
   }
 
   // Calculate progress and time remaining
@@ -657,16 +668,23 @@ function MobileChannelList({ onChannelSelect, liveEPGTitle }: MobileChannelListP
         {unifiedChannels.map((channel) => {
           const isLive = channel.type === 'live'
           const currentProgramme = getCurrentProgramme(channel)
+          const cardClassName = `
+            rounded-lg border
+            ${selectedChannel?.id === channel.id ? 'border-primary bg-primary/10' : ''}
+            ${isLive ? 'bg-destructive/5' : ''}
+          `
+          // The empty live slot offers the picker next to the tune button
+          // (a sibling, since buttons can't nest)
+          const showPickLive = isLive && !hasLiveChannel && !!onPickLive
 
-          return (
+          const tuneButton = (
             <button
               key={channel.id}
               onClick={() => onChannelSelect(channel)}
               className={`
-                flex items-center gap-3 rounded-lg border p-3 text-left
+                flex items-center gap-3 p-3 text-left
                 transition-colors hover:bg-accent
-                ${selectedChannel?.id === channel.id ? 'border-primary bg-primary/10' : ''}
-                ${isLive ? 'bg-destructive/5' : ''}
+                ${showPickLive ? 'min-w-0 flex-1 rounded-lg' : cardClassName}
               `}
             >
               <div
@@ -730,6 +748,17 @@ function MobileChannelList({ onChannelSelect, liveEPGTitle }: MobileChannelListP
                 />
               )}
             </button>
+          )
+
+          if (!showPickLive) return tuneButton
+
+          return (
+            <div key={channel.id} className={`flex items-center pr-3 ${cardClassName}`}>
+              {tuneButton}
+              <Button size="sm" onClick={onPickLive}>
+                Pick a channel
+              </Button>
+            </div>
           )
         })}
       </div>

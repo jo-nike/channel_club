@@ -244,10 +244,14 @@ export async function clearCurrentChannel(): Promise<void> {
   logger.info('API', 'Channel cleared')
 }
 
-export async function fetchNowPlaying(channelId: string): Promise<EPGResponse> {
+export async function fetchNowPlaying(channelId: string, channelName?: string): Promise<EPGResponse> {
   logger.debug('API', `Fetching now playing for channel: ${channelId}`)
 
-  const response = await fetchWithAuth(`/epg/now-playing?channel_id=${channelId}`)
+  // The name lets the server fall back to the guide's display names when the
+  // id doesn't match; both need encoding
+  const params = new URLSearchParams({ channel_id: channelId })
+  if (channelName) params.set('channel_name', channelName)
+  const response = await fetchWithAuth(`/epg/now-playing?${params}`)
 
   if (!response.ok) {
     logger.error('API', `Failed to fetch EPG: ${response.status}`, { channelId })

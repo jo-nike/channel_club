@@ -13,14 +13,21 @@ const presence = vi.hoisted(() => vi.fn())
 const crash = vi.hoisted(() => ({ player: false, chat: false }))
 const socket = vi.hoisted(() => ({ status: 'connected', reconnect: () => {} }))
 const chatProps = vi.hoisted(() => ({ last: null as null | { status?: string; onReconnect?: () => void } }))
+const auth = vi.hoisted(() => ({ isAdmin: false }))
+const appSettings = vi.hoisted(() => ({ userChannelSelection: false }))
+const playerProps = vi.hoisted(() => ({ onPickLive: undefined as undefined | (() => void) }))
 vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn() }))
 import type { UnifiedChannel } from '@/types'
 
 vi.mock('@/services/ersatztvApi', () => ({ fetchErsatzTVChannels: vi.fn(), fetchErsatzTVCurrentProgramme: vi.fn(), getErsatzTVLogoUrl: vi.fn() }))
 vi.mock('@/hooks/useWebSocket', () => ({ useWebSocket: () => ({ status: socket.status, reconnect: socket.reconnect, sendChannelUpdate: presence, sendChatMessage: vi.fn(), sendSetNickname: vi.fn() }) }))
-vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ isAdmin: false, logout: vi.fn() }) }))
-vi.mock('@/hooks/useAppSettings', () => ({ useAppSettings: () => ({ userChannelSelection: false }) }))
-vi.mock('@/components/tv/DualModeVideoPlayer', () => ({ DualModeVideoPlayer: ({ channel }: { channel: UnifiedChannel | null }) => {
+vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ isAdmin: auth.isAdmin, logout: vi.fn() }) }))
+vi.mock('@/hooks/useAppSettings', () => ({ useAppSettings: () => ({ userChannelSelection: appSettings.userChannelSelection }) }))
+vi.mock('@/components/LiveChannelPickerDialog', () => ({ LiveChannelPickerDialog: ({ open }: { open: boolean }) => (
+  <div data-testid="live-picker" data-open={String(open)} />
+) }))
+vi.mock('@/components/tv/DualModeVideoPlayer', () => ({ DualModeVideoPlayer: ({ channel, onPickLive }: { channel: UnifiedChannel | null; onPickLive?: () => void }) => {
+  playerProps.onPickLive = onPickLive
   if (crash.player) throw new Error('player exploded')
   return <div data-testid="player">{channel?.streamUrl || 'No live broadcast'}</div>
 } }))
@@ -43,11 +50,14 @@ vi.mock('@/components/NHLScoresOverlay', () => ({ NHLScoresOverlay: () => null }
 
 beforeEach(() => {
   socket.status = 'connected'
+  auth.isAdmin = false
+  appSettings.userChannelSelection = false
+  playerProps.onPickLive = undefined
   chatProps.last = null
   crash.player = false
   crash.chat = false
   useChatStore.setState({ isOpen: false })
-  useTVStore.setState({ selectedChannel: null, liveEPG: null })
+  useTVStore.setState({ selectedChannel: null, liveEPG: null, liveEPGStatus: 'idle' })
   useErsatztvStore.setState({ channels: [], channelsLoading: false, error: null })
   useUIStore.setState({ lastTVChannelId: null, isTheaterMode: false, isChannelSidebarCollapsed: false })
   useChannelStore.getState().setCurrentChannel({ id: 'a', name: 'A', streamUrl: 'https://fixture/a' })
@@ -178,20 +188,21 @@ describe('E-V1 chat connection state', () => {
   })
 })
 
+const originalMatchMedia = window.matchMedia
+function matchOnly(match: string) {
+  window.matchMedia = vi.fn((query: string) => ({
+    matches: query === match,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }))
+}
+
 describe('G-03 phone portrait layout', () => {
-  const originalMatchMedia = window.matchMedia
-  function matchOnly(match: string) {
-    window.matchMedia = vi.fn((query: string) => ({
-      matches: query === match,
-      media: query,
-      onchange: null,
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    }))
-  }
   beforeEach(() => vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([]))
   afterEach(() => { window.matchMedia = originalMatchMedia })
 
@@ -250,5 +261,104 @@ describe('A-V2 iOS safe area', () => {
     const header = screen.getByRole('banner')
     expect(header).toHaveClass('pt-header-safe', 'pb-2')
     expect(header).not.toHaveClass('py-2')
+  })
+})
+
+describe('B-V1 live guide copy on the phone card', () => {
+  beforeEach(() => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
+    matchOnly('(max-width: 768px)')
+  })
+  afterEach(() => { window.matchMedia = originalMatchMedia })
+
+  it("says 'Guide unavailable' when the guide lookup fails", async () => {
+    vi.mocked(fetchNowPlaying).mockRejectedValue(new Error('Failed to fetch EPG'))
+    useChannelStore.getState().setCurrentChannel({ id: 'a', name: 'Sports', streamUrl: '/a', guideId: 'guide-a' })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+
+    expect(await screen.findByText('Guide unavailable')).toBeVisible()
+    expect(screen.queryByText('Broadcasting...')).not.toBeInTheDocument()
+  })
+
+  it("says 'No guide info' when the guide has nothing on now", async () => {
+    vi.mocked(fetchNowPlaying).mockResolvedValue({ channelId: 'guide-a', currentProgram: null })
+    useChannelStore.getState().setCurrentChannel({ id: 'a', name: 'Sports', streamUrl: '/a', guideId: 'guide-a' })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+
+    expect(await screen.findByText('No guide info')).toBeVisible()
+  })
+})
+
+describe('B-V2 picking a channel from the empty live slot', () => {
+  beforeEach(() => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
+    useChannelStore.getState().setCurrentChannel(null)
+  })
+  afterEach(() => { window.matchMedia = originalMatchMedia })
+
+  const picker = () => screen.queryByTestId('live-picker')
+
+  it('gives an admin the picker from the sidebar and the player', async () => {
+    auth.isAdmin = true
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('No live broadcast'))
+
+    expect(picker()).toHaveAttribute('data-open', 'false')
+    fireEvent.click(screen.getByRole('button', { name: 'Pick a channel' }))
+    expect(picker()).toHaveAttribute('data-open', 'true')
+    expect(playerProps.onPickLive).toBeTypeOf('function')
+  })
+
+  it('gives a viewer the admin allowed to change live TV the picker', async () => {
+    appSettings.userChannelSelection = true
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('No live broadcast'))
+
+    act(() => playerProps.onPickLive?.())
+    expect(picker()).toHaveAttribute('data-open', 'true')
+  })
+
+  it("shows a viewer without permission the wait copy and no picker", async () => {
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('No live broadcast'))
+
+    expect(picker()).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Pick a channel' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Live Channel' })).toHaveTextContent('Waiting for someone to put something on')
+    expect(playerProps.onPickLive).toBeUndefined()
+  })
+
+  describe('on a phone', () => {
+    const movies = { id: 'e1', name: 'Movies', number: 1, streamUrl: '/e1', logoUrl: '', group: '' }
+    const liveCard = () => screen.getByText('Live', { selector: 'p' }).closest('button') as HTMLElement
+
+    beforeEach(() => {
+      matchOnly('(max-width: 768px)')
+      auth.isAdmin = true
+      vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([movies])
+      useErsatztvStore.setState({ loadAllProgrammes: vi.fn().mockResolvedValue(undefined) })
+    })
+
+    it('puts Pick a channel beside the live card, opening the picker without tuning', async () => {
+      render(<MemoryRouter><TVView /></MemoryRouter>)
+      await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('/e1'))
+
+      const pick = screen.getByRole('button', { name: 'Pick a channel' })
+      expect(liveCard()).not.toContainElement(pick)
+      expect(pick.parentElement).toBe(liveCard().parentElement)
+
+      fireEvent.click(pick)
+      expect(picker()).toHaveAttribute('data-open', 'true')
+      expect(useTVStore.getState().selectedChannel?.id).toBe('e1')
+    })
+
+    it('still tunes to the live slot from the card itself', async () => {
+      render(<MemoryRouter><TVView /></MemoryRouter>)
+      await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('/e1'))
+
+      fireEvent.click(liveCard())
+      expect(useTVStore.getState().selectedChannel?.type).toBe('live')
+      expect(picker()).toHaveAttribute('data-open', 'false')
+    })
   })
 })

@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
+import { useEffect, useRef, useState, useMemo, useCallback, type ReactNode } from 'react'
 import { ChevronLeft, ChevronRight, Radio } from 'lucide-react'
-import { useTVStore, LIVE_CHANNEL_ID } from '@/stores/tvStore'
+import { useTVStore, LIVE_CHANNEL_ID, describeLiveGuide } from '@/stores/tvStore'
 import { getErsatzTVLogoUrl } from '@/services/ersatztvApi'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { Button } from '@/components/ui/button'
 import type { UnifiedChannel, ErsatzTVProgramme, EPGResponse } from '@/types'
 
 // Grid constants
@@ -19,6 +20,8 @@ interface TVEPGGridProps {
   liveEPG?: EPGResponse | null
   onProgrammeClick?: (programme: ErsatzTVProgramme, channel: UnifiedChannel) => void
   onChannelClick?: (channel: UnifiedChannel) => void
+  // Opens the live channel picker; only for people allowed to change live TV
+  onPickLive?: () => void
 }
 
 export function TVEPGGrid({
@@ -28,8 +31,9 @@ export function TVEPGGrid({
   liveEPG,
   onProgrammeClick,
   onChannelClick,
+  onPickLive,
 }: TVEPGGridProps) {
-  const { getUnifiedChannels, isLiveChannelActive } = useTVStore()
+  const { getUnifiedChannels, isLiveChannelActive, liveEPGStatus } = useTVStore()
   const containerRef = useRef<HTMLDivElement>(null)
   const [currentTime, setCurrentTime] = useState(new Date())
 
@@ -203,8 +207,10 @@ export function TVEPGGrid({
             gridWidth={gridWidth}
             rowIndex={rowIndex}
             hasLiveChannel={hasLiveChannel}
+            liveGuideText={describeLiveGuide(liveEPGStatus)}
             onProgrammeClick={onProgrammeClick}
             onChannelClick={onChannelClick}
+            onPickLive={onPickLive}
           />
         ))}
       </div>
@@ -219,8 +225,11 @@ interface ChannelRowProps {
   gridWidth: number
   rowIndex: number
   hasLiveChannel: boolean
+  // Shown in the live row when there's no programme to draw
+  liveGuideText: string
   onProgrammeClick?: (programme: ErsatzTVProgramme, channel: UnifiedChannel) => void
   onChannelClick?: (channel: UnifiedChannel) => void
+  onPickLive?: () => void
 }
 
 function ChannelRow({
@@ -230,8 +239,10 @@ function ChannelRow({
   gridWidth,
   rowIndex,
   hasLiveChannel,
+  liveGuideText,
   onProgrammeClick,
   onChannelClick,
+  onPickLive,
 }: ChannelRowProps) {
   const isLive = channel.type === 'live'
 
@@ -281,15 +292,17 @@ function ChannelRow({
       {/* Programme boxes */}
       <div className="relative" style={{ width: gridWidth }}>
         {isLive && !hasLiveChannel ? (
-          // Placeholder for live channel when no broadcast - position at ~1 hour mark
-          <div
-            className="absolute top-1 bottom-1 flex items-center z-0"
-            style={{ left: SLOT_WIDTH * 2 }}
-          >
-            <div className="rounded border border-dashed border-muted-foreground/30 bg-card px-4 py-2 text-sm text-muted-foreground whitespace-nowrap">
-              No broadcast scheduled
-            </div>
-          </div>
+          onPickLive ? (
+            <LiveRowSlot>
+              <Button size="sm" onClick={onPickLive}>
+                Pick a channel for everyone
+              </Button>
+            </LiveRowSlot>
+          ) : (
+            <LiveRowPlaceholder>Waiting for someone to put something on</LiveRowPlaceholder>
+          )
+        ) : isLive && programmes.length === 0 ? (
+          <LiveRowPlaceholder>{liveGuideText}</LiveRowPlaceholder>
         ) : (
           programmes.map((programme) => (
             <ProgrammeBox
@@ -304,6 +317,29 @@ function ChannelRow({
         )}
       </div>
     </div>
+  )
+}
+
+// Where the live row puts its message or action when there's no programme
+// to draw - position at ~1 hour mark
+function LiveRowSlot({ children }: { children: ReactNode }) {
+  return (
+    <div
+      className="absolute top-1 bottom-1 flex items-center z-0"
+      style={{ left: SLOT_WIDTH * 2 }}
+    >
+      {children}
+    </div>
+  )
+}
+
+function LiveRowPlaceholder({ children }: { children: ReactNode }) {
+  return (
+    <LiveRowSlot>
+      <div className="rounded border border-dashed border-muted-foreground/30 bg-card px-4 py-2 text-sm text-muted-foreground whitespace-nowrap">
+        {children}
+      </div>
+    </LiveRowSlot>
   )
 }
 
