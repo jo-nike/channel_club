@@ -503,6 +503,46 @@ describe('ChatPanel', () => {
       expect(onReconnect).toHaveBeenCalledTimes(1)
     })
 
+    it('keeps the offline row, its copy and Reconnect steady through slow retry attempts until connected', () => {
+      vi.useFakeTimers()
+      const onReconnect = vi.fn()
+      const panel = (status: 'disconnected' | 'reconnecting' | 'connected') => (
+        <ChatPanel onSendMessage={mockOnSendMessage} status={status} onReconnect={onReconnect} />
+      )
+      const { rerender } = render(panel('disconnected'))
+      const row = screen.getByText('Chat is offline').closest('[role="status"]')
+      expect(row).not.toBeNull()
+
+      // A slow retry attempt starts: the same row stays, with the same copy and button
+      rerender(panel('reconnecting'))
+      expect(screen.getByText('Chat is offline').closest('[role="status"]')).toBe(row)
+      expect(screen.getByRole('button', { name: 'Reconnect' })).toBeEnabled()
+      // ...and the delayed 'Reconnecting…' row never stacks a second row on top
+      act(() => vi.advanceTimersByTime(5000))
+      expect(screen.queryByText('Reconnecting…')).not.toBeInTheDocument()
+      expect(screen.getByText('Chat is offline').closest('[role="status"]')).toBe(row)
+      fireEvent.click(screen.getByRole('button', { name: 'Reconnect' }))
+      expect(onReconnect).toHaveBeenCalledTimes(1)
+
+      // The attempt fails and the next one waits ~30 s: still the same row
+      rerender(panel('disconnected'))
+      expect(screen.getByText('Chat is offline').closest('[role="status"]')).toBe(row)
+      rerender(panel('reconnecting'))
+      expect(screen.getByText('Chat is offline').closest('[role="status"]')).toBe(row)
+
+      // Back online: the row goes
+      rerender(panel('connected'))
+      expect(screen.queryByText('Chat is offline')).not.toBeInTheDocument()
+      expect(row).not.toBeInTheDocument()
+
+      // A fresh blip after that gets the 2 s grace again
+      rerender(panel('reconnecting'))
+      expect(screen.queryByText('Chat is offline')).not.toBeInTheDocument()
+      expect(screen.queryByText('Reconnecting…')).not.toBeInTheDocument()
+      act(() => vi.advanceTimersByTime(2000))
+      expect(screen.getByText('Reconnecting…')).toBeInTheDocument()
+    })
+
     it('holds Retry while offline', async () => {
       mockOnSendMessage.mockReturnValue('not-sent')
       const { rerender } = render(<ChatPanel onSendMessage={mockOnSendMessage} status="connected" />)

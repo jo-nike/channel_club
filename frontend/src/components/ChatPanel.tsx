@@ -49,6 +49,14 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
   const isConnected = status === 'connected'
   const isReconnecting = status === 'connecting' || status === 'reconnecting'
   const [showReconnecting, setShowReconnecting] = useState(false)
+  // Once the connection has been lost, the offline row stays until it's back.
+  // The slow retries pass through 'reconnecting' on every attempt, which would
+  // otherwise unmount the row each time, shifting the list and hiding Reconnect.
+  // (Adjusted while rendering, React's pattern for state that follows a prop.)
+  const [connectionLost, setConnectionLost] = useState(status === 'disconnected')
+  if (status === 'disconnected' && !connectionLost) setConnectionLost(true)
+  else if (status === 'connected' && connectionLost) setConnectionLost(false)
+  const showOfflineRow = status === 'disconnected' || (connectionLost && !isConnected)
 
   // Nobody has to pick a name: chat uses the sign-in name until they choose one
   const showNicknamePrompt = isEditingNickname
@@ -248,20 +256,27 @@ export function ChatPanel({ onSendMessage, onSetNickname, status = 'connected', 
         </Button>
       </div>
 
-      {showReconnecting && isReconnecting && (
+      {/* One row for both states, so switching between them never moves the list */}
+      {(showOfflineRow || (showReconnecting && isReconnecting)) && (
         <div role="status" className="flex h-8 shrink-0 items-center gap-2 border-b border-border px-4 text-sm text-muted-foreground">
-          <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden="true" />
-          Reconnecting…
-        </div>
-      )}
-      {status === 'disconnected' && (
-        <div role="status" className="flex h-8 shrink-0 items-center gap-2 border-b border-border px-4 text-sm text-muted-foreground">
-          <WifiOff className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-          <span className="flex-1">Chat is offline</span>
-          {onReconnect && (
-            <Button variant="ghost" size="sm" className="h-7" onClick={onReconnect}>
-              Reconnect
-            </Button>
+          {showOfflineRow ? (
+            <>
+              {/* The copy holds steady through retry attempts; only the icon says one is under way */}
+              {isReconnecting
+                ? <Loader2 className="h-3.5 w-3.5 shrink-0 motion-safe:animate-spin" aria-hidden="true" />
+                : <WifiOff className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+              <span className="flex-1">Chat is offline</span>
+              {onReconnect && (
+                <Button variant="ghost" size="sm" className="h-7" onClick={onReconnect}>
+                  Reconnect
+                </Button>
+              )}
+            </>
+          ) : (
+            <>
+              <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden="true" />
+              Reconnecting…
+            </>
           )}
         </div>
       )}
