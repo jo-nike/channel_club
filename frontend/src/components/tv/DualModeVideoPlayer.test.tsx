@@ -515,6 +515,19 @@ describe('DualModeVideoPlayer ErsatzTV controls (PlayerChrome)', () => {
     expect(vidstack.remote.togglePaused).toHaveBeenCalledTimes(2)
   })
 
+  it("a TV remote's play/pause key drives Vidstack, and only on a TV", () => {
+    const offTV = renderPlayer(hlsChannel('1', 1))
+    fireEvent.keyDown(window, { key: 'Unidentified', keyCode: 10252 })
+    expect(vidstack.remote.togglePaused).not.toHaveBeenCalled()
+    offTV.unmount()
+
+    localStorage.setItem('tv-mode', 'true')
+    renderPlayer(hlsChannel('1', 1))
+    fireEvent.keyDown(window, { key: 'Unidentified', keyCode: 10252 })
+
+    expect(vidstack.remote.togglePaused).toHaveBeenCalledTimes(1)
+  })
+
   it('Theater switches the page layout the player was given', () => {
     const onTheaterModeToggle = vi.fn()
     const { rerender } = render(

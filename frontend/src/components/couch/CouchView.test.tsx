@@ -68,6 +68,9 @@ afterEach(() => {
   vi.useRealTimers()
   extras.splice(0).forEach((element) => element.remove())
   setFullscreenElement(null)
+  // jsdom has neither; tests that need them define their own
+  Reflect.deleteProperty(document.documentElement, 'requestFullscreen')
+  Reflect.deleteProperty(document, 'exitFullscreen')
 })
 
 describe('CouchView: layout', () => {
@@ -186,6 +189,152 @@ describe('CouchView: zapping', () => {
     })
 
     expect(screen.queryByText('jon put on TSN 5')).not.toBeInTheDocument()
+  })
+})
+
+describe('CouchView: channel numbers', () => {
+  it("tunes channel 12 1.5s after '1', '2'", () => {
+    render(<CouchView />)
+    const banner = screen.getByRole('status')
+
+    press('1', { keyCode: 49 })
+    press('2', { keyCode: 50 })
+    expect(banner).toHaveTextContent('CH 12 · Westerns')
+    act(() => { vi.advanceTimersByTime(1499) })
+    expect(selectedId()).toBe('e1')
+
+    act(() => { vi.advanceTimersByTime(1) })
+    expect(selectedId()).toBe('e12')
+  })
+
+  it('reads number keys a remote sends without a key name, number pad included', () => {
+    render(<CouchView />)
+
+    press('Unidentified', { keyCode: 49 }) // 1
+    press('Unidentified', { keyCode: 98 }) // number pad 2
+    act(() => { vi.advanceTimersByTime(1500) })
+
+    expect(selectedId()).toBe('e12')
+  })
+
+  it('tunes the number at once on OK, without going fullscreen', () => {
+    const requestFullscreen = vi.fn(() => Promise.resolve())
+    Object.defineProperty(document.documentElement, 'requestFullscreen', { configurable: true, value: requestFullscreen })
+    render(<CouchView />)
+
+    press('2', { keyCode: 50 })
+    const notPrevented = press('Enter', { keyCode: 13 })
+
+    expect(notPrevented).toBe(false)
+    expect(selectedId()).toBe('e2')
+    expect(requestFullscreen).not.toHaveBeenCalled()
+  })
+
+  it('keeps digits from the player, which would read them a second time', () => {
+    render(<CouchView />)
+    const bubble = vi.fn()
+    window.addEventListener('keydown', bubble)
+
+    const notPrevented = press('5', { keyCode: 53 })
+
+    window.removeEventListener('keydown', bubble)
+    expect(notPrevented).toBe(false)
+    expect(bubble).not.toHaveBeenCalled()
+    expect(screen.getByRole('status')).toHaveTextContent('CH 5')
+  })
+
+  it('leaves digits typed into an input to the input', () => {
+    render(<CouchView />)
+    const input = addToPage('input')
+
+    expect(press('1', { keyCode: 49 }, input)).toBe(true)
+    act(() => { vi.advanceTimersByTime(1500) })
+    expect(selectedId()).toBe('e1')
+  })
+})
+
+describe('CouchView: OK and fullscreen', () => {
+  let requestFullscreen: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    requestFullscreen = vi.fn(() => Promise.resolve())
+    Object.defineProperty(document.documentElement, 'requestFullscreen', { configurable: true, value: requestFullscreen })
+  })
+
+  it('takes the page fullscreen on the first OK, a user gesture', () => {
+    render(<CouchView />)
+    expect(requestFullscreen).not.toHaveBeenCalled()
+
+    const notPrevented = press('Enter', { keyCode: 13 })
+
+    expect(notPrevented).toBe(false)
+    expect(requestFullscreen).toHaveBeenCalledTimes(1)
+    expect(requestFullscreen.mock.contexts[0]).toBe(document.documentElement)
+  })
+
+  it('reads a remote OK with no key name', () => {
+    render(<CouchView />)
+
+    press('Unidentified', { keyCode: 13 })
+
+    expect(requestFullscreen).toHaveBeenCalledTimes(1)
+  })
+
+  it('does nothing more once the page is fullscreen', () => {
+    setFullscreenElement(document.documentElement)
+    render(<CouchView />)
+
+    expect(press('Enter', { keyCode: 13 })).toBe(true)
+    expect(requestFullscreen).not.toHaveBeenCalled()
+  })
+
+  it('leaves OK on a focused button to the button', () => {
+    render(<CouchView />)
+    const button = addToPage('button')
+    button.focus()
+
+    expect(press('Enter', { keyCode: 13 }, button)).toBe(true)
+    expect(requestFullscreen).not.toHaveBeenCalled()
+  })
+
+  it('shrugs off a refused fullscreen request', async () => {
+    requestFullscreen.mockReturnValue(Promise.reject(new TypeError('Permissions check failed')))
+    render(<CouchView />)
+
+    press('Enter', { keyCode: 13 })
+    await act(async () => {})
+
+    expect(requestFullscreen).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('CouchView: pointer', () => {
+  const view = () => screen.getByTestId('player').closest('.couch-view')!
+
+  it('hides the pointer after 3s at rest, over the player controls too', () => {
+    render(<CouchView />)
+    expect(view()).not.toHaveClass('cursor-none')
+
+    act(() => { vi.advanceTimersByTime(2999) })
+    expect(view()).not.toHaveClass('cursor-none')
+
+    act(() => { vi.advanceTimersByTime(1) })
+    expect(view()).toHaveClass('cursor-none', '[&_*]:cursor-none!')
+  })
+
+  it('shows it again when the Magic Remote pointer moves or clicks, and hides it 3s later', () => {
+    render(<CouchView />)
+    act(() => { vi.advanceTimersByTime(3000) })
+
+    fireEvent.mouseMove(window)
+    expect(view()).not.toHaveClass('cursor-none')
+    act(() => { vi.advanceTimersByTime(2000) })
+    fireEvent.mouseDown(window)
+    act(() => { vi.advanceTimersByTime(2999) })
+    expect(view()).not.toHaveClass('cursor-none')
+
+    act(() => { vi.advanceTimersByTime(1) })
+    expect(view()).toHaveClass('cursor-none')
   })
 })
 

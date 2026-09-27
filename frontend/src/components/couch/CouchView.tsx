@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { useChannelZap } from '@/hooks/useChannelZap'
 import { useLiveChangeAnnouncement } from '@/hooks/useLiveChangeAnnouncement'
 import { getFullscreenElement } from '@/hooks/useFullscreenState'
-import { getRemoteAction, isKeyForFocusedControl } from '@/lib/remoteKeys'
+import { getRemoteAction, getRemoteDigit, isKeyForFocusedControl } from '@/lib/remoteKeys'
+import { cn } from '@/lib/utils'
 import { useTVStore } from '@/stores/tvStore'
 import { DualModeVideoPlayer } from '@/components/tv/DualModeVideoPlayer'
 import { ZapBanner } from '@/components/tv/ZapBanner'
@@ -17,6 +18,47 @@ interface CouchViewProps {
 // The couch has no theater layout to switch: the player always fills the screen
 const noTheaterToggle = () => {}
 
+// How long the pointer rests before it hides
+const CURSOR_IDLE_MS = 3000
+
+/**
+ * True once the mouse has rested for CURSOR_IDLE_MS. An LG Magic Remote
+ * moves a pointer the viewer aims with, so it only hides at rest, and shows
+ * again on the next move or click.
+ */
+function useIdleCursor(): boolean {
+  const [isIdle, setIdle] = useState(false)
+
+  useEffect(() => {
+    let timer = setTimeout(() => setIdle(true), CURSOR_IDLE_MS)
+    const wake = () => {
+      clearTimeout(timer)
+      setIdle(false)
+      timer = setTimeout(() => setIdle(true), CURSOR_IDLE_MS)
+    }
+    window.addEventListener('mousemove', wake)
+    window.addEventListener('mousedown', wake)
+    return () => {
+      clearTimeout(timer)
+      window.removeEventListener('mousemove', wake)
+      window.removeEventListener('mousedown', wake)
+    }
+  }, [])
+
+  return isIdle
+}
+
+/**
+ * Fullscreen for the whole page, not just the player: the channel banner,
+ * dialogs and toasts stay on screen. Browsers only allow it from a user
+ * gesture, such as the OK press this answers.
+ */
+function requestPageFullscreen() {
+  const root = document.documentElement
+  if (typeof root.requestFullscreen !== 'function') return
+  root.requestFullscreen().catch(() => {})
+}
+
 /**
  * The 10-foot layout for TV browsers (useTVMode): the player fills the
  * screen, driven from a remote, with the channel banner over it. No header,
@@ -27,8 +69,13 @@ const noTheaterToggle = () => {}
  * presence updates and the programme loading stay there. This view reads the
  * stores it needs itself.
  *
- * CH+/CH- and Up/Down zap, tuning once the presses stop. Back leaves
- * fullscreen, and is otherwise the browser's.
+ * CH+/CH- and Up/Down zap, tuning once the presses stop. The number keys
+ * type a channel number, tuned 1.5s after the last digit or at once on OK.
+ * Otherwise OK, with nothing focused, takes the page fullscreen (a browser
+ * only allows that from a key press or a click, so it can't happen on load).
+ * Back leaves fullscreen, and is otherwise the browser's. Play/pause is the
+ * player's own (remotePlayPause in its shortcuts). The pointer hides after
+ * 3s at rest.
  */
 export function CouchView({ onPickLive }: CouchViewProps) {
   const selectedChannel = useTVStore((s) => s.selectedChannel)
@@ -42,7 +89,7 @@ export function CouchView({ onPickLive }: CouchViewProps) {
     previousId: previousChannelId,
     onTune: selectChannel,
   })
-  const { pending: zapPending, step: zapStep } = zap
+  const { pending: zapPending, step: zapStep, digit: zapDigit, commitDigits } = zap
 
   // The info rail stays away here: the channel banner tells a viewer on
   // channel 0 who changed the live channel instead
@@ -62,6 +109,27 @@ export function CouchView({ onPickLive }: CouchViewProps) {
         e.preventDefault()
         e.stopPropagation()
         zapStep(action === 'channelUp' ? 1 : -1)
+      } else if (action === 'digit') {
+        // Remotes' number keys can arrive with no key name, which the
+        // player's own shortcuts wouldn't read
+        e.preventDefault()
+        e.stopPropagation()
+        zapDigit(getRemoteDigit(e)!)
+      } else if (action === 'ok') {
+        // A number being typed takes OK, even from a button the pointer
+        // left focused: the viewer is entering a channel
+        if (commitDigits()) {
+          e.preventDefault()
+          e.stopPropagation()
+        } else if (
+          !getFullscreenElement() &&
+          (!document.activeElement || document.activeElement === document.body)
+        ) {
+          // Otherwise a focused control keeps OK to press it
+          e.preventDefault()
+          e.stopPropagation()
+          requestPageFullscreen()
+        }
       } else if (action === 'back' && getFullscreenElement()) {
         // Stops webOS Back (461) and Backspace from also navigating history
         e.preventDefault()
@@ -71,10 +139,13 @@ export function CouchView({ onPickLive }: CouchViewProps) {
     }
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [zapStep])
+  }, [zapStep, zapDigit, commitDigits])
+
+  const isCursorIdle = useIdleCursor()
 
   return (
-    <div className="couch-view fixed inset-0 overflow-hidden bg-black">
+    // The pointer hides over everything, the player's buttons included
+    <div className={cn('couch-view fixed inset-0 overflow-hidden bg-black', isCursorIdle && 'cursor-none [&_*]:cursor-none!')}>
       <ErrorBoundary
         name="Player"
         // The live slot keeps one id across channel changes, so the stream

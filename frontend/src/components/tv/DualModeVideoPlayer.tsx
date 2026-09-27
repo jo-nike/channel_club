@@ -441,6 +441,7 @@ function LiveVideoPlayer({
     volume,
     isMuted,
     ignoreVerticalArrows: isTVMode,
+    remotePlayPause: isTVMode,
   })
 
   // Check mpegts.js support
@@ -884,6 +885,7 @@ function HLSControlsWrapper({
     volume,
     isMuted,
     ignoreVerticalArrows: isTVMode,
+    remotePlayPause: isTVMode,
   })
 
   return (
