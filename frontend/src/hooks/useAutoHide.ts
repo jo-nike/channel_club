@@ -5,6 +5,9 @@ const AUTO_HIDE_DELAY_MS = 3000
 const TOUCH_AUTO_HIDE_DELAY_MS = 4000
 // A touch that moves further than this is a scroll or drag, not a tap
 const TAP_SLOP_PX = 10
+// A resting mouse can report tiny moves (sensor noise, a bumped desk); only a
+// move at least this far from where the mouse last showed the controls counts
+const MOUSE_JITTER_PX = 4
 
 // Read each time a timer is scheduled, so a device that changes pointer
 // (a tablet gaining a mouse) gets the right delay
@@ -31,6 +34,8 @@ export function useAutoHide({ isPlaying, containerRef, isHoveringControls = fals
   const visibleRef = useRef(true)
   const timeoutRef = useRef<number | undefined>(undefined)
   const tapStartRef = useRef<{ x: number; y: number; pointerType: string } | null>(null)
+  // Where the mouse was when it last showed the controls
+  const mouseAnchorRef = useRef<{ x: number; y: number } | null>(null)
 
   const setVisible = useCallback((visible: boolean) => {
     visibleRef.current = visible
@@ -80,7 +85,17 @@ export function useAutoHide({ isPlaying, containerRef, isHoveringControls = fals
     if (!container) return
 
     const handleMouseActivity = (e: PointerEvent) => {
-      if (e.pointerType === 'mouse') showControls()
+      if (e.pointerType !== 'mouse') return
+      const anchor = mouseAnchorRef.current
+      if (
+        e.type === 'pointermove' &&
+        anchor &&
+        Math.hypot(e.clientX - anchor.x, e.clientY - anchor.y) < MOUSE_JITTER_PX
+      ) {
+        return
+      }
+      mouseAnchorRef.current = { x: e.clientX, y: e.clientY }
+      showControls()
     }
 
     const handlePointerDown = (e: PointerEvent) => {
