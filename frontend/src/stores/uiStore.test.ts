@@ -13,6 +13,7 @@ describe('uiStore', () => {
       notificationsEnabled: false,
       hideMyActivity: false,
       chatPreviews: true,
+      hasSeenWelcome: false,
     })
     localStorage.clear()
   })
@@ -381,6 +382,38 @@ describe('uiStore', () => {
       await useUIStore.persist.rehydrate()
 
       expect(useUIStore.getState().chatPreviews).toBe(true)
+    })
+  })
+
+  describe('hasSeenWelcome', () => {
+    it('starts unseen, so the first visit gets the welcome', () => {
+      expect(useUIStore.getInitialState().hasSeenWelcome).toBe(false)
+    })
+
+    it('is saved, so the welcome stays closed after a reload', () => {
+      useUIStore.getState().setHasSeenWelcome(true)
+
+      const saved = JSON.parse(localStorage.getItem('ui-storage') ?? 'null')
+      expect(saved.state.hasSeenWelcome).toBe(true)
+      // A new field, filled from the default on merge, so no version bump
+      expect(saved.version).toBe(2)
+    })
+
+    it('comes back from a saved choice', async () => {
+      localStorage.setItem('ui-storage', JSON.stringify({ state: { hasSeenWelcome: true }, version: 2 }))
+
+      await useUIStore.persist.rehydrate()
+
+      expect(useUIStore.getState().hasSeenWelcome).toBe(true)
+    })
+
+    it('is unseen for a save from before it existed', async () => {
+      useUIStore.setState(useUIStore.getInitialState())
+      localStorage.setItem('ui-storage', JSON.stringify({ state: { hideMyActivity: true }, version: 2 }))
+
+      await useUIStore.persist.rehydrate()
+
+      expect(useUIStore.getState().hasSeenWelcome).toBe(false)
     })
   })
 

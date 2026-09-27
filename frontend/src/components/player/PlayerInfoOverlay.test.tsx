@@ -55,6 +55,8 @@ const makeShell = (overrides: Partial<PlayerShell> = {}): PlayerShell => ({
   setBehindLive: vi.fn(),
   isLivePaused: false,
   setLivePaused: vi.fn(),
+  isAutoplayNoticeShown: false,
+  setAutoplayNoticeShown: vi.fn(),
   reload: vi.fn(),
   reloadKey: 0,
   ...overrides,

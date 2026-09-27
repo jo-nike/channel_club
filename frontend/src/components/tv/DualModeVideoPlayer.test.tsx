@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { ReactNode, Ref } from 'react'
 import { render, renderHook, screen, fireEvent, act, waitFor, within } from '@/test/utils'
 import { DualModeVideoPlayer } from './DualModeVideoPlayer'
+import { ARRIVAL_SHOWN_KEY } from './ArrivalCard'
 import { useAudioStore } from '@/stores/audioStore'
 import { useFilterStore } from '@/stores/filterStore'
 import { useChannelStore } from '@/stores/channelStore'
@@ -287,6 +288,10 @@ const startPlaybackButton = () => screen.queryByRole('button', { name: 'Start pl
 
 beforeEach(() => {
   localStorage.clear()
+  // The arrival card has had its turn this session, so it stays out of the
+  // way (its own suite, and one test below, cover it)
+  sessionStorage.clear()
+  sessionStorage.setItem(ARRIVAL_SHOWN_KEY, '1')
   useAudioStore.setState({ volume: 1, muted: false, savedMuteNotice: false, previewHolds: 0 })
   useFilterStore.setState({ activeFilters: [] })
   vidstack.state = { paused: false, volume: 1, muted: false, fullscreen: false, canPlay: false }
@@ -2440,6 +2445,107 @@ describe('DualModeVideoPlayer auto-hide: one visibility in the shell', () => {
     waitOut()
 
     expect(toolbar()).toHaveClass('opacity-0')
+  })
+})
+
+describe('DualModeVideoPlayer arrival card', () => {
+  beforeEach(() => {
+    sessionStorage.clear()
+    useUIStore.setState({ hasSeenWelcome: false })
+    // A desktop-sized player, with room for the card under the info rail,
+    // which is up for the tune
+    vi.spyOn(Element.prototype, 'clientHeight', 'get').mockReturnValue(432)
+  })
+
+  const arrivalCard = () => screen.getByTestId('arrival-card')
+
+  it('greets a first-time viewer inside the shell, and it stays up across a channel change', () => {
+    const { switchTo } = renderPlayer(liveChannel('https://fixture/a'))
+
+    const card = screen.getByTestId('arrival-card')
+    expect(shell()).toContainElement(card)
+    expect(card).toHaveTextContent('Channel 0 is the club channel')
+
+    switchTo(liveChannel('https://fixture/b'))
+    expect(screen.getByTestId('arrival-card')).toHaveTextContent('Channel 0 is the club channel')
+  })
+
+  it.each([
+    ['live', liveChannel('https://fixture/a'), () => act(() => video().dispatchEvent(new Event('playing')))],
+    ['ErsatzTV', hlsChannel('1', 1), () => act(() => lastPlayerProps().onPlaying?.())],
+  ] as const)(
+    "%s: waits while 'Sound is off' is up, so it never covers the tap that brings the sound back",
+    (_engine, channel, startPlayback) => {
+      useAudioStore.setState({ volume: 0.3, muted: true, savedMuteNotice: true })
+      renderPlayer(channel)
+      startPlayback()
+
+      expect(soundOffNotice()).toBeInTheDocument()
+      expect(arrivalCard()).toBeEmptyDOMElement()
+
+      fireEvent.click(soundOffNotice()!)
+
+      expect(soundOffNotice()).not.toBeInTheDocument()
+      expect(arrivalCard()).toHaveTextContent('Channel 0 is the club channel')
+    }
+  )
+
+  describe('on a player too short for it under the info rail', () => {
+    beforeEach(() => vi.useFakeTimers())
+    afterEach(() => vi.useRealTimers())
+
+    // Playing, past the tune banner and the controls' auto-hide: the rail is down
+    const renderIdlePlayer = () => {
+      renderPlayer(hlsChannel('1', 1))
+      act(() => lastPlayerProps().onPlaying?.())
+      act(() => {
+        vi.advanceTimersByTime(5000)
+      })
+      expect(screen.getByTestId('player-info-rail')).toHaveClass('opacity-0')
+      expect(arrivalCard()).toHaveTextContent('Channel 0 is the club channel')
+    }
+
+    it('stays reachable with a mouse and the keyboard on a laptop with the guide open', () => {
+      vi.spyOn(Element.prototype, 'clientHeight', 'get').mockReturnValue(290)
+      renderIdlePlayer()
+
+      // Reaching for the card raises the controls and the rail
+      act(() => {
+        shell().dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerType: 'mouse', clientX: 40 }))
+      })
+      expect(screen.getByTestId('player-info-rail')).toHaveClass('opacity-100')
+      expect(arrivalCard()).toHaveTextContent('Channel 0 is the club channel')
+
+      fireEvent.keyDown(window, { key: 'Tab' })
+      act(() => {
+        vi.advanceTimersByTime(2000)
+      })
+      const close = screen.getByRole('button', { name: 'Close' })
+      close.focus()
+      expect(close).toHaveFocus()
+      fireEvent.click(close)
+      expect(screen.queryByTestId('arrival-card')).not.toBeInTheDocument()
+      expect(useUIStore.getState().hasSeenWelcome).toBe(true)
+    })
+
+    it('takes a tap on a phone, though the tap raises the rail', () => {
+      vi.spyOn(Element.prototype, 'clientHeight', 'get').mockReturnValue(211)
+      matchMediaQueries(['(pointer: coarse)'])
+      useUIStore.setState({ isEPGVisible: false })
+      renderIdlePlayer()
+
+      const browse = screen.getByRole('button', { name: 'Browse channels' })
+      const tap = { bubbles: true, pointerType: 'touch', clientX: 40, clientY: 100 }
+      act(() => {
+        browse.dispatchEvent(new PointerEvent('pointerdown', tap))
+        browse.dispatchEvent(new PointerEvent('pointerup', tap))
+      })
+      expect(screen.getByTestId('player-info-rail')).toHaveClass('opacity-100')
+      // The click that follows the tap still finds the button
+      expect(browse).toBeInTheDocument()
+      fireEvent.click(browse)
+      expect(useUIStore.getState().isEPGVisible).toBe(true)
+    })
   })
 })
 

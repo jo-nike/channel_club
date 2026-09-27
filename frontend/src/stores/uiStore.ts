@@ -58,6 +58,9 @@ interface UIState {
   // (never on the TV layout, which has no overlay)
   chatPreviews: boolean
   setChatPreviews: (value: boolean) => void
+  // The arrival card's first-run welcome (what channel 0 is) has been closed
+  hasSeenWelcome: boolean
+  setHasSeenWelcome: (value: boolean) => void
   // NHL scores overlay (ephemeral - not persisted)
   isNHLOverlayVisible: boolean
   setNHLOverlayVisible: (value: boolean) => void
@@ -103,6 +106,10 @@ export const useUIStore = create<UIState>()(
       // On by default; an old save without it gets this on merge
       chatPreviews: true,
       setChatPreviews: (value) => set({ chatPreviews: value }),
+      // Off until the welcome is closed; an old save without it gets this on
+      // merge, so people who used the app before the card see it once too
+      hasSeenWelcome: false,
+      setHasSeenWelcome: (value) => set({ hasSeenWelcome: value }),
       // NHL scores overlay (ephemeral - not persisted)
       isNHLOverlayVisible: false,
       setNHLOverlayVisible: (value) => set({ isNHLOverlayVisible: value }),
@@ -148,6 +155,7 @@ export const useUIStore = create<UIState>()(
         notificationsEnabled: state.notificationsEnabled,
         hideMyActivity: state.hideMyActivity,
         chatPreviews: state.chatPreviews,
+        hasSeenWelcome: state.hasSeenWelcome,
       }),
     }
   )
