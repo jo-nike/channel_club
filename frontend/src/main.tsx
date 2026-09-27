@@ -9,6 +9,8 @@ import { registerSW } from 'virtual:pwa-register'
 import '@fontsource-variable/figtree'
 import '@fontsource-variable/big-shoulders-display'
 import './index.css'
+// Must come before the router: it applies ?tv=1 / ?tv=0 (see the module)
+import './tvModeParam'
 import { router } from '@/router'
 import { logger } from '@/lib/logger'
 import { TooltipProvider } from '@/components/ui/tooltip'
