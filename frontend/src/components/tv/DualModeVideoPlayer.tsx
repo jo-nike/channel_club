@@ -203,6 +203,11 @@ export function DualModeVideoPlayer({
   )
 }
 
+// The live stall watchdog: how often it looks, and how long the picture may
+// stand still while playing before the stream counts as failed
+const STALL_CHECK_MS = 1000
+const STALL_TIMEOUT_MS = 8000
+
 // Browsers refuse unmuted playback that no user gesture started, but always
 // allow it muted
 function isAutoplayPolicyError(error: unknown): boolean {
@@ -290,8 +295,10 @@ function LiveVideoPlayer({
   const videoRef = useRef<HTMLVideoElement>(null)
   const { containerRef, toggleFullscreen, toggleTheaterMode, controlsVisible, isInfoRailVisible } = usePlayerShell()
   const playerRef = useRef<mpegts.Player | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const [isBuffering, setIsBuffering] = useState(false)
+  // Errors, the upstream closing and stalls reconnect with backoff, then stop
+  const { status, attempt, maxRetries, retryKey, fail, succeed } = useStreamRecovery()
+  const isStopped = status === 'failed'
   // Playing and the element's own mute, for the chrome and the auto-hide
   const adapter = useLiveAdapter(videoRef)
   const { isPlaying, unmuteElement } = adapter
@@ -325,7 +332,12 @@ function LiveVideoPlayer({
     if (!video) return
     if (!useAudioStore.getState().muted) video.muted = false
     setIsPlayBlocked(false)
-    video.play().catch(() => setIsPlayBlocked(true))
+    // A reconnect or the stop destroying this player interrupts the play()
+    // (AbortError): that is not a refusal, so it asks for no tap
+    const player = playerRef.current
+    video.play().catch(() => {
+      if (playerRef.current === player) setIsPlayBlocked(true)
+    })
   }, [])
 
   // Keyboard shortcuts
@@ -356,10 +368,11 @@ function LiveVideoPlayer({
     video.muted = isStoreMuted || isPreviewHeld
   }, [volume, isStoreMuted, isPreviewHeld])
 
-  // Setup mpegts.js player
+  // Setup mpegts.js player: again on every reconnect, and not at all once
+  // the reconnects have stopped (which also lets go of the upstream)
   useEffect(() => {
     const video = videoRef.current
-    if (!video || !isMpegtsSupported) return
+    if (!video || !isMpegtsSupported || isStopped) return
 
     const player = mpegts.createPlayer({
       type: 'mpegts',
@@ -370,13 +383,22 @@ function LiveVideoPlayer({
     player.attachMediaElement(video)
     player.load()
 
-    player.on(mpegts.Events.ERROR, () => setError('Stream unavailable'))
-    player.on(mpegts.Events.LOADING_COMPLETE, () => setIsBuffering(false))
+    player.on(mpegts.Events.ERROR, fail)
+    // A live source has no end: the load completing means the upstream closed
+    // the connection. Only a paused player may have let it go on purpose.
+    player.on(mpegts.Events.LOADING_COMPLETE, () => {
+      setIsBuffering(false)
+      if (!video.paused) fail()
+    })
 
     // A policy refusal retries muted (element only, the saved mute is
     // untouched) with a 'Sound is off' notice; anything else, or a refusal
-    // while already muted, gets a centre Play button
+    // while already muted, gets a centre Play button. Destroying this player
+    // on a reconnect or the stop rejects a pending play() with AbortError:
+    // that attempt is over, so its rejections change nothing.
+    let active = true
     video.play().catch((error: unknown) => {
+      if (!active) return
       setIsBuffering(false)
       if (!isAutoplayPolicyError(error) || video.muted) {
         setIsPlayBlocked(true)
@@ -384,7 +406,9 @@ function LiveVideoPlayer({
       }
       video.muted = true
       setIsSystemMuted(true)
-      video.play().catch(() => setIsPlayBlocked(true))
+      video.play().catch(() => {
+        if (active) setIsPlayBlocked(true)
+      })
     })
     playerRef.current = player
 
@@ -392,11 +416,11 @@ function LiveVideoPlayer({
     const handleWaiting = () => setIsBuffering(true)
     const handlePlaying = () => {
       setIsBuffering(false)
-      setError(null)
       setHasStarted(true)
       setIsPlayBlocked(false)
+      succeed()
     }
-    const handleError = () => setError('Stream unavailable')
+    const handleError = fail
     // Never saved: element-only mutes (the clip preview hold) must not stick
     const handleVolumeChangeEvent = () => {
       // Read the hold now, not when the unmute was asked for: an unmute
@@ -415,6 +439,7 @@ function LiveVideoPlayer({
     video.addEventListener('volumechange', handleVolumeChangeEvent)
 
     return () => {
+      active = false
       video.removeEventListener('waiting', handleWaiting)
       video.removeEventListener('playing', handlePlaying)
       video.removeEventListener('error', handleError)
@@ -425,7 +450,33 @@ function LiveVideoPlayer({
         playerRef.current = null
       }
     }
-  }, [streamUrl]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [streamUrl, retryKey, isStopped]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Stall watchdog: an upstream that stops sending without an error leaves
+  // the picture frozen under a loader. The picture standing still for 8s
+  // while the element plays counts as a failure. Not while paused, and not in
+  // a hidden tab, where browsers throttle playback and timers.
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || !isMpegtsSupported || isStopped) return
+
+    let lastTime = video.currentTime
+    let frozenMs = 0
+    const timer = window.setInterval(() => {
+      const time = video.currentTime
+      if (video.paused || document.visibilityState !== 'visible' || time !== lastTime) {
+        lastTime = time
+        frozenMs = 0
+        return
+      }
+      frozenMs += STALL_CHECK_MS
+      if (frozenMs >= STALL_TIMEOUT_MS) {
+        frozenMs = 0
+        fail()
+      }
+    }, STALL_CHECK_MS)
+    return () => window.clearInterval(timer)
+  }, [retryKey, isStopped, isMpegtsSupported, fail])
 
   return (
     <div className={`relative h-full w-full ${!controlsVisible && isPlaying ? 'cursor-none' : ''}`}>
@@ -439,7 +490,11 @@ function LiveVideoPlayer({
         isMobile={isMobile}
       />
 
-      {isBuffering && <ProjectorBeamLoader />}
+      {(isBuffering || status === 'reconnecting') && (
+        <ProjectorBeamLoader
+          text={status === 'reconnecting' ? `Reconnecting... ${attempt} of ${maxRetries}` : undefined}
+        />
+      )}
 
       {(isPlayBlocked || isSystemMuted || isSavedMuteNotice) && (
         <AutoplayNotice
@@ -452,7 +507,7 @@ function LiveVideoPlayer({
       )}
 
       {!isMpegtsSupported && <ErrorOverlay message="MPEG-TS playback not supported" />}
-      {error && isMpegtsSupported && <ErrorOverlay message={error} />}
+      {isStopped && isMpegtsSupported && <ErrorOverlay message="Stream unavailable" />}
     </div>
   )
 }

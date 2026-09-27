@@ -15,10 +15,37 @@ import type { PlayerShell } from '@/components/player/PlayerShellContext'
 // MediaPlayer records its props and renders a focusable data-media-player div.
 // ----------------------------------------------------------------------------
 
+// Every player mpegts.js creates, with the handlers it was given
+const mpegtsHarness = vi.hoisted(() => {
+  type StubPlayer = {
+    handlers: Map<string, () => void>
+    attachMediaElement: () => void
+    load: () => void
+    on: (event: string, handler: () => void) => void
+    destroy: () => void
+  }
+  const players: StubPlayer[] = []
+  const createPlayer = vi.fn(() => {
+    const handlers = new Map<string, () => void>()
+    const player: StubPlayer = {
+      handlers,
+      attachMediaElement: vi.fn(),
+      load: vi.fn(),
+      on: vi.fn((event: string, handler: () => void) => {
+        handlers.set(event, handler)
+      }),
+      destroy: vi.fn(),
+    }
+    players.push(player)
+    return player
+  })
+  return { players, createPlayer }
+})
+
 vi.mock('mpegts.js', () => ({
   default: {
     isSupported: () => true,
-    createPlayer: () => ({ attachMediaElement: vi.fn(), load: vi.fn(), on: vi.fn(), destroy: vi.fn() }),
+    createPlayer: mpegtsHarness.createPlayer,
     Events: { ERROR: 'error', LOADING_COMPLETE: 'loading_complete' },
   },
 }))
@@ -231,6 +258,8 @@ beforeEach(() => {
   clipApi.deleteHighlightCapture.mockReset().mockResolvedValue(undefined)
   clipApi.getHighlightFeatures.mockReset().mockResolvedValue({ enabled: true, ziplineEnabled: false })
   volumeSupport.canSet = true
+  mpegtsHarness.players.length = 0
+  mpegtsHarness.createPlayer.mockClear()
   vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
 })
 
@@ -1028,6 +1057,225 @@ describe('DualModeVideoPlayer shell: fullscreen survives engine swaps', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('DualModeVideoPlayer live reconnect', () => {
+  // jsdom's element is always paused at 0s; these stand in for playback
+  let isPaused = false
+  let currentTime = 0
+  let visibility: DocumentVisibilityState = 'visible'
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    isPaused = false
+    currentTime = 0
+    visibility = 'visible'
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => visibility })
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    Reflect.deleteProperty(document, 'visibilityState')
+  })
+
+  const renderLive = () => {
+    const view = renderPlayer(liveChannel('https://fixture/a'))
+    Object.defineProperty(video(), 'paused', { configurable: true, get: () => isPaused })
+    Object.defineProperty(video(), 'currentTime', { configurable: true, get: () => currentTime })
+    return view
+  }
+
+  const players = () => mpegtsHarness.players
+  const lastPlayer = () => {
+    const player = players().at(-1)
+    if (!player) throw new Error('no mpegts player')
+    return player
+  }
+  const emit = (event: 'error' | 'loading_complete') => act(() => lastPlayer().handlers.get(event)?.())
+  const advance = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms))
+  const reconnecting = (attempt: number) => screen.queryByText(`Reconnecting... ${attempt} of 5`)
+
+  it('an mpegts error says it is reconnecting, keeps the controls and starts a new player after 1s', async () => {
+    renderLive()
+    expect(mpegtsHarness.createPlayer).toHaveBeenCalledTimes(1)
+    const first = lastPlayer()
+    const element = video()
+
+    emit('error')
+
+    expect(reconnecting(1)).toBeInTheDocument()
+    expect(screen.getByRole('toolbar', { name: 'Video controls' })).toBeInTheDocument()
+    await advance(999)
+    expect(mpegtsHarness.createPlayer).toHaveBeenCalledTimes(1)
+    await advance(1)
+    expect(mpegtsHarness.createPlayer).toHaveBeenCalledTimes(2)
+    expect(first.destroy).toHaveBeenCalledTimes(1)
+    // Same element, same shell: only the mpegts player is new
+    expect(video()).toBe(element)
+    expect(lastPlayer().attachMediaElement).toHaveBeenCalledWith(element)
+  })
+
+  it("the element's error and the player's error in one failure count as one reconnect", async () => {
+    renderLive()
+
+    emit('error')
+    act(() => {
+      video().dispatchEvent(new Event('error'))
+    })
+
+    expect(reconnecting(1)).toBeInTheDocument()
+    await advance(1000)
+    expect(mpegtsHarness.createPlayer).toHaveBeenCalledTimes(2)
+    // No second reconnect queued (the new player gets its own 8s stall window)
+    await advance(5000)
+    expect(mpegtsHarness.createPlayer).toHaveBeenCalledTimes(2)
+    expect(reconnecting(1)).toBeInTheDocument()
+  })
+
+  it('the upstream closing while playing reconnects, but not while paused', async () => {
+    renderLive()
+    isPaused = true
+
+    emit('loading_complete')
+    await advance(10_000)
+    expect(mpegtsHarness.createPlayer).toHaveBeenCalledTimes(1)
+    expect(reconnecting(1)).not.toBeInTheDocument()
+
+    isPaused = false
+    emit('loading_complete')
+    expect(reconnecting(1)).toBeInTheDocument()
+    await advance(1000)
+    expect(mpegtsHarness.createPlayer).toHaveBeenCalledTimes(2)
+  })
+
+  it('the watchdog reconnects when the picture stands still for 8s while playing', async () => {
+    renderLive()
+
+    // Moving: no stall however long it plays
+    for (let i = 0; i < 10; i++) {
+      currentTime += 1
+      await advance(1000)
+    }
+    expect(reconnecting(1)).not.toBeInTheDocument()
+
+    await advance(7000)
+    expect(reconnecting(1)).not.toBeInTheDocument()
+    await advance(1000)
+    expect(reconnecting(1)).toBeInTheDocument()
+    await advance(1000)
+    expect(mpegtsHarness.createPlayer).toHaveBeenCalledTimes(2)
+  })
+
+  // Destroying an mpegts player reloads the element, and a reload rejects a
+  // play() still pending with AbortError
+  const holdPlayUntilDestroy = () => {
+    const pending: Array<(reason: unknown) => void> = []
+    vi.mocked(HTMLMediaElement.prototype.play).mockImplementation(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          pending.push(reject)
+        })
+    )
+    return () => {
+      vi.mocked(lastPlayer().destroy).mockImplementation(() => {
+        for (const reject of pending.splice(0)) {
+          reject(new DOMException('The play() request was interrupted by a new load request', 'AbortError'))
+        }
+      })
+    }
+  }
+
+  it('an attempt a reconnect or the stop interrupts never asks for a tap to play', async () => {
+    const abortPlayOnDestroy = holdPlayUntilDestroy()
+    renderLive()
+
+    for (const delay of [1000, 2000, 4000, 8000, 8000]) {
+      abortPlayOnDestroy()
+      emit('error')
+      await advance(delay)
+      expect(startPlaybackButton()).not.toBeInTheDocument()
+    }
+    abortPlayOnDestroy()
+    emit('error')
+    await advance(0)
+
+    expect(lastPlayer().destroy).toHaveBeenCalledTimes(1)
+    expect(startPlaybackButton()).not.toBeInTheDocument()
+  })
+
+  it('a tap to play that a reconnect interrupts does not ask again', async () => {
+    const abortPlayOnDestroy = holdPlayUntilDestroy()
+    vi.mocked(HTMLMediaElement.prototype.play).mockRejectedValueOnce(new Error('no source yet'))
+    renderLive()
+    await advance(0)
+    fireEvent.click(startPlaybackButton()!)
+    expect(startPlaybackButton()).not.toBeInTheDocument()
+
+    abortPlayOnDestroy()
+    emit('error')
+    await advance(1000)
+
+    expect(mpegtsHarness.createPlayer).toHaveBeenCalledTimes(2)
+    expect(startPlaybackButton()).not.toBeInTheDocument()
+  })
+
+  it('the watchdog leaves a paused player alone', async () => {
+    renderLive()
+    isPaused = true
+
+    await advance(30_000)
+
+    expect(reconnecting(1)).not.toBeInTheDocument()
+    expect(mpegtsHarness.createPlayer).toHaveBeenCalledTimes(1)
+  })
+
+  it('the watchdog leaves a hidden tab alone, and starts counting afresh when it shows', async () => {
+    renderLive()
+    visibility = 'hidden'
+
+    await advance(30_000)
+    expect(reconnecting(1)).not.toBeInTheDocument()
+
+    visibility = 'visible'
+    await advance(7000)
+    expect(reconnecting(1)).not.toBeInTheDocument()
+    await advance(2000)
+    expect(reconnecting(1)).toBeInTheDocument()
+  })
+
+  it('playing again starts the count over', async () => {
+    renderLive()
+    emit('error')
+    await advance(1000)
+    emit('error')
+    expect(reconnecting(2)).toBeInTheDocument()
+    await advance(2000)
+
+    act(() => {
+      video().dispatchEvent(new Event('playing'))
+    })
+    expect(screen.queryByText(/Reconnecting/)).not.toBeInTheDocument()
+
+    emit('error')
+    expect(reconnecting(1)).toBeInTheDocument()
+  })
+
+  it('stops after 5 reconnects, letting go of the upstream', async () => {
+    renderLive()
+    for (const [i, delay] of [1000, 2000, 4000, 8000, 8000].entries()) {
+      emit('error')
+      expect(reconnecting(i + 1)).toBeInTheDocument()
+      await advance(delay)
+    }
+    expect(mpegtsHarness.createPlayer).toHaveBeenCalledTimes(6)
+
+    emit('error')
+
+    expect(screen.queryByText(/Reconnecting/)).not.toBeInTheDocument()
+    expect(screen.getByText('Stream unavailable')).toBeInTheDocument()
+    expect(lastPlayer().destroy).toHaveBeenCalledTimes(1)
+    await advance(60_000)
+    expect(mpegtsHarness.createPlayer).toHaveBeenCalledTimes(6)
   })
 })
 
