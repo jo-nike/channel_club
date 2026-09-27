@@ -206,7 +206,6 @@ export function DualModeVideoPlayer({
         channelId={channel.backendId || channel.id}
         streamUrl={channel.streamUrl}
         channelName={channel.name}
-        channelNumber={channel.number}
         isMobile={isMobile}
       />
     )
@@ -216,7 +215,6 @@ export function DualModeVideoPlayer({
       <HLSVideoPlayerWrapper
         key={`hls-${channel.id}-${reloadKey}`}
         channelId={channel.id}
-        channelNumber={channel.number}
         streamUrl={getErsatzTVStreamUrl(channel.id)}
         title={channel.name}
         isMobile={isMobile}
@@ -355,7 +353,6 @@ interface LiveVideoPlayerProps {
   channelId: string
   streamUrl: string
   channelName: string
-  channelNumber: number
   isMobile: boolean
 }
 
@@ -594,7 +591,6 @@ function LiveVideoPlayer({
 
 interface HLSVideoPlayerWrapperProps {
   channelId: string
-  channelNumber: number
   streamUrl: string
   title?: string
   isMobile: boolean

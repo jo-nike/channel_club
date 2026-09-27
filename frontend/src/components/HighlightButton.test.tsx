@@ -16,7 +16,6 @@ describe('HighlightButton', () => {
     it('renders the button with icon when recording', () => {
       render(
         <HighlightButton
-          channelId="channel-1"
           isVisible={true}
           highlightStatus={defaultStatus}
           loaded
@@ -30,7 +29,6 @@ describe('HighlightButton', () => {
     it('has correct accessibility attributes', () => {
       render(
         <HighlightButton
-          channelId="channel-1"
           isVisible={true}
           highlightStatus={defaultStatus}
           loaded
@@ -45,7 +43,6 @@ describe('HighlightButton', () => {
     it('is tabbable when visible and recording', () => {
       render(
         <HighlightButton
-          channelId="channel-1"
           isVisible={true}
           highlightStatus={defaultStatus}
           loaded
@@ -59,7 +56,6 @@ describe('HighlightButton', () => {
     it('is not tabbable when not visible', () => {
       render(
         <HighlightButton
-          channelId="channel-1"
           isVisible={false}
           highlightStatus={defaultStatus}
           loaded
@@ -76,7 +72,6 @@ describe('HighlightButton', () => {
       const onOpenModal = vi.fn()
       render(
         <HighlightButton
-          channelId="channel-1"
           isVisible={true}
           highlightStatus={defaultStatus}
           loaded
@@ -91,7 +86,6 @@ describe('HighlightButton', () => {
     it('does nothing if onOpenModal is not provided', () => {
       render(
         <HighlightButton
-          channelId="channel-1"
           isVisible={true}
           highlightStatus={defaultStatus}
           loaded
@@ -114,7 +108,6 @@ describe('HighlightButton', () => {
 
       render(
         <HighlightButton
-          channelId="channel-1"
           isVisible={true}
           highlightStatus={notRecordingStatus}
           loaded
@@ -128,7 +121,7 @@ describe('HighlightButton', () => {
   })
 
   it('waits for a completed segment even when an incomplete buffer has seconds', () => {
-    render(<HighlightButton channelId="channel-1" isVisible loaded highlightStatus={{ ...defaultStatus, ready: false }} />)
+    render(<HighlightButton isVisible loaded highlightStatus={{ ...defaultStatus, ready: false }} />)
     expect(screen.getByRole('button')).toBeDisabled()
     expect(screen.getByRole('button')).toHaveAccessibleName('Buffering clip · 30s of 60s')
   })
@@ -145,7 +138,7 @@ describe('HighlightButton', () => {
     ]
 
     const renderState = (status: HighlightStatusResponse, loaded: boolean) =>
-      render(<HighlightButton channelId="channel-1" isVisible loaded={loaded} highlightStatus={status} />)
+      render(<HighlightButton isVisible loaded={loaded} highlightStatus={status} />)
 
     it.each(states)('shows no text in the %s state; the label and tooltip carry it', async (state, status, loaded) => {
       renderState(status, loaded)
@@ -199,7 +192,7 @@ describe('HighlightButton', () => {
 
     it('fills as far as the buffer is from full', () => {
       const { container } = render(
-        <HighlightButton channelId="channel-1" isVisible loaded highlightStatus={{ ...defaultStatus, ready: false, bufferSeconds: 15 }} />
+        <HighlightButton isVisible loaded highlightStatus={{ ...defaultStatus, ready: false, bufferSeconds: 15 }} />
       )
 
       expect(progress(container).filled).toBeCloseTo(0.25)
@@ -207,38 +200,38 @@ describe('HighlightButton', () => {
 
     it('follows the buffer as it grows', () => {
       const { container, rerender } = render(
-        <HighlightButton channelId="channel-1" isVisible loaded highlightStatus={{ ...defaultStatus, bufferSeconds: 30 }} />
+        <HighlightButton isVisible loaded highlightStatus={{ ...defaultStatus, bufferSeconds: 30 }} />
       )
       expect(progress(container).filled).toBeCloseTo(0.5)
 
-      rerender(<HighlightButton channelId="channel-1" isVisible loaded highlightStatus={{ ...defaultStatus, bufferSeconds: 60 }} />)
+      rerender(<HighlightButton isVisible loaded highlightStatus={{ ...defaultStatus, bufferSeconds: 60 }} />)
       expect(progress(container).filled).toBeCloseTo(1)
     })
 
     it('never overfills or goes negative', () => {
       const { container, rerender } = render(
-        <HighlightButton channelId="channel-1" isVisible loaded highlightStatus={{ ...defaultStatus, bufferSeconds: 90 }} />
+        <HighlightButton isVisible loaded highlightStatus={{ ...defaultStatus, bufferSeconds: 90 }} />
       )
       expect(progress(container).filled).toBeCloseTo(1)
 
-      rerender(<HighlightButton channelId="channel-1" isVisible loaded highlightStatus={{ ...defaultStatus, ready: false, bufferSeconds: 0, maxBufferSeconds: 0 }} />)
+      rerender(<HighlightButton isVisible loaded highlightStatus={{ ...defaultStatus, ready: false, bufferSeconds: 0, maxBufferSeconds: 0 }} />)
       expect(progress(container).filled).toBeCloseTo(0)
     })
 
     it('turns primary when a clip is ready and stays white while buffering', () => {
       const { container, rerender } = render(
-        <HighlightButton channelId="channel-1" isVisible loaded highlightStatus={{ ...defaultStatus, ready: false }} />
+        <HighlightButton isVisible loaded highlightStatus={{ ...defaultStatus, ready: false }} />
       )
       expect(progress(container).arc).toHaveClass('stroke-white')
       expect(progress(container).arc).not.toHaveClass('stroke-primary')
 
-      rerender(<HighlightButton channelId="channel-1" isVisible loaded highlightStatus={{ ...defaultStatus, ready: true }} />)
+      rerender(<HighlightButton isVisible loaded highlightStatus={{ ...defaultStatus, ready: true }} />)
       expect(progress(container).arc).toHaveClass('stroke-primary')
     })
 
     it('has no progress arc when the channel is not recording', () => {
       const { container } = render(
-        <HighlightButton channelId="channel-1" isVisible loaded highlightStatus={{ ...defaultStatus, recording: false }} />
+        <HighlightButton isVisible loaded highlightStatus={{ ...defaultStatus, recording: false }} />
       )
 
       expect(container.querySelector('[data-ring="progress"]')).toBeNull()
@@ -249,14 +242,14 @@ describe('HighlightButton', () => {
     const notRecording: HighlightStatusResponse = { ...defaultStatus, recording: false, bufferSeconds: 0 }
 
     it('leaves the button out while the channel is not recording', () => {
-      render(<HighlightButton channelId="channel-1" isVisible loaded highlightStatus={notRecording} compact />)
+      render(<HighlightButton isVisible loaded highlightStatus={notRecording} compact />)
 
       expect(screen.queryByRole('button')).not.toBeInTheDocument()
       expect(screen.queryByText('Clip unavailable')).not.toBeInTheDocument()
     })
 
     it('keeps the disabled, named button when not compact', () => {
-      render(<HighlightButton channelId="channel-1" isVisible loaded highlightStatus={notRecording} />)
+      render(<HighlightButton isVisible loaded highlightStatus={notRecording} />)
 
       expect(screen.getByRole('button', { name: 'Clip unavailable' })).toBeDisabled()
     })
@@ -268,7 +261,7 @@ describe('HighlightButton', () => {
     ] as [string, HighlightStatusResponse, boolean][])(
       'shows the %s state as a 44px icon with no text',
       (state, status, loaded) => {
-        render(<HighlightButton channelId="channel-1" isVisible loaded={loaded} highlightStatus={status} compact />)
+        render(<HighlightButton isVisible loaded={loaded} highlightStatus={status} compact />)
 
         const button = screen.getByRole('button')
         expect(button).toHaveAttribute('data-state', state)
@@ -282,7 +275,6 @@ describe('HighlightButton', () => {
       const onOpenModal = vi.fn()
       render(
         <HighlightButton
-          channelId="channel-1"
           isVisible
           loaded
           highlightStatus={{ ...defaultStatus, ready: true }}
@@ -300,7 +292,6 @@ describe('HighlightButton', () => {
     it('has control button styling', () => {
       render(
         <HighlightButton
-          channelId="channel-1"
           isVisible={true}
           highlightStatus={defaultStatus}
           loaded
@@ -314,7 +305,6 @@ describe('HighlightButton', () => {
     it('has minimum touch target size', () => {
       render(
         <HighlightButton
-          channelId="channel-1"
           isVisible={true}
           highlightStatus={defaultStatus}
           loaded
@@ -331,7 +321,6 @@ describe('HighlightButton', () => {
     it('marks keyboard focus with the over-video ring, not a blue ring', () => {
       render(
         <HighlightButton
-          channelId="channel-1"
           isVisible={true}
           highlightStatus={defaultStatus}
           loaded
