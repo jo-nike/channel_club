@@ -6,16 +6,21 @@ import { ChatMediaEmbed } from './ChatMediaEmbed'
 export interface ChatMessageProps {
   message: ChatMessageType
   isOwn?: boolean
+  // The current time (ms) from the panel's shared tick, so 'just now' moves on
+  now: number
+  // Consecutive messages from one sender form a group: the name shows on the
+  // first bubble, the time on the last
+  isFirstInGroup?: boolean
+  isLastInGroup?: boolean
 }
 
 /**
  * Format timestamp to display time only (HH:MM)
- * For recent messages (< 1 minute), shows "just now"
+ * For recent messages (< 1 minute before now), shows "just now"
  */
-function formatTimestamp(timestamp: string): string {
+function formatTimestamp(timestamp: string, now: number): string {
   const date = new Date(timestamp)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
+  const diffMs = now - date.getTime()
   const diffMins = Math.floor(diffMs / 60000)
 
   if (diffMins < 1) {
@@ -79,11 +84,14 @@ function renderContent(content: string): ReactNode {
   return <div className="flex flex-col gap-1 text-sm break-words">{segments}</div>
 }
 
-export function ChatMessage({ message, isOwn = false }: ChatMessageProps) {
-  const formattedTime = useMemo(
-    () => formatTimestamp(message.timestamp),
-    [message.timestamp]
-  )
+export function ChatMessage({
+  message,
+  isOwn = false,
+  now,
+  isFirstInGroup = true,
+  isLastInGroup = true,
+}: ChatMessageProps) {
+  const formattedTime = formatTimestamp(message.timestamp, now)
 
   const renderedContent = useMemo(
     () => renderContent(message.content),
@@ -92,9 +100,9 @@ export function ChatMessage({ message, isOwn = false }: ChatMessageProps) {
 
   return (
     <div
-      className={`flex flex-col gap-0.5 px-3 py-1.5 ${
-        isOwn ? 'items-end' : 'items-start'
-      }`}
+      className={`flex flex-col gap-0.5 px-3 ${isFirstInGroup ? 'pt-1.5' : 'pt-0.5'} ${
+        isLastInGroup ? 'pb-1.5' : 'pb-0.5'
+      } ${isOwn ? 'items-end' : 'items-start'}`}
     >
       <div
         className={`max-w-[85%] rounded-lg px-3 py-2 overflow-hidden ${
@@ -103,14 +111,16 @@ export function ChatMessage({ message, isOwn = false }: ChatMessageProps) {
             : 'bg-muted text-foreground'
         }`}
       >
-        {!isOwn && (
+        {!isOwn && isFirstInGroup && (
           <span className="block text-xs font-semibold text-muted-foreground mb-0.5">
             {message.username}
           </span>
         )}
         {renderedContent}
       </div>
-      <span className="text-xs text-muted-foreground px-1">{formattedTime}</span>
+      {isLastInGroup && (
+        <span className="text-xs text-muted-foreground px-1">{formattedTime}</span>
+      )}
     </div>
   )
 }

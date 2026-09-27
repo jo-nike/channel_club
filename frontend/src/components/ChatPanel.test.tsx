@@ -146,6 +146,25 @@ describe('ChatPanel', () => {
     expect(screen.getByText('OtherUser')).toBeInTheDocument()
   })
 
+  it("moves 'just now' on to a clock time while the panel stays open", () => {
+    vi.useFakeTimers()
+    try {
+      const sentAt = new Date('2026-01-08T12:00:00Z')
+      vi.setSystemTime(sentAt)
+      useChatStore.setState({ messages: [{ ...createMessage('1', 'OtherUser'), timestamp: sentAt.toISOString() }] })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.getByText('just now')).toBeInTheDocument()
+
+      // Two 30s ticks of the shared clock
+      act(() => { vi.advanceTimersByTime(60_000) })
+      const clock = sentAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      expect(screen.queryByText('just now')).not.toBeInTheDocument()
+      expect(screen.getByText(clock)).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('has max length on input', () => {
     render(<ChatPanel onSendMessage={mockOnSendMessage} />)
     const input = screen.getByPlaceholderText('Type a message...')
@@ -751,6 +770,339 @@ describe('ChatPanel', () => {
       await screen.findByRole('alert')
       fireEvent.change(input, { target: { value: 'Offline!' } })
       expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('grouping', () => {
+    // Local noon, well clear of midnight, which ends a group
+    const base = new Date(2026, 8, 27, 12, 0).getTime()
+    beforeEach(() => {
+      vi.useFakeTimers()
+      vi.setSystemTime(base)
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+    // A message sent this many seconds before now
+    const sent = (id: string, username: string, secondsAgo: number, userId?: string): ChatMessage => ({
+      messageId: id,
+      username,
+      userId,
+      content: `Message ${id}`,
+      timestamp: new Date(base - secondsAgo * 1000).toISOString(),
+    })
+
+    it('shows one name and one time for quick messages from one sender', () => {
+      useChatStore.setState({
+        messages: [sent('1', 'OtherUser', 20), sent('2', 'OtherUser', 10), sent('3', 'OtherUser', 0)],
+      })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.getAllByText('OtherUser')).toHaveLength(1)
+      expect(screen.getAllByText('just now')).toHaveLength(1)
+    })
+
+    it('starts a new group after a gap of more than 3 minutes', () => {
+      useChatStore.setState({ messages: [sent('1', 'OtherUser', 200), sent('2', 'OtherUser', 0)] })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.getAllByText('OtherUser')).toHaveLength(2)
+    })
+
+    it('keeps a gap of exactly 3 minutes in the group', () => {
+      useChatStore.setState({ messages: [sent('1', 'OtherUser', 180), sent('2', 'OtherUser', 0)] })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.getAllByText('OtherUser')).toHaveLength(1)
+    })
+
+    it('starts a new group when someone else speaks in between', () => {
+      useChatStore.setState({
+        messages: [sent('1', 'Alice', 20), sent('2', 'Bob', 10), sent('3', 'Alice', 0)],
+      })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.getAllByText('Alice')).toHaveLength(2)
+      expect(screen.getAllByText('Bob')).toHaveLength(1)
+    })
+
+    it('never merges two people who picked the same name', () => {
+      useChatStore.setState({
+        messages: [sent('1', 'Sam', 10, 'u_aaaaaaaaaaaaaaaa'), sent('2', 'Sam', 0, 'u_bbbbbbbbbbbbbbbb')],
+      })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.getAllByText('Sam')).toHaveLength(2)
+    })
+
+    it('keeps one sender together across a rename', () => {
+      useChatStore.setState({
+        messages: [sent('1', 'Sam', 10, 'u_aaaaaaaaaaaaaaaa'), sent('2', 'Samuel', 0, 'u_aaaaaaaaaaaaaaaa')],
+      })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.getByText('Sam')).toBeInTheDocument()
+      expect(screen.queryByText('Samuel')).not.toBeInTheDocument()
+    })
+
+    it("names the sender again after the 'New' divider", () => {
+      useChatStore.setState({
+        messages: [sent('1', 'OtherUser', 20), sent('2', 'OtherUser', 10)],
+        readMarker: base - 15_000,
+      })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.getAllByText('OtherUser')).toHaveLength(2)
+      // Each side of the divider ends with its time
+      expect(screen.getAllByText('just now')).toHaveLength(2)
+    })
+  })
+
+  describe('day separators', () => {
+    // Local times, so the days hold in any time zone
+    const at = (day: number, hour: number, minute: number) => new Date(2026, 8, day, hour, minute)
+    const sentAt = (id: string, username: string, when: Date): ChatMessage => ({
+      messageId: id,
+      username,
+      content: `Message ${id}`,
+      timestamp: when.toISOString(),
+    })
+    const daySeparators = () =>
+      screen.getAllByRole('separator').filter((el) => el.getAttribute('aria-label') !== 'New messages')
+
+    beforeEach(() => {
+      vi.useFakeTimers()
+      vi.setSystemTime(at(27, 12, 0))
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it("puts 'Yesterday' and 'Today' before the first message of each day", () => {
+      useChatStore.setState({
+        messages: [
+          sentAt('1', 'OtherUser', at(26, 22, 0)),
+          sentAt('2', 'OtherUser', at(26, 22, 1)),
+          sentAt('3', 'OtherUser', at(27, 9, 0)),
+          sentAt('4', 'OtherUser', at(27, 11, 59)),
+        ],
+      })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(daySeparators().map((el) => el.textContent)).toEqual(['Yesterday', 'Today'])
+
+      const yesterday = screen.getByRole('separator', { name: 'Yesterday' })
+      const today = screen.getByRole('separator', { name: 'Today' })
+      const follows = (a: Element, b: Element) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
+      expect(follows(yesterday, screen.getByText('Message 1'))).toBe(true)
+      expect(follows(screen.getByText('Message 2'), today)).toBe(true)
+      expect(follows(today, screen.getByText('Message 3'))).toBe(true)
+    })
+
+    it('names the date for anything older than yesterday', () => {
+      const older = at(24, 20, 0)
+      useChatStore.setState({ messages: [sentAt('1', 'OtherUser', older)] })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      const label = older.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })
+      expect(screen.getByRole('separator', { name: label })).toHaveTextContent(label)
+    })
+
+    it('splits a group at midnight', () => {
+      useChatStore.setState({
+        messages: [sentAt('1', 'OtherUser', at(26, 23, 59)), sentAt('2', 'OtherUser', at(27, 0, 1))],
+      })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.getAllByText('OtherUser')).toHaveLength(2)
+    })
+
+    it("turns 'Today' into 'Yesterday' once midnight passes with the panel open", () => {
+      vi.setSystemTime(at(27, 23, 59))
+      useChatStore.setState({ messages: [sentAt('1', 'OtherUser', at(27, 23, 0))] })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      expect(screen.getByRole('separator', { name: 'Today' })).toBeInTheDocument()
+
+      act(() => { vi.advanceTimersByTime(90_000) })
+      expect(screen.queryByRole('separator', { name: 'Today' })).not.toBeInTheDocument()
+      expect(screen.getByRole('separator', { name: 'Yesterday' })).toBeInTheDocument()
+    })
+  })
+
+  describe('scroll position', () => {
+    const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView)
+    const originalMatchMedia = window.matchMedia
+
+    beforeEach(() => {
+      vi.useFakeTimers()
+      scrollIntoView.mockClear()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+      window.matchMedia = originalMatchMedia
+    })
+
+    // jsdom has no layout: give the list a 1000px tall history in a 300px viewport
+    const mockViewport = () => {
+      const viewport = document.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]')
+      if (!viewport) throw new Error('no scroll-area viewport')
+      Object.defineProperty(viewport, 'scrollHeight', { configurable: true, value: 1000 })
+      Object.defineProperty(viewport, 'clientHeight', { configurable: true, value: 300 })
+      return viewport
+    }
+    const scrollTo = (viewport: HTMLElement, top: number) => {
+      Object.defineProperty(viewport, 'scrollTop', { configurable: true, value: top })
+      fireEvent.scroll(viewport)
+    }
+    // Open over two messages, let the opening scroll run, and start at the bottom
+    const openAtBottom = () => {
+      useChatStore.setState({ messages: [createMessage('1', 'OtherUser'), createMessage('2', 'OtherUser')] })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      act(() => { vi.advanceTimersByTime(50) })
+      const viewport = mockViewport()
+      scrollTo(viewport, 700)
+      scrollIntoView.mockClear()
+      return viewport
+    }
+    // A message arrives, and any scroll it schedules has had time to run
+    const receive = (id: string, username = 'OtherUser') => {
+      act(() => { useChatStore.getState().addMessage(createMessage(id, username)) })
+      act(() => { vi.advanceTimersByTime(100) })
+    }
+
+    it('follows a new message down while the reader is at the bottom', () => {
+      openAtBottom()
+      receive('3')
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+      expect(screen.queryByRole('button', { name: /new message/ })).not.toBeInTheDocument()
+    })
+
+    it('holds the position when scrolled up and counts new messages in a pill', () => {
+      const viewport = openAtBottom()
+      scrollTo(viewport, 200)
+
+      receive('3')
+      expect(scrollIntoView).not.toHaveBeenCalled()
+      expect(screen.getByRole('button', { name: '1 new message' })).toBeInTheDocument()
+
+      receive('4')
+      expect(scrollIntoView).not.toHaveBeenCalled()
+      expect(screen.getByRole('button', { name: '2 new messages' })).toBeInTheDocument()
+    })
+
+    it('the pill scrolls down to the latest and goes away', () => {
+      const viewport = openAtBottom()
+      scrollTo(viewport, 200)
+      receive('3')
+
+      fireEvent.click(screen.getByRole('button', { name: '1 new message' }))
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+      expect(screen.queryByRole('button', { name: /new message/ })).not.toBeInTheDocument()
+
+      // Back to following: the next message scrolls
+      receive('4')
+      expect(scrollIntoView).toHaveBeenCalledTimes(2)
+    })
+
+    it('scrolling back to the bottom clears the pill', () => {
+      const viewport = openAtBottom()
+      scrollTo(viewport, 200)
+      receive('3')
+      // Within 80px of the bottom counts
+      scrollTo(viewport, 650)
+      expect(screen.queryByRole('button', { name: /new message/ })).not.toBeInTheDocument()
+    })
+
+    it('always scrolls to your own message, even when scrolled up', () => {
+      const viewport = openAtBottom()
+      scrollTo(viewport, 200)
+      receive('3', 'TestUser')
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+      expect(screen.queryByRole('button', { name: /new message/ })).not.toBeInTheDocument()
+    })
+
+    it('keeps following through a smooth scroll that is still on its way down', () => {
+      const viewport = openAtBottom()
+      receive('3')
+      // The smooth scroll to message 3 is mid-way when message 4 arrives
+      scrollTo(viewport, 710)
+      Object.defineProperty(viewport, 'scrollHeight', { configurable: true, value: 1200 })
+      scrollTo(viewport, 750)
+      receive('4')
+      expect(scrollIntoView).toHaveBeenCalledTimes(2)
+      expect(screen.queryByRole('button', { name: /new message/ })).not.toBeInTheDocument()
+    })
+
+    it("opens on the 'New' divider when there is unread", () => {
+      useChatStore.setState({
+        messages: [
+          { ...createMessage('1', 'OtherUser'), timestamp: '2026-09-26T20:00:01.000Z' },
+          { ...createMessage('2', 'OtherUser'), timestamp: '2026-09-26T20:00:03.000Z' },
+        ],
+        readMarker: Date.parse('2026-09-26T20:00:02.000Z'),
+      })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      act(() => { vi.advanceTimersByTime(50) })
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+      expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByRole('separator', { name: 'New messages' }))
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start', behavior: 'smooth' })
+    })
+
+    // Unread from someone else below the 'New' divider, in a viewport of the given height
+    const openOnDivider = (scrollHeight: number) => {
+      useChatStore.setState({
+        messages: [
+          { ...createMessage('1', 'OtherUser'), timestamp: '2026-09-26T20:00:01.000Z' },
+          { ...createMessage('2', 'OtherUser'), timestamp: '2026-09-26T20:00:03.000Z' },
+        ],
+        readMarker: Date.parse('2026-09-26T20:00:02.000Z'),
+      })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      const viewport = mockViewport()
+      Object.defineProperty(viewport, 'scrollHeight', { configurable: true, value: scrollHeight })
+      Object.defineProperty(viewport, 'scrollTop', { configurable: true, value: 0 })
+      // The opening scroll to the divider moves nothing and fires no scroll event
+      act(() => { vi.advanceTimersByTime(50) })
+      scrollIntoView.mockClear()
+    }
+
+    it("follows new messages after opening on the 'New' divider in a history that fits", () => {
+      openOnDivider(200)
+      receive('3')
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+      expect(screen.queryByRole('button', { name: /new message/ })).not.toBeInTheDocument()
+    })
+
+    it("holds on the 'New' divider when the unread runs past the panel", () => {
+      openOnDivider(1000)
+      receive('3')
+      expect(scrollIntoView).not.toHaveBeenCalled()
+      expect(screen.getByRole('button', { name: '1 new message' })).toBeInTheDocument()
+    })
+
+    it('opens at the bottom when nothing is unread', () => {
+      useChatStore.setState({ messages: [createMessage('1', 'OtherUser')] })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+      act(() => { vi.advanceTimersByTime(50) })
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth' })
+    })
+
+    it('goes back to the bottom when the name editor closes over the list', () => {
+      useChatStore.setState({ me: { username: 'TestUser' } })
+      openAtBottom()
+      fireEvent.click(screen.getByRole('button', { name: 'Edit nickname' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+      act(() => { vi.advanceTimersByTime(50) })
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+    })
+
+    it('jumps instead of smooth-scrolling under reduced motion', () => {
+      window.matchMedia = vi.fn((query: string) => ({
+        matches: query === '(prefers-reduced-motion: reduce)',
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      }))
+      openAtBottom()
+      receive('3')
+      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto' })
     })
   })
 
