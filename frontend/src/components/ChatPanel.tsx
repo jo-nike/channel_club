@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState, useCallback, type KeyboardEvent } from 'react'
-import { X, Send, Pencil } from 'lucide-react'
+import { X, Send, Pencil, Loader2, AlertCircle } from 'lucide-react'
 import type { ChatSendResult } from '@/hooks/useWebSocket'
 import { useChatStore, isOwnMessage } from '@/stores/chatStore'
 import { useBreakpoint } from '@/hooks/useBreakpoint'
@@ -15,13 +15,21 @@ export interface ChatPanelProps {
   onSetNickname?: (nickname: string) => void
 }
 
+// A send that failed, kept so the row above the composer can describe it
+interface SendFailure {
+  kind: 'not-sent' | 'unconfirmed'
+  content: string
+}
+
 export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
   const { messages, isOpen, setOpen, nickname, me, setNickname, clearNickname } = useChatStore()
   const breakpoint = useBreakpoint()
   const isMobile = breakpoint === 'mobile'
 
   const [inputValue, setInputValue] = useState('')
-  const [deliveryStatus, setDeliveryStatus] = useState('')
+  // Screen readers only: the message bubble is the visible confirmation
+  const [sendStatus, setSendStatus] = useState('')
+  const [failure, setFailure] = useState<SendFailure | null>(null)
   const [isSending, setIsSending] = useState(false)
   const sending = useRef(false)
   const draftVersion = useRef(0)
@@ -67,12 +75,17 @@ export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
     if (sending.current) return 'not-sent' as const
     sending.current = true
     setIsSending(true)
-    setDeliveryStatus('Sending; waiting for server acknowledgement...')
+    setSendStatus('Sending…')
     let result: ChatSendResult
     try { result = await onSendMessage(content) } catch { result = 'unconfirmed' }
-    setDeliveryStatus(result === 'acknowledged' ? 'Message accepted by server.' : result === 'not-sent'
-      ? 'Message not sent. Reconnect and try again; your draft is saved.'
-      : 'Delivery is unconfirmed. Your draft is saved; check chat before retrying to avoid duplicates.')
+    if (result === 'acknowledged') {
+      setSendStatus('Message sent')
+      setFailure(null)
+    } else {
+      // The alert row announces the failure
+      setSendStatus('')
+      setFailure({ kind: result, content })
+    }
     sending.current = false
     setIsSending(false)
     return result
@@ -148,7 +161,6 @@ export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
 
   return (
     <div className={`${panelClasses} ${animationClasses}`}>
-      {deliveryStatus && <p role="status" className="px-4 py-2 text-sm">{deliveryStatus}</p>}
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">
@@ -230,11 +242,22 @@ export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
 
           {/* Input */}
           <div className="border-t border-border p-3">
+            <p role="status" className="sr-only">{sendStatus}</p>
+            {failure && (
+              <div role="alert" className="mb-2 flex h-8 items-center gap-2 text-sm">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" aria-hidden="true" />
+                <span className="min-w-0 truncate">
+                  {failure.kind === 'not-sent'
+                    ? "Not sent. You're offline or reconnecting."
+                    : "Couldn't confirm it was sent. Check the chat before sending again."}
+                </span>
+              </div>
+            )}
             <div className="flex gap-2">
               <Input
                 ref={inputRef}
                 value={inputValue}
-                onChange={(e) => { draftVersion.current += 1; setInputValue(e.target.value) }}
+                onChange={(e) => { draftVersion.current += 1; setFailure(null); setInputValue(e.target.value) }}
                 onKeyDown={handleKeyDown}
                 placeholder="Type a message..."
                 className="flex-1"
@@ -247,7 +270,9 @@ export function ChatPanel({ onSendMessage, onSetNickname }: ChatPanelProps) {
                 size="icon"
                 aria-label="Send message"
               >
-                <Send className="h-4 w-4" />
+                {isSending
+                  ? <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden="true" />
+                  : <Send className="h-4 w-4" />}
               </Button>
             </div>
           </div>

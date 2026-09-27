@@ -1428,7 +1428,7 @@ describe('useWebSocket', () => {
     const oldId = JSON.parse(first.send.mock.calls.at(-1)![0]).clientMessageId
     expect(input).toHaveValue('Keep until acknowledged')
     act(() => first.simulateClose(1006))
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Delivery is unconfirmed'))
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent("Couldn't confirm it was sent."))
     act(() => window.dispatchEvent(new Event('online')))
     const replacement = MockWebSocket.instances.at(-1)!
     act(() => replacement.simulateOpen())
@@ -1438,7 +1438,8 @@ describe('useWebSocket', () => {
     expect(input).toHaveValue('Keep until acknowledged')
     act(() => replacement.simulateMessage({ type: 'chat_ack', clientMessageId: newId, accepted: true, messageId: 'new-server-id' }))
     await waitFor(() => expect(input).toHaveValue(''))
-    expect(screen.getByRole('status')).toHaveTextContent('Message accepted by server')
+    expect(screen.getByRole('status')).toHaveTextContent('Message sent')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
 })
