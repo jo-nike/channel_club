@@ -15,7 +15,7 @@ function FilterToggle({ filter }: { filter: (typeof FILTER_REGISTRY)[0] }) {
     <button
       type="button"
       onClick={() => toggleFilter(filter.id)}
-      className={`flex w-full items-center justify-between rounded-lg p-3 transition-colors ${
+      className={`flex w-full items-center justify-between rounded-lg p-3 text-left transition-colors ${
         isActive
           ? 'bg-primary/20 hover:bg-primary/30'
           : 'hover:bg-muted'
@@ -158,7 +158,7 @@ export function FilterMenu({ isVisible, containerRef }: FilterMenuProps) {
       <PopoverContent
         className="w-72"
         side="top"
-        align="center"
+        align="start"
         sideOffset={8}
         container={portalContainer}
       >
