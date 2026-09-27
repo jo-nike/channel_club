@@ -2,7 +2,6 @@ import { useEffect, useRef, type Ref } from 'react'
 import { AudioLines, ChevronLeft, ChevronRight, Radio, Star } from 'lucide-react'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore, describeLiveGuide } from '@/stores/tvStore'
-import { getErsatzTVLogoUrl } from '@/services/ersatztvApi'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -12,6 +11,7 @@ import { useFilteredChannels } from '@/hooks/useFilteredChannels'
 import { useChannelPrefsStore } from '@/stores/channelPrefsStore'
 import { ChannelFilterBar } from '@/components/tv/ChannelFilterBar'
 import { LivePill } from '@/components/LivePill'
+import { ChannelLogo } from '@/components/ChannelLogo'
 import { calculateProgress, findOnAir, formatRemaining, getProgrammeState } from '@/lib/programmes'
 import { buildProgrammeIndex, findCurrentAndNext, type IndexedProgramme } from '@/lib/programmeIndex'
 import { favouritesFirst } from '@/lib/channelSearch'
@@ -281,20 +281,18 @@ function CollapsedChannelButton({
           )}
           {isLive ? (
             hasLiveChannel ? (
-              <Radio className="h-4 w-4 text-live" />
+              // The live channel's logo on the tile's live tint, or the icon
+              <ChannelLogo
+                channel={channel}
+                className="size-8 bg-transparent"
+                fallback={<Radio className="h-4 w-4 text-live" />}
+              />
             ) : (
               '0'
             )
           ) : channel.logoUrl ? (
             <>
-              <img
-                src={getErsatzTVLogoUrl(channel.id)}
-                alt=""
-                className="h-full w-full object-contain"
-                onError={(e) => {
-                  ;(e.target as HTMLImageElement).style.display = 'none'
-                }}
-              />
+              <ChannelLogo channel={channel} className="size-full rounded-none bg-transparent" />
               {/* The aria-label already carries the number */}
               <span
                 aria-hidden="true"
@@ -456,25 +454,12 @@ function ChannelItem({
         aria-current={isSelected ? 'true' : undefined}
         aria-label={label}
       >
-        {/* Channel logo / icon */}
-        <div
-          className={`h-12 w-12 shrink-0 overflow-hidden rounded flex items-center justify-center ${
-            isLive ? 'bg-live/20' : 'bg-muted'
-          }`}
-        >
-          {isLive ? (
-            <Radio className="h-6 w-6 text-live" />
-          ) : channel.logoUrl ? (
-            <img
-              src={getErsatzTVLogoUrl(channel.id)}
-              alt={`${channel.name} logo`}
-              className="h-full w-full object-contain"
-              onError={(e) => {
-                ;(e.target as HTMLImageElement).style.display = 'none'
-              }}
-            />
-          ) : null}
-        </div>
+        {/* Channel logo, or the live slot's icon while it has none */}
+        <ChannelLogo
+          channel={channel}
+          className={cn('size-12 rounded', isLive && 'bg-live/20')}
+          fallback={isLive ? <Radio className="h-6 w-6 text-live" /> : undefined}
+        />
 
         {/* Channel info */}
         <div className="min-w-0 flex-1">

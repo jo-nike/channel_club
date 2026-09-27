@@ -280,6 +280,24 @@ describe('TVEPGGrid channel column', () => {
     expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
   })
 
+  it('shows each logo through our logo route, a monogram without one, and the live logo on row 0', () => {
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1', logoUrl: '/api/channels/logos/17' },
+    })
+    useErsatztvStore.setState({ channels: [{ ...movies, logoUrl: '/api/ersatztv/logos/etv1' }, cartoons] })
+    render(<TVEPGGrid programmesByChannel={{}} />)
+
+    const logo = (name: string) => labelFor(name).querySelector('[data-testid="channel-logo"]')!
+    expect(logo('Movies')).toHaveClass('size-8')
+    expect(logo('Movies').querySelector('img')).toHaveAttribute('src', '/api/ersatztv/logos/etv1')
+    expect(logo('Cartoons').querySelector('[data-monogram]')).toHaveAttribute('data-monogram', 'C')
+    expect(logo('Club').querySelector('img')).toHaveAttribute('src', '/api/channels/logos/17')
+
+    // A live logo that fails leaves the live icon, not an empty box
+    fireEvent.error(logo('Club').querySelector('img')!)
+    expect(logo('Club').querySelector('.lucide-radio')).toHaveClass('text-live')
+  })
+
   it("shows the on-air programme's progress and time left", () => {
     render(<TVEPGGrid programmesByChannel={onNow} />)
 

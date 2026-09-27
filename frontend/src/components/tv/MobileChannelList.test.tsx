@@ -86,7 +86,7 @@ describe('MobileChannelList', () => {
     expect(row).toHaveClass('p-2')
     expect(row).not.toHaveClass('p-3')
     const logoBox = row.children[1]
-    expect(logoBox).toHaveClass('h-10', 'w-10')
+    expect(logoBox).toHaveClass('size-10')
   })
 
   it('uses the shared LIVE pill and sets the time left at 12px', () => {
@@ -101,6 +101,42 @@ describe('MobileChannelList', () => {
     expect(pill).toHaveTextContent(/^Live$/)
     expect(pill.closest('button')).toHaveTextContent('Club')
     expect(screen.getByText('30m left')).toHaveClass('text-xs')
+  })
+
+  describe('logos', () => {
+    const logo = (name: string) =>
+      (screen.getByText(name).closest('button') as HTMLElement).querySelector('[data-testid="channel-logo"]')!
+
+    it("shows a channel's logo through our logo route, and a monogram for one without", () => {
+      useErsatztvStore.setState({
+        channels: [
+          { id: 'etv1', name: 'Movies', streamUrl: '/etv1', logoUrl: '/api/ersatztv/logos/etv1', number: 1, group: 'Films' },
+          { id: 'etv2', name: 'Cartoons', streamUrl: '/etv2', logoUrl: '', number: 2, group: 'Kids' },
+        ],
+      })
+      render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={vi.fn()} />)
+
+      expect(logo('Movies').querySelector('img')).toHaveAttribute('src', '/api/ersatztv/logos/etv1')
+      expect(logo('Cartoons').querySelector('img')).toBeNull()
+      expect(logo('Cartoons').querySelector('[data-monogram]')).toHaveAttribute('data-monogram', 'C')
+    })
+
+    it("shows the live channel's logo on the live card, and the live icon when it has none", () => {
+      useChannelStore.setState({
+        currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1', logoUrl: '/api/channels/logos/17' },
+      })
+      const { unmount } = render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={vi.fn()} />)
+      expect(logo('Club').querySelector('img')).toHaveAttribute('src', '/api/channels/logos/17')
+      expect(logo('Club').querySelector('.lucide-radio')).toBeNull()
+      unmount()
+
+      useChannelStore.setState({
+        currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1' },
+      })
+      render(<MobileChannelList onProgrammeClick={vi.fn()} onChannelSelect={vi.fn()} />)
+      expect(logo('Club').querySelector('img')).toBeNull()
+      expect(logo('Club').querySelector('.lucide-radio')).toHaveClass('text-live')
+    })
   })
 
   describe('live card colours', () => {

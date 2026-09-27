@@ -5,9 +5,9 @@ import { buildProgrammeIndex, findCurrentAndNext, findInRange, type CurrentAndNe
 import { calculateProgress, formatRemaining } from '@/lib/programmes'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore, describeLiveGuide, LIVE_CHANNEL_ID } from '@/stores/tvStore'
-import { getErsatzTVLogoUrl } from '@/services/ersatztvApi'
 import { Button } from '@/components/ui/button'
 import { LivePill } from '@/components/LivePill'
+import { ChannelLogo } from '@/components/ChannelLogo'
 import { cn } from '@/lib/utils'
 import type { ErsatzTVProgramme, UnifiedChannel } from '@/types'
 
@@ -120,24 +120,12 @@ export function MobileChannelList({
               >
                 {channel.number}
               </span>
-              <div
-                className={`h-10 w-10 flex-shrink-0 overflow-hidden rounded flex items-center justify-center ${
-                  isLive ? 'bg-live/20' : 'bg-muted'
-                }`}
-              >
-                {isLive ? (
-                  <Radio className="h-5 w-5 text-live" />
-                ) : channel.logoUrl ? (
-                  <img
-                    src={getErsatzTVLogoUrl(channel.id)}
-                    alt=""
-                    className="h-full w-full object-contain"
-                    onError={(e) => {
-                      ;(e.target as HTMLImageElement).style.display = 'none'
-                    }}
-                  />
-                ) : null}
-              </div>
+              {/* The logo, or the live slot's icon while it has none */}
+              <ChannelLogo
+                channel={channel}
+                className={cn('rounded', isLive && 'bg-live/20')}
+                fallback={isLive ? <Radio className="h-5 w-5 text-live" /> : undefined}
+              />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <p className="font-medium">

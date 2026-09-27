@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { useTVStore, LIVE_CHANNEL_ID } from './tvStore'
+import { useTVStore, LIVE_CHANNEL_ID, buildUnifiedChannels } from './tvStore'
 import { useChannelStore } from './channelStore'
 import { useChannelPrefsStore } from './channelPrefsStore'
 import { fetchLiveProgrammes, fetchNowPlaying } from '@/services/api'
@@ -420,5 +420,31 @@ describe('tvStore recent channels', () => {
     useTVStore.getState().selectChannel(useTVStore.getState().getUnifiedChannels()[0])
 
     expect(recents()).toEqual(['e2'])
+  })
+})
+
+describe('buildUnifiedChannels logos', () => {
+  const movies = { id: 'etv1', name: 'Movies', streamUrl: '', number: 1, group: '' }
+
+  it("gives the live slot the live channel's logo", () => {
+    const [liveSlot] = buildUnifiedChannels({ ...tsn, logoUrl: '/api/channels/logos/17' }, [])
+
+    expect(liveSlot).toMatchObject({ id: LIVE_CHANNEL_ID, logoUrl: '/api/channels/logos/17' })
+  })
+
+  it('gives the live slot no logo when the live channel has none, or nothing is on', () => {
+    expect(buildUnifiedChannels({ ...tsn, logoUrl: null }, [])[0].logoUrl).toBeUndefined()
+    expect(buildUnifiedChannels(tsn, [])[0].logoUrl).toBeUndefined()
+    expect(buildUnifiedChannels(null, [])[0].logoUrl).toBeUndefined()
+  })
+
+  it("points an ErsatzTV channel's logo at our logo route, and leaves a channel without one without", () => {
+    const [, withLogo, withoutLogo] = buildUnifiedChannels(null, [
+      { ...movies, logoUrl: 'http://ersatztv.lan/iptv/logos/movies.png' },
+      { ...movies, id: 'etv2', logoUrl: '' },
+    ])
+
+    expect(withLogo.logoUrl).toBe('/api/ersatztv/logos/etv1')
+    expect(withoutLogo.logoUrl).toBeUndefined()
   })
 })

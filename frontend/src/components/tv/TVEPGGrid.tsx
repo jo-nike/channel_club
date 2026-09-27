@@ -3,9 +3,9 @@ import { ChevronLeft, ChevronRight, Radio } from 'lucide-react'
 import { useTVStore, LIVE_CHANNEL_ID, buildUnifiedChannels, describeLiveGuide, toLiveProgramme } from '@/stores/tvStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
-import { getErsatzTVLogoUrl } from '@/services/ersatztvApi'
 import { Button } from '@/components/ui/button'
 import { LivePill } from '@/components/LivePill'
+import { ChannelLogo } from '@/components/ChannelLogo'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useProgrammeClock } from '@/hooks/useProgrammeClock'
 import { useScrollViewport } from '@/hooks/useScrollViewport'
@@ -684,22 +684,12 @@ function ChannelLabel({
         >
           {channel.number}
         </span>
-        {isLive ? (
-          <div className="h-8 w-8 flex-shrink-0 rounded bg-live/20 flex items-center justify-center">
-            <Radio className="h-4 w-4 text-live" />
-          </div>
-        ) : channel.logoUrl ? (
-          <img
-            src={getErsatzTVLogoUrl(channel.id)}
-            alt=""
-            className="h-8 w-8 flex-shrink-0 rounded object-contain"
-            onError={(e) => {
-              ;(e.target as HTMLImageElement).style.display = 'none'
-            }}
-          />
-        ) : (
-          <div className="h-8 w-8 flex-shrink-0 rounded bg-muted" />
-        )}
+        {/* The logo, or the live slot's icon while it has none */}
+        <ChannelLogo
+          channel={channel}
+          className={cn('size-8 rounded', isLive && 'bg-live/20')}
+          fallback={isLive ? <Radio className="h-4 w-4 text-live" /> : undefined}
+        />
         <span className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="flex min-w-0 items-center gap-1.5">
             <span className="truncate font-medium">{channel.name}</span>

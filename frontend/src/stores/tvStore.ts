@@ -84,7 +84,9 @@ function ersatzTVToUnified(channel: ErsatzTVChannel): UnifiedChannel {
     number: channel.number,
     streamUrl: channel.streamUrl,
     type: 'ersatztv',
-    logoUrl: channel.logoUrl,
+    // Our logo route, which proxies wherever ErsatzTV's logo is, so every
+    // UnifiedChannel.logoUrl is an /api/ path ChannelLogo can load
+    logoUrl: channel.logoUrl ? `/api/ersatztv/logos/${channel.id}` : undefined,
     group: channel.group,
   }
 }
@@ -109,6 +111,8 @@ export function buildUnifiedChannels(
     type: 'live',
     guideId: liveChannel?.guideId,
     backendId: liveChannel?.id, // Real backend ID for highlight recording
+    // The live channel's Dispatcharr logo, when it has one
+    logoUrl: liveChannel?.logoUrl ?? undefined,
   })
 
   // ErsatzTV channels (1+)

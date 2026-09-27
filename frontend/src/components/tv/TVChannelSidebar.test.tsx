@@ -124,6 +124,21 @@ describe('TVChannelSidebar colours', () => {
       expect([...backgrounds(row.closest('li')!), ...backgrounds(row)]).toEqual(['bg-primary/10'])
     })
 
+    it("shows the live channel's logo on the live row, and a monogram on a channel without one", async () => {
+      useChannelStore.setState({
+        currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1', logoUrl: '/api/channels/logos/17' },
+      })
+      render(<TVChannelSidebar />)
+      await act(async () => {})
+
+      const logo = (row: HTMLElement) => row.querySelector('[data-testid="channel-logo"]')!
+      expect(logo(liveRow())).toHaveClass('size-12', 'bg-live/20')
+      expect(logo(liveRow()).querySelector('img')).toHaveAttribute('src', '/api/channels/logos/17')
+      const movies = screen.getByRole('button', { name: '1 Movies' })
+      expect(logo(movies)).toHaveClass('size-12')
+      expect(logo(movies).querySelector('[data-monogram]')).toHaveAttribute('data-monogram', 'M')
+    })
+
     it('keeps the live tint under the picker on the empty live slot', async () => {
       useChannelStore.setState({ currentChannel: null })
       render(<TVChannelSidebar onPickLive={vi.fn()} />)
@@ -302,6 +317,9 @@ describe('TVChannelSidebar collapsed rail tiles', () => {
     expect(badge).toHaveClass('absolute', 'bottom-0', 'right-0', 'h-4', 'min-w-4')
     expect(logoTile).toHaveClass('relative')
 
+    // Through our logo route, whatever ErsatzTV's own URL for it is
+    expect(logoTile.querySelector('img')).toHaveAttribute('src', '/api/ersatztv/logos/etv3')
+
     const plainTile = screen.getByRole('button', { name: '4 Channel 4' })
     expect(plainTile.querySelector('img')).toBeNull()
     expect(plainTile).toHaveTextContent(/^4$/)
@@ -422,6 +440,22 @@ describe('TVChannelSidebar collapsed live tile', () => {
     expect(tooltip).toHaveTextContent('0 Club')
     expect(tooltip).toHaveTextContent(copy)
     expect(tooltip).not.toHaveTextContent('Now')
+  })
+
+  it("shows the live channel's logo on the live tile, and the live icon when it has none", async () => {
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1', logoUrl: '/api/channels/logos/17' },
+    })
+    render(<TVChannelSidebar isCollapsed />)
+    await act(async () => {})
+
+    expect(liveTile().querySelector('img')).toHaveAttribute('src', '/api/channels/logos/17')
+    expect(liveTile().querySelector('.lucide-radio')).toBeNull()
+
+    // A logo that fails to load leaves the icon
+    fireEvent.error(liveTile().querySelector('img')!)
+    expect(liveTile().querySelector('img')).toBeNull()
+    expect(liveTile().querySelector('.lucide-radio')).toHaveClass('text-live')
   })
 
   it('tints the live tile and its icon with the live token rather than destructive', async () => {
