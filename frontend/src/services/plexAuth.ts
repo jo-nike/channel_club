@@ -19,6 +19,27 @@ const PLEX_API_HEADERS = {
   'X-Plex-Client-Identifier': PLEX_CLIENT_ID,
 }
 
+export type PlexAuthErrorCode =
+  | 'popup_blocked'
+  | 'cancelled'
+  | 'timeout'
+  | 'rate_limited'
+  | 'pin_failed'
+
+/**
+ * A Plex sign-in failure with a stable code, so callers can branch on what
+ * went wrong instead of matching message text.
+ */
+export class PlexAuthError extends Error {
+  readonly code: PlexAuthErrorCode
+
+  constructor(code: PlexAuthErrorCode, message: string) {
+    super(message)
+    this.name = 'PlexAuthError'
+    this.code = code
+  }
+}
+
 export interface PlexPin {
   id: number
   code: string
@@ -45,9 +66,9 @@ export async function createPlexPin(strong = true): Promise<PlexPin> {
   if (!response.ok) {
     logger.error('Plex', `Failed to create Plex PIN: ${response.status}`)
     if (response.status === 429) {
-      throw new Error('Too many requests. Please wait a minute and try again.')
+      throw new PlexAuthError('rate_limited', 'Too many requests. Please wait a minute and try again.')
     }
-    throw new Error('Failed to create Plex PIN')
+    throw new PlexAuthError('pin_failed', 'Failed to create Plex PIN')
   }
 
   const pin = await response.json()
@@ -84,9 +105,9 @@ export async function checkPlexPin(pinId: number): Promise<string | null> {
   if (!response.ok) {
     logger.error('Plex', `Failed to check Plex PIN: ${response.status}`)
     if (response.status === 429) {
-      throw new Error('Too many requests. Please wait a minute and try again.')
+      throw new PlexAuthError('rate_limited', 'Too many requests. Please wait a minute and try again.')
     }
-    throw new Error('Failed to check Plex PIN')
+    throw new PlexAuthError('pin_failed', 'Failed to check Plex PIN')
   }
 
   const data = await response.json()
@@ -102,7 +123,7 @@ export async function checkPlexPin(pinId: number): Promise<string | null> {
  * Opens Plex auth page in popup, polls for authentication,
  * and returns the auth token when user completes login.
  *
- * @throws Error if popup blocked, user cancels, or timeout
+ * @throws PlexAuthError if the popup is blocked, the user cancels, or it times out
  */
 export async function authenticateWithPlex(): Promise<string> {
   logger.debug('Plex', 'Starting Plex OAuth flow')
@@ -117,7 +138,7 @@ export async function authenticateWithPlex(): Promise<string> {
 
   if (!popup) {
     logger.error('Plex', 'Failed to open Plex authentication popup')
-    throw new Error('Failed to open Plex authentication popup')
+    throw new PlexAuthError('popup_blocked', 'Failed to open Plex authentication popup')
   }
 
   // 3. Poll for auth token
@@ -127,7 +148,7 @@ export async function authenticateWithPlex(): Promise<string> {
       if (popup.closed) {
         clearInterval(pollInterval)
         logger.info('Plex', 'Authentication cancelled by user')
-        reject(new Error('Authentication cancelled'))
+        reject(new PlexAuthError('cancelled', 'Authentication cancelled'))
         return
       }
 
@@ -149,7 +170,7 @@ export async function authenticateWithPlex(): Promise<string> {
       clearInterval(pollInterval)
       popup.close()
       logger.error('Plex', 'Authentication timed out after 5 minutes')
-      reject(new Error('Authentication timed out'))
+      reject(new PlexAuthError('timeout', 'Authentication timed out'))
     }, 5 * 60 * 1000)
   })
 }

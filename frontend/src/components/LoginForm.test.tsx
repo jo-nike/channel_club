@@ -13,7 +13,8 @@ vi.mock('@/services/api', () => ({
   loginWithPlex: vi.fn(),
 }))
 
-vi.mock('@/services/plexAuth', () => ({
+vi.mock('@/services/plexAuth', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/services/plexAuth')>()),
   authenticateWithPlex: vi.fn(),
 }))
 
@@ -268,7 +269,7 @@ describe('LoginForm', () => {
       })
 
       vi.mocked(plexAuth.authenticateWithPlex).mockRejectedValueOnce(
-        new Error('Authentication cancelled')
+        new plexAuth.PlexAuthError('cancelled', 'Any wording')
       )
 
       render(<LoginForm />)

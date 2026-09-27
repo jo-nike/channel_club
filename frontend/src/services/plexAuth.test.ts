@@ -5,6 +5,7 @@ import {
   checkPlexPin,
   PLEX_CLIENT_ID,
   PLEX_PRODUCT,
+  PlexAuthError,
 } from './plexAuth'
 
 describe('plexAuth', () => {
@@ -52,6 +53,22 @@ describe('plexAuth', () => {
       } as Response)
 
       await expect(createPlexPin()).rejects.toThrow('Failed to create Plex PIN')
+    })
+
+    it('throws a pin_failed PlexAuthError when Plex refuses the PIN', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce({ ok: false, status: 500 } as Response)
+
+      const err = await createPlexPin().catch((e: unknown) => e)
+      expect(err).toBeInstanceOf(PlexAuthError)
+      expect(err).toHaveProperty('code', 'pin_failed')
+    })
+
+    it('throws a rate_limited PlexAuthError on 429', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce({ ok: false, status: 429 } as Response)
+
+      const err = await createPlexPin().catch((e: unknown) => e)
+      expect(err).toBeInstanceOf(PlexAuthError)
+      expect(err).toHaveProperty('code', 'rate_limited')
     })
   })
 
@@ -112,6 +129,14 @@ describe('plexAuth', () => {
       } as Response)
 
       await expect(checkPlexPin(123456)).rejects.toThrow('Failed to check Plex PIN')
+    })
+
+    it('throws PlexAuthError codes: pin_failed on failure, rate_limited on 429', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce({ ok: false, status: 404 } as Response)
+      await expect(checkPlexPin(1)).rejects.toMatchObject({ name: 'PlexAuthError', code: 'pin_failed' })
+
+      vi.mocked(fetch).mockResolvedValueOnce({ ok: false, status: 429 } as Response)
+      await expect(checkPlexPin(1)).rejects.toMatchObject({ name: 'PlexAuthError', code: 'rate_limited' })
     })
   })
 })

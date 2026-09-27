@@ -8,7 +8,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { useTVMode } from '@/hooks/useTVMode'
 import { logger } from '@/lib/logger'
 import { login, getAuthConfig, loginWithPlex, type AuthConfig } from '@/services/api'
-import { authenticateWithPlex } from '@/services/plexAuth'
+import { authenticateWithPlex, PlexAuthError } from '@/services/plexAuth'
 
 type PlexAuthMode = 'select' | 'popup' | 'qr'
 
@@ -63,7 +63,8 @@ export function LoginForm() {
       const response = await loginWithPlex(authToken)
       setAuth(response.accessToken, response.role)
     } catch (err) {
-      if (err instanceof Error && err.message !== 'Authentication cancelled') {
+      const cancelled = err instanceof PlexAuthError && err.code === 'cancelled'
+      if (err instanceof Error && !cancelled) {
         setError(err.message)
       }
     } finally {
