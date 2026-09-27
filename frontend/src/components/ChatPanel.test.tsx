@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, render, screen, fireEvent, waitFor } from '@/test/utils'
 import { ChatPanel } from './ChatPanel'
 import { useChatStore } from '@/stores/chatStore'
@@ -299,6 +299,84 @@ describe('ChatPanel', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent("Couldn't confirm it was sent."))
     expect(input).toHaveValue('Uncertain')
+  })
+
+  describe('connection row', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('shows no row and allows sending while connected', () => {
+      render(<ChatPanel onSendMessage={mockOnSendMessage} status="connected" onReconnect={vi.fn()} />)
+      fireEvent.change(screen.getByPlaceholderText('Type a message...'), { target: { value: 'Hi' } })
+      expect(screen.queryByText('Reconnecting…')).not.toBeInTheDocument()
+      expect(screen.queryByText('Chat is offline')).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Send message' })).toBeEnabled()
+      expect(screen.getByRole('button', { name: 'Send GIF' })).toBeEnabled()
+    })
+
+    it("says 'Reconnecting…' only after 2s, and holds sends while keeping the draft editable", () => {
+      vi.useFakeTimers()
+      render(<ChatPanel onSendMessage={mockOnSendMessage} status="reconnecting" onReconnect={vi.fn()} />)
+      const input = screen.getByPlaceholderText('Type a message...')
+      fireEvent.change(input, { target: { value: 'Keep me' } })
+
+      act(() => vi.advanceTimersByTime(1999))
+      expect(screen.queryByText('Reconnecting…')).not.toBeInTheDocument()
+      act(() => vi.advanceTimersByTime(1))
+      expect(screen.getByText('Reconnecting…')).toBeInTheDocument()
+
+      expect(input).toBeEnabled()
+      expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled()
+      expect(screen.getByRole('button', { name: 'Send GIF' })).toBeDisabled()
+      fireEvent.keyDown(input, { key: 'Enter' })
+      expect(mockOnSendMessage).not.toHaveBeenCalled()
+      expect(input).toHaveValue('Keep me')
+    })
+
+    it('waits the full delay again after a reconnect succeeds and the connection drops again', () => {
+      vi.useFakeTimers()
+      const { rerender } = render(<ChatPanel onSendMessage={mockOnSendMessage} status="connecting" />)
+      act(() => vi.advanceTimersByTime(2000))
+      expect(screen.getByText('Reconnecting…')).toBeInTheDocument()
+
+      rerender(<ChatPanel onSendMessage={mockOnSendMessage} status="connected" />)
+      expect(screen.queryByText('Reconnecting…')).not.toBeInTheDocument()
+
+      rerender(<ChatPanel onSendMessage={mockOnSendMessage} status="reconnecting" />)
+      expect(screen.queryByText('Reconnecting…')).not.toBeInTheDocument()
+      act(() => vi.advanceTimersByTime(2000))
+      expect(screen.getByText('Reconnecting…')).toBeInTheDocument()
+    })
+
+    it("says 'Chat is offline' with a Reconnect button that reconnects", () => {
+      const onReconnect = vi.fn()
+      render(<ChatPanel onSendMessage={mockOnSendMessage} status="disconnected" onReconnect={onReconnect} />)
+      const input = screen.getByPlaceholderText('Type a message...')
+      fireEvent.change(input, { target: { value: 'Draft' } })
+
+      expect(screen.getByText('Chat is offline')).toBeInTheDocument()
+      expect(input).toBeEnabled()
+      expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled()
+      expect(screen.getByRole('button', { name: 'Send GIF' })).toBeDisabled()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Reconnect' }))
+      expect(onReconnect).toHaveBeenCalledTimes(1)
+    })
+
+    it('holds Retry while offline', async () => {
+      mockOnSendMessage.mockReturnValue('not-sent')
+      const { rerender } = render(<ChatPanel onSendMessage={mockOnSendMessage} status="connected" />)
+      const input = screen.getByPlaceholderText('Type a message...')
+      fireEvent.change(input, { target: { value: 'Offline soon' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      await screen.findByRole('alert')
+
+      rerender(<ChatPanel onSendMessage={mockOnSendMessage} status="disconnected" />)
+      expect(screen.getByRole('button', { name: 'Retry' })).toBeDisabled()
+      rerender(<ChatPanel onSendMessage={mockOnSendMessage} status="connected" />)
+      expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled()
+    })
   })
 
   describe('send feedback', () => {

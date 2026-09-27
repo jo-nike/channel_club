@@ -11,11 +11,13 @@ import * as api from '@/services/ersatztvApi'
 import { fetchNowPlaying } from '@/services/api'
 const presence = vi.hoisted(() => vi.fn())
 const crash = vi.hoisted(() => ({ player: false, chat: false }))
+const socket = vi.hoisted(() => ({ status: 'connected', reconnect: () => {} }))
+const chatProps = vi.hoisted(() => ({ last: null as null | { status?: string; onReconnect?: () => void } }))
 vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn() }))
 import type { UnifiedChannel } from '@/types'
 
 vi.mock('@/services/ersatztvApi', () => ({ fetchErsatzTVChannels: vi.fn(), fetchErsatzTVCurrentProgramme: vi.fn(), getErsatzTVLogoUrl: vi.fn() }))
-vi.mock('@/hooks/useWebSocket', () => ({ useWebSocket: () => ({ status: 'connected', sendChannelUpdate: presence, sendChatMessage: vi.fn(), sendSetNickname: vi.fn() }) }))
+vi.mock('@/hooks/useWebSocket', () => ({ useWebSocket: () => ({ status: socket.status, reconnect: socket.reconnect, sendChannelUpdate: presence, sendChatMessage: vi.fn(), sendSetNickname: vi.fn() }) }))
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ isAdmin: false, logout: vi.fn() }) }))
 vi.mock('@/hooks/useAppSettings', () => ({ useAppSettings: () => ({ userChannelSelection: false }) }))
 vi.mock('@/components/tv/DualModeVideoPlayer', () => ({ DualModeVideoPlayer: ({ channel }: { channel: UnifiedChannel | null }) => {
@@ -26,7 +28,8 @@ vi.mock('@/components/tv/TVEPGGrid', () => ({ TVEPGGrid: () => null }))
 vi.mock('@/components/ChatPanel', async () => {
   const { useChatStore } = await import('@/stores/chatStore')
   // Like the real panel, renders nothing (and so can't throw) while closed
-  return { ChatPanel: () => {
+  return { ChatPanel: (props: { status?: string; onReconnect?: () => void }) => {
+    chatProps.last = props
     const isOpen = useChatStore((s) => s.isOpen)
     if (crash.chat && isOpen) throw new Error('chat exploded')
     return null
@@ -39,6 +42,8 @@ vi.mock('@/components/AdminModal', () => ({ AdminModal: () => null }))
 vi.mock('@/components/NHLScoresOverlay', () => ({ NHLScoresOverlay: () => null }))
 
 beforeEach(() => {
+  socket.status = 'connected'
+  chatProps.last = null
   crash.player = false
   crash.chat = false
   useChatStore.setState({ isOpen: false })
@@ -160,5 +165,15 @@ describe('A-V1 contained player and chat crashes', () => {
 
     expect(useChatStore.getState().isOpen).toBe(false)
     expect(screen.queryByText('Chat hit an error')).not.toBeInTheDocument()
+  })
+})
+
+describe('E-V1 chat connection state', () => {
+  it('hands the socket status and reconnect to the chat panel', () => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
+    socket.status = 'disconnected'
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    expect(chatProps.last?.status).toBe('disconnected')
+    expect(chatProps.last?.onReconnect).toBe(socket.reconnect)
   })
 })

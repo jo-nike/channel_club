@@ -1428,8 +1428,8 @@ describe('useWebSocket', () => {
     Element.prototype.scrollIntoView = vi.fn() // jsdom has no layout scrolling implementation
     useChatStore.setState({ isOpen: true, nickname: 'Synthetic sender' })
     function ChatHarness() {
-      const { sendChatMessage } = useWebSocket()
-      return createElement(ChatPanel, { onSendMessage: sendChatMessage })
+      const { sendChatMessage, status } = useWebSocket()
+      return createElement(ChatPanel, { onSendMessage: sendChatMessage, status })
     }
     render(createElement(ChatHarness))
     const first = MockWebSocket.instances.at(-1)!
