@@ -738,3 +738,63 @@ describe('DualModeVideoPlayer autoplay: live channel (mpegts)', () => {
     expect(startPlaybackButton()).not.toBeInTheDocument()
   })
 })
+
+describe('DualModeVideoPlayer touch: a tap toggles the controls once', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    matchMediaQueries(['(pointer: coarse)'])
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const toolbar = () => screen.getByRole('toolbar', { name: 'Video controls' })
+  const picture = () => {
+    const element = document.querySelector('video') ?? document.querySelector('[data-media-player]')
+    if (!element) throw new Error('no picture')
+    return element
+  }
+
+  // What a browser fires for one tap, in order. Each is a separate discrete
+  // event, so React renders between them.
+  const tapPicture = () => {
+    const events = [
+      new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch' }),
+      new Event('touchstart', { bubbles: true }),
+      new PointerEvent('pointerup', { bubbles: true, pointerType: 'touch' }),
+      new Event('touchend', { bubbles: true }),
+      new MouseEvent('mousemove', { bubbles: true }),
+      new MouseEvent('mousedown', { bubbles: true }),
+      new MouseEvent('mouseup', { bubbles: true }),
+      new MouseEvent('click', { bubbles: true }),
+    ]
+    for (const event of events) {
+      act(() => {
+        picture().dispatchEvent(event)
+      })
+    }
+  }
+
+  it.each([
+    ['live', liveChannel('https://fixture/a')],
+    ['ErsatzTV', hlsChannel('1', 1)],
+  ])('%s: after auto-hide, one tap brings the controls back and the next hides them', (engine, channel) => {
+    renderPlayer(channel)
+    if (engine === 'live') {
+      act(() => {
+        video().dispatchEvent(new Event('playing'))
+      })
+    }
+    act(() => {
+      vi.advanceTimersByTime(5000)
+    })
+    expect(toolbar()).toHaveClass('opacity-0')
+
+    tapPicture()
+    expect(toolbar()).toHaveClass('opacity-100')
+
+    tapPicture()
+    expect(toolbar()).toHaveClass('opacity-0')
+  })
+})

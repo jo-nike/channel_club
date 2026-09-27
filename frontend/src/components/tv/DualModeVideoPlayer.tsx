@@ -173,30 +173,12 @@ function LiveVideoPlayer({
   const isGrindhouseActive = useFilterStore((s) => s.isFilterActive('grindhouse'))
   const isSportsHDActive = useFilterStore((s) => s.isFilterActive('sports-hd'))
 
-  // Auto-hide controls
-  const { isVisible, toggleControls } = useAutoHide({
+  // Auto-hide controls; a tap on the picture toggles them
+  const { isVisible } = useAutoHide({
     isPlaying,
     containerRef,
     isHoveringControls,
   })
-
-  // Detect touch device
-  const isTouchDevice = useCallback(() => {
-    return window.matchMedia('(pointer: coarse)').matches
-  }, [])
-
-  // Handle video area click for touch devices
-  const handleVideoAreaClick = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      const target = e.target as HTMLElement
-      if (target.closest('.video-controls')) return
-
-      if (isTouchDevice()) {
-        toggleControls()
-      }
-    },
-    [isTouchDevice, toggleControls]
-  )
 
   // Control handlers
   const handlePlayPause = useCallback(() => {
@@ -365,7 +347,6 @@ function LiveVideoPlayer({
   return (
     <div
       ref={containerRef}
-      onClick={handleVideoAreaClick}
       className={`video-player-container relative bg-black ${
         isTheaterMode ? 'h-full w-full' : 'h-full w-full max-w-full'
       } ${!isVisible && isPlaying ? 'cursor-none' : ''}`}
@@ -675,35 +656,12 @@ function HLSControlsWrapper({
 
   const isPlaying = !paused
 
-  const { isVisible, toggleControls } = useAutoHide({
+  // A tap on the picture toggles the controls
+  const { isVisible } = useAutoHide({
     isPlaying,
     containerRef,
     isHoveringControls,
   })
-
-  // Detect touch device
-  const isTouchDevice = useCallback(() => {
-    return window.matchMedia('(pointer: coarse)').matches
-  }, [])
-
-  // Handle video area click for touch devices - toggle controls visibility
-  useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
-
-    const handleClick = (e: MouseEvent) => {
-      const target = e.target as HTMLElement
-      // Don't toggle if clicking on controls
-      if (target.closest('.video-controls')) return
-
-      if (isTouchDevice()) {
-        toggleControls()
-      }
-    }
-
-    container.addEventListener('click', handleClick)
-    return () => container.removeEventListener('click', handleClick)
-  }, [containerRef, isTouchDevice, toggleControls])
 
   useVideoKeyboardShortcuts({
     containerRef,
