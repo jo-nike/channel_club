@@ -11,6 +11,10 @@ interface ShortcutSheetProps {
   canSearch?: boolean
   /** Whether X has Clip that to run here (never on a TV) */
   canClip?: boolean
+  /** Whether C opens the composer over the video here rather than the chat
+   * panel (theater or fullscreen with 'Show chat over the video' on, on a
+   * fine pointer; see useChatOverlayMode) */
+  canReply?: boolean
 }
 
 interface Shortcut {
@@ -50,10 +54,12 @@ const channels = (canSearch: boolean): ShortcutGroup => ({
   ],
 })
 
-const panels = (chatEnabled: boolean): ShortcutGroup => ({
+const panels = (chatEnabled: boolean, canReply: boolean): ShortcutGroup => ({
   title: 'Panels',
   shortcuts: [
-    ...(chatEnabled ? [{ keys: [['C']], action: 'Open or close chat' }] : []),
+    ...(chatEnabled
+      ? [{ keys: [['C']], action: canReply ? 'Write in the chat over the video' : 'Open or close chat' }]
+      : []),
     { keys: [['N']], action: 'NHL scores' },
     { keys: [['?']], action: 'This list' },
     { keys: [['Esc']], action: 'Close' },
@@ -65,10 +71,17 @@ const panels = (chatEnabled: boolean): ShortcutGroup => ({
  * player shell, so it shows in fullscreen, where anything on the page is
  * hidden behind the shell.
  */
-export function ShortcutSheet({ open, onOpenChange, container, canSearch = false, canClip = false }: ShortcutSheetProps) {
+export function ShortcutSheet({
+  open,
+  onOpenChange,
+  container,
+  canSearch = false,
+  canClip = false,
+  canReply = false,
+}: ShortcutSheetProps) {
   const id = useId()
   const chatEnabled = useChatEnabled()
-  const groups = [player(canClip), channels(canSearch), panels(chatEnabled)]
+  const groups = [player(canClip), channels(canSearch), panels(chatEnabled, canReply)]
   // A key opens the sheet, not a trigger Radix could return focus to: go back
   // to whatever had focus (a channel button just clicked), or the page
   const returnFocusRef = useRef<Element | null>(null)

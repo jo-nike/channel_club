@@ -325,7 +325,7 @@ describe('TVHeader', () => {
     })
   })
 
-  it('keeps the live channel picker one tap away for a permitted viewer on a phone', () => {
+  it('keeps the Live TV switcher one tap away for a permitted viewer on a phone', () => {
     appSettings.userChannelSelection = true
     const props = renderHeader({ isMobile: true })
 
@@ -341,7 +341,7 @@ describe('TVHeader', () => {
     expect(accountMenu.props?.onReload).toBe(props.onReload)
   })
 
-  it('gives an admin the admin panel and no separate live picker', () => {
+  it('gives an admin the admin panel and no separate Change live button', () => {
     auth.isAdmin = true
     appSettings.userChannelSelection = true
     const props = renderHeader()
@@ -364,7 +364,7 @@ describe('TVHeader', () => {
     expect(await screen.findByRole('tooltip')).toHaveTextContent('Open admin panel')
   })
 
-  it('gives a viewer the live picker only when the admin allows it', () => {
+  it('gives a viewer Change live only when the admin allows it', () => {
     const props = renderHeader()
     expect(screen.queryByRole('button', { name: 'Change live channel' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Open admin panel' })).not.toBeInTheDocument()
@@ -379,7 +379,7 @@ describe('TVHeader', () => {
     expect(props.onOpenChannelPicker).not.toHaveBeenCalled()
   })
 
-  it('gives any other viewer Suggest, which opens the picker, while chat is on', () => {
+  it('gives any other viewer Suggest, which opens the switcher, while chat is on', () => {
     const props = renderHeader()
 
     const suggest = screen.getByRole('button', { name: 'Suggest a channel' })
@@ -406,7 +406,7 @@ describe('TVHeader', () => {
     expect(screen.queryByRole('button', { name: 'Suggest a channel' })).not.toBeInTheDocument()
   })
 
-  it("keeps chat, and wires the account menu to the header's picker, admin and reload", () => {
+  it("keeps chat, and wires the account menu to the header's switcher, admin and reload", () => {
     const props = renderHeader()
     fireEvent.click(screen.getByRole('button', { name: 'Chat' }))
     expect(useChatStore.getState().isOpen).toBe(true)

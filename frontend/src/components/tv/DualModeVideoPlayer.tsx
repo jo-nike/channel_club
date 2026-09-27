@@ -58,7 +58,7 @@ interface DualModeVideoPlayerProps {
   isTheaterMode: boolean
   isMobile?: boolean
   onTheaterModeToggle: () => void
-  // Opens the live channel picker; only for people allowed to change live TV
+  // Opens the Live TV switcher; only for people allowed to change live TV
   onPickLive?: () => void
   // Bumped by the page's Refresh: re-initialises the engine, keeps the shell
   reloadKey?: number
@@ -339,6 +339,7 @@ export function DualModeVideoPlayer({
         container={shellElement}
         canSearch={focusSearch !== undefined}
         canClip={clipThat !== undefined}
+        canReply={canReply}
       />
     </PlayerShellContext>
   )

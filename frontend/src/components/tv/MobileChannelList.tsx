@@ -27,7 +27,7 @@ interface MobileChannelListProps {
   // A programme tapped in an expanded row's schedule
   onProgrammeClick: (programme: ErsatzTVProgramme, channel: UnifiedChannel) => void
   liveEPGTitle?: string | null
-  // Opens the live channel picker; only for people allowed to change live TV
+  // Opens the Live TV switcher; only for people allowed to change live TV
   onPickLive?: () => void
 }
 

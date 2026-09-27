@@ -51,9 +51,9 @@ interface PlayerInfoOverlayProps {
  * channel under a viewer on channel 0, the rail says so for 5s and names who
  * did it (those viewers get this instead of the toast). It is the one top
  * rail: the ticker and the engine's sound-off pill move down while the rail is
- * up, so they never overlap it. TV theater has its own channel banner
- * (ZapBanner) in that corner, so the rail stays out of it there and the
- * banner tells live changes instead.
+ * up, so they never overlap it. On a TV the couch view shows the player in
+ * theater with its own channel banner (ZapBanner) in that corner, so the rail
+ * stays out of it there and the banner tells live changes instead.
  *
  * While the viewer steps through channels, the rail shows the channel they
  * are heading for at once; the tune itself waits until they stop pressing.
@@ -171,7 +171,8 @@ function InfoRail({ channel, isVisible, liveChange, behindLive, isPauseHint }: I
       : isLive
         ? 'Nothing on yet'
         : 'No guide info'
-  const nhlLabel = isNHLOverlayVisible ? 'Hide NHL Scores' : 'NHL Scores'
+  // A fixed name, as in the header: aria-pressed says whether it is on
+  const nhlLabel = 'NHL scores'
   // Empty unless presence shows channels to this viewer; people who hide
   // theirs have no channel, so they are never on one
   const watchingWith = usePresenceByChannel().get(channel.id) ?? []

@@ -38,7 +38,7 @@ interface TVChannelSidebarProps {
   // sideways): the rail then has no expand button
   canExpand?: boolean
   liveEPGTitle?: string | null
-  // Opens the live channel picker; only for people allowed to change live TV
+  // Opens the Live TV switcher; only for people allowed to change live TV
   onPickLive?: () => void
 }
 

@@ -1774,6 +1774,28 @@ describe('DualModeVideoPlayer chat over the video', () => {
 
       expect(composer()).not.toBeInTheDocument()
     })
+
+    // The sheet reads the same conditions as the key
+    it('the shortcut sheet says C writes over the video', () => {
+      renderTheater()
+
+      fireEvent.keyDown(window, { key: '?' })
+
+      const sheet = screen.getByRole('dialog', { name: 'Keyboard shortcuts' })
+      expect(sheet).toHaveTextContent('Write in the chat over the video')
+      expect(sheet).not.toHaveTextContent('Open or close chat')
+    })
+
+    it("the shortcut sheet says C opens chat with 'Show chat over the video' off", () => {
+      useUIStore.setState({ chatPreviews: false })
+      renderTheater()
+
+      fireEvent.keyDown(window, { key: '?' })
+
+      const sheet = screen.getByRole('dialog', { name: 'Keyboard shortcuts' })
+      expect(sheet).toHaveTextContent('Open or close chat')
+      expect(sheet).not.toHaveTextContent('Write in the chat over the video')
+    })
   })
 
   it('is not drawn in the page layout', () => {

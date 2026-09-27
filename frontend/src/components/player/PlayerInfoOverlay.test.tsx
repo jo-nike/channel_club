@@ -81,7 +81,7 @@ const renderOverlay = (channel: UnifiedChannel | null, shell: Partial<PlayerShel
 
 const rail = () => screen.getByTestId('player-info-rail')
 const queryRail = () => screen.queryByTestId('player-info-rail')
-const nhlToggle = () => screen.getByRole('button', { name: /NHL Scores/ })
+const nhlToggle = () => screen.getByRole('button', { name: 'NHL scores' })
 const ticker = () => screen.queryByRole('region', { name: 'NHL scores' })
 const TICKER_BELOW_RAIL = 'top-[calc(3.75rem+var(--player-inset-top,0px))]'
 const advance = (ms: number) =>
@@ -465,7 +465,8 @@ describe('PlayerInfoOverlay: NHL ticker', () => {
     fireEvent.click(nhlToggle())
     expect(useUIStore.getState().isNHLOverlayVisible).toBe(true)
     expect(ticker()).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Hide NHL Scores' })).toHaveAttribute('aria-pressed', 'true')
+    // Same name on and off; only the pressed state flips
+    expect(nhlToggle()).toHaveAttribute('aria-pressed', 'true')
 
     fireEvent.click(nhlToggle())
     expect(useUIStore.getState().isNHLOverlayVisible).toBe(false)
@@ -477,10 +478,10 @@ describe('PlayerInfoOverlay: NHL ticker', () => {
 
     fireEvent.focus(nhlToggle())
 
-    expect(screen.getByRole('tooltip')).toHaveTextContent('NHL Scores (N)')
+    expect(screen.getByRole('tooltip')).toHaveTextContent('NHL scores (N)')
     expect(nhlToggle()).toHaveAttribute('aria-keyshortcuts', 'N')
     // The key is a hint, not part of the button's name
-    expect(nhlToggle()).toHaveAccessibleName('NHL Scores')
+    expect(nhlToggle()).toHaveAccessibleName('NHL scores')
   })
 
   it('moves the ticker under the rail while the rail is up, and back to the top when it hides', () => {

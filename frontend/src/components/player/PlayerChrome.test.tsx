@@ -818,7 +818,7 @@ describe('PlayerChrome', () => {
       useChatStore.setState({ unreadCount: 3 })
       renderChrome({ shell })
 
-      const button = screen.getByRole('button', { name: 'Open chat (3 new)' })
+      const button = screen.getByRole('button', { name: 'Chat, 3 new' })
       expect(toolbar()).toContainElement(button)
       expect(button).toHaveTextContent('3')
       expect(button).toHaveClass('min-h-[48px]', 'min-w-[48px]', 'focus-ring-media')
@@ -830,20 +830,20 @@ describe('PlayerChrome', () => {
       matchMediaQueries([LANDSCAPE, COARSE])
       renderChrome({ props: { isMobile: true } })
 
-      expect(screen.getByRole('button', { name: 'Open chat' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Chat' })).toBeInTheDocument()
     })
 
     it('shows no badge with nothing unread', () => {
       renderChrome({ shell: { isTheaterMode: true } })
 
-      expect(screen.getByRole('button', { name: 'Open chat' }).textContent).toBe('')
+      expect(screen.getByRole('button', { name: 'Chat' }).textContent).toBe('')
     })
 
     it('caps the badge at 9+', () => {
       useChatStore.setState({ unreadCount: 12 })
       renderChrome({ shell: { isTheaterMode: true } })
 
-      expect(screen.getByRole('button', { name: 'Open chat (12 new)' })).toHaveTextContent('9+')
+      expect(screen.getByRole('button', { name: 'Chat, 12 new' })).toHaveTextContent('9+')
     })
 
     it('follows new messages', () => {
@@ -851,7 +851,7 @@ describe('PlayerChrome', () => {
 
       act(() => useChatStore.setState({ unreadCount: 2 }))
 
-      expect(screen.getByRole('button', { name: 'Open chat (2 new)' })).toHaveTextContent('2')
+      expect(screen.getByRole('button', { name: 'Chat, 2 new' })).toHaveTextContent('2')
     })
 
     it('is left out of the normal layout, where the header has the chat button', () => {
@@ -887,19 +887,20 @@ describe('PlayerChrome', () => {
       useChatStore.setState({ unreadCount: 3 })
       renderChrome({ shell: { isTheaterMode: true } })
 
-      fireEvent.click(screen.getByRole('button', { name: 'Open chat (3 new)' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Chat, 3 new' }))
       expect(useChatStore.getState()).toMatchObject({ isOpen: true, unreadCount: 0 })
-      expect(screen.getByRole('button', { name: 'Open chat' })).toHaveAttribute('aria-expanded', 'true')
+      // Open or closed it is 'Chat', like the header's; aria-expanded says which
+      expect(screen.getByRole('button', { name: 'Chat' })).toHaveAttribute('aria-expanded', 'true')
 
-      fireEvent.click(screen.getByRole('button', { name: 'Open chat' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Chat' }))
       expect(useChatStore.getState().isOpen).toBe(false)
-      expect(screen.getByRole('button', { name: 'Open chat' })).toHaveAttribute('aria-expanded', 'false')
+      expect(screen.getByRole('button', { name: 'Chat' })).toHaveAttribute('aria-expanded', 'false')
     })
 
     it('stays in theater when opening chat there', () => {
       const { shell } = renderChrome({ shell: { isTheaterMode: true } })
 
-      fireEvent.click(screen.getByRole('button', { name: 'Open chat' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Chat' }))
 
       expect(shell.toggleTheaterMode).not.toHaveBeenCalled()
       expect(shell.toggleFullscreen).not.toHaveBeenCalled()
@@ -909,7 +910,7 @@ describe('PlayerChrome', () => {
     it('opens chat in fullscreen without leaving it', () => {
       const { shell } = renderChrome({ shell: { isFullscreen: true } })
 
-      fireEvent.click(screen.getByRole('button', { name: 'Open chat' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Chat' }))
 
       expect(shell.toggleFullscreen).not.toHaveBeenCalled()
       expect(useChatStore.getState().isOpen).toBe(true)
@@ -924,7 +925,7 @@ describe('PlayerChrome', () => {
       mockViewport({ ...size, pointer: 'coarse' })
       const { shell: fake } = renderChrome({ shell: { isFullscreen: true, ...shell } })
 
-      fireEvent.click(screen.getByRole('button', { name: 'Open chat' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Chat' }))
 
       expect(fake.toggleFullscreen).toHaveBeenCalledTimes(1)
       expect(useChatStore.getState().isOpen).toBe(true)
@@ -935,7 +936,7 @@ describe('PlayerChrome', () => {
       useChatStore.setState({ isOpen: true })
       const { shell } = renderChrome({ shell: { isFullscreen: true } })
 
-      fireEvent.click(screen.getByRole('button', { name: 'Open chat' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Chat' }))
 
       expect(shell.toggleFullscreen).not.toHaveBeenCalled()
       expect(useChatStore.getState().isOpen).toBe(false)
@@ -945,7 +946,7 @@ describe('PlayerChrome', () => {
       useChatStore.setState({ isOpen: true })
       const { shell } = renderChrome({ shell: { isFullscreen: true } })
 
-      fireEvent.click(screen.getByRole('button', { name: 'Open chat' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Chat' }))
 
       expect(shell.toggleFullscreen).not.toHaveBeenCalled()
       expect(useChatStore.getState().isOpen).toBe(false)
@@ -954,9 +955,9 @@ describe('PlayerChrome', () => {
     it('the tooltip names the key', async () => {
       renderChrome({ shell: { isTheaterMode: true } })
 
-      fireEvent.focus(screen.getByRole('button', { name: 'Open chat' }))
+      fireEvent.focus(screen.getByRole('button', { name: 'Chat' }))
 
-      expect(await screen.findByRole('tooltip')).toHaveTextContent('Open chat (C)')
+      expect(await screen.findByRole('tooltip')).toHaveTextContent('Chat (C)')
     })
 
     it.each([
@@ -965,7 +966,7 @@ describe('PlayerChrome', () => {
     ])('with the controls showing: %s, its tabIndex is %s', (controlsVisible, tabIndex) => {
       renderChrome({ shell: { isTheaterMode: true, controlsVisible } })
 
-      expect(screen.getByRole('button', { name: 'Open chat' })).toHaveAttribute('tabindex', tabIndex)
+      expect(screen.getByRole('button', { name: 'Chat' })).toHaveAttribute('tabindex', tabIndex)
     })
 
     // It takes another 64px of the bar, so the rocker needs a wider bar

@@ -299,7 +299,7 @@ describe('CouchView: OK and fullscreen', () => {
     expect(requestFullscreen).toHaveBeenCalledTimes(1)
   })
 
-  it('only opens the guide once the page is fullscreen', () => {
+  it('opens the guide without asking for fullscreen again once the page is fullscreen', () => {
     setFullscreenElement(document.documentElement)
     renderCouch()
 
