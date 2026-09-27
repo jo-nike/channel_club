@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import {
   Download,
   LogOut,
@@ -15,6 +15,8 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
@@ -34,6 +36,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { useAppSettings } from '@/hooks/useAppSettings'
 import { useFeedbackFeature } from '@/hooks/useFeedbackFeature'
 import { useInstallPrompt } from '@/hooks/useInstallPrompt'
+import { readTVModeOverride, setTVModeOverride, type TVModeOverride } from '@/hooks/useTVMode'
 import { useUIStore } from '@/stores/uiStore'
 
 interface AccountMenuProps {
@@ -61,6 +64,9 @@ export function AccountMenu({ onOpenChannelPicker, onOpenAdmin, onReload, isMobi
   // Always offered here when installable, whether or not the banner is showing or snoozed
   const { canInstall, variant: installVariant, install } = useInstallPrompt()
   const [iosInstallOpen, setIosInstallOpen] = useState(false)
+  // Only this menu (and a ?tv= link before the app starts) changes the stored choice
+  const [tvLayout, setTvLayout] = useState(readTVModeOverride)
+  const tvLayoutLabelId = useId()
   const notificationsEnabled = useUIStore((s) => s.notificationsEnabled)
   const setNotificationsEnabled = useUIStore((s) => s.setNotificationsEnabled)
   const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
@@ -149,7 +155,21 @@ export function AccountMenu({ onOpenChannelPicker, onOpenAdmin, onReload, isMobi
             <Palette />
             Appearance…
           </DropdownMenuItem>
-          {/* 'TV layout' goes here (W3-couch-switch) */}
+          <DropdownMenuLabel id={tvLayoutLabelId}>TV layout (10-foot)</DropdownMenuLabel>
+          <DropdownMenuRadioGroup
+            aria-labelledby={tvLayoutLabelId}
+            value={tvLayout}
+            onValueChange={(value) => {
+              const mode = value as TVModeOverride
+              setTVModeOverride(mode)
+              setTvLayout(mode)
+            }}
+          >
+            {/* Auto: on for webOS and Tizen TV browsers, off everywhere else */}
+            <DropdownMenuRadioItem value="auto">Auto</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="on">On</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="off">Off</DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
           <DropdownMenuSeparator />
           <DropdownMenuItem variant="destructive" onSelect={logout}>
             <LogOut />

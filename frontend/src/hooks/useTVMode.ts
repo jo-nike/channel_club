@@ -23,6 +23,32 @@ export function detectTVMode(): boolean {
   return isWebOS || isTizen
 }
 
+/** The stored TV layout choice: 'auto' follows the user agent check. */
+export type TVModeOverride = 'auto' | 'on' | 'off'
+
+// Tells mounted useTVMode hooks that the stored choice changed
+const TV_MODE_CHANGE_EVENT = 'tv-mode-change'
+
+/** The TV layout choice stored in this browser ('auto' when there is none). */
+export function readTVModeOverride(): TVModeOverride {
+  const storedPreference = localStorage.getItem('tv-mode')
+  if (storedPreference == null) return 'auto'
+  return storedPreference === 'true' ? 'on' : 'off'
+}
+
+/**
+ * Store the TV layout choice ('auto' clears it) and switch the layout now,
+ * without a reload.
+ */
+export function setTVModeOverride(mode: TVModeOverride): void {
+  if (mode === 'auto') {
+    localStorage.removeItem('tv-mode')
+  } else {
+    localStorage.setItem('tv-mode', mode === 'on' ? 'true' : 'false')
+  }
+  window.dispatchEvent(new Event(TV_MODE_CHANGE_EVENT))
+}
+
 /**
  * Turn a `?tv=1` / `?tv=0` link into the stored TV layout override
  * (localStorage 'tv-mode' = 'true' / 'false'), then drop the parameter from
@@ -48,7 +74,8 @@ export function applyTVModeQueryParam(): void {
  * Enables 10-foot UI mode for better viewing from a distance.
  *
  * Detection order:
- * 1. localStorage override (tv-mode: 'true' | 'false'), also set by ?tv=1 / ?tv=0
+ * 1. localStorage override (tv-mode: 'true' | 'false'), set by ?tv=1 / ?tv=0
+ *    or the account menu's TV layout choice (setTVModeOverride)
  * 2. WebOS user agent detection
  * 3. Tizen user agent detection
  *
@@ -61,12 +88,16 @@ export function useTVMode(): boolean {
   const [isTVMode, setIsTVMode] = useState(() => detectTVMode())
 
   useEffect(() => {
-    const handleResize = () => {
+    const recheck = () => {
       setIsTVMode(detectTVMode())
     }
 
-    window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
+    window.addEventListener('resize', recheck)
+    window.addEventListener(TV_MODE_CHANGE_EVENT, recheck)
+    return () => {
+      window.removeEventListener('resize', recheck)
+      window.removeEventListener(TV_MODE_CHANGE_EVENT, recheck)
+    }
   }, [])
 
   return isTVMode

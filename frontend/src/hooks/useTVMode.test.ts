@@ -1,7 +1,13 @@
 import { renderHook, act } from '@/test/utils'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { useTVMode, detectTVMode, applyTVModeQueryParam } from './useTVMode'
+import {
+  useTVMode,
+  detectTVMode,
+  applyTVModeQueryParam,
+  readTVModeOverride,
+  setTVModeOverride,
+} from './useTVMode'
 
 describe('useTVMode', () => {
   const originalUserAgent = navigator.userAgent
@@ -204,5 +210,53 @@ describe('useTVMode', () => {
       expect(param).toBeGreaterThan(-1)
       expect(param).toBeLessThan(main.indexOf("from '@/router'"))
     })
+  })
+})
+
+describe('TV layout override', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  afterEach(() => {
+    localStorage.clear()
+  })
+
+  it('reads Auto, On and Off from the stored value', () => {
+    expect(readTVModeOverride()).toBe('auto')
+    localStorage.setItem('tv-mode', 'true')
+    expect(readTVModeOverride()).toBe('on')
+    localStorage.setItem('tv-mode', 'false')
+    expect(readTVModeOverride()).toBe('off')
+  })
+
+  it('stores On and Off, and Auto clears the stored value', () => {
+    setTVModeOverride('on')
+    expect(localStorage.getItem('tv-mode')).toBe('true')
+    setTVModeOverride('off')
+    expect(localStorage.getItem('tv-mode')).toBe('false')
+    setTVModeOverride('auto')
+    expect(localStorage.getItem('tv-mode')).toBeNull()
+  })
+
+  it('switches mounted hooks straight away', () => {
+    const { result } = renderHook(() => useTVMode())
+    expect(result.current).toBe(false)
+
+    act(() => setTVModeOverride('on'))
+    expect(result.current).toBe(true)
+
+    act(() => setTVModeOverride('auto'))
+    expect(result.current).toBe(false)
+  })
+
+  it('stops listening on unmount', () => {
+    const removeEventListener = vi.spyOn(window, 'removeEventListener')
+    const { unmount } = renderHook(() => useTVMode())
+
+    unmount()
+
+    expect(removeEventListener).toHaveBeenCalledWith('tv-mode-change', expect.any(Function))
+    removeEventListener.mockRestore()
   })
 })

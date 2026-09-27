@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor, within } from '@/test/utils'
+import { render, renderHook, screen, fireEvent, waitFor, within } from '@/test/utils'
 import { AccountMenu } from './AccountMenu'
+import { useTVMode } from '@/hooks/useTVMode'
 import { activeThemeId, useThemeStore } from '@/stores/themeStore'
 import { useUIStore } from '@/stores/uiStore'
 
@@ -59,11 +60,13 @@ beforeEach(() => {
   installPrompt.install = vi.fn(() => Promise.resolve(true))
   useUIStore.setState({ notificationsEnabled: true, isNHLOverlayVisible: false })
   useThemeStore.setState(useThemeStore.getInitialState())
+  localStorage.removeItem('tv-mode')
 })
 
 afterEach(() => {
   document.documentElement.classList.remove('dark')
   document.documentElement.style.cssText = ''
+  localStorage.removeItem('tv-mode')
 })
 
 describe('AccountMenu trigger', () => {
@@ -256,7 +259,75 @@ describe('AccountMenu appearance', () => {
     renderMenu()
     openMenu()
     expect(screen.queryByRole('menuitem', { name: 'Theme' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('menuitemradio')).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitemradio', { name: 'Club Night' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitemradio', { name: 'Dracula' })).not.toBeInTheDocument()
+  })
+})
+
+describe('AccountMenu TV layout', () => {
+  function tvLayoutGroup() {
+    return screen.getByRole('group', { name: 'TV layout (10-foot)' })
+  }
+
+  function option(name: 'Auto' | 'On' | 'Off') {
+    return within(tvLayoutGroup()).getByRole('menuitemradio', { name })
+  }
+
+  it('offers Auto, On and Off, on Auto when nothing is stored', () => {
+    renderMenu()
+    openMenu()
+
+    expect(within(tvLayoutGroup()).getAllByRole('menuitemradio').map((item) => item.textContent)).toEqual([
+      'Auto',
+      'On',
+      'Off',
+    ])
+    expect(option('Auto')).toHaveAttribute('aria-checked', 'true')
+    expect(option('On')).toHaveAttribute('aria-checked', 'false')
+  })
+
+  it('shows the stored choice', () => {
+    localStorage.setItem('tv-mode', 'false')
+    renderMenu()
+    openMenu()
+
+    expect(option('Off')).toHaveAttribute('aria-checked', 'true')
+    expect(option('Auto')).toHaveAttribute('aria-checked', 'false')
+  })
+
+  it('On and Off store the override, and Auto clears it', () => {
+    renderMenu()
+
+    openMenu()
+    fireEvent.click(option('On'))
+    expect(localStorage.getItem('tv-mode')).toBe('true')
+
+    openMenu()
+    expect(option('On')).toHaveAttribute('aria-checked', 'true')
+    fireEvent.click(option('Off'))
+    expect(localStorage.getItem('tv-mode')).toBe('false')
+
+    openMenu()
+    expect(option('Off')).toHaveAttribute('aria-checked', 'true')
+    fireEvent.click(option('Auto'))
+    expect(localStorage.getItem('tv-mode')).toBeNull()
+
+    openMenu()
+    expect(option('Auto')).toHaveAttribute('aria-checked', 'true')
+  })
+
+  it('switches the layout without a reload', () => {
+    const { result } = renderHook(() => useTVMode())
+    renderMenu()
+    expect(result.current).toBe(false)
+
+    openMenu()
+    fireEvent.click(option('On'))
+    expect(result.current).toBe(true)
+
+    openMenu()
+    fireEvent.click(option('Auto'))
+    expect(result.current).toBe(false)
   })
 })
 
