@@ -8,16 +8,15 @@ from starlette.testclient import WebSocketTestSession
 
 from app.config import settings
 from app.main import app
-from app.routers import websocket as websocket_router
 from app.services import chat
 from app.services.auth import create_access_token
 
 
 @pytest.fixture(autouse=True)
 def reset_recent_chat_sends() -> Iterator[None]:
-    websocket_router._recent_chat_sends.clear()
+    chat._recent_sends.clear()
     yield
-    websocket_router._recent_chat_sends.clear()
+    chat._recent_sends.clear()
 
 
 def test_chat_ack_identifies_the_stored_message(monkeypatch: pytest.MonkeyPatch):
@@ -143,7 +142,7 @@ def test_the_same_client_message_id_from_another_user_is_posted(
 
 def test_recent_sends_are_bounded_oldest_first(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "chat_enabled", True)
-    monkeypatch.setattr(websocket_router, "MAX_RECENT_CHAT_SENDS", 2)
+    monkeypatch.setattr(chat, "MAX_RECENT_SENDS", 2)
     chat.clear_history()
     token = create_access_token({"sub": "synthetic-busy", "role": "viewer"})
     with TestClient(app).websocket_connect(f"/api/ws?token={token}") as socket:
@@ -152,11 +151,47 @@ def test_recent_sends_are_bounded_oldest_first(monkeypatch: pytest.MonkeyPatch):
             _send_chat(socket, client_message_id, client_message_id)
             socket.receive_json()
             socket.receive_json()
-        assert list(websocket_router._recent_chat_sends) == [
+        assert list(chat._recent_sends) == [
             ("synthetic-busy", "bound-2"),
             ("synthetic-busy", "bound-3"),
         ]
         # The evicted id is no longer recognised, so it posts again
         _send_chat(socket, "bound-1", "bound-1")
         assert socket.receive_json()["type"] == "chat_message"
+    chat.clear_history()
+
+
+def test_clearing_history_forgets_recent_sends(monkeypatch: pytest.MonkeyPatch):
+    """A retry of a pre-clear send posts a new message instead of acking a deleted one."""
+    monkeypatch.setattr(settings, "chat_enabled", True)
+    monkeypatch.setattr(settings, "admin_username", "synthetic-admin")
+    chat.clear_history()
+    admin_token = create_access_token({"sub": "synthetic-admin", "role": "admin"})
+    token = create_access_token({"sub": "synthetic-resender", "role": "viewer"})
+    client = TestClient(app)
+    with client.websocket_connect(f"/api/ws?token={token}") as socket:
+        _skip_greeting(socket)
+        _send_chat(socket, "Before the clear", "resend-001")
+        original = socket.receive_json()
+        assert original["type"] == "chat_message"
+        assert socket.receive_json()["messageId"] == original["messageId"]
+
+        response = client.delete(
+            "/api/admin/chat-history", headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        assert response.status_code == 200
+        assert socket.receive_json() == {"type": "chat_history", "messages": []}
+
+        _send_chat(socket, "Before the clear", "resend-001")
+        reposted = socket.receive_json()
+        assert reposted["type"] == "chat_message"
+        assert reposted["messageId"] != original["messageId"]
+        assert socket.receive_json() == {
+            "type": "chat_ack",
+            "clientMessageId": "resend-001",
+            "accepted": True,
+            "messageId": reposted["messageId"],
+        }
+
+    assert [m.message_id for m in chat.get_history()] == [reposted["messageId"]]
     chat.clear_history()

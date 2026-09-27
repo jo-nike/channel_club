@@ -5,7 +5,7 @@ Messages are broadcast to all connected clients via WebSocket.
 The history resets on server restart (acceptable for this use case).
 """
 
-from collections import deque
+from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
@@ -46,6 +46,13 @@ class ChatMessage:
 
 # Circular buffer - max 100 messages
 _chat_history: deque[ChatMessage] = deque(maxlen=MAX_HISTORY_SIZE)
+
+# Recently accepted chat sends as (username, clientMessageId) -> stored message
+# id, so a client retrying a send it couldn't confirm gets the original
+# acknowledgement instead of posting a duplicate. Kept next to the history so
+# clearing one clears the other.
+_recent_sends: OrderedDict[tuple[str, str], str] = OrderedDict()
+MAX_RECENT_SENDS = 256
 
 
 def _prune_expired() -> None:
@@ -153,9 +160,42 @@ def get_history(limit: int = 50) -> list[ChatMessage]:
     return history_list[-limit:]
 
 
+def find_recent_send(username: str, client_message_id: str) -> str | None:
+    """Look up the message stored for a client's earlier send, if it is remembered.
+
+    Args:
+        username: The authenticated sender.
+        client_message_id: The client's id for the send.
+
+    Returns:
+        The stored message id, or None if this send hasn't been accepted.
+    """
+    return _recent_sends.get((username, client_message_id))
+
+
+def remember_send(username: str, client_message_id: str, message_id: str) -> None:
+    """Remember an accepted send so a retry is acknowledged instead of reposted.
+
+    Only the most recent MAX_RECENT_SENDS sends are kept, oldest dropped first.
+
+    Args:
+        username: The authenticated sender.
+        client_message_id: The client's id for the send.
+        message_id: The id of the stored message.
+    """
+    _recent_sends[(username, client_message_id)] = message_id
+    if len(_recent_sends) > MAX_RECENT_SENDS:
+        _recent_sends.popitem(last=False)
+
+
 def clear_history() -> None:
-    """Clear all chat history. Useful for testing."""
+    """Clear all chat history and the remembered sends that pointed into it.
+
+    A retry of a send from before the clear then posts a new message, rather
+    than being acknowledged with a message id that no longer exists.
+    """
     _chat_history.clear()
+    _recent_sends.clear()
     log.debug("Chat history cleared")
 
 
