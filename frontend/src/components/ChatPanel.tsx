@@ -208,7 +208,8 @@ export function ChatPanel({ onSendMessage, onShare, onSetNickname, status = 'con
   const selectedChannelId = useTVStore((s) => s.selectedChannel?.id)
   const selectChannel = useTVStore((s) => s.selectChannel)
   const messageChannel = (msg: ChatMessageData, isOwn: boolean): MessageChannel | undefined => {
-    if (!msg.channelName) return undefined
+    // A suggestion's channel is the one suggested, not where its sender is
+    if (!msg.channelName || msg.kind === 'suggestion') return undefined
     if (msg.kind !== 'share' && (!seesChannels || (msg.userId && hiding.has(msg.userId)))) return undefined
     const row = findMessageChannel(msg, channelRows)
     const canJoin = !isOwn && row !== null && row.id !== selectedChannelId

@@ -11,6 +11,8 @@ const auth = vi.hoisted(() => ({
   logout: (() => {}) as () => void,
 }))
 const appSettings = vi.hoisted(() => ({ userChannelSelection: false }))
+// Chat is a build-time flag, off unless a test turns it on
+const chatFlag = vi.hoisted(() => ({ enabled: false }))
 const feedback = vi.hoisted(() => ({ isEnabled: false, isLoading: false }))
 const installPrompt = vi.hoisted(() => ({
   canInstall: false,
@@ -22,6 +24,7 @@ const installPrompt = vi.hoisted(() => ({
 
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => auth }))
 vi.mock('@/hooks/useAppSettings', () => ({ useAppSettings: () => appSettings }))
+vi.mock('@/hooks/useChatEnabled', () => ({ useChatEnabled: () => chatFlag.enabled }))
 vi.mock('@/hooks/useFeedbackFeature', () => ({ useFeedbackFeature: () => feedback }))
 vi.mock('@/hooks/useInstallPrompt', () => ({ useInstallPrompt: () => installPrompt }))
 vi.mock('@/components/FeedbackDialog', () => ({
@@ -54,6 +57,7 @@ beforeEach(() => {
   auth.isAdmin = false
   auth.logout = vi.fn()
   appSettings.userChannelSelection = false
+  chatFlag.enabled = false
   feedback.isEnabled = false
   installPrompt.canInstall = false
   installPrompt.variant = 'native'
@@ -118,6 +122,27 @@ describe('AccountMenu live channel and admin items', () => {
     openMenu()
     expect(screen.queryByRole('menuitem', { name: /Change live channel/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('menuitem', { name: 'Admin panel' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /Suggest a channel/ })).not.toBeInTheDocument()
+  })
+
+  it('gives a plain viewer Suggest a channel while chat is on, opening the picker', () => {
+    chatFlag.enabled = true
+    const props = renderMenu()
+    openMenu()
+
+    expect(screen.queryByRole('menuitem', { name: /Change live channel/ })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('menuitem', { name: /Suggest a channel/ }))
+    expect(props.onOpenChannelPicker).toHaveBeenCalledTimes(1)
+  })
+
+  it('has no Suggest for anyone who can change live TV', () => {
+    chatFlag.enabled = true
+    appSettings.userChannelSelection = true
+    renderMenu()
+    openMenu()
+
+    expect(screen.getByRole('menuitem', { name: /Change live channel/ })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /Suggest a channel/ })).not.toBeInTheDocument()
   })
 
   it('reloads the stream', () => {

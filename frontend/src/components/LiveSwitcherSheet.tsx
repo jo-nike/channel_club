@@ -1,4 +1,5 @@
 import { useMemo, type ReactNode } from 'react'
+import { toast } from 'sonner'
 import {
   Dialog,
   DialogContent,
@@ -12,8 +13,10 @@ import { OnAirCard } from '@/components/admin/OnAirCard'
 import { useChannelCatalogue } from '@/hooks/useChannelCatalogue'
 import { useNHLScores } from '@/hooks/useNHLScores'
 import { useSetLiveChannel } from '@/hooks/useSetLiveChannel'
+import type { ChatSendResult } from '@/hooks/useWebSocket'
 import { useAuthStore } from '@/stores/authStore'
 import { useChannelStore } from '@/stores/channelStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { useNhlMappingStore } from '@/stores/nhlMappingStore'
 import { useRecentLiveChannelIds } from '@/stores/recentLiveStore'
 import { gamesOnNow, type GameOnNow } from '@/lib/nhlWatch'
@@ -23,6 +26,12 @@ import type { NHLGame } from '@/types/nhl'
 interface LiveSwitcherSheetProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /**
+   * Post a suggestion for the channel in chat (useWebSocket's sendSuggest).
+   * Given, a viewer who can't change live TV gets the sheet as 'Suggest a
+   * channel'; only offered while chat is on.
+   */
+  onSuggest?: (channel: Channel) => Promise<ChatSendResult>
 }
 
 /**
@@ -30,26 +39,60 @@ interface LiveSwitcherSheetProps {
  * allowed it: what's on air, the NHL games on now that are on your channels,
  * the channels you recently put on, then the full lineup. Picking anything
  * puts it on live TV for everyone and closes the sheet, and once the switch
- * goes through tunes you to channel 0 to watch it. A bottom sheet on phones,
- * a dialog from tablet width up.
+ * goes through tunes you to channel 0 to watch it. For a viewer who can't
+ * change live TV it is 'Suggest a channel' instead (with onSuggest): the same
+ * lists, and picking posts a suggestion in chat that anyone allowed can put
+ * on. A bottom sheet on phones, a dialog from tablet width up.
  */
-export function LiveSwitcherSheet({ open, onOpenChange }: LiveSwitcherSheetProps) {
+export function LiveSwitcherSheet({ open, onOpenChange, onSuggest }: LiveSwitcherSheetProps) {
+  const isAdmin = useAuthStore((s) => s.role === 'admin')
+  const userChannelSelection = useSettingsStore((s) => s.userChannelSelection)
+  const suggest = isAdmin || userChannelSelection ? undefined : onSuggest
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[90dvh] w-[95vw] max-w-2xl flex-col gap-0 overflow-hidden p-0 max-sm:top-auto max-sm:bottom-0 max-sm:w-full max-sm:max-w-full max-sm:translate-y-0 max-sm:rounded-b-none max-sm:pb-safe sm:w-[85vw]">
         <DialogHeader className="px-4 pt-4 pr-12 text-left">
-          <DialogTitle>Live TV</DialogTitle>
-          <DialogDescription>Pick a channel to put on for everyone watching.</DialogDescription>
+          <DialogTitle>{suggest ? 'Suggest a channel' : 'Live TV'}</DialogTitle>
+          <DialogDescription>
+            {suggest
+              ? 'Pick a channel to suggest in chat. Anyone allowed to change live TV can put it on.'
+              : 'Pick a channel to put on for everyone watching.'}
+          </DialogDescription>
         </DialogHeader>
         {/* Only mounted while open, so the scores and channels load (and the
             scores poll) only while someone is choosing */}
-        <SwitcherBody onPicked={() => onOpenChange(false)} />
+        <SwitcherBody onPicked={() => onOpenChange(false)} suggest={suggest} />
       </DialogContent>
     </Dialog>
   )
 }
 
-function SwitcherBody({ onPicked }: { onPicked: () => void }) {
+/**
+ * Tell the suggester how their suggestion went. The sheet has closed by
+ * then, so this is all they hear of it.
+ */
+async function reportSuggestion(channel: Channel, sending: Promise<ChatSendResult>) {
+  const result = await sending
+  if (result === 'acknowledged') {
+    toast.success(`Suggested ${channel.name} in chat`)
+  } else if (result === 'not-sent') {
+    toast.error(`Could not suggest ${channel.name}`, { description: 'Please try again' })
+  } else {
+    toast.warning(`Your suggestion of ${channel.name} may not have been posted`, {
+      description: 'Check the chat before suggesting it again',
+    })
+  }
+}
+
+function SwitcherBody({
+  onPicked,
+  suggest,
+}: {
+  onPicked: () => void
+  // Given, picks are suggestions rather than switches
+  suggest?: (channel: Channel) => Promise<ChatSendResult>
+}) {
   const currentChannelId = useChannelStore((s) => s.currentChannel?.id ?? null)
   const username = useAuthStore((s) => s.username)
   const recentIds = useRecentLiveChannelIds(username)
@@ -69,11 +112,18 @@ function SwitcherBody({ onPicked }: { onPicked: () => void }) {
     return channel && channel.id !== currentChannelId ? [channel] : []
   })
 
+  // A suggestion is reported by a toast once the server has it
+  const suggestChannel = suggest
+    ? (channel: Channel) => void reportSuggestion(channel, suggest(channel))
+    : undefined
   // The switch is optimistic and synchronous, so the sheet can close at once
   const pick = (channel: Channel) => {
-    void setLiveChannel(channel)
+    if (suggestChannel) suggestChannel(channel)
+    else void setLiveChannel(channel)
     onPicked()
   }
+  const pickTitle = (channel: Channel) =>
+    suggest ? `Suggest ${channel.name} in chat` : `Put ${channel.name} on live TV`
 
   return (
     <>
@@ -88,6 +138,7 @@ function SwitcherBody({ onPicked }: { onPicked: () => void }) {
                   entry={entry}
                   currentChannelId={currentChannelId}
                   onPick={pick}
+                  pickTitle={pickTitle}
                 />
               ))}
             </ul>
@@ -103,7 +154,7 @@ function SwitcherBody({ onPicked }: { onPicked: () => void }) {
                   variant="outline"
                   size="sm"
                   className="max-w-full"
-                  title={`Put ${channel.name} on live TV`}
+                  title={pickTitle(channel)}
                   onClick={() => pick(channel)}
                 >
                   <span className="truncate">{channel.name}</span>
@@ -114,7 +165,7 @@ function SwitcherBody({ onPicked }: { onPicked: () => void }) {
         )}
 
         <SwitcherSection title="All channels" flush>
-          <ChannelList onChannelSelected={onPicked} tuneActor />
+          <ChannelList onChannelSelected={onPicked} tuneActor onPick={suggestChannel} />
         </SwitcherSection>
       </div>
     </>
@@ -157,10 +208,12 @@ function GameOnNowRow({
   entry,
   currentChannelId,
   onPick,
+  pickTitle,
 }: {
   entry: GameOnNow
   currentChannelId: string | null
   onPick: (channel: Channel) => void
+  pickTitle: (channel: Channel) => string
 }) {
   const { game, channels } = entry
   const away = game.awayTeam.abbreviation
@@ -190,7 +243,7 @@ function GameOnNowRow({
               size="sm"
               className="max-w-full"
               disabled={onAir}
-              title={onAir ? `${channel.name} is on live TV` : `Put ${channel.name} on live TV`}
+              title={onAir ? `${channel.name} is on live TV` : pickTitle(channel)}
               onClick={() => onPick(channel)}
             >
               <span className="truncate">{channel.name}</span>

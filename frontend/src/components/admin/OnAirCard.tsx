@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import { Square } from 'lucide-react'
 import { useChannelStore } from '@/stores/channelStore'
 import { useAuthStore } from '@/stores/authStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { useRecentLiveChannelIds } from '@/stores/recentLiveStore'
 import { useActiveUsers } from '@/hooks/useActiveUsers'
 import { presenceNames, usePresenceByChannel } from '@/hooks/usePresenceByChannel'
@@ -45,6 +46,8 @@ export function OnAirCard({ onHeightChange, showRecents = true }: OnAirCardProps
   const currentChannel = useChannelStore((s) => s.currentChannel)
   const setCurrentChannel = useChannelStore((s) => s.setCurrentChannel)
   const isAdmin = useAuthStore((s) => s.role === 'admin')
+  // Everyone else sees the card in the switcher's Suggest a channel
+  const canSwitch = useSettingsStore((s) => isAdmin || s.userChannelSelection)
 
   const cardRef = useRef<HTMLElement>(null)
   useEffect(() => {
@@ -116,7 +119,9 @@ export function OnAirCard({ onHeightChange, showRecents = true }: OnAirCardProps
           <div>
             <p className="text-lg font-semibold leading-tight">Nothing on live TV</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Pick a channel from the list below to put it on for everyone.
+              {canSwitch
+                ? 'Pick a channel from the list below to put it on for everyone.'
+                : 'Pick a channel from the list below to suggest it in chat.'}
             </p>
           </div>
         )}

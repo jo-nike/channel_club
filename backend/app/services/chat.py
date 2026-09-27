@@ -34,8 +34,9 @@ MAX_MESSAGE_AGE = timedelta(hours=24)
 SYSTEM_USERNAME = "Live TV"
 
 # 'user' is a member's message, 'system' a line the server posts about a shared
-# event (someone changing Live), 'share' a now-playing card
-MessageKind = Literal["user", "system", "share"]
+# event (someone changing Live), 'share' a now-playing card, 'suggestion' a
+# member asking for a channel on live TV
+MessageKind = Literal["user", "system", "share", "suggestion"]
 
 
 @dataclass(frozen=True)
@@ -73,11 +74,13 @@ class ChatMessage:
             show_channel: Include the sender's channel. False empties the
                 channel fields, e.g. replaying history after the admin has
                 turned presence off or for a sender who now hides it. A
-                share card always keeps its channel.
+                share card and a suggestion always keep their channel.
         """
-        # A share card is the sender's own post about their channel, so it
-        # keeps it (its content names the channel anyway)
-        channel = self.channel if show_channel or self.kind == "share" else None
+        # A share card is the sender's own post about their channel, and a
+        # suggestion's channel is the one suggested, not where the sender is,
+        # so both keep it (their content names the channel anyway)
+        keeps_channel = self.kind in ("share", "suggestion")
+        channel = self.channel if show_channel or keeps_channel else None
         return {
             "messageId": self.message_id,
             "username": self.username,
@@ -245,6 +248,43 @@ def add_share(username: str, channel: ChannelStamp, user_id: str = "") -> ChatMe
     _prune_expired()
     _chat_history.append(message)
     log.debug("Share added: {} from {}", message.message_id[:8], username)
+
+    return message
+
+
+def add_suggestion(
+    username: str, channel_id: str, channel_name: str, user_id: str = ""
+) -> ChatMessage:
+    """Add a suggestion to put a channel on live TV to the history.
+
+    The channel is one the server resolved from its own catalogue, never a
+    name from the client, so whoever accepts it switches to what the card
+    says. Its view is left empty: it's the channel suggested, not where the
+    sender is watching. The content says the same in words, so clients that
+    predate `kind` show it as an ordinary message.
+
+    Args:
+        username: The display name of the sender.
+        channel_id: The suggested channel's catalogue id.
+        channel_name: The suggested channel's name.
+        user_id: The sender's stable chat id (see user_id_for).
+
+    Returns:
+        The stored ChatMessage of kind 'suggestion'.
+    """
+    content = f"Suggests putting {channel_name} on live TV"
+    message = ChatMessage(
+        message_id=str(uuid4()),
+        username=username,
+        content=content[:MAX_MESSAGE_LENGTH],
+        user_id=user_id,
+        kind="suggestion",
+        channel=ChannelStamp(channel_name=channel_name, channel_id=channel_id),
+    )
+
+    _prune_expired()
+    _chat_history.append(message)
+    log.debug("Suggestion added: {} from {}", message.message_id[:8], username)
 
     return message
 

@@ -1,11 +1,32 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { fireEvent, render, screen } from '@/test/utils'
+import { toast } from 'sonner'
+import { fireEvent, render, screen, waitFor } from '@/test/utils'
 import { ChatMessage } from './ChatMessage'
-import type { ChatMessage as ChatMessageType } from '@/types'
+import * as api from '@/services/api'
+import { useAuthStore } from '@/stores/authStore'
+import { useChannelStore } from '@/stores/channelStore'
+import { useSettingsStore } from '@/stores/settingsStore'
+import type { Channel, ChatMessage as ChatMessageType } from '@/types'
 import type { ThemeId } from '@/types/theme'
 import { MEMBER_HUES, memberColor, memberHue } from '@/lib/memberColor'
 import { contrast, mix } from '@/lib/color'
 import { themes } from '@/lib/themes'
+
+vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
+
+vi.mock('@/services/api', () => ({
+  fetchGroupedChannels: vi.fn(),
+}))
+
+// The switch itself (optimistic store update, request, toast on refusal) is useSetLiveChannel's
+const mockSetLiveChannel = vi.fn<(channel: Channel) => Promise<boolean>>(async () => true)
+const useSetLiveChannelOptions = vi.fn()
+vi.mock('@/hooks/useSetLiveChannel', () => ({
+  useSetLiveChannel: (options?: { tuneActor?: boolean }) => {
+    useSetLiveChannelOptions(options)
+    return mockSetLiveChannel
+  },
+}))
 
 const createMessage = (
   overrides: Partial<ChatMessageType> = {}
@@ -425,5 +446,121 @@ describe('ChatMessage', () => {
       expect(container.querySelector('[data-slot="share-card"]')).toBeNull()
       expect(screen.getByText('Watching TSN 5 · CFL Football')).toBeInTheDocument()
     })
+  })
+})
+
+describe('ChatMessage suggestion card', () => {
+  const tsn5: Channel = { id: '42', name: 'TSN 5', streamUrl: 'http://streams/42.ts', guideId: 'tsn5' }
+  const cbc: Channel = { id: '7', name: 'CBC', streamUrl: 'http://streams/7.ts', guideId: 'cbc' }
+  const suggestion = (overrides: Partial<ChatMessageType> = {}) =>
+    createMessage({
+      username: 'maya',
+      kind: 'suggestion',
+      content: 'Suggests putting TSN 5 on live TV',
+      channelId: '42',
+      channelName: 'TSN 5',
+      programme: null,
+      view: null,
+      ...overrides,
+    })
+  const putItOn = () => screen.queryByRole('button', { name: 'Put TSN 5 on live TV' })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAuthStore.setState({ role: 'admin', username: 'jon' })
+    useSettingsStore.setState({ userChannelSelection: false })
+    useChannelStore.setState({ currentChannel: cbc })
+    vi.mocked(api.fetchGroupedChannels).mockResolvedValue({
+      groups: [{ id: 1, name: 'Sports', channelCount: 1, channels: [tsn5] }],
+      ungrouped: [cbc],
+    })
+  })
+
+  it('shows the channel suggested as a card instead of a bubble, with no chip', () => {
+    const { container } = render(
+      <ChatMessage message={suggestion()} now={Date.now()} channel={{ name: 'Cartoons', live: false, number: 2 }} />
+    )
+
+    const card = container.querySelector('[data-slot="suggestion-card"]') as HTMLElement
+    expect(card).toHaveTextContent('Suggests for live TV')
+    expect(card).toHaveTextContent('TSN 5')
+    expect(screen.queryByText('Suggests putting TSN 5 on live TV')).not.toBeInTheDocument()
+    expect(container.querySelector('[data-slot="message-channel"]')).toBeNull()
+    expect(screen.getByText('maya')).toBeInTheDocument()
+  })
+
+  it('puts the catalogue channel on live TV when an admin accepts it, without tuning them', async () => {
+    render(<ChatMessage message={suggestion()} now={Date.now()} />)
+
+    fireEvent.click(putItOn()!)
+
+    await waitFor(() => expect(mockSetLiveChannel).toHaveBeenCalledWith(tsn5))
+    expect(mockSetLiveChannel).toHaveBeenCalledTimes(1)
+    expect(useSetLiveChannelOptions).not.toHaveBeenCalledWith({ tuneActor: true })
+    await waitFor(() => expect(putItOn()).toBeEnabled())
+  })
+
+  it('offers Put it on to a viewer the admin allows to change live TV', () => {
+    useAuthStore.setState({ role: 'viewer', username: 'sam' })
+    useSettingsStore.setState({ userChannelSelection: true })
+    render(<ChatMessage message={suggestion()} now={Date.now()} />)
+
+    expect(putItOn()).toBeInTheDocument()
+  })
+
+  it('offers nothing to act on to a viewer who cannot change live TV', () => {
+    useAuthStore.setState({ role: 'viewer', username: 'sam' })
+    const { container } = render(<ChatMessage message={suggestion()} now={Date.now()} />)
+
+    expect(container.querySelector('[data-slot="suggestion-card"]')).toHaveTextContent('TSN 5')
+    expect(putItOn()).not.toBeInTheDocument()
+  })
+
+  it("says 'You suggested' on your own card", () => {
+    useAuthStore.setState({ role: 'viewer', username: 'sam' })
+    render(<ChatMessage message={suggestion()} now={Date.now()} isOwn />)
+
+    expect(screen.getByText('You suggested for live TV')).toBeInTheDocument()
+  })
+
+  it('says the channel is on live TV once it is, instead of offering it', () => {
+    useChannelStore.setState({ currentChannel: tsn5 })
+    render(<ChatMessage message={suggestion()} now={Date.now()} />)
+
+    expect(screen.getByText('On live TV now')).toBeInTheDocument()
+    expect(putItOn()).not.toBeInTheDocument()
+  })
+
+  it('says so when the channel has left the catalogue, and switches nothing', async () => {
+    vi.mocked(api.fetchGroupedChannels).mockResolvedValueOnce({ groups: [], ungrouped: [cbc] })
+    render(<ChatMessage message={suggestion()} now={Date.now()} />)
+
+    fireEvent.click(putItOn()!)
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith('Could not put TSN 5 on', { description: "It's no longer in the channel list" })
+    )
+    expect(mockSetLiveChannel).not.toHaveBeenCalled()
+  })
+
+  it('says so when the catalogue cannot load', async () => {
+    vi.mocked(api.fetchGroupedChannels).mockRejectedValueOnce(new Error('Channel service unavailable'))
+    render(<ChatMessage message={suggestion()} now={Date.now()} />)
+
+    fireEvent.click(putItOn()!)
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith('Could not put TSN 5 on', { description: 'Please try again' })
+    )
+    expect(mockSetLiveChannel).not.toHaveBeenCalled()
+  })
+
+  it('falls back to its text without a channel', () => {
+    const { container } = render(
+      <ChatMessage message={suggestion({ channelId: null, channelName: null })} now={Date.now()} />
+    )
+
+    expect(container.querySelector('[data-slot="suggestion-card"]')).toBeNull()
+    expect(screen.getByText('Suggests putting TSN 5 on live TV')).toBeInTheDocument()
   })
 })

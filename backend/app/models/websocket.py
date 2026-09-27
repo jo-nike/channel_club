@@ -54,6 +54,14 @@ class ShareMessage(ClientMessage):
     clientMessageId: ClientMessageId | None = None
 
 
+class SuggestMessage(ClientMessage):
+    """Suggest a channel for live TV. Only its id: the server resolves the rest."""
+
+    type: Literal["suggest"]
+    channelId: PresenceText
+    clientMessageId: ClientMessageId | None = None
+
+
 client_message_adapter = TypeAdapter(
     Annotated[
         PingMessage
@@ -61,7 +69,8 @@ client_message_adapter = TypeAdapter(
         | NicknameMessage
         | PresencePrefsMessage
         | ChatMessage
-        | ShareMessage,
+        | ShareMessage
+        | SuggestMessage,
         Field(discriminator="type"),
     ]
 )

@@ -1784,6 +1784,16 @@ describe('ChatPanel', () => {
       expect(useTVStore.getState().selectedChannel?.type).toBe('live')
     })
 
+    it("shows a suggestion as its card, never as a chip of where its sender is", () => {
+      useChatStore.setState({
+        messages: [said('g1', { kind: 'suggestion', content: 'Suggests putting TSN 5 on live TV', channelId: '42', channelName: 'TSN 5', programme: null, view: null })],
+      })
+      const { container } = render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+
+      expect(container.querySelector('[data-slot="suggestion-card"]')).toHaveTextContent('TSN 5')
+      expect(chips(container)).toHaveLength(0)
+    })
+
     describe('Share what I\'m watching', () => {
       const shareButton = () => screen.queryByRole('button', { name: "Share what I'm watching" })
 
