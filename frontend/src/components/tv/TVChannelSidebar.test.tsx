@@ -253,6 +253,111 @@ describe('TVChannelSidebar collapsed rail tiles', () => {
   })
 })
 
+describe('TVChannelSidebar collapsed live tile', () => {
+  const liveTile = () => screen.getByRole('button', { name: 'Live Channel' })
+  // Plain background utilities only (hover:bg-* is a separate state)
+  const backgrounds = (element: HTMLElement) =>
+    Array.from(element.classList).filter((name) => name.startsWith('bg-'))
+
+  async function openLiveTooltip() {
+    await act(async () => {
+      liveTile().focus()
+    })
+    return screen.findByRole('tooltip')
+  }
+
+  beforeEach(() => {
+    // The rail scrolls the selected tile into view; jsdom has no scrollIntoView
+    Element.prototype.scrollIntoView = vi.fn()
+    useErsatztvStore.setState({
+      channels: [{ id: 'etv1', name: 'Movies', streamUrl: '', logoUrl: '', number: 1, group: 'Films' }],
+    })
+  })
+
+  afterEach(() => {
+    cleanup()
+    delete (Element.prototype as Partial<Element>).scrollIntoView
+    useChannelStore.setState({ currentChannel: null })
+    useErsatztvStore.setState({ channels: [] })
+    useTVStore.setState({ selectedChannel: null, liveEPG: null, liveEPGStatus: 'idle' })
+  })
+
+  it("tells people who can pick a channel that nothing's on yet", async () => {
+    useChannelStore.setState({ currentChannel: null })
+    render(<TVChannelSidebar isCollapsed onPickLive={vi.fn()} />)
+    await act(async () => {})
+
+    const tooltip = await openLiveTooltip()
+    expect(tooltip).toHaveTextContent('Nothing on yet')
+    expect(tooltip).not.toHaveTextContent('Awaiting broadcast')
+  })
+
+  it("tells everyone else they're waiting for someone to put something on", async () => {
+    useChannelStore.setState({ currentChannel: null })
+    render(<TVChannelSidebar isCollapsed />)
+    await act(async () => {})
+
+    const tooltip = await openLiveTooltip()
+    expect(tooltip).toHaveTextContent('Waiting for someone to put something on')
+    expect(tooltip).not.toHaveTextContent('Awaiting broadcast')
+  })
+
+  it.each([
+    ['unavailable', 'Guide unavailable'],
+    ['empty', 'No guide info'],
+  ] as const)("says why there's no title when live TV is on and the guide is %s", async (liveEPGStatus, copy) => {
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1' },
+    })
+    useTVStore.setState({ liveEPG: null, liveEPGStatus })
+    render(<TVChannelSidebar isCollapsed />)
+    await act(async () => {})
+
+    const tooltip = await openLiveTooltip()
+    expect(tooltip).toHaveTextContent('0 Club')
+    expect(tooltip).toHaveTextContent(copy)
+    expect(tooltip).not.toHaveTextContent('Now')
+  })
+
+  it('tints the live tile and its icon with the live token rather than destructive', async () => {
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1' },
+    })
+    render(<TVChannelSidebar isCollapsed />)
+    await act(async () => {})
+
+    expect(liveTile()).toHaveClass('bg-live/20', 'text-live')
+    expect(liveTile().className).not.toMatch(/destructive/)
+    const icon = liveTile().querySelector('svg')
+    expect(icon).toHaveClass('lucide-radio', 'text-live')
+    expect(icon).not.toHaveClass('text-destructive')
+  })
+
+  it('gives a selected live tile one background, the live tint, with the selection ring', async () => {
+    useChannelStore.setState({
+      currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1' },
+    })
+    useTVStore.setState({ selectedChannel: useTVStore.getState().getUnifiedChannels()[0] })
+    render(<TVChannelSidebar isCollapsed />)
+    await act(async () => {})
+
+    expect(backgrounds(liveTile())).toEqual(['bg-live/20'])
+    expect(liveTile()).toHaveClass('ring-2', 'ring-primary')
+  })
+
+  it('gives a selected channel tile one background, the selection tint', async () => {
+    useTVStore.setState({ selectedChannel: useTVStore.getState().getUnifiedChannels()[1] })
+    render(<TVChannelSidebar isCollapsed />)
+    await act(async () => {})
+
+    const tile = screen.getByRole('button', { name: '1 Movies' })
+    expect(backgrounds(tile)).toEqual(['bg-primary/10'])
+    expect(tile).toHaveClass('ring-2', 'ring-primary')
+    // Unselected tiles stay muted
+    expect(backgrounds(liveTile())).toEqual(['bg-muted'])
+  })
+})
+
 describe('TVChannelSidebar collapsed rail scrolling', () => {
   // jsdom has no layout scrolling, so there's no scrollIntoView to spy on
   const scrollIntoView = vi.fn()

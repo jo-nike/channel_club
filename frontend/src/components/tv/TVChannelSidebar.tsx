@@ -7,6 +7,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Button } from '@/components/ui/button'
 import { useProgrammeClock } from '@/hooks/useProgrammeClock'
 import { findOnAir, getProgrammeState } from '@/lib/programmes'
+import { cn } from '@/lib/utils'
 import type { UnifiedChannel, ErsatzTVProgramme } from '@/types'
 
 interface TVChannelSidebarProps {
@@ -102,6 +103,7 @@ export function TVChannelSidebar({
               channel={channel}
               isSelected={selectedChannel?.id === channel.id}
               hasLiveChannel={hasLiveChannel}
+              canPickLive={!!onPickLive}
               onSelect={handleChannelClick}
             />
           ))}
@@ -161,6 +163,8 @@ interface CollapsedChannelButtonProps {
   channel: UnifiedChannel
   isSelected: boolean
   hasLiveChannel: boolean
+  // Whether this viewer may put something on live TV (changes the empty-slot copy)
+  canPickLive: boolean
   onSelect: (channel: UnifiedChannel) => void
 }
 
@@ -169,9 +173,11 @@ function CollapsedChannelButton({
   channel,
   isSelected,
   hasLiveChannel,
+  canPickLive,
   onSelect,
 }: CollapsedChannelButtonProps) {
   const isLive = channel.type === 'live'
+  const isLiveOn = isLive && hasLiveChannel
 
   return (
     <Tooltip>
@@ -179,19 +185,20 @@ function CollapsedChannelButton({
         <button
           ref={ref}
           onClick={() => onSelect(channel)}
-          className={`
-            relative flex h-10 shrink-0 scroll-my-1 items-center justify-center rounded-lg text-xs font-medium overflow-hidden
-            hover:bg-foreground/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring
-            ${isLive ? 'w-auto min-w-10 px-1' : 'w-10'}
-            ${isSelected ? 'ring-2 ring-primary bg-primary/10' : ''}
-            ${isLive && hasLiveChannel ? 'bg-destructive/20 text-destructive' : 'bg-muted'}
-          `}
+          className={cn(
+            'relative flex h-10 shrink-0 scroll-my-1 items-center justify-center rounded-lg text-xs font-medium overflow-hidden',
+            'hover:bg-foreground/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            isLive ? 'w-auto min-w-10 px-1' : 'w-10',
+            isSelected && 'ring-2 ring-primary',
+            // One background: the live tint wins (the ring marks selection), then selection, then muted
+            isLiveOn ? 'bg-live/20 text-live' : isSelected ? 'bg-primary/10' : 'bg-muted'
+          )}
           aria-label={isLive ? 'Live Channel' : `${channel.number} ${channel.name}`}
           aria-pressed={isSelected}
         >
           {isLive ? (
             hasLiveChannel ? (
-              <Radio className="h-4 w-4 text-destructive" />
+              <Radio className="h-4 w-4 text-live" />
             ) : (
               '0'
             )
@@ -219,7 +226,7 @@ function CollapsedChannelButton({
         </button>
       </TooltipTrigger>
       <TooltipContent side="right">
-        <ChannelTooltipBody channel={channel} hasLiveChannel={hasLiveChannel} />
+        <ChannelTooltipBody channel={channel} hasLiveChannel={hasLiveChannel} canPickLive={canPickLive} />
       </TooltipContent>
     </Tooltip>
   )
@@ -230,13 +237,16 @@ function CollapsedChannelButton({
 function ChannelTooltipBody({
   channel,
   hasLiveChannel,
+  canPickLive,
 }: {
   channel: UnifiedChannel
   hasLiveChannel: boolean
+  canPickLive: boolean
 }) {
   const now = useProgrammeClock()
   const programmes = useErsatztvStore((s) => s.programmesByChannel[channel.id])
   const liveEPG = useTVStore((s) => s.liveEPG)
+  const liveEPGStatus = useTVStore((s) => s.liveEPGStatus)
 
   const isLive = channel.type === 'live'
   let nowTitle: string | undefined
@@ -255,9 +265,16 @@ function ChannelTooltipBody({
         <span className="tabular-nums">{channel.number}</span> {channel.name}
       </p>
       {isLive && !hasLiveChannel ? (
-        <p className="text-muted-foreground">Awaiting broadcast...</p>
+        // Same copy as the expanded live row
+        <p className="text-muted-foreground">
+          {canPickLive ? 'Nothing on yet' : 'Waiting for someone to put something on'}
+        </p>
       ) : (
         <>
+          {/* Live TV is on but the guide has no title: say why, like the expanded row */}
+          {isLive && !nowTitle && (
+            <p className="text-muted-foreground">{describeLiveGuide(liveEPGStatus)}</p>
+          )}
           {nowTitle && (
             <p className="truncate">
               <span className="text-muted-foreground">Now</span> {nowTitle}
