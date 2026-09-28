@@ -158,6 +158,8 @@ class Settings(BaseSettings):
     media_export_limit: int = 2
     media_export_per_user: int = 1
     media_export_max_bytes: int = 256 * 1024 * 1024
+    # Every other request body; /api/highlight/upload enforces media_export_max_bytes.
+    request_body_max_bytes: int = 64 * 1024
 
     # Chromecast Feature (requires FFmpeg in container)
     # Enables casting streams to Chromecast devices via HLS transcoding

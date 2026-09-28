@@ -9,6 +9,7 @@ from loguru import logger
 from app.config import KNOWN_PUBLIC_JWT_SECRETS, settings
 from app.logging_config import configure_logging
 from app.metadata import APP_NAME, APP_VERSION
+from app.middleware.body_limit import BodySizeLimitMiddleware
 from app.routers.admin import router as admin_router
 from app.routers.auth import router as auth_router
 from app.routers.cast import router as cast_router
@@ -181,6 +182,13 @@ if settings.cors_origins:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+# Added last so it wraps everything: oversize bodies get 413 before routing.
+app.add_middleware(
+    BodySizeLimitMiddleware,
+    max_bytes=settings.request_body_max_bytes,
+    exempt_paths=frozenset({"/api/highlight/upload"}),
+)
 
 # Register API routers FIRST (they take precedence over static files)
 app.include_router(auth_router, prefix="/api/auth")
