@@ -183,3 +183,26 @@ def test_new_deployment_records_version_and_build_id(tmp_path, monkeypatch):
     health.assert_called_once_with("http://controlled/health", "1.0.0", "unique-build")
     record = json.loads((host / "deployment.json").read_text())
     assert (record["version"], record["build_id"]) == ("1.0.0", "unique-build")
+
+
+def test_health_check_retries_dropped_connections_and_non_object_bodies(monkeypatch):
+    from http.client import RemoteDisconnected
+    from io import BytesIO
+
+    replies = [
+        RemoteDisconnected("Remote end closed connection without response"),
+        RemoteDisconnected("Remote end closed connection without response"),
+        b"[]",
+        b'{"status":"ok","version":"1.0.0","buildId":"build"}',
+    ]
+
+    def urlopen(*args, **kwargs):
+        reply = replies.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        return BytesIO(reply)
+
+    monkeypatch.setattr(release, "urlopen", urlopen)
+    monkeypatch.setattr(release.time, "sleep", lambda *args: None)
+    release.verify_health("http://controlled/health", "1.0.0", "build")
+    assert replies == []

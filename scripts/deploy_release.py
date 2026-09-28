@@ -3,13 +3,13 @@
 
 import argparse
 import fcntl
+import http.client
 import json
 import os
 import re
 import subprocess
 import time
 from pathlib import Path
-from urllib.error import URLError
 from urllib.request import urlopen
 
 
@@ -25,12 +25,15 @@ def verify_health(url: str, version: str, build_id: str | None = None) -> None:
             with urlopen(url, timeout=5) as response:
                 data = json.load(response)
             if (
-                data.get("status") == "ok"
+                isinstance(data, dict)
+                and data.get("status") == "ok"
                 and data.get("version") == version
                 and (build_id is None or data.get("buildId") == build_id)
             ):
                 return
-        except (URLError, ValueError, TimeoutError):
+        # Resets and malformed replies while the container restarts are retried;
+        # URLError and TimeoutError are OSError subclasses.
+        except (OSError, http.client.HTTPException, ValueError):
             pass
         time.sleep(5)
     raise RuntimeError("Deployed release did not report the expected healthy version")
