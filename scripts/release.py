@@ -21,9 +21,7 @@ def metadata(ref: str, source: str, version: str) -> dict[str, str]:
     elif ref == f"refs/tags/v{version}":
         release_tag = version
     else:
-        raise ValueError(
-            "Only master or a vX.Y.Z tag matching the application version can publish"
-        )
+        raise ValueError("Only master or a vX.Y.Z tag matching the application version can publish")
     return {
         "version": version,
         "build_id": f"{version}-build-{source[:7]}-{secrets.token_hex(8)}",
@@ -38,13 +36,9 @@ def run(*args: str) -> subprocess.CompletedProcess:
 
 def image_reference(image: str, tag: str) -> str:
     refs = json.loads(
-        run(
-            "image", "inspect", f"{image}:{tag}", "--format", "{{json .RepoDigests}}"
-        ).stdout
+        run("image", "inspect", f"{image}:{tag}", "--format", "{{json .RepoDigests}}").stdout
     )
-    matching = [
-        r for r in refs if re.fullmatch(re.escape(image) + r"@sha256:[0-9a-f]{64}", r)
-    ]
+    matching = [r for r in refs if re.fullmatch(re.escape(image) + r"@sha256:[0-9a-f]{64}", r)]
     if len(matching) != 1:
         raise ValueError("Expected exactly one registry digest for the pushed image")
     return matching[0]
@@ -86,9 +80,7 @@ def existing_release(image: str, version: str, source: str) -> str | None:
     return image_reference(image, version)
 
 
-def publish(
-    image: str, version: str, source: str, build_id: str, release_tag: str
-) -> str:
+def publish(image: str, version: str, source: str, build_id: str, release_tag: str) -> str:
     if release_tag:
         if release_tag != version:
             raise ValueError("Release tag must match application version")
@@ -141,19 +133,13 @@ def main() -> None:
     elif args.command == "existing":
         if args.release_tag and args.release_tag != version:
             raise ValueError("Release tag must match application version")
-        reference = (
-            existing_release(args.image, version, args.source)
-            if args.release_tag
-            else None
-        )
+        reference = existing_release(args.image, version, args.source) if args.release_tag else None
         result = {
             "exists": "true" if reference else "false",
             "image_reference": reference or "",
         }
     else:
-        reference = publish(
-            args.image, version, args.source, args.build_id, args.release_tag
-        )
+        reference = publish(args.image, version, args.source, args.build_id, args.release_tag)
         result = {"image_reference": reference}
     write_output(args.output, result)
 
