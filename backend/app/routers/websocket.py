@@ -13,7 +13,12 @@ from starlette.websockets import WebSocketState
 
 from app.config import settings
 from app.models.channel import Channel
-from app.models.websocket import MAX_MESSAGE_BYTES, AuthMessage, client_message_adapter
+from app.models.websocket import (
+    MAX_MESSAGE_BYTES,
+    AuthMessage,
+    ReauthMessage,
+    client_message_adapter,
+)
 from app.services import app_settings, channel_state, chat, presence, presence_broadcast
 from app.services.auth import verify_token
 from app.services.media_source import resolve_media_channel
@@ -179,6 +184,32 @@ async def _receive_auth_token(websocket: WebSocket) -> str | None:
         return None
 
 
+async def _reauth(message: object, payload: dict) -> dict | None:
+    """Check an in-band reauth message against the connection's account.
+
+    Args:
+        message: The parsed reauth message.
+        payload: The connection's current verified payload.
+
+    Returns:
+        The new token's payload if it is valid, unexpired and for the same
+        account (same sub and plex_id), None otherwise.
+    """
+    try:
+        token = ReauthMessage.model_validate(message).token
+    except ValidationError:
+        return None
+    renewed = await verify_websocket_token(token)
+    if (
+        not renewed
+        or time.time() >= renewed["exp"]
+        or renewed["sub"] != payload["sub"]
+        or renewed["plex_id"] != payload["plex_id"]
+    ):
+        return None
+    return renewed
+
+
 def _is_disconnect_race(websocket: WebSocket, error: Exception) -> bool:
     """Whether an error is Starlette refusing a send or receive on a closed socket.
 
@@ -251,7 +282,7 @@ async def websocket_endpoint(
     presence_broadcast.schedule_broadcast()
 
     try:
-        async with asyncio.timeout(max(0, payload["exp"] - time.time())):
+        async with asyncio.timeout(max(0, payload["exp"] - time.time())) as deadline:
             # Send connection acknowledgment with current channel and settings
             current = channel_state.get_current_channel()
             ack_message = {
@@ -296,6 +327,19 @@ async def websocket_endpoint(
                     return
                 try:
                     message = json.loads(data)
+                    if isinstance(message, dict) and message.get("type") == "reauth":
+                        # A refreshed token for the same account moves the deadline
+                        renewed = await _reauth(message, payload)
+                        if renewed is None:
+                            log.warning("WebSocket reauth failed for client {}", client_id)
+                            channel_state.disconnect(websocket)
+                            await websocket.close(code=4001, reason="Invalid token")
+                            return
+                        payload = renewed
+                        deadline.reschedule(
+                            asyncio.get_running_loop().time() + payload["exp"] - time.time()
+                        )
+                        continue
                     await handle_client_message(websocket, message, client_id, username, user_id)
                 except json.JSONDecodeError:
                     log.debug("Malformed JSON from client {}", client_id)

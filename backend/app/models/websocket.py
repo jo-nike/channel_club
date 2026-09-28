@@ -69,6 +69,13 @@ class AuthMessage(ClientMessage):
     token: InputText
 
 
+class ReauthMessage(ClientMessage):
+    """A refreshed token for the same account, moving the socket's expiry."""
+
+    type: Literal["reauth"]
+    token: InputText
+
+
 client_message_adapter = TypeAdapter(
     Annotated[
         PingMessage

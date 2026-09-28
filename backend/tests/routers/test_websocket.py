@@ -1955,6 +1955,63 @@ def test_sec06_socket_expires_and_cleans_all_state(client, monkeypatch, active):
     )
 
 
+def test_reauth_moves_the_deadline_past_the_first_expiry(client, monkeypatch):
+    """A refreshed token sent in-band keeps the socket open past the old token's expiry."""
+    import time
+
+    monkeypatch.setattr(settings, "chat_enabled", False)
+    first = create_access_token({"sub": "renewing", "role": "viewer"})
+    # auth_time differs, so the two tokens differ even within the same second
+    second = create_access_token({"sub": "renewing", "role": "viewer", "auth_time": 1})
+    original_verify = websocket_router.verify_websocket_token
+
+    async def first_expires_soon(token):
+        payload = await original_verify(token)
+        if payload is not None and token == first:
+            payload["exp"] = time.time() + 0.3
+        return payload
+
+    monkeypatch.setattr(websocket_router, "verify_websocket_token", first_expires_soon)
+    original_handle = websocket_router.handle_client_message
+    handled: list[str] = []
+
+    async def recording_handle(websocket, message, *args):
+        handled.append(message["type"])
+        await original_handle(websocket, message, *args)
+
+    monkeypatch.setattr(websocket_router, "handle_client_message", recording_handle)
+    with ws_connect(client, first, session_id="renewing") as ws:
+        assert ws.receive_json()["type"] == "connection_ack"
+        ws.send_json({"type": "reauth", "token": second})
+        time.sleep(0.5)
+        ws.send_json({"type": "ping"})
+        assert ws.receive_json() == {"type": "pong"}
+        assert "renewing" in presence._active_users
+    assert handled == ["ping"]
+
+
+@pytest.mark.parametrize(
+    "claims",
+    [
+        {"sub": "someone-else", "role": "viewer"},
+        {"sub": "testuser", "role": "viewer", "plex_id": "12345"},
+        None,
+    ],
+    ids=["other-sub", "other-plex-id", "invalid"],
+)
+def test_reauth_for_another_account_or_invalid_token_closes_4001(client, valid_token, claims):
+    """Reauth only renews the same account; anything else ends the socket."""
+    token = create_access_token(claims) if claims else "invalid_token"
+    with ws_connect(client, valid_token, session_id="reauth") as ws:
+        assert ws.receive_json()["type"] == "connection_ack"
+        ws.send_json({"type": "reauth", "token": token})
+        with pytest.raises(WebSocketDisconnect) as error:
+            ws.receive_json()
+        assert error.value.code == 4001
+    assert "reauth" not in presence._active_users
+    assert channel_state.get_connection_count() == 0
+
+
 async def test_sec06_verified_payload_retains_signed_expiry(valid_token):
     from app.services.auth import verify_token
 
