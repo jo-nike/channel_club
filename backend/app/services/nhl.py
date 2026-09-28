@@ -10,6 +10,7 @@ import httpx
 from loguru import logger
 
 from app.models.nhl import NHLBroadcast, NHLGame, NHLScoresResponse, NHLSituation, NHLTeam
+from app.services.tls import SSL_CONTEXT
 
 # Module-level logger with service context
 log = logger.bind(service="nhl")
@@ -264,7 +265,7 @@ async def _fetch_scores(effective_date: str) -> NHLScoresResponse:
     log.debug("Fetching NHL scores from {}", endpoint)
 
     try:
-        async with httpx.AsyncClient(timeout=NHL_TIMEOUT_SECONDS) as client:
+        async with httpx.AsyncClient(timeout=NHL_TIMEOUT_SECONDS, verify=SSL_CONTEXT) as client:
             response = await client.get(
                 endpoint,
                 headers={

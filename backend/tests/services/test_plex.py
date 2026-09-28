@@ -329,7 +329,7 @@ class TestServerOwnerLookup:
         )
 
         assert await plex.get_server_owner_id() == "42"
-        assert clients == [{"timeout": 3.0}]
+        assert [kwargs["timeout"] for kwargs in clients] == [3.0]
 
     @pytest.mark.parametrize("body", [{}, {"id": None}, {"id": ""}])
     async def test_missing_id_is_never_cached(

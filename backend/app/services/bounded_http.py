@@ -5,6 +5,8 @@ from time import monotonic
 
 import httpx
 
+from app.services.tls import SSL_CONTEXT
+
 MANIFEST_BYTES = 2 * 1024 * 1024
 LOGO_BYTES = 4 * 1024 * 1024
 FEED_BYTES = 32 * 1024 * 1024
@@ -48,7 +50,9 @@ async def read_bounded(response: httpx.Response, limit: int) -> bytes:
 def fetch_feed(url: str, timeout: float = BODY_SECONDS) -> httpx.Response:
     """Synchronous off-loop feed fetch, with decoded bytes and wall-time limits."""
     deadline = monotonic() + timeout
-    with httpx.stream("GET", url, timeout=min(timeout, 2), follow_redirects=False) as response:
+    with httpx.stream(
+        "GET", url, timeout=min(timeout, 2), follow_redirects=False, verify=SSL_CONTEXT
+    ) as response:
         response.raise_for_status()
         check_length(response, FEED_BYTES)
         data = bytearray()

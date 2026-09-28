@@ -17,6 +17,7 @@ from loguru import logger
 from app.config import settings
 from app.services.bounded_http import MANIFEST_BYTES, decoded_response, read_bounded
 from app.services.ersatztv.epg_service import get_channel_by_id
+from app.services.tls import SSL_CONTEXT
 
 # Module-level logger with service context
 log = logger.bind(service="ersatztv")
@@ -353,7 +354,7 @@ async def get_stream_manifest(channel_id: str) -> str:
         raise ValueError(f"Stream URL is not from ErsatzTV: {stream_url}")
 
     # Fetch manifest with retry for cold stream startup
-    async with httpx.AsyncClient(follow_redirects=False, timeout=15) as client:
+    async with httpx.AsyncClient(follow_redirects=False, timeout=15, verify=SSL_CONTEXT) as client:
         last_error: Exception | None = None
         response: httpx.Response | None = None
 
@@ -403,7 +404,7 @@ async def get_segment(encoded_url: str) -> tuple[bytes, str]:
     if not is_ersatztv_url(segment_url):
         raise ValueError(f"Segment URL is not from ErsatzTV: {segment_url}")
 
-    async with httpx.AsyncClient(follow_redirects=False, timeout=15) as client:
+    async with httpx.AsyncClient(follow_redirects=False, timeout=15, verify=SSL_CONTEXT) as client:
         response = await fetch_ersatztv(client, segment_url, stream=True)
         response.raise_for_status()
         content = await read_bounded(response, 64 * 1024 * 1024)

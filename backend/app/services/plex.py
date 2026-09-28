@@ -7,6 +7,7 @@ from loguru import logger
 
 from app.config import settings
 from app.models.plex import PlexUser
+from app.services.tls import SSL_CONTEXT
 
 # Module-level logger with service context
 log = logger.bind(service="plex")
@@ -51,7 +52,7 @@ async def validate_plex_token(auth_token: str) -> PlexUser:
     # Log only first 8 characters of token for debugging (never full token!)
     log.debug("Validating Plex token: {}...", auth_token[:8] if auth_token else "empty")
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(verify=SSL_CONTEXT) as client:
         response = await client.get(
             "https://plex.tv/api/v2/user",
             headers={**PLEX_API_HEADERS, "X-Plex-Token": auth_token},
@@ -91,7 +92,9 @@ async def _fetch_server_owner_id(server_token: str) -> str | None:
     """Ask plex.tv for the owner id and cache it; None (uncached) on any failure."""
     log.debug("Fetching server owner ID from Plex API")
     try:
-        async with httpx.AsyncClient(timeout=OWNER_LOOKUP_TIMEOUT_SECONDS) as client:
+        async with httpx.AsyncClient(
+            timeout=OWNER_LOOKUP_TIMEOUT_SECONDS, verify=SSL_CONTEXT
+        ) as client:
             response = await client.get(
                 "https://plex.tv/api/v2/user",
                 headers={**PLEX_API_HEADERS, "X-Plex-Token": server_token},
@@ -222,7 +225,7 @@ async def check_server_access(auth_token: str) -> bool:
         return True  # No server configured, allow all Plex users
 
     log.debug("Checking user access to Plex server")
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(verify=SSL_CONTEXT) as client:
         response = await client.get(
             "https://plex.tv/api/v2/resources",
             headers={**PLEX_API_HEADERS, "X-Plex-Token": auth_token},
