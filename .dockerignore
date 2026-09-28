@@ -6,8 +6,6 @@
 .gitignore
 .claude
 .ideas
-_bmad
-_bmad-output
 
 # Secrets must never enter the build context
 .env
