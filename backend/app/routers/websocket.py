@@ -33,7 +33,7 @@ from app.models.websocket import (
 )
 from app.services import app_settings, channel_state, chat, presence, presence_broadcast
 from app.services.auth import verify_token
-from app.services.media_source import find_catalogue_channel
+from app.services.media_source import find_catalogue_channel, peek_catalogue_channel
 
 router = APIRouter()
 log = logger.bind(router="websocket")
@@ -568,13 +568,29 @@ def _apply_channel_update(client_id: str, validated: dict) -> None:
     channel = validated.get("channel")
     programme = validated.get("programme")
     view = validated.get("view")
+    channel_id = validated.get("channelId")
+    # Log the catalogue's name for the id, not the client's. Cached catalogues
+    # only: this runs on every programme rollover, so it must never fetch.
+    channel_known: bool | None = None  # None: a catalogue that could hold it hasn't loaded
+    claimed_channel: str | None = None
+    if channel is not None and channel_id is not None:
+        match = peek_catalogue_channel(channel_id)
+        if match.channel is not None:
+            channel_known = True
+            if match.channel.name != channel:
+                claimed_channel = channel
+            channel = match.channel.name
+        elif match.complete:
+            channel_known = False
     presence.update_user_channel(
         client_id,
         channel,
         programme,
         view,
-        channel_id=validated.get("channelId"),
+        channel_id=channel_id,
         on_live=validated.get("onLive"),
+        channel_known=channel_known,
+        claimed_channel=claimed_channel,
     )
     # Every update, including a programme rollover on the same channel
     presence_broadcast.schedule_broadcast()

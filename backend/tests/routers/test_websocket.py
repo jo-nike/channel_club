@@ -1011,6 +1011,134 @@ class TestPresenceTracking:
         assert len(presence._active_users) == 0
 
 
+@pytest.fixture
+def presence_events() -> Iterator[StringIO]:
+    """Serialized presence events, read with _event_extras."""
+    output = StringIO()
+    handler_id = logger.add(
+        output,
+        format="{message}",
+        serialize=True,
+        level="INFO",
+        filter=lambda r: "event" in r["extra"],
+    )
+    yield output
+    logger.remove(handler_id)
+
+
+def _event_extras(output: StringIO, event: str) -> list[dict]:
+    extras = [json.loads(line)["record"]["extra"] for line in output.getvalue().splitlines()]
+    return [e for e in extras if e["event"] == event]
+
+
+class TestCanonicalChannelNames:
+    """Watch events name a channel as the cached catalogue does, never fetching it."""
+
+    @pytest.fixture
+    def warm_catalogues(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        grouped = GroupedChannelsResponse(
+            ungrouped=[Channel(id="42", name="TSN 5", streamUrl="http://streams/42", guideId="t5")]
+        )
+        cartoons = EPGChannel(id="etv-2", name="Cartoons", streamUrl="http://etv/2.m3u8")
+        monkeypatch.setattr(media_source, "peek_grouped_channels", lambda: grouped)
+        monkeypatch.setattr(media_source, "peek_ersatztv_channels", lambda: [cartoons])
+
+    @staticmethod
+    def _watch(client: TestClient, token: str, *updates: dict) -> None:
+        with ws_connect(client, token) as ws:
+            ws.receive_json()  # Consume connection_ack
+            for update in updates:
+                ws.send_json({"type": "channel_update", "view": "live", **update})
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json()["type"] == "pong"
+
+    def test_known_id_logs_the_catalogue_name_and_the_claimed_one(
+        self,
+        client: TestClient,
+        valid_token: str,
+        presence_events: StringIO,
+        warm_catalogues: None,
+    ):
+        self._watch(client, valid_token, {"channel": "tsn5 HD", "channelId": "42"})
+
+        (start,) = _event_extras(presence_events, "watch.start")
+        assert start["channel"] == "TSN 5" and start["channel_id"] == "42"
+        assert start["channel_known"] is True and start["claimed_channel"] == "tsn5 HD"
+
+    def test_the_catalogue_name_is_what_presence_shows(
+        self, client: TestClient, valid_token: str, warm_catalogues: None
+    ):
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # Consume connection_ack
+            ws.send_json({"type": "channel_update", "channel": "cartoons!", "channelId": "etv-2"})
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json()["type"] == "pong"
+
+            assert only_presence().current_channel == "Cartoons"
+
+    def test_matching_name_logs_no_claimed_channel(
+        self,
+        client: TestClient,
+        valid_token: str,
+        presence_events: StringIO,
+        warm_catalogues: None,
+    ):
+        self._watch(client, valid_token, {"channel": "TSN 5", "channelId": "42"})
+
+        (start,) = _event_extras(presence_events, "watch.start")
+        assert start["channel_known"] is True and "claimed_channel" not in start
+
+    def test_unknown_id_with_both_catalogues_warm_is_not_known(
+        self,
+        client: TestClient,
+        valid_token: str,
+        presence_events: StringIO,
+        warm_catalogues: None,
+    ):
+        self._watch(client, valid_token, {"channel": "Pirate TV", "channelId": "nope"})
+
+        (start,) = _event_extras(presence_events, "watch.start")
+        assert start["channel"] == "Pirate TV" and start["channel_known"] is False
+
+    def test_a_catalogue_never_loaded_leaves_known_unset(
+        self, client: TestClient, valid_token: str, presence_events: StringIO
+    ):
+        fetch = AsyncMock()
+        with patch.object(media_source, "get_grouped_channels", fetch):
+            self._watch(client, valid_token, {"channel": "Pirate TV", "channelId": "nope"})
+
+        (start,) = _event_extras(presence_events, "watch.start")
+        assert start["channel"] == "Pirate TV" and start["channel_known"] is None
+        fetch.assert_not_awaited()
+
+    def test_a_later_resolution_of_the_same_id_does_not_split_the_watch(
+        self,
+        client: TestClient,
+        valid_token: str,
+        presence_events: StringIO,
+        monkeypatch: pytest.MonkeyPatch,
+        uncoalesced: None,
+    ):
+        grouped = GroupedChannelsResponse(
+            ungrouped=[Channel(id="42", name="TSN 5", streamUrl="http://streams/42", guideId="t5")]
+        )
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # Consume connection_ack
+            update = {"type": "channel_update", "channel": "tsn5", "channelId": "42"}
+            ws.send_json(update)
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json()["type"] == "pong"
+            # The catalogue loads, and the next rollover resolves the id
+            monkeypatch.setattr(media_source, "peek_grouped_channels", lambda: grouped)
+            ws.send_json({**update, "programme": "SportsCentre"})
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json()["type"] == "pong"
+
+        assert len(_event_extras(presence_events, "watch.start")) == 1
+        (stop,) = _event_extras(presence_events, "watch.stop")
+        assert stop["channel"] == "TSN 5" and stop["claimed_channel"] == "tsn5"
+
+
 class TestPresenceKeys:
     """Presence is keyed per connection by the server, never by the client's session_id."""
 

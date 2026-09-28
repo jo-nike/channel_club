@@ -52,6 +52,8 @@ class UserPresence:
     current_channel: str | None = None
     current_channel_id: str | None = None
     on_live: bool | None = None  # Following the shared Live slot; None from pre-R2 clients
+    channel_known: bool | None = None  # Catalogue holds current_channel_id; None: couldn't tell
+    claimed_channel: str | None = None  # The client's name, if it differs from the catalogue's
     current_programme: str | None = None
     channel_since: datetime | None = None
     connected_since: datetime = field(default_factory=lambda: _now())
@@ -140,6 +142,8 @@ class _Watch:
     channel: str | None
     channel_id: str | None
     on_live: bool | None
+    channel_known: bool | None
+    claimed_channel: str | None
     programme: str | None
     since: datetime
     programme_since: datetime | None  # Start of the current titled programme segment
@@ -164,7 +168,10 @@ def _channel_fields(watch: _Watch) -> dict[str, object]:
         "view": watch.view,
         "channel": watch.channel,
         "channel_id": watch.channel_id,
+        "channel_known": watch.channel_known,
     }
+    if watch.claimed_channel is not None:
+        fields["claimed_channel"] = watch.claimed_channel
     return fields
 
 
@@ -224,6 +231,8 @@ def _start_watch(person: str, user: UserPresence, reason: str) -> None:
         channel=user.current_channel,
         channel_id=user.current_channel_id,
         on_live=user.on_live,
+        channel_known=user.channel_known,
+        claimed_channel=user.claimed_channel,
         programme=user.current_programme,
         since=now,
         programme_since=now if user.current_programme is not None else None,
@@ -266,6 +275,8 @@ def _sync_watch(person: str, reason: str, end: datetime | None = None) -> None:
     ):
         watch.view = primary.view
         watch.channel = primary.current_channel
+        watch.channel_known = primary.channel_known
+        watch.claimed_channel = primary.claimed_channel
         if primary.current_programme != watch.programme:
             _close_programme(watch)
             watch.programme = primary.current_programme
@@ -379,6 +390,8 @@ def update_user_channel(
     view: View | None = None,
     channel_id: str | None = None,
     on_live: bool | None = None,
+    channel_known: bool | None = None,
+    claimed_channel: str | None = None,
 ) -> None:
     """Update user's current channel, programme, and optionally view type.
 
@@ -395,6 +408,9 @@ def update_user_channel(
         view: Optional view type to update (for unified TV view switching).
         channel_id: Stable channel identifier (Dispatcharr UUID or ErsatzTV tvg-id).
         on_live: Whether the client follows the shared Live slot, None if it didn't say.
+        channel_known: Whether the catalogue holds channel_id, None if it couldn't tell.
+        claimed_channel: The client's name for the channel, when it differs from
+            the catalogue's name passed as channel_name.
     """
     if connection_id not in _active_users:
         return
@@ -403,7 +419,7 @@ def update_user_channel(
     if channel_id == LEGACY_EMPTY_LIVE_SLOT_ID:
         channel_name = channel_id = programme_title = None
     if channel_name is None:
-        channel_id = on_live = None
+        channel_id = on_live = channel_known = claimed_channel = None
 
     # Update view type if provided (unified view switching between live/ersatztv)
     if view is not None and view in ("live", "ersatztv") and user.view != view:
@@ -425,6 +441,8 @@ def update_user_channel(
     user.current_channel = channel_name
     user.current_channel_id = channel_id
     user.on_live = on_live
+    user.channel_known = channel_known
+    user.claimed_channel = claimed_channel
     user.current_programme = programme_title
     _sync_watch(person_key(user), "cleared")
 

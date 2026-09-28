@@ -435,3 +435,19 @@ def test_a_stale_end_before_the_last_progress_never_logs_a_negative_delta(events
 
     stop = next(r for r in events() if r["event"] == "watch.stop")
     assert stop["delta_s"] == 0.0 and stop["duration_s"] == 100.0
+
+
+def test_a_new_name_for_the_same_channel_id_renames_the_watch(events) -> None:
+    presence.track_user("s1", "jon", "live")
+    presence.update_user_channel("s1", "rds hd", None, "live", "uuid-rds", channel_known=None)
+    presence.update_user_channel(
+        "s1", "RDS", None, "live", "uuid-rds", channel_known=True, claimed_channel="rds hd"
+    )
+    presence.remove_user("s1")
+
+    recs = _watch_events(events())
+    assert _names(recs) == ["watch.start", "watch.stop"]
+    assert recs[0]["channel"] == "rds hd" and recs[0]["channel_known"] is None
+    assert "claimed_channel" not in recs[0]
+    assert recs[1]["channel"] == "RDS" and recs[1]["channel_known"] is True
+    assert recs[1]["claimed_channel"] == "rds hd"
