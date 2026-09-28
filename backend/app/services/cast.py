@@ -29,6 +29,11 @@ from app.services.media_limits import process_budget
 log = logger.bind(service="cast")
 
 
+def monotonic() -> float:
+    """The clock for session idleness, which a host clock step must not move."""
+    return time.monotonic()
+
+
 class CastSession:
     """Manages FFmpeg HLS transcoding for a single cast session."""
 
@@ -45,7 +50,7 @@ class CastSession:
 
     def touch(self) -> None:
         """Update last activity timestamp (called on segment/playlist access)."""
-        self.last_activity = time.time()
+        self.last_activity = monotonic()
 
     @property
     def is_running(self) -> bool:
@@ -73,7 +78,7 @@ class CastSession:
             # For HLS streams, no transcoding needed - return source URL directly
             if self.stream_type == "hls":
                 log.info("HLS stream for session {} - no transcoding needed", self.session_id)
-                self.last_activity = time.time()
+                self.last_activity = monotonic()
                 return self.stream_url
 
             # Create output directory for HLS segments
@@ -136,7 +141,7 @@ class CastSession:
                     start_new_session=True,  # Safe from worker threads; no undrained pipes
                 )
                 self.started_at = time.time()
-                self.last_activity = time.time()
+                self.last_activity = monotonic()
 
                 # Wait for FFmpeg to create the playlist (up to 10 seconds)
                 for _ in range(20):
@@ -267,7 +272,7 @@ class CastService:
 
     async def _cleanup_idle_sessions(self) -> None:
         """Stop sessions that haven't had activity recently."""
-        now = time.time()
+        now = monotonic()
         idle_sessions: list[str] = []
 
         # Find idle sessions

@@ -201,6 +201,6 @@ async def test_capture_store_evicts_the_oldest_per_owner_and_expires(
         [*(item.id for item in kept), second.id, other.id]
     )
 
-    await store.sweep(now=other.created_at + CAPTURE_TTL_SECONDS)
+    await store.sweep(now=other.created_mono + CAPTURE_TTL_SECONDS)
     assert store.captures == {} and not (second.path.exists() or other.path.exists())
     assert store.download_tokens == {}

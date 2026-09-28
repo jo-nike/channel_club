@@ -270,49 +270,51 @@ class TestStartBackoff:
 class TestStallWatchdog:
     """A polled recorder whose upstream went quiet is stopped, so the next poll restarts it."""
 
-    @staticmethod
-    def polled_recorder(tmp_path, started_ago: float, segment_ago: float | None):
-        import os
-
-        recorder = ChannelRecorder("channel-1", "http://stream.url")
-        recorder.process = MagicMock()
-        recorder.process.poll.return_value = None
-        recorder.segment_dir = tmp_path
-        recorder.started_at = time.time() - started_ago
-        recorder.touch()
-        if segment_ago is not None:
-            segment = tmp_path / "seg_000.ts"
-            segment.write_bytes(b"segment")
-            written = time.time() - segment_ago
-            os.utime(segment, (written, written))
-        return recorder
-
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "started_ago,segment_ago,stalled",
+        "first_segment,new_segment,advance,stalled",
         [
-            (600, 45, True),  # a segment, but none for 3 segment lengths
-            (600, 5, False),  # writing normally
-            (10, None, False),  # warm-up: no segment yet, just started
-            (60, None, True),  # never wrote a segment, well past warm-up
+            (True, False, 45, True),  # wrote a segment, then nothing for 3 segment lengths
+            (True, True, 45, False),  # writing normally
+            (False, False, 10, False),  # warm-up: no segment yet, just started
+            (False, False, 60, True),  # never wrote a segment, well past warm-up
         ],
     )
     async def test_a_silent_recorder_is_stopped_past_warm_up(
-        self, tmp_path, monkeypatch, started_ago, segment_ago, stalled
+        self, tmp_path, monkeypatch, first_segment, new_segment, advance, stalled
     ) -> None:
         import json
+        import os
         from io import StringIO
 
         from loguru import logger
 
+        from app.services import highlight
+
+        clock = [1_000.0]
+        monkeypatch.setattr(highlight, "monotonic", lambda: clock[0])
         monkeypatch.setattr(settings, "highlight_segment_seconds", 10)
         service = HighlightService()
-        recorder = self.polled_recorder(tmp_path, started_ago, segment_ago)
+        recorder = ChannelRecorder("channel-1", "http://stream.url")
+        recorder.process = MagicMock()
+        recorder.process.poll.return_value = None
+        recorder.segment_dir = tmp_path
+        recorder._output_seen_at = clock[0]  # as start() leaves it
+        recorder.touch()
         service._recorders["channel-1"] = recorder
+        segment = tmp_path / "seg_000.ts"
+        if first_segment:
+            segment.write_bytes(b"segment")
+            os.utime(segment, (100, 100))
         output = StringIO()
         handler = logger.add(output, format="{message}", serialize=True, level="INFO")
         try:
             with patch.object(ChannelRecorder, "stop", AsyncMock()) as stop:
+                await service._cleanup_idle_recorders()
+                clock[0] += advance
+                recorder.touch()  # viewers keep polling throughout
+                if new_segment:
+                    os.utime(segment, (200, 200))
                 await service._cleanup_idle_recorders()
         finally:
             logger.remove(handler)

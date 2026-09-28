@@ -174,7 +174,7 @@ def recorder_polled(seconds_ago: float) -> AsyncMock:
 
     recorder = AsyncMock()
     recorder.is_running = True
-    recorder.last_activity = time.time() - seconds_ago
+    recorder.last_activity = time.monotonic() - seconds_ago
     return recorder
 
 

@@ -19,7 +19,7 @@ import subprocess
 import tempfile
 import time
 from contextlib import suppress
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from loguru import logger
@@ -33,6 +33,15 @@ from app.services.media_limits import MediaCapacityError, export_budget, recorde
 from app.services.media_source import resolve_media_channel
 
 log = logger.bind(service="highlight")
+
+
+def monotonic() -> float:
+    """The clock for ages and deadlines, which a host clock step must not move.
+
+    Wall time stays where it is compared with file mtimes or shown to viewers.
+    """
+    return time.monotonic()
+
 
 # A capture waits for the segment being written at the press to close, so the press is inside it.
 # The wait is one segment plus slack, capped so a long configured segment cannot stall the editor.
@@ -78,12 +87,15 @@ class ChannelRecorder:
         self.process: subprocess.Popen | None = None
         self.segment_dir: Path | None = None
         self.started_at: float = 0
-        self.last_activity: float = 0  # Last time this channel was polled
+        self.last_activity: float = 0  # Last time this channel was polled (monotonic)
+        # The newest segment mtime the stall watchdog saw, and when (monotonic) it changed
+        self._newest_output: float = 0
+        self._output_seen_at: float = 0
         self._lock = asyncio.Lock()
 
     def touch(self) -> None:
         """Update last activity timestamp (called on status poll)."""
-        self.last_activity = time.time()
+        self.last_activity = monotonic()
 
     @property
     def is_running(self) -> bool:
@@ -169,7 +181,8 @@ class ChannelRecorder:
                         start_new_session=True,  # Safe from worker threads
                     )
                 self.started_at = time.time()
-                self.last_activity = time.time()
+                self.last_activity = monotonic()
+                self._output_seen_at = self.last_activity
 
                 # Give FFmpeg a moment to start and check it's running
                 await asyncio.sleep(0.5)
@@ -281,14 +294,23 @@ class ChannelRecorder:
             return False
 
     def seconds_since_output(self) -> float:
-        """How long since the newest segment was written, or since start before the first one."""
-        newest = self.started_at
+        """How long since a new segment appeared, or since start before the first one.
+
+        Segment mtimes are wall time, so they only tell whether output changed; the
+        interval is timed on the monotonic clock, which a host clock step cannot move.
+        """
+        newest = 0.0
         if self.segment_dir:
             with suppress(OSError):
                 newest = max(
-                    [newest, *(path.stat().st_mtime for path in self.segment_dir.glob("seg_*.ts"))]
+                    (path.stat().st_mtime for path in self.segment_dir.glob("seg_*.ts")),
+                    default=0.0,
                 )
-        return time.time() - newest
+        now = monotonic()
+        if newest != self._newest_output:
+            self._newest_output = newest
+            self._output_seen_at = now
+        return now - self._output_seen_at
 
     def get_buffer_seconds(self) -> float:
         """Get how many seconds of content are actually in the buffer.
@@ -468,10 +490,15 @@ class Capture:
     # the editor places the press at duration - (ends_at - pressed_at).
     pressed_at: float
     ends_at: float
+    # created_at is shown to the viewer; the TTL is judged on the monotonic clock.
+    created_mono: float = field(default_factory=lambda: monotonic())
 
     @property
     def expires_at(self) -> float:
         return self.created_at + CAPTURE_TTL_SECONDS
+
+    def expired(self, now: float) -> bool:
+        return self.created_mono + CAPTURE_TTL_SECONDS <= now
 
 
 @dataclass(frozen=True)
@@ -484,7 +511,7 @@ class DownloadToken:
 
     capture_id: str
     owner: str
-    expires_at: float
+    expires_at: float  # monotonic
     redeemed: bool = False
 
 
@@ -516,7 +543,16 @@ class CaptureStore:
         for oldest in previous[: max(len(previous) - MAX_CAPTURES_PER_OWNER + 1, 0)]:
             await self._remove(oldest)
         capture = Capture(
-            capture_id, owner, channel_id, path, size, duration, time.time(), pressed_at, ends_at
+            capture_id,
+            owner,
+            channel_id,
+            path,
+            size,
+            duration,
+            time.time(),
+            pressed_at,
+            ends_at,
+            monotonic(),
         )
         self.captures[capture_id] = capture
         log.bind(
@@ -536,7 +572,7 @@ class CaptureStore:
     def get(self, capture_id: str, owner: str) -> Capture | None:
         """Foreign or expired captures are indistinguishable from unknown ones."""
         capture = self.captures.get(capture_id)
-        if capture is None or capture.owner != owner or capture.expires_at <= time.time():
+        if capture is None or capture.owner != owner or capture.expired(monotonic()):
             return None
         return capture
 
@@ -547,10 +583,10 @@ class CaptureStore:
         """
         if self.get(capture_id, owner) is None:
             return None
-        self._drop_expired_tokens(time.time())
+        self._drop_expired_tokens(monotonic())
         token = secrets.token_urlsafe(24)
         self.download_tokens[token] = DownloadToken(
-            capture_id, owner, time.time() + DOWNLOAD_TOKEN_TTL_SECONDS
+            capture_id, owner, monotonic() + DOWNLOAD_TOKEN_TTL_SECONDS
         )
         return token
 
@@ -561,7 +597,7 @@ class CaptureStore:
         token or a gone capture finds nothing.
         """
         grant = self.download_tokens.get(token)
-        if grant is None or grant.expires_at <= time.time():
+        if grant is None or grant.expires_at <= monotonic():
             self.download_tokens.pop(token, None)
             return None
         if grant.redeemed and not range_request:
@@ -575,10 +611,10 @@ class CaptureStore:
             await self._remove(capture)
 
     async def sweep(self, now: float | None = None) -> None:
-        now = time.time() if now is None else now
+        now = monotonic() if now is None else now
         self._drop_expired_tokens(now)
         for capture in list(self.captures.values()):
-            if capture.expires_at <= now:
+            if capture.expired(now):
                 await self._remove(capture)
 
     def _drop_expired_tokens(self, now: float) -> None:
@@ -656,7 +692,7 @@ class HighlightService:
 
     async def _cleanup_idle_recorders(self) -> None:
         """Stop recorders that haven't been polled recently."""
-        now = time.time()
+        now = monotonic()
         idle_channels: list[str] = []
 
         # A running FFmpeg whose upstream went quiet writes nothing; past warm-up, restart it.
@@ -834,7 +870,7 @@ class HighlightService:
         except MediaCapacityError:
             pass
         live = channel_state.get_current_channel()
-        cutoff = time.time() - RECORDER_EVICT_UNPOLLED_SECONDS
+        cutoff = monotonic() - RECORDER_EVICT_UNPOLLED_SECONDS
         candidates = [
             (recorder.last_activity, other)
             for other, recorder in self._recorders.items()

@@ -329,9 +329,9 @@ class TestCaptureDownloadLink:
         assert client.get(url, headers={"Range": "bytes=30-"}).status_code == 206
         # A plain replay of the link is still refused, and so is a resume after expiry.
         assert client.get(url).status_code == 404
-        issued = time.time()
+        issued = time.monotonic()
         monkeypatch.setattr(
-            "app.services.highlight.time.time", lambda: issued + DOWNLOAD_TOKEN_TTL_SECONDS + 1
+            "app.services.highlight.monotonic", lambda: issued + DOWNLOAD_TOKEN_TTL_SECONDS + 1
         )
         assert client.get(url, headers={"Range": "bytes=16-"}).status_code == 404
 
@@ -351,9 +351,9 @@ class TestCaptureDownloadLink:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         url = self.link(client, auth_header)
-        issued = time.time()
+        issued = time.monotonic()
         monkeypatch.setattr(
-            "app.services.highlight.time.time", lambda: issued + DOWNLOAD_TOKEN_TTL_SECONDS + 1
+            "app.services.highlight.monotonic", lambda: issued + DOWNLOAD_TOKEN_TTL_SECONDS + 1
         )
         assert client.get(url).status_code == 404
 
