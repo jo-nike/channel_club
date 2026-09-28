@@ -264,6 +264,13 @@ describe('ChatOverlay', () => {
     expect(shownText()).toEqual(['maya lol GIF', 'dev changed Live to TSN 5'])
   })
 
+  it('keeps the address of media the chat only links to', () => {
+    renderOverlay()
+    arrive(message('lol https://media.tenor.com/abc/clip.gif'))
+
+    expect(shownText()).toEqual(['maya lol https://media.tenor.com/abc/clip.gif'])
+  })
+
   it('reads new messages out politely, as the closed panel would have', () => {
     renderOverlay()
     arrive(message('hello'))

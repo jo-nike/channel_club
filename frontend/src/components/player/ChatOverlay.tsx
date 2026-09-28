@@ -26,10 +26,14 @@ interface Preview {
 
 const MEDIA_LABELS: Record<MediaType, string> = { gif: 'GIF', video: 'Video', image: 'Image' }
 
-/** A message's words, with a GIF's or an image's address said as 'GIF' or 'Image'. */
+/**
+ * A message's words, with an embedded GIF's or image's address said as 'GIF'
+ * or 'Image'. A media link the chat doesn't embed stays as written.
+ */
 function previewText(content: string): string {
   let text = content
-  for (const match of detectMediaUrls(content).reverse()) {
+  const embeds = detectMediaUrls(content).filter((match) => match.kind === 'embed')
+  for (const match of embeds.reverse()) {
     text = `${text.slice(0, match.startIndex)}${MEDIA_LABELS[match.type]}${text.slice(match.endIndex)}`
   }
   return text.trim()

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { detectMediaUrls, normalizeMediaUrl } from './mediaDetection'
+import { detectMediaUrls } from './mediaDetection'
 
 describe('detectMediaUrls', () => {
   describe('GIF detection', () => {
@@ -26,7 +26,7 @@ describe('detectMediaUrls', () => {
       const text = 'https://media.giphy.com/media/abc123/giphy.gif'
       const matches = detectMediaUrls(text)
       expect(matches).toHaveLength(1)
-      expect(matches[0].type).toBe('gif')
+      expect(matches[0]).toMatchObject({ type: 'gif', kind: 'embed' })
     })
   })
 
@@ -87,11 +87,11 @@ describe('detectMediaUrls', () => {
 
   describe('Mixed content handling', () => {
     it('detects multiple media URLs in same message', () => {
-      const text = 'Check these: https://a.com/1.gif and https://b.com/2.mp4'
+      const text = 'Check these: https://media.giphy.com/1.gif and https://b.com/2.mp4'
       const matches = detectMediaUrls(text)
       expect(matches).toHaveLength(2)
-      expect(matches[0].type).toBe('gif')
-      expect(matches[1].type).toBe('video')
+      expect(matches[0]).toMatchObject({ type: 'gif', kind: 'embed' })
+      expect(matches[1]).toMatchObject({ type: 'video', kind: 'link' })
     })
 
     it('returns correct indices for mixed text and media', () => {
@@ -163,29 +163,6 @@ describe('detectMediaUrls', () => {
   })
 })
 
-describe('normalizeMediaUrl', () => {
-  it('converts Imgur .gifv to .mp4', () => {
-    const result = normalizeMediaUrl('https://i.imgur.com/abc123.gifv')
-    expect(result).toBe('https://i.imgur.com/abc123.mp4')
-  })
-
-  it('leaves non-Imgur .gifv unchanged', () => {
-    const result = normalizeMediaUrl('https://other.com/video.gifv')
-    // Should still work as .gifv is a video format
-    expect(result).toBe('https://other.com/video.gifv')
-  })
-
-  it('leaves regular URLs unchanged', () => {
-    const result = normalizeMediaUrl('https://example.com/image.gif')
-    expect(result).toBe('https://example.com/image.gif')
-  })
-
-  it('leaves mp4 URLs unchanged', () => {
-    const result = normalizeMediaUrl('https://example.com/video.mp4')
-    expect(result).toBe('https://example.com/video.mp4')
-  })
-})
-
 describe('Special URL format handling', () => {
   describe('Giphy URLs', () => {
     it('detects Giphy media URLs as GIFs', () => {
@@ -204,36 +181,99 @@ describe('Special URL format handling', () => {
   })
 
   describe('Tenor URLs', () => {
-    it('detects Tenor GIF URLs', () => {
+    it('offers Tenor GIF URLs as links, not embeds', () => {
       const text = 'https://media.tenor.com/abc123/some-name.gif'
       const matches = detectMediaUrls(text)
       expect(matches).toHaveLength(1)
-      expect(matches[0].type).toBe('gif')
+      expect(matches[0]).toMatchObject({ type: 'gif', kind: 'link' })
     })
 
-    it('detects Tenor MP4 URLs', () => {
+    it('offers Tenor MP4 URLs as links, not embeds', () => {
       const text = 'https://media.tenor.com/abc123/video.mp4'
       const matches = detectMediaUrls(text)
       expect(matches).toHaveLength(1)
-      expect(matches[0].type).toBe('video')
+      expect(matches[0]).toMatchObject({ type: 'video', kind: 'link' })
     })
   })
 
   describe('Imgur URLs', () => {
-    it('converts Imgur .gifv URLs to .mp4 in detection', () => {
+    it('offers Imgur .gifv URLs as links, as written', () => {
       const text = 'Check this: https://i.imgur.com/xyz789.gifv'
       const matches = detectMediaUrls(text)
       expect(matches).toHaveLength(1)
-      expect(matches[0].type).toBe('video')
-      expect(matches[0].url).toBe('https://i.imgur.com/xyz789.mp4')
-      expect(matches[0].originalUrl).toBe('https://i.imgur.com/xyz789.gifv')
+      expect(matches[0]).toMatchObject({
+        type: 'video',
+        kind: 'link',
+        url: 'https://i.imgur.com/xyz789.gifv',
+        originalUrl: 'https://i.imgur.com/xyz789.gifv',
+      })
     })
 
-    it('detects regular Imgur GIF URLs', () => {
+    it('offers regular Imgur GIF URLs as links, not embeds', () => {
       const text = 'https://i.imgur.com/abc123.gif'
       const matches = detectMediaUrls(text)
       expect(matches).toHaveLength(1)
-      expect(matches[0].type).toBe('gif')
+      expect(matches[0]).toMatchObject({ type: 'gif', kind: 'link' })
     })
+  })
+})
+
+describe('Embed policy', () => {
+  it.each([
+    ['https://media.giphy.com/media/abc/giphy.gif', 'gif'],
+    ['https://media0.giphy.com/media/abc/200.webp', 'gif'],
+    ['https://i.giphy.com/media/abc/giphy.mp4', 'video'],
+  ])('embeds %s', (url, type) => {
+    expect(detectMediaUrls(`look ${url}`)).toEqual([
+      { type, kind: 'embed', url, originalUrl: url, startIndex: 5, endIndex: 5 + url.length },
+    ])
+  })
+
+  it.each([
+    'http://192.168.1.1/apply.cgi?reboot=1&x=.png',
+    'http://10.0.0.5:8080/admin/delete?id=3#.jpg',
+    'https://example.com/a.cgi?x=.png',
+    'https://example.com/a.cgi#.gif',
+    'http://media.giphy.com/x.gif',
+    'http://example.com/photo.jpg',
+  ])('leaves %s as plain text', (url) => {
+    expect(detectMediaUrls(`see ${url} now`)).toEqual([])
+  })
+
+  it.each([
+    'https://media.giphy.com@evil.example/x.gif',
+    'https://user:pw@media.giphy.com/x.gif',
+    'https://evil.example/media.giphy.com/x.gif',
+    'https://giphy.com.evil.example/x.gif',
+    'https://giphy.com/x.gif',
+    'https://media.giphy.com:8443/x.gif',
+    'https://media.giphy.com./x.gif',
+  ])('links but does not embed %s', (url) => {
+    const matches = detectMediaUrls(url)
+    expect(matches).toHaveLength(1)
+    expect(matches[0].kind).toBe('link')
+  })
+
+  it('embeds an upper-case Giphy host and extension', () => {
+    const matches = detectMediaUrls('https://MEDIA.GIPHY.COM/x.GIF')
+    expect(matches).toHaveLength(1)
+    expect(matches[0]).toMatchObject({ type: 'gif', kind: 'embed' })
+  })
+
+  it('embeds at most three per message, the rest are links', () => {
+    const urls = [1, 2, 3, 4, 5].map((n) => `https://media.giphy.com/media/${n}/giphy.gif`)
+    const matches = detectMediaUrls(urls.join(' '))
+    expect(matches.map((m) => m.kind)).toEqual(['embed', 'embed', 'embed', 'link', 'link'])
+    expect(matches.map((m) => m.url)).toEqual(urls)
+  })
+
+  it('does not count a link against the embed cap', () => {
+    const text = [
+      'https://i.imgur.com/a.gif',
+      'https://media.giphy.com/1.gif',
+      'https://media.giphy.com/2.gif',
+      'https://media.giphy.com/3.gif',
+    ].join(' ')
+    expect(detectMediaUrls(text).map((m) => m.kind)).toEqual(['link', 'embed', 'embed', 'embed'])
   })
 })
