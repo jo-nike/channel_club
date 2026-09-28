@@ -541,11 +541,19 @@ describe('ChatPanel', () => {
 
     it('shows a refusal that arrived before the panel was opened', () => {
       // A stored nickname refused on connect: the sign-in name is in use again
-      useChatStore.setState({ nickname: null, nicknameRejection: { nickname: 'Jon' } })
+      useChatStore.setState({ nickname: null, nicknameRejection: { nickname: 'Jon', reason: 'taken' } })
       render(<ChatPanel onSendMessage={mockOnSendMessage} />)
 
       expect(screen.getByPlaceholderText('Display name')).toHaveValue('Jon')
       expect(screen.getByRole('alert')).toHaveTextContent("“Jon” is another member's sign-in name")
+    })
+
+    it('says a rate-limited rename can be saved again shortly', () => {
+      useChatStore.setState({ nickname: 'Ace', nicknameRejection: { nickname: 'Jonny', reason: 'rate_limited' } })
+      render(<ChatPanel onSendMessage={mockOnSendMessage} />)
+
+      expect(screen.getByPlaceholderText('Display name')).toHaveValue('Jonny')
+      expect(screen.getByRole('alert')).toHaveTextContent('Too many changes at once. Wait a moment, then save “Jonny” again.')
     })
 
     it('Escape closes the editor without changing anything and without reaching the rest of the page', () => {

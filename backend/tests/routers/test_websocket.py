@@ -2670,7 +2670,7 @@ class TestMessageBudget:
             frames = self.until_pong(ws)
             nickname = only_presence().nickname
 
-        assert frames == [{"type": "error", "code": "rate_limited"}]
+        assert frames == [{"type": "error", "code": "rate_limited", "nickname": "Nick5"}]
         assert nickname == "Nick4"
 
     def test_budget_refills_one_a_second(self, monkeypatch: pytest.MonkeyPatch):

@@ -270,10 +270,14 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           break
 
         case 'error':
-          if (message.code === 'nickname_taken' && typeof message.nickname === 'string') {
-            // Another member signed in under that name; go back to the name the server still uses
-            logger.info('WebSocket', `Nickname refused: ${message.nickname}`)
-            rejectChatNickname(message.nickname)
+          if (
+            (message.code === 'nickname_taken' || message.code === 'rate_limited')
+            && typeof message.nickname === 'string'
+          ) {
+            // Another member's sign-in name, or too many changes at once: go back to
+            // the name the server still uses
+            logger.info('WebSocket', `Nickname refused (${message.code}): ${message.nickname}`)
+            rejectChatNickname(message.nickname, message.code === 'rate_limited' ? 'rate_limited' : 'taken')
           } else {
             logger.warn('WebSocket', `Server error: ${message.code ?? 'unknown'}`, message)
           }

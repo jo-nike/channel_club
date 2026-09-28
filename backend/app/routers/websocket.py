@@ -636,7 +636,11 @@ async def handle_client_message(
     if budget is not None and msg_type in _BUDGETED_TYPES and not budget.take():
         # Refused, never closed: the client sees a failed send it can retry
         if msg_type == "set_nickname":
-            await websocket.send_json({"type": "error", "code": "rate_limited"})
+            # Named, like nickname_taken, so the client can put back the name in use
+            refused = _normalize_nickname(validated.get("nickname", ""))
+            await websocket.send_json(
+                {"type": "error", "code": "rate_limited", "nickname": refused}
+            )
         else:
             await _ack_chat(websocket, validated.get("clientMessageId"), None)
         return

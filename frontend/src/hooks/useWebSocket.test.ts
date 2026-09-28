@@ -1719,7 +1719,24 @@ describe('useWebSocket', () => {
       // The server kept the sign-in name for this new socket
       expect(useChatStore.getState().nickname).toBeNull()
       expect(localStorage.getItem('chat_nickname:testuser')).toBeNull()
-      expect(useChatStore.getState().nicknameRejection).toEqual({ nickname: 'Jon' })
+      expect(useChatStore.getState().nicknameRejection).toEqual({ nickname: 'Jon', reason: 'taken' })
+    })
+
+    test('a rate-limited rename puts back the name the server still uses', () => {
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({ type: 'connection_ack', currentChannel: null, you: { username: 'testuser' } })
+        useChatStore.getState().setNickname('Ace')
+        useChatStore.getState().setNickname('Jonny')
+        ws.simulateMessage({ type: 'error', code: 'rate_limited', nickname: 'Jonny' })
+      })
+
+      expect(useChatStore.getState().nickname).toBe('Ace')
+      expect(localStorage.getItem('chat_nickname:testuser')).toBe('Ace')
+      expect(useChatStore.getState().nicknameRejection).toEqual({ nickname: 'Jonny', reason: 'rate_limited' })
     })
 
     test('other server errors leave the nickname alone', () => {
