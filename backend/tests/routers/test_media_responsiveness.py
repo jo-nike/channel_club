@@ -2,6 +2,8 @@
 
 import asyncio
 import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
 import httpx
@@ -38,20 +40,56 @@ async def test_public_logo_lookup_does_not_block_health():
                 assert (await logo).status_code == 404
 
 
-@pytest.mark.asyncio
-async def test_parallel_cold_feed_failure_is_shared():
+class _CountingLock:
+    """The refresh lock, counting the callers that have reached it."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._count_lock = threading.Lock()
+        self.arrivals = 0
+        self.all_arrived = threading.Event()
+
+    def acquire(self, blocking: bool = True) -> bool:
+        with self._count_lock:
+            self.arrivals += 1
+            if self.arrivals == CALLERS:
+                self.all_arrived.set()
+        return self._lock.acquire(blocking)
+
+    def release(self) -> None:
+        self._lock.release()
+
+    def __enter__(self) -> bool:
+        return self.acquire()
+
+    def __exit__(self, *exc: object) -> None:
+        self.release()
+
+
+CALLERS = 20
+
+
+def test_parallel_cold_feed_failure_is_shared(monkeypatch):
+    """Callers queued on the lock behind a failing cold fetch share its failure."""
     attempts = 0
+    lock = _CountingLock()
+    monkeypatch.setattr(parse_m3u_playlist, "_lock", lock)
 
     def fetch(_url):
         nonlocal attempts
         attempts += 1
+        # Fail only once every other caller is past the pre-lock backoff check
+        assert lock.all_arrived.wait(2)
+        time.sleep(0.05)  # and parked in acquire()
         raise ValueError("controlled upstream unavailable")
 
-    with patch("app.services.ersatztv.m3u_parser.fetch_feed", side_effect=fetch):
-        results = await asyncio.gather(
-            *[asyncio.to_thread(parse_m3u_playlist) for _ in range(20)], return_exceptions=True
-        )
-    assert all(isinstance(result, FeedUnavailableError) for result in results)
+    with (
+        patch("app.services.ersatztv.m3u_parser.fetch_feed", side_effect=fetch),
+        ThreadPoolExecutor(max_workers=CALLERS) as pool,
+    ):
+        futures = [pool.submit(parse_m3u_playlist) for _ in range(CALLERS)]
+        errors = [future.exception(5) for future in futures]
+    assert all(isinstance(error, FeedUnavailableError) for error in errors)
     assert attempts == 1
 
 
