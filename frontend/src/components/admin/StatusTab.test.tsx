@@ -341,6 +341,45 @@ describe('StatusTab', () => {
     expect(card.getByText('109')).toBeInTheDocument()
   })
 
+  it('shows a degraded upstream in amber with its reason while it is online', () => {
+    mockUseSystemStatus.mockReturnValue({
+      data: {
+        ersatztv: { ...onlineErsatztv, degraded: true, error: 'sessions API HTTP 500' },
+        dispatcharr: { ...onlineDispatcharr, degraded: true, error: 'API key rejected (HTTP 401)' },
+        epg: onlineEpg,
+      },
+      loading: false,
+      error: null,
+      lastUpdated: new Date('2026-01-04T12:00:00Z'),
+      isRefreshing: false,
+      refetch: vi.fn(),
+    })
+
+    render(<StatusTab />)
+
+    for (const [title, reason] of [
+      ['ErsatzTV', 'sessions API HTTP 500'],
+      ['Dispatcharr', 'API key rejected (HTTP 401)'],
+    ]) {
+      const heading = screen.getByText(title)
+      const card = heading.closest('[data-slot="card"]')
+      if (!(card instanceof HTMLElement)) throw new Error(`${title} card not found`)
+      expect(within(card).getByText('Degraded')).toBeInTheDocument()
+      expect(within(card).getByText('Reason')).toBeInTheDocument()
+      expect(within(card).getByText(reason)).toBeInTheDocument()
+      expect(heading.nextElementSibling).toHaveClass('text-warning')
+    }
+  })
+
+  it('shows no reason row for a healthy upstream', () => {
+    mockGuideData(onlineEpg)
+
+    render(<StatusTab />)
+
+    expect(screen.queryByText('Reason')).not.toBeInTheDocument()
+    expect(screen.queryByText('Degraded')).not.toBeInTheDocument()
+  })
+
   it('keeps application information when upstream data is absent', () => {
     mockUseSystemStatus.mockReturnValue({
       data: null,

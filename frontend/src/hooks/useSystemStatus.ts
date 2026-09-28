@@ -17,6 +17,7 @@ interface ErsatzTVSession {
 interface ErsatzTVStatus {
   name: string
   online: boolean
+  degraded: boolean
   lastChecked: string
   error: string | null
   activeSessions: number
@@ -47,6 +48,7 @@ interface DispatcharrStream {
 interface DispatchrrStatus {
   name: string
   online: boolean
+  degraded: boolean
   lastChecked: string
   error: string | null
   activeStreams: number
