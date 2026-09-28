@@ -112,7 +112,8 @@ async def encode_file(
     end_time: float | None,
     *,
     concat: bool = False,
-) -> bytes:
+) -> Path:
+    """Encode into `output` and return it; the caller streams or keeps the file."""
     if format not in ("mp4", "webm"):
         raise ValueError("Unsupported export format")
     trimmed = start_time is not None or end_time is not None
@@ -213,6 +214,6 @@ async def encode_file(
         size = await owned_thread(lambda: output.stat().st_size)
         if size >= settings.media_export_max_bytes:
             raise ValueError("Highlight exceeds export size limit")
-        return await owned_thread(output.read_bytes)
+        return output
     finally:
         await reap(process)

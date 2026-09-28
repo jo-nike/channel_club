@@ -6,10 +6,12 @@ import subprocess
 import sys
 import time
 from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
@@ -221,18 +223,25 @@ async def test_export_stops_the_encoder_when_the_browser_cancels(tmp_path, regis
     assert not export_budget.owners
 
 
-async def test_export_returns_the_encode_while_the_browser_waits(tmp_path, register, monkeypatch):
+async def test_export_streams_the_encoded_file_and_frees_the_slot_before_sending(
+    tmp_path, register, monkeypatch
+):
     monkeypatch.setattr(settings, "highlight_enabled", True)
     monkeypatch.setattr(highlight_router, "DISCONNECT_POLL_SECONDS", 0.01)
     snapshot = tmp_path / "snapshot.mp4"
     snapshot.write_bytes(b"mp4")
     capture = register(snapshot)
 
-    async def slow_encode(*_args: object) -> bytes:
+    async def slow_encode(_source: Path, output: Path, *_args: object) -> Path:
         await asyncio.sleep(0.05)
-        return b"encoded clip"
+        output.write_bytes(b"encoded clip")
+        return output
 
-    with patch("app.routers.highlight.encode_file", slow_encode):
+    with (
+        patch("app.routers.highlight.encode_file", slow_encode),
+        # The encoded file is streamed from disk, never read into memory.
+        patch.object(Path, "read_bytes", side_effect=AssertionError("read into memory")),
+    ):
         response = await export_preview(
             BrowserRequest(asyncio.Event()),
             capture=capture,
@@ -241,7 +250,43 @@ async def test_export_returns_the_encode_while_the_browser_waits(tmp_path, regis
             end_time=2,
             user=viewer(),
         )
-    assert response.body == b"encoded clip"
+    assert isinstance(response, FileResponse)
+    output = Path(response.path)
+    assert output.read_bytes() == b"encoded clip"
+    assert output.parent.parent == Path(settings.highlight_temp_dir) / "work"
+    # The export slot was released when the encode finished, before the response is sent.
+    assert not export_budget.owners
+    assert response.background is not None
+    await response.background()
+    assert not output.parent.exists()
+
+
+async def test_a_failed_export_removes_its_workspace(tmp_path, register, monkeypatch):
+    monkeypatch.setattr(settings, "highlight_enabled", True)
+    snapshot = tmp_path / "snapshot.mp4"
+    snapshot.write_bytes(b"mp4")
+    capture = register(snapshot)
+    outputs: list[Path] = []
+
+    async def failing_encode(_source: Path, output: Path, *_args: object) -> Path:
+        outputs.append(output)
+        output.write_bytes(b"partial")
+        raise ValueError("Failed to encode highlight")
+
+    with (
+        patch("app.routers.highlight.encode_file", failing_encode),
+        pytest.raises(HTTPException) as failed,
+    ):
+        await export_preview(
+            BrowserRequest(asyncio.Event()),
+            capture=capture,
+            format="mp4",
+            start_time=None,
+            end_time=None,
+            user=viewer(),
+        )
+    assert failed.value.status_code == 400
+    assert not outputs[0].parent.exists()
     assert not export_budget.owners
 
 

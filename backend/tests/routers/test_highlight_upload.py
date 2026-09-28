@@ -56,9 +56,14 @@ async def test_flag_controls_capability_and_upload_before_ingestion(
         response = await client.post("/api/highlight/upload", content=b"ignored")
         assert response.status_code == (415 if available else 503)
         ingest.assert_not_called()
+
     # The ordinary export path remains independent of Zipline configuration.
+    async def encode(_source, output, *_args):
+        output.write_bytes(b"mp4")
+        return output
+
     with (
-        patch("app.routers.highlight.encode_file", new_callable=AsyncMock, return_value=b"mp4"),
+        patch("app.routers.highlight.encode_file", encode),
         patch(
             "app.routers.highlight.highlight_service.get_capture",
             return_value=SimpleNamespace(path="snapshot.mp4"),

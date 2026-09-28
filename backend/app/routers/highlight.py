@@ -7,6 +7,7 @@ Provides endpoints for:
 """
 
 import asyncio
+import shutil
 from collections.abc import Awaitable
 from contextlib import suppress
 from datetime import datetime
@@ -17,13 +18,21 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.responses import FileResponse, Response
 from loguru import logger
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 
 from app.config import settings
 from app.models.auth import TokenPayload
 from app.models.channel import ChannelId
 from app.routers.auth_deps import get_current_user, get_current_user_or_token
 from app.services.highlight import RECORDER_GONE_ERROR, Capture, highlight_service
-from app.services.media_export import encode_file, media_duration, owned_thread, workspace
+from app.services.media_export import (
+    encode_file,
+    media_duration,
+    new_workspace,
+    owned_thread,
+    remove_workspace,
+    workspace,
+)
 from app.services.media_limits import export_budget, upload_budget
 from app.services.zipline import upload_clip
 
@@ -283,32 +292,40 @@ async def export_preview(
     source = highlight_service.get_capture(capture, user.sub)
     if source is None:
         raise HTTPException(404, "Capture not found")
-    async with workspace("highlight-preview-") as directory:
+    # The file outlives the handler: it is streamed from disk, then its workspace removed.
+    directory = new_workspace("highlight-preview-")
 
-        async def encode() -> bytes:
-            # Waits for a slot inside the disconnect watch, so a viewer who left never takes one.
-            async with export_budget.waiting_slot(user.sub):
-                return await encode_file(
-                    source.path,
-                    directory / f"export.{format}",
-                    format,
-                    start_time,
-                    end_time,
-                )
+    async def encode() -> FilePath:
+        # Waits for a slot inside the disconnect watch, so a viewer who left never takes one.
+        # The slot is released when the encode finishes, before the response is sent.
+        async with export_budget.waiting_slot(user.sub):
+            return await encode_file(
+                source.path,
+                directory / f"export.{format}",
+                format,
+                start_time,
+                end_time,
+            )
 
-        try:
-            video = await unless_disconnected(request, encode())
-        except TimeoutError:
-            raise HTTPException(408, "Clip conversion timed out") from None
-        except ValueError as exc:
-            raise HTTPException(400, str(exc)) from None
-        except OSError:
-            raise HTTPException(400, "Unable to convert capture") from None
-    return Response(
+    kept = False
+    try:
+        video = await unless_disconnected(request, encode())
+        kept = True
+    except TimeoutError:
+        raise HTTPException(408, "Clip conversion timed out") from None
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    except OSError:
+        raise HTTPException(400, "Unable to convert capture") from None
+    finally:
+        if not kept:
+            await remove_workspace(directory)
+    return FileResponse(
         video,
         media_type=f"video/{format}",
         headers={
             "Content-Disposition": f'attachment; filename="highlight.{format}"',
             "Cache-Control": "no-store",
         },
+        background=BackgroundTask(shutil.rmtree, directory, True),
     )

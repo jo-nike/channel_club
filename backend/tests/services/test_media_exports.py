@@ -141,10 +141,10 @@ async def busy_executor():
     executor.shutdown(wait=True)
 
 
-@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="FFmpeg required")
-async def test_a_busy_executor_never_makes_a_finished_encode_time_out(
-    tmp_path, monkeypatch, busy_executor
-):
+@pytest.fixture
+def source_mp4(tmp_path):
+    if not shutil.which("ffmpeg"):
+        pytest.skip("FFmpeg required")
     source = tmp_path / "source.mp4"
     subprocess.run(
         [
@@ -165,11 +165,24 @@ async def test_a_busy_executor_never_makes_a_finished_encode_time_out(
         check=True,
         timeout=15,
     )
+    return source
+
+
+async def test_a_busy_executor_never_makes_a_finished_encode_time_out(
+    tmp_path, monkeypatch, busy_executor, source_mp4
+):
     monkeypatch.setattr(media_export, "REMUX_TIMEOUT_SECONDS", 1)
     # The remux takes a fraction of a second; the worker thread frees only after the timeout.
     asyncio.get_running_loop().call_later(1.5, busy_executor)
-    await asyncio.wait_for(encode_file(source, tmp_path / "out.mp4", "mp4", None, None), 10)
+    await asyncio.wait_for(encode_file(source_mp4, tmp_path / "out.mp4", "mp4", None, None), 10)
     assert (tmp_path / "out.mp4").stat().st_size > 0
+
+
+async def test_encode_returns_the_output_file_without_reading_it(tmp_path, source_mp4):
+    output = tmp_path / "out.mp4"
+    with patch.object(Path, "read_bytes", side_effect=AssertionError("read into memory")):
+        assert await encode_file(source_mp4, output, "mp4", None, None) == output
+    assert output.stat().st_size > 0
 
 
 def test_snapshot_logs_how_far_the_capture_ends_before_the_snapshot(tmp_path):
