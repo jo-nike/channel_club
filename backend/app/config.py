@@ -141,6 +141,10 @@ class Settings(BaseSettings):
         except ValueError:
             return False
 
+    # JSON file that keeps admin settings and the Live channel across restarts.
+    # Empty disables it (nothing is read or written); the image sets /data/state.json.
+    state_file: str = ""
+
     # Chat Feature
     # Enable real-time chat between connected users
     chat_enabled: bool = False

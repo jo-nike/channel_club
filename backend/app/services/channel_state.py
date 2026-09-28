@@ -2,7 +2,8 @@
 
 This service maintains in-memory state of the currently selected channel
 and manages WebSocket connections for real-time updates.
-The state resets on server restart (acceptable for MVP).
+The Live channel's id is saved to the state file (state_store) and restored
+in the background on start.
 """
 
 import asyncio
@@ -10,13 +11,13 @@ import json
 from contextlib import suppress
 from typing import TYPE_CHECKING
 
-from fastapi import WebSocket
+from fastapi import HTTPException, WebSocket
 from fastapi.websockets import WebSocketState
 from loguru import logger
 
 from app.config import settings
 from app.models.channel import Channel
-from app.services import chat
+from app.services import chat, state_store
 
 if TYPE_CHECKING:
     from app.services.highlight import HighlightService
@@ -28,7 +29,13 @@ log = logger.bind(service="channel")
 # handlers that await broadcast() (chat, channel change, settings update)
 BROADCAST_SEND_TIMEOUT_SECONDS = 5.0
 
-# In-memory state - resets on restart (acceptable for MVP)
+# Restoring Live retries this often while the catalogue is unavailable, and
+# gives up after RESTORE_ATTEMPTS tries (each capped at RESTORE_ATTEMPT_TIMEOUT_SECONDS)
+RESTORE_RETRY_SECONDS = 15.0
+RESTORE_ATTEMPTS = 20
+RESTORE_ATTEMPT_TIMEOUT_SECONDS = 30.0
+
+# In-memory state; Live is restored from the state file on start
 _current_channel: Channel | None = None
 _active_connections: set[WebSocket] = set()
 _connection_owners: dict[WebSocket, asyncio.Task] = {}
@@ -39,6 +46,7 @@ _change_lock = asyncio.Lock()
 _reconcile_task: asyncio.Task | None = None
 _reconcile_requested = False
 _reconcile_owner = "system"
+_restore_task: asyncio.Task | None = None
 
 
 def get_current_channel() -> Channel | None:
@@ -72,6 +80,7 @@ async def set_current_channel(channel: Channel, user: str | None = None) -> Chan
         log.bind(
             event="channel.change", user=user, channel=channel.name, channel_id=channel.id
         ).info("Channel changed to '{}' by user '{}'", channel.name, user or "system")
+        await state_store.save({"liveChannelId": channel.id, "liveSetBy": user})
 
         # Broadcast to all connected clients
         await broadcast_channel_update(channel, changed_by=user)
@@ -130,12 +139,80 @@ async def stop_reconcile_task() -> None:
 
 
 def reset_live_change_state() -> None:
-    """Forget the change lock and reconcile task (each test runs on a fresh loop)."""
-    global _change_lock, _reconcile_task, _reconcile_requested, _reconcile_owner
+    """Forget the change lock, reconcile and restore tasks (each test runs on a fresh loop)."""
+    global _change_lock, _reconcile_task, _reconcile_requested, _reconcile_owner, _restore_task
     _change_lock = asyncio.Lock()
     _reconcile_task = None
     _reconcile_requested = False
     _reconcile_owner = "system"
+    _restore_task = None
+
+
+def start_restore_task(channel_id: str | None) -> None:
+    """Restore the saved Live channel in the background, so startup never waits on it.
+
+    Args:
+        channel_id: The liveChannelId from the state file; None restores nothing.
+    """
+    global _restore_task
+    if channel_id is not None:
+        _restore_task = asyncio.create_task(_restore_live_channel(channel_id))
+
+
+async def stop_restore_task() -> None:
+    """Cancel the restore task at shutdown and wait for it to finish."""
+    task = _restore_task
+    if task is None or task.done():
+        return
+    task.cancel()
+    with suppress(asyncio.CancelledError):
+        await task
+
+
+async def _restore_live_channel(channel_id: str) -> None:
+    """Re-resolve the saved Live id against the catalogue and put it back on quietly.
+
+    Retries while the catalogue is unavailable, then gives up with one INFO line.
+    An id the catalogue no longer has leaves Live empty and is cleared from the file.
+    A restore logs no channel.change and posts no chat line; clients get the
+    normal channel_update.
+    """
+    from app.services.media_source import resolve_media_channel
+
+    global _current_channel
+    for attempt in range(RESTORE_ATTEMPTS):
+        if attempt:
+            await asyncio.sleep(RESTORE_RETRY_SECONDS)
+        try:
+            async with asyncio.timeout(RESTORE_ATTEMPT_TIMEOUT_SECONDS):
+                resolved = await resolve_media_channel(channel_id)
+        except TimeoutError:
+            continue
+        except HTTPException as exc:
+            if exc.status_code == 503:
+                continue
+            async with _change_lock:
+                # Only forget the id if nobody has changed Live since
+                if state_store.current()["liveChannelId"] == channel_id:
+                    log.info("Saved Live channel {} no longer exists; Live left empty", channel_id)
+                    await state_store.save({"liveChannelId": None, "liveSetBy": None})
+            return
+
+        async with _change_lock:
+            # A Live change made while this was resolving wins over the saved one
+            if _current_channel is not None or state_store.current()["liveChannelId"] != channel_id:
+                return
+            channel = resolved.channel
+            _current_channel = channel
+            log.info("Live channel restored to '{}'", channel.name)
+            await broadcast_channel_update(channel)
+            if settings.highlight_enabled:
+                from app.services.highlight import highlight_service
+
+                _schedule_reconcile(highlight_service, "system")
+        return
+
+    log.info("Live channel {} not restored: the channel catalogue stayed unavailable", channel_id)
 
 
 def clear_current_channel() -> None:
@@ -167,6 +244,7 @@ async def clear_current_channel_async(user: str | None = None) -> None:
             log.info("Current channel cleared by user '{}'", user)
         else:
             log.info("Current channel cleared")
+        await state_store.save({"liveChannelId": None, "liveSetBy": None})
 
         # Broadcast to all connected clients, naming who stopped live TV
         await broadcast({"type": "channel_update", "channel": None, "changedBy": user})

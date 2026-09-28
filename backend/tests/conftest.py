@@ -66,6 +66,7 @@ def reset_module_state(monkeypatch):
     __import__("app.services.ersatztv", fromlist=["_"]).reset_state()
     __import__("app.services.media_limits").services.media_limits.reset_media_budgets()
     __import__("app.services.gauges", fromlist=["_"]).reset_gauges_task()
+    __import__("app.services.state_store", fromlist=["_"]).reset_state_store()
 
 
 @pytest.fixture(autouse=True)
