@@ -1955,6 +1955,77 @@ class TestNicknameTaken:
 
                 assert msg["username"] == "admin"
 
+    @pytest.mark.parametrize(
+        "nickname", ["Live TV", "live tv", "\uff21ce", "jo\u200bn", "\u200eJON\u200f"]
+    )
+    def test_system_name_nicknames_and_invisible_variants_are_refused(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch, nickname: str
+    ):
+        """'Live TV', another member's nickname and look-alikes of a sign-in name are taken."""
+        monkeypatch.setattr(settings, "chat_enabled", True)
+        jon = create_access_token({"sub": "jon", "role": "viewer"})
+        ace = create_access_token({"sub": "ace-account", "role": "viewer"})
+        other = create_access_token({"sub": "other", "role": "viewer"})
+
+        with ws_connect(client, jon) as ws1, ws_connect(client, ace) as ws2:
+            for ws in (ws1, ws2):
+                ws.receive_json()  # connection_ack
+                ws.receive_json()  # chat_history
+            ws2.send_json({"type": "set_nickname", "nickname": "Ace"})
+            ws2.send_json({"type": "ping"})
+            assert ws2.receive_json()["type"] == "pong"
+            with ws_connect(client, other) as ws3:
+                ws3.receive_json()  # connection_ack
+                ws3.receive_json()  # chat_history
+
+                ws3.send_json({"type": "set_nickname", "nickname": nickname})
+                ws3.send_json({"type": "ping"})
+                refusal = ws3.receive_json()
+                kept = presence_of("other").nickname
+
+        assert refusal["type"] == "error"
+        assert refusal["code"] == "nickname_taken"
+        assert kept is None
+
+    def test_nickname_is_stored_normalized(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Invisible characters are dropped and compatibility forms folded before storing."""
+        monkeypatch.setattr(settings, "chat_enabled", True)
+
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # connection_ack
+            ws.receive_json()  # chat_history
+
+            ws.send_json({"type": "set_nickname", "nickname": " \uff23ool\u200bCat\u0007 "})
+            ws.send_json({"type": "chat_message", "content": "Hi"})
+            msg = ws.receive_json()
+            stored = only_presence().nickname
+
+        assert msg["username"] == "CoolCat"
+        assert stored == "CoolCat"
+
+    def test_own_nickname_on_another_connection_is_allowed(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """A member's second tab may take the nickname their first tab uses."""
+        monkeypatch.setattr(settings, "chat_enabled", True)
+
+        with ws_connect(client, valid_token) as ws1, ws_connect(client, valid_token) as ws2:
+            for ws in (ws1, ws2):
+                ws.receive_json()  # connection_ack
+                ws.receive_json()  # chat_history
+            ws1.send_json({"type": "set_nickname", "nickname": "Ace"})
+            ws1.send_json({"type": "ping"})
+            assert ws1.receive_json()["type"] == "pong"
+
+            ws2.send_json({"type": "set_nickname", "nickname": "ace"})
+            ws2.send_json({"type": "ping"})
+            assert ws2.receive_json()["type"] == "pong"
+            nicknames = sorted(str(u.nickname) for u in presence._active_users.values())
+
+        assert nicknames == ["Ace", "ace"]
+
     def test_own_sign_in_name_is_allowed(
         self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
     ):

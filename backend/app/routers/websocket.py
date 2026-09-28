@@ -4,6 +4,7 @@ import asyncio
 import json
 import re
 import time
+import unicodedata
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -60,22 +61,43 @@ def _clear_nickname(client_id: str, websocket: WebSocket) -> None:
     _nickname_map.pop(client_id, None)
 
 
-def _is_another_members_name(nickname: str, username: str) -> bool:
-    """Whether a nickname is the sign-in name of another connected member.
+def _normalize_nickname(nickname: str) -> str:
+    """A requested nickname as it is compared, stored and shown.
 
-    Compared case-insensitively, so nobody can post as 'Jon' while jon is
-    here. Only members connected right now are known, so this is partial
-    protection: it can't reserve the names of people who are offline.
+    NFKC folds compatibility look-alikes (fullwidth letters, ligatures), and
+    format and control characters (zero-width spaces, bidi marks) are dropped,
+    so 'jo\u200bn' can't pass for 'jon'. Then trimmed and cut to length.
 
     Args:
-        nickname: The requested nickname (already trimmed).
-        username: The requester's own sign-in name, which they may always use.
+        nickname: The nickname as the client sent it.
+    """
+    folded = unicodedata.normalize("NFKC", nickname)
+    visible = "".join(ch for ch in folded if unicodedata.category(ch) not in ("Cf", "Cc"))
+    return visible.strip()[:MAX_NICKNAME_LENGTH]
+
+
+def _is_another_members_name(nickname: str, username: str) -> bool:
+    """Whether a nickname is another connected member's name, or the system's.
+
+    Compared normalized and case-insensitively against other members' sign-in
+    names and nicknames and chat.SYSTEM_USERNAME, so nobody can post as 'Jon'
+    while jon is here, or as 'Live TV'. Only members connected right now are
+    known, so this is partial protection: it can't reserve the names of
+    people who are offline.
+
+    Args:
+        nickname: The requested nickname (already normalized).
+        username: The requester's own sign-in name; they may always use it,
+            and keep a nickname one of their own connections already has.
     """
     folded = nickname.casefold()
-    return any(
-        user.username != username and user.username.casefold() == folded
-        for user in presence.get_active_users().values()
-    )
+    taken = {chat.SYSTEM_USERNAME}
+    for user in presence.get_active_users().values():
+        if user.username != username:
+            taken.add(user.username)
+            if user.nickname:
+                taken.add(user.nickname)
+    return any(_normalize_nickname(name).casefold() == folded for name in taken)
 
 
 def _channel_stamp(client_id: str) -> chat.ChannelStamp | None:
@@ -434,7 +456,7 @@ async def handle_client_message(
         )
     elif msg_type == "set_nickname":
         # Handle nickname setting for chat display name
-        nickname = validated.get("nickname", "").strip()[:MAX_NICKNAME_LENGTH]
+        nickname = _normalize_nickname(validated.get("nickname", ""))
         if nickname and _is_another_members_name(nickname, username):
             # Refused: the previous name (or the sign-in name) stays in use
             log.debug("Nickname refused for client {}: another member's name", client_id)
