@@ -9,6 +9,7 @@ from app.config import settings
 from app.models.auth import AuthConfigResponse, LoginRequest, TokenPayload, TokenResponse
 from app.models.plex import PlexAuthRequest, PlexUser
 from app.routers.auth_deps import get_current_user
+from app.services import plex
 from app.services.auth import JWT_EXPIRATION_DAYS, SESSION_MAX_AGE_DAYS, create_access_token
 from app.services.plex import (
     InvalidPlexTokenError,
@@ -142,6 +143,10 @@ async def _current_role(user: TokenPayload) -> str | None:
 
     Returns:
         The role, or None if no current sign-in method would admit this user.
+
+    Raises:
+        HTTPException: 503 if an admin Plex token can't be checked because the
+            plex.tv owner lookup got no answer.
     """
     if user.plex_id is None:
         if not settings.local_auth_enabled:
@@ -153,6 +158,19 @@ async def _current_role(user: TokenPayload) -> str | None:
         return None
     if not settings.plex_auth_enabled:
         return None
+    if (
+        user.role == "admin"
+        and settings.plex_server_token
+        and await plex.get_server_owner_id() is None
+    ):
+        # This may be the owner, and determine_role would fall back to the default
+        # role. Refuse for now rather than demote them: the client keeps its token
+        # and retries, and require_admin trusts the claim in the meantime.
+        log.warning("Refresh deferred for user {}: Plex owner lookup failed", user.sub)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Plex is not responding, try again shortly",
+        )
     return await determine_role(PlexUser(id=user.plex_id, username=user.sub, email=""))
 
 
@@ -173,6 +191,7 @@ async def refresh(current_user: TokenPayload = Depends(get_current_user)) -> Tok
     Raises:
         HTTPException: 401 if the session is past its cap or the user no
             longer has a way to sign in.
+        HTTPException: 503 if plex.tv can't confirm an admin Plex token's role.
     """
     # Tokens issued before auth_time existed were signed JWT_EXPIRATION_DAYS
     # before they expire
