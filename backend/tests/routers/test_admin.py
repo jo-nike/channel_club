@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi.dependencies.models import Dependant
+from fastapi.routing import APIRoute, RouteContext, iter_route_contexts
 from fastapi.testclient import TestClient
 from loguru import logger
 
@@ -17,7 +19,9 @@ from app.models.status import (
     ErsatzTVStatus,
     SystemStatusResponse,
 )
+from app.routers.auth_deps import require_admin
 from app.services import channel_state, chat, presence
+from app.services.auth import create_access_token
 
 if TYPE_CHECKING:
     from loguru import Record
@@ -421,8 +425,63 @@ class TestGetSystemStatus:
         assert data["epg"]["nextRetryAt"] is not None
 
 
+def _depends_on(dependant: Dependant, call: object) -> bool:
+    """Whether call appears anywhere in the dependant's dependency tree."""
+    return any(d.call is call or _depends_on(d, call) for d in dependant.dependencies)
+
+
+def _guarded_routes() -> list[RouteContext]:
+    # app.routes holds included routers unexpanded; iter_route_contexts flattens them
+    return [
+        route
+        for route in iter_route_contexts(app.routes)
+        if isinstance(route.original_route, APIRoute)
+        and route.path is not None
+        and route.methods is not None
+        and (
+            route.path.startswith("/api/admin")
+            or (route.path.startswith("/api/settings") and route.methods - {"GET", "HEAD"})
+        )
+    ]
+
+
+def test_route_inventory_finds_the_admin_routes() -> None:
+    """The inventory below is not vacuous: it sees the known admin routes."""
+    paths = {route.path for route in _guarded_routes()}
+    assert {"/api/admin/chat-history", "/api/admin/status", "/api/settings"} <= paths
+
+
+@pytest.mark.parametrize(
+    "route", _guarded_routes(), ids=lambda r: f"{','.join(sorted(r.methods))} {r.path}"
+)
+def test_every_admin_route_requires_admin(route: RouteContext) -> None:
+    """Every /api/admin route and every settings write depends on require_admin."""
+    assert _depends_on(route.dependant, require_admin)
+
+
 class TestClearChatHistory:
     """Tests for DELETE /api/admin/chat-history endpoint."""
+
+    def test_requires_authentication(self, client: TestClient) -> None:
+        """No token gets 401 and the history stays."""
+        chat.add_message("viewer", "keep me")
+
+        response = client.delete("/api/admin/chat-history")
+
+        assert response.status_code == 401
+        assert chat.get_history_count() == 1
+
+    def test_viewer_cannot_clear_chat_history(self, client: TestClient) -> None:
+        """A viewer token gets 403 and the history stays."""
+        chat.add_message("viewer", "keep me")
+        token = create_access_token({"sub": "viewer", "role": "viewer"})
+
+        response = client.delete(
+            "/api/admin/chat-history", headers={"Authorization": f"Bearer {token}"}
+        )
+
+        assert response.status_code == 403
+        assert chat.get_history_count() == 1
 
     def test_logs_admin_chat_cleared_event(
         self,
