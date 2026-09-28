@@ -5,7 +5,7 @@ import hmac
 import json
 import sys
 from collections.abc import Iterator
-from datetime import UTC
+from datetime import UTC, datetime, timedelta
 from io import StringIO
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -33,6 +33,18 @@ def expected_user_id(account: str) -> str:
     """The chat id the server should derive for an account key ('plex:<id>' or 'local:<sub>')."""
     digest = hmac.new(settings.jwt_secret.encode(), account.encode(), hashlib.sha256)
     return "u_" + digest.hexdigest()[:16]
+
+
+def only_presence() -> presence.UserPresence:
+    """The one tracked connection (its key is server-generated)."""
+    (user,) = presence._active_users.values()
+    return user
+
+
+def presence_of(username: str) -> presence.UserPresence:
+    """The one tracked connection of a user."""
+    (user,) = [u for u in presence._active_users.values() if u.username == username]
+    return user
 
 
 @pytest.fixture
@@ -139,11 +151,11 @@ class TestWebSocketConnection:
     ):
         """Presence and the broadcast list stay empty until the socket authenticates."""
         with client.websocket_connect("/api/ws?session_id=pending") as ws:
-            assert "pending" not in presence._active_users
+            assert not presence._active_users
             assert channel_state.get_connection_count() == 0
             ws.send_json({"type": "auth", "token": valid_token})
             assert ws.receive_json()["type"] == "connection_ack"
-            assert "pending" in presence._active_users
+            assert len(presence._active_users) == 1
             assert channel_state.get_connection_count() == 1
 
     def test_websocket_expired_token_rejects_connection(self, client: TestClient):
@@ -176,7 +188,7 @@ class TestLegacyQueryToken:
     def test_valid_query_token_is_acknowledged(self, client: TestClient, valid_token: str):
         with client.websocket_connect(f"/api/ws?token={valid_token}&session_id=legacy") as ws:
             assert ws.receive_json()["type"] == "connection_ack"
-            assert "legacy" in presence._active_users
+            assert len(presence._active_users) == 1
 
     def test_invalid_query_token_is_closed_with_4001(self, client: TestClient):
         with (
@@ -798,7 +810,7 @@ class TestPresenceTracking:
         with ws_connect(client, valid_token, session_id="s1") as ws:
             ws.receive_json()  # Consume connection_ack
 
-            assert presence._active_users["s1"].user_id == expected_user_id("local:testuser")
+            assert only_presence().user_id == expected_user_id("local:testuser")
 
     def test_nickname_is_recorded_in_presence(
         self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
@@ -811,13 +823,13 @@ class TestPresenceTracking:
             ws.send_json({"type": "ping"})
             assert ws.receive_json()["type"] == "pong"
 
-            assert presence._active_users["s1"].nickname == "Jonny"
+            assert only_presence().nickname == "Jonny"
 
             ws.send_json({"type": "set_nickname", "nickname": ""})
             ws.send_json({"type": "ping"})
             assert ws.receive_json()["type"] == "pong"
 
-            assert presence._active_users["s1"].nickname is None
+            assert only_presence().nickname is None
 
     def test_refused_nickname_is_not_recorded_in_presence(
         self,
@@ -835,7 +847,7 @@ class TestPresenceTracking:
                 ws2.send_json({"type": "set_nickname", "nickname": "testuser"})
                 assert ws2.receive_json()["code"] == "nickname_taken"
 
-                assert presence._active_users["a1"].nickname is None
+                assert presence_of("admin").nickname is None
 
     def test_presence_prefs_set_hide_activity(
         self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
@@ -848,13 +860,31 @@ class TestPresenceTracking:
             ws.send_json({"type": "ping"})
             assert ws.receive_json()["type"] == "pong"
 
-            assert presence._active_users["s1"].hide_activity is True
+            assert only_presence().hide_activity is True
 
             ws.send_json({"type": "set_presence_prefs", "hideActivity": False})
             ws.send_json({"type": "ping"})
             assert ws.receive_json()["type"] == "pong"
 
-            assert presence._active_users["s1"].hide_activity is False
+            assert only_presence().hide_activity is False
+
+    def test_hide_preference_in_the_auth_message_covers_the_first_channel(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """A hider's channel_update sent right after auth is never shown to others."""
+        monkeypatch.setattr(settings, "chat_enabled", False)
+        monkeypatch.setattr(app_settings, "_presence_visible", True)
+        with client.websocket_connect("/api/ws?session_id=0badcafe") as ws:
+            ws.send_json({"type": "auth", "token": valid_token, "hideActivity": True})
+            ws.send_json({"type": "channel_update", "channel": "RDS", "view": "live"})
+            assert ws.receive_json()["type"] == "connection_ack"
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json()["type"] == "pong"
+
+            user = only_presence()
+            assert user.current_channel == "RDS"  # The admin list still has it
+            assert presence_broadcast.shown_channel(user.connection_id) is None
+            assert [entry["channelName"] for entry in presence_broadcast.build_snapshot()] == [None]
 
     @pytest.mark.parametrize(
         "message",
@@ -879,7 +909,7 @@ class TestPresenceTracking:
             ws.send_json(message)
 
             assert ws.receive_json() == {"type": "error", "code": "invalid_message"}
-            assert presence._active_users["s1"].hide_activity is False
+            assert only_presence().hide_activity is False
 
     def test_multiple_users_tracked(self, client: TestClient, valid_token: str, admin_token: str):
         """Multiple users should be tracked separately."""
@@ -902,6 +932,100 @@ class TestPresenceTracking:
 
         # ws1 closed
         assert len(presence._active_users) == 0
+
+
+class TestPresenceKeys:
+    """Presence is keyed per connection by the server, never by the client's session_id."""
+
+    @staticmethod
+    def set_nickname(ws, nickname: str) -> None:
+        ws.send_json({"type": "set_nickname", "nickname": nickname})
+        ws.send_json({"type": "ping"})
+        assert ws.receive_json()["type"] == "pong"
+
+    def test_duplicated_tab_keeps_both_connections(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Two sockets sending the same session_id (Duplicate tab) keep their own entries."""
+        monkeypatch.setattr(settings, "chat_enabled", False)
+        with ws_connect(client, valid_token, session_id="0badcafe") as first:
+            first.receive_json()  # connection_ack
+            self.set_nickname(first, "First")
+            with ws_connect(client, valid_token, session_id="0badcafe") as second:
+                second.receive_json()  # connection_ack
+                self.set_nickname(second, "Second")
+
+                assert sorted(u.nickname or "" for u in presence._active_users.values()) == [
+                    "First",
+                    "Second",
+                ]
+
+            assert only_presence().nickname == "First"
+            assert [name for _, name in websocket_router._nickname_map.values()] == ["First"]
+
+    def test_another_user_with_the_same_session_id_takes_nothing_over(
+        self,
+        client: TestClient,
+        valid_token: str,
+        admin_token: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Reusing someone's session_id neither evicts them nor renames them."""
+        monkeypatch.setattr(settings, "chat_enabled", False)
+        with ws_connect(client, valid_token, session_id="0badcafe") as victim:
+            victim.receive_json()  # connection_ack
+            self.set_nickname(victim, "Victim")
+            with ws_connect(client, admin_token, session_id="0badcafe") as other:
+                other.receive_json()  # connection_ack
+                self.set_nickname(other, "Impostor")
+
+                assert presence_of("testuser").nickname == "Victim"
+                assert presence_of("admin").nickname == "Impostor"
+
+            assert presence_of("testuser").nickname == "Victim"
+            assert [name for _, name in websocket_router._nickname_map.values()] == ["Victim"]
+
+    def test_stale_sweep_closes_the_socket_with_4000(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """A swept connection is closed, so its client reconnects; nothing is left behind."""
+        monkeypatch.setattr(settings, "chat_enabled", False)
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # connection_ack
+            self.set_nickname(ws, "Sleepy")
+            only_presence().last_activity_mono -= presence.STALE_USER_TIMEOUT_SECONDS + 1
+
+            assert client.portal is not None
+            assert client.portal.call(presence.cleanup_stale_users) == 1
+
+            ws.send_json({"type": "ping"})
+            with pytest.raises(WebSocketDisconnect) as closed:
+                ws.receive_json()
+            assert closed.value.code == 4000
+        assert not presence._active_users
+        assert not websocket_router._nickname_map
+        assert channel_state.get_connection_count() == 0
+
+    def test_any_valid_message_refreshes_activity(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """A channel_update, not only a ping, shows the connection is in use."""
+        monkeypatch.setattr(settings, "chat_enabled", False)
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # connection_ack
+            old = datetime.now(UTC) - timedelta(hours=1)
+            user = only_presence()
+            user.last_activity = old
+            user.last_activity_mono -= 3600
+            old_mono = user.last_activity_mono
+
+            ws.send_json({"type": "channel_update", "channel": "RDS", "view": "live"})
+            # An invalid message is answered without refreshing, and after the update
+            ws.send_json({"type": "set_presence_prefs"})
+            assert ws.receive_json()["code"] == "invalid_message"
+
+            assert user.last_activity > old
+            assert user.last_activity_mono > old_mono
 
 
 class TestChatMessages:
@@ -1893,15 +2017,15 @@ def test_sec05_invalid_messages_cannot_poison_presence(client, valid_token, admi
             "/api/admin/active-users", headers={"Authorization": f"Bearer {admin_token}"}
         )
         assert response.status_code == 200
-        assert presence._active_users["validated"].current_channel is None
+        assert only_presence().current_channel is None
         ws.send_json({"type": "channel_update", "channel": "Channel", "programme": "Programme"})
         ws.send_json({"type": "ping"})
         assert ws.receive_json()["type"] == "pong"
-        assert presence._active_users["validated"].current_programme == "Programme"
+        assert only_presence().current_programme == "Programme"
         ws.send_json({"type": "channel_update", "channel": None, "programme": None})
         ws.send_json({"type": "ping"})
         assert ws.receive_json()["type"] == "pong"
-        assert presence._active_users["validated"].current_programme is None
+        assert only_presence().current_programme is None
 
 
 def test_sec05_oversize_message_closes_before_mutation(client, valid_token):
@@ -1949,8 +2073,8 @@ def test_sec06_socket_expires_and_cleans_all_state(client, monkeypatch, active):
         with pytest.raises(WebSocketDisconnect) as error:
             ws.receive_json()
         assert error.value.code == 4001
-    assert "expiring" not in presence._active_users
-    assert "expiring" not in websocket_router._nickname_map
+    assert not presence._active_users
+    assert not websocket_router._nickname_map
     assert channel_state.get_connection_count() == 0
     assert [message.content for message in chat.get_history()] == (
         ["before expiry"] if active else []
@@ -1988,7 +2112,7 @@ def test_reauth_moves_the_deadline_past_the_first_expiry(client, monkeypatch):
         time.sleep(0.5)
         ws.send_json({"type": "ping"})
         assert ws.receive_json() == {"type": "pong"}
-        assert "renewing" in presence._active_users
+        assert len(presence._active_users) == 1
     assert handled == ["ping"]
 
 
@@ -2010,7 +2134,7 @@ def test_reauth_for_another_account_or_invalid_token_closes_4001(client, valid_t
         with pytest.raises(WebSocketDisconnect) as error:
             ws.receive_json()
         assert error.value.code == 4001
-    assert "reauth" not in presence._active_users
+    assert not presence._active_users
     assert channel_state.get_connection_count() == 0
 
 
@@ -2064,8 +2188,9 @@ async def test_sec07_failed_broadcast_closes_and_cleans_endpoint(monkeypatch, va
         await asyncio.sleep(0)
         if channel_state.get_connection_count():
             break
+    (client_id,) = presence._active_users
     await websocket_router.handle_client_message(
-        ws, {"type": "set_nickname", "nickname": "temp"}, "failed", "user", "u_0123456789abcdef"
+        ws, {"type": "set_nickname", "nickname": "temp"}, client_id, "user", "u_0123456789abcdef"
     )
     healthy = MagicMock()
     healthy.application_state = WebSocketState.CONNECTED
@@ -2075,9 +2200,9 @@ async def test_sec07_failed_broadcast_closes_and_cleans_endpoint(monkeypatch, va
     with pytest.raises(asyncio.CancelledError):
         await task
     ws.close.assert_awaited_once_with(code=1011, reason="Broadcast failed; reconnect")
-    cleanup.assert_called_once_with("failed", ws)
-    assert "failed" not in presence._active_users
-    assert "failed" not in websocket_router._nickname_map
+    cleanup.assert_called_once_with(client_id, ws)
+    assert not presence._active_users
+    assert not websocket_router._nickname_map
     await channel_state.broadcast({"type": "resynchronized"})
     assert healthy.send_text.await_count == 2
     assert ws.send_text.await_count == 1

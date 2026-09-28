@@ -1,15 +1,15 @@
 /**
- * Session ID management for presence tracking.
+ * Session ID management for the WebSocket connection's logs.
  *
- * Generates a unique session ID per browser tab that persists across
- * view switches (Live TV ↔ ErsatzTV) but is unique per tab.
- * This prevents duplicate user entries when switching views.
+ * Generates a session ID per browser tab that persists across view switches
+ * (Live TV ↔ ErsatzTV). The server only logs it: presence is keyed by an id
+ * the server generates for each connection.
  */
 
 const SESSION_ID_KEY = 'iptv_session_id'
 
 function generateSessionId(): string {
-  // Generate a random 8-character hex string (matches server's uuid[:8] format)
+  // Generate a random 8-character hex string (the only shape the server logs)
   const array = new Uint8Array(4)
   crypto.getRandomValues(array)
   return Array.from(array, (b) => b.toString(16).padStart(2, '0')).join('')

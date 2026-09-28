@@ -63,10 +63,15 @@ class SuggestMessage(ClientMessage):
 
 
 class AuthMessage(ClientMessage):
-    """The first frame on a new socket: the session token, kept out of the URL."""
+    """The first frame on a new socket: the session token, kept out of the URL.
+
+    hideActivity comes with it, so a person who hides what they watch is
+    tracked as hidden before their first channel_update can be shown.
+    """
 
     type: Literal["auth"]
     token: InputText
+    hideActivity: bool = False
 
 
 class ReauthMessage(ClientMessage):

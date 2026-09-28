@@ -320,7 +320,7 @@ class TestScheduleBroadcast:
         schedule = MagicMock()
         monkeypatch.setattr(presence_broadcast, "schedule_broadcast", schedule)
         presence.track_user("gone", "ghost", "live")
-        presence._active_users["gone"].last_activity = datetime.now(UTC) - timedelta(hours=1)
+        presence._active_users["gone"].last_activity_mono -= 3600
 
         presence.cleanup_stale_users()
 

@@ -33,8 +33,8 @@ def test_signed_jwt_deadline_closes_idle_socket_and_rejects_reuse(monkeypatch):
             ws.receive_json()
         assert closed.value.code == 4001
         assert time.time() >= expiry
-    assert "signed-expiry" not in presence._active_users
-    assert "signed-expiry" not in websocket._nickname_map
+    assert not presence._active_users
+    assert not websocket._nickname_map
     assert not channel_state._active_connections
     assert len(chat.get_history()) == before
     # jose's integer timestamp compatibility permits the equality second;

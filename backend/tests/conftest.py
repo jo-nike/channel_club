@@ -53,6 +53,7 @@ def reset_module_state(monkeypatch):
     nhl.clear_nhl_cache()
     chat.clear_history()
     presence._active_users.clear()
+    presence._stale_closes.clear()
     channel_state.clear_current_channel()
     plex.clear_server_owner_id_cache()
     highlight_service.clear_start_backoff()

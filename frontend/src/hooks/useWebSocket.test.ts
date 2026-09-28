@@ -176,7 +176,7 @@ describe('useWebSocket', () => {
       })
 
       expect(ws.send).toHaveBeenCalledTimes(1)
-      expect(JSON.parse(ws.send.mock.calls[0][0])).toEqual({ type: 'auth', token: 'test-jwt-token' })
+      expect(JSON.parse(ws.send.mock.calls[0][0])).toEqual({ type: 'auth', token: 'test-jwt-token', hideActivity: false })
     })
 
     test('does not connect when no token exists', () => {
@@ -621,7 +621,7 @@ describe('useWebSocket', () => {
       act(() => {
         MockWebSocket.instances[6].simulateOpen()
       })
-      expect(JSON.parse(MockWebSocket.instances[6].send.mock.calls[0][0])).toEqual({ type: 'auth', token: 'refreshed-jwt-token' })
+      expect(JSON.parse(MockWebSocket.instances[6].send.mock.calls[0][0])).toEqual({ type: 'auth', token: 'refreshed-jwt-token', hideActivity: false })
       act(() => {
         vi.advanceTimersByTime(120000)
       })
@@ -975,7 +975,7 @@ describe('useWebSocket', () => {
       act(() => {
         MockWebSocket.instances[1].simulateOpen()
       })
-      expect(JSON.parse(MockWebSocket.instances[1].send.mock.calls[0][0])).toEqual({ type: 'auth', token: 'refreshed-jwt-token' })
+      expect(JSON.parse(MockWebSocket.instances[1].send.mock.calls[0][0])).toEqual({ type: 'auth', token: 'refreshed-jwt-token', hideActivity: false })
       expect(useAuthStore.getState().isAuthenticated).toBe(true)
     })
 
@@ -1909,26 +1909,27 @@ describe('useWebSocket', () => {
       expect(useSettingsStore.getState().presenceVisible).toBe(false)
     })
 
-    const presencePrefs = (ws: MockWebSocket) =>
-      ws.send.mock.calls
-        .map(([data]) => JSON.parse(data as string) as { type: string; hideActivity?: boolean })
-        .filter((message) => message.type === 'set_presence_prefs')
+    const sent = (ws: MockWebSocket) =>
+      ws.send.mock.calls.map(([data]) => JSON.parse(data as string) as { type: string; hideActivity?: boolean })
+    const presencePrefs = (ws: MockWebSocket) => sent(ws).filter((message) => message.type === 'set_presence_prefs')
+    const authHide = (ws: MockWebSocket) => sent(ws).find((message) => message.type === 'auth')?.hideActivity
 
-    test('tells the server to hide after connection_ack, not on open', () => {
+    test('tells the server to hide in the auth message, before any channel_update', () => {
       useUIStore.setState({ hideMyActivity: true })
       const { ws } = connect()
-      expect(presencePrefs(ws)).toEqual([])
+
+      expect(authHide(ws)).toBe(true)
 
       act(() => ws.simulateMessage({ type: 'connection_ack', currentChannel: null, presence: [] }))
 
-      expect(presencePrefs(ws)).toEqual([{ type: 'set_presence_prefs', hideActivity: true }])
+      expect(presencePrefs(ws)).toEqual([])
     })
 
-    test('sends nothing after connection_ack for someone who shares (the server default)', () => {
+    test('says so in the auth message for someone who shares', () => {
       const { ws } = connect()
-
       act(() => ws.simulateMessage({ type: 'connection_ack', currentChannel: null, presence: [] }))
 
+      expect(authHide(ws)).toBe(false)
       expect(presencePrefs(ws)).toEqual([])
     })
 
@@ -1945,7 +1946,7 @@ describe('useWebSocket', () => {
       ])
     })
 
-    test('keeps a change made while offline and sends it with the next connection_ack', () => {
+    test('keeps a change made while offline and sends it with the next auth message', () => {
       renderHook(() => useWebSocket())
       const ws = MockWebSocket.instances[0]
 
@@ -1953,9 +1954,8 @@ describe('useWebSocket', () => {
       expect(ws.send).not.toHaveBeenCalled()
 
       act(() => ws.simulateOpen())
-      act(() => ws.simulateMessage({ type: 'connection_ack', currentChannel: null, presence: [] }))
 
-      expect(presencePrefs(ws)).toEqual([{ type: 'set_presence_prefs', hideActivity: true }])
+      expect(authHide(ws)).toBe(true)
     })
 
     test('hides again on every reconnect', () => {
@@ -1966,9 +1966,8 @@ describe('useWebSocket', () => {
       act(() => result.current.reconnect())
       const second = MockWebSocket.instances[1]
       act(() => second.simulateOpen())
-      act(() => second.simulateMessage({ type: 'connection_ack', currentChannel: null, presence: [] }))
 
-      expect(presencePrefs(second)).toEqual([{ type: 'set_presence_prefs', hideActivity: true }])
+      expect(authHide(second)).toBe(true)
     })
 
     test('forgets who is here on sign-out or unmount', () => {

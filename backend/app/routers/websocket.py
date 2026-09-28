@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import re
 import time
 from uuid import uuid4
 
@@ -33,6 +34,8 @@ _nickname_map: dict[str, tuple[WebSocket, str]] = {}
 MAX_NICKNAME_LENGTH = 30
 # How long a new socket may take to send its auth message
 AUTH_TIMEOUT_SECONDS = 5
+# The tab id the client generates (sessionId.ts); anything else is not logged
+_TAB_ID = re.compile(r"[0-9a-f]{8}")
 
 
 def _clear_nickname(client_id: str, websocket: WebSocket) -> None:
@@ -155,15 +158,15 @@ async def verify_websocket_token(token: str) -> dict | None:
         return None
 
 
-async def _receive_auth_token(websocket: WebSocket) -> str | None:
-    """Wait for the first frame and take the token from its auth message.
+async def _receive_auth(websocket: WebSocket) -> AuthMessage | None:
+    """Wait for the first frame and parse it as the auth message.
 
     Args:
         websocket: The accepted, not yet authenticated WebSocket.
 
     Returns:
-        The token, or None when the first frame is late, oversize or not an
-        auth message.
+        The auth message (token and hide preference), or None when the first
+        frame is late, oversize or not an auth message.
 
     Raises:
         WebSocketDisconnect: If the client leaves before sending anything.
@@ -179,7 +182,7 @@ async def _receive_auth_token(websocket: WebSocket) -> str | None:
     if data is None or len(data.encode("utf-8")) > MAX_MESSAGE_BYTES:
         return None
     try:
-        return AuthMessage.model_validate_json(data).token
+        return AuthMessage.model_validate_json(data)
     except ValidationError:
         return None
 
@@ -238,25 +241,30 @@ async def websocket_endpoint(
             predate first-message auth. Without it, the first frame must be
             {"type": "auth", "token": ...}.
         view: View type ("live" or "ersatztv"), defaults to "live".
-        session_id: Client session ID for presence tracking (prevents duplicates on view switch).
+        session_id: The client's tab id, only logged (8 hex characters, else dropped).
     """
-    # Use session_id if provided, otherwise generate a unique client ID
-    # Session ID allows same-tab view switches to replace old presence entry
-    client_id = session_id if session_id else str(uuid4())[:8]
+    # Presence and nicknames are keyed by a server id per connection, never by
+    # the client's session_id: a duplicated tab or another account can send the same one
+    client_id = uuid4().hex[:16]
+    tab_id = session_id if _TAB_ID.fullmatch(session_id) else None
 
     # Accept before validating: closing a WebSocket before the handshake
     # completes is turned into a plain HTTP 403, so the client would see 1006
     # instead of the 4001 auth-failure code it acts on.
     await websocket.accept()
 
+    # A ?token= socket (an older bundle) is visible until its set_presence_prefs
+    hide_activity = False
     if token is None:
         # The token comes in the first frame, so it never appears in a URL
         # (and so in no proxy access log). Nothing is tracked until it checks out.
         try:
-            token = await _receive_auth_token(websocket)
+            auth = await _receive_auth(websocket)
         except WebSocketDisconnect:
             log.debug("WebSocket closed before auth: client {}", client_id)
             return
+        if auth is not None:
+            token, hide_activity = auth.token, auth.hideActivity
 
     payload = await verify_websocket_token(token) if token else None
     if not payload or time.time() >= payload["exp"]:
@@ -264,7 +272,9 @@ async def websocket_endpoint(
         await websocket.close(code=4001, reason="Invalid token")
         return
 
-    log.info("WebSocket connected: client {} (user={})", client_id, payload.get("sub"))
+    log.info(
+        "WebSocket connected: client {} (user={}, tab={})", client_id, payload.get("sub"), tab_id
+    )
     user_id = chat.user_id_for(payload["sub"], payload.get("plex_id"))
 
     # Track the accepted connection
@@ -278,6 +288,7 @@ async def websocket_endpoint(
         view=view_type,
         websocket=websocket,
         user_id=user_id,
+        hide_activity=hide_activity,
     )
     presence_broadcast.schedule_broadcast()
 
@@ -399,10 +410,11 @@ async def handle_client_message(
         return
 
     msg_type = validated.get("type")
+    # Any valid message shows the connection is in use, not only a ping
+    presence.update_last_activity(client_id)
 
     if msg_type == "ping":
         log.debug("Ping from client {}, sending pong", client_id)
-        presence.update_last_activity(client_id)
         await websocket.send_json({"type": "pong"})
     elif msg_type == "channel_update":
         channel = validated.get("channel")

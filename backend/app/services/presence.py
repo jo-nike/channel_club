@@ -4,13 +4,15 @@ This service maintains in-memory tracking of all connected users,
 their view type (live/ersatztv), and current channel.
 The state resets on server restart (acceptable for this use case).
 
-Every session and channel change is also emitted as a structured INFO log
-event (``session.start``, ``session.stop``, ``watch.start``, ``watch.stop``)
-with bound fields, so viewing history can be queried from the log store
+Every session, channel and programme change is also emitted as a structured
+INFO log event (``session.start``, ``session.stop``, ``watch.start``,
+``watch.stop``, ``programme.change``, ``programme.stop``) with bound fields,
+so viewing history can be queried from the log store
 (Loki: ``| json | record_extra_event="watch.stop"``) without a database.
 """
 
 import asyncio
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Literal
@@ -22,6 +24,16 @@ from loguru import logger
 log = logger.bind(service="presence")
 
 View = Literal["live", "ersatztv"]
+
+
+def _now() -> datetime:
+    """Wall-clock time, for display and logged durations (tests patch this)."""
+    return datetime.now(UTC)
+
+
+def _monotonic() -> float:
+    """Monotonic time, for staleness: a host clock step can't age anyone (tests patch this)."""
+    return time.monotonic()
 
 
 @dataclass
@@ -37,11 +49,12 @@ class UserPresence:
     current_channel: str | None = None
     current_channel_id: str | None = None
     current_programme: str | None = None
-    programme_seen: bool = False  # A title was known at some point in the current watch
     channel_since: datetime | None = None
-    connected_since: datetime = field(default_factory=lambda: datetime.now(UTC))
-    last_activity: datetime = field(default_factory=lambda: datetime.now(UTC))
-    websocket: WebSocket | None = None  # For potential future use
+    programme_since: datetime | None = None  # Start of the current titled programme segment
+    connected_since: datetime = field(default_factory=lambda: _now())
+    last_activity: datetime = field(default_factory=lambda: _now())
+    last_activity_mono: float = field(default_factory=lambda: _monotonic())  # For staleness
+    websocket: WebSocket | None = None  # Closed if a stale sweep removes the entry
 
 
 # In-memory store keyed by connection_id
@@ -57,16 +70,41 @@ def _seconds_since(start: datetime | None, end: datetime | None = None) -> float
     if start is None:
         return 0.0
     # A watch can start after the last ping, so an end at that ping is before it
-    return max(0.0, round(((end or datetime.now(UTC)) - start).total_seconds(), 1))
+    return max(0.0, round(((end or _now()) - start).total_seconds(), 1))
+
+
+def _close_programme(user: UserPresence, end: datetime | None = None) -> None:
+    """Emit programme.stop for the titled segment that just ended, if one is open.
+
+    ``end`` is when the segment ended, if not now.
+    """
+    if user.current_programme is None or user.programme_since is None:
+        return
+    duration = _seconds_since(user.programme_since, end)
+    _emit(
+        "programme.stop",
+        f"User {user.username} stopped watching {user.current_programme} "
+        f"on {user.current_channel} after {duration}s",
+        user=user.username,
+        session=user.connection_id,
+        view=user.view,
+        channel=user.current_channel,
+        channel_id=user.current_channel_id,
+        programme=user.current_programme,
+        duration_s=duration,
+    )
+    user.programme_since = None
 
 
 def _close_watch(user: UserPresence, reason: str, end: datetime | None = None) -> None:
     """Emit watch.stop for the user's current channel, if any, and clear it.
 
-    ``end`` is when the watch ended, if not now (a stale sweep passes the last ping).
+    An open programme segment is closed first with programme.stop. ``end`` is
+    when the watch ended, if not now (a stale sweep passes the last message).
     """
     if user.current_channel is None and user.current_channel_id is None:
         return
+    _close_programme(user, end)
     duration = _seconds_since(user.channel_since, end)
     _emit(
         "watch.stop",
@@ -84,7 +122,6 @@ def _close_watch(user: UserPresence, reason: str, end: datetime | None = None) -
     user.current_channel = None
     user.current_channel_id = None
     user.current_programme = None
-    user.programme_seen = False
     user.channel_since = None
 
 
@@ -109,37 +146,28 @@ def track_user(
     view: View,
     websocket: WebSocket | None = None,
     user_id: str | None = None,
+    hide_activity: bool = False,
 ) -> UserPresence:
     """Track a new user connection.
 
     Args:
-        connection_id: Unique identifier for this connection (session_id from client).
+        connection_id: Server-generated id for this connection, never the client's.
         username: The authenticated username.
         view: The view type ("live" or "ersatztv").
-        websocket: Optional WebSocket reference for future use.
+        websocket: The connection's WebSocket, closed if a stale sweep removes it.
         user_id: The account's opaque chat id, used to group a person's connections.
+        hide_activity: Whether the person hides what they watch, known at connect.
 
     Returns:
         The created UserPresence object.
     """
-    # Check if this session was already tracked (view switch in same tab)
-    if connection_id in _active_users:
-        old_user = _active_users[connection_id]
-        log.info(
-            "Session {} ({}) switching from {} to {} view",
-            connection_id,
-            username,
-            old_user.view,
-            view,
-        )
-        _close_session(old_user, "view_switch")
-
     user_presence = UserPresence(
         connection_id=connection_id,
         username=username,
         view=view,
         websocket=websocket,
         user_id=user_id,
+        hide_activity=hide_activity,
     )
     _active_users[connection_id] = user_presence
     _emit(
@@ -184,9 +212,9 @@ def update_user_channel(
     """Update user's current channel, programme, and optionally view type.
 
     Emits ``watch.stop`` / ``watch.start`` only when the channel itself changes.
-    The first title to arrive during a watch that started without one (the guide
-    loads after the switch) emits ``programme.change``. Later programme title
-    rollovers on the same channel update state silently.
+    On the same channel, a title change ends the titled segment that was open
+    (``programme.stop`` with its duration), and each new non-null title emits
+    ``programme.change``. Null titles start nothing.
 
     Args:
         connection_id: The connection ID to update.
@@ -202,6 +230,13 @@ def update_user_channel(
     channel_changed = channel_name != user.current_channel or channel_id != user.current_channel_id
     if channel_changed:
         _close_watch(user, "switch" if channel_name is not None else "cleared")
+    title_changed = (
+        not channel_changed
+        and user.current_channel is not None
+        and programme_title != user.current_programme
+    )
+    if title_changed:
+        _close_programme(user)
 
     # Update view type if provided (unified view switching between live/ersatztv)
     if view is not None and view in ("live", "ersatztv") and user.view != view:
@@ -213,16 +248,10 @@ def update_user_channel(
         )
         user.view = view
 
-    first_title = (
-        not channel_changed
-        and user.current_channel is not None
-        and not user.programme_seen
-        and programme_title is not None
-    )
     user.current_programme = programme_title
 
-    if first_title:
-        user.programme_seen = True
+    if title_changed and programme_title is not None:
+        user.programme_since = _now()
         _emit(
             "programme.change",
             f"User {user.username} watching {user.current_channel}: {programme_title}",
@@ -237,8 +266,8 @@ def update_user_channel(
     if channel_changed and channel_name is not None:
         user.current_channel = channel_name
         user.current_channel_id = channel_id
-        user.programme_seen = programme_title is not None
-        user.channel_since = datetime.now(UTC)
+        user.channel_since = _now()
+        user.programme_since = user.channel_since if programme_title is not None else None
         _emit(
             "watch.start",
             f"User {user.username} now watching: {channel_name} - {programme_title} "
@@ -300,14 +329,16 @@ def get_users_by_view(view: View) -> list[UserPresence]:
 def update_last_activity(connection_id: str) -> None:
     """Update the last activity timestamp for a user.
 
-    Called when the server receives a ping from the client to indicate
-    the connection is still active.
+    Called for every valid message from the client (pings included), so a
+    connection that is in use is never swept as stale.
 
     Args:
         connection_id: The connection ID to update.
     """
     if connection_id in _active_users:
-        _active_users[connection_id].last_activity = datetime.now(UTC)
+        user = _active_users[connection_id]
+        user.last_activity = _now()
+        user.last_activity_mono = _monotonic()
 
 
 # Default timeout for stale user cleanup (60 seconds)
@@ -318,16 +349,54 @@ STALE_USER_TIMEOUT_SECONDS = 60
 # tab that vanished without closing its socket is gone within about 90s.
 CLEANUP_INTERVAL_SECONDS = 30
 
+# How long closing a stale connection's socket may take
+STALE_CLOSE_TIMEOUT_SECONDS = 5.0
+
 # Strong reference to the running cleanup task (the event loop only keeps a
 # weak one)
 _cleanup_task: asyncio.Task | None = None
 
+# Closes of stale sockets still in flight, held for the same reason
+_stale_closes: set[asyncio.Task] = set()
+
+
+async def _close_stale_socket(websocket: WebSocket) -> None:
+    """Close a swept connection's socket with 4000, so its client reconnects.
+
+    Args:
+        websocket: The stale connection's WebSocket.
+    """
+    # Import here to avoid a circular dependency (channel_state imports chat,
+    # which imports presence)
+    from app.services import channel_state
+
+    # Remove from broadcasts before awaiting transport shutdown. The close
+    # ends the endpoint's receive, and its cleanup finds the entry already gone.
+    channel_state.disconnect(websocket)
+    try:
+        await asyncio.wait_for(
+            websocket.close(code=4000, reason="stale"), timeout=STALE_CLOSE_TIMEOUT_SECONDS
+        )
+    except Exception:
+        log.debug("Stale connection transport could not close")
+
+
+async def stop_stale_closes() -> None:
+    """Cancel the stale-socket closes still in flight (app shutdown)."""
+    tasks = list(_stale_closes)
+    _stale_closes.clear()
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+
 
 def cleanup_stale_users(timeout_seconds: int = STALE_USER_TIMEOUT_SECONDS) -> int:
-    """Remove users who haven't sent a ping within the timeout period.
+    """Remove users who haven't sent a message within the timeout period.
 
     This handles cases where a browser crashes or network fails without
-    proper WebSocket disconnect.
+    proper WebSocket disconnect. A socket that is still open is closed with
+    code 4000, so the client reconnects and registers again instead of
+    staying connected with no presence.
 
     Args:
         timeout_seconds: Seconds of inactivity before a user is considered stale.
@@ -335,16 +404,20 @@ def cleanup_stale_users(timeout_seconds: int = STALE_USER_TIMEOUT_SECONDS) -> in
     Returns:
         The number of stale users removed.
     """
-    now = datetime.now(UTC)
+    now = _monotonic()
     stale = [
         cid
         for cid, user in _active_users.items()
-        if (now - user.last_activity).total_seconds() > timeout_seconds
+        if now - user.last_activity_mono > timeout_seconds
     ]
     for cid in stale:
         user = _active_users.pop(cid, None)
         if user:
-            # The tab went quiet at its last ping, not at this sweep
+            if user.websocket is not None:
+                task = asyncio.create_task(_close_stale_socket(user.websocket))
+                _stale_closes.add(task)
+                task.add_done_callback(_stale_closes.discard)
+            # The tab went quiet at its last message, not at this sweep
             _close_session(user, "stale", user.last_activity)
     if stale:
         # Import here to avoid a circular dependency (presence_broadcast reads presence)
