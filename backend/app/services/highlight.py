@@ -435,6 +435,9 @@ CAPTURE_TTL_SECONDS = 15 * 60
 # A download link only has to last until the browser follows it.
 DOWNLOAD_TOKEN_TTL_SECONDS = 60
 
+# One Plex account on a phone and a TV clips independently; the oldest capture goes past this.
+MAX_CAPTURES_PER_OWNER = 3
+
 
 @dataclass(frozen=True)
 class Capture:
@@ -489,9 +492,10 @@ class CaptureStore:
         except BaseException:
             await asyncio.to_thread(remove_recording_directory, directory)
             raise
-        # One capture per owner bounds disk use to one export-sized file each.
-        for previous in [item for item in self.captures.values() if item.owner == owner]:
-            await self._remove(previous)
+        # A few captures per owner bound disk use to a few export-sized files each.
+        previous = [item for item in self.captures.values() if item.owner == owner]
+        for oldest in previous[: max(len(previous) - MAX_CAPTURES_PER_OWNER + 1, 0)]:
+            await self._remove(oldest)
         capture = Capture(
             capture_id, owner, channel_id, path, size, duration, time.time(), pressed_at, ends_at
         )

@@ -156,11 +156,18 @@ async def test_capture_waits_for_completed_segment(tmp_path):
     assert not recorder.has_completed_segment()
 
 
-async def test_capture_store_replaces_per_owner_and_expires(preview, tmp_path, monkeypatch):
+async def test_capture_store_evicts_the_oldest_per_owner_and_expires(
+    preview, tmp_path, monkeypatch
+):
     from pathlib import Path
 
     from app.config import settings
-    from app.services.highlight import CAPTURE_TTL_SECONDS, CaptureStore, ChannelRecorder
+    from app.services.highlight import (
+        CAPTURE_TTL_SECONDS,
+        MAX_CAPTURES_PER_OWNER,
+        CaptureStore,
+        ChannelRecorder,
+    )
 
     monkeypatch.setattr(settings, "highlight_temp_dir", str(tmp_path))
 
@@ -185,8 +192,13 @@ async def test_capture_store_replaces_per_owner_and_expires(preview, tmp_path, m
     replaced_link = store.issue_download_token(first.id, "viewer")
     assert replaced_link is not None
 
+    # Another device on the same account clips without deleting the capture being edited.
+    kept = [await store.create(copying, "viewer", "channel-1", 0.0) for _ in range(2)]
+    assert MAX_CAPTURES_PER_OWNER == 3
+    assert all(store.get(item.id, "viewer") is item for item in [first, *kept])
     second = await store.create(copying, "viewer", "channel-1", 0.0)
     assert not first.path.parent.exists() and store.get(first.id, "viewer") is None
+    assert all(store.get(item.id, "viewer") is item for item in kept)
     # A replaced capture takes its download links with it.
     assert store.redeem_download_token(replaced_link) is None
     second_link = store.issue_download_token(second.id, "viewer")
@@ -197,7 +209,7 @@ async def test_capture_store_replaces_per_owner_and_expires(preview, tmp_path, m
     with pytest.raises(ValueError):
         await store.create(broken, "viewer", "channel-1", 0.0)
     assert sorted(item.name for item in (tmp_path / "captures").iterdir()) == sorted(
-        [second.id, other.id]
+        [*(item.id for item in kept), second.id, other.id]
     )
 
     await store.sweep(now=other.created_at + CAPTURE_TTL_SECONDS)
