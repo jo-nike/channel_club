@@ -1,5 +1,6 @@
 """Tests for EPG service."""
 
+import asyncio
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
@@ -912,6 +913,12 @@ HEALTH_XMLTV = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
+ENTITY_XMLTV = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE tv [<!ENTITY x "y">]>
+<tv><channel id="ch-a"><display-name>&x;</display-name></channel></tv>
+"""
+
+
 def _raise(error: Exception) -> Callable[[httpx.Request], httpx.Response]:
     def handler(request: httpx.Request) -> httpx.Response:
         raise error
@@ -1049,6 +1056,7 @@ class TestHealth:
             (_raise(httpx.ReadTimeout("slow")), "timeout"),
             (_raise(httpx.RemoteProtocolError("reset")), "request failed"),
             (lambda request: httpx.Response(200, text="<tv><broken"), "invalid XMLTV"),
+            (lambda request: httpx.Response(200, text=ENTITY_XMLTV), "invalid XMLTV"),
         ],
     )
     async def test_health_reports_short_failure_reason(
@@ -1076,3 +1084,53 @@ class TestHealth:
         refresh.assert_not_called()
         assert health.online is False
         assert health.last_attempt_at is None
+
+
+class TestUnexpectedRefreshFailures:
+    """Every refresh failure keeps the stale cache, the backoff and the health report (D-08)."""
+
+    @pytest.mark.asyncio
+    async def test_entity_declaration_serves_stale_data_and_backs_off(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        upstream = _Upstream(lambda request: httpx.Response(200, text=ENTITY_XMLTV))
+        _patch_upstream(monkeypatch, upstream)
+        service = EPGService("http://dispatcharr.synthetic:9191")
+        now = datetime.now(UTC)
+        service._cache = {"ch-a": _on_air("Stale Show", now)}
+        service._cache_expires = now - timedelta(seconds=1)
+
+        result = await service.get_now_playing("ch-a")
+
+        assert result.current_program is not None
+        assert result.current_program.title == "Stale Show"
+        assert upstream.requests == 1
+        assert service._retry_at is not None
+        assert service.get_health().error == "invalid XMLTV"
+
+    @pytest.mark.asyncio
+    async def test_unexpected_error_is_a_failed_refresh(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _patch_upstream(
+            monkeypatch, _Upstream(lambda request: httpx.Response(200, text=HEALTH_XMLTV))
+        )
+        service = EPGService("http://dispatcharr.synthetic:9191")
+
+        with patch.object(service, "_parse_xmltv", side_effect=RuntimeError("bug")):
+            assert await service.refresh_cache() is False
+
+        assert service.get_health().error == "refresh failed"
+
+    @pytest.mark.asyncio
+    async def test_cancellation_is_not_swallowed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _patch_upstream(
+            monkeypatch, _Upstream(lambda request: httpx.Response(200, text=HEALTH_XMLTV))
+        )
+        service = EPGService("http://dispatcharr.synthetic:9191")
+
+        with (
+            patch.object(service, "_parse_xmltv", side_effect=asyncio.CancelledError),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await service.refresh_cache()

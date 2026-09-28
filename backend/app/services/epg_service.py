@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta, timezone
 
 import httpx
-from defusedxml import ElementTree
+from defusedxml import DefusedXmlException, ElementTree
 from loguru import logger
 
 from app.config import settings
@@ -169,7 +169,7 @@ class EPGService:
             for channel_id in programs_by_channel:
                 programs_by_channel[channel_id].sort(key=lambda p: p.start_time)
 
-        except ElementTree.ParseError as e:
+        except (ElementTree.ParseError, DefusedXmlException) as e:
             log.error("Failed to parse XMLTV: {}", e)
             raise EPGServiceError(f"Failed to parse XMLTV data: {e}") from e
 
@@ -226,6 +226,12 @@ class EPGService:
         except EPGServiceError as e:
             log.error("Failed to parse XMLTV data: {}", e)
             self._last_error = "invalid XMLTV"
+            return False
+        except Exception:
+            # Anything else still counts as a failed refresh, so the stale cache,
+            # the backoff and the health report hold; CancelledError passes through
+            log.exception("XMLTV refresh failed")
+            self._last_error = "refresh failed"
             return False
 
     async def _ensure_cache(self) -> None:
