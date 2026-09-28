@@ -105,6 +105,14 @@ class QuietAccessFilter(logging.Filter):
 _quiet_access_filter = QuietAccessFilter()
 
 
+def _is_event(record) -> bool:
+    return "event" in record["extra"]
+
+
+def _is_not_event(record) -> bool:
+    return "event" not in record["extra"]
+
+
 def configure_logging() -> None:
     """Configure loguru with format based on LOG_FORMAT setting.
 
@@ -118,29 +126,36 @@ def configure_logging() -> None:
 
     log_level = settings.log_level.upper()
 
+    # Analytics events (records with an "event" extra) get their own sink at
+    # INFO, so raising LOG_LEVEL to cut noise never drops them. The main sink
+    # skips them, so each event line is written once.
     if settings.log_format.lower() == "json":
         # JSON format for structured logging
-        logger.add(
-            sys.stderr,
-            format="{message}",
-            level=log_level,
-            serialize=True,
-            diagnose=False,
-        )
+        for level, sink_filter in ((log_level, _is_not_event), ("INFO", _is_event)):
+            logger.add(
+                sys.stderr,
+                format="{message}",
+                level=level,
+                filter=sink_filter,
+                serialize=True,
+                diagnose=False,
+            )
     else:
         # Pretty format with colors for development
-        logger.add(
-            sys.stderr,
-            format=(
-                "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
-                "<level>{level: <8}</level> | "
-                "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
-                "<level>{message}</level>"
-            ),
-            colorize=True,
-            diagnose=False,
-            level=log_level,
-        )
+        for level, sink_filter in ((log_level, _is_not_event), ("INFO", _is_event)):
+            logger.add(
+                sys.stderr,
+                format=(
+                    "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
+                    "<level>{level: <8}</level> | "
+                    "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
+                    "<level>{message}</level>"
+                ),
+                filter=sink_filter,
+                colorize=True,
+                diagnose=False,
+                level=level,
+            )
 
     # Intercept standard library logging (uvicorn, FastAPI, etc.). The root
     # level matches the sink, so records loguru would drop are never built.
