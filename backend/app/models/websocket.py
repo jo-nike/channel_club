@@ -29,6 +29,7 @@ class ChannelUpdateMessage(ClientMessage):
     channelId: PresenceText | None = None
     programme: PresenceText | None = None
     view: Literal["live", "ersatztv"] | None = None
+    onLive: bool | None = None  # Following the shared Live slot; pre-R2 bundles omit it
 
 
 class NicknameMessage(ClientMessage):
@@ -60,6 +61,25 @@ class SuggestMessage(ClientMessage):
     type: Literal["suggest"]
     channelId: PresenceText
     clientMessageId: ClientMessageId | None = None
+
+
+class AuthMessage(ClientMessage):
+    """The first frame on a new socket: the session token, kept out of the URL.
+
+    hideActivity comes with it, so a person who hides what they watch is
+    tracked as hidden before their first channel_update can be shown.
+    """
+
+    type: Literal["auth"]
+    token: InputText
+    hideActivity: bool = False
+
+
+class ReauthMessage(ClientMessage):
+    """A refreshed token for the same account, moving the socket's expiry."""
+
+    type: Literal["reauth"]
+    token: InputText
 
 
 client_message_adapter = TypeAdapter(

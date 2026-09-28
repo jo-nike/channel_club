@@ -87,6 +87,36 @@ export async function login(credentials: LoginRequest): Promise<TokenResponse> {
   return response.json()
 }
 
+export type RefreshResult =
+  | { ok: true; token: string; role: 'admin' | 'viewer' }
+  // expired: the sign-in is over (expired, past the 30-day cap, or no longer allowed);
+  // temporary: rate limit, server or network trouble, worth trying again later
+  | { ok: false; reason: 'expired' | 'temporary' }
+
+/** Swap a session token for a fresh one. Only a 401 means the sign-in is over. */
+export async function refreshSession(token: string): Promise<RefreshResult> {
+  let response: Response
+  try {
+    response = await fetch(`${API_URL}/auth/refresh`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+  } catch {
+    return { ok: false, reason: 'temporary' }
+  }
+  if (response.status === 401) return { ok: false, reason: 'expired' }
+  if (!response.ok) {
+    logger.warn('API', `Session refresh failed: ${response.status}`)
+    return { ok: false, reason: 'temporary' }
+  }
+  const data: unknown = await response.json().catch(() => null)
+  if (!data || typeof data !== 'object' || !('accessToken' in data) || typeof data.accessToken !== 'string'
+    || !('role' in data) || (data.role !== 'admin' && data.role !== 'viewer')) {
+    return { ok: false, reason: 'temporary' }
+  }
+  return { ok: true, token: data.accessToken, role: data.role }
+}
+
 /** The stored token, or the in-memory one when site storage is blocked (signed in for this page only). */
 export function getAuthToken(): string | null {
   try {
@@ -421,46 +451,6 @@ export interface TrimOptions {
   endTime?: number
 }
 
-export async function saveHighlight(
-  channelId: string,
-  format: HighlightFormat = 'mp4',
-  trimOptions?: TrimOptions,
-  signal?: AbortSignal
-): Promise<Blob> {
-  logger.debug('API', `Saving highlight for channel: ${channelId} (format: ${format}, trim: ${JSON.stringify(trimOptions)})`)
-
-  const token = getAuthToken()
-  const headers: Record<string, string> = {}
-
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`
-  }
-
-  // Build URL with query params
-  const params = new URLSearchParams({ format })
-  if (trimOptions?.startTime !== undefined && trimOptions.startTime > 0) {
-    params.append('start_time', trimOptions.startTime.toString())
-  }
-  if (trimOptions?.endTime !== undefined) {
-    params.append('end_time', trimOptions.endTime.toString())
-  }
-
-  const response = await fetch(`${API_URL}/highlight/${channelId}?${params}`, {
-    method: 'POST',
-    headers,
-    signal,
-  })
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Failed to save highlight' }))
-    logger.error('API', `Failed to save highlight: ${response.status}`, { detail: error.detail })
-    throw new Error(error.detail || 'Failed to save highlight')
-  }
-
-  logger.info('API', `Highlight saved for channel: ${channelId} (format: ${format})`)
-  return response.blob()
-}
-
 export interface HighlightCapture {
   id: string
   duration: number
@@ -549,10 +539,6 @@ export async function uploadHighlight(clip: Blob, format: HighlightFormat, signa
     throw new Error(error.detail || 'Upload failed. Check Zipline before retrying.')
   }
   return response.json()
-}
-
-export async function saveHighlightWebM(channelId: string): Promise<Blob> {
-  return saveHighlight(channelId, 'webm')
 }
 
 // Chromecast API

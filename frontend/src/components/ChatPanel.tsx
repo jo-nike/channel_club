@@ -630,7 +630,9 @@ export function ChatPanel({ onSendMessage, onShare, onSetNickname, status = 'con
           </div>
           {nicknameRejection && (
             <p id="chat-nickname-error" role="alert" className="mt-2 w-full max-w-xs text-sm text-destructive">
-              “{nicknameRejection.nickname}” is another member's sign-in name. Choose a different name.
+              {nicknameRejection.reason === 'rate_limited'
+                ? `Too many changes at once. Wait a moment, then save “${nicknameRejection.nickname}” again.`
+                : `“${nicknameRejection.nickname}” is another member's sign-in name. Choose a different name.`}
             </p>
           )}
           <div className="mt-2 flex items-center gap-2">

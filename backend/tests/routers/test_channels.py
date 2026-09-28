@@ -16,6 +16,7 @@ from app.models.channel import Channel, ChannelGroupWithChannels, GroupedChannel
 from app.services import app_settings, channel_state
 from app.services.auth import create_access_token
 from app.services.dispatcharr import DispatchrrUnavailableError, invalidate_grouped_channels_cache
+from app.services.logo_proxy import LOGO_CACHE
 
 
 @pytest.fixture
@@ -242,7 +243,7 @@ class TestGetCurrentChannel:
 class TestSetCurrentChannel:
     """Tests for PUT /api/channels/current endpoint."""
 
-    def test_picker_channel_uses_trusted_metadata_when_hdhr_forbidden(
+    def test_picker_channel_uses_trusted_metadata(
         self, client: TestClient, admin_auth_header: dict[str, str]
     ) -> None:
         trusted = Channel(
@@ -251,15 +252,9 @@ class TestSetCurrentChannel:
             streamUrl="https://streams.example.com/proxy/ts/stream/picker-only",
             guideId="194",
         )
-        with (
-            patch(
-                "app.services.media_source.get_grouped_channels",
-                AsyncMock(return_value=GroupedChannelsResponse(ungrouped=[trusted])),
-            ),
-            patch(
-                "app.services.media_source.get_lineup",
-                AsyncMock(side_effect=DispatchrrUnavailableError("403 Forbidden")),
-            ) as lineup,
+        with patch(
+            "app.services.media_source.get_grouped_channels",
+            AsyncMock(return_value=GroupedChannelsResponse(ungrouped=[trusted])),
         ):
             response = client.put(
                 "/api/channels/current",
@@ -274,7 +269,6 @@ class TestSetCurrentChannel:
         assert response.status_code == 200
         assert response.json() == trusted.model_dump(by_alias=True)
         assert channel_state.get_current_channel() == trusted
-        lineup.assert_not_called()
 
     @pytest.fixture(autouse=True)
     def catalog(self):
@@ -304,13 +298,55 @@ class TestSetCurrentChannel:
         ]
         with (
             patch("app.services.media_source.get_channel_by_id", return_value=None),
-            patch("app.services.media_source.get_lineup", AsyncMock(return_value=channels)),
+            patch(
+                "app.services.media_source.get_grouped_channels",
+                AsyncMock(return_value=GroupedChannelsResponse(ungrouped=channels)),
+            ),
             patch(
                 "app.services.highlight.highlight_service.start_recording",
                 AsyncMock(return_value=True),
             ),
         ):
             yield
+
+    @pytest.mark.parametrize(
+        ("field", "limit"), [("name", 256), ("streamUrl", 2048), ("guideId", 256)]
+    )
+    def test_rejects_over_length_field(
+        self, client: TestClient, admin_auth_header: dict[str, str], field: str, limit: int
+    ) -> None:
+        """An over-length name, streamUrl or guideId gets 422 and never reaches the handler."""
+        channel_data = {
+            "id": "uuid-456",
+            "name": "Sportsnet",
+            "streamUrl": "https://streams.example.com/stream/uuid-456",
+            "guideId": "2",
+            field: "x" * (limit + 1),
+        }
+        resolve = AsyncMock()
+        with patch("app.routers.channels.resolve_media_channel", resolve):
+            response = client.put(
+                "/api/channels/current", json=channel_data, headers=admin_auth_header
+            )
+
+        assert response.status_code == 422
+        resolve.assert_not_called()
+        assert channel_state.get_current_channel() is None
+
+    def test_accepts_max_length_fields(
+        self, client: TestClient, admin_auth_header: dict[str, str]
+    ) -> None:
+        """Fields at their limits still set the channel."""
+        channel_data = {
+            "id": "uuid-456",
+            "name": "n" * 256,
+            "streamUrl": "u" * 2048,
+            "guideId": "g" * 256,
+        }
+        response = client.put("/api/channels/current", json=channel_data, headers=admin_auth_header)
+
+        assert response.status_code == 200
+        assert response.json()["id"] == "uuid-456"
 
     def test_requires_authentication(self, client: TestClient) -> None:
         """Unauthenticated request returns 401."""
@@ -641,7 +677,10 @@ class TestChannelsLogging:
                 streamUrl="https://example.com/stream",
                 guideId="1",
             )
-            with patch("app.services.media_source.get_lineup", AsyncMock(return_value=[trusted])):
+            with patch(
+                "app.services.media_source.get_grouped_channels",
+                AsyncMock(return_value=GroupedChannelsResponse(ungrouped=[trusted])),
+            ):
                 response = client.put(
                     "/api/channels/current", json=channel_data, headers=admin_auth_header
                 )
@@ -903,6 +942,61 @@ class TestListGroupedChannels:
         assert len(data["ungrouped"]) == 2
 
 
+class TestMalformedDispatcharrPayload:
+    """A login page or schema drift from Dispatcharr is a 503, not a 500 (C-08)."""
+
+    HTML = httpx.Response(200, headers={"content-type": "text/html"}, text="<html>Login</html>")
+    NO_UUID = httpx.Response(200, json=[{"id": 1, "name": "TSN", "channel_group_id": None}])
+    PAGINATED = httpx.Response(200, json={"count": 0, "results": []})
+
+    @pytest.fixture(autouse=True)
+    def dispatcharr_settings(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(settings, "dispatcharr_url", "http://dispatcharr.test")
+        monkeypatch.setattr(settings, "dispatcharr_api_key", "test-key")
+
+    @staticmethod
+    def _upstream(monkeypatch: pytest.MonkeyPatch, channels: httpx.Response) -> None:
+        """Groups are fine; the channels and lineup calls answer `channels`."""
+        real_client = httpx.AsyncClient
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/api/channels/groups/":
+                return httpx.Response(200, json=[])
+            return httpx.Response(
+                channels.status_code, headers=channels.headers, content=channels.content
+            )
+
+        def client_factory(**kwargs: Any) -> httpx.AsyncClient:
+            return real_client(transport=httpx.MockTransport(handle), **kwargs)
+
+        monkeypatch.setattr("app.services.dispatcharr.httpx.AsyncClient", client_factory)
+
+    @pytest.mark.parametrize("payload", [HTML, NO_UUID, PAGINATED], ids=["html", "no-uuid", "dict"])
+    @pytest.mark.parametrize(
+        ("route", "detail"),
+        [
+            ("/api/channels/grouped", "Channel service unavailable"),
+            ("/api/channels", "Channel service unavailable"),
+            ("/api/channels/logos/17", "Logo unavailable"),
+        ],
+    )
+    def test_answers_503(
+        self,
+        client: TestClient,
+        auth_header: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
+        payload: httpx.Response,
+        route: str,
+        detail: str,
+    ) -> None:
+        self._upstream(monkeypatch, payload)
+
+        response = client.get(route, headers=auth_header)
+
+        assert response.status_code == 503
+        assert response.json() == {"detail": detail}
+
+
 PNG_LOGO = b"\x89PNG\r\n\x1a\n" + b"synthetic-image-data"
 DISPATCHARR = "http://dispatcharr.test:9191"
 
@@ -1011,6 +1105,17 @@ class TestGetChannelLogo:
         assert response.json() == {"detail": "No logo available"}
         assert requests == []
 
+    def test_unknown_logo_ids_leave_no_cache_locks(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The open route can't grow the shared cache's lock map with made-up ids."""
+        self._upstream(monkeypatch, lambda req: pytest.fail("upstream requested"))
+
+        for logo_id in range(18, 68):
+            assert client.get(f"/api/channels/logos/{logo_id}").status_code == 404
+
+        assert LOGO_CACHE._locks == {}  # pyright: ignore[reportPrivateUsage]
+
     @pytest.mark.parametrize("logo_id", ["0", "-1", "abc", "17.5", "..%2F..%2Fadmin"])
     def test_rejects_anything_but_a_positive_integer_id(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch, logo_id: str
@@ -1070,3 +1175,30 @@ class TestGetChannelLogo:
         response = client.get("/api/channels/logos/17")
 
         assert response.status_code == 503
+
+    def test_upstream_404_is_a_remembered_404_with_cache_control(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """H-07: a logo Dispatcharr doesn't have is not a 503 refetched every minute."""
+        requests = self._upstream(monkeypatch, lambda req: httpx.Response(404))
+
+        first = client.get("/api/channels/logos/17")
+        second = client.get("/api/channels/logos/17")
+
+        assert first.status_code == second.status_code == 404
+        assert first.headers["cache-control"] == second.headers["cache-control"]
+        assert "max-age=" in first.headers["cache-control"]
+        assert len(requests) == 1
+
+        invalidate_grouped_channels_cache()
+        assert client.get("/api/channels/logos/17").status_code == 404
+        assert len(requests) == 2
+
+    def test_success_is_cacheable_by_browsers(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._upstream(monkeypatch, self._png)
+
+        response = client.get("/api/channels/logos/17")
+
+        assert response.headers["cache-control"] == "public, max-age=3600"

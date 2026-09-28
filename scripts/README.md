@@ -12,10 +12,18 @@ an older queued runner cannot silently roll back the attempted release. Force
 pushes/divergent histories require an explicit operator decision. No mutable
 `latest` tag is published or promoted.
 
-`deployment.json` records the last verified release. `previous-compose.yaml` and
-`previous-deployment.json` retain the preceding installation for investigation.
-Failures leave the candidate installed and return a nonzero result; automatic
-rollback is not implemented. An operator performing an intentional rollback must
+`deployment.json` and `verified-compose.yaml` record the last verified release.
+`previous-compose.yaml` and `previous-deployment.json` retain the verified
+release before it; they rotate only when a deployment verifies, so failed
+attempts never replace them. On a failure the helper restores
+`verified-compose.yaml` while still holding the lock. If the pull failed, the old
+container is still running and nothing is restarted. Otherwise it runs
+`docker compose up -d` and checks the restored release's health, printing
+`Rolled back to <build id or version>` or that the rollback failed. Either way
+the deployment returns the original error, so CI stays red. The first run on a
+host without `verified-compose.yaml` seeds it from the installed Compose file
+only if that file names the image in `deployment.json`; otherwise it prints that
+rollback is unavailable for that attempt. An operator performing an intentional rollback must
 hold `.deploy.lock` through compose restoration and verification, then explicitly
 update `.accepted-source` to the chosen revision. Never delete that watermark to
 make a stale queued job pass. Optional upstream services are not release liveness

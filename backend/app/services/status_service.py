@@ -1,7 +1,9 @@
 """Status service for monitoring external service health."""
 
 import asyncio
+from collections.abc import Coroutine
 from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 from loguru import logger
@@ -21,10 +23,14 @@ from app.services.dispatcharr import (
     dispatcharr_auth_headers,
 )
 from app.services.epg_service import EPG_HEALTH_NAME, get_epg_service
+from app.services.ersatztv import get_guide_health
 from app.services.tls import SSL_CONTEXT
 
 # Module-level logger with service context
 log = logger.bind(service="status")
+
+# Each check in get_system_status reports offline after this long.
+STATUS_CHECK_DEADLINE_SECONDS = 5.0
 
 
 def _reason(exc: BaseException) -> str:
@@ -415,8 +421,9 @@ async def get_dispatcharr_status() -> DispatchrrStatus:
 async def get_epg_status() -> EPGHealthStatus:
     """Get guide data (XMLTV) health.
 
-    Refreshes the EPG cache only when a refresh is due and the failure backoff
-    allows it, so status polls cannot hammer Dispatcharr.
+    Returns at once from local state. A refresh that is due starts in the
+    background (at most one, and only when the failure backoff allows it), so
+    status polls neither wait on nor hammer Dispatcharr.
 
     Returns:
         EPGHealthStatus for the cached guide data
@@ -424,19 +431,37 @@ async def get_epg_status() -> EPGHealthStatus:
     return await get_epg_service().check_health()
 
 
+async def _bounded[T](check: Coroutine[Any, Any, T]) -> T:
+    """Run one status check under STATUS_CHECK_DEADLINE_SECONDS.
+
+    A dead tunnel or black-holed upstream then costs the admin panel 5 s, not
+    the checker's own 10-20 s. The checkers hold no shared work that
+    cancelling could abort: the EPG check only reads state and schedules.
+    """
+    async with asyncio.timeout(STATUS_CHECK_DEADLINE_SECONDS):
+        return await check
+
+
+def _failure(result: object) -> str:
+    """The error text for a status check that raised instead of returning."""
+    if isinstance(result, TimeoutError):
+        return "status check timed out"
+    return "Status check failed"
+
+
 async def get_system_status() -> SystemStatusResponse:
     """Get combined status of all external services.
 
     Returns:
-        SystemStatusResponse with status for ErsatzTV, Dispatcharr and guide data
+        SystemStatusResponse with status for ErsatzTV, Dispatcharr and both guides
     """
     log.debug("Fetching system status for all services")
 
     # Fetch all statuses concurrently
     ersatztv_status, dispatcharr_status, epg_status = await asyncio.gather(
-        get_ersatztv_status(),
-        get_dispatcharr_status(),
-        get_epg_status(),
+        _bounded(get_ersatztv_status()),
+        _bounded(get_dispatcharr_status()),
+        _bounded(get_epg_status()),
         return_exceptions=True,
     )
 
@@ -446,16 +471,18 @@ async def get_system_status() -> SystemStatusResponse:
         ersatztv=ersatztv_status
         if isinstance(ersatztv_status, ErsatzTVStatus)
         else ErsatzTVStatus(
-            name="ErsatzTV", online=False, last_checked=now, error="Status check failed"
+            name="ErsatzTV", online=False, last_checked=now, error=_failure(ersatztv_status)
         ),
         dispatcharr=dispatcharr_status
         if isinstance(dispatcharr_status, DispatchrrStatus)
         else DispatchrrStatus(
-            name="Dispatcharr", online=False, last_checked=now, error="Status check failed"
+            name="Dispatcharr", online=False, last_checked=now, error=_failure(dispatcharr_status)
         ),
         epg=epg_status
         if isinstance(epg_status, EPGHealthStatus)
         else EPGHealthStatus(
-            name=EPG_HEALTH_NAME, online=False, last_checked=now, error="Status check failed"
+            name=EPG_HEALTH_NAME, online=False, last_checked=now, error=_failure(epg_status)
         ),
+        # Local state only, like the Dispatcharr guide: never contacts ErsatzTV.
+        ersatztv_guide=get_guide_health(),
     )

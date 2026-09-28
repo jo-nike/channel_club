@@ -46,17 +46,28 @@ def reset_module_state(monkeypatch):
     The app keeps its state in module singletons, so a test must not see what
     an earlier one left behind (the NHL cache made one test order-dependent).
     """
+    from app.routers import csp_report
     from app.services import app_settings, channel_state, chat, nhl, plex, presence
     from app.services.highlight import highlight_service
 
     nhl.clear_nhl_cache()
     chat.clear_history()
     presence._active_users.clear()
+    presence._stale_closes.clear()
+    channel_state._failed_closes.clear()
     channel_state.clear_current_channel()
     plex.clear_server_owner_id_cache()
     highlight_service.clear_start_backoff()
+    csp_report.clear_csp_report_state()
     monkeypatch.setattr(app_settings, "_user_channel_selection", False)
     monkeypatch.setattr(app_settings, "_presence_visible", False)
+    channel_state.reset_live_change_state()
+    __import__("app.services.cached_fetch", fromlist=["_"]).reset_all_caches()
+    __import__("app.routers.epg", fromlist=["_"]).clear_unavailable_warning()
+    __import__("app.services.ersatztv", fromlist=["_"]).reset_state()
+    __import__("app.services.media_limits").services.media_limits.reset_media_budgets()
+    __import__("app.services.gauges", fromlist=["_"]).reset_gauges_task()
+    __import__("app.services.state_store", fromlist=["_"]).reset_state_store()
 
 
 @pytest.fixture(autouse=True)

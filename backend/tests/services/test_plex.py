@@ -10,9 +10,112 @@ import pytest
 from app.models.plex import PlexUser
 from app.services.plex import (
     InvalidPlexTokenError,
+    PlexUnavailableError,
     check_server_access,
     validate_plex_token,
 )
+
+
+class TestPlexTvFailures:
+    """plex.tv outages and garbage raise PlexUnavailableError, not a verdict (A-04)."""
+
+    @pytest.fixture(autouse=True)
+    def server_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from app.services import plex
+
+        monkeypatch.setattr(plex.settings, "plex_server_machine_id", "my-server-abc")
+
+    @staticmethod
+    def _install_plex_tv(monkeypatch: pytest.MonkeyPatch, respond) -> list[dict[str, Any]]:
+        from app.services import plex
+
+        clients: list[dict[str, Any]] = []
+        factory = httpx.AsyncClient
+
+        def client(**kwargs: Any) -> httpx.AsyncClient:
+            clients.append(kwargs)
+            return factory(transport=httpx.MockTransport(respond), **kwargs)
+
+        monkeypatch.setattr(plex.httpx, "AsyncClient", client)
+        return clients
+
+    @pytest.mark.parametrize(
+        "response",
+        [
+            httpx.Response(500),
+            httpx.Response(503),
+            httpx.Response(429),
+            httpx.Response(403),
+            httpx.Response(200, text="<html>maintenance</html>"),
+            httpx.Response(200, json=[]),
+            httpx.Response(200, json={"id": None, "username": "u"}),
+            httpx.Response(200, json={"id": "", "username": "u"}),
+            httpx.Response(200, json={"id": {"a": 1}, "username": "u"}),
+            httpx.Response(200, json={"id": True, "username": "u"}),
+            httpx.Response(200, json={"id": 1}),
+        ],
+    )
+    async def test_user_lookup_failures_are_unavailable(
+        self, monkeypatch: pytest.MonkeyPatch, response: httpx.Response
+    ) -> None:
+        self._install_plex_tv(monkeypatch, lambda request: response)
+
+        with pytest.raises(PlexUnavailableError):
+            await validate_plex_token("synthetic-token")
+
+    async def test_only_a_401_means_an_invalid_token(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._install_plex_tv(monkeypatch, lambda request: httpx.Response(401))
+
+        with pytest.raises(InvalidPlexTokenError):
+            await validate_plex_token("synthetic-token")
+
+    @pytest.mark.parametrize(
+        "response",
+        [
+            httpx.Response(500),
+            httpx.Response(429),
+            httpx.Response(401),
+            httpx.Response(200, text="<html>maintenance</html>"),
+            httpx.Response(200, json={"clientIdentifier": "my-server-abc"}),
+            httpx.Response(200, json=["my-server-abc"]),
+        ],
+    )
+    async def test_resources_failures_are_unavailable(
+        self, monkeypatch: pytest.MonkeyPatch, response: httpx.Response
+    ) -> None:
+        self._install_plex_tv(monkeypatch, lambda request: response)
+
+        with pytest.raises(PlexUnavailableError):
+            await check_server_access("synthetic-token")
+
+    @pytest.mark.parametrize("error", [httpx.ConnectTimeout, httpx.ReadTimeout, httpx.ConnectError])
+    async def test_transport_errors_are_unavailable(
+        self, monkeypatch: pytest.MonkeyPatch, error: type[httpx.TransportError]
+    ) -> None:
+        def fail(request: httpx.Request) -> httpx.Response:
+            raise error("down", request=request)
+
+        self._install_plex_tv(monkeypatch, fail)
+
+        with pytest.raises(PlexUnavailableError):
+            await validate_plex_token("synthetic-token")
+        with pytest.raises(PlexUnavailableError):
+            await check_server_access("synthetic-token")
+
+    async def test_both_calls_use_an_explicit_timeout(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def respond(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/api/v2/user":
+                return httpx.Response(200, json={"id": 1, "username": "u"})
+            return httpx.Response(200, json=[{"clientIdentifier": "my-server-abc"}])
+
+        clients = self._install_plex_tv(monkeypatch, respond)
+
+        await validate_plex_token("synthetic-token")
+        assert await check_server_access("synthetic-token") is True
+
+        assert [c["timeout"] for c in clients] == [httpx.Timeout(5.0, connect=3.0)] * 2
 
 
 class TestValidatePlexToken:
@@ -140,10 +243,10 @@ class TestCheckServerAccess:
                 assert result is False
 
     @pytest.mark.asyncio
-    async def test_returns_false_when_api_request_fails(self) -> None:
-        """Returns False when Plex API request fails."""
+    async def test_raises_unavailable_when_api_request_fails(self) -> None:
+        """A failed resources request is plex.tv's outage, not 'no access' (A-04)."""
         mock_response = MagicMock()
-        mock_response.status_code = 401
+        mock_response.status_code = 500
 
         with patch("app.services.plex.settings") as mock_settings:
             mock_settings.plex_server_machine_id = "my-server-abc"
@@ -153,9 +256,8 @@ class TestCheckServerAccess:
                     return_value=mock_response
                 )
 
-                result = await check_server_access("invalid-token")
-
-                assert result is False
+                with pytest.raises(PlexUnavailableError):
+                    await check_server_access("valid-token")
 
     @pytest.mark.asyncio
     async def test_calls_resources_api_with_correct_params(self) -> None:

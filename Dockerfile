@@ -25,6 +25,11 @@ COPY frontend/package*.json ./
 # Install dependencies
 RUN npm ci
 
+# The client compares its build id with the server's; declared after npm ci
+# so a new build id doesn't invalidate the dependency layer
+ARG APP_BUILD_ID=dev
+ENV VITE_APP_BUILD_ID=$APP_BUILD_ID
+
 # Copy frontend source
 COPY frontend/ .
 
@@ -76,10 +81,13 @@ COPY --from=frontend-build /app/frontend/dist ./static
 
 # Run as a non-root user (Trivy DS-0002). The highlight and cast features write
 # to their temp dirs, so create them up front owned by appuser rather than
-# relying on the app to mkdir them at runtime.
+# relying on the app to mkdir them at runtime. /data holds the state file
+# (admin settings and Live); compose mounts a named volume there, which Docker
+# seeds from this directory with its ownership.
 RUN useradd --create-home --uid 10001 appuser \
-    && mkdir -p /tmp/highlights /tmp/cast_hls \
-    && chown -R appuser:appuser /app /tmp/highlights /tmp/cast_hls
+    && mkdir -p /tmp/highlights /tmp/cast_hls /data \
+    && chown -R appuser:appuser /app /tmp/highlights /tmp/cast_hls /data
+ENV STATE_FILE=/data/state.json
 USER appuser
 
 # Expose port 8080
@@ -92,4 +100,5 @@ EXPOSE 8080
 # so oversize frames are refused (1009) before uvicorn buffers them; without
 # permessage-deflate a small frame cannot inflate into a large one.
 CMD ["/app/.venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", \
-     "--ws-max-size", "32768", "--ws-per-message-deflate", "false"]
+     "--ws-max-size", "32768", "--ws-per-message-deflate", "false", \
+     "--timeout-graceful-shutdown", "8"]

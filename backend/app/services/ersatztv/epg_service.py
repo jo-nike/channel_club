@@ -14,8 +14,10 @@ from app.config import settings
 from app.models.ersatztv import EPGChannel, Programme
 from app.services.ersatztv.m3u_parser import clear_cache as clear_m3u_cache
 from app.services.ersatztv.m3u_parser import parse_m3u_playlist
+from app.services.ersatztv.refresh import shutdown_feed_executor
 from app.services.ersatztv.xmltv_parser import clear_cache as clear_xmltv_cache
 from app.services.ersatztv.xmltv_parser import parse_xmltv
+from app.services.logo_proxy import reset_logo_cache
 
 # Module-level logger with service context
 log = logger.bind(service="ersatztv")
@@ -196,3 +198,14 @@ def refresh_all() -> None:
     clear_m3u_cache()
     clear_xmltv_cache()
     log.info("ErsatzTV EPG caches cleared, data will refresh on next request")
+
+
+def reset_state() -> None:
+    """Empty both feed caches, forget their failures and drop the feeds executor (tests).
+
+    Also empties the logo cache the ErsatzTV and Dispatcharr logo routes share.
+    """
+    parse_m3u_playlist.reset()
+    parse_xmltv.reset()
+    shutdown_feed_executor()
+    reset_logo_cache()

@@ -1,5 +1,8 @@
 """Tests for Dispatcharr service."""
 
+import asyncio
+from datetime import UTC, datetime, timedelta
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -15,15 +18,13 @@ from app.services import dispatcharr
 from app.services.dispatcharr import (
     DispatchrrUnavailableError,
     _build_grouped_channels,
-    _cached_logo,
-    _store_logo,
     dispatcharr_auth_headers,
     extract_uuid,
     format_channel_number,
     get_channel_groups,
     get_lineup,
-    invalidate_grouped_channels_cache,
 )
+from app.services.epg_service import get_epg_service
 
 
 class TestDispatcharrAuthHeaders:
@@ -334,6 +335,21 @@ class TestBuildGroupedChannels:
         assert self._guide_ids(response) == {"TSN 5": "28", "CBC": "7", "TVA": "5.1"}
 
     @pytest.mark.asyncio
+    async def test_renumbering_expires_the_guide(self) -> None:
+        """A rebuild whose guide ids changed expires the cached XMLTV guide (D-03)."""
+        guide = get_epg_service()
+        guide._cache = {"28": []}
+        guide._cache_expires = datetime.now(UTC) + timedelta(hours=1)
+        channel = {"id": 101, "name": "TSN 5", "channel_group_id": 1, "uuid": "uuid-28"}
+
+        await self._build([{**channel, "channel_number": 28}])
+        await self._build([{**channel, "channel_number": 28}])
+        assert guide._is_cache_valid() is True
+
+        await self._build([{**channel, "channel_number": 29}])
+        assert guide._is_cache_valid() is False
+
+    @pytest.mark.asyncio
     async def test_guide_id_falls_back_to_database_id_without_a_number(self) -> None:
         """A channel with no number is keyed by its id, as Dispatcharr's XMLTV does."""
         response = await self._build(
@@ -401,31 +417,104 @@ class TestBuildGroupedChannels:
         assert response.groups[0].channels[0].logo_url is None
 
 
-class TestChannelLogoCache:
-    """The logo cache is bounded by bytes and drops the least recently used first."""
+GROUPS = [{"id": 1, "name": "Sports", "channel_count": 1}]
+CHANNELS = [{"id": 101, "name": "TSN", "channel_number": 28, "channel_group_id": 1, "uuid": "u-28"}]
 
-    def test_evicts_least_recently_used_over_the_byte_budget(
+
+class TestGroupedChannelsOutage:
+    """The grouped catalogue during a Dispatcharr outage (C-01)."""
+
+    @pytest.fixture(autouse=True)
+    def dispatcharr_settings(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(dispatcharr.settings, "dispatcharr_url", "http://dispatcharr.test")
+        monkeypatch.setattr(dispatcharr.settings, "dispatcharr_api_key", "test-key")
+
+    @pytest.fixture
+    def clock(self, monkeypatch: pytest.MonkeyPatch) -> list[float]:
+        now = [1000.0]
+        monkeypatch.setattr("app.services.cached_fetch.monotonic", lambda: now[0])
+        return now
+
+    @staticmethod
+    def _upstream(monkeypatch: pytest.MonkeyPatch, state: dict[str, Any]) -> list[httpx.Request]:
+        """Serve GROUPS and state['channels'], or time out at connect while state['down']."""
+        requests: list[httpx.Request] = []
+        real_client = httpx.AsyncClient
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            if state["down"]:
+                raise httpx.ConnectTimeout("timed out", request=request)
+            if request.url.path == "/api/channels/groups/":
+                return httpx.Response(200, json=GROUPS)
+            return httpx.Response(200, json=state["channels"])
+
+        def client_factory(**kwargs: Any) -> httpx.AsyncClient:
+            state["timeout"] = kwargs["timeout"]
+            return real_client(transport=httpx.MockTransport(handle), **kwargs)
+
+        monkeypatch.setattr("app.services.dispatcharr.httpx.AsyncClient", client_factory)
+        return requests
+
+    @staticmethod
+    def _names(response: GroupedChannelsResponse) -> list[str]:
+        return [c.name for g in response.groups for c in g.channels]
+
+    @staticmethod
+    async def _background_refresh() -> None:
+        task = dispatcharr._grouped_cache._task
+        assert task is not None
+        await task
+
+    async def test_concurrent_callers_make_one_attempt_per_retry_window(
+        self, monkeypatch: pytest.MonkeyPatch, clock: list[float]
+    ) -> None:
+        state: dict[str, Any] = {"down": True, "channels": CHANNELS}
+        requests = self._upstream(monkeypatch, state)
+
+        results = await asyncio.gather(
+            *(dispatcharr.get_grouped_channels() for _ in range(10)), return_exceptions=True
+        )
+
+        assert all(isinstance(r, DispatchrrUnavailableError) for r in results)
+        assert len(requests) == 2  # one groups and one channels call, not 20
+        with pytest.raises(DispatchrrUnavailableError):
+            await dispatcharr.get_grouped_channels()
+        assert len(requests) == 2
+
+        clock[0] += 20
+        state["down"] = False
+        assert self._names(await dispatcharr.get_grouped_channels()) == ["TSN"]
+        assert len(requests) == 4
+
+    async def test_stale_catalogue_is_served_until_upstream_recovers(
+        self, monkeypatch: pytest.MonkeyPatch, clock: list[float]
+    ) -> None:
+        state: dict[str, Any] = {"down": False, "channels": CHANNELS}
+        self._upstream(monkeypatch, state)
+        assert self._names(await dispatcharr.get_grouped_channels()) == ["TSN"]
+
+        # Expired, and the refresh fails: callers keep the last good catalogue
+        clock[0] += 301
+        state["down"] = True
+        assert self._names(await dispatcharr.get_grouped_channels()) == ["TSN"]
+        await self._background_refresh()
+        assert self._names(await dispatcharr.get_grouped_channels()) == ["TSN"]
+
+        # Upstream recovers: the next background refresh replaces it
+        clock[0] += 20
+        state["down"] = False
+        state["channels"] = [{**CHANNELS[0], "name": "TSN 2"}]
+        assert self._names(await dispatcharr.get_grouped_channels()) == ["TSN"]
+        await self._background_refresh()
+        assert self._names(await dispatcharr.get_grouped_channels()) == ["TSN 2"]
+
+    async def test_catalogue_calls_fail_fast_at_connect(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        invalidate_grouped_channels_cache()
-        monkeypatch.setattr(dispatcharr, "_LOGO_CACHE_MAX_BYTES", 25)
-        try:
-            _store_logo(1, b"a" * 10, "image/png")
-            _store_logo(2, b"b" * 10, "image/png")
-            assert _cached_logo(1) is not None  # 1 is now the most recently used
-            _store_logo(3, b"c" * 10, "image/png")
+        state: dict[str, Any] = {"down": False, "channels": CHANNELS}
+        self._upstream(monkeypatch, state)
 
-            assert _cached_logo(2) is None
-            assert _cached_logo(1) == (b"a" * 10, "image/png")
-            assert _cached_logo(3) == (b"c" * 10, "image/png")
-        finally:
-            invalidate_grouped_channels_cache()
+        await dispatcharr.get_grouped_channels()
 
-    def test_expired_logo_is_not_served(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        invalidate_grouped_channels_cache()
-        monkeypatch.setattr(dispatcharr, "_LOGO_CACHE_TTL_SECONDS", -1)
-        try:
-            _store_logo(1, b"a" * 10, "image/png")
-            assert _cached_logo(1) is None
-        finally:
-            invalidate_grouped_channels_cache()
+        assert state["timeout"] == httpx.Timeout(10, connect=3)

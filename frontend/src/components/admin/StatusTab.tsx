@@ -107,6 +107,13 @@ function ServiceStatus() {
         <ErsatzTVCard status={data.ersatztv} />
         <DispatchrrCard status={data.dispatcharr} />
         <GuideDataCard status={data.epg} />
+        {data.ersatztvGuide && (
+          <GuideDataCard
+            status={data.ersatztvGuide}
+            title="ErsatzTV guide (XMLTV)"
+            description="Programme guide feed from ErsatzTV"
+          />
+        )}
       </div>
     </div>
   )
@@ -287,9 +294,15 @@ function DispatchrrCard({ status }: DispatchrrCardProps) {
 
 interface GuideDataCardProps {
   status: SystemStatusData['epg']
+  title?: string
+  description?: string
 }
 
-function GuideDataCard({ status }: GuideDataCardProps) {
+function GuideDataCard({
+  status,
+  title = 'Guide data (XMLTV)',
+  description = 'Programme guide feed from Dispatcharr',
+}: GuideDataCardProps) {
   const state = guideDataState(status)
   return (
     <Card>
@@ -297,7 +310,7 @@ function GuideDataCard({ status }: GuideDataCardProps) {
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2">
             <CalendarClock className="h-5 w-5" />
-            Guide data (XMLTV)
+            {title}
           </CardTitle>
           {state === 'Stale' ? (
             <div className="flex items-center gap-1 text-warning">
@@ -307,7 +320,7 @@ function GuideDataCard({ status }: GuideDataCardProps) {
             <StatusIndicator online={status.online} />
           )}
         </div>
-        <CardDescription>Programme guide feed from Dispatcharr</CardDescription>
+        <CardDescription>{description}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <StatusRow

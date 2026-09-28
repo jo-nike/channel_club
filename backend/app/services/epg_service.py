@@ -6,13 +6,15 @@ from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta, timezone
 
 import httpx
-from defusedxml import ElementTree
+from defusedxml import DefusedXmlException, ElementTree
 from loguru import logger
 
 from app.config import settings
 from app.models.channel import Channel
 from app.models.epg import EPGProgrammesResponse, EPGResponse, Program
 from app.models.status import EPGHealthStatus
+from app.services.bounded_http import FEED_BYTES, read_bounded
+from app.services.cached_fetch import register_closable
 from app.services.tls import SSL_CONTEXT
 
 # Module-level logger with service context
@@ -39,6 +41,10 @@ class EPGServiceError(Exception):
     pass
 
 
+class _FeedTooLargeError(Exception):
+    """The XMLTV body exceeded its byte budget."""
+
+
 class EPGService:
     """Service for fetching and caching EPG data from Dispatcharr XMLTV endpoint."""
 
@@ -47,10 +53,18 @@ class EPGService:
         self._cache: dict[str, list[Program]] = {}  # channel_id -> list of programs
         # normalised XMLTV display-name -> channel_id, replaced together with _cache
         self._channel_names: dict[str, str] = {}
+        # channel_id -> its normalised XMLTV display names, replaced together with _cache
+        self._channel_display_names: dict[str, set[str]] = {}
         self._cache_expires: datetime | None = None
-        self._cache_ttl = timedelta(hours=24)
+        # A backstop: a renumbering in the catalogue expires the guide sooner
+        self._cache_ttl = timedelta(hours=4)
+        # The catalogue's guide ids at its last build, to notice a renumbering
+        self._guide_ids: frozenset[str] | None = None
         # A single in-flight lock prevents thundering herd on expiry
         self._refresh_lock = asyncio.Lock()
+        # The background refresh behind stale reads; a strong reference, since the
+        # loop holds running tasks only weakly
+        self._refresh_task: asyncio.Task[None] | None = None
         self._retry_at: datetime | None = None
         self._consecutive_failures = 0
         # Refresh health for admin status; _last_error is a short reason, never the URL
@@ -70,6 +84,21 @@ class EPGService:
         else:
             log.debug("Cache miss: expired")
         return is_valid
+
+    def note_guide_ids(self, guide_ids: Iterable[str]) -> None:
+        """Expire the guide when the channel catalogue's guide ids change.
+
+        XMLTV is keyed by channel number, so after a renumbering the cached
+        programmes would sit under the wrong channels until the next refresh.
+        """
+        ids = frozenset(guide_ids)
+        previous, self._guide_ids = self._guide_ids, ids
+        if previous is None or previous == ids:
+            return
+        now = datetime.now(UTC)
+        if self._cache_expires is not None and self._cache_expires > now:
+            log.info("Channel guide ids changed; expiring the EPG cache")
+            self._cache_expires = now
 
     def _retry_delay(self) -> timedelta:
         """Wait before the next refresh after the current run of failures.
@@ -109,19 +138,24 @@ class EPGService:
 
         return datetime(year, month, day, hour, minute, second, tzinfo=timezone(tz_offset))
 
-    def _parse_xmltv(self, xml_content: str) -> tuple[dict[str, list[Program]], dict[str, str]]:
-        """Parse XMLTV XML content into channel->programs and name->channel mappings.
+    def _parse_xmltv(
+        self, xml_content: str | bytes
+    ) -> tuple[dict[str, list[Program]], dict[str, str], dict[str, set[str]]]:
+        """Parse XMLTV XML content into channel->programs and name<->channel mappings.
 
         Args:
-            xml_content: Raw XML string from Dispatcharr /xmltv.php
+            xml_content: Raw XML from Dispatcharr's /output/epg. Bytes are decoded
+                by the parser, following the XML declaration's encoding.
 
         Returns:
             Tuple of (dict mapping channel_id to list of Program objects,
-            dict mapping normalised display-name to channel_id). When two
-            channels share a display name, the first one in the feed wins.
+            dict mapping normalised display-name to channel_id, dict mapping
+            channel_id to its normalised display names). When two channels
+            share a display name, the first one in the feed wins the name map.
         """
         programs_by_channel: dict[str, list[Program]] = {}
         channel_names: dict[str, str] = {}
+        display_names: dict[str, set[str]] = {}
 
         try:
             root = ElementTree.fromstring(xml_content)
@@ -132,9 +166,9 @@ class EPGService:
                     continue
                 for display_name in channel.findall("display-name"):
                     if display_name.text and display_name.text.strip():
-                        channel_names.setdefault(
-                            normalise_channel_name(display_name.text), xmltv_id
-                        )
+                        name = normalise_channel_name(display_name.text)
+                        channel_names.setdefault(name, xmltv_id)
+                        display_names.setdefault(xmltv_id, set()).add(name)
 
             for programme in root.findall("programme"):
                 channel_id = programme.get("channel")
@@ -169,11 +203,11 @@ class EPGService:
             for channel_id in programs_by_channel:
                 programs_by_channel[channel_id].sort(key=lambda p: p.start_time)
 
-        except ElementTree.ParseError as e:
+        except (ElementTree.ParseError, DefusedXmlException) as e:
             log.error("Failed to parse XMLTV: {}", e)
             raise EPGServiceError(f"Failed to parse XMLTV data: {e}") from e
 
-        return programs_by_channel, channel_names
+        return programs_by_channel, channel_names, display_names
 
     async def refresh_cache(self) -> bool:
         """Fetch XMLTV from Dispatcharr and parse into cache.
@@ -186,15 +220,24 @@ class EPGService:
         self._last_attempt_at = datetime.now(UTC)
         try:
             async with httpx.AsyncClient(timeout=30.0, verify=SSL_CONTEXT) as client:
-                response = await client.get(url)
-                response.raise_for_status()
+                async with client.stream("GET", url) as response:
+                    response.raise_for_status()
+                    # A byte budget and a body deadline, so a huge or slow-drip feed
+                    # can neither exhaust memory nor hold the refresh lock
+                    try:
+                        body = await read_bounded(response, FEED_BYTES)
+                    except ValueError as e:
+                        raise _FeedTooLargeError from e
 
                 # Parse in a thread pool - ElementTree over the whole XMLTV
                 # feed is CPU-bound and would otherwise block the event loop
-                programs, channel_names = await asyncio.to_thread(self._parse_xmltv, response.text)
-                # Swap both maps with no await between, so no lookup sees a mix
+                programs, channel_names, display_names = await asyncio.to_thread(
+                    self._parse_xmltv, body
+                )
+                # Swap the maps with no await between, so no lookup sees a mix
                 self._cache = programs
                 self._channel_names = channel_names
+                self._channel_display_names = display_names
                 self._cache_expires = datetime.now(UTC) + self._cache_ttl
                 self._last_success_at = datetime.now(UTC)
                 self._last_error = None
@@ -215,9 +258,13 @@ class EPGService:
             log.error("Failed to connect to Dispatcharr at {}: {}", url, e)
             self._last_error = "connection failed"
             return False
-        except httpx.TimeoutException as e:
-            log.error("Timeout fetching XMLTV from {}: {}", url, e)
+        except (httpx.TimeoutException, TimeoutError) as e:
+            log.error("Timeout fetching XMLTV from {}: {}", url, type(e).__name__)
             self._last_error = "timeout"
+            return False
+        except _FeedTooLargeError:
+            log.error("XMLTV feed from {} exceeds {} bytes", url, FEED_BYTES)
+            self._last_error = "feed too large"
             return False
         except httpx.HTTPError as e:
             log.error("Failed to fetch XMLTV from {}: {}", url, e)
@@ -227,42 +274,60 @@ class EPGService:
             log.error("Failed to parse XMLTV data: {}", e)
             self._last_error = "invalid XMLTV"
             return False
+        except Exception:
+            # Anything else still counts as a failed refresh, so the stale cache,
+            # the backoff and the health report hold; CancelledError passes through
+            log.exception("XMLTV refresh failed")
+            self._last_error = "refresh failed"
+            return False
+
+    async def _refresh_if_due(self) -> None:
+        """Run one refresh unless the cache is fresh or the failure backoff says wait.
+
+        Serialised behind a lock, so concurrent callers share one XMLTV download
+        and parse. The outcome updates the backoff whoever the caller is.
+        """
+        async with self._refresh_lock:
+            # Re-check after acquiring the lock (another caller may have refreshed)
+            if self._is_cache_valid():
+                return
+            if self._retry_at is not None and datetime.now(UTC) < self._retry_at:
+                return
+            if await self.refresh_cache():
+                self._consecutive_failures = 0
+                self._retry_at = None
+            else:
+                self._consecutive_failures += 1
+                self._retry_at = datetime.now(UTC) + self._retry_delay()
+                if self._cache:
+                    log.warning("Using stale EPG cache after refresh failure")
+
+    def _schedule_refresh(self) -> None:
+        """Start one background refresh unless one is running or the backoff says wait."""
+        if self._refresh_task is not None and not self._refresh_task.done():
+            return
+        if self._retry_at is not None and datetime.now(UTC) < self._retry_at:
+            return
+        self._refresh_task = asyncio.create_task(self._refresh_if_due())
 
     async def _ensure_cache(self) -> None:
-        """Refresh the cache if stale, falling back to stale data on failure.
+        """Make guide data available, blocking on a refresh only when there is none.
 
-        The refresh is serialized behind a lock so that concurrent requests
-        hitting an expired cache share one XMLTV download and parse.
+        An expired cache is served at once while one background task refreshes
+        it (stale-while-revalidate); a failed refresh keeps serving it.
 
         Raises:
             EPGServiceError: If cache is empty and refresh fails.
         """
         if self._is_cache_valid():
             return
+        if self._cache:
+            self._schedule_refresh()
+            return
 
-        async with self._refresh_lock:
-            # Re-check after acquiring the lock (another request may have refreshed)
-            if self._is_cache_valid():
-                return
-
-            if self._retry_at is not None and datetime.now(UTC) < self._retry_at:
-                if self._cache:
-                    return
-                raise EPGServiceError("EPG service unavailable; retry later")
-            refresh_success = await self.refresh_cache()
-            if refresh_success:
-                self._consecutive_failures = 0
-                self._retry_at = None
-            else:
-                self._consecutive_failures += 1
-                self._retry_at = datetime.now(UTC) + self._retry_delay()
-
-        if not refresh_success:
-            # If refresh failed but we have stale cache, use it
-            if self._cache:
-                log.warning("Using stale EPG cache after refresh failure")
-            else:
-                raise EPGServiceError("EPG service unavailable")
+        await self._refresh_if_due()
+        if not self._cache and not self._is_cache_valid():
+            raise EPGServiceError("EPG service unavailable")
 
     def get_health(self) -> EPGHealthStatus:
         """Report the guide data cache and the outcome of recent refreshes.
@@ -286,15 +351,31 @@ class EPGService:
         )
 
     async def check_health(self) -> EPGHealthStatus:
-        """Refresh the cache if it is due, then report its health.
+        """Report guide health at once, starting a background refresh if one is due.
 
-        Goes through _ensure_cache, so a status poll shares the single in-flight
-        refresh and waits out the failure backoff instead of hitting Dispatcharr.
+        Never waits on the download, so a status poll is not held up by
+        Dispatcharr; the refresh shares the single in-flight task and the backoff.
         """
-        # A failed refresh is what get_health reports, so it is not an error here
-        with contextlib.suppress(EPGServiceError):
-            await self._ensure_cache()
+        if not self._is_cache_valid():
+            self._schedule_refresh()
         return self.get_health()
+
+    async def ensure_fresh(self) -> EPGHealthStatus:
+        """Refresh the cache now if it is due, then report its health (boot warm-up)."""
+        await self._refresh_if_due()
+        return self.get_health()
+
+    async def aclose(self) -> None:
+        """Cancel and await a running background refresh (shutdown)."""
+        task, self._refresh_task = self._refresh_task, None
+        if task is not None and not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    def reset(self) -> None:
+        """Forget the guide, the backoff and the refresh task (tests: new event loop)."""
+        self.__init__(self.dispatcharr_url)
 
     def _find_current_and_next(
         self, programs: list[Program], now: datetime
@@ -336,7 +417,13 @@ class EPGService:
     def _resolve_programs(
         self, channel_id: str, channel_name: str | None
     ) -> tuple[list[Program], str | None]:
-        """Find a channel's programmes by guide id, then by name when the id has none.
+        """Find a channel's programmes by guide id, or by name when the id is wrong.
+
+        The name is used when the guide id has no programmes, and also when the
+        feed's display names for the guide id do not include the name while the
+        name belongs to a different XMLTV channel: the feed's numbering then
+        disagrees with the catalogue's. A name merely differing from the id's
+        display names ('CBC' vs 'CBC HD') keeps the id.
 
         Args:
             channel_id: Guide id of the channel.
@@ -344,14 +431,20 @@ class EPGService:
 
         Returns:
             Tuple of (programmes, XMLTV id matched by name). The XMLTV id is None
-            unless the name fallback was used.
+            unless the name was used.
         """
         programs = self._cache.get(channel_id, [])
-        if programs or not channel_name:
+        if not channel_name:
             return programs, None
 
-        xmltv_id = self._channel_names.get(normalise_channel_name(channel_name))
-        if xmltv_id is None:
+        name = normalise_channel_name(channel_name)
+        if programs:
+            id_names = self._channel_display_names.get(channel_id)
+            if not id_names or name in id_names:
+                return programs, None
+
+        xmltv_id = self._channel_names.get(name)
+        if xmltv_id is None or xmltv_id == channel_id:
             return programs, None
         return self._cache.get(xmltv_id, []), xmltv_id
 
@@ -360,10 +453,11 @@ class EPGService:
     ) -> EPGResponse:
         """Get current and next program for a channel.
 
-        The guide id is tried first. Only when it has no programmes is the
-        channel name matched against the XMLTV display names, which covers a
-        feed keyed differently from the guide id (another tvg_id_source, or a
-        profile's own channel numbering).
+        The guide id is tried first. The channel name is matched against the
+        XMLTV display names when the id has no programmes or when the feed names
+        the id as a different channel, which covers a feed keyed differently
+        from the guide id (another tvg_id_source, or a profile's own channel
+        numbering).
 
         Args:
             channel_id: Guide id of the channel to look up.
@@ -380,7 +474,7 @@ class EPGService:
         programs, xmltv_id = self._resolve_programs(channel_id, channel_name)
         if xmltv_id is not None:
             log.debug(
-                "Guide id {} missed; matched channel name {!r} to XMLTV id {}",
+                "Guide id {} resolved by channel name {!r} to XMLTV id {}",
                 channel_id,
                 channel_name,
                 xmltv_id,
@@ -408,7 +502,7 @@ class EPGService:
 
         The channel is resolved like get_now_playing: guide id first, then the
         channel name against the XMLTV display names when the id has no
-        programmes.
+        programmes or the feed names it as a different channel.
 
         Args:
             channel_id: Guide id of the channel to look up.
@@ -427,7 +521,7 @@ class EPGService:
         programs, xmltv_id = self._resolve_programs(channel_id, channel_name)
         if xmltv_id is not None:
             log.debug(
-                "Guide id {} missed; matched channel name {!r} to XMLTV id {}",
+                "Guide id {} resolved by channel name {!r} to XMLTV id {}",
                 channel_id,
                 channel_name,
                 xmltv_id,
@@ -452,17 +546,19 @@ class EPGService:
         The whole XMLTV feed is already cached in memory, so this is a scan over
         local data rather than one upstream call per channel.
 
-        Each of the given catalogue channels is also resolved the way
-        get_now_playing resolves it (guide id first, then its name against the
-        XMLTV display names), so a feed keyed differently from the guide ids
-        still yields an entry under each channel's guide id.
+        Each of the given catalogue channels is resolved first, the way
+        get_now_playing resolves it (guide id, then its name against the XMLTV
+        display names), so a feed keyed differently from the guide ids still
+        yields the right entry under each channel's guide id. Raw XMLTV ids
+        fill in only the keys no catalogue channel claims.
 
         Args:
             channels: Catalogue channels to key by guide id.
 
         Returns:
-            Mapping of XMLTV channel id, and of each given channel's guide id, to
-            its current program. Channels with nothing on air are omitted.
+            Mapping of each given channel's guide id, and of every other XMLTV
+            channel id, to its current program. Channels with nothing on air are
+            omitted.
 
         Raises:
             EPGServiceError: If cache is empty and refresh fails.
@@ -471,21 +567,21 @@ class EPGService:
 
         now = datetime.now(UTC)
         now_playing: dict[str, Program] = {}
-
-        for channel_id, programs in self._cache.items():
-            current_program, _ = self._find_current_and_next(programs, now)
-            if current_program is not None:
-                now_playing[channel_id] = current_program
+        claimed: set[str] = set()
 
         for channel in channels:
-            if channel.guide_id in now_playing:
-                continue
-            programs, xmltv_id = self._resolve_programs(channel.guide_id, channel.name)
-            if xmltv_id is None:
-                continue
+            claimed.add(channel.guide_id)
+            programs, _ = self._resolve_programs(channel.guide_id, channel.name)
             current_program, _ = self._find_current_and_next(programs, now)
             if current_program is not None:
                 now_playing[channel.guide_id] = current_program
+
+        for channel_id, programs in self._cache.items():
+            if channel_id in claimed:
+                continue
+            current_program, _ = self._find_current_and_next(programs, now)
+            if current_program is not None:
+                now_playing[channel_id] = current_program
 
         log.debug("Bulk now-playing: {} of {} channels on air", len(now_playing), len(self._cache))
         return now_playing
@@ -504,4 +600,6 @@ def get_epg_service() -> EPGService:
     global _epg_service
     if _epg_service is None:
         _epg_service = EPGService(settings.dispatcharr_url)
+        # Shut down and reset (tests) with the upstream caches
+        register_closable(_epg_service)
     return _epg_service

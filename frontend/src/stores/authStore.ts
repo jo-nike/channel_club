@@ -10,6 +10,7 @@ interface AuthState {
   isAuthenticated: boolean
   isInitializing: boolean
   setAuth: (token: string, role: 'admin' | 'viewer', username?: string) => void
+  replaceToken: (token: string, role: 'admin' | 'viewer') => void
   logout: () => void
   initialize: () => void
 }
@@ -44,6 +45,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     })
   },
 
+  // A refreshed token for the same sign-in. The generation stays, so requests
+  // and the socket already under way still belong to this session.
+  replaceToken: (token, role) => {
+    logger.debug('Auth', `Session refreshed with role: ${role}`)
+    try {
+      localStorage.setItem('token', token)
+      localStorage.setItem('role', role)
+    } catch {
+      // Storage blocked: the refreshed token lasts for this page only
+    }
+    set({ token, role })
+  },
+
   logout: () => {
     logger.info('Auth', 'User logged out')
     logger.debug('Auth', 'Clearing token from localStorage')
@@ -72,7 +86,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (token && role) {
       logger.debug('Auth', `Restored session for role: ${role}`)
       const username = storedUsername || getTokenSubject(token)
-      set({ generation: get().generation + 1, token, role, username, isAuthenticated: true, isInitializing: false })
+      // Every useAuth caller initializes; restoring the session already held
+      // is not a new sign-in, so it must not reconnect the socket
+      const generation = token === get().token ? get().generation : get().generation + 1
+      set({ generation, token, role, username, isAuthenticated: true, isInitializing: false })
     } else {
       logger.debug('Auth', 'No existing session found')
       set({ isInitializing: false })

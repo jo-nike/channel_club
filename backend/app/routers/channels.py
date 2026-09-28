@@ -19,6 +19,11 @@ from app.services.dispatcharr import (
     get_grouped_channels,
     get_lineup,
 )
+from app.services.logo_proxy import (
+    LOGO_CACHE_CONTROL,
+    LOGO_NOT_FOUND_CACHE_CONTROL,
+    LogoNotFoundError,
+)
 from app.services.media_source import resolve_media_channel
 
 router = APIRouter(tags=["channels"])
@@ -107,13 +112,21 @@ async def get_channel_logo_image(
         The logo image.
 
     Raises:
-        HTTPException: 404 if no channel uses this logo, 503 if it can't be served.
+        HTTPException: 404 if no channel uses this logo or Dispatcharr has none,
+            503 if it can't be served.
     """
     log.debug("GET /channels/logos/{} request", logo_id)
     try:
         body, content_type = await get_channel_logo(logo_id)
     except ChannelLogoNotFoundError:
         raise HTTPException(status_code=404, detail="No logo available") from None
+    except LogoNotFoundError:
+        # Dispatcharr has no such image; browsers may keep that answer a while
+        raise HTTPException(
+            status_code=404,
+            detail="No logo available",
+            headers={"Cache-Control": LOGO_NOT_FOUND_CACHE_CONTROL},
+        ) from None
     except DispatchrrUnavailableError:
         raise HTTPException(status_code=503, detail="Logo unavailable") from None
 
@@ -121,7 +134,7 @@ async def get_channel_logo_image(
         body,
         media_type=content_type,
         headers={
-            "Cache-Control": "public, max-age=3600",
+            "Cache-Control": LOGO_CACHE_CONTROL,
             "Content-Security-Policy": "default-src 'none'; sandbox",
             "X-Content-Type-Options": "nosniff",
         },

@@ -17,14 +17,21 @@ import shutil
 import subprocess
 import time
 import uuid
+from contextlib import suppress
 from pathlib import Path
 
 from loguru import logger
 
 from app.config import settings
+from app.services.highlight import RECORDER_RW_TIMEOUT_MICROSECONDS
 from app.services.media_limits import process_budget
 
 log = logger.bind(service="cast")
+
+
+def monotonic() -> float:
+    """The clock for session idleness, which a host clock step must not move."""
+    return time.monotonic()
 
 
 class CastSession:
@@ -43,7 +50,7 @@ class CastSession:
 
     def touch(self) -> None:
         """Update last activity timestamp (called on segment/playlist access)."""
-        self.last_activity = time.time()
+        self.last_activity = monotonic()
 
     @property
     def is_running(self) -> bool:
@@ -71,7 +78,7 @@ class CastSession:
             # For HLS streams, no transcoding needed - return source URL directly
             if self.stream_type == "hls":
                 log.info("HLS stream for session {} - no transcoding needed", self.session_id)
-                self.last_activity = time.time()
+                self.last_activity = monotonic()
                 return self.stream_url
 
             # Create output directory for HLS segments
@@ -94,6 +101,8 @@ class CastSession:
                 "1",
                 "-reconnect_delay_max",
                 "5",
+                "-rw_timeout",
+                str(RECORDER_RW_TIMEOUT_MICROSECONDS),  # A silent upstream ends FFmpeg
                 "-protocol_whitelist",
                 "http,https,tcp,tls,crypto",
                 "-i",
@@ -132,7 +141,7 @@ class CastSession:
                     start_new_session=True,  # Safe from worker threads; no undrained pipes
                 )
                 self.started_at = time.time()
-                self.last_activity = time.time()
+                self.last_activity = monotonic()
 
                 # Wait for FFmpeg to create the playlist (up to 10 seconds)
                 for _ in range(20):
@@ -193,7 +202,8 @@ class CastSession:
         # Cleanup output directory
         if self.output_dir and self.output_dir.exists():
             try:
-                shutil.rmtree(self.output_dir)
+                # Recursive delete is filesystem-bound - keep it off the loop
+                await asyncio.to_thread(shutil.rmtree, self.output_dir)
                 log.debug("Cleaned up HLS directory for session {}", self.session_id)
             except Exception as e:
                 log.warning("Failed to cleanup HLS files for session {}: {}", self.session_id, e)
@@ -233,17 +243,24 @@ class CastService:
         self._lock = asyncio.Lock()
         self._cleanup_task: asyncio.Task | None = None
 
+    def session_count(self) -> int:
+        """Number of cast sessions, for the gauges log line."""
+        return len(self._sessions)
+
     def start_idle_cleanup_task(self) -> None:
         """Start background task to clean up idle sessions."""
         if self._cleanup_task is None or self._cleanup_task.done():
             self._cleanup_task = asyncio.create_task(self._idle_cleanup_loop())
             log.debug("Started idle cast session cleanup task")
 
-    def stop_idle_cleanup_task(self) -> None:
-        """Stop the background cleanup task."""
-        if self._cleanup_task and not self._cleanup_task.done():
-            self._cleanup_task.cancel()
+    async def stop_idle_cleanup_task(self) -> None:
+        """Stop the background cleanup task and wait for it to finish."""
+        task = self._cleanup_task
+        if task and not task.done():
+            task.cancel()
             self._cleanup_task = None
+            with suppress(asyncio.CancelledError):
+                await task
             log.debug("Stopped idle cast session cleanup task")
 
     async def _idle_cleanup_loop(self) -> None:
@@ -259,7 +276,7 @@ class CastService:
 
     async def _cleanup_idle_sessions(self) -> None:
         """Stop sessions that haven't had activity recently."""
-        now = time.time()
+        now = monotonic()
         idle_sessions: list[str] = []
 
         # Find idle sessions
@@ -407,16 +424,18 @@ class CastService:
 
     async def stop_all(self) -> None:
         """Stop all sessions (for shutdown)."""
-        self.stop_idle_cleanup_task()
+        await self.stop_idle_cleanup_task()
         async with self._lock:
             sessions = list(self._sessions.items())
             self._sessions.clear()
 
-        for session_id, session in sessions:
+        async def stop(session_id: str, session: CastSession) -> None:
             try:
                 await session.stop()
             finally:
                 process_budget.release(self._owners.pop(session_id, "system"))
+
+        await asyncio.gather(*(stop(session_id, session) for session_id, session in sessions))
         log.info("All cast sessions stopped")
 
     def get_session(self, session_id: str) -> CastSession | None:

@@ -29,12 +29,18 @@ services:
       - "8334:8080"
     env_file:
       - .env
+    # Admin settings and the Live channel survive a deploy (STATE_FILE=/data/state.json)
+    volumes:
+      - channel-club-state:/data
     # Reach Dispatcharr over the WireGuard tunnel (the VPS is 10.8.0.2). Its M3U/EPG
     # endpoints only admit allow-listed addresses, and the home public IP is dynamic;
     # the VPN range is allowed. Browsers still resolve streams.example.com publicly.
     extra_hosts:
       - "streams.example.com:10.8.0.2"
     restart: unless-stopped
+    # uvicorn's graceful timeout plus the teardown deadline (8 s each) fit in this.
+    stop_grace_period: 20s
+    init: true
     logging: *bounded-logging
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
@@ -45,3 +51,6 @@ services:
     labels:
       mcp.role: "Channel Club web app (Dispatcharr/ErsatzTV front end)"
       mcp.auth: "plex-oauth"
+
+volumes:
+  channel-club-state:

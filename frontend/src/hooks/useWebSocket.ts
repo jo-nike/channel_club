@@ -10,7 +10,9 @@ import { usePresenceStore } from '@/stores/presenceStore'
 import { logger } from '@/lib/logger'
 import { getSessionId } from '@/lib/sessionId'
 import { createClientMessageId } from '@/lib/messageId'
+import { noticeServerBuild } from '@/lib/appUpdate'
 import { useChatEnabled } from './useChatEnabled'
+import { refreshAuth } from './useAuth'
 import type { AppSettings, Channel, ChatMessage, PresenceEntry } from '@/types'
 
 interface WebSocketMessage {
@@ -24,6 +26,8 @@ interface WebSocketMessage {
   you?: { username: string; userId?: string }
   // Who is here (connection_ack and presence_update); absent from older servers
   presence?: PresenceEntry[]
+  // The server's build (connection_ack); absent from older servers
+  buildId?: string
   // Chat message fields
   clientMessageId?: string
   accepted?: boolean
@@ -43,7 +47,8 @@ interface WebSocketMessage {
   nickname?: string
 }
 
-export type WebSocketStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
+// restarting: the server closed with 1012 (Service Restart, a deploy); lasts until the next connection_ack
+export type WebSocketStatus = 'connecting' | 'connected' | 'reconnecting' | 'restarting' | 'disconnected'
 
 const PING_INTERVAL = 30000
 const MAX_RETRIES = 5
@@ -98,7 +103,7 @@ export type ChatSendResult = 'acknowledged' | 'not-sent' | 'unconfirmed'
 interface UseWebSocketReturn {
   status: WebSocketStatus
   reconnect: () => void
-  sendChannelUpdate: (channelName: string | null, programmeTitle?: string | null, viewType?: 'live' | 'ersatztv', channelId?: string | null) => void
+  sendChannelUpdate: (channelName: string | null, programmeTitle?: string | null, viewType?: 'live' | 'ersatztv', channelId?: string | null, onLive?: boolean) => void
   sendChatMessage: (content: string, clientMessageId?: string) => Promise<ChatSendResult>
   // Post a card of what this viewer is watching; the server fills in the channel
   sendShare: (clientMessageId?: string) => Promise<ChatSendResult>
@@ -109,6 +114,10 @@ interface UseWebSocketReturn {
 
 export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketReturn {
   const { view = 'live' } = options
+  // A sign-in or sign-out starts a new generation and a new socket; a
+  // refreshed token keeps both and is sent over the open socket instead
+  const generation = useAuthStore((s) => s.generation)
+  const signedIn = useAuthStore((s) => s.token !== null)
   const token = useAuthStore((s) => s.token)
   const setCurrentChannel = useChannelStore((s) => s.setCurrentChannel)
   const setLastChange = useChannelStore((s) => s.setLastChange)
@@ -137,6 +146,14 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   // before the previous socket's close event arrives
   const intentionalClosesRef = useRef(new WeakSet<WebSocket>())
   const connectRef = useRef<((isReconnect?: boolean) => void) | null>(null)
+  // The token the current socket authenticated with, so each refresh is sent once
+  const socketTokenRef = useRef<string | null>(null)
+  // The session refresh after a 4001 close while it is in flight; a newer connect or disconnect cancels it
+  const authRefreshRef = useRef<object | null>(null)
+  // A refreshed token reconnected; a 4001 before the next connection_ack means it was refused too
+  const refreshedSinceAckRef = useRef(false)
+  // The server announced a restart (1012); reconnects show that until the next connection_ack
+  const restartingRef = useRef(false)
   const notificationsEnabledRef = useRef(notificationsEnabled)
 
   // Keep notificationsEnabledRef in sync with state to avoid stale closure
@@ -166,6 +183,16 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       switch (message.type) {
         case 'connection_ack':
           logger.debug('WebSocket', 'Received connection_ack', message)
+          refreshedSinceAckRef.current = false
+          // Reset on the ack, not on open: the server accepts a socket before
+          // refusing its token, so a refused socket keeps backing off
+          retryCountRef.current = 0
+          if (restartingRef.current) {
+            restartingRef.current = false
+            setStatus('connected')
+          }
+          // A different build means a deploy: look for the new app version
+          noticeServerBuild(message.buildId)
           setCurrentChannel(message.currentChannel ?? null)
           if (message.settings) {
             setUserChannelSelection(message.settings.userChannelSelection)
@@ -184,15 +211,6 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           }
           if (Array.isArray(message.presence)) {
             setPresence(message.presence)
-          }
-          // The server shares each new connection's channel unless told otherwise.
-          // Read from the store so a change doesn't recreate the socket handlers
-          if (useUIStore.getState().hideMyActivity) {
-            const socket = wsRef.current
-            if (socket?.readyState === WebSocket.OPEN) {
-              socket.send(JSON.stringify({ type: 'set_presence_prefs', hideActivity: true }))
-              logger.debug('WebSocket', 'Sent presence prefs after connection_ack: hidden')
-            }
           }
           break
 
@@ -255,10 +273,14 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           break
 
         case 'error':
-          if (message.code === 'nickname_taken' && typeof message.nickname === 'string') {
-            // Another member signed in under that name; go back to the name the server still uses
-            logger.info('WebSocket', `Nickname refused: ${message.nickname}`)
-            rejectChatNickname(message.nickname)
+          if (
+            (message.code === 'nickname_taken' || message.code === 'rate_limited')
+            && typeof message.nickname === 'string'
+          ) {
+            // Another member's sign-in name, or too many changes at once: go back to
+            // the name the server still uses
+            logger.info('WebSocket', `Nickname refused (${message.code}): ${message.nickname}`)
+            rejectChatNickname(message.nickname, message.code === 'rate_limited' ? 'rate_limited' : 'taken')
           } else {
             logger.warn('WebSocket', `Server error: ${message.code ?? 'unknown'}`, message)
           }
@@ -272,10 +294,39 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     [setCurrentChannel, setLastChange, chatEnabled, addChatMessage, setChatMessages, setChatIdentity, rejectChatNickname, setUserChannelSelection, setPresenceVisible, setPresence]
   )
 
+  const scheduleReconnect = useCallback(() => {
+    // Attempt reconnection if we haven't exceeded retries
+    if (retryCountRef.current < MAX_RETRIES) {
+      const delay = getBackoffDelay()
+      logger.debug(
+        'WebSocket',
+        `Scheduling reconnect in ${delay}ms (attempt ${retryCountRef.current + 1}/${MAX_RETRIES})`
+      )
+      setStatus(restartingRef.current ? 'restarting' : 'reconnecting')
+
+      reconnectTimeoutRef.current = window.setTimeout(() => {
+        retryCountRef.current++
+        connectRef.current?.(true)
+      }, delay)
+    } else {
+      // Never give up: a restart longer than the fast retries must not strand the tab
+      const delay = SLOW_RETRY_INTERVAL + Math.random() * SLOW_RETRY_JITTER
+      logger.warn('WebSocket', `Fast reconnection attempts exhausted, retrying in ${Math.round(delay)}ms`)
+      setStatus('disconnected')
+
+      reconnectTimeoutRef.current = window.setTimeout(() => {
+        connectRef.current?.(true)
+      }, delay)
+    }
+  }, [getBackoffDelay])
+
   const connect = useCallback(
     (isReconnect = false) => {
+      // Read at connect time: a refresh replaces the token without a new socket
+      const token = useAuthStore.getState().token
       if (!token) return
 
+      authRefreshRef.current = null
       clearPendingChat()
       // Close existing connection if any (a CONNECTING socket would otherwise be orphaned)
       const existing = wsRef.current
@@ -287,12 +338,13 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       clearTimers()
 
       logger.info('WebSocket', isReconnect ? 'Reconnecting...' : 'Connecting...')
-      setStatus(isReconnect ? 'reconnecting' : 'connecting')
+      setStatus(restartingRef.current ? 'restarting' : isReconnect ? 'reconnecting' : 'connecting')
 
-      // Construct WebSocket URL with view and session parameters
+      // Construct WebSocket URL with view and session parameters. The token
+      // goes in the first message instead: proxies log URLs.
       const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
       const sessionId = getSessionId()
-      const wsUrl = `${wsProtocol}//${window.location.host}/api/ws?token=${token}&view=${view}&session_id=${sessionId}`
+      const wsUrl = `${wsProtocol}//${window.location.host}/api/ws?view=${view}&session_id=${sessionId}`
 
       const ws = new WebSocket(wsUrl)
       wsRef.current = ws
@@ -301,9 +353,17 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         // Ignore a socket that has already been superseded by a newer one
         if (wsRef.current !== ws) return
 
+        // The server reads nothing else until this arrives. A refresh since
+        // connect() is already in the store. The hide preference comes with it,
+        // so the server never shows this connection's channel before knowing it.
+        // Read from the store so a change doesn't recreate the socket handlers
+        const authToken = useAuthStore.getState().token ?? token
+        socketTokenRef.current = authToken
+        const hideActivity = useUIStore.getState().hideMyActivity
+        ws.send(JSON.stringify({ type: 'auth', token: authToken, hideActivity }))
+
         logger.info('WebSocket', 'Connected successfully')
-        setStatus('connected')
-        retryCountRef.current = 0
+        if (!restartingRef.current) setStatus('connected')
 
         // Start ping interval for keep-alive
         pingIntervalRef.current = window.setInterval(() => {
@@ -362,42 +422,44 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         clearPendingChat()
         wsRef.current = null
 
-        // Token expired - don't reconnect, log out and redirect to login
         if (event.code === 4001) {
-          logger.info('WebSocket', 'Disconnected (token expired)')
-          setStatus('disconnected')
-          useAuthStore.getState().logout()
+          // The token was refused (expired, or signed for someone else).
+          // A token that was just refreshed and refused as well ends the sign-in.
+          if (refreshedSinceAckRef.current) {
+            logger.info('WebSocket', 'Disconnected (refreshed token refused)')
+            setStatus('disconnected')
+            useAuthStore.getState().logout()
+            return
+          }
+          // One refresh per 4001: success reconnects with the new token, a 401
+          // signs out (refreshAuth does that), a temporary failure retries as any drop
+          logger.info('WebSocket', 'Disconnected (token refused), refreshing the session')
+          setStatus('reconnecting')
+          const attempt = {}
+          authRefreshRef.current = attempt
+          void refreshAuth().then((outcome) => {
+            if (authRefreshRef.current !== attempt) return
+            authRefreshRef.current = null
+            if (outcome === 'refreshed') {
+              refreshedSinceAckRef.current = true
+              connectRef.current?.(true)
+            } else if (outcome === 'temporary') {
+              scheduleReconnect()
+            } else {
+              // Signed out, or a new sign-in that gets its own socket
+              setStatus('disconnected')
+            }
+          })
           return
         }
 
         logger.info('WebSocket', `Disconnected (code: ${event.code})`)
-
-        // Attempt reconnection if we haven't exceeded retries
-        if (retryCountRef.current < MAX_RETRIES) {
-          const delay = getBackoffDelay()
-          logger.debug(
-            'WebSocket',
-            `Scheduling reconnect in ${delay}ms (attempt ${retryCountRef.current + 1}/${MAX_RETRIES})`
-          )
-          setStatus('reconnecting')
-
-          reconnectTimeoutRef.current = window.setTimeout(() => {
-            retryCountRef.current++
-            connectRef.current?.(true)
-          }, delay)
-        } else {
-          // Never give up: a restart longer than the fast retries must not strand the tab
-          const delay = SLOW_RETRY_INTERVAL + Math.random() * SLOW_RETRY_JITTER
-          logger.warn('WebSocket', `Fast reconnection attempts exhausted, retrying in ${Math.round(delay)}ms`)
-          setStatus('disconnected')
-
-          reconnectTimeoutRef.current = window.setTimeout(() => {
-            connectRef.current?.(true)
-          }, delay)
-        }
+        // 1012 is Service Restart: a deploy. Proxies may turn it into 1006, so this is best effort
+        if (event.code === 1012) restartingRef.current = true
+        scheduleReconnect()
       }
     },
-    [token, view, handleMessage, clearTimers, clearPendingChat, getBackoffDelay]
+    [view, handleMessage, clearTimers, clearPendingChat, scheduleReconnect]
   )
 
   // Keep connectRef in sync with connect function
@@ -408,6 +470,9 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   const disconnect = useCallback(() => {
     clearTimers()
     clearPendingChat()
+    authRefreshRef.current = null
+    refreshedSinceAckRef.current = false
+    restartingRef.current = false
     const ws = wsRef.current
     if (ws) {
       intentionalClosesRef.current.add(ws)
@@ -422,12 +487,15 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
 
   const reconnect = useCallback(() => {
     retryCountRef.current = 0
-    if (!token || useAuthStore.getState().token !== token) return
+    const auth = useAuthStore.getState()
+    if (!auth.token || auth.generation !== generation) return
     connect(true)
-  }, [connect, token])
+  }, [connect, generation])
 
   useEffect(() => {
     const recover = () => {
+      // A session refresh after a 4001 reconnects by itself
+      if (authRefreshRef.current) return
       if (!wsRef.current || wsRef.current.readyState === WebSocket.CLOSED) reconnect()
     }
     const onVisible = () => { if (document.visibilityState === 'visible') recover() }
@@ -442,7 +510,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     }
   }, [reconnect])
 
-  // Tell the server when the person changes it; each new socket gets it after its connection_ack
+  // Tell the server when the person changes it; each new socket gets it in its auth message
   useEffect(() => {
     const socket = wsRef.current
     if (socket?.readyState === WebSocket.OPEN) {
@@ -452,7 +520,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   }, [hideMyActivity])
 
   const sendChannelUpdate = useCallback(
-    (channelName: string | null, programmeTitle?: string | null, viewType?: 'live' | 'ersatztv', channelId?: string | null) => {
+    (channelName: string | null, programmeTitle?: string | null, viewType?: 'live' | 'ersatztv', channelId?: string | null, onLive?: boolean) => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(
           JSON.stringify({
@@ -461,6 +529,9 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
             channelId: channelId ?? null,
             programme: programmeTitle ?? null,
             view: viewType ?? null,
+            // Following the shared Live slot, not a personal pick of a channel; left
+            // out, the server works it out from the Live channel's id
+            onLive: onLive ?? null,
           })
         )
         logger.debug('WebSocket', `Sent channel update: ${channelName || 'null'} - ${programmeTitle || 'null'} (view: ${viewType || 'unchanged'})`)
@@ -498,8 +569,10 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     [sendAcknowledged]
   )
 
-  // No channel is sent: the server takes it from presence, so a card can't
-  // name a channel its sender isn't on
+  // No channel is sent: the server takes the channel id this tab last reported
+  // (channel_update) and names it from its catalogue, refusing an id it doesn't
+  // know, so the card's name matches what Join opens. The id itself is the
+  // client's own report, so a card can't prove its sender is on that channel.
   const sendShare = useCallback(
     (clientMessageId: string = createClientMessageId()): Promise<ChatSendResult> =>
       sendAcknowledged({ type: 'share' }, clientMessageId),
@@ -526,15 +599,25 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     }
   }, [])
 
-  // Connect on mount when token is available
+  // Connect on mount when signed in, and again for each new sign-in (not for a refreshed token)
   // Intentionally calls connect (which sets state) in effect - this is the standard WebSocket pattern
   useEffect(() => {
-    if (token) {
+    if (signedIn) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       connect()
     }
     return () => disconnect()
-  }, [token, connect, disconnect])
+  }, [generation, signedIn, connect, disconnect])
+
+  // A refreshed token moves the open socket's expiry. Declared after the
+  // connect effect, so a new sign-in has already replaced the socket here.
+  useEffect(() => {
+    const socket = wsRef.current
+    if (!token || token === socketTokenRef.current || socket?.readyState !== WebSocket.OPEN) return
+    socket.send(JSON.stringify({ type: 'reauth', token }))
+    socketTokenRef.current = token
+    logger.debug('WebSocket', 'Sent reauth with the refreshed token')
+  }, [token])
 
   return { status, reconnect, sendChannelUpdate, sendChatMessage, sendShare, sendSuggest, sendSetNickname }
 }

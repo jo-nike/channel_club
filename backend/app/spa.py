@@ -13,8 +13,16 @@ IMMUTABLE = "public, max-age=31536000, immutable"
 # The shell and service-worker files keep their names across deploys, so the
 # browser must revalidate them (ETag) on every load to pick up a new build.
 # sw-migration.js is pulled into sw.js by importScripts, so it counts as the worker.
+# theme-boot.js is the shell's pre-paint script, loaded by a fixed name.
 NO_CACHE_FILES = frozenset(
-    {"index.html", "sw.js", "sw-migration.js", "registerSW.js", "manifest.webmanifest"}
+    {
+        "index.html",
+        "sw.js",
+        "sw-migration.js",
+        "registerSW.js",
+        "manifest.webmanifest",
+        "theme-boot.js",
+    }
 )
 NO_CACHE = {"Cache-Control": "no-cache"}
 # With DOCS_ENABLED off FastAPI registers none of these, so they would fall

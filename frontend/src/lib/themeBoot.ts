@@ -49,7 +49,7 @@ export const colorToCSSVar: Record<keyof ThemeColors, string> = {
   sidebarRing: '--sidebar-ring',
 }
 
-/** localStorage key read by the inline boot script in index.html */
+/** localStorage key read by the boot script, public/theme-boot.js */
 export const THEME_BOOT_KEY = 'theme-boot'
 
 /** One theme's resolved values, as useTheme applies them */
@@ -66,15 +66,15 @@ export interface ThemeBootPalette {
 }
 
 /**
- * Resolved theme values for the inline script in index.html, which applies
- * them before first paint. Storing resolved values means index.html never
- * needs its own copy of lib/themes.ts.
+ * Resolved theme values for the boot script (public/theme-boot.js), which
+ * applies them before first paint. Storing resolved values means the script
+ * never needs its own copy of lib/themes.ts.
  *
  * The top-level palette is the theme on screen when the snapshot was
  * written. While the theme follows the system, `system` also holds both
  * palettes and the script picks one with prefers-color-scheme, so a scheme
  * change between visits doesn't flash the old theme. A script without
- * `system` support (an index.html cached before it) uses the top level.
+ * `system` support (an older cached copy) uses the top level.
  */
 export interface ThemeBoot extends ThemeBootPalette {
   v: 1

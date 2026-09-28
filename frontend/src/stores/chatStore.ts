@@ -22,6 +22,8 @@ export interface ChatIdentity {
 // A new object per refusal, so refusing the same name twice still registers
 export interface NicknameRejection {
   nickname: string
+  // taken: another member's sign-in name; rate_limited: too many changes at once
+  reason: 'taken' | 'rate_limited'
 }
 
 /** Posts a chat message over the view's socket (useWebSocket's sendChatMessage). */
@@ -57,7 +59,7 @@ interface ChatState {
   clearNickname: () => void
   setIdentity: (me: ChatIdentity) => void
   resetIdentity: () => void
-  rejectNickname: (nickname: string) => void
+  rejectNickname: (nickname: string, reason?: NicknameRejection['reason']) => void
   clearNicknameRejection: () => void
   // The view that owns the socket registers how to send, so in-player
   // features can post without the sender threaded down to them as a prop.
@@ -312,7 +314,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ me: null, nickname: null, revertNickname: null, nicknameRejection: null, lastReadAt: null, readMarker: null })
   },
 
-  rejectNickname: (refused) => {
+  rejectNickname: (requested, reason = 'taken') => {
+    // The server names the request as sent; setNickname kept it trimmed and cut
+    const refused = requested.trim().slice(0, MAX_NICKNAME_LENGTH)
     const state = get()
     // Already moved on to another name: the server kept that one, nothing to undo
     if (state.nickname !== refused) {
@@ -322,7 +326,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     logger.debug('ChatStore', `Nickname refused: ${refused}`)
     // Go back to the name the server still uses, here and in storage
     saveNickname(state.me, state.revertNickname)
-    set({ nickname: state.revertNickname, revertNickname: null, nicknameRejection: { nickname: refused } })
+    set({ nickname: state.revertNickname, revertNickname: null, nicknameRejection: { nickname: refused, reason } })
   },
 
   clearNicknameRejection: () => set({ nicknameRejection: null }),

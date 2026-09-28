@@ -10,10 +10,12 @@ from app.config import KNOWN_PUBLIC_JWT_SECRETS, settings
 from app.logging_config import configure_logging
 from app.metadata import APP_NAME, APP_VERSION
 from app.middleware.body_limit import BodySizeLimitMiddleware
+from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.routers.admin import router as admin_router
 from app.routers.auth import router as auth_router
 from app.routers.cast import router as cast_router
 from app.routers.channels import router as channels_router
+from app.routers.csp_report import router as csp_report_router
 from app.routers.epg import router as epg_router
 from app.routers.ersatztv import router as ersatztv_router
 from app.routers.feedback import router as feedback_router
@@ -22,13 +24,24 @@ from app.routers.highlight import router as highlight_router
 from app.routers.nhl import router as nhl_router
 from app.routers.settings import router as settings_router
 from app.routers.websocket import router as websocket_router
-from app.services import plex, presence, presence_broadcast
+from app.services import (
+    app_settings,
+    channel_state,
+    gauges,
+    plex,
+    presence,
+    presence_broadcast,
+    state_store,
+)
+from app.services.cached_fetch import aclose_all_caches
 from app.services.cast import cast_service
 from app.services.dispatcharr import (
     DispatchrrUnavailableError,
+    catalogue_failing,
     get_grouped_channels,
 )
 from app.services.epg_service import get_epg_service
+from app.services.ersatztv.refresh import stop_feed_executor
 from app.services.highlight import highlight_service
 from app.spa import mount_spa
 
@@ -86,6 +99,11 @@ def validate_auth_configuration() -> None:
         )
 
 
+# Shutdown teardown's budget, after uvicorn's own graceful timeout (Dockerfile)
+# and inside the compose stop_grace_period.
+SHUTDOWN_DEADLINE_SECONDS = 8
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler for startup/shutdown events."""
@@ -97,6 +115,12 @@ async def lifespan(app: FastAPI):
         log_format=settings.log_format,
     )
     validate_auth_configuration()
+    # Put the admin settings back before serving; Live is re-resolved against
+    # the catalogue in the background, so a Dispatcharr outage never blocks start.
+    if settings.state_file:
+        state = state_store.load()
+        app_settings.restore_app_settings(state)
+        channel_state.start_restore_task(state["liveChannelId"])
     if settings.zipline_enabled and not settings.zipline_available:
         logger.warning(
             "Zipline uploads unavailable: enable highlights and configure "
@@ -134,6 +158,8 @@ async def lifespan(app: FastAPI):
     # Look up the Plex server owner id now: require_admin needs it to tell the
     # owner from a demoted admin, and the cache is empty after every deploy.
     plex.start_server_owner_lookup()
+    # One gauges log line a minute: sockets, recorders, budgets, FDs, FFmpeg children.
+    gauges.start_gauges_task()
 
     # Warm the channel groups and guide caches in the background so the first
     # admin modal open or channel list doesn't block on a cold Dispatcharr fetch.
@@ -141,7 +167,7 @@ async def lifespan(app: FastAPI):
     async def _warm_caches() -> None:
         channels, guide = await asyncio.gather(
             get_grouped_channels(),
-            get_epg_service().check_health(),
+            get_epg_service().ensure_fresh(),
             return_exceptions=True,
         )
         if isinstance(channels, DispatchrrUnavailableError):
@@ -160,23 +186,51 @@ async def lifespan(app: FastAPI):
     # strong one for the app's lifetime — otherwise the warmup can be collected
     # mid-fetch and the cache silently stays cold.
     app.state.warmup_task = asyncio.create_task(_warm_caches())
+    # Last, so the restore's recorder starts after the stale segment cleanup above
+    await channel_state.wait_for_restore(channel_state.RESTORE_STARTUP_WAIT_SECONDS)
 
     yield
     # Shutdown
     logger.info("Channel Club API shutting down")
-    # Cancel the warmup if a restart lands mid-fetch, rather than tearing the
-    # loop down with a pending task.
-    app.state.warmup_task.cancel()
-    with suppress(asyncio.CancelledError):
-        await app.state.warmup_task
-    await plex.stop_server_owner_lookup()
     presence.stop_cleanup_task()
     presence_broadcast.cancel_pending()
-    # Stop idle cleanup task and all highlight recorders
-    highlight_service.stop_idle_cleanup_task()
-    await highlight_service.stop_all()
-    # Stop all cast sessions
-    await cast_service.stop_all()
+
+    async def _stop_warmup() -> None:
+        # Cancel the warmup if a restart lands mid-fetch, rather than tearing the
+        # loop down with a pending task.
+        app.state.warmup_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await app.state.warmup_task
+
+    async def _stop_highlights() -> None:
+        # The sweep may be mid-stop; let it finish before stopping the rest.
+        await highlight_service.stop_idle_cleanup_task()
+        await highlight_service.stop_all()
+
+    # Teardowns run concurrently under one deadline that fits Docker's stop
+    # grace period. A new teardown is one more entry in this list.
+    teardowns = [
+        _stop_warmup(),
+        plex.stop_server_owner_lookup(),
+        _stop_highlights(),
+        cast_service.stop_all(),
+        channel_state.stop_reconcile_task(),
+        channel_state.stop_failed_closes(),
+        channel_state.stop_restore_task(),
+        presence.stop_stale_closes(),
+        aclose_all_caches(),
+        stop_feed_executor(),
+        gauges.stop_gauges_task(),
+    ]
+    try:
+        async with asyncio.timeout(SHUTDOWN_DEADLINE_SECONDS):
+            results = await asyncio.gather(*teardowns, return_exceptions=True)
+    except TimeoutError:
+        logger.warning("Shutdown teardown cut off at its {}s deadline", SHUTDOWN_DEADLINE_SECONDS)
+    else:
+        for result in results:
+            if isinstance(result, BaseException):
+                logger.warning("Shutdown teardown failed: {!r}", result)
 
 
 # Configure at import, before uvicorn logs 'Started server process', so every
@@ -201,12 +255,14 @@ if settings.cors_origins:
         allow_headers=["*"],
     )
 
-# Added last so it wraps everything: oversize bodies get 413 before routing.
+# Wraps routing and CORS: oversize bodies get 413 before routing.
 app.add_middleware(
     BodySizeLimitMiddleware,
     max_bytes=settings.request_body_max_bytes,
     exempt_paths=frozenset({"/api/highlight/upload"}),
 )
+# Added last so it wraps everything, the body cap's 413 included.
+app.add_middleware(SecurityHeadersMiddleware, stream_base_url=settings.stream_base_url)
 
 # Register API routers FIRST (they take precedence over static files)
 app.include_router(auth_router, prefix="/api/auth")
@@ -218,6 +274,7 @@ app.include_router(settings_router, prefix="/api")
 app.include_router(cast_router)
 app.include_router(gif_router)
 app.include_router(feedback_router)
+app.include_router(csp_report_router)
 app.include_router(highlight_router)
 app.include_router(nhl_router)
 app.include_router(websocket_router)
@@ -230,6 +287,28 @@ async def health_check() -> dict[str, str]:
         "version": APP_VERSION,
         "buildId": settings.app_build_id,
         "revision": settings.app_revision,
+    }
+
+
+@app.get("/api/health/deps")
+async def health_deps() -> dict[str, str | None]:
+    """Coarse upstream readiness for the uptime monitor, from local state only.
+
+    Public, so it carries no URLs, error text or counts, and it never contacts
+    an upstream. The Docker healthcheck stays on /api/health: an upstream outage
+    must not get this container restarted.
+    """
+    guide = get_epg_service().get_health()
+    if not guide.online:
+        epg = "failing"
+    elif guide.stale:
+        epg = "stale"
+    else:
+        epg = "ok"
+    return {
+        "epg": epg,
+        "epgLastSuccess": guide.last_success_at.isoformat() if guide.last_success_at else None,
+        "dispatcharr": "failing" if catalogue_failing() else "ok",
     }
 
 

@@ -1,8 +1,11 @@
 """Tests for channel state service."""
 
-from unittest.mock import AsyncMock, patch
+import asyncio
+from io import StringIO
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from loguru import logger
 
 from app.config import settings
 from app.models.channel import Channel
@@ -18,6 +21,13 @@ def reset_channel_state():
     yield
     channel_state.clear_current_channel()
     channel_state._active_connections.clear()
+
+
+async def _drain_reconcile() -> None:
+    """Wait for the background recorder reconcile to finish, if one is running."""
+    task = channel_state._reconcile_task
+    if task is not None:
+        await task
 
 
 class TestGetCurrentChannel:
@@ -294,8 +304,8 @@ class TestHighlightRecordingOnChannelSwitch:
     """Tests for highlight recording cleanup on channel switch."""
 
     @pytest.mark.asyncio
-    async def test_switching_channels_stops_old_recording(self) -> None:
-        """Should stop recording for old channel when switching to new channel."""
+    async def test_switching_channels_keeps_old_recording(self) -> None:
+        """Should leave the old channel's recorder to the idle sweep (E-14)."""
         channel1 = Channel(
             id="uuid-1",
             name="TSN",
@@ -318,10 +328,12 @@ class TestHighlightRecordingOnChannelSwitch:
             mock_settings.highlight_enabled = True
 
             await channel_state.set_current_channel(channel1)
+            await _drain_reconcile()
             await channel_state.set_current_channel(channel2)
+            await _drain_reconcile()
 
-            # Should have stopped recording for channel1
-            mock_highlight_service.stop_recording.assert_called_once_with("uuid-1")
+            # Viewers still on channel1 through their own pick keep its buffer
+            mock_highlight_service.stop_recording.assert_not_called()
             # Should have started recording for both channels
             assert mock_highlight_service.start_recording.call_count == 2
 
@@ -344,7 +356,9 @@ class TestHighlightRecordingOnChannelSwitch:
             mock_settings.highlight_enabled = True
 
             await channel_state.set_current_channel(channel)
+            await _drain_reconcile()
             await channel_state.set_current_channel(channel)
+            await _drain_reconcile()
 
             # Should not have called stop_recording (same channel)
             mock_highlight_service.stop_recording.assert_not_called()
@@ -352,8 +366,8 @@ class TestHighlightRecordingOnChannelSwitch:
             assert mock_highlight_service.start_recording.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_clearing_channel_stops_recording(self) -> None:
-        """Should stop recording when clearing current channel."""
+    async def test_clearing_channel_keeps_recording(self) -> None:
+        """Should leave the recorder to the idle sweep when clearing (E-14)."""
         channel = Channel(
             id="uuid-1",
             name="TSN",
@@ -370,12 +384,13 @@ class TestHighlightRecordingOnChannelSwitch:
             mock_settings.highlight_enabled = True
 
             await channel_state.set_current_channel(channel)
+            await _drain_reconcile()
             mock_highlight_service.reset_mock()
 
             await channel_state.clear_current_channel_async()
 
-            # Should have stopped recording for the channel
-            mock_highlight_service.stop_recording.assert_called_once_with("uuid-1")
+            assert channel_state.get_current_channel() is None
+            mock_highlight_service.stop_recording.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_no_recording_when_highlight_disabled(self) -> None:
@@ -400,3 +415,258 @@ class TestHighlightRecordingOnChannelSwitch:
             # Should not have called any recording functions
             mock_highlight_service.start_recording.assert_not_called()
             mock_highlight_service.stop_recording.assert_not_called()
+
+
+def _live(channel_id: str) -> Channel:
+    return Channel(
+        id=channel_id,
+        name=f"Channel {channel_id}",
+        stream_url=f"https://streams.example.com/stream/{channel_id}",
+        guide_id=f"guide-{channel_id}",
+    )
+
+
+class TestSerialisedLiveChanges:
+    """Live changes broadcast in order and never wait on recorder work (B-02, E-14)."""
+
+    @pytest.fixture
+    def highlight(self):
+        """Highlights on, with the recorder API stubbed and broadcasts captured."""
+        service = AsyncMock(spec=HighlightService)
+        sent: list[dict] = []
+
+        async def capture(message: dict) -> None:
+            sent.append(message)
+
+        with (
+            patch.object(settings, "highlight_enabled", True),
+            patch("app.services.highlight.highlight_service", service),
+            patch("app.services.channel_state.broadcast", side_effect=capture),
+        ):
+            yield service, sent
+
+    @staticmethod
+    def _last_live(sent: list[dict]) -> str | None:
+        updates = [m for m in sent if m["type"] == "channel_update"]
+        channel = updates[-1]["channel"]
+        return channel["id"] if channel else None
+
+    @pytest.mark.asyncio
+    async def test_overlapping_sets_broadcast_in_order_and_return_their_own_channel(
+        self, highlight
+    ) -> None:
+        service, sent = highlight
+
+        async def start(channel_id: str, *_args, **_kwargs) -> bool:
+            # The first change's recorder start is the slow one
+            await asyncio.sleep(0.05 if channel_id == "A" else 0)
+            return True
+
+        service.start_recording.side_effect = start
+
+        first, second = await asyncio.gather(
+            channel_state.set_current_channel(_live("A"), user="alice"),
+            channel_state.set_current_channel(_live("B"), user="bob"),
+        )
+        await _drain_reconcile()
+
+        assert first.id == "A"
+        assert second.id == "B"
+        current = channel_state.get_current_channel()
+        assert current is not None
+        assert self._last_live(sent) == current.id == "B"
+
+    @pytest.mark.asyncio
+    async def test_set_broadcasts_before_a_slow_recorder_start_finishes(self, highlight) -> None:
+        service, sent = highlight
+        started = asyncio.Event()
+
+        async def slow_start(*_args, **_kwargs) -> bool:
+            started.set()
+            await asyncio.sleep(2)
+            return True
+
+        service.start_recording.side_effect = slow_start
+
+        result = await asyncio.wait_for(
+            channel_state.set_current_channel(_live("A"), user="alice"), timeout=0.5
+        )
+
+        assert result.id == "A"
+        assert self._last_live(sent) == "A"
+        await asyncio.wait_for(started.wait(), timeout=0.5)
+        # Shutdown cancels the start still in flight
+        await asyncio.wait_for(channel_state.stop_reconcile_task(), timeout=0.5)
+        assert channel_state._reconcile_task is not None
+        assert channel_state._reconcile_task.cancelled()
+
+    @pytest.mark.asyncio
+    async def test_quick_changes_only_start_the_latest_channel(self, highlight) -> None:
+        service, _sent = highlight
+        a_started = asyncio.Event()
+
+        async def start(channel_id: str, *_args, **_kwargs) -> bool:
+            if channel_id == "A":
+                a_started.set()
+                await asyncio.sleep(0.05)
+            return True
+
+        service.start_recording.side_effect = start
+
+        await channel_state.set_current_channel(_live("A"))
+        await asyncio.wait_for(a_started.wait(), timeout=0.5)
+        await channel_state.set_current_channel(_live("B"))
+        await channel_state.set_current_channel(_live("C"))
+        await _drain_reconcile()
+
+        started = [call.args[0] for call in service.start_recording.await_args_list]
+        assert started == ["A", "C"]
+        service.stop_recording.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("set_first", [True, False])
+    async def test_clear_racing_a_set_leaves_state_and_broadcast_in_agreement(
+        self, highlight, set_first: bool
+    ) -> None:
+        service, sent = highlight
+
+        async def stop(channel_id: str) -> None:
+            # Stopping the old channel's FFmpeg is the slow part
+            await asyncio.sleep(0.05 if channel_id == "A" else 0)
+
+        service.stop_recording.side_effect = stop
+        await channel_state.set_current_channel(_live("A"))
+        await _drain_reconcile()
+
+        change = channel_state.set_current_channel(_live("B"), user="bob")
+        clear = channel_state.clear_current_channel_async(user="carol")
+        await asyncio.gather(*((change, clear) if set_first else (clear, change)))
+        await _drain_reconcile()
+
+        current = channel_state.get_current_channel()
+        assert self._last_live(sent) == (current.id if current else None)
+        service.stop_recording.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("second", ["set", "clear"])
+    async def test_slow_broadcast_is_not_overtaken_by_a_later_change(
+        self, highlight, second: str
+    ) -> None:
+        _service, sent = highlight
+
+        async def slow_for_a(message: dict) -> None:
+            # A slow socket holds up the first change's broadcast
+            channel = message.get("channel")
+            if channel and channel["id"] == "A":
+                await asyncio.sleep(0.05)
+            sent.append(message)
+
+        with patch("app.services.channel_state.broadcast", side_effect=slow_for_a):
+            later = (
+                channel_state.set_current_channel(_live("B"), user="bob")
+                if second == "set"
+                else channel_state.clear_current_channel_async(user="carol")
+            )
+            await asyncio.gather(channel_state.set_current_channel(_live("A"), user="alice"), later)
+        await _drain_reconcile()
+
+        current = channel_state.get_current_channel()
+        assert self._last_live(sent) == (current.id if current else None)
+
+    @pytest.mark.asyncio
+    async def test_recorder_failure_is_logged_and_does_not_escape(self, highlight) -> None:
+        service, sent = highlight
+        service.start_recording.side_effect = RuntimeError("ffmpeg missing")
+
+        result = await channel_state.set_current_channel(_live("A"))
+        await _drain_reconcile()
+
+        assert result.id == "A"
+        assert self._last_live(sent) == "A"
+        task = channel_state._reconcile_task
+        assert task is not None and task.exception() is None
+
+
+class TestFailedPeerClose:
+    """A peer a broadcast can't reach is dropped at once and closed in the background."""
+
+    @staticmethod
+    def hanging_peer() -> tuple[MagicMock, asyncio.Event]:
+        """A socket whose send and close never finish, and an event set once it is closing."""
+        closing = asyncio.Event()
+
+        async def hang(*args, **kwargs) -> None:
+            await asyncio.Event().wait()
+
+        async def close_hangs(*args, **kwargs) -> None:
+            closing.set()
+            await asyncio.Event().wait()
+
+        peer = MagicMock()
+        peer.send_text = AsyncMock(side_effect=hang)
+        peer.close = AsyncMock(side_effect=close_hangs)
+        return peer, closing
+
+    async def test_broadcast_returns_without_waiting_for_the_close(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(channel_state, "BROADCAST_SEND_TIMEOUT_SECONDS", 0.2)
+        peer, closing = self.hanging_peer()
+        owner = asyncio.create_task(asyncio.Event().wait())
+        await channel_state.connect(peer, owner=owner)
+
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        await channel_state.broadcast({"type": "hello"})
+        elapsed = loop.time() - started
+
+        # One send timeout, not a send timeout plus a close timeout
+        assert elapsed < 0.35
+        assert channel_state.get_connection_count() == 0
+        assert not owner.done()
+        await asyncio.wait_for(closing.wait(), timeout=1)
+        # The endpoint is still cancelled once the close gives up
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(owner, timeout=1)
+        await asyncio.sleep(0)
+        assert not channel_state._failed_closes
+
+    async def test_stop_failed_closes_cancels_a_close_in_flight(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(channel_state, "BROADCAST_SEND_TIMEOUT_SECONDS", 0.05)
+        peer, closing = self.hanging_peer()
+        owner = asyncio.create_task(asyncio.Event().wait())
+        await channel_state.connect(peer, owner=owner)
+        await channel_state.broadcast({"type": "hello"})
+        await closing.wait()
+        assert len(channel_state._failed_closes) == 1
+
+        await channel_state.stop_failed_closes()
+
+        assert not channel_state._failed_closes
+        with pytest.raises(asyncio.CancelledError):
+            await owner
+
+    async def test_failed_send_and_close_are_logged_with_the_drop_count(self) -> None:
+        """A non-timeout send error and a failed close both leave an INFO line (B-08)."""
+        broken = MagicMock()
+        broken.send_text = AsyncMock(side_effect=RuntimeError("peer gone"))
+        broken.close = AsyncMock(side_effect=RuntimeError("already closed"))
+        healthy = MagicMock()
+        healthy.send_text = AsyncMock()
+        await channel_state.connect(broken)
+        await channel_state.connect(healthy)
+        output = StringIO()
+        handler_id = logger.add(output, format="{level} | {message}", level="INFO")
+        try:
+            await channel_state.broadcast({"type": "hello"})
+            await asyncio.gather(*channel_state._failed_closes)
+        finally:
+            logger.remove(handler_id)
+
+        logged = output.getvalue()
+        assert "INFO | Broadcast send failed (RuntimeError), dropping connection" in logged
+        assert "INFO | Broadcast dropped 1 of 2 connections" in logged
+        assert "INFO | Failed connection transport could not close (RuntimeError)" in logged
+        assert channel_state.get_connection_count() == 1

@@ -22,6 +22,12 @@ on:
       - backend-review/**
     tags:
       - "v*"
+    # A push that only changes docs or planning notes neither tests nor
+    # redeploys. Gitea treats path filters as matched for tag pushes.
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - ".claude/**"
 
 env:
   REGISTRY: gitea.example.com

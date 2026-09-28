@@ -12,6 +12,7 @@ import pytest
 from app.config import settings
 from app.services.ersatztv.hls_rewriter import (
     HLSManifestRewriter,
+    UpstreamProtocolError,
     decode_url,
     fetch_ersatztv,
     get_segment,
@@ -481,7 +482,7 @@ class TestFetchErsatztvPathRule:
             return httpx.Response(302, headers={"location": "/api/channels"})
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
-            with pytest.raises(ValueError, match="not from ErsatzTV"):
+            with pytest.raises(UpstreamProtocolError, match="not from ErsatzTV"):
                 await fetch_ersatztv(client, f"{base}/iptv/session/8/live000010.ts", stream=True)
 
         assert requests == ["/iptv/session/8/live000010.ts"]

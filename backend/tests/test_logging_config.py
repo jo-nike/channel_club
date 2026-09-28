@@ -424,6 +424,7 @@ def test_h05_access_log_drops_polled_and_streamed_paths(json_logging) -> None:
     access = logging.getLogger("uvicorn.access")
     for path in [
         "/api/health",
+        "/api/health/deps",
         "/api/admin/status",
         "/api/ersatztv/segments/abc.ts?token=x",
         "/api/ersatztv/stream/C1?token=x",

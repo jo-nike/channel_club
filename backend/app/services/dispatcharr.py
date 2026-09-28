@@ -1,11 +1,11 @@
 """Dispatcharr API client service."""
 
 import asyncio
-import time
-from collections import OrderedDict
+from typing import Any
 
 import httpx
 from loguru import logger
+from pydantic import ValidationError
 
 from app.config import settings
 from app.models.channel import (
@@ -16,40 +16,26 @@ from app.models.channel import (
     DispatchrrFullChannel,
     GroupedChannelsResponse,
 )
-from app.services.logo_proxy import fetch_logo
+from app.services.cached_fetch import CachedFetch
+from app.services.epg_service import get_epg_service
+from app.services.logo_proxy import LOGO_CACHE, LogoUnavailableError, fetch_logo
 from app.services.tls import SSL_CONTEXT
 
 # Module-level logger with service context
 log = logger.bind(service="dispatcharr")
 
-# In-memory cache for grouped channels response.
-# Dispatcharr's /api/channels/channels/ can be slow with large lineups; cache
-# the assembled response for a short TTL so repeat opens of the admin modal
-# are instant. A single in-flight lock prevents thundering herd on expiry.
+# Grouped channels cache TTL. Dispatcharr's /api/channels/channels/ can be slow
+# with large lineups, and every channel switch and uncached logo resolves
+# through the catalogue, so it is cached (see _grouped_cache below).
 _GROUPED_CACHE_TTL_SECONDS = 300
-_grouped_cache: GroupedChannelsResponse | None = None
-_grouped_cache_expires_at: float = 0.0
-_grouped_cache_lock: asyncio.Lock | None = None
 
+# Dispatcharr sits behind a WireGuard tunnel; a dropped tunnel fails at connect,
+# so that phase gets a short budget.
+_CATALOGUE_TIMEOUT = httpx.Timeout(10, connect=3)
 
-def _get_grouped_cache_lock() -> asyncio.Lock:
-    global _grouped_cache_lock
-    if _grouped_cache_lock is None:
-        _grouped_cache_lock = asyncio.Lock()
-    return _grouped_cache_lock
-
-
-# In-memory cache for channel logo images served by the unauthenticated logo
-# route. Anyone can request a logo, so each one is fetched from Dispatcharr at
-# most once per TTL (one fetch at a time per logo), a failure is remembered
-# briefly, and the cache is bounded by total bytes (least recently used first).
-_LOGO_CACHE_TTL_SECONDS = 3600
-_LOGO_FAILURE_TTL_SECONDS = 60
-_LOGO_CACHE_MAX_BYTES = 32 * 1024 * 1024
-_logo_cache: OrderedDict[int, tuple[float, bytes, str]] = OrderedDict()
-_logo_cache_bytes = 0
-_logo_failures: dict[int, float] = {}
-_logo_locks: dict[int, asyncio.Lock] = {}
+# Channel logos live in the shared LOGO_CACHE under this prefix. A logo
+# Dispatcharr answers 404 for is remembered for one catalogue TTL.
+_LOGO_KEY_PREFIX = "dispatcharr:"
 
 
 def invalidate_grouped_channels_cache() -> None:
@@ -57,12 +43,8 @@ def invalidate_grouped_channels_cache() -> None:
 
     Also drops cached logos, so a logo changed in Dispatcharr shows after a refresh.
     """
-    global _grouped_cache, _grouped_cache_expires_at, _logo_cache_bytes
-    _grouped_cache = None
-    _grouped_cache_expires_at = 0.0
-    _logo_cache.clear()
-    _logo_cache_bytes = 0
-    _logo_failures.clear()
+    _grouped_cache.invalidate()
+    LOGO_CACHE.clear(_LOGO_KEY_PREFIX)
     log.debug("Grouped channels cache invalidated")
 
 
@@ -70,6 +52,20 @@ class DispatchrrUnavailableError(Exception):
     """Raised when Dispatcharr API is unreachable or returns an error."""
 
     pass
+
+
+# The assembled grouped catalogue, served stale while Dispatcharr is down
+_grouped_cache: CachedFetch[GroupedChannelsResponse] = CachedFetch(
+    "grouped channels",
+    lambda: _build_grouped_channels(),
+    ttl=_GROUPED_CACHE_TTL_SECONDS,
+    error=DispatchrrUnavailableError,
+)
+
+
+def catalogue_failing() -> bool:
+    """Whether the latest catalogue fetch failed; local state only, never fetches."""
+    return _grouped_cache._last_error is not None
 
 
 class ChannelLogoNotFoundError(Exception):
@@ -88,6 +84,14 @@ def extract_uuid(url: str) -> str:
     return url.split("/")[-1]
 
 
+def _json_list(response: httpx.Response) -> list[Any]:
+    """The response's JSON array (an HTML login page or a paginated dict is not one)."""
+    payload = response.json()
+    if not isinstance(payload, list):
+        raise TypeError(f"expected a JSON list, got {type(payload).__name__}")
+    return payload
+
+
 async def get_lineup() -> list[Channel]:
     """Fetch and transform channel lineup from Dispatcharr.
 
@@ -101,11 +105,11 @@ async def get_lineup() -> list[Channel]:
     log.debug("Fetching channel lineup from {}", url)
 
     try:
-        async with httpx.AsyncClient(timeout=10.0, verify=SSL_CONTEXT) as client:
+        async with httpx.AsyncClient(timeout=_CATALOGUE_TIMEOUT, verify=SSL_CONTEXT) as client:
             response = await client.get(url)
             response.raise_for_status()
 
-            raw_channels = [DispatchrrChannel(**c) for c in response.json()]
+            raw_channels = [DispatchrrChannel(**c) for c in _json_list(response)]
 
             channels = [
                 Channel(
@@ -122,6 +126,9 @@ async def get_lineup() -> list[Channel]:
     except httpx.HTTPError as e:
         log.error("Failed to fetch channels: {}", str(e))
         raise DispatchrrUnavailableError(f"Failed to fetch channels: {e}") from e
+    except (ValueError, TypeError, ValidationError) as e:
+        log.error("Unexpected channel lineup payload: {}", str(e))
+        raise DispatchrrUnavailableError(f"Unexpected channel lineup payload: {e}") from e
 
 
 def dispatcharr_auth_headers() -> dict[str, str]:
@@ -156,15 +163,18 @@ async def get_channel_groups() -> list[DispatchrrChannelGroup]:
     log.debug("Fetching channel groups from {}", url)
 
     try:
-        async with httpx.AsyncClient(timeout=10.0, verify=SSL_CONTEXT) as client:
+        async with httpx.AsyncClient(timeout=_CATALOGUE_TIMEOUT, verify=SSL_CONTEXT) as client:
             response = await client.get(url, headers=headers)
             response.raise_for_status()
-            groups = [DispatchrrChannelGroup(**g) for g in response.json()]
+            groups = [DispatchrrChannelGroup(**g) for g in _json_list(response)]
             log.info("Fetched {} channel groups", len(groups))
             return groups
     except httpx.HTTPError as e:
         log.error("Failed to fetch channel groups: {}", str(e))
         raise DispatchrrUnavailableError(f"Failed to fetch channel groups: {e}") from e
+    except (ValueError, TypeError, ValidationError) as e:
+        log.error("Unexpected channel groups payload: {}", str(e))
+        raise DispatchrrUnavailableError(f"Unexpected channel groups payload: {e}") from e
 
 
 async def get_channels_with_groups() -> list[DispatchrrFullChannel]:
@@ -181,15 +191,18 @@ async def get_channels_with_groups() -> list[DispatchrrFullChannel]:
     log.debug("Fetching full channel data from {}", url)
 
     try:
-        async with httpx.AsyncClient(timeout=10.0, verify=SSL_CONTEXT) as client:
+        async with httpx.AsyncClient(timeout=_CATALOGUE_TIMEOUT, verify=SSL_CONTEXT) as client:
             response = await client.get(url, headers=headers)
             response.raise_for_status()
-            channels = [DispatchrrFullChannel(**c) for c in response.json()]
+            channels = [DispatchrrFullChannel(**c) for c in _json_list(response)]
             log.info("Fetched {} channels with group data", len(channels))
             return channels
     except httpx.HTTPError as e:
         log.error("Failed to fetch channels with groups: {}", str(e))
         raise DispatchrrUnavailableError(f"Failed to fetch channels: {e}") from e
+    except (ValueError, TypeError, ValidationError) as e:
+        log.error("Unexpected channels payload: {}", str(e))
+        raise DispatchrrUnavailableError(f"Unexpected channels payload: {e}") from e
 
 
 async def get_grouped_channels() -> GroupedChannelsResponse:
@@ -197,31 +210,17 @@ async def get_grouped_channels() -> GroupedChannelsResponse:
 
     Combines channel groups and channels into a structured response
     where channels are nested under their respective groups. Result is
-    cached in-memory for _GROUPED_CACHE_TTL_SECONDS.
+    cached in-memory for _GROUPED_CACHE_TTL_SECONDS; after that, and while
+    Dispatcharr is down, the last good catalogue is served while a background
+    refresh runs.
 
     Returns:
         GroupedChannelsResponse with groups and ungrouped channels.
 
     Raises:
-        DispatchrrUnavailableError: If Dispatcharr is unreachable.
+        DispatchrrUnavailableError: If Dispatcharr is unreachable and nothing is cached.
     """
-    global _grouped_cache, _grouped_cache_expires_at
-
-    now = time.monotonic()
-    if _grouped_cache is not None and now < _grouped_cache_expires_at:
-        log.debug("Returning grouped channels from cache")
-        return _grouped_cache
-
-    async with _get_grouped_cache_lock():
-        # Re-check after acquiring the lock (another request may have refreshed)
-        now = time.monotonic()
-        if _grouped_cache is not None and now < _grouped_cache_expires_at:
-            return _grouped_cache
-
-        result = await _build_grouped_channels()
-        _grouped_cache = result
-        _grouped_cache_expires_at = time.monotonic() + _GROUPED_CACHE_TTL_SECONDS
-        return result
+    return await _grouped_cache.get()
 
 
 def format_channel_number(value: float | None) -> str | None:
@@ -296,35 +295,12 @@ async def _build_grouped_channels() -> GroupedChannelsResponse:
         len(ungrouped),
     )
 
+    # A renumbering changes the guide ids, which leaves the cached guide stale
+    get_epg_service().note_guide_ids(
+        [*(c.guide_id for g in result_groups for c in g.channels), *(c.guide_id for c in ungrouped)]
+    )
+
     return GroupedChannelsResponse(groups=result_groups, ungrouped=ungrouped)
-
-
-def _cached_logo(logo_id: int) -> tuple[bytes, str] | None:
-    global _logo_cache_bytes
-    entry = _logo_cache.get(logo_id)
-    if entry is None:
-        return None
-    expires_at, body, content_type = entry
-    if time.monotonic() >= expires_at:
-        del _logo_cache[logo_id]
-        _logo_cache_bytes -= len(body)
-        return None
-    _logo_cache.move_to_end(logo_id)
-    return body, content_type
-
-
-def _store_logo(logo_id: int, body: bytes, content_type: str) -> None:
-    global _logo_cache_bytes
-    _logo_cache[logo_id] = (time.monotonic() + _LOGO_CACHE_TTL_SECONDS, body, content_type)
-    _logo_cache_bytes += len(body)
-    while _logo_cache_bytes > _LOGO_CACHE_MAX_BYTES and _logo_cache:
-        _, (_, evicted, _) = _logo_cache.popitem(last=False)
-        _logo_cache_bytes -= len(evicted)
-
-
-def _logo_recently_failed(logo_id: int) -> bool:
-    failed_until = _logo_failures.get(logo_id)
-    return failed_until is not None and time.monotonic() < failed_until
 
 
 async def get_channel_logo(logo_id: int) -> tuple[bytes, str]:
@@ -341,45 +317,40 @@ async def get_channel_logo(logo_id: int) -> tuple[bytes, str]:
 
     Raises:
         ChannelLogoNotFoundError: If no channel in the catalogue uses this logo.
+        LogoNotFoundError: If Dispatcharr answers 404 for it (remembered for
+            one catalogue TTL, or until invalidate_grouped_channels_cache).
         DispatchrrUnavailableError: If Dispatcharr can't serve it as a raster image.
     """
-    cached = _cached_logo(logo_id)
+
+    key = f"{_LOGO_KEY_PREFIX}{logo_id}"
+    try:
+        cached = LOGO_CACHE.cached(key)
+    except LogoUnavailableError as e:
+        raise DispatchrrUnavailableError(str(e)) from e
     if cached is not None:
         return cached
-    if _logo_recently_failed(logo_id):
-        raise DispatchrrUnavailableError(f"Logo {logo_id} failed recently")
 
+    # Only logos a catalogue channel uses; checked before LOGO_CACHE.get, which
+    # keeps a lock per key, so unknown ids can't grow the cache's lock map
     grouped = await get_grouped_channels()
     path = channel_logo_path(logo_id)
     channels = [*(c for g in grouped.groups for c in g.channels), *grouped.ungrouped]
     if not any(channel.logo_url == path for channel in channels):
         raise ChannelLogoNotFoundError(f"No channel uses logo {logo_id}")
 
-    lock = _logo_locks.setdefault(logo_id, asyncio.Lock())
-    async with lock:
-        # Another request may have fetched (or failed) while this one waited
-        cached = _cached_logo(logo_id)
-        if cached is not None:
-            return cached
-        if _logo_recently_failed(logo_id):
-            raise DispatchrrUnavailableError(f"Logo {logo_id} failed recently")
-
+    async def fetch() -> tuple[bytes, str]:
         url = f"{settings.dispatcharr_url}/api/channels/logos/{logo_id}/cache/"
-        try:
-            async with httpx.AsyncClient(
-                follow_redirects=False, timeout=10.0, verify=SSL_CONTEXT
-            ) as client:
-                body, content_type = await fetch_logo(
-                    client,
-                    url,
-                    trusted_origins=[settings.dispatcharr_url],
-                    headers=dispatcharr_auth_headers(),
-                )
-        except (httpx.HTTPError, ValueError, TimeoutError, DispatchrrUnavailableError) as e:
-            _logo_failures[logo_id] = time.monotonic() + _LOGO_FAILURE_TTL_SECONDS
-            log.warning("Failed to fetch logo {}: {}", logo_id, str(e))
-            raise DispatchrrUnavailableError(f"Failed to fetch logo {logo_id}: {e}") from e
+        async with httpx.AsyncClient(
+            follow_redirects=False, timeout=10.0, verify=SSL_CONTEXT
+        ) as client:
+            return await fetch_logo(
+                client,
+                url,
+                trusted_origins=[settings.dispatcharr_url],
+                headers=dispatcharr_auth_headers(),
+            )
 
-        _logo_failures.pop(logo_id, None)
-        _store_logo(logo_id, body, content_type)
-        return body, content_type
+    try:
+        return await LOGO_CACHE.get(key, fetch, not_found_ttl=_GROUPED_CACHE_TTL_SECONDS)
+    except LogoUnavailableError as e:
+        raise DispatchrrUnavailableError(str(e)) from e

@@ -3,13 +3,13 @@
 
 import argparse
 import fcntl
+import http.client
 import json
 import os
 import re
 import subprocess
 import time
 from pathlib import Path
-from urllib.error import URLError
 from urllib.request import urlopen
 
 
@@ -25,12 +25,15 @@ def verify_health(url: str, version: str, build_id: str | None = None) -> None:
             with urlopen(url, timeout=5) as response:
                 data = json.load(response)
             if (
-                data.get("status") == "ok"
+                isinstance(data, dict)
+                and data.get("status") == "ok"
                 and data.get("version") == version
                 and (build_id is None or data.get("buildId") == build_id)
             ):
                 return
-        except (URLError, ValueError, TimeoutError):
+        # Resets and malformed replies while the container restarts are retried;
+        # URLError and TimeoutError are OSError subclasses.
+        except (OSError, http.client.HTTPException, ValueError):
             pass
         time.sleep(5)
     raise RuntimeError("Deployed release did not report the expected healthy version")
@@ -57,6 +60,32 @@ def verify_artifact(directory: Path, image_reference: str) -> str:
             "Running container does not match the requested immutable image"
         )
     return actual_id
+
+
+def roll_back(
+    directory: Path, installed: dict | None, health_url: str, started: bool
+) -> None:
+    """Reinstall the last verified release; the caller holds the deploy lock."""
+    verified = directory / "verified-compose.yaml"
+    if installed is None or not verified.exists():
+        print("Deployment failed; no verified release to roll back to")
+        return
+    atomic_write(directory / "docker-compose.yaml", verified.read_text())
+    if not started:
+        # The pull failed, so the verified container is still the one running.
+        print("Deployment failed before install; restored the verified Compose file")
+        return
+    label = installed.get("build_id") or installed["version"]
+    try:
+        subprocess.run(["docker", "compose", "up", "-d"], cwd=directory, check=True)
+        if installed.get("build_id") is None:
+            verify_health(health_url, installed["version"])
+        else:
+            verify_health(health_url, installed["version"], installed["build_id"])
+    except Exception as error:
+        print(f"Rollback to {label} failed: {error}")
+        return
+    print(f"Rolled back to {label}")
 
 
 def deploy(
@@ -89,23 +118,46 @@ def deploy(
         # an older runner to overwrite a newer accepted source revision.
         atomic_write(accepted, source + "\n")
         manifest = directory / "docker-compose.yaml"
-        if manifest.exists():
-            atomic_write(directory / "previous-compose.yaml", manifest.read_text())
         record = directory / "deployment.json"
+        verified = directory / "verified-compose.yaml"
+        installed = json.loads(record.read_text()) if record.exists() else None
+        # Hosts from before verified-compose.yaml: the running manifest counts as
+        # verified only while it still names the recorded image.
+        if not verified.exists() and installed is not None and manifest.exists():
+            if installed.get("image_reference") and (
+                installed["image_reference"] in manifest.read_text()
+            ):
+                atomic_write(verified, manifest.read_text())
+        if not verified.exists():
+            print("No verified Compose file; rollback is unavailable for this attempt")
+        atomic_write(manifest, (staging / "docker-compose.yaml").read_text())
+        started = False
+        try:
+            subprocess.run(
+                ["docker", "compose", "pull", "iptv-viewer"], cwd=directory, check=True
+            )
+            started = True
+            subprocess.run(["docker", "compose", "up", "-d"], cwd=directory, check=True)
+            # Old records use version as their build identifier. New releases must
+            # match both semantic version and exact build, even on same-version reruns.
+            if build_id is None:
+                verify_health(health_url, version)
+            else:
+                verify_health(health_url, version, build_id)
+            image_id = verify_artifact(directory, image_reference)
+        except Exception:
+            # The original error is what CI reports, whatever the rollback does,
+            # even if restoring the Compose file itself fails (a full disk, say).
+            try:
+                roll_back(directory, installed, health_url, started)
+            except Exception as error:
+                print(f"Rollback failed: {error}")
+            raise
+        # Rotate only on success, so previous-* always name a verified release.
+        if verified.exists():
+            atomic_write(directory / "previous-compose.yaml", verified.read_text())
         if record.exists():
             atomic_write(directory / "previous-deployment.json", record.read_text())
-        atomic_write(manifest, (staging / "docker-compose.yaml").read_text())
-        subprocess.run(
-            ["docker", "compose", "pull", "iptv-viewer"], cwd=directory, check=True
-        )
-        subprocess.run(["docker", "compose", "up", "-d"], cwd=directory, check=True)
-        # Old records use version as their build identifier. New releases must
-        # match both semantic version and exact build, even on same-version reruns.
-        if build_id is None:
-            verify_health(health_url, version)
-        else:
-            verify_health(health_url, version, build_id)
-        image_id = verify_artifact(directory, image_reference)
         atomic_write(
             record,
             json.dumps(
@@ -119,6 +171,7 @@ def deploy(
             )
             + "\n",
         )
+        atomic_write(verified, manifest.read_text())
         print(f"Verified release {version} ({source})")
 
 

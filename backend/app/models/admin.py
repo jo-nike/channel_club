@@ -10,6 +10,9 @@ class ActiveUser(BaseModel):
 
     username: str
     channel: str | None = None
+    channel_id: str | None = Field(None, alias="channelId")
+    # Following the shared Live slot, not a personal pick of whatever channel
+    on_live: bool = Field(False, alias="onLive")
     programme: str | None = None
     connected_since: datetime = Field(alias="connectedSince")
 

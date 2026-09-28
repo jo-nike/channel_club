@@ -17,6 +17,7 @@ from loguru import logger
 from app.main import app
 from app.models.ersatztv import EPGChannel, Programme
 from app.services.auth import create_access_token
+from app.services.ersatztv.refresh import FeedUnavailableError
 
 
 @pytest.fixture
@@ -92,7 +93,7 @@ class TestListChannels:
         """Returns 503 when ErsatzTV is unavailable."""
         with patch(
             "app.routers.ersatztv.get_channels",
-            side_effect=Exception("Failed to load channels from ErsatzTV"),
+            side_effect=FeedUnavailableError("Failed to load channels from ErsatzTV"),
         ):
             response = client.get("/api/ersatztv/channels", headers=auth_header)
 
@@ -155,7 +156,7 @@ class TestListProgrammes:
         """Returns 503 when ErsatzTV is unavailable."""
         with patch(
             "app.routers.ersatztv.get_programmes_by_channel",
-            side_effect=Exception("Failed to load XMLTV"),
+            side_effect=FeedUnavailableError("Failed to load XMLTV"),
         ):
             response = client.get("/api/ersatztv/programmes/comedy-classics", headers=auth_header)
 
@@ -233,7 +234,7 @@ class TestGetCurrentProgramme:
         """Returns 503 when ErsatzTV is unavailable."""
         with patch(
             "app.routers.ersatztv.get_current_programme",
-            side_effect=Exception("Failed to load XMLTV"),
+            side_effect=FeedUnavailableError("Failed to load XMLTV"),
         ):
             response = client.get("/api/ersatztv/current/comedy-classics", headers=auth_header)
 
@@ -419,6 +420,33 @@ class TestGetStream:
         assert response.status_code == 503
         assert cancelled == [True]
         fetch.assert_awaited_once()
+
+    def test_startup_timeout_log_names_the_step_attempt_and_elapsed_time(
+        self, client: TestClient, auth_header: dict[str, str], mock_channel: EPGChannel
+    ) -> None:
+        """H-08: not a bare 'TimeoutError: ' line."""
+        import asyncio
+
+        async def stalled(*args, **kwargs):
+            await asyncio.Event().wait()
+
+        output = StringIO()
+        sink = logger.add(output, format="{level} | {message}", level="INFO")
+        try:
+            with (
+                patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel),
+                patch("app.routers.ersatztv.STREAM_STARTUP_SECONDS", 0.01),
+                patch("app.routers.ersatztv.fetch_ersatztv", AsyncMock(side_effect=stalled)),
+            ):
+                response = client.get("/api/ersatztv/stream/comedy-classics", headers=auth_header)
+        finally:
+            logger.remove(sink)
+
+        assert response.status_code == 503
+        lines = [line for line in output.getvalue().splitlines() if "Stream error" in line]
+        assert len(lines) == 1
+        assert lines[0].startswith("WARNING | Stream error for channel comedy-classics: ")
+        assert "manifest fetch attempt 1/8 failed after 0.0s: TimeoutError: no detail" in lines[0]
 
     def test_requires_authentication(self, client: TestClient) -> None:
         """Unauthenticated request returns 401."""
@@ -872,7 +900,7 @@ class TestGetSegment:
 
             response = client.get(f"/api/ersatztv/segments/{encoded_url}", headers=auth_header)
 
-        assert response.status_code in (400, 503)
+        assert response.status_code == 502
         # The metadata host must never have been contacted.
         assert all("169.254.169.254" not in url for url in requested_urls)
 
@@ -996,6 +1024,81 @@ class TestGetLogo:
         assert response.status_code == 404
         assert response.json()["detail"] == "No logo available"
 
+    def test_repeat_requests_are_served_from_the_cache(
+        self, client: TestClient, mock_channel: EPGChannel
+    ) -> None:
+        """C-06: one upstream fetch per logo, and browsers may keep it."""
+        png = b"\x89PNG\r\n\x1a\nsynthetic-image-data"
+        with (
+            patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel),
+            _upstream(200, png, "image/png") as requests,
+        ):
+            responses = [client.get("/api/ersatztv/logos/comedy-classics") for _ in range(5)]
+
+        assert [r.status_code for r in responses] == [200] * 5
+        assert all(r.content == png for r in responses)
+        assert all(r.headers["cache-control"] == "public, max-age=3600" for r in responses)
+        assert len(requests) == 1
+
+    def test_a_changed_logo_url_is_fetched_again(
+        self, client: TestClient, mock_channel: EPGChannel
+    ) -> None:
+        png = b"\x89PNG\r\n\x1a\nsynthetic-image-data"
+        moved = mock_channel.model_copy(
+            update={"original_logo_url": "http://192.168.50.108:8409/logos/comedy-2.png"}
+        )
+        with _upstream(200, png, "image/png") as requests:
+            for channel in (mock_channel, moved):
+                with patch("app.routers.ersatztv.get_channel_by_id", return_value=channel):
+                    assert client.get("/api/ersatztv/logos/comedy-classics").status_code == 200
+
+        assert [r.url.path for r in requests] == ["/logos/comedy.png", "/logos/comedy-2.png"]
+
+    def test_upstream_404_is_a_remembered_404_with_cache_control(
+        self, client: TestClient, mock_channel: EPGChannel
+    ) -> None:
+        with (
+            patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel),
+            _upstream(404, b"", "text/plain") as requests,
+        ):
+            responses = [client.get("/api/ersatztv/logos/comedy-classics") for _ in range(2)]
+
+        assert [r.status_code for r in responses] == [404, 404]
+        assert all("max-age=" in r.headers["cache-control"] for r in responses)
+        assert len(requests) == 1
+
+    def test_unreachable_ersatztv_logs_one_line_per_logo(
+        self, client: TestClient, mock_channel: EPGChannel
+    ) -> None:
+        """H-07: an ErsatzTV restart is not one ERROR per logo request."""
+
+        def refused(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("All connection attempts failed", request=request)
+
+        real_client = httpx.AsyncClient
+        output = StringIO()
+        sink = logger.add(output, format="{level} | {message}", level="DEBUG")
+        try:
+            with (
+                patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel),
+                patch(
+                    "app.routers.ersatztv.httpx.AsyncClient",
+                    side_effect=lambda **kw: real_client(
+                        transport=httpx.MockTransport(refused), **kw
+                    ),
+                ),
+            ):
+                responses = [client.get("/api/ersatztv/logos/comedy-classics") for _ in range(3)]
+        finally:
+            logger.remove(sink)
+
+        assert [r.status_code for r in responses] == [503] * 3
+        lines = [line for line in output.getvalue().splitlines() if "Logo " in line]
+        assert lines == [
+            "WARNING | Logo ersatztv:comedy-classics:http://192.168.50.108:8409/logos/comedy.png"
+            " unavailable: All connection attempts failed"
+        ]
+
 
 class TestErsatzTVLogging:
     """Tests for ErsatzTV router logging."""
@@ -1085,3 +1188,92 @@ class TestErsatzTVLogging:
             assert "ersatztv" in log_output
         finally:
             logger.remove(handler_id)
+
+
+class TestErrorMapping:
+    """Client errors are 400, non-HLS replies 502, outages 503 and bugs 500 (M-02)."""
+
+    @pytest.mark.parametrize("encoded", ["A", "_w"])  # bad base64; not UTF-8
+    def test_malformed_encoded_url_is_a_client_error(
+        self, client: TestClient, auth_header: dict[str, str], encoded: str
+    ) -> None:
+        output = StringIO()
+        sink = logger.add(output, format="{level} | {message}", level="INFO")
+        try:
+            with _upstream(200, b"", "video/mp2t") as requests:
+                responses = [
+                    client.get(f"/api/ersatztv/stream/8?url={encoded}", headers=auth_header),
+                    client.head(f"/api/ersatztv/stream/8?url={encoded}", headers=auth_header),
+                    client.get(f"/api/ersatztv/segments/{encoded}", headers=auth_header),
+                    client.head(f"/api/ersatztv/segments/{encoded}", headers=auth_header),
+                ]
+        finally:
+            logger.remove(sink)
+
+        assert [r.status_code for r in responses] == [400] * 4
+        assert responses[0].json()["detail"] == "Invalid stream URL"
+        assert responses[2].json()["detail"] == "Invalid segment URL"
+        assert requests == []
+        assert "ERROR" not in output.getvalue()
+
+    @pytest.mark.parametrize(
+        "body,content_type,detail",
+        [
+            (b"<html>error</html>", "text/html", "Upstream is not an HLS manifest"),
+            (b"not a manifest\n", "application/vnd.apple.mpegurl", "Invalid HLS manifest header"),
+        ],
+    )
+    def test_non_hls_upstream_reply_is_a_bad_gateway(
+        self,
+        client: TestClient,
+        auth_header: dict[str, str],
+        body: bytes,
+        content_type: str,
+        detail: str,
+    ) -> None:
+        from app.config import settings
+        from app.services.ersatztv.hls_rewriter import HLSManifestRewriter
+
+        url = settings.ersatztv_base_url.rstrip("/") + "/iptv/session/8/hls.m3u8"
+        encoded = HLSManifestRewriter()._encode_url(url)
+        with _upstream(200, body, content_type) as requests:
+            response = client.get(f"/api/ersatztv/stream/8?url={encoded}", headers=auth_header)
+
+        assert response.status_code == 502
+        assert response.json()["detail"] == detail
+        assert len(requests) == 1  # not retried
+
+    def test_oversized_manifest_is_a_bad_gateway(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        from app.config import settings
+        from app.services.ersatztv.hls_rewriter import HLSManifestRewriter
+
+        url = settings.ersatztv_base_url.rstrip("/") + "/iptv/session/8/hls.m3u8"
+        encoded = HLSManifestRewriter()._encode_url(url)
+        with (
+            patch("app.services.ersatztv.hls_rewriter.MANIFEST_BYTES", 8),
+            _upstream(200, b"#EXTM3U\n#EXTINF:4,\n", "application/vnd.apple.mpegurl"),
+        ):
+            response = client.get(f"/api/ersatztv/stream/8?url={encoded}", headers=auth_header)
+
+        assert response.status_code == 502
+        assert response.json()["detail"] == "Upstream body exceeds byte budget"
+
+    def test_programming_error_is_a_500_with_a_traceback(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        output = StringIO()
+        sink = logger.add(output, format="{level} | {message}\n{exception}", level="INFO")
+        try:
+            with patch(
+                "app.routers.ersatztv.get_programmes_by_channel", side_effect=KeyError("start")
+            ):
+                response = client.get("/api/ersatztv/programmes/ch1", headers=auth_header)
+        finally:
+            logger.remove(sink)
+
+        assert response.status_code == 500
+        logged = output.getvalue()
+        assert "ERROR | Failed to get programmes for channel ch1" in logged
+        assert "Traceback" in logged and "KeyError('start')" in logged

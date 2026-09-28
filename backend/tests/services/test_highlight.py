@@ -134,24 +134,6 @@ class TestHighlightService:
             assert not result
 
     @pytest.mark.asyncio
-    async def test_save_highlight_fails_when_disabled(self, service: HighlightService) -> None:
-        """Should return error when feature disabled."""
-        with patch("app.services.highlight.settings") as mock_settings:
-            mock_settings.highlight_enabled = False
-            mp4_bytes, error = await service.save_highlight("channel-1")
-            assert mp4_bytes is None
-            assert error == "Highlight feature is disabled"
-
-    @pytest.mark.asyncio
-    async def test_save_highlight_fails_when_no_recorder(self, service: HighlightService) -> None:
-        """Should return error when no recorder for channel."""
-        with patch("app.services.highlight.settings") as mock_settings:
-            mock_settings.highlight_enabled = True
-            mp4_bytes, error = await service.save_highlight("channel-1")
-            assert mp4_bytes is None
-            assert error == "No recording active for this channel"
-
-    @pytest.mark.asyncio
     async def test_stop_all_clears_recorders(self, service: HighlightService) -> None:
         """Should stop all recorders and clear dict."""
         # Add mock recorder
@@ -179,14 +161,14 @@ class TestStartBackoff:
 
     @pytest.fixture(autouse=True)
     def enabled(self, tmp_path, monkeypatch):
-        from app.services.media_limits import process_budget
+        from app.services.media_limits import recorder_budget
 
         monkeypatch.setattr(settings, "highlight_enabled", True)
         monkeypatch.setattr(settings, "highlight_temp_dir", str(tmp_path))
-        process_budget.owners.clear()
+        recorder_budget.owners.clear()
         highlight_service.clear_start_backoff()
         yield
-        process_budget.owners.clear()
+        recorder_budget.owners.clear()
         highlight_service.clear_start_backoff()
 
     @pytest.fixture
@@ -277,9 +259,124 @@ class TestStartBackoff:
             ):
                 await highlight_service.start_recording("failing", "")
                 await channel_state.set_current_channel(channel)
+                assert channel_state._reconcile_task is not None
+                await channel_state._reconcile_task
                 assert spawn.call_count == 2
 
                 await channel_state.clear_current_channel_async()
                 assert not highlight_service._start_failures
         finally:
             channel_state.clear_current_channel()
+
+
+class TestStallWatchdog:
+    """A polled recorder whose upstream went quiet is stopped, so the next poll restarts it."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "first_segment,new_segment,advance,stalled",
+        [
+            (True, False, 45, True),  # wrote a segment, then nothing for 3 segment lengths
+            (True, True, 45, False),  # writing normally
+            (False, False, 10, False),  # warm-up: no segment yet, just started
+            (False, False, 60, True),  # never wrote a segment, well past warm-up
+        ],
+    )
+    async def test_a_silent_recorder_is_stopped_past_warm_up(
+        self, tmp_path, monkeypatch, first_segment, new_segment, advance, stalled
+    ) -> None:
+        import json
+        import os
+        from io import StringIO
+
+        from loguru import logger
+
+        from app.services import highlight
+
+        clock = [1_000.0]
+        monkeypatch.setattr(highlight, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(settings, "highlight_segment_seconds", 10)
+        service = HighlightService()
+        recorder = ChannelRecorder("channel-1", "http://stream.url")
+        recorder.process = MagicMock()
+        recorder.process.poll.return_value = None
+        recorder.segment_dir = tmp_path
+        recorder._output_seen_at = clock[0]  # as start() leaves it
+        recorder.touch()
+        service._recorders["channel-1"] = recorder
+        segment = tmp_path / "seg_000.ts"
+        if first_segment:
+            segment.write_bytes(b"segment")
+            os.utime(segment, (100, 100))
+        output = StringIO()
+        handler = logger.add(output, format="{message}", serialize=True, level="INFO")
+        try:
+            with patch.object(ChannelRecorder, "stop", AsyncMock()) as stop:
+                await service._cleanup_idle_recorders()
+                clock[0] += advance
+                recorder.touch()  # viewers keep polling throughout
+                if new_segment:
+                    os.utime(segment, (200, 200))
+                await service._cleanup_idle_recorders()
+        finally:
+            logger.remove(handler)
+        assert stop.await_count == (1 if stalled else 0)
+        assert ("channel-1" in service._recorders) is not stalled
+        events = [
+            json.loads(line)["record"]["extra"]
+            for line in output.getvalue().splitlines()
+            if json.loads(line)["record"]["extra"].get("event") == "highlight.recorder_stalled"
+        ]
+        assert [event["channel_id"] for event in events] == (["channel-1"] if stalled else [])
+
+
+class TestCaptureAfterRecorderStop:
+    """A recorder stopped or replaced during the tail wait is looked up again, not reused."""
+
+    @pytest.fixture(autouse=True)
+    def enabled(self, monkeypatch):
+        monkeypatch.setattr(settings, "highlight_enabled", True)
+
+    @staticmethod
+    def running() -> MagicMock:
+        recorder = MagicMock()
+        recorder.is_running = True
+        recorder.wait_for_current_segment = AsyncMock()
+        return recorder
+
+    @pytest.mark.asyncio
+    async def test_a_recorder_stopped_while_waiting_answers_live_tv_changed(self) -> None:
+        from app.services.highlight import RECORDER_GONE_ERROR
+
+        service = HighlightService()
+        recorder = self.running()
+
+        async def stopped_meanwhile() -> bool:
+            del service._recorders["channel-1"]
+            recorder.is_running = False
+            return False
+
+        recorder.wait_for_current_segment.side_effect = stopped_meanwhile
+        service._recorders["channel-1"] = recorder
+        with patch.object(service.captures, "create", AsyncMock()) as create:
+            assert await service.create_capture("channel-1", owner="viewer") == (
+                None,
+                RECORDER_GONE_ERROR,
+            )
+        create.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_recorder_restarted_while_waiting_is_the_one_captured(self) -> None:
+        service = HighlightService()
+        old, new = self.running(), self.running()
+
+        async def restarted_meanwhile() -> bool:
+            old.is_running = False
+            service._recorders["channel-1"] = new
+            return False
+
+        old.wait_for_current_segment.side_effect = restarted_meanwhile
+        service._recorders["channel-1"] = old
+        with patch.object(service.captures, "create", AsyncMock(return_value="made")) as create:
+            assert await service.create_capture("channel-1", owner="viewer") == ("made", None)
+        assert create.await_args is not None and create.await_args.args[0] is new

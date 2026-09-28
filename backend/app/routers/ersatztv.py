@@ -8,6 +8,7 @@ Story: 7.6 - ErsatzTV API Endpoints
 
 import asyncio
 from collections.abc import AsyncIterator
+from time import monotonic
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
@@ -27,13 +28,22 @@ from app.services.ersatztv import (
     get_programmes_by_channel,
 )
 from app.services.ersatztv.hls_rewriter import (
+    UpstreamProtocolError,
     decode_url,
     fetch_ersatztv,
     is_ersatztv_media_url,
     rewrite_manifest,
     segment_media_type,
 )
-from app.services.logo_proxy import fetch_logo
+from app.services.ersatztv.refresh import FeedUnavailableError, run_feed_lookup
+from app.services.logo_proxy import (
+    LOGO_CACHE,
+    LOGO_CACHE_CONTROL,
+    LOGO_NOT_FOUND_CACHE_CONTROL,
+    LogoNotFoundError,
+    LogoUnavailableError,
+    fetch_logo,
+)
 from app.services.tls import SSL_CONTEXT
 
 router = APIRouter(prefix="/api/ersatztv", tags=["ersatztv"])
@@ -46,18 +56,37 @@ STREAM_STARTUP_ATTEMPTS = 8
 # cannot exhaust process memory. HLS segments are seconds of video.
 MAX_SEGMENT_BYTES = 64 * 1024 * 1024
 
+# ErsatzTV being down or slow answers 503; anything else is our bug, logged with
+# its traceback and answered 500 so it can't pass for an outage
+UPSTREAM_ERRORS = (httpx.HTTPError, TimeoutError, FeedUnavailableError)
+
+
+def _decode(encoded_url: str, kind: str) -> str:
+    """Decode a client-supplied URL; malformed base64 or UTF-8 is a 400."""
+    try:
+        return decode_url(encoded_url)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid {kind} URL") from None
+
+
+def _internal_error() -> HTTPException:
+    return HTTPException(status_code=500, detail="Internal server error")
+
 
 @router.get("/channels", response_model=EPGChannelResponse)
 async def list_channels(user=Depends(get_current_user)) -> EPGChannelResponse:
     """Get all ErsatzTV channels."""
     log.debug("GET /channels request")
     try:
-        channels = await asyncio.to_thread(get_channels)
+        channels = await run_feed_lookup(get_channels)
         log.debug("Returning {} channels", len(channels))
         return EPGChannelResponse(channels=channels)
-    except Exception as e:
+    except UPSTREAM_ERRORS as e:
         log.error("Failed to get channels: {}", e)
         raise HTTPException(status_code=503, detail="ErsatzTV service unavailable") from None
+    except Exception:
+        log.exception("Failed to get channels")
+        raise _internal_error() from None
 
 
 @router.get("/programmes/{channel_id}", response_model=ProgrammeListResponse)
@@ -69,12 +98,15 @@ async def list_programmes(
     """Get programmes for channel within time window."""
     log.debug("GET /programmes request for channel: {}", channel_id)
     try:
-        programmes = await asyncio.to_thread(get_programmes_by_channel, channel_id, hours=hours)
+        programmes = await run_feed_lookup(get_programmes_by_channel, channel_id, hours=hours)
         log.debug("Returning {} programmes for channel {}", len(programmes), channel_id)
         return ProgrammeListResponse(channel_id=channel_id, programmes=programmes)
-    except Exception as e:
+    except UPSTREAM_ERRORS as e:
         log.error("Failed to get programmes for channel {}: {}", channel_id, e)
         raise HTTPException(status_code=503, detail="ErsatzTV service unavailable") from None
+    except Exception:
+        log.exception("Failed to get programmes for channel {}", channel_id)
+        raise _internal_error() from None
 
 
 @router.get("/current/{channel_id}", response_model=CurrentProgrammeResponse)
@@ -85,15 +117,18 @@ async def get_current(
     """Get current and next programme for channel."""
     log.debug("GET /current request for channel: {}", channel_id)
     try:
-        current, next_up = await asyncio.to_thread(get_current_programme, channel_id)
+        current, next_up = await run_feed_lookup(get_current_programme, channel_id)
         return CurrentProgrammeResponse(
             channel_id=channel_id,
             current=current,
             next_up=next_up,
         )
-    except Exception as e:
+    except UPSTREAM_ERRORS as e:
         log.error("Failed to get current programme for channel {}: {}", channel_id, e)
         raise HTTPException(status_code=503, detail="ErsatzTV service unavailable") from None
+    except Exception:
+        log.exception("Failed to get current programme for channel {}", channel_id)
+        raise _internal_error() from None
 
 
 @router.head("/stream/{channel_id}")
@@ -107,9 +142,9 @@ async def head_stream(
     log.debug("HEAD /stream request for channel: {}", channel_id)
     try:
         if url:
-            manifest_url = decode_url(url)
+            manifest_url = _decode(url, "stream")
         else:
-            channel = await asyncio.to_thread(get_channel_by_id, channel_id)
+            channel = await run_feed_lookup(get_channel_by_id, channel_id)
             if not channel:
                 raise HTTPException(status_code=404, detail="Channel not found")
             manifest_url = channel.stream_url
@@ -128,9 +163,12 @@ async def head_stream(
         )
     except HTTPException:
         raise
-    except Exception as e:
+    except UPSTREAM_ERRORS as e:
         log.error("Stream HEAD error for channel {}: {}", channel_id, e)
         raise HTTPException(status_code=503, detail="Stream unavailable") from None
+    except Exception:
+        log.exception("Stream HEAD error for channel {}", channel_id)
+        raise _internal_error() from None
 
 
 @router.get("/stream/{channel_id}")
@@ -147,13 +185,15 @@ async def get_stream(
     Token is passed through to rewritten segment URLs for HLS auth.
     """
     log.debug("GET /stream request for channel: {}", channel_id)
+    started = monotonic()
+    attempts = 0
     try:
         if url:
             # Nested playlist - decode URL
-            manifest_url = decode_url(url)
+            manifest_url = _decode(url, "stream")
         else:
             # Initial request - get channel stream URL
-            channel = await asyncio.to_thread(get_channel_by_id, channel_id)
+            channel = await run_feed_lookup(get_channel_by_id, channel_id)
             if not channel:
                 raise HTTPException(status_code=404, detail="Channel not found")
             manifest_url = channel.stream_url
@@ -165,9 +205,8 @@ async def get_stream(
         # Fetch manifest with retry for cold stream startup
         # ErsatzTV needs time to initialize transcoding on first access.
         # follow_redirects is disabled so fetch_ersatztv can re-validate every
-        # hop against the allowlist; an off-host redirect raises ValueError,
-        # which propagates to the outer handler as a 503 rather than being
-        # retried.
+        # hop against the allowlist; an off-host redirect or a non-HLS reply
+        # raises UpstreamProtocolError, answered 502 rather than retried.
         async with (
             asyncio.timeout(STREAM_STARTUP_SECONDS),
             httpx.AsyncClient(follow_redirects=False, timeout=10, verify=SSL_CONTEXT) as client,
@@ -176,6 +215,7 @@ async def get_stream(
             response: httpx.Response | None = None
 
             for attempt in range(STREAM_STARTUP_ATTEMPTS):
+                attempts = attempt + 1
                 try:
                     response = await fetch_ersatztv(client, manifest_url, stream=False)
                     response.raise_for_status()
@@ -201,19 +241,6 @@ async def get_stream(
                     status_code=503, detail="Stream unavailable - cold start timeout"
                 ) from last_error
 
-        content_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
-        if content_type and content_type not in {
-            "application/vnd.apple.mpegurl",
-            "application/x-mpegurl",
-            "audio/mpegurl",
-            "audio/x-mpegurl",
-            "text/plain",
-            "application/octet-stream",
-        }:
-            raise HTTPException(status_code=502, detail="Upstream is not an HLS manifest")
-        if not response.text.lstrip("\ufeff").startswith("#EXTM3U"):
-            raise HTTPException(status_code=502, detail="Invalid HLS manifest")
-
         # Rewrite manifest with token for segment auth
         # Use final URL after redirects for correct base path
         final_url = str(response.url)
@@ -231,9 +258,24 @@ async def get_stream(
 
     except HTTPException:
         raise
-    except Exception as e:
-        log.error("Stream error for channel {}: {}: {}", channel_id, type(e).__name__, e)
+    except UpstreamProtocolError as e:
+        log.warning("Stream for channel {} rejected: {}", channel_id, e)
+        raise HTTPException(status_code=502, detail=str(e)) from None
+    except UPSTREAM_ERRORS as e:
+        # Name the step: a wall-clock TimeoutError carries no message of its own
+        step = f"manifest fetch attempt {attempts}/{STREAM_STARTUP_ATTEMPTS}"
+        log.warning(
+            "Stream error for channel {}: {} failed after {:.1f}s: {}: {}",
+            channel_id,
+            step if attempts else "channel lookup",
+            monotonic() - started,
+            type(e).__name__,
+            str(e) or "no detail",
+        )
         raise HTTPException(status_code=503, detail="Stream unavailable") from None
+    except Exception:
+        log.exception("Stream error for channel {}", channel_id)
+        raise _internal_error() from None
 
 
 @router.head("/segments/{encoded_url:path}")
@@ -245,7 +287,7 @@ async def head_segment(
     """HEAD request for segment - returns headers only."""
     log.debug("HEAD /segments request")
     try:
-        segment_url = decode_url(encoded_url)
+        segment_url = _decode(encoded_url, "segment")
 
         if not is_ersatztv_media_url(segment_url):
             raise HTTPException(status_code=400, detail="Invalid segment URL")
@@ -261,9 +303,12 @@ async def head_segment(
         )
     except HTTPException:
         raise
-    except Exception as e:
+    except UPSTREAM_ERRORS as e:
         log.error("Segment HEAD error: {}", e)
         raise HTTPException(status_code=503, detail="Segment unavailable") from None
+    except Exception:
+        log.exception("Segment HEAD error")
+        raise _internal_error() from None
 
 
 @router.get("/segments/{encoded_url:path}")
@@ -275,7 +320,7 @@ async def get_segment(
     """Proxy HLS segment from ErsatzTV."""
     log.debug("GET /segments request")
     try:
-        segment_url = decode_url(encoded_url)
+        segment_url = _decode(encoded_url, "segment")
 
         # Validate URL is from ErsatzTV
         if not is_ersatztv_media_url(segment_url):
@@ -352,9 +397,15 @@ async def get_segment(
 
     except HTTPException:
         raise
-    except Exception as e:
+    except UpstreamProtocolError as e:
+        log.warning("Segment rejected: {}", e)
+        raise HTTPException(status_code=502, detail=str(e)) from None
+    except UPSTREAM_ERRORS as e:
         log.error("Segment error: {}", e)
         raise HTTPException(status_code=503, detail="Segment unavailable") from None
+    except Exception:
+        log.exception("Segment error")
+        raise _internal_error() from None
 
 
 @router.get("/logos/{channel_id}")
@@ -363,10 +414,10 @@ async def get_logo(
     # No auth required - logos are public images proxied from ErsatzTV
     # Browser img tags cannot send Authorization headers
 ):
-    """Proxy channel logo from ErsatzTV."""
+    """Proxy channel logo from ErsatzTV, cached in the shared logo cache."""
     log.debug("GET /logos request for channel: {}", channel_id)
     try:
-        channel = await asyncio.to_thread(get_channel_by_id, channel_id)
+        channel = await run_feed_lookup(get_channel_by_id, channel_id)
         if not channel:
             raise HTTPException(status_code=404, detail="Channel not found")
 
@@ -374,15 +425,22 @@ async def get_logo(
         if not logo_url:
             raise HTTPException(status_code=404, detail="No logo available")
 
-        async with httpx.AsyncClient(
-            follow_redirects=False, timeout=10, verify=SSL_CONTEXT
-        ) as client:
-            body, content_type = await fetch_logo(client, logo_url)
+        async def fetch() -> tuple[bytes, str]:
+            async with httpx.AsyncClient(
+                follow_redirects=False, timeout=10, verify=SSL_CONTEXT
+            ) as client:
+                return await fetch_logo(client, logo_url)
+
+        # Keyed by the upstream URL too, so a channel's changed logo misses
+        body, content_type = await LOGO_CACHE.get(
+            f"ersatztv:{channel_id}:{logo_url}", fetch, not_found_ttl=LOGO_CACHE.ttl
+        )
 
         return Response(
             body,
             media_type=content_type,
             headers={
+                "Cache-Control": LOGO_CACHE_CONTROL,
                 "Content-Security-Policy": "default-src 'none'; sandbox",
                 "X-Content-Type-Options": "nosniff",
             },
@@ -390,6 +448,19 @@ async def get_logo(
 
     except HTTPException:
         raise
-    except Exception as e:
-        log.error("Logo error for channel {}: {}", channel_id, e)
+    except LogoNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail="No logo available",
+            headers={"Cache-Control": LOGO_NOT_FOUND_CACHE_CONTROL},
+        ) from None
+    except LogoUnavailableError:
+        # LOGO_CACHE logged the cause once for this logo
         raise HTTPException(status_code=503, detail="Logo unavailable") from None
+    except UPSTREAM_ERRORS as e:
+        # A catalogue outage is logged by the feed refresh; one line per request is noise
+        log.debug("Logo lookup failed for channel {}: {}", channel_id, e)
+        raise HTTPException(status_code=503, detail="Logo unavailable") from None
+    except Exception:
+        log.exception("Logo error for channel {}", channel_id)
+        raise _internal_error() from None

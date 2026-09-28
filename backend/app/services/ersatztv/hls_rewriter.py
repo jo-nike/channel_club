@@ -115,6 +115,10 @@ def segment_media_type(content_type: str | None) -> str:
     return mime if mime in SEGMENT_MEDIA_TYPES else "video/mp2t"
 
 
+class UpstreamProtocolError(ValueError):
+    """ErsatzTV answered with something other than HLS, or redirected off its paths."""
+
+
 async def fetch_ersatztv(
     client: httpx.AsyncClient,
     url: str,
@@ -142,11 +146,15 @@ async def fetch_ersatztv(
         The final, non-redirect response.
 
     Raises:
-        ValueError: If a hop leaves the ErsatzTV host or the redirect limit is
-            exceeded.
+        ValueError: If ``url`` itself is not an allowed ErsatzTV URL.
+        UpstreamProtocolError: If a redirect leaves the allowed ErsatzTV paths,
+            the redirect limit is exceeded, or a manifest reply is not HLS or
+            exceeds its byte budget.
     """
-    for _ in range(max_redirects + 1):
+    for hop in range(max_redirects + 1):
         if not is_ersatztv_media_url(url, playlist=not stream):
+            if hop:
+                raise UpstreamProtocolError("Redirect target is not from ErsatzTV")
             raise ValueError(f"URL is not from ErsatzTV: {url}")
         response = await client.send(client.build_request("GET", url), stream=True)
         if response.is_redirect and "location" in response.headers:
@@ -172,17 +180,20 @@ async def fetch_ersatztv(
                 "application/octet-stream",
             }:
                 await response.aclose()
-                raise ValueError("Upstream is not an HLS manifest")
-            body = await read_bounded(response, MANIFEST_BYTES)
+                raise UpstreamProtocolError("Upstream is not an HLS manifest")
+            try:
+                body = await read_bounded(response, MANIFEST_BYTES)
+            except ValueError as e:
+                raise UpstreamProtocolError(str(e)) from e
             if (
                 response.is_success
                 and body.strip()
                 and not body.removeprefix(b"\xef\xbb\xbf").startswith(b"#EXTM3U")
             ):
-                raise ValueError("Invalid HLS manifest header")
+                raise UpstreamProtocolError("Invalid HLS manifest header")
             return decoded_response(response, body)
         return response
-    raise ValueError(f"Too many redirects for {url}")
+    raise UpstreamProtocolError("Too many upstream redirects")
 
 
 class HLSManifestRewriter:
@@ -291,7 +302,8 @@ class HLSManifestRewriter:
         try:
             return base64.urlsafe_b64decode(encoded_url).decode("utf-8")
         except Exception as e:
-            log.error("Failed to decode segment URL: {}", e)
+            # Malformed client input, answered 400 by the router
+            log.debug("Failed to decode segment URL: {}", e)
             raise ValueError(f"Invalid encoded URL: {e}") from e
 
 

@@ -8,13 +8,14 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.models.auth import TokenPayload
+from app.models.channel import Channel
 from app.models.status import (
     DispatchrrStatus,
     EPGHealthStatus,
     ErsatzTVStatus,
     SystemStatusResponse,
 )
-from app.services import presence
+from app.services import channel_state, presence
 
 
 @pytest.fixture
@@ -210,6 +211,66 @@ class TestGetActiveUsers:
         data = response.json()
         assert "connectedSince" in data["liveUsers"][0]
 
+    def test_marks_only_live_slot_followers_on_live(
+        self,
+        client: TestClient,
+        admin_token_payload: TokenPayload,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A personal pick of the live channel, or another channel, is not on Live."""
+        live = Channel(
+            id="uuid-rds", name="RDS", streamUrl="https://streams.example/rds", guideId="1"
+        )
+        monkeypatch.setattr(channel_state, "_current_channel", live)
+        presence.track_user(connection_id="conn1", username="follower", view="live")
+        presence.update_user_channel("conn1", "RDS", None, "live", "uuid-rds", on_live=True)
+        presence.track_user(connection_id="conn2", username="elsewhere", view="live")
+        presence.update_user_channel("conn2", "TVA", None, "live", "uuid-tva", on_live=False)
+        presence.track_user(connection_id="conn3", username="picker", view="live")
+        presence.update_user_channel("conn3", "RDS", None, "live", "uuid-rds", on_live=False)
+
+        with patch("app.routers.auth_deps.verify_token") as mock_verify:
+            mock_verify.return_value = admin_token_payload
+            response = client.get(
+                "/api/admin/active-users",
+                headers={"Authorization": "Bearer fake_token"},
+            )
+
+        users = {u["username"]: u for u in response.json()["liveUsers"]}
+        assert {name: u["onLive"] for name, u in users.items()} == {
+            "follower": True,
+            "elsewhere": False,
+            "picker": False,
+        }
+        assert users["elsewhere"]["channelId"] == "uuid-tva"
+
+    def test_client_without_on_live_falls_back_to_the_live_channel_id(
+        self,
+        client: TestClient,
+        admin_token_payload: TokenPayload,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A pre-R2 bundle sends no onLive: being on the live channel's id counts."""
+        live = Channel(
+            id="uuid-rds", name="RDS", streamUrl="https://streams.example/rds", guideId="1"
+        )
+        monkeypatch.setattr(channel_state, "_current_channel", live)
+        presence.track_user(connection_id="conn1", username="old-on-live", view="live")
+        presence.update_user_channel("conn1", "RDS", None, "live", "uuid-rds")
+        presence.track_user(connection_id="conn2", username="old-elsewhere", view="live")
+        presence.update_user_channel("conn2", "TVA", None, "live", "uuid-tva")
+        presence.track_user(connection_id="conn3", username="idle", view="live")
+
+        with patch("app.routers.auth_deps.verify_token") as mock_verify:
+            mock_verify.return_value = admin_token_payload
+            response = client.get(
+                "/api/admin/active-users",
+                headers={"Authorization": "Bearer fake_token"},
+            )
+
+        users = {u["username"]: u["onLive"] for u in response.json()["liveUsers"]}
+        assert users == {"old-on-live": True, "old-elsewhere": False, "idle": False}
+
 
 class TestGetSystemStatus:
     """Tests for GET /api/admin/status endpoint."""
@@ -263,6 +324,13 @@ class TestGetSystemStatus:
                 programme_count=5065,
                 last_success_at=now,
             ),
+            ersatztv_guide=EPGHealthStatus(
+                name="ErsatzTV guide (XMLTV)",
+                online=True,
+                last_checked=now,
+                channel_count=12,
+                programme_count=340,
+            ),
         )
 
         with patch("app.routers.auth_deps.verify_token") as mock_verify:
@@ -291,6 +359,8 @@ class TestGetSystemStatus:
         assert data["epg"]["programmeCount"] == 5065
         assert data["epg"]["lastSuccessAt"] is not None
         assert data["epg"]["nextRetryAt"] is None
+        assert data["ersatztvGuide"]["name"] == "ErsatzTV guide (XMLTV)"
+        assert data["ersatztvGuide"]["programmeCount"] == 340
 
     def test_returns_offline_status_for_unreachable_service(
         self,
@@ -319,6 +389,9 @@ class TestGetSystemStatus:
                 last_checked=now,
                 error="HTTP 403",
                 next_retry_at=now,
+            ),
+            ersatztv_guide=EPGHealthStatus(
+                name="ErsatzTV guide (XMLTV)", online=False, last_checked=now
             ),
         )
 

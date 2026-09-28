@@ -3,12 +3,19 @@
 import asyncio
 import math
 import os
+import shutil
 import signal
-import subprocess
-from contextlib import suppress
+import tempfile
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from app.config import settings
+
+# How long FFmpeg may run: a stream-copy remux, a re-encode, and an ffprobe.
+REMUX_TIMEOUT_SECONDS = 30
+TRANSCODE_TIMEOUT_SECONDS = 120
+PROBE_TIMEOUT_SECONDS = 10
 
 
 async def owned_thread(function, *args):
@@ -21,39 +28,80 @@ async def owned_thread(function, *args):
         raise
 
 
-async def media_duration(source: Path) -> float:
-    """Bounded local-only probe; cancellation owns the worker until it exits."""
+def new_workspace(prefix: str) -> Path:
+    """A private request directory under the recording root, so the startup sweep removes
+    whatever a killed process leaves behind."""
+    root = Path(settings.highlight_temp_dir) / "work"
+    root.mkdir(parents=True, exist_ok=True)
+    return Path(tempfile.mkdtemp(prefix=prefix, dir=root))
 
-    def probe():
-        result = subprocess.run(
-            [
-                "ffprobe",
-                "-v",
-                "error",
-                "-protocol_whitelist",
-                "file",
-                "-f",
-                "matroska" if source.suffix == ".webm" else "mov",
-                "-i",
-                str(source),
-                "-show_entries",
-                "format=duration",
-                "-of",
-                "default=noprint_wrappers=1:nokey=1",
-            ],
-            capture_output=True,
-            timeout=10,
-            check=True,
-        )
-        duration = float(result.stdout.strip())
-        if not math.isfinite(duration) or duration <= 0:
-            raise ValueError("Preview duration is invalid")
-        return duration
 
+async def remove_workspace(directory: Path) -> None:
+    """Recursive delete is filesystem-bound; it runs in a thread and survives cancellation."""
+    await owned_thread(shutil.rmtree, directory, True)
+
+
+@asynccontextmanager
+async def workspace(prefix: str) -> AsyncIterator[Path]:
+    """A request workspace removed off the loop on exit, error or cancellation."""
+    directory = new_workspace(prefix)
     try:
-        return await owned_thread(probe)
-    except (subprocess.SubprocessError, OSError) as exc:
+        yield directory
+    finally:
+        await remove_workspace(directory)
+
+
+async def reap(process: asyncio.subprocess.Process) -> None:
+    """Kill the process group if it still runs, and return only once it has exited.
+
+    A cancellation during the wait still waits for the exit before it propagates.
+    """
+    if process.returncode is None:
+        with suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
+    waiter = asyncio.ensure_future(process.wait())
+    try:
+        await asyncio.shield(waiter)
+    except asyncio.CancelledError:
+        await waiter
+        raise
+
+
+async def media_duration(source: Path) -> float:
+    """Bounded local-only probe; cancellation reaps ffprobe before returning."""
+    try:
+        process = await asyncio.create_subprocess_exec(
+            "ffprobe",
+            "-v",
+            "error",
+            "-protocol_whitelist",
+            "file",
+            "-f",
+            "matroska" if source.suffix == ".webm" else "mov",
+            "-i",
+            str(source),
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError as exc:
         raise ValueError("Unable to read preview") from exc
+    try:
+        stdout, _ = await asyncio.wait_for(process.communicate(), PROBE_TIMEOUT_SECONDS)
+    except TimeoutError as exc:
+        raise ValueError("Unable to read preview") from exc
+    finally:
+        await reap(process)
+    if process.returncode != 0:
+        raise ValueError("Unable to read preview")
+    duration = float(stdout.strip())
+    if not math.isfinite(duration) or duration <= 0:
+        raise ValueError("Preview duration is invalid")
+    return duration
 
 
 async def encode_file(
@@ -64,7 +112,8 @@ async def encode_file(
     end_time: float | None,
     *,
     concat: bool = False,
-) -> bytes:
+) -> Path:
+    """Encode into `output` and return it; the caller streams or keeps the file."""
     if format not in ("mp4", "webm"):
         raise ValueError("Unsupported export format")
     trimmed = start_time is not None or end_time is not None
@@ -74,12 +123,6 @@ async def encode_file(
             for value in (start_time, end_time)
         ):
             raise ValueError("Trim times must be finite and nonnegative")
-        if concat:
-            # Segment manifests have no reliable container duration. Normalize the
-            # immutable snapshot first, then trim against that same MP4 timeline.
-            normalized = output.with_name("snapshot.mp4")
-            await encode_file(source, normalized, "mp4", None, None, concat=True)
-            return await encode_file(normalized, output, format, start_time, end_time)
         duration = await media_duration(source)
         start = start_time or 0
         end = duration if end_time is None else end_time
@@ -153,22 +196,24 @@ async def encode_file(
         str(settings.media_export_max_bytes),
         str(output),
     ]
-    process = subprocess.Popen(
-        command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True
+    process = await asyncio.create_subprocess_exec(
+        *command,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+        start_new_session=True,
     )
-    waiter = asyncio.create_task(asyncio.to_thread(process.wait))
     try:
+        # The clock starts once FFmpeg runs and waiting needs no worker thread, so a busy
+        # executor can never make a finished encode look timed out.
         code = await asyncio.wait_for(
-            asyncio.shield(waiter), 120 if trimmed or format == "webm" else 30
+            process.wait(),
+            TRANSCODE_TIMEOUT_SECONDS if trimmed or format == "webm" else REMUX_TIMEOUT_SECONDS,
         )
         if code != 0:
             raise ValueError("Failed to encode highlight")
         size = await owned_thread(lambda: output.stat().st_size)
         if size >= settings.media_export_max_bytes:
             raise ValueError("Highlight exceeds export size limit")
-        return await owned_thread(output.read_bytes)
+        return output
     finally:
-        if process.poll() is None:
-            with suppress(ProcessLookupError):
-                os.killpg(process.pid, signal.SIGKILL)
-        await asyncio.shield(waiter)
+        await reap(process)

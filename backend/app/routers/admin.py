@@ -33,26 +33,25 @@ async def get_active_users(
 
     live_users = presence.get_users_by_view("live")
     ersatztv_users = presence.get_users_by_view("ersatztv")
+    live = channel_state.get_current_channel()
+
+    def active_user(u: presence.UserPresence) -> ActiveUser:
+        # Clients from before onLive: on the live channel's id counts as following it
+        on_live = u.on_live
+        if on_live is None:
+            on_live = live is not None and u.current_channel_id == live.id
+        return ActiveUser(
+            username=u.username,
+            channel=u.current_channel,
+            channel_id=u.current_channel_id,
+            on_live=on_live,
+            programme=u.current_programme,
+            connected_since=u.connected_since,
+        )
 
     return ActiveUsersResponse(
-        live_users=[
-            ActiveUser(
-                username=u.username,
-                channel=u.current_channel,
-                programme=u.current_programme,
-                connected_since=u.connected_since,
-            )
-            for u in live_users
-        ],
-        ersatztv_users=[
-            ActiveUser(
-                username=u.username,
-                channel=u.current_channel,
-                programme=u.current_programme,
-                connected_since=u.connected_since,
-            )
-            for u in ersatztv_users
-        ],
+        live_users=[active_user(u) for u in live_users],
+        ersatztv_users=[active_user(u) for u in ersatztv_users],
         totals=ActiveUsersTotals(
             live_count=len(live_users),
             ersatztv_count=len(ersatztv_users),

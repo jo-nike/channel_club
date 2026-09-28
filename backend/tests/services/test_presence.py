@@ -106,33 +106,19 @@ class TestRemoveUser:
         assert "abc123" not in presence._active_users
 
     def test_does_not_remove_when_websocket_mismatch(self) -> None:
-        """Should not remove user when websocket doesn't match (view switch case)."""
-        old_ws = MagicMock()
-        new_ws = MagicMock()
-
-        # User connects with old websocket
+        """Should not remove user when a different websocket asks to remove it."""
+        stored_ws = MagicMock()
+        other_ws = MagicMock()
         presence.track_user(
-            connection_id="session123",
+            connection_id="conn123",
             username="testuser",
             view="live",
-            websocket=old_ws,
+            websocket=stored_ws,
         )
 
-        # User reconnects (view switch) - entry gets replaced with new websocket
-        presence.track_user(
-            connection_id="session123",
-            username="testuser",
-            view="ersatztv",
-            websocket=new_ws,
-        )
+        presence.remove_user("conn123", websocket=other_ws)
 
-        # Old websocket disconnects - should NOT remove the new entry
-        presence.remove_user("session123", websocket=old_ws)
-
-        # Entry should still exist with new websocket
-        assert "session123" in presence._active_users
-        assert presence._active_users["session123"].view == "ersatztv"
-        assert presence._active_users["session123"].websocket is new_ws
+        assert presence._active_users["conn123"].websocket is stored_ws
 
 
 class TestUpdateUserChannel:
@@ -349,6 +335,43 @@ class TestGetUsersByView:
         assert result[0].view == "ersatztv"
 
 
+class TestStaleClock:
+    """Staleness is judged on the monotonic clock, not wall time (J-02)."""
+
+    def test_forward_wall_clock_jump_removes_nobody_active(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A host clock step (VM resume, NTP step) is not an hour of silence."""
+        presence.track_user(connection_id="here", username="friend", view="live")
+        jumped = datetime.now(UTC) + timedelta(hours=1)
+        monkeypatch.setattr(presence, "_now", lambda: jumped)
+
+        assert presence.cleanup_stale_users() == 0
+        assert "here" in presence._active_users
+
+    def test_a_throttled_background_tab_pinging_once_a_minute_is_not_stale(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Chrome runs a hidden tab's 30 s ping about once a minute; that is not silence."""
+        presence.track_user(connection_id="hidden", username="friend", view="live")
+        later = presence._monotonic() + 65
+        monkeypatch.setattr(presence, "_monotonic", lambda: later)
+
+        assert presence.cleanup_stale_users() == 0
+        assert "hidden" in presence._active_users
+
+    def test_monotonic_silence_past_the_timeout_is_stale(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Real silence, as the monotonic clock sees it, still removes the connection."""
+        presence.track_user(connection_id="gone", username="ghost", view="live")
+        later = presence._monotonic() + presence.STALE_USER_TIMEOUT_SECONDS + 1
+        monkeypatch.setattr(presence, "_monotonic", lambda: later)
+
+        assert presence.cleanup_stale_users() == 1
+        assert "gone" not in presence._active_users
+
+
 class TestCleanupTask:
     """Tests for the background stale-user cleanup task."""
 
@@ -357,9 +380,7 @@ class TestCleanupTask:
         monkeypatch.setattr(presence, "CLEANUP_INTERVAL_SECONDS", 0.01)
         presence.track_user(connection_id="gone", username="ghost", view="live")
         presence.track_user(connection_id="here", username="friend", view="live")
-        presence._active_users["gone"].last_activity = datetime.now(UTC) - timedelta(
-            seconds=presence.STALE_USER_TIMEOUT_SECONDS + 1
-        )
+        presence._active_users["gone"].last_activity_mono -= presence.STALE_USER_TIMEOUT_SECONDS + 1
 
         presence.start_cleanup_task()
         for _ in range(100):
