@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 from fastapi import HTTPException
 
 from app.models.channel import Channel, validate_channel_id
-from app.services.dispatcharr import get_grouped_channels, get_lineup
+from app.services.dispatcharr import get_grouped_channels
 from app.services.ersatztv import get_channel_by_id
 
 
@@ -31,8 +31,9 @@ async def resolve_media_channel(channel_id: str) -> MediaChannel:
     except ValueError:
         raise HTTPException(422, "Invalid channel identifier") from None
     unavailable = False
-    # Use the same authenticated catalog as the picker. HDHR can be restricted
-    # independently and need not contain every channel offered by the picker.
+    # Use the same authenticated catalog as the picker (served stale during a
+    # Dispatcharr outage). It holds every HDHR channel too: both key a channel
+    # by its stream UUID, so there is no separate lineup fetch.
     try:
         grouped = await get_grouped_channels()
     except Exception:
@@ -43,16 +44,7 @@ async def resolve_media_channel(channel_id: str) -> MediaChannel:
                 if channel.id == channel_id:
                     return checked_source(channel, "mpegts")
 
-    # Keep the HDHR lineup as a fallback for existing clients.
     # Never refresh ErsatzTV at all when Dispatcharr already knows this ID.
-    try:
-        lineup = await get_lineup()
-    except Exception:
-        unavailable = True
-        lineup = []
-    for channel in lineup:
-        if channel.id == channel_id:
-            return checked_source(channel, "mpegts")
     try:
         ersatz = await asyncio.to_thread(get_channel_by_id, channel_id)
     except Exception:

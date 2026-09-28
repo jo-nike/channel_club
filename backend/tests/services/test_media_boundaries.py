@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from app.config import settings
 from app.models.auth import TokenPayload
-from app.models.channel import SetChannelRequest
+from app.models.channel import GroupedChannelsResponse, SetChannelRequest
 from app.routers.auth_deps import get_current_user
 from app.routers.highlight import router
 from app.services.highlight import ChannelRecorder, remove_recording_directory
@@ -43,32 +43,65 @@ async def test_picker_catalog_resolves_without_hdhr_or_ersatz(ungrouped):
     with (
         patch("app.services.media_source.get_grouped_channels", AsyncMock(return_value=catalog)),
         patch(
-            "app.services.media_source.get_lineup", AsyncMock(side_effect=RuntimeError("403"))
-        ) as lineup,
-        patch(
             "app.services.media_source.get_channel_by_id", side_effect=RuntimeError("offline")
         ) as ersatz,
     ):
         source = await resolve_media_channel(channel.id)
         assert source.channel == channel
         assert source.stream_type == "mpegts"
-        lineup.assert_not_called()
         ersatz.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_grouped_outage_keeps_lineup_fallback():
-    from app.models.channel import Channel
+async def test_grouped_outage_is_unavailable_not_unknown():
+    from fastapi import HTTPException
+
     from app.services.media_source import resolve_media_channel
 
-    channel = Channel(id="lineup", name="Trusted", streamUrl="https://source/ts", guideId="194")
     with (
         patch(
             "app.services.media_source.get_grouped_channels", AsyncMock(side_effect=RuntimeError)
         ),
-        patch("app.services.media_source.get_lineup", AsyncMock(return_value=[channel])),
+        patch("app.services.media_source.get_channel_by_id", return_value=None),
     ):
-        assert (await resolve_media_channel(channel.id)).channel == channel
+        with pytest.raises(HTTPException) as exc:
+            await resolve_media_channel("dispatch")
+        assert exc.value.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_ersatz_id_resolves_fast_without_hdhr_while_dispatcharr_times_out(monkeypatch):
+    import httpx
+
+    from app.models.channel import Channel
+    from app.services import dispatcharr
+    from app.services.media_source import resolve_media_channel
+
+    monkeypatch.setattr(settings, "dispatcharr_url", "http://dispatcharr.test")
+    monkeypatch.setattr(settings, "dispatcharr_api_key", "test-key")
+    paths: list[str] = []
+    real_client = httpx.AsyncClient
+
+    def timeout(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        raise httpx.ConnectTimeout("timed out", request=request)
+
+    monkeypatch.setattr(
+        "app.services.dispatcharr.httpx.AsyncClient",
+        lambda **kwargs: real_client(transport=httpx.MockTransport(timeout), **kwargs),
+    )
+    channel = Channel(
+        id="ersatz", name="healthy", streamUrl="http://catalog.invalid/hls", guideId="1"
+    )
+    with (
+        patch("app.services.media_source.get_grouped_channels", dispatcharr.get_grouped_channels),
+        patch("app.services.media_source.get_channel_by_id", return_value=channel),
+    ):
+        async with asyncio.timeout(1):
+            source = await resolve_media_channel("ersatz")
+    assert source.stream_type == "hls"
+    assert paths  # the grouped catalogue was tried
+    assert "/hdhr/lineup.json" not in paths
 
 
 @pytest.mark.parametrize("identifier", ["", " ", ".", "..", "/tmp/victim", "a/../b", "a\\b"])
@@ -159,7 +192,6 @@ async def test_unresolved_source_never_spawns(identifier, monkeypatch):
     monkeypatch.setattr(settings, "highlight_enabled", True)
     with (
         patch("app.services.media_source.get_channel_by_id", return_value=None),
-        patch("app.services.media_source.get_lineup", AsyncMock(return_value=[])),
         patch("subprocess.Popen") as spawn,
     ):
         with pytest.raises(HTTPException):
@@ -184,7 +216,14 @@ async def test_resolved_source_replaces_client_url(provider, monkeypatch):
             "app.services.media_source.get_channel_by_id",
             return_value=channel if provider == "ersatz" else None,
         ),
-        patch("app.services.media_source.get_lineup", AsyncMock(return_value=[channel])),
+        patch(
+            "app.services.media_source.get_grouped_channels",
+            AsyncMock(
+                return_value=GroupedChannelsResponse(
+                    ungrouped=[channel] if provider == "dispatcharr" else []
+                )
+            ),
+        ),
         patch.object(ChannelRecorder, "start", AsyncMock(return_value=True)),
     ):
         service = HighlightService()
@@ -202,7 +241,10 @@ async def test_dispatcharr_media_does_not_depend_on_ersatz(monkeypatch):
         id="dispatch", name="healthy", streamUrl="http://catalog.invalid/ts", guideId="1"
     )
     with (
-        patch("app.services.media_source.get_lineup", AsyncMock(return_value=[channel])),
+        patch(
+            "app.services.media_source.get_grouped_channels",
+            AsyncMock(return_value=GroupedChannelsResponse(ungrouped=[channel])),
+        ),
         patch(
             "app.services.media_source.get_channel_by_id", side_effect=RuntimeError("offline")
         ) as optional,
@@ -221,7 +263,6 @@ async def test_unknown_and_unavailable_have_distinct_status(outage, expected):
     from app.services.media_source import resolve_media_channel
 
     with (
-        patch("app.services.media_source.get_lineup", AsyncMock(return_value=[])),
         patch(
             "app.services.media_source.get_channel_by_id",
             return_value=None,
@@ -243,7 +284,8 @@ async def test_ersatz_works_when_dispatcharr_unavailable():
     )
     with (
         patch(
-            "app.services.media_source.get_lineup", AsyncMock(side_effect=RuntimeError("offline"))
+            "app.services.media_source.get_grouped_channels",
+            AsyncMock(side_effect=RuntimeError("offline")),
         ),
         patch("app.services.media_source.get_channel_by_id", return_value=channel),
     ):
