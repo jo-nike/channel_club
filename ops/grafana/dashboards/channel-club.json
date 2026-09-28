@@ -157,7 +157,7 @@
               "type": "loki",
               "uid": "P8E80F9AEF21F6940"
             },
-            "expr": "sum(sum_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_event=\"watch.stop\" | unwrap record_extra_duration_s [$__range]))",
+            "expr": "sum(sum_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_channel_id!=\"live-channel-0\" | record_extra_event=\"watch.stop\" | unwrap record_extra_duration_s [$__range]))",
             "legendFormat": "",
             "refId": "A",
             "editorMode": "code",
@@ -210,7 +210,7 @@
               "type": "loki",
               "uid": "P8E80F9AEF21F6940"
             },
-            "expr": "sum(count_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_event=\"watch.start\" [$__range]))",
+            "expr": "sum(count_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_channel_id!=\"live-channel-0\" | record_extra_event=\"watch.start\" [$__range]))",
             "legendFormat": "",
             "refId": "A",
             "editorMode": "code",
@@ -263,7 +263,7 @@
               "type": "loki",
               "uid": "P8E80F9AEF21F6940"
             },
-            "expr": "count(sum by (record_extra_channel) (count_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_event=\"watch.start\" [$__range])))",
+            "expr": "count(sum by (record_extra_channel) (count_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_channel_id!=\"live-channel-0\" | record_extra_event=\"watch.start\" [$__range])))",
             "legendFormat": "",
             "refId": "A",
             "editorMode": "code",
@@ -369,7 +369,7 @@
               "type": "loki",
               "uid": "P8E80F9AEF21F6940"
             },
-            "expr": "{container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_event=\"watch.stop\" | label_format user=record_extra_user, view=record_extra_view, channel=record_extra_channel, programme=record_extra_programme, duration_s=record_extra_duration_s, reason=record_extra_reason | line_format \"\"",
+            "expr": "{container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_channel_id!=\"live-channel-0\" | record_extra_event=\"watch.stop\" | label_format user=record_extra_user, view=record_extra_view, channel=record_extra_channel, programme=record_extra_programme, duration_s=record_extra_duration_s, reason=record_extra_reason | line_format \"\"",
             "legendFormat": "",
             "refId": "A",
             "editorMode": "code"
@@ -462,7 +462,7 @@
               "type": "loki",
               "uid": "P8E80F9AEF21F6940"
             },
-            "expr": "sum by (record_extra_user) (sum_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_event=\"watch.stop\" | unwrap record_extra_duration_s [$__range]))",
+            "expr": "sum by (record_extra_user) (sum_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_channel_id!=\"live-channel-0\" | record_extra_event=\"watch.stop\" | unwrap record_extra_duration_s [$__range]))",
             "legendFormat": "{{record_extra_user}}",
             "refId": "A",
             "editorMode": "code",
@@ -768,7 +768,7 @@
               "type": "loki",
               "uid": "P8E80F9AEF21F6940"
             },
-            "expr": "topk(25, sum by (record_extra_channel, record_extra_view) (sum_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_event=\"watch.stop\" | unwrap record_extra_duration_s [$__range])))",
+            "expr": "topk(25, sum by (record_extra_channel, record_extra_view) (sum_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_channel_id!=\"live-channel-0\" | record_extra_event=\"watch.stop\" | unwrap record_extra_duration_s [$__range])))",
             "legendFormat": "{{record_extra_channel}} ({{record_extra_view}})",
             "refId": "A",
             "editorMode": "code",
@@ -838,7 +838,7 @@
               "type": "loki",
               "uid": "P8E80F9AEF21F6940"
             },
-            "expr": "sum by (record_extra_channel) (count_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_event=\"watch.start\" [$__auto]))",
+            "expr": "sum by (record_extra_channel) (count_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_channel_id!=\"live-channel-0\" | record_extra_event=\"watch.start\" [$__auto]))",
             "legendFormat": "{{record_extra_channel}}",
             "refId": "A",
             "editorMode": "code"
@@ -881,6 +881,76 @@
       },
       {
         "id": 16,
+        "type": "bargauge",
+        "title": "Watch time: Live slot vs own pick",
+        "gridPos": {
+          "h": 5,
+          "w": 24,
+          "x": 0,
+          "y": 50
+        },
+        "datasource": {
+          "type": "loki",
+          "uid": "P8E80F9AEF21F6940"
+        },
+        "targets": [
+          {
+            "datasource": {
+              "type": "loki",
+              "uid": "P8E80F9AEF21F6940"
+            },
+            "expr": "sum by (record_extra_on_live) (sum_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_channel_id!=\"live-channel-0\" | record_extra_event=\"watch.stop\" | unwrap record_extra_duration_s [$__range]))",
+            "legendFormat": "Live slot: {{record_extra_on_live}}",
+            "refId": "A",
+            "editorMode": "code",
+            "queryType": "instant",
+            "instant": true,
+            "range": false
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "min": 0,
+            "color": {
+              "mode": "continuous-BlPu"
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "orientation": "horizontal",
+          "displayMode": "gradient",
+          "showUnfilled": true,
+          "valueMode": "color",
+          "namePlacement": "left",
+          "sizing": "auto",
+          "minVizHeight": 16,
+          "maxVizHeight": 32
+        },
+        "transformations": [
+          {
+            "id": "sortBy",
+            "options": {
+              "sort": [
+                {
+                  "field": "Value",
+                  "desc": true
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": 17,
         "type": "table",
         "title": "Catalogue usage (unused channels sort first)",
         "description": "Every channel in the Dispatcharr lineup and ErsatzTV XMLTV, joined by name to watch events in the selected range. 'never watched' means no watch.stop event in range.",
@@ -888,7 +958,7 @@
           "h": 16,
           "w": 24,
           "x": 0,
-          "y": 50
+          "y": 55
         },
         "datasource": {
           "type": "datasource",
@@ -962,7 +1032,7 @@
               "type": "loki",
               "uid": "P8E80F9AEF21F6940"
             },
-            "expr": "sum by (record_extra_channel) (sum_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_event=\"watch.stop\" | unwrap record_extra_duration_s [$__range]))",
+            "expr": "sum by (record_extra_channel) (sum_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_channel_id!=\"live-channel-0\" | record_extra_event=\"watch.stop\" | unwrap record_extra_duration_s [$__range]))",
             "legendFormat": "",
             "refId": "C",
             "editorMode": "code",
@@ -975,7 +1045,7 @@
               "type": "loki",
               "uid": "P8E80F9AEF21F6940"
             },
-            "expr": "sum by (record_extra_channel) (count_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_event=\"watch.start\" [$__range]))",
+            "expr": "sum by (record_extra_channel) (count_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_channel_id!=\"live-channel-0\" | record_extra_event=\"watch.start\" [$__range]))",
             "legendFormat": "",
             "refId": "D",
             "editorMode": "code",
@@ -1105,14 +1175,14 @@
         }
       },
       {
-        "id": 17,
+        "id": 18,
         "type": "stat",
         "title": "Channels in catalogue",
         "gridPos": {
           "h": 4,
           "w": 6,
           "x": 0,
-          "y": 66
+          "y": 71
         },
         "datasource": {
           "type": "yesoreyeram-infinity-datasource",
