@@ -62,6 +62,15 @@ def presence_visible_enabled() -> bool:
     return _presence_visible
 
 
+def _log_change(actor: str | None, field: str, old: bool, new: bool) -> None:
+    """Log an admin.settings_changed event when a setting's value actually changes."""
+    if old == new:
+        return
+    log.bind(event="admin.settings_changed", actor=actor, field=field, old=old, new=new).info(
+        f"Setting {field} changed from {old} to {new} by {actor or 'unknown'}"
+    )
+
+
 async def update(
     user_channel_selection: bool | None = None,
     presence_visible: bool | None = None,
@@ -81,16 +90,15 @@ async def update(
         The updated settings.
     """
     global _user_channel_selection, _presence_visible
-    by = f" by user '{user}'" if user else ""
     changes: dict[str, bool] = {}
     if user_channel_selection is not None:
+        _log_change(user, "userChannelSelection", _user_channel_selection, user_channel_selection)
         _user_channel_selection = user_channel_selection
         changes["userChannelSelection"] = user_channel_selection
-        log.info("User channel selection set to {}{}", user_channel_selection, by)
     if presence_visible is not None:
+        _log_change(user, "presenceVisible", _presence_visible, presence_visible)
         _presence_visible = presence_visible
         changes["presenceVisible"] = presence_visible
-        log.info("Presence visibility set to {}{}", presence_visible, by)
 
     if changes:
         await state_store.save(changes)

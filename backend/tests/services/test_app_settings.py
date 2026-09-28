@@ -1,11 +1,16 @@
 """Tests for app_settings service."""
 
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from loguru import logger
 
 from app.models.websocket import server_payload
 from app.services import app_settings
+
+if TYPE_CHECKING:
+    from loguru import Record
 
 
 @pytest.fixture(autouse=True)
@@ -160,3 +165,30 @@ class TestUpdateBoth:
 
         mock_save.assert_not_awaited()
         mock_broadcast.assert_not_awaited()
+
+
+class TestSettingsChangedEvents:
+    """update() logs one admin.settings_changed event per field whose value changed."""
+
+    async def test_emits_event_for_changed_field_only(self) -> None:
+        records: list[Record] = []
+        handler_id = logger.add(lambda message: records.append(message.record), level="INFO")
+        try:
+            with patch.object(app_settings.channel_state, "broadcast", new=AsyncMock()):
+                await app_settings.update(
+                    user_channel_selection=True, presence_visible=False, user="admin"
+                )
+        finally:
+            logger.remove(handler_id)
+
+        events = [r["extra"] for r in records if r["extra"].get("event")]
+        assert events == [
+            {
+                "service": "app_settings",
+                "event": "admin.settings_changed",
+                "actor": "admin",
+                "field": "userChannelSelection",
+                "old": False,
+                "new": True,
+            }
+        ]

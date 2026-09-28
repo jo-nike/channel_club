@@ -1,10 +1,12 @@
 """Tests for admin router."""
 
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+from loguru import logger
 
 from app.main import app
 from app.models.auth import TokenPayload
@@ -15,7 +17,10 @@ from app.models.status import (
     ErsatzTVStatus,
     SystemStatusResponse,
 )
-from app.services import channel_state, presence
+from app.services import channel_state, chat, presence
+
+if TYPE_CHECKING:
+    from loguru import Record
 
 
 @pytest.fixture
@@ -414,3 +419,39 @@ class TestGetSystemStatus:
         assert data["epg"]["online"] is False
         assert data["epg"]["error"] == "HTTP 403"
         assert data["epg"]["nextRetryAt"] is not None
+
+
+class TestClearChatHistory:
+    """Tests for DELETE /api/admin/chat-history endpoint."""
+
+    def test_logs_admin_chat_cleared_event(
+        self,
+        client: TestClient,
+        admin_token_payload: TokenPayload,
+    ) -> None:
+        """The clear is an admin.chat_cleared event with the actor and the count."""
+        chat.add_message("viewer", "one")
+        chat.add_message("viewer", "two")
+        records: list[Record] = []
+        handler_id = logger.add(lambda message: records.append(message.record), level="INFO")
+        try:
+            with patch("app.routers.auth_deps.verify_token") as mock_verify:
+                mock_verify.return_value = admin_token_payload
+                response = client.delete(
+                    "/api/admin/chat-history",
+                    headers={"Authorization": "Bearer fake_token"},
+                )
+        finally:
+            logger.remove(handler_id)
+
+        assert response.status_code == 200
+        assert chat.get_history_count() == 0
+        events = [r["extra"] for r in records if r["extra"].get("event")]
+        assert events == [
+            {
+                "router": "admin",
+                "event": "admin.chat_cleared",
+                "actor": "admin",
+                "message_count": 2,
+            }
+        ]
