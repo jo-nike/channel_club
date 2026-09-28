@@ -123,8 +123,7 @@ class TestLoadAndSave:
 class TestSettersPersist:
     @pytest.mark.asyncio
     async def test_app_settings_setters_save(self, state_file: Path) -> None:
-        await app_settings.set_user_channel_selection(True, user="admin")
-        await app_settings.set_presence_visible(True, user="admin")
+        await app_settings.update(user_channel_selection=True, presence_visible=True, user="admin")
 
         saved = json.loads(state_file.read_text())
         assert saved["userChannelSelection"] is True

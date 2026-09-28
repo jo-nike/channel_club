@@ -53,30 +53,6 @@ def user_channel_selection_enabled() -> bool:
     return _user_channel_selection
 
 
-async def set_user_channel_selection(enabled: bool, user: str | None = None) -> AppSettings:
-    """Set whether non-admin users may set the live channel, and broadcast it.
-
-    Args:
-        enabled: True to let any authenticated user change the live channel.
-        user: Optional username of the admin making the change.
-
-    Returns:
-        The updated settings.
-    """
-    global _user_channel_selection
-    _user_channel_selection = enabled
-
-    if user:
-        log.info("User channel selection set to {} by user '{}'", enabled, user)
-    else:
-        log.info("User channel selection set to {}", enabled)
-
-    await state_store.save({"userChannelSelection": enabled})
-    await broadcast_settings_update()
-
-    return get_app_settings()
-
-
 def presence_visible_enabled() -> bool:
     """Check whether members may see which channel everyone else is watching.
 
@@ -86,26 +62,40 @@ def presence_visible_enabled() -> bool:
     return _presence_visible
 
 
-async def set_presence_visible(enabled: bool, user: str | None = None) -> AppSettings:
-    """Set whether members see what everyone is watching, and broadcast it.
+async def update(
+    user_channel_selection: bool | None = None,
+    presence_visible: bool | None = None,
+    user: str | None = None,
+) -> AppSettings:
+    """Apply the given settings, save them once and broadcast them once.
+
+    Omitted (None) settings are left unchanged; with nothing given, nothing is
+    saved or broadcast.
 
     Args:
-        enabled: True to share each member's channel and programme with everyone.
+        user_channel_selection: True to let any authenticated user change the live channel.
+        presence_visible: True to share each member's channel and programme with everyone.
         user: Optional username of the admin making the change.
 
     Returns:
         The updated settings.
     """
-    global _presence_visible
-    _presence_visible = enabled
+    global _user_channel_selection, _presence_visible
+    by = f" by user '{user}'" if user else ""
+    changes: dict[str, bool] = {}
+    if user_channel_selection is not None:
+        _user_channel_selection = user_channel_selection
+        changes["userChannelSelection"] = user_channel_selection
+        log.info("User channel selection set to {}{}", user_channel_selection, by)
+    if presence_visible is not None:
+        _presence_visible = presence_visible
+        changes["presenceVisible"] = presence_visible
+        log.info("Presence visibility set to {}{}", presence_visible, by)
 
-    if user:
-        log.info("Presence visibility set to {} by user '{}'", enabled, user)
-    else:
-        log.info("Presence visibility set to {}", enabled)
-
-    await state_store.save({"presenceVisible": enabled})
-    await broadcast_settings_update()
+    if changes:
+        await state_store.save(changes)
+        # One broadcast after every change, so clients never see a half-applied update
+        await broadcast_settings_update()
 
     return get_app_settings()
 

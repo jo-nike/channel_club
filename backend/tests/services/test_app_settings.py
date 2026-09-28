@@ -41,26 +41,26 @@ class TestUserChannelSelectionEnabled:
     async def test_true_after_enabling(self) -> None:
         """Returns True once the setting is turned on."""
         with patch.object(app_settings.channel_state, "broadcast", new=AsyncMock()):
-            await app_settings.set_user_channel_selection(True)
+            await app_settings.update(user_channel_selection=True)
 
         assert app_settings.user_channel_selection_enabled() is True
 
 
 class TestSetUserChannelSelection:
-    """Tests for set_user_channel_selection function."""
+    """Tests for update() with user_channel_selection."""
 
     async def test_returns_updated_settings(self) -> None:
         """The updated settings are returned."""
         with patch.object(app_settings.channel_state, "broadcast", new=AsyncMock()):
-            result = await app_settings.set_user_channel_selection(True)
+            result = await app_settings.update(user_channel_selection=True)
 
         assert result.user_channel_selection is True
 
     async def test_can_be_turned_back_off(self) -> None:
         """Toggling off restores the default."""
         with patch.object(app_settings.channel_state, "broadcast", new=AsyncMock()):
-            await app_settings.set_user_channel_selection(True)
-            result = await app_settings.set_user_channel_selection(False)
+            await app_settings.update(user_channel_selection=True)
+            result = await app_settings.update(user_channel_selection=False)
 
         assert result.user_channel_selection is False
         assert app_settings.user_channel_selection_enabled() is False
@@ -70,7 +70,7 @@ class TestSetUserChannelSelection:
         mock_broadcast = AsyncMock()
 
         with patch.object(app_settings.channel_state, "broadcast", new=mock_broadcast):
-            await app_settings.set_user_channel_selection(True, user="admin")
+            await app_settings.update(user_channel_selection=True, user="admin")
 
         mock_broadcast.assert_awaited_once()
         assert mock_broadcast.await_args is not None
@@ -91,18 +91,18 @@ class TestPresenceVisible:
     async def test_can_be_turned_on_and_off(self) -> None:
         """The setting toggles and the updated settings are returned."""
         with patch.object(app_settings.channel_state, "broadcast", new=AsyncMock()):
-            on = await app_settings.set_presence_visible(True, user="admin")
+            on = await app_settings.update(presence_visible=True, user="admin")
             assert on.presence_visible is True
             assert app_settings.presence_visible_enabled() is True
 
-            off = await app_settings.set_presence_visible(False)
+            off = await app_settings.update(presence_visible=False)
             assert off.presence_visible is False
             assert app_settings.presence_visible_enabled() is False
 
     async def test_leaves_user_channel_selection_alone(self) -> None:
         """Changing presence visibility doesn't touch the other setting."""
         with patch.object(app_settings.channel_state, "broadcast", new=AsyncMock()):
-            result = await app_settings.set_presence_visible(True)
+            result = await app_settings.update(presence_visible=True)
 
         assert result.user_channel_selection is False
 
@@ -111,7 +111,7 @@ class TestPresenceVisible:
         mock_broadcast = AsyncMock()
 
         with patch.object(app_settings.channel_state, "broadcast", new=mock_broadcast):
-            await app_settings.set_presence_visible(True, user="admin")
+            await app_settings.update(presence_visible=True, user="admin")
 
         mock_broadcast.assert_awaited_once()
         assert mock_broadcast.await_args is not None
@@ -119,3 +119,44 @@ class TestPresenceVisible:
             "type": "settings_update",
             "settings": {"userChannelSelection": False, "presenceVisible": True},
         }
+
+
+class TestUpdateBoth:
+    """Tests for update() with both settings in one call."""
+
+    async def test_saves_once_and_broadcasts_once_with_both_values(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Clients get one settings_update carrying both changes, never a half-applied one."""
+        mock_broadcast = AsyncMock()
+        mock_save = AsyncMock()
+        monkeypatch.setattr(app_settings.state_store, "save", mock_save)
+
+        with patch.object(app_settings.channel_state, "broadcast", new=mock_broadcast):
+            result = await app_settings.update(
+                user_channel_selection=True, presence_visible=True, user="admin"
+            )
+
+        assert result.user_channel_selection is True
+        assert result.presence_visible is True
+        mock_save.assert_awaited_once_with({"userChannelSelection": True, "presenceVisible": True})
+        mock_broadcast.assert_awaited_once()
+        assert mock_broadcast.await_args is not None
+        assert server_payload(mock_broadcast.await_args.args[0]) == {
+            "type": "settings_update",
+            "settings": {"userChannelSelection": True, "presenceVisible": True},
+        }
+
+    async def test_nothing_given_saves_and_broadcasts_nothing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An empty update leaves the state file and clients alone."""
+        mock_broadcast = AsyncMock()
+        mock_save = AsyncMock()
+        monkeypatch.setattr(app_settings.state_store, "save", mock_save)
+
+        with patch.object(app_settings.channel_state, "broadcast", new=mock_broadcast):
+            await app_settings.update(user="admin")
+
+        mock_save.assert_not_awaited()
+        mock_broadcast.assert_not_awaited()

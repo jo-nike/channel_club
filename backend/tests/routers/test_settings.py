@@ -1,11 +1,12 @@
 """Tests for settings router."""
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.models.websocket import server_payload
 from app.services import app_settings, presence_broadcast
 from app.services.auth import create_access_token
 
@@ -187,6 +188,53 @@ class TestPresenceVisibleSetting:
         assert response.json() == {"userChannelSelection": True, "presenceVisible": True}
         assert app_settings.user_channel_selection_enabled() is True
         assert app_settings.presence_visible_enabled() is True
+
+    def test_both_fields_save_once_and_broadcast_once(
+        self,
+        client: TestClient,
+        admin_auth_header: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """One settings_update carries both values; no intermediate state goes out."""
+        broadcast = AsyncMock()
+        save = AsyncMock()
+        monkeypatch.setattr(app_settings.channel_state, "broadcast", broadcast)
+        monkeypatch.setattr(app_settings.state_store, "save", save)
+
+        client.put(
+            "/api/settings",
+            json={"userChannelSelection": True, "presenceVisible": True},
+            headers=admin_auth_header,
+        )
+
+        save.assert_awaited_once()
+        broadcast.assert_awaited_once()
+        assert broadcast.await_args is not None
+        assert server_payload(broadcast.await_args.args[0]) == {
+            "type": "settings_update",
+            "settings": {"userChannelSelection": True, "presenceVisible": True},
+        }
+
+    def test_unknown_key_is_rejected_and_changes_nothing(
+        self,
+        client: TestClient,
+        admin_auth_header: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A misspelled key is a 422, not a silent 200 that applies nothing."""
+        broadcast = AsyncMock()
+        monkeypatch.setattr(app_settings.channel_state, "broadcast", broadcast)
+
+        response = client.put(
+            "/api/settings",
+            json={"userChannelSelection": True, "presenceVisble": True},
+            headers=admin_auth_header,
+        )
+
+        assert response.status_code == 422
+        assert app_settings.user_channel_selection_enabled() is False
+        assert app_settings.presence_visible_enabled() is False
+        broadcast.assert_not_awaited()
 
     def test_changing_visibility_rebroadcasts_presence(
         self,
