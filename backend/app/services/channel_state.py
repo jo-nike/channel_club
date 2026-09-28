@@ -339,7 +339,8 @@ async def broadcast(message: dict) -> None:
                 BROADCAST_SEND_TIMEOUT_SECONDS,
             )
             return ws, False
-        except Exception:
+        except Exception as e:
+            log.info("Broadcast send failed ({}), dropping connection", type(e).__name__)
             return ws, False
 
     results = await asyncio.gather(
@@ -347,6 +348,7 @@ async def broadcast(message: dict) -> None:
         return_exceptions=True,
     )
 
+    dropped = 0
     for result in results:
         if not isinstance(result, tuple) or result[1]:
             continue
@@ -357,9 +359,12 @@ async def broadcast(message: dict) -> None:
         # Out of later broadcasts at once; the close runs in the background,
         # so a peer that won't close can't hold up whoever awaits broadcast()
         disconnect(ws)
+        dropped += 1
         task = asyncio.create_task(_close_failed(ws, owner))
         _failed_closes.add(task)
         task.add_done_callback(_failed_closes.discard)
+    if dropped:
+        log.info("Broadcast dropped {} of {} connections", dropped, len(results))
 
 
 async def _close_failed(ws: WebSocket, owner: asyncio.Task | None) -> None:
@@ -374,8 +379,8 @@ async def _close_failed(ws: WebSocket, owner: asyncio.Task | None) -> None:
             ws.close(code=1011, reason="Broadcast failed; reconnect"),
             timeout=BROADCAST_SEND_TIMEOUT_SECONDS,
         )
-    except Exception:
-        log.debug("Failed connection transport could not close")
+    except Exception as e:
+        log.info("Failed connection transport could not close ({})", type(e).__name__)
     finally:
         # Closing an ASGI socket need not unblock receive immediately.
         # Cancel its owning endpoint so presence/nickname cleanup always runs.

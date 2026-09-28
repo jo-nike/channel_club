@@ -1,9 +1,11 @@
 """Tests for channel state service."""
 
 import asyncio
+from io import StringIO
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from loguru import logger
 
 from app.config import settings
 from app.models.channel import Channel
@@ -645,3 +647,26 @@ class TestFailedPeerClose:
         assert not channel_state._failed_closes
         with pytest.raises(asyncio.CancelledError):
             await owner
+
+    async def test_failed_send_and_close_are_logged_with_the_drop_count(self) -> None:
+        """A non-timeout send error and a failed close both leave an INFO line (B-08)."""
+        broken = MagicMock()
+        broken.send_text = AsyncMock(side_effect=RuntimeError("peer gone"))
+        broken.close = AsyncMock(side_effect=RuntimeError("already closed"))
+        healthy = MagicMock()
+        healthy.send_text = AsyncMock()
+        await channel_state.connect(broken)
+        await channel_state.connect(healthy)
+        output = StringIO()
+        handler_id = logger.add(output, format="{level} | {message}", level="INFO")
+        try:
+            await channel_state.broadcast({"type": "hello"})
+            await asyncio.gather(*channel_state._failed_closes)
+        finally:
+            logger.remove(handler_id)
+
+        logged = output.getvalue()
+        assert "INFO | Broadcast send failed (RuntimeError), dropping connection" in logged
+        assert "INFO | Broadcast dropped 1 of 2 connections" in logged
+        assert "INFO | Failed connection transport could not close (RuntimeError)" in logged
+        assert channel_state.get_connection_count() == 1
