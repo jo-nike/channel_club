@@ -10,7 +10,6 @@ from io import StringIO
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from loguru import logger
 from starlette.websockets import WebSocketDisconnect
@@ -23,7 +22,6 @@ from app.models.ersatztv import EPGChannel
 from app.routers import websocket as websocket_router
 from app.services import app_settings, channel_state, chat, presence, presence_broadcast
 from app.services.auth import create_access_token
-from app.services.media_source import MediaChannel
 from tests.ws_helpers import ws_connect
 
 # Captured at import, before conftest swaps it for a no-op in every test
@@ -1661,25 +1659,16 @@ class TestShareMessage:
 class TestSuggestMessage:
     """'Suggest' posts a card for a channel the server resolves from its catalogue."""
 
-    TSN5 = Channel(id="42", name="TSN 5", streamUrl="http://streams/42", guideId="tsn5")
-
     @pytest.fixture(autouse=True)
     def chat_on(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(settings, "chat_enabled", True)
 
-    @pytest.fixture(autouse=True)
-    def catalogue(self, monkeypatch: pytest.MonkeyPatch) -> list[str]:
-        """Only TSN 5 (id 42) is in the catalogue; records each id looked up."""
-        looked_up: list[str] = []
-
-        async def resolve(channel_id: str) -> MediaChannel:
-            looked_up.append(channel_id)
-            if channel_id != self.TSN5.id:
-                raise HTTPException(404, "Channel not found")
-            return MediaChannel(self.TSN5, "mpegts")
-
-        monkeypatch.setattr(websocket_router, "resolve_media_channel", resolve)
-        return looked_up
+    @pytest.fixture
+    def catalogue(self) -> AsyncMock:
+        """The cached grouped catalogue (cached_catalogue): only TSN 5 (id 42) is live."""
+        grouped = websocket_router.get_grouped_channels
+        assert isinstance(grouped, AsyncMock)
+        return grouped
 
     @staticmethod
     def open_chat(ws) -> None:
@@ -1692,7 +1681,7 @@ class TestSuggestMessage:
         assert ws.receive_json()["type"] == "pong"
 
     def test_suggestion_is_broadcast_with_the_catalogues_channel(
-        self, client: TestClient, valid_token: str, admin_token: str, catalogue: list[str]
+        self, client: TestClient, valid_token: str, admin_token: str, catalogue: AsyncMock
     ):
         with ws_connect(client, valid_token) as ws1:
             self.open_chat(ws1)
@@ -1705,7 +1694,7 @@ class TestSuggestMessage:
                 ack = ws1.receive_json()
                 own = ws1.receive_json()
 
-        assert catalogue == ["42"]
+        assert catalogue.await_count == 1
         assert card["type"] == "chat_message"
         assert card["kind"] == "suggestion"
         assert card["username"] == "testuser"
@@ -1754,12 +1743,48 @@ class TestSuggestMessage:
         assert ack == {"type": "chat_ack", "clientMessageId": "g-1", "accepted": False}
         assert chat.get_history() == []
 
+    def test_unknown_channel_makes_no_upstream_request(
+        self,
+        client: TestClient,
+        valid_token: str,
+        monkeypatch: pytest.MonkeyPatch,
+        catalogue: AsyncMock,
+    ):
+        """Only the cached grouped catalogue is consulted: no lineup or ErsatzTV lookup."""
+        from app.services import dispatcharr, media_source
+
+        uncached: list[str] = []
+
+        def record(name: str):
+            async def called(*args, **kwargs):
+                uncached.append(name)
+                raise AssertionError(f"{name} called")
+
+            return called
+
+        monkeypatch.setattr(dispatcharr, "get_lineup", record("get_lineup"))
+        # The switch path's own lookups, in case a suggestion goes through it again
+        monkeypatch.setattr(media_source, "get_grouped_channels", catalogue)
+        monkeypatch.setattr(media_source, "run_feed_lookup", record("ersatztv lookup"))
+        monkeypatch.setattr(websocket_router, "run_feed_lookup", record("run_feed_lookup"))
+        with ws_connect(client, valid_token) as ws:
+            self.open_chat(ws)
+
+            ws.send_json({"type": "suggest", "channelId": "etv-2", "clientMessageId": "g-1"})
+            ack = ws.receive_json()
+            ws.send_json({"type": "suggest", "channelId": "unknown", "clientMessageId": "g-2"})
+            second = ws.receive_json()
+
+        assert ack["accepted"] is False
+        assert second["accepted"] is False
+        assert uncached == []
+
     def test_refused_while_chat_is_off(
         self,
         client: TestClient,
         valid_token: str,
         monkeypatch: pytest.MonkeyPatch,
-        catalogue: list[str],
+        catalogue: AsyncMock,
     ):
         monkeypatch.setattr(settings, "chat_enabled", False)
         with ws_connect(client, valid_token) as ws:
@@ -1769,7 +1794,7 @@ class TestSuggestMessage:
             ack = ws.receive_json()
 
         assert ack["accepted"] is False
-        assert catalogue == []
+        assert catalogue.await_count == 0
         assert chat.get_history() == []
 
     def test_retried_suggestion_is_acknowledged_without_reposting(
@@ -1778,8 +1803,8 @@ class TestSuggestMessage:
         with ws_connect(client, valid_token) as ws:
             self.open_chat(ws)
             ws.send_json({"type": "suggest", "channelId": "42", "clientMessageId": "g-1"})
-            card = ws.receive_json()
             ws.receive_json()  # chat_ack
+            card = ws.receive_json()
 
             ws.send_json({"type": "suggest", "channelId": "42", "clientMessageId": "g-1"})
             ack = ws.receive_json()
@@ -1798,7 +1823,11 @@ class TestSuggestMessage:
         ],
     )
     def test_invalid_suggestion_is_rejected(
-        self, client: TestClient, valid_token: str, message: dict[str, object], catalogue: list[str]
+        self,
+        client: TestClient,
+        valid_token: str,
+        message: dict[str, object],
+        catalogue: AsyncMock,
     ):
         with ws_connect(client, valid_token) as ws:
             self.open_chat(ws)
@@ -1806,7 +1835,7 @@ class TestSuggestMessage:
             ws.send_json(message)
 
             assert ws.receive_json() == {"type": "error", "code": "invalid_message"}
-        assert catalogue == []
+        assert catalogue.await_count == 0
 
     def test_history_keeps_the_suggested_channel_while_presence_is_off(
         self, client: TestClient, valid_token: str

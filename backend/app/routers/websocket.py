@@ -7,7 +7,7 @@ import time
 import unicodedata
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from jose import JWTError
 from loguru import logger
 from pydantic import ValidationError
@@ -26,7 +26,6 @@ from app.services.auth import verify_token
 from app.services.dispatcharr import get_grouped_channels
 from app.services.ersatztv import get_channel_by_id
 from app.services.ersatztv.refresh import run_feed_lookup
-from app.services.media_source import resolve_media_channel
 
 router = APIRouter()
 log = logger.bind(router="websocket")
@@ -106,21 +105,16 @@ def _is_another_members_name(nickname: str, username: str) -> bool:
 async def _catalogue_name(channel_id: str) -> str | None:
     """A channel's name in the server's cached catalogues, or None if it isn't there.
 
-    Looks in the grouped Dispatcharr catalogue, then the ErsatzTV channel
-    list, through their caches: an unknown id never costs a request of its own.
+    Looks in the grouped Dispatcharr catalogue (as a suggestion does), then
+    the ErsatzTV channel list, through their caches: an unknown id never
+    costs a request of its own.
 
     Args:
         channel_id: A Dispatcharr stream UUID or an ErsatzTV channel id.
     """
-    try:
-        grouped = await get_grouped_channels()
-    except Exception:
-        grouped = None
-    if grouped is not None:
-        for channels in [*(group.channels for group in grouped.groups), grouped.ungrouped]:
-            for channel in channels:
-                if channel.id == channel_id:
-                    return channel.name
+    live = await _suggested_channel(channel_id)
+    if live is not None:
+        return live.name
     try:
         ersatz = await run_feed_lookup(get_channel_by_id, channel_id)
     except Exception:
@@ -155,19 +149,25 @@ async def _channel_stamp(client_id: str) -> chat.ChannelStamp | None:
 
 
 async def _suggested_channel(channel_id: str) -> Channel | None:
-    """The channel a suggestion names, from the server's own catalogue.
+    """The channel a suggestion names, from the cached grouped catalogue.
 
-    Resolved the way PUT /channels/current resolves a switch, so a suggestion
-    that is posted can be put on. None for an id nobody can switch to (not in
-    the catalogue, malformed, or the catalogue is unavailable).
+    That is what the Live picker offers, so a suggestion that is posted can be
+    put on. Looked up in the cache only: an unknown id never costs a request
+    of its own (no lineup or ErsatzTV lookup). None for an id not in the
+    catalogue, or while the catalogue is unavailable.
 
     Args:
         channel_id: The channel id the client suggested.
     """
     try:
-        return (await resolve_media_channel(channel_id)).channel
-    except HTTPException:
+        grouped = await get_grouped_channels()
+    except Exception:
         return None
+    for channels in [*(group.channels for group in grouped.groups), grouped.ungrouped]:
+        for channel in channels:
+            if channel.id == channel_id:
+                return channel
+    return None
 
 
 async def _ack_chat(
