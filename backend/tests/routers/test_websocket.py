@@ -83,6 +83,12 @@ def cached_catalogue(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+@pytest.fixture
+def uncoalesced(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Apply every channel_update at once, for tests about what one update does."""
+    monkeypatch.setattr(websocket_router, "CHANNEL_UPDATE_INTERVAL_SECONDS", 0)
+
+
 @pytest.fixture(autouse=True)
 def reset_channel_state():
     """Reset channel state before each test."""
@@ -377,6 +383,7 @@ class TestPresenceBroadcastTriggers:
 
         assert schedule.call_count == 2
 
+    @pytest.mark.usefixtures("uncoalesced")
     def test_every_channel_update_schedules_a_broadcast(
         self, client: TestClient, valid_token: str, schedule: MagicMock
     ):
@@ -2194,6 +2201,7 @@ class TestNicknameTaken:
         {"type": "chat_message", "content": 42},
     ],
 )
+@pytest.mark.usefixtures("uncoalesced")
 def test_sec05_invalid_messages_cannot_poison_presence(client, valid_token, admin_token, message):
     with ws_connect(client, valid_token, session_id="validated") as ws:
         assert ws.receive_json()["type"] == "connection_ack"
@@ -2507,3 +2515,155 @@ async def test_a_send_that_fails_can_be_retried(monkeypatch):
 
     assert sent[0]["accepted"] is True
     assert len(chat.get_history()) == 1
+
+
+class TestMessageBudget:
+    """Chat sends and nickname changes share a per-connection budget; nothing closes the socket."""
+
+    @pytest.fixture(autouse=True)
+    def chat_on(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(settings, "chat_enabled", True)
+
+    @pytest.fixture
+    def no_refill(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Only the burst, so the count doesn't depend on how fast the test runs."""
+        monkeypatch.setattr(websocket_router, "MESSAGE_REFILL_PER_SECOND", 0.0)
+
+    @staticmethod
+    def until_pong(ws) -> list[dict]:
+        """Send a ping and collect every frame up to its pong."""
+        ws.send_json({"type": "ping"})
+        frames = []
+        while (frame := ws.receive_json())["type"] != "pong":
+            frames.append(frame)
+        return frames
+
+    @pytest.mark.usefixtures("no_refill")
+    def test_rapid_chat_is_capped_at_the_burst_and_the_rest_refused(
+        self, client: TestClient, valid_token: str
+    ):
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # connection_ack
+            ws.receive_json()  # chat_history
+            for n in range(20):
+                ws.send_json(
+                    {"type": "chat_message", "content": f"m{n}", "clientMessageId": f"c{n}"}
+                )
+            frames = self.until_pong(ws)
+
+            # Exempt, and the socket is still open
+            ws.send_json({"type": "set_presence_prefs", "hideActivity": True})
+            assert self.until_pong(ws) == []
+            hidden = only_presence().hide_activity
+
+        broadcasts = [f for f in frames if f["type"] == "chat_message"]
+        acks = [f for f in frames if f["type"] == "chat_ack"]
+        assert len(broadcasts) == websocket_router.MESSAGE_BURST
+        assert [a["accepted"] for a in acks] == [True] * 5 + [False] * 15
+        assert len(chat.get_history()) == 5
+        assert hidden is True
+
+    @pytest.mark.usefixtures("no_refill")
+    def test_nickname_over_budget_is_refused_as_rate_limited(
+        self, client: TestClient, valid_token: str
+    ):
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # connection_ack
+            ws.receive_json()  # chat_history
+            for n in range(6):
+                ws.send_json({"type": "set_nickname", "nickname": f"Nick{n}"})
+            frames = self.until_pong(ws)
+            nickname = only_presence().nickname
+
+        assert frames == [{"type": "error", "code": "rate_limited"}]
+        assert nickname == "Nick4"
+
+    def test_budget_refills_one_a_second(self, monkeypatch: pytest.MonkeyPatch):
+        now = [100.0]
+        monkeypatch.setattr(websocket_router.time, "monotonic", lambda: now[0])
+        budget = websocket_router._MessageBudget("conn")
+
+        assert all(budget.take() for _ in range(5))
+        assert budget.take() is False
+        now[0] += 1.0
+        assert budget.take() is True
+        assert budget.take() is False
+        now[0] += 60.0
+        assert sum(budget.take() for _ in range(10)) == 5
+
+    def test_one_warning_per_window_with_a_count(self, monkeypatch: pytest.MonkeyPatch):
+        now = [100.0]
+        monkeypatch.setattr(websocket_router.time, "monotonic", lambda: now[0])
+        log = MagicMock()
+        monkeypatch.setattr(websocket_router, "log", log)
+        budget = websocket_router._MessageBudget("conn")
+        for _ in range(5):
+            budget.take()
+
+        for _ in range(20):
+            budget.take()
+        assert log.warning.call_count == 1
+
+        now[0] += websocket_router.RATE_LIMIT_WARNING_SECONDS
+        budget.take()  # refilled
+        for _ in range(10):
+            budget.take()
+        assert log.warning.call_count == 2
+        # The second warning counts everything refused since the first: the
+        # 19 after it, and the refusal that starts the new window
+        assert log.warning.call_args.args[-1] == 19 + 1
+
+
+class TestChannelUpdateCoalescing:
+    """A connection's channel updates apply at most about once a second; the last one wins."""
+
+    @pytest.fixture
+    def applied(self, monkeypatch: pytest.MonkeyPatch) -> list[str | None]:
+        """The channel of every update presence actually applied."""
+        channels: list[str | None] = []
+        original = presence.update_user_channel
+
+        def record(connection_id, channel_name, *args, **kwargs):
+            channels.append(channel_name)
+            return original(connection_id, channel_name, *args, **kwargs)
+
+        monkeypatch.setattr(presence, "update_user_channel", record)
+        return channels
+
+    def test_a_flood_applies_a_handful_and_ends_on_the_last(
+        self, client: TestClient, valid_token: str, applied: list[str | None]
+    ):
+        import time
+
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # connection_ack
+            for n in range(100):
+                channel = "A" if n % 2 else "B"
+                ws.send_json({"type": "channel_update", "channel": channel, "channelId": channel})
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json()["type"] == "pong"
+            time.sleep(websocket_router.CHANNEL_UPDATE_INTERVAL_SECONDS + 0.3)
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json()["type"] == "pong"
+            final = only_presence().current_channel
+
+        assert 1 < len(applied) <= 3
+        assert applied[0] == "B"
+        assert applied[-1] == "A"
+        assert final == "A"
+
+    def test_a_pending_update_is_dropped_when_the_socket_ends(
+        self, client: TestClient, valid_token: str, applied: list[str | None]
+    ):
+        import time
+
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # connection_ack
+            ws.send_json({"type": "channel_update", "channel": "A"})
+            ws.send_json({"type": "channel_update", "channel": "B"})
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json()["type"] == "pong"
+        time.sleep(websocket_router.CHANNEL_UPDATE_INTERVAL_SECONDS + 0.3)
+
+        assert applied == ["A"]
+        assert not presence._active_users

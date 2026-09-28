@@ -39,6 +39,89 @@ MAX_NICKNAME_LENGTH = 30
 AUTH_TIMEOUT_SECONDS = 5
 # The tab id the client generates (sessionId.ts); anything else is not logged
 _TAB_ID = re.compile(r"[0-9a-f]{8}")
+# Per-connection budget for chat sends and nickname changes: a burst of 5,
+# refilling one a second, which a person typing fast never hits
+MESSAGE_BURST = 5
+MESSAGE_REFILL_PER_SECOND = 1.0
+_BUDGETED_TYPES = frozenset({"chat_message", "share", "suggest", "set_nickname"})
+# At most one over-budget warning per connection in this window, with a count
+RATE_LIMIT_WARNING_SECONDS = 60.0
+# A connection's channel updates apply at most this often; the latest one wins
+CHANNEL_UPDATE_INTERVAL_SECONDS = 1.0
+
+
+class _MessageBudget:
+    """A token bucket for one connection's chat sends and nickname changes."""
+
+    def __init__(self, client_id: str) -> None:
+        self._client_id = client_id
+        self._tokens = float(MESSAGE_BURST)
+        self._updated = time.monotonic()
+        self._dropped = 0
+        self._warned_at: float | None = None
+
+    def take(self) -> bool:
+        """Spend a token if one is left; otherwise count the drop (and warn now and then)."""
+        now = time.monotonic()
+        refill = (now - self._updated) * MESSAGE_REFILL_PER_SECOND
+        self._tokens = min(float(MESSAGE_BURST), self._tokens + refill)
+        self._updated = now
+        if self._tokens >= 1:
+            self._tokens -= 1
+            return True
+        self._dropped += 1
+        if self._warned_at is None or now - self._warned_at >= RATE_LIMIT_WARNING_SECONDS:
+            log.warning(
+                "Client {} is over its message budget: {} messages refused",
+                self._client_id,
+                self._dropped,
+            )
+            self._warned_at = now
+            self._dropped = 0
+        return False
+
+
+class _ChannelUpdates:
+    """Applies one connection's channel updates at most once per interval.
+
+    The first update applies at once; later ones inside the interval are
+    folded, and the latest is applied when it ends. So a flood costs a
+    handful of presence changes (and watch log lines), while presence still
+    ends on the last update sent.
+    """
+
+    def __init__(self, client_id: str) -> None:
+        self._client_id = client_id
+        self._pending: dict | None = None
+        self._next_at = 0.0
+        self._timer: asyncio.TimerHandle | None = None
+
+    def submit(self, update: dict) -> None:
+        """Apply a validated channel_update now, or keep it for the end of the interval."""
+        loop = asyncio.get_running_loop()
+        if self._timer is None and loop.time() >= self._next_at:
+            self._apply(update)
+            return
+        self._pending = update
+        if self._timer is None:
+            self._timer = loop.call_at(self._next_at, self._flush)
+
+    def cancel(self) -> None:
+        """Drop a pending update (the connection has ended)."""
+        if self._timer is not None:
+            self._timer.cancel()
+            self._timer = None
+        self._pending = None
+
+    def _flush(self) -> None:
+        self._timer = None
+        update, self._pending = self._pending, None
+        if update is not None:
+            self._apply(update)
+
+    def _apply(self, update: dict) -> None:
+        self._next_at = asyncio.get_running_loop().time() + CHANNEL_UPDATE_INTERVAL_SECONDS
+        _apply_channel_update(self._client_id, update)
 
 
 def _clear_nickname(client_id: str, websocket: WebSocket) -> None:
@@ -346,6 +429,8 @@ async def websocket_endpoint(
         hide_activity=hide_activity,
     )
     presence_broadcast.schedule_broadcast()
+    budget = _MessageBudget(client_id)
+    channel_updates = _ChannelUpdates(client_id)
 
     try:
         async with asyncio.timeout(max(0, payload["exp"] - time.time())) as deadline:
@@ -406,7 +491,9 @@ async def websocket_endpoint(
                             asyncio.get_running_loop().time() + payload["exp"] - time.time()
                         )
                         continue
-                    await handle_client_message(websocket, message, client_id, username, user_id)
+                    await handle_client_message(
+                        websocket, message, client_id, username, user_id, budget, channel_updates
+                    )
                 except json.JSONDecodeError:
                     log.debug("Malformed JSON from client {}", client_id)
     except TimeoutError:
@@ -421,6 +508,8 @@ async def websocket_endpoint(
         else:
             log.exception("WebSocket error for client {}", client_id)
     finally:
+        # A folded channel update must not land after the connection is gone
+        channel_updates.cancel()
         # Always clean up on disconnect
         # Pass websocket to avoid race condition on view switch
         presence.remove_user(client_id, websocket)
@@ -430,8 +519,38 @@ async def websocket_endpoint(
         presence_broadcast.schedule_broadcast()
 
 
+def _apply_channel_update(client_id: str, validated: dict) -> None:
+    """Record a connection's reported channel in presence and tell everyone.
+
+    Args:
+        client_id: The connection (session) id.
+        validated: The validated channel_update message.
+    """
+    channel = validated.get("channel")
+    programme = validated.get("programme")
+    view = validated.get("view")
+    presence.update_user_channel(
+        client_id, channel, programme, view, channel_id=validated.get("channelId")
+    )
+    # Every update, including a programme rollover on the same channel
+    presence_broadcast.schedule_broadcast()
+    log.debug(
+        "Channel update from client {}: {} - {} (view: {})",
+        client_id,
+        channel,
+        programme,
+        view or "unchanged",
+    )
+
+
 async def handle_client_message(
-    websocket: WebSocket, message: object, client_id: str, username: str, user_id: str
+    websocket: WebSocket,
+    message: object,
+    client_id: str,
+    username: str,
+    user_id: str,
+    budget: _MessageBudget | None = None,
+    channel_updates: _ChannelUpdates | None = None,
 ) -> None:
     """Handle incoming client messages.
 
@@ -441,6 +560,10 @@ async def handle_client_message(
         client_id: Unique client identifier for logging.
         username: Authenticated username of the client.
         user_id: The client's stable chat id (chat.user_id_for).
+        budget: The connection's budget for chat sends and nickname changes
+            (None: unlimited).
+        channel_updates: Coalesces the connection's channel updates (None:
+            each applies at once).
     """
     # Preserve forward compatibility for unknown types, but never store unchecked data.
     if (
@@ -468,25 +591,22 @@ async def handle_client_message(
     # Any valid message shows the connection is in use, not only a ping
     presence.update_last_activity(client_id)
 
+    if budget is not None and msg_type in _BUDGETED_TYPES and not budget.take():
+        # Refused, never closed: the client sees a failed send it can retry
+        if msg_type == "set_nickname":
+            await websocket.send_json({"type": "error", "code": "rate_limited"})
+        else:
+            await _ack_chat(websocket, validated.get("clientMessageId"), None)
+        return
+
     if msg_type == "ping":
         log.debug("Ping from client {}, sending pong", client_id)
         await websocket.send_json({"type": "pong"})
     elif msg_type == "channel_update":
-        channel = validated.get("channel")
-        programme = validated.get("programme")
-        view = validated.get("view")
-        presence.update_user_channel(
-            client_id, channel, programme, view, channel_id=validated.get("channelId")
-        )
-        # Every update, including a programme rollover on the same channel
-        presence_broadcast.schedule_broadcast()
-        log.debug(
-            "Channel update from client {}: {} - {} (view: {})",
-            client_id,
-            channel,
-            programme,
-            view or "unchanged",
-        )
+        if channel_updates is None:
+            _apply_channel_update(client_id, validated)
+        else:
+            channel_updates.submit(validated)
     elif msg_type == "set_nickname":
         # Handle nickname setting for chat display name
         nickname = _normalize_nickname(validated.get("nickname", ""))
