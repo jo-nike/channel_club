@@ -8,7 +8,8 @@ import httpx
 import pytest
 
 from app.main import app
-from app.services.ersatztv.refresh import serialized_refresh
+from app.services.ersatztv.m3u_parser import parse_m3u_playlist
+from app.services.ersatztv.refresh import FeedUnavailableError
 
 
 @pytest.mark.asyncio
@@ -37,14 +38,14 @@ async def test_public_logo_lookup_does_not_block_health():
 async def test_parallel_cold_feed_failure_is_shared():
     attempts = 0
 
-    @serialized_refresh
-    def fetch():
+    def fetch(_url):
         nonlocal attempts
         attempts += 1
         raise ValueError("controlled upstream unavailable")
 
-    results = await asyncio.gather(
-        *[asyncio.to_thread(fetch) for _ in range(20)], return_exceptions=True
-    )
-    assert all(isinstance(result, Exception) for result in results)
+    with patch("app.services.ersatztv.m3u_parser.fetch_feed", side_effect=fetch):
+        results = await asyncio.gather(
+            *[asyncio.to_thread(parse_m3u_playlist) for _ in range(20)], return_exceptions=True
+        )
+    assert all(isinstance(result, FeedUnavailableError) for result in results)
     assert attempts == 1

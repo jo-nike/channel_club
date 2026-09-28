@@ -14,6 +14,7 @@ from loguru import logger
 
 from app.config import settings
 from app.models.ersatztv import Programme
+from app.models.status import EPGHealthStatus
 from app.services.bounded_http import fetch_feed
 from app.services.ersatztv.refresh import serialized_refresh
 
@@ -83,50 +84,40 @@ def _is_cache_expired() -> bool:
     return age.total_seconds() > CACHE_TTL_SECONDS
 
 
-@serialized_refresh
+@serialized_refresh(
+    name="ErsatzTV guide (XMLTV)",
+    unavailable="Failed to load EPG from ErsatzTV",
+    cache=_cache,
+    key="programmes",
+    is_expired=_is_cache_expired,
+)
 def parse_xmltv() -> list[Programme]:
     """
     Parse ErsatzTV XMLTV and return list of programmes.
 
     Fetches XMLTV from configured URL, parses programme data,
-    and returns Programme objects. Results are cached for 5 minutes.
+    and returns Programme objects. Results are cached for 5 minutes; the
+    serialized_refresh wrapper serves the cache and stale data (see refresh.py).
 
     Returns:
         List of Programme objects parsed from XMLTV
 
     Raises:
-        Exception: If fetch fails and no cached data available
+        FeedUnavailableError: If fetch fails and no cached data available
     """
-    if _cache.get("retry_at") and datetime.now() < _cache["retry_at"]:
-        if _cache["last_successful_fetch"] is not None:
-            return _cache["programmes"]
-        raise RuntimeError("Feed temporarily unavailable")
-    if not _is_cache_expired():
-        log.debug("Cache hit for XMLTV data")
-        return _cache["programmes"]
-
     log.debug("Cache miss for XMLTV data, fetching from {}", settings.ersatztv_xmltv_url)
 
-    try:
-        response = fetch_feed(settings.ersatztv_xmltv_url)
-        response.raise_for_status()
+    response = fetch_feed(settings.ersatztv_xmltv_url)
+    response.raise_for_status()
 
-        programmes = _parse_xmltv_content(response.text)
+    programmes = _parse_xmltv_content(response.text)
 
-        _cache["programmes"] = programmes
-        _cache["timestamp"] = datetime.now()
-        _cache["last_successful_fetch"] = datetime.now()
+    _cache["programmes"] = programmes
+    _cache["timestamp"] = datetime.now()
+    _cache["last_successful_fetch"] = datetime.now()
 
-        log.info("Refreshed XMLTV cache: {} programmes parsed", len(programmes))
-        return programmes
-
-    except Exception as e:
-        _cache["retry_at"] = datetime.now() + timedelta(seconds=5)
-        log.error("Failed to fetch XMLTV: {}", e)
-        if _cache["last_successful_fetch"] is not None:
-            log.warning("Returning stale XMLTV cached data after fetch failure")
-            return _cache["programmes"]
-        raise Exception("Failed to load EPG from ErsatzTV") from e
+    log.info("Refreshed XMLTV cache: {} programmes parsed", len(programmes))
+    return programmes
 
 
 def _parse_xmltv_content(content: str) -> list[Programme]:
@@ -201,7 +192,28 @@ def _parse_xmltv_content(content: str) -> list[Programme]:
 
 def clear_cache() -> None:
     """Clear XMLTV cache, forcing re-fetch on next request."""
-    parse_xmltv.__dict__["reset_failure"]()
-    _cache["retry_at"] = None
+    parse_xmltv.reset_failure()
     _cache["timestamp"] = None
     log.info("XMLTV cache cleared")
+
+
+def get_health() -> EPGHealthStatus:
+    """Report the ErsatzTV guide cache and the outcome of recent refreshes.
+
+    Reads local state only; it never contacts ErsatzTV. ``online`` means
+    programmes are cached, ``stale`` that they are past their TTL.
+    """
+    programmes: list[Programme] = _cache["programmes"]
+    has_data = _cache["last_successful_fetch"] is not None
+    return EPGHealthStatus(
+        name=parse_xmltv.name,
+        online=has_data,
+        last_checked=datetime.now(UTC),
+        error=parse_xmltv.last_error,
+        stale=has_data and _is_cache_expired(),
+        channel_count=len({programme.channel_id for programme in programmes}),
+        programme_count=len(programmes),
+        last_attempt_at=parse_xmltv.last_attempt_at,
+        last_success_at=parse_xmltv.last_success_at,
+        next_retry_at=parse_xmltv.next_retry_at,
+    )

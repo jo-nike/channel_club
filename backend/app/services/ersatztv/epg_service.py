@@ -196,3 +196,9 @@ def refresh_all() -> None:
     clear_m3u_cache()
     clear_xmltv_cache()
     log.info("ErsatzTV EPG caches cleared, data will refresh on next request")
+
+
+def reset_state() -> None:
+    """Empty both feed caches and forget their failures (tests)."""
+    parse_m3u_playlist.reset()
+    parse_xmltv.reset()
