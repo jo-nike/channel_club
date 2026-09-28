@@ -1548,6 +1548,16 @@ describe('useWebSocket', () => {
         type: 'channel_update', channel: 'TSN', channelId: 'uuid-tsn', programme: 'Hockey', view: 'live', onLive: true,
       })
     })
+
+    test('leaves onLive unknown when the caller does not say, so the server can work it out', () => {
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+      act(() => ws.simulateOpen())
+
+      act(() => result.current.sendChannelUpdate('TSN', 'Hockey', 'live', 'uuid-tsn'))
+
+      expect(JSON.parse(ws.send.mock.calls.at(-1)![0]).onLive).toBeNull()
+    })
   })
 
   describe('sendChatMessage', () => {

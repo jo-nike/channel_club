@@ -529,8 +529,9 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
             channelId: channelId ?? null,
             programme: programmeTitle ?? null,
             view: viewType ?? null,
-            // Following the shared Live slot, not a personal pick of a channel
-            onLive: onLive ?? false,
+            // Following the shared Live slot, not a personal pick of a channel; left
+            // out, the server works it out from the Live channel's id
+            onLive: onLive ?? null,
           })
         )
         logger.debug('WebSocket', `Sent channel update: ${channelName || 'null'} - ${programmeTitle || 'null'} (view: ${viewType || 'unchanged'})`)
