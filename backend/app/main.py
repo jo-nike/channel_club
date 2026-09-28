@@ -22,7 +22,7 @@ from app.routers.highlight import router as highlight_router
 from app.routers.nhl import router as nhl_router
 from app.routers.settings import router as settings_router
 from app.routers.websocket import router as websocket_router
-from app.services import presence, presence_broadcast
+from app.services import plex, presence, presence_broadcast
 from app.services.cast import cast_service
 from app.services.dispatcharr import (
     DispatchrrUnavailableError,
@@ -131,6 +131,9 @@ async def lifespan(app: FastAPI):
     # Sweep presence for tabs that vanished without closing their socket, so
     # stale viewers disappear even when no admin is polling Active Users.
     presence.start_cleanup_task()
+    # Look up the Plex server owner id now: require_admin needs it to tell the
+    # owner from a demoted admin, and the cache is empty after every deploy.
+    plex.start_server_owner_lookup()
 
     # Warm the channel groups and guide caches in the background so the first
     # admin modal open or channel list doesn't block on a cold Dispatcharr fetch.
