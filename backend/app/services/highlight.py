@@ -38,6 +38,10 @@ TAIL_WAIT_SLACK_SECONDS = 2
 TAIL_WAIT_CAP_SECONDS = 12
 TAIL_POLL_SECONDS = 0.25
 
+# FFmpeg gives up on a source that sends nothing for this long (three default segments), so a
+# stalled upstream ends the process instead of leaving it "running" with no new segments.
+RECORDER_RW_TIMEOUT_MICROSECONDS = 30_000_000
+
 
 def remove_recording_directory(directory: Path) -> None:
     """Delete only strict descendants of the configured recording root."""
@@ -104,6 +108,8 @@ class ChannelRecorder:
                 "1",
                 "-reconnect_delay_max",
                 "5",
+                "-rw_timeout",
+                str(RECORDER_RW_TIMEOUT_MICROSECONDS),
                 "-protocol_whitelist",
                 "http,https,tcp,tls,crypto",
                 "-i",

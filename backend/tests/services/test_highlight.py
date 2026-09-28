@@ -4,7 +4,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.services.highlight import ChannelRecorder, HighlightService, highlight_service
+from app.config import settings
+from app.services.highlight import (
+    RECORDER_RW_TIMEOUT_MICROSECONDS,
+    ChannelRecorder,
+    HighlightService,
+    highlight_service,
+)
 
 
 class TestChannelRecorder:
@@ -52,6 +58,20 @@ class TestChannelRecorder:
         with patch("subprocess.Popen", side_effect=FileNotFoundError("ffmpeg not found")):
             result = await recorder.start()
             assert not result
+
+    @pytest.mark.asyncio
+    async def test_start_bounds_reads_from_a_stalled_source(self, tmp_path, monkeypatch) -> None:
+        """FFmpeg must exit on a silent upstream instead of hanging as 'running'."""
+        monkeypatch.setattr(settings, "highlight_temp_dir", str(tmp_path))
+        recorder = ChannelRecorder("channel-1", "http://stream.url")
+
+        with patch("subprocess.Popen", side_effect=FileNotFoundError) as spawn:
+            await recorder.start()
+
+        cmd = spawn.call_args.args[0]
+        timeout = cmd.index("-rw_timeout")
+        assert cmd[timeout + 1] == str(RECORDER_RW_TIMEOUT_MICROSECONDS)
+        assert timeout < cmd.index("-i")
 
     @pytest.mark.asyncio
     async def test_stop_cleans_up_resources(self) -> None:
