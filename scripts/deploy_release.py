@@ -62,6 +62,32 @@ def verify_artifact(directory: Path, image_reference: str) -> str:
     return actual_id
 
 
+def roll_back(
+    directory: Path, installed: dict | None, health_url: str, started: bool
+) -> None:
+    """Reinstall the last verified release; the caller holds the deploy lock."""
+    verified = directory / "verified-compose.yaml"
+    if installed is None or not verified.exists():
+        print("Deployment failed; no verified release to roll back to")
+        return
+    atomic_write(directory / "docker-compose.yaml", verified.read_text())
+    if not started:
+        # The pull failed, so the verified container is still the one running.
+        print("Deployment failed before install; restored the verified Compose file")
+        return
+    label = installed.get("build_id") or installed["version"]
+    try:
+        subprocess.run(["docker", "compose", "up", "-d"], cwd=directory, check=True)
+        if installed.get("build_id") is None:
+            verify_health(health_url, installed["version"])
+        else:
+            verify_health(health_url, installed["version"], installed["build_id"])
+    except Exception as error:
+        print(f"Rollback to {label} failed: {error}")
+        return
+    print(f"Rolled back to {label}")
+
+
 def deploy(
     directory: Path,
     staging: Path,
@@ -92,23 +118,42 @@ def deploy(
         # an older runner to overwrite a newer accepted source revision.
         atomic_write(accepted, source + "\n")
         manifest = directory / "docker-compose.yaml"
-        if manifest.exists():
-            atomic_write(directory / "previous-compose.yaml", manifest.read_text())
         record = directory / "deployment.json"
+        verified = directory / "verified-compose.yaml"
+        installed = json.loads(record.read_text()) if record.exists() else None
+        # Hosts from before verified-compose.yaml: the running manifest counts as
+        # verified only while it still names the recorded image.
+        if not verified.exists() and installed is not None and manifest.exists():
+            if installed.get("image_reference") and (
+                installed["image_reference"] in manifest.read_text()
+            ):
+                atomic_write(verified, manifest.read_text())
+        if not verified.exists():
+            print("No verified Compose file; rollback is unavailable for this attempt")
+        atomic_write(manifest, (staging / "docker-compose.yaml").read_text())
+        started = False
+        try:
+            subprocess.run(
+                ["docker", "compose", "pull", "iptv-viewer"], cwd=directory, check=True
+            )
+            started = True
+            subprocess.run(["docker", "compose", "up", "-d"], cwd=directory, check=True)
+            # Old records use version as their build identifier. New releases must
+            # match both semantic version and exact build, even on same-version reruns.
+            if build_id is None:
+                verify_health(health_url, version)
+            else:
+                verify_health(health_url, version, build_id)
+            image_id = verify_artifact(directory, image_reference)
+        except Exception:
+            # The original error is what CI reports, whatever the rollback does.
+            roll_back(directory, installed, health_url, started)
+            raise
+        # Rotate only on success, so previous-* always name a verified release.
+        if verified.exists():
+            atomic_write(directory / "previous-compose.yaml", verified.read_text())
         if record.exists():
             atomic_write(directory / "previous-deployment.json", record.read_text())
-        atomic_write(manifest, (staging / "docker-compose.yaml").read_text())
-        subprocess.run(
-            ["docker", "compose", "pull", "iptv-viewer"], cwd=directory, check=True
-        )
-        subprocess.run(["docker", "compose", "up", "-d"], cwd=directory, check=True)
-        # Old records use version as their build identifier. New releases must
-        # match both semantic version and exact build, even on same-version reruns.
-        if build_id is None:
-            verify_health(health_url, version)
-        else:
-            verify_health(health_url, version, build_id)
-        image_id = verify_artifact(directory, image_reference)
         atomic_write(
             record,
             json.dumps(
@@ -122,6 +167,7 @@ def deploy(
             )
             + "\n",
         )
+        atomic_write(verified, manifest.read_text())
         print(f"Verified release {version} ({source})")
 
 
