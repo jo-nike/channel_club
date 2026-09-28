@@ -14,6 +14,18 @@ services:
       - "8334:8080"
     env_file:
       - .env
+    # Hardened like stack/docker-compose.yaml, so local runs behave like production.
+    volumes:
+      - channel-club-state:/data
+      - channel-club-scratch:/tmp/highlights
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /tmp/cast_hls:size=512m,uid=10001,gid=10001,mode=0700
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
     restart: unless-stopped
     # uvicorn's graceful timeout plus the teardown deadline (8 s each) fit in this.
     stop_grace_period: 20s
@@ -24,3 +36,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+
+volumes:
+  channel-club-state:
+  channel-club-scratch:
