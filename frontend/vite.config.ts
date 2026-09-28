@@ -47,6 +47,10 @@ export default defineConfig({
         // Precache app shell assets
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         importScripts: ['/sw-migration.js'],
+        // A worker that activates takes control of pages it doesn't control yet,
+        // so a first visit is controlled at once. Activation itself still waits
+        // for the prompt, so this never swaps the worker under a playing tab.
+        clientsClaim: true,
 
         // Runtime caching strategies
         runtimeCaching: [
