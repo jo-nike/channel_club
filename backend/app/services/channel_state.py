@@ -7,6 +7,8 @@ The state resets on server restart (acceptable for MVP).
 
 import asyncio
 import json
+from contextlib import suppress
+from typing import TYPE_CHECKING
 
 from fastapi import WebSocket
 from fastapi.websockets import WebSocketState
@@ -15,6 +17,9 @@ from loguru import logger
 from app.config import settings
 from app.models.channel import Channel
 from app.services import chat
+
+if TYPE_CHECKING:
+    from app.services.highlight import HighlightService
 
 # Module-level logger with service context
 log = logger.bind(service="channel")
@@ -27,6 +32,13 @@ BROADCAST_SEND_TIMEOUT_SECONDS = 5.0
 _current_channel: Channel | None = None
 _active_connections: set[WebSocket] = set()
 _connection_owners: dict[WebSocket, asyncio.Task] = {}
+
+# Live changes are serialised; recorder work runs in one background task that
+# always targets the latest Live channel (reset with reset_live_change_state)
+_change_lock = asyncio.Lock()
+_reconcile_task: asyncio.Task | None = None
+_reconcile_requested = False
+_reconcile_owner = "system"
 
 
 def get_current_channel() -> Channel | None:
@@ -42,6 +54,10 @@ def get_current_channel() -> Channel | None:
 async def set_current_channel(channel: Channel, user: str | None = None) -> Channel:
     """Set the current channel and broadcast to all connected clients.
 
+    Changes are serialised so the last broadcast always matches the stored
+    channel. Recorder work runs afterwards in the background reconcile task,
+    so viewers see the change without waiting on FFmpeg.
+
     Args:
         channel: The channel to set as current.
         user: Optional username of the user making the change.
@@ -50,39 +66,76 @@ async def set_current_channel(channel: Channel, user: str | None = None) -> Chan
         The set channel.
     """
     global _current_channel
-    old_channel = _current_channel
-    _current_channel = channel
+    async with _change_lock:
+        _current_channel = channel
 
-    log.bind(event="channel.change", user=user, channel=channel.name, channel_id=channel.id).info(
-        "Channel changed to '{}' by user '{}'", channel.name, user or "system"
-    )
+        log.bind(
+            event="channel.change", user=user, channel=channel.name, channel_id=channel.id
+        ).info("Channel changed to '{}' by user '{}'", channel.name, user or "system")
 
-    # Handle highlight recording on channel switch
-    if settings.highlight_enabled:
-        # Import here to avoid circular dependency
-        from app.services.highlight import highlight_service
+        # Broadcast to all connected clients
+        await broadcast_channel_update(channel, changed_by=user)
+        if user:
+            await _broadcast_system_line(f"{user} put on {channel.name}")
 
-        # A new live pick retries at once rather than waiting out an earlier failure's backoff.
-        highlight_service.clear_start_backoff()
+        if settings.highlight_enabled:
+            # Import here to avoid circular dependency
+            from app.services.highlight import highlight_service
+
+            # A new live pick retries at once rather than waiting out an earlier failure's backoff.
+            highlight_service.clear_start_backoff()
+            _schedule_reconcile(highlight_service, user or "system")
+
+    return channel
+
+
+def _schedule_reconcile(service: "HighlightService", owner: str) -> None:
+    """Ask the reconcile task to start recording the current Live channel.
+
+    A task that is already running picks the request up when its current start
+    finishes, so a quick A->B->C only ever starts C. The previous channel's
+    recorder is left alone: viewers on it keep their buffer, and the idle sweep
+    retires it once nobody polls it.
+    """
+    global _reconcile_task, _reconcile_requested, _reconcile_owner
+    _reconcile_requested = True
+    _reconcile_owner = owner
+    if _reconcile_task is None or _reconcile_task.done():
+        _reconcile_task = asyncio.create_task(_reconcile_recording(service))
+
+
+async def _reconcile_recording(service: "HighlightService") -> None:
+    """Start the recorder for whatever channel is Live when this runs."""
+    global _reconcile_requested
+    while _reconcile_requested:
+        _reconcile_requested = False
+        channel = _current_channel
+        if channel is None or not channel.stream_url:
+            continue
         try:
-            # Stop recording for old channel if switching to different channel
-            if old_channel and old_channel.id != channel.id:
-                await highlight_service.stop_recording(old_channel.id)
-
-            # Optional recording must not prevent the selected channel broadcast.
-            if channel.stream_url:
-                await highlight_service.start_recording(
-                    channel.id, channel.stream_url, owner=user or "system"
-                )
+            await service.start_recording(channel.id, channel.stream_url, owner=_reconcile_owner)
         except Exception as exc:
+            # Optional recording must never fail a Live change.
             log.warning("Highlight setup failed for {}: {}", channel.id, exc)
 
-    # Broadcast to all connected clients
-    await broadcast_channel_update(channel, changed_by=user)
-    if user:
-        await _broadcast_system_line(f"{user} put on {channel.name}")
 
-    return _current_channel
+async def stop_reconcile_task() -> None:
+    """Cancel the reconcile task at shutdown and wait for it to finish."""
+    task = _reconcile_task
+    if task is None or task.done():
+        return
+    task.cancel()
+    with suppress(asyncio.CancelledError):
+        await task
+
+
+def reset_live_change_state() -> None:
+    """Forget the change lock and reconcile task (each test runs on a fresh loop)."""
+    global _change_lock, _reconcile_task, _reconcile_requested, _reconcile_owner
+    _change_lock = asyncio.Lock()
+    _reconcile_task = None
+    _reconcile_requested = False
+    _reconcile_owner = "system"
 
 
 def clear_current_channel() -> None:
@@ -95,29 +148,30 @@ def clear_current_channel() -> None:
 async def clear_current_channel_async(user: str | None = None) -> None:
     """Clear the current channel and broadcast to all clients.
 
+    The recorder keeps running for viewers still on the channel; the idle
+    sweep retires it once nobody polls it.
+
     Args:
         user: Optional username of the user making the change.
     """
     global _current_channel
+    async with _change_lock:
+        if settings.highlight_enabled and _current_channel:
+            from app.services.highlight import highlight_service
 
-    # Stop recording for current channel if active
-    if settings.highlight_enabled and _current_channel:
-        from app.services.highlight import highlight_service
+            highlight_service.clear_start_backoff()
 
-        highlight_service.clear_start_backoff()
-        await highlight_service.stop_recording(_current_channel.id)
+        _current_channel = None
 
-    _current_channel = None
+        if user:
+            log.info("Current channel cleared by user '{}'", user)
+        else:
+            log.info("Current channel cleared")
 
-    if user:
-        log.info("Current channel cleared by user '{}'", user)
-    else:
-        log.info("Current channel cleared")
-
-    # Broadcast to all connected clients, naming who stopped live TV
-    await broadcast({"type": "channel_update", "channel": None, "changedBy": user})
-    if user:
-        await _broadcast_system_line(f"{user} stopped live TV")
+        # Broadcast to all connected clients, naming who stopped live TV
+        await broadcast({"type": "channel_update", "channel": None, "changedBy": user})
+        if user:
+            await _broadcast_system_line(f"{user} stopped live TV")
 
 
 async def connect(websocket: WebSocket, owner: asyncio.Task | None = None) -> None:
