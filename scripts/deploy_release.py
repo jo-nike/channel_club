@@ -56,15 +56,11 @@ def verify_artifact(directory: Path, image_reference: str) -> str:
     actual_id = output("inspect", "--format", "{{.Image}}", container)
     actual_reference = output("inspect", "--format", "{{.Config.Image}}", container)
     if actual_id != expected_id or actual_reference != image_reference:
-        raise RuntimeError(
-            "Running container does not match the requested immutable image"
-        )
+        raise RuntimeError("Running container does not match the requested immutable image")
     return actual_id
 
 
-def roll_back(
-    directory: Path, installed: dict | None, health_url: str, started: bool
-) -> None:
+def roll_back(directory: Path, installed: dict | None, health_url: str, started: bool) -> None:
     """Reinstall the last verified release; the caller holds the deploy lock."""
     verified = directory / "verified-compose.yaml"
     if installed is None or not verified.exists():
@@ -111,9 +107,7 @@ def deploy(
             raise RuntimeError("Host-managed .env is missing")
         accepted = directory / ".accepted-source"
         if accepted.exists() and accepted.read_text().strip() not in history:
-            raise RuntimeError(
-                "Stale or divergent release refused; explicit rollback required"
-            )
+            raise RuntimeError("Stale or divergent release refused; explicit rollback required")
         # Advance before installation: even a failed health check cannot permit
         # an older runner to overwrite a newer accepted source revision.
         atomic_write(accepted, source + "\n")
@@ -123,19 +117,20 @@ def deploy(
         installed = json.loads(record.read_text()) if record.exists() else None
         # Hosts from before verified-compose.yaml: the running manifest counts as
         # verified only while it still names the recorded image.
-        if not verified.exists() and installed is not None and manifest.exists():
-            if installed.get("image_reference") and (
-                installed["image_reference"] in manifest.read_text()
-            ):
-                atomic_write(verified, manifest.read_text())
+        if (
+            not verified.exists()
+            and installed is not None
+            and manifest.exists()
+            and installed.get("image_reference")
+            and installed["image_reference"] in manifest.read_text()
+        ):
+            atomic_write(verified, manifest.read_text())
         if not verified.exists():
             print("No verified Compose file; rollback is unavailable for this attempt")
         atomic_write(manifest, (staging / "docker-compose.yaml").read_text())
         started = False
         try:
-            subprocess.run(
-                ["docker", "compose", "pull", "iptv-viewer"], cwd=directory, check=True
-            )
+            subprocess.run(["docker", "compose", "pull", "iptv-viewer"], cwd=directory, check=True)
             started = True
             subprocess.run(["docker", "compose", "up", "-d"], cwd=directory, check=True)
             # Old records use version as their build identifier. New releases must

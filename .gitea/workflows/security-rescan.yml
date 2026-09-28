@@ -1,0 +1,161 @@
+# Weekly CVE rescan of what is actually running. build.yml scans only at build
+# time, so an advisory published after the last master push would never be
+# raised against the deployed image. This job reads the running build from the
+# health endpoint (no deploy key), scans that build's image and its lockfiles,
+# and pushes a short message to ntfy when anything fails.
+# Gitea runs scheduled workflows from the default branch only. Nothing here
+# runs on push.
+# Secrets reach scripts only through env:, as in build.yml. RESCAN_NTFY_URL is
+# the full topic URL and RESCAN_NTFY_TOKEN its Bearer token; both are
+# repository secrets. The registry login uses the organization secrets.
+
+name: Security rescan
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+env:
+  # Same values as build.yml.
+  REGISTRY: gitea.example.com
+  IMAGE: gitea.example.com/jons-org/channel-club
+  HEALTH_URL: http://192.168.50.108:8334/api/health
+
+jobs:
+  rescan:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/catthehacker/ubuntu:act-latest@sha256:62d572b92f9f32d3427b6d220ad1f9dca9c7b6ffad37d295425037dbff78abaf
+    env:
+      UV_VERSION: "0.10.11"
+      UV_SHA256: 5a360b0de092ddf4131f5313d0411b48c4e95e8107e40c3f8f2e9fcb636b3583
+      # Copied from build.yml's security and release jobs: the copies move together.
+      TRIVY_VERSION: "0.72.0"
+      TRIVY_SHA256: bbb64b9695866ce4a7a8f5c9592002c5961cab378577fa3f8a040df362b9b2ea
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0 # the running revision may be any commit on master
+
+      - name: Install uv + Trivy
+        run: |
+          curl -fsSLo /tmp/uv.tar.gz "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${UV_SHA256}  /tmp/uv.tar.gz" | sha256sum -c -
+          mkdir -p "$HOME/.local/bin"
+          tar -xzf /tmp/uv.tar.gz -C "$HOME/.local/bin" --strip-components=1 \
+            uv-x86_64-unknown-linux-gnu/uv uv-x86_64-unknown-linux-gnu/uvx
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          curl -fsSLo /tmp/trivy.tar.gz "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          echo "${TRIVY_SHA256}  /tmp/trivy.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/trivy.tar.gz -C /usr/local/bin trivy
+
+      - name: Resolve the running build
+        id: running
+        run: |
+          if ! HEALTH=$(curl -fsS --max-time 20 "$HEALTH_URL"); then
+            echo "::error::Could not read $HEALTH_URL, so the running build is unknown."
+            exit 1
+          fi
+          BUILD_ID=$(printf '%s' "$HEALTH" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(s).buildId??""))}catch{}})')
+          REVISION=$(printf '%s' "$HEALTH" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(s).revision??""))}catch{}})')
+          if [ -z "$BUILD_ID" ] || [ "$BUILD_ID" = dev ]; then
+            echo "::error::$HEALTH_URL reports no build id ('${BUILD_ID}'), so there is no image tag to scan."
+            exit 1
+          fi
+          # The build id becomes an image tag; refuse anything that is not one.
+          if ! printf '%s' "$BUILD_ID" | grep -Eq '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$'; then
+            echo "::error::$HEALTH_URL reports a build id that is not a valid image tag."
+            exit 1
+          fi
+          echo "Running build $BUILD_ID at revision $REVISION"
+          echo "build_id=$BUILD_ID" >> "$GITHUB_OUTPUT"
+          echo "revision=$REVISION" >> "$GITHUB_OUTPUT"
+
+      - name: Login to Gitea registry
+        id: login
+        env:
+          REGISTRY_USER: ${{ secrets.REGISTRY_USER }}
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+        run: printf '%s\n' "$REGISTRY_TOKEN" | docker login "$REGISTRY" -u "$REGISTRY_USER" --password-stdin
+
+      # The OS image keeps --ignore-unfixed, as in build.yml: Debian 'will not
+      # fix' CVEs would otherwise report every week.
+      - name: Scan the running image (Trivy)
+        id: image
+        env:
+          BUILD_ID: ${{ steps.running.outputs.build_id }}
+        run: |
+          trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed \
+            --exit-code 1 --no-progress "$IMAGE:$BUILD_ID"
+
+      # Runs even when the image scan failed, so one report covers both.
+      - name: Check out the running revision
+        id: source
+        if: always() && steps.running.outcome == 'success'
+        env:
+          REVISION: ${{ steps.running.outputs.revision }}
+        run: |
+          # The accepted risks are the default branch's current list, whichever
+          # revision is scanned (an older one may not have the file at all).
+          cp .trivyignore.yaml /tmp/rescan-trivyignore.yaml
+          if printf '%s' "$REVISION" | grep -Eq '^[0-9a-f]{40}$' \
+            && { git cat-file -e "$REVISION^{commit}" 2>/dev/null \
+                 || git fetch --quiet origin "$REVISION"; } \
+            && git checkout --quiet --detach "$REVISION"; then
+            echo "Scanning lockfiles at $REVISION"
+          else
+            echo "::warning::Could not check out the running revision '$REVISION'; scanning the default branch's lockfiles instead."
+          fi
+
+      - name: Export dependency manifests
+        id: manifests
+        if: always() && steps.source.outcome == 'success'
+        run: |
+          mkdir -p .trivy-scan
+          (cd backend && uv export --frozen --no-dev --format requirements-txt -o ../.trivy-scan/requirements.txt)
+          cp frontend/package-lock.json .trivy-scan/package-lock.json
+
+      # Without --ignore-unfixed: an unfixed language-package advisory is
+      # either accepted in .trivyignore.yaml with a reason, or reported.
+      - name: Scan the running lockfiles (Trivy fs)
+        id: lock
+        if: always() && steps.manifests.outcome == 'success'
+        run: |
+          trivy fs --scanners vuln --severity HIGH,CRITICAL \
+            --ignorefile /tmp/rescan-trivyignore.yaml --exit-code 1 --no-progress .trivy-scan
+
+      - name: Notify ntfy
+        if: failure()
+        env:
+          NTFY_URL: ${{ secrets.RESCAN_NTFY_URL }}
+          NTFY_TOKEN: ${{ secrets.RESCAN_NTFY_TOKEN }}
+          BUILD_ID: ${{ steps.running.outputs.build_id }}
+          RESOLVE_OUTCOME: ${{ steps.running.outcome }}
+          LOGIN_OUTCOME: ${{ steps.login.outcome }}
+          IMAGE_OUTCOME: ${{ steps.image.outcome }}
+          SOURCE_OUTCOME: ${{ steps.source.outcome }}
+          MANIFESTS_OUTCOME: ${{ steps.manifests.outcome }}
+          LOCK_OUTCOME: ${{ steps.lock.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_number }}
+        run: |
+          if [ -z "$NTFY_URL" ] || [ -z "$NTFY_TOKEN" ]; then
+            echo "::warning::RESCAN_NTFY_URL or RESCAN_NTFY_TOKEN is not set; skipping the ntfy notification."
+            exit 0
+          fi
+          FAILED=""
+          [ "$RESOLVE_OUTCOME" = failure ] && FAILED="$FAILED resolving the running build;"
+          [ "$LOGIN_OUTCOME" = failure ] && FAILED="$FAILED registry login;"
+          [ "$IMAGE_OUTCOME" = failure ] && FAILED="$FAILED image scan;"
+          [ "$SOURCE_OUTCOME" = failure ] && FAILED="$FAILED source checkout;"
+          [ "$MANIFESTS_OUTCOME" = failure ] && FAILED="$FAILED manifest export;"
+          [ "$LOCK_OUTCOME" = failure ] && FAILED="$FAILED lockfile scan;"
+          [ -n "$FAILED" ] || FAILED=" setup;"
+          MESSAGE=$(printf 'Build %s. Failed:%s\n%s' "${BUILD_ID:-unknown}" "$FAILED" "$RUN_URL")
+          printf '%s' "$MESSAGE" | curl -fsS --max-time 20 -o /dev/null \
+            -H "Authorization: Bearer $NTFY_TOKEN" \
+            -H "Title: Channel Club weekly CVE rescan" \
+            -H "Tags: warning" \
+            --data-binary @- "$NTFY_URL" \
+            || echo "::warning::The ntfy notification could not be sent."

@@ -64,8 +64,9 @@ COPY backend/pyproject.toml backend/uv.lock ./
 # Install Python dependencies, then drop the build-only tooling. uv and pip are
 # not on any runtime path (the CMD invokes .venv/bin/uvicorn directly), and
 # pip's vendored tree carries CVEs we cannot patch and do not run — keeping the
-# image scan actionable on things that actually ship.
-RUN uv sync --frozen --no-dev \
+# image scan actionable on things that actually ship. The venv is compiled to
+# .pyc here because the runtime user cannot write to it.
+RUN UV_COMPILE_BYTECODE=1 uv sync --frozen --no-dev \
     && rm -rf /usr/local/bin/uv /usr/local/bin/uvx \
        /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.13 \
        /usr/local/lib/python3.13/site-packages/uv \
@@ -83,10 +84,13 @@ COPY --from=frontend-build /app/frontend/dist ./static
 # to their temp dirs, so create them up front owned by appuser rather than
 # relying on the app to mkdir them at runtime. /data holds the state file
 # (admin settings and Live); compose mounts a named volume there, which Docker
-# seeds from this directory with its ownership.
+# seeds from this directory with its ownership. /app (code, venv, static) stays
+# root-owned, so a bug in the app cannot rewrite what it runs or serves; the
+# app package is compiled to .pyc now for the same reason as the venv.
 RUN useradd --create-home --uid 10001 appuser \
+    && python -m compileall -q /app/app \
     && mkdir -p /tmp/highlights /tmp/cast_hls /data \
-    && chown -R appuser:appuser /app /tmp/highlights /tmp/cast_hls /data
+    && chown appuser:appuser /tmp/highlights /tmp/cast_hls /data
 ENV STATE_FILE=/data/state.json
 USER appuser
 
