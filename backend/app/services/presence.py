@@ -53,17 +53,21 @@ def _emit(event: str, message: str, **fields: object) -> None:
     log.bind(event=event, **fields).info(message)
 
 
-def _seconds_since(start: datetime | None) -> float:
+def _seconds_since(start: datetime | None, end: datetime | None = None) -> float:
     if start is None:
         return 0.0
-    return round((datetime.now(UTC) - start).total_seconds(), 1)
+    # A watch can start after the last ping, so an end at that ping is before it
+    return max(0.0, round(((end or datetime.now(UTC)) - start).total_seconds(), 1))
 
 
-def _close_watch(user: UserPresence, reason: str) -> None:
-    """Emit watch.stop for the user's current channel, if any, and clear it."""
+def _close_watch(user: UserPresence, reason: str, end: datetime | None = None) -> None:
+    """Emit watch.stop for the user's current channel, if any, and clear it.
+
+    ``end`` is when the watch ended, if not now (a stale sweep passes the last ping).
+    """
     if user.current_channel is None and user.current_channel_id is None:
         return
-    duration = _seconds_since(user.channel_since)
+    duration = _seconds_since(user.channel_since, end)
     _emit(
         "watch.stop",
         f"User {user.username} stopped watching {user.current_channel} "
@@ -84,10 +88,10 @@ def _close_watch(user: UserPresence, reason: str) -> None:
     user.channel_since = None
 
 
-def _close_session(user: UserPresence, reason: str) -> None:
+def _close_session(user: UserPresence, reason: str, end: datetime | None = None) -> None:
     """Emit watch.stop (if watching) and session.stop for a departing user."""
-    _close_watch(user, reason)
-    duration = _seconds_since(user.connected_since)
+    _close_watch(user, reason, end)
+    duration = _seconds_since(user.connected_since, end)
     _emit(
         "session.stop",
         f"User {user.username} disconnected from {user.view} view after {duration}s ({reason})",
@@ -340,7 +344,8 @@ def cleanup_stale_users(timeout_seconds: int = STALE_USER_TIMEOUT_SECONDS) -> in
     for cid in stale:
         user = _active_users.pop(cid, None)
         if user:
-            _close_session(user, "stale")
+            # The tab went quiet at its last ping, not at this sweep
+            _close_session(user, "stale", user.last_activity)
     if stale:
         # Import here to avoid a circular dependency (presence_broadcast reads presence)
         from app.services import presence_broadcast
