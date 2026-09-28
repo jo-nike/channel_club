@@ -16,27 +16,21 @@ from app.models.channel import (
     DispatchrrFullChannel,
     GroupedChannelsResponse,
 )
+from app.services.cached_fetch import CachedFetch
 from app.services.logo_proxy import fetch_logo
 from app.services.tls import SSL_CONTEXT
 
 # Module-level logger with service context
 log = logger.bind(service="dispatcharr")
 
-# In-memory cache for grouped channels response.
-# Dispatcharr's /api/channels/channels/ can be slow with large lineups; cache
-# the assembled response for a short TTL so repeat opens of the admin modal
-# are instant. A single in-flight lock prevents thundering herd on expiry.
+# Grouped channels cache TTL. Dispatcharr's /api/channels/channels/ can be slow
+# with large lineups, and every channel switch and uncached logo resolves
+# through the catalogue, so it is cached (see _grouped_cache below).
 _GROUPED_CACHE_TTL_SECONDS = 300
-_grouped_cache: GroupedChannelsResponse | None = None
-_grouped_cache_expires_at: float = 0.0
-_grouped_cache_lock: asyncio.Lock | None = None
 
-
-def _get_grouped_cache_lock() -> asyncio.Lock:
-    global _grouped_cache_lock
-    if _grouped_cache_lock is None:
-        _grouped_cache_lock = asyncio.Lock()
-    return _grouped_cache_lock
+# Dispatcharr sits behind a WireGuard tunnel; a dropped tunnel fails at connect,
+# so that phase gets a short budget.
+_CATALOGUE_TIMEOUT = httpx.Timeout(10, connect=3)
 
 
 # In-memory cache for channel logo images served by the unauthenticated logo
@@ -57,9 +51,8 @@ def invalidate_grouped_channels_cache() -> None:
 
     Also drops cached logos, so a logo changed in Dispatcharr shows after a refresh.
     """
-    global _grouped_cache, _grouped_cache_expires_at, _logo_cache_bytes
-    _grouped_cache = None
-    _grouped_cache_expires_at = 0.0
+    global _logo_cache_bytes
+    _grouped_cache.invalidate()
     _logo_cache.clear()
     _logo_cache_bytes = 0
     _logo_failures.clear()
@@ -70,6 +63,15 @@ class DispatchrrUnavailableError(Exception):
     """Raised when Dispatcharr API is unreachable or returns an error."""
 
     pass
+
+
+# The assembled grouped catalogue, served stale while Dispatcharr is down
+_grouped_cache: CachedFetch[GroupedChannelsResponse] = CachedFetch(
+    "grouped channels",
+    lambda: _build_grouped_channels(),
+    ttl=_GROUPED_CACHE_TTL_SECONDS,
+    error=DispatchrrUnavailableError,
+)
 
 
 class ChannelLogoNotFoundError(Exception):
@@ -101,7 +103,7 @@ async def get_lineup() -> list[Channel]:
     log.debug("Fetching channel lineup from {}", url)
 
     try:
-        async with httpx.AsyncClient(timeout=10.0, verify=SSL_CONTEXT) as client:
+        async with httpx.AsyncClient(timeout=_CATALOGUE_TIMEOUT, verify=SSL_CONTEXT) as client:
             response = await client.get(url)
             response.raise_for_status()
 
@@ -156,7 +158,7 @@ async def get_channel_groups() -> list[DispatchrrChannelGroup]:
     log.debug("Fetching channel groups from {}", url)
 
     try:
-        async with httpx.AsyncClient(timeout=10.0, verify=SSL_CONTEXT) as client:
+        async with httpx.AsyncClient(timeout=_CATALOGUE_TIMEOUT, verify=SSL_CONTEXT) as client:
             response = await client.get(url, headers=headers)
             response.raise_for_status()
             groups = [DispatchrrChannelGroup(**g) for g in response.json()]
@@ -181,7 +183,7 @@ async def get_channels_with_groups() -> list[DispatchrrFullChannel]:
     log.debug("Fetching full channel data from {}", url)
 
     try:
-        async with httpx.AsyncClient(timeout=10.0, verify=SSL_CONTEXT) as client:
+        async with httpx.AsyncClient(timeout=_CATALOGUE_TIMEOUT, verify=SSL_CONTEXT) as client:
             response = await client.get(url, headers=headers)
             response.raise_for_status()
             channels = [DispatchrrFullChannel(**c) for c in response.json()]
@@ -197,31 +199,17 @@ async def get_grouped_channels() -> GroupedChannelsResponse:
 
     Combines channel groups and channels into a structured response
     where channels are nested under their respective groups. Result is
-    cached in-memory for _GROUPED_CACHE_TTL_SECONDS.
+    cached in-memory for _GROUPED_CACHE_TTL_SECONDS; after that, and while
+    Dispatcharr is down, the last good catalogue is served while a background
+    refresh runs.
 
     Returns:
         GroupedChannelsResponse with groups and ungrouped channels.
 
     Raises:
-        DispatchrrUnavailableError: If Dispatcharr is unreachable.
+        DispatchrrUnavailableError: If Dispatcharr is unreachable and nothing is cached.
     """
-    global _grouped_cache, _grouped_cache_expires_at
-
-    now = time.monotonic()
-    if _grouped_cache is not None and now < _grouped_cache_expires_at:
-        log.debug("Returning grouped channels from cache")
-        return _grouped_cache
-
-    async with _get_grouped_cache_lock():
-        # Re-check after acquiring the lock (another request may have refreshed)
-        now = time.monotonic()
-        if _grouped_cache is not None and now < _grouped_cache_expires_at:
-            return _grouped_cache
-
-        result = await _build_grouped_channels()
-        _grouped_cache = result
-        _grouped_cache_expires_at = time.monotonic() + _GROUPED_CACHE_TTL_SECONDS
-        return result
+    return await _grouped_cache.get()
 
 
 def format_channel_number(value: float | None) -> str | None:

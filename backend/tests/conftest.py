@@ -57,6 +57,7 @@ def reset_module_state(monkeypatch):
     highlight_service.clear_start_backoff()
     monkeypatch.setattr(app_settings, "_user_channel_selection", False)
     monkeypatch.setattr(app_settings, "_presence_visible", False)
+    __import__("app.services.cached_fetch", fromlist=["_"]).reset_all_caches()
 
 
 @pytest.fixture(autouse=True)
