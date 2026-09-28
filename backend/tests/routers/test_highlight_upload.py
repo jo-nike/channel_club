@@ -12,7 +12,7 @@ from app.config import settings
 from app.models.auth import TokenPayload
 from app.routers.auth_deps import get_current_user
 from app.routers.highlight import router
-from app.services.media_limits import export_budget
+from app.services.media_limits import export_budget, upload_budget
 
 
 @pytest.fixture
@@ -27,7 +27,7 @@ async def client(monkeypatch):
         transport=httpx.ASGITransport(app), base_url="http://test"
     ) as client:
         yield client
-    assert not export_budget.owners
+    assert not export_budget.owners and not upload_budget.owners
 
 
 @pytest.mark.parametrize(
@@ -177,6 +177,24 @@ async def test_limits_reject_before_probe_or_upstream(client, configured, monkey
             )
         ).status_code == 400
         upload.assert_not_called()
+
+
+async def test_an_upload_in_flight_leaves_the_export_slots_free(client, configured):
+    async def upload(*_args):
+        assert upload_budget.owners == {"viewer": 1}
+        # The same viewer can still capture or export while Zipline receives the clip.
+        with export_budget.slot("viewer"):
+            pass
+        return {"url": "https://cdn.test/c.mp4", "name": "c.mp4"}
+
+    with (
+        patch("app.routers.highlight.upload_clip", upload),
+        patch("app.routers.highlight.media_duration", new_callable=AsyncMock, return_value=2),
+    ):
+        response = await client.post(
+            "/api/highlight/upload", content=b"preview", headers={"Content-Type": "video/mp4"}
+        )
+    assert response.status_code == 200
 
 
 async def test_upload_requires_authentication(configured):

@@ -239,3 +239,45 @@ async def test_export_returns_the_encode_while_the_browser_waits(tmp_path, regis
         )
     assert response.body == b"encoded clip"
     assert not export_budget.owners
+
+
+@pytest.mark.parametrize("route", ["capture", "export"])
+async def test_a_viewer_who_leaves_while_queued_never_takes_a_slot(
+    tmp_path, register, monkeypatch, route
+):
+    from unittest.mock import AsyncMock
+
+    from app.routers.highlight import create_capture
+
+    monkeypatch.setattr(settings, "highlight_enabled", True)
+    monkeypatch.setattr(highlight_router, "DISCONNECT_POLL_SECONDS", 0.01)
+    snapshot = tmp_path / "snapshot.mp4"
+    snapshot.write_bytes(b"mp4")
+    capture = register(snapshot)
+    recorder = AsyncMock()
+    recorder.is_running = True
+    monkeypatch.setitem(highlight_service._recorders, "channel-1", recorder)
+    export_budget.acquire("alice")
+    export_budget.acquire("bob")
+    leave = asyncio.Event()
+    if route == "capture":
+        work = create_capture(BrowserRequest(leave), channel_id="channel-1", user=viewer())
+    else:
+        work = export_preview(
+            BrowserRequest(leave),
+            capture=capture,
+            format="mp4",
+            start_time=None,
+            end_time=None,
+            user=viewer(),
+        )
+    queued = asyncio.create_task(work)
+    await asyncio.sleep(0.05)
+    assert not queued.done()
+    leave.set()
+    with pytest.raises(HTTPException) as closed:
+        await asyncio.wait_for(queued, 2)
+    assert closed.value.status_code == 499
+    export_budget.release("alice")
+    export_budget.release("bob")
+    assert not export_budget.owners

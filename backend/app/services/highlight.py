@@ -902,7 +902,8 @@ class HighlightService:
         recorder = self._recorders[channel_id]
         # Waited outside the export slot: only two exist server-wide, and waiting encodes nothing.
         await recorder.wait_for_current_segment()
-        with export_budget.slot(owner):
+        # Everyone who clipped the same moment finishes the wait together, so queue briefly.
+        async with export_budget.waiting_slot(owner):
             try:
                 return await self.captures.create(recorder, owner, channel_id, pressed_at), None
             except TimeoutError:

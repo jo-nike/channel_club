@@ -160,6 +160,9 @@ class Settings(BaseSettings):
     media_recorder_per_user: int = 4
     media_export_limit: int = 2
     media_export_per_user: int = 1
+    # Zipline uploads are network-bound, so they have their own slots instead of export's.
+    media_upload_limit: int = 2
+    media_upload_per_user: int = 1
     media_export_max_bytes: int = 256 * 1024 * 1024
     # Every other request body; /api/highlight/upload enforces media_export_max_bytes.
     request_body_max_bytes: int = 64 * 1024

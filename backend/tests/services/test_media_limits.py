@@ -280,3 +280,56 @@ async def test_channel_selection_broadcasts_even_when_highlights_unavailable(fai
             broadcast.assert_awaited_once_with(channel, changed_by="alice")
     finally:
         channel_state.clear_current_channel()
+
+
+async def test_a_waiter_takes_a_released_slot_and_a_long_wait_is_429():
+    export_budget.acquire("alice")
+    export_budget.acquire("bob")
+    waiter = asyncio.create_task(export_budget.wait_acquire("carol"))
+    await asyncio.sleep(0.01)
+    assert not waiter.done()
+    export_budget.release("alice")
+    await asyncio.wait_for(waiter, 1)
+    assert export_budget.owners == {"bob": 1, "carol": 1}
+    with pytest.raises(HTTPException) as exc:
+        await export_budget.wait_acquire("dave", timeout=0.05)
+    assert exc.value.status_code == 429
+    assert "dave" not in export_budget.owners and not export_budget._waiters
+
+
+async def test_a_cancelled_waiter_never_takes_the_slot():
+    export_budget.acquire("alice")
+    export_budget.acquire("bob")
+    waiter = asyncio.create_task(export_budget.wait_acquire("carol"))
+    await asyncio.sleep(0.01)
+    # The slot frees up in the same tick the request is cancelled (the client left).
+    export_budget.release("alice")
+    waiter.cancel()
+    await asyncio.gather(waiter, return_exceptions=True)
+    assert export_budget.owners == {"bob": 1}
+    assert not export_budget._waiters
+
+
+async def test_everyone_who_clips_the_same_moment_gets_a_capture():
+    service = HighlightService()
+    recorder = AsyncMock()
+    recorder.is_running = True
+    service._recorders["same"] = recorder
+    running = 0
+    peak = 0
+
+    async def create(_recorder, owner, _channel_id, _pressed_at):
+        nonlocal running, peak
+        running += 1
+        peak = max(peak, running)
+        await asyncio.sleep(0.05)
+        running -= 1
+        return owner
+
+    with patch.object(service.captures, "create", create):
+        results = await asyncio.gather(
+            *(service.create_capture("same", owner=f"viewer-{n}") for n in range(5))
+        )
+    assert results == [(f"viewer-{n}", None) for n in range(5)]
+    assert peak == 2
+    assert not export_budget.owners

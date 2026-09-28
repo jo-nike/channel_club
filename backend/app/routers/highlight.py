@@ -25,7 +25,7 @@ from app.models.channel import ChannelId
 from app.routers.auth_deps import get_current_user, get_current_user_or_token
 from app.services.highlight import Capture, highlight_service
 from app.services.media_export import encode_file, media_duration, owned_thread
-from app.services.media_limits import export_budget
+from app.services.media_limits import export_budget, upload_budget
 from app.services.zipline import upload_clip
 
 router = APIRouter(prefix="/api/highlight", tags=["highlight"])
@@ -123,7 +123,7 @@ async def upload_highlight(
     if request.headers.get("content-type", "").split(";")[0] != content_type:
         raise HTTPException(415, f"Expected {content_type}")
     with (
-        export_budget.slot(user.sub),
+        upload_budget.slot(user.sub),
         tempfile.TemporaryDirectory(prefix="highlight-upload-") as directory,
     ):
         source = FilePath(directory) / f"clip.{format}"
@@ -168,13 +168,17 @@ async def get_highlight_status(
 
 @router.post("/{channel_id}/capture", response_model=CaptureResponse)
 async def create_capture(
+    request: Request,
     channel_id: Annotated[ChannelId, Path(description="Channel ID to capture")],
     user: TokenPayload = Depends(get_current_user),
 ) -> CaptureResponse:
     """Snapshot the recent buffer server-side; the editor streams it by range."""
     if not settings.highlight_enabled:
         raise HTTPException(503, "Highlight feature is disabled")
-    capture, error = await highlight_service.create_capture(channel_id, owner=user.sub)
+    # A viewer who leaves while waiting for a slot gives up their place in the queue.
+    capture, error = await unless_disconnected(
+        request, highlight_service.create_capture(channel_id, owner=user.sub)
+    )
     if error or capture is None:
         log.warning("Highlight capture failed for channel {}: {}", channel_id, error)
         raise HTTPException(400, error or "Failed to create highlight")
@@ -273,21 +277,21 @@ async def export_preview(
     source = highlight_service.get_capture(capture, user.sub)
     if source is None:
         raise HTTPException(404, "Capture not found")
-    with (
-        export_budget.slot(user.sub),
-        tempfile.TemporaryDirectory(prefix="highlight-preview-") as directory,
-    ):
-        try:
-            video = await unless_disconnected(
-                request,
-                encode_file(
+    with tempfile.TemporaryDirectory(prefix="highlight-preview-") as directory:
+
+        async def encode() -> bytes:
+            # Waits for a slot inside the disconnect watch, so a viewer who left never takes one.
+            async with export_budget.waiting_slot(user.sub):
+                return await encode_file(
                     source.path,
                     FilePath(directory) / f"export.{format}",
                     format,
                     start_time,
                     end_time,
-                ),
-            )
+                )
+
+        try:
+            video = await unless_disconnected(request, encode())
         except TimeoutError:
             raise HTTPException(408, "Clip conversion timed out") from None
         except ValueError as exc:
