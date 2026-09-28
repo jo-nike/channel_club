@@ -22,18 +22,24 @@ class SecurityHeadersMiddleware:
     def __init__(self, app: ASGIApp, stream_base_url: str) -> None:
         self.app = app
         stream = urlsplit(stream_base_url)
-        stream_origin = f"{stream.scheme}://{stream.netloc}"
+        # An empty or scheme-less STREAM_BASE_URL has no origin to allow ('://'
+        # would be an invalid source), so it is left out.
+        stream_origin = (
+            f" {stream.scheme}://{stream.netloc}"
+            if stream.scheme in ("http", "https") and stream.netloc
+            else ""
+        )
         # Older Safari does not match wss: with 'self', so the socket's origin is
         # named per request from its Host header.
         self.document_csp_head = (
             "default-src 'self'; script-src 'self' https://www.gstatic.com; "
             "style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data: blob: https://*.giphy.com https://assets.nhle.com; "
-            f"media-src 'self' blob: {stream_origin} https://*.giphy.com; "
+            f"media-src 'self' blob:{stream_origin} https://*.giphy.com; "
             "connect-src 'self'"
         )
         self.document_csp_tail = (
-            f" {stream_origin} https://plex.tv; worker-src 'self' blob:; object-src 'none'; "
+            f"{stream_origin} https://plex.tv; worker-src 'self' blob:; object-src 'none'; "
             "base-uri 'none'; form-action 'self'; frame-ancestors 'none'; "
             "report-uri /api/csp-report"
         )
