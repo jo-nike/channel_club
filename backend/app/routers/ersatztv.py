@@ -98,7 +98,7 @@ async def list_programmes(
     """Get programmes for channel within time window."""
     log.debug("GET /programmes request for channel: {}", channel_id)
     try:
-        programmes = await run_feed_lookup(get_programmes_by_channel, channel_id, hours=hours)
+        programmes = await get_programmes_by_channel(channel_id, hours=hours)
         log.debug("Returning {} programmes for channel {}", len(programmes), channel_id)
         return ProgrammeListResponse(channel_id=channel_id, programmes=programmes)
     except UPSTREAM_ERRORS as e:
@@ -117,7 +117,7 @@ async def get_current(
     """Get current and next programme for channel."""
     log.debug("GET /current request for channel: {}", channel_id)
     try:
-        current, next_up = await run_feed_lookup(get_current_programme, channel_id)
+        current, next_up = await get_current_programme(channel_id)
         return CurrentProgrammeResponse(
             channel_id=channel_id,
             current=current,

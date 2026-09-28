@@ -19,12 +19,10 @@ from app.services.ersatztv.m3u_parser import clear_cache as clear_m3u_cache
 from app.services.ersatztv.m3u_parser import parse_m3u_playlist
 from app.services.ersatztv.xmltv_parser import clear_cache as clear_xmltv_cache
 from app.services.ersatztv.xmltv_parser import get_health as get_guide_health
-from app.services.ersatztv.xmltv_parser import parse_xmltv
 
 __all__ = [
     "parse_m3u_playlist",
     "clear_m3u_cache",
-    "parse_xmltv",
     "clear_xmltv_cache",
     "get_channels",
     "get_channel_by_id",

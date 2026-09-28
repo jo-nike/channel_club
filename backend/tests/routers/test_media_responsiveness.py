@@ -4,18 +4,24 @@ import asyncio
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import httpx
 import pytest
 
 from app.main import app
+from app.models.ersatztv import EPGChannel, Programme
+from app.services.auth import create_access_token
+from app.services.ersatztv import epg_service as ersatztv_epg
+from app.services.ersatztv import m3u_parser
 from app.services.ersatztv.m3u_parser import parse_m3u_playlist
 from app.services.ersatztv.refresh import (
     FeedUnavailableError,
     run_feed_lookup,
     stop_feed_executor,
 )
+from app.services.ersatztv.xmltv_parser import guide
 
 
 @pytest.mark.asyncio
@@ -132,3 +138,79 @@ async def test_feed_executor_teardown_drops_queued_lookups():
     results = await asyncio.gather(*queued, return_exceptions=True)
     assert all(isinstance(result, asyncio.CancelledError) for result in results)
     assert await run_feed_lookup(lambda: 42) == 42
+
+
+# Captured at import, before a test routes httpx.AsyncClient to a fake upstream
+_ASYNC_CLIENT = httpx.AsyncClient
+
+
+@pytest.mark.asyncio
+async def test_stale_guide_answers_at_once_while_its_refresh_hangs(monkeypatch):
+    """N-01: 40 current-programme reads behind a hung XMLTV refresh get the stale
+    programme at once, start one fetch, and need no default-executor thread."""
+    now = datetime.now(UTC)
+    m3u_parser._cache.update(
+        channels=[EPGChannel(id="ch1", name="One", stream_url="http://ersatztv.test/1")],
+        timestamp=datetime.now(),
+        last_successful_fetch=datetime.now(),
+    )
+    stale = Programme(
+        id="ch1_stale",
+        channel_id="ch1",
+        title="Stale Show",
+        start=now - timedelta(minutes=30),
+        stop=now + timedelta(minutes=30),
+    )
+    guide._cache = {"ch1": [stale]}
+    guide._cache_expires = now - timedelta(seconds=1)
+
+    fetches = 0
+    release = asyncio.Event()
+
+    async def hang(request):
+        nonlocal fetches
+        fetches += 1
+        await release.wait()
+        return httpx.Response(503)
+
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **kwargs: _ASYNC_CLIENT(transport=httpx.MockTransport(hang), **kwargs),
+    )
+    lookups = []
+    real_lookup = ersatztv_epg.run_feed_lookup
+
+    async def spy(function, *args, **kwargs):
+        lookups.append(function)
+        return await real_lookup(function, *args, **kwargs)
+
+    monkeypatch.setattr(ersatztv_epg, "run_feed_lookup", spy)
+
+    # A default executor whose only thread is busy: any to_thread would stall
+    loop = asyncio.get_running_loop()
+    busy = threading.Event()
+    executor = ThreadPoolExecutor(max_workers=1)
+    loop.set_default_executor(executor)
+    blocker = loop.run_in_executor(None, busy.wait, 5)
+
+    token = create_access_token({"sub": "viewer", "role": "viewer"})
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with _ASYNC_CLIENT(
+            transport=httpx.ASGITransport(app), base_url="http://test"
+        ) as client:
+            reads = [client.get("/api/ersatztv/current/ch1", headers=headers) for _ in range(40)]
+            responses = await asyncio.wait_for(asyncio.gather(*reads), 1.0)
+            assert fetches == 1
+    finally:
+        release.set()
+        busy.set()
+        await blocker
+        await guide.aclose()
+        executor.shutdown(wait=False)
+
+    assert {response.status_code for response in responses} == {200}
+    assert {response.json()["current"]["title"] for response in responses} == {"Stale Show"}
+    # Only the M3U identity lookup still uses the feeds executor, and it is warm
+    assert set(lookups) == {ersatztv_epg.get_channel_by_id}

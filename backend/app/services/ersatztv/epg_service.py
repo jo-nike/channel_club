@@ -14,9 +14,9 @@ from app.config import settings
 from app.models.ersatztv import EPGChannel, Programme
 from app.services.ersatztv.m3u_parser import clear_cache as clear_m3u_cache
 from app.services.ersatztv.m3u_parser import parse_m3u_playlist
-from app.services.ersatztv.refresh import shutdown_feed_executor
+from app.services.ersatztv.refresh import run_feed_lookup, shutdown_feed_executor
 from app.services.ersatztv.xmltv_parser import clear_cache as clear_xmltv_cache
-from app.services.ersatztv.xmltv_parser import parse_xmltv
+from app.services.ersatztv.xmltv_parser import guide
 from app.services.logo_proxy import reset_logo_cache
 
 # Module-level logger with service context
@@ -68,28 +68,30 @@ def get_channel_by_id(channel_id: str) -> EPGChannel | None:
     return None
 
 
-def _programmes_for_channel(channel_id: str) -> list[Programme]:
+async def _schedule_for_channel(channel_id: str) -> tuple[str, list[Programme]]:
+    """A channel's XMLTV identity from the M3U, and that identity's programmes."""
     # Channel selection IDs are unique; the provider's XMLTV identity may repeat.
     try:
-        channel = get_channel_by_id(channel_id)
+        channel = await run_feed_lookup(get_channel_by_id, channel_id)
     except Exception:
         channel = None  # A catalog outage must not disable already-known XMLTV IDs.
     identity = (channel.xmltv_id if channel else None) or channel_id
-    return [
-        programme.model_copy(
-            update={
-                "channel_id": channel_id,
-                "id": f"{channel_id}_{int(programme.start.timestamp())}",
-            }
-        )
-        if identity != channel_id
-        else programme
-        for programme in parse_xmltv()
-        if programme.channel_id == identity
-    ]
+    return identity, await guide.programmes(identity)
 
 
-def get_current_programme(channel_id: str) -> tuple[Programme | None, Programme | None]:
+def _for_channel(programme: Programme, identity: str, channel_id: str) -> Programme:
+    """A programme found under a shared XMLTV identity, keyed to the selected channel."""
+    if identity == channel_id:
+        return programme
+    return programme.model_copy(
+        update={
+            "channel_id": channel_id,
+            "id": f"{channel_id}_{int(programme.start.timestamp())}",
+        }
+    )
+
+
+async def get_current_programme(channel_id: str) -> tuple[Programme | None, Programme | None]:
     """
     Get current and next programme for a channel.
 
@@ -97,39 +99,18 @@ def get_current_programme(channel_id: str) -> tuple[Programme | None, Programme 
         channel_id: Channel identifier
 
     Returns:
-        Tuple of (current_programme, next_programme), either may be None
+        Tuple of (current_programme, next_programme), either may be None.
+        Next is the first programme starting once the current one ends.
     """
-    programmes = _programmes_for_channel(channel_id)
-    now = datetime.now(UTC)
-
-    current = None
-    next_up = None
-
-    # Find current programme (start <= now < stop)
-    for prog in programmes:
-        if prog.channel_id == channel_id and prog.start <= now < prog.stop:
-            current = prog
-            break
-
-    # Find next programme (start >= now, first one after current)
-    channel_progs = sorted(
-        [p for p in programmes if p.channel_id == channel_id and p.start >= now],
-        key=lambda p: p.start,
+    identity, programmes = await _schedule_for_channel(channel_id)
+    current, next_up = guide.now_and_next(programmes, datetime.now(UTC))
+    return (
+        _for_channel(current, identity, channel_id) if current else None,
+        _for_channel(next_up, identity, channel_id) if next_up else None,
     )
 
-    # If we have a current programme, next is first after current ends
-    if current and channel_progs:
-        for prog in channel_progs:
-            if prog.start >= current.stop:
-                next_up = prog
-                break
-    elif channel_progs:
-        next_up = channel_progs[0]
 
-    return current, next_up
-
-
-def get_programmes_by_channel(channel_id: str, hours: int = 6) -> list[Programme]:
+async def get_programmes_by_channel(channel_id: str, hours: int = 6) -> list[Programme]:
     """
     Get programmes for a channel within time window.
 
@@ -144,23 +125,13 @@ def get_programmes_by_channel(channel_id: str, hours: int = 6) -> list[Programme
         List of programmes that overlap [now - 1 hour, now + hours), sorted
         by start time
     """
-    programmes = _programmes_for_channel(channel_id)
+    identity, programmes = await _schedule_for_channel(channel_id)
     now = datetime.now(UTC)
-    window_start = now - timedelta(hours=1)
-    end_time = now + timedelta(hours=hours)
-
-    # Include anything on air at some point in the window
-    result = []
-    for prog in programmes:
-        if prog.channel_id != channel_id:
-            continue
-        if prog.start < end_time and prog.stop > window_start:
-            result.append(prog)
-
-    return sorted(result, key=lambda p: p.start)
+    in_window = guide.in_window(programmes, now - timedelta(hours=1), now + timedelta(hours=hours))
+    return [_for_channel(programme, identity, channel_id) for programme in in_window]
 
 
-def get_upcoming_programmes(
+async def get_upcoming_programmes(
     channel_id: str,
     hours: int = 6,
     limit: int | None = None,
@@ -176,21 +147,12 @@ def get_upcoming_programmes(
     Returns:
         List of upcoming programmes sorted by start time
     """
-    programmes = _programmes_for_channel(channel_id)
+    identity, programmes = await _schedule_for_channel(channel_id)
     now = datetime.now(UTC)
-    end_time = now + timedelta(hours=hours)
-
-    upcoming = [
-        p
-        for p in programmes
-        if p.channel_id == channel_id and p.start >= now and p.start < end_time
-    ]
-
-    upcoming.sort(key=lambda p: p.start)
-
+    upcoming = guide.starting_between(programmes, now, now + timedelta(hours=hours))
     if limit:
-        return upcoming[:limit]
-    return upcoming
+        upcoming = upcoming[:limit]
+    return [_for_channel(programme, identity, channel_id) for programme in upcoming]
 
 
 def refresh_all() -> None:
@@ -206,6 +168,6 @@ def reset_state() -> None:
     Also empties the logo cache the ErsatzTV and Dispatcharr logo routes share.
     """
     parse_m3u_playlist.reset()
-    parse_xmltv.reset()
+    guide.reset()
     shutdown_feed_executor()
     reset_logo_cache()
