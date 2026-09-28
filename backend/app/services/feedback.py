@@ -16,6 +16,7 @@ from loguru import logger
 from app.config import settings
 from app.metadata import APP_NAME, APP_VERSION
 from app.models.feedback import FeedbackContext, FeedbackKind
+from app.services.tls import SSL_CONTEXT
 
 log = logger.bind(service="feedback")
 
@@ -209,6 +210,7 @@ async def publish(message: NtfyMessage, transport: httpx.AsyncBaseTransport | No
                 timeout=httpx.Timeout(15, connect=5),
                 follow_redirects=False,
                 transport=transport,
+                verify=SSL_CONTEXT,
             ) as client,
         ):
             response = await client.post(url, content=message.body.encode("utf-8"), headers=headers)

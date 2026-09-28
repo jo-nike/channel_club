@@ -21,6 +21,7 @@ from app.services.dispatcharr import (
     dispatcharr_auth_headers,
 )
 from app.services.epg_service import EPG_HEALTH_NAME, get_epg_service
+from app.services.tls import SSL_CONTEXT
 
 # Module-level logger with service context
 log = logger.bind(service="status")
@@ -169,7 +170,7 @@ async def get_ersatztv_status() -> ErsatzTVStatus:
     base_url = settings.ersatztv_base_url
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, verify=SSL_CONTEXT) as client:
             (
                 sessions_data,
                 channels_data,
@@ -306,7 +307,9 @@ async def get_dispatcharr_status() -> DispatchrrStatus:
     proxy_status_url = f"{base_url}/proxy/ts/status"
 
     try:
-        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=10.0, follow_redirects=True, verify=SSL_CONTEXT
+        ) as client:
             log.debug("Fetching Dispatcharr proxy status from {}", proxy_status_url)
 
             try:
@@ -358,7 +361,7 @@ async def get_dispatcharr_status() -> DispatchrrStatus:
                 e.response.status_code,
             )
             try:
-                async with httpx.AsyncClient(timeout=10.0) as client:
+                async with httpx.AsyncClient(timeout=10.0, verify=SSL_CONTEXT) as client:
                     # Try the lineup endpoint (doesn't require auth)
                     lineup_url = f"{base_url}/hdhr/lineup.json"
                     response = await client.get(lineup_url)

@@ -17,6 +17,7 @@ from app.models.channel import (
     GroupedChannelsResponse,
 )
 from app.services.logo_proxy import fetch_logo
+from app.services.tls import SSL_CONTEXT
 
 # Module-level logger with service context
 log = logger.bind(service="dispatcharr")
@@ -100,7 +101,7 @@ async def get_lineup() -> list[Channel]:
     log.debug("Fetching channel lineup from {}", url)
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, verify=SSL_CONTEXT) as client:
             response = await client.get(url)
             response.raise_for_status()
 
@@ -155,7 +156,7 @@ async def get_channel_groups() -> list[DispatchrrChannelGroup]:
     log.debug("Fetching channel groups from {}", url)
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, verify=SSL_CONTEXT) as client:
             response = await client.get(url, headers=headers)
             response.raise_for_status()
             groups = [DispatchrrChannelGroup(**g) for g in response.json()]
@@ -180,7 +181,7 @@ async def get_channels_with_groups() -> list[DispatchrrFullChannel]:
     log.debug("Fetching full channel data from {}", url)
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, verify=SSL_CONTEXT) as client:
             response = await client.get(url, headers=headers)
             response.raise_for_status()
             channels = [DispatchrrFullChannel(**c) for c in response.json()]
@@ -365,7 +366,9 @@ async def get_channel_logo(logo_id: int) -> tuple[bytes, str]:
 
         url = f"{settings.dispatcharr_url}/api/channels/logos/{logo_id}/cache/"
         try:
-            async with httpx.AsyncClient(follow_redirects=False, timeout=10.0) as client:
+            async with httpx.AsyncClient(
+                follow_redirects=False, timeout=10.0, verify=SSL_CONTEXT
+            ) as client:
                 body, content_type = await fetch_logo(
                     client,
                     url,

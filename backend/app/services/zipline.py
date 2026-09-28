@@ -8,6 +8,7 @@ import httpx
 from fastapi import HTTPException
 
 from app.config import settings
+from app.services.tls import SSL_CONTEXT
 
 
 async def upload_clip(source: Path, filename: str, content_type: str) -> dict[str, str]:
@@ -19,6 +20,7 @@ async def upload_clip(source: Path, filename: str, content_type: str) -> dict[st
             httpx.AsyncClient(
                 timeout=httpx.Timeout(120, connect=10),
                 follow_redirects=False,
+                verify=SSL_CONTEXT,
             ) as client,
         ):
             with source.open("rb") as file:

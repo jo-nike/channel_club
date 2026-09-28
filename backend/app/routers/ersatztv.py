@@ -34,6 +34,7 @@ from app.services.ersatztv.hls_rewriter import (
     segment_media_type,
 )
 from app.services.logo_proxy import fetch_logo
+from app.services.tls import SSL_CONTEXT
 
 router = APIRouter(prefix="/api/ersatztv", tags=["ersatztv"])
 log = logger.bind(router="ersatztv")
@@ -169,7 +170,7 @@ async def get_stream(
         # retried.
         async with (
             asyncio.timeout(STREAM_STARTUP_SECONDS),
-            httpx.AsyncClient(follow_redirects=False, timeout=10) as client,
+            httpx.AsyncClient(follow_redirects=False, timeout=10, verify=SSL_CONTEXT) as client,
         ):
             last_error: Exception | None = None
             response: httpx.Response | None = None
@@ -284,7 +285,7 @@ async def get_segment(
         # be materialised in memory, whatever size the upstream claims to send.
         # follow_redirects is disabled so fetch_ersatztv can re-validate every
         # redirect hop against the allowlist.
-        client = httpx.AsyncClient(follow_redirects=False, timeout=30)
+        client = httpx.AsyncClient(follow_redirects=False, timeout=30, verify=SSL_CONTEXT)
         try:
             response = await fetch_ersatztv(client, segment_url, stream=True)
             try:
@@ -373,7 +374,9 @@ async def get_logo(
         if not logo_url:
             raise HTTPException(status_code=404, detail="No logo available")
 
-        async with httpx.AsyncClient(follow_redirects=False, timeout=10) as client:
+        async with httpx.AsyncClient(
+            follow_redirects=False, timeout=10, verify=SSL_CONTEXT
+        ) as client:
             body, content_type = await fetch_logo(client, logo_url)
 
         return Response(
