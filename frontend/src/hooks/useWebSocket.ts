@@ -560,8 +560,10 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     [sendAcknowledged]
   )
 
-  // No channel is sent: the server takes it from presence, so a card can't
-  // name a channel its sender isn't on
+  // No channel is sent: the server takes the channel id this tab last reported
+  // (channel_update) and names it from its catalogue, refusing an id it doesn't
+  // know, so the card's name matches what Join opens. The id itself is the
+  // client's own report, so a card can't prove its sender is on that channel.
   const sendShare = useCallback(
     (clientMessageId: string = createClientMessageId()): Promise<ChatSendResult> =>
       sendAcknowledged({ type: 'share' }, clientMessageId),

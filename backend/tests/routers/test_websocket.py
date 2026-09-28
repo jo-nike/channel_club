@@ -18,7 +18,8 @@ from starlette.websockets import WebSocketDisconnect
 from app.config import Settings, settings
 from app.logging_config import configure_logging
 from app.main import app
-from app.models.channel import Channel
+from app.models.channel import Channel, GroupedChannelsResponse
+from app.models.ersatztv import EPGChannel
 from app.routers import websocket as websocket_router
 from app.services import app_settings, channel_state, chat, presence, presence_broadcast
 from app.services.auth import create_access_token
@@ -67,6 +68,21 @@ def client() -> Iterator[TestClient]:
         TestClient(app) as client,
     ):
         yield client
+
+
+@pytest.fixture(autouse=True)
+def cached_catalogue(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The catalogues chat names channels from: TSN 5 (42) live, Cartoons (etv-2) on ErsatzTV."""
+    grouped = GroupedChannelsResponse(
+        ungrouped=[Channel(id="42", name="TSN 5", streamUrl="http://streams/42", guideId="tsn5")]
+    )
+    cartoons = EPGChannel(id="etv-2", name="Cartoons", streamUrl="http://etv/2.m3u8")
+    monkeypatch.setattr(websocket_router, "get_grouped_channels", AsyncMock(return_value=grouped))
+    monkeypatch.setattr(
+        websocket_router,
+        "get_channel_by_id",
+        lambda channel_id: cartoons if channel_id == cartoons.id else None,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -1268,6 +1284,31 @@ class TestChatChannelStamp:
         assert received["view"] == "ersatztv"
 
     @pytest.mark.usefixtures("visible")
+    def test_chip_is_named_from_the_catalogue(self, client: TestClient, valid_token: str):
+        """The chip shows the catalogue's name for the reported id, not the reported name."""
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # connection_ack
+            ws.receive_json()  # chat_history
+            self.watch(ws, channel="Game 7")
+
+            msg = self.say(ws)
+
+        assert msg["channelName"] == "Cartoons"
+        assert msg["channelId"] == "etv-2"
+
+    @pytest.mark.usefixtures("visible")
+    def test_no_chip_for_a_channel_not_in_the_catalogue(self, client: TestClient, valid_token: str):
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # connection_ack
+            ws.receive_json()  # chat_history
+            ws.send_json({"type": "channel_update", "channel": "Game 7", "channelId": "nope"})
+
+            msg = self.say(ws)
+
+        assert msg["content"] == "lol"
+        assert all(msg[field] is None for field in self.CHANNEL_FIELDS)
+
+    @pytest.mark.usefixtures("visible")
     def test_no_channel_for_a_sender_who_hides(self, client: TestClient, valid_token: str):
         with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # connection_ack
@@ -1476,6 +1517,49 @@ class TestShareMessage:
         assert card["channelId"] == "42"
         assert card["programme"] == "CFL Football"
         assert card["content"] == "Watching TSN 5 · CFL Football"
+
+    @staticmethod
+    def report(ws, channel: str, channel_id: str) -> None:
+        """Report a channel under any name and wait until the server has it."""
+        ws.send_json({"type": "channel_update", "channel": channel, "channelId": channel_id})
+        ws.send_json({"type": "ping"})
+        assert ws.receive_json()["type"] == "pong"
+
+    @pytest.mark.usefixtures("visible")
+    @pytest.mark.parametrize(
+        ("channel_id", "name"), [("42", "TSN 5"), ("etv-2", "Cartoons")], ids=["live", "ersatztv"]
+    )
+    def test_card_is_named_from_the_catalogue_not_the_reported_name(
+        self, client: TestClient, valid_token: str, channel_id: str, name: str
+    ):
+        """A client reporting 'Fake' for a real channel id still posts the catalogue's name."""
+        with ws_connect(client, valid_token) as ws:
+            self.open_chat(ws)
+            self.report(ws, "Fake", channel_id)
+
+            ws.send_json({"type": "share", "clientMessageId": "s-1"})
+            assert ws.receive_json()["accepted"] is True
+            card = ws.receive_json()
+
+        assert card["channelName"] == name
+        assert card["channelId"] == channel_id
+        assert card["content"] == f"Watching {name}"
+        [stored] = chat.get_history()
+        assert stored.channel is not None
+        assert stored.channel.channel_name == name
+
+    @pytest.mark.usefixtures("visible")
+    def test_refused_for_a_channel_not_in_the_catalogue(self, client: TestClient, valid_token: str):
+        with ws_connect(client, valid_token) as ws:
+            self.open_chat(ws)
+            self.report(ws, "Game 7", "not-a-channel")
+
+            ws.send_json({"type": "share", "clientMessageId": "s-1"})
+            ack = ws.receive_json()
+            self.assert_nothing_broadcast(ws)
+
+        assert ack == {"type": "chat_ack", "clientMessageId": "s-1", "accepted": False}
+        assert chat.get_history() == []
 
     def test_refused_while_presence_is_off(self, client: TestClient, valid_token: str):
         with ws_connect(client, valid_token) as ws:

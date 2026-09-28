@@ -23,6 +23,9 @@ from app.models.websocket import (
 )
 from app.services import app_settings, channel_state, chat, presence, presence_broadcast
 from app.services.auth import verify_token
+from app.services.dispatcharr import get_grouped_channels
+from app.services.ersatztv import get_channel_by_id
+from app.services.ersatztv.refresh import run_feed_lookup
 from app.services.media_source import resolve_media_channel
 
 router = APIRouter()
@@ -100,21 +103,51 @@ def _is_another_members_name(nickname: str, username: str) -> bool:
     return any(_normalize_nickname(name).casefold() == folded for name in taken)
 
 
-def _channel_stamp(client_id: str) -> chat.ChannelStamp | None:
+async def _catalogue_name(channel_id: str) -> str | None:
+    """A channel's name in the server's cached catalogues, or None if it isn't there.
+
+    Looks in the grouped Dispatcharr catalogue, then the ErsatzTV channel
+    list, through their caches: an unknown id never costs a request of its own.
+
+    Args:
+        channel_id: A Dispatcharr stream UUID or an ErsatzTV channel id.
+    """
+    try:
+        grouped = await get_grouped_channels()
+    except Exception:
+        grouped = None
+    if grouped is not None:
+        for channels in [*(group.channels for group in grouped.groups), grouped.ungrouped]:
+            for channel in channels:
+                if channel.id == channel_id:
+                    return channel.name
+    try:
+        ersatz = await run_feed_lookup(get_channel_by_id, channel_id)
+    except Exception:
+        return None
+    return ersatz.name if ersatz else None
+
+
+async def _channel_stamp(client_id: str) -> chat.ChannelStamp | None:
     """The sender's channel for a chat message, if others may see it.
 
     Taken from the server's presence for this connection, never from the
-    client's message. None while presence is off, when the sender hides what
-    they watch, or before they have reported a channel.
+    client's message, and named from the catalogue by the reported channel
+    id, never by the name the client reported. None while presence is off,
+    when the sender hides what they watch, before they have reported a
+    channel, or when its id isn't in the catalogue.
 
     Args:
         client_id: The sender's connection (session) id.
     """
     user = presence_broadcast.shown_channel(client_id)
-    if user is None or user.current_channel is None:
+    if user is None or user.current_channel_id is None:
+        return None
+    name = await _catalogue_name(user.current_channel_id)
+    if name is None:
         return None
     return chat.ChannelStamp(
-        channel_name=user.current_channel,
+        channel_name=name,
         channel_id=user.current_channel_id,
         programme=user.current_programme,
         view=user.view,
@@ -501,8 +534,9 @@ async def handle_client_message(
         nickname_entry = _nickname_map.get(client_id)
         display_name = nickname_entry[1] if nickname_entry else username
         if msg_type == "share":
-            # Refused (None) while the sender's channel is private or unknown
-            stamp = _channel_stamp(client_id)
+            # Refused (None) while the sender's channel is private, unreported or
+            # not in the catalogue
+            stamp = await _channel_stamp(client_id)
             chat_msg = chat.add_share(display_name, stamp, user_id=user_id) if stamp else None
         elif msg_type == "suggest":
             # Refused (None) for a channel the catalogue doesn't have
@@ -515,7 +549,7 @@ async def handle_client_message(
         else:
             content = validated.get("content", "")
             chat_msg = chat.add_message(
-                display_name, content, user_id=user_id, channel=_channel_stamp(client_id)
+                display_name, content, user_id=user_id, channel=await _channel_stamp(client_id)
             )
 
         if chat_msg:
