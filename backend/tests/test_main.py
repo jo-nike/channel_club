@@ -1,7 +1,12 @@
 """Integration tests for the main FastAPI app."""
 
+import json
+import os
+import subprocess
+import sys
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from unittest.mock import patch
 
 import httpx
@@ -228,6 +233,37 @@ def test_sec01_empty_environment_secret(monkeypatch):
     assert config.jwt_secret == ""
     with patch("app.main.settings", config), pytest.raises(RuntimeError, match="JWT_SECRET"):
         validate_auth_configuration()
+
+
+def test_importing_the_app_routes_uvicorn_startup_lines_to_json(tmp_path: Path) -> None:
+    """uvicorn logs 'Started server process' after importing the app but before
+    the lifespan runs, so logging must be configured at import (H-04)."""
+    probe = (
+        "import logging, logging.config\n"
+        "from uvicorn.config import LOGGING_CONFIG\n"
+        "logging.config.dictConfig(LOGGING_CONFIG)\n"
+        "import app.main\n"
+        "logging.getLogger('uvicorn.error').info('startup probe line')\n"
+    )
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "PYTHONPATH": str(Path(__file__).parents[1]),
+        "LOG_FORMAT": "json",
+    }
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+    )
+
+    lines = [line for line in result.stderr.splitlines() if "startup probe line" in line]
+    # How many copies appear is lane logs-tests' fix; here every copy must be JSON
+    assert lines
+    assert all(json.loads(line)["record"]["message"] == "startup probe line" for line in lines)
 
 
 def _guide_xmltv() -> str:

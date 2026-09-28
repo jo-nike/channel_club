@@ -90,7 +90,6 @@ def validate_auth_configuration() -> None:
 async def lifespan(app: FastAPI):
     """Application lifespan handler for startup/shutdown events."""
     # Startup
-    configure_logging()
     logger.info(
         "Channel Club API starting",
         version=APP_VERSION,
@@ -175,6 +174,10 @@ async def lifespan(app: FastAPI):
     # Stop all cast sessions
     await cast_service.stop_all()
 
+
+# Configure at import, before uvicorn logs 'Started server process', so every
+# line from startup on goes through the JSON sink. configure_logging is idempotent.
+configure_logging()
 
 app = FastAPI(title=f"{APP_NAME} API", version=APP_VERSION, lifespan=lifespan)
 
