@@ -26,6 +26,8 @@ ERSATZTV_XMLTV_URL = "http://192.168.50.108:8409/iptv/xmltv.xml"
 
 # Base stream: JSON-parsed channel-club logs, filtered by the dashboard variables.
 BASE = '{container="channel-club"} | json | record_extra_user=~"$user" | record_extra_view=~"$view"'
+# channel.change (the shared live channel) carries no view, so it filters on the user alone.
+USER_BASE = '{container="channel-club"} | json | record_extra_user=~"$user"'
 
 _pid = [0]
 
@@ -185,10 +187,10 @@ def timeseries(title: str, targets: list, x: int, y: int, w: int = 12, h: int = 
     }
 
 
-def event_table(title: str, event: str, columns: list[str], x: int, y: int, w: int = 12, h: int = 12, unit_overrides: dict | None = None) -> dict:
+def event_table(title: str, event: str, columns: list[str], x: int, y: int, w: int = 12, h: int = 12, unit_overrides: dict | None = None, base: str = BASE) -> dict:
     """Table of raw Loki events: the extracted log labels become columns."""
     fields = ", ".join(f"{c}=record_extra_{c}" for c in columns)
-    expr = f'{BASE} | record_extra_event="{event}" | label_format {fields} | line_format ""'
+    expr = f'{base} | record_extra_event="{event}" | label_format {fields} | line_format ""'
     keep = {"Time": True, **{c: True for c in columns}}
     overrides = []
     for name, unit in (unit_overrides or {}).items():
@@ -241,7 +243,7 @@ panels.append(timeseries(
     [loki(f'sum by (record_extra_user) (count_over_time({BASE} | record_extra_event="session.start" [1h]))', legend="{{record_extra_user}}")],
     0, y, w=12, bars=True, stack=True,
 ))
-panels.append(event_table("Shared live channel changes", "channel.change", ["user", "channel"], 12, y, w=12, h=8))
+panels.append(event_table("Shared live channel changes", "channel.change", ["user", "channel"], 12, y, w=12, h=8, base=USER_BASE))
 y += 8
 
 # ── Row: Channels ────────────────────────────────────────────

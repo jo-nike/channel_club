@@ -593,7 +593,7 @@
               "type": "loki",
               "uid": "P8E80F9AEF21F6940"
             },
-            "expr": "{container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_event=\"channel.change\" | label_format user=record_extra_user, channel=record_extra_channel | line_format \"\"",
+            "expr": "{container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_event=\"channel.change\" | label_format user=record_extra_user, channel=record_extra_channel | line_format \"\"",
             "legendFormat": "",
             "refId": "A",
             "editorMode": "code"
