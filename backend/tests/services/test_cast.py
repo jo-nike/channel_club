@@ -1,5 +1,6 @@
 """CastService lifecycle: the idle sweep and startup cleanup."""
 
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -53,3 +54,18 @@ class TestIdleSweep:
 
         assert list(service._sessions) == ["active"]
         assert process_budget.owners == {"active": 1}
+
+
+def test_startup_removes_stale_session_directories_without_a_process_scan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A restart has a fresh PID namespace: only the files are left over (G-10)."""
+    monkeypatch.setattr(settings, "cast_temp_dir", str(tmp_path))
+    (tmp_path / "old-session").mkdir()
+    (tmp_path / "old-session" / "seg_001.ts").write_bytes(b"\x47")
+
+    with patch("subprocess.run") as run:
+        CastService().cleanup_stale_sessions()
+
+    assert not list(tmp_path.iterdir())
+    run.assert_not_called()

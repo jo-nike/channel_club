@@ -8,7 +8,8 @@ Architecture:
 - One cast session per user request (session_id = UUID)
 - FFmpeg transcodes MPEG-TS to HLS segments on-demand
 - Sessions are cleaned up after timeout (no segment requests)
-- HLS streams (ErsatzTV) are returned directly without transcoding
+- HLS streams (ErsatzTV) get an ErsatzTV stream session instead: no
+  transcoding, no cast session
 """
 
 import asyncio
@@ -298,9 +299,6 @@ class CastService:
 
         Called at startup to clean up orphaned files from crashes or unclean shutdowns.
         """
-        # First kill any orphan FFmpeg processes
-        self._cleanup_orphan_processes()
-
         temp_dir = Path(settings.cast_temp_dir)
         if not temp_dir.exists():
             return
@@ -315,42 +313,6 @@ class CastService:
                 log.info("Cleaned up {} stale cast session directories", removed)
         except Exception as e:
             log.warning("Failed to cleanup stale cast sessions: {}", e)
-
-    def _cleanup_orphan_processes(self) -> None:
-        """Kill any orphan FFmpeg processes from previous runs."""
-        cast_dir = settings.cast_temp_dir
-        killed = 0
-
-        try:
-            result = subprocess.run(
-                ["pgrep", "-f", f"ffmpeg.*{cast_dir}"],
-                capture_output=True,
-                text=True,
-            )
-
-            if result.returncode == 0 and result.stdout.strip():
-                pids = result.stdout.strip().split("\n")
-                for pid_str in pids:
-                    try:
-                        pid = int(pid_str.strip())
-                        try:
-                            os.killpg(os.getpgid(pid), 15)  # SIGTERM
-                            killed += 1
-                            log.debug("Killed orphan FFmpeg process {}", pid)
-                        except ProcessLookupError:
-                            pass
-                        except PermissionError:
-                            log.warning("No permission to kill process {}", pid)
-                    except ValueError:
-                        continue
-
-                if killed:
-                    log.info("Killed {} orphan FFmpeg processes", killed)
-
-        except FileNotFoundError:
-            log.debug("pgrep not available, skipping orphan process cleanup")
-        except Exception as e:
-            log.warning("Failed to cleanup orphan processes: {}", e)
 
     async def create_session(
         self, channel_id: str, stream_url: str, stream_type: str, owner: str = "system"

@@ -471,7 +471,7 @@ async function startCasting(
       // MPEG-TS streams need backend transcoding
       logger.debug('Cast', 'Creating backend transcoding session', { channelId, streamType })
 
-      const castSession = await createCastSession(channelId, streamType, streamUrl)
+      const castSession = await createCastSession(channelId, streamType)
       ownedSessionId = castSession.session_id
       ownedSessions.add(ownedSessionId)
       if (!isCurrent()) { await releaseSession(ownedSessionId); return }
