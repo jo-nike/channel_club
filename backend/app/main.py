@@ -86,6 +86,11 @@ def validate_auth_configuration() -> None:
         )
 
 
+# Shutdown teardown's budget, after uvicorn's own graceful timeout (Dockerfile)
+# and inside the compose stop_grace_period.
+SHUTDOWN_DEADLINE_SECONDS = 8
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler for startup/shutdown events."""
@@ -164,19 +169,38 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown
     logger.info("Channel Club API shutting down")
-    # Cancel the warmup if a restart lands mid-fetch, rather than tearing the
-    # loop down with a pending task.
-    app.state.warmup_task.cancel()
-    with suppress(asyncio.CancelledError):
-        await app.state.warmup_task
-    await plex.stop_server_owner_lookup()
     presence.stop_cleanup_task()
     presence_broadcast.cancel_pending()
-    # Stop idle cleanup task and all highlight recorders
-    highlight_service.stop_idle_cleanup_task()
-    await highlight_service.stop_all()
-    # Stop all cast sessions
-    await cast_service.stop_all()
+
+    async def _stop_warmup() -> None:
+        # Cancel the warmup if a restart lands mid-fetch, rather than tearing the
+        # loop down with a pending task.
+        app.state.warmup_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await app.state.warmup_task
+
+    async def _stop_highlights() -> None:
+        # The sweep may be mid-stop; let it finish before stopping the rest.
+        await highlight_service.stop_idle_cleanup_task()
+        await highlight_service.stop_all()
+
+    # Teardowns run concurrently under one deadline that fits Docker's stop
+    # grace period. A new teardown is one more entry in this list.
+    teardowns = [
+        _stop_warmup(),
+        plex.stop_server_owner_lookup(),
+        _stop_highlights(),
+        cast_service.stop_all(),
+    ]
+    try:
+        async with asyncio.timeout(SHUTDOWN_DEADLINE_SECONDS):
+            results = await asyncio.gather(*teardowns, return_exceptions=True)
+    except TimeoutError:
+        logger.warning("Shutdown teardown cut off at its {}s deadline", SHUTDOWN_DEADLINE_SECONDS)
+    else:
+        for result in results:
+            if isinstance(result, BaseException):
+                logger.warning("Shutdown teardown failed: {!r}", result)
 
 
 # Configure at import, before uvicorn logs 'Started server process', so every
