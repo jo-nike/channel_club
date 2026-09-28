@@ -12,7 +12,7 @@ frontend/src/types/ws.ts mirrors them).
 
 from typing import Annotated, Any, Literal, TypedDict
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from app.models.admin import AppSettings
 from app.models.channel import Channel
@@ -198,6 +198,8 @@ class ServerError(BaseModel):
     code: Literal["invalid_message", "rate_limited", "nickname_taken"]
     # The nickname as sent, on rate_limited and nickname_taken for set_nickname
     nickname: str | None = Field(default=None, exclude_if=_is_none)
+    # On invalid_message, the request's own id when it sent a valid one (see echoed_client_id)
+    clientMessageId: str | None = Field(default=None, exclude_if=_is_none)
 
 
 ServerMessage = Annotated[
@@ -213,6 +215,21 @@ ServerMessage = Annotated[
     Field(discriminator="type"),
 ]
 server_message_adapter: TypeAdapter[ServerMessage] = TypeAdapter(ServerMessage)
+_client_message_id_adapter: TypeAdapter[str] = TypeAdapter(ClientMessageId)
+
+
+def echoed_client_id(message: object) -> str | None:
+    """The clientMessageId of a message that failed validation, if it is one the client could send.
+
+    Only a string within the ClientMessageId bounds comes back, so an invalid
+    message can't make the server echo anything else.
+    """
+    if not isinstance(message, dict):
+        return None
+    try:
+        return _client_message_id_adapter.validate_python(message.get("clientMessageId"))
+    except ValidationError:
+        return None
 
 
 def server_payload(message: ServerMessage) -> dict[str, Any]:

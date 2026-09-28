@@ -1101,6 +1101,31 @@ class TestPresenceKeys:
 class TestChatMessages:
     """Tests for chat message functionality."""
 
+    def test_invalid_send_names_its_client_message_id(self, client: TestClient, valid_token: str):
+        """The refused send's id comes back, so the client settles it as not sent at once."""
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # connection_ack
+            ws.send_json({"type": "chat_message", "content": "x" * 4097, "clientMessageId": "c1"})
+
+            assert ws.receive_json() == {
+                "type": "error",
+                "code": "invalid_message",
+                "clientMessageId": "c1",
+            }
+
+    @pytest.mark.parametrize("client_message_id", ["x" * 65, 7, "", None])
+    def test_invalid_send_echoes_no_id_it_could_not_have_sent(
+        self, client: TestClient, valid_token: str, client_message_id: object
+    ):
+        """An oversize, empty or non-string id is never echoed."""
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # connection_ack
+            ws.send_json(
+                {"type": "chat_message", "content": 5, "clientMessageId": client_message_id}
+            )
+
+            assert ws.receive_json() == {"type": "error", "code": "invalid_message"}
+
     def test_chat_message_broadcast_when_enabled(
         self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
     ):

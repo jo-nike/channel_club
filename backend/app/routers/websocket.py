@@ -28,6 +28,7 @@ from app.models.websocket import (
     ServerPong,
     You,
     client_message_adapter,
+    echoed_client_id,
 )
 from app.services import app_settings, channel_state, chat, presence, presence_broadcast
 from app.services.auth import verify_token
@@ -640,8 +641,12 @@ async def handle_client_message(
     try:
         validated = client_message_adapter.validate_python(message).model_dump()
     except ValidationError:
+        # Names the send it refuses, so the client can settle it as not sent at once
         await channel_state.send_message(
-            websocket, ServerError(type="error", code="invalid_message")
+            websocket,
+            ServerError(
+                type="error", code="invalid_message", clientMessageId=echoed_client_id(message)
+            ),
         )
         return
 
