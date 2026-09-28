@@ -131,10 +131,24 @@ describe('app updates', () => {
       wb.fire('controlling', { isUpdate: true })
       expect(reload).not.toHaveBeenCalled()
 
-      // The viewer chooses Reload later
+      // The viewer chooses Reload later. The new worker is already active, so
+      // skipWaiting would do nothing and no second takeover arrives
+      const options = vi.mocked(toast).mock.calls[0][1] as { action: { onClick: () => void } }
+      options.action.onClick()
+      expect(wb.messageSkipWaiting).not.toHaveBeenCalled()
+      expect(reload).toHaveBeenCalledTimes(1)
+    })
+
+    it('applies the update when a playing tab chooses Reload before any tab applied it', () => {
+      addVideo({ playing: true })
+      const { wb, reload } = wire()
+
+      wb.fire('waiting')
       const options = vi.mocked(toast).mock.calls[0][1] as { action: { onClick: () => void } }
       options.action.onClick()
       expect(wb.messageSkipWaiting).toHaveBeenCalledTimes(1)
+      expect(reload).not.toHaveBeenCalled()
+
       wb.fire('controlling', { isUpdate: true })
       expect(reload).toHaveBeenCalledTimes(1)
     })

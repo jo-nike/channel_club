@@ -25,6 +25,8 @@ let registration: ServiceWorkerRegistration | null = null
 let checkTimer: ReturnType<typeof setInterval> | null = null
 // This tab asked the waiting worker to take over (automatically or by Reload)
 let updateRequested = false
+// A new worker took control without reloading this tab, so Reload has nothing left to apply
+let tookOver = false
 
 /** Ask the browser to look for a new service worker now. */
 export function checkForAppUpdate(): void {
@@ -81,7 +83,13 @@ type ServiceWorkerEvents = Pick<Workbox, 'addEventListener' | 'messageSkipWaitin
 export function handleServiceWorkerUpdates(wb: ServiceWorkerEvents, reload: () => void = () => window.location.reload()): void {
   wb.addEventListener('waiting', () => {
     logger.info('PWA', 'New app version available')
+    tookOver = false
     offerAppUpdate(() => {
+      // Another tab already applied it: skipWaiting would find no waiting worker
+      if (tookOver) {
+        reload()
+        return Promise.resolve()
+      }
       updateRequested = true
       wb.messageSkipWaiting()
       return Promise.resolve()
@@ -90,6 +98,7 @@ export function handleServiceWorkerUpdates(wb: ServiceWorkerEvents, reload: () =
   wb.addEventListener('controlling', (event) => {
     if (!event.isUpdate) return
     if (updateRequested || !isPlaybackActive()) reload()
+    else tookOver = true
   })
   wb.addEventListener('installed', (event) => {
     if (!event.isUpdate && !event.isExternal) logger.info('PWA', 'App ready to work offline')
@@ -113,4 +122,5 @@ export function resetAppUpdate(): void {
   checkTimer = null
   registration = null
   updateRequested = false
+  tookOver = false
 }
