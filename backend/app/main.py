@@ -29,6 +29,7 @@ from app.services.cached_fetch import aclose_all_caches
 from app.services.cast import cast_service
 from app.services.dispatcharr import (
     DispatchrrUnavailableError,
+    catalogue_failing,
     get_grouped_channels,
 )
 from app.services.epg_service import get_epg_service
@@ -264,6 +265,28 @@ async def health_check() -> dict[str, str]:
         "version": APP_VERSION,
         "buildId": settings.app_build_id,
         "revision": settings.app_revision,
+    }
+
+
+@app.get("/api/health/deps")
+async def health_deps() -> dict[str, str | None]:
+    """Coarse upstream readiness for the uptime monitor, from local state only.
+
+    Public, so it carries no URLs, error text or counts, and it never contacts
+    an upstream. The Docker healthcheck stays on /api/health: an upstream outage
+    must not get this container restarted.
+    """
+    guide = get_epg_service().get_health()
+    if not guide.online:
+        epg = "failing"
+    elif guide.stale:
+        epg = "stale"
+    else:
+        epg = "ok"
+    return {
+        "epg": epg,
+        "epgLastSuccess": guide.last_success_at.isoformat() if guide.last_success_at else None,
+        "dispatcharr": "failing" if catalogue_failing() else "ok",
     }
 
 
