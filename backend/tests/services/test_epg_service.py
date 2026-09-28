@@ -62,7 +62,7 @@ class TestParseXmltv:
         </tv>
         """
 
-        result, _ = service._parse_xmltv(xml_content)
+        result, _, _ = service._parse_xmltv(xml_content)
 
         assert "uuid-abc123" in result
         assert len(result["uuid-abc123"]) == 1
@@ -84,7 +84,7 @@ class TestParseXmltv:
         </tv>
         """
 
-        result, _ = service._parse_xmltv(xml_content)
+        result, _, _ = service._parse_xmltv(xml_content)
 
         assert len(result["uuid-abc123"]) == 2
         # Programs should be sorted by start time
@@ -105,7 +105,7 @@ class TestParseXmltv:
         </tv>
         """
 
-        result, _ = service._parse_xmltv(xml_content)
+        result, _, _ = service._parse_xmltv(xml_content)
 
         assert "channel-1" in result
         assert "channel-2" in result
@@ -123,7 +123,7 @@ class TestParseXmltv:
         </tv>
         """
 
-        result, _ = service._parse_xmltv(xml_content)
+        result, _, _ = service._parse_xmltv(xml_content)
 
         assert result["uuid-abc123"][0].description is None
 
@@ -135,7 +135,7 @@ class TestParseXmltv:
         </tv>
         """
 
-        result, _ = service._parse_xmltv(xml_content)
+        result, _, _ = service._parse_xmltv(xml_content)
 
         assert result == {}
 
@@ -157,7 +157,7 @@ class TestParseXmltv:
         </tv>
         """
 
-        result, _ = service._parse_xmltv(xml_content)
+        result, _, _ = service._parse_xmltv(xml_content)
 
         assert result == {}
 
@@ -417,6 +417,21 @@ def _on_air(title: str, now: datetime) -> list[Program]:
     ]
 
 
+def _numbering_service(id_names: set[str] | None) -> EPGService:
+    """Guide id 28 and the name 'CA-S: TSN 5' (XMLTV id tsn5.ca) both have programmes.
+
+    id_names are the feed's display names for id 28; None means the feed has none.
+    """
+    service = EPGService("http://test:9191")
+    now = datetime.now(UTC)
+    service._cache = {"28": _on_air("By Id", now), "tsn5.ca": _on_air("By Name", now)}
+    service._channel_names = {"ca-s: tsn 5": "tsn5.ca"}
+    if id_names is not None:
+        service._channel_display_names = {"28": id_names}
+    service._cache_expires = now + timedelta(hours=1)
+    return service
+
+
 class TestChannelNameFallback:
     """Tests for matching a channel name to XMLTV display names when the guide id misses."""
 
@@ -445,9 +460,10 @@ class TestChannelNameFallback:
         </tv>
         """
 
-        _, channel_names = service._parse_xmltv(xml_content)
+        _, channel_names, display_names = service._parse_xmltv(xml_content)
 
         assert channel_names == {"ca-s: tsn 5": "28", "tsn5": "28", "sportsnet": "29"}
+        assert display_names == {"28": {"ca-s: tsn 5", "tsn5"}, "29": {"ca-s: tsn 5", "sportsnet"}}
 
     @pytest.mark.asyncio
     async def test_name_fallback_returns_that_channels_programmes(
@@ -487,15 +503,39 @@ class TestChannelNameFallback:
         assert result.next_program.title == "Post-game"
 
     @pytest.mark.asyncio
-    async def test_exact_guide_id_wins_over_name(self) -> None:
-        """The name map is only consulted when the guide id has no programmes."""
-        service = EPGService("http://test:9191")
-        now = datetime.now(UTC)
-        service._cache = {"28": _on_air("By Id", now), "tsn5.ca": _on_air("By Name", now)}
-        service._channel_names = {"ca-s: tsn 5": "tsn5.ca"}
-        service._cache_expires = now + timedelta(hours=1)
+    @pytest.mark.parametrize("id_names", [None, {"ca-s: tsn 5"}])
+    async def test_guide_id_wins_when_its_name_matches_or_is_unknown(
+        self, id_names: set[str] | None
+    ) -> None:
+        """The id keeps its programmes when the feed gives it the same name or none."""
+        service = _numbering_service(id_names)
 
         result = await service.get_now_playing("28", channel_name="CA-S: TSN 5")
+
+        assert result.current_program is not None
+        assert result.current_program.title == "By Id"
+
+    @pytest.mark.asyncio
+    async def test_name_wins_when_the_feed_names_the_id_as_another_channel(self) -> None:
+        """A guide id the feed calls a different channel yields to the name's channel."""
+        service = _numbering_service({"cbc"})
+
+        result = await service.get_now_playing("28", channel_name="CA-S: TSN 5")
+
+        assert result.current_program is not None
+        assert result.current_program.title == "By Name"
+
+    @pytest.mark.asyncio
+    async def test_a_name_variant_that_matches_no_other_channel_keeps_the_id(self) -> None:
+        """'CBC' in the catalogue against 'CBC HD' in the feed is not a numbering mismatch."""
+        service = EPGService("http://test:9191")
+        now = datetime.now(UTC)
+        service._cache = {"7": _on_air("By Id", now)}
+        service._channel_names = {"cbc hd": "7"}
+        service._channel_display_names = {"7": {"cbc hd"}}
+        service._cache_expires = now + timedelta(hours=1)
+
+        result = await service.get_now_playing("7", channel_name="CBC")
 
         assert result.current_program is not None
         assert result.current_program.title == "By Id"
@@ -668,17 +708,43 @@ class TestGetNowPlayingBulkNameFallback:
         assert result["tsn5.ca"].title == "Hockey Night"
 
     @pytest.mark.asyncio
-    async def test_exact_guide_id_wins_over_name(self) -> None:
-        """The name map is only consulted when the guide id has no programmes."""
-        service = EPGService("http://test:9191")
-        now = datetime.now(UTC)
-        service._cache = {"28": _on_air("By Id", now), "tsn5.ca": _on_air("By Name", now)}
-        service._channel_names = {"ca-s: tsn 5": "tsn5.ca"}
-        service._cache_expires = now + timedelta(hours=1)
+    @pytest.mark.parametrize("id_names", [None, {"ca-s: tsn 5"}])
+    async def test_guide_id_wins_when_its_name_matches_or_is_unknown(
+        self, id_names: set[str] | None
+    ) -> None:
+        service = _numbering_service(id_names)
 
         result = await service.get_now_playing_bulk([_catalogue_channel("28", "CA-S: TSN 5")])
 
         assert result["28"].title == "By Id"
+
+    @pytest.mark.asyncio
+    async def test_name_wins_when_the_feed_names_the_id_as_another_channel(self) -> None:
+        """A raw XMLTV id no longer pre-empts the catalogue channel that claims it."""
+        service = _numbering_service({"cbc"})
+
+        result = await service.get_now_playing_bulk([_catalogue_channel("28", "CA-S: TSN 5")])
+
+        assert result["28"].title == "By Name"
+        # XMLTV ids no catalogue channel claims are still filled in
+        assert result["tsn5.ca"].title == "By Name"
+
+    @pytest.mark.asyncio
+    async def test_claimed_id_with_nothing_on_air_is_not_filled_by_the_raw_id(self) -> None:
+        """A catalogue channel resolved elsewhere never shows the raw id's programme."""
+        service = _numbering_service({"cbc"})
+        now = datetime.now(UTC)
+        service._cache["tsn5.ca"] = [
+            Program(
+                title="Later",
+                start_time=now + timedelta(hours=2),
+                end_time=now + timedelta(hours=3),
+            )
+        ]
+
+        result = await service.get_now_playing_bulk([_catalogue_channel("28", "CA-S: TSN 5")])
+
+        assert "28" not in result
 
     @pytest.mark.asyncio
     async def test_guide_id_with_nothing_on_air_does_not_fall_back(self) -> None:
@@ -826,17 +892,23 @@ class TestGetProgrammes:
         assert [p.title for p in result.programmes] == ["Hockey Night", "Post-game"]
 
     @pytest.mark.asyncio
-    async def test_exact_guide_id_wins_over_name(self) -> None:
-        """The name map is only consulted when the guide id has no programmes."""
-        service = EPGService("http://test:9191")
-        now = datetime.now(UTC)
-        service._cache = {"28": _on_air("By Id", now), "tsn5.ca": _on_air("By Name", now)}
-        service._channel_names = {"ca-s: tsn 5": "tsn5.ca"}
-        service._cache_expires = now + timedelta(hours=1)
+    @pytest.mark.parametrize("id_names", [None, {"ca-s: tsn 5"}])
+    async def test_guide_id_wins_when_its_name_matches_or_is_unknown(
+        self, id_names: set[str] | None
+    ) -> None:
+        service = _numbering_service(id_names)
 
         result = await service.get_programmes("28", hours=12, channel_name="CA-S: TSN 5")
 
         assert [p.title for p in result.programmes] == ["By Id"]
+
+    @pytest.mark.asyncio
+    async def test_name_wins_when_the_feed_names_the_id_as_another_channel(self) -> None:
+        service = _numbering_service({"cbc"})
+
+        result = await service.get_programmes("28", hours=12, channel_name="CA-S: TSN 5")
+
+        assert [p.title for p in result.programmes] == ["By Name"]
 
     @pytest.mark.asyncio
     async def test_raises_when_no_cache_and_refresh_fails(self) -> None:

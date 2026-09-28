@@ -53,6 +53,8 @@ class EPGService:
         self._cache: dict[str, list[Program]] = {}  # channel_id -> list of programs
         # normalised XMLTV display-name -> channel_id, replaced together with _cache
         self._channel_names: dict[str, str] = {}
+        # channel_id -> its normalised XMLTV display names, replaced together with _cache
+        self._channel_display_names: dict[str, set[str]] = {}
         self._cache_expires: datetime | None = None
         # A backstop: a renumbering in the catalogue expires the guide sooner
         self._cache_ttl = timedelta(hours=4)
@@ -138,8 +140,8 @@ class EPGService:
 
     def _parse_xmltv(
         self, xml_content: str | bytes
-    ) -> tuple[dict[str, list[Program]], dict[str, str]]:
-        """Parse XMLTV XML content into channel->programs and name->channel mappings.
+    ) -> tuple[dict[str, list[Program]], dict[str, str], dict[str, set[str]]]:
+        """Parse XMLTV XML content into channel->programs and name<->channel mappings.
 
         Args:
             xml_content: Raw XML from Dispatcharr's /output/epg. Bytes are decoded
@@ -147,11 +149,13 @@ class EPGService:
 
         Returns:
             Tuple of (dict mapping channel_id to list of Program objects,
-            dict mapping normalised display-name to channel_id). When two
-            channels share a display name, the first one in the feed wins.
+            dict mapping normalised display-name to channel_id, dict mapping
+            channel_id to its normalised display names). When two channels
+            share a display name, the first one in the feed wins the name map.
         """
         programs_by_channel: dict[str, list[Program]] = {}
         channel_names: dict[str, str] = {}
+        display_names: dict[str, set[str]] = {}
 
         try:
             root = ElementTree.fromstring(xml_content)
@@ -162,9 +166,9 @@ class EPGService:
                     continue
                 for display_name in channel.findall("display-name"):
                     if display_name.text and display_name.text.strip():
-                        channel_names.setdefault(
-                            normalise_channel_name(display_name.text), xmltv_id
-                        )
+                        name = normalise_channel_name(display_name.text)
+                        channel_names.setdefault(name, xmltv_id)
+                        display_names.setdefault(xmltv_id, set()).add(name)
 
             for programme in root.findall("programme"):
                 channel_id = programme.get("channel")
@@ -203,7 +207,7 @@ class EPGService:
             log.error("Failed to parse XMLTV: {}", e)
             raise EPGServiceError(f"Failed to parse XMLTV data: {e}") from e
 
-        return programs_by_channel, channel_names
+        return programs_by_channel, channel_names, display_names
 
     async def refresh_cache(self) -> bool:
         """Fetch XMLTV from Dispatcharr and parse into cache.
@@ -227,10 +231,13 @@ class EPGService:
 
                 # Parse in a thread pool - ElementTree over the whole XMLTV
                 # feed is CPU-bound and would otherwise block the event loop
-                programs, channel_names = await asyncio.to_thread(self._parse_xmltv, body)
-                # Swap both maps with no await between, so no lookup sees a mix
+                programs, channel_names, display_names = await asyncio.to_thread(
+                    self._parse_xmltv, body
+                )
+                # Swap the maps with no await between, so no lookup sees a mix
                 self._cache = programs
                 self._channel_names = channel_names
+                self._channel_display_names = display_names
                 self._cache_expires = datetime.now(UTC) + self._cache_ttl
                 self._last_success_at = datetime.now(UTC)
                 self._last_error = None
@@ -410,7 +417,13 @@ class EPGService:
     def _resolve_programs(
         self, channel_id: str, channel_name: str | None
     ) -> tuple[list[Program], str | None]:
-        """Find a channel's programmes by guide id, then by name when the id has none.
+        """Find a channel's programmes by guide id, or by name when the id is wrong.
+
+        The name is used when the guide id has no programmes, and also when the
+        feed's display names for the guide id do not include the name while the
+        name belongs to a different XMLTV channel: the feed's numbering then
+        disagrees with the catalogue's. A name merely differing from the id's
+        display names ('CBC' vs 'CBC HD') keeps the id.
 
         Args:
             channel_id: Guide id of the channel.
@@ -418,14 +431,20 @@ class EPGService:
 
         Returns:
             Tuple of (programmes, XMLTV id matched by name). The XMLTV id is None
-            unless the name fallback was used.
+            unless the name was used.
         """
         programs = self._cache.get(channel_id, [])
-        if programs or not channel_name:
+        if not channel_name:
             return programs, None
 
-        xmltv_id = self._channel_names.get(normalise_channel_name(channel_name))
-        if xmltv_id is None:
+        name = normalise_channel_name(channel_name)
+        if programs:
+            id_names = self._channel_display_names.get(channel_id)
+            if not id_names or name in id_names:
+                return programs, None
+
+        xmltv_id = self._channel_names.get(name)
+        if xmltv_id is None or xmltv_id == channel_id:
             return programs, None
         return self._cache.get(xmltv_id, []), xmltv_id
 
@@ -434,10 +453,11 @@ class EPGService:
     ) -> EPGResponse:
         """Get current and next program for a channel.
 
-        The guide id is tried first. Only when it has no programmes is the
-        channel name matched against the XMLTV display names, which covers a
-        feed keyed differently from the guide id (another tvg_id_source, or a
-        profile's own channel numbering).
+        The guide id is tried first. The channel name is matched against the
+        XMLTV display names when the id has no programmes or when the feed names
+        the id as a different channel, which covers a feed keyed differently
+        from the guide id (another tvg_id_source, or a profile's own channel
+        numbering).
 
         Args:
             channel_id: Guide id of the channel to look up.
@@ -454,7 +474,7 @@ class EPGService:
         programs, xmltv_id = self._resolve_programs(channel_id, channel_name)
         if xmltv_id is not None:
             log.debug(
-                "Guide id {} missed; matched channel name {!r} to XMLTV id {}",
+                "Guide id {} resolved by channel name {!r} to XMLTV id {}",
                 channel_id,
                 channel_name,
                 xmltv_id,
@@ -482,7 +502,7 @@ class EPGService:
 
         The channel is resolved like get_now_playing: guide id first, then the
         channel name against the XMLTV display names when the id has no
-        programmes.
+        programmes or the feed names it as a different channel.
 
         Args:
             channel_id: Guide id of the channel to look up.
@@ -501,7 +521,7 @@ class EPGService:
         programs, xmltv_id = self._resolve_programs(channel_id, channel_name)
         if xmltv_id is not None:
             log.debug(
-                "Guide id {} missed; matched channel name {!r} to XMLTV id {}",
+                "Guide id {} resolved by channel name {!r} to XMLTV id {}",
                 channel_id,
                 channel_name,
                 xmltv_id,
@@ -526,17 +546,19 @@ class EPGService:
         The whole XMLTV feed is already cached in memory, so this is a scan over
         local data rather than one upstream call per channel.
 
-        Each of the given catalogue channels is also resolved the way
-        get_now_playing resolves it (guide id first, then its name against the
-        XMLTV display names), so a feed keyed differently from the guide ids
-        still yields an entry under each channel's guide id.
+        Each of the given catalogue channels is resolved first, the way
+        get_now_playing resolves it (guide id, then its name against the XMLTV
+        display names), so a feed keyed differently from the guide ids still
+        yields the right entry under each channel's guide id. Raw XMLTV ids
+        fill in only the keys no catalogue channel claims.
 
         Args:
             channels: Catalogue channels to key by guide id.
 
         Returns:
-            Mapping of XMLTV channel id, and of each given channel's guide id, to
-            its current program. Channels with nothing on air are omitted.
+            Mapping of each given channel's guide id, and of every other XMLTV
+            channel id, to its current program. Channels with nothing on air are
+            omitted.
 
         Raises:
             EPGServiceError: If cache is empty and refresh fails.
@@ -545,21 +567,21 @@ class EPGService:
 
         now = datetime.now(UTC)
         now_playing: dict[str, Program] = {}
-
-        for channel_id, programs in self._cache.items():
-            current_program, _ = self._find_current_and_next(programs, now)
-            if current_program is not None:
-                now_playing[channel_id] = current_program
+        claimed: set[str] = set()
 
         for channel in channels:
-            if channel.guide_id in now_playing:
-                continue
-            programs, xmltv_id = self._resolve_programs(channel.guide_id, channel.name)
-            if xmltv_id is None:
-                continue
+            claimed.add(channel.guide_id)
+            programs, _ = self._resolve_programs(channel.guide_id, channel.name)
             current_program, _ = self._find_current_and_next(programs, now)
             if current_program is not None:
                 now_playing[channel.guide_id] = current_program
+
+        for channel_id, programs in self._cache.items():
+            if channel_id in claimed:
+                continue
+            current_program, _ = self._find_current_and_next(programs, now)
+            if current_program is not None:
+                now_playing[channel_id] = current_program
 
         log.debug("Bulk now-playing: {} of {} channels on air", len(now_playing), len(self._cache))
         return now_playing
