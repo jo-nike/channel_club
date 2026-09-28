@@ -81,10 +81,13 @@ COPY --from=frontend-build /app/frontend/dist ./static
 
 # Run as a non-root user (Trivy DS-0002). The highlight and cast features write
 # to their temp dirs, so create them up front owned by appuser rather than
-# relying on the app to mkdir them at runtime.
+# relying on the app to mkdir them at runtime. /data holds the state file
+# (admin settings and Live); compose mounts a named volume there, which Docker
+# seeds from this directory with its ownership.
 RUN useradd --create-home --uid 10001 appuser \
-    && mkdir -p /tmp/highlights /tmp/cast_hls \
-    && chown -R appuser:appuser /app /tmp/highlights /tmp/cast_hls
+    && mkdir -p /tmp/highlights /tmp/cast_hls /data \
+    && chown -R appuser:appuser /app /tmp/highlights /tmp/cast_hls /data
+ENV STATE_FILE=/data/state.json
 USER appuser
 
 # Expose port 8080
