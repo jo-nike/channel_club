@@ -6,9 +6,9 @@ import { DEFAULT_THEME_ID, getTheme } from '@/lib/themes'
 import { toHex } from '@/lib/color'
 
 const html = readFileSync('index.html', 'utf8')
-const match = /<script>([\s\S]*?)<\/script>/.exec(html)
-if (!match) throw new Error('index.html has no inline theme boot script')
-const [scriptTag, script] = match
+const scriptTag = '<script src="/theme-boot.js"></script>'
+if (!html.includes(scriptTag)) throw new Error('index.html does not load the theme boot script')
+const script = readFileSync('public/theme-boot.js', 'utf8')
 const metaMatch = /<meta name="theme-color" content="([^"]*)">/.exec(html)
 if (!metaMatch) throw new Error('index.html has no static theme-color meta')
 const [metaTag, staticThemeColor] = metaMatch
