@@ -24,6 +24,7 @@ from pathlib import Path
 from loguru import logger
 
 from app.config import settings
+from app.models.channel import Channel
 from app.services import stream_sessions
 from app.services.highlight import RECORDER_RW_TIMEOUT_MICROSECONDS
 from app.services.media_limits import process_budget
@@ -36,14 +37,41 @@ def monotonic() -> float:
     return time.monotonic()
 
 
+def ffmpeg_input_args(stream_url: str) -> list[str]:
+    """FFmpeg's input options for a cast source (a test swaps in a local file)."""
+    return [
+        "-reconnect",
+        "1",
+        "-reconnect_streamed",
+        "1",
+        "-reconnect_delay_max",
+        "5",
+        "-rw_timeout",
+        str(RECORDER_RW_TIMEOUT_MICROSECONDS),  # A silent upstream ends FFmpeg
+        "-protocol_whitelist",
+        "http,https,tcp,tls,crypto",
+        "-i",
+        stream_url,
+    ]
+
+
 class CastSession:
     """Manages FFmpeg HLS transcoding for a single cast session."""
 
-    def __init__(self, session_id: str, channel_id: str, stream_url: str, stream_type: str):
+    def __init__(
+        self,
+        session_id: str,
+        channel_id: str,
+        stream_url: str,
+        stream_type: str,
+        follows_live: bool = False,
+    ):
         self.session_id = session_id
         self.channel_id = channel_id
         self.stream_url = stream_url
         self.stream_type = stream_type  # 'hls' or 'mpegts'
+        # A cast of the Live slot moves with Live and stops with it
+        self.follows_live = follows_live
         self.process: subprocess.Popen | None = None
         self.output_dir: Path | None = None
         self.started_at: float = 0
@@ -60,11 +88,62 @@ class CastSession:
         return self.process is not None and self.process.poll() is None
 
     @property
+    def busy(self) -> bool:
+        """True while a start, switch or stop holds the session."""
+        return self._lock.locked()
+
+    @property
     def playlist_path(self) -> Path | None:
         """Get path to the HLS playlist file."""
         if self.output_dir:
             return self.output_dir / "playlist.m3u8"
         return None
+
+    def _ffmpeg_command(self, output_dir: Path, *, switching: bool) -> list[str]:
+        """FFmpeg's command for this session's source, writing HLS into output_dir.
+
+        A stopped FFmpeg never writes #EXT-X-ENDLIST (omit_endlist), or the
+        receiver would end playback mid-switch. append_list carries on the
+        existing playlist, its media sequence and segment numbers, so a switch
+        never rewrites a segment; discont_start marks the new source's first one.
+        """
+        flags = "delete_segments+append_list+omit_endlist"
+        if switching:
+            flags += "+discont_start"
+        return [
+            "ffmpeg",
+            "-y",  # Overwrite output files
+            "-hide_banner",
+            "-loglevel",
+            "warning",
+            *ffmpeg_input_args(self.stream_url),
+            "-c:v",
+            "copy",  # No video re-encoding (fast)
+            "-c:a",
+            "aac",  # Re-encode audio to AAC (Chromecast compatible)
+            "-b:a",
+            "128k",  # Audio bitrate
+            "-f",
+            "hls",
+            "-hls_time",
+            str(settings.cast_hls_segment_time),
+            "-hls_list_size",
+            str(settings.cast_hls_list_size),
+            "-hls_flags",
+            flags,
+            "-hls_segment_filename",
+            str(output_dir / "seg_%03d.ts"),
+            str(output_dir / "playlist.m3u8"),
+        ]
+
+    @staticmethod
+    def _spawn(cmd: list[str]) -> subprocess.Popen:
+        return subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,  # Safe from worker threads; no undrained pipes
+        )
 
     async def start(self) -> str | None:
         """Start FFmpeg HLS transcoding.
@@ -81,46 +160,7 @@ class CastSession:
             self.output_dir = Path(settings.cast_temp_dir) / self.session_id
             self.output_dir.mkdir(parents=True, exist_ok=True)
 
-            # Build FFmpeg command for HLS output
-            playlist_path = str(self.output_dir / "playlist.m3u8")
-            segment_pattern = str(self.output_dir / "seg_%03d.ts")
-
-            cmd = [
-                "ffmpeg",
-                "-y",  # Overwrite output files
-                "-hide_banner",
-                "-loglevel",
-                "warning",
-                "-reconnect",
-                "1",
-                "-reconnect_streamed",
-                "1",
-                "-reconnect_delay_max",
-                "5",
-                "-rw_timeout",
-                str(RECORDER_RW_TIMEOUT_MICROSECONDS),  # A silent upstream ends FFmpeg
-                "-protocol_whitelist",
-                "http,https,tcp,tls,crypto",
-                "-i",
-                self.stream_url,
-                "-c:v",
-                "copy",  # No video re-encoding (fast)
-                "-c:a",
-                "aac",  # Re-encode audio to AAC (Chromecast compatible)
-                "-b:a",
-                "128k",  # Audio bitrate
-                "-f",
-                "hls",
-                "-hls_time",
-                str(settings.cast_hls_segment_time),
-                "-hls_list_size",
-                str(settings.cast_hls_list_size),
-                "-hls_flags",
-                "delete_segments+append_list",
-                "-hls_segment_filename",
-                segment_pattern,
-                playlist_path,
-            ]
+            cmd = self._ffmpeg_command(self.output_dir, switching=False)
 
             log.info(
                 "Starting FFmpeg HLS transcoding for cast session {} (channel {})",
@@ -130,12 +170,7 @@ class CastSession:
             log.debug("FFmpeg command: {}", " ".join(cmd))
 
             try:
-                self.process = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    start_new_session=True,  # Safe from worker threads; no undrained pipes
-                )
+                self.process = self._spawn(cmd)
                 self.started_at = time.time()
                 self.last_activity = monotonic()
 
@@ -165,6 +200,58 @@ class CastSession:
             except Exception as e:
                 log.error("Failed to start FFmpeg for cast session {}: {}", self.session_id, e)
                 return None
+
+    async def switch_source(self, channel_id: str, stream_url: str) -> bool:
+        """Move this transcode to another source, keeping its id, directory and playlist.
+
+        The receiver keeps fetching the same playlist: after a short stall it
+        plays the new channel's segments, which follow a discontinuity.
+
+        Returns:
+            True once the new FFmpeg has written to the playlist. False if the
+            session has stopped or the new FFmpeg failed; the caller stops it.
+        """
+        async with self._lock:
+            output_dir = self.output_dir
+            playlist = self.playlist_path
+            if output_dir is None or playlist is None:
+                return False
+            if self.process:
+                process = self.process
+                self.process = None
+                await asyncio.to_thread(self._terminate_process, process)
+            self.channel_id = channel_id
+            self.stream_url = stream_url
+
+            def written() -> tuple[int, int] | None:
+                with suppress(FileNotFoundError):
+                    stat = playlist.stat()
+                    return stat.st_ino, stat.st_mtime_ns
+                return None
+
+            before = written()
+            try:
+                # No await before the assignment: a stop mid-switch must find it
+                self.process = self._spawn(self._ffmpeg_command(output_dir, switching=True))
+            except Exception as e:
+                log.error("Failed to start FFmpeg for cast session {}: {}", self.session_id, e)
+                return False
+
+            # Wait for the new FFmpeg to write to the playlist (up to 10 seconds)
+            for _ in range(20):
+                await asyncio.sleep(0.5)
+                if not self.is_running:
+                    log.error(
+                        "FFmpeg failed for cast session {} on channel {}: exit status {}",
+                        self.session_id,
+                        channel_id,
+                        self.process.returncode,
+                    )
+                    return False
+                if written() != before:
+                    return True
+            log.error("FFmpeg did not write the playlist for session {}", self.session_id)
+            return False
 
     @staticmethod
     def _terminate_process(process: subprocess.Popen) -> None:
@@ -277,6 +364,8 @@ class CastService:
 
         # Find idle sessions
         for session_id, session in list(self._sessions.items()):
+            if session.busy:
+                continue  # Starting or switching sources: not running is expected
             if session.stream_type == "mpegts" and not session.is_running:
                 idle_sessions.append(session_id)
             elif session.last_activity > 0:
@@ -315,7 +404,12 @@ class CastService:
             log.warning("Failed to cleanup stale cast sessions: {}", e)
 
     async def create_session(
-        self, channel_id: str, stream_url: str, stream_type: str, owner: str = "system"
+        self,
+        channel_id: str,
+        stream_url: str,
+        stream_type: str,
+        owner: str = "system",
+        follows_live: bool = False,
     ) -> dict | None:
         """Create a new cast session with HLS transcoding.
 
@@ -323,6 +417,8 @@ class CastService:
             channel_id: Channel being cast.
             stream_url: Source stream URL.
             stream_type: 'hls' or 'mpegts'.
+            owner: The account casting.
+            follows_live: Move the transcode with Live, and stop it with Live.
 
         Returns:
             Dict with session_id and hls_url, or None if failed.
@@ -348,7 +444,7 @@ class CastService:
         # Admission is synchronous and precedes subprocess creation or queued startup.
         process_budget.acquire(owner)
         session_id = str(uuid.uuid4())
-        session = CastSession(session_id, channel_id, stream_url, stream_type)
+        session = CastSession(session_id, channel_id, stream_url, stream_type, follows_live)
         retained = False
         try:
             async with self._lock:
@@ -396,6 +492,33 @@ class CastService:
             log.info("Cast session {} stopped", session_id)
             return True
         return False
+
+    async def follow_live(self, channel: Channel | None) -> None:
+        """Move every follow-live cast to the Live channel, or stop them all with Live.
+
+        A session whose switch fails is stopped: its receiver goes idle, and
+        the sender reports that the Chromecast stopped playing.
+        """
+        async with self._lock:
+            following = [s for s in self._sessions.values() if s.follows_live]
+
+        async def follow(session: CastSession) -> None:
+            old = session.channel_id
+            short = session.session_id[:8]
+            if channel is None:
+                log.info("Cast session {} stops with Live ({} -> None)", short, old)
+                await self.stop_session(session.session_id)
+                return
+            if old == channel.id:
+                return
+            if await session.switch_source(channel.id, channel.stream_url):
+                log.info("Cast session {} follows Live ({} -> {})", short, old, channel.id)
+                return
+            if self._sessions.get(session.session_id) is session:
+                log.info("Cast session {} could not follow Live ({} -> {})", short, old, channel.id)
+                await self.stop_session(session.session_id)
+
+        await asyncio.gather(*(follow(session) for session in following))
 
     async def stop_all(self) -> None:
         """Stop all sessions (for shutdown)."""

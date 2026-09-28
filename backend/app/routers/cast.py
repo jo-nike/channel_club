@@ -18,6 +18,7 @@ from app.config import settings
 from app.models.auth import TokenPayload
 from app.models.channel import ChannelId
 from app.routers.auth_deps import get_current_user
+from app.services import channel_state
 from app.services.cast import cast_service
 from app.services.media_source import resolve_media_channel
 from app.services.stream_sessions import StreamSessionLimitError
@@ -37,6 +38,9 @@ class CreateSessionRequest(BaseModel):
 
     channel_id: ChannelId
     stream_type: Literal["hls", "mpegts"]
+    # Cast of the Live slot: move with Live and stop with it (honoured only
+    # when channel_id is Live now)
+    follows_live: bool = False
 
 
 class CastSessionResponse(BaseModel):
@@ -86,12 +90,20 @@ async def create_cast_session(
 
     source = await resolve_media_channel(request.channel_id)
 
+    follows_live = request.follows_live
+    if follows_live:
+        live = channel_state.get_current_channel()
+        if live is None or live.id != request.channel_id:
+            log.debug("Cast of {} is not a cast of Live; not following Live", request.channel_id)
+            follows_live = False
+
     try:
         result = await cast_service.create_session(
             channel_id=request.channel_id,
             stream_url=source.channel.stream_url,
             stream_type=source.stream_type,
             owner=user.account_key,
+            follows_live=follows_live,
         )
     except StreamSessionLimitError:
         raise HTTPException(status_code=429, detail="Too many open streams") from None

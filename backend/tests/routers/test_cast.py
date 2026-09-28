@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from app.config import settings
 from app.main import app
 from app.models.channel import Channel
-from app.services import stream_sessions
+from app.services import channel_state, stream_sessions
 from app.services.auth import create_access_token
 from app.services.cast import CastService, CastSession
 from app.services.media_limits import process_budget
@@ -260,3 +260,42 @@ class TestCreate:
             )
 
         assert response.status_code == 429
+
+
+@pytest.mark.usefixtures("mpegts")
+class TestFollowsLive:
+    """Only a cast of the channel that is Live now follows Live (K-02)."""
+
+    @pytest.mark.parametrize(("live_id", "follows"), [("7", True), ("9", False), (None, False)])
+    def test_follows_live_only_for_the_live_channel(
+        self, client: TestClient, service: CastService, live_id: str | None, follows: bool
+    ) -> None:
+        if live_id is not None:
+            channel_state._current_channel = Channel(
+                id=live_id, name="Live", stream_url=f"http://source/{live_id}", guide_id=live_id
+            )
+
+        response = client.post(
+            "/api/cast/session",
+            json={"channel_id": "7", "stream_type": "mpegts", "follows_live": True},
+            headers=bearer("alice"),
+        )
+
+        session = service.get_session(response.json()["session_id"])
+        assert session is not None
+        assert session.follows_live is follows
+
+    def test_an_old_client_never_follows(self, client: TestClient, service: CastService) -> None:
+        channel_state._current_channel = Channel(
+            id="7", name="Live", stream_url="http://source/7", guide_id="7"
+        )
+
+        response = client.post(
+            "/api/cast/session",
+            json={"channel_id": "7", "stream_type": "mpegts"},
+            headers=bearer("alice"),
+        )
+
+        session = service.get_session(response.json()["session_id"])
+        assert session is not None
+        assert session.follows_live is False
