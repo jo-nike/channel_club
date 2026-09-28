@@ -13,39 +13,8 @@ import { createClientMessageId } from '@/lib/messageId'
 import { noticeServerBuild } from '@/lib/appUpdate'
 import { useChatEnabled } from './useChatEnabled'
 import { refreshAuth } from './useAuth'
-import type { AppSettings, Channel, ChatMessage, PresenceEntry } from '@/types'
-
-interface WebSocketMessage {
-  type: string
-  channel?: Channel | null
-  // Username of whoever changed the live channel (channel_update); absent from older servers
-  changedBy?: string | null
-  currentChannel?: Channel | null
-  settings?: AppSettings
-  // Who this socket is signed in as (connection_ack); absent from older servers
-  you?: { username: string; userId?: string }
-  // Who is here (connection_ack and presence_update); absent from older servers
-  presence?: PresenceEntry[]
-  // The server's build (connection_ack); absent from older servers
-  buildId?: string
-  // Chat message fields
-  clientMessageId?: string
-  accepted?: boolean
-  messageId?: string
-  username?: string
-  userId?: string
-  content?: string
-  timestamp?: string
-  kind?: ChatMessage['kind']
-  channelId?: ChatMessage['channelId']
-  channelName?: ChatMessage['channelName']
-  programme?: ChatMessage['programme']
-  view?: ChatMessage['view']
-  messages?: ChatMessage[]
-  // error: what went wrong, and for nickname_taken the refused nickname
-  code?: string
-  nickname?: string
-}
+import type { Channel } from '@/types'
+import type { ServerMessage } from '@/types/ws'
 
 // restarting: the server closed with 1012 (Service Restart, a deploy); lasts until the next connection_ack
 export type WebSocketStatus = 'connecting' | 'connected' | 'reconnecting' | 'restarting' | 'disconnected'
@@ -179,7 +148,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   }, [])
 
   const handleMessage = useCallback(
-    (message: WebSocketMessage) => {
+    (message: ServerMessage) => {
       switch (message.type) {
         case 'connection_ack':
           logger.debug('WebSocket', 'Received connection_ack', message)
@@ -286,9 +255,11 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           }
           break
 
-        default:
-          // Unknown message type - log but don't crash
-          logger.warn('WebSocket', `Unknown message type: ${message.type}`, message)
+        default: {
+          // Unknown message type (a newer server) - log but don't crash
+          const unknown: { type: string } = message
+          logger.warn('WebSocket', `Unknown message type: ${unknown.type}`, unknown)
+        }
       }
     },
     [setCurrentChannel, setLastChange, chatEnabled, addChatMessage, setChatMessages, setChatIdentity, rejectChatNickname, setUserChannelSelection, setPresenceVisible, setPresence]
@@ -378,8 +349,8 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         if (wsRef.current !== ws) return
 
         try {
-          const message: WebSocketMessage = JSON.parse(event.data)
-          if (message.type === 'chat_ack' && message.clientMessageId) {
+          const message = JSON.parse(event.data) as ServerMessage
+          if (message.type === 'chat_ack') {
             const pending = pendingChat.current.get(message.clientMessageId)
             if (pending) {
               pendingChat.current.delete(message.clientMessageId)
