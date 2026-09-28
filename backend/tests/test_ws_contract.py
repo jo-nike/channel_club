@@ -3,12 +3,15 @@
 Each message type is built through the code that sends it in production and
 compared with a literal dict, so a refactor can't add, drop or rename a key,
 or turn a null into an absent key (browsers still running an older bundle read
-these payloads).
+these payloads). The guards below keep every send on the typed models and
+the committed JSON Schema in step with them.
 """
 
+import ast
 import json
 from collections.abc import Awaitable, Callable, Iterator
 from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID
 
@@ -19,6 +22,7 @@ from app.config import settings
 from app.main import app
 from app.models.auth import TokenPayload
 from app.models.channel import Channel
+from app.models.websocket import server_message_adapter
 from app.routers import admin
 from app.routers import websocket as websocket_router
 from app.services import app_settings, channel_state, chat, presence, presence_broadcast
@@ -278,3 +282,67 @@ class TestBroadcasts:
         admin_user = TokenPayload(sub="admin", role="admin", exp=SENT_AT)
         sent = await _broadcasts(lambda: admin.clear_chat_history(current_user=admin_user))
         assert sent == [{"type": "chat_history", "messages": []}]
+
+
+APP_DIR = Path(__file__).parents[1] / "app"
+SCHEMA_FILE = Path(__file__).parent / "snapshots" / "ws_server_messages.schema.json"
+REGENERATE = (
+    'cd backend && uv run --frozen python -c "import json; '
+    "from app.models.websocket import server_message_adapter as a; "
+    "print(json.dumps(a.json_schema(mode='serialization'), indent=2))\" "
+    "> tests/snapshots/ws_server_messages.schema.json"
+)
+
+
+def _is_dict(node: ast.expr, dict_names: set[str]) -> bool:
+    """A dict literal or comprehension, a dict() call, or a name assigned one of those."""
+    if isinstance(node, ast.Dict | ast.DictComp):
+        return True
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+        return node.func.id == "dict"
+    return isinstance(node, ast.Name) and node.id in dict_names
+
+
+def _dict_sends(app_dir: Path) -> list[str]:
+    """send_json( and broadcast( calls under app_dir that are handed a dict, not a model."""
+    found: set[str] = set()
+    for path in sorted(app_dir.rglob("*.py")):
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for scope in ast.walk(tree):
+            if not isinstance(scope, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            dict_names: set[str] = set()
+            for node in ast.walk(scope):
+                if isinstance(node, ast.Assign) and _is_dict(node.value, set()):
+                    dict_names.update(t.id for t in node.targets if isinstance(t, ast.Name))
+                elif (
+                    isinstance(node, ast.AnnAssign)
+                    and node.value is not None
+                    and _is_dict(node.value, set())
+                    and isinstance(node.target, ast.Name)
+                ):
+                    dict_names.add(node.target.id)
+            for node in ast.walk(scope):
+                if not isinstance(node, ast.Call) or not node.args:
+                    continue
+                func = node.func
+                name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+                if name in ("send_json", "broadcast") and _is_dict(node.args[0], dict_names):
+                    found.add(f"{path.relative_to(app_dir.parent)}:{node.lineno} {name}")
+    return sorted(found)
+
+
+def test_no_send_is_handed_a_dict() -> None:
+    # A dict skips the models, so its keys can drift from what clients read.
+    # Build a ServerMessage model and use channel_state.broadcast or send_message.
+    assert _dict_sends(APP_DIR) == []
+
+
+def test_committed_schema_matches_the_models() -> None:
+    generated = server_message_adapter.json_schema(mode="serialization")
+    committed = json.loads(SCHEMA_FILE.read_text())
+    assert committed == generated, (
+        "The server message models changed. Regenerate the schema with\n"
+        f"  {REGENERATE}\n"
+        "and update frontend/src/types/ws.ts to match."
+    )
