@@ -541,6 +541,37 @@ class TestChannelNameFallback:
         assert result.current_program.title == "By Id"
 
     @pytest.mark.asyncio
+    async def test_a_shared_display_name_keeps_the_later_channels_id(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Two channels named 'CBC': the second keeps its own programmes, though the name
+        map points 'CBC' at the first."""
+        now = datetime.now(UTC)
+        start = (now - timedelta(minutes=30)).strftime("%Y%m%d%H%M%S")
+        stop = (now + timedelta(minutes=30)).strftime("%Y%m%d%H%M%S")
+        xml_response = f"""<?xml version="1.0" encoding="UTF-8"?>
+        <tv>
+          <channel id="1"><display-name>CBC</display-name></channel>
+          <channel id="2"><display-name>CBC</display-name></channel>
+          <programme start="{start} +0000" stop="{stop} +0000" channel="1">
+            <title>CBC East</title>
+          </programme>
+          <programme start="{start} +0000" stop="{stop} +0000" channel="2">
+            <title>CBC West</title>
+          </programme>
+        </tv>
+        """
+        _patch_upstream(
+            monkeypatch, _Upstream(lambda request: httpx.Response(200, text=xml_response))
+        )
+        service = EPGService("http://dispatcharr.synthetic:9191")
+
+        result = await service.get_now_playing("2", channel_name="CBC")
+
+        assert result.current_program is not None
+        assert result.current_program.title == "CBC West"
+
+    @pytest.mark.asyncio
     async def test_name_is_matched_after_normalisation(self) -> None:
         """Case and spacing differences between the catalogue and XMLTV still match."""
         service = EPGService("http://test:9191")
