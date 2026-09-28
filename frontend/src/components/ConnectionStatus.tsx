@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
-type ConnectionState = 'connected' | 'connecting' | 'reconnecting' | 'disconnected'
+type ConnectionState = 'connected' | 'connecting' | 'reconnecting' | 'restarting' | 'disconnected'
 
 interface ConnectionStatusProps {
   onReconnect?: () => void
@@ -51,10 +51,16 @@ export function ConnectionStatus({ status, onReconnect }: ConnectionStatusProps)
   // The live region stays mounted, empty and out of the layout while all is
   // well, so screen readers already track it when 'Chat offline' goes in. A
   // region mounted together with its message often isn't announced.
-  const isVisible = isDegraded && isShown
+  // A server restart is announced, not a blip, so it shows at once
+  const isRestarting = status === 'restarting'
+  const isVisible = isDegraded && (isShown || isRestarting)
   const isOffline = status === 'disconnected' || connectionLost
-  const isTrying = status === 'connecting' || status === 'reconnecting'
-  const label = isOffline ? 'Chat offline' : status === 'connecting' ? 'Connecting...' : 'Reconnecting...'
+  const isTrying = status === 'connecting' || status === 'reconnecting' || isRestarting
+  const label = isOffline
+    ? 'Chat offline'
+    : isRestarting
+      ? 'Channel Club is restarting for an update, back in a few seconds'
+      : status === 'connecting' ? 'Connecting...' : 'Reconnecting...'
   const state = isOffline ? 'offline' : status === 'connecting' ? 'connecting' : 'reconnecting'
 
   return (

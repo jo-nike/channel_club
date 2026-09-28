@@ -851,6 +851,70 @@ describe('useWebSocket', () => {
     })
   })
 
+  describe('server restart (1012)', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    test('shows restarting through the reconnect until the next connection_ack', () => {
+      const { result } = renderHook(() => useWebSocket())
+      act(() => {
+        MockWebSocket.instances[0].simulateOpen()
+        MockWebSocket.instances[0].simulateMessage({ type: 'connection_ack', currentChannel: null })
+      })
+
+      act(() => {
+        MockWebSocket.instances[0].simulateClose(1012, 'Service Restart')
+      })
+      expect(result.current.status).toBe('restarting')
+
+      // Reconnects as for any drop
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
+      expect(MockWebSocket.instances).toHaveLength(2)
+      expect(result.current.status).toBe('restarting')
+
+      act(() => {
+        MockWebSocket.instances[1].simulateOpen()
+      })
+      expect(result.current.status).toBe('restarting')
+
+      act(() => {
+        MockWebSocket.instances[1].simulateMessage({ type: 'connection_ack', currentChannel: null })
+      })
+      expect(result.current.status).toBe('connected')
+    })
+
+    test('keeps the restart copy when the next attempt fails with a proxy error', () => {
+      const { result } = renderHook(() => useWebSocket())
+      act(() => {
+        MockWebSocket.instances[0].simulateOpen()
+        MockWebSocket.instances[0].simulateClose(1012, 'Service Restart')
+      })
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
+      act(() => {
+        MockWebSocket.instances[1].simulateClose(1006, 'Abnormal closure')
+      })
+      expect(result.current.status).toBe('restarting')
+    })
+
+    test('an ordinary drop still reads as reconnecting', () => {
+      const { result } = renderHook(() => useWebSocket())
+      act(() => {
+        MockWebSocket.instances[0].simulateOpen()
+        MockWebSocket.instances[0].simulateClose(1006, 'Abnormal closure')
+      })
+      expect(result.current.status).toBe('reconnecting')
+    })
+  })
+
   describe('session refresh', () => {
     beforeEach(() => {
       vi.useFakeTimers()

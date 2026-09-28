@@ -47,7 +47,8 @@ interface WebSocketMessage {
   nickname?: string
 }
 
-export type WebSocketStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
+// restarting: the server closed with 1012 (Service Restart, a deploy); lasts until the next connection_ack
+export type WebSocketStatus = 'connecting' | 'connected' | 'reconnecting' | 'restarting' | 'disconnected'
 
 const PING_INTERVAL = 30000
 const MAX_RETRIES = 5
@@ -151,6 +152,8 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   const authRefreshRef = useRef<object | null>(null)
   // A refreshed token reconnected; a 4001 before the next connection_ack means it was refused too
   const refreshedSinceAckRef = useRef(false)
+  // The server announced a restart (1012); reconnects show that until the next connection_ack
+  const restartingRef = useRef(false)
   const notificationsEnabledRef = useRef(notificationsEnabled)
 
   // Keep notificationsEnabledRef in sync with state to avoid stale closure
@@ -181,6 +184,10 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         case 'connection_ack':
           logger.debug('WebSocket', 'Received connection_ack', message)
           refreshedSinceAckRef.current = false
+          if (restartingRef.current) {
+            restartingRef.current = false
+            setStatus('connected')
+          }
           // A different build means a deploy: look for the new app version
           noticeServerBuild(message.buildId)
           setCurrentChannel(message.currentChannel ?? null)
@@ -297,7 +304,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         'WebSocket',
         `Scheduling reconnect in ${delay}ms (attempt ${retryCountRef.current + 1}/${MAX_RETRIES})`
       )
-      setStatus('reconnecting')
+      setStatus(restartingRef.current ? 'restarting' : 'reconnecting')
 
       reconnectTimeoutRef.current = window.setTimeout(() => {
         retryCountRef.current++
@@ -333,7 +340,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       clearTimers()
 
       logger.info('WebSocket', isReconnect ? 'Reconnecting...' : 'Connecting...')
-      setStatus(isReconnect ? 'reconnecting' : 'connecting')
+      setStatus(restartingRef.current ? 'restarting' : isReconnect ? 'reconnecting' : 'connecting')
 
       // Construct WebSocket URL with view and session parameters. The token
       // goes in the first message instead: proxies log URLs.
@@ -355,7 +362,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         ws.send(JSON.stringify({ type: 'auth', token: authToken }))
 
         logger.info('WebSocket', 'Connected successfully')
-        setStatus('connected')
+        if (!restartingRef.current) setStatus('connected')
         retryCountRef.current = 0
 
         // Start ping interval for keep-alive
@@ -447,6 +454,8 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         }
 
         logger.info('WebSocket', `Disconnected (code: ${event.code})`)
+        // 1012 is Service Restart: a deploy. Proxies may turn it into 1006, so this is best effort
+        if (event.code === 1012) restartingRef.current = true
         scheduleReconnect()
       }
     },
@@ -463,6 +472,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     clearPendingChat()
     authRefreshRef.current = null
     refreshedSinceAckRef.current = false
+    restartingRef.current = false
     const ws = wsRef.current
     if (ws) {
       intentionalClosesRef.current.add(ws)

@@ -140,6 +140,18 @@ describe('ConnectionStatus', () => {
     expect(screen.getByText('Reconnecting...')).toBeInTheDocument()
   })
 
+  test('a server restart shows the update copy at once, until the socket is back', () => {
+    const { rerender } = render(<ConnectionStatus status="connected" />)
+    rerender(<ConnectionStatus status="restarting" />)
+
+    const pill = screen.getByText('Channel Club is restarting for an update, back in a few seconds')
+    expect(pill).toHaveClass('text-warning')
+    expect(screen.getByTestId('connection-dot')).toHaveClass('motion-safe:animate-pulse')
+
+    rerender(<ConnectionStatus status="connected" />)
+    expect(region()).toBeEmptyDOMElement()
+  })
+
   test('explains that only chat and live-channel sync are affected', async () => {
     render(<ConnectionStatus status="reconnecting" />)
     advance(3000)
