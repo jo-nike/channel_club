@@ -546,6 +546,32 @@ class TestSerialisedLiveChanges:
         service.stop_recording.assert_not_called()
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("second", ["set", "clear"])
+    async def test_slow_broadcast_is_not_overtaken_by_a_later_change(
+        self, highlight, second: str
+    ) -> None:
+        _service, sent = highlight
+
+        async def slow_for_a(message: dict) -> None:
+            # A slow socket holds up the first change's broadcast
+            channel = message.get("channel")
+            if channel and channel["id"] == "A":
+                await asyncio.sleep(0.05)
+            sent.append(message)
+
+        with patch("app.services.channel_state.broadcast", side_effect=slow_for_a):
+            later = (
+                channel_state.set_current_channel(_live("B"), user="bob")
+                if second == "set"
+                else channel_state.clear_current_channel_async(user="carol")
+            )
+            await asyncio.gather(channel_state.set_current_channel(_live("A"), user="alice"), later)
+        await _drain_reconcile()
+
+        current = channel_state.get_current_channel()
+        assert self._last_live(sent) == (current.id if current else None)
+
+    @pytest.mark.asyncio
     async def test_recorder_failure_is_logged_and_does_not_escape(self, highlight) -> None:
         service, sent = highlight
         service.start_recording.side_effect = RuntimeError("ffmpeg missing")
