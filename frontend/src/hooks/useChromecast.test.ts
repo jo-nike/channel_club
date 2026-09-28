@@ -192,6 +192,15 @@ describe('casting an ErsatzTV channel', () => {
     await act(() => result.current.stopCasting())
     localStorage.removeItem('token')
   })
+  it('makes the server-issued stream session path absolute when casting without a stream URL', async () => {
+    const path = '/api/ersatztv/s/abcdefghijklmnopqrstuvwxyz012345/stream.m3u8'
+    vi.mocked(api.createCastSession).mockResolvedValueOnce({ session_id: 'abcdefghijklmnopqrstuvwxyz012345', needs_transcoding: false, hls_url: path })
+    const { result } = renderHook(useChromecast)
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    await act(() => result.current.startCasting('7', 'hls'))
+    expect(session.loadMedia.mock.calls[0][0].media.url).toBe(`https://fixture${path}`)
+    await act(() => result.current.stopCasting())
+  })
 })
 
 describe('cast failures in plain words', () => {

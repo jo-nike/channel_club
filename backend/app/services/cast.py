@@ -23,6 +23,7 @@ from pathlib import Path
 from loguru import logger
 
 from app.config import settings
+from app.services import stream_sessions
 from app.services.highlight import RECORDER_RW_TIMEOUT_MICROSECONDS
 from app.services.media_limits import process_budget
 
@@ -74,12 +75,6 @@ class CastSession:
             if self.is_running:
                 log.debug("Cast session {} already running", self.session_id)
                 return f"/api/cast/hls/{self.session_id}/playlist.m3u8"
-
-            # For HLS streams, no transcoding needed - return source URL directly
-            if self.stream_type == "hls":
-                log.info("HLS stream for session {} - no transcoding needed", self.session_id)
-                self.last_activity = monotonic()
-                return self.stream_url
 
             # Create output directory for HLS segments
             self.output_dir = Path(settings.cast_temp_dir) / self.session_id
@@ -369,10 +364,24 @@ class CastService:
 
         Returns:
             Dict with session_id and hls_url, or None if failed.
+
+        Raises:
+            StreamSessionLimitError: an 'hls' cast found every stream session taken.
         """
         if not settings.cast_enabled:
             log.warning("Cast feature is disabled")
             return None
+
+        if stream_type == "hls":
+            # ErsatzTV already serves HLS: no FFmpeg, so no slot and no cast
+            # session. The receiver plays the owner's ErsatzTV stream session,
+            # which ends by idle expiry.
+            stream = stream_sessions.create(owner, channel_id)
+            return {
+                "session_id": stream.id,
+                "hls_url": stream_sessions.manifest_path(stream.id),
+                "needs_transcoding": False,
+            }
 
         # Admission is synchronous and precedes subprocess creation or queued startup.
         process_budget.acquire(owner)

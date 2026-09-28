@@ -20,6 +20,7 @@ from app.models.channel import ChannelId
 from app.routers.auth_deps import get_current_user
 from app.services.cast import cast_service
 from app.services.media_source import resolve_media_channel
+from app.services.stream_sessions import StreamSessionLimitError
 
 router = APIRouter(prefix="/api/cast", tags=["cast"])
 log = logger.bind(router="cast")
@@ -66,7 +67,8 @@ async def create_cast_session(
 ) -> CastSessionResponse:
     """Create a new cast session.
 
-    For HLS streams: Returns the source URL directly (no transcoding needed).
+    For HLS streams (ErsatzTV): returns an ErsatzTV stream session's playlist
+    path, with no transcoding and no cast session.
     For MPEG-TS streams: Starts FFmpeg transcoding and returns HLS URL.
     """
     log.info(
@@ -84,12 +86,15 @@ async def create_cast_session(
 
     source = await resolve_media_channel(request.channel_id)
 
-    result = await cast_service.create_session(
-        channel_id=request.channel_id,
-        stream_url=source.channel.stream_url,
-        stream_type=source.stream_type,
-        owner=user.account_key,
-    )
+    try:
+        result = await cast_service.create_session(
+            channel_id=request.channel_id,
+            stream_url=source.channel.stream_url,
+            stream_type=source.stream_type,
+            owner=user.account_key,
+        )
+    except StreamSessionLimitError:
+        raise HTTPException(status_code=429, detail="Too many open streams") from None
 
     if not result:
         raise HTTPException(

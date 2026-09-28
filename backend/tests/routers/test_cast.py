@@ -2,7 +2,7 @@
 
 from collections.abc import Iterator
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from app.config import settings
 from app.main import app
 from app.models.channel import Channel
+from app.services import stream_sessions
 from app.services.auth import create_access_token
 from app.services.cast import CastService, CastSession
 from app.services.media_limits import process_budget
@@ -109,7 +110,9 @@ class TestStopOwnership:
         assert response.status_code == 200
         return response.json()["session_id"]
 
-    def test_someone_else_cannot_stop_a_cast(self, client: TestClient, service: CastService) -> None:
+    def test_someone_else_cannot_stop_a_cast(
+        self, client: TestClient, service: CastService
+    ) -> None:
         session_id = self.create(client, bearer("alice"))
 
         response = client.delete(f"/api/cast/session/{session_id}", headers=bearer("bob"))
@@ -141,3 +144,119 @@ class TestStopOwnership:
         response = client.delete("/api/cast/session/nope", headers=bearer("alice"))
 
         assert response.json() == {"stopped": False}
+
+
+class TestHlsFiles:
+    """What the Chromecast fetches (E-09)."""
+
+    def test_an_unknown_session_is_404(self, client: TestClient, service: CastService) -> None:
+        response = client.get(f"/api/cast/hls/{SESSION_ID}/playlist.m3u8")
+
+        assert response.status_code == 404
+
+    @pytest.mark.parametrize(
+        ("name", "media_type"),
+        [("playlist.m3u8", "application/vnd.apple.mpegurl"), ("seg_001.ts", "video/mp2t")],
+    )
+    def test_a_live_session_serves_its_files(
+        self, client: TestClient, live_session: CastSession, name: str, media_type: str
+    ) -> None:
+        response = client.get(f"/api/cast/hls/{SESSION_ID}/{name}")
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == media_type
+        assert "no-store" in response.headers["cache-control"]
+        assert response.headers["access-control-allow-origin"] == "*"
+
+
+class TestCreate:
+    """POST /api/cast/session (E-09)."""
+
+    def test_disabled_is_503(self, client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(settings, "cast_enabled", False)
+
+        response = client.post(
+            "/api/cast/session",
+            json={"channel_id": "7", "stream_type": "mpegts"},
+            headers=bearer("alice"),
+        )
+
+        assert response.status_code == 503
+
+    @pytest.mark.usefixtures("mpegts")
+    def test_a_dispatcharr_channel_is_transcoded(
+        self, client: TestClient, service: CastService
+    ) -> None:
+        response = client.post(
+            "/api/cast/session",
+            json={"channel_id": "7", "stream_type": "mpegts"},
+            headers=bearer("alice"),
+        )
+
+        assert response.status_code == 200
+        assert response.json()["needs_transcoding"] is True
+        assert process_budget.owners == {"local:alice": 1}
+
+    @pytest.mark.usefixtures("mpegts")
+    def test_a_failed_start_is_500_and_releases_the_slot(
+        self, client: TestClient, service: CastService
+    ) -> None:
+        with patch.object(CastSession, "start", AsyncMock(return_value=None)):
+            response = client.post(
+                "/api/cast/session",
+                json={"channel_id": "7", "stream_type": "mpegts"},
+                headers=bearer("alice"),
+            )
+
+        assert response.status_code == 500
+        assert not process_budget.owners
+        assert not service._sessions
+
+    def test_an_ersatztv_channel_gets_a_stream_session_and_no_slot(
+        self, client: TestClient, service: CastService, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(settings, "cast_enabled", True)
+        spawn = MagicMock()
+        with (
+            patch("app.routers.cast.resolve_media_channel", AsyncMock(return_value=source("hls"))),
+            patch("subprocess.Popen", spawn),
+        ):
+            # The server's resolved type wins over what the client says
+            response = client.post(
+                "/api/cast/session",
+                json={"channel_id": "7", "stream_type": "mpegts"},
+                headers=bearer("alice"),
+            )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["needs_transcoding"] is False
+        assert body["hls_url"] == stream_sessions.manifest_path(body["session_id"])
+        stream = stream_sessions.get(body["session_id"])
+        assert stream is not None
+        assert (stream.account, stream.channel_id) == ("local:alice", "7")
+        assert not process_budget.owners
+        assert not service._sessions
+        spawn.assert_not_called()
+        # Nothing to stop: the stream session ends by idle expiry
+        stop = client.delete(f"/api/cast/session/{body['session_id']}", headers=bearer("alice"))
+        assert stop.json() == {"stopped": False}
+
+    def test_no_stream_session_left_is_429(
+        self, client: TestClient, service: CastService, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(settings, "cast_enabled", True)
+        with (
+            patch("app.routers.cast.resolve_media_channel", AsyncMock(return_value=source("hls"))),
+            patch(
+                "app.services.stream_sessions.create",
+                side_effect=stream_sessions.StreamSessionLimitError("full"),
+            ),
+        ):
+            response = client.post(
+                "/api/cast/session",
+                json={"channel_id": "7", "stream_type": "hls"},
+                headers=bearer("alice"),
+            )
+
+        assert response.status_code == 429

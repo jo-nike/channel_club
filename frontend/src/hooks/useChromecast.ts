@@ -422,6 +422,15 @@ function requestSession(params?: CastParams) {
   })
 }
 
+/** The Chromecast fetches from its own network, so an app path needs the cast base URL */
+function absoluteCastUrl(url: string): string {
+  if (!url.startsWith('/')) return url
+  // Remove /api suffix if present since the path already includes /api
+  const absolute = `${getCastBaseUrl().replace(/\/api$/, '')}${url}`
+  logger.debug('Cast', 'Converted relative URL to absolute', { original: url, absolute })
+  return absolute
+}
+
 /**
  * Start casting a stream
  */
@@ -456,19 +465,7 @@ async function startCasting(
 
     if (streamType === 'hls' && streamUrl) {
       // HLS streams can be cast directly, but need absolute URL
-      // Convert relative URLs to absolute for Chromecast
-      if (streamUrl.startsWith('/')) {
-        const castBase = getCastBaseUrl()
-        // Remove /api suffix if present since streamUrl already includes /api
-        const baseWithoutApi = castBase.replace(/\/api$/, '')
-        hlsUrl = `${baseWithoutApi}${streamUrl}`
-        logger.debug('Cast', 'Converted relative URL to absolute', {
-          original: streamUrl,
-          absolute: hlsUrl,
-        })
-      } else {
-        hlsUrl = streamUrl
-      }
+      hlsUrl = absoluteCastUrl(streamUrl)
       logger.debug('Cast', 'Casting HLS stream directly', { channelId, hlsUrl })
     } else {
       // MPEG-TS streams need backend transcoding
@@ -484,8 +481,8 @@ async function startCasting(
         // Get the full HLS URL with auth token
         hlsUrl = getCastHlsUrl(castSession.session_id)
       } else {
-        // Backend returned the source URL directly (for HLS sources)
-        hlsUrl = castSession.hls_url
+        // Backend returned an ErsatzTV stream session's playlist path
+        hlsUrl = absoluteCastUrl(castSession.hls_url)
       }
     }
 
