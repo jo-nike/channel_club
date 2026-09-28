@@ -242,8 +242,29 @@ class TestRestoreLive:
         assert channel_state.get_current_channel() is None
 
 
-def test_restore_does_not_block_startup_when_the_catalogue_hangs(state_file: Path) -> None:
+def test_startup_waits_briefly_so_the_first_clients_see_the_restored_live(
+    state_file: Path,
+) -> None:
+    write_state(state_file, liveChannelId="uuid-1")
+
+    async def slow_resolve(channel_id: str) -> MediaChannel:
+        await asyncio.sleep(0.3)
+        return MediaChannel(CHANNEL, "mpegts")
+
+    with (
+        patch("app.main.get_grouped_channels", new=AsyncMock(return_value=[])),
+        patch("app.services.media_source.resolve_media_channel", slow_resolve),
+        patch.object(channel_state, "_schedule_reconcile"),
+        TestClient(main.app),
+    ):
+        assert channel_state.get_current_channel() == CHANNEL
+
+
+def test_restore_does_not_block_startup_when_the_catalogue_hangs(
+    state_file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     write_state(state_file, userChannelSelection=True, liveChannelId="uuid-1")
+    monkeypatch.setattr(channel_state, "RESTORE_STARTUP_WAIT_SECONDS", 0.2)
 
     async def hang(channel_id: str) -> MediaChannel:
         await asyncio.Event().wait()

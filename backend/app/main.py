@@ -186,6 +186,8 @@ async def lifespan(app: FastAPI):
     # strong one for the app's lifetime — otherwise the warmup can be collected
     # mid-fetch and the cache silently stays cold.
     app.state.warmup_task = asyncio.create_task(_warm_caches())
+    # Last, so the restore's recorder starts after the stale segment cleanup above
+    await channel_state.wait_for_restore(channel_state.RESTORE_STARTUP_WAIT_SECONDS)
 
     yield
     # Shutdown

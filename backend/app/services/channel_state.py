@@ -34,6 +34,8 @@ BROADCAST_SEND_TIMEOUT_SECONDS = 5.0
 RESTORE_RETRY_SECONDS = 15.0
 RESTORE_ATTEMPTS = 20
 RESTORE_ATTEMPT_TIMEOUT_SECONDS = 30.0
+# How long startup waits for the restore before serving (see wait_for_restore)
+RESTORE_STARTUP_WAIT_SECONDS = 3.0
 
 # In-memory state; Live is restored from the state file on start
 _current_channel: Channel | None = None
@@ -160,6 +162,19 @@ def start_restore_task(channel_id: str | None) -> None:
     global _restore_task
     if channel_id is not None:
         _restore_task = asyncio.create_task(_restore_live_channel(channel_id))
+
+
+async def wait_for_restore(timeout: float) -> None:
+    """Wait up to timeout for the Live restore to finish, without cancelling it.
+
+    Tabs reconnect as soon as a new deploy accepts connections; a restore that
+    finishes first puts Live in their connection_ack, instead of a channel_update
+    a moment later that restarts Live viewers and toasts everyone else.
+    """
+    task = _restore_task
+    if task is None or task.done():
+        return
+    await asyncio.wait({task}, timeout=timeout)
 
 
 async def stop_restore_task() -> None:
