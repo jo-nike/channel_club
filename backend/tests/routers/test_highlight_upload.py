@@ -285,3 +285,83 @@ async def test_ingest_writes_chunks_without_a_worker_thread(tmp_path):
         gate.set()
         executor.shutdown(wait=True)
     assert (tmp_path / "clip.mp4").stat().st_size == 64 * 65536
+
+
+async def raw_upload(messages: list[dict], leave_after: float = 0) -> list[dict]:
+    """Drive the ASGI app by hand: `messages` arrive, then the browser disconnects."""
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_current_user] = lambda: TokenPayload(
+        sub="viewer", role="viewer", exp=datetime(2099, 1, 1, tzinfo=UTC)
+    )
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/api/highlight/upload",
+        "raw_path": b"/api/highlight/upload",
+        "query_string": b"format=mp4",
+        "headers": [(b"content-type", b"video/mp4"), (b"host", b"test")],
+        "client": ("127.0.0.1", 1),
+        "server": ("test", 80),
+    }
+    sent: list[dict] = []
+    loop = asyncio.get_running_loop()
+    leaves_at: list[float] = []
+
+    async def receive():
+        if messages:
+            return messages.pop(0)
+        if not leaves_at:
+            leaves_at.append(loop.time() + leave_after)
+        # Like uvicorn: until the browser leaves this waits; afterwards it answers at once.
+        if loop.time() < leaves_at[0]:
+            await asyncio.sleep(leaves_at[0] - loop.time())
+        return {"type": "http.disconnect"}
+
+    async def send(message):
+        sent.append(message)
+
+    # Any exception escaping here is what uvicorn logs as a traceback.
+    await asyncio.wait_for(app(scope, receive, send), 5)
+    return sent
+
+
+async def test_a_cancel_mid_body_answers_499_without_a_traceback(configured, tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "highlight_temp_dir", str(tmp_path))
+    monkeypatch.setattr(settings, "highlight_enabled", True)
+    with patch("app.routers.highlight.upload_clip", new_callable=AsyncMock) as upload:
+        sent = await raw_upload([{"type": "http.request", "body": b"part", "more_body": True}])
+    assert sent[0]["status"] == 499
+    upload.assert_not_called()
+    assert not upload_budget.owners
+    assert not list((tmp_path / "work").iterdir())
+
+
+async def test_a_cancel_during_the_zipline_post_stops_it(configured, tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "highlight_temp_dir", str(tmp_path))
+    monkeypatch.setattr(settings, "highlight_enabled", True)
+    monkeypatch.setattr(highlight_router, "DISCONNECT_POLL_SECONDS", 0.01)
+    posting = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def slow_upload(*_args):
+        posting.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    with (
+        patch("app.routers.highlight.upload_clip", slow_upload),
+        patch("app.routers.highlight.media_duration", new_callable=AsyncMock, return_value=2),
+    ):
+        sent = await raw_upload(
+            [{"type": "http.request", "body": b"clip", "more_body": False}], leave_after=0.1
+        )
+    assert posting.is_set() and cancelled.is_set()
+    assert sent[0]["status"] == 499
+    assert not upload_budget.owners

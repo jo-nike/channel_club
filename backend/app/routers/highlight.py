@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse, Response
 from loguru import logger
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
+from starlette.requests import ClientDisconnect
 
 from app.config import settings
 from app.models.auth import TokenPayload
@@ -141,11 +142,21 @@ async def upload_highlight(
     with upload_budget.slot(user.sub):
         async with workspace("highlight-upload-") as directory:
             source = directory / f"clip.{format}"
-            try:
-                await ingest_preview(request, source)
+
+            async def publish() -> dict[str, str]:
                 await media_duration(source)
                 filename = f"highlight-{datetime.now().strftime('%Y-%m-%dT%H-%M-%S')}.{format}"
                 return await upload_clip(source, filename, content_type)
+
+            try:
+                # Reading the body notices a cancel itself (ClientDisconnect); polling for one
+                # meanwhile would take body chunks off the same receive channel.
+                await ingest_preview(request, source)
+                # A cancel during the Zipline POST stops it instead of publishing the clip.
+                return await unless_disconnected(request, publish())
+            except ClientDisconnect:
+                log.info("Client left during a clip upload")
+                raise HTTPException(499, "Client closed the request") from None
             except TimeoutError:
                 raise HTTPException(408, "Clip upload to the viewer timed out") from None
             except (OSError, ValueError):
