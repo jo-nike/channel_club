@@ -2432,3 +2432,78 @@ async def test_chat_ack_is_not_held_up_by_a_stalled_peer(monkeypatch):
     assert await asyncio.wait_for(acked, timeout=2) - started < 0.1
     await handling
     await channel_state.stop_failed_closes()
+
+
+def _recording_socket() -> tuple[MagicMock, list[dict]]:
+    """A mock WebSocket and the list of what was sent to it with send_json."""
+    sent: list[dict] = []
+    socket = MagicMock()
+    socket.send_json = AsyncMock(side_effect=sent.append)
+    return socket, sent
+
+
+async def test_retry_while_the_first_send_is_pending_posts_once(monkeypatch):
+    """A retry racing a slow send (a reconnected socket) is refused, not posted twice."""
+    import asyncio
+
+    monkeypatch.setattr(settings, "chat_enabled", True)
+    release = asyncio.Event()
+    grouped = websocket_router.get_grouped_channels
+
+    async def slow_catalogue():
+        await release.wait()
+        return await grouped()
+
+    monkeypatch.setattr(websocket_router, "get_grouped_channels", slow_catalogue)
+    suggest = {"type": "suggest", "channelId": "42", "clientMessageId": "g-1"}
+    first_socket, first_sent = _recording_socket()
+    retry_socket, retry_sent = _recording_socket()
+
+    first = asyncio.create_task(
+        websocket_router.handle_client_message(
+            first_socket, suggest, "conn-1", "testuser", "u_0123456789abcdef"
+        )
+    )
+    await asyncio.sleep(0)  # the first send is now waiting on the catalogue
+    # Refused at once; without the in-flight mark it would wait on the catalogue too
+    await asyncio.wait_for(
+        websocket_router.handle_client_message(
+            retry_socket, suggest, "conn-2", "testuser", "u_0123456789abcdef"
+        ),
+        timeout=1,
+    )
+    release.set()
+    await first
+
+    assert retry_sent == [{"type": "chat_ack", "clientMessageId": "g-1", "accepted": False}]
+    assert first_sent[0]["accepted"] is True
+    assert len(chat.get_history()) == 1
+
+
+async def test_a_send_that_fails_can_be_retried(monkeypatch):
+    """The in-flight mark is cleared when handling raises, so the retry posts."""
+    monkeypatch.setattr(settings, "chat_enabled", True)
+    original = websocket_router._suggested_channel
+    calls = 0
+
+    async def fails_once(channel_id):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("boom")
+        return await original(channel_id)
+
+    monkeypatch.setattr(websocket_router, "_suggested_channel", fails_once)
+    suggest = {"type": "suggest", "channelId": "42", "clientMessageId": "g-1"}
+    socket, sent = _recording_socket()
+
+    with pytest.raises(RuntimeError):
+        await websocket_router.handle_client_message(
+            socket, suggest, "conn-1", "testuser", "u_0123456789abcdef"
+        )
+    await websocket_router.handle_client_message(
+        socket, suggest, "conn-1", "testuser", "u_0123456789abcdef"
+    )
+
+    assert sent[0]["accepted"] is True
+    assert len(chat.get_history()) == 1

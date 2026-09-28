@@ -530,27 +530,39 @@ async def handle_client_message(
             await _ack_chat(websocket, client_message_id, original_id)
             return
 
-        # Use nickname if set, otherwise fall back to auth username
-        nickname_entry = _nickname_map.get(client_id)
-        display_name = nickname_entry[1] if nickname_entry else username
-        if msg_type == "share":
-            # Refused (None) while the sender's channel is private, unreported or
-            # not in the catalogue
-            stamp = await _channel_stamp(client_id)
-            chat_msg = chat.add_share(display_name, stamp, user_id=user_id) if stamp else None
-        elif msg_type == "suggest":
-            # Refused (None) for a channel the catalogue doesn't have
-            suggested = await _suggested_channel(validated["channelId"])
-            chat_msg = (
-                chat.add_suggestion(display_name, suggested.id, suggested.name, user_id=user_id)
-                if suggested
-                else None
-            )
-        else:
-            content = validated.get("content", "")
-            chat_msg = chat.add_message(
-                display_name, content, user_id=user_id, channel=await _channel_stamp(client_id)
-            )
+        if client_message_id and not chat.begin_send(username, client_message_id):
+            # The same send is still being handled (a retry raced it): refuse this copy
+            log.debug("Chat send from {} already in flight; refusing the repeat", username)
+            await _ack_chat(websocket, client_message_id, None)
+            return
+
+        try:
+            # Use nickname if set, otherwise fall back to auth username
+            nickname_entry = _nickname_map.get(client_id)
+            display_name = nickname_entry[1] if nickname_entry else username
+            if msg_type == "share":
+                # Refused (None) while the sender's channel is private, unreported or
+                # not in the catalogue
+                stamp = await _channel_stamp(client_id)
+                chat_msg = chat.add_share(display_name, stamp, user_id=user_id) if stamp else None
+            elif msg_type == "suggest":
+                # Refused (None) for a channel the catalogue doesn't have
+                suggested = await _suggested_channel(validated["channelId"])
+                chat_msg = (
+                    chat.add_suggestion(display_name, suggested.id, suggested.name, user_id=user_id)
+                    if suggested
+                    else None
+                )
+            else:
+                content = validated.get("content", "")
+                chat_msg = chat.add_message(
+                    display_name, content, user_id=user_id, channel=await _channel_stamp(client_id)
+                )
+        finally:
+            # Settled (or failed) either way, so a failed send can be retried;
+            # no await before remember_send, so a retry can't slip in between
+            if client_message_id:
+                chat.end_send(username, client_message_id)
 
         if chat_msg:
             if client_message_id:
