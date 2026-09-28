@@ -12,7 +12,10 @@ from starlette.types import Scope
 IMMUTABLE = "public, max-age=31536000, immutable"
 # The shell and service-worker files keep their names across deploys, so the
 # browser must revalidate them (ETag) on every load to pick up a new build.
-NO_CACHE_FILES = frozenset({"index.html", "sw.js", "registerSW.js", "manifest.webmanifest"})
+# sw-migration.js is pulled into sw.js by importScripts, so it counts as the worker.
+NO_CACHE_FILES = frozenset(
+    {"index.html", "sw.js", "sw-migration.js", "registerSW.js", "manifest.webmanifest"}
+)
 NO_CACHE = {"Cache-Control": "no-cache"}
 # With DOCS_ENABLED off FastAPI registers none of these, so they would fall
 # through to the SPA shell; answer 404 as if the app had no such page.

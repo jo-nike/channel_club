@@ -16,6 +16,7 @@ def client(tmp_path):
     (static / "assets").mkdir(parents=True)
     (static / "index.html").write_text(INDEX)
     (static / "sw.js").write_text("// sw")
+    (static / "sw-migration.js").write_text("// migration")
     (static / "favicon.svg").write_text("<svg/>")
     (static / "assets" / "index-abc123.js").write_text("console.log(1)")
     (tmp_path / "secret.txt").write_text(SECRET)
@@ -84,7 +85,9 @@ def test_hashed_assets_are_immutable(client):
     assert response.headers["cache-control"] == "public, max-age=31536000, immutable"
 
 
-@pytest.mark.parametrize("path", ["/", "/index.html", "/sw.js", "/watch/channel-7"])
+@pytest.mark.parametrize(
+    "path", ["/", "/index.html", "/sw.js", "/sw-migration.js", "/watch/channel-7"]
+)
 def test_shell_and_service_worker_are_revalidated(client, path):
     assert client.get(path).headers["cache-control"] == "no-cache"
 
