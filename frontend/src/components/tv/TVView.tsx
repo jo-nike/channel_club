@@ -192,13 +192,14 @@ export function TVView() {
     if (status === 'connected') {
       // The Live slot with nothing on live TV: nobody is watching a channel
       if (selectedChannel?.id === LIVE_CHANNEL_ID && !selectedChannel.backendId) {
-        sendChannelUpdate(null, null, 'live', null)
+        sendChannelUpdate(null, null, 'live', null, false)
         return
       }
       const viewType = selectedChannel?.type === 'ersatztv' ? 'ersatztv' : 'live'
       // Live slot carries a synthetic id; backendId is the real Dispatcharr channel id
       const channelId = selectedChannel?.backendId ?? selectedChannel?.id ?? null
-      sendChannelUpdate(selectedChannel?.name ?? null, currentProgrammeTitle, viewType, channelId)
+      const onLive = selectedChannel?.id === LIVE_CHANNEL_ID
+      sendChannelUpdate(selectedChannel?.name ?? null, currentProgrammeTitle, viewType, channelId, onLive)
     }
   }, [selectedChannel, currentProgrammeTitle, sendChannelUpdate, status])
 

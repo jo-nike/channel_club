@@ -126,13 +126,13 @@ describe('TV browsers: the couch view', () => {
 
     expect(socket.opened).toHaveBeenCalledTimes(1)
     expect(socket.opened).toHaveBeenCalledWith('tv')
-    expect(socket.sendChannelUpdate).toHaveBeenLastCalledWith('Movies', null, 'ersatztv', 'e1')
+    expect(socket.sendChannelUpdate).toHaveBeenLastCalledWith('Movies', null, 'ersatztv', 'e1', false)
 
     press('ArrowUp')
     act(() => { vi.advanceTimersByTime(700) })
 
     expect(socket.opened).toHaveBeenCalledTimes(1)
-    expect(socket.sendChannelUpdate).toHaveBeenLastCalledWith('Cartoons', null, 'ersatztv', 'e2')
+    expect(socket.sendChannelUpdate).toHaveBeenLastCalledWith('Cartoons', null, 'ersatztv', 'e2', false)
   })
 
   it('marks html.couch while it is up, and clears it when it goes', () => {

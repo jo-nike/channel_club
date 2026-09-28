@@ -841,6 +841,25 @@ class TestPresenceTracking:
             logger.remove(handler_id)
         assert "watch.start" not in output.getvalue()
 
+    def test_channel_update_records_whether_the_client_follows_live(
+        self, client: TestClient, valid_token: str
+    ):
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # Consume connection_ack
+            ws.send_json(
+                {
+                    "type": "channel_update",
+                    "channel": "RDS",
+                    "channelId": "uuid-rds",
+                    "view": "live",
+                    "onLive": True,
+                }
+            )
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json()["type"] == "pong"
+
+            assert only_presence().on_live is True
+
     def test_nickname_is_recorded_in_presence(
         self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
     ):

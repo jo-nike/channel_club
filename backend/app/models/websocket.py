@@ -29,6 +29,7 @@ class ChannelUpdateMessage(ClientMessage):
     channelId: PresenceText | None = None
     programme: PresenceText | None = None
     view: Literal["live", "ersatztv"] | None = None
+    onLive: bool | None = None  # Following the shared Live slot; pre-R2 bundles omit it
 
 
 class NicknameMessage(ClientMessage):

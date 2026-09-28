@@ -4,6 +4,9 @@ import { useAuth } from '@/hooks/useAuth'
 interface ActiveUser {
   username: string
   channel: string | null
+  channelId: string | null
+  // Following the shared Live slot, not a personal pick of whatever is live
+  onLive: boolean
   programme: string | null
   connectedSince: string
 }

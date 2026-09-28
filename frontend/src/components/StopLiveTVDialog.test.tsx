@@ -4,7 +4,7 @@ import { StopLiveTVDialog } from './StopLiveTVDialog'
 import { useAuthStore } from '@/stores/authStore'
 
 interface MockActiveUsers {
-  data: { liveUsers: { username: string }[] } | null
+  data: { liveUsers: { username: string; onLive: boolean }[] } | null
   loading: boolean
   error: string | null
 }
@@ -16,7 +16,7 @@ vi.mock('@/hooks/useActiveUsers', () => ({
 
 function withLiveUsers(...usernames: string[]): MockActiveUsers {
   return {
-    data: { liveUsers: usernames.map((username) => ({ username })) },
+    data: { liveUsers: usernames.map((username) => ({ username, onLive: true })) },
     loading: false,
     error: null,
   }
@@ -60,6 +60,23 @@ describe('StopLiveTVDialog', () => {
     renderDialog()
 
     expect(screen.getByText(/^2 people are watching TSN\./)).toBeInTheDocument()
+  })
+
+  it('counts only people following the Live slot', () => {
+    mockUseActiveUsers.mockReturnValue({
+      data: {
+        liveUsers: [
+          { username: 'alice', onLive: true },
+          { username: 'bob', onLive: false }, // On another channel
+          { username: 'carol', onLive: false }, // Picked TSN herself
+        ],
+      },
+      loading: false,
+      error: null,
+    })
+    renderDialog()
+
+    expect(screen.getByText(/^1 person is watching TSN\./)).toBeInTheDocument()
   })
 
   it('uses the singular for one person', () => {

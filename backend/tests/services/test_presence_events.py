@@ -78,6 +78,22 @@ def test_channel_change_emits_watch_start_then_stop_with_channel_id(events) -> N
     assert recs[2]["channel_id"] == "uuid-tva"
 
 
+def test_watch_events_carry_whether_the_viewer_follows_the_live_slot(events) -> None:
+    presence.track_user("s1", "jon", "live")
+    presence.update_user_channel("s1", "RDS", "Hockey", "live", "uuid-rds", on_live=True)
+    presence.update_user_channel("s1", "RDS", "Hockey", "live", "uuid-rds", on_live=True)
+    # A personal pick of the same channel is a new watch
+    presence.update_user_channel("s1", "RDS", "Hockey", "live", "uuid-rds", on_live=False)
+
+    recs = [r for r in events() if r["event"].startswith("watch.")]
+    assert [(r["event"], r["on_live"]) for r in recs] == [
+        ("watch.start", True),
+        ("watch.stop", True),
+        ("watch.start", False),
+    ]
+    assert presence._active_users["s1"].on_live is False
+
+
 def test_second_title_on_the_same_channel_stops_the_first_and_changes(events, clock) -> None:
     presence.track_user("s1", "jon", "ersatztv")
     presence.update_user_channel("s1", "Cinema", "First", "ersatztv", channel_id="C1")

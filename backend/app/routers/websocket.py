@@ -421,7 +421,12 @@ async def handle_client_message(
         programme = validated.get("programme")
         view = validated.get("view")
         presence.update_user_channel(
-            client_id, channel, programme, view, channel_id=validated.get("channelId")
+            client_id,
+            channel,
+            programme,
+            view,
+            channel_id=validated.get("channelId"),
+            on_live=validated.get("onLive"),
         )
         # Every update, including a programme rollover on the same channel
         presence_broadcast.schedule_broadcast()

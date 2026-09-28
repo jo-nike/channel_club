@@ -133,13 +133,13 @@ describe('K-01 presence on the empty Live slot', () => {
   it('reports no channel, not "Live", once live TV stops under a slot-0 viewer', async () => {
     vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
     render(<MemoryRouter><TVView /></MemoryRouter>)
-    await waitFor(() => expect(presence).toHaveBeenLastCalledWith('A', null, 'live', 'a'))
+    await waitFor(() => expect(presence).toHaveBeenLastCalledWith('A', null, 'live', 'a', true))
 
     act(() => useChannelStore.getState().setCurrentChannel(null))
 
     expect(useTVStore.getState().selectedChannel).toMatchObject({ id: LIVE_CHANNEL_ID, name: 'Live' })
-    expect(presence).toHaveBeenLastCalledWith(null, null, 'live', null)
-    expect(presence).not.toHaveBeenCalledWith('Live', expect.anything(), expect.anything(), expect.anything())
+    expect(presence).toHaveBeenLastCalledWith(null, null, 'live', null, false)
+    expect(presence).not.toHaveBeenCalledWith('Live', expect.anything(), expect.anything(), expect.anything(), expect.anything())
   })
 })
 
@@ -161,7 +161,7 @@ describe('FE-12 programme boundary clock', () => {
     await act(() => vi.advanceTimersByTimeAsync(30000))
     expect(header.getByText('Second')).toBeVisible()
     expect(header.getByText('CH 1 · Cinema · 1h left')).toBeVisible()
-    expect(presence).toHaveBeenLastCalledWith('Cinema', 'Second', 'ersatztv', 'e')
+    expect(presence).toHaveBeenLastCalledWith('Cinema', 'Second', 'ersatztv', 'e', false)
   })
   it('refreshes live EPG at programme end with no optional catalogue', async () => {
     vi.useFakeTimers()
@@ -177,7 +177,7 @@ describe('FE-12 programme boundary clock', () => {
     expect(header.getByText('First live')).toBeVisible()
     await act(() => vi.advanceTimersByTimeAsync(10000))
     expect(header.getByText('Next live')).toBeVisible()
-    expect(presence).toHaveBeenLastCalledWith('A', 'Next live', 'live', 'a')
+    expect(presence).toHaveBeenLastCalledWith('A', 'Next live', 'live', 'a', true)
   })
 })
 

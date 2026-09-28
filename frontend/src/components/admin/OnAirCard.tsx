@@ -218,15 +218,16 @@ function WatchingWith() {
 }
 
 /**
- * How many people are on live TV. Presence lists sessions, not people, so one
- * person with two tabs counts once. Only mounted while something is live: the
+ * How many people are on live TV: following the Live slot, not on a channel of
+ * their own. Presence lists sessions, not people, so one person with two tabs
+ * counts once. Only mounted while something is live: the
  * admin-only endpoint polls while mounted.
  */
 function WatchingCount() {
   const { data, loading, error } = useActiveUsers()
   if (!data || loading || error) return null
 
-  const people = new Set(data.liveUsers.map((u) => u.username)).size
+  const people = new Set(data.liveUsers.filter((u) => u.onLive).map((u) => u.username)).size
   return (
     <p className="mt-1 text-sm text-muted-foreground">
       {people === 0 ? 'Nobody watching' : `${people} watching`}
