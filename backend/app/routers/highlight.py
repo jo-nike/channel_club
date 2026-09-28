@@ -29,7 +29,6 @@ from app.services.media_export import (
     encode_file,
     media_duration,
     new_workspace,
-    owned_thread,
     remove_workspace,
     workspace,
 )
@@ -78,6 +77,9 @@ class DownloadLinkResponse(BaseModel):
 # How often a running export checks whether the browser is still waiting for it
 DISCONNECT_POLL_SECONDS = 0.5
 
+# How long an upload may go without receiving a body chunk
+UPLOAD_IDLE_SECONDS = 30
+
 CaptureIdPath = Path(..., pattern=r"^[A-Za-z0-9_-]{16,64}$", description="Capture id")
 
 
@@ -107,13 +109,19 @@ async def get_feature_status(
 
 async def ingest_preview(request: Request, source: FilePath) -> None:
     size = 0
+    chunks = aiter(request.stream())
     with source.open("wb") as output:
-        async with asyncio.timeout(30):
-            async for chunk in request.stream():
-                size += len(chunk)
-                if size > settings.media_export_max_bytes:
-                    raise HTTPException(413, "Preview exceeds export size limit")
-                await owned_thread(output.write, chunk)
+        while True:
+            # A slow uplink may take minutes for a long clip; only a stalled one times out.
+            async with asyncio.timeout(UPLOAD_IDLE_SECONDS):
+                chunk = await anext(chunks, None)
+            if chunk is None:
+                break
+            size += len(chunk)
+            if size > settings.media_export_max_bytes:
+                raise HTTPException(413, "Preview exceeds export size limit")
+            # A body chunk is a page-cache write of microseconds; no worker thread per chunk.
+            output.write(chunk)
     if not size:
         raise HTTPException(400, "Preview is empty")
 

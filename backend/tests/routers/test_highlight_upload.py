@@ -1,5 +1,8 @@
 """Optional shared Zipline uploads: feature gating, bounded ingestion, exact bytes."""
 
+import asyncio
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,11 +11,13 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 from fastapi import FastAPI
+from starlette.requests import Request
 
 from app.config import settings
 from app.models.auth import TokenPayload
+from app.routers import highlight as highlight_router
 from app.routers.auth_deps import get_current_user
-from app.routers.highlight import router
+from app.routers.highlight import ingest_preview, router
 from app.services.media_limits import export_budget, upload_budget
 
 
@@ -221,3 +226,62 @@ async def test_upload_requires_authentication(configured):
             "/api/highlight/upload", content=b"preview", headers={"Content-Type": "video/mp4"}
         )
     assert response.status_code == 401
+
+
+def paced(chunks: int, pause: float, stall_after: int | None = None, stall: float = 0):
+    """A body sent in small chunks with a pause before each, like a slow phone uplink."""
+
+    async def body():
+        for index in range(chunks):
+            await asyncio.sleep(stall if index == stall_after else pause)
+            yield b"x" * 1024
+
+    return body()
+
+
+async def test_a_slow_upload_is_timed_per_chunk_not_for_the_whole_body(
+    client, configured, monkeypatch
+):
+    monkeypatch.setattr(highlight_router, "UPLOAD_IDLE_SECONDS", 0.3)
+    upload = AsyncMock(return_value={"url": "https://cdn.test/c.mp4", "name": "c.mp4"})
+    with (
+        patch("app.routers.highlight.upload_clip", upload),
+        patch("app.routers.highlight.media_duration", new_callable=AsyncMock, return_value=2),
+    ):
+        # Ten chunks 0.1 s apart take a second in all, well past the idle limit.
+        response = await client.post(
+            "/api/highlight/upload",
+            content=paced(10, 0.1),
+            headers={"Content-Type": "video/mp4"},
+        )
+        assert response.status_code == 200
+        stalled = await client.post(
+            "/api/highlight/upload",
+            content=paced(3, 0.01, stall_after=1, stall=0.6),
+            headers={"Content-Type": "video/mp4"},
+        )
+    assert stalled.status_code == 408
+    upload.assert_awaited_once()
+
+
+async def test_ingest_writes_chunks_without_a_worker_thread(tmp_path):
+    """A saturated default executor must not stall or time out the body read (N-02)."""
+    loop = asyncio.get_running_loop()
+    executor = ThreadPoolExecutor(max_workers=1)
+    loop.set_default_executor(executor)
+    gate = threading.Event()
+    loop.run_in_executor(None, gate.wait)
+    messages = [
+        {"type": "http.request", "body": b"x" * 65536, "more_body": True} for _ in range(64)
+    ] + [{"type": "http.request", "body": b"", "more_body": False}]
+
+    async def receive():
+        return messages.pop(0)
+
+    request = Request({"type": "http", "method": "POST", "headers": []}, receive)
+    try:
+        await asyncio.wait_for(ingest_preview(request, tmp_path / "clip.mp4"), 2)
+    finally:
+        gate.set()
+        executor.shutdown(wait=True)
+    assert (tmp_path / "clip.mp4").stat().st_size == 64 * 65536
