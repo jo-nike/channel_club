@@ -14,6 +14,9 @@ IMMUTABLE = "public, max-age=31536000, immutable"
 # browser must revalidate them (ETag) on every load to pick up a new build.
 NO_CACHE_FILES = frozenset({"index.html", "sw.js", "registerSW.js", "manifest.webmanifest"})
 NO_CACHE = {"Cache-Control": "no-cache"}
+# With DOCS_ENABLED off FastAPI registers none of these, so they would fall
+# through to the SPA shell; answer 404 as if the app had no such page.
+API_DOCS_PATHS = frozenset({"docs", "redoc", "openapi.json"})
 API_METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 
 
@@ -60,6 +63,8 @@ def mount_spa(app: FastAPI, static_dir: Path) -> None:
         # resolve()/is_file() touch the filesystem, so a percent-encoded NUL
         # (/%00) or other malformed path raises ValueError/OSError — swallow it
         # and fall back to the SPA rather than 500-ing with a traceback.
+        if full_path in API_DOCS_PATHS:
+            raise HTTPException(status_code=404, detail="Not Found")
         try:
             file_path = (static_dir / full_path).resolve()
             if file_path.is_relative_to(static_root) and file_path.is_file():

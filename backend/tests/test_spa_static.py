@@ -20,7 +20,7 @@ def client(tmp_path):
     (static / "assets" / "index-abc123.js").write_text("console.log(1)")
     (tmp_path / "secret.txt").write_text(SECRET)
     (static / "escape").symlink_to(tmp_path / "secret.txt")
-    app = FastAPI()
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)  # production default
 
     @app.get("/api/known")
     async def known() -> dict[str, bool]:
@@ -91,3 +91,10 @@ def test_shell_and_service_worker_are_revalidated(client, path):
 
 def test_other_root_files_get_no_cache_policy(client):
     assert "cache-control" not in client.get("/favicon.svg").headers
+
+
+@pytest.mark.parametrize("path", ["/docs", "/redoc", "/openapi.json"])
+def test_disabled_api_docs_do_not_fall_through_to_the_shell(client, path):
+    response = client.get(path)
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not Found"}
