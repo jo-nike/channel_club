@@ -3,7 +3,7 @@
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from io import StringIO
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,7 +14,7 @@ from app.models.channel import Channel, ChannelGroupWithChannels, GroupedChannel
 from app.models.epg import EPGProgrammesResponse, EPGResponse, Program
 from app.services.auth import create_access_token
 from app.services.dispatcharr import DispatchrrUnavailableError
-from app.services.epg_service import EPGServiceError
+from app.services.epg_service import EPGService, EPGServiceError
 
 
 @pytest.fixture
@@ -122,6 +122,7 @@ class TestGetNowPlaying:
         with patch("app.routers.epg.get_epg_service") as mock_get_service:
             mock_service = AsyncMock()
             mock_service.get_now_playing.side_effect = EPGServiceError("EPG service unavailable")
+            mock_service.get_health = MagicMock()
             mock_get_service.return_value = mock_service
 
             response = client.get(
@@ -373,6 +374,7 @@ class TestGetNowPlayingAll:
         with patch("app.routers.epg.get_epg_service") as mock_get_service:
             mock_service = AsyncMock()
             mock_service.get_now_playing_bulk.side_effect = EPGServiceError("unavailable")
+            mock_service.get_health = MagicMock()
             mock_get_service.return_value = mock_service
 
             response = client.get("/api/epg/now-playing/all", headers=auth_header)
@@ -553,9 +555,80 @@ class TestGetProgrammes:
         with patch("app.routers.epg.get_epg_service") as mock_get_service:
             mock_service = AsyncMock()
             mock_service.get_programmes.side_effect = EPGServiceError("EPG service unavailable")
+            mock_service.get_health = MagicMock()
             mock_get_service.return_value = mock_service
 
             response = client.get("/api/epg/programmes?channel_id=28", headers=auth_header)
 
         assert response.status_code == 503
         assert response.json() == {"detail": "EPG service unavailable"}
+
+
+class TestUnavailableWarning:
+    """Guide 503s log at DEBUG, with one WARNING carrying the cause per backoff window (H-08)."""
+
+    @staticmethod
+    def _unavailable_service(retry_at: datetime) -> EPGService:
+        service = EPGService("http://dispatcharr.synthetic:9191")
+        service._last_error = "HTTP 403"
+        service._retry_at = retry_at
+        return service
+
+    def test_repeated_503s_in_one_backoff_window_warn_once(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        output = StringIO()
+        handler_id = logger.add(output, format="{level} | {message}", level="DEBUG")
+        retry_at = datetime.now(UTC) + timedelta(minutes=5)
+        try:
+            with (
+                patch(
+                    "app.routers.epg.get_epg_service",
+                    return_value=self._unavailable_service(retry_at),
+                ),
+                patch(
+                    "app.routers.epg.get_grouped_channels",
+                    new=AsyncMock(side_effect=DispatchrrUnavailableError("down")),
+                ),
+            ):
+                for path in (
+                    "/api/epg/now-playing?channel_id=28",
+                    "/api/epg/programmes?channel_id=28",
+                    "/api/epg/now-playing/all",
+                    "/api/epg/now-playing?channel_id=29",
+                ):
+                    assert client.get(path, headers=auth_header).status_code == 503
+        finally:
+            logger.remove(handler_id)
+
+        lines = output.getvalue().splitlines()
+        warnings = [line for line in lines if line.startswith("WARNING") and "EPG" in line]
+        assert len(warnings) == 1
+        assert "HTTP 403" in warnings[0]
+        assert str(retry_at) in warnings[0]
+        assert any(
+            line.startswith("DEBUG") and "unavailable for channel: 29" in line for line in lines
+        )
+
+    def test_a_new_backoff_window_warns_again(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        output = StringIO()
+        handler_id = logger.add(output, format="{level} | {message}", level="WARNING")
+        now = datetime.now(UTC)
+        try:
+            for retry_at in (now + timedelta(seconds=30), now + timedelta(seconds=60)):
+                with patch(
+                    "app.routers.epg.get_epg_service",
+                    return_value=self._unavailable_service(retry_at),
+                ):
+                    for _ in range(2):
+                        response = client.get(
+                            "/api/epg/now-playing?channel_id=28", headers=auth_header
+                        )
+                        assert response.status_code == 503
+        finally:
+            logger.remove(handler_id)
+
+        warnings = [line for line in output.getvalue().splitlines() if "EPG" in line]
+        assert len(warnings) == 2

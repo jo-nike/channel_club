@@ -400,28 +400,30 @@ class TestChannelBroadcast:
     def authoritative_catalog(self, monkeypatch):
         from unittest.mock import AsyncMock
 
-        from app.models.channel import Channel
+        from app.models.channel import Channel, GroupedChannelsResponse
         from app.services import media_source
 
         monkeypatch.setattr(media_source, "get_channel_by_id", lambda _id: None)
         monkeypatch.setattr(
             media_source,
-            "get_lineup",
+            "get_grouped_channels",
             AsyncMock(
-                return_value=[
-                    Channel(
-                        id="test-123",
-                        name="Test Channel",
-                        stream_url="http://test",
-                        guide_id="guide-123",
-                    ),
-                    Channel(
-                        id="multi-123",
-                        name="Multi Test",
-                        stream_url="http://multi",
-                        guide_id="guide-multi",
-                    ),
-                ]
+                return_value=GroupedChannelsResponse(
+                    ungrouped=[
+                        Channel(
+                            id="test-123",
+                            name="Test Channel",
+                            stream_url="http://test",
+                            guide_id="guide-123",
+                        ),
+                        Channel(
+                            id="multi-123",
+                            name="Multi Test",
+                            stream_url="http://multi",
+                            guide_id="guide-multi",
+                        ),
+                    ]
+                )
             ),
         )
 

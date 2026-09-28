@@ -25,6 +25,7 @@ from app.routers.nhl import router as nhl_router
 from app.routers.settings import router as settings_router
 from app.routers.websocket import router as websocket_router
 from app.services import channel_state, plex, presence, presence_broadcast
+from app.services.cached_fetch import aclose_all_caches
 from app.services.cast import cast_service
 from app.services.dispatcharr import (
     DispatchrrUnavailableError,
@@ -148,7 +149,7 @@ async def lifespan(app: FastAPI):
     async def _warm_caches() -> None:
         channels, guide = await asyncio.gather(
             get_grouped_channels(),
-            get_epg_service().check_health(),
+            get_epg_service().ensure_fresh(),
             return_exceptions=True,
         )
         if isinstance(channels, DispatchrrUnavailableError):
@@ -194,6 +195,7 @@ async def lifespan(app: FastAPI):
         _stop_highlights(),
         cast_service.stop_all(),
         channel_state.stop_reconcile_task(),
+        aclose_all_caches(),
     ]
     try:
         async with asyncio.timeout(SHUTDOWN_DEADLINE_SECONDS):

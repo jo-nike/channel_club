@@ -1,9 +1,10 @@
 """Tests for EPG service."""
 
-from collections.abc import Callable
+import asyncio
+from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -61,7 +62,7 @@ class TestParseXmltv:
         </tv>
         """
 
-        result, _ = service._parse_xmltv(xml_content)
+        result, _, _ = service._parse_xmltv(xml_content)
 
         assert "uuid-abc123" in result
         assert len(result["uuid-abc123"]) == 1
@@ -83,7 +84,7 @@ class TestParseXmltv:
         </tv>
         """
 
-        result, _ = service._parse_xmltv(xml_content)
+        result, _, _ = service._parse_xmltv(xml_content)
 
         assert len(result["uuid-abc123"]) == 2
         # Programs should be sorted by start time
@@ -104,7 +105,7 @@ class TestParseXmltv:
         </tv>
         """
 
-        result, _ = service._parse_xmltv(xml_content)
+        result, _, _ = service._parse_xmltv(xml_content)
 
         assert "channel-1" in result
         assert "channel-2" in result
@@ -122,7 +123,7 @@ class TestParseXmltv:
         </tv>
         """
 
-        result, _ = service._parse_xmltv(xml_content)
+        result, _, _ = service._parse_xmltv(xml_content)
 
         assert result["uuid-abc123"][0].description is None
 
@@ -134,7 +135,7 @@ class TestParseXmltv:
         </tv>
         """
 
-        result, _ = service._parse_xmltv(xml_content)
+        result, _, _ = service._parse_xmltv(xml_content)
 
         assert result == {}
 
@@ -156,7 +157,7 @@ class TestParseXmltv:
         </tv>
         """
 
-        result, _ = service._parse_xmltv(xml_content)
+        result, _, _ = service._parse_xmltv(xml_content)
 
         assert result == {}
 
@@ -165,7 +166,7 @@ class TestRefreshCache:
     """Tests for cache refresh functionality."""
 
     @pytest.mark.asyncio
-    async def test_refresh_cache_success(self) -> None:
+    async def test_refresh_cache_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Successful cache refresh stores parsed data."""
         service = EPGService("http://test:9191")
 
@@ -177,99 +178,78 @@ class TestRefreshCache:
         </tv>
         """
 
-        mock_response = MagicMock()
-        mock_response.text = xml_response
-        mock_response.raise_for_status = MagicMock()
+        _patch_upstream(
+            monkeypatch, _Upstream(lambda request: httpx.Response(200, text=xml_response))
+        )
 
-        with patch("app.services.epg_service.httpx.AsyncClient") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.get.return_value = mock_response
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_class.return_value = mock_client
-
-            result = await service.refresh_cache()
+        result = await service.refresh_cache()
 
         assert result is True
         assert "uuid-abc123" in service._cache
         assert service._cache_expires is not None
 
     @pytest.mark.asyncio
-    async def test_refresh_cache_sets_24h_expiry(self) -> None:
-        """Cache expiry is set to 24 hours from now."""
+    async def test_refresh_cache_sets_4h_expiry(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Cache expiry is set to 4 hours from now."""
         service = EPGService("http://test:9191")
 
-        mock_response = MagicMock()
-        mock_response.text = "<tv></tv>"
-        mock_response.raise_for_status = MagicMock()
+        _patch_upstream(
+            monkeypatch, _Upstream(lambda request: httpx.Response(200, text="<tv></tv>"))
+        )
 
-        with patch("app.services.epg_service.httpx.AsyncClient") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.get.return_value = mock_response
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_class.return_value = mock_client
+        before = datetime.now(UTC)
+        await service.refresh_cache()
+        after = datetime.now(UTC)
 
-            before = datetime.now(UTC)
-            await service.refresh_cache()
-            after = datetime.now(UTC)
-
-        expected_min = before + timedelta(hours=24)
-        expected_max = after + timedelta(hours=24)
+        expected_min = before + timedelta(hours=4)
+        expected_max = after + timedelta(hours=4)
         assert service._cache_expires is not None
         assert expected_min <= service._cache_expires <= expected_max
 
     @pytest.mark.asyncio
-    async def test_refresh_cache_connection_error_returns_false(self) -> None:
+    async def test_refresh_cache_connection_error_returns_false(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Connection error returns False without raising."""
         service = EPGService("http://test:9191")
 
-        with patch("app.services.epg_service.httpx.AsyncClient") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.get.side_effect = httpx.ConnectError("Connection refused")
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_class.return_value = mock_client
+        _patch_upstream(monkeypatch, _Upstream(_raise(httpx.ConnectError("Connection refused"))))
 
-            result = await service.refresh_cache()
+        result = await service.refresh_cache()
 
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_refresh_cache_timeout_returns_false(self) -> None:
+    async def test_refresh_cache_timeout_returns_false(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Timeout returns False without raising."""
         service = EPGService("http://test:9191")
 
-        with patch("app.services.epg_service.httpx.AsyncClient") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.get.side_effect = httpx.TimeoutException("Timeout")
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_class.return_value = mock_client
+        _patch_upstream(monkeypatch, _Upstream(_raise(httpx.TimeoutException("Timeout"))))
 
-            result = await service.refresh_cache()
+        result = await service.refresh_cache()
 
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_refresh_cache_calls_correct_endpoint(self) -> None:
+    async def test_refresh_cache_calls_correct_endpoint(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Refresh calls /output/epg endpoint."""
         service = EPGService("http://dispatcharr:9191")
 
-        mock_response = MagicMock()
-        mock_response.text = "<tv></tv>"
-        mock_response.raise_for_status = MagicMock()
+        urls: list[str] = []
 
-        with patch("app.services.epg_service.httpx.AsyncClient") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.get.return_value = mock_response
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_class.return_value = mock_client
+        def respond(request: httpx.Request) -> httpx.Response:
+            urls.append(str(request.url))
+            return httpx.Response(200, text="<tv></tv>")
 
-            await service.refresh_cache()
+        _patch_upstream(monkeypatch, _Upstream(respond))
 
-        mock_client.get.assert_called_once_with("http://dispatcharr:9191/output/epg")
+        await service.refresh_cache()
+
+        assert urls == ["http://dispatcharr:9191/output/epg"]
 
 
 class TestGetNowPlaying:
@@ -345,7 +325,9 @@ class TestGetNowPlaying:
         assert result.next_program is None
 
     @pytest.mark.asyncio
-    async def test_get_now_playing_refreshes_stale_cache(self) -> None:
+    async def test_get_now_playing_refreshes_stale_cache(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Refreshes cache when expired before returning data."""
         service = EPGService("http://test:9191")
 
@@ -364,24 +346,19 @@ class TestGetNowPlaying:
         </tv>
         """
 
-        mock_response = MagicMock()
-        mock_response.text = xml_response
-        mock_response.raise_for_status = MagicMock()
+        _patch_upstream(
+            monkeypatch, _Upstream(lambda request: httpx.Response(200, text=xml_response))
+        )
 
-        with patch("app.services.epg_service.httpx.AsyncClient") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.get.return_value = mock_response
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_class.return_value = mock_client
-
-            result = await service.get_now_playing("channel-1")
+        result = await service.get_now_playing("channel-1")
 
         assert result.current_program is not None
         assert result.current_program.title == "Fresh Program"
 
     @pytest.mark.asyncio
-    async def test_get_now_playing_uses_stale_cache_on_refresh_failure(self) -> None:
+    async def test_get_now_playing_uses_stale_cache_on_refresh_failure(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Uses stale cache when refresh fails."""
         service = EPGService("http://test:9191")
 
@@ -398,20 +375,19 @@ class TestGetNowPlaying:
         service._cache = {"channel-1": stale_programs}
         service._cache_expires = now - timedelta(hours=1)
 
-        with patch("app.services.epg_service.httpx.AsyncClient") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.get.side_effect = httpx.ConnectError("Connection refused")
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_class.return_value = mock_client
+        _patch_upstream(monkeypatch, _Upstream(_raise(httpx.ConnectError("Connection refused"))))
 
-            result = await service.get_now_playing("channel-1")
+        result = await service.get_now_playing("channel-1")
+        await _settle(service)
 
         assert result.current_program is not None
         assert result.current_program.title == "Stale Program"
+        assert service.get_health().error == "connection failed"
 
     @pytest.mark.asyncio
-    async def test_get_now_playing_raises_when_no_cache_and_refresh_fails(self) -> None:
+    async def test_get_now_playing_raises_when_no_cache_and_refresh_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Raises error when refresh fails and no cache exists."""
         service = EPGService("http://test:9191")
 
@@ -419,15 +395,16 @@ class TestGetNowPlaying:
         service._cache = {}
         service._cache_expires = None
 
-        with patch("app.services.epg_service.httpx.AsyncClient") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.get.side_effect = httpx.ConnectError("Connection refused")
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_class.return_value = mock_client
+        _patch_upstream(monkeypatch, _Upstream(_raise(httpx.ConnectError("Connection refused"))))
 
-            with pytest.raises(EPGServiceError, match="EPG service unavailable"):
-                await service.get_now_playing("channel-1")
+        with pytest.raises(EPGServiceError, match="EPG service unavailable"):
+            await service.get_now_playing("channel-1")
+
+
+async def _settle(service: EPGService) -> None:
+    """Wait for the background refresh a stale read started, if any."""
+    if service._refresh_task is not None:
+        await service._refresh_task
 
 
 def _on_air(title: str, now: datetime) -> list[Program]:
@@ -438,6 +415,21 @@ def _on_air(title: str, now: datetime) -> list[Program]:
             end_time=now + timedelta(minutes=30),
         )
     ]
+
+
+def _numbering_service(id_names: set[str] | None) -> EPGService:
+    """Guide id 28 and the name 'CA-S: TSN 5' (XMLTV id tsn5.ca) both have programmes.
+
+    id_names are the feed's display names for id 28; None means the feed has none.
+    """
+    service = EPGService("http://test:9191")
+    now = datetime.now(UTC)
+    service._cache = {"28": _on_air("By Id", now), "tsn5.ca": _on_air("By Name", now)}
+    service._channel_names = {"ca-s: tsn 5": "tsn5.ca"}
+    if id_names is not None:
+        service._channel_display_names = {"28": id_names}
+    service._cache_expires = now + timedelta(hours=1)
+    return service
 
 
 class TestChannelNameFallback:
@@ -468,9 +460,10 @@ class TestChannelNameFallback:
         </tv>
         """
 
-        _, channel_names = service._parse_xmltv(xml_content)
+        _, channel_names, display_names = service._parse_xmltv(xml_content)
 
         assert channel_names == {"ca-s: tsn 5": "28", "tsn5": "28", "sportsnet": "29"}
+        assert display_names == {"28": {"ca-s: tsn 5", "tsn5"}, "29": {"ca-s: tsn 5", "sportsnet"}}
 
     @pytest.mark.asyncio
     async def test_name_fallback_returns_that_channels_programmes(
@@ -510,15 +503,39 @@ class TestChannelNameFallback:
         assert result.next_program.title == "Post-game"
 
     @pytest.mark.asyncio
-    async def test_exact_guide_id_wins_over_name(self) -> None:
-        """The name map is only consulted when the guide id has no programmes."""
-        service = EPGService("http://test:9191")
-        now = datetime.now(UTC)
-        service._cache = {"28": _on_air("By Id", now), "tsn5.ca": _on_air("By Name", now)}
-        service._channel_names = {"ca-s: tsn 5": "tsn5.ca"}
-        service._cache_expires = now + timedelta(hours=1)
+    @pytest.mark.parametrize("id_names", [None, {"ca-s: tsn 5"}])
+    async def test_guide_id_wins_when_its_name_matches_or_is_unknown(
+        self, id_names: set[str] | None
+    ) -> None:
+        """The id keeps its programmes when the feed gives it the same name or none."""
+        service = _numbering_service(id_names)
 
         result = await service.get_now_playing("28", channel_name="CA-S: TSN 5")
+
+        assert result.current_program is not None
+        assert result.current_program.title == "By Id"
+
+    @pytest.mark.asyncio
+    async def test_name_wins_when_the_feed_names_the_id_as_another_channel(self) -> None:
+        """A guide id the feed calls a different channel yields to the name's channel."""
+        service = _numbering_service({"cbc"})
+
+        result = await service.get_now_playing("28", channel_name="CA-S: TSN 5")
+
+        assert result.current_program is not None
+        assert result.current_program.title == "By Name"
+
+    @pytest.mark.asyncio
+    async def test_a_name_variant_that_matches_no_other_channel_keeps_the_id(self) -> None:
+        """'CBC' in the catalogue against 'CBC HD' in the feed is not a numbering mismatch."""
+        service = EPGService("http://test:9191")
+        now = datetime.now(UTC)
+        service._cache = {"7": _on_air("By Id", now)}
+        service._channel_names = {"cbc hd": "7"}
+        service._channel_display_names = {"7": {"cbc hd"}}
+        service._cache_expires = now + timedelta(hours=1)
+
+        result = await service.get_now_playing("7", channel_name="CBC")
 
         assert result.current_program is not None
         assert result.current_program.title == "By Id"
@@ -691,17 +708,43 @@ class TestGetNowPlayingBulkNameFallback:
         assert result["tsn5.ca"].title == "Hockey Night"
 
     @pytest.mark.asyncio
-    async def test_exact_guide_id_wins_over_name(self) -> None:
-        """The name map is only consulted when the guide id has no programmes."""
-        service = EPGService("http://test:9191")
-        now = datetime.now(UTC)
-        service._cache = {"28": _on_air("By Id", now), "tsn5.ca": _on_air("By Name", now)}
-        service._channel_names = {"ca-s: tsn 5": "tsn5.ca"}
-        service._cache_expires = now + timedelta(hours=1)
+    @pytest.mark.parametrize("id_names", [None, {"ca-s: tsn 5"}])
+    async def test_guide_id_wins_when_its_name_matches_or_is_unknown(
+        self, id_names: set[str] | None
+    ) -> None:
+        service = _numbering_service(id_names)
 
         result = await service.get_now_playing_bulk([_catalogue_channel("28", "CA-S: TSN 5")])
 
         assert result["28"].title == "By Id"
+
+    @pytest.mark.asyncio
+    async def test_name_wins_when_the_feed_names_the_id_as_another_channel(self) -> None:
+        """A raw XMLTV id no longer pre-empts the catalogue channel that claims it."""
+        service = _numbering_service({"cbc"})
+
+        result = await service.get_now_playing_bulk([_catalogue_channel("28", "CA-S: TSN 5")])
+
+        assert result["28"].title == "By Name"
+        # XMLTV ids no catalogue channel claims are still filled in
+        assert result["tsn5.ca"].title == "By Name"
+
+    @pytest.mark.asyncio
+    async def test_claimed_id_with_nothing_on_air_is_not_filled_by_the_raw_id(self) -> None:
+        """A catalogue channel resolved elsewhere never shows the raw id's programme."""
+        service = _numbering_service({"cbc"})
+        now = datetime.now(UTC)
+        service._cache["tsn5.ca"] = [
+            Program(
+                title="Later",
+                start_time=now + timedelta(hours=2),
+                end_time=now + timedelta(hours=3),
+            )
+        ]
+
+        result = await service.get_now_playing_bulk([_catalogue_channel("28", "CA-S: TSN 5")])
+
+        assert "28" not in result
 
     @pytest.mark.asyncio
     async def test_guide_id_with_nothing_on_air_does_not_fall_back(self) -> None:
@@ -849,17 +892,23 @@ class TestGetProgrammes:
         assert [p.title for p in result.programmes] == ["Hockey Night", "Post-game"]
 
     @pytest.mark.asyncio
-    async def test_exact_guide_id_wins_over_name(self) -> None:
-        """The name map is only consulted when the guide id has no programmes."""
-        service = EPGService("http://test:9191")
-        now = datetime.now(UTC)
-        service._cache = {"28": _on_air("By Id", now), "tsn5.ca": _on_air("By Name", now)}
-        service._channel_names = {"ca-s: tsn 5": "tsn5.ca"}
-        service._cache_expires = now + timedelta(hours=1)
+    @pytest.mark.parametrize("id_names", [None, {"ca-s: tsn 5"}])
+    async def test_guide_id_wins_when_its_name_matches_or_is_unknown(
+        self, id_names: set[str] | None
+    ) -> None:
+        service = _numbering_service(id_names)
 
         result = await service.get_programmes("28", hours=12, channel_name="CA-S: TSN 5")
 
         assert [p.title for p in result.programmes] == ["By Id"]
+
+    @pytest.mark.asyncio
+    async def test_name_wins_when_the_feed_names_the_id_as_another_channel(self) -> None:
+        service = _numbering_service({"cbc"})
+
+        result = await service.get_programmes("28", hours=12, channel_name="CA-S: TSN 5")
+
+        assert [p.title for p in result.programmes] == ["By Name"]
 
     @pytest.mark.asyncio
     async def test_raises_when_no_cache_and_refresh_fails(self) -> None:
@@ -912,6 +961,12 @@ HEALTH_XMLTV = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
+ENTITY_XMLTV = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE tv [<!ENTITY x "y">]>
+<tv><channel id="ch-a"><display-name>&x;</display-name></channel></tv>
+"""
+
+
 def _raise(error: Exception) -> Callable[[httpx.Request], httpx.Response]:
     def handler(request: httpx.Request) -> httpx.Response:
         raise error
@@ -951,7 +1006,7 @@ class TestHealth:
         service = EPGService("http://dispatcharr.synthetic:9191")
 
         before = datetime.now(UTC)
-        health = await service.check_health()
+        health = await service.ensure_fresh()
 
         assert health.online is False
         assert health.stale is False
@@ -974,9 +1029,10 @@ class TestHealth:
         _patch_upstream(monkeypatch, upstream)
         service = EPGService("http://dispatcharr.synthetic:9191")
 
-        health = await service.check_health()
+        health = await service.ensure_fresh()
         for _ in range(2):
             health = await service.check_health()
+            await _settle(service)
 
         assert upstream.requests == 1
         assert health.error == "HTTP 403"
@@ -990,7 +1046,7 @@ class TestHealth:
         service = EPGService("http://dispatcharr.synthetic:9191")
 
         before = datetime.now(UTC)
-        health = await service.check_health()
+        health = await service.ensure_fresh()
 
         assert health.online is True
         assert health.stale is False
@@ -1018,7 +1074,7 @@ class TestHealth:
         }
         service._cache_expires = now - timedelta(seconds=1)
 
-        health = await service.check_health()
+        health = await service.ensure_fresh()
 
         assert health.online is True
         assert health.stale is True
@@ -1033,9 +1089,9 @@ class TestHealth:
         _patch_upstream(monkeypatch, _Upstream(lambda request: next(responses)))
         service = EPGService("http://dispatcharr.synthetic:9191")
 
-        assert (await service.check_health()).error == "HTTP 403"
+        assert (await service.ensure_fresh()).error == "HTTP 403"
         service._retry_at = datetime.now(UTC) - timedelta(seconds=1)
-        health = await service.check_health()
+        health = await service.ensure_fresh()
 
         assert health.online is True
         assert health.error is None
@@ -1049,6 +1105,7 @@ class TestHealth:
             (_raise(httpx.ReadTimeout("slow")), "timeout"),
             (_raise(httpx.RemoteProtocolError("reset")), "request failed"),
             (lambda request: httpx.Response(200, text="<tv><broken"), "invalid XMLTV"),
+            (lambda request: httpx.Response(200, text=ENTITY_XMLTV), "invalid XMLTV"),
         ],
     )
     async def test_health_reports_short_failure_reason(
@@ -1061,7 +1118,7 @@ class TestHealth:
         _patch_upstream(monkeypatch, _Upstream(handler))
         service = EPGService("http://dispatcharr.synthetic:9191")
 
-        health = await service.check_health()
+        health = await service.ensure_fresh()
 
         assert health.online is False
         assert health.error == reason
@@ -1076,3 +1133,302 @@ class TestHealth:
         refresh.assert_not_called()
         assert health.online is False
         assert health.last_attempt_at is None
+
+
+class TestUnexpectedRefreshFailures:
+    """Every refresh failure keeps the stale cache, the backoff and the health report (D-08)."""
+
+    @pytest.mark.asyncio
+    async def test_entity_declaration_serves_stale_data_and_backs_off(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        upstream = _Upstream(lambda request: httpx.Response(200, text=ENTITY_XMLTV))
+        _patch_upstream(monkeypatch, upstream)
+        service = EPGService("http://dispatcharr.synthetic:9191")
+        now = datetime.now(UTC)
+        service._cache = {"ch-a": _on_air("Stale Show", now)}
+        service._cache_expires = now - timedelta(seconds=1)
+
+        result = await service.get_now_playing("ch-a")
+        await _settle(service)
+
+        assert result.current_program is not None
+        assert result.current_program.title == "Stale Show"
+        assert upstream.requests == 1
+        assert service._retry_at is not None
+        assert service.get_health().error == "invalid XMLTV"
+
+    @pytest.mark.asyncio
+    async def test_unexpected_error_is_a_failed_refresh(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _patch_upstream(
+            monkeypatch, _Upstream(lambda request: httpx.Response(200, text=HEALTH_XMLTV))
+        )
+        service = EPGService("http://dispatcharr.synthetic:9191")
+
+        with patch.object(service, "_parse_xmltv", side_effect=RuntimeError("bug")):
+            assert await service.refresh_cache() is False
+
+        assert service.get_health().error == "refresh failed"
+
+    @pytest.mark.asyncio
+    async def test_cancellation_is_not_swallowed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _patch_upstream(
+            monkeypatch, _Upstream(lambda request: httpx.Response(200, text=HEALTH_XMLTV))
+        )
+        service = EPGService("http://dispatcharr.synthetic:9191")
+
+        with (
+            patch.object(service, "_parse_xmltv", side_effect=asyncio.CancelledError),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await service.refresh_cache()
+
+
+class _SlowBody(httpx.AsyncByteStream):
+    """A body that sends one chunk, then stalls."""
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield b"<tv>"
+        await asyncio.sleep(10)
+
+
+class TestBoundedFeed:
+    """The XMLTV download has a byte budget and a body deadline (D-07)."""
+
+    @pytest.mark.asyncio
+    async def test_oversized_feed_keeps_stale_cache_and_backs_off(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("app.services.epg_service.FEED_BYTES", 4 * 1024)
+        oversized = HEALTH_XMLTV.encode() + b"<!-- pad -->" * 700  # about 8 KB
+        _patch_upstream(
+            monkeypatch, _Upstream(lambda request: httpx.Response(200, content=oversized))
+        )
+        service = EPGService("http://dispatcharr.synthetic:9191")
+        now = datetime.now(UTC)
+        service._cache = {"ch-a": _on_air("Stale Show", now)}
+        service._cache_expires = now - timedelta(seconds=1)
+
+        result = await service.get_now_playing("ch-a")
+        await _settle(service)
+
+        assert result.current_program is not None
+        assert result.current_program.title == "Stale Show"
+        assert service._retry_at is not None
+        assert service.get_health().error == "feed too large"
+
+    @pytest.mark.asyncio
+    async def test_feed_is_decoded_by_its_xml_declaration(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        latin1 = (
+            '<?xml version="1.0" encoding="ISO-8859-1"?>'
+            '<tv><programme start="20260103200000 +0000" stop="20260103210000 +0000" '
+            'channel="ch-a"><title>Caf\xe9</title></programme></tv>'
+        ).encode("latin-1")
+        _patch_upstream(monkeypatch, _Upstream(lambda request: httpx.Response(200, content=latin1)))
+        service = EPGService("http://dispatcharr.synthetic:9191")
+
+        assert await service.refresh_cache() is True
+        assert service._cache["ch-a"][0].title == "Caf\xe9"
+
+    @pytest.mark.asyncio
+    async def test_stalled_body_times_out(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("app.services.bounded_http.BODY_SECONDS", 0.05)
+        _patch_upstream(
+            monkeypatch, _Upstream(lambda request: httpx.Response(200, stream=_SlowBody()))
+        )
+        service = EPGService("http://dispatcharr.synthetic:9191")
+
+        assert await service.refresh_cache() is False
+        assert service.get_health().error == "timeout"
+
+
+def _xmltv_on_air(channel_id: str, title: str) -> str:
+    now = datetime.now(UTC)
+    start = (now - timedelta(minutes=30)).strftime("%Y%m%d%H%M%S")
+    stop = (now + timedelta(minutes=30)).strftime("%Y%m%d%H%M%S")
+    return (
+        f'<tv><programme start="{start} +0000" stop="{stop} +0000" channel="{channel_id}">'
+        f"<title>{title}</title></programme></tv>"
+    )
+
+
+class _SlowUpstream:
+    """An XMLTV upstream that answers after a delay and counts requests."""
+
+    def __init__(self, body: str, delay: float) -> None:
+        self.body = body
+        self.delay = delay
+        self.requests = 0
+
+    async def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.requests += 1
+        await asyncio.sleep(self.delay)
+        return httpx.Response(200, text=self.body)
+
+
+def _patch_slow_upstream(monkeypatch: pytest.MonkeyPatch, upstream: _SlowUpstream) -> None:
+    factory = httpx.AsyncClient
+
+    def client(**kwargs: Any) -> httpx.AsyncClient:
+        return factory(transport=httpx.MockTransport(upstream), **kwargs)
+
+    monkeypatch.setattr("app.services.epg_service.httpx.AsyncClient", client)
+
+
+def _expired_with(title: str) -> EPGService:
+    service = EPGService("http://dispatcharr.synthetic:9191")
+    now = datetime.now(UTC)
+    service._cache = {"ch-a": _on_air(title, now)}
+    service._cache_expires = now - timedelta(seconds=1)
+    return service
+
+
+class TestStaleWhileRevalidate:
+    """An expired guide is served at once while one background task refreshes it (D-03)."""
+
+    @pytest.mark.asyncio
+    async def test_readers_get_stale_data_without_waiting_on_the_download(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        upstream = _SlowUpstream(_xmltv_on_air("ch-a", "New Show"), delay=1.0)
+        _patch_slow_upstream(monkeypatch, upstream)
+        service = _expired_with("Old Show")
+
+        started = asyncio.get_running_loop().time()
+        results = await asyncio.gather(*(service.get_now_playing("ch-a") for _ in range(10)))
+        elapsed = asyncio.get_running_loop().time() - started
+
+        assert elapsed < 0.5
+        assert all(
+            r.current_program is not None and r.current_program.title == "Old Show" for r in results
+        )
+        await _settle(service)
+        assert upstream.requests == 1
+        later = await service.get_now_playing("ch-a")
+        assert later.current_program is not None
+        assert later.current_program.title == "New Show"
+
+    @pytest.mark.asyncio
+    async def test_background_failure_updates_backoff_and_health(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        upstream = _Upstream(lambda request: httpx.Response(503))
+        _patch_upstream(monkeypatch, upstream)
+        service = _expired_with("Old Show")
+
+        await service.get_now_playing("ch-a")
+        await _settle(service)
+        await service.get_now_playing("ch-a")
+        await _settle(service)
+
+        assert upstream.requests == 1
+        health = service.get_health()
+        assert health.error == "HTTP 503"
+        assert health.next_retry_at is not None
+        assert health.stale is True
+
+    @pytest.mark.asyncio
+    async def test_aclose_cancels_a_running_refresh(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _patch_slow_upstream(monkeypatch, _SlowUpstream("<tv></tv>", delay=10))
+        service = _expired_with("Old Show")
+
+        await service.get_now_playing("ch-a")
+        task = service._refresh_task
+        assert task is not None
+        await asyncio.sleep(0.01)
+
+        await service.aclose()
+
+        assert task.cancelled()
+        assert not service._refresh_lock.locked()
+
+
+class TestCheckHealthDoesNotWait:
+    """A status poll reports local state and never waits on the download (F-02)."""
+
+    @pytest.mark.asyncio
+    async def test_check_health_returns_while_the_refresh_runs(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        upstream = _SlowUpstream(HEALTH_XMLTV, delay=1.0)
+        _patch_slow_upstream(monkeypatch, upstream)
+        service = EPGService("http://dispatcharr.synthetic:9191")
+
+        health = await asyncio.wait_for(service.check_health(), timeout=0.2)
+        again = await asyncio.wait_for(service.check_health(), timeout=0.2)
+
+        assert health.online is False
+        assert again.online is False
+        await _settle(service)
+        assert upstream.requests == 1
+        assert service.get_health().online is True
+
+    @pytest.mark.asyncio
+    async def test_check_health_on_a_fresh_cache_starts_nothing(self) -> None:
+        service = EPGService("http://dispatcharr.synthetic:9191")
+        service._cache = {"ch-a": []}
+        service._cache_expires = datetime.now(UTC) + timedelta(hours=1)
+
+        await service.check_health()
+
+        assert service._refresh_task is None
+
+
+class TestSingletonLifecycle:
+    """The service singleton is closed and reset with the upstream caches."""
+
+    @pytest.mark.asyncio
+    async def test_singleton_is_reset_and_closed_with_the_caches(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.services import cached_fetch, epg_service
+
+        monkeypatch.setattr(epg_service, "_epg_service", None)
+        _patch_slow_upstream(monkeypatch, _SlowUpstream("<tv></tv>", delay=10))
+        service = epg_service.get_epg_service()
+        now = datetime.now(UTC)
+        service._cache = {"ch-a": _on_air("Old Show", now)}
+        service._cache_expires = now - timedelta(seconds=1)
+        await service.get_now_playing("ch-a")
+        task = service._refresh_task
+        assert task is not None
+
+        await cached_fetch.aclose_all_caches()
+        cached_fetch.reset_all_caches()
+
+        assert task.cancelled()
+        assert service._cache == {}
+        assert service._refresh_task is None
+
+
+class TestGuideIdDrift:
+    """A change in the catalogue's guide ids expires the guide (D-03)."""
+
+    @staticmethod
+    def _fresh() -> EPGService:
+        service = EPGService("http://dispatcharr.synthetic:9191")
+        service._cache = {"7": _on_air("Show", datetime.now(UTC))}
+        service._cache_expires = datetime.now(UTC) + timedelta(hours=1)
+        return service
+
+    def test_first_and_unchanged_builds_keep_the_guide(self) -> None:
+        service = self._fresh()
+
+        service.note_guide_ids(["7", "28"])
+        service.note_guide_ids(["28", "7"])
+
+        assert service._is_cache_valid() is True
+
+    def test_changed_guide_ids_expire_the_guide(self) -> None:
+        service = self._fresh()
+
+        service.note_guide_ids(["7", "28"])
+        service.note_guide_ids(["7", "29"])
+
+        assert service._is_cache_valid() is False
+        # The expired guide is still served while it refreshes
+        assert service.get_health().online is True

@@ -60,6 +60,8 @@ def reset_module_state(monkeypatch):
     monkeypatch.setattr(app_settings, "_user_channel_selection", False)
     monkeypatch.setattr(app_settings, "_presence_visible", False)
     channel_state.reset_live_change_state()
+    __import__("app.services.cached_fetch", fromlist=["_"]).reset_all_caches()
+    __import__("app.routers.epg", fromlist=["_"]).clear_unavailable_warning()
 
 
 @pytest.fixture(autouse=True)
