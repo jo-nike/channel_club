@@ -17,6 +17,7 @@ from loguru import logger
 from app.main import app
 from app.models.ersatztv import EPGChannel, Programme
 from app.services.auth import create_access_token
+from app.services.ersatztv.refresh import FeedUnavailableError
 
 
 @pytest.fixture
@@ -92,7 +93,7 @@ class TestListChannels:
         """Returns 503 when ErsatzTV is unavailable."""
         with patch(
             "app.routers.ersatztv.get_channels",
-            side_effect=Exception("Failed to load channels from ErsatzTV"),
+            side_effect=FeedUnavailableError("Failed to load channels from ErsatzTV"),
         ):
             response = client.get("/api/ersatztv/channels", headers=auth_header)
 
@@ -155,7 +156,7 @@ class TestListProgrammes:
         """Returns 503 when ErsatzTV is unavailable."""
         with patch(
             "app.routers.ersatztv.get_programmes_by_channel",
-            side_effect=Exception("Failed to load XMLTV"),
+            side_effect=FeedUnavailableError("Failed to load XMLTV"),
         ):
             response = client.get("/api/ersatztv/programmes/comedy-classics", headers=auth_header)
 
@@ -233,7 +234,7 @@ class TestGetCurrentProgramme:
         """Returns 503 when ErsatzTV is unavailable."""
         with patch(
             "app.routers.ersatztv.get_current_programme",
-            side_effect=Exception("Failed to load XMLTV"),
+            side_effect=FeedUnavailableError("Failed to load XMLTV"),
         ):
             response = client.get("/api/ersatztv/current/comedy-classics", headers=auth_header)
 
@@ -872,7 +873,7 @@ class TestGetSegment:
 
             response = client.get(f"/api/ersatztv/segments/{encoded_url}", headers=auth_header)
 
-        assert response.status_code in (400, 503)
+        assert response.status_code == 502
         # The metadata host must never have been contacted.
         assert all("169.254.169.254" not in url for url in requested_urls)
 
@@ -1085,3 +1086,75 @@ class TestErsatzTVLogging:
             assert "ersatztv" in log_output
         finally:
             logger.remove(handler_id)
+
+
+class TestErrorMapping:
+    """Client errors are 400, non-HLS replies 502, outages 503 and bugs 500 (M-02)."""
+
+    @pytest.mark.parametrize("encoded", ["A", "_w"])  # bad base64; not UTF-8
+    def test_malformed_encoded_url_is_a_client_error(
+        self, client: TestClient, auth_header: dict[str, str], encoded: str
+    ) -> None:
+        output = StringIO()
+        sink = logger.add(output, format="{level} | {message}", level="INFO")
+        try:
+            with _upstream(200, b"", "video/mp2t") as requests:
+                responses = [
+                    client.get(f"/api/ersatztv/stream/8?url={encoded}", headers=auth_header),
+                    client.head(f"/api/ersatztv/stream/8?url={encoded}", headers=auth_header),
+                    client.get(f"/api/ersatztv/segments/{encoded}", headers=auth_header),
+                    client.head(f"/api/ersatztv/segments/{encoded}", headers=auth_header),
+                ]
+        finally:
+            logger.remove(sink)
+
+        assert [r.status_code for r in responses] == [400] * 4
+        assert responses[0].json()["detail"] == "Invalid stream URL"
+        assert responses[2].json()["detail"] == "Invalid segment URL"
+        assert requests == []
+        assert "ERROR" not in output.getvalue()
+
+    @pytest.mark.parametrize(
+        "body,content_type,detail",
+        [
+            (b"<html>error</html>", "text/html", "Upstream is not an HLS manifest"),
+            (b"not a manifest\n", "application/vnd.apple.mpegurl", "Invalid HLS manifest header"),
+        ],
+    )
+    def test_non_hls_upstream_reply_is_a_bad_gateway(
+        self,
+        client: TestClient,
+        auth_header: dict[str, str],
+        body: bytes,
+        content_type: str,
+        detail: str,
+    ) -> None:
+        from app.config import settings
+        from app.services.ersatztv.hls_rewriter import HLSManifestRewriter
+
+        url = settings.ersatztv_base_url.rstrip("/") + "/iptv/session/8/hls.m3u8"
+        encoded = HLSManifestRewriter()._encode_url(url)
+        with _upstream(200, body, content_type) as requests:
+            response = client.get(f"/api/ersatztv/stream/8?url={encoded}", headers=auth_header)
+
+        assert response.status_code == 502
+        assert response.json()["detail"] == detail
+        assert len(requests) == 1  # not retried
+
+    def test_programming_error_is_a_500_with_a_traceback(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        output = StringIO()
+        sink = logger.add(output, format="{level} | {message}\n{exception}", level="INFO")
+        try:
+            with patch(
+                "app.routers.ersatztv.get_programmes_by_channel", side_effect=KeyError("start")
+            ):
+                response = client.get("/api/ersatztv/programmes/ch1", headers=auth_header)
+        finally:
+            logger.remove(sink)
+
+        assert response.status_code == 500
+        logged = output.getvalue()
+        assert "ERROR | Failed to get programmes for channel ch1" in logged
+        assert "Traceback" in logged and "KeyError('start')" in logged
