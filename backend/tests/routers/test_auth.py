@@ -662,6 +662,18 @@ class TestInputBounds:
         validate.assert_not_called()
         check_access.assert_not_called()
 
+    @pytest.mark.parametrize("token", ["t\u00e9st-token", "test token", "test\r\ntoken", ""])
+    def test_plex_auth_rejects_a_token_that_is_not_printable_ascii(
+        self, client_plex_enabled, token
+    ):
+        """A token that could not go in a header gets 422 and is never sent to plex.tv."""
+        validate = AsyncMock()
+        with patch("app.routers.auth.validate_plex_token", validate):
+            response = client_plex_enabled.post("/api/auth/plex", json={"authToken": token})
+
+        assert response.status_code == 422
+        validate.assert_not_called()
+
     def test_plex_auth_accepts_max_length_token(self, client_plex_enabled):
         """A 512-character Plex token still reaches validation."""
         validate = AsyncMock(side_effect=InvalidPlexTokenError("Invalid token"))
