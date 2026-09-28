@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import time
 import uuid
+from contextlib import suppress
 from pathlib import Path
 
 from loguru import logger
@@ -239,11 +240,14 @@ class CastService:
             self._cleanup_task = asyncio.create_task(self._idle_cleanup_loop())
             log.debug("Started idle cast session cleanup task")
 
-    def stop_idle_cleanup_task(self) -> None:
-        """Stop the background cleanup task."""
-        if self._cleanup_task and not self._cleanup_task.done():
-            self._cleanup_task.cancel()
+    async def stop_idle_cleanup_task(self) -> None:
+        """Stop the background cleanup task and wait for it to finish."""
+        task = self._cleanup_task
+        if task and not task.done():
+            task.cancel()
             self._cleanup_task = None
+            with suppress(asyncio.CancelledError):
+                await task
             log.debug("Stopped idle cast session cleanup task")
 
     async def _idle_cleanup_loop(self) -> None:
@@ -407,16 +411,18 @@ class CastService:
 
     async def stop_all(self) -> None:
         """Stop all sessions (for shutdown)."""
-        self.stop_idle_cleanup_task()
+        await self.stop_idle_cleanup_task()
         async with self._lock:
             sessions = list(self._sessions.items())
             self._sessions.clear()
 
-        for session_id, session in sessions:
+        async def stop(session_id: str, session: CastSession) -> None:
             try:
                 await session.stop()
             finally:
                 process_budget.release(self._owners.pop(session_id, "system"))
+
+        await asyncio.gather(*(stop(session_id, session) for session_id, session in sessions))
         log.info("All cast sessions stopped")
 
     def get_session(self, session_id: str) -> CastSession | None:

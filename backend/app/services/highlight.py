@@ -208,14 +208,15 @@ class ChannelRecorder:
                     os.killpg(os.getpgid(process.pid), 9)  # SIGKILL
                     process.wait()
 
+            # owned_thread waits out a cancellation, so a cancelled stop still
+            # signals FFmpeg. The handle is dropped only once the terminate ran.
             try:
-                await asyncio.to_thread(terminate_process)
+                await owned_thread(terminate_process)
             except ProcessLookupError:
                 pass  # Process already dead
             except Exception as e:
                 log.warning("Error stopping FFmpeg process: {}", e)
-            finally:
-                self.process = None
+            self.process = None
 
         # Cleanup segment directory
         if self.segment_dir and self.segment_dir.exists():
@@ -593,11 +594,14 @@ class HighlightService:
             self._cleanup_task = asyncio.create_task(self._idle_cleanup_loop())
             log.debug("Started idle recorder cleanup task")
 
-    def stop_idle_cleanup_task(self) -> None:
-        """Stop the background cleanup task."""
-        if self._cleanup_task and not self._cleanup_task.done():
-            self._cleanup_task.cancel()
+    async def stop_idle_cleanup_task(self) -> None:
+        """Stop the background cleanup task and wait for it to finish."""
+        task = self._cleanup_task
+        if task and not task.done():
+            task.cancel()
             self._cleanup_task = None
+            with suppress(asyncio.CancelledError):
+                await task
             log.debug("Stopped idle recorder cleanup task")
 
     async def _idle_cleanup_loop(self) -> None:
@@ -776,12 +780,18 @@ class HighlightService:
                 process_budget.release(self._owners.pop(channel_id, "system"))
 
     async def stop_all(self) -> None:
-        """Stop all recorders (for shutdown)."""
+        """Stop all recorders (for shutdown), concurrently so slow exits overlap."""
         async with self._lock:
-            for channel_id, recorder in self._recorders.items():
-                await recorder.stop()
-                process_budget.release(self._owners.pop(channel_id, "system"))
+            recorders = list(self._recorders.items())
             self._recorders.clear()
+
+        async def stop(channel_id: str, recorder: ChannelRecorder) -> None:
+            try:
+                await recorder.stop()
+            finally:
+                process_budget.release(self._owners.pop(channel_id, "system"))
+
+        await asyncio.gather(*(stop(channel_id, recorder) for channel_id, recorder in recorders))
         await self.captures.clear()
 
     def get_status(self, channel_id: str) -> dict:
