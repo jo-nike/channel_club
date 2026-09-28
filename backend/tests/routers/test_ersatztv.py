@@ -1168,6 +1168,23 @@ class TestErrorMapping:
         assert response.json()["detail"] == detail
         assert len(requests) == 1  # not retried
 
+    def test_oversized_manifest_is_a_bad_gateway(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        from app.config import settings
+        from app.services.ersatztv.hls_rewriter import HLSManifestRewriter
+
+        url = settings.ersatztv_base_url.rstrip("/") + "/iptv/session/8/hls.m3u8"
+        encoded = HLSManifestRewriter()._encode_url(url)
+        with (
+            patch("app.services.ersatztv.hls_rewriter.MANIFEST_BYTES", 8),
+            _upstream(200, b"#EXTM3U\n#EXTINF:4,\n", "application/vnd.apple.mpegurl"),
+        ):
+            response = client.get(f"/api/ersatztv/stream/8?url={encoded}", headers=auth_header)
+
+        assert response.status_code == 502
+        assert response.json()["detail"] == "Upstream body exceeds byte budget"
+
     def test_programming_error_is_a_500_with_a_traceback(
         self, client: TestClient, auth_header: dict[str, str]
     ) -> None:

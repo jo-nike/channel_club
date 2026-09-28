@@ -148,7 +148,8 @@ async def fetch_ersatztv(
     Raises:
         ValueError: If ``url`` itself is not an allowed ErsatzTV URL.
         UpstreamProtocolError: If a redirect leaves the allowed ErsatzTV paths,
-            the redirect limit is exceeded, or a manifest reply is not HLS.
+            the redirect limit is exceeded, or a manifest reply is not HLS or
+            exceeds its byte budget.
     """
     for hop in range(max_redirects + 1):
         if not is_ersatztv_media_url(url, playlist=not stream):
@@ -180,7 +181,10 @@ async def fetch_ersatztv(
             }:
                 await response.aclose()
                 raise UpstreamProtocolError("Upstream is not an HLS manifest")
-            body = await read_bounded(response, MANIFEST_BYTES)
+            try:
+                body = await read_bounded(response, MANIFEST_BYTES)
+            except ValueError as e:
+                raise UpstreamProtocolError(str(e)) from e
             if (
                 response.is_success
                 and body.strip()
