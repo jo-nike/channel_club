@@ -15,6 +15,7 @@ from app.routers.admin import router as admin_router
 from app.routers.auth import router as auth_router
 from app.routers.cast import router as cast_router
 from app.routers.channels import router as channels_router
+from app.routers.csp_report import router as csp_report_router
 from app.routers.epg import router as epg_router
 from app.routers.ersatztv import router as ersatztv_router
 from app.routers.feedback import router as feedback_router
@@ -245,6 +246,7 @@ app.include_router(settings_router, prefix="/api")
 app.include_router(cast_router)
 app.include_router(gif_router)
 app.include_router(feedback_router)
+app.include_router(csp_report_router)
 app.include_router(highlight_router)
 app.include_router(nhl_router)
 app.include_router(websocket_router)
