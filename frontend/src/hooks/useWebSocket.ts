@@ -184,6 +184,9 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         case 'connection_ack':
           logger.debug('WebSocket', 'Received connection_ack', message)
           refreshedSinceAckRef.current = false
+          // Reset on the ack, not on open: the server accepts a socket before
+          // refusing its token, so a refused socket keeps backing off
+          retryCountRef.current = 0
           if (restartingRef.current) {
             restartingRef.current = false
             setStatus('connected')
@@ -361,7 +364,6 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
 
         logger.info('WebSocket', 'Connected successfully')
         if (!restartingRef.current) setStatus('connected')
-        retryCountRef.current = 0
 
         // Start ping interval for keep-alive
         pingIntervalRef.current = window.setInterval(() => {

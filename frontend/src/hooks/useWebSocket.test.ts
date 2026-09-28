@@ -545,6 +545,7 @@ describe('useWebSocket', () => {
       // Success resets to the fast backoff
       act(() => {
         MockWebSocket.instances[7].simulateOpen()
+        MockWebSocket.instances[7].simulateMessage({ type: 'connection_ack', currentChannel: null })
       })
       expect(result.current.status).toBe('connected')
       act(() => {
@@ -687,6 +688,7 @@ describe('useWebSocket', () => {
       // Successful reconnection
       act(() => {
         MockWebSocket.instances[1].simulateOpen()
+        MockWebSocket.instances[1].simulateMessage({ type: 'connection_ack', currentChannel: null })
       })
 
       // Disconnect again
@@ -994,6 +996,33 @@ describe('useWebSocket', () => {
         vi.advanceTimersByTime(1000)
       })
       expect(MockWebSocket.instances).toHaveLength(2)
+    })
+
+    test('repeated 4001s with temporary refresh failures back off', async () => {
+      vi.mocked(refreshAuth).mockResolvedValue('temporary')
+      const { ws } = openWithAck()
+
+      await act(async () => {
+        ws.simulateClose(4001, 'Token expired')
+      })
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
+      expect(MockWebSocket.instances).toHaveLength(2)
+
+      // The server accepts the socket, then refuses the token again
+      await act(async () => {
+        MockWebSocket.instances[1].simulateOpen()
+        MockWebSocket.instances[1].simulateClose(4001, 'Token expired')
+      })
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
+      expect(MockWebSocket.instances).toHaveLength(2)
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
+      expect(MockWebSocket.instances).toHaveLength(3)
     })
 
     test('a refreshed token refused again before any ack signs out instead of refreshing in a loop', async () => {
