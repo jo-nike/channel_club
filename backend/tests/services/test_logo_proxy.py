@@ -264,3 +264,55 @@ class TestLogoCache:
             with pytest.raises(KeyError):
                 await cache.get("k", broken, not_found_ttl=60)
         assert calls == 2
+
+    @pytest.mark.asyncio
+    async def test_settled_fetches_leave_nothing_in_flight(self) -> None:
+        """Every key once, whatever the outcome, and the flight map is empty again."""
+        cache = LogoCache()
+
+        async def ok() -> tuple[bytes, str]:
+            return b"png", "image/png"
+
+        async def missing() -> tuple[bytes, str]:
+            request = httpx.Request("GET", "http://source/logo")
+            response = httpx.Response(404, request=request)
+            raise httpx.HTTPStatusError("404", request=request, response=response)
+
+        async def down() -> tuple[bytes, str]:
+            raise httpx.ConnectError("All connection attempts failed")
+
+        async def broken() -> tuple[bytes, str]:
+            raise KeyError("bug")
+
+        assert await cache.get("ok", ok, not_found_ttl=60) == (b"png", "image/png")
+        with pytest.raises(LogoNotFoundError):
+            await cache.get("missing", missing, not_found_ttl=60)
+        with pytest.raises(LogoUnavailableError):
+            await cache.get("down", down, not_found_ttl=60)
+        with pytest.raises(KeyError):
+            await cache.get("broken", broken, not_found_ttl=60)
+
+        assert cache._flights == {}  # pyright: ignore[reportPrivateUsage]
+
+    @pytest.mark.asyncio
+    async def test_ten_concurrent_gets_share_one_fetch_and_one_flight(self) -> None:
+        import asyncio
+
+        cache = LogoCache()
+        calls = 0
+        release = asyncio.Event()
+
+        async def fetch() -> tuple[bytes, str]:
+            nonlocal calls
+            calls += 1
+            await release.wait()
+            return b"png", "image/png"
+
+        gets = [asyncio.ensure_future(cache.get("k", fetch, not_found_ttl=60)) for _ in range(10)]
+        await asyncio.sleep(0)
+        assert list(cache._flights) == ["k"]  # pyright: ignore[reportPrivateUsage]
+        release.set()
+
+        assert await asyncio.gather(*gets) == [(b"png", "image/png")] * 10
+        assert calls == 1
+        assert cache._flights == {}  # pyright: ignore[reportPrivateUsage]

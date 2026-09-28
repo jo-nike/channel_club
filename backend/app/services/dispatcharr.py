@@ -290,8 +290,7 @@ async def get_channel_logo(logo_id: int) -> tuple[bytes, str]:
     if cached is not None:
         return cached
 
-    # Only logos a catalogue channel uses; checked before LOGO_CACHE.get, which
-    # keeps a lock per key, so unknown ids can't grow the cache's lock map
+    # Only logos a catalogue channel uses
     grouped = await get_grouped_channels()
     path = channel_logo_path(logo_id)
     channels = [*(c for g in grouped.groups for c in g.channels), *grouped.ungrouped]
