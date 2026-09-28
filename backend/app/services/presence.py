@@ -37,6 +37,7 @@ class UserPresence:
     current_channel: str | None = None
     current_channel_id: str | None = None
     current_programme: str | None = None
+    programme_seen: bool = False  # A title was known at some point in the current watch
     channel_since: datetime | None = None
     connected_since: datetime = field(default_factory=lambda: datetime.now(UTC))
     last_activity: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -72,12 +73,14 @@ def _close_watch(user: UserPresence, reason: str) -> None:
         view=user.view,
         channel=user.current_channel,
         channel_id=user.current_channel_id,
+        programme=user.current_programme,
         duration_s=duration,
         reason=reason,
     )
     user.current_channel = None
     user.current_channel_id = None
     user.current_programme = None
+    user.programme_seen = False
     user.channel_since = None
 
 
@@ -177,7 +180,9 @@ def update_user_channel(
     """Update user's current channel, programme, and optionally view type.
 
     Emits ``watch.stop`` / ``watch.start`` only when the channel itself changes.
-    A programme title rollover on the same channel updates state silently.
+    The first title to arrive during a watch that started without one (the guide
+    loads after the switch) emits ``programme.change``. Later programme title
+    rollovers on the same channel update state silently.
 
     Args:
         connection_id: The connection ID to update.
@@ -204,11 +209,31 @@ def update_user_channel(
         )
         user.view = view
 
+    first_title = (
+        not channel_changed
+        and user.current_channel is not None
+        and not user.programme_seen
+        and programme_title is not None
+    )
     user.current_programme = programme_title
+
+    if first_title:
+        user.programme_seen = True
+        _emit(
+            "programme.change",
+            f"User {user.username} watching {user.current_channel}: {programme_title}",
+            user=user.username,
+            session=connection_id,
+            view=user.view,
+            channel=user.current_channel,
+            channel_id=user.current_channel_id,
+            programme=programme_title,
+        )
 
     if channel_changed and channel_name is not None:
         user.current_channel = channel_name
         user.current_channel_id = channel_id
+        user.programme_seen = programme_title is not None
         user.channel_since = datetime.now(UTC)
         _emit(
             "watch.start",
