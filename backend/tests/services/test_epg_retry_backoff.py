@@ -21,13 +21,26 @@ async def test_failed_refresh_is_shared_until_retry_deadline():
 
     with patch.object(service, "refresh_cache", side_effect=fail) as refresh:
         await asyncio.gather(*(service._ensure_cache() for _ in range(20)))
-        await service._ensure_cache()
+        await _settle(service)
+        await _read(service)
         assert refresh.call_count == 1
     service._retry_at = datetime.now(UTC) - timedelta(seconds=1)
     with patch.object(service, "refresh_cache", new=AsyncMock(return_value=True)) as refresh:
-        await service._ensure_cache()
+        await _read(service)
         refresh.assert_awaited_once()
         assert service._retry_at is None
+
+
+async def _settle(service: EPGService) -> None:
+    """Wait for the background refresh a stale read started, if any."""
+    if service._refresh_task is not None:
+        await service._refresh_task
+
+
+async def _read(service: EPGService) -> None:
+    """A guide read, then the background refresh it may have started."""
+    await service._ensure_cache()
+    await _settle(service)
 
 
 def _expired_service() -> EPGService:
@@ -42,7 +55,7 @@ async def _fail_once(service: EPGService) -> timedelta:
     if service._retry_at is not None:
         service._retry_at = datetime.now(UTC) - timedelta(seconds=1)
     before = datetime.now(UTC)
-    await service._ensure_cache()
+    await _read(service)
     assert service._retry_at is not None
     return service._retry_at - before
 
@@ -67,7 +80,7 @@ async def test_calls_before_the_deadline_do_not_refresh():
 
     with patch.object(service, "refresh_cache", new=AsyncMock(return_value=False)) as refresh:
         for _ in range(5):
-            await service._ensure_cache()
+            await _read(service)
         refresh.assert_awaited_once()
 
 
@@ -81,7 +94,7 @@ async def test_success_resets_the_backoff():
 
     service._retry_at = datetime.now(UTC) - timedelta(seconds=1)
     with patch.object(service, "refresh_cache", new=AsyncMock(return_value=True)):
-        await service._ensure_cache()
+        await _read(service)
     assert service._retry_at is None
 
     # refresh_cache is mocked, so the cache is still expired and the next failure starts over

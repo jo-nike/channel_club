@@ -147,7 +147,7 @@ async def lifespan(app: FastAPI):
     async def _warm_caches() -> None:
         channels, guide = await asyncio.gather(
             get_grouped_channels(),
-            get_epg_service().check_health(),
+            get_epg_service().ensure_fresh(),
             return_exceptions=True,
         )
         if isinstance(channels, DispatchrrUnavailableError):

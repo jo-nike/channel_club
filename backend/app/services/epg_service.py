@@ -14,6 +14,7 @@ from app.models.channel import Channel
 from app.models.epg import EPGProgrammesResponse, EPGResponse, Program
 from app.models.status import EPGHealthStatus
 from app.services.bounded_http import FEED_BYTES, read_bounded
+from app.services.cached_fetch import register_closable
 from app.services.tls import SSL_CONTEXT
 
 # Module-level logger with service context
@@ -56,6 +57,9 @@ class EPGService:
         self._cache_ttl = timedelta(hours=24)
         # A single in-flight lock prevents thundering herd on expiry
         self._refresh_lock = asyncio.Lock()
+        # The background refresh behind stale reads; a strong reference, since the
+        # loop holds running tasks only weakly
+        self._refresh_task: asyncio.Task[None] | None = None
         self._retry_at: datetime | None = None
         self._consecutive_failures = 0
         # Refresh health for admin status; _last_error is a short reason, never the URL
@@ -252,41 +256,53 @@ class EPGService:
             self._last_error = "refresh failed"
             return False
 
-    async def _ensure_cache(self) -> None:
-        """Refresh the cache if stale, falling back to stale data on failure.
+    async def _refresh_if_due(self) -> None:
+        """Run one refresh unless the cache is fresh or the failure backoff says wait.
 
-        The refresh is serialized behind a lock so that concurrent requests
-        hitting an expired cache share one XMLTV download and parse.
+        Serialised behind a lock, so concurrent callers share one XMLTV download
+        and parse. The outcome updates the backoff whoever the caller is.
+        """
+        async with self._refresh_lock:
+            # Re-check after acquiring the lock (another caller may have refreshed)
+            if self._is_cache_valid():
+                return
+            if self._retry_at is not None and datetime.now(UTC) < self._retry_at:
+                return
+            if await self.refresh_cache():
+                self._consecutive_failures = 0
+                self._retry_at = None
+            else:
+                self._consecutive_failures += 1
+                self._retry_at = datetime.now(UTC) + self._retry_delay()
+                if self._cache:
+                    log.warning("Using stale EPG cache after refresh failure")
+
+    def _schedule_refresh(self) -> None:
+        """Start one background refresh unless one is running or the backoff says wait."""
+        if self._refresh_task is not None and not self._refresh_task.done():
+            return
+        if self._retry_at is not None and datetime.now(UTC) < self._retry_at:
+            return
+        self._refresh_task = asyncio.create_task(self._refresh_if_due())
+
+    async def _ensure_cache(self) -> None:
+        """Make guide data available, blocking on a refresh only when there is none.
+
+        An expired cache is served at once while one background task refreshes
+        it (stale-while-revalidate); a failed refresh keeps serving it.
 
         Raises:
             EPGServiceError: If cache is empty and refresh fails.
         """
         if self._is_cache_valid():
             return
+        if self._cache:
+            self._schedule_refresh()
+            return
 
-        async with self._refresh_lock:
-            # Re-check after acquiring the lock (another request may have refreshed)
-            if self._is_cache_valid():
-                return
-
-            if self._retry_at is not None and datetime.now(UTC) < self._retry_at:
-                if self._cache:
-                    return
-                raise EPGServiceError("EPG service unavailable; retry later")
-            refresh_success = await self.refresh_cache()
-            if refresh_success:
-                self._consecutive_failures = 0
-                self._retry_at = None
-            else:
-                self._consecutive_failures += 1
-                self._retry_at = datetime.now(UTC) + self._retry_delay()
-
-        if not refresh_success:
-            # If refresh failed but we have stale cache, use it
-            if self._cache:
-                log.warning("Using stale EPG cache after refresh failure")
-            else:
-                raise EPGServiceError("EPG service unavailable")
+        await self._refresh_if_due()
+        if not self._cache and not self._is_cache_valid():
+            raise EPGServiceError("EPG service unavailable")
 
     def get_health(self) -> EPGHealthStatus:
         """Report the guide data cache and the outcome of recent refreshes.
@@ -310,15 +326,31 @@ class EPGService:
         )
 
     async def check_health(self) -> EPGHealthStatus:
-        """Refresh the cache if it is due, then report its health.
+        """Report guide health at once, starting a background refresh if one is due.
 
-        Goes through _ensure_cache, so a status poll shares the single in-flight
-        refresh and waits out the failure backoff instead of hitting Dispatcharr.
+        Never waits on the download, so a status poll is not held up by
+        Dispatcharr; the refresh shares the single in-flight task and the backoff.
         """
-        # A failed refresh is what get_health reports, so it is not an error here
-        with contextlib.suppress(EPGServiceError):
-            await self._ensure_cache()
+        if not self._is_cache_valid():
+            self._schedule_refresh()
         return self.get_health()
+
+    async def ensure_fresh(self) -> EPGHealthStatus:
+        """Refresh the cache now if it is due, then report its health (boot warm-up)."""
+        await self._refresh_if_due()
+        return self.get_health()
+
+    async def aclose(self) -> None:
+        """Cancel and await a running background refresh (shutdown)."""
+        task, self._refresh_task = self._refresh_task, None
+        if task is not None and not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    def reset(self) -> None:
+        """Forget the guide, the backoff and the refresh task (tests: new event loop)."""
+        self.__init__(self.dispatcharr_url)
 
     def _find_current_and_next(
         self, programs: list[Program], now: datetime
@@ -528,4 +560,6 @@ def get_epg_service() -> EPGService:
     global _epg_service
     if _epg_service is None:
         _epg_service = EPGService(settings.dispatcharr_url)
+        # Shut down and reset (tests) with the upstream caches
+        register_closable(_epg_service)
     return _epg_service

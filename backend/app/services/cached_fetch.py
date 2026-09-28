@@ -12,7 +12,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from time import monotonic
-from typing import Any, cast
+from typing import Protocol, cast
 
 from loguru import logger
 
@@ -20,7 +20,14 @@ log = logger.bind(service="cached_fetch")
 
 FAILURE_TTL_SECONDS = 20.0
 
-_instances: list["CachedFetch[Any]"] = []
+
+class _Closable(Protocol):
+    async def aclose(self) -> None: ...
+
+    def reset(self) -> None: ...
+
+
+_instances: list[_Closable] = []
 
 
 class CachedFetch[T]:
@@ -124,6 +131,11 @@ class CachedFetch[T]:
                 await self._refresh()
             except Exception as e:
                 log.warning("Serving stale {} after a failed refresh: {}", self.name, str(e))
+
+
+def register_closable(holder: _Closable) -> None:
+    """Close and reset another holder of a background refresh with the caches."""
+    _instances.append(holder)
 
 
 async def aclose_all_caches() -> None:
