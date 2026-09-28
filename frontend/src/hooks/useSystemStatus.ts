@@ -24,13 +24,6 @@ interface ErsatzTVStatus {
   sessions: ErsatzTVSession[]
 }
 
-interface DispatcharrClient {
-  clientId: string
-  userAgent: string | null
-  ipAddress: string | null
-  connectedSince: number
-}
-
 interface DispatcharrStream {
   channelId: string
   streamName: string
@@ -42,7 +35,6 @@ interface DispatcharrStream {
   videoCodec: string | null
   resolution: string | null
   sourceFps: number | null
-  clients: DispatcharrClient[]
 }
 
 interface DispatchrrStatus {

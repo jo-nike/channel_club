@@ -122,6 +122,7 @@ class TestSubmit:
             {**REPORT, "message": "x" * 2001},
             {**REPORT, "contact": "x" * 201},
             {**REPORT, "context": {**REPORT["context"], "extra": "nope"}},
+            {**REPORT, "context": {**REPORT["context"], "userAgent": "x" * 2001}},
             {**REPORT, "surprise": True},
             {k: v for k, v in REPORT.items() if k != "message"},
         ],
@@ -170,6 +171,21 @@ class TestSubmit:
         assert "View: /tv  Session: 3fa9c1d2" in body
         assert "Client: Mozilla/5.0 Test  Viewport: 1440x900" in body
         assert "web 1.0.0" in body
+
+    def test_long_user_agent_is_truncated_not_rejected(self, client, auth_header, configured):
+        seen = []
+
+        def handler(request):
+            seen.append(request)
+            return httpx.Response(200)
+
+        long_ua = "Mozilla/5.0 " + "x" * 289  # 301 characters, past the 300 display cap
+        body = {**REPORT, "context": {**REPORT["context"], "userAgent": long_ua}}
+        with ntfy(handler):
+            response = client.post("/api/feedback", json=body, headers=auth_header)
+        assert response.status_code == 200
+        sent = seen[0].content.decode("utf-8")
+        assert f"Client: {long_ua[:299]}…  Viewport: 1440x900" in sent
 
     def test_context_is_optional(self, client, auth_header, configured):
         seen = []

@@ -48,15 +48,12 @@ async def update_settings(
     Returns:
         The updated settings.
     """
-    result = app_settings.get_app_settings()
-    if request.user_channel_selection is not None:
-        result = await app_settings.set_user_channel_selection(
-            request.user_channel_selection, user=current_user.sub
-        )
+    result = await app_settings.update(
+        user_channel_selection=request.user_channel_selection,
+        presence_visible=request.presence_visible,
+        user=current_user.sub,
+    )
     if request.presence_visible is not None:
-        result = await app_settings.set_presence_visible(
-            request.presence_visible, user=current_user.sub
-        )
         # Called here rather than in app_settings, which presence_broadcast imports
         presence_broadcast.schedule_broadcast()
 

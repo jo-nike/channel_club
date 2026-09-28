@@ -719,7 +719,6 @@ async def test_sec08_invalid_ersatztv_preserves_healthy_dispatcharr(monkeypatch,
         {"channels": {}},
         {"channels": [None]},
         {"channels": [{"client_count": "invalid"}]},
-        {"channels": [{"clients": [42]}]},
     ],
 )
 async def test_sec08_invalid_dispatcharr_preserves_healthy_ersatztv(monkeypatch, bad_payload):
@@ -779,3 +778,63 @@ def test_sec08_admin_endpoint_isolates_unexpected_service_failure(monkeypatch):
     assert response.json()["dispatcharr"]["online"] is True
     assert response.json()["epg"]["online"] is True
     assert response.json()["epg"]["channelCount"] == 109
+
+
+def test_admin_status_leaves_out_dispatcharr_clients(monkeypatch):
+    """Client IPs and user agents stay in Dispatcharr; only the count reaches the browser."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+    from app.services.auth import create_access_token
+
+    proxy_status = {
+        "channels": [
+            {
+                "channel_id": "abc123",
+                "stream_name": "Sports HD",
+                "client_count": 1,
+                "clients": [
+                    {
+                        "client_id": "c1",
+                        "user_agent": "Chrome",
+                        "ip_address": "203.0.113.7",
+                        "connected_since": 100,
+                    }
+                ],
+            }
+        ]
+    }
+
+    def upstream(request):
+        return httpx.Response(200, json=proxy_status)
+
+    factory = httpx.AsyncClient
+    monkeypatch.setattr(
+        status_service.httpx,
+        "AsyncClient",
+        lambda **kwargs: factory(transport=httpx.MockTransport(upstream), **kwargs),
+    )
+    monkeypatch.setattr(
+        status_service, "dispatcharr_auth_headers", lambda: {"Authorization": "ApiKey synthetic"}
+    )
+    monkeypatch.setattr(
+        status_service,
+        "get_ersatztv_status",
+        AsyncMock(
+            return_value=ErsatzTVStatus(
+                name="ErsatzTV", online=True, last_checked=datetime.now(UTC)
+            )
+        ),
+    )
+    token = create_access_token({"sub": "admin", "role": "admin"})
+    response = TestClient(app).get(
+        "/api/admin/status", headers={"Authorization": f"Bearer {token}"}
+    )
+
+    assert response.status_code == 200
+    stream = response.json()["dispatcharr"]["streams"][0]
+    assert stream["clientCount"] == 1
+    assert "clients" not in stream
+    assert "ipAddress" not in response.text
+    assert "userAgent" not in response.text
+    assert "203.0.113.7" not in response.text

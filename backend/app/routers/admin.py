@@ -86,7 +86,10 @@ async def clear_chat_history(
     Returns:
         Confirmation message.
     """
-    log.info("Admin {} clearing chat history", current_user.sub)
+    message_count = chat.get_history_count()
+    log.bind(event="admin.chat_cleared", actor=current_user.sub, message_count=message_count).info(
+        f"Admin {current_user.sub} cleared {message_count} chat messages"
+    )
     chat.clear_history()
 
     # Tell connected clients to replace their history, otherwise they keep

@@ -54,4 +54,4 @@ class UpdateAppSettingsRequest(BaseModel):
     user_channel_selection: bool | None = Field(None, alias="userChannelSelection")
     presence_visible: bool | None = Field(None, alias="presenceVisible")
 
-    model_config = {"populate_by_name": True}
+    model_config = {"populate_by_name": True, "extra": "forbid"}

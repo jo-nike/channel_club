@@ -45,17 +45,6 @@ class ErsatzTVStatus(ServiceStatus):
     sessions: list[ErsatzTVSession] = Field(default_factory=list)
 
 
-class DispatcharrClient(BaseModel):
-    """Represents a connected client watching a stream."""
-
-    client_id: str = Field(alias="clientId")
-    user_agent: str | None = Field(default=None, alias="userAgent")
-    ip_address: str | None = Field(default=None, alias="ipAddress")
-    connected_since: float = Field(default=0, alias="connectedSince")
-
-    model_config = {"populate_by_name": True}
-
-
 class DispatcharrStream(BaseModel):
     """Represents an active stream in Dispatcharr."""
 
@@ -69,7 +58,6 @@ class DispatcharrStream(BaseModel):
     video_codec: str | None = Field(default=None, alias="videoCodec")
     resolution: str | None = None
     source_fps: float | None = Field(default=None, alias="sourceFps")
-    clients: list[DispatcharrClient] = Field(default_factory=list)
 
     model_config = {"populate_by_name": True}
 
