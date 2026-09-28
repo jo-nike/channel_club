@@ -11,6 +11,7 @@ with bound fields, so viewing history can be queried from the log store
 """
 
 import asyncio
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Literal
@@ -22,6 +23,16 @@ from loguru import logger
 log = logger.bind(service="presence")
 
 View = Literal["live", "ersatztv"]
+
+
+def _now() -> datetime:
+    """Wall-clock time, for display and logged durations (tests patch this)."""
+    return datetime.now(UTC)
+
+
+def _monotonic() -> float:
+    """Monotonic time, for staleness: a host clock step can't age anyone (tests patch this)."""
+    return time.monotonic()
 
 
 @dataclass
@@ -39,8 +50,9 @@ class UserPresence:
     current_programme: str | None = None
     programme_seen: bool = False  # A title was known at some point in the current watch
     channel_since: datetime | None = None
-    connected_since: datetime = field(default_factory=lambda: datetime.now(UTC))
-    last_activity: datetime = field(default_factory=lambda: datetime.now(UTC))
+    connected_since: datetime = field(default_factory=lambda: _now())
+    last_activity: datetime = field(default_factory=lambda: _now())
+    last_activity_mono: float = field(default_factory=lambda: _monotonic())  # For staleness
     websocket: WebSocket | None = None  # Closed if a stale sweep removes the entry
 
 
@@ -57,7 +69,7 @@ def _seconds_since(start: datetime | None, end: datetime | None = None) -> float
     if start is None:
         return 0.0
     # A watch can start after the last ping, so an end at that ping is before it
-    return max(0.0, round(((end or datetime.now(UTC)) - start).total_seconds(), 1))
+    return max(0.0, round(((end or _now()) - start).total_seconds(), 1))
 
 
 def _close_watch(user: UserPresence, reason: str, end: datetime | None = None) -> None:
@@ -226,7 +238,7 @@ def update_user_channel(
         user.current_channel = channel_name
         user.current_channel_id = channel_id
         user.programme_seen = programme_title is not None
-        user.channel_since = datetime.now(UTC)
+        user.channel_since = _now()
         _emit(
             "watch.start",
             f"User {user.username} now watching: {channel_name} - {programme_title} "
@@ -295,7 +307,9 @@ def update_last_activity(connection_id: str) -> None:
         connection_id: The connection ID to update.
     """
     if connection_id in _active_users:
-        _active_users[connection_id].last_activity = datetime.now(UTC)
+        user = _active_users[connection_id]
+        user.last_activity = _now()
+        user.last_activity_mono = _monotonic()
 
 
 # Default timeout for stale user cleanup (60 seconds)
@@ -361,11 +375,11 @@ def cleanup_stale_users(timeout_seconds: int = STALE_USER_TIMEOUT_SECONDS) -> in
     Returns:
         The number of stale users removed.
     """
-    now = datetime.now(UTC)
+    now = _monotonic()
     stale = [
         cid
         for cid, user in _active_users.items()
-        if (now - user.last_activity).total_seconds() > timeout_seconds
+        if now - user.last_activity_mono > timeout_seconds
     ]
     for cid in stale:
         user = _active_users.pop(cid, None)

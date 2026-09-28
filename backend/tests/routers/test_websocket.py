@@ -975,9 +975,7 @@ class TestPresenceKeys:
         with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # connection_ack
             self.set_nickname(ws, "Sleepy")
-            only_presence().last_activity = datetime.now(UTC) - timedelta(
-                seconds=presence.STALE_USER_TIMEOUT_SECONDS + 1
-            )
+            only_presence().last_activity_mono -= presence.STALE_USER_TIMEOUT_SECONDS + 1
 
             assert client.portal is not None
             assert client.portal.call(presence.cleanup_stale_users) == 1
@@ -998,14 +996,18 @@ class TestPresenceKeys:
         with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # connection_ack
             old = datetime.now(UTC) - timedelta(hours=1)
-            only_presence().last_activity = old
+            user = only_presence()
+            user.last_activity = old
+            user.last_activity_mono -= 3600
+            old_mono = user.last_activity_mono
 
             ws.send_json({"type": "channel_update", "channel": "RDS", "view": "live"})
             # An invalid message is answered without refreshing, and after the update
             ws.send_json({"type": "set_presence_prefs"})
             assert ws.receive_json()["code"] == "invalid_message"
 
-            assert only_presence().last_activity > old
+            assert user.last_activity > old
+            assert user.last_activity_mono > old_mono
 
 
 class TestChatMessages:

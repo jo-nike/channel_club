@@ -115,6 +115,7 @@ def test_stale_sweep_ends_watch_and_session_at_last_activity(events) -> None:
     user.connected_since = now - timedelta(seconds=300)
     user.channel_since = now - timedelta(seconds=200)
     user.last_activity = now - timedelta(seconds=80)
+    user.last_activity_mono -= 80
 
     presence.cleanup_stale_users(timeout_seconds=60)
 
@@ -128,6 +129,7 @@ def test_stale_sweep_of_a_watch_started_after_the_last_ping_is_zero(events) -> N
     presence.track_user("s1", "jon", "live")
     user = presence._active_users["s1"]
     user.last_activity = datetime.now(UTC) - timedelta(seconds=80)
+    user.last_activity_mono -= 80
     presence.update_user_channel("s1", "RDS", channel_id="uuid-rds")
 
     presence.cleanup_stale_users(timeout_seconds=60)

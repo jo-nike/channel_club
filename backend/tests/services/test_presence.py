@@ -335,6 +335,32 @@ class TestGetUsersByView:
         assert result[0].view == "ersatztv"
 
 
+class TestStaleClock:
+    """Staleness is judged on the monotonic clock, not wall time (J-02)."""
+
+    def test_forward_wall_clock_jump_removes_nobody_active(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A host clock step (VM resume, NTP step) is not an hour of silence."""
+        presence.track_user(connection_id="here", username="friend", view="live")
+        jumped = datetime.now(UTC) + timedelta(hours=1)
+        monkeypatch.setattr(presence, "_now", lambda: jumped)
+
+        assert presence.cleanup_stale_users() == 0
+        assert "here" in presence._active_users
+
+    def test_monotonic_silence_past_the_timeout_is_stale(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Real silence, as the monotonic clock sees it, still removes the connection."""
+        presence.track_user(connection_id="gone", username="ghost", view="live")
+        later = presence._monotonic() + presence.STALE_USER_TIMEOUT_SECONDS + 1
+        monkeypatch.setattr(presence, "_monotonic", lambda: later)
+
+        assert presence.cleanup_stale_users() == 1
+        assert "gone" not in presence._active_users
+
+
 class TestCleanupTask:
     """Tests for the background stale-user cleanup task."""
 
@@ -343,9 +369,7 @@ class TestCleanupTask:
         monkeypatch.setattr(presence, "CLEANUP_INTERVAL_SECONDS", 0.01)
         presence.track_user(connection_id="gone", username="ghost", view="live")
         presence.track_user(connection_id="here", username="friend", view="live")
-        presence._active_users["gone"].last_activity = datetime.now(UTC) - timedelta(
-            seconds=presence.STALE_USER_TIMEOUT_SECONDS + 1
-        )
+        presence._active_users["gone"].last_activity_mono -= presence.STALE_USER_TIMEOUT_SECONDS + 1
 
         presence.start_cleanup_task()
         for _ in range(100):
