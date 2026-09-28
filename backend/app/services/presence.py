@@ -41,7 +41,7 @@ class UserPresence:
     channel_since: datetime | None = None
     connected_since: datetime = field(default_factory=lambda: datetime.now(UTC))
     last_activity: datetime = field(default_factory=lambda: datetime.now(UTC))
-    websocket: WebSocket | None = None  # For potential future use
+    websocket: WebSocket | None = None  # Closed if a stale sweep removes the entry
 
 
 # In-memory store keyed by connection_id
@@ -113,27 +113,15 @@ def track_user(
     """Track a new user connection.
 
     Args:
-        connection_id: Unique identifier for this connection (session_id from client).
+        connection_id: Server-generated id for this connection, never the client's.
         username: The authenticated username.
         view: The view type ("live" or "ersatztv").
-        websocket: Optional WebSocket reference for future use.
+        websocket: The connection's WebSocket, closed if a stale sweep removes it.
         user_id: The account's opaque chat id, used to group a person's connections.
 
     Returns:
         The created UserPresence object.
     """
-    # Check if this session was already tracked (view switch in same tab)
-    if connection_id in _active_users:
-        old_user = _active_users[connection_id]
-        log.info(
-            "Session {} ({}) switching from {} to {} view",
-            connection_id,
-            username,
-            old_user.view,
-            view,
-        )
-        _close_session(old_user, "view_switch")
-
     user_presence = UserPresence(
         connection_id=connection_id,
         username=username,
@@ -300,8 +288,8 @@ def get_users_by_view(view: View) -> list[UserPresence]:
 def update_last_activity(connection_id: str) -> None:
     """Update the last activity timestamp for a user.
 
-    Called when the server receives a ping from the client to indicate
-    the connection is still active.
+    Called for every valid message from the client (pings included), so a
+    connection that is in use is never swept as stale.
 
     Args:
         connection_id: The connection ID to update.
@@ -318,16 +306,54 @@ STALE_USER_TIMEOUT_SECONDS = 60
 # tab that vanished without closing its socket is gone within about 90s.
 CLEANUP_INTERVAL_SECONDS = 30
 
+# How long closing a stale connection's socket may take
+STALE_CLOSE_TIMEOUT_SECONDS = 5.0
+
 # Strong reference to the running cleanup task (the event loop only keeps a
 # weak one)
 _cleanup_task: asyncio.Task | None = None
 
+# Closes of stale sockets still in flight, held for the same reason
+_stale_closes: set[asyncio.Task] = set()
+
+
+async def _close_stale_socket(websocket: WebSocket) -> None:
+    """Close a swept connection's socket with 4000, so its client reconnects.
+
+    Args:
+        websocket: The stale connection's WebSocket.
+    """
+    # Import here to avoid a circular dependency (channel_state imports chat,
+    # which imports presence)
+    from app.services import channel_state
+
+    # Remove from broadcasts before awaiting transport shutdown. The close
+    # ends the endpoint's receive, and its cleanup finds the entry already gone.
+    channel_state.disconnect(websocket)
+    try:
+        await asyncio.wait_for(
+            websocket.close(code=4000, reason="stale"), timeout=STALE_CLOSE_TIMEOUT_SECONDS
+        )
+    except Exception:
+        log.debug("Stale connection transport could not close")
+
+
+async def stop_stale_closes() -> None:
+    """Cancel the stale-socket closes still in flight (app shutdown)."""
+    tasks = list(_stale_closes)
+    _stale_closes.clear()
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+
 
 def cleanup_stale_users(timeout_seconds: int = STALE_USER_TIMEOUT_SECONDS) -> int:
-    """Remove users who haven't sent a ping within the timeout period.
+    """Remove users who haven't sent a message within the timeout period.
 
     This handles cases where a browser crashes or network fails without
-    proper WebSocket disconnect.
+    proper WebSocket disconnect. A socket that is still open is closed with
+    code 4000, so the client reconnects and registers again instead of
+    staying connected with no presence.
 
     Args:
         timeout_seconds: Seconds of inactivity before a user is considered stale.
@@ -344,7 +370,11 @@ def cleanup_stale_users(timeout_seconds: int = STALE_USER_TIMEOUT_SECONDS) -> in
     for cid in stale:
         user = _active_users.pop(cid, None)
         if user:
-            # The tab went quiet at its last ping, not at this sweep
+            if user.websocket is not None:
+                task = asyncio.create_task(_close_stale_socket(user.websocket))
+                _stale_closes.add(task)
+                task.add_done_callback(_stale_closes.discard)
+            # The tab went quiet at its last message, not at this sweep
             _close_session(user, "stale", user.last_activity)
     if stale:
         # Import here to avoid a circular dependency (presence_broadcast reads presence)

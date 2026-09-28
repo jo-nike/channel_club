@@ -165,20 +165,3 @@ def test_stale_cleanup_uses_stale_reason(events) -> None:
     recs = events()
     assert _names(recs)[-2:] == ["watch.stop", "session.stop"]
     assert {r["reason"] for r in recs[-2:]} == {"stale"}
-
-
-def test_view_switch_on_same_session_closes_old_session(events) -> None:
-    presence.track_user("s1", "jon", "live")
-    presence.update_user_channel("s1", "RDS", channel_id="uuid-rds")
-    presence.track_user("s1", "jon", "ersatztv")
-
-    recs = events()
-    assert _names(recs) == [
-        "session.start",
-        "watch.start",
-        "watch.stop",
-        "session.stop",
-        "session.start",
-    ]
-    assert recs[2]["reason"] == "view_switch" and recs[2]["view"] == "live"
-    assert recs[4]["view"] == "ersatztv"

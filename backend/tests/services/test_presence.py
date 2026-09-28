@@ -106,33 +106,19 @@ class TestRemoveUser:
         assert "abc123" not in presence._active_users
 
     def test_does_not_remove_when_websocket_mismatch(self) -> None:
-        """Should not remove user when websocket doesn't match (view switch case)."""
-        old_ws = MagicMock()
-        new_ws = MagicMock()
-
-        # User connects with old websocket
+        """Should not remove user when a different websocket asks to remove it."""
+        stored_ws = MagicMock()
+        other_ws = MagicMock()
         presence.track_user(
-            connection_id="session123",
+            connection_id="conn123",
             username="testuser",
             view="live",
-            websocket=old_ws,
+            websocket=stored_ws,
         )
 
-        # User reconnects (view switch) - entry gets replaced with new websocket
-        presence.track_user(
-            connection_id="session123",
-            username="testuser",
-            view="ersatztv",
-            websocket=new_ws,
-        )
+        presence.remove_user("conn123", websocket=other_ws)
 
-        # Old websocket disconnects - should NOT remove the new entry
-        presence.remove_user("session123", websocket=old_ws)
-
-        # Entry should still exist with new websocket
-        assert "session123" in presence._active_users
-        assert presence._active_users["session123"].view == "ersatztv"
-        assert presence._active_users["session123"].websocket is new_ws
+        assert presence._active_users["conn123"].websocket is stored_ws
 
 
 class TestUpdateUserChannel:
