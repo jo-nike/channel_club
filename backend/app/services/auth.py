@@ -13,20 +13,25 @@ log = logger.bind(service="auth")
 
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_DAYS = 7
+# A refresh renews a session only this long after the original sign-in
+SESSION_MAX_AGE_DAYS = 30
 
 
 def create_access_token(data: dict) -> str:
     """Create a JWT access token with expiration.
 
     Args:
-        data: Dictionary containing claims (sub, role).
+        data: Dictionary containing claims (sub, role, and optionally
+            auth_time, the epoch seconds of the original sign-in; it
+            defaults to now).
 
     Returns:
         Encoded JWT token string.
     """
+    now = datetime.now(UTC)
     to_encode = data.copy()
-    expire = datetime.now(UTC) + timedelta(days=JWT_EXPIRATION_DAYS)
-    to_encode.update({"exp": expire})
+    to_encode.setdefault("auth_time", int(now.timestamp()))
+    to_encode.update({"exp": now + timedelta(days=JWT_EXPIRATION_DAYS)})
     # Log token creation without exposing sensitive data
     log.debug("Creating access token for user with role '{}'", data.get("role", "unknown"))
     return jwt.encode(to_encode, settings.jwt_secret, algorithm=JWT_ALGORITHM)
