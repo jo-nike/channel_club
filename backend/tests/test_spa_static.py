@@ -21,6 +21,11 @@ def client(tmp_path):
     (tmp_path / "secret.txt").write_text(SECRET)
     (static / "escape").symlink_to(tmp_path / "secret.txt")
     app = FastAPI()
+
+    @app.get("/api/known")
+    async def known() -> dict[str, bool]:
+        return {"ok": True}
+
     mount_spa(app, static)
     return TestClient(app)
 
@@ -60,3 +65,29 @@ def test_traversal_cannot_escape_the_static_root(client, path):
     assert response.status_code in (200, 404)
     if response.status_code == 200:
         assert response.text == INDEX
+
+
+@pytest.mark.parametrize("method", ["GET", "POST", "PUT", "PATCH", "DELETE"])
+@pytest.mark.parametrize("path", ["/api", "/api/", "/api/nope", "/api/auth/removed/route"])
+def test_unknown_api_path_is_404_json_not_the_shell(client, method, path):
+    response = client.request(method, path)
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not Found"}
+
+
+def test_registered_api_route_still_wins(client):
+    assert client.get("/api/known").json() == {"ok": True}
+
+
+def test_hashed_assets_are_immutable(client):
+    response = client.get("/assets/index-abc123.js")
+    assert response.headers["cache-control"] == "public, max-age=31536000, immutable"
+
+
+@pytest.mark.parametrize("path", ["/", "/index.html", "/sw.js", "/watch/channel-7"])
+def test_shell_and_service_worker_are_revalidated(client, path):
+    assert client.get(path).headers["cache-control"] == "no-cache"
+
+
+def test_other_root_files_get_no_cache_policy(client):
+    assert "cache-control" not in client.get("/favicon.svg").headers
