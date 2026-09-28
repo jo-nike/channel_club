@@ -11,7 +11,6 @@ from app.config import settings
 from app.models.channel import (
     Channel,
     ChannelGroupWithChannels,
-    DispatchrrChannel,
     DispatchrrChannelGroup,
     DispatchrrFullChannel,
     GroupedChannelsResponse,
@@ -80,45 +79,6 @@ def _json_list(response: httpx.Response) -> list[Any]:
     if not isinstance(payload, list):
         raise TypeError(f"expected a JSON list, got {type(payload).__name__}")
     return payload
-
-
-async def get_lineup() -> list[Channel]:
-    """Fetch and transform channel lineup from Dispatcharr.
-
-    Returns:
-        List of Channel objects with transformed stream URLs.
-
-    Raises:
-        DispatchrrUnavailableError: If Dispatcharr is unreachable or returns error.
-    """
-    url = f"{settings.dispatcharr_url}/hdhr/lineup.json"
-    log.debug("Fetching channel lineup from {}", url)
-
-    try:
-        async with httpx.AsyncClient(timeout=_CATALOGUE_TIMEOUT, verify=SSL_CONTEXT) as client:
-            response = await client.get(url)
-            response.raise_for_status()
-
-            raw_channels = [DispatchrrChannel(**c) for c in _json_list(response)]
-
-            channels = [
-                Channel(
-                    id=extract_uuid(ch.url),
-                    name=ch.guide_name,
-                    stream_url=f"{settings.stream_base_url}/proxy/ts/stream/{extract_uuid(ch.url)}",
-                    guide_id=ch.guide_id,
-                )
-                for ch in raw_channels
-            ]
-
-            log.info("Fetched {} channels successfully", len(channels))
-            return channels
-    except httpx.HTTPError as e:
-        log.error("Failed to fetch channels: {}", str(e))
-        raise DispatchrrUnavailableError(f"Failed to fetch channels: {e}") from e
-    except (ValueError, TypeError, ValidationError) as e:
-        log.error("Unexpected channel lineup payload: {}", str(e))
-        raise DispatchrrUnavailableError(f"Unexpected channel lineup payload: {e}") from e
 
 
 def dispatcharr_auth_headers() -> dict[str, str]:

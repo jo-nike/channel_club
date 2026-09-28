@@ -4,10 +4,8 @@ import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { useAuthStore } from '@/stores/authStore'
 import { useChannelStore } from '@/stores/channelStore'
 import { useUIStore } from '@/stores/uiStore'
-import * as api from '@/services/api'
 
 vi.mock('@/services/api', () => ({
-  fetchChannels: vi.fn(),
   fetchNowPlaying: vi.fn(),
   getAuthConfig: vi.fn().mockResolvedValue({
     localAuthEnabled: true,
@@ -85,7 +83,6 @@ describe('Router', () => {
       isSidebarOpen: false,
     })
 
-    vi.mocked(api.fetchChannels).mockResolvedValue([])
 
     mockWindowWidth(1200)
   })

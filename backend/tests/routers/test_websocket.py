@@ -1805,8 +1805,8 @@ class TestSuggestMessage:
         monkeypatch: pytest.MonkeyPatch,
         catalogue: AsyncMock,
     ):
-        """Only the cached grouped catalogue is consulted: no lineup or ErsatzTV lookup."""
-        from app.services import dispatcharr, media_source
+        """Only the cached grouped catalogue is consulted: no ErsatzTV lookup."""
+        from app.services import media_source
 
         uncached: list[str] = []
 
@@ -1817,7 +1817,6 @@ class TestSuggestMessage:
 
             return called
 
-        monkeypatch.setattr(dispatcharr, "get_lineup", record("get_lineup"))
         # The switch path's own lookups, in case a suggestion goes through it again
         monkeypatch.setattr(media_source, "get_grouped_channels", catalogue)
         monkeypatch.setattr(media_source, "run_feed_lookup", record("ersatztv lookup"))

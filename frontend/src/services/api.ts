@@ -182,27 +182,6 @@ export async function healthCheck(signal?: AbortSignal): Promise<ApplicationHeal
   return data as ApplicationHealth
 }
 
-export async function fetchChannels(): Promise<Channel[]> {
-  logger.debug('API', 'Fetching channels')
-
-  const response = await fetchWithAuth('/channels')
-
-  if (!response.ok) {
-    logger.error('API', `Failed to fetch channels: ${response.status}`, {
-      status: response.status,
-      statusText: response.statusText,
-    })
-    if (response.status === 503) {
-      throw new Error('Channel service unavailable')
-    }
-    throw new Error('Failed to fetch channels')
-  }
-
-  const data = await response.json()
-  logger.debug('API', `Fetched ${data.length} channels`)
-  return data
-}
-
 export async function fetchGroupedChannels(): Promise<GroupedChannelsResponse> {
   logger.debug('API', 'Fetching grouped channels')
 
