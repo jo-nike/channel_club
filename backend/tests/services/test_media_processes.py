@@ -11,7 +11,7 @@ from loguru import logger
 
 from app.config import settings
 from app.services.cast import CastSession
-from app.services.highlight import ChannelRecorder
+from app.services.highlight import STDERR_LOG_MAX_BYTES, STDERR_LOG_NAME, ChannelRecorder
 
 
 @pytest.mark.parametrize("kind", ["highlight", "cast"])
@@ -93,3 +93,40 @@ async def test_a_failed_recorder_start_logs_ffmpeg_stderr_redacted(tmp_path, mon
     # Only the tail is logged, and the segment directory is still removed afterwards.
     assert "x" * 600 not in line
     assert not list(tmp_path.iterdir())
+
+
+async def test_the_stderr_file_is_trimmed_and_ffmpeg_writes_from_its_start(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "highlight_temp_dir", str(tmp_path))
+    recorder = ChannelRecorder("safe", "http://fixture")
+    real_popen = subprocess.Popen
+    go = tmp_path / "go"
+    # Past the cap, then one more line once the test has trimmed the file
+    script = (
+        f"import pathlib,sys,time; sys.stderr.write('x' * {STDERR_LOG_MAX_BYTES + 1}); "
+        "sys.stderr.flush(); p = pathlib.Path(sys.argv[1])\n"
+        "while not p.exists(): time.sleep(0.02)\n"
+        "sys.stderr.write('after trim\\n'); sys.stderr.flush(); time.sleep(30)"
+    )
+
+    def launch(_command, **kwargs):
+        return real_popen([sys.executable, "-c", script, str(go)], **kwargs)
+
+    with patch("subprocess.Popen", launch):
+        assert await asyncio.wait_for(recorder.start(), 3)
+    assert recorder.segment_dir is not None
+    log_file = recorder.segment_dir / STDERR_LOG_NAME
+    for _ in range(100):
+        if log_file.stat().st_size > STDERR_LOG_MAX_BYTES:
+            break
+        await asyncio.sleep(0.02)
+    try:
+        recorder.trim_stderr_log()
+        assert log_file.stat().st_size == 0
+        go.touch()
+        for _ in range(100):
+            if log_file.stat().st_size:
+                break
+            await asyncio.sleep(0.02)
+        assert log_file.read_bytes() == b"after trim\n"
+    finally:
+        await asyncio.wait_for(recorder.stop(), 3)

@@ -56,6 +56,9 @@ RECORDER_RW_TIMEOUT_MICROSECONDS = 30_000_000
 # FFmpeg's stderr file in the segment directory, and how much of its end a failed start logs.
 STDERR_LOG_NAME = "ffmpeg.log"
 STDERR_TAIL_BYTES = 500
+# A recorder can run for days and some sources warn on every packet, so the sweep empties the
+# file past this size; a failed start has read its tail long before.
+STDERR_LOG_MAX_BYTES = 1024 * 1024
 
 # After a failed recorder start, further starts for that channel wait: 30s, doubling to 5 minutes.
 START_BACKOFF_BASE_SECONDS = 30
@@ -172,8 +175,10 @@ class ChannelRecorder:
 
             started = False
             try:
-                # FFmpeg's reason for failing goes to a file, never an undrained pipe.
-                with (self.segment_dir / STDERR_LOG_NAME).open("wb") as stderr:
+                # FFmpeg's reason for failing goes to a file, never an undrained pipe. Opened
+                # for append, so after trim_stderr_log empties it the next write lands at the
+                # start instead of at the old offset.
+                with (self.segment_dir / STDERR_LOG_NAME).open("ab") as stderr:
                     self.process = subprocess.Popen(
                         cmd,
                         stdout=subprocess.DEVNULL,
@@ -292,6 +297,15 @@ class ChannelRecorder:
             )
         except OSError:
             return False
+
+    def trim_stderr_log(self) -> None:
+        """Empty FFmpeg's stderr file once it passes STDERR_LOG_MAX_BYTES."""
+        if not self.segment_dir:
+            return
+        path = self.segment_dir / STDERR_LOG_NAME
+        with suppress(OSError):
+            if path.stat().st_size > STDERR_LOG_MAX_BYTES:
+                os.truncate(path, 0)
 
     def seconds_since_output(self) -> float:
         """How long since a new segment appeared, or since start before the first one.
@@ -718,6 +732,7 @@ class HighlightService:
                         idle_time,
                     )
                     continue
+            await asyncio.to_thread(recorder.trim_stderr_log)
             silent = await asyncio.to_thread(recorder.seconds_since_output)
             if silent > stall_limit:
                 idle_channels.append(channel_id)
