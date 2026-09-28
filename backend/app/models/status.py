@@ -6,10 +6,15 @@ from pydantic import BaseModel, Field
 
 
 class ServiceStatus(BaseModel):
-    """Base model for service status."""
+    """Base model for service status.
+
+    ``degraded`` means the service answers but part of the check failed (a
+    rejected API key, a missing stats endpoint); ``error`` then gives the reason.
+    """
 
     name: str
     online: bool
+    degraded: bool = False
     last_checked: datetime = Field(alias="lastChecked")
     error: str | None = None
 

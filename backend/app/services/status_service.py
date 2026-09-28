@@ -26,6 +26,18 @@ from app.services.epg_service import EPG_HEALTH_NAME, get_epg_service
 log = logger.bind(service="status")
 
 
+def _reason(exc: BaseException) -> str:
+    """Short failure reason for the status panel; str() of a real timeout is ''.
+
+    Uses the same wording as EPGService.refresh_cache.
+    """
+    if isinstance(exc, httpx.TimeoutException):
+        return "timeout"
+    if isinstance(exc, httpx.ConnectError):
+        return "connection failed"
+    return type(exc).__name__
+
+
 def _object_list(value: object) -> list[dict]:
     if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
         raise ValueError("Expected a list of objects")
@@ -34,7 +46,7 @@ def _object_list(value: object) -> list[dict]:
 
 async def _fetch_ersatztv_data(
     client: httpx.AsyncClient, base_url: str
-) -> tuple[list[dict] | None, list[dict], list[dict]]:
+) -> tuple[list[dict] | None, list[dict], list[dict], str | None]:
     """Fetch sessions, channels, and profiles from ErsatzTV in parallel.
 
     Args:
@@ -42,7 +54,8 @@ async def _fetch_ersatztv_data(
         base_url: ErsatzTV base URL
 
     Returns:
-        Tuple of (sessions, channels, profiles). Sessions is None if fetch failed.
+        Tuple of (sessions, channels, profiles, sessions_error). Sessions is
+        None if fetch failed, and sessions_error then says why.
     """
     sessions_url = f"{base_url}/api/sessions"
     channels_url = f"{base_url}/api/channels"
@@ -60,13 +73,17 @@ async def _fetch_ersatztv_data(
 
     # Parse responses - sessions is None if failed, others default to empty
     sessions: list[dict] | None = None
+    sessions_error: str | None = None
     channels: list[dict] = []
     profiles: list[dict] = []
 
     if isinstance(sessions_resp, httpx.Response) and sessions_resp.status_code == 200:
         sessions = _object_list(sessions_resp.json())
+    elif isinstance(sessions_resp, httpx.Response):
+        sessions_error = f"sessions API HTTP {sessions_resp.status_code}"
     elif isinstance(sessions_resp, Exception):
         log.warning("Failed to fetch ErsatzTV sessions: {}", sessions_resp)
+        sessions_error = f"sessions API {_reason(sessions_resp)}"
 
     if isinstance(channels_resp, httpx.Response) and channels_resp.status_code == 200:
         channels = _object_list(channels_resp.json())
@@ -78,7 +95,7 @@ async def _fetch_ersatztv_data(
     elif isinstance(profiles_resp, Exception):
         log.warning("Failed to fetch ErsatzTV profiles: {}", profiles_resp)
 
-    return sessions, channels, profiles
+    return sessions, channels, profiles, sessions_error
 
 
 def _build_ersatztv_sessions(
@@ -153,9 +170,12 @@ async def get_ersatztv_status() -> ErsatzTVStatus:
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            sessions_data, channels_data, profiles_data = await _fetch_ersatztv_data(
-                client, base_url
-            )
+            (
+                sessions_data,
+                channels_data,
+                profiles_data,
+                sessions_error,
+            ) = await _fetch_ersatztv_data(client, base_url)
 
             # If we got sessions data (even empty list), we're online
             if sessions_data is not None:
@@ -179,7 +199,9 @@ async def get_ersatztv_status() -> ErsatzTVStatus:
                 return ErsatzTVStatus(
                     name="ErsatzTV",
                     online=True,
+                    degraded=True,
                     last_checked=now,
+                    error=sessions_error,
                     active_sessions=0,
                     sessions=[],
                 )
@@ -203,7 +225,7 @@ async def get_ersatztv_status() -> ErsatzTVStatus:
             name="ErsatzTV",
             online=False,
             last_checked=now,
-            error=str(e),
+            error=_reason(e),
         )
 
     except (ValueError, TypeError, AttributeError):
@@ -297,6 +319,7 @@ async def get_dispatcharr_status() -> DispatchrrStatus:
                     return DispatchrrStatus(
                         name="Dispatcharr",
                         online=True,
+                        degraded=True,
                         last_checked=now,
                         active_streams=0,
                         total_viewers=0,
@@ -340,14 +363,19 @@ async def get_dispatcharr_status() -> DispatchrrStatus:
                     lineup_url = f"{base_url}/hdhr/lineup.json"
                     response = await client.get(lineup_url)
                     if response.status_code < 500:
-                        log.info(
-                            "Dispatcharr online (stats require auth - configure "
-                            "DISPATCHARR_API_KEY)"
+                        # 404 can also mean DISPATCHARR_URL points at the wrong host
+                        reason = (
+                            f"stats endpoint missing (HTTP {e.response.status_code})"
+                            if e.response.status_code == 404
+                            else f"API key rejected (HTTP {e.response.status_code})"
                         )
+                        log.warning("Dispatcharr reachable but stats failed: {}", reason)
                         return DispatchrrStatus(
                             name="Dispatcharr",
                             online=True,
+                            degraded=True,
                             last_checked=now,
+                            error=reason,
                             active_streams=0,
                             total_viewers=0,
                         )
@@ -368,7 +396,7 @@ async def get_dispatcharr_status() -> DispatchrrStatus:
             name="Dispatcharr",
             online=False,
             last_checked=now,
-            error=str(e),
+            error=_reason(e),
         )
 
     except (ValueError, TypeError, AttributeError):
