@@ -529,12 +529,21 @@ class DownloadToken:
     redeemed: bool = False
 
 
+@dataclass(frozen=True)
+class PreviewGrant:
+    """A reusable grant to stream one owner's capture: it lives exactly as long as the capture."""
+
+    capture_id: str
+    owner: str
+
+
 class CaptureStore:
     """Server-held snapshots: the browser streams them by range instead of downloading."""
 
     def __init__(self):
         self.captures: dict[str, Capture] = {}
         self.download_tokens: dict[str, DownloadToken] = {}
+        self.preview_tokens: dict[str, PreviewGrant] = {}
 
     async def create(
         self, recorder: ChannelRecorder, owner: str, channel_id: str, pressed_at: float
@@ -619,6 +628,27 @@ class CaptureStore:
         self.download_tokens[token] = replace(grant, redeemed=True)
         return self.get(grant.capture_id, grant.owner)
 
+    def issue_preview_token(self, capture_id: str, owner: str) -> str | None:
+        """A path for the editor's <video>, which cannot send the JWT header on Range requests.
+
+        One token per capture; it keeps the session token out of the URL and proxy logs.
+        """
+        if self.get(capture_id, owner) is None:
+            return None
+        for token, grant in self.preview_tokens.items():
+            if grant.capture_id == capture_id:
+                return token
+        token = secrets.token_urlsafe(24)
+        self.preview_tokens[token] = PreviewGrant(capture_id, owner)
+        return token
+
+    def redeem_preview_token(self, token: str) -> Capture | None:
+        """Any number of requests; the capture's TTL, delete or eviction ends the token."""
+        grant = self.preview_tokens.get(token)
+        if grant is None:
+            return None
+        return self.get(grant.capture_id, grant.owner)
+
     async def delete(self, capture_id: str, owner: str) -> None:
         capture = self.captures.get(capture_id)
         if capture is not None and capture.owner == owner:
@@ -639,12 +669,16 @@ class CaptureStore:
     async def clear(self) -> None:
         for capture in list(self.captures.values()):
             await self._remove(capture)
+        self.preview_tokens.clear()
 
     async def _remove(self, capture: Capture) -> None:
         self.captures.pop(capture.id, None)
         for token, grant in list(self.download_tokens.items()):
             if grant.capture_id == capture.id:
                 del self.download_tokens[token]
+        for token, grant in list(self.preview_tokens.items()):
+            if grant.capture_id == capture.id:
+                del self.preview_tokens[token]
         try:
             await asyncio.to_thread(remove_recording_directory, capture.path.parent)
         except OSError as exc:
@@ -1004,6 +1038,12 @@ class HighlightService:
 
     def redeem_download_token(self, token: str, range_request: bool = False) -> Capture | None:
         return self.captures.redeem_download_token(token, range_request)
+
+    def issue_preview_token(self, capture_id: str, owner: str) -> str | None:
+        return self.captures.issue_preview_token(capture_id, owner)
+
+    def redeem_preview_token(self, token: str) -> Capture | None:
+        return self.captures.redeem_preview_token(token)
 
 
 # Global service instance

@@ -72,6 +72,8 @@ class CaptureResponse(BaseModel):
     # Server time of the request and when the capture's last frame was recorded (Unix seconds)
     pressedAt: float
     endsAt: float
+    # A capability path for the editor's <video>: no session token in the URL
+    previewUrl: str
 
 
 class DownloadLinkResponse(BaseModel):
@@ -215,6 +217,9 @@ async def create_capture(
         raise HTTPException(
             409 if error == RECORDER_GONE_ERROR else 400, error or "Failed to create highlight"
         )
+    preview_token = highlight_service.issue_preview_token(capture.id, user.sub)
+    if preview_token is None:
+        raise HTTPException(404, "Capture not found")
     return CaptureResponse(
         id=capture.id,
         duration=capture.duration,
@@ -222,6 +227,7 @@ async def create_capture(
         expiresAt=capture.expires_at,
         pressedAt=capture.pressed_at,
         endsAt=capture.ends_at,
+        previewUrl=f"/api/highlight/preview/{preview_token}",
     )
 
 
@@ -236,6 +242,17 @@ async def get_capture(
     if capture is None:
         raise HTTPException(404, "Capture not found")
     return capture_file(capture, download)
+
+
+@router.get("/preview/{token}")
+async def preview_capture(
+    token: str = Path(..., pattern=r"^[A-Za-z0-9_-]{16,64}$", description="Preview token"),
+) -> FileResponse:
+    """Serve a capture, with range support, to whoever holds its preview token."""
+    capture = highlight_service.redeem_preview_token(token)
+    if capture is None:
+        raise HTTPException(404, "Capture not found")
+    return capture_file(capture, download=False)
 
 
 @router.post("/capture/{capture_id}/download-token", response_model=DownloadLinkResponse)

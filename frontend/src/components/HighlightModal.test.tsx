@@ -7,14 +7,14 @@ import { useAudioStore } from '@/stores/audioStore'
 import { useChatStore, type ChatSender } from '@/stores/chatStore'
 
 vi.mock('@/services/api', () => ({
-  createHighlightCapture: vi.fn(), highlightCaptureUrl: vi.fn(), fetchHighlightCapture: vi.fn(), createCaptureDownloadUrl: vi.fn(), deleteHighlightCapture: vi.fn(),
+  createHighlightCapture: vi.fn(), fetchHighlightCapture: vi.fn(), createCaptureDownloadUrl: vi.fn(), deleteHighlightCapture: vi.fn(),
   exportHighlight: vi.fn(), uploadHighlight: vi.fn(), getHighlightFeatures: vi.fn(),
 }))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 const preview = new Blob(['original snapshot'], { type: 'video/mp4' })
 const prepared = new Blob(['selected frames'], { type: 'video/mp4' })
 // Pressed as the capture's last frame was recorded, so the press is at its end.
-const capture = { id: 'capture-1', duration: 60, bytes: 17, expiresAt: 0, pressedAt: 1_000, endsAt: 1_000 }
+const capture = { id: 'capture-1', duration: 60, bytes: 17, expiresAt: 0, pressedAt: 1_000, endsAt: 1_000, previewUrl: '/api/highlight/preview/preview-capture-1' }
 const props = { isOpen: true, onClose: vi.fn(), channelId: 'channel-1' }
 
 /** The Start or End readout, as shown */
@@ -44,7 +44,6 @@ async function ready(duration = 60) {
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(api.createHighlightCapture).mockResolvedValue(capture)
-  vi.mocked(api.highlightCaptureUrl).mockImplementation(id => `/api/highlight/capture/${id}?token=t`)
   vi.mocked(api.fetchHighlightCapture).mockResolvedValue(preview)
   vi.mocked(api.createCaptureDownloadUrl).mockResolvedValue('/api/highlight/download/single-use-token')
   vi.mocked(api.deleteHighlightCapture).mockResolvedValue()
@@ -79,7 +78,22 @@ describe('Clip editor', () => {
     fireEvent.timeUpdate(video)
     expect(video.paused).toBe(true)
     expect(api.createHighlightCapture).toHaveBeenCalledTimes(1)
-    expect(video).toHaveAttribute('src', '/api/highlight/capture/capture-1?token=t')
+    expect(video).toHaveAttribute('src', '/api/highlight/preview/preview-capture-1')
+  })
+
+  it('streams the capture from its preview link, which carries no session token', async () => {
+    render(<HighlightModal {...props} />)
+    const video = await ready()
+    const src = video.getAttribute('src')!
+    expect(src).toBe(capture.previewUrl)
+    expect(src).not.toMatch(/token=|eyJ|\?/)
+  })
+
+  it('says the capture is gone when its preview link is not an API path', async () => {
+    vi.mocked(api.createHighlightCapture).mockResolvedValue({ ...capture, previewUrl: 'https://elsewhere.example/capture' })
+    render(<HighlightModal {...props} />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('This capture is no longer available. Capture again to retry.')
+    expect(screen.queryByLabelText('Highlight preview')).not.toBeInTheDocument()
   })
 
   it('selects the last 20 seconds by default and Reset returns there', async () => {
@@ -145,7 +159,7 @@ describe('Clip editor', () => {
     // The recorder had not closed the last 4s before the press (the wait for it timed out).
     vi.mocked(api.createHighlightCapture)
       .mockResolvedValueOnce({ ...capture, pressedAt: 1_000, endsAt: 996 })
-      .mockResolvedValueOnce({ ...capture, id: 'capture-2', pressedAt: 1_030, endsAt: 1_006 })
+      .mockResolvedValueOnce({ ...capture, id: 'capture-2', pressedAt: 1_030, endsAt: 1_006, previewUrl: '/api/highlight/preview/preview-capture-2' })
     render(<HighlightModal {...props} />)
     await ready()
     expect(screen.getByRole('status')).toHaveTextContent('This capture ends 4.0s before you pressed.')
@@ -154,7 +168,7 @@ describe('Clip editor', () => {
     expect(shown('Start')).toBe('50.0s')
     fireEvent.click(screen.getByRole('button', { name: 'Include the last few seconds' }))
     const video = await ready()
-    expect(video).toHaveAttribute('src', '/api/highlight/capture/capture-2?token=t')
+    expect(video).toHaveAttribute('src', '/api/highlight/preview/preview-capture-2')
     expect(api.deleteHighlightCapture).toHaveBeenCalledExactlyOnceWith('capture-1')
     // The new capture (946-1006) ends 6s after the original press (not the re-capture's own request
     // time), so the press is at 54s. The selection still starts at 986 (40s in) and, since it ran to
@@ -673,9 +687,9 @@ describe('Clip editor', () => {
     const { rerender } = render(<HighlightModal {...props} />)
     rerender(<HighlightModal {...props} channelId="channel-2" />)
     const video = await ready()
-    resolve({ ...capture, id: 'stale-capture' })
+    resolve({ ...capture, id: 'stale-capture', previewUrl: '/api/highlight/preview/preview-stale-capture' })
     await waitFor(() => expect(api.deleteHighlightCapture).toHaveBeenCalledExactlyOnceWith('stale-capture'))
-    expect(video).toHaveAttribute('src', '/api/highlight/capture/capture-1?token=t')
+    expect(video).toHaveAttribute('src', '/api/highlight/preview/preview-capture-1')
   })
 
   it('offers capture retry on invalid metadata and asks before Escape discards the retried capture', async () => {
@@ -980,7 +994,7 @@ describe('Post to chat', () => {
 })
 
 describe('Clip editor opened on a capture already taken (Clip that\'s Edit)', () => {
-  const handed = { ...capture, id: 'clip-that-capture' }
+  const handed = { ...capture, id: 'clip-that-capture', previewUrl: '/api/highlight/preview/preview-clip-that-capture' }
   // Closing holds the adopted capture's delete back a tick: let it land in the test that closed it
   afterEach(async () => {
     cleanup()
@@ -992,7 +1006,7 @@ describe('Clip editor opened on a capture already taken (Clip that\'s Edit)', ()
     const video = await ready()
 
     expect(api.createHighlightCapture).not.toHaveBeenCalled()
-    expect(video).toHaveAttribute('src', '/api/highlight/capture/clip-that-capture?token=t')
+    expect(video).toHaveAttribute('src', '/api/highlight/preview/preview-clip-that-capture')
     // The same 20s Clip that would have posted
     expect(shown('Start')).toBe('40.0s')
     expect(shown('End')).toBe('60.0s')
@@ -1014,7 +1028,7 @@ describe('Clip editor opened on a capture already taken (Clip that\'s Edit)', ()
 
     expect(api.deleteHighlightCapture).not.toHaveBeenCalled()
     expect(api.createHighlightCapture).not.toHaveBeenCalled()
-    expect(video).toHaveAttribute('src', '/api/highlight/capture/clip-that-capture?token=t')
+    expect(video).toHaveAttribute('src', '/api/highlight/preview/preview-clip-that-capture')
 
     rerender(<HighlightModal {...props} capture={handed} isOpen={false} />)
     await waitFor(() => expect(api.deleteHighlightCapture).toHaveBeenCalledExactlyOnceWith('clip-that-capture'))
@@ -1027,7 +1041,7 @@ describe('Clip editor opened on a capture already taken (Clip that\'s Edit)', ()
 
     const video = await ready()
     expect(api.createHighlightCapture).toHaveBeenCalledExactlyOnceWith('channel-1', expect.any(AbortSignal))
-    expect(video).toHaveAttribute('src', '/api/highlight/capture/capture-1?token=t')
+    expect(video).toHaveAttribute('src', '/api/highlight/preview/preview-capture-1')
     await waitFor(() => expect(api.deleteHighlightCapture).toHaveBeenCalledExactlyOnceWith('clip-that-capture'))
   })
 })

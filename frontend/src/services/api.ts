@@ -460,6 +460,8 @@ export interface HighlightCapture {
   pressedAt: number
   /** When the capture's last frame was recorded (Unix seconds); the press is at duration - (endsAt - pressedAt) */
   endsAt: number
+  /** "/api/..." path the editor's <video> streams by range; a capability that carries no session token */
+  previewUrl: string
 }
 
 /** Snapshot the recent buffer server-side; the editor streams it by URL instead of downloading it. */
@@ -472,12 +474,6 @@ export async function createHighlightCapture(channelId: string, signal?: AbortSi
   return response.json()
 }
 
-/** Media elements cannot send headers, so the token travels in the query like HLS streams. */
-export function highlightCaptureUrl(captureId: string): string {
-  const token = getAuthToken()
-  return `${API_URL}/highlight/capture/${captureId}${token ? `?token=${token}` : ''}`
-}
-
 /** The untrimmed MP4 is the capture itself; fetch it only when the user downloads it. */
 export async function fetchHighlightCapture(captureId: string, signal?: AbortSignal): Promise<Blob> {
   const response = await fetchWithAuth(`/highlight/capture/${captureId}`, { signal })
@@ -487,7 +483,7 @@ export async function fetchHighlightCapture(captureId: string, signal?: AbortSig
 
 /**
  * A single-use link, valid for a minute, that the browser's download manager can follow for the
- * untrimmed capture. Unlike highlightCaptureUrl it carries no session token, so none ends up in
+ * untrimmed capture. Like the capture's previewUrl it carries no session token, so none ends up in
  * download history or proxy logs.
  */
 export async function createCaptureDownloadUrl(captureId: string, signal?: AbortSignal): Promise<string> {

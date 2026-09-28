@@ -154,7 +154,7 @@ vi.mock('@/components/HighlightButton', () => ({
 }))
 // The real clip editor, on a fake capture API
 const clipApi = vi.hoisted(() => ({
-  createHighlightCapture: vi.fn<(channelId: string, signal?: AbortSignal) => Promise<{ id: string }>>(),
+  createHighlightCapture: vi.fn<(channelId: string, signal?: AbortSignal) => Promise<{ id: string; previewUrl: string }>>(),
   deleteHighlightCapture: vi.fn<(id: string) => Promise<void>>(),
   getHighlightFeatures: vi.fn<() => Promise<{ enabled: boolean; ziplineEnabled: boolean }>>(),
 }))
@@ -162,7 +162,6 @@ const castFeature = vi.hoisted(() => vi.fn(() => new Promise<boolean>(() => {}))
 vi.mock('@/services/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/services/api')>()),
   ...clipApi,
-  highlightCaptureUrl: (id: string) => `/api/highlight/capture/${id}`,
   // The TV store looks the live guide up when live TV changes; never answered here
   fetchNowPlaying: () => new Promise(() => {}),
   fetchLiveProgrammes: () => new Promise(() => {}),
@@ -314,7 +313,7 @@ beforeEach(() => {
   highlight.enabled = false
   highlight.status = readyBuffer
   useClipStore.setState({ session: null })
-  clipApi.createHighlightCapture.mockReset().mockResolvedValue({ id: 'capture-1' })
+  clipApi.createHighlightCapture.mockReset().mockResolvedValue({ id: 'capture-1', previewUrl: '/api/highlight/preview/preview-capture-1' })
   clipApi.deleteHighlightCapture.mockReset().mockResolvedValue(undefined)
   clipApi.getHighlightFeatures.mockReset().mockResolvedValue({ enabled: true, ziplineEnabled: false })
   volumeSupport.canSet = true
@@ -1677,13 +1676,13 @@ describe('DualModeVideoPlayer clip editor: one editor in the shell', () => {
 
   it("opens on the capture Clip that's Edit hands over, without capturing again", async () => {
     renderPlayer({ ...liveChannel('https://fixture/a'), name: 'Sportsnet', backendId: '42' })
-    const capture = { id: 'clip-that-capture', duration: 60, bytes: 1, expiresAt: 0, pressedAt: 1_000, endsAt: 1_000 }
+    const capture = { id: 'clip-that-capture', duration: 60, bytes: 1, expiresAt: 0, pressedAt: 1_000, endsAt: 1_000, previewUrl: '/api/highlight/preview/preview-clip-that-capture' }
 
     act(() => useClipStore.getState().open('42', 'Sportsnet', capture))
 
     const preview = await screen.findByLabelText('Highlight preview')
     expect(shell()).toContainElement(preview)
-    expect(preview).toHaveAttribute('src', '/api/highlight/capture/clip-that-capture')
+    expect(preview).toHaveAttribute('src', '/api/highlight/preview/preview-clip-that-capture')
     expect(clipApi.createHighlightCapture).not.toHaveBeenCalled()
 
     // The capture isn't ready, so the editor closes without asking, and deletes it
