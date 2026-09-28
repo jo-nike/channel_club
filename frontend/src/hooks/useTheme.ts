@@ -73,7 +73,7 @@ export function useTheme() {
     // Apply all color CSS variables
     applyThemeColors(theme.colors)
 
-    // In Auto, keep both picks so index.html can match the scheme at load
+    // In Auto, keep both picks so the boot script can match the scheme at load
     const boot = createThemeBoot(
       theme,
       followSystem ? { dark: getTheme(darkThemeId), light: getTheme(lightThemeId) } : undefined
@@ -81,7 +81,7 @@ export function useTheme() {
 
     applyThemeColorMeta(boot.themeColor)
 
-    // Remember the resolved theme so index.html can apply it before first paint
+    // Remember the resolved theme so the boot script can apply it before first paint
     saveThemeBoot(boot)
   }, [theme, followSystem, darkThemeId, lightThemeId])
 

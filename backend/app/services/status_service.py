@@ -421,8 +421,9 @@ async def get_dispatcharr_status() -> DispatchrrStatus:
 async def get_epg_status() -> EPGHealthStatus:
     """Get guide data (XMLTV) health.
 
-    Refreshes the EPG cache only when a refresh is due and the failure backoff
-    allows it, so status polls cannot hammer Dispatcharr.
+    Returns at once from local state. A refresh that is due starts in the
+    background (at most one, and only when the failure backoff allows it), so
+    status polls neither wait on nor hammer Dispatcharr.
 
     Returns:
         EPGHealthStatus for the cached guide data
