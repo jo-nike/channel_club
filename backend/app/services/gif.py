@@ -79,7 +79,6 @@ class GifService:
                     },
                 )
                 response.raise_for_status()
-                data = response.json()
         except httpx.TimeoutException:
             log.error("Giphy API request timed out")
             raise GifServiceError("GIF service timed out") from None
@@ -90,7 +89,7 @@ class GifService:
             log.error("Giphy API request failed: {}", str(e))
             raise GifServiceError("GIF service unavailable") from None
 
-        result = self._normalize_response(data)
+        result = self._parse_response(response)
 
         # Cache the result
         self._trending_limit = limit
@@ -132,7 +131,6 @@ class GifService:
                     },
                 )
                 response.raise_for_status()
-                data = response.json()
         except httpx.TimeoutException:
             log.error("Giphy API search timed out for query: {}", query)
             raise GifServiceError("GIF service timed out") from None
@@ -147,10 +145,18 @@ class GifService:
             log.error("Giphy API search request failed: {}", str(e))
             raise GifServiceError("GIF service unavailable") from None
 
-        result = self._normalize_response(data)
+        result = self._parse_response(response)
         log.debug("Search returned {} GIFs", len(result.get("gifs", [])))
 
         return result
+
+    def _parse_response(self, response: httpx.Response) -> dict:
+        """Decode and normalize a Giphy reply, mapping malformed data to GifServiceError."""
+        try:
+            return self._normalize_response(response.json())
+        except (ValueError, TypeError, KeyError, AttributeError):
+            log.error("Giphy API returned an invalid response")
+            raise GifServiceError("GIF service returned an invalid response") from None
 
     def _normalize_response(self, data: dict) -> dict:
         """Normalize Giphy API response to consistent format.
@@ -161,8 +167,12 @@ class GifService:
         Returns:
             Normalized response with gifs list and pagination.
         """
+        items = data.get("data", [])
+        if not isinstance(items, list):
+            raise ValueError("Giphy response data is not a list")
+
         gifs = []
-        for item in data.get("data", []):
+        for item in items:
             images = item.get("images", {})
 
             # Get the original GIF URL
@@ -173,9 +183,12 @@ class GifService:
             preview = images.get("fixed_width_small", {}) or images.get("fixed_width", {})
             preview_url = preview.get("url", original_url)
 
-            # Extract dimensions
-            width = int(original.get("width", 0) or 0)
-            height = int(original.get("height", 0) or 0)
+            # Extract dimensions; skip an item whose dimensions are not numeric
+            try:
+                width = int(original.get("width", 0) or 0)
+                height = int(original.get("height", 0) or 0)
+            except (ValueError, TypeError):
+                continue
 
             if original_url:  # Only include if we have a valid URL
                 gifs.append(
