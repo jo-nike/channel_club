@@ -124,7 +124,7 @@ async def test_manifest_video_mime_rejected_before_read():
     with patch("app.services.ersatztv.hls_rewriter.settings.ersatztv_base_url", "http://source"):
         async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
             with pytest.raises(ValueError, match="not an HLS"):
-                await fetch_ersatztv(client, "http://source/video.ts")
+                await fetch_ersatztv(client, "http://source/iptv/session/8/hls.m3u8")
     assert stream.closed and stream.read == 0
 
 

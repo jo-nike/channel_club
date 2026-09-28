@@ -13,10 +13,13 @@ from app.config import settings
 from app.services.ersatztv.hls_rewriter import (
     HLSManifestRewriter,
     decode_url,
+    fetch_ersatztv,
     get_segment,
     get_stream_manifest,
+    is_ersatztv_media_url,
     is_ersatztv_url,
     rewrite_manifest,
+    segment_media_type,
 )
 
 # Sample HLS content for testing
@@ -261,7 +264,7 @@ class TestGetStreamManifest:
     async def test_get_stream_manifest_fetches_and_rewrites(self):
         """get_stream_manifest fetches manifest and rewrites it."""
         mock_channel = MagicMock()
-        mock_channel.stream_url = "http://192.168.50.108:8409/iptv/channel1.m3u8"
+        mock_channel.stream_url = "http://192.168.50.108:8409/iptv/channel/1.m3u8"
 
         mock_response = httpx.Response(
             200, text=SAMPLE_MANIFEST, request=httpx.Request("GET", mock_channel.stream_url)
@@ -325,7 +328,7 @@ class TestGetSegment:
     async def test_get_segment_fetches_content(self):
         """get_segment decodes URL and fetches segment."""
         rewriter = HLSManifestRewriter()
-        original_url = "http://192.168.50.108:8409/iptv/segment-001.ts"
+        original_url = "http://192.168.50.108:8409/iptv/session/1/segment-001.ts"
         encoded = rewriter._encode_url(original_url)
 
         mock_response = httpx.Response(
@@ -400,3 +403,101 @@ class TestIsErsatztvUrl:
     @pytest.mark.parametrize(("url", "allowed"), _allowlist_cases())
     def test_allowlist(self, url: str, allowed: bool) -> None:
         assert is_ersatztv_url(url) is allowed
+
+
+def _media_path_cases() -> list[tuple[str, bool, bool]]:
+    """(path, allowed as segment, allowed as playlist) on the configured origin."""
+    return [
+        ("/iptv/session/8/live000010.ts", True, True),
+        ("/iptv/session/8/hls.m3u8", True, True),
+        ("/iptv/channel/8.m3u8?mode=segmenter", False, True),
+        ("/iptv/xmltv.xml", False, False),
+        ("/iptv/channels.m3u", False, False),
+        ("/iptv/logos/abc123.jpg", False, False),
+        ("/iptv/session/", False, False),
+        ("/iptv/session", False, False),
+        ("/api/channels", False, False),
+        ("/", False, False),
+        ("", False, False),
+        ("/iptv/session/../../api/x", False, False),
+        ("/iptv/session/8/../../../api/x", False, False),
+        ("/iptv/session/%2e%2e/%2e%2e/api/x", False, False),
+        ("/iptv/session/..%2f..%2fapi/x", False, False),
+        ("/iptv/session/%252e%252e/api/x", False, False),
+        ("/iptv/session/8/..\\..\\api", False, False),
+        ("/iptv/session//8/live000010.ts", False, False),
+        ("//iptv/session/8/live000010.ts", False, False),
+        ("/iptv/session/./8/live000010.ts", False, False),
+        ("/IPTV/session/8/live000010.ts", False, False),
+    ]
+
+
+class TestIsErsatztvMediaUrl:
+    """Only ErsatzTV's streaming session and channel playlist paths pass."""
+
+    @pytest.mark.parametrize(("path", "segment", "playlist"), _media_path_cases())
+    def test_paths(self, path: str, segment: bool, playlist: bool) -> None:
+        url = settings.ersatztv_base_url.rstrip("/") + path
+        assert is_ersatztv_media_url(url) is segment
+        assert is_ersatztv_media_url(url, playlist=True) is playlist
+
+    def test_other_host_rejected_even_on_session_path(self) -> None:
+        assert not is_ersatztv_media_url("http://evil.example.com/iptv/session/8/live000010.ts")
+
+
+class TestSegmentMediaType:
+    """Segments are served only as media types; anything else becomes video/mp2t."""
+
+    @pytest.mark.parametrize(
+        ("upstream", "served"),
+        [
+            ("video/mp2t", "video/mp2t"),
+            ("video/MP4; charset=binary", "video/mp4"),
+            ("video/iso.segment", "video/iso.segment"),
+            ("audio/aac", "audio/aac"),
+            ("audio/mp4", "audio/mp4"),
+            ("application/octet-stream", "application/octet-stream"),
+            ("text/html; charset=utf-8", "video/mp2t"),
+            ("application/json", "video/mp2t"),
+            ("image/svg+xml", "video/mp2t"),
+            (None, "video/mp2t"),
+            ("", "video/mp2t"),
+        ],
+    )
+    def test_media_type(self, upstream: str | None, served: str) -> None:
+        assert segment_media_type(upstream) == served
+
+
+class TestFetchErsatztvPathRule:
+    """fetch_ersatztv applies the streaming-path rule to the URL and every hop."""
+
+    @pytest.mark.asyncio
+    async def test_redirect_to_disallowed_path_is_never_fetched(self) -> None:
+        base = settings.ersatztv_base_url.rstrip("/")
+        requests: list[str] = []
+
+        def upstream(request: httpx.Request) -> httpx.Response:
+            requests.append(request.url.path)
+            return httpx.Response(302, headers={"location": "/api/channels"})
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
+            with pytest.raises(ValueError, match="not from ErsatzTV"):
+                await fetch_ersatztv(client, f"{base}/iptv/session/8/live000010.ts", stream=True)
+
+        assert requests == ["/iptv/session/8/live000010.ts"]
+
+    @pytest.mark.asyncio
+    async def test_channel_playlist_is_not_a_segment(self) -> None:
+        requests: list[httpx.Request] = []
+
+        def upstream(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return httpx.Response(200, content=b"#EXTM3U\n")
+
+        url = settings.ersatztv_base_url.rstrip("/") + "/iptv/channel/8.m3u8"
+        async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
+            with pytest.raises(ValueError, match="not from ErsatzTV"):
+                await fetch_ersatztv(client, url, stream=True)
+            assert (await fetch_ersatztv(client, url)).content == b"#EXTM3U\n"
+
+        assert len(requests) == 1

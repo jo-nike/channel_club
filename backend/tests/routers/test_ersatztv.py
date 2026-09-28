@@ -3,6 +3,8 @@
 Story: 7.6 - ErsatzTV API Endpoints
 """
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from io import StringIO
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -28,6 +30,23 @@ def auth_header() -> dict[str, str]:
     """Create valid auth header with JWT token."""
     token = create_access_token({"sub": "testuser", "role": "viewer"})
     return {"Authorization": f"Bearer {token}"}
+
+
+@contextmanager
+def _upstream(status: int, body: bytes, content_type: str) -> Iterator[list[httpx.Request]]:
+    """Route the router's ErsatzTV client to a MockTransport; yield the requests it sees."""
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(status, content=body, headers={"content-type": content_type})
+
+    real_client = httpx.AsyncClient
+    with patch(
+        "app.routers.ersatztv.httpx.AsyncClient",
+        side_effect=lambda **kwargs: real_client(transport=httpx.MockTransport(handler), **kwargs),
+    ):
+        yield requests
 
 
 @pytest.fixture
@@ -462,6 +481,54 @@ class TestGetStream:
         assert response.status_code == 400
         assert response.json()["detail"] == "Invalid stream URL"
 
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/iptv/xmltv.xml",
+            "/iptv/channels.m3u",
+            "/api/channels",
+            "/",
+            "/iptv/session/../../api/channels",
+        ],
+    )
+    def test_rejects_nested_url_outside_streaming_paths(
+        self, client: TestClient, auth_header: dict[str, str], path: str
+    ) -> None:
+        """A nested ?url= must be a session or channel playlist; nothing is fetched."""
+        from app.config import settings
+        from app.services.ersatztv.hls_rewriter import HLSManifestRewriter
+
+        url = settings.ersatztv_base_url.rstrip("/") + path
+        encoded = HLSManifestRewriter()._encode_url(url)
+        with _upstream(200, b"#EXTM3U\n", "text/plain") as requests:
+            got = client.get(f"/api/ersatztv/stream/8?url={encoded}", headers=auth_header)
+            head = client.head(f"/api/ersatztv/stream/8?url={encoded}", headers=auth_header)
+
+        assert got.status_code == 400
+        assert got.json()["detail"] == "Invalid stream URL"
+        assert head.status_code == 400
+        assert requests == []
+
+    def test_nested_session_playlist_served_with_security_headers(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """A session variant playlist is proxied with nosniff and a sandbox CSP."""
+        from app.config import settings
+        from app.services.ersatztv.hls_rewriter import HLSManifestRewriter
+
+        url = settings.ersatztv_base_url.rstrip("/") + "/iptv/session/8/hls.m3u8"
+        encoded = HLSManifestRewriter()._encode_url(url)
+        manifest = b"#EXTM3U\n#EXTINF:4,\nlive000010.ts\n"
+        with _upstream(200, manifest, "application/vnd.apple.mpegurl") as requests:
+            response = client.get(f"/api/ersatztv/stream/8?url={encoded}", headers=auth_header)
+
+        assert response.status_code == 200
+        assert len(requests) == 1
+        assert "/api/ersatztv/segments/" in response.text
+        assert response.headers["x-content-type-options"] == "nosniff"
+        assert response.headers["content-security-policy"] == "default-src 'none'; sandbox"
+        assert response.headers["access-control-allow-origin"] == "*"
+
     def test_accepts_token_query_param(self, client: TestClient, mock_channel: EPGChannel) -> None:
         """Stream endpoint accepts token via query parameter for HLS playback."""
         token = create_access_token({"sub": "testuser", "role": "viewer"})
@@ -542,7 +609,7 @@ class TestHeadSegment:
 
         with patch(
             "app.routers.ersatztv.decode_url",
-            return_value="http://192.168.50.108:8409/segment.ts",
+            return_value="http://192.168.50.108:8409/iptv/session/8/live000010.ts",
         ):
             response = client.head(f"/api/ersatztv/segments/{encoded_url}", headers=auth_header)
 
@@ -569,7 +636,7 @@ class TestHeadSegment:
 
         with patch(
             "app.routers.ersatztv.decode_url",
-            return_value="http://192.168.50.108:8409/segment.ts",
+            return_value="http://192.168.50.108:8409/iptv/session/8/live000010.ts",
         ):
             response = client.head(f"/api/ersatztv/segments/{encoded_url}?token={token}")
 
@@ -593,7 +660,7 @@ class TestGetSegment:
         with (
             patch(
                 "app.routers.ersatztv.decode_url",
-                return_value="http://192.168.50.108:8409/segment.ts",
+                return_value="http://192.168.50.108:8409/iptv/session/8/live000010.ts",
             ),
             patch("app.routers.ersatztv.httpx.AsyncClient") as mock_client_cls,
         ):
@@ -664,6 +731,70 @@ class TestGetSegment:
         assert response.status_code == 400
         assert requests == []
 
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/api/channels",
+            "/",
+            "/iptv/xmltv.xml",
+            "/iptv/channels.m3u",
+            "/iptv/logos/abc123.jpg",
+            "/iptv/channel/8.m3u8",
+            "/iptv/session/../../api/channels",
+            "/iptv/session/%2e%2e/%2e%2e/api/channels",
+        ],
+    )
+    def test_rejects_non_streaming_path_without_upstream_request(
+        self, client: TestClient, auth_header: dict[str, str], path: str
+    ) -> None:
+        """Only session segments are proxied; the rest of the host is never contacted."""
+        from app.config import settings
+        from app.services.ersatztv.hls_rewriter import HLSManifestRewriter
+
+        url = settings.ersatztv_base_url.rstrip("/") + path
+        with _upstream(200, b"<html>admin</html>", "text/html") as requests:
+            response = client.get(
+                f"/api/ersatztv/segments/{HLSManifestRewriter()._encode_url(url)}",
+                headers=auth_header,
+            )
+
+        assert response.status_code == 400
+        assert requests == []
+
+    @pytest.mark.parametrize(
+        ("upstream_type", "served_type"),
+        [
+            ("text/html; charset=utf-8", "video/mp2t"),
+            ("application/json", "video/mp2t"),
+            ("video/mp4", "video/mp4"),
+            ("application/octet-stream", "application/octet-stream"),
+        ],
+    )
+    def test_serves_only_media_types_with_security_headers(
+        self,
+        client: TestClient,
+        auth_header: dict[str, str],
+        upstream_type: str,
+        served_type: str,
+    ) -> None:
+        """A non-media upstream type is served as video/mp2t, never as a document."""
+        from app.config import settings
+        from app.services.ersatztv.hls_rewriter import HLSManifestRewriter
+
+        url = settings.ersatztv_base_url.rstrip("/") + "/iptv/session/8/live000010.ts"
+        with _upstream(200, b"segment", upstream_type) as requests:
+            response = client.get(
+                f"/api/ersatztv/segments/{HLSManifestRewriter()._encode_url(url)}",
+                headers=auth_header,
+            )
+
+        assert response.status_code == 200
+        assert len(requests) == 1
+        assert response.headers["content-type"].split(";")[0] == served_type
+        assert response.headers["x-content-type-options"] == "nosniff"
+        assert response.headers["content-security-policy"] == "default-src 'none'; sandbox"
+        assert response.headers["access-control-allow-origin"] == "*"
+
     def test_accepts_token_query_param(self, client: TestClient) -> None:
         """Segment endpoint accepts token via query parameter for HLS playback."""
         token = create_access_token({"sub": "testuser", "role": "viewer"})
@@ -673,7 +804,7 @@ class TestGetSegment:
         with (
             patch(
                 "app.routers.ersatztv.decode_url",
-                return_value="http://192.168.50.108:8409/segment.ts",
+                return_value="http://192.168.50.108:8409/iptv/session/8/live000010.ts",
             ),
             patch("app.routers.ersatztv.httpx.AsyncClient") as mock_client_cls,
         ):
@@ -703,13 +834,13 @@ class TestGetSegment:
         self, client: TestClient, auth_header: dict[str, str]
     ) -> None:
         """An off-host redirect hop is never fetched and the request fails."""
-        # Encodes http://192.168.50.108:8409/segment.ts
+        # Encodes http://192.168.50.108:8409/iptv/session/8/live000010.ts
         encoded_url = "aHR0cDovLzE5Mi4xNjguNTAuMTA4Ojg0MDkvc2VnbWVudC50cw"
 
         with (
             patch(
                 "app.routers.ersatztv.decode_url",
-                return_value="http://192.168.50.108:8409/segment.ts",
+                return_value="http://192.168.50.108:8409/iptv/session/8/live000010.ts",
             ),
             patch("app.routers.ersatztv.httpx.AsyncClient") as mock_client_cls,
         ):
@@ -717,7 +848,9 @@ class TestGetSegment:
             redirect_response = MagicMock()
             redirect_response.is_redirect = True
             redirect_response.headers = {"location": "http://169.254.169.254/latest/meta-data/"}
-            redirect_response.url = httpx.URL("http://192.168.50.108:8409/segment.ts")
+            redirect_response.url = httpx.URL(
+                "http://192.168.50.108:8409/iptv/session/8/live000010.ts"
+            )
             redirect_response.aclose = AsyncMock()
 
             requested_urls: list[str] = []
@@ -747,13 +880,13 @@ class TestGetSegment:
         self, client: TestClient, auth_header: dict[str, str]
     ) -> None:
         """A Content-Length above the cap fails with 502 before streaming starts."""
-        # Encodes http://192.168.50.108:8409/segment.ts
+        # Encodes http://192.168.50.108:8409/iptv/session/8/live000010.ts
         encoded_url = "aHR0cDovLzE5Mi4xNjguNTAuMTA4Ojg0MDkvc2VnbWVudC50cw"
 
         with (
             patch(
                 "app.routers.ersatztv.decode_url",
-                return_value="http://192.168.50.108:8409/segment.ts",
+                return_value="http://192.168.50.108:8409/iptv/session/8/live000010.ts",
             ),
             patch("app.routers.ersatztv.httpx.AsyncClient") as mock_client_cls,
         ):

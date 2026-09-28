@@ -29,8 +29,9 @@ from app.services.ersatztv import (
 from app.services.ersatztv.hls_rewriter import (
     decode_url,
     fetch_ersatztv,
-    is_ersatztv_url,
+    is_ersatztv_media_url,
     rewrite_manifest,
+    segment_media_type,
 )
 from app.services.logo_proxy import fetch_logo
 
@@ -112,7 +113,7 @@ async def head_stream(
                 raise HTTPException(status_code=404, detail="Channel not found")
             manifest_url = channel.stream_url
 
-        if not is_ersatztv_url(manifest_url):
+        if not is_ersatztv_media_url(manifest_url, playlist=True):
             raise HTTPException(status_code=400, detail="Invalid stream URL")
 
         return Response(
@@ -120,6 +121,8 @@ async def head_stream(
             media_type="application/vnd.apple.mpegurl",
             headers={
                 "Access-Control-Allow-Origin": "*",
+                "Content-Security-Policy": "default-src 'none'; sandbox",
+                "X-Content-Type-Options": "nosniff",
             },
         )
     except HTTPException:
@@ -155,7 +158,7 @@ async def get_stream(
             manifest_url = channel.stream_url
 
         # Validate URL is from ErsatzTV
-        if not is_ersatztv_url(manifest_url):
+        if not is_ersatztv_media_url(manifest_url, playlist=True):
             raise HTTPException(status_code=400, detail="Invalid stream URL")
 
         # Fetch manifest with retry for cold stream startup
@@ -220,6 +223,8 @@ async def get_stream(
             media_type="application/vnd.apple.mpegurl",
             headers={
                 "Access-Control-Allow-Origin": "*",  # Chromecast needs CORS
+                "Content-Security-Policy": "default-src 'none'; sandbox",
+                "X-Content-Type-Options": "nosniff",
             },
         )
 
@@ -241,7 +246,7 @@ async def head_segment(
     try:
         segment_url = decode_url(encoded_url)
 
-        if not is_ersatztv_url(segment_url):
+        if not is_ersatztv_media_url(segment_url):
             raise HTTPException(status_code=400, detail="Invalid segment URL")
 
         return Response(
@@ -249,6 +254,8 @@ async def head_segment(
             media_type="video/mp2t",
             headers={
                 "Access-Control-Allow-Origin": "*",
+                "Content-Security-Policy": "default-src 'none'; sandbox",
+                "X-Content-Type-Options": "nosniff",
             },
         )
     except HTTPException:
@@ -270,7 +277,7 @@ async def get_segment(
         segment_url = decode_url(encoded_url)
 
         # Validate URL is from ErsatzTV
-        if not is_ersatztv_url(segment_url):
+        if not is_ersatztv_media_url(segment_url):
             raise HTTPException(status_code=400, detail="Invalid segment URL")
 
         # Stream the body through instead of buffering it - a segment must never
@@ -289,8 +296,9 @@ async def get_segment(
             await client.aclose()
             raise
 
-        # Determine content type
-        content_type = response.headers.get("content-type", "video/mp2t")
+        # Serve only media types: anything else (an HTML error page, say) goes
+        # out as video/mp2t with nosniff, never as a document on our origin
+        content_type = segment_media_type(response.headers.get("content-type"))
 
         # Reject an oversized segment up-front, while we can still send a real
         # status code. A silent truncation would present a corrupt body as 200.
@@ -336,6 +344,8 @@ async def get_segment(
             media_type=content_type,
             headers={
                 "Access-Control-Allow-Origin": "*",  # Chromecast needs CORS
+                "Content-Security-Policy": "default-src 'none'; sandbox",
+                "X-Content-Type-Options": "nosniff",
             },
         )
 

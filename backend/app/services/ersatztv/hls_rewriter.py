@@ -9,7 +9,7 @@ Story: 7.5 - HLS Proxy Service
 import asyncio
 import base64
 import re
-from urllib.parse import quote, urlencode, urljoin, urlsplit
+from urllib.parse import quote, unquote, urlencode, urljoin, urlsplit
 
 import httpx
 from loguru import logger
@@ -60,6 +60,60 @@ def is_ersatztv_url(url: str) -> bool:
     return target_port == base_port
 
 
+# ErsatzTV's streaming output. Segments (and keys, init sections) live under a
+# segmenter session; playlists are the channel playlist or a session's variant.
+# Everything else on the host (XMLTV, the M3U, logos, /api, the web UI) is not
+# reachable through the proxy.
+_SEGMENT_PREFIXES = {("iptv", "session")}
+_PLAYLIST_PREFIXES = {("iptv", "session"), ("iptv", "channel")}
+
+# Media types a proxied segment may be served as; anything else becomes video/mp2t
+SEGMENT_MEDIA_TYPES = frozenset(
+    {
+        "video/mp2t",
+        "video/mp4",
+        "video/iso.segment",
+        "audio/aac",
+        "audio/mp4",
+        "application/octet-stream",
+    }
+)
+
+
+def is_ersatztv_media_url(url: str, *, playlist: bool = False) -> bool:
+    """Check that a URL is on ErsatzTV and inside its streaming paths.
+
+    The path is percent-decoded before it is checked, and any dot segment,
+    empty segment (duplicate slash), backslash or leftover percent sign is
+    rejected rather than normalised, so "/iptv/session/../../api/x" and its
+    encoded forms never pass.
+
+    Args:
+        url: Absolute URL to validate
+        playlist: Allow playlist paths (session and channel) instead of the
+            segment paths (session only)
+
+    Returns:
+        True if the URL targets an allowed ErsatzTV streaming path
+    """
+    if not is_ersatztv_url(url):
+        return False
+    path = unquote(urlsplit(url).path)
+    if "%" in path or "\\" in path or not path.startswith("/"):
+        return False
+    parts = path[1:].split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        return False
+    prefixes = _PLAYLIST_PREFIXES if playlist else _SEGMENT_PREFIXES
+    return len(parts) > 2 and (parts[0], parts[1]) in prefixes
+
+
+def segment_media_type(content_type: str | None) -> str:
+    """Return the upstream media type if it is a segment type, else video/mp2t."""
+    mime = (content_type or "").split(";", 1)[0].strip().lower()
+    return mime if mime in SEGMENT_MEDIA_TYPES else "video/mp2t"
+
+
 async def fetch_ersatztv(
     client: httpx.AsyncClient,
     url: str,
@@ -72,13 +126,15 @@ async def fetch_ersatztv(
     The client MUST be created with ``follow_redirects=False``. httpx's own
     redirect following would connect to whatever a hop points at, reopening the
     SSRF that :func:`is_ersatztv_url` closes. This validates every hop before
-    connecting to it.
+    connecting to it, including the streaming-path rule of
+    :func:`is_ersatztv_media_url`: playlist paths for a manifest fetch
+    (``stream=False``), segment paths for a streamed fetch.
 
     Args:
         client: httpx client created with ``follow_redirects=False``
         url: Absolute URL to fetch; validated against the ErsatzTV allowlist
-        stream: If True, return with the response body still open (the caller
-            owns closing it)
+        stream: If True, fetch a segment and return with the response body
+            still open (the caller owns closing it); if False, fetch a manifest
         max_redirects: Maximum number of on-host redirect hops to follow
 
     Returns:
@@ -89,7 +145,7 @@ async def fetch_ersatztv(
             exceeded.
     """
     for _ in range(max_redirects + 1):
-        if not is_ersatztv_url(url):
+        if not is_ersatztv_media_url(url, playlist=not stream):
             raise ValueError(f"URL is not from ErsatzTV: {url}")
         response = await client.send(client.build_request("GET", url), stream=True)
         if response.is_redirect and "location" in response.headers:
