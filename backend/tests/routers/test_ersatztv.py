@@ -14,6 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 from loguru import logger
 
+from app.config import settings
 from app.main import app
 from app.models.ersatztv import EPGChannel, Programme
 from app.services.auth import create_access_token
@@ -140,6 +141,41 @@ class TestListChannels:
         # Check snake_case is NOT used
         assert "stream_url" not in channel
         assert "logo_url" not in channel
+
+    def test_sends_no_internal_ersatztv_url(
+        self, client: TestClient, auth_header: dict[str, str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """C-12: no LAN URL reaches a browser; streamUrl is the tokenless proxy path."""
+        base = "http://192.168.50.108:8409"
+        monkeypatch.setattr(settings, "ersatztv_base_url", base)
+        channels = [
+            EPGChannel(
+                id=f"ch{n}",
+                name=f"Channel {n}",
+                stream_url=f"{base}/iptv/channel/{n}.m3u8",
+                logo_url=f"{base}/iptv/logos/{n}.png",
+                number=n,
+            )
+            for n in (1, 2)
+        ]
+        with patch("app.services.ersatztv.epg_service.parse_m3u_playlist", return_value=channels):
+            response = client.get("/api/ersatztv/channels", headers=auth_header)
+
+        assert response.status_code == 200
+        assert base not in response.text
+        listed = response.json()["channels"]
+        assert [c["streamUrl"] for c in listed] == [
+            "/api/ersatztv/stream/ch1",
+            "/api/ersatztv/stream/ch2",
+        ]
+        assert all("originalLogoUrl" not in c for c in listed)
+        assert [c["logoUrl"] for c in listed] == [
+            "/api/ersatztv/logos/ch1",
+            "/api/ersatztv/logos/ch2",
+        ]
+        # The backend keeps the upstream URLs for the stream and logo routes
+        assert channels[0].stream_url == f"{base}/iptv/channel/1.m3u8"
+        assert channels[0].original_logo_url == f"{base}/iptv/logos/1.png"
 
 
 class TestListProgrammes:
