@@ -24,7 +24,7 @@ from app.routers.highlight import router as highlight_router
 from app.routers.nhl import router as nhl_router
 from app.routers.settings import router as settings_router
 from app.routers.websocket import router as websocket_router
-from app.services import channel_state, plex, presence, presence_broadcast
+from app.services import channel_state, gauges, plex, presence, presence_broadcast
 from app.services.cached_fetch import aclose_all_caches
 from app.services.cast import cast_service
 from app.services.dispatcharr import (
@@ -144,6 +144,8 @@ async def lifespan(app: FastAPI):
     # Look up the Plex server owner id now: require_admin needs it to tell the
     # owner from a demoted admin, and the cache is empty after every deploy.
     plex.start_server_owner_lookup()
+    # One gauges log line a minute: sockets, recorders, budgets, FDs, FFmpeg children.
+    gauges.start_gauges_task()
 
     # Warm the channel groups and guide caches in the background so the first
     # admin modal open or channel list doesn't block on a cold Dispatcharr fetch.
@@ -199,6 +201,7 @@ async def lifespan(app: FastAPI):
         channel_state.stop_reconcile_task(),
         aclose_all_caches(),
         stop_feed_executor(),
+        gauges.stop_gauges_task(),
     ]
     try:
         async with asyncio.timeout(SHUTDOWN_DEADLINE_SECONDS):

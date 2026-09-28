@@ -649,6 +649,11 @@ class HighlightService:
         # channel_id -> (consecutive failed starts, monotonic time the next start may try)
         self._start_failures: dict[str, tuple[int, float]] = {}
 
+    def recorder_counts(self) -> tuple[int, int]:
+        """(running, not running) recorders, for the gauges log line."""
+        running = sum(recorder.is_running for recorder in self._recorders.values())
+        return running, len(self._recorders) - running
+
     def clear_start_backoff(self) -> None:
         """Forget failed starts so the next start for any channel tries at once."""
         self._start_failures.clear()

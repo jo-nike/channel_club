@@ -243,6 +243,10 @@ class CastService:
         self._lock = asyncio.Lock()
         self._cleanup_task: asyncio.Task | None = None
 
+    def session_count(self) -> int:
+        """Number of cast sessions, for the gauges log line."""
+        return len(self._sessions)
+
     def start_idle_cleanup_task(self) -> None:
         """Start background task to clean up idle sessions."""
         if self._cleanup_task is None or self._cleanup_task.done():
