@@ -3,10 +3,12 @@
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from datetime import UTC, datetime
+from io import StringIO
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from loguru import logger
 
 from app.config import settings
 from app.services.gif import GifService, GifServiceError
@@ -364,6 +366,123 @@ class TestMalformedReplies:
             result = await service.search("cats")
 
         assert [gif["id"] for gif in result["gifs"]] == ["gif1", "gif2"]
+
+
+class TestGiphyStatusMapping:
+    """M-04: Giphy error statuses map to honest client statuses."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("giphy_status", "headers", "status", "retry_after", "message"),
+        [
+            (429, {"Retry-After": "12"}, 429, "12", "GIF service is busy; try again later"),
+            (429, {}, 429, "30", "GIF service is busy; try again later"),
+            (401, {}, 502, None, "GIF service misconfigured"),
+            (403, {}, 502, None, "GIF service misconfigured"),
+            (400, {}, 502, None, "GIF service rejected the request"),
+            (414, {}, 502, None, "GIF service rejected the request"),
+            (500, {}, 503, None, "GIF service unavailable"),
+        ],
+    )
+    @pytest.mark.parametrize("method", ["trending", "search"])
+    async def test_maps_status(
+        self,
+        service: GifService,
+        monkeypatch: pytest.MonkeyPatch,
+        method: str,
+        giphy_status: int,
+        headers: dict[str, str],
+        status: int,
+        retry_after: str | None,
+        message: str,
+    ) -> None:
+        monkeypatch.setattr(settings, "giphy_api_key", "test-key")
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(giphy_status, text="giphy says no", headers=headers)
+
+        with _giphy_replies(handler), pytest.raises(GifServiceError) as exc:
+            if method == "trending":
+                await service.get_trending()
+            else:
+                await service.search("cats")
+
+        assert exc.value.status_code == status
+        assert exc.value.retry_after == retry_after
+        assert str(exc.value) == message
+
+    @pytest.mark.asyncio
+    async def test_log_truncates_body_and_omits_api_key(
+        self, service: GifService, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(settings, "giphy_api_key", "secret-giphy-key")
+        body = "x" * 199 + "TAIL" + "y" * 2000
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(400, text=body)
+
+        output = StringIO()
+        handler_id = logger.add(output, format="{message}", level="DEBUG")
+        try:
+            with _giphy_replies(handler), pytest.raises(GifServiceError):
+                await service.search("cats")
+        finally:
+            logger.remove(handler_id)
+
+        logged = output.getvalue()
+        assert "x" * 199 + "T" in logged
+        assert "TAIL" not in logged
+        assert "secret-giphy-key" not in logged
+
+
+class TestUrlFilter:
+    """M-04: only https URLs on giphy.com hosts reach the client."""
+
+    @staticmethod
+    def _item(gif_id: str, url: str, preview: str | None = None) -> dict:
+        images: dict = {"original": {"url": url, "width": "1", "height": "1"}}
+        if preview is not None:
+            images["fixed_width_small"] = {"url": preview}
+        return {"id": gif_id, "images": images}
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "javascript:alert(1)",
+            "https://evil.test/a.gif",
+            "https://giphy.com.evil.test/a.gif",
+            "https://notgiphy.com/a.gif",
+            "http://media.giphy.com/a.gif",
+            "https://[bad/a.gif",
+            123,
+        ],
+    )
+    def test_drops_item_with_bad_url(self, service: GifService, url: object) -> None:
+        data = {
+            "data": [
+                {"id": "bad", "images": {"original": {"url": url}}},
+                self._item("good", "https://media2.giphy.com/good.gif"),
+            ]
+        }
+
+        result = service._normalize_response(data)
+
+        assert [gif["id"] for gif in result["gifs"]] == ["good"]
+
+    def test_bad_preview_falls_back_to_url(self, service: GifService) -> None:
+        data = {
+            "data": [
+                self._item("a", "https://giphy.com/a.gif", "javascript:alert(1)"),
+                self._item("b", "https://i.giphy.com/b.gif", "https://evil.test/b.gif"),
+            ]
+        }
+
+        result = service._normalize_response(data)
+
+        assert [gif["previewUrl"] for gif in result["gifs"]] == [
+            "https://giphy.com/a.gif",
+            "https://i.giphy.com/b.gif",
+        ]
 
 
 class TestClearCache:
