@@ -3,63 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.models.channel import Channel, DispatchrrChannel, DispatchrrFullChannel
-
-
-class TestDispatchrrChannel:
-    """Tests for DispatchrrChannel model."""
-
-    def test_parse_from_dispatcharr_format(self) -> None:
-        """Parse channel data from Dispatcharr's HDHomeRun format."""
-        raw_data = {
-            "GuideNumber": "1.1",
-            "GuideName": "TSN",
-            "URL": "http://10.8.0.2:9191/proxy/ts/stream/uuid-abc123",
-            "Guide_ID": "1",
-        }
-
-        channel = DispatchrrChannel(**raw_data)
-
-        assert channel.guide_number == "1.1"
-        assert channel.guide_name == "TSN"
-        assert channel.url == "http://10.8.0.2:9191/proxy/ts/stream/uuid-abc123"
-        assert channel.guide_id == "1"
-
-    def test_parse_multiple_channels(self) -> None:
-        """Parse multiple channels from Dispatcharr response."""
-        raw_channels = [
-            {
-                "GuideNumber": "1.1",
-                "GuideName": "TSN",
-                "URL": "http://10.8.0.2:9191/proxy/ts/stream/uuid-1",
-                "Guide_ID": "1",
-            },
-            {
-                "GuideNumber": "2.1",
-                "GuideName": "Sportsnet",
-                "URL": "http://10.8.0.2:9191/proxy/ts/stream/uuid-2",
-                "Guide_ID": "2",
-            },
-        ]
-
-        channels = [DispatchrrChannel(**c) for c in raw_channels]
-
-        assert len(channels) == 2
-        assert channels[0].guide_name == "TSN"
-        assert channels[1].guide_name == "Sportsnet"
-        assert channels[0].guide_id == "1"
-        assert channels[1].guide_id == "2"
-
-    def test_missing_required_field_raises_error(self) -> None:
-        """Missing required field should raise ValidationError."""
-        raw_data = {
-            "GuideNumber": "1.1",
-            "GuideName": "TSN",
-            # Missing URL
-        }
-
-        with pytest.raises(ValidationError):
-            DispatchrrChannel(**raw_data)
+from app.models.channel import Channel, DispatchrrFullChannel
 
 
 class TestDispatchrrFullChannel:

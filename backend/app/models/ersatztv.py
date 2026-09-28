@@ -20,7 +20,9 @@ class EPGChannel(BaseModel):
     original_logo_url: str | None = Field(
         default=None, alias="originalLogoUrl", description="Original logo URL for backend fetching"
     )
-    number: int | None = Field(default=None, description="Channel number for ordering")
+    number: int | float | None = Field(
+        default=None, description="Channel number for ordering (2.1 for a sub-channel)"
+    )
     group: str | None = Field(default=None, description="Channel group/category")
 
     model_config = {"populate_by_name": True}
@@ -43,10 +45,40 @@ class Programme(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class PublicEPGChannel(BaseModel):
+    """An ErsatzTV channel as browsers see it, with no internal ErsatzTV URL.
+
+    streamUrl is our tokenless proxy path (the frontend keys player resets on
+    it and plays through getErsatzTVStreamUrl); originalLogoUrl is left out.
+    """
+
+    id: str
+    xmltv_id: str | None = Field(default=None, alias="xmltvId")
+    name: str
+    stream_url: str = Field(alias="streamUrl")
+    logo_url: str | None = Field(default=None, alias="logoUrl")
+    number: int | float | None = None
+    group: str | None = None
+
+    model_config = {"populate_by_name": True}
+
+    @classmethod
+    def from_channel(cls, channel: EPGChannel) -> "PublicEPGChannel":
+        return cls(
+            id=channel.id,
+            xmltv_id=channel.xmltv_id,
+            name=channel.name,
+            stream_url=f"/api/ersatztv/stream/{channel.id}",
+            logo_url=channel.logo_url,
+            number=channel.number,
+            group=channel.group,
+        )
+
+
 class EPGChannelResponse(BaseModel):
     """Response for GET /api/ersatztv/channels."""
 
-    channels: list[EPGChannel]
+    channels: list[PublicEPGChannel]
 
 
 class CurrentProgrammeResponse(BaseModel):

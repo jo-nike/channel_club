@@ -33,9 +33,7 @@ from app.models.websocket import (
 )
 from app.services import app_settings, channel_state, chat, presence, presence_broadcast
 from app.services.auth import verify_token
-from app.services.dispatcharr import get_grouped_channels
-from app.services.ersatztv import get_channel_by_id
-from app.services.ersatztv.refresh import run_feed_lookup
+from app.services.media_source import find_catalogue_channel
 
 router = APIRouter()
 log = logger.bind(router="websocket")
@@ -245,14 +243,8 @@ async def _catalogue_name(channel_id: str) -> str | None:
     Args:
         channel_id: A Dispatcharr stream UUID or an ErsatzTV channel id.
     """
-    live = await _suggested_channel(channel_id)
-    if live is not None:
-        return live.name
-    try:
-        ersatz = await run_feed_lookup(get_channel_by_id, channel_id)
-    except Exception:
-        return None
-    return ersatz.name if ersatz else None
+    channel = (await find_catalogue_channel(channel_id)).channel
+    return channel.name if channel else None
 
 
 async def _channel_stamp(client_id: str) -> chat.ChannelStamp | None:
@@ -286,21 +278,13 @@ async def _suggested_channel(channel_id: str) -> Channel | None:
 
     That is what the Live picker offers, so a suggestion that is posted can be
     put on. Looked up in the cache only: an unknown id never costs a request
-    of its own (no lineup or ErsatzTV lookup). None for an id not in the
-    catalogue, or while the catalogue is unavailable.
+    of its own (no ErsatzTV lookup). None for an id not in the catalogue, or
+    while the catalogue is unavailable.
 
     Args:
         channel_id: The channel id the client suggested.
     """
-    try:
-        grouped = await get_grouped_channels()
-    except Exception:
-        return None
-    for channels in [*(group.channels for group in grouped.groups), grouped.ungrouped]:
-        for channel in channels:
-            if channel.id == channel_id:
-                return channel
-    return None
+    return (await find_catalogue_channel(channel_id, ersatztv=False)).channel
 
 
 async def _ack_chat(

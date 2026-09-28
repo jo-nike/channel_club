@@ -6,6 +6,7 @@ from unittest.mock import patch
 from app.models.ersatztv import Programme
 from app.services.ersatztv.epg_service import get_programmes_by_channel
 from app.services.ersatztv.m3u_parser import _parse_m3u_content
+from app.services.ersatztv.xmltv_parser import guide
 
 
 def test_missing_url_does_not_consume_next_metadata_record():
@@ -15,7 +16,7 @@ def test_missing_url_does_not_consume_next_metadata_record():
     assert [(c.id, c.stream_url) for c in channels] == [("two", "http://source/two")]
 
 
-def test_suffix_collision_stays_unique_and_preserves_xmltv_identity():
+async def test_suffix_collision_stays_unique_and_preserves_xmltv_identity():
     text = "#EXTM3U\n" + "\n".join(
         f'#EXTINF:-1 tvg-id="{id}",{id}\nhttp://source/{index}'
         for index, id in enumerate(["a", "a_3", "a", "a_4", "a"])
@@ -32,11 +33,10 @@ def test_suffix_collision_stays_unique_and_preserves_xmltv_identity():
         start=now,
         stop=now + timedelta(hours=1),
     )
-    with (
-        patch("app.services.ersatztv.epg_service.parse_m3u_playlist", return_value=channels),
-        patch("app.services.ersatztv.epg_service.parse_xmltv", return_value=[programme]),
-    ):
-        mapped = get_programmes_by_channel(channels[2].id)
+    guide._cache = {"a": [programme]}
+    guide._cache_expires = now + timedelta(minutes=5)
+    with patch("app.services.ersatztv.epg_service.parse_m3u_playlist", return_value=channels):
+        mapped = await get_programmes_by_channel(channels[2].id)
     assert mapped[0].channel_id == channels[2].id
     assert mapped[0].title == programme.title
     assert programme.channel_id == "a"

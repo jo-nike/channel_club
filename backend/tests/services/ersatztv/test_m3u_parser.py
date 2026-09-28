@@ -18,6 +18,7 @@ from app.services.ersatztv.m3u_parser import (
     clear_cache,
     parse_m3u_playlist,
 )
+from app.services.ersatztv.refresh import FeedUnavailableError
 
 # fmt: off
 # ruff: noqa: E501
@@ -72,6 +73,26 @@ class TestParseM3UContent:
         channels = _parse_m3u_content(SAMPLE_M3U)
         assert channels[0].number == 1
         assert channels[1].number == 2
+
+    def test_keeps_decimal_channel_numbers(self):
+        """A decimal tvg-chno stays a float, a whole one stays an int, anything else is None."""
+        content = """#EXTM3U
+#EXTINF:-1 tvg-id="a" tvg-chno="2.1",A
+http://example.com/a.m3u8
+#EXTINF:-1 tvg-id="b" tvg-chno="7",B
+http://example.com/b.m3u8
+#EXTINF:-1 tvg-id="c" channel-number="4.20",C
+http://example.com/c.m3u8
+#EXTINF:-1 tvg-id="d" tvg-chno="2.1.1",D
+http://example.com/d.m3u8
+"""
+        channels = _parse_m3u_content(content)
+        assert channels[0].number == 2.1
+        assert isinstance(channels[0].number, float)
+        assert channels[1].number == 7
+        assert isinstance(channels[1].number, int)
+        assert channels[2].number == 4.2
+        assert channels[3].number is None
 
     def test_extracts_stream_url(self):
         """Parser extracts stream URL from next line."""
@@ -255,6 +276,16 @@ class TestGracefulFallback:
         # Should return stale cached data
         channels2 = parse_m3u_playlist()
         assert len(channels2) == len(channels1)
+
+    @patch("app.services.ersatztv.m3u_parser.fetch_feed")
+    def test_oversized_playlist_reports_the_guides_reason(self, mock_get: MagicMock):
+        """The M3U's failure reasons use the same wording as both XMLTV guides."""
+        mock_get.side_effect = ValueError("Feed exceeds byte/time budget")
+
+        with pytest.raises(FeedUnavailableError):
+            parse_m3u_playlist()
+
+        assert parse_m3u_playlist.last_error == "feed too large"
 
 
 class TestIntegration:

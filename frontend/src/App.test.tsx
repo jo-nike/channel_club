@@ -11,10 +11,8 @@ import { useThemeStore } from '@/stores/themeStore'
 import { useReminderStore } from '@/stores/reminderStore'
 import { DEFAULT_THEME_ID, getTheme } from '@/lib/themes'
 import { APP_NAME } from '@/lib/appInfo'
-import * as api from '@/services/api'
 
 vi.mock('@/services/api', () => ({
-  fetchChannels: vi.fn(),
   fetchNowPlaying: vi.fn(),
   getAuthConfig: vi.fn().mockResolvedValue({
     localAuthEnabled: true,
@@ -87,7 +85,6 @@ describe('App', () => {
       isTheaterMode: false,
       isSidebarOpen: false,
     })
-    vi.mocked(api.fetchChannels).mockResolvedValue([])
     useThemeStore.setState(useThemeStore.getInitialState())
     document.documentElement.classList.remove('dark')
     document.documentElement.style.cssText = ''

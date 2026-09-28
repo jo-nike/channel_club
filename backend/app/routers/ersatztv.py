@@ -24,6 +24,7 @@ from app.models.ersatztv import (
     CurrentProgrammeResponse,
     EPGChannelResponse,
     ProgrammeListResponse,
+    PublicEPGChannel,
 )
 from app.routers.auth_deps import get_current_user, get_current_user_or_token
 from app.services import stream_sessions
@@ -101,7 +102,7 @@ async def list_channels(user=Depends(get_current_user)) -> EPGChannelResponse:
     try:
         channels = await run_feed_lookup(get_channels)
         log.debug("Returning {} channels", len(channels))
-        return EPGChannelResponse(channels=channels)
+        return EPGChannelResponse(channels=[PublicEPGChannel.from_channel(c) for c in channels])
     except UPSTREAM_ERRORS as e:
         log.error("Failed to get channels: {}", e)
         raise HTTPException(status_code=503, detail="ErsatzTV service unavailable") from None
@@ -119,7 +120,7 @@ async def list_programmes(
     """Get programmes for channel within time window."""
     log.debug("GET /programmes request for channel: {}", channel_id)
     try:
-        programmes = await run_feed_lookup(get_programmes_by_channel, channel_id, hours=hours)
+        programmes = await get_programmes_by_channel(channel_id, hours=hours)
         log.debug("Returning {} programmes for channel {}", len(programmes), channel_id)
         return ProgrammeListResponse(channel_id=channel_id, programmes=programmes)
     except UPSTREAM_ERRORS as e:
@@ -138,7 +139,7 @@ async def get_current(
     """Get current and next programme for channel."""
     log.debug("GET /current request for channel: {}", channel_id)
     try:
-        current, next_up = await run_feed_lookup(get_current_programme, channel_id)
+        current, next_up = await get_current_programme(channel_id)
         return CurrentProgrammeResponse(
             channel_id=channel_id,
             current=current,

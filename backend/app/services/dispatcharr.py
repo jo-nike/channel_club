@@ -11,7 +11,6 @@ from app.config import settings
 from app.models.channel import (
     Channel,
     ChannelGroupWithChannels,
-    DispatchrrChannel,
     DispatchrrChannelGroup,
     DispatchrrFullChannel,
     GroupedChannelsResponse,
@@ -38,16 +37,6 @@ _CATALOGUE_TIMEOUT = httpx.Timeout(10, connect=3)
 _LOGO_KEY_PREFIX = "dispatcharr:"
 
 
-def invalidate_grouped_channels_cache() -> None:
-    """Invalidate the grouped channels cache (e.g., on admin refresh).
-
-    Also drops cached logos, so a logo changed in Dispatcharr shows after a refresh.
-    """
-    _grouped_cache.invalidate()
-    LOGO_CACHE.clear(_LOGO_KEY_PREFIX)
-    log.debug("Grouped channels cache invalidated")
-
-
 class DispatchrrUnavailableError(Exception):
     """Raised when Dispatcharr API is unreachable or returns an error."""
 
@@ -66,6 +55,16 @@ _grouped_cache: CachedFetch[GroupedChannelsResponse] = CachedFetch(
 def catalogue_failing() -> bool:
     """Whether the latest catalogue fetch failed; local state only, never fetches."""
     return _grouped_cache._last_error is not None
+
+
+def peek_grouped_channels() -> GroupedChannelsResponse | None:
+    """The cached catalogue as it is, or None if it never loaded; never fetches or waits."""
+    return _grouped_cache.peek()
+
+
+def refresh_catalogue_if_due() -> None:
+    """Start one background catalogue refresh if it is expired or missing; never waits."""
+    _grouped_cache.refresh_if_due()
 
 
 class ChannelLogoNotFoundError(Exception):
@@ -90,45 +89,6 @@ def _json_list(response: httpx.Response) -> list[Any]:
     if not isinstance(payload, list):
         raise TypeError(f"expected a JSON list, got {type(payload).__name__}")
     return payload
-
-
-async def get_lineup() -> list[Channel]:
-    """Fetch and transform channel lineup from Dispatcharr.
-
-    Returns:
-        List of Channel objects with transformed stream URLs.
-
-    Raises:
-        DispatchrrUnavailableError: If Dispatcharr is unreachable or returns error.
-    """
-    url = f"{settings.dispatcharr_url}/hdhr/lineup.json"
-    log.debug("Fetching channel lineup from {}", url)
-
-    try:
-        async with httpx.AsyncClient(timeout=_CATALOGUE_TIMEOUT, verify=SSL_CONTEXT) as client:
-            response = await client.get(url)
-            response.raise_for_status()
-
-            raw_channels = [DispatchrrChannel(**c) for c in _json_list(response)]
-
-            channels = [
-                Channel(
-                    id=extract_uuid(ch.url),
-                    name=ch.guide_name,
-                    stream_url=f"{settings.stream_base_url}/proxy/ts/stream/{extract_uuid(ch.url)}",
-                    guide_id=ch.guide_id,
-                )
-                for ch in raw_channels
-            ]
-
-            log.info("Fetched {} channels successfully", len(channels))
-            return channels
-    except httpx.HTTPError as e:
-        log.error("Failed to fetch channels: {}", str(e))
-        raise DispatchrrUnavailableError(f"Failed to fetch channels: {e}") from e
-    except (ValueError, TypeError, ValidationError) as e:
-        log.error("Unexpected channel lineup payload: {}", str(e))
-        raise DispatchrrUnavailableError(f"Unexpected channel lineup payload: {e}") from e
 
 
 def dispatcharr_auth_headers() -> dict[str, str]:
@@ -318,7 +278,7 @@ async def get_channel_logo(logo_id: int) -> tuple[bytes, str]:
     Raises:
         ChannelLogoNotFoundError: If no channel in the catalogue uses this logo.
         LogoNotFoundError: If Dispatcharr answers 404 for it (remembered for
-            one catalogue TTL, or until invalidate_grouped_channels_cache).
+            for one catalogue TTL).
         DispatchrrUnavailableError: If Dispatcharr can't serve it as a raster image.
     """
 
@@ -330,8 +290,7 @@ async def get_channel_logo(logo_id: int) -> tuple[bytes, str]:
     if cached is not None:
         return cached
 
-    # Only logos a catalogue channel uses; checked before LOGO_CACHE.get, which
-    # keeps a lock per key, so unknown ids can't grow the cache's lock map
+    # Only logos a catalogue channel uses
     grouped = await get_grouped_channels()
     path = channel_logo_path(logo_id)
     channels = [*(c for g in grouped.groups for c in g.channels), *grouped.ungrouped]

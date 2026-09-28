@@ -11,6 +11,7 @@ from app.models.ersatztv import (
     EPGChannelResponse,
     Programme,
     ProgrammeListResponse,
+    PublicEPGChannel,
 )
 
 
@@ -195,7 +196,7 @@ class TestEPGChannelResponse:
             ),
         ]
 
-        response = EPGChannelResponse(channels=channels)
+        response = EPGChannelResponse(channels=[PublicEPGChannel.from_channel(c) for c in channels])
 
         assert len(response.channels) == 2
         assert response.channels[0].id == "ch-1"

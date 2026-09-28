@@ -1,5 +1,6 @@
 """Integration tests for the main FastAPI app."""
 
+import asyncio
 import json
 import os
 import subprocess
@@ -331,8 +332,11 @@ class TestStartupGuideWarmup:
     ) -> list[str]:
         fetches: list[str] = []
 
-        def upstream(request: httpx.Request) -> httpx.Response:
+        async def upstream(request: httpx.Request) -> httpx.Response:
             fetches.append(request.url.path)
+            # Slow enough that a refresh left to the background is still running
+            # when the warm-up task finishes, however long startup takes
+            await asyncio.sleep(0.2)
             return respond(request)
 
         factory = httpx.AsyncClient
@@ -348,12 +352,16 @@ class TestStartupGuideWarmup:
         return fetches
 
     @staticmethod
-    def _wait_for_warmup(client: TestClient) -> None:
-        async def wait() -> None:
+    def _wait_for_warmup(client: TestClient) -> bool:
+        """Await the warm-up; whether the guide was online the moment it finished."""
+
+        async def wait() -> bool:
             await app.state.warmup_task
+            # No await in between: a background-only refresh would not have run yet
+            return epg_service.get_epg_service().get_health().online
 
         assert client.portal is not None
-        client.portal.call(wait)
+        return client.portal.call(wait)
 
     def test_boot_fetches_the_guide_once_and_serves_reads_from_it(
         self, monkeypatch: pytest.MonkeyPatch
@@ -364,7 +372,7 @@ class TestStartupGuideWarmup:
         token = create_access_token({"sub": "viewer", "role": "viewer"})
 
         with TestClient(app) as client:
-            self._wait_for_warmup(client)
+            assert self._wait_for_warmup(client)
             assert fetches == ["/output/epg"]
 
             response = client.get(

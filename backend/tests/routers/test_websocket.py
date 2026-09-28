@@ -21,7 +21,14 @@ from app.models.channel import Channel, GroupedChannelsResponse
 from app.models.ersatztv import EPGChannel
 from app.models.websocket import ServerChannelUpdate, ServerPong
 from app.routers import websocket as websocket_router
-from app.services import app_settings, channel_state, chat, presence, presence_broadcast
+from app.services import (
+    app_settings,
+    channel_state,
+    chat,
+    media_source,
+    presence,
+    presence_broadcast,
+)
 from app.services.auth import create_access_token
 from tests.ws_helpers import ws_connect
 
@@ -76,9 +83,9 @@ def cached_catalogue(monkeypatch: pytest.MonkeyPatch) -> None:
         ungrouped=[Channel(id="42", name="TSN 5", streamUrl="http://streams/42", guideId="tsn5")]
     )
     cartoons = EPGChannel(id="etv-2", name="Cartoons", streamUrl="http://etv/2.m3u8")
-    monkeypatch.setattr(websocket_router, "get_grouped_channels", AsyncMock(return_value=grouped))
+    monkeypatch.setattr(media_source, "get_grouped_channels", AsyncMock(return_value=grouped))
     monkeypatch.setattr(
-        websocket_router,
+        media_source,
         "get_channel_by_id",
         lambda channel_id: cartoons if channel_id == cartoons.id else None,
     )
@@ -1747,7 +1754,7 @@ class TestSuggestMessage:
     @pytest.fixture
     def catalogue(self) -> AsyncMock:
         """The cached grouped catalogue (cached_catalogue): only TSN 5 (id 42) is live."""
-        grouped = websocket_router.get_grouped_channels
+        grouped = media_source.get_grouped_channels
         assert isinstance(grouped, AsyncMock)
         return grouped
 
@@ -1831,8 +1838,8 @@ class TestSuggestMessage:
         monkeypatch: pytest.MonkeyPatch,
         catalogue: AsyncMock,
     ):
-        """Only the cached grouped catalogue is consulted: no lineup or ErsatzTV lookup."""
-        from app.services import dispatcharr, media_source
+        """Only the cached grouped catalogue is consulted: no ErsatzTV lookup."""
+        from app.services import media_source
 
         uncached: list[str] = []
 
@@ -1843,11 +1850,9 @@ class TestSuggestMessage:
 
             return called
 
-        monkeypatch.setattr(dispatcharr, "get_lineup", record("get_lineup"))
-        # The switch path's own lookups, in case a suggestion goes through it again
+        # The shared catalogue lookup: the cached catalogue, and no ErsatzTV lookup
         monkeypatch.setattr(media_source, "get_grouped_channels", catalogue)
         monkeypatch.setattr(media_source, "run_feed_lookup", record("ersatztv lookup"))
-        monkeypatch.setattr(websocket_router, "run_feed_lookup", record("run_feed_lookup"))
         with ws_connect(client, valid_token) as ws:
             self.open_chat(ws)
 
@@ -2608,13 +2613,13 @@ async def test_retry_while_the_first_send_is_pending_posts_once(monkeypatch):
 
     monkeypatch.setattr(settings, "chat_enabled", True)
     release = asyncio.Event()
-    grouped = websocket_router.get_grouped_channels
+    grouped = media_source.get_grouped_channels
 
     async def slow_catalogue():
         await release.wait()
         return await grouped()
 
-    monkeypatch.setattr(websocket_router, "get_grouped_channels", slow_catalogue)
+    monkeypatch.setattr(media_source, "get_grouped_channels", slow_catalogue)
     suggest = {"type": "suggest", "channelId": "42", "clientMessageId": "g-1"}
     first_socket, first_sent = _recording_socket()
     retry_socket, retry_sent = _recording_socket()
