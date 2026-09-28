@@ -1,5 +1,8 @@
 """Tests for NHL scores service."""
 
+import asyncio
+import json
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -9,6 +12,7 @@ from app.services.nhl import (
     NHLApiError,
     NHLConnectionError,
     _format_period,
+    _inflight,
     _map_game_state,
     _transform_game,
     clear_nhl_cache,
@@ -475,8 +479,187 @@ class TestGetNhlScores:
                 await get_nhl_scores("2026-01-15")
 
 
+def _mock_async_client(mock_client_class: MagicMock, get: AsyncMock) -> AsyncMock:
+    """Wire a patched httpx.AsyncClient class to a client whose get is `get`."""
+    mock_client = AsyncMock()
+    mock_client.get = get
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.__aexit__.return_value = None
+    mock_client_class.return_value = mock_client
+    return mock_client
+
+
+def _game(game_id: int, **overrides: Any) -> dict[str, Any]:
+    """Minimal raw NHL API game."""
+    game: dict[str, Any] = {
+        "id": game_id,
+        "gameState": "FUT",
+        "homeTeam": {"name": {"default": "Home"}, "abbrev": "HOM", "logo": ""},
+        "awayTeam": {"name": {"default": "Away"}, "abbrev": "AWY", "logo": ""},
+        "startTimeUTC": "2026-01-15T00:00:00Z",
+    }
+    game.update(overrides)
+    return game
+
+
+class TestGetNhlScoresSingleFlight:
+    """Concurrent cache misses for one date share a single upstream call."""
+
+    @pytest.fixture(autouse=True)
+    def clear_cache(self) -> None:
+        """Clear cache and in-flight fetches before each test."""
+        clear_nhl_cache()
+
+    async def test_concurrent_misses_make_one_upstream_call(self) -> None:
+        """20 concurrent requests for an uncached date make exactly 1 call."""
+        release = asyncio.Event()
+        mock_response = MagicMock()
+        mock_response.is_success = True
+        mock_response.json.return_value = {"games": [], "currentDate": "2026-01-15"}
+
+        async def slow_get(*_args: Any, **_kwargs: Any) -> MagicMock:
+            await release.wait()
+            return mock_response
+
+        with patch("app.services.nhl.httpx.AsyncClient") as mock_client_class:
+            get = AsyncMock(side_effect=slow_get)
+            _mock_async_client(mock_client_class, get)
+
+            waiters = [asyncio.create_task(get_nhl_scores("2026-01-15")) for _ in range(20)]
+            await asyncio.sleep(0)
+            release.set()
+            results = await asyncio.gather(*waiters)
+
+        assert get.call_count == 1
+        assert all(r.date == "2026-01-15" for r in results)
+        assert _inflight == {}
+
+    async def test_failed_fetch_is_not_reused(self) -> None:
+        """A failed upstream call leaves no entry behind; the next call retries."""
+        ok_response = MagicMock()
+        ok_response.is_success = True
+        ok_response.json.return_value = {"games": [], "currentDate": "2026-01-15"}
+
+        with patch("app.services.nhl.httpx.AsyncClient") as mock_client_class:
+            get = AsyncMock(side_effect=[httpx.ConnectError("Connection refused"), ok_response])
+            _mock_async_client(mock_client_class, get)
+
+            with pytest.raises(NHLConnectionError):
+                await get_nhl_scores("2026-01-15")
+            assert _inflight == {}
+
+            result = await get_nhl_scores("2026-01-15")
+
+        assert get.call_count == 2
+        assert result.date == "2026-01-15"
+
+    async def test_cancelled_waiter_does_not_cancel_shared_fetch(self) -> None:
+        """One caller going away leaves the fetch running for the others."""
+        release = asyncio.Event()
+        mock_response = MagicMock()
+        mock_response.is_success = True
+        mock_response.json.return_value = {"games": [], "currentDate": "2026-01-15"}
+
+        async def slow_get(*_args: Any, **_kwargs: Any) -> MagicMock:
+            await release.wait()
+            return mock_response
+
+        with patch("app.services.nhl.httpx.AsyncClient") as mock_client_class:
+            get = AsyncMock(side_effect=slow_get)
+            _mock_async_client(mock_client_class, get)
+
+            first = asyncio.create_task(get_nhl_scores("2026-01-15"))
+            second = asyncio.create_task(get_nhl_scores("2026-01-15"))
+            await asyncio.sleep(0)
+            first.cancel()
+            release.set()
+            result = await second
+
+        assert result.date == "2026-01-15"
+        assert get.call_count == 1
+
+    async def test_clear_cache_clears_inflight(self) -> None:
+        """clear_nhl_cache also drops in-flight fetches."""
+        release = asyncio.Event()
+
+        async def slow_get(*_args: Any, **_kwargs: Any) -> MagicMock:
+            await release.wait()
+            raise httpx.ConnectError("stopped")
+
+        with patch("app.services.nhl.httpx.AsyncClient") as mock_client_class:
+            _mock_async_client(mock_client_class, AsyncMock(side_effect=slow_get))
+
+            waiter = asyncio.create_task(get_nhl_scores("2026-01-15"))
+            await asyncio.sleep(0)
+            assert "2026-01-15" in _inflight
+
+            clear_nhl_cache()
+            assert _inflight == {}
+
+            release.set()
+            with pytest.raises(NHLConnectionError):
+                await waiter
+
+
+class TestGetNhlScoresBadPayload:
+    """Unreadable or drifted upstream payloads become NHLApiError, never a 500."""
+
+    @pytest.fixture(autouse=True)
+    def clear_cache(self) -> None:
+        """Clear cache before each test."""
+        clear_nhl_cache()
+
+    async def _scores_for(self, response: MagicMock) -> Any:
+        with patch("app.services.nhl.httpx.AsyncClient") as mock_client_class:
+            _mock_async_client(mock_client_class, AsyncMock(return_value=response))
+            return await get_nhl_scores("2026-01-15")
+
+    async def test_non_json_200_raises_api_error(self) -> None:
+        """An HTML maintenance page served with 200 raises NHLApiError."""
+        mock_response = MagicMock()
+        mock_response.is_success = True
+        mock_response.json.side_effect = json.JSONDecodeError("Expecting value", "<html>", 0)
+
+        with pytest.raises(NHLApiError):
+            await self._scores_for(mock_response)
+
+    @pytest.mark.parametrize("payload", [None, [], "maintenance", {"games": 5}])
+    async def test_unexpected_top_level_shape_raises_api_error(self, payload: Any) -> None:
+        """A payload that isn't the expected object raises NHLApiError."""
+        mock_response = MagicMock()
+        mock_response.is_success = True
+        mock_response.json.return_value = payload
+
+        with pytest.raises(NHLApiError):
+            await self._scores_for(mock_response)
+
+    async def test_malformed_game_is_skipped(self) -> None:
+        """One game with a drifted shape is skipped; the others are returned."""
+        mock_response = MagicMock()
+        mock_response.is_success = True
+        mock_response.json.return_value = {
+            "games": [
+                _game(1),
+                _game(2, homeTeam={"name": "Home as a string", "abbrev": "HOM"}),
+                "not a game",
+                _game(3, id="not an int"),
+                _game(4),
+            ],
+            "currentDate": "2026-01-15",
+        }
+
+        result = await self._scores_for(mock_response)
+
+        assert [g.id for g in result.games] == [1, 4]
+
+
 class TestClearNhlCache:
     """Tests for cache clearing."""
+
+    @pytest.fixture(autouse=True)
+    def clear_cache(self) -> None:
+        """Clear cache before each test."""
+        clear_nhl_cache()
 
     @pytest.mark.asyncio
     async def test_clear_cache_removes_entries(self) -> None:

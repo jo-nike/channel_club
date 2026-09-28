@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { fetchWithAuth } from '@/services/api'
 import type { NHLScoresResponse } from '@/types/nhl'
 
 /** Fast polling interval when live games are in progress (5 seconds) */
@@ -28,7 +29,7 @@ export function useNHLScores(enabled: boolean) {
 
   const fetchScores = useCallback(async () => {
     try {
-      const response = await fetch('/api/nhl/scores')
+      const response = await fetchWithAuth('/nhl/scores')
 
       if (!response.ok) {
         throw new Error(`Failed to fetch NHL scores: ${response.status}`)
