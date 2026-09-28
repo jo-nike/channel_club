@@ -72,7 +72,7 @@ describe('PeopleTab', () => {
     expect(toggle).toHaveAccessibleDescription('Others see only who is online')
     expect(screen.getByText(/Ask the\s+group before turning this on/)).toBeInTheDocument()
     expect(screen.getByText(/Admins still see\s+everything in Active Users/)).toBeInTheDocument()
-    expect(screen.getByText(/resets to off when the server restarts/)).toBeInTheDocument()
+    expect(screen.getByText(/Active Users\. This setting is kept when the server restarts/)).toBeInTheDocument()
   })
 
   it('shows everyone what everyone is watching once the admin switches it on', async () => {

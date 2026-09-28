@@ -30,8 +30,8 @@ describe('UserAccessTab', () => {
     expect(screen.getByText('Live Channel Selection')).toBeInTheDocument()
     expect(liveChannelSwitch()).toHaveAttribute('aria-checked', 'false')
     expect(liveChannelSwitch()).toHaveAccessibleDescription('Only admins can change the channel')
-    // Persistence is deferred, so the card stays honest about it
-    expect(screen.getByText(/resets when the\s+server restarts/)).toBeInTheDocument()
+    // The setting is saved to the server's state file
+    expect(screen.getByText(/admin-only\. This setting is kept when the\s+server restarts/)).toBeInTheDocument()
     await waitFor(() => expect(api.fetchAppSettings).toHaveBeenCalled())
   })
 

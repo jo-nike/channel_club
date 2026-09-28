@@ -29,6 +29,9 @@ services:
       - "8334:8080"
     env_file:
       - .env
+    # Admin settings and the Live channel survive a deploy (STATE_FILE=/data/state.json)
+    volumes:
+      - channel-club-state:/data
     # Reach Dispatcharr over the WireGuard tunnel (the VPS is 10.8.0.2). Its M3U/EPG
     # endpoints only admit allow-listed addresses, and the home public IP is dynamic;
     # the VPN range is allowed. Browsers still resolve streams.example.com publicly.
@@ -48,3 +51,6 @@ services:
     labels:
       mcp.role: "Channel Club web app (Dispatcharr/ErsatzTV front end)"
       mcp.auth: "plex-oauth"
+
+volumes:
+  channel-club-state:

@@ -24,7 +24,15 @@ from app.routers.highlight import router as highlight_router
 from app.routers.nhl import router as nhl_router
 from app.routers.settings import router as settings_router
 from app.routers.websocket import router as websocket_router
-from app.services import channel_state, gauges, plex, presence, presence_broadcast
+from app.services import (
+    app_settings,
+    channel_state,
+    gauges,
+    plex,
+    presence,
+    presence_broadcast,
+    state_store,
+)
 from app.services.cached_fetch import aclose_all_caches
 from app.services.cast import cast_service
 from app.services.dispatcharr import (
@@ -107,6 +115,12 @@ async def lifespan(app: FastAPI):
         log_format=settings.log_format,
     )
     validate_auth_configuration()
+    # Put the admin settings back before serving; Live is re-resolved against
+    # the catalogue in the background, so a Dispatcharr outage never blocks start.
+    if settings.state_file:
+        state = state_store.load()
+        app_settings.restore_app_settings(state)
+        channel_state.start_restore_task(state["liveChannelId"])
     if settings.zipline_enabled and not settings.zipline_available:
         logger.warning(
             "Zipline uploads unavailable: enable highlights and configure "
@@ -200,6 +214,7 @@ async def lifespan(app: FastAPI):
         cast_service.stop_all(),
         channel_state.stop_reconcile_task(),
         channel_state.stop_failed_closes(),
+        channel_state.stop_restore_task(),
         presence.stop_stale_closes(),
         aclose_all_caches(),
         stop_feed_executor(),

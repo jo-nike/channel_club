@@ -65,7 +65,7 @@ export function UserAccessTab() {
           </CardTitle>
           <CardDescription>
             Let any signed-in user browse the channel lineup and change the live channel for
-            everyone. Clearing the channel stays admin-only. This setting resets when the
+            everyone. Clearing the channel stays admin-only. This setting is kept when the
             server restarts.
           </CardDescription>
         </CardHeader>
@@ -109,7 +109,7 @@ export function UserAccessTab() {
             Let everyone see which channel and programme each person is watching. Ask the
             group before turning this on. While it is off, people see only who is online.
             Anyone who picks "Hide what I'm watching" is shown by name only. Admins still see
-            everything in Active Users. This setting resets to off when the server restarts.
+            everything in Active Users. This setting is kept when the server restarts.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

@@ -1,23 +1,34 @@
 """Runtime app settings that an admin can toggle for all users.
 
-Like channel_state, this is in-memory state that resets on server restart.
-Changes are broadcast over the existing WebSocket so connected clients react
-without a refresh.
+The values live in memory and are saved to the state file (state_store) on
+every change, so they survive a restart. Changes are broadcast over the
+existing WebSocket so connected clients react without a refresh.
 """
 
 from loguru import logger
 
 from app.models.admin import AppSettings
-from app.services import channel_state
+from app.services import channel_state, state_store
 
 # Module-level logger with service context
 log = logger.bind(service="app_settings")
 
-# In-memory state - resets on restart
+# In-memory state, saved to and restored from the state file
 _user_channel_selection: bool = False
 # Presence ships dark: members see who is online, not what they watch, until an
 # admin turns this on (after asking the group)
 _presence_visible: bool = False
+
+
+def restore_app_settings(state: dict) -> None:
+    """Apply the settings loaded from the state file, before the app serves.
+
+    Args:
+        state: The document from state_store.load().
+    """
+    global _user_channel_selection, _presence_visible
+    _user_channel_selection = state["userChannelSelection"]
+    _presence_visible = state["presenceVisible"]
 
 
 def get_app_settings() -> AppSettings:
@@ -59,6 +70,7 @@ async def set_user_channel_selection(enabled: bool, user: str | None = None) -> 
     else:
         log.info("User channel selection set to {}", enabled)
 
+    await state_store.save({"userChannelSelection": enabled})
     await broadcast_settings_update()
 
     return get_app_settings()
@@ -91,6 +103,7 @@ async def set_presence_visible(enabled: bool, user: str | None = None) -> AppSet
     else:
         log.info("Presence visibility set to {}", enabled)
 
+    await state_store.save({"presenceVisible": enabled})
     await broadcast_settings_update()
 
     return get_app_settings()
