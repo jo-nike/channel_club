@@ -54,6 +54,19 @@ async def test_stderr_flood_does_not_block_progress_and_stop_reaps(tmp_path, mon
     assert children[0].poll() is not None
 
 
+async def test_cast_ffmpeg_bounds_reads_from_a_stalled_source(tmp_path, monkeypatch):
+    from app.services.highlight import RECORDER_RW_TIMEOUT_MICROSECONDS
+
+    monkeypatch.setattr(settings, "cast_temp_dir", str(tmp_path))
+    session = CastSession("session", "safe", "http://fixture", "mpegts")
+    with patch("subprocess.Popen", side_effect=FileNotFoundError) as spawn:
+        assert await session.start() is None
+    command = spawn.call_args.args[0]
+    timeout = command.index("-rw_timeout")
+    assert command[timeout + 1] == str(RECORDER_RW_TIMEOUT_MICROSECONDS)
+    assert timeout < command.index("-i")
+
+
 async def test_a_failed_recorder_start_logs_ffmpeg_stderr_redacted(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "highlight_temp_dir", str(tmp_path))
     recorder = ChannelRecorder("safe", "http://fixture")

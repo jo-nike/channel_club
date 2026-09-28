@@ -280,6 +280,16 @@ class ChannelRecorder:
         except OSError:
             return False
 
+    def seconds_since_output(self) -> float:
+        """How long since the newest segment was written, or since start before the first one."""
+        newest = self.started_at
+        if self.segment_dir:
+            with suppress(OSError):
+                newest = max(
+                    [newest, *(path.stat().st_mtime for path in self.segment_dir.glob("seg_*.ts"))]
+                )
+        return time.time() - newest
+
     def get_buffer_seconds(self) -> float:
         """Get how many seconds of content are actually in the buffer.
 
@@ -422,6 +432,10 @@ class ChannelRecorder:
 # With always-on polling from the frontend, this is a safety net for
 # edge cases like browser tab closure or network disconnects.
 RECORDER_IDLE_TIMEOUT = 120
+
+# A polled recorder that has written no segment for 3 segment lengths, and at least this
+# long (warm-up included), is stalled and gets stopped.
+RECORDER_STALL_MIN_SECONDS = 30
 
 # Captures outlive the editor session by a margin; closing the editor deletes them early.
 CAPTURE_TTL_SECONDS = 15 * 60
@@ -645,11 +659,15 @@ class HighlightService:
         now = time.time()
         idle_channels: list[str] = []
 
+        # A running FFmpeg whose upstream went quiet writes nothing; past warm-up, restart it.
+        stall_limit = max(3 * settings.highlight_segment_seconds, RECORDER_STALL_MIN_SECONDS)
+
         # Find idle recorders (without holding lock during iteration)
         for channel_id, recorder in list(self._recorders.items()):
             if not recorder.is_running:
                 idle_channels.append(channel_id)
-            elif recorder.last_activity > 0:
+                continue
+            if recorder.last_activity > 0:
                 idle_time = now - recorder.last_activity
                 if idle_time > RECORDER_IDLE_TIMEOUT:
                     idle_channels.append(channel_id)
@@ -658,6 +676,20 @@ class HighlightService:
                         channel_id,
                         idle_time,
                     )
+                    continue
+            silent = await asyncio.to_thread(recorder.seconds_since_output)
+            if silent > stall_limit:
+                idle_channels.append(channel_id)
+                log.bind(
+                    event="highlight.recorder_stalled",
+                    channel_id=channel_id,
+                    silent_seconds=round(silent, 1),
+                ).warning(
+                    "Recorder for channel {} wrote nothing for {:.0f}s; stopping it so the "
+                    "next poll restarts it",
+                    channel_id,
+                    silent,
+                )
 
         # Stop idle recorders
         for channel_id in idle_channels:

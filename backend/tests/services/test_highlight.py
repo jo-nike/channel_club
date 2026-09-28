@@ -267,6 +267,65 @@ class TestStartBackoff:
             channel_state.clear_current_channel()
 
 
+class TestStallWatchdog:
+    """A polled recorder whose upstream went quiet is stopped, so the next poll restarts it."""
+
+    @staticmethod
+    def polled_recorder(tmp_path, started_ago: float, segment_ago: float | None):
+        import os
+
+        recorder = ChannelRecorder("channel-1", "http://stream.url")
+        recorder.process = MagicMock()
+        recorder.process.poll.return_value = None
+        recorder.segment_dir = tmp_path
+        recorder.started_at = time.time() - started_ago
+        recorder.touch()
+        if segment_ago is not None:
+            segment = tmp_path / "seg_000.ts"
+            segment.write_bytes(b"segment")
+            written = time.time() - segment_ago
+            os.utime(segment, (written, written))
+        return recorder
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "started_ago,segment_ago,stalled",
+        [
+            (600, 45, True),  # a segment, but none for 3 segment lengths
+            (600, 5, False),  # writing normally
+            (10, None, False),  # warm-up: no segment yet, just started
+            (60, None, True),  # never wrote a segment, well past warm-up
+        ],
+    )
+    async def test_a_silent_recorder_is_stopped_past_warm_up(
+        self, tmp_path, monkeypatch, started_ago, segment_ago, stalled
+    ) -> None:
+        import json
+        from io import StringIO
+
+        from loguru import logger
+
+        monkeypatch.setattr(settings, "highlight_segment_seconds", 10)
+        service = HighlightService()
+        recorder = self.polled_recorder(tmp_path, started_ago, segment_ago)
+        service._recorders["channel-1"] = recorder
+        output = StringIO()
+        handler = logger.add(output, format="{message}", serialize=True, level="INFO")
+        try:
+            with patch.object(ChannelRecorder, "stop", AsyncMock()) as stop:
+                await service._cleanup_idle_recorders()
+        finally:
+            logger.remove(handler)
+        assert stop.await_count == (1 if stalled else 0)
+        assert ("channel-1" in service._recorders) is not stalled
+        events = [
+            json.loads(line)["record"]["extra"]
+            for line in output.getvalue().splitlines()
+            if json.loads(line)["record"]["extra"].get("event") == "highlight.recorder_stalled"
+        ]
+        assert [event["channel_id"] for event in events] == (["channel-1"] if stalled else [])
+
+
 class TestCaptureAfterRecorderStop:
     """A recorder stopped or replaced during the tail wait is looked up again, not reused."""
 

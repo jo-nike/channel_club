@@ -23,6 +23,7 @@ from pathlib import Path
 from loguru import logger
 
 from app.config import settings
+from app.services.highlight import RECORDER_RW_TIMEOUT_MICROSECONDS
 from app.services.media_limits import process_budget
 
 log = logger.bind(service="cast")
@@ -95,6 +96,8 @@ class CastSession:
                 "1",
                 "-reconnect_delay_max",
                 "5",
+                "-rw_timeout",
+                str(RECORDER_RW_TIMEOUT_MICROSECONDS),  # A silent upstream ends FFmpeg
                 "-protocol_whitelist",
                 "http,https,tcp,tls,crypto",
                 "-i",
