@@ -127,6 +127,24 @@ class TestParseXmltv:
 
         assert result["uuid-abc123"][0].description is None
 
+    def test_parse_keeps_untitled_programmes_as_unknown(self) -> None:
+        """A missing or empty title keeps the programme, titled 'Unknown' (both guides)."""
+        service = EPGService("http://test:9191")
+        xml_content = """<?xml version="1.0" encoding="UTF-8"?>
+        <tv>
+          <programme start="20260103200000 +0000" stop="20260103210000 +0000" channel="ch">
+            <desc>No title element</desc>
+          </programme>
+          <programme start="20260103210000 +0000" stop="20260103220000 +0000" channel="ch">
+            <title></title>
+          </programme>
+        </tv>
+        """
+
+        result, _, _ = service._parse_xmltv(xml_content)
+
+        assert [program.title for program in result["ch"]] == ["Unknown", "Unknown"]
+
     def test_parse_empty_tv_element(self) -> None:
         """Parse empty TV element returns empty dict."""
         service = EPGService("http://test:9191")

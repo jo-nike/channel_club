@@ -18,6 +18,7 @@ from app.services.ersatztv.m3u_parser import (
     clear_cache,
     parse_m3u_playlist,
 )
+from app.services.ersatztv.refresh import FeedUnavailableError
 
 # fmt: off
 # ruff: noqa: E501
@@ -255,6 +256,16 @@ class TestGracefulFallback:
         # Should return stale cached data
         channels2 = parse_m3u_playlist()
         assert len(channels2) == len(channels1)
+
+    @patch("app.services.ersatztv.m3u_parser.fetch_feed")
+    def test_oversized_playlist_reports_the_guides_reason(self, mock_get: MagicMock):
+        """The M3U's failure reasons use the same wording as both XMLTV guides."""
+        mock_get.side_effect = ValueError("Feed exceeds byte/time budget")
+
+        with pytest.raises(FeedUnavailableError):
+            parse_m3u_playlist()
+
+        assert parse_m3u_playlist.last_error == "feed too large"
 
 
 class TestIntegration:
