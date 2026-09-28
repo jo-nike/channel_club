@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { logger } from '@/lib/logger'
+import type { ServerFeatures } from '@/types/ws'
 
 /**
  * Runtime settings the admin controls for everyone.
@@ -13,6 +14,10 @@ interface SettingsState {
   // Members may see what everyone is watching; off (names only) until an admin turns it on
   presenceVisible: boolean
   setPresenceVisible: (visible: boolean) => void
+  // Which of chat and GIFs the server has on (connection_ack); null until the
+  // first ack, or from a server that doesn't say
+  serverFeatures: ServerFeatures | null
+  setServerFeatures: (features: ServerFeatures | null) => void
 }
 
 export const useSettingsStore = create<SettingsState>((set) => ({
@@ -25,5 +30,10 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   setPresenceVisible: (presenceVisible) => {
     logger.debug('Store', `Presence visible: ${presenceVisible}`)
     set({ presenceVisible })
+  },
+  serverFeatures: null,
+  setServerFeatures: (serverFeatures) => {
+    logger.debug('Store', 'Server features', serverFeatures)
+    set({ serverFeatures })
   },
 }))

@@ -11,7 +11,7 @@ import { logger } from '@/lib/logger'
 import { getSessionId } from '@/lib/sessionId'
 import { createClientMessageId } from '@/lib/messageId'
 import { noticeServerBuild } from '@/lib/appUpdate'
-import { useChatEnabled } from './useChatEnabled'
+import { isChatEnabled } from './useChatEnabled'
 import { refreshAuth } from './useAuth'
 import type { Channel } from '@/types'
 import type { ServerMessage } from '@/types/ws'
@@ -92,13 +92,13 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   const setLastChange = useChannelStore((s) => s.setLastChange)
   const notificationsEnabled = useUIStore((s) => s.notificationsEnabled)
   const hideMyActivity = useUIStore((s) => s.hideMyActivity)
-  const chatEnabled = useChatEnabled()
   const addChatMessage = useChatStore((s) => s.addMessage)
   const setChatMessages = useChatStore((s) => s.setMessages)
   const setChatIdentity = useChatStore((s) => s.setIdentity)
   const rejectChatNickname = useChatStore((s) => s.rejectNickname)
   const setUserChannelSelection = useSettingsStore((s) => s.setUserChannelSelection)
   const setPresenceVisible = useSettingsStore((s) => s.setPresenceVisible)
+  const setServerFeatures = useSettingsStore((s) => s.setServerFeatures)
   const setPresence = usePresenceStore((s) => s.setEntries)
   const clearPresence = usePresenceStore((s) => s.clear)
 
@@ -167,6 +167,9 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
             setUserChannelSelection(message.settings.userChannelSelection)
             setPresenceVisible(message.settings.presenceVisible ?? false)
           }
+          // Which of chat and GIFs the server has on; an older server doesn't say.
+          // Read by isChatEnabled() at use, so the chat_history right behind this sees it
+          setServerFeatures(message.features ?? null)
           if (typeof message.you?.username === 'string') {
             // Loads this user's own nickname, replacing whoever chatted here before
             setChatIdentity(message.you)
@@ -217,7 +220,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           break
 
         case 'chat_message':
-          if (chatEnabled && message.messageId && message.username && message.content && message.timestamp) {
+          if (isChatEnabled() && message.messageId && message.username && message.content && message.timestamp) {
             logger.debug('WebSocket', `Chat message from ${message.username}`)
             addChatMessage({
               messageId: message.messageId,
@@ -235,7 +238,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           break
 
         case 'chat_history':
-          if (chatEnabled && message.messages) {
+          if (isChatEnabled() && message.messages) {
             logger.debug('WebSocket', `Received chat history: ${message.messages.length} messages`)
             setChatMessages(message.messages)
           }
@@ -262,7 +265,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         }
       }
     },
-    [setCurrentChannel, setLastChange, chatEnabled, addChatMessage, setChatMessages, setChatIdentity, rejectChatNickname, setUserChannelSelection, setPresenceVisible, setPresence]
+    [setCurrentChannel, setLastChange, addChatMessage, setChatMessages, setChatIdentity, rejectChatNickname, setUserChannelSelection, setPresenceVisible, setServerFeatures, setPresence]
   )
 
   const scheduleReconnect = useCallback(() => {
@@ -526,7 +529,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   const sendAcknowledged = useCallback(
     (payload: Record<string, unknown>, clientMessageId: string): Promise<ChatSendResult> => {
       const socket = wsRef.current
-      if (!chatEnabled || socket?.readyState !== WebSocket.OPEN || pendingChat.current.size >= 20) return Promise.resolve('not-sent')
+      if (!isChatEnabled() || socket?.readyState !== WebSocket.OPEN || pendingChat.current.size >= 20) return Promise.resolve('not-sent')
       return new Promise((finish) => {
         const timer = setTimeout(() => {
           pendingChat.current.delete(clientMessageId)
@@ -542,7 +545,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         }
       })
     },
-    [chatEnabled]
+    []
   )
 
   const sendChatMessage = useCallback(

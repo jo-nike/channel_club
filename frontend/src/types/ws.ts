@@ -22,6 +22,12 @@ export interface ChatLine {
   view: 'live' | 'ersatztv' | null
 }
 
+// Which optional features the server has on
+export interface ServerFeatures {
+  chat: boolean
+  gif: boolean
+}
+
 export interface ConnectionAckMessage {
   type: 'connection_ack'
   currentChannel: Channel | null
@@ -32,6 +38,8 @@ export interface ConnectionAckMessage {
   presence: PresenceEntry[]
   // The server's build
   buildId: string
+  // Absent from older servers (a rollback): features then show as the build says
+  features?: ServerFeatures
 }
 
 export interface ChatHistoryMessage {

@@ -1,12 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { ImageIcon } from 'lucide-react'
 import { useLayoutMode } from '@/hooks/useLayoutMode'
-import { getGifFeatureEnabled } from '@/services/gifApi'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { GifPicker } from './GifPicker'
-import { logger } from '@/lib/logger'
 
 // Check if GIF feature is enabled via env var (build-time)
 const GIF_FEATURE_ENABLED = import.meta.env.VITE_GIF_ENABLED === 'true'
@@ -20,50 +19,12 @@ export interface GifButtonProps {
 
 export function GifButton({ onSelect, disabled, container }: GifButtonProps) {
   const [isOpen, setIsOpen] = useState(false)
-  // Initialize to false if build-time flag is off, otherwise null (loading)
-  const [serverEnabled, setServerEnabled] = useState<boolean | null>(
-    GIF_FEATURE_ENABLED ? null : false
-  )
+  // Whether the server has GIFs on, from connection_ack; undefined until it says
+  const serverEnabled = useSettingsStore((s) => s.serverFeatures?.gif)
   const isMobile = useLayoutMode() === 'phone'
 
-  // Check if server has GIF feature enabled (only if build-time flag is true)
-  useEffect(() => {
-    if (!GIF_FEATURE_ENABLED) {
-      // Already handled by initial state
-      return
-    }
-
-    let cancelled = false
-
-    async function checkFeature() {
-      try {
-        const enabled = await getGifFeatureEnabled()
-        if (!cancelled) {
-          setServerEnabled(enabled)
-          logger.debug('GIF', `Server GIF feature enabled: ${enabled}`)
-        }
-      } catch {
-        if (!cancelled) {
-          logger.error('GIF', 'Failed to check GIF feature status')
-          setServerEnabled(false)
-        }
-      }
-    }
-
-    checkFeature()
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  // Don't render if feature is disabled
-  if (!GIF_FEATURE_ENABLED || serverEnabled === false) {
-    return null
-  }
-
-  // Still loading - don't show yet
-  if (serverEnabled === null) {
+  // Shown only once the server says GIFs are on, and never when the build turns them off
+  if (!GIF_FEATURE_ENABLED || serverEnabled !== true) {
     return null
   }
 

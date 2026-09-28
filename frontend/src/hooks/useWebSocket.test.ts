@@ -20,6 +20,7 @@ import type { PresenceEntry, UnifiedChannel } from '@/types'
 // Mock useChatEnabled hook
 vi.mock('./useChatEnabled', () => ({
   useChatEnabled: vi.fn(() => true),
+  isChatEnabled: vi.fn(() => true),
 }))
 
 // A 4001 close refreshes the session; each test says how that goes
@@ -135,7 +136,7 @@ describe('useWebSocket', () => {
       nicknameRejection: null,
     })
     usePresenceStore.setState({ entries: [] })
-    useSettingsStore.setState({ userChannelSelection: false, presenceVisible: false })
+    useSettingsStore.setState({ userChannelSelection: false, presenceVisible: false, serverFeatures: null })
     vi.mocked(toast).mockClear()
     // By default the refresh finds the sign-in over, like the server's 401
     vi.mocked(refreshAuth).mockReset().mockImplementation(async () => {
@@ -265,6 +266,31 @@ describe('useWebSocket', () => {
       })
 
       expect(noticeServerBuild).toHaveBeenCalledWith('server-build')
+    })
+
+    test('stores the features the server has on', () => {
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({ type: 'connection_ack', currentChannel: null, features: { chat: false, gif: true } })
+      })
+
+      expect(useSettingsStore.getState().serverFeatures).toEqual({ chat: false, gif: true })
+    })
+
+    test('leaves the features unknown when an older server sends none', () => {
+      useSettingsStore.setState({ serverFeatures: { chat: false, gif: false } })
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({ type: 'connection_ack', currentChannel: null })
+      })
+
+      expect(useSettingsStore.getState().serverFeatures).toBeNull()
     })
 
     test('sets currentChannel to null on connection_ack with no channel', () => {
