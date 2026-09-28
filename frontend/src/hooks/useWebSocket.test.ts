@@ -14,6 +14,7 @@ import { usePresenceStore } from '@/stores/presenceStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { fetchNowPlaying } from '@/services/api'
 import { refreshAuth } from './useAuth'
+import { noticeServerBuild } from '@/lib/appUpdate'
 import type { PresenceEntry, UnifiedChannel } from '@/types'
 
 // Mock useChatEnabled hook
@@ -24,6 +25,11 @@ vi.mock('./useChatEnabled', () => ({
 // A 4001 close refreshes the session; each test says how that goes
 vi.mock('./useAuth', () => ({
   refreshAuth: vi.fn(),
+}))
+
+// The build comparison and update flow are covered in appUpdate.test.ts
+vi.mock('@/lib/appUpdate', () => ({
+  noticeServerBuild: vi.fn(),
 }))
 
 // Mock sonner toast
@@ -247,6 +253,18 @@ describe('useWebSocket', () => {
         name: 'TSN',
         streamUrl: 'http://stream.url/tsn',
       })
+    })
+
+    test('hands the server build id to the update check', () => {
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({ type: 'connection_ack', currentChannel: null, buildId: 'server-build' })
+      })
+
+      expect(noticeServerBuild).toHaveBeenCalledWith('server-build')
     })
 
     test('sets currentChannel to null on connection_ack with no channel', () => {

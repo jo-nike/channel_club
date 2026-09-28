@@ -10,6 +10,7 @@ import { usePresenceStore } from '@/stores/presenceStore'
 import { logger } from '@/lib/logger'
 import { getSessionId } from '@/lib/sessionId'
 import { createClientMessageId } from '@/lib/messageId'
+import { noticeServerBuild } from '@/lib/appUpdate'
 import { useChatEnabled } from './useChatEnabled'
 import { refreshAuth } from './useAuth'
 import type { AppSettings, Channel, ChatMessage, PresenceEntry } from '@/types'
@@ -25,6 +26,8 @@ interface WebSocketMessage {
   you?: { username: string; userId?: string }
   // Who is here (connection_ack and presence_update); absent from older servers
   presence?: PresenceEntry[]
+  // The server's build (connection_ack); absent from older servers
+  buildId?: string
   // Chat message fields
   clientMessageId?: string
   accepted?: boolean
@@ -178,6 +181,8 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         case 'connection_ack':
           logger.debug('WebSocket', 'Received connection_ack', message)
           refreshedSinceAckRef.current = false
+          // A different build means a deploy: look for the new app version
+          noticeServerBuild(message.buildId)
           setCurrentChannel(message.currentChannel ?? null)
           if (message.settings) {
             setUserChannelSelection(message.settings.userChannelSelection)

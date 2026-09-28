@@ -14,15 +14,18 @@ import './tvModeParam'
 import { router } from '@/router'
 import { logger } from '@/lib/logger'
 import { startSessionRefresh } from '@/hooks/useAuth'
+import { offerAppUpdate, watchForAppUpdates } from '@/lib/appUpdate'
 import { TooltipProvider } from '@/components/ui/tooltip'
 
 // Register service worker with update handling
-// Uses autoUpdate mode - SW updates automatically in background
+// Uses prompt mode - a new version waits until nothing is playing or the viewer reloads
 const updateSW = registerSW({
   onNeedRefresh() {
-    // Optional: Show toast notification for new version
-    // For now, just log - users get updated on next visit
     logger.info('PWA', 'New app version available')
+    offerAppUpdate(updateSW)
+  },
+  onRegisteredSW(_swUrl, registration) {
+    watchForAppUpdates(registration)
   },
   onOfflineReady() {
     logger.info('PWA', 'App ready to work offline')

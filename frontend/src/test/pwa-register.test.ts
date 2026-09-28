@@ -1,21 +1,13 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
 
 describe('PWA Registration', () => {
-  it('should configure autoUpdate registration type', () => {
-    // vite-plugin-pwa with registerType: 'autoUpdate' handles:
-    // - Automatic SW registration on page load
-    // - Automatic refresh when new SW is installed
-    // - onNeedRefresh callback for prompting users
-    // - onOfflineReady callback when app is cached
-
-    // This test validates our configuration expectations
-    const expectedConfig = {
-      registerType: 'autoUpdate',
-      // With autoUpdate, the SW updates automatically
-      // User can optionally be notified via onNeedRefresh
-    }
-
-    expect(expectedConfig.registerType).toBe('autoUpdate')
+  it('registers in prompt mode, so an update never reloads a playing tab by itself', () => {
+    // autoUpdate reloads every open tab when a new worker activates; prompt
+    // mode waits for src/lib/appUpdate.ts to apply it
+    const config = readFileSync('vite.config.ts', 'utf8')
+    expect(config).toMatch(/registerType: 'prompt'/)
+    expect(config).not.toMatch(/registerType: 'autoUpdate'/)
   })
 
   it('should handle registration errors gracefully', () => {
