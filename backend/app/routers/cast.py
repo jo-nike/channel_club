@@ -88,7 +88,7 @@ async def create_cast_session(
         channel_id=request.channel_id,
         stream_url=source.channel.stream_url,
         stream_type=source.stream_type,
-        owner=user.sub,
+        owner=user.account_key,
     )
 
     if not result:
@@ -123,11 +123,11 @@ async def stop_cast_session(
         user.sub,
     )
 
-    stopped = await cast_service.stop_session(session_id)
+    stopped = await cast_service.stop_session(session_id, owner=user.account_key)
 
     if not stopped:
-        # Session not found - might have already been cleaned up
-        log.debug("Cast session {} not found (may have already been cleaned up)", session_id)
+        # Not found (maybe already cleaned up) or not this account's
+        log.debug("Cast session {} not stopped (unknown or not the caller's)", session_id)
 
     return {"stopped": stopped}
 

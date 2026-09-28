@@ -400,16 +400,20 @@ class CastService:
                     if session_id in self._owners:
                         process_budget.release(self._owners.pop(session_id))
 
-    async def stop_session(self, session_id: str) -> bool:
+    async def stop_session(self, session_id: str, owner: str | None = None) -> bool:
         """Stop a cast session and cleanup resources.
 
         Args:
             session_id: Session to stop.
+            owner: The account asking; None for the system (idle sweep, shutdown).
 
         Returns:
-            True if session was found and stopped, False otherwise.
+            True if session was found and stopped, False otherwise (also when
+            it belongs to someone else, so the answer reveals nothing).
         """
         async with self._lock:
+            if owner is not None and self._owners.get(session_id) != owner:
+                return False
             session = self._sessions.pop(session_id, None)
 
         # Stop outside the service lock - session.stop() waits on FFmpeg
