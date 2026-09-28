@@ -317,14 +317,23 @@ async def get_channel_logo(logo_id: int) -> tuple[bytes, str]:
         DispatchrrUnavailableError: If Dispatcharr can't serve it as a raster image.
     """
 
-    async def fetch() -> tuple[bytes, str]:
-        # Only logos a catalogue channel uses; checked on a cache miss only
-        grouped = await get_grouped_channels()
-        path = channel_logo_path(logo_id)
-        channels = [*(c for g in grouped.groups for c in g.channels), *grouped.ungrouped]
-        if not any(channel.logo_url == path for channel in channels):
-            raise ChannelLogoNotFoundError(f"No channel uses logo {logo_id}")
+    key = f"{_LOGO_KEY_PREFIX}{logo_id}"
+    try:
+        cached = LOGO_CACHE.cached(key)
+    except LogoUnavailableError as e:
+        raise DispatchrrUnavailableError(str(e)) from e
+    if cached is not None:
+        return cached
 
+    # Only logos a catalogue channel uses; checked before LOGO_CACHE.get, which
+    # keeps a lock per key, so unknown ids can't grow the cache's lock map
+    grouped = await get_grouped_channels()
+    path = channel_logo_path(logo_id)
+    channels = [*(c for g in grouped.groups for c in g.channels), *grouped.ungrouped]
+    if not any(channel.logo_url == path for channel in channels):
+        raise ChannelLogoNotFoundError(f"No channel uses logo {logo_id}")
+
+    async def fetch() -> tuple[bytes, str]:
         url = f"{settings.dispatcharr_url}/api/channels/logos/{logo_id}/cache/"
         async with httpx.AsyncClient(
             follow_redirects=False, timeout=10.0, verify=SSL_CONTEXT
@@ -337,8 +346,6 @@ async def get_channel_logo(logo_id: int) -> tuple[bytes, str]:
             )
 
     try:
-        return await LOGO_CACHE.get(
-            f"{_LOGO_KEY_PREFIX}{logo_id}", fetch, not_found_ttl=_GROUPED_CACHE_TTL_SECONDS
-        )
+        return await LOGO_CACHE.get(key, fetch, not_found_ttl=_GROUPED_CACHE_TTL_SECONDS)
     except LogoUnavailableError as e:
         raise DispatchrrUnavailableError(str(e)) from e

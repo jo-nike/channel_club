@@ -16,6 +16,7 @@ from app.models.channel import Channel, ChannelGroupWithChannels, GroupedChannel
 from app.services import app_settings, channel_state
 from app.services.auth import create_access_token
 from app.services.dispatcharr import DispatchrrUnavailableError, invalidate_grouped_channels_cache
+from app.services.logo_proxy import LOGO_CACHE
 
 
 @pytest.fixture
@@ -1064,6 +1065,17 @@ class TestGetChannelLogo:
         assert response.status_code == 404
         assert response.json() == {"detail": "No logo available"}
         assert requests == []
+
+    def test_unknown_logo_ids_leave_no_cache_locks(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The open route can't grow the shared cache's lock map with made-up ids."""
+        self._upstream(monkeypatch, lambda req: pytest.fail("upstream requested"))
+
+        for logo_id in range(18, 68):
+            assert client.get(f"/api/channels/logos/{logo_id}").status_code == 404
+
+        assert LOGO_CACHE._locks == {}  # pyright: ignore[reportPrivateUsage]
 
     @pytest.mark.parametrize("logo_id", ["0", "-1", "abc", "17.5", "..%2F..%2Fadmin"])
     def test_rejects_anything_but_a_positive_integer_id(
