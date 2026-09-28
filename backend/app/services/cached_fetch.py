@@ -74,6 +74,14 @@ class CachedFetch[T]:
             self._raise_if_recently_failed()
             return await self._refresh()
 
+    def refresh_if_due(self) -> None:
+        """Start one background refresh if the value is expired or missing; never wait on it.
+
+        Nothing starts while a refresh runs or a recent failure is remembered.
+        """
+        if not self._has_value or monotonic() >= self._fresh_until:
+            self._schedule_refresh()
+
     def invalidate(self) -> None:
         """Drop the value and any remembered failure; the next get() fetches."""
         self._value = None

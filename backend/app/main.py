@@ -39,6 +39,7 @@ from app.services.dispatcharr import (
     DispatchrrUnavailableError,
     catalogue_failing,
     get_grouped_channels,
+    refresh_catalogue_if_due,
 )
 from app.services.epg_service import get_epg_service
 from app.services.ersatztv.refresh import stop_feed_executor
@@ -295,13 +296,14 @@ async def health_deps() -> dict[str, str | None]:
     """Coarse upstream readiness for the uptime monitor, from local state only.
 
     Public, so it carries no URLs, error text or counts, and it never waits on
-    an upstream. When the guide is due and not backing off it starts one
-    background refresh (at most one per TTL or backoff window), so on an idle
-    app 'stale' means the refresh is failing, not that nobody asked for the
-    guide. The Docker healthcheck stays on /api/health: an upstream outage
-    must not get this container restarted.
+    an upstream. When the guide or the Dispatcharr catalogue is due and not
+    backing off it starts one background refresh of it (at most one per TTL or
+    backoff window), so on an idle app 'stale' and 'failing' mean the refresh
+    is failing, not that nobody asked. The Docker healthcheck stays on
+    /api/health: an upstream outage must not get this container restarted.
     """
     guide = await get_epg_service().check_health()
+    refresh_catalogue_if_due()
     if not guide.online:
         epg = "failing"
     elif guide.stale:

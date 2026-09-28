@@ -57,6 +57,11 @@ def catalogue_failing() -> bool:
     return _grouped_cache._last_error is not None
 
 
+def refresh_catalogue_if_due() -> None:
+    """Start one background catalogue refresh if it is expired or missing; never waits."""
+    _grouped_cache.refresh_if_due()
+
+
 class ChannelLogoNotFoundError(Exception):
     """Raised when no channel in the catalogue uses the requested logo."""
 
