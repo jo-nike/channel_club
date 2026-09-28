@@ -6,7 +6,6 @@ This prevents exposing internal ErsatzTV URLs to clients.
 Story: 7.5 - HLS Proxy Service
 """
 
-import asyncio
 import base64
 import re
 from urllib.parse import quote, unquote, urlencode, urljoin, urlsplit
@@ -16,8 +15,6 @@ from loguru import logger
 
 from app.config import settings
 from app.services.bounded_http import MANIFEST_BYTES, decoded_response, read_bounded
-from app.services.ersatztv.epg_service import get_channel_by_id
-from app.services.tls import SSL_CONTEXT
 
 # Module-level logger with service context
 log = logger.bind(service="ersatztv")
@@ -341,85 +338,3 @@ def decode_url(encoded_url: str) -> str:
         Original URL
     """
     return HLSManifestRewriter.decode_url(encoded_url)
-
-
-async def get_stream_manifest(channel_id: str) -> str:
-    """Fetch and rewrite HLS manifest for a channel.
-
-    Args:
-        channel_id: Channel identifier
-
-    Returns:
-        Rewritten manifest content with proxied URLs
-
-    Raises:
-        ValueError: If channel not found or URL invalid
-    """
-    channel = await asyncio.to_thread(get_channel_by_id, channel_id)
-    if channel is None:
-        raise ValueError(f"Channel not found: {channel_id}")
-
-    stream_url = channel.stream_url
-
-    # Validate URL is from ErsatzTV
-    if not is_ersatztv_url(stream_url):
-        raise ValueError(f"Stream URL is not from ErsatzTV: {stream_url}")
-
-    # Fetch manifest with retry for cold stream startup
-    async with httpx.AsyncClient(follow_redirects=False, timeout=15, verify=SSL_CONTEXT) as client:
-        last_error: Exception | None = None
-        response: httpx.Response | None = None
-
-        for attempt in range(5):
-            try:
-                response = await fetch_ersatztv(client, stream_url)
-                response.raise_for_status()
-                if response.text.strip():  # Got valid content
-                    break
-            except (httpx.HTTPStatusError, httpx.ConnectError) as e:
-                last_error = e
-                if attempt < 4:
-                    delay = 0.5 * (2**attempt)  # 0.5s, 1s, 2s, 4s
-                    log.debug(
-                        "Stream manifest retry {}/{} for {}, waiting {}s",
-                        attempt + 1,
-                        5,
-                        channel_id,
-                        delay,
-                    )
-                    await asyncio.sleep(delay)
-        else:
-            log.warning("Stream manifest unavailable after 5 retries for {}", channel_id)
-            raise ValueError(f"Stream unavailable after retries: {last_error}") from last_error
-
-    # Rewrite manifest with final URL as base (after any redirects)
-    final_url = str(response.url)
-    return rewrite_manifest(response.text, final_url)
-
-
-async def get_segment(encoded_url: str) -> tuple[bytes, str]:
-    """Fetch a segment from ErsatzTV.
-
-    Args:
-        encoded_url: Base64-encoded segment URL
-
-    Returns:
-        Tuple of (segment content, content-type)
-
-    Raises:
-        ValueError: If URL invalid or not from ErsatzTV
-    """
-    # Decode the URL
-    segment_url = decode_url(encoded_url)
-
-    # Validate URL is from ErsatzTV
-    if not is_ersatztv_url(segment_url):
-        raise ValueError(f"Segment URL is not from ErsatzTV: {segment_url}")
-
-    async with httpx.AsyncClient(follow_redirects=False, timeout=15, verify=SSL_CONTEXT) as client:
-        response = await fetch_ersatztv(client, segment_url, stream=True)
-        response.raise_for_status()
-        content = await read_bounded(response, 64 * 1024 * 1024)
-        content_type = response.headers.get("content-type", "video/mp2t")
-
-    return content, content_type

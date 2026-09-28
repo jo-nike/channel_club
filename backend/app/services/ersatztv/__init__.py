@@ -11,8 +11,6 @@ from app.services.ersatztv.epg_service import (
 )
 from app.services.ersatztv.hls_rewriter import (
     decode_url,
-    get_segment,
-    get_stream_manifest,
     rewrite_manifest,
 )
 from app.services.ersatztv.m3u_parser import clear_cache as clear_m3u_cache
@@ -37,6 +35,4 @@ __all__ = [
     # HLS proxy service
     "rewrite_manifest",
     "decode_url",
-    "get_stream_manifest",
-    "get_segment",
 ]
