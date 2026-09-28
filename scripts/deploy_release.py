@@ -146,8 +146,12 @@ def deploy(
                 verify_health(health_url, version, build_id)
             image_id = verify_artifact(directory, image_reference)
         except Exception:
-            # The original error is what CI reports, whatever the rollback does.
-            roll_back(directory, installed, health_url, started)
+            # The original error is what CI reports, whatever the rollback does,
+            # even if restoring the Compose file itself fails (a full disk, say).
+            try:
+                roll_back(directory, installed, health_url, started)
+            except Exception as error:
+                print(f"Rollback failed: {error}")
             raise
         # Rotate only on success, so previous-* always name a verified release.
         if verified.exists():

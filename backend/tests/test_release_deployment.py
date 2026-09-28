@@ -281,6 +281,30 @@ def test_failed_rollback_still_reports_the_original_error(tmp_path, monkeypatch,
     assert "Rollback to good failed" in capsys.readouterr().out
 
 
+def test_a_rollback_that_cannot_write_still_reports_the_original_error(
+    tmp_path, monkeypatch, capsys
+):
+    source = "a" * 40
+    healthy = {"good"}
+    host, _ = failing_host(tmp_path, monkeypatch, healthy)
+    release.deploy(host, stage(tmp_path, "good", [source]), source, "good", "http://h", image("1"))
+    healthy.clear()
+    real_write = release.atomic_write
+
+    def write(path, text):
+        # The restore of the verified Compose file hits a full disk
+        if text == "good" and path.name == "docker-compose.yaml":
+            raise OSError(28, "No space left on device")
+        real_write(path, text)
+
+    monkeypatch.setattr(release, "atomic_write", write)
+    with pytest.raises(RuntimeError, match="bad did not report"):
+        release.deploy(
+            host, stage(tmp_path, "bad", [source]), source, "bad", "http://h", image("2")
+        )
+    assert "Rollback failed: [Errno 28] No space left on device" in capsys.readouterr().out
+
+
 def test_repeated_failures_keep_previous_files_on_verified_releases(tmp_path, monkeypatch):
     import json
 
