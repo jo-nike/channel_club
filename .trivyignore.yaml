@@ -1,0 +1,15 @@
+# Accepted language-package advisories for the weekly rescan's lock scan
+# (.gitea/workflows/security-rescan.yml), which runs without --ignore-unfixed.
+# Each entry needs the reason it cannot be reached here and an expiry date, so
+# the judgement is revisited rather than kept forever:
+#
+#   vulnerabilities:
+#     - id: CVE-YYYY-NNNNN
+#       paths:
+#         - requirements.txt
+#       statement: Why this is not reachable in Channel Club.
+#       expired_at: YYYY-MM-DD
+#
+# Empty: the only finding on 28 Sep 2026 was ecdsa's CVE-2024-23342, and ecdsa
+# leaves with python-jose in the same release.
+vulnerabilities: []
