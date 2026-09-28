@@ -2,11 +2,21 @@
 
 from datetime import UTC
 
+import httpx
 import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
+from app.services import plex
 from app.services.auth import create_access_token
+
+
+@pytest.fixture(autouse=True)
+def empty_owner_id_cache():
+    """No test may see an owner id another test looked up."""
+    plex.clear_server_owner_id_cache()
+    yield
+    plex.clear_server_owner_id_cache()
 
 
 @pytest.fixture
@@ -171,6 +181,113 @@ async def test_sec04_current_admin_grants_control(monkeypatch, grant):
         auth_deps.settings, "plex_default_role", "admin" if grant == "plex-default" else "viewer"
     )
     monkeypatch.setattr(auth_deps.app_settings, "user_channel_selection_enabled", lambda: False)
-    user = verify_token(create_access_token({"sub": "user", "role": "admin"}))
+    # The owner is recognised by Plex account id, so its token carries one (A-02)
+    claims = {"sub": "user", "role": "admin"}
+    if grant == "plex-owner":
+        auth_deps.plex._server_owner_id_cache["owner_id"] = "owner"
+        claims["plex_id"] = "owner"
+    user = verify_token(create_access_token(claims))
     assert await auth_deps.require_admin(user) == user
     assert await auth_deps.require_channel_control(user) == user
+
+
+@pytest.fixture
+def plex_owner_config(monkeypatch):
+    """Plex sign-in on with the owner's server token set, as in production (A-02)."""
+    from app.routers import auth_deps
+
+    monkeypatch.setattr(auth_deps.settings, "admin_username", "local-admin")
+    monkeypatch.setattr(auth_deps.settings, "plex_admin_users", ["listed-friend"])
+    monkeypatch.setattr(auth_deps.settings, "plex_auth_enabled", True)
+    monkeypatch.setattr(auth_deps.settings, "plex_server_token", "synthetic-server-token")
+    monkeypatch.setattr(auth_deps.settings, "plex_default_role", "viewer")
+    monkeypatch.setattr(auth_deps.app_settings, "user_channel_selection_enabled", lambda: False)
+
+
+def _install_plex_tv(monkeypatch, respond):
+    """Route the owner lookup to a fake plex.tv; returns the list of calls made."""
+    calls: list[str] = []
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return respond(request)
+
+    factory = httpx.AsyncClient
+    monkeypatch.setattr(
+        plex.httpx,
+        "AsyncClient",
+        lambda **kwargs: factory(transport=httpx.MockTransport(upstream), **kwargs),
+    )
+    return calls
+
+
+def _admin_status(claims: dict[str, str]) -> int:
+    from app.main import app
+
+    token = create_access_token({"role": "admin", **claims})
+    client = TestClient(app)
+    return client.get(
+        "/api/admin/active-users", headers={"Authorization": f"Bearer {token}"}
+    ).status_code
+
+
+@pytest.mark.usefixtures("plex_owner_config")
+@pytest.mark.parametrize(
+    ("claims", "expected"),
+    [
+        ({"sub": "demoted-friend", "plex_id": "999"}, 403),
+        ({"sub": "former-local-admin"}, 403),
+        ({"sub": "local-admin", "plex_id": "999"}, 403),
+        ({"sub": "server-owner", "plex_id": "owner"}, 200),
+        ({"sub": "listed-friend", "plex_id": "555"}, 200),
+        ({"sub": "local-admin"}, 200),
+    ],
+)
+def test_a02_owner_clause_admits_only_the_owner(claims, expected):
+    plex._server_owner_id_cache["owner_id"] = "owner"
+
+    assert _admin_status(claims) == expected
+
+
+@pytest.mark.usefixtures("plex_owner_config")
+async def test_a02_demoted_admin_cannot_change_channel():
+    from app.routers import auth_deps
+    from app.services.auth import verify_token
+
+    plex._server_owner_id_cache["owner_id"] = "owner"
+    user = verify_token(
+        create_access_token({"sub": "demoted-friend", "role": "admin", "plex_id": "999"})
+    )
+
+    with pytest.raises(auth_deps.HTTPException) as denied:
+        await auth_deps.require_channel_control(user)
+    assert denied.value.status_code == 403
+
+
+@pytest.mark.usefixtures("plex_owner_config")
+def test_a02_cold_cache_looks_the_owner_up(monkeypatch):
+    calls = _install_plex_tv(monkeypatch, lambda request: httpx.Response(200, json={"id": 42}))
+
+    assert _admin_status({"sub": "demoted-friend", "plex_id": "999"}) == 403
+    assert _admin_status({"sub": "server-owner", "plex_id": "42"}) == 200
+    assert calls == ["/api/v2/user"]
+
+
+def _plex_tv_5xx(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(503)
+
+
+def _plex_tv_unreachable(request: httpx.Request) -> httpx.Response:
+    raise httpx.ConnectError("synthetic outage", request=request)
+
+
+@pytest.mark.usefixtures("plex_owner_config")
+@pytest.mark.parametrize("respond", [_plex_tv_5xx, _plex_tv_unreachable])
+def test_a02_owner_lookup_failure_trusts_only_plex_tokens(monkeypatch, respond):
+    _install_plex_tv(monkeypatch, respond)
+
+    # plex.tv did not answer: a Plex token keeps its claim so the owner is not
+    # locked out, but a token without a plex_id can never be the owner's.
+    assert _admin_status({"sub": "some-plex-user", "plex_id": "999"}) == 200
+    assert _admin_status({"sub": "former-local-admin"}) == 403
+    assert plex._server_owner_id_cache == {}

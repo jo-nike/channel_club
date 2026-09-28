@@ -1,7 +1,10 @@
 """Tests for Plex authentication service."""
 
+import asyncio
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from app.models.plex import PlexUser
@@ -271,6 +274,150 @@ class TestGetServerOwnerId:
 
                 # Should only call API once due to caching
                 assert mock_get.call_count == 1
+
+
+class TestServerOwnerLookup:
+    """The owner id lookup behind require_admin's owner clause (A-02)."""
+
+    @pytest.fixture(autouse=True)
+    def owner_config(self, monkeypatch: pytest.MonkeyPatch):
+        from app.services import plex
+
+        monkeypatch.setattr(plex.settings, "plex_auth_enabled", True)
+        monkeypatch.setattr(plex.settings, "plex_server_token", "synthetic-server-token")
+        plex.clear_server_owner_id_cache()
+        yield
+        plex.clear_server_owner_id_cache()
+
+    @staticmethod
+    def _install_plex_tv(monkeypatch: pytest.MonkeyPatch, respond) -> list[dict[str, Any]]:
+        """Route plex.tv to an async fake; returns the AsyncClient kwargs per call."""
+        from app.services import plex
+
+        clients: list[dict[str, Any]] = []
+        factory = httpx.AsyncClient
+
+        def client(**kwargs: Any) -> httpx.AsyncClient:
+            clients.append(kwargs)
+            return factory(transport=httpx.MockTransport(respond), **kwargs)
+
+        monkeypatch.setattr(plex.httpx, "AsyncClient", client)
+        return clients
+
+    async def test_concurrent_misses_make_one_upstream_call(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.services import plex
+
+        async def slow_owner(request: httpx.Request) -> httpx.Response:
+            await asyncio.sleep(0.01)
+            return httpx.Response(200, json={"id": 42})
+
+        clients = self._install_plex_tv(monkeypatch, slow_owner)
+
+        results = await asyncio.gather(*(plex.get_server_owner_id() for _ in range(5)))
+
+        assert results == ["42"] * 5
+        assert len(clients) == 1
+        assert plex._owner_id_lookup is None
+
+    async def test_lookup_has_a_three_second_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from app.services import plex
+
+        clients = self._install_plex_tv(
+            monkeypatch, lambda request: httpx.Response(200, json={"id": 42})
+        )
+
+        assert await plex.get_server_owner_id() == "42"
+        assert clients == [{"timeout": 3.0}]
+
+    @pytest.mark.parametrize("body", [{}, {"id": None}, {"id": ""}])
+    async def test_missing_id_is_never_cached(
+        self, monkeypatch: pytest.MonkeyPatch, body: dict[str, object]
+    ) -> None:
+        from app.services import plex
+
+        clients = self._install_plex_tv(monkeypatch, lambda request: httpx.Response(200, json=body))
+
+        assert await plex.get_server_owner_id() is None
+        assert await plex.get_server_owner_id() is None
+        assert plex._server_owner_id_cache == {}
+        assert len(clients) == 2
+
+    async def test_unreachable_plex_tv_returns_none_uncached(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.services import plex
+
+        def unreachable(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectTimeout("synthetic outage", request=request)
+
+        self._install_plex_tv(monkeypatch, unreachable)
+
+        assert await plex.get_server_owner_id() is None
+        assert plex._server_owner_id_cache == {}
+
+    async def test_boot_lookup_warms_the_cache_without_waiting(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.services import plex
+
+        clients = self._install_plex_tv(
+            monkeypatch, lambda request: httpx.Response(200, json={"id": 42})
+        )
+
+        plex.start_server_owner_lookup()
+        task = plex._owner_id_lookup
+        assert task is not None
+        assert not task.done()
+        await task
+
+        assert plex._server_owner_id_cache == {"owner_id": "42"}
+        assert await plex.get_server_owner_id() == "42"
+        assert len(clients) == 1
+
+    async def test_boot_lookup_is_skipped_without_plex_sign_in(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.services import plex
+
+        monkeypatch.setattr(plex.settings, "plex_auth_enabled", False)
+
+        plex.start_server_owner_lookup()
+
+        assert plex._owner_id_lookup is None
+
+    async def test_clear_forgets_the_lookup_in_flight(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.services import plex
+
+        self._install_plex_tv(monkeypatch, lambda request: httpx.Response(200, json={"id": 42}))
+        plex.start_server_owner_lookup()
+        task = plex._owner_id_lookup
+
+        plex.clear_server_owner_id_cache()
+
+        assert plex._owner_id_lookup is None
+        assert task is not None
+        await task
+
+    def test_app_lifespan_starts_the_lookup(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from fastapi.testclient import TestClient
+
+        from app.main import app
+        from app.services import plex
+
+        # Plex sign-in without a machine id fails startup validation; the
+        # lookup itself is stubbed, so only the call matters here.
+        monkeypatch.setattr(plex.settings, "plex_auth_enabled", False)
+
+        with (
+            patch("app.main.get_grouped_channels", new=AsyncMock(return_value=[])),
+            patch("app.services.plex.start_server_owner_lookup") as start,
+            TestClient(app),
+        ):
+            start.assert_called_once_with()
 
 
 class TestDetermineRole:
