@@ -812,6 +812,54 @@ class TestPresenceTracking:
 
             assert only_presence().user_id == expected_user_id("local:testuser")
 
+    def test_empty_live_slot_from_a_pre_r2_bundle_is_no_channel(
+        self, client: TestClient, valid_token: str
+    ):
+        """An old bundle reports the empty Live slot as 'Live'; nobody is watching it."""
+        output = StringIO()
+        handler_id = logger.add(
+            output, format="{extra[event]}", level="INFO", filter=lambda r: "event" in r["extra"]
+        )
+        try:
+            with ws_connect(client, valid_token) as ws:
+                ws.receive_json()  # Consume connection_ack
+                ws.send_json(
+                    {
+                        "type": "channel_update",
+                        "channel": "Live",
+                        "channelId": "live-channel-0",
+                        "view": "live",
+                    }
+                )
+                ws.send_json({"type": "ping"})
+                assert ws.receive_json()["type"] == "pong"
+
+                user = only_presence()
+                assert user.current_channel is None
+                assert user.current_channel_id is None
+        finally:
+            logger.remove(handler_id)
+        assert "watch.start" not in output.getvalue()
+
+    def test_channel_update_records_whether_the_client_follows_live(
+        self, client: TestClient, valid_token: str
+    ):
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # Consume connection_ack
+            ws.send_json(
+                {
+                    "type": "channel_update",
+                    "channel": "RDS",
+                    "channelId": "uuid-rds",
+                    "view": "live",
+                    "onLive": True,
+                }
+            )
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json()["type"] == "pong"
+
+            assert only_presence().on_live is True
+
     def test_nickname_is_recorded_in_presence(
         self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
     ):

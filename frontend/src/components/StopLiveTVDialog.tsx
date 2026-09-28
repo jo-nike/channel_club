@@ -49,10 +49,11 @@ function AffectedViewers({ channelName }: { channelName: string }) {
   const { data, loading, error } = useActiveUsers()
   const me = useAuthStore((s) => s.username)
 
-  // Presence lists sessions, not people: one person with two tabs counts once.
-  // The admin pressing Stop is not one of the people it affects.
+  // Only people following the Live slot are affected, not those on a channel of
+  // their own. Presence lists sessions, not people: one person with two tabs
+  // counts once. The admin pressing Stop is not one of the people it affects.
   const people = data && !loading && !error
-    ? new Set(data.liveUsers.map((u) => u.username).filter((name) => name !== me)).size
+    ? new Set(data.liveUsers.filter((u) => u.onLive).map((u) => u.username).filter((name) => name !== me)).size
     : null
 
   let text: string

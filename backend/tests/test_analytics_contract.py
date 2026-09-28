@@ -113,6 +113,22 @@ def test_committed_dashboard_matches_the_generator(tmp_path) -> None:
     )
 
 
+def _exprs(node) -> list[str]:
+    if isinstance(node, dict):
+        own = [node["expr"]] if isinstance(node.get("expr"), str) else []
+        return own + [e for value in node.values() for e in _exprs(value)]
+    if isinstance(node, list):
+        return [e for value in node for e in _exprs(value)]
+    return []
+
+
+def test_watch_queries_leave_out_the_pre_r2_empty_live_slot() -> None:
+    watch = [e for e in _exprs(_load_generator().dashboard) if 'event="watch.' in e]
+    assert watch
+    for expr in watch:
+        assert 'record_extra_channel_id!="live-channel-0"' in expr, expr
+
+
 _EVENT_FILTER = re.compile(r'record_extra_event="([^"]+)"')
 _FIELD = re.compile(r"record_extra_(\w+)")
 
@@ -196,6 +212,7 @@ def test_every_event_the_dashboard_reads_carries_its_fields(production_logging, 
                 "channelId": "uuid-rds",
                 "programme": "Hockey",
                 "view": "live",
+                "onLive": True,
             }
         )
         ws.send_json(
@@ -205,6 +222,7 @@ def test_every_event_the_dashboard_reads_carries_its_fields(production_logging, 
                 "channelId": "uuid-tva",
                 "programme": "News",
                 "view": "live",
+                "onLive": False,
             }
         )
         _settle(ws)

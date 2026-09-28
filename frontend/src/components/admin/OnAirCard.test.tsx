@@ -17,12 +17,15 @@ vi.mock('@/services/api', () => ({
   clearCurrentChannel: vi.fn(),
 }))
 
-// Presence lists sessions: alice has two tabs open
+// Presence lists sessions: alice has two tabs open. carol watches another
+// channel and dave picked TSN himself, so neither follows the Live slot.
 const liveUsers = [
-  { username: 'alice', channel: 'TSN' },
-  { username: 'alice', channel: 'TSN' },
-  { username: 'bob', channel: 'TSN' },
-  { username: 'jon', channel: 'TSN' },
+  { username: 'alice', channel: 'TSN', onLive: true },
+  { username: 'alice', channel: 'TSN', onLive: true },
+  { username: 'bob', channel: 'TSN', onLive: true },
+  { username: 'jon', channel: 'TSN', onLive: true },
+  { username: 'carol', channel: 'Sportsnet', onLive: false },
+  { username: 'dave', channel: 'TSN', onLive: false },
 ]
 const mockUseActiveUsers = vi.fn(() => ({
   data: { liveUsers },
@@ -174,7 +177,7 @@ describe('OnAirCard', () => {
   it('counts people watching, not sessions', () => {
     render(<OnAirCard />)
 
-    // alice (twice), bob and jon: three people
+    // alice (twice), bob and jon: three people; carol and dave aren't on Live
     expect(screen.getByText('3 watching')).toBeInTheDocument()
   })
 

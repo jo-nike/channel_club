@@ -48,6 +48,7 @@ class UserPresence:
     hide_activity: bool = False  # "Hide what I'm watching": others see the name only
     current_channel: str | None = None
     current_channel_id: str | None = None
+    on_live: bool | None = None  # Following the shared Live slot; None from pre-R2 clients
     current_programme: str | None = None
     channel_since: datetime | None = None
     programme_since: datetime | None = None  # Start of the current titled programme segment
@@ -59,6 +60,10 @@ class UserPresence:
 
 # In-memory store keyed by connection_id
 _active_users: dict[str, UserPresence] = {}
+
+# The frontend's synthetic id for the Live slot. Pre-R2 bundles report it, named
+# 'Live', when nothing is live; a shim that can go once those tabs are gone.
+LEGACY_EMPTY_LIVE_SLOT_ID = "live-channel-0"
 
 
 def _emit(event: str, message: str, **fields: object) -> None:
@@ -115,12 +120,14 @@ def _close_watch(user: UserPresence, reason: str, end: datetime | None = None) -
         view=user.view,
         channel=user.current_channel,
         channel_id=user.current_channel_id,
+        on_live=user.on_live,
         programme=user.current_programme,
         duration_s=duration,
         reason=reason,
     )
     user.current_channel = None
     user.current_channel_id = None
+    user.on_live = None
     user.current_programme = None
     user.channel_since = None
 
@@ -208,6 +215,7 @@ def update_user_channel(
     programme_title: str | None = None,
     view: View | None = None,
     channel_id: str | None = None,
+    on_live: bool | None = None,
 ) -> None:
     """Update user's current channel, programme, and optionally view type.
 
@@ -222,12 +230,23 @@ def update_user_channel(
         programme_title: The current programme title, or None.
         view: Optional view type to update (for unified TV view switching).
         channel_id: Stable channel identifier (Dispatcharr UUID or ErsatzTV tvg-id).
+        on_live: Whether the client follows the shared Live slot, None if it didn't say.
     """
     if connection_id not in _active_users:
         return
     user = _active_users[connection_id]
 
-    channel_changed = channel_name != user.current_channel or channel_id != user.current_channel_id
+    if channel_id == LEGACY_EMPTY_LIVE_SLOT_ID:
+        channel_name = channel_id = programme_title = None
+    if channel_name is None:
+        on_live = None
+
+    # Moving between the Live slot and a personal pick of its channel is a new watch
+    channel_changed = (
+        channel_name != user.current_channel
+        or channel_id != user.current_channel_id
+        or on_live != user.on_live
+    )
     if channel_changed:
         _close_watch(user, "switch" if channel_name is not None else "cleared")
     title_changed = (
@@ -266,6 +285,7 @@ def update_user_channel(
     if channel_changed and channel_name is not None:
         user.current_channel = channel_name
         user.current_channel_id = channel_id
+        user.on_live = on_live
         user.channel_since = _now()
         user.programme_since = user.channel_since if programme_title is not None else None
         _emit(
@@ -277,6 +297,7 @@ def update_user_channel(
             view=user.view,
             channel=channel_name,
             channel_id=channel_id,
+            on_live=on_live,
             programme=programme_title,
         )
 

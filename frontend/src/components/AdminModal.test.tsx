@@ -23,6 +23,7 @@ const mockActiveUsersData = {
     {
       username: 'testUser',
       channel: 'Channel 1',
+      onLive: true,
       connectedSince: '2026-01-04T10:00:00Z',
       bitrateMbps: 8.5,
     },

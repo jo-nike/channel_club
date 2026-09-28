@@ -103,7 +103,7 @@ export type ChatSendResult = 'acknowledged' | 'not-sent' | 'unconfirmed'
 interface UseWebSocketReturn {
   status: WebSocketStatus
   reconnect: () => void
-  sendChannelUpdate: (channelName: string | null, programmeTitle?: string | null, viewType?: 'live' | 'ersatztv', channelId?: string | null) => void
+  sendChannelUpdate: (channelName: string | null, programmeTitle?: string | null, viewType?: 'live' | 'ersatztv', channelId?: string | null, onLive?: boolean) => void
   sendChatMessage: (content: string, clientMessageId?: string) => Promise<ChatSendResult>
   // Post a card of what this viewer is watching; the server fills in the channel
   sendShare: (clientMessageId?: string) => Promise<ChatSendResult>
@@ -514,7 +514,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   }, [hideMyActivity])
 
   const sendChannelUpdate = useCallback(
-    (channelName: string | null, programmeTitle?: string | null, viewType?: 'live' | 'ersatztv', channelId?: string | null) => {
+    (channelName: string | null, programmeTitle?: string | null, viewType?: 'live' | 'ersatztv', channelId?: string | null, onLive?: boolean) => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(
           JSON.stringify({
@@ -523,6 +523,8 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
             channelId: channelId ?? null,
             programme: programmeTitle ?? null,
             view: viewType ?? null,
+            // Following the shared Live slot, not a personal pick of a channel
+            onLive: onLive ?? false,
           })
         )
         logger.debug('WebSocket', `Sent channel update: ${channelName || 'null'} - ${programmeTitle || 'null'} (view: ${viewType || 'unchanged'})`)

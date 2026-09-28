@@ -1507,6 +1507,20 @@ describe('useWebSocket', () => {
     })
   })
 
+  describe('sendChannelUpdate', () => {
+    test('says whether the viewer follows the Live slot', () => {
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+      act(() => ws.simulateOpen())
+
+      act(() => result.current.sendChannelUpdate('TSN', 'Hockey', 'live', 'uuid-tsn', true))
+
+      expect(JSON.parse(ws.send.mock.calls.at(-1)![0])).toEqual({
+        type: 'channel_update', channel: 'TSN', channelId: 'uuid-tsn', programme: 'Hockey', view: 'live', onLive: true,
+      })
+    })
+  })
+
   describe('sendChatMessage', () => {
     test('sends chat message when connected', () => {
       const { result } = renderHook(() => useWebSocket())

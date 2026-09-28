@@ -9,7 +9,7 @@ import { useNowPlaying } from '@/hooks/useNowPlaying'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useChannelStore } from '@/stores/channelStore'
-import { useTVStore, initializeTVStore } from '@/stores/tvStore'
+import { useTVStore, initializeTVStore, LIVE_CHANNEL_ID } from '@/stores/tvStore'
 import { useUIStore, EPG_HEIGHT_MIN, EPG_HEIGHT_MAX } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useChannelPrefsStore } from '@/stores/channelPrefsStore'
@@ -190,10 +190,16 @@ export function TVView() {
   // Send channel updates for presence tracking (including view type for unified view)
   useEffect(() => {
     if (status === 'connected') {
+      // The Live slot with nothing on live TV: nobody is watching a channel
+      if (selectedChannel?.id === LIVE_CHANNEL_ID && !selectedChannel.backendId) {
+        sendChannelUpdate(null, null, 'live', null, false)
+        return
+      }
       const viewType = selectedChannel?.type === 'ersatztv' ? 'ersatztv' : 'live'
       // Live slot carries a synthetic id; backendId is the real Dispatcharr channel id
       const channelId = selectedChannel?.backendId ?? selectedChannel?.id ?? null
-      sendChannelUpdate(selectedChannel?.name ?? null, currentProgrammeTitle, viewType, channelId)
+      const onLive = selectedChannel?.id === LIVE_CHANNEL_ID
+      sendChannelUpdate(selectedChannel?.name ?? null, currentProgrammeTitle, viewType, channelId, onLive)
     }
   }, [selectedChannel, currentProgrammeTitle, sendChannelUpdate, status])
 
