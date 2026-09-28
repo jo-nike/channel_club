@@ -25,6 +25,7 @@ from pathlib import Path
 from loguru import logger
 
 from app.config import settings
+from app.logging_config import redact_credentials
 from app.models.channel import validate_channel_id
 from app.services import channel_state
 from app.services.media_export import encode_file, media_duration, owned_thread, workspace
@@ -42,6 +43,10 @@ TAIL_POLL_SECONDS = 0.25
 # FFmpeg gives up on a source that sends nothing for this long (three default segments), so a
 # stalled upstream ends the process instead of leaving it "running" with no new segments.
 RECORDER_RW_TIMEOUT_MICROSECONDS = 30_000_000
+
+# FFmpeg's stderr file in the segment directory, and how much of its end a failed start logs.
+STDERR_LOG_NAME = "ffmpeg.log"
+STDERR_TAIL_BYTES = 500
 
 # After a failed recorder start, further starts for that channel wait: 30s, doubling to 5 minutes.
 START_BACKOFF_BASE_SECONDS = 30
@@ -155,12 +160,14 @@ class ChannelRecorder:
 
             started = False
             try:
-                self.process = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    start_new_session=True,  # Safe from worker threads; no undrained pipes
-                )
+                # FFmpeg's reason for failing goes to a file, never an undrained pipe.
+                with (self.segment_dir / STDERR_LOG_NAME).open("wb") as stderr:
+                    self.process = subprocess.Popen(
+                        cmd,
+                        stdout=subprocess.DEVNULL,
+                        stderr=stderr,
+                        start_new_session=True,  # Safe from worker threads
+                    )
                 self.started_at = time.time()
                 self.last_activity = time.time()
 
@@ -168,6 +175,10 @@ class ChannelRecorder:
                 await asyncio.sleep(0.5)
                 if not self.is_running:
                     stderr = f"exit status {self.process.returncode}"
+                    # Read before the finally below removes the segment directory.
+                    tail = self._stderr_tail()
+                    if tail:
+                        stderr = f"{stderr}: {tail}"
                     log.error("FFmpeg failed to start for channel {}: {}", self.channel_id, stderr)
                     return False
 
@@ -188,6 +199,18 @@ class ChannelRecorder:
             finally:
                 if not started:
                     await self._stop_locked()
+
+    def _stderr_tail(self) -> str:
+        """The end of FFmpeg's stderr, redacted: its error lines echo the input URL."""
+        if not self.segment_dir:
+            return ""
+        try:
+            with (self.segment_dir / STDERR_LOG_NAME).open("rb") as file:
+                file.seek(max(file.seek(0, os.SEEK_END) - STDERR_TAIL_BYTES, 0))
+                tail = file.read()
+        except OSError:
+            return ""
+        return str(redact_credentials(tail.decode("utf-8", "replace").strip()))
 
     async def stop(self) -> None:
         """Stop FFmpeg recording and cleanup."""
