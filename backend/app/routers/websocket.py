@@ -208,6 +208,8 @@ async def websocket_endpoint(
                 "you": {"username": payload["sub"], "userId": user_id},
                 # Who else is here (and, if the admin allows it, what they watch)
                 "presence": presence_broadcast.build_snapshot(),
+                # Lets a client running an older bundle notice a deploy
+                "buildId": settings.app_build_id,
             }
             await websocket.send_json(ack_message)
 

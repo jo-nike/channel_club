@@ -172,6 +172,16 @@ class TestConnectionAck:
             }
             assert "12345" not in str(data["you"])
 
+    def test_connection_ack_carries_the_build_id(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """The ack names the server's build, so an old bundle can notice a deploy."""
+        monkeypatch.setattr(settings, "app_build_id", "build-4f2a")
+        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            data = ws.receive_json()
+            assert data["type"] == "connection_ack"
+            assert data["buildId"] == "build-4f2a"
+
 
 class TestPresenceInAck:
     """connection_ack carries the presence snapshot."""
