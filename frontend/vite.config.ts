@@ -41,6 +41,8 @@ export default defineConfig({
       // A waiting update applies when nothing is playing, or when the viewer
       // chooses Reload (src/lib/appUpdate.ts); it never reloads a playing tab
       registerType: 'prompt',
+      // src/lib/appUpdate.ts registers the worker itself
+      injectRegister: false,
       workbox: {
         // Precache app shell assets
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],

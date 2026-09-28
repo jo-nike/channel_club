@@ -1,11 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'sonner'
-import { checkForAppUpdate, noticeServerBuild, offerAppUpdate, resetAppUpdate, watchForAppUpdates } from './appUpdate'
+import { checkForAppUpdate, handleServiceWorkerUpdates, noticeServerBuild, offerAppUpdate, resetAppUpdate, watchForAppUpdates } from './appUpdate'
 
 vi.mock('sonner', () => ({ toast: vi.fn() }))
 
 function fakeRegistration() {
   return { update: vi.fn().mockResolvedValue(undefined) } as unknown as ServiceWorkerRegistration & { update: ReturnType<typeof vi.fn> }
+}
+
+// A stand-in for this tab's Workbox: records listeners so tests can fire lifecycle events
+function fakeWorkbox() {
+  const listeners: Record<string, (event: { isUpdate?: boolean; isExternal?: boolean }) => void> = {}
+  return {
+    addEventListener: (type: string, listener: (event: { isUpdate?: boolean }) => void) => { listeners[type] = listener },
+    messageSkipWaiting: vi.fn(),
+    fire: (type: string, event: { isUpdate?: boolean; isExternal?: boolean } = {}) => listeners[type](event),
+  }
 }
 
 function addVideo({ playing }: { playing: boolean }) {
@@ -88,6 +98,53 @@ describe('app updates', () => {
       expect(options.action.label).toBe('Reload')
       options.action.onClick()
       expect(updateSW).toHaveBeenCalledWith(true)
+    })
+  })
+
+  describe('handleServiceWorkerUpdates', () => {
+    function wire() {
+      const wb = fakeWorkbox()
+      const reload = vi.fn()
+      handleServiceWorkerUpdates(wb as unknown as Parameters<typeof handleServiceWorkerUpdates>[0], reload)
+      return { wb, reload }
+    }
+
+    it('applies a waiting worker in an idle tab and reloads when it takes control', () => {
+      const { wb, reload } = wire()
+
+      wb.fire('waiting')
+      expect(wb.messageSkipWaiting).toHaveBeenCalledTimes(1)
+
+      wb.fire('controlling', { isUpdate: true })
+      expect(reload).toHaveBeenCalledTimes(1)
+    })
+
+    it("does not reload a playing tab when another tab's automatic apply takes control", () => {
+      addVideo({ playing: true })
+      const { wb, reload } = wire()
+
+      wb.fire('waiting')
+      expect(wb.messageSkipWaiting).not.toHaveBeenCalled()
+      expect(toast).toHaveBeenCalledWith('Channel Club was updated', expect.objectContaining({ duration: Infinity }))
+
+      // An idle tab in the same browser applied the update; the new worker controls every tab
+      wb.fire('controlling', { isUpdate: true })
+      expect(reload).not.toHaveBeenCalled()
+
+      // The viewer chooses Reload later
+      const options = vi.mocked(toast).mock.calls[0][1] as { action: { onClick: () => void } }
+      options.action.onClick()
+      expect(wb.messageSkipWaiting).toHaveBeenCalledTimes(1)
+      wb.fire('controlling', { isUpdate: true })
+      expect(reload).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not reload when the first worker takes control', () => {
+      const { wb, reload } = wire()
+
+      wb.fire('controlling', { isUpdate: false })
+
+      expect(reload).not.toHaveBeenCalled()
     })
   })
 })

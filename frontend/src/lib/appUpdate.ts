@@ -6,8 +6,14 @@
  * tab in the middle of a show never reloads without the viewer acting.
  * Updates are looked for hourly, and at once when the server reports a
  * different build than the one this page was built from.
+ *
+ * The worker is registered here with workbox-window rather than through
+ * virtual:pwa-register, because the plugin's prompt mode reloads every tab
+ * that showed the prompt once the new worker takes control, including a
+ * playing tab when another, idle tab applied the update.
  */
 import { toast } from 'sonner'
+import { Workbox } from 'workbox-window'
 import { logger } from '@/lib/logger'
 
 export const APP_BUILD_ID: string = __APP_BUILD_ID__
@@ -17,6 +23,8 @@ const UPDATE_TOAST_ID = 'app-update'
 
 let registration: ServiceWorkerRegistration | null = null
 let checkTimer: ReturnType<typeof setInterval> | null = null
+// This tab asked the waiting worker to take over (automatically or by Reload)
+let updateRequested = false
 
 /** Ask the browser to look for a new service worker now. */
 export function checkForAppUpdate(): void {
@@ -62,9 +70,47 @@ export function offerAppUpdate(updateSW: (reloadPage?: boolean) => Promise<void>
   })
 }
 
+type ServiceWorkerEvents = Pick<Workbox, 'addEventListener' | 'messageSkipWaiting'>
+
+/**
+ * Offer each waiting worker, and reload when the new one takes control only
+ * if this tab asked for it or has nothing playing. Every open tab gets the
+ * controller change, so a playing tab keeps its show (and its Reload toast)
+ * when another tab applies the update.
+ */
+export function handleServiceWorkerUpdates(wb: ServiceWorkerEvents, reload: () => void = () => window.location.reload()): void {
+  wb.addEventListener('waiting', () => {
+    logger.info('PWA', 'New app version available')
+    offerAppUpdate(() => {
+      updateRequested = true
+      wb.messageSkipWaiting()
+      return Promise.resolve()
+    })
+  })
+  wb.addEventListener('controlling', (event) => {
+    if (!event.isUpdate) return
+    if (updateRequested || !isPlaybackActive()) reload()
+  })
+  wb.addEventListener('installed', (event) => {
+    if (!event.isUpdate && !event.isExternal) logger.info('PWA', 'App ready to work offline')
+  })
+}
+
+/** Register the worker vite-plugin-pwa builds (dist/sw.js); dev servers have none. */
+export function registerAppServiceWorker(): void {
+  if (!import.meta.env.PROD || !('serviceWorker' in navigator)) return
+  const wb = new Workbox('/sw.js', { scope: '/' })
+  handleServiceWorkerUpdates(wb)
+  wb.register().then(watchForAppUpdates).catch((error: unknown) => {
+    // Log but don't crash - SW is a progressive enhancement
+    logger.error('PWA', 'SW registration error', error)
+  })
+}
+
 /** Forget the registration and stop the hourly check (tests). */
 export function resetAppUpdate(): void {
   if (checkTimer !== null) clearInterval(checkTimer)
   checkTimer = null
   registration = null
+  updateRequested = false
 }
