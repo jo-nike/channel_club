@@ -13,6 +13,7 @@ import './index.css'
 import './tvModeParam'
 import { router } from '@/router'
 import { logger } from '@/lib/logger'
+import { startSessionRefresh } from '@/hooks/useAuth'
 import { TooltipProvider } from '@/components/ui/tooltip'
 
 // Register service worker with update handling
@@ -31,6 +32,9 @@ const updateSW = registerSW({
     logger.error('PWA', 'SW registration error', error)
   },
 })
+
+// Before the first render, so it sees useAuth restore the stored session
+startSessionRefresh()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

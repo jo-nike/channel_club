@@ -84,6 +84,32 @@ describe('authStore', () => {
     })
   })
 
+  describe('replaceToken', () => {
+    it('stores the refreshed token and role without starting a new sign-in', () => {
+      useAuthStore.getState().setAuth(makeToken({ sub: 'plex-user' }), 'admin')
+      const { generation } = useAuthStore.getState()
+
+      useAuthStore.getState().replaceToken('refreshed-token', 'viewer')
+
+      const state = useAuthStore.getState()
+      expect(state.token).toBe('refreshed-token')
+      expect(state.role).toBe('viewer')
+      expect(state.username).toBe('plex-user')
+      expect(state.isAuthenticated).toBe(true)
+      expect(state.generation).toBe(generation)
+      expect(localStorage.setItem).toHaveBeenCalledWith('token', 'refreshed-token')
+      expect(localStorage.setItem).toHaveBeenCalledWith('role', 'viewer')
+    })
+
+    it('sign-in and sign-out still start a new generation', () => {
+      const start = useAuthStore.getState().generation
+      useAuthStore.getState().setAuth('test-token', 'viewer')
+      expect(useAuthStore.getState().generation).toBe(start + 1)
+      useAuthStore.getState().logout()
+      expect(useAuthStore.getState().generation).toBe(start + 2)
+    })
+  })
+
   describe('logout', () => {
     it('should clear auth state', () => {
       // Set up initial authenticated state
@@ -151,6 +177,21 @@ describe('authStore', () => {
       useAuthStore.getState().initialize()
 
       expect(useAuthStore.getState().username).toBe('stored-name')
+    })
+
+    it('keeps the generation when it restores the session already held', () => {
+      vi.mocked(localStorage.getItem).mockImplementation((key) => {
+        if (key === 'token') return 'stored-token'
+        if (key === 'role') return 'admin'
+        return null
+      })
+
+      useAuthStore.getState().initialize()
+      const { generation } = useAuthStore.getState()
+      // Each component using useAuth initializes again
+      useAuthStore.getState().initialize()
+
+      expect(useAuthStore.getState().generation).toBe(generation)
     })
 
     it('should not set auth if localStorage has no token', () => {
