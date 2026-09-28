@@ -2688,6 +2688,29 @@ class TestMessageBudget:
         assert hidden is True
 
     @pytest.mark.usefixtures("no_refill")
+    def test_a_retry_of_a_stored_send_is_confirmed_even_over_budget(
+        self, client: TestClient, valid_token: str
+    ):
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # connection_ack
+            ws.receive_json()  # chat_history
+            for n in range(websocket_router.MESSAGE_BURST):
+                ws.send_json(
+                    {"type": "chat_message", "content": f"m{n}", "clientMessageId": f"c{n}"}
+                )
+            frames = self.until_pong(ws)
+            stored = {
+                f["clientMessageId"]: f["messageId"] for f in frames if f["type"] == "chat_ack"
+            }
+
+            # Budget spent; the client retries the first send, whose ack it missed
+            ws.send_json({"type": "chat_message", "content": "m0", "clientMessageId": "c0"})
+            (ack,) = [f for f in self.until_pong(ws) if f["type"] == "chat_ack"]
+
+        assert ack["accepted"] is True
+        assert ack["messageId"] == stored["c0"]
+
+    @pytest.mark.usefixtures("no_refill")
     def test_nickname_over_budget_is_refused_as_rate_limited(
         self, client: TestClient, valid_token: str
     ):

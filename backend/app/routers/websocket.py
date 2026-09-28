@@ -636,7 +636,14 @@ async def handle_client_message(
     # Any valid message shows the connection is in use, not only a ping
     presence.update_last_activity(client_id)
 
-    if budget is not None and msg_type in _BUDGETED_TYPES and not budget.take():
+    # A retry of a send already stored is confirmed below at no cost, so an
+    # exhausted budget can't report a delivered message as not sent
+    repeat = (
+        msg_type in ("chat_message", "share", "suggest")
+        and bool(validated.get("clientMessageId"))
+        and chat.find_recent_send(username, validated["clientMessageId"]) is not None
+    )
+    if budget is not None and msg_type in _BUDGETED_TYPES and not repeat and not budget.take():
         # Refused, never closed: the client sees a failed send it can retry
         if msg_type == "set_nickname":
             # Named as sent, like nickname_taken, so the client can put back the name in use
