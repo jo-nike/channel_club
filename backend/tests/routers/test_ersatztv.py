@@ -421,6 +421,33 @@ class TestGetStream:
         assert cancelled == [True]
         fetch.assert_awaited_once()
 
+    def test_startup_timeout_log_names_the_step_attempt_and_elapsed_time(
+        self, client: TestClient, auth_header: dict[str, str], mock_channel: EPGChannel
+    ) -> None:
+        """H-08: not a bare 'TimeoutError: ' line."""
+        import asyncio
+
+        async def stalled(*args, **kwargs):
+            await asyncio.Event().wait()
+
+        output = StringIO()
+        sink = logger.add(output, format="{level} | {message}", level="INFO")
+        try:
+            with (
+                patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel),
+                patch("app.routers.ersatztv.STREAM_STARTUP_SECONDS", 0.01),
+                patch("app.routers.ersatztv.fetch_ersatztv", AsyncMock(side_effect=stalled)),
+            ):
+                response = client.get("/api/ersatztv/stream/comedy-classics", headers=auth_header)
+        finally:
+            logger.remove(sink)
+
+        assert response.status_code == 503
+        lines = [line for line in output.getvalue().splitlines() if "Stream error" in line]
+        assert len(lines) == 1
+        assert lines[0].startswith("WARNING | Stream error for channel comedy-classics: ")
+        assert "manifest fetch attempt 1/8 failed after 0.0s: TimeoutError: no detail" in lines[0]
+
     def test_requires_authentication(self, client: TestClient) -> None:
         """Unauthenticated request returns 401."""
         response = client.get("/api/ersatztv/stream/comedy-classics")

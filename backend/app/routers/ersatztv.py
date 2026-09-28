@@ -8,6 +8,7 @@ Story: 7.6 - ErsatzTV API Endpoints
 
 import asyncio
 from collections.abc import AsyncIterator
+from time import monotonic
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
@@ -177,6 +178,8 @@ async def get_stream(
     Token is passed through to rewritten segment URLs for HLS auth.
     """
     log.debug("GET /stream request for channel: {}", channel_id)
+    started = monotonic()
+    attempts = 0
     try:
         if url:
             # Nested playlist - decode URL
@@ -205,6 +208,7 @@ async def get_stream(
             response: httpx.Response | None = None
 
             for attempt in range(STREAM_STARTUP_ATTEMPTS):
+                attempts = attempt + 1
                 try:
                     response = await fetch_ersatztv(client, manifest_url, stream=False)
                     response.raise_for_status()
@@ -251,7 +255,16 @@ async def get_stream(
         log.warning("Stream for channel {} rejected: {}", channel_id, e)
         raise HTTPException(status_code=502, detail=str(e)) from None
     except UPSTREAM_ERRORS as e:
-        log.error("Stream error for channel {}: {}: {}", channel_id, type(e).__name__, e)
+        # Name the step: a wall-clock TimeoutError carries no message of its own
+        step = f"manifest fetch attempt {attempts}/{STREAM_STARTUP_ATTEMPTS}"
+        log.warning(
+            "Stream error for channel {}: {} failed after {:.1f}s: {}: {}",
+            channel_id,
+            step if attempts else "channel lookup",
+            monotonic() - started,
+            type(e).__name__,
+            str(e) or "no detail",
+        )
         raise HTTPException(status_code=503, detail="Stream unavailable") from None
     except Exception:
         log.exception("Stream error for channel {}", channel_id)
