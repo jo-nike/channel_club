@@ -15,6 +15,7 @@ from loguru import logger
 
 from app.config import settings
 from app.services.bounded_http import MANIFEST_BYTES, decoded_response, read_bounded
+from app.services.stream_sessions import manifest_path
 
 # Module-level logger with service context
 log = logger.bind(service="ersatztv")
@@ -211,6 +212,7 @@ class HLSManifestRewriter:
         base_url: str,
         token: str | None = None,
         channel_id: str | None = None,
+        session_id: str | None = None,
     ) -> str:
         """Rewrite HLS manifest to proxy all segment and variant URLs.
 
@@ -219,6 +221,8 @@ class HLSManifestRewriter:
             base_url: Base URL for resolving relative paths
             token: Optional JWT token to include in rewritten URLs for auth
             channel_id: Channel ID to include in nested playlist URLs
+            session_id: Stream session to route every URL through instead
+                (token and channel_id are then ignored)
 
         Returns:
             Rewritten manifest with proxied URLs
@@ -229,9 +233,15 @@ class HLSManifestRewriter:
         def proxy_uri(uri: str, playlist: bool | None = None) -> str:
             absolute = urljoin(base_url, uri)
             encoded = self._encode_url(absolute)
-            if playlist is True or (
+            is_playlist = playlist is True or (
                 playlist is None and urlsplit(absolute).path.lower().endswith(".m3u8")
-            ):
+            )
+            if session_id:
+                # The session id is the capability: no credential in any URL
+                if is_playlist:
+                    return f"{manifest_path(session_id)}?{urlencode({'url': encoded})}"
+                return f"/api/ersatztv/s/{session_id}/segments/{encoded}"
+            if is_playlist:
                 query = {"url": encoded}
                 if token:
                     query["token"] = token
@@ -320,6 +330,7 @@ def rewrite_manifest(
     base_url: str,
     token: str | None = None,
     channel_id: str | None = None,
+    session_id: str | None = None,
 ) -> str:
     """Convenience function to rewrite manifest.
 
@@ -328,11 +339,14 @@ def rewrite_manifest(
         base_url: Base URL for resolving relative paths
         token: Optional JWT token to include in rewritten URLs for auth
         channel_id: Channel ID to include in nested playlist URLs
+        session_id: Stream session to route every URL through instead
 
     Returns:
         Rewritten manifest with proxied URLs
     """
-    return _rewriter.rewrite_manifest(content, base_url, token=token, channel_id=channel_id)
+    return _rewriter.rewrite_manifest(
+        content, base_url, token=token, channel_id=channel_id, session_id=session_id
+    )
 
 
 def decode_url(encoded_url: str) -> str:

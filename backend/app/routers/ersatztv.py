@@ -7,6 +7,7 @@ Story: 7.6 - ErsatzTV API Endpoints
 """
 
 import asyncio
+import re
 from collections.abc import AsyncIterator
 from time import monotonic
 
@@ -14,14 +15,18 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from loguru import logger
+from pydantic import BaseModel, Field
 from starlette.requests import ClientDisconnect
 
+from app.models.auth import TokenPayload
+from app.models.channel import ChannelId
 from app.models.ersatztv import (
     CurrentProgrammeResponse,
     EPGChannelResponse,
     ProgrammeListResponse,
 )
 from app.routers.auth_deps import get_current_user, get_current_user_or_token
+from app.services import stream_sessions
 from app.services.ersatztv import (
     get_channel_by_id,
     get_channels,
@@ -45,6 +50,7 @@ from app.services.logo_proxy import (
     LogoUnavailableError,
     fetch_logo,
 )
+from app.services.stream_sessions import StreamSession, StreamSessionLimitError
 from app.services.tls import SSL_CONTEXT
 
 router = APIRouter(prefix="/api/ersatztv", tags=["ersatztv"])
@@ -146,35 +152,41 @@ async def get_current(
         raise _internal_error() from None
 
 
-@router.head("/stream/{channel_id}")
-async def head_stream(
-    channel_id: str = Path(...),
-    url: str = Query(default=None),
-    token: str = Query(default=None),
-    user=Depends(get_current_user_or_token),
-):
-    """HEAD request for stream - returns headers only (for video.js preflight)."""
-    log.debug("HEAD /stream request for channel: {}", channel_id)
+# Playlists and segments: the Chromecast fetches them cross-origin, and neither
+# is ever a document on our origin
+STREAM_HEADERS = {
+    "Access-Control-Allow-Origin": "*",  # Chromecast needs CORS
+    "Content-Security-Policy": "default-src 'none'; sandbox",
+    "X-Content-Type-Options": "nosniff",
+}
+
+
+async def _manifest_url(channel_id: str, url: str | None) -> str:
+    """The upstream playlist to fetch: a nested playlist's URL or the channel's."""
+    if url:
+        # Nested playlist - decode URL
+        manifest_url = _decode(url, "stream")
+    else:
+        # Initial request - get channel stream URL
+        channel = await run_feed_lookup(get_channel_by_id, channel_id)
+        if not channel:
+            raise HTTPException(status_code=404, detail="Channel not found")
+        manifest_url = channel.stream_url
+
+    # Validate URL is from ErsatzTV
+    if not is_ersatztv_media_url(manifest_url, playlist=True):
+        raise HTTPException(status_code=400, detail="Invalid stream URL")
+    return manifest_url
+
+
+async def _head_stream(channel_id: str, url: str | None) -> Response:
+    """Headers only for a playlist (for video.js preflight)."""
     try:
-        if url:
-            manifest_url = _decode(url, "stream")
-        else:
-            channel = await run_feed_lookup(get_channel_by_id, channel_id)
-            if not channel:
-                raise HTTPException(status_code=404, detail="Channel not found")
-            manifest_url = channel.stream_url
-
-        if not is_ersatztv_media_url(manifest_url, playlist=True):
-            raise HTTPException(status_code=400, detail="Invalid stream URL")
-
+        await _manifest_url(channel_id, url)
         return Response(
             status_code=200,
             media_type="application/vnd.apple.mpegurl",
-            headers={
-                "Access-Control-Allow-Origin": "*",
-                "Content-Security-Policy": "default-src 'none'; sandbox",
-                "X-Content-Type-Options": "nosniff",
-            },
+            headers=STREAM_HEADERS,
         )
     except HTTPException:
         raise
@@ -186,37 +198,25 @@ async def head_stream(
         raise _internal_error() from None
 
 
-@router.get("/stream/{channel_id}")
-async def get_stream(
+async def _get_stream(
     request: Request,
-    channel_id: str = Path(...),
-    url: str = Query(default=None),
-    token: str = Query(default=None),
-    user=Depends(get_current_user_or_token),
-):
-    """Get proxied HLS manifest for channel.
+    channel_id: str,
+    url: str | None,
+    *,
+    token: str | None = None,
+    session_id: str | None = None,
+) -> StreamingResponse:
+    """Fetch, rewrite and serve a playlist.
 
-    If `url` query param is provided, fetches that URL (for nested playlists).
-    Otherwise fetches the channel's stream_url from M3U data.
-    Token is passed through to rewritten segment URLs for HLS auth.
+    If `url` is given, fetches that URL (for nested playlists). Otherwise
+    fetches the channel's stream_url from M3U data. With a session, every
+    rewritten URL goes through the session's routes; without one, the token is
+    passed through to rewritten URLs for HLS auth (the legacy routes).
     """
-    log.debug("GET /stream request for channel: {}", channel_id)
     started = monotonic()
     attempts = 0
     try:
-        if url:
-            # Nested playlist - decode URL
-            manifest_url = _decode(url, "stream")
-        else:
-            # Initial request - get channel stream URL
-            channel = await run_feed_lookup(get_channel_by_id, channel_id)
-            if not channel:
-                raise HTTPException(status_code=404, detail="Channel not found")
-            manifest_url = channel.stream_url
-
-        # Validate URL is from ErsatzTV
-        if not is_ersatztv_media_url(manifest_url, playlist=True):
-            raise HTTPException(status_code=400, detail="Invalid stream URL")
+        manifest_url = await _manifest_url(channel_id, url)
 
         # Fetch manifest with retry for cold stream startup
         # ErsatzTV needs time to initialize transcoding on first access.
@@ -262,19 +262,20 @@ async def get_stream(
                     status_code=503, detail="Stream unavailable - cold start timeout"
                 ) from last_error
 
-        # Rewrite manifest with token for segment auth
-        # Use final URL after redirects for correct base path
+        # Rewrite every URL through the session's routes, or the legacy
+        # routes with the token. Use final URL after redirects for correct base path
         final_url = str(response.url)
-        rewritten = rewrite_manifest(response.text, final_url, token=token, channel_id=channel_id)
+        if session_id:
+            rewritten = rewrite_manifest(response.text, final_url, session_id=session_id)
+        else:
+            rewritten = rewrite_manifest(
+                response.text, final_url, token=token, channel_id=channel_id
+            )
 
         return StreamingResponse(
             iter([rewritten.encode()]),
             media_type="application/vnd.apple.mpegurl",
-            headers={
-                "Access-Control-Allow-Origin": "*",  # Chromecast needs CORS
-                "Content-Security-Policy": "default-src 'none'; sandbox",
-                "X-Content-Type-Options": "nosniff",
-            },
+            headers=STREAM_HEADERS,
         )
 
     except HTTPException:
@@ -299,29 +300,15 @@ async def get_stream(
         raise _internal_error() from None
 
 
-@router.head("/segments/{encoded_url:path}")
-async def head_segment(
-    encoded_url: str = Path(...),
-    token: str = Query(default=None),
-    user=Depends(get_current_user_or_token),
-):
-    """HEAD request for segment - returns headers only."""
-    log.debug("HEAD /segments request")
+async def _head_segment(encoded_url: str) -> Response:
+    """Headers only for a segment."""
     try:
         segment_url = _decode(encoded_url, "segment")
 
         if not is_ersatztv_media_url(segment_url):
             raise HTTPException(status_code=400, detail="Invalid segment URL")
 
-        return Response(
-            status_code=200,
-            media_type="video/mp2t",
-            headers={
-                "Access-Control-Allow-Origin": "*",
-                "Content-Security-Policy": "default-src 'none'; sandbox",
-                "X-Content-Type-Options": "nosniff",
-            },
-        )
+        return Response(status_code=200, media_type="video/mp2t", headers=STREAM_HEADERS)
     except HTTPException:
         raise
     except UPSTREAM_ERRORS as e:
@@ -332,14 +319,8 @@ async def head_segment(
         raise _internal_error() from None
 
 
-@router.get("/segments/{encoded_url:path}")
-async def get_segment(
-    encoded_url: str = Path(...),
-    token: str = Query(default=None),
-    user=Depends(get_current_user_or_token),
-):
-    """Proxy HLS segment from ErsatzTV."""
-    log.debug("GET /segments request")
+async def _get_segment(encoded_url: str) -> StreamingResponse:
+    """Proxy an HLS segment from ErsatzTV."""
     try:
         segment_url = _decode(encoded_url, "segment")
 
@@ -409,11 +390,7 @@ async def get_segment(
         return StreamingResponse(
             stream_segment(),
             media_type=content_type,
-            headers={
-                "Access-Control-Allow-Origin": "*",  # Chromecast needs CORS
-                "Content-Security-Policy": "default-src 'none'; sandbox",
-                "X-Content-Type-Options": "nosniff",
-            },
+            headers=STREAM_HEADERS,
         )
 
     except HTTPException:
@@ -427,6 +404,165 @@ async def get_segment(
     except Exception:
         log.exception("Segment error")
         raise _internal_error() from None
+
+
+@router.head("/stream/{channel_id}")
+async def head_stream(
+    channel_id: str = Path(...),
+    url: str = Query(default=None),
+    token: str = Query(default=None),
+    user=Depends(get_current_user_or_token),
+):
+    """HEAD request for stream - returns headers only (for video.js preflight)."""
+    log.debug("HEAD /stream request for channel: {}", channel_id)
+    return await _head_stream(channel_id, url)
+
+
+@router.get("/stream/{channel_id}")
+async def get_stream(
+    request: Request,
+    channel_id: str = Path(...),
+    url: str = Query(default=None),
+    token: str = Query(default=None),
+    user=Depends(get_current_user_or_token),
+):
+    """Get proxied HLS manifest for channel (legacy ?token= route, removed in R4).
+
+    If `url` query param is provided, fetches that URL (for nested playlists).
+    Otherwise fetches the channel's stream_url from M3U data.
+    Token is passed through to rewritten segment URLs for HLS auth.
+    """
+    log.debug("GET /stream request for channel: {}", channel_id)
+    return await _get_stream(request, channel_id, url, token=token)
+
+
+@router.head("/segments/{encoded_url:path}")
+async def head_segment(
+    encoded_url: str = Path(...),
+    token: str = Query(default=None),
+    user=Depends(get_current_user_or_token),
+):
+    """HEAD request for segment - returns headers only."""
+    log.debug("HEAD /segments request")
+    return await _head_segment(encoded_url)
+
+
+@router.get("/segments/{encoded_url:path}")
+async def get_segment(
+    encoded_url: str = Path(...),
+    token: str = Query(default=None),
+    user=Depends(get_current_user_or_token),
+):
+    """Proxy HLS segment from ErsatzTV (legacy ?token= route, removed in R4)."""
+    log.debug("GET /segments request")
+    return await _get_segment(encoded_url)
+
+
+class StreamSessionRequest(BaseModel):
+    """Request to open a stream session for a channel."""
+
+    channel_id: ChannelId = Field(alias="channelId")
+
+    model_config = {"populate_by_name": True}
+
+
+class StreamSessionResponse(BaseModel):
+    """A stream session: play `url`, which carries no credential."""
+
+    session_id: str = Field(alias="sessionId")
+    url: str
+
+    model_config = {"populate_by_name": True}
+
+
+_SESSION_ID = re.compile(r"[A-Za-z0-9_-]{32}")
+
+
+def _live_session(session_id: str) -> StreamSession:
+    """The session a request names, kept alive by that request; else a 404.
+
+    Checked before anything reaches ErsatzTV. The session id is the capability:
+    the session routes take no token, so no credential is ever in their URLs.
+    """
+    session = stream_sessions.get(session_id) if _SESSION_ID.fullmatch(session_id) else None
+    if session is None:
+        raise HTTPException(status_code=404, detail="Stream session not found")
+    return session
+
+
+@router.post("/session", response_model=StreamSessionResponse)
+async def create_stream_session(
+    body: StreamSessionRequest,
+    # Authorization header only: a query token must not work here
+    user: TokenPayload = Depends(get_current_user),
+) -> StreamSessionResponse:
+    """Open a stream session for a channel and return the playlist URL to play."""
+    log.debug("POST /session request for channel: {}", body.channel_id)
+    try:
+        channel = await run_feed_lookup(get_channel_by_id, body.channel_id)
+        if not channel:
+            raise HTTPException(status_code=404, detail="Channel not found")
+        session = stream_sessions.create(user.account_key, body.channel_id)
+    except HTTPException:
+        raise
+    except StreamSessionLimitError:
+        log.warning("Stream session limit reached")
+        raise HTTPException(status_code=429, detail="Too many open streams") from None
+    except UPSTREAM_ERRORS as e:
+        log.error("Failed to open a stream session for channel {}: {}", body.channel_id, e)
+        raise HTTPException(status_code=503, detail="ErsatzTV service unavailable") from None
+    except Exception:
+        log.exception("Failed to open a stream session for channel {}", body.channel_id)
+        raise _internal_error() from None
+    return StreamSessionResponse(
+        session_id=session.id, url=stream_sessions.manifest_path(session.id)
+    )
+
+
+# The .m3u8 suffix lets Vidstack recognise HLS without probing
+@router.head("/s/{session_id}/stream.m3u8")
+async def head_session_stream(
+    session_id: str = Path(...),
+    url: str = Query(default=None),
+):
+    """HEAD request for a session's playlist - returns headers only."""
+    session = _live_session(session_id)
+    log.debug("HEAD session stream request for channel: {}", session.channel_id)
+    return await _head_stream(session.channel_id, url)
+
+
+@router.get("/s/{session_id}/stream.m3u8")
+async def get_session_stream(
+    request: Request,
+    session_id: str = Path(...),
+    url: str = Query(default=None),
+):
+    """Get a session's proxied HLS manifest (a nested playlist when `url` is given)."""
+    session = _live_session(session_id)
+    log.debug("GET session stream request for channel: {}", session.channel_id)
+    return await _get_stream(request, session.channel_id, url, session_id=session.id)
+
+
+@router.head("/s/{session_id}/segments/{encoded_url:path}")
+async def head_session_segment(
+    session_id: str = Path(...),
+    encoded_url: str = Path(...),
+):
+    """HEAD request for a session's segment - returns headers only."""
+    _live_session(session_id)
+    log.debug("HEAD session segment request")
+    return await _head_segment(encoded_url)
+
+
+@router.get("/s/{session_id}/segments/{encoded_url:path}")
+async def get_session_segment(
+    session_id: str = Path(...),
+    encoded_url: str = Path(...),
+):
+    """Proxy a session's HLS segment from ErsatzTV."""
+    _live_session(session_id)
+    log.debug("GET session segment request")
+    return await _get_segment(encoded_url)
 
 
 @router.get("/logos/{channel_id}")
