@@ -1,5 +1,6 @@
 """Centralized logging configuration using loguru."""
 
+import inspect
 import logging
 import re
 import sys
@@ -65,8 +66,8 @@ class InterceptHandler(logging.Handler):
             level = record.levelno
 
         # Find caller from where originated the logged message
-        frame, depth = logging.currentframe(), 2
-        while frame and frame.f_code.co_filename == logging.__file__:
+        frame, depth = inspect.currentframe(), 0
+        while frame and (depth == 0 or frame.f_code.co_filename == logging.__file__):
             frame = frame.f_back
             depth += 1
 
@@ -75,7 +76,33 @@ class InterceptHandler(logging.Handler):
         if record.exc_info and record.exc_info[1] is not None:
             kind, value, traceback = record.exc_info
             record.exc_info = (kind, Exception(redact_credentials(str(value))), traceback)
-        logger.opt(depth=depth, exception=record.exc_info).log(level, record.msg)
+        logger.bind(logger_name=record.name).opt(depth=depth, exception=record.exc_info).log(
+            level, record.msg
+        )
+
+
+# Polled and streamed paths whose access lines are pure volume. NPM keeps the
+# full access log, so uvicorn only logs the rest.
+_QUIET_ACCESS_PATHS = ("/api/health", "/api/admin/status")
+_QUIET_ACCESS_PREFIXES = (
+    "/api/ersatztv/segments/",
+    "/api/ersatztv/stream/",
+    "/api/highlight/status/",
+)
+
+
+class QuietAccessFilter(logging.Filter):
+    """Drop uvicorn.access lines for health checks, status polls and media."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        # uvicorn.access args: (client_addr, method, full_path, http_version, status_code)
+        if not isinstance(record.args, tuple) or len(record.args) < 3:
+            return True
+        path = str(record.args[2]).split("?", 1)[0]
+        return path not in _QUIET_ACCESS_PATHS and not path.startswith(_QUIET_ACCESS_PREFIXES)
+
+
+_quiet_access_filter = QuietAccessFilter()
 
 
 def configure_logging() -> None:
@@ -83,6 +110,7 @@ def configure_logging() -> None:
 
     Removes default handler and adds new handler with appropriate format.
     Also intercepts standard library logging for consistent formatting.
+    Safe to call more than once.
     """
     # Remove default loguru handler
     logger.remove()
@@ -114,9 +142,19 @@ def configure_logging() -> None:
             level=log_level,
         )
 
-    # Intercept standard library logging (uvicorn, FastAPI, etc.)
-    logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)
+    # Intercept standard library logging (uvicorn, FastAPI, etc.). The root
+    # level matches the sink, so records loguru would drop are never built.
+    logging.basicConfig(handlers=[InterceptHandler()], level=logger.level(log_level).no, force=True)
 
-    # Set specific loggers to appropriate levels to reduce noise
+    # Only the root logger intercepts: these loggers hand their records up to it,
+    # so each line is written once (uvicorn.error used to reach two handlers)
     for logger_name in ["uvicorn", "uvicorn.error", "uvicorn.access", "fastapi"]:
-        logging.getLogger(logger_name).handlers = [InterceptHandler()]
+        logging.getLogger(logger_name).handlers = []
+        logging.getLogger(logger_name).propagate = True
+
+    # One INFO line per upstream request (and ~13 httpcore DEBUG records) is noise;
+    # services log upstream failures themselves
+    for logger_name in ["httpx", "httpcore"]:
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
+
+    logging.getLogger("uvicorn.access").addFilter(_quiet_access_filter)

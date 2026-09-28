@@ -1,6 +1,7 @@
 """Structured presence events (session.*, watch.*) emitted for log-based analytics."""
 
 import json
+from datetime import UTC, datetime, timedelta
 from io import StringIO
 
 import pytest
@@ -67,6 +68,72 @@ def test_programme_rollover_on_same_channel_emits_nothing(events) -> None:
     recs = [r for r in events() if r["event"].startswith("watch.")]
     assert _names(recs) == ["watch.start"]
     assert presence._active_users["s1"].current_programme == "Second"
+
+
+def test_watch_stop_carries_the_last_programme(events) -> None:
+    presence.track_user("s1", "jon", "ersatztv")
+    presence.update_user_channel("s1", "Cinema", "First", "ersatztv", channel_id="C1")
+    presence.update_user_channel("s1", "Cinema", "Second", "ersatztv", channel_id="C1")
+    presence.update_user_channel("s1", "Other", None, "ersatztv", channel_id="C2")
+
+    stops = [r for r in events() if r["event"] == "watch.stop"]
+    assert [r["programme"] for r in stops] == ["Second"]
+
+
+def test_first_title_after_a_null_start_emits_programme_change_once(events) -> None:
+    presence.track_user("s1", "jon", "live")
+    presence.update_user_channel("s1", "RDS", None, "live", channel_id="uuid-rds")
+    presence.update_user_channel("s1", "RDS", "Hockey", "live", channel_id="uuid-rds")
+    presence.update_user_channel("s1", "RDS", None, "live", channel_id="uuid-rds")
+    presence.update_user_channel("s1", "RDS", "News", "live", channel_id="uuid-rds")
+
+    recs = [r for r in events() if r["event"] != "session.start"]
+    assert _names(recs) == ["watch.start", "programme.change"]
+    assert recs[0]["programme"] is None
+    assert recs[1]["programme"] == "Hockey"
+    assert recs[1]["channel"] == "RDS" and recs[1]["channel_id"] == "uuid-rds"
+    assert "duration_s" not in recs[1]
+
+
+def test_watch_started_with_a_title_emits_no_programme_change(events) -> None:
+    presence.track_user("s1", "jon", "live")
+    presence.update_user_channel("s1", None, "Stray title", "live")
+    presence.update_user_channel("s1", "RDS", "Hockey", "live", channel_id="uuid-rds")
+    presence.update_user_channel("s1", "TVA", None, "live", channel_id="uuid-tva")
+    presence.update_user_channel("s1", "TVA", "News", "live", channel_id="uuid-tva")
+
+    recs = [r for r in events() if r["event"] != "session.start"]
+    assert _names(recs) == ["watch.start", "watch.stop", "watch.start", "programme.change"]
+    assert recs[3]["programme"] == "News"
+
+
+def test_stale_sweep_ends_watch_and_session_at_last_activity(events) -> None:
+    presence.track_user("s1", "jon", "live")
+    presence.update_user_channel("s1", "RDS", channel_id="uuid-rds")
+    user = presence._active_users["s1"]
+    now = datetime.now(UTC)
+    user.connected_since = now - timedelta(seconds=300)
+    user.channel_since = now - timedelta(seconds=200)
+    user.last_activity = now - timedelta(seconds=80)
+
+    presence.cleanup_stale_users(timeout_seconds=60)
+
+    stop, session_stop = events()[-2:]
+    assert stop["event"] == "watch.stop" and stop["duration_s"] == pytest.approx(120, abs=1)
+    assert session_stop["event"] == "session.stop"
+    assert session_stop["duration_s"] == pytest.approx(220, abs=1)
+
+
+def test_stale_sweep_of_a_watch_started_after_the_last_ping_is_zero(events) -> None:
+    presence.track_user("s1", "jon", "live")
+    user = presence._active_users["s1"]
+    user.last_activity = datetime.now(UTC) - timedelta(seconds=80)
+    presence.update_user_channel("s1", "RDS", channel_id="uuid-rds")
+
+    presence.cleanup_stale_users(timeout_seconds=60)
+
+    stop = next(r for r in events() if r["event"] == "watch.stop")
+    assert stop["duration_s"] == 0.0
 
 
 def test_disconnect_while_watching_stops_watch_before_session(events) -> None:

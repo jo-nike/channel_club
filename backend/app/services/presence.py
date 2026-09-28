@@ -37,6 +37,7 @@ class UserPresence:
     current_channel: str | None = None
     current_channel_id: str | None = None
     current_programme: str | None = None
+    programme_seen: bool = False  # A title was known at some point in the current watch
     channel_since: datetime | None = None
     connected_since: datetime = field(default_factory=lambda: datetime.now(UTC))
     last_activity: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -52,17 +53,21 @@ def _emit(event: str, message: str, **fields: object) -> None:
     log.bind(event=event, **fields).info(message)
 
 
-def _seconds_since(start: datetime | None) -> float:
+def _seconds_since(start: datetime | None, end: datetime | None = None) -> float:
     if start is None:
         return 0.0
-    return round((datetime.now(UTC) - start).total_seconds(), 1)
+    # A watch can start after the last ping, so an end at that ping is before it
+    return max(0.0, round(((end or datetime.now(UTC)) - start).total_seconds(), 1))
 
 
-def _close_watch(user: UserPresence, reason: str) -> None:
-    """Emit watch.stop for the user's current channel, if any, and clear it."""
+def _close_watch(user: UserPresence, reason: str, end: datetime | None = None) -> None:
+    """Emit watch.stop for the user's current channel, if any, and clear it.
+
+    ``end`` is when the watch ended, if not now (a stale sweep passes the last ping).
+    """
     if user.current_channel is None and user.current_channel_id is None:
         return
-    duration = _seconds_since(user.channel_since)
+    duration = _seconds_since(user.channel_since, end)
     _emit(
         "watch.stop",
         f"User {user.username} stopped watching {user.current_channel} "
@@ -72,19 +77,21 @@ def _close_watch(user: UserPresence, reason: str) -> None:
         view=user.view,
         channel=user.current_channel,
         channel_id=user.current_channel_id,
+        programme=user.current_programme,
         duration_s=duration,
         reason=reason,
     )
     user.current_channel = None
     user.current_channel_id = None
     user.current_programme = None
+    user.programme_seen = False
     user.channel_since = None
 
 
-def _close_session(user: UserPresence, reason: str) -> None:
+def _close_session(user: UserPresence, reason: str, end: datetime | None = None) -> None:
     """Emit watch.stop (if watching) and session.stop for a departing user."""
-    _close_watch(user, reason)
-    duration = _seconds_since(user.connected_since)
+    _close_watch(user, reason, end)
+    duration = _seconds_since(user.connected_since, end)
     _emit(
         "session.stop",
         f"User {user.username} disconnected from {user.view} view after {duration}s ({reason})",
@@ -177,7 +184,9 @@ def update_user_channel(
     """Update user's current channel, programme, and optionally view type.
 
     Emits ``watch.stop`` / ``watch.start`` only when the channel itself changes.
-    A programme title rollover on the same channel updates state silently.
+    The first title to arrive during a watch that started without one (the guide
+    loads after the switch) emits ``programme.change``. Later programme title
+    rollovers on the same channel update state silently.
 
     Args:
         connection_id: The connection ID to update.
@@ -204,11 +213,31 @@ def update_user_channel(
         )
         user.view = view
 
+    first_title = (
+        not channel_changed
+        and user.current_channel is not None
+        and not user.programme_seen
+        and programme_title is not None
+    )
     user.current_programme = programme_title
+
+    if first_title:
+        user.programme_seen = True
+        _emit(
+            "programme.change",
+            f"User {user.username} watching {user.current_channel}: {programme_title}",
+            user=user.username,
+            session=connection_id,
+            view=user.view,
+            channel=user.current_channel,
+            channel_id=user.current_channel_id,
+            programme=programme_title,
+        )
 
     if channel_changed and channel_name is not None:
         user.current_channel = channel_name
         user.current_channel_id = channel_id
+        user.programme_seen = programme_title is not None
         user.channel_since = datetime.now(UTC)
         _emit(
             "watch.start",
@@ -315,7 +344,8 @@ def cleanup_stale_users(timeout_seconds: int = STALE_USER_TIMEOUT_SECONDS) -> in
     for cid in stale:
         user = _active_users.pop(cid, None)
         if user:
-            _close_session(user, "stale")
+            # The tab went quiet at its last ping, not at this sweep
+            _close_session(user, "stale", user.last_activity)
     if stale:
         # Import here to avoid a circular dependency (presence_broadcast reads presence)
         from app.services import presence_broadcast
