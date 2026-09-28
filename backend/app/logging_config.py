@@ -83,7 +83,7 @@ class InterceptHandler(logging.Handler):
 
 # Polled and streamed paths whose access lines are pure volume. NPM keeps the
 # full access log, so uvicorn only logs the rest.
-_QUIET_ACCESS_PATHS = ("/api/health", "/api/admin/status")
+_QUIET_ACCESS_PATHS = ("/api/health", "/api/health/deps", "/api/admin/status")
 _QUIET_ACCESS_PREFIXES = (
     "/api/ersatztv/segments/",
     "/api/ersatztv/stream/",
