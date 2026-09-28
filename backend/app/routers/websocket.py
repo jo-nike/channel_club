@@ -213,6 +213,9 @@ def _is_another_members_name(nickname: str, username: str) -> bool:
             and keep a nickname one of their own connections already has.
     """
     folded = nickname.casefold()
+    # Their own sign-in name stays theirs, even while someone else has it as a nickname
+    if folded == _normalize_nickname(username).casefold():
+        return False
     taken = {chat.SYSTEM_USERNAME}
     for user in presence.get_active_users().values():
         if user.username != username:

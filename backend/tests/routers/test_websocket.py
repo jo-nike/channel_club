@@ -2176,6 +2176,32 @@ class TestNicknameTaken:
         assert refusal["nickname"] == nickname
         assert kept is None
 
+    def test_own_sign_in_name_is_allowed_while_another_member_has_it_as_a_nickname(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setattr(settings, "chat_enabled", True)
+        bob = create_access_token({"sub": "bob", "role": "viewer"})
+        other = create_access_token({"sub": "other", "role": "viewer"})
+
+        with ws_connect(client, other) as ws1:
+            ws1.receive_json()  # connection_ack
+            ws1.receive_json()  # chat_history
+            # Taken while bob is offline
+            ws1.send_json({"type": "set_nickname", "nickname": "Bob"})
+            ws1.send_json({"type": "ping"})
+            assert ws1.receive_json()["type"] == "pong"
+
+            with ws_connect(client, bob) as ws2:
+                ws2.receive_json()  # connection_ack
+                ws2.receive_json()  # chat_history
+                ws2.send_json({"type": "set_nickname", "nickname": "BOB"})
+                ws2.send_json({"type": "ping"})
+                answer = ws2.receive_json()
+                kept = presence_of("bob").nickname
+
+        assert answer["type"] == "pong"
+        assert kept == "BOB"
+
     def test_nickname_is_stored_normalized(
         self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
     ):
