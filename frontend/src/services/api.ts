@@ -639,7 +639,8 @@ export async function stopCastSession(sessionId: string): Promise<void> {
  * Uses absolute URL so Chromecast can access it.
  */
 export function getCastHlsUrl(sessionId: string): string {
-  const token = getAuthToken()
+  // No ?token=: the session id is the capability, the route never reads a token,
+  // and a JWT here would end up in proxy logs and on the cast device.
   const baseUrl = getCastBaseUrl()
-  return `${baseUrl}/cast/hls/${sessionId}/playlist.m3u8${token ? `?token=${token}` : ''}`
+  return `${baseUrl}/cast/hls/${sessionId}/playlist.m3u8`
 }
