@@ -12,7 +12,7 @@ from collections.abc import Awaitable
 from contextlib import suppress
 from datetime import datetime
 from pathlib import Path as FilePath
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.responses import FileResponse, Response
@@ -21,7 +21,7 @@ from pydantic import BaseModel
 
 from app.config import settings
 from app.models.auth import TokenPayload
-from app.models.channel import ChannelId, validate_channel_id
+from app.models.channel import ChannelId
 from app.routers.auth_deps import get_current_user, get_current_user_or_token
 from app.services.highlight import Capture, highlight_service
 from app.services.media_export import encode_file, media_duration, owned_thread
@@ -140,7 +140,7 @@ async def upload_highlight(
 
 @router.get("/status/{channel_id}", response_model=HighlightStatusResponse)
 async def get_highlight_status(
-    channel_id: ChannelId = Path(..., description="Channel ID to check status for"),
+    channel_id: Annotated[ChannelId, Path(description="Channel ID to check status for")],
     user: TokenPayload = Depends(get_current_user),
 ) -> HighlightStatusResponse:
     """Get highlight recording status for a channel.
@@ -148,10 +148,6 @@ async def get_highlight_status(
     Returns whether recording is active and buffer fill level.
     Auto-starts recording for ErsatzTV channels if not already recording.
     """
-    try:
-        validate_channel_id(channel_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from None
     log.debug("GET /highlight/status/{} request", channel_id)
 
     # Auto-start recording if enabled but not already recording
@@ -172,7 +168,7 @@ async def get_highlight_status(
 
 @router.post("/{channel_id}/capture", response_model=CaptureResponse)
 async def create_capture(
-    channel_id: ChannelId = Path(..., description="Channel ID to capture"),
+    channel_id: Annotated[ChannelId, Path(description="Channel ID to capture")],
     user: TokenPayload = Depends(get_current_user),
 ) -> CaptureResponse:
     """Snapshot the recent buffer server-side; the editor streams it by range."""
@@ -310,7 +306,7 @@ async def export_preview(
 
 @router.post("/{channel_id}")
 async def save_highlight(
-    channel_id: ChannelId = Path(..., description="Channel ID to save highlight for"),
+    channel_id: Annotated[ChannelId, Path(description="Channel ID to save highlight for")],
     format: Literal["mp4", "webm"] = Query("mp4", description="Output format: mp4 or webm"),
     start_time: float | None = Query(
         None,

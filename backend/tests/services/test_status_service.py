@@ -1,5 +1,6 @@
 """Tests for status service."""
 
+from collections.abc import Callable
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -8,6 +9,7 @@ import pytest
 
 from app.models.status import DispatchrrStatus, EPGHealthStatus, ErsatzTVStatus
 from app.services import status_service
+from app.services.dispatcharr import DispatchrrUnavailableError
 from app.services.epg_service import EPGService
 from app.services.status_service import (
     get_dispatcharr_status,
@@ -79,7 +81,7 @@ class TestGetErsatzTVStatus:
 
         with patch(
             "app.services.status_service._fetch_ersatztv_data",
-            return_value=(sessions_data, channels_data, profiles_data),
+            return_value=(sessions_data, channels_data, profiles_data, None),
         ):
             status = await get_ersatztv_status()
 
@@ -101,7 +103,7 @@ class TestGetErsatzTVStatus:
         """Should return online status with no active sessions."""
         with patch(
             "app.services.status_service._fetch_ersatztv_data",
-            return_value=([], [], []),
+            return_value=([], [], [], None),
         ):
             status = await get_ersatztv_status()
 
@@ -116,7 +118,8 @@ class TestGetErsatzTVStatus:
         with (
             patch(
                 "app.services.status_service._fetch_ersatztv_data",
-                return_value=(None, [], []),  # sessions is None = fetch failed
+                # sessions is None = fetch failed
+                return_value=(None, [], [], "sessions API connection failed"),
             ),
             patch("app.services.status_service.httpx.AsyncClient") as mock_client_class,
         ):
@@ -138,7 +141,7 @@ class TestGetErsatzTVStatus:
         with (
             patch(
                 "app.services.status_service._fetch_ersatztv_data",
-                return_value=(None, [], []),
+                return_value=(None, [], [], "sessions API timeout"),
             ),
             patch("app.services.status_service.httpx.AsyncClient") as mock_client_class,
         ):
@@ -162,7 +165,7 @@ class TestGetErsatzTVStatus:
         # Sessions succeeds, channels and profiles return empty (simulating 404)
         with patch(
             "app.services.status_service._fetch_ersatztv_data",
-            return_value=(sessions_data, [], []),
+            return_value=(sessions_data, [], [], None),
         ):
             status = await get_ersatztv_status()
 
@@ -378,6 +381,137 @@ class TestGetSystemStatus:
 
         assert status.ersatztv.online is True
         assert status.dispatcharr.online is False
+
+
+def _install_upstream(
+    monkeypatch: pytest.MonkeyPatch, handler: Callable[[httpx.Request], httpx.Response]
+) -> None:
+    """Route every status_service httpx client through a mock transport."""
+    factory = httpx.AsyncClient
+    monkeypatch.setattr(
+        status_service.httpx,
+        "AsyncClient",
+        lambda **kwargs: factory(transport=httpx.MockTransport(handler), **kwargs),
+    )
+
+
+def _with_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        status_service, "dispatcharr_auth_headers", lambda: {"Authorization": "ApiKey synthetic"}
+    )
+
+
+class TestDegradedReasons:
+    """A service that answers but fails part of its check says why (F-01)."""
+
+    @pytest.mark.parametrize("code", [401, 403])
+    async def test_rejected_dispatcharr_key_is_degraded_with_reason(
+        self, monkeypatch: pytest.MonkeyPatch, code: int
+    ) -> None:
+        def upstream(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/proxy/ts/status":
+                return httpx.Response(code)
+            return httpx.Response(200, json=[])
+
+        _install_upstream(monkeypatch, upstream)
+        _with_api_key(monkeypatch)
+
+        status = await get_dispatcharr_status()
+
+        assert status.online is True
+        assert status.degraded is True
+        assert status.error == f"API key rejected (HTTP {code})"
+
+    async def test_missing_stats_endpoint_is_not_blamed_on_the_key(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def upstream(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/proxy/ts/status":
+                return httpx.Response(404)
+            return httpx.Response(200, json=[])
+
+        _install_upstream(monkeypatch, upstream)
+        _with_api_key(monkeypatch)
+
+        status = await get_dispatcharr_status()
+
+        assert status.online is True
+        assert status.degraded is True
+        assert status.error == "stats endpoint missing (HTTP 404)"
+
+    async def test_missing_dispatcharr_key_is_degraded(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _install_upstream(monkeypatch, lambda request: httpx.Response(200, json=[]))
+
+        def no_key() -> dict[str, str]:
+            raise DispatchrrUnavailableError("no key")
+
+        monkeypatch.setattr(status_service, "dispatcharr_auth_headers", no_key)
+
+        status = await get_dispatcharr_status()
+
+        assert status.online is True
+        assert status.degraded is True
+        assert status.error == "Auth required for stats"
+
+    async def test_real_dispatcharr_timeout_reports_timeout(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def upstream(request: httpx.Request) -> httpx.Response:
+            raise httpx.ReadTimeout("", request=request)
+
+        _install_upstream(monkeypatch, upstream)
+        _with_api_key(monkeypatch)
+
+        status = await get_dispatcharr_status()
+
+        assert status.online is False
+        assert status.error == "timeout"
+
+    async def test_failing_ersatztv_sessions_api_is_degraded_with_reason(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def upstream(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/api/sessions":
+                return httpx.Response(500)
+            return httpx.Response(200, json=[])
+
+        _install_upstream(monkeypatch, upstream)
+
+        status = await get_ersatztv_status()
+
+        assert status.online is True
+        assert status.degraded is True
+        assert status.error == "sessions API HTTP 500"
+
+    async def test_real_ersatztv_connect_failure_reports_the_reason(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def upstream(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("", request=request)
+
+        _install_upstream(monkeypatch, upstream)
+
+        status = await get_ersatztv_status()
+
+        assert status.online is False
+        assert status.error == "connection failed"
+
+    async def test_healthy_services_are_not_degraded(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def upstream(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/proxy/ts/status":
+                return httpx.Response(200, json={"channels": []})
+            return httpx.Response(200, json=[])
+
+        _install_upstream(monkeypatch, upstream)
+        _with_api_key(monkeypatch)
+
+        ersatztv = await get_ersatztv_status()
+        dispatcharr = await get_dispatcharr_status()
+
+        assert (ersatztv.online, ersatztv.degraded, ersatztv.error) == (True, False, None)
+        assert (dispatcharr.online, dispatcharr.degraded, dispatcharr.error) == (True, False, None)
 
 
 class _RecordingEPGService(EPGService):

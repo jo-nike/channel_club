@@ -7,7 +7,7 @@ from loguru import logger
 
 from app.config import settings
 from app.models.auth import TokenPayload
-from app.services import app_settings
+from app.services import app_settings, plex
 from app.services.auth import verify_token
 
 log = logger.bind(router="auth_deps")
@@ -79,40 +79,43 @@ async def get_current_user_or_token(
     )
 
 
-def _admin_in_current_config(username: str) -> bool:
-    """Return True if the CURRENT configuration could still grant this subject admin.
+async def _admin_in_current_config(user: TokenPayload) -> bool:
+    """Return True if the CURRENT configuration could still grant this user admin.
 
     The role is baked into a long-lived token at login, so a config change that
     revokes admin would otherwise persist until the token expires. This re-derives
-    the grant from settings on every admin request. It is deliberately fail-safe:
-    it returns True whenever *any* current source could mint admin for this
-    subject, so a legitimate admin is never locked out by a grant the token alone
-    cannot prove. Only a subject with no possible current admin source is treated
-    as a stale claim.
+    the grant from settings on every admin request. Only a user with no possible
+    current admin source is treated as a stale claim.
 
     Sources that mint role="admin" (routers.auth.login + services.plex.determine_role):
-      - the local admin username (ADMIN_USERNAME)
+      - the local admin username (ADMIN_USERNAME), for a local token (no plex_id)
       - the Plex admin username list (PLEX_ADMIN_USERS_STR)
       - PLEX_DEFAULT_ROLE == "admin" (every authenticated Plex user is admin)
-      - the Plex server owner: a live plex.tv lookup keyed on the Plex user *id*;
-        the token carries the id, but settings alone can't answer the lookup
+      - the Plex server owner: the token's plex_id must equal the owner id from
+        plex.tv (cached, and warmed at boot)
 
-    All checks read from settings, so this costs no network call.
+    Only the owner check can cost a network call, and only on a cold cache.
     """
-    if username == settings.admin_username:
+    if user.sub == settings.admin_username and user.plex_id is None:
         return True
-    if username in settings.plex_admin_users:
+    if user.sub in settings.plex_admin_users:
         return True
-    # Everyone-is-admin, or an owner grant we cannot disprove without the Plex
-    # user id + a live plex.tv lookup — trust the claim rather than risk locking
-    # the real server owner out. Residual staleness (a demoted owner, or a user
-    # whose Plex share was revoked, keeps admin until the token expires) is the
-    # accepted stateless-JWT tradeoff; closing it needs a session store or a
-    # per-request Plex re-check.
-    return bool(
-        settings.plex_auth_enabled
-        and (settings.plex_default_role == "admin" or settings.plex_server_token)
-    )
+    if not settings.plex_auth_enabled:
+        return False
+    if settings.plex_default_role == "admin":
+        return True
+    # The owner clause covers Plex sign-ins only: a token without a plex_id
+    # cannot be the owner's.
+    if not settings.plex_server_token or user.plex_id is None:
+        return False
+    owner_id = await plex.get_server_owner_id()
+    if owner_id is None:
+        # plex.tv did not answer: trust a Plex token's claim rather than lock
+        # the real owner out. Residual staleness (a demoted owner, or a user
+        # whose Plex share was revoked, keeps admin until the token expires) is
+        # the accepted stateless-JWT tradeoff.
+        return True
+    return user.plex_id == owner_id
 
 
 async def require_admin(
@@ -124,8 +127,8 @@ async def require_admin(
     the claim alone is not fully trusted: it is re-derived against the current
     configuration, which demotes a user removed from ADMIN_USERNAME or
     PLEX_ADMIN_USERS_STR on their very next request instead of at expiry. The
-    re-derivation is fail-safe (see _admin_in_current_config) so it can never
-    lock out a legitimately-configured admin.
+    server owner is recognised by Plex account id, so it can never lock out a
+    legitimately-configured admin (see _admin_in_current_config).
 
     Args:
         current_user: The authenticated user from get_current_user.
@@ -143,7 +146,7 @@ async def require_admin(
             detail="Admin access required",
         )
 
-    if _admin_in_current_config(current_user.sub):
+    if await _admin_in_current_config(current_user):
         return current_user
 
     # role="admin" in the token, but no current configuration could grant it to
@@ -172,7 +175,7 @@ async def require_channel_control(
     Raises:
         HTTPException: 403 if the user is not allowed to change the channel.
     """
-    if current_user.role == "admin" and _admin_in_current_config(current_user.sub):
+    if current_user.role == "admin" and await _admin_in_current_config(current_user):
         return current_user
 
     if app_settings.user_channel_selection_enabled():

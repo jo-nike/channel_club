@@ -1,14 +1,23 @@
 """Integration tests for the main FastAPI app."""
 
-from datetime import UTC
+import json
+import os
+import subprocess
+import sys
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from unittest.mock import patch
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
 from app.config import settings
 from app.main import app
 from app.metadata import APP_VERSION
+from app.services import epg_service
+from app.services.auth import create_access_token
 
 
 @pytest.fixture
@@ -224,3 +233,154 @@ def test_sec01_empty_environment_secret(monkeypatch):
     assert config.jwt_secret == ""
     with patch("app.main.settings", config), pytest.raises(RuntimeError, match="JWT_SECRET"):
         validate_auth_configuration()
+
+
+PREFLIGHT = {"Origin": "http://localhost:5173", "Access-Control-Request-Method": "PUT"}
+
+
+@pytest.fixture
+def reloaded_main(monkeypatch):
+    """Rebuild app.main under patched settings; restore the default app afterwards."""
+    import importlib
+
+    import app.main as main
+
+    def rebuild(**overrides):
+        for name, value in overrides.items():
+            monkeypatch.setattr(settings, name, value)
+        return importlib.reload(main).app
+
+    yield rebuild
+    monkeypatch.undo()
+    importlib.reload(main)
+
+
+@pytest.mark.parametrize("path", ["/docs", "/redoc", "/openapi.json"])
+def test_api_docs_are_off_by_default(client, path):
+    assert client.get(path).status_code == 404
+
+
+def test_no_cors_middleware_by_default(client):
+    response = client.options("/api/settings", headers=PREFLIGHT)
+    assert "access-control-allow-origin" not in response.headers
+
+
+@pytest.mark.parametrize("path", ["/docs", "/redoc", "/openapi.json"])
+def test_api_docs_served_when_enabled(reloaded_main, path):
+    assert TestClient(reloaded_main(docs_enabled=True)).get(path).status_code == 200
+
+
+def test_cors_origins_setting_allows_listed_origin_only(reloaded_main):
+    client = TestClient(reloaded_main(cors_origins=["http://localhost:5173"]))
+    allowed = client.options("/api/settings", headers=PREFLIGHT)
+    assert allowed.headers["access-control-allow-origin"] == "http://localhost:5173"
+    other = client.options(
+        "/api/settings", headers={**PREFLIGHT, "Origin": "http://192.168.50.167:5173"}
+    )
+    assert "access-control-allow-origin" not in other.headers
+
+
+def test_importing_the_app_routes_uvicorn_startup_lines_to_json(tmp_path: Path) -> None:
+    """uvicorn logs 'Started server process' after importing the app but before
+    the lifespan runs, so logging must be configured at import (H-04)."""
+    probe = (
+        "import logging, logging.config\n"
+        "from uvicorn.config import LOGGING_CONFIG\n"
+        "logging.config.dictConfig(LOGGING_CONFIG)\n"
+        "import app.main\n"
+        "logging.getLogger('uvicorn.error').info('startup probe line')\n"
+    )
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "PYTHONPATH": str(Path(__file__).parents[1]),
+        "LOG_FORMAT": "json",
+    }
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+    )
+
+    lines = [line for line in result.stderr.splitlines() if "startup probe line" in line]
+    # One JSON line: uvicorn.error hands its records to the root handler only
+    assert len(lines) == 1
+    assert json.loads(lines[0])["record"]["message"] == "startup probe line"
+
+
+def _guide_xmltv() -> str:
+    """A one-channel XMLTV feed with a programme on air now."""
+    start = (datetime.now(UTC) - timedelta(minutes=10)).strftime("%Y%m%d%H%M%S +0000")
+    stop = (datetime.now(UTC) + timedelta(minutes=50)).strftime("%Y%m%d%H%M%S +0000")
+    return (
+        '<tv><channel id="ch1"><display-name>One</display-name></channel>'
+        f'<programme channel="ch1" start="{start}" stop="{stop}"><title>Show</title>'
+        "</programme></tv>"
+    )
+
+
+class TestStartupGuideWarmup:
+    """The lifespan downloads the guide in the background at boot (Q-03)."""
+
+    @staticmethod
+    def _install_upstream(
+        monkeypatch: pytest.MonkeyPatch, respond: Callable[[httpx.Request], httpx.Response]
+    ) -> list[str]:
+        fetches: list[str] = []
+
+        def upstream(request: httpx.Request) -> httpx.Response:
+            fetches.append(request.url.path)
+            return respond(request)
+
+        factory = httpx.AsyncClient
+        monkeypatch.setattr(
+            epg_service.httpx,
+            "AsyncClient",
+            lambda **kwargs: factory(transport=httpx.MockTransport(upstream), **kwargs),
+        )
+        # A fresh singleton, restored after the test, so no guide state leaks
+        monkeypatch.setattr(
+            epg_service, "_epg_service", epg_service.EPGService("http://dispatcharr.test")
+        )
+        return fetches
+
+    @staticmethod
+    def _wait_for_warmup(client: TestClient) -> None:
+        async def wait() -> None:
+            await app.state.warmup_task
+
+        assert client.portal is not None
+        client.portal.call(wait)
+
+    def test_boot_fetches_the_guide_once_and_serves_reads_from_it(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fetches = self._install_upstream(
+            monkeypatch, lambda request: httpx.Response(200, text=_guide_xmltv())
+        )
+        token = create_access_token({"sub": "viewer", "role": "viewer"})
+
+        with TestClient(app) as client:
+            self._wait_for_warmup(client)
+            assert fetches == ["/output/epg"]
+
+            response = client.get(
+                "/api/epg/now-playing/all", headers={"Authorization": f"Bearer {token}"}
+            )
+
+        assert response.status_code == 200
+        assert response.json()["nowPlaying"]["ch1"]["title"] == "Show"
+        assert fetches == ["/output/epg"]
+
+    def test_failed_warmup_does_not_block_startup(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        fetches = self._install_upstream(monkeypatch, lambda request: httpx.Response(503))
+
+        with TestClient(app) as client:
+            self._wait_for_warmup(client)
+            response = client.get("/api/health")
+
+        assert response.status_code == 200
+        assert fetches == ["/output/epg"]

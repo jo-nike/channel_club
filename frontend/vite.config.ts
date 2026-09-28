@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config'
+import type { Plugin } from 'vite'
 import react from '@vitejs/plugin-react-swc'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
@@ -7,10 +8,29 @@ import { readFileSync } from 'node:fs'
 
 const appVersion = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version
 
+// Vidstack's HLS and DASH providers fall back to loading their library from
+// cdn.jsdelivr.net. The player hands them bundled hls.js, so blank the CDN
+// base in Vidstack's modules to make a third-party script load impossible.
+// scripts/check-no-cdn.mjs fails the build if jsdelivr still reaches dist/.
+const JSDELIVR_CDN = /(["'`])https:\/\/cdn\.jsdelivr\.net\1/g
+
+function stripVidstackCdn(): Plugin {
+  return {
+    name: 'strip-vidstack-cdn',
+    enforce: 'pre',
+    transform(code, id) {
+      if (!/[\\/]node_modules[\\/](@vidstack[\\/]react|vidstack)[\\/]/.test(id)) return null
+      if (!code.includes('cdn.jsdelivr.net')) return null
+      return { code: code.replace(JSDELIVR_CDN, '$1$1'), map: null }
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig({
   define: { __APP_VERSION__: JSON.stringify(appVersion) },
   plugins: [
+    stripVidstackCdn(),
     react(),
     tailwindcss(),
     VitePWA({

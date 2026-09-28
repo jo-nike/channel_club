@@ -13,6 +13,7 @@ from app.config import settings
 from app.models.channel import Channel
 from app.models.epg import EPGProgrammesResponse, EPGResponse, Program
 from app.models.status import EPGHealthStatus
+from app.services.tls import SSL_CONTEXT
 
 # Module-level logger with service context
 log = logger.bind(service="epg")
@@ -184,7 +185,7 @@ class EPGService:
         log.debug("Fetching EPG data from {}", url)
         self._last_attempt_at = datetime.now(UTC)
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=30.0, verify=SSL_CONTEXT) as client:
                 response = await client.get(url)
                 response.raise_for_status()
 

@@ -1,5 +1,6 @@
 """NHL scores service for fetching and caching data from the NHL API."""
 
+import asyncio
 import time
 from datetime import datetime, timedelta
 from typing import Any
@@ -9,6 +10,7 @@ import httpx
 from loguru import logger
 
 from app.models.nhl import NHLBroadcast, NHLGame, NHLScoresResponse, NHLSituation, NHLTeam
+from app.services.tls import SSL_CONTEXT
 
 # Module-level logger with service context
 log = logger.bind(service="nhl")
@@ -36,6 +38,10 @@ class NHLConnectionError(Exception):
 
 # In-memory cache
 _cache: dict[str, tuple[NHLScoresResponse, float]] = {}
+
+# Upstream fetches in progress, by date: concurrent cache misses for the same
+# date share one call. Entries remove themselves when the fetch finishes.
+_inflight: dict[str, asyncio.Task[NHLScoresResponse]] = {}
 
 
 def get_effective_date() -> str:
@@ -212,6 +218,7 @@ async def get_nhl_scores(date: str | None = None) -> NHLScoresResponse:
     """Fetch NHL scores for a given date.
 
     Uses a 10-second in-memory cache to reduce API calls during live games.
+    Concurrent cache misses for the same date share a single upstream call.
 
     Args:
         date: Optional date in YYYY-MM-DD format. Defaults to effective date (5am EST boundary).
@@ -220,11 +227,9 @@ async def get_nhl_scores(date: str | None = None) -> NHLScoresResponse:
         NHLScoresResponse with games, date, and live game count.
 
     Raises:
-        NHLApiError: If NHL API returns non-200 response.
+        NHLApiError: If NHL API returns non-200 response or an unreadable payload.
         NHLConnectionError: If connection to NHL API fails or times out.
     """
-    global _cache
-
     # Use effective date (5am EST boundary) when no date specified
     effective_date = date or get_effective_date()
     cache_key = effective_date
@@ -236,12 +241,31 @@ async def get_nhl_scores(date: str | None = None) -> NHLScoresResponse:
             log.debug("Cache hit for NHL scores (date={})", effective_date)
             return cached_data
 
+    task = _inflight.get(cache_key)
+    if task is None:
+        task = asyncio.create_task(_fetch_scores(effective_date))
+        _inflight[cache_key] = task
+
+        def _forget(done: asyncio.Task[NHLScoresResponse]) -> None:
+            if _inflight.get(cache_key) is done:
+                del _inflight[cache_key]
+
+        task.add_done_callback(_forget)
+
+    # Shield so one waiter disconnecting doesn't cancel the fetch for the others
+    return await asyncio.shield(task)
+
+
+async def _fetch_scores(effective_date: str) -> NHLScoresResponse:
+    """Fetch, transform and cache NHL scores for one date."""
+    cache_key = effective_date
+
     # Fetch from NHL API
     endpoint = f"{NHL_API_BASE}/score/{effective_date}"
     log.debug("Fetching NHL scores from {}", endpoint)
 
     try:
-        async with httpx.AsyncClient(timeout=NHL_TIMEOUT_SECONDS) as client:
+        async with httpx.AsyncClient(timeout=NHL_TIMEOUT_SECONDS, verify=SSL_CONTEXT) as client:
             response = await client.get(
                 endpoint,
                 headers={
@@ -262,16 +286,30 @@ async def get_nhl_scores(date: str | None = None) -> NHLScoresResponse:
     except httpx.HTTPError as e:
         log.error("NHL API connection error: {}", e)
         raise NHLConnectionError(str(e)) from e
+    except ValueError as e:
+        log.error("NHL API returned invalid JSON for {}", endpoint)
+        raise NHLApiError("NHL API returned invalid JSON", 502) from e
 
-    # Transform games
-    games = [_transform_game(game) for game in api_data.get("games", [])]
-    live_game_count = sum(1 for g in games if g.status == "live")
+    try:
+        # Transform games one at a time so one malformed game is skipped
+        # instead of failing the whole day's list
+        games: list[NHLGame] = []
+        for raw_game in api_data.get("games", []):
+            try:
+                games.append(_transform_game(raw_game))
+            except (AttributeError, KeyError, TypeError, ValueError) as e:
+                game_id = raw_game.get("id") if isinstance(raw_game, dict) else None
+                log.warning("Skipping malformed NHL game {}: {}", game_id, type(e).__name__)
+        live_game_count = sum(1 for g in games if g.status == "live")
 
-    result = NHLScoresResponse(
-        games=games,
-        date=api_data.get("currentDate", effective_date),
-        live_game_count=live_game_count,
-    )
+        result = NHLScoresResponse(
+            games=games,
+            date=api_data.get("currentDate", effective_date),
+            live_game_count=live_game_count,
+        )
+    except (AttributeError, KeyError, TypeError, ValueError) as e:
+        log.error("NHL API returned an unexpected payload for {}: {}", endpoint, type(e).__name__)
+        raise NHLApiError("NHL API returned an unexpected payload", 502) from e
 
     # Cache the result, dropping entries whose TTL has lapsed first - any valid
     # date is a cache key, so without eviction the cache grows without bound
@@ -285,6 +323,7 @@ async def get_nhl_scores(date: str | None = None) -> NHLScoresResponse:
 
 
 def clear_nhl_cache() -> None:
-    """Clear the NHL scores cache (for testing)."""
+    """Clear the NHL scores cache and in-flight fetches (for testing)."""
     global _cache
     _cache.clear()
+    _inflight.clear()

@@ -7,6 +7,7 @@ import pytest
 from app.config import settings
 from app.models.channel import Channel
 from app.services import channel_state, chat
+from app.services.highlight import HighlightService
 
 
 @pytest.fixture(autouse=True)
@@ -308,7 +309,7 @@ class TestHighlightRecordingOnChannelSwitch:
             guide_id="guide-2",
         )
 
-        mock_highlight_service = AsyncMock()
+        mock_highlight_service = AsyncMock(spec=HighlightService)
 
         with (
             patch("app.services.channel_state.settings") as mock_settings,
@@ -334,7 +335,7 @@ class TestHighlightRecordingOnChannelSwitch:
             guide_id="guide-1",
         )
 
-        mock_highlight_service = AsyncMock()
+        mock_highlight_service = AsyncMock(spec=HighlightService)
 
         with (
             patch("app.services.channel_state.settings") as mock_settings,
@@ -360,7 +361,7 @@ class TestHighlightRecordingOnChannelSwitch:
             guide_id="guide-1",
         )
 
-        mock_highlight_service = AsyncMock()
+        mock_highlight_service = AsyncMock(spec=HighlightService)
 
         with (
             patch("app.services.channel_state.settings") as mock_settings,
@@ -386,7 +387,7 @@ class TestHighlightRecordingOnChannelSwitch:
             guide_id="guide-1",
         )
 
-        mock_highlight_service = AsyncMock()
+        mock_highlight_service = AsyncMock(spec=HighlightService)
 
         with (
             patch("app.services.channel_state.settings") as mock_settings,

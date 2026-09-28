@@ -40,6 +40,26 @@ def no_presence_broadcasts(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def reset_module_state(monkeypatch):
+    """Start every test from empty module-level caches and registries.
+
+    The app keeps its state in module singletons, so a test must not see what
+    an earlier one left behind (the NHL cache made one test order-dependent).
+    """
+    from app.services import app_settings, channel_state, chat, nhl, plex, presence
+    from app.services.highlight import highlight_service
+
+    nhl.clear_nhl_cache()
+    chat.clear_history()
+    presence._active_users.clear()
+    channel_state.clear_current_channel()
+    plex.clear_server_owner_id_cache()
+    highlight_service.clear_start_backoff()
+    monkeypatch.setattr(app_settings, "_user_channel_selection", False)
+    monkeypatch.setattr(app_settings, "_presence_visible", False)
+
+
+@pytest.fixture(autouse=True)
 def hermetic_environment(monkeypatch):
     monkeypatch.setitem(Settings.model_config, "env_file", None)
     monkeypatch.setattr(DotEnvSettingsSource, "_read_env_files", lambda self: {})

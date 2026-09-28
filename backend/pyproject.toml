@@ -40,10 +40,12 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 # A deadlocked test must not block the CI runner indefinitely. The whole suite
 # runs in ~10s, so 60s per test is far above any legitimate case; exceeding it
-# means something is stuck. "thread" method dumps every thread's stack on
-# timeout, which is what identifies the offending lock.
+# means something is stuck. The "signal" method fails only the stuck test and
+# lets the rest of the suite report. faulthandler_timeout fires just before it
+# and dumps every thread's stack, which is what identifies the offending lock.
 timeout = 60
-timeout_method = "thread"
+timeout_method = "signal"
+faulthandler_timeout = 55
 
 [tool.basedpyright]
 pythonVersion = "3.13"

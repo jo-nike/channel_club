@@ -4,13 +4,12 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
 from app.config import KNOWN_PUBLIC_JWT_SECRETS, settings
 from app.logging_config import configure_logging
 from app.metadata import APP_NAME, APP_VERSION
+from app.middleware.body_limit import BodySizeLimitMiddleware
 from app.routers.admin import router as admin_router
 from app.routers.auth import router as auth_router
 from app.routers.cast import router as cast_router
@@ -23,13 +22,15 @@ from app.routers.highlight import router as highlight_router
 from app.routers.nhl import router as nhl_router
 from app.routers.settings import router as settings_router
 from app.routers.websocket import router as websocket_router
-from app.services import presence, presence_broadcast
+from app.services import plex, presence, presence_broadcast
 from app.services.cast import cast_service
 from app.services.dispatcharr import (
     DispatchrrUnavailableError,
     get_grouped_channels,
 )
+from app.services.epg_service import get_epg_service
 from app.services.highlight import highlight_service
+from app.spa import mount_spa
 
 
 def validate_auth_configuration() -> None:
@@ -89,7 +90,6 @@ def validate_auth_configuration() -> None:
 async def lifespan(app: FastAPI):
     """Application lifespan handler for startup/shutdown events."""
     # Startup
-    configure_logging()
     logger.info(
         "Channel Club API starting",
         version=APP_VERSION,
@@ -131,22 +131,35 @@ async def lifespan(app: FastAPI):
     # Sweep presence for tabs that vanished without closing their socket, so
     # stale viewers disappear even when no admin is polling Active Users.
     presence.start_cleanup_task()
+    # Look up the Plex server owner id now: require_admin needs it to tell the
+    # owner from a demoted admin, and the cache is empty after every deploy.
+    plex.start_server_owner_lookup()
 
-    # Warm the channel groups cache in the background so the first admin
-    # modal open doesn't block on a cold Dispatcharr fetch.
-    async def _warm_channels_cache() -> None:
-        try:
-            await get_grouped_channels()
+    # Warm the channel groups and guide caches in the background so the first
+    # admin modal open or channel list doesn't block on a cold Dispatcharr fetch.
+    # A failed guide download here starts the EPG backoff before anyone waits.
+    async def _warm_caches() -> None:
+        channels, guide = await asyncio.gather(
+            get_grouped_channels(),
+            get_epg_service().check_health(),
+            return_exceptions=True,
+        )
+        if isinstance(channels, DispatchrrUnavailableError):
+            logger.warning("Channel cache warmup skipped: {}", str(channels))
+        elif isinstance(channels, BaseException):
+            logger.warning("Channel cache warmup failed: {}", str(channels))
+        else:
             logger.info("Channel groups cache warmed")
-        except DispatchrrUnavailableError as e:
-            logger.warning("Channel cache warmup skipped: {}", str(e))
-        except Exception as e:  # noqa: BLE001
-            logger.warning("Channel cache warmup failed: {}", str(e))
+        # A failed refresh has already logged its reason in refresh_cache
+        if isinstance(guide, BaseException):
+            logger.warning("Guide cache warmup failed: {}", str(guide))
+        elif guide.online:
+            logger.info("Guide cache warmed")
 
     # The event loop only holds a weak reference to a running task, so keep a
     # strong one for the app's lifetime — otherwise the warmup can be collected
     # mid-fetch and the cache silently stays cold.
-    app.state.warmup_task = asyncio.create_task(_warm_channels_cache())
+    app.state.warmup_task = asyncio.create_task(_warm_caches())
 
     yield
     # Shutdown
@@ -156,6 +169,7 @@ async def lifespan(app: FastAPI):
     app.state.warmup_task.cancel()
     with suppress(asyncio.CancelledError):
         await app.state.warmup_task
+    await plex.stop_server_owner_lookup()
     presence.stop_cleanup_task()
     presence_broadcast.cancel_pending()
     # Stop idle cleanup task and all highlight recorders
@@ -165,19 +179,33 @@ async def lifespan(app: FastAPI):
     await cast_service.stop_all()
 
 
-app = FastAPI(title=f"{APP_NAME} API", version=APP_VERSION, lifespan=lifespan)
+# Configure at import, before uvicorn logs 'Started server process', so every
+# line from startup on goes through the JSON sink. configure_logging is idempotent.
+configure_logging()
 
+app = FastAPI(
+    title=f"{APP_NAME} API",
+    version=APP_VERSION,
+    lifespan=lifespan,
+    docs_url="/docs" if settings.docs_enabled else None,
+    redoc_url="/redoc" if settings.docs_enabled else None,
+    openapi_url="/openapi.json" if settings.docs_enabled else None,
+)
+
+if settings.cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+# Added last so it wraps everything: oversize bodies get 413 before routing.
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "http://192.168.50.167:5173",
-        "http://192.168.50.167:5174",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    BodySizeLimitMiddleware,
+    max_bytes=settings.request_body_max_bytes,
+    exempt_paths=frozenset({"/api/highlight/upload"}),
 )
 
 # Register API routers FIRST (they take precedence over static files)
@@ -210,35 +238,4 @@ async def health_check() -> dict[str, str]:
 static_path = Path(__file__).parent.parent / "static"
 
 if static_path.exists():
-    # Symlink-resolved root the SPA catch-all confines every request to
-    static_root = static_path.resolve()
-
-    # Mount assets directory for JS, CSS, and other static files
-    assets_path = static_path / "assets"
-    if assets_path.exists():
-        app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
-
-    # Serve index.html for the root path
-    @app.get("/")
-    async def serve_root() -> FileResponse:
-        return FileResponse(static_path / "index.html")
-
-    # Catch-all route for SPA client-side routing
-    # This must be defined AFTER all other routes
-    @app.get("/{full_path:path}")
-    async def serve_spa(full_path: str) -> FileResponse:
-        # uvicorn percent-decodes the request path without normalising "..", so
-        # a request for /%2e%2e%2f%2e%2e%2fetc%2fpasswd arrives here verbatim.
-        # Resolve the join and serve it only if it stays inside the static root,
-        # otherwise the catch-all hands out any file the process can read.
-        # resolve()/is_file() touch the filesystem, so a percent-encoded NUL
-        # (/%00) or other malformed path raises ValueError/OSError — swallow it
-        # and fall back to the SPA rather than 500-ing with a traceback.
-        try:
-            file_path = (static_path / full_path).resolve()
-            if file_path.is_relative_to(static_root) and file_path.is_file():
-                return FileResponse(file_path)
-        except (ValueError, OSError):
-            pass
-        # Otherwise return index.html for SPA routing
-        return FileResponse(static_path / "index.html")
+    mount_spa(app, static_path)

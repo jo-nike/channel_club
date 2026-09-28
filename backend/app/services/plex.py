@@ -1,10 +1,14 @@
 """Plex authentication service for validating Plex tokens and server access."""
 
+import asyncio
+from contextlib import suppress
+
 import httpx
 from loguru import logger
 
 from app.config import settings
 from app.models.plex import PlexUser
+from app.services.tls import SSL_CONTEXT
 
 # Module-level logger with service context
 log = logger.bind(service="plex")
@@ -49,7 +53,7 @@ async def validate_plex_token(auth_token: str) -> PlexUser:
     # Log only first 8 characters of token for debugging (never full token!)
     log.debug("Validating Plex token: {}...", auth_token[:8] if auth_token else "empty")
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(verify=SSL_CONTEXT) as client:
         response = await client.get(
             "https://plex.tv/api/v2/user",
             headers={**PLEX_API_HEADERS, "X-Plex-Token": auth_token},
@@ -79,6 +83,60 @@ async def validate_plex_token(auth_token: str) -> PlexUser:
 
 
 _server_owner_id_cache: dict[str, str] = {}
+# The one plex.tv owner lookup in flight, shared by every caller that misses the
+# cache so a burst of admin requests after a deploy makes a single upstream call.
+_owner_id_lookup: asyncio.Task[str | None] | None = None
+OWNER_LOOKUP_TIMEOUT_SECONDS = 3.0
+
+
+async def _fetch_server_owner_id(server_token: str) -> str | None:
+    """Ask plex.tv for the owner id and cache it; None (uncached) on any failure."""
+    log.debug("Fetching server owner ID from Plex API")
+    try:
+        async with httpx.AsyncClient(
+            timeout=OWNER_LOOKUP_TIMEOUT_SECONDS, verify=SSL_CONTEXT
+        ) as client:
+            response = await client.get(
+                "https://plex.tv/api/v2/user",
+                headers={**PLEX_API_HEADERS, "X-Plex-Token": server_token},
+            )
+    except httpx.HTTPError as e:
+        # Not cached: an unreachable plex.tv must not permanently downgrade the owner.
+        log.warning("Failed to fetch server owner ID: {}", type(e).__name__)
+        return None
+    if response.status_code != 200:
+        # Not cached: a transient 5xx/429 must not permanently downgrade the
+        # owner. The next login retries the lookup.
+        log.warning("Failed to fetch server owner ID, status: {}", response.status_code)
+        return None
+
+    try:
+        owner_id = response.json().get("id")
+    except Exception as e:
+        # Not cached, for the same reason as the non-200 branch above.
+        log.error("Error parsing server owner response: {}", e)
+        return None
+    if owner_id is None or owner_id == "":
+        # Not cached: str(None) would pin the owner id to the string "None".
+        log.error("Server owner response has no id")
+        return None
+    _server_owner_id_cache["owner_id"] = str(owner_id)
+    log.debug("Cached server owner ID")
+    return str(owner_id)
+
+
+def _forget_owner_id_lookup(task: asyncio.Task[str | None]) -> None:
+    global _owner_id_lookup
+    if _owner_id_lookup is task:
+        _owner_id_lookup = None
+
+
+def _start_owner_id_lookup(server_token: str) -> asyncio.Task[str | None]:
+    global _owner_id_lookup
+    if _owner_id_lookup is None:
+        _owner_id_lookup = asyncio.create_task(_fetch_server_owner_id(server_token))
+        _owner_id_lookup.add_done_callback(_forget_owner_id_lookup)
+    return _owner_id_lookup
 
 
 async def get_server_owner_id() -> str | None:
@@ -91,6 +149,7 @@ async def get_server_owner_id() -> str | None:
         Only successful lookups are cached, to avoid repeated API calls. A
         failed lookup is never cached: caching None would strip the owner's
         admin role for the lifetime of the process after one transient error.
+        Concurrent cache misses share one plex.tv call.
     """
     if not settings.plex_server_token:
         log.debug("No Plex server token configured")
@@ -102,33 +161,36 @@ async def get_server_owner_id() -> str | None:
         log.debug("Using cached server owner ID")
         return _server_owner_id_cache[cache_key]
 
-    log.debug("Fetching server owner ID from Plex API")
-    async with httpx.AsyncClient() as client:
-        response = await client.get(
-            "https://plex.tv/api/v2/user",
-            headers={**PLEX_API_HEADERS, "X-Plex-Token": settings.plex_server_token},
-        )
-        if response.status_code != 200:
-            # Not cached: a transient 5xx/429 must not permanently downgrade the
-            # owner. The next login retries the lookup.
-            log.warning("Failed to fetch server owner ID, status: {}", response.status_code)
-            return None
+    # Shielded so a caller that is cancelled (a dropped request) does not cancel
+    # the lookup the other callers are waiting on.
+    return await asyncio.shield(_start_owner_id_lookup(settings.plex_server_token))
 
-        try:
-            data = response.json()
-            owner_id = str(data.get("id"))
-            _server_owner_id_cache[cache_key] = owner_id
-            log.debug("Cached server owner ID")
-            return owner_id
-        except Exception as e:
-            # Not cached, for the same reason as the non-200 branch above.
-            log.error("Error parsing server owner response: {}", e)
-            return None
+
+def start_server_owner_lookup() -> None:
+    """Warm the owner id cache in the background at boot, without waiting.
+
+    The cache is empty after every deploy, and require_admin needs the owner id
+    to tell the owner apart from a demoted admin. Never blocks or raises.
+    """
+    if settings.plex_auth_enabled and settings.plex_server_token:
+        _start_owner_id_lookup(settings.plex_server_token)
+
+
+async def stop_server_owner_lookup() -> None:
+    """Cancel the owner lookup if it is still running, so shutdown leaves no pending task."""
+    task = _owner_id_lookup
+    if task is None:
+        return
+    task.cancel()
+    with suppress(asyncio.CancelledError):
+        await task
 
 
 def clear_server_owner_id_cache() -> None:
-    """Clear the cached server owner id."""
+    """Clear the cached server owner id and forget any lookup in flight."""
+    global _owner_id_lookup
     _server_owner_id_cache.clear()
+    _owner_id_lookup = None
 
 
 async def determine_role(plex_user: PlexUser) -> str:
@@ -174,7 +236,7 @@ async def check_server_access(auth_token: str) -> bool:
         return True  # No server configured, allow all Plex users
 
     log.debug("Checking user access to Plex server")
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(verify=SSL_CONTEXT) as client:
         response = await client.get(
             "https://plex.tv/api/v2/resources",
             headers={**PLEX_API_HEADERS, "X-Plex-Token": auth_token},

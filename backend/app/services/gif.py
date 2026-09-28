@@ -13,6 +13,7 @@ import httpx
 from loguru import logger
 
 from app.config import settings
+from app.services.tls import SSL_CONTEXT
 
 log = logger.bind(service="gif")
 
@@ -68,7 +69,7 @@ class GifService:
         log.debug("Fetching trending GIFs from Giphy API")
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=10.0, verify=SSL_CONTEXT) as client:
                 response = await client.get(
                     f"{GIPHY_BASE_URL}/trending",
                     params={
@@ -119,7 +120,7 @@ class GifService:
         log.debug("Searching Giphy API for: {} (offset={})", query, offset)
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=10.0, verify=SSL_CONTEXT) as client:
                 response = await client.get(
                     f"{GIPHY_BASE_URL}/search",
                     params={

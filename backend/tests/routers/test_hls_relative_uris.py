@@ -31,7 +31,7 @@ def test_query_only_map_resolves_against_final_manifest_resource():
     )
     with (
         TestClient(app) as client,
-        patch("app.routers.ersatztv.is_ersatztv_url", return_value=True),
+        patch("app.routers.ersatztv.is_ersatztv_media_url", return_value=True),
         patch("app.routers.ersatztv.fetch_ersatztv", AsyncMock(return_value=upstream)),
     ):
         response = client.get(

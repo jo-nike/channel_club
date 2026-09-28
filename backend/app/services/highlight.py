@@ -38,6 +38,14 @@ TAIL_WAIT_SLACK_SECONDS = 2
 TAIL_WAIT_CAP_SECONDS = 12
 TAIL_POLL_SECONDS = 0.25
 
+# FFmpeg gives up on a source that sends nothing for this long (three default segments), so a
+# stalled upstream ends the process instead of leaving it "running" with no new segments.
+RECORDER_RW_TIMEOUT_MICROSECONDS = 30_000_000
+
+# After a failed recorder start, further starts for that channel wait: 30s, doubling to 5 minutes.
+START_BACKOFF_BASE_SECONDS = 30
+START_BACKOFF_MAX_SECONDS = 300
+
 
 def remove_recording_directory(directory: Path) -> None:
     """Delete only strict descendants of the configured recording root."""
@@ -104,6 +112,8 @@ class ChannelRecorder:
                 "1",
                 "-reconnect_delay_max",
                 "5",
+                "-rw_timeout",
+                str(RECORDER_RW_TIMEOUT_MICROSECONDS),
                 "-protocol_whitelist",
                 "http,https,tcp,tls,crypto",
                 "-i",
@@ -561,6 +571,21 @@ class HighlightService:
         self._lock = asyncio.Lock()
         self._cleanup_task: asyncio.Task | None = None
         self.captures = CaptureStore()
+        # channel_id -> (consecutive failed starts, monotonic time the next start may try)
+        self._start_failures: dict[str, tuple[int, float]] = {}
+
+    def clear_start_backoff(self) -> None:
+        """Forget failed starts so the next start for any channel tries at once."""
+        self._start_failures.clear()
+
+    def _in_start_backoff(self, channel_id: str) -> bool:
+        failure = self._start_failures.get(channel_id)
+        return failure is not None and time.monotonic() < failure[1]
+
+    def _record_start_failure(self, channel_id: str) -> None:
+        failures = self._start_failures.get(channel_id, (0, 0.0))[0] + 1
+        delay = min(START_BACKOFF_BASE_SECONDS * 2 ** (failures - 1), START_BACKOFF_MAX_SECONDS)
+        self._start_failures[channel_id] = (failures, time.monotonic() + delay)
 
     def start_idle_cleanup_task(self) -> None:
         """Start background task to clean up idle recorders."""
@@ -697,6 +722,9 @@ class HighlightService:
 
         if channel_id in self._recorders and self._recorders[channel_id].is_running:
             return True
+        # A channel whose FFmpeg just failed waits out its backoff instead of respawning per poll.
+        if self._in_start_backoff(channel_id):
+            return False
         # Reserve before any awaited work: overload never queues behind startup.
         try:
             process_budget.acquire(owner)
@@ -717,12 +745,17 @@ class HighlightService:
                     await existing.stop()
                     process_budget.release(self._owners.pop(channel_id, "system"))
                     del self._recorders[channel_id]
+                # A concurrent poll may have failed this channel while we waited for the lock.
+                if self._in_start_backoff(channel_id):
+                    return False
                 recorder = ChannelRecorder(channel_id, source.channel.stream_url)
                 if await recorder.start():
+                    self._start_failures.pop(channel_id, None)
                     self._recorders[channel_id] = recorder
                     self._owners[channel_id] = owner
                     retained = True
                     return True
+                self._record_start_failure(channel_id)
                 return False
         finally:
             if not retained:

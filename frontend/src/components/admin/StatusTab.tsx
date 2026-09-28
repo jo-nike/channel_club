@@ -34,6 +34,11 @@ function guideDataState(status: SystemStatusData['epg']): 'Online' | 'Stale' | '
   return status.stale ? 'Stale' : 'Online'
 }
 
+function serviceState(status: { online: boolean; degraded?: boolean }): 'Online' | 'Degraded' | 'Offline' {
+  if (!status.online) return 'Offline'
+  return status.degraded ? 'Degraded' : 'Online'
+}
+
 function formatUptime(seconds: number): string {
   if (seconds < 60) return `${Math.floor(seconds)}s`
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.floor(seconds % 60)}s`
@@ -120,7 +125,7 @@ function ErsatzTVCard({ status }: ErsatzTVCardProps) {
             <Tv className="h-5 w-5" />
             ErsatzTV
           </CardTitle>
-          <StatusIndicator online={status.online} />
+          <StatusIndicator online={status.online} degraded={status.degraded} />
         </div>
         <CardDescription>
           {status.online ? 'Transcoding service' : status.error || 'Service unavailable'}
@@ -130,8 +135,9 @@ function ErsatzTVCard({ status }: ErsatzTVCardProps) {
         <StatusRow
           icon={<Activity className="h-4 w-4 text-muted-foreground" />}
           label="Status"
-          value={status.online ? 'Online' : 'Offline'}
+          value={serviceState(status)}
         />
+        {status.online && status.error && <StatusRow label="Reason" value={status.error} />}
         {status.online && (
           <StatusRow
             icon={<Tv className="h-4 w-4 text-muted-foreground" />}
@@ -210,7 +216,7 @@ function DispatchrrCard({ status }: DispatchrrCardProps) {
             <Activity className="h-5 w-5" />
             Dispatcharr
           </CardTitle>
-          <StatusIndicator online={status.online} />
+          <StatusIndicator online={status.online} degraded={status.degraded} />
         </div>
         <CardDescription>
           {status.online ? 'Stream proxy service' : status.error || 'Service unavailable'}
@@ -220,8 +226,9 @@ function DispatchrrCard({ status }: DispatchrrCardProps) {
         <StatusRow
           icon={<Activity className="h-4 w-4 text-muted-foreground" />}
           label="Status"
-          value={status.online ? 'Online' : 'Offline'}
+          value={serviceState(status)}
         />
+        {status.online && status.error && <StatusRow label="Reason" value={status.error} />}
         {status.online && (
           <StatusRow
             icon={<Tv className="h-4 w-4 text-muted-foreground" />}
@@ -322,9 +329,17 @@ function GuideDataCard({ status }: GuideDataCardProps) {
 
 interface StatusIndicatorProps {
   online: boolean
+  degraded?: boolean
 }
 
-function StatusIndicator({ online }: StatusIndicatorProps) {
+function StatusIndicator({ online, degraded }: StatusIndicatorProps) {
+  if (online && degraded) {
+    return (
+      <div className="flex items-center gap-1 text-warning">
+        <TriangleAlert className="h-5 w-5" />
+      </div>
+    )
+  }
   return online ? (
     <div className="flex items-center gap-1 text-success">
       <CheckCircle className="h-5 w-5" />

@@ -1,10 +1,17 @@
 """Tests for highlight capture service."""
 
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.services.highlight import ChannelRecorder, HighlightService, highlight_service
+from app.config import settings
+from app.services.highlight import (
+    RECORDER_RW_TIMEOUT_MICROSECONDS,
+    ChannelRecorder,
+    HighlightService,
+    highlight_service,
+)
 
 
 class TestChannelRecorder:
@@ -52,6 +59,20 @@ class TestChannelRecorder:
         with patch("subprocess.Popen", side_effect=FileNotFoundError("ffmpeg not found")):
             result = await recorder.start()
             assert not result
+
+    @pytest.mark.asyncio
+    async def test_start_bounds_reads_from_a_stalled_source(self, tmp_path, monkeypatch) -> None:
+        """FFmpeg must exit on a silent upstream instead of hanging as 'running'."""
+        monkeypatch.setattr(settings, "highlight_temp_dir", str(tmp_path))
+        recorder = ChannelRecorder("channel-1", "http://stream.url")
+
+        with patch("subprocess.Popen", side_effect=FileNotFoundError) as spawn:
+            await recorder.start()
+
+        cmd = spawn.call_args.args[0]
+        timeout = cmd.index("-rw_timeout")
+        assert cmd[timeout + 1] == str(RECORDER_RW_TIMEOUT_MICROSECONDS)
+        assert timeout < cmd.index("-i")
 
     @pytest.mark.asyncio
     async def test_stop_cleans_up_resources(self) -> None:
@@ -151,3 +172,114 @@ class TestHighlightServiceSingleton:
         """Should have a global service instance."""
         assert highlight_service is not None
         assert isinstance(highlight_service, HighlightService)
+
+
+class TestStartBackoff:
+    """A channel whose FFmpeg fails to start is not respawned on every status poll."""
+
+    @pytest.fixture(autouse=True)
+    def enabled(self, tmp_path, monkeypatch):
+        from app.services.media_limits import process_budget
+
+        monkeypatch.setattr(settings, "highlight_enabled", True)
+        monkeypatch.setattr(settings, "highlight_temp_dir", str(tmp_path))
+        process_budget.owners.clear()
+        highlight_service.clear_start_backoff()
+        yield
+        process_budget.owners.clear()
+        highlight_service.clear_start_backoff()
+
+    @pytest.fixture
+    def source(self):
+        from types import SimpleNamespace
+
+        from app.models.channel import Channel
+
+        channel = Channel(id="failing", name="F", streamUrl="https://source/ts", guideId="1")
+        with patch(
+            "app.services.highlight.resolve_media_channel",
+            AsyncMock(return_value=SimpleNamespace(channel=channel)),
+        ):
+            yield
+
+    @staticmethod
+    def expire(service: HighlightService, channel_id: str) -> None:
+        failures, _ = service._start_failures[channel_id]
+        service._start_failures[channel_id] = (failures, 0.0)
+
+    @staticmethod
+    def window(service: HighlightService, channel_id: str) -> float:
+        return service._start_failures[channel_id][1] - time.monotonic()
+
+    @pytest.mark.asyncio
+    async def test_failed_start_waits_out_a_doubling_window(self, source) -> None:
+        service = HighlightService()
+        with patch("subprocess.Popen", side_effect=FileNotFoundError) as spawn:
+            for _ in range(3):
+                assert await service.start_recording("failing", "") is False
+            assert spawn.call_count == 1
+            assert self.window(service, "failing") == pytest.approx(30, abs=1)
+
+            self.expire(service, "failing")
+            assert await service.start_recording("failing", "") is False
+            assert spawn.call_count == 2
+            assert self.window(service, "failing") == pytest.approx(60, abs=1)
+
+            for _ in range(10):
+                self.expire(service, "failing")
+                await service.start_recording("failing", "")
+            assert self.window(service, "failing") == pytest.approx(300, abs=1)
+
+    @pytest.mark.asyncio
+    async def test_successful_start_resets_the_backoff(self, source) -> None:
+        service = HighlightService()
+        with patch("subprocess.Popen", side_effect=FileNotFoundError):
+            await service.start_recording("failing", "")
+        self.expire(service, "failing")
+        with (
+            patch.object(ChannelRecorder, "start", AsyncMock(return_value=True)),
+            patch.object(ChannelRecorder, "stop", AsyncMock()),
+        ):
+            assert await service.start_recording("failing", "") is True
+            assert "failing" not in service._start_failures
+            await service.stop_all()
+
+    def test_status_polls_inside_the_window_do_not_respawn(self, source) -> None:
+        from fastapi.testclient import TestClient
+
+        from app.main import app
+        from app.services.auth import create_access_token
+
+        token = create_access_token({"sub": "alice", "role": "viewer"})
+        client = TestClient(app)
+        with patch("subprocess.Popen", side_effect=FileNotFoundError) as spawn:
+            for _ in range(3):
+                response = client.get(
+                    "/api/highlight/status/failing",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                assert response.status_code == 200
+                assert response.json()["recording"] is False
+        assert spawn.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_live_change_clears_the_backoff(self, source) -> None:
+        from app.models.channel import Channel
+        from app.services import channel_state
+
+        channel = Channel(id="failing", name="F", streamUrl="https://source/ts", guideId="1")
+        channel_state.clear_current_channel()
+        try:
+            with (
+                patch("subprocess.Popen", side_effect=FileNotFoundError) as spawn,
+                patch("app.services.channel_state.broadcast", AsyncMock()),
+                patch("app.services.channel_state.broadcast_channel_update", AsyncMock()),
+            ):
+                await highlight_service.start_recording("failing", "")
+                await channel_state.set_current_channel(channel)
+                assert spawn.call_count == 2
+
+                await channel_state.clear_current_channel_async()
+                assert not highlight_service._start_failures
+        finally:
+            channel_state.clear_current_channel()
