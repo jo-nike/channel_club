@@ -159,12 +159,18 @@ async def test_capture_records_the_press_and_when_the_capture_ends(tmp_path, mon
     monkeypatch.setattr(settings, "highlight_enabled", True)
 
     class EndingRecorder(ChannelRecorder):
+        async def wait_for_current_segment(self) -> bool:
+            return True
+
         async def capture(self, output: Path) -> float:
             output.write_bytes(b"snapshot")
             return 1_000.5
 
     service = HighlightService()
-    service._recorders["channel-1"] = EndingRecorder("channel-1", "http://fixture")
+    recorder = EndingRecorder("channel-1", "http://fixture")
+    recorder.process = MagicMock()
+    recorder.process.poll.return_value = None
+    service._recorders["channel-1"] = recorder
     before = time.time()
     with patch("app.services.highlight.media_duration", AsyncMock(return_value=60.0)):
         capture, error = await service.create_capture("channel-1", owner="viewer")

@@ -23,7 +23,7 @@ from app.config import settings
 from app.models.auth import TokenPayload
 from app.models.channel import ChannelId
 from app.routers.auth_deps import get_current_user, get_current_user_or_token
-from app.services.highlight import Capture, highlight_service
+from app.services.highlight import RECORDER_GONE_ERROR, Capture, highlight_service
 from app.services.media_export import encode_file, media_duration, owned_thread
 from app.services.media_limits import export_budget, upload_budget
 from app.services.zipline import upload_clip
@@ -181,7 +181,10 @@ async def create_capture(
     )
     if error or capture is None:
         log.warning("Highlight capture failed for channel {}: {}", channel_id, error)
-        raise HTTPException(400, error or "Failed to create highlight")
+        # A server-side stop raced the capture; the viewer did nothing wrong.
+        raise HTTPException(
+            409 if error == RECORDER_GONE_ERROR else 400, error or "Failed to create highlight"
+        )
     return CaptureResponse(
         id=capture.id,
         duration=capture.duration,

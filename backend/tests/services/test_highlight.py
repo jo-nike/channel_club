@@ -283,3 +283,55 @@ class TestStartBackoff:
                 assert not highlight_service._start_failures
         finally:
             channel_state.clear_current_channel()
+
+
+class TestCaptureAfterRecorderStop:
+    """A recorder stopped or replaced during the tail wait is looked up again, not reused."""
+
+    @pytest.fixture(autouse=True)
+    def enabled(self, monkeypatch):
+        monkeypatch.setattr(settings, "highlight_enabled", True)
+
+    @staticmethod
+    def running() -> MagicMock:
+        recorder = MagicMock()
+        recorder.is_running = True
+        recorder.wait_for_current_segment = AsyncMock()
+        return recorder
+
+    @pytest.mark.asyncio
+    async def test_a_recorder_stopped_while_waiting_answers_live_tv_changed(self) -> None:
+        from app.services.highlight import RECORDER_GONE_ERROR
+
+        service = HighlightService()
+        recorder = self.running()
+
+        async def stopped_meanwhile() -> bool:
+            del service._recorders["channel-1"]
+            recorder.is_running = False
+            return False
+
+        recorder.wait_for_current_segment.side_effect = stopped_meanwhile
+        service._recorders["channel-1"] = recorder
+        with patch.object(service.captures, "create", AsyncMock()) as create:
+            assert await service.create_capture("channel-1", owner="viewer") == (
+                None,
+                RECORDER_GONE_ERROR,
+            )
+        create.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_recorder_restarted_while_waiting_is_the_one_captured(self) -> None:
+        service = HighlightService()
+        old, new = self.running(), self.running()
+
+        async def restarted_meanwhile() -> bool:
+            old.is_running = False
+            service._recorders["channel-1"] = new
+            return False
+
+        old.wait_for_current_segment.side_effect = restarted_meanwhile
+        service._recorders["channel-1"] = old
+        with patch.object(service.captures, "create", AsyncMock(return_value="made")) as create:
+            assert await service.create_capture("channel-1", owner="viewer") == ("made", None)
+        assert create.await_args is not None and create.await_args.args[0] is new

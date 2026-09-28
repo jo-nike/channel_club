@@ -438,6 +438,9 @@ DOWNLOAD_TOKEN_TTL_SECONDS = 60
 # One Plex account on a phone and a TV clips independently; the oldest capture goes past this.
 MAX_CAPTURES_PER_OWNER = 3
 
+# The recorder was stopped (idle sweep, eviction, shutdown) while a capture waited on it.
+RECORDER_GONE_ERROR = "Live TV changed while clipping; press Clip again"
+
 
 @dataclass(frozen=True)
 class Capture:
@@ -921,6 +924,10 @@ class HighlightService:
         await recorder.wait_for_current_segment()
         # Everyone who clipped the same moment finishes the wait together, so queue briefly.
         async with export_budget.waiting_slot(owner):
+            # Look the recorder up again: it may have been stopped, or replaced, while we waited.
+            recorder = self._recorders.get(channel_id)
+            if recorder is None or not recorder.is_running:
+                return None, RECORDER_GONE_ERROR
             try:
                 return await self.captures.create(recorder, owner, channel_id, pressed_at), None
             except TimeoutError:

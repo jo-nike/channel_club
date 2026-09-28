@@ -261,6 +261,19 @@ class TestCreateCapture:
         assert response.status_code == 400
         assert response.json()["detail"] == "No recording active"
 
+    def test_returns_409_when_the_recorder_stopped_while_clipping(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        from app.services.highlight import RECORDER_GONE_ERROR
+
+        with patch("app.routers.highlight.settings") as mock_settings:
+            mock_settings.highlight_enabled = True
+            with patch("app.routers.highlight.highlight_service") as mock_service:
+                mock_service.create_capture = AsyncMock(return_value=(None, RECORDER_GONE_ERROR))
+                response = client.post("/api/highlight/channel-1/capture", headers=auth_header)
+        assert response.status_code == 409
+        assert response.json()["detail"] == "Live TV changed while clipping; press Clip again"
+
     def test_returns_capture_descriptor(
         self, client: TestClient, auth_header: dict[str, str], capture: Capture
     ) -> None:
