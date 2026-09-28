@@ -228,7 +228,7 @@ class CastSession:
             return None
 
         file_path = self.output_dir / filename
-        if file_path.exists():
+        if file_path.is_file():
             self.touch()  # Update activity on file access
             return file_path
         return None

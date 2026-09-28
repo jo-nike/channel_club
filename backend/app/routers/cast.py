@@ -135,7 +135,12 @@ async def stop_cast_session(
 @router.get("/hls/{session_id}/{filename}")
 async def get_hls_file(
     session_id: str = Path(..., description="Cast session ID"),
-    filename: str = Path(..., description="HLS file (playlist.m3u8 or seg_XXX.ts)"),
+    filename: str = Path(
+        ...,
+        description="HLS file (playlist.m3u8 or seg_XXX.ts)",
+        # FFmpeg writes seg_%03d.ts, and a long cast passes seg_999.ts
+        pattern=r"^(playlist\.m3u8|seg_\d{3,9}\.ts)$",
+    ),
 ) -> Response:
     """Serve HLS playlist or segment files.
 
@@ -150,7 +155,7 @@ async def get_hls_file(
     if not file_path:
         raise HTTPException(
             status_code=404,
-            detail=f"File not found: {filename}",
+            detail="File not found",
         )
 
     # Determine media type
