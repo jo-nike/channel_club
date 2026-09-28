@@ -157,6 +157,13 @@ def _extract_attr(line: str, attr_name: str) -> str | None:
     return match.group(1) if match else None
 
 
+def peek_channels() -> list[EPGChannel] | None:
+    """The cached channel list as it is, or None if it never loaded; never fetches or waits."""
+    if _cache["last_successful_fetch"] is None:
+        return None
+    return _cache["channels"]
+
+
 def clear_cache() -> None:
     """Clear M3U cache, forcing re-fetch on next request."""
     parse_m3u_playlist.reset_failure()

@@ -57,6 +57,11 @@ def catalogue_failing() -> bool:
     return _grouped_cache._last_error is not None
 
 
+def peek_grouped_channels() -> GroupedChannelsResponse | None:
+    """The cached catalogue as it is, or None if it never loaded; never fetches or waits."""
+    return _grouped_cache.peek()
+
+
 def refresh_catalogue_if_due() -> None:
     """Start one background catalogue refresh if it is expired or missing; never waits."""
     _grouped_cache.refresh_if_due()
