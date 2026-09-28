@@ -11,9 +11,10 @@ from collections.abc import AsyncIterator
 from time import monotonic
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from loguru import logger
+from starlette.requests import ClientDisconnect
 
 from app.models.ersatztv import (
     CurrentProgrammeResponse,
@@ -71,6 +72,20 @@ def _decode(encoded_url: str, kind: str) -> str:
 
 def _internal_error() -> HTTPException:
     return HTTPException(status_code=500, detail="Internal server error")
+
+
+async def _client_gone(request: Request) -> bool:
+    """True once the client has disconnected.
+
+    Starlette's check reads a single message, and a GET's empty http.request
+    message comes first, so read the body (capped by the body-limit
+    middleware) before asking.
+    """
+    try:
+        await request.body()
+    except ClientDisconnect:
+        return True
+    return await request.is_disconnected()
 
 
 @router.get("/channels", response_model=EPGChannelResponse)
@@ -173,6 +188,7 @@ async def head_stream(
 
 @router.get("/stream/{channel_id}")
 async def get_stream(
+    request: Request,
     channel_id: str = Path(...),
     url: str = Query(default=None),
     token: str = Query(default=None),
@@ -224,6 +240,11 @@ async def get_stream(
                 except (httpx.HTTPStatusError, httpx.TransportError, TimeoutError) as e:
                     last_error = e
                 if attempt < STREAM_STARTUP_ATTEMPTS - 1:
+                    # hls.js gives up on a slow playlist and asks again; don't
+                    # keep a loop running on ErsatzTV for a client that left
+                    if await _client_gone(request):
+                        log.debug("Client left during stream startup for {}", channel_id)
+                        raise HTTPException(status_code=499, detail="Client closed request")
                     # A cold nested playlist may need three four-second
                     # segments before it exists. Also back off empty 200s.
                     delay = min(0.5 * (2**attempt), 4)
