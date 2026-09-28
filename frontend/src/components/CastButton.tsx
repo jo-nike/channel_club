@@ -6,6 +6,7 @@ import { useChromecast } from '@/hooks/useChromecast'
 import { getFullscreenElement } from '@/hooks/useFullscreenState'
 import { cn } from '@/lib/utils'
 import { useCastStore } from '@/stores/castStore'
+import { LIVE_CHANNEL_ID, useTVStore } from '@/stores/tvStore'
 
 export interface CastButtonProps {
   /** Channel ID for creating cast sessions */
@@ -55,6 +56,8 @@ export function CastButton({
   } = useChromecast()
 
   const [isStarting, setIsStarting] = useState(false)
+  // A cast from the Live slot follows Live (the server moves it and stops it)
+  const followsLive = useTVStore((s) => s.selectedChannel?.id === LIVE_CHANNEL_ID)
 
   // Only failures that happen from now on: each report is a new object
   useEffect(
@@ -78,14 +81,14 @@ export function CastButton({
 
     if (!isConnected) {
       // Not connected - open device picker with cast params for auto-cast on connect
-      requestSession({ channelId, streamType, streamUrl, title: channelName })
+      requestSession({ channelId, streamType, streamUrl, title: channelName, followsLive })
       return
     }
 
     // Connected but not casting - start casting
     setIsStarting(true)
     try {
-      await startCasting(channelId, streamType, streamUrl, channelName)
+      await startCasting(channelId, streamType, streamUrl, channelName, followsLive)
     } catch {
       // Error is already logged and set in state by hook
     } finally {
@@ -102,6 +105,7 @@ export function CastButton({
     streamType,
     streamUrl,
     channelName,
+    followsLive,
   ])
 
   // Hide button while loading or if cast is not available

@@ -21,6 +21,8 @@ interface CastParams {
   streamType: 'hls' | 'mpegts'
   streamUrl?: string
   title?: string
+  /** Cast of the Live slot: the server moves it with Live and stops it with Live */
+  followsLive?: boolean
 }
 
 /**
@@ -32,7 +34,8 @@ export interface UseChromecastReturn extends ChromecastState {
     channelId: string,
     streamType: 'hls' | 'mpegts',
     streamUrl?: string,
-    title?: string
+    title?: string,
+    followsLive?: boolean
   ) => Promise<void>
   /** Stop the current cast session */
   stopCasting: () => Promise<void>
@@ -313,7 +316,8 @@ function handleSessionStateChanged(event: cast.framework.SessionStateEventData) 
         pending.channelId,
         pending.streamType,
         pending.streamUrl,
-        pending.title
+        pending.title,
+        pending.followsLive
       ).catch((err) => {
         logger.error('Cast', 'Auto-cast failed', { error: err })
       })
@@ -438,7 +442,8 @@ async function startCasting(
   channelId: string,
   streamType: 'hls' | 'mpegts',
   streamUrl?: string,
-  title?: string
+  title?: string,
+  followsLive = false
 ) {
   if (typeof cast === 'undefined' || typeof chrome === 'undefined') {
     throw new Error('Cast SDK not available')
@@ -471,7 +476,7 @@ async function startCasting(
       // MPEG-TS streams need backend transcoding
       logger.debug('Cast', 'Creating backend transcoding session', { channelId, streamType })
 
-      const castSession = await createCastSession(channelId, streamType)
+      const castSession = await createCastSession(channelId, streamType, followsLive)
       ownedSessionId = castSession.session_id
       ownedSessions.add(ownedSessionId)
       if (!isCurrent()) { await releaseSession(ownedSessionId); return }

@@ -14,9 +14,15 @@ describe('createCastSession', () => {
     useAuthStore.setState({ token: 'fixture-token', role: 'viewer', isAuthenticated: true })
   })
 
-  it('sends only the channel and type: the server resolves the source itself', async () => {
+  it('sends no stream URL: the server resolves the source itself', async () => {
     await createCastSession('7', 'mpegts')
 
-    expect(sentBody()).toEqual({ channel_id: '7', stream_type: 'mpegts' })
+    expect(sentBody()).toEqual({ channel_id: '7', stream_type: 'mpegts', follows_live: false })
+  })
+
+  it('asks for a cast that follows Live', async () => {
+    await createCastSession('7', 'mpegts', true)
+
+    expect(sentBody()).toEqual({ channel_id: '7', stream_type: 'mpegts', follows_live: true })
   })
 })

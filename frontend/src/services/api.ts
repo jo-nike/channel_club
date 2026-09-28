@@ -525,6 +525,7 @@ export interface CastFeatureResponse {
 export interface CastSessionRequest {
   channel_id: string
   stream_type: 'hls' | 'mpegts'
+  follows_live: boolean
 }
 
 export interface CastSessionResponse {
@@ -550,7 +551,8 @@ export async function getCastFeatureEnabled(): Promise<boolean> {
 
 export async function createCastSession(
   channelId: string,
-  streamType: 'hls' | 'mpegts'
+  streamType: 'hls' | 'mpegts',
+  followsLive = false
 ): Promise<CastSessionResponse> {
   logger.debug('API', `Creating cast session for channel: ${channelId} (type: ${streamType})`)
 
@@ -558,6 +560,7 @@ export async function createCastSession(
   const body: CastSessionRequest = {
     channel_id: channelId,
     stream_type: streamType,
+    follows_live: followsLive,
   }
 
   const response = await fetchWithAuth('/cast/session', {
