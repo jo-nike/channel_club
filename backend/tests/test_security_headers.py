@@ -150,3 +150,20 @@ def test_hostile_host_header_adds_no_socket_source(spa_client):
     policy = response.headers["content-security-policy-report-only"]
     assert "evil" not in policy
     assert "connect-src 'self' https://streams.example.com https://plex.tv" in policy
+
+
+@pytest.mark.parametrize("stream_base_url", ["", "streams.example.com"])
+def test_stream_base_url_without_an_origin_is_left_out(tmp_path, stream_base_url):
+    static = tmp_path / "static"
+    static.mkdir()
+    (static / "index.html").write_text("<!doctype html><title>spa</title>")
+    spa = FastAPI()
+    mount_spa(spa, static)
+    spa.add_middleware(SecurityHeadersMiddleware, stream_base_url=stream_base_url)
+    client = TestClient(spa, base_url="https://tv.example.com")
+    policy = client.get("/").headers["content-security-policy-report-only"]
+    assert "://" not in policy.split()
+    assert "  " not in policy
+    directives = dict(d.split(" ", 1) for d in policy.split("; "))
+    assert directives["media-src"] == "'self' blob: https://*.giphy.com"
+    assert directives["connect-src"] == "'self' wss://tv.example.com https://plex.tv"
