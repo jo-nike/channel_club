@@ -386,3 +386,52 @@ def test_a_pre_r2_client_without_on_live_still_logs_switch(events) -> None:
 
     recs = _watch_events(events())
     assert [r["reason"] for r in recs[1:]] == ["switch", "switch"]
+
+
+def test_watch_progress_and_stop_deltas_add_up_to_the_watch(
+    events, clock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(presence, "WATCH_PROGRESS_SECONDS", 300)
+    presence.track_user("s1", "jon", "live", user_id="u1")
+    presence.update_user_channel("s1", "RDS", None, "live", "uuid-rds", on_live=True)
+    # The cleanup loop's 30 s passes over a 12-minute watch
+    for _ in range(24):
+        clock.advance(30)
+        presence.record_watch_progress()
+    presence.remove_user("s1")
+
+    recs = [r for r in events() if r["event"] in ("watch.progress", "watch.stop")]
+    progress, stop = recs[:-1], recs[-1]
+    assert [r["delta_s"] for r in progress] == [300.0, 300.0]
+    assert progress[0]["user_id"] == "u1" and progress[0]["session"] == "s1"
+    assert progress[0]["channel_id"] == "uuid-rds" and progress[0]["on_live"] is True
+    assert progress[0]["view"] == "live" and progress[0]["channel"] == "RDS"
+    assert stop["delta_s"] == 120.0 and stop["duration_s"] == 720.0
+    assert sum(r["delta_s"] for r in recs) == pytest.approx(stop["duration_s"], abs=0.1)
+
+
+def test_no_watch_progress_without_an_open_watch(events, clock) -> None:
+    presence.track_user("s1", "jon", "live")
+    clock.advance(presence.WATCH_PROGRESS_SECONDS * 2)
+    presence.record_watch_progress()
+    presence.update_user_channel("s1", "RDS", None, "live", "uuid-rds")
+    presence.update_user_channel("s1", None)
+    clock.advance(presence.WATCH_PROGRESS_SECONDS * 2)
+    presence.record_watch_progress()
+
+    assert not [r for r in events() if r["event"] == "watch.progress"]
+
+
+def test_a_stale_end_before_the_last_progress_never_logs_a_negative_delta(events, clock) -> None:
+    presence.track_user("s1", "jon", "live")
+    presence.update_user_channel("s1", "RDS", None, "live", "uuid-rds")
+    clock.advance(100)
+    presence.update_last_activity("s1")
+    clock.advance(presence.WATCH_PROGRESS_SECONDS)
+    presence.record_watch_progress()
+    presence._active_users["s1"].last_activity_mono -= presence.WATCH_PROGRESS_SECONDS
+
+    presence.cleanup_stale_users(timeout_seconds=60)
+
+    stop = next(r for r in events() if r["event"] == "watch.stop")
+    assert stop["delta_s"] == 0.0 and stop["duration_s"] == 100.0

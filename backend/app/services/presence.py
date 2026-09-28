@@ -6,7 +6,7 @@ The state resets on server restart (acceptable for this use case).
 
 Every session, channel and programme change is also emitted as a structured
 INFO log event (``session.start``, ``session.stop``, ``watch.start``,
-``watch.stop``, ``programme.change``, ``programme.stop``)
+``watch.stop``, ``watch.progress``, ``programme.change``, ``programme.stop``)
 with bound fields, so viewing history can be queried from the log store
 (Loki: ``| json | record_extra_event="watch.stop"``) without a database.
 Session events are per connection; watch and programme events are per person,
@@ -143,6 +143,7 @@ class _Watch:
     programme: str | None
     since: datetime
     programme_since: datetime | None  # Start of the current titled programme segment
+    accounted: datetime  # Watch time up to here has gone out on watch.progress
 
 
 # Each person's open watch, keyed by person_key
@@ -195,6 +196,11 @@ def _stop_watch(person: str, reason: str, end: datetime | None = None) -> None:
     watch = _watches.pop(person)
     _close_programme(watch, end)
     duration = _seconds_since(watch.since, end)
+    # The rest since the last watch.progress. A stale sweep ends the watch at the
+    # last message, which can be before the last progress tick: delta_s is then 0,
+    # and the progress already logged overcounts by at most one tick plus the
+    # stale timeout.
+    delta = _seconds_since(watch.accounted, end)
     _emit(
         "watch.stop",
         f"User {watch.username} stopped watching {watch.channel} after {duration}s ({reason})",
@@ -202,6 +208,7 @@ def _stop_watch(person: str, reason: str, end: datetime | None = None) -> None:
         on_live=watch.on_live,
         programme=watch.programme,
         duration_s=duration,
+        delta_s=delta,
         reason=reason,
     )
 
@@ -220,6 +227,7 @@ def _start_watch(person: str, user: UserPresence, reason: str) -> None:
         programme=user.current_programme,
         since=now,
         programme_since=now if user.current_programme is not None else None,
+        accounted=now,
     )
     _watches[person] = watch
     _emit(
@@ -491,6 +499,10 @@ STALE_USER_TIMEOUT_SECONDS = 90
 # tab that vanished without closing its socket is gone within about 120s.
 CLEANUP_INTERVAL_SECONDS = 30
 
+# How often an open watch's time goes out on watch.progress, so watch time
+# accrues in the interval it happened (checked on every cleanup pass)
+WATCH_PROGRESS_SECONDS = 300
+
 # How long closing a stale connection's socket may take
 STALE_CLOSE_TIMEOUT_SECONDS = 5.0
 
@@ -569,6 +581,27 @@ def cleanup_stale_users(timeout_seconds: int = STALE_USER_TIMEOUT_SECONDS) -> in
     return len(stale)
 
 
+def record_watch_progress() -> None:
+    """Emit watch.progress for each open watch with WATCH_PROGRESS_SECONDS unlogged.
+
+    delta_s is the time since the watch's last accounting (its start or last
+    progress), which then moves to now; watch.stop carries the rest.
+    """
+    now = _now()
+    for watch in _watches.values():
+        delta = _seconds_since(watch.accounted, now)
+        if delta < WATCH_PROGRESS_SECONDS:
+            continue
+        _emit(
+            "watch.progress",
+            f"User {watch.username} watched {watch.channel} for another {delta}s",
+            **_channel_fields(watch),
+            on_live=watch.on_live,
+            delta_s=delta,
+        )
+        watch.accounted = now
+
+
 def start_cleanup_task() -> None:
     """Start the background task that removes stale users every 30 seconds."""
     global _cleanup_task
@@ -587,13 +620,14 @@ def stop_cleanup_task() -> None:
 
 
 async def _cleanup_loop() -> None:
-    """Background loop that periodically removes stale users."""
+    """Background loop that periodically removes stale users and logs watch progress."""
     while True:
         try:
             await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
             removed = cleanup_stale_users()
             if removed > 0:
                 log.info("Cleaned up {} stale users", removed)
+            record_watch_progress()
         except asyncio.CancelledError:
             break
         except Exception as e:
