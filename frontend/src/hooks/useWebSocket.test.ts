@@ -13,11 +13,17 @@ import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { usePresenceStore } from '@/stores/presenceStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { fetchNowPlaying } from '@/services/api'
+import { refreshAuth } from './useAuth'
 import type { PresenceEntry, UnifiedChannel } from '@/types'
 
 // Mock useChatEnabled hook
 vi.mock('./useChatEnabled', () => ({
   useChatEnabled: vi.fn(() => true),
+}))
+
+// A 4001 close refreshes the session; each test says how that goes
+vi.mock('./useAuth', () => ({
+  refreshAuth: vi.fn(),
 }))
 
 // Mock sonner toast
@@ -125,6 +131,11 @@ describe('useWebSocket', () => {
     usePresenceStore.setState({ entries: [] })
     useSettingsStore.setState({ userChannelSelection: false, presenceVisible: false })
     vi.mocked(toast).mockClear()
+    // By default the refresh finds the sign-in over, like the server's 401
+    vi.mocked(refreshAuth).mockReset().mockImplementation(async () => {
+      useAuthStore.getState().logout()
+      return 'expired'
+    })
   })
 
   afterEach(() => {
@@ -577,15 +588,15 @@ describe('useWebSocket', () => {
       expect(MockWebSocket.instances).toHaveLength(6)
     })
 
-    test('a token change cancels the pending slow retry', () => {
+    test('a new sign-in cancels the pending slow retry', () => {
       vi.spyOn(Math, 'random').mockReturnValue(0)
       renderHook(() => useWebSocket())
 
       exhaustFastRetries()
 
-      // New token: disconnect() clears the slow timer and a fresh connection starts at once
+      // New sign-in: disconnect() clears the slow timer and a fresh connection starts at once
       act(() => {
-        useAuthStore.setState({ token: 'refreshed-jwt-token' })
+        useAuthStore.getState().setAuth('refreshed-jwt-token', 'viewer')
       })
       expect(MockWebSocket.instances).toHaveLength(7)
 
@@ -620,15 +631,17 @@ describe('useWebSocket', () => {
       expect(MockWebSocket.instances).toHaveLength(1)
     })
 
-    test('does not reconnect on auth error (code 4001)', () => {
+    test('does not reconnect on auth error (code 4001) when the refresh finds the sign-in over', async () => {
       const { result } = renderHook(() => useWebSocket())
       const ws = MockWebSocket.instances[0]
 
-      act(() => {
+      await act(async () => {
         ws.simulateOpen()
         ws.simulateClose(4001, 'Token expired')
       })
 
+      expect(refreshAuth).toHaveBeenCalledTimes(1)
+      expect(useAuthStore.getState().isAuthenticated).toBe(false)
       expect(result.current.status).toBe('disconnected')
 
       // Advance time - no reconnection should happen
@@ -817,6 +830,125 @@ describe('useWebSocket', () => {
       })
 
       expect(result.current.status).toBe('reconnecting')
+    })
+  })
+
+  describe('session refresh', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    function openWithAck() {
+      const view = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({ type: 'connection_ack', currentChannel: null })
+      })
+      return { ...view, ws }
+    }
+
+    test('a refreshed token is sent as reauth on the open socket, without reconnecting', () => {
+      const { ws, result } = openWithAck()
+
+      act(() => {
+        useAuthStore.getState().replaceToken('refreshed-jwt-token', 'viewer')
+      })
+
+      expect(JSON.parse(ws.send.mock.calls.at(-1)![0])).toEqual({ type: 'reauth', token: 'refreshed-jwt-token' })
+      expect(ws.close).not.toHaveBeenCalled()
+      expect(MockWebSocket.instances).toHaveLength(1)
+      expect(result.current.status).toBe('connected')
+    })
+
+    test('a new sign-in replaces the socket instead of sending reauth', () => {
+      const { ws } = openWithAck()
+
+      act(() => {
+        useAuthStore.getState().setAuth('someone-else', 'viewer')
+      })
+
+      expect(ws.send).not.toHaveBeenCalledWith(expect.stringContaining('reauth'))
+      expect(ws.close).toHaveBeenCalled()
+      expect(MockWebSocket.instances).toHaveLength(2)
+    })
+
+    test('4001 refreshes the session and reconnects with the new token', async () => {
+      vi.mocked(refreshAuth).mockImplementation(async () => {
+        useAuthStore.getState().replaceToken('refreshed-jwt-token', 'viewer')
+        return 'refreshed'
+      })
+      const { ws } = openWithAck()
+
+      await act(async () => {
+        ws.simulateClose(4001, 'Token expired')
+      })
+
+      expect(refreshAuth).toHaveBeenCalledTimes(1)
+      expect(MockWebSocket.instances).toHaveLength(2)
+      act(() => {
+        MockWebSocket.instances[1].simulateOpen()
+      })
+      expect(JSON.parse(MockWebSocket.instances[1].send.mock.calls[0][0])).toEqual({ type: 'auth', token: 'refreshed-jwt-token' })
+      expect(useAuthStore.getState().isAuthenticated).toBe(true)
+    })
+
+    test('4001 with a temporary refresh failure keeps the session and reconnects with backoff', async () => {
+      vi.mocked(refreshAuth).mockResolvedValue('temporary')
+      const { ws, result } = openWithAck()
+
+      await act(async () => {
+        ws.simulateClose(4001, 'Token expired')
+      })
+
+      expect(useAuthStore.getState().isAuthenticated).toBe(true)
+      expect(result.current.status).toBe('reconnecting')
+      expect(MockWebSocket.instances).toHaveLength(1)
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
+      expect(MockWebSocket.instances).toHaveLength(2)
+    })
+
+    test('a refreshed token refused again before any ack signs out instead of refreshing in a loop', async () => {
+      vi.mocked(refreshAuth).mockImplementation(async () => {
+        useAuthStore.getState().replaceToken('refreshed-jwt-token', 'viewer')
+        return 'refreshed'
+      })
+      const { ws } = openWithAck()
+
+      await act(async () => {
+        ws.simulateClose(4001, 'Token expired')
+      })
+      await act(async () => {
+        MockWebSocket.instances[1].simulateOpen()
+        MockWebSocket.instances[1].simulateClose(4001, 'Invalid token')
+      })
+
+      expect(refreshAuth).toHaveBeenCalledTimes(1)
+      expect(useAuthStore.getState().isAuthenticated).toBe(false)
+      expect(MockWebSocket.instances).toHaveLength(2)
+    })
+
+    test('focus does not start a second connection while the refresh is in flight', async () => {
+      let finish!: (outcome: 'refreshed') => void
+      vi.mocked(refreshAuth).mockReturnValue(new Promise((resolve) => { finish = resolve }))
+      const { ws } = openWithAck()
+
+      act(() => {
+        ws.simulateClose(4001, 'Token expired')
+      })
+      act(() => window.dispatchEvent(new Event('focus')))
+      expect(MockWebSocket.instances).toHaveLength(1)
+
+      await act(async () => {
+        finish('refreshed')
+      })
+      expect(MockWebSocket.instances).toHaveLength(2)
     })
   })
 
