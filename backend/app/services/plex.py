@@ -5,6 +5,7 @@ from contextlib import suppress
 
 import httpx
 from loguru import logger
+from pydantic import ValidationError
 
 from app.config import settings
 from app.models.plex import PlexUser
@@ -38,6 +39,16 @@ class PlexServerAccessDeniedError(PlexAuthError):
     pass
 
 
+class PlexUnavailableError(PlexAuthError):
+    """Raised when plex.tv times out, errors, rate limits or answers garbage."""
+
+    pass
+
+
+# plex.tv sign-in calls: fail fast rather than hold a sign-in open.
+PLEX_TIMEOUT = httpx.Timeout(5.0, connect=3.0)
+
+
 async def validate_plex_token(auth_token: str) -> PlexUser:
     """Validate Plex auth token and return user info.
 
@@ -48,38 +59,50 @@ async def validate_plex_token(auth_token: str) -> PlexUser:
         PlexUser with user information from Plex API.
 
     Raises:
-        InvalidPlexTokenError: If token is invalid or expired.
+        InvalidPlexTokenError: If plex.tv answers 401 (token invalid or expired).
+        PlexUnavailableError: If plex.tv is unreachable, slow, answers any other
+            non-200, or returns a body that is not a user.
     """
     # Log only first 8 characters of token for debugging (never full token!)
     log.debug("Validating Plex token: {}...", auth_token[:8] if auth_token else "empty")
 
-    async with httpx.AsyncClient(verify=SSL_CONTEXT) as client:
-        response = await client.get(
-            "https://plex.tv/api/v2/user",
-            headers={**PLEX_API_HEADERS, "X-Plex-Token": auth_token},
-        )
-        if response.status_code != 200:
-            log.warning("Plex token validation failed with status {}", response.status_code)
-            raise InvalidPlexTokenError("Invalid or expired Plex token")
-
-        try:
-            data = response.json()
-        except Exception as e:
-            log.error("Invalid response from Plex API: {}", e)
-            raise InvalidPlexTokenError(f"Invalid response from Plex API: {e}") from e
-
-        try:
-            user = PlexUser(
-                id=str(data["id"]),
-                username=data["username"],
-                email=data.get("email", ""),
-                thumb=data.get("thumb"),
+    try:
+        async with httpx.AsyncClient(timeout=PLEX_TIMEOUT, verify=SSL_CONTEXT) as client:
+            response = await client.get(
+                "https://plex.tv/api/v2/user",
+                headers={**PLEX_API_HEADERS, "X-Plex-Token": auth_token},
             )
-            log.info("Plex user validated: {}", user.username)
-            return user
-        except KeyError as e:
-            log.error("Missing field in Plex response: {}", e)
-            raise InvalidPlexTokenError(f"Missing field in Plex response: {e}") from e
+    except httpx.HTTPError as e:
+        log.warning("Plex token validation failed: {}", type(e).__name__)
+        raise PlexUnavailableError("plex.tv is unreachable") from e
+    if response.status_code == 401:
+        log.warning("Plex token validation failed with status 401")
+        raise InvalidPlexTokenError("Invalid or expired Plex token")
+    if response.status_code != 200:
+        # A 5xx, 429 or any other status is plex.tv's trouble, not a bad token.
+        log.warning("Plex token validation failed with status {}", response.status_code)
+        raise PlexUnavailableError(f"plex.tv answered {response.status_code}")
+
+    try:
+        data = response.json()
+    except ValueError as e:
+        log.error("Invalid response from Plex API: {}", e)
+        raise PlexUnavailableError(f"Invalid response from Plex API: {e}") from e
+
+    try:
+        if data["id"] is None:
+            raise KeyError("id")
+        user = PlexUser(
+            id=str(data["id"]),
+            username=data["username"],
+            email=data.get("email", ""),
+            thumb=data.get("thumb"),
+        )
+    except (KeyError, TypeError, AttributeError, ValidationError) as e:
+        log.error("Unexpected Plex user response: {}", type(e).__name__)
+        raise PlexUnavailableError("Unexpected Plex user response") from e
+    log.info("Plex user validated: {}", user.username)
+    return user
 
 
 _server_owner_id_cache: dict[str, str] = {}
@@ -230,27 +253,44 @@ async def check_server_access(auth_token: str) -> bool:
         True if user has access to configured server, False otherwise.
         If no server is configured (plex_server_machine_id is None),
         returns True to allow all Plex users.
+
+    Raises:
+        PlexUnavailableError: If plex.tv is unreachable, slow, answers non-200,
+            or returns a body that is not a list of resources.
     """
     if not settings.plex_server_machine_id:
         log.debug("No Plex server machine ID configured, allowing access")
         return True  # No server configured, allow all Plex users
 
     log.debug("Checking user access to Plex server")
-    async with httpx.AsyncClient(verify=SSL_CONTEXT) as client:
-        response = await client.get(
-            "https://plex.tv/api/v2/resources",
-            headers={**PLEX_API_HEADERS, "X-Plex-Token": auth_token},
-            params={"includeHttps": 1},
-        )
-        if response.status_code != 200:
-            log.warning("Failed to check server access, status: {}", response.status_code)
-            return False
+    try:
+        async with httpx.AsyncClient(timeout=PLEX_TIMEOUT, verify=SSL_CONTEXT) as client:
+            response = await client.get(
+                "https://plex.tv/api/v2/resources",
+                headers={**PLEX_API_HEADERS, "X-Plex-Token": auth_token},
+                params={"includeHttps": 1},
+            )
+    except httpx.HTTPError as e:
+        log.warning("Failed to check server access: {}", type(e).__name__)
+        raise PlexUnavailableError("plex.tv is unreachable") from e
+    if response.status_code != 200:
+        # The token was just accepted by /user, so a failure here is plex.tv's.
+        log.warning("Failed to check server access, status: {}", response.status_code)
+        raise PlexUnavailableError(f"plex.tv answered {response.status_code}")
 
+    try:
         resources = response.json()
-        for resource in resources:
-            if resource.get("clientIdentifier") == settings.plex_server_machine_id:
-                log.debug("User has access to configured Plex server")
-                return True
+    except ValueError as e:
+        log.error("Invalid resources response from Plex API: {}", e)
+        raise PlexUnavailableError(f"Invalid response from Plex API: {e}") from e
+    if not isinstance(resources, list) or not all(isinstance(r, dict) for r in resources):
+        log.error("Unexpected Plex resources response: {}", type(resources).__name__)
+        raise PlexUnavailableError("Unexpected Plex resources response")
 
-        log.warning("User does not have access to configured Plex server")
-        return False
+    for resource in resources:
+        if resource.get("clientIdentifier") == settings.plex_server_machine_id:
+            log.debug("User has access to configured Plex server")
+            return True
+
+    log.warning("User does not have access to configured Plex server")
+    return False

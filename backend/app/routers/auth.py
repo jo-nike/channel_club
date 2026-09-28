@@ -12,6 +12,7 @@ from app.routers.auth_deps import get_current_user
 from app.services.auth import JWT_EXPIRATION_DAYS, SESSION_MAX_AGE_DAYS, create_access_token
 from app.services.plex import (
     InvalidPlexTokenError,
+    PlexUnavailableError,
     check_server_access,
     determine_role,
     validate_plex_token,
@@ -93,6 +94,7 @@ async def login_with_plex(request: PlexAuthRequest) -> TokenResponse:
         HTTPException: 404 if Plex auth is disabled.
         HTTPException: 401 if Plex token is invalid.
         HTTPException: 403 if user lacks access to configured server.
+        HTTPException: 503 if plex.tv is unreachable or misbehaving.
     """
     log.debug("Plex auth attempt")
 
@@ -100,18 +102,23 @@ async def login_with_plex(request: PlexAuthRequest) -> TokenResponse:
     if not settings.plex_auth_enabled:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
 
-    # Validate Plex token
+    # Validate Plex token and check server access
     try:
         plex_user = await validate_plex_token(request.auth_token)
+        has_access = await check_server_access(request.auth_token)
     except InvalidPlexTokenError as err:
         log.warning("Plex auth failed: invalid or expired token")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired Plex token",
         ) from err
+    except PlexUnavailableError as err:
+        log.warning("Plex auth failed: plex.tv unavailable")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Plex is not responding, try again shortly",
+        ) from err
 
-    # Check server access
-    has_access = await check_server_access(request.auth_token)
     if not has_access:
         log.warning("Plex auth failed for user {}: no server access", plex_user.username)
         raise HTTPException(
