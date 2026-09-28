@@ -1,10 +1,10 @@
 """Tests for EPG service."""
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -166,7 +166,7 @@ class TestRefreshCache:
     """Tests for cache refresh functionality."""
 
     @pytest.mark.asyncio
-    async def test_refresh_cache_success(self) -> None:
+    async def test_refresh_cache_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Successful cache refresh stores parsed data."""
         service = EPGService("http://test:9191")
 
@@ -178,42 +178,28 @@ class TestRefreshCache:
         </tv>
         """
 
-        mock_response = MagicMock()
-        mock_response.text = xml_response
-        mock_response.raise_for_status = MagicMock()
+        _patch_upstream(
+            monkeypatch, _Upstream(lambda request: httpx.Response(200, text=xml_response))
+        )
 
-        with patch("app.services.epg_service.httpx.AsyncClient") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.get.return_value = mock_response
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_class.return_value = mock_client
-
-            result = await service.refresh_cache()
+        result = await service.refresh_cache()
 
         assert result is True
         assert "uuid-abc123" in service._cache
         assert service._cache_expires is not None
 
     @pytest.mark.asyncio
-    async def test_refresh_cache_sets_24h_expiry(self) -> None:
+    async def test_refresh_cache_sets_24h_expiry(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Cache expiry is set to 24 hours from now."""
         service = EPGService("http://test:9191")
 
-        mock_response = MagicMock()
-        mock_response.text = "<tv></tv>"
-        mock_response.raise_for_status = MagicMock()
+        _patch_upstream(
+            monkeypatch, _Upstream(lambda request: httpx.Response(200, text="<tv></tv>"))
+        )
 
-        with patch("app.services.epg_service.httpx.AsyncClient") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.get.return_value = mock_response
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_class.return_value = mock_client
-
-            before = datetime.now(UTC)
-            await service.refresh_cache()
-            after = datetime.now(UTC)
+        before = datetime.now(UTC)
+        await service.refresh_cache()
+        after = datetime.now(UTC)
 
         expected_min = before + timedelta(hours=24)
         expected_max = after + timedelta(hours=24)
@@ -221,56 +207,49 @@ class TestRefreshCache:
         assert expected_min <= service._cache_expires <= expected_max
 
     @pytest.mark.asyncio
-    async def test_refresh_cache_connection_error_returns_false(self) -> None:
+    async def test_refresh_cache_connection_error_returns_false(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Connection error returns False without raising."""
         service = EPGService("http://test:9191")
 
-        with patch("app.services.epg_service.httpx.AsyncClient") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.get.side_effect = httpx.ConnectError("Connection refused")
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_class.return_value = mock_client
+        _patch_upstream(monkeypatch, _Upstream(_raise(httpx.ConnectError("Connection refused"))))
 
-            result = await service.refresh_cache()
+        result = await service.refresh_cache()
 
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_refresh_cache_timeout_returns_false(self) -> None:
+    async def test_refresh_cache_timeout_returns_false(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Timeout returns False without raising."""
         service = EPGService("http://test:9191")
 
-        with patch("app.services.epg_service.httpx.AsyncClient") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.get.side_effect = httpx.TimeoutException("Timeout")
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_class.return_value = mock_client
+        _patch_upstream(monkeypatch, _Upstream(_raise(httpx.TimeoutException("Timeout"))))
 
-            result = await service.refresh_cache()
+        result = await service.refresh_cache()
 
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_refresh_cache_calls_correct_endpoint(self) -> None:
+    async def test_refresh_cache_calls_correct_endpoint(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Refresh calls /output/epg endpoint."""
         service = EPGService("http://dispatcharr:9191")
 
-        mock_response = MagicMock()
-        mock_response.text = "<tv></tv>"
-        mock_response.raise_for_status = MagicMock()
+        urls: list[str] = []
 
-        with patch("app.services.epg_service.httpx.AsyncClient") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.get.return_value = mock_response
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_class.return_value = mock_client
+        def respond(request: httpx.Request) -> httpx.Response:
+            urls.append(str(request.url))
+            return httpx.Response(200, text="<tv></tv>")
 
-            await service.refresh_cache()
+        _patch_upstream(monkeypatch, _Upstream(respond))
 
-        mock_client.get.assert_called_once_with("http://dispatcharr:9191/output/epg")
+        await service.refresh_cache()
+
+        assert urls == ["http://dispatcharr:9191/output/epg"]
 
 
 class TestGetNowPlaying:
@@ -346,7 +325,9 @@ class TestGetNowPlaying:
         assert result.next_program is None
 
     @pytest.mark.asyncio
-    async def test_get_now_playing_refreshes_stale_cache(self) -> None:
+    async def test_get_now_playing_refreshes_stale_cache(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Refreshes cache when expired before returning data."""
         service = EPGService("http://test:9191")
 
@@ -365,24 +346,19 @@ class TestGetNowPlaying:
         </tv>
         """
 
-        mock_response = MagicMock()
-        mock_response.text = xml_response
-        mock_response.raise_for_status = MagicMock()
+        _patch_upstream(
+            monkeypatch, _Upstream(lambda request: httpx.Response(200, text=xml_response))
+        )
 
-        with patch("app.services.epg_service.httpx.AsyncClient") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.get.return_value = mock_response
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_class.return_value = mock_client
-
-            result = await service.get_now_playing("channel-1")
+        result = await service.get_now_playing("channel-1")
 
         assert result.current_program is not None
         assert result.current_program.title == "Fresh Program"
 
     @pytest.mark.asyncio
-    async def test_get_now_playing_uses_stale_cache_on_refresh_failure(self) -> None:
+    async def test_get_now_playing_uses_stale_cache_on_refresh_failure(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Uses stale cache when refresh fails."""
         service = EPGService("http://test:9191")
 
@@ -399,20 +375,17 @@ class TestGetNowPlaying:
         service._cache = {"channel-1": stale_programs}
         service._cache_expires = now - timedelta(hours=1)
 
-        with patch("app.services.epg_service.httpx.AsyncClient") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.get.side_effect = httpx.ConnectError("Connection refused")
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_class.return_value = mock_client
+        _patch_upstream(monkeypatch, _Upstream(_raise(httpx.ConnectError("Connection refused"))))
 
-            result = await service.get_now_playing("channel-1")
+        result = await service.get_now_playing("channel-1")
 
         assert result.current_program is not None
         assert result.current_program.title == "Stale Program"
 
     @pytest.mark.asyncio
-    async def test_get_now_playing_raises_when_no_cache_and_refresh_fails(self) -> None:
+    async def test_get_now_playing_raises_when_no_cache_and_refresh_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Raises error when refresh fails and no cache exists."""
         service = EPGService("http://test:9191")
 
@@ -420,15 +393,10 @@ class TestGetNowPlaying:
         service._cache = {}
         service._cache_expires = None
 
-        with patch("app.services.epg_service.httpx.AsyncClient") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.get.side_effect = httpx.ConnectError("Connection refused")
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_class.return_value = mock_client
+        _patch_upstream(monkeypatch, _Upstream(_raise(httpx.ConnectError("Connection refused"))))
 
-            with pytest.raises(EPGServiceError, match="EPG service unavailable"):
-                await service.get_now_playing("channel-1")
+        with pytest.raises(EPGServiceError, match="EPG service unavailable"):
+            await service.get_now_playing("channel-1")
 
 
 def _on_air(title: str, now: datetime) -> list[Program]:
@@ -1134,3 +1102,62 @@ class TestUnexpectedRefreshFailures:
             pytest.raises(asyncio.CancelledError),
         ):
             await service.refresh_cache()
+
+
+class _SlowBody(httpx.AsyncByteStream):
+    """A body that sends one chunk, then stalls."""
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield b"<tv>"
+        await asyncio.sleep(10)
+
+
+class TestBoundedFeed:
+    """The XMLTV download has a byte budget and a body deadline (D-07)."""
+
+    @pytest.mark.asyncio
+    async def test_oversized_feed_keeps_stale_cache_and_backs_off(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("app.services.epg_service.FEED_BYTES", 4 * 1024)
+        oversized = HEALTH_XMLTV.encode() + b"<!-- pad -->" * 700  # about 8 KB
+        _patch_upstream(
+            monkeypatch, _Upstream(lambda request: httpx.Response(200, content=oversized))
+        )
+        service = EPGService("http://dispatcharr.synthetic:9191")
+        now = datetime.now(UTC)
+        service._cache = {"ch-a": _on_air("Stale Show", now)}
+        service._cache_expires = now - timedelta(seconds=1)
+
+        result = await service.get_now_playing("ch-a")
+
+        assert result.current_program is not None
+        assert result.current_program.title == "Stale Show"
+        assert service._retry_at is not None
+        assert service.get_health().error == "feed too large"
+
+    @pytest.mark.asyncio
+    async def test_feed_is_decoded_by_its_xml_declaration(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        latin1 = (
+            '<?xml version="1.0" encoding="ISO-8859-1"?>'
+            '<tv><programme start="20260103200000 +0000" stop="20260103210000 +0000" '
+            'channel="ch-a"><title>Caf\xe9</title></programme></tv>'
+        ).encode("latin-1")
+        _patch_upstream(monkeypatch, _Upstream(lambda request: httpx.Response(200, content=latin1)))
+        service = EPGService("http://dispatcharr.synthetic:9191")
+
+        assert await service.refresh_cache() is True
+        assert service._cache["ch-a"][0].title == "Caf\xe9"
+
+    @pytest.mark.asyncio
+    async def test_stalled_body_times_out(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("app.services.bounded_http.BODY_SECONDS", 0.05)
+        _patch_upstream(
+            monkeypatch, _Upstream(lambda request: httpx.Response(200, stream=_SlowBody()))
+        )
+        service = EPGService("http://dispatcharr.synthetic:9191")
+
+        assert await service.refresh_cache() is False
+        assert service.get_health().error == "timeout"

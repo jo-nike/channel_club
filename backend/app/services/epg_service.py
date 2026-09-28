@@ -13,6 +13,7 @@ from app.config import settings
 from app.models.channel import Channel
 from app.models.epg import EPGProgrammesResponse, EPGResponse, Program
 from app.models.status import EPGHealthStatus
+from app.services.bounded_http import FEED_BYTES, read_bounded
 from app.services.tls import SSL_CONTEXT
 
 # Module-level logger with service context
@@ -37,6 +38,10 @@ class EPGServiceError(Exception):
     """Raised when EPG service encounters an error."""
 
     pass
+
+
+class _FeedTooLargeError(Exception):
+    """The XMLTV body exceeded its byte budget."""
 
 
 class EPGService:
@@ -109,11 +114,14 @@ class EPGService:
 
         return datetime(year, month, day, hour, minute, second, tzinfo=timezone(tz_offset))
 
-    def _parse_xmltv(self, xml_content: str) -> tuple[dict[str, list[Program]], dict[str, str]]:
+    def _parse_xmltv(
+        self, xml_content: str | bytes
+    ) -> tuple[dict[str, list[Program]], dict[str, str]]:
         """Parse XMLTV XML content into channel->programs and name->channel mappings.
 
         Args:
-            xml_content: Raw XML string from Dispatcharr /xmltv.php
+            xml_content: Raw XML from Dispatcharr's /output/epg. Bytes are decoded
+                by the parser, following the XML declaration's encoding.
 
         Returns:
             Tuple of (dict mapping channel_id to list of Program objects,
@@ -186,12 +194,18 @@ class EPGService:
         self._last_attempt_at = datetime.now(UTC)
         try:
             async with httpx.AsyncClient(timeout=30.0, verify=SSL_CONTEXT) as client:
-                response = await client.get(url)
-                response.raise_for_status()
+                async with client.stream("GET", url) as response:
+                    response.raise_for_status()
+                    # A byte budget and a body deadline, so a huge or slow-drip feed
+                    # can neither exhaust memory nor hold the refresh lock
+                    try:
+                        body = await read_bounded(response, FEED_BYTES)
+                    except ValueError as e:
+                        raise _FeedTooLargeError from e
 
                 # Parse in a thread pool - ElementTree over the whole XMLTV
                 # feed is CPU-bound and would otherwise block the event loop
-                programs, channel_names = await asyncio.to_thread(self._parse_xmltv, response.text)
+                programs, channel_names = await asyncio.to_thread(self._parse_xmltv, body)
                 # Swap both maps with no await between, so no lookup sees a mix
                 self._cache = programs
                 self._channel_names = channel_names
@@ -215,9 +229,13 @@ class EPGService:
             log.error("Failed to connect to Dispatcharr at {}: {}", url, e)
             self._last_error = "connection failed"
             return False
-        except httpx.TimeoutException as e:
-            log.error("Timeout fetching XMLTV from {}: {}", url, e)
+        except (httpx.TimeoutException, TimeoutError) as e:
+            log.error("Timeout fetching XMLTV from {}: {}", url, type(e).__name__)
             self._last_error = "timeout"
+            return False
+        except _FeedTooLargeError:
+            log.error("XMLTV feed from {} exceeds {} bytes", url, FEED_BYTES)
+            self._last_error = "feed too large"
             return False
         except httpx.HTTPError as e:
             log.error("Failed to fetch XMLTV from {}: {}", url, e)
