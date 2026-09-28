@@ -23,6 +23,7 @@ from app.services.dispatcharr import (
     dispatcharr_auth_headers,
 )
 from app.services.epg_service import EPG_HEALTH_NAME, get_epg_service
+from app.services.ersatztv import get_guide_health
 from app.services.tls import SSL_CONTEXT
 
 # Module-level logger with service context
@@ -451,7 +452,7 @@ async def get_system_status() -> SystemStatusResponse:
     """Get combined status of all external services.
 
     Returns:
-        SystemStatusResponse with status for ErsatzTV, Dispatcharr and guide data
+        SystemStatusResponse with status for ErsatzTV, Dispatcharr and both guides
     """
     log.debug("Fetching system status for all services")
 
@@ -481,4 +482,6 @@ async def get_system_status() -> SystemStatusResponse:
         else EPGHealthStatus(
             name=EPG_HEALTH_NAME, online=False, last_checked=now, error=_failure(epg_status)
         ),
+        # Local state only, like the Dispatcharr guide: never contacts ErsatzTV.
+        ersatztv_guide=get_guide_health(),
     )

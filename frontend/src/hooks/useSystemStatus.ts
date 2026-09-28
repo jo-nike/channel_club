@@ -73,6 +73,8 @@ export interface SystemStatusData {
   ersatztv: ErsatzTVStatus
   dispatcharr: DispatchrrStatus
   epg: EPGHealthStatus
+  // Optional: a backend from before the ErsatzTV guide was reported omits it
+  ersatztvGuide?: EPGHealthStatus
 }
 
 const POLL_INTERVAL = 30000 // 30 seconds

@@ -341,6 +341,39 @@ describe('StatusTab', () => {
     expect(card.getByText('109')).toBeInTheDocument()
   })
 
+  it('shows the ErsatzTV guide health in its own card next to the Dispatcharr guide', () => {
+    mockUseSystemStatus.mockReturnValue({
+      data: {
+        ersatztv: onlineErsatztv,
+        dispatcharr: onlineDispatcharr,
+        epg: onlineEpg,
+        ersatztvGuide: {
+          ...onlineEpg,
+          name: 'ErsatzTV guide (XMLTV)',
+          stale: true,
+          error: 'HTTP 502',
+          channelCount: 12,
+        },
+      },
+      loading: false,
+      error: null,
+      lastUpdated: new Date('2026-01-04T12:00:00Z'),
+      isRefreshing: false,
+      refetch: vi.fn(),
+    })
+
+    render(<StatusTab />)
+
+    const ersatzCard = screen.getByText('ErsatzTV guide (XMLTV)').closest('[data-slot="card"]')
+    if (!(ersatzCard instanceof HTMLElement)) throw new Error('ErsatzTV guide card not found')
+    const ersatzGuide = within(ersatzCard)
+    expect(ersatzGuide.getByText('Programme guide feed from ErsatzTV')).toBeInTheDocument()
+    expect(ersatzGuide.getByText('Stale')).toBeInTheDocument()
+    expect(ersatzGuide.getByText('HTTP 502')).toBeInTheDocument()
+    expect(ersatzGuide.getByText('12')).toBeInTheDocument()
+    expect(guideDataCard().getByText('Online')).toBeInTheDocument()
+  })
+
   it('shows a degraded upstream in amber with its reason while it is online', () => {
     mockUseSystemStatus.mockReturnValue({
       data: {

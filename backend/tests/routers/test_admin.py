@@ -263,6 +263,13 @@ class TestGetSystemStatus:
                 programme_count=5065,
                 last_success_at=now,
             ),
+            ersatztv_guide=EPGHealthStatus(
+                name="ErsatzTV guide (XMLTV)",
+                online=True,
+                last_checked=now,
+                channel_count=12,
+                programme_count=340,
+            ),
         )
 
         with patch("app.routers.auth_deps.verify_token") as mock_verify:
@@ -291,6 +298,8 @@ class TestGetSystemStatus:
         assert data["epg"]["programmeCount"] == 5065
         assert data["epg"]["lastSuccessAt"] is not None
         assert data["epg"]["nextRetryAt"] is None
+        assert data["ersatztvGuide"]["name"] == "ErsatzTV guide (XMLTV)"
+        assert data["ersatztvGuide"]["programmeCount"] == 340
 
     def test_returns_offline_status_for_unreachable_service(
         self,
@@ -319,6 +328,9 @@ class TestGetSystemStatus:
                 last_checked=now,
                 error="HTTP 403",
                 next_retry_at=now,
+            ),
+            ersatztv_guide=EPGHealthStatus(
+                name="ErsatzTV guide (XMLTV)", online=False, last_checked=now
             ),
         )
 

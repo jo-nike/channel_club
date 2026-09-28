@@ -641,6 +641,38 @@ class TestGetEPGStatus:
         assert status.ersatztv.online is True
         assert status.dispatcharr.online is True
 
+    async def test_reports_the_ersatztv_guide_health_from_local_state(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The ErsatzTV guide's health rides along, read without contacting ErsatzTV."""
+        guide = _epg_health(name="ErsatzTV guide (XMLTV)", stale=True, error="timeout")
+        monkeypatch.setattr(status_service, "get_guide_health", lambda: guide)
+        monkeypatch.setattr(
+            status_service,
+            "get_ersatztv_status",
+            AsyncMock(
+                return_value=ErsatzTVStatus(
+                    name="ErsatzTV", online=True, last_checked=datetime.now(UTC)
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            status_service,
+            "get_dispatcharr_status",
+            AsyncMock(
+                return_value=DispatchrrStatus(
+                    name="Dispatcharr", online=True, last_checked=datetime.now(UTC)
+                )
+            ),
+        )
+
+        status = await get_system_status()
+
+        assert status.ersatztv_guide == guide
+        body = status.model_dump(by_alias=True)
+        assert body["ersatztvGuide"]["stale"] is True
+        assert body["ersatztvGuide"]["error"] == "timeout"
+
 
 @pytest.mark.parametrize(
     "bad_payload",
