@@ -62,6 +62,8 @@ async def set_current_channel(channel: Channel, user: str | None = None) -> Chan
         # Import here to avoid circular dependency
         from app.services.highlight import highlight_service
 
+        # A new live pick retries at once rather than waiting out an earlier failure's backoff.
+        highlight_service.clear_start_backoff()
         try:
             # Stop recording for old channel if switching to different channel
             if old_channel and old_channel.id != channel.id:
@@ -102,6 +104,7 @@ async def clear_current_channel_async(user: str | None = None) -> None:
     if settings.highlight_enabled and _current_channel:
         from app.services.highlight import highlight_service
 
+        highlight_service.clear_start_backoff()
         await highlight_service.stop_recording(_current_channel.id)
 
     _current_channel = None
