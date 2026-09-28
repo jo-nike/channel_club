@@ -125,17 +125,19 @@ fi
 # The backend serves backend/static when it exists. --prod fills it with a fresh build; dev mode
 # removes a build left by an earlier --prod run (only one this script made) so :8001 serves no stale app.
 STATIC_DIR="$APP_DIR/backend/static"
+# The frontend flags CI builds the Docker image with, unless already set in the environment.
+# Dev mode logs at debug level; the prod build at info, as in CI.
+[[ "$MODE" == dev ]] && DEFAULT_LOG_LEVEL=debug || DEFAULT_LOG_LEVEL=info
+export VITE_API_URL="${VITE_API_URL:-/api}" \
+  VITE_CHAT_ENABLED="${VITE_CHAT_ENABLED:-true}" \
+  VITE_GIF_ENABLED="${VITE_GIF_ENABLED:-true}" \
+  VITE_LOG_LEVEL="${VITE_LOG_LEVEL:-$DEFAULT_LOG_LEVEL}"
 if [[ "$MODE" == prod ]]; then
   if [[ -e "$STATIC_DIR" && ! -f "$STATIC_DIR/.built-by-run-sh" ]]; then
     echo "$STATIC_DIR exists and wasn't made by run.sh; move it away first." >&2
     exit 1
   fi
   echo "Building the frontend..."
-  # The build flags CI uses for the Docker image, unless already set in the environment.
-  export VITE_API_URL="${VITE_API_URL:-/api}" \
-    VITE_CHAT_ENABLED="${VITE_CHAT_ENABLED:-true}" \
-    VITE_GIF_ENABLED="${VITE_GIF_ENABLED:-true}" \
-    VITE_LOG_LEVEL="${VITE_LOG_LEVEL:-info}"
   (cd "$APP_DIR/frontend" && npm run build --silent)
   rm -rf -- "$STATIC_DIR"
   # Marker first, so a copy cut short is still recognised (and replaced) as ours.
