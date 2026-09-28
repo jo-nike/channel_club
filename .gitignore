@@ -43,7 +43,6 @@ htmlcov/
 .pytest_cache/
 .ruff_cache/
 
-.ideas
 # Trivy scan staging (generated in CI)
 .trivy-scan/
 

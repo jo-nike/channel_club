@@ -44,7 +44,6 @@ cd frontend && npm run dev
 
 | File | Purpose |
 | --- | --- |
-| `backend/.env` | Legacy local configuration; `run.sh` uses it only when root `.env` is absent |
 | `frontend/.env` | Optional Vite build configuration, based on `frontend/.env.example` |
 | Root `.env` | Shared `run.sh` and Docker Compose configuration, based on root `.env.example` |
 

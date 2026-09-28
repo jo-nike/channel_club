@@ -4,13 +4,12 @@ FastAPI backend. See the [root setup guide](../README.md) for the complete brows
 
 ```bash
 uv sync --frozen
-cp .env.example .env
 ```
 
-Replace the example JWT signing key with `openssl rand -hex 32`, enable the desired login method, and configure unique local passwords or Plex server credentials. Empty passwords disable the corresponding local account. Configure Dispatcharr for live channels and ErsatzTV only when using that catalogue. `backend/.env` is read from the backend working directory; root `.env` is for Docker Compose.
+Configuration lives in the root `.env` (copied from the root `.env.example`). Replace the example JWT signing key with `openssl rand -hex 32`, enable the desired login method, and configure unique local passwords or Plex server credentials. Empty passwords disable the corresponding local account. Configure Dispatcharr for live channels and ErsatzTV only when using that catalogue.
 
 ```bash
-uv run uvicorn app.main:app --reload --port 8001
+uv run --env-file ../.env uvicorn app.main:app --reload --port 8001
 uv run pytest
 uv run ruff check .
 uv run ruff format --check .

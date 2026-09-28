@@ -5,7 +5,6 @@
 .git
 .gitignore
 .claude
-.ideas
 
 # Secrets must never enter the build context
 .env

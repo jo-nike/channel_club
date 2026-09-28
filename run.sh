@@ -37,11 +37,9 @@ while (($#)); do
   shift
 done
 
-# Share the root configuration with Compose; retain older local-only setups.
+# Share the root configuration with Compose.
 if [[ -f "$ROOT_DIR/.env" ]]; then
   ENV_FILE="$ROOT_DIR/.env"
-elif [[ -f "$ROOT_DIR/backend/.env" ]]; then
-  ENV_FILE="$ROOT_DIR/backend/.env"
 else
   echo "No .env found. Copy .env.example to .env and configure authentication first." >&2
   exit 1
