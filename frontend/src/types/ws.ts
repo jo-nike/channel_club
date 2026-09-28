@@ -78,6 +78,8 @@ export interface ErrorMessage {
   code: 'invalid_message' | 'rate_limited' | 'nickname_taken'
   // On rate_limited and nickname_taken for a nickname change: the nickname as sent
   nickname?: string
+  // On invalid_message for a chat send: the refused send's id
+  clientMessageId?: string
 }
 
 export type ServerMessage =

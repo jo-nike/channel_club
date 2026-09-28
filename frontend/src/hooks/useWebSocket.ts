@@ -357,6 +357,17 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
               clearTimeout(pending.timer)
               pending.finish(message.accepted && message.messageId ? 'acknowledged' : 'not-sent')
             }
+          } else if (
+            message.type === 'error'
+            && message.code === 'invalid_message'
+            && message.clientMessageId
+            && pendingChat.current.has(message.clientMessageId)
+          ) {
+            // A send the server could not read: no ack follows, so it is not sent now
+            const pending = pendingChat.current.get(message.clientMessageId)!
+            pendingChat.current.delete(message.clientMessageId)
+            clearTimeout(pending.timer)
+            pending.finish('not-sent')
           } else handleMessage(message)
         } catch (e) {
           // Log but don't crash on invalid JSON

@@ -1600,6 +1600,29 @@ describe('useWebSocket', () => {
 
       expect(ws.send).not.toHaveBeenCalled()
     })
+
+    test('resolves not-sent at once when the server could not read the send', async () => {
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+      act(() => ws.simulateOpen())
+
+      const sending = result.current.sendChatMessage('too long', 'invalid-id-1')
+      act(() => ws.simulateMessage({ type: 'error', code: 'invalid_message', clientMessageId: 'invalid-id-1' }))
+
+      // Settled by the error itself, not by the 10 s timer
+      await expect(Promise.race([sending, Promise.resolve('still pending')])).resolves.toBe('not-sent')
+    })
+
+    test('an invalid_message naming another send leaves this one pending', async () => {
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+      act(() => ws.simulateOpen())
+
+      const sending = result.current.sendChatMessage('hello', 'invalid-id-2')
+      act(() => ws.simulateMessage({ type: 'error', code: 'invalid_message', clientMessageId: 'someone-else' }))
+
+      await expect(Promise.race([sending, Promise.resolve('still pending')])).resolves.toBe('still pending')
+    })
   })
 
   describe('sendShare', () => {
