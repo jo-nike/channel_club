@@ -178,6 +178,39 @@ async def test_a_busy_executor_never_makes_a_finished_encode_time_out(
     assert (tmp_path / "out.mp4").stat().st_size > 0
 
 
+async def test_a_busy_executor_never_delays_or_times_out_a_probe(
+    monkeypatch, busy_executor, source_mp4
+):
+    monkeypatch.setattr(media_export, "PROBE_TIMEOUT_SECONDS", 1)
+    # The probe takes a fraction of a second; the worker thread frees only after the timeout.
+    loop = asyncio.get_running_loop()
+    loop.call_later(1.5, busy_executor)
+    started = loop.time()
+    duration = await asyncio.wait_for(media_export.media_duration(source_mp4), 10)
+    assert duration > 0
+    assert loop.time() - started < 1.5
+
+
+async def test_cancel_probe_kills_and_reaps_actual_harmless_child(tmp_path):
+    real_exec = asyncio.create_subprocess_exec
+    children: list[asyncio.subprocess.Process] = []
+
+    async def launch(*_command, **kwargs):
+        child = await real_exec(sys.executable, "-c", "import time; time.sleep(30)", **kwargs)
+        children.append(child)
+        return child
+
+    with patch("asyncio.create_subprocess_exec", launch):
+        task = asyncio.create_task(media_export.media_duration(tmp_path / "input.mp4"))
+        await asyncio.sleep(0.2)
+        assert children[0].returncode is None
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    # Reaped before the cancellation propagated, not merely signalled.
+    assert children[0].returncode is not None
+
+
 async def test_encode_returns_the_output_file_without_reading_it(tmp_path, source_mp4):
     output = tmp_path / "out.mp4"
     with patch.object(Path, "read_bytes", side_effect=AssertionError("read into memory")):
