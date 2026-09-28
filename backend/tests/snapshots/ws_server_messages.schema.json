@@ -157,6 +157,25 @@
       "title": "ChatLine",
       "type": "object"
     },
+    "Features": {
+      "description": "Which optional features the server has on, so clients show only those.",
+      "properties": {
+        "chat": {
+          "title": "Chat",
+          "type": "boolean"
+        },
+        "gif": {
+          "title": "Gif",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "chat",
+        "gif"
+      ],
+      "title": "Features",
+      "type": "object"
+    },
     "PresenceEntry": {
       "description": "One person in the presence snapshot (camelCase, as sent to clients).",
       "properties": {
@@ -477,6 +496,9 @@
         "buildId": {
           "title": "Buildid",
           "type": "string"
+        },
+        "features": {
+          "$ref": "#/$defs/Features"
         }
       },
       "required": [
@@ -485,7 +507,8 @@
         "settings",
         "you",
         "presence",
-        "buildId"
+        "buildId",
+        "features"
       ],
       "title": "ServerConnectionAck",
       "type": "object"

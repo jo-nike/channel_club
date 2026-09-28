@@ -19,6 +19,7 @@ from app.models.websocket import (
     MAX_MESSAGE_BYTES,
     AuthMessage,
     ChatLine,
+    Features,
     ReauthMessage,
     ServerChatAck,
     ServerChatHistory,
@@ -496,6 +497,8 @@ async def websocket_endpoint(
                 presence=presence_broadcast.build_snapshot(),
                 # Lets a client running an older bundle notice a deploy
                 buildId=settings.app_build_id,
+                # The server's switches are the ones in force; the client hides what is off
+                features=Features(chat=settings.chat_enabled, gif=bool(settings.giphy_api_key)),
             )
             await channel_state.send_message(websocket, ack_message)
 

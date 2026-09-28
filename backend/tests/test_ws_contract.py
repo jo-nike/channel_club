@@ -11,12 +11,14 @@ import ast
 import json
 from collections.abc import Awaitable, Callable, Iterator
 from datetime import UTC, datetime
+from io import StringIO
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
+from loguru import logger
 
 from app.config import settings
 from app.main import app
@@ -111,6 +113,7 @@ class TestDirectSends:
                 "you": YOU,
                 "presence": [],
                 "buildId": "dev",
+                "features": {"chat": False, "gif": False},
             }
 
     def test_connection_ack_without_live(self, client: TestClient, token: str) -> None:
@@ -204,6 +207,47 @@ class TestDirectSends:
                 "code": "nickname_taken",
                 "nickname": "Live TV",
             }
+
+
+class TestFeatures:
+    """The server tells clients which of chat and GIFs are on (G-06)."""
+
+    @pytest.mark.parametrize("chat_enabled", [True, False])
+    @pytest.mark.parametrize("giphy_api_key", ["giphy-key", None, ""])
+    def test_ack_carries_the_server_switches(
+        self,
+        client: TestClient,
+        token: str,
+        monkeypatch: pytest.MonkeyPatch,
+        chat_enabled: bool,
+        giphy_api_key: str | None,
+    ) -> None:
+        monkeypatch.setattr(settings, "chat_enabled", chat_enabled)
+        monkeypatch.setattr(settings, "giphy_api_key", giphy_api_key)
+        with ws_connect(client, token) as ws:
+            assert ws.receive_json()["features"] == {
+                "chat": chat_enabled,
+                "gif": giphy_api_key == "giphy-key",
+            }
+
+    @pytest.mark.parametrize("chat_enabled", [True, False])
+    def test_startup_warns_when_chat_is_off(
+        self, monkeypatch: pytest.MonkeyPatch, chat_enabled: bool
+    ) -> None:
+        monkeypatch.setattr(settings, "chat_enabled", chat_enabled)
+        output = StringIO()
+        handler_id = logger.add(output, format="{level} | {message}", level="WARNING")
+        try:
+            with (
+                patch("app.main.get_grouped_channels", new=AsyncMock(return_value=[])),
+                TestClient(app),
+            ):
+                pass
+        finally:
+            logger.remove(handler_id)
+
+        warning = "WARNING | Chat is off: CHAT_ENABLED is false, so clients hide chat"
+        assert (warning in output.getvalue()) is not chat_enabled
 
 
 class TestBroadcasts:

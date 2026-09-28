@@ -131,6 +131,8 @@ async def lifespan(app: FastAPI):
             "Feedback push unavailable: configure NTFY_URL (http/https base URL) "
             "and NTFY_TOPIC (letters, digits, '_' or '-')"
         )
+    if not settings.chat_enabled:
+        logger.warning("Chat is off: CHAT_ENABLED is false, so clients hide chat")
     if settings.highlight_enabled:
         logger.info(
             "Highlight capture enabled (buffer: {}s, segments: {}s)",

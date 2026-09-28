@@ -147,6 +147,13 @@ class You(BaseModel):
     userId: str
 
 
+class Features(BaseModel):
+    """Which optional features the server has on, so clients show only those."""
+
+    chat: bool
+    gif: bool
+
+
 class ServerConnectionAck(BaseModel):
     type: Literal["connection_ack"]
     currentChannel: Channel | None
@@ -154,6 +161,7 @@ class ServerConnectionAck(BaseModel):
     you: You
     presence: list[PresenceEntry]
     buildId: str
+    features: Features
 
 
 class ServerChatHistory(BaseModel):
