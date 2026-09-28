@@ -1024,6 +1024,81 @@ class TestGetLogo:
         assert response.status_code == 404
         assert response.json()["detail"] == "No logo available"
 
+    def test_repeat_requests_are_served_from_the_cache(
+        self, client: TestClient, mock_channel: EPGChannel
+    ) -> None:
+        """C-06: one upstream fetch per logo, and browsers may keep it."""
+        png = b"\x89PNG\r\n\x1a\nsynthetic-image-data"
+        with (
+            patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel),
+            _upstream(200, png, "image/png") as requests,
+        ):
+            responses = [client.get("/api/ersatztv/logos/comedy-classics") for _ in range(5)]
+
+        assert [r.status_code for r in responses] == [200] * 5
+        assert all(r.content == png for r in responses)
+        assert all(r.headers["cache-control"] == "public, max-age=3600" for r in responses)
+        assert len(requests) == 1
+
+    def test_a_changed_logo_url_is_fetched_again(
+        self, client: TestClient, mock_channel: EPGChannel
+    ) -> None:
+        png = b"\x89PNG\r\n\x1a\nsynthetic-image-data"
+        moved = mock_channel.model_copy(
+            update={"original_logo_url": "http://192.168.50.108:8409/logos/comedy-2.png"}
+        )
+        with _upstream(200, png, "image/png") as requests:
+            for channel in (mock_channel, moved):
+                with patch("app.routers.ersatztv.get_channel_by_id", return_value=channel):
+                    assert client.get("/api/ersatztv/logos/comedy-classics").status_code == 200
+
+        assert [r.url.path for r in requests] == ["/logos/comedy.png", "/logos/comedy-2.png"]
+
+    def test_upstream_404_is_a_remembered_404_with_cache_control(
+        self, client: TestClient, mock_channel: EPGChannel
+    ) -> None:
+        with (
+            patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel),
+            _upstream(404, b"", "text/plain") as requests,
+        ):
+            responses = [client.get("/api/ersatztv/logos/comedy-classics") for _ in range(2)]
+
+        assert [r.status_code for r in responses] == [404, 404]
+        assert all("max-age=" in r.headers["cache-control"] for r in responses)
+        assert len(requests) == 1
+
+    def test_unreachable_ersatztv_logs_one_line_per_logo(
+        self, client: TestClient, mock_channel: EPGChannel
+    ) -> None:
+        """H-07: an ErsatzTV restart is not one ERROR per logo request."""
+
+        def refused(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("All connection attempts failed", request=request)
+
+        real_client = httpx.AsyncClient
+        output = StringIO()
+        sink = logger.add(output, format="{level} | {message}", level="DEBUG")
+        try:
+            with (
+                patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel),
+                patch(
+                    "app.routers.ersatztv.httpx.AsyncClient",
+                    side_effect=lambda **kw: real_client(
+                        transport=httpx.MockTransport(refused), **kw
+                    ),
+                ),
+            ):
+                responses = [client.get("/api/ersatztv/logos/comedy-classics") for _ in range(3)]
+        finally:
+            logger.remove(sink)
+
+        assert [r.status_code for r in responses] == [503] * 3
+        lines = [line for line in output.getvalue().splitlines() if "Logo " in line]
+        assert lines == [
+            "WARNING | Logo ersatztv:comedy-classics:http://192.168.50.108:8409/logos/comedy.png"
+            " unavailable: All connection attempts failed"
+        ]
+
 
 class TestErsatzTVLogging:
     """Tests for ErsatzTV router logging."""

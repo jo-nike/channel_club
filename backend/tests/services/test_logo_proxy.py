@@ -1,10 +1,18 @@
 """MEDIA-09: trust origins and raster bytes, including every redirect."""
 
+from io import StringIO
+
 import httpx
 import pytest
+from loguru import logger
 
 from app.config import settings
-from app.services.logo_proxy import fetch_logo
+from app.services.logo_proxy import (
+    LogoCache,
+    LogoNotFoundError,
+    LogoUnavailableError,
+    fetch_logo,
+)
 
 
 @pytest.mark.asyncio
@@ -140,3 +148,119 @@ async def test_headers_reach_the_trusted_origin():
         )
     assert result == (PNG, "image/png")
     assert seen == ["ApiKey secret"]
+
+
+class TestLogoCache:
+    """The shared logo cache is bounded by bytes and drops the least recently used first."""
+
+    def test_evicts_least_recently_used_over_the_byte_budget(self) -> None:
+        cache = LogoCache(max_bytes=25)
+        cache.store("a", b"a" * 10, "image/png")
+        cache.store("b", b"b" * 10, "image/png")
+        assert cache.cached("a") is not None  # a is now the most recently used
+        cache.store("c", b"c" * 10, "image/png")
+
+        assert cache.cached("b") is None
+        assert cache.cached("a") == (b"a" * 10, "image/png")
+        assert cache.cached("c") == (b"c" * 10, "image/png")
+
+    def test_expired_logo_is_not_served(self) -> None:
+        cache = LogoCache(ttl=-1)
+        cache.store("a", b"a" * 10, "image/png")
+        assert cache.cached("a") is None
+
+    def test_clear_drops_only_the_prefix(self) -> None:
+        cache = LogoCache()
+        cache.store("dispatcharr:1", b"a", "image/png")
+        cache.store("ersatztv:1:http://x/logo.png", b"b", "image/png")
+        cache.clear("dispatcharr:")
+        assert cache.cached("dispatcharr:1") is None
+        assert cache.cached("ersatztv:1:http://x/logo.png") is not None
+
+    @pytest.mark.asyncio
+    async def test_concurrent_misses_share_one_fetch(self) -> None:
+        import asyncio
+
+        cache = LogoCache()
+        calls = 0
+
+        async def fetch() -> tuple[bytes, str]:
+            nonlocal calls
+            calls += 1
+            await asyncio.sleep(0.01)
+            return b"png", "image/png"
+
+        results = await asyncio.gather(*(cache.get("k", fetch, not_found_ttl=60) for _ in range(5)))
+        assert results == [(b"png", "image/png")] * 5
+        assert calls == 1
+
+    @pytest.mark.asyncio
+    async def test_upstream_404_is_remembered_until_its_ttl(self, monkeypatch) -> None:
+        now = [1000.0]
+        monkeypatch.setattr("app.services.logo_proxy.time.monotonic", lambda: now[0])
+        cache = LogoCache()
+        calls = 0
+
+        async def missing() -> tuple[bytes, str]:
+            nonlocal calls
+            calls += 1
+            request = httpx.Request("GET", "http://source/logo")
+            response = httpx.Response(404, request=request)
+            raise httpx.HTTPStatusError("404", request=request, response=response)
+
+        for _ in range(2):
+            with pytest.raises(LogoNotFoundError):
+                await cache.get("k", missing, not_found_ttl=300)
+        assert calls == 1
+
+        now[0] += 300
+        with pytest.raises(LogoNotFoundError):
+            await cache.get("k", missing, not_found_ttl=300)
+        assert calls == 2
+
+    @pytest.mark.asyncio
+    async def test_failure_logs_once_per_logo_until_it_recovers(self, monkeypatch) -> None:
+        now = [1000.0]
+        monkeypatch.setattr("app.services.logo_proxy.time.monotonic", lambda: now[0])
+        cache = LogoCache(failure_ttl=60)
+        state = {"down": True}
+
+        async def fetch() -> tuple[bytes, str]:
+            if state["down"]:
+                raise httpx.ConnectError("All connection attempts failed")
+            return b"png", "image/png"
+
+        output = StringIO()
+        sink = logger.add(output, level="DEBUG", format="{level}|{message}")
+        try:
+            for _ in range(3):  # two memo windows, three requests in each
+                for _ in range(3):
+                    with pytest.raises(LogoUnavailableError):
+                        await cache.get("k", fetch, not_found_ttl=60)
+                now[0] += 60
+            state["down"] = False
+            assert await cache.get("k", fetch, not_found_ttl=60) == (b"png", "image/png")
+            cache.clear()
+            state["down"] = True
+            with pytest.raises(LogoUnavailableError):
+                await cache.get("k", fetch, not_found_ttl=60)
+        finally:
+            logger.remove(sink)
+
+        levels = [line.split("|", 1)[0] for line in output.getvalue().splitlines()]
+        assert levels == ["WARNING", "DEBUG", "DEBUG", "WARNING"]
+
+    @pytest.mark.asyncio
+    async def test_other_exceptions_pass_through_and_are_not_remembered(self) -> None:
+        cache = LogoCache()
+        calls = 0
+
+        async def broken() -> tuple[bytes, str]:
+            nonlocal calls
+            calls += 1
+            raise KeyError("bug")
+
+        for _ in range(2):
+            with pytest.raises(KeyError):
+                await cache.get("k", broken, not_found_ttl=60)
+        assert calls == 2

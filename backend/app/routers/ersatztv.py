@@ -36,7 +36,14 @@ from app.services.ersatztv.hls_rewriter import (
     segment_media_type,
 )
 from app.services.ersatztv.refresh import FeedUnavailableError, run_feed_lookup
-from app.services.logo_proxy import fetch_logo
+from app.services.logo_proxy import (
+    LOGO_CACHE,
+    LOGO_CACHE_CONTROL,
+    LOGO_NOT_FOUND_CACHE_CONTROL,
+    LogoNotFoundError,
+    LogoUnavailableError,
+    fetch_logo,
+)
 from app.services.tls import SSL_CONTEXT
 
 router = APIRouter(prefix="/api/ersatztv", tags=["ersatztv"])
@@ -407,7 +414,7 @@ async def get_logo(
     # No auth required - logos are public images proxied from ErsatzTV
     # Browser img tags cannot send Authorization headers
 ):
-    """Proxy channel logo from ErsatzTV."""
+    """Proxy channel logo from ErsatzTV, cached in the shared logo cache."""
     log.debug("GET /logos request for channel: {}", channel_id)
     try:
         channel = await run_feed_lookup(get_channel_by_id, channel_id)
@@ -418,15 +425,22 @@ async def get_logo(
         if not logo_url:
             raise HTTPException(status_code=404, detail="No logo available")
 
-        async with httpx.AsyncClient(
-            follow_redirects=False, timeout=10, verify=SSL_CONTEXT
-        ) as client:
-            body, content_type = await fetch_logo(client, logo_url)
+        async def fetch() -> tuple[bytes, str]:
+            async with httpx.AsyncClient(
+                follow_redirects=False, timeout=10, verify=SSL_CONTEXT
+            ) as client:
+                return await fetch_logo(client, logo_url)
+
+        # Keyed by the upstream URL too, so a channel's changed logo misses
+        body, content_type = await LOGO_CACHE.get(
+            f"ersatztv:{channel_id}:{logo_url}", fetch, not_found_ttl=LOGO_CACHE.ttl
+        )
 
         return Response(
             body,
             media_type=content_type,
             headers={
+                "Cache-Control": LOGO_CACHE_CONTROL,
                 "Content-Security-Policy": "default-src 'none'; sandbox",
                 "X-Content-Type-Options": "nosniff",
             },
@@ -434,6 +448,19 @@ async def get_logo(
 
     except HTTPException:
         raise
-    except Exception as e:
-        log.error("Logo error for channel {}: {}", channel_id, e)
+    except LogoNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail="No logo available",
+            headers={"Cache-Control": LOGO_NOT_FOUND_CACHE_CONTROL},
+        ) from None
+    except LogoUnavailableError:
+        # LOGO_CACHE logged the cause once for this logo
         raise HTTPException(status_code=503, detail="Logo unavailable") from None
+    except UPSTREAM_ERRORS as e:
+        # A catalogue outage is logged by the feed refresh; one line per request is noise
+        log.debug("Logo lookup failed for channel {}: {}", channel_id, e)
+        raise HTTPException(status_code=503, detail="Logo unavailable") from None
+    except Exception:
+        log.exception("Logo error for channel {}", channel_id)
+        raise _internal_error() from None

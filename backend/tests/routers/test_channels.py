@@ -1124,3 +1124,30 @@ class TestGetChannelLogo:
         response = client.get("/api/channels/logos/17")
 
         assert response.status_code == 503
+
+    def test_upstream_404_is_a_remembered_404_with_cache_control(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """H-07: a logo Dispatcharr doesn't have is not a 503 refetched every minute."""
+        requests = self._upstream(monkeypatch, lambda req: httpx.Response(404))
+
+        first = client.get("/api/channels/logos/17")
+        second = client.get("/api/channels/logos/17")
+
+        assert first.status_code == second.status_code == 404
+        assert first.headers["cache-control"] == second.headers["cache-control"]
+        assert "max-age=" in first.headers["cache-control"]
+        assert len(requests) == 1
+
+        invalidate_grouped_channels_cache()
+        assert client.get("/api/channels/logos/17").status_code == 404
+        assert len(requests) == 2
+
+    def test_success_is_cacheable_by_browsers(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._upstream(monkeypatch, self._png)
+
+        response = client.get("/api/channels/logos/17")
+
+        assert response.headers["cache-control"] == "public, max-age=3600"

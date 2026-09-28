@@ -1,8 +1,6 @@
 """Dispatcharr API client service."""
 
 import asyncio
-import time
-from collections import OrderedDict
 from typing import Any
 
 import httpx
@@ -20,7 +18,7 @@ from app.models.channel import (
 )
 from app.services.cached_fetch import CachedFetch
 from app.services.epg_service import get_epg_service
-from app.services.logo_proxy import fetch_logo
+from app.services.logo_proxy import LOGO_CACHE, LogoUnavailableError, fetch_logo
 from app.services.tls import SSL_CONTEXT
 
 # Module-level logger with service context
@@ -35,18 +33,9 @@ _GROUPED_CACHE_TTL_SECONDS = 300
 # so that phase gets a short budget.
 _CATALOGUE_TIMEOUT = httpx.Timeout(10, connect=3)
 
-
-# In-memory cache for channel logo images served by the unauthenticated logo
-# route. Anyone can request a logo, so each one is fetched from Dispatcharr at
-# most once per TTL (one fetch at a time per logo), a failure is remembered
-# briefly, and the cache is bounded by total bytes (least recently used first).
-_LOGO_CACHE_TTL_SECONDS = 3600
-_LOGO_FAILURE_TTL_SECONDS = 60
-_LOGO_CACHE_MAX_BYTES = 32 * 1024 * 1024
-_logo_cache: OrderedDict[int, tuple[float, bytes, str]] = OrderedDict()
-_logo_cache_bytes = 0
-_logo_failures: dict[int, float] = {}
-_logo_locks: dict[int, asyncio.Lock] = {}
+# Channel logos live in the shared LOGO_CACHE under this prefix. A logo
+# Dispatcharr answers 404 for is remembered for one catalogue TTL.
+_LOGO_KEY_PREFIX = "dispatcharr:"
 
 
 def invalidate_grouped_channels_cache() -> None:
@@ -54,11 +43,8 @@ def invalidate_grouped_channels_cache() -> None:
 
     Also drops cached logos, so a logo changed in Dispatcharr shows after a refresh.
     """
-    global _logo_cache_bytes
     _grouped_cache.invalidate()
-    _logo_cache.clear()
-    _logo_cache_bytes = 0
-    _logo_failures.clear()
+    LOGO_CACHE.clear(_LOGO_KEY_PREFIX)
     log.debug("Grouped channels cache invalidated")
 
 
@@ -312,34 +298,6 @@ async def _build_grouped_channels() -> GroupedChannelsResponse:
     return GroupedChannelsResponse(groups=result_groups, ungrouped=ungrouped)
 
 
-def _cached_logo(logo_id: int) -> tuple[bytes, str] | None:
-    global _logo_cache_bytes
-    entry = _logo_cache.get(logo_id)
-    if entry is None:
-        return None
-    expires_at, body, content_type = entry
-    if time.monotonic() >= expires_at:
-        del _logo_cache[logo_id]
-        _logo_cache_bytes -= len(body)
-        return None
-    _logo_cache.move_to_end(logo_id)
-    return body, content_type
-
-
-def _store_logo(logo_id: int, body: bytes, content_type: str) -> None:
-    global _logo_cache_bytes
-    _logo_cache[logo_id] = (time.monotonic() + _LOGO_CACHE_TTL_SECONDS, body, content_type)
-    _logo_cache_bytes += len(body)
-    while _logo_cache_bytes > _LOGO_CACHE_MAX_BYTES and _logo_cache:
-        _, (_, evicted, _) = _logo_cache.popitem(last=False)
-        _logo_cache_bytes -= len(evicted)
-
-
-def _logo_recently_failed(logo_id: int) -> bool:
-    failed_until = _logo_failures.get(logo_id)
-    return failed_until is not None and time.monotonic() < failed_until
-
-
 async def get_channel_logo(logo_id: int) -> tuple[bytes, str]:
     """Fetch a channel logo image from Dispatcharr, cached in memory.
 
@@ -354,45 +312,33 @@ async def get_channel_logo(logo_id: int) -> tuple[bytes, str]:
 
     Raises:
         ChannelLogoNotFoundError: If no channel in the catalogue uses this logo.
+        LogoNotFoundError: If Dispatcharr answers 404 for it (remembered for
+            one catalogue TTL, or until invalidate_grouped_channels_cache).
         DispatchrrUnavailableError: If Dispatcharr can't serve it as a raster image.
     """
-    cached = _cached_logo(logo_id)
-    if cached is not None:
-        return cached
-    if _logo_recently_failed(logo_id):
-        raise DispatchrrUnavailableError(f"Logo {logo_id} failed recently")
 
-    grouped = await get_grouped_channels()
-    path = channel_logo_path(logo_id)
-    channels = [*(c for g in grouped.groups for c in g.channels), *grouped.ungrouped]
-    if not any(channel.logo_url == path for channel in channels):
-        raise ChannelLogoNotFoundError(f"No channel uses logo {logo_id}")
-
-    lock = _logo_locks.setdefault(logo_id, asyncio.Lock())
-    async with lock:
-        # Another request may have fetched (or failed) while this one waited
-        cached = _cached_logo(logo_id)
-        if cached is not None:
-            return cached
-        if _logo_recently_failed(logo_id):
-            raise DispatchrrUnavailableError(f"Logo {logo_id} failed recently")
+    async def fetch() -> tuple[bytes, str]:
+        # Only logos a catalogue channel uses; checked on a cache miss only
+        grouped = await get_grouped_channels()
+        path = channel_logo_path(logo_id)
+        channels = [*(c for g in grouped.groups for c in g.channels), *grouped.ungrouped]
+        if not any(channel.logo_url == path for channel in channels):
+            raise ChannelLogoNotFoundError(f"No channel uses logo {logo_id}")
 
         url = f"{settings.dispatcharr_url}/api/channels/logos/{logo_id}/cache/"
-        try:
-            async with httpx.AsyncClient(
-                follow_redirects=False, timeout=10.0, verify=SSL_CONTEXT
-            ) as client:
-                body, content_type = await fetch_logo(
-                    client,
-                    url,
-                    trusted_origins=[settings.dispatcharr_url],
-                    headers=dispatcharr_auth_headers(),
-                )
-        except (httpx.HTTPError, ValueError, TimeoutError, DispatchrrUnavailableError) as e:
-            _logo_failures[logo_id] = time.monotonic() + _LOGO_FAILURE_TTL_SECONDS
-            log.warning("Failed to fetch logo {}: {}", logo_id, str(e))
-            raise DispatchrrUnavailableError(f"Failed to fetch logo {logo_id}: {e}") from e
+        async with httpx.AsyncClient(
+            follow_redirects=False, timeout=10.0, verify=SSL_CONTEXT
+        ) as client:
+            return await fetch_logo(
+                client,
+                url,
+                trusted_origins=[settings.dispatcharr_url],
+                headers=dispatcharr_auth_headers(),
+            )
 
-        _logo_failures.pop(logo_id, None)
-        _store_logo(logo_id, body, content_type)
-        return body, content_type
+    try:
+        return await LOGO_CACHE.get(
+            f"{_LOGO_KEY_PREFIX}{logo_id}", fetch, not_found_ttl=_GROUPED_CACHE_TTL_SECONDS
+        )
+    except LogoUnavailableError as e:
+        raise DispatchrrUnavailableError(str(e)) from e
