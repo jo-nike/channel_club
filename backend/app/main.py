@@ -10,10 +10,12 @@ from app.config import KNOWN_PUBLIC_JWT_SECRETS, settings
 from app.logging_config import configure_logging
 from app.metadata import APP_NAME, APP_VERSION
 from app.middleware.body_limit import BodySizeLimitMiddleware
+from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.routers.admin import router as admin_router
 from app.routers.auth import router as auth_router
 from app.routers.cast import router as cast_router
 from app.routers.channels import router as channels_router
+from app.routers.csp_report import router as csp_report_router
 from app.routers.epg import router as epg_router
 from app.routers.ersatztv import router as ersatztv_router
 from app.routers.feedback import router as feedback_router
@@ -226,12 +228,14 @@ if settings.cors_origins:
         allow_headers=["*"],
     )
 
-# Added last so it wraps everything: oversize bodies get 413 before routing.
+# Wraps routing and CORS: oversize bodies get 413 before routing.
 app.add_middleware(
     BodySizeLimitMiddleware,
     max_bytes=settings.request_body_max_bytes,
     exempt_paths=frozenset({"/api/highlight/upload"}),
 )
+# Added last so it wraps everything, the body cap's 413 included.
+app.add_middleware(SecurityHeadersMiddleware, stream_base_url=settings.stream_base_url)
 
 # Register API routers FIRST (they take precedence over static files)
 app.include_router(auth_router, prefix="/api/auth")
@@ -243,6 +247,7 @@ app.include_router(settings_router, prefix="/api")
 app.include_router(cast_router)
 app.include_router(gif_router)
 app.include_router(feedback_router)
+app.include_router(csp_report_router)
 app.include_router(highlight_router)
 app.include_router(nhl_router)
 app.include_router(websocket_router)

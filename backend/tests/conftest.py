@@ -46,6 +46,7 @@ def reset_module_state(monkeypatch):
     The app keeps its state in module singletons, so a test must not see what
     an earlier one left behind (the NHL cache made one test order-dependent).
     """
+    from app.routers import csp_report
     from app.services import app_settings, channel_state, chat, nhl, plex, presence
     from app.services.highlight import highlight_service
 
@@ -55,6 +56,7 @@ def reset_module_state(monkeypatch):
     channel_state.clear_current_channel()
     plex.clear_server_owner_id_cache()
     highlight_service.clear_start_backoff()
+    csp_report.clear_csp_report_state()
     monkeypatch.setattr(app_settings, "_user_channel_selection", False)
     monkeypatch.setattr(app_settings, "_presence_visible", False)
     channel_state.reset_live_change_state()
