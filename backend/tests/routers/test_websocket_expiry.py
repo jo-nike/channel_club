@@ -11,6 +11,7 @@ from app.config import settings
 from app.main import app
 from app.routers import websocket
 from app.services import channel_state, chat, presence
+from tests.ws_helpers import ws_connect
 
 
 def test_signed_jwt_deadline_closes_idle_socket_and_rejects_reuse(monkeypatch):
@@ -23,7 +24,7 @@ def test_signed_jwt_deadline_closes_idle_socket_and_rejects_reuse(monkeypatch):
     )
     before = len(chat.get_history())
     client = TestClient(app)
-    with client.websocket_connect(f"/api/ws?token={token}&session_id=signed-expiry") as ws:
+    with ws_connect(client, token, session_id="signed-expiry") as ws:
         assert ws.receive_json()["type"] == "connection_ack"
         ws.send_json({"type": "set_nickname", "nickname": "Expires"})
         ws.send_json({"type": "ping"})
@@ -38,7 +39,7 @@ def test_signed_jwt_deadline_closes_idle_socket_and_rejects_reuse(monkeypatch):
     assert len(chat.get_history()) == before
     # jose's integer timestamp compatibility permits the equality second;
     # the endpoint's deadline still closes immediately, before an ack/message.
-    with client.websocket_connect(f"/api/ws?token={token}") as expired:
+    with ws_connect(client, token) as expired:
         with pytest.raises(WebSocketDisconnect) as closed:
             expired.receive_json()
         assert closed.value.code == 4001

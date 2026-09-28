@@ -1,12 +1,15 @@
 """Auth router for JWT token authentication."""
 
-from fastapi import APIRouter, HTTPException, status
+from datetime import UTC, datetime, timedelta
+
+from fastapi import APIRouter, Depends, HTTPException, status
 from loguru import logger
 
 from app.config import settings
-from app.models.auth import AuthConfigResponse, LoginRequest, TokenResponse
-from app.models.plex import PlexAuthRequest
-from app.services.auth import create_access_token
+from app.models.auth import AuthConfigResponse, LoginRequest, TokenPayload, TokenResponse
+from app.models.plex import PlexAuthRequest, PlexUser
+from app.routers.auth_deps import get_current_user
+from app.services.auth import JWT_EXPIRATION_DAYS, SESSION_MAX_AGE_DAYS, create_access_token
 from app.services.plex import (
     InvalidPlexTokenError,
     check_server_access,
@@ -120,3 +123,72 @@ async def login_with_plex(request: PlexAuthRequest) -> TokenResponse:
     log.info("Plex user {} logged in successfully with role {}", plex_user.username, role)
     token = create_access_token({"sub": plex_user.username, "role": role, "plex_id": plex_user.id})
     return TokenResponse(access_token=token, role=role)
+
+
+async def _current_role(user: TokenPayload) -> str | None:
+    """Re-derive a token holder's role from today's configuration, as sign-in would.
+
+    Args:
+        user: The verified token being refreshed.
+
+    Returns:
+        The role, or None if no current sign-in method would admit this user.
+    """
+    if user.plex_id is None:
+        if not settings.local_auth_enabled:
+            return None
+        if settings.admin_password and user.sub == settings.admin_username:
+            return "admin"
+        if settings.viewer_password and user.sub == settings.viewer_username:
+            return "viewer"
+        return None
+    if not settings.plex_auth_enabled:
+        return None
+    return await determine_role(PlexUser(id=user.plex_id, username=user.sub, email=""))
+
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh(current_user: TokenPayload = Depends(get_current_user)) -> TokenResponse:
+    """Swap a valid session token for a fresh one with the same sign-in time.
+
+    An expired token cannot refresh, and no token refreshes more than
+    SESSION_MAX_AGE_DAYS after the original sign-in. The role is re-derived,
+    so a demoted admin comes back as a viewer.
+
+    Args:
+        current_user: The verified token being refreshed.
+
+    Returns:
+        TokenResponse with the new access token and role.
+
+    Raises:
+        HTTPException: 401 if the session is past its cap or the user no
+            longer has a way to sign in.
+    """
+    # Tokens issued before auth_time existed were signed JWT_EXPIRATION_DAYS
+    # before they expire
+    auth_time = current_user.auth_time or current_user.exp - timedelta(days=JWT_EXPIRATION_DAYS)
+    if datetime.now(UTC) > auth_time + timedelta(days=SESSION_MAX_AGE_DAYS):
+        log.info("Refresh refused for user {}: sign-in is too old", current_user.sub)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sign-in expired",
+        )
+
+    role = await _current_role(current_user)
+    if role is None:
+        log.warning("Refresh refused for user {}: no longer allowed to sign in", current_user.sub)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+        )
+
+    claims: dict[str, object] = {
+        "sub": current_user.sub,
+        "role": role,
+        "auth_time": int(auth_time.timestamp()),
+    }
+    if current_user.plex_id is not None:
+        claims["plex_id"] = current_user.plex_id
+    log.debug("Token refreshed for user {} with role {}", current_user.sub, role)
+    return TokenResponse(access_token=create_access_token(claims), role=role)

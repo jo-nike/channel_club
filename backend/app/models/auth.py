@@ -31,6 +31,9 @@ class TokenPayload(BaseModel):
     # Plex account id, present on Plex sign-ins. Unlike the username (sub) it
     # survives a Plex rename, so it is the stable way to tell accounts apart.
     plex_id: str | None = None
+    # When the person originally signed in. Refreshes keep it, so it caps how
+    # long a session can be renewed. None on tokens issued before it existed.
+    auth_time: datetime | None = None
 
 
 class AuthConfigResponse(BaseModel):

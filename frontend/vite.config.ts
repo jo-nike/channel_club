@@ -28,13 +28,21 @@ function stripVidstackCdn(): Plugin {
 
 // https://vite.dev/config/
 export default defineConfig({
-  define: { __APP_VERSION__: JSON.stringify(appVersion) },
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion),
+    // The Docker build passes the image's build id; local builds are 'dev'
+    __APP_BUILD_ID__: JSON.stringify(process.env.VITE_APP_BUILD_ID || 'dev'),
+  },
   plugins: [
     stripVidstackCdn(),
     react(),
     tailwindcss(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // A waiting update applies when nothing is playing, or when the viewer
+      // chooses Reload (src/lib/appUpdate.ts); it never reloads a playing tab
+      registerType: 'prompt',
+      // src/lib/appUpdate.ts registers the worker itself
+      injectRegister: false,
       workbox: {
         // Precache app shell assets
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],

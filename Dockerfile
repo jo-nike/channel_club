@@ -25,6 +25,11 @@ COPY frontend/package*.json ./
 # Install dependencies
 RUN npm ci
 
+# The client compares its build id with the server's; declared after npm ci
+# so a new build id doesn't invalidate the dependency layer
+ARG APP_BUILD_ID=dev
+ENV VITE_APP_BUILD_ID=$APP_BUILD_ID
+
 # Copy frontend source
 COPY frontend/ .
 
