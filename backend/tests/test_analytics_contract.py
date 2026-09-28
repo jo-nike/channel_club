@@ -23,6 +23,7 @@ from app.config import Settings
 from app.logging_config import configure_logging
 from app.main import app
 from app.models.channel import Channel
+from app.routers import websocket as websocket_router
 from app.services import channel_state
 from app.services.auth import create_access_token
 
@@ -191,7 +192,9 @@ def client() -> Iterator[TestClient]:
         yield client
 
 
-def test_every_event_the_dashboard_reads_carries_its_fields(production_logging, client) -> None:
+def test_every_event_the_dashboard_reads_carries_its_fields(
+    production_logging, client, monkeypatch: pytest.MonkeyPatch
+) -> None:
     required = _required_fields(_load_generator().dashboard, {})
     assert {
         "session.start",
@@ -201,6 +204,8 @@ def test_every_event_the_dashboard_reads_carries_its_fields(production_logging, 
         "channel.change",
     } <= required.keys()
     output = production_logging(log_format="json", log_level="WARNING")
+    # Apply both channel updates at once instead of holding the second for a second
+    monkeypatch.setattr(websocket_router, "CHANNEL_UPDATE_INTERVAL_SECONDS", 0)
     token = create_access_token({"sub": "jon", "role": "admin"})
 
     with client.websocket_connect(_ws_url(token, "s1")) as ws:
@@ -238,6 +243,19 @@ def test_every_event_the_dashboard_reads_carries_its_fields(production_logging, 
         for line in emitted:
             missing = {f for f in fields if f"record_extra_{f}" not in line}
             assert not missing, f"{event} lacks {sorted(missing)} that the dashboard reads"
+    # The switch to TVA stopped the RDS watch and started one off the Live slot
+    assert any(
+        line["record_extra_event"] == "watch.stop"
+        and line["record_extra_channel"] == "RDS"
+        and line["record_extra_reason"] == "switch"
+        for line in lines
+    )
+    assert any(
+        line["record_extra_event"] == "watch.start"
+        and line["record_extra_channel"] == "TVA"
+        and line["record_extra_on_live"] is False
+        for line in lines
+    )
 
 
 def test_reconnect_stops_each_watch_once(production_logging, client) -> None:
