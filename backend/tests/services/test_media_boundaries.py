@@ -77,15 +77,26 @@ def test_channel_json_rejects_paths(identifier):
         SetChannelRequest(id=identifier, name="test", streamUrl="http://unused", guideId="test")
 
 
-@pytest.mark.parametrize("identifier", ["%2e", "%2e%2e", "%20"])
-def test_actual_status_route_rejects_paths(identifier):
+@pytest.mark.parametrize(
+    ("method", "route"),
+    [
+        ("GET", "/api/highlight/status/{}"),
+        ("POST", "/api/highlight/{}/capture"),
+        ("POST", "/api/highlight/{}"),
+    ],
+)
+@pytest.mark.parametrize(
+    "identifier", ["%2e", "%2e%2e", "%20", "a%00b", pytest.param("x" * 300, id="300-chars")]
+)
+def test_actual_highlight_routes_reject_invalid_ids(method, route, identifier, monkeypatch):
+    monkeypatch.setattr(settings, "highlight_enabled", True)
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_current_user] = lambda: TokenPayload(
         sub="test", role="viewer", exp=datetime(2099, 1, 1, tzinfo=UTC)
     )
     with TestClient(app) as client, patch("subprocess.Popen") as spawn:
-        assert client.get(f"/api/highlight/status/{identifier}").status_code == 422
+        assert client.request(method, route.format(identifier)).status_code == 422
         spawn.assert_not_called()
 
 
