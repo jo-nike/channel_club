@@ -7,12 +7,14 @@ import subprocess
 import sys
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from io import StringIO
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from loguru import logger
 
 from app.config import settings
 from app.main import app
@@ -153,6 +155,27 @@ def test_health_check_reports_build_version(client):
         response = client.get("/api/health")
     assert response.json()["version"] == APP_VERSION
     assert response.json()["buildId"] == "1.0.0-build-abc1234-unique"
+
+
+def test_startup_logs_a_server_start_event() -> None:
+    """The first startup line is a server.start event, so the dashboard can mark deploys."""
+    output = StringIO()
+    handler_id = logger.add(output, format="{message}", serialize=True, level="INFO")
+    try:
+        with (
+            patch("app.main.settings.app_build_id", "1.2.0-build-abc1234"),
+            patch("app.main.get_grouped_channels", new=AsyncMock(return_value=[])),
+            TestClient(app),
+        ):
+            pass
+    finally:
+        logger.remove(handler_id)
+
+    extras = [json.loads(line)["record"]["extra"] for line in output.getvalue().splitlines()]
+    (start,) = [e for e in extras if e.get("event") == "server.start"]
+    assert start["version"] == APP_VERSION and start["build_id"] == "1.2.0-build-abc1234"
+    assert start["log_level"] == settings.log_level
+    assert start["log_format"] == settings.log_format
 
 
 def test_auth_token_endpoint_registered(client):

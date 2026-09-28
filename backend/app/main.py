@@ -108,10 +108,12 @@ SHUTDOWN_DEADLINE_SECONDS = 8
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler for startup/shutdown events."""
-    # Startup
+    # Startup: a structured event, so the dashboard can mark deploys
     logger.info(
         "Channel Club API starting",
+        event="server.start",
         version=APP_VERSION,
+        build_id=settings.app_build_id,
         log_level=settings.log_level,
         log_format=settings.log_format,
     )
