@@ -73,6 +73,8 @@ export interface SystemStatusData {
   ersatztv: ErsatzTVStatus
   dispatcharr: DispatchrrStatus
   epg: EPGHealthStatus
+  // Optional: a backend from before the ErsatzTV guide was reported omits it
+  ersatztvGuide?: EPGHealthStatus
 }
 
 const POLL_INTERVAL = 30000 // 30 seconds
@@ -85,9 +87,12 @@ export function useSystemStatus() {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const { token } = useAuth()
   const isMounted = useRef(true)
+  // A slow status request must not have the next poll stacked on top of it
+  const inFlight = useRef(false)
 
   const fetchStatus = useCallback(async (isManual = false) => {
-    if (!token) return
+    if (!token || inFlight.current) return
+    inFlight.current = true
 
     if (isManual) {
       setIsRefreshing(true)
@@ -113,6 +118,7 @@ export function useSystemStatus() {
         setError(err instanceof Error ? err.message : 'Unknown error')
       }
     } finally {
+      inFlight.current = false
       if (isMounted.current) {
         setLoading(false)
         setIsRefreshing(false)

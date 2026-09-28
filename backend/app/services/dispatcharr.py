@@ -63,6 +63,11 @@ _grouped_cache: CachedFetch[GroupedChannelsResponse] = CachedFetch(
 )
 
 
+def catalogue_failing() -> bool:
+    """Whether the latest catalogue fetch failed; local state only, never fetches."""
+    return _grouped_cache._last_error is not None
+
+
 class ChannelLogoNotFoundError(Exception):
     """Raised when no channel in the catalogue uses the requested logo."""
 

@@ -1,5 +1,7 @@
 """Tests for status service."""
 
+import asyncio
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -382,6 +384,34 @@ class TestGetSystemStatus:
         assert status.ersatztv.online is True
         assert status.dispatcharr.online is False
 
+    async def test_a_hung_check_times_out_without_hiding_the_others(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A checker that never answers is reported offline at the deadline (F-02)."""
+        assert status_service.STATUS_CHECK_DEADLINE_SECONDS == 5.0
+        monkeypatch.setattr(status_service, "STATUS_CHECK_DEADLINE_SECONDS", 0.05)
+        never = asyncio.Event()
+
+        async def hung_dispatcharr() -> DispatchrrStatus:
+            await never.wait()
+            raise AssertionError("unreachable")
+
+        mock_ersatztv = ErsatzTVStatus(name="ErsatzTV", online=True, last_checked=datetime.now(UTC))
+        monkeypatch.setattr(
+            status_service, "get_ersatztv_status", AsyncMock(return_value=mock_ersatztv)
+        )
+        monkeypatch.setattr(status_service, "get_dispatcharr_status", hung_dispatcharr)
+
+        started = time.monotonic()
+        status = await asyncio.wait_for(get_system_status(), timeout=2)
+
+        assert time.monotonic() - started < 1
+        assert status.dispatcharr.online is False
+        assert status.dispatcharr.error == "status check timed out"
+        assert status.ersatztv.online is True
+        assert status.epg.online is True
+        assert status.epg.programme_count == 5065
+
 
 def _install_upstream(
     monkeypatch: pytest.MonkeyPatch, handler: Callable[[httpx.Request], httpx.Response]
@@ -610,6 +640,38 @@ class TestGetEPGStatus:
         assert status.epg.name == "Guide data (XMLTV)"
         assert status.ersatztv.online is True
         assert status.dispatcharr.online is True
+
+    async def test_reports_the_ersatztv_guide_health_from_local_state(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The ErsatzTV guide's health rides along, read without contacting ErsatzTV."""
+        guide = _epg_health(name="ErsatzTV guide (XMLTV)", stale=True, error="timeout")
+        monkeypatch.setattr(status_service, "get_guide_health", lambda: guide)
+        monkeypatch.setattr(
+            status_service,
+            "get_ersatztv_status",
+            AsyncMock(
+                return_value=ErsatzTVStatus(
+                    name="ErsatzTV", online=True, last_checked=datetime.now(UTC)
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            status_service,
+            "get_dispatcharr_status",
+            AsyncMock(
+                return_value=DispatchrrStatus(
+                    name="Dispatcharr", online=True, last_checked=datetime.now(UTC)
+                )
+            ),
+        )
+
+        status = await get_system_status()
+
+        assert status.ersatztv_guide == guide
+        body = status.model_dump(by_alias=True)
+        assert body["ersatztvGuide"]["stale"] is True
+        assert body["ersatztvGuide"]["error"] == "timeout"
 
 
 @pytest.mark.parametrize(

@@ -104,5 +104,6 @@ class SystemStatusResponse(BaseModel):
     ersatztv: ErsatzTVStatus
     dispatcharr: DispatchrrStatus
     epg: EPGHealthStatus
+    ersatztv_guide: EPGHealthStatus = Field(alias="ersatztvGuide")
 
     model_config = {"populate_by_name": True}
