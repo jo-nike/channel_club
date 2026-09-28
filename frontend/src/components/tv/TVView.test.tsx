@@ -129,6 +129,20 @@ describe('FE-05 routed live-only view', () => {
   })
 })
 
+describe('K-01 presence on the empty Live slot', () => {
+  it('reports no channel, not "Live", once live TV stops under a slot-0 viewer', async () => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(presence).toHaveBeenLastCalledWith('A', null, 'live', 'a'))
+
+    act(() => useChannelStore.getState().setCurrentChannel(null))
+
+    expect(useTVStore.getState().selectedChannel).toMatchObject({ id: LIVE_CHANNEL_ID, name: 'Live' })
+    expect(presence).toHaveBeenLastCalledWith(null, null, 'live', null)
+    expect(presence).not.toHaveBeenCalledWith('Live', expect.anything(), expect.anything(), expect.anything())
+  })
+})
+
 afterEach(() => vi.useRealTimers())
 describe('FE-12 programme boundary clock', () => {
   it('updates the routed header and presence within thirty seconds without other events', async () => {

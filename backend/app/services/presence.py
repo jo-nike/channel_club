@@ -60,6 +60,10 @@ class UserPresence:
 # In-memory store keyed by connection_id
 _active_users: dict[str, UserPresence] = {}
 
+# The frontend's synthetic id for the Live slot. Pre-R2 bundles report it, named
+# 'Live', when nothing is live; a shim that can go once those tabs are gone.
+LEGACY_EMPTY_LIVE_SLOT_ID = "live-channel-0"
+
 
 def _emit(event: str, message: str, **fields: object) -> None:
     """Log a structured presence event at INFO with bound fields."""
@@ -226,6 +230,9 @@ def update_user_channel(
     if connection_id not in _active_users:
         return
     user = _active_users[connection_id]
+
+    if channel_id == LEGACY_EMPTY_LIVE_SLOT_ID:
+        channel_name = channel_id = programme_title = None
 
     channel_changed = channel_name != user.current_channel or channel_id != user.current_channel_id
     if channel_changed:
