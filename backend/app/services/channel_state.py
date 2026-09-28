@@ -264,10 +264,9 @@ async def clear_current_channel_async(user: str | None = None) -> None:
 
         _current_channel = None
 
-        if user:
-            log.info("Current channel cleared by user '{}'", user)
-        else:
-            log.info("Current channel cleared")
+        log.bind(event="channel.change", user=user, channel=None, channel_id=None).info(
+            "Current channel cleared by user '{}'", user or "system"
+        )
         await state_store.save({"liveChannelId": None, "liveSetBy": None})
 
         # Broadcast to all connected clients, naming who stopped live TV
