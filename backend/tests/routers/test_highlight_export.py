@@ -171,20 +171,19 @@ def encoder(monkeypatch):
     """Stand in for FFmpeg with a harmless child that runs until it is killed."""
     monkeypatch.setattr(settings, "highlight_enabled", True)
     monkeypatch.setattr(highlight_router, "DISCONNECT_POLL_SECONDS", 0.01)
-    real_popen = subprocess.Popen
-    children: list[subprocess.Popen] = []
+    real_exec = asyncio.create_subprocess_exec
+    children: list[asyncio.subprocess.Process] = []
 
-    def launch(_command, **kwargs):
-        child = real_popen([sys.executable, "-c", "import time; time.sleep(30)"], **kwargs)
+    async def launch(*_command, **kwargs):
+        child = await real_exec(sys.executable, "-c", "import time; time.sleep(30)", **kwargs)
         children.append(child)
         return child
 
-    with patch("subprocess.Popen", launch):
+    with patch("asyncio.create_subprocess_exec", launch):
         yield children
     for child in children:
-        if child.poll() is None:
+        if child.returncode is None:
             child.kill()
-            child.wait()
 
 
 async def test_export_stops_the_encoder_when_the_browser_cancels(tmp_path, register, encoder):
@@ -207,13 +206,13 @@ async def test_export_stops_the_encoder_when_the_browser_cancels(tmp_path, regis
             break
         await asyncio.sleep(0.01)
     await asyncio.sleep(0.05)
-    assert encoder[0].poll() is None and export_budget.owners["viewer"] == 1
+    assert encoder[0].returncode is None and export_budget.owners["viewer"] == 1
 
     leave.set()
     with pytest.raises(HTTPException) as closed:
         await asyncio.wait_for(export, 5)
     assert closed.value.status_code == 499
-    assert encoder[0].poll() is not None
+    assert encoder[0].returncode is not None
     assert not export_budget.owners
 
 

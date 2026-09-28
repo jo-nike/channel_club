@@ -3,10 +3,12 @@
 import asyncio
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from io import StringIO
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -15,7 +17,7 @@ import pytest
 from loguru import logger
 
 from app.config import settings
-from app.services import highlight
+from app.services import highlight, media_export
 from app.services.highlight import ChannelRecorder, HighlightService
 from app.services.media_export import encode_file
 
@@ -105,24 +107,69 @@ async def test_capture_failure_cleans_private_workspace(tmp_path, monkeypatch, f
 
 
 async def test_cancel_encoding_kills_and_reaps_actual_harmless_child(tmp_path):
-    real_popen = subprocess.Popen
-    children: list[subprocess.Popen] = []
+    real_exec = asyncio.create_subprocess_exec
+    children: list[asyncio.subprocess.Process] = []
 
-    def launch(_command, **kwargs):
-        child = real_popen([sys.executable, "-c", "import time; time.sleep(30)"], **kwargs)
+    async def launch(*_command, **kwargs):
+        child = await real_exec(sys.executable, "-c", "import time; time.sleep(30)", **kwargs)
         children.append(child)
         return child
 
-    with patch("subprocess.Popen", launch):
+    with patch("asyncio.create_subprocess_exec", launch):
         task = asyncio.create_task(
             encode_file(tmp_path / "input", tmp_path / "output", "mp4", None, None)
         )
-        await asyncio.sleep(0.05)
-        assert children[0].poll() is None
+        await asyncio.sleep(0.2)
+        assert children[0].returncode is None
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
-    assert children[0].poll() is not None
+    # Reaped before the cancellation propagated, not merely signalled.
+    assert children[0].returncode is not None
+
+
+@pytest.fixture
+async def busy_executor():
+    """Hold the default executor's only worker until `release()` (the N-02 saturation)."""
+    loop = asyncio.get_running_loop()
+    executor = ThreadPoolExecutor(max_workers=1)
+    loop.set_default_executor(executor)
+    gate = threading.Event()
+    loop.run_in_executor(None, gate.wait)
+    yield gate.set
+    gate.set()
+    executor.shutdown(wait=True)
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="FFmpeg required")
+async def test_a_busy_executor_never_makes_a_finished_encode_time_out(
+    tmp_path, monkeypatch, busy_executor
+):
+    source = tmp_path / "source.mp4"
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=red:s=32x32:r=4:d=1",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            str(source),
+        ],
+        check=True,
+        timeout=15,
+    )
+    monkeypatch.setattr(media_export, "REMUX_TIMEOUT_SECONDS", 1)
+    # The remux takes a fraction of a second; the worker thread frees only after the timeout.
+    asyncio.get_running_loop().call_later(1.5, busy_executor)
+    await asyncio.wait_for(encode_file(source, tmp_path / "out.mp4", "mp4", None, None), 10)
+    assert (tmp_path / "out.mp4").stat().st_size > 0
 
 
 def test_snapshot_logs_how_far_the_capture_ends_before_the_snapshot(tmp_path):
