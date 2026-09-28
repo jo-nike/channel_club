@@ -455,3 +455,25 @@ class TestGetHistoryCount:
         chat.add_message("user3", "Message 3")
 
         assert chat.get_history_count() == 3
+
+
+class TestSendsInFlight:
+    """A send is marked while it is handled, so a racing retry of it is refused."""
+
+    def test_a_send_can_only_begin_once_until_it_ends(self) -> None:
+        assert chat.begin_send("jon", "c-1") is True
+        assert chat.begin_send("jon", "c-1") is False
+        # Another sender's id, or another id, is independent
+        assert chat.begin_send("ace", "c-1") is True
+        assert chat.begin_send("jon", "c-2") is True
+
+        chat.end_send("jon", "c-1")
+
+        assert chat.begin_send("jon", "c-1") is True
+
+    def test_clear_history_forgets_sends_in_flight(self) -> None:
+        chat.begin_send("jon", "c-1")
+
+        chat.clear_history()
+
+        assert chat.begin_send("jon", "c-1") is True

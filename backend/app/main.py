@@ -199,6 +199,7 @@ async def lifespan(app: FastAPI):
         _stop_highlights(),
         cast_service.stop_all(),
         channel_state.stop_reconcile_task(),
+        channel_state.stop_failed_closes(),
         presence.stop_stale_closes(),
         aclose_all_caches(),
         stop_feed_executor(),

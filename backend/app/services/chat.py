@@ -105,6 +105,11 @@ _chat_history: deque[ChatMessage] = deque(maxlen=MAX_HISTORY_SIZE)
 _recent_sends: OrderedDict[tuple[str, str], str] = OrderedDict()
 MAX_RECENT_SENDS = 256
 
+# Sends being handled right now as (username, clientMessageId), marked before
+# any await, so a retry arriving meanwhile (say on a reconnected socket while a
+# lookup is slow) is refused instead of posting a second copy
+_sends_in_flight: set[tuple[str, str]] = set()
+
 
 def user_id_for(username: str, plex_id: str | None) -> str:
     """Derive the opaque chat id for a signed-in account.
@@ -358,6 +363,34 @@ def remember_send(username: str, client_message_id: str, message_id: str) -> Non
         _recent_sends.popitem(last=False)
 
 
+def begin_send(username: str, client_message_id: str) -> bool:
+    """Mark a send as in flight, unless the same send already is.
+
+    Args:
+        username: The authenticated sender.
+        client_message_id: The client's id for the send.
+
+    Returns:
+        True if the caller now owns the send (and must call end_send), False
+        if the same send is already being handled.
+    """
+    key = (username, client_message_id)
+    if key in _sends_in_flight:
+        return False
+    _sends_in_flight.add(key)
+    return True
+
+
+def end_send(username: str, client_message_id: str) -> None:
+    """Clear a send's in-flight mark, whether it was stored, refused or failed.
+
+    Args:
+        username: The authenticated sender.
+        client_message_id: The client's id for the send.
+    """
+    _sends_in_flight.discard((username, client_message_id))
+
+
 def clear_history() -> None:
     """Clear all chat history and the remembered sends that pointed into it.
 
@@ -366,6 +399,7 @@ def clear_history() -> None:
     """
     _chat_history.clear()
     _recent_sends.clear()
+    _sends_in_flight.clear()
     log.debug("Chat history cleared")
 
 

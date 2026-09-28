@@ -10,7 +10,6 @@ from io import StringIO
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from loguru import logger
 from starlette.websockets import WebSocketDisconnect
@@ -18,11 +17,11 @@ from starlette.websockets import WebSocketDisconnect
 from app.config import Settings, settings
 from app.logging_config import configure_logging
 from app.main import app
-from app.models.channel import Channel
+from app.models.channel import Channel, GroupedChannelsResponse
+from app.models.ersatztv import EPGChannel
 from app.routers import websocket as websocket_router
 from app.services import app_settings, channel_state, chat, presence, presence_broadcast
 from app.services.auth import create_access_token
-from app.services.media_source import MediaChannel
 from tests.ws_helpers import ws_connect
 
 # Captured at import, before conftest swaps it for a no-op in every test
@@ -67,6 +66,27 @@ def client() -> Iterator[TestClient]:
         TestClient(app) as client,
     ):
         yield client
+
+
+@pytest.fixture(autouse=True)
+def cached_catalogue(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The catalogues chat names channels from: TSN 5 (42) live, Cartoons (etv-2) on ErsatzTV."""
+    grouped = GroupedChannelsResponse(
+        ungrouped=[Channel(id="42", name="TSN 5", streamUrl="http://streams/42", guideId="tsn5")]
+    )
+    cartoons = EPGChannel(id="etv-2", name="Cartoons", streamUrl="http://etv/2.m3u8")
+    monkeypatch.setattr(websocket_router, "get_grouped_channels", AsyncMock(return_value=grouped))
+    monkeypatch.setattr(
+        websocket_router,
+        "get_channel_by_id",
+        lambda channel_id: cartoons if channel_id == cartoons.id else None,
+    )
+
+
+@pytest.fixture
+def uncoalesced(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Apply every channel_update at once, for tests about what one update does."""
+    monkeypatch.setattr(websocket_router, "CHANNEL_UPDATE_INTERVAL_SECONDS", 0)
 
 
 @pytest.fixture(autouse=True)
@@ -363,6 +383,7 @@ class TestPresenceBroadcastTriggers:
 
         assert schedule.call_count == 2
 
+    @pytest.mark.usefixtures("uncoalesced")
     def test_every_channel_update_schedules_a_broadcast(
         self, client: TestClient, valid_token: str, schedule: MagicMock
     ):
@@ -1316,6 +1337,31 @@ class TestChatChannelStamp:
         assert received["view"] == "ersatztv"
 
     @pytest.mark.usefixtures("visible")
+    def test_chip_is_named_from_the_catalogue(self, client: TestClient, valid_token: str):
+        """The chip shows the catalogue's name for the reported id, not the reported name."""
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # connection_ack
+            ws.receive_json()  # chat_history
+            self.watch(ws, channel="Game 7")
+
+            msg = self.say(ws)
+
+        assert msg["channelName"] == "Cartoons"
+        assert msg["channelId"] == "etv-2"
+
+    @pytest.mark.usefixtures("visible")
+    def test_no_chip_for_a_channel_not_in_the_catalogue(self, client: TestClient, valid_token: str):
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # connection_ack
+            ws.receive_json()  # chat_history
+            ws.send_json({"type": "channel_update", "channel": "Game 7", "channelId": "nope"})
+
+            msg = self.say(ws)
+
+        assert msg["content"] == "lol"
+        assert all(msg[field] is None for field in self.CHANNEL_FIELDS)
+
+    @pytest.mark.usefixtures("visible")
     def test_no_channel_for_a_sender_who_hides(self, client: TestClient, valid_token: str):
         with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # connection_ack
@@ -1478,8 +1524,9 @@ class TestShareMessage:
 
                 ws1.send_json({"type": "share", "clientMessageId": "s-1"})
                 card = ws2.receive_json()
-                own = ws1.receive_json()
+                # The ack comes first: it confirms the stored message, before the broadcast
                 ack = ws1.receive_json()
+                own = ws1.receive_json()
 
         assert card["type"] == "chat_message"
         assert card["kind"] == "share"
@@ -1523,6 +1570,49 @@ class TestShareMessage:
         assert card["channelId"] == "42"
         assert card["programme"] == "CFL Football"
         assert card["content"] == "Watching TSN 5 · CFL Football"
+
+    @staticmethod
+    def report(ws, channel: str, channel_id: str) -> None:
+        """Report a channel under any name and wait until the server has it."""
+        ws.send_json({"type": "channel_update", "channel": channel, "channelId": channel_id})
+        ws.send_json({"type": "ping"})
+        assert ws.receive_json()["type"] == "pong"
+
+    @pytest.mark.usefixtures("visible")
+    @pytest.mark.parametrize(
+        ("channel_id", "name"), [("42", "TSN 5"), ("etv-2", "Cartoons")], ids=["live", "ersatztv"]
+    )
+    def test_card_is_named_from_the_catalogue_not_the_reported_name(
+        self, client: TestClient, valid_token: str, channel_id: str, name: str
+    ):
+        """A client reporting 'Fake' for a real channel id still posts the catalogue's name."""
+        with ws_connect(client, valid_token) as ws:
+            self.open_chat(ws)
+            self.report(ws, "Fake", channel_id)
+
+            ws.send_json({"type": "share", "clientMessageId": "s-1"})
+            assert ws.receive_json()["accepted"] is True
+            card = ws.receive_json()
+
+        assert card["channelName"] == name
+        assert card["channelId"] == channel_id
+        assert card["content"] == f"Watching {name}"
+        [stored] = chat.get_history()
+        assert stored.channel is not None
+        assert stored.channel.channel_name == name
+
+    @pytest.mark.usefixtures("visible")
+    def test_refused_for_a_channel_not_in_the_catalogue(self, client: TestClient, valid_token: str):
+        with ws_connect(client, valid_token) as ws:
+            self.open_chat(ws)
+            self.report(ws, "Game 7", "not-a-channel")
+
+            ws.send_json({"type": "share", "clientMessageId": "s-1"})
+            ack = ws.receive_json()
+            self.assert_nothing_broadcast(ws)
+
+        assert ack == {"type": "chat_ack", "clientMessageId": "s-1", "accepted": False}
+        assert chat.get_history() == []
 
     def test_refused_while_presence_is_off(self, client: TestClient, valid_token: str):
         with ws_connect(client, valid_token) as ws:
@@ -1624,25 +1714,16 @@ class TestShareMessage:
 class TestSuggestMessage:
     """'Suggest' posts a card for a channel the server resolves from its catalogue."""
 
-    TSN5 = Channel(id="42", name="TSN 5", streamUrl="http://streams/42", guideId="tsn5")
-
     @pytest.fixture(autouse=True)
     def chat_on(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(settings, "chat_enabled", True)
 
-    @pytest.fixture(autouse=True)
-    def catalogue(self, monkeypatch: pytest.MonkeyPatch) -> list[str]:
-        """Only TSN 5 (id 42) is in the catalogue; records each id looked up."""
-        looked_up: list[str] = []
-
-        async def resolve(channel_id: str) -> MediaChannel:
-            looked_up.append(channel_id)
-            if channel_id != self.TSN5.id:
-                raise HTTPException(404, "Channel not found")
-            return MediaChannel(self.TSN5, "mpegts")
-
-        monkeypatch.setattr(websocket_router, "resolve_media_channel", resolve)
-        return looked_up
+    @pytest.fixture
+    def catalogue(self) -> AsyncMock:
+        """The cached grouped catalogue (cached_catalogue): only TSN 5 (id 42) is live."""
+        grouped = websocket_router.get_grouped_channels
+        assert isinstance(grouped, AsyncMock)
+        return grouped
 
     @staticmethod
     def open_chat(ws) -> None:
@@ -1655,7 +1736,7 @@ class TestSuggestMessage:
         assert ws.receive_json()["type"] == "pong"
 
     def test_suggestion_is_broadcast_with_the_catalogues_channel(
-        self, client: TestClient, valid_token: str, admin_token: str, catalogue: list[str]
+        self, client: TestClient, valid_token: str, admin_token: str, catalogue: AsyncMock
     ):
         with ws_connect(client, valid_token) as ws1:
             self.open_chat(ws1)
@@ -1664,10 +1745,11 @@ class TestSuggestMessage:
 
                 ws1.send_json({"type": "suggest", "channelId": "42", "clientMessageId": "g-1"})
                 card = ws2.receive_json()
-                own = ws1.receive_json()
+                # The ack comes first: it confirms the stored message, before the broadcast
                 ack = ws1.receive_json()
+                own = ws1.receive_json()
 
-        assert catalogue == ["42"]
+        assert catalogue.await_count == 1
         assert card["type"] == "chat_message"
         assert card["kind"] == "suggestion"
         assert card["username"] == "testuser"
@@ -1716,12 +1798,48 @@ class TestSuggestMessage:
         assert ack == {"type": "chat_ack", "clientMessageId": "g-1", "accepted": False}
         assert chat.get_history() == []
 
+    def test_unknown_channel_makes_no_upstream_request(
+        self,
+        client: TestClient,
+        valid_token: str,
+        monkeypatch: pytest.MonkeyPatch,
+        catalogue: AsyncMock,
+    ):
+        """Only the cached grouped catalogue is consulted: no lineup or ErsatzTV lookup."""
+        from app.services import dispatcharr, media_source
+
+        uncached: list[str] = []
+
+        def record(name: str):
+            async def called(*args, **kwargs):
+                uncached.append(name)
+                raise AssertionError(f"{name} called")
+
+            return called
+
+        monkeypatch.setattr(dispatcharr, "get_lineup", record("get_lineup"))
+        # The switch path's own lookups, in case a suggestion goes through it again
+        monkeypatch.setattr(media_source, "get_grouped_channels", catalogue)
+        monkeypatch.setattr(media_source, "run_feed_lookup", record("ersatztv lookup"))
+        monkeypatch.setattr(websocket_router, "run_feed_lookup", record("run_feed_lookup"))
+        with ws_connect(client, valid_token) as ws:
+            self.open_chat(ws)
+
+            ws.send_json({"type": "suggest", "channelId": "etv-2", "clientMessageId": "g-1"})
+            ack = ws.receive_json()
+            ws.send_json({"type": "suggest", "channelId": "unknown", "clientMessageId": "g-2"})
+            second = ws.receive_json()
+
+        assert ack["accepted"] is False
+        assert second["accepted"] is False
+        assert uncached == []
+
     def test_refused_while_chat_is_off(
         self,
         client: TestClient,
         valid_token: str,
         monkeypatch: pytest.MonkeyPatch,
-        catalogue: list[str],
+        catalogue: AsyncMock,
     ):
         monkeypatch.setattr(settings, "chat_enabled", False)
         with ws_connect(client, valid_token) as ws:
@@ -1731,7 +1849,7 @@ class TestSuggestMessage:
             ack = ws.receive_json()
 
         assert ack["accepted"] is False
-        assert catalogue == []
+        assert catalogue.await_count == 0
         assert chat.get_history() == []
 
     def test_retried_suggestion_is_acknowledged_without_reposting(
@@ -1740,8 +1858,8 @@ class TestSuggestMessage:
         with ws_connect(client, valid_token) as ws:
             self.open_chat(ws)
             ws.send_json({"type": "suggest", "channelId": "42", "clientMessageId": "g-1"})
-            card = ws.receive_json()
             ws.receive_json()  # chat_ack
+            card = ws.receive_json()
 
             ws.send_json({"type": "suggest", "channelId": "42", "clientMessageId": "g-1"})
             ack = ws.receive_json()
@@ -1760,7 +1878,11 @@ class TestSuggestMessage:
         ],
     )
     def test_invalid_suggestion_is_rejected(
-        self, client: TestClient, valid_token: str, message: dict[str, object], catalogue: list[str]
+        self,
+        client: TestClient,
+        valid_token: str,
+        message: dict[str, object],
+        catalogue: AsyncMock,
     ):
         with ws_connect(client, valid_token) as ws:
             self.open_chat(ws)
@@ -1768,7 +1890,7 @@ class TestSuggestMessage:
             ws.send_json(message)
 
             assert ws.receive_json() == {"type": "error", "code": "invalid_message"}
-        assert catalogue == []
+        assert catalogue.await_count == 0
 
     def test_history_keeps_the_suggested_channel_while_presence_is_off(
         self, client: TestClient, valid_token: str
@@ -2003,6 +2125,124 @@ class TestNicknameTaken:
 
                 assert msg["username"] == "admin"
 
+    @pytest.mark.parametrize(
+        "nickname",
+        [
+            "Live TV",
+            "live tv",
+            "\uff21ce",
+            "jo\u200bn",
+            "\u200eJON\u200f",
+            "Live  TV",
+            "Live\u00a0\u3000TV",
+            "jo\u034fn",
+            "jon\ufe0f",
+            "jon\U000e0100",
+            "jon\u3164",
+            "jo\u115fn",
+            "jon\uffa0",
+            "jon\u2800",
+        ],
+    )
+    def test_system_name_nicknames_and_invisible_variants_are_refused(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch, nickname: str
+    ):
+        """'Live TV', another member's nickname and look-alikes of a sign-in name are taken."""
+        monkeypatch.setattr(settings, "chat_enabled", True)
+        jon = create_access_token({"sub": "jon", "role": "viewer"})
+        ace = create_access_token({"sub": "ace-account", "role": "viewer"})
+        other = create_access_token({"sub": "other", "role": "viewer"})
+
+        with ws_connect(client, jon) as ws1, ws_connect(client, ace) as ws2:
+            for ws in (ws1, ws2):
+                ws.receive_json()  # connection_ack
+                ws.receive_json()  # chat_history
+            ws2.send_json({"type": "set_nickname", "nickname": "Ace"})
+            ws2.send_json({"type": "ping"})
+            assert ws2.receive_json()["type"] == "pong"
+            with ws_connect(client, other) as ws3:
+                ws3.receive_json()  # connection_ack
+                ws3.receive_json()  # chat_history
+
+                ws3.send_json({"type": "set_nickname", "nickname": nickname})
+                ws3.send_json({"type": "ping"})
+                refusal = ws3.receive_json()
+                kept = presence_of("other").nickname
+
+        assert refusal["type"] == "error"
+        assert refusal["code"] == "nickname_taken"
+        assert kept is None
+
+    def test_nickname_is_stored_normalized(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Invisible characters are dropped and compatibility forms folded before storing."""
+        monkeypatch.setattr(settings, "chat_enabled", True)
+
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # connection_ack
+            ws.receive_json()  # chat_history
+
+            ws.send_json({"type": "set_nickname", "nickname": " \uff23ool\u200bCat\u0007 "})
+            ws.send_json({"type": "chat_message", "content": "Hi"})
+            msg = ws.receive_json()
+            stored = only_presence().nickname
+
+        assert msg["username"] == "CoolCat"
+        assert stored == "CoolCat"
+
+    @pytest.mark.parametrize(
+        ("nickname", "expected"),
+        [
+            ("Live TV" + " " * 24 + "x", "Live TV x"),
+            ("jon" + " " * 27 + "x", "jon x"),
+            ("A" * 29 + " yz", "A" * 29),
+        ],
+    )
+    def test_nickname_spaces_are_collapsed_and_trimmed_after_the_cut(
+        self,
+        client: TestClient,
+        valid_token: str,
+        monkeypatch: pytest.MonkeyPatch,
+        nickname: str,
+        expected: str,
+    ):
+        """Space runs can't hide a suffix, and the length cut leaves no trailing space."""
+        monkeypatch.setattr(settings, "chat_enabled", True)
+
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # connection_ack
+            ws.receive_json()  # chat_history
+
+            ws.send_json({"type": "set_nickname", "nickname": nickname})
+            ws.send_json({"type": "chat_message", "content": "Hi"})
+            msg = ws.receive_json()
+            stored = only_presence().nickname
+
+        assert msg["username"] == expected
+        assert stored == expected
+
+    def test_own_nickname_on_another_connection_is_allowed(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """A member's second tab may take the nickname their first tab uses."""
+        monkeypatch.setattr(settings, "chat_enabled", True)
+
+        with ws_connect(client, valid_token) as ws1, ws_connect(client, valid_token) as ws2:
+            for ws in (ws1, ws2):
+                ws.receive_json()  # connection_ack
+                ws.receive_json()  # chat_history
+            ws1.send_json({"type": "set_nickname", "nickname": "Ace"})
+            ws1.send_json({"type": "ping"})
+            assert ws1.receive_json()["type"] == "pong"
+
+            ws2.send_json({"type": "set_nickname", "nickname": "ace"})
+            ws2.send_json({"type": "ping"})
+            assert ws2.receive_json()["type"] == "pong"
+            nicknames = sorted(str(u.nickname) for u in presence._active_users.values())
+
+        assert nicknames == ["Ace", "ace"]
+
     def test_own_sign_in_name_is_allowed(
         self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
     ):
@@ -2056,6 +2296,7 @@ class TestNicknameTaken:
         {"type": "chat_message", "content": 42},
     ],
 )
+@pytest.mark.usefixtures("uncoalesced")
 def test_sec05_invalid_messages_cannot_poison_presence(client, valid_token, admin_token, message):
     with ws_connect(client, valid_token, session_id="validated") as ws:
         assert ws.receive_json()["type"] == "connection_ack"
@@ -2255,3 +2496,269 @@ async def test_sec07_failed_broadcast_closes_and_cleans_endpoint(monkeypatch, va
     assert healthy.send_text.await_count == 2
     assert ws.send_text.await_count == 1
     channel_state.disconnect(healthy)
+
+
+async def test_chat_ack_is_not_held_up_by_a_stalled_peer(monkeypatch):
+    """The sender's ack confirms the stored message; a peer that won't read can't delay it."""
+    import asyncio
+
+    monkeypatch.setattr(settings, "chat_enabled", True)
+    monkeypatch.setattr(channel_state, "BROADCAST_SEND_TIMEOUT_SECONDS", 0.5)
+
+    async def hang(*args, **kwargs):
+        await asyncio.Event().wait()
+
+    peer = MagicMock()
+    peer.send_text = AsyncMock(side_effect=hang)
+    peer.close = AsyncMock(side_effect=hang)
+    await channel_state.connect(peer)
+    loop = asyncio.get_running_loop()
+    acked: asyncio.Future[float] = loop.create_future()
+
+    async def sender_send_json(message):
+        if message.get("type") == "chat_ack" and not acked.done():
+            acked.set_result(loop.time())
+
+    sender = MagicMock()
+    sender.send_json = AsyncMock(side_effect=sender_send_json)
+    started = loop.time()
+    handling = asyncio.create_task(
+        websocket_router.handle_client_message(
+            sender,
+            {"type": "chat_message", "content": "hi", "clientMessageId": "c-1"},
+            "sender-conn",
+            "testuser",
+            "u_0123456789abcdef",
+        )
+    )
+
+    assert await asyncio.wait_for(acked, timeout=2) - started < 0.1
+    await handling
+    await channel_state.stop_failed_closes()
+
+
+def _recording_socket() -> tuple[MagicMock, list[dict]]:
+    """A mock WebSocket and the list of what was sent to it with send_json."""
+    sent: list[dict] = []
+    socket = MagicMock()
+    socket.send_json = AsyncMock(side_effect=sent.append)
+    return socket, sent
+
+
+async def test_retry_while_the_first_send_is_pending_posts_once(monkeypatch):
+    """A retry racing a slow send (a reconnected socket) is refused, not posted twice."""
+    import asyncio
+
+    monkeypatch.setattr(settings, "chat_enabled", True)
+    release = asyncio.Event()
+    grouped = websocket_router.get_grouped_channels
+
+    async def slow_catalogue():
+        await release.wait()
+        return await grouped()
+
+    monkeypatch.setattr(websocket_router, "get_grouped_channels", slow_catalogue)
+    suggest = {"type": "suggest", "channelId": "42", "clientMessageId": "g-1"}
+    first_socket, first_sent = _recording_socket()
+    retry_socket, retry_sent = _recording_socket()
+
+    first = asyncio.create_task(
+        websocket_router.handle_client_message(
+            first_socket, suggest, "conn-1", "testuser", "u_0123456789abcdef"
+        )
+    )
+    await asyncio.sleep(0)  # the first send is now waiting on the catalogue
+    # Refused at once; without the in-flight mark it would wait on the catalogue too
+    await asyncio.wait_for(
+        websocket_router.handle_client_message(
+            retry_socket, suggest, "conn-2", "testuser", "u_0123456789abcdef"
+        ),
+        timeout=1,
+    )
+    release.set()
+    await first
+
+    assert retry_sent == [{"type": "chat_ack", "clientMessageId": "g-1", "accepted": False}]
+    assert first_sent[0]["accepted"] is True
+    assert len(chat.get_history()) == 1
+
+
+async def test_a_send_that_fails_can_be_retried(monkeypatch):
+    """The in-flight mark is cleared when handling raises, so the retry posts."""
+    monkeypatch.setattr(settings, "chat_enabled", True)
+    original = websocket_router._suggested_channel
+    calls = 0
+
+    async def fails_once(channel_id):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("boom")
+        return await original(channel_id)
+
+    monkeypatch.setattr(websocket_router, "_suggested_channel", fails_once)
+    suggest = {"type": "suggest", "channelId": "42", "clientMessageId": "g-1"}
+    socket, sent = _recording_socket()
+
+    with pytest.raises(RuntimeError):
+        await websocket_router.handle_client_message(
+            socket, suggest, "conn-1", "testuser", "u_0123456789abcdef"
+        )
+    await websocket_router.handle_client_message(
+        socket, suggest, "conn-1", "testuser", "u_0123456789abcdef"
+    )
+
+    assert sent[0]["accepted"] is True
+    assert len(chat.get_history()) == 1
+
+
+class TestMessageBudget:
+    """Chat sends and nickname changes share a per-connection budget; nothing closes the socket."""
+
+    @pytest.fixture(autouse=True)
+    def chat_on(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(settings, "chat_enabled", True)
+
+    @pytest.fixture
+    def no_refill(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Only the burst, so the count doesn't depend on how fast the test runs."""
+        monkeypatch.setattr(websocket_router, "MESSAGE_REFILL_PER_SECOND", 0.0)
+
+    @staticmethod
+    def until_pong(ws) -> list[dict]:
+        """Send a ping and collect every frame up to its pong."""
+        ws.send_json({"type": "ping"})
+        frames = []
+        while (frame := ws.receive_json())["type"] != "pong":
+            frames.append(frame)
+        return frames
+
+    @pytest.mark.usefixtures("no_refill")
+    def test_rapid_chat_is_capped_at_the_burst_and_the_rest_refused(
+        self, client: TestClient, valid_token: str
+    ):
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # connection_ack
+            ws.receive_json()  # chat_history
+            for n in range(20):
+                ws.send_json(
+                    {"type": "chat_message", "content": f"m{n}", "clientMessageId": f"c{n}"}
+                )
+            frames = self.until_pong(ws)
+
+            # Exempt, and the socket is still open
+            ws.send_json({"type": "set_presence_prefs", "hideActivity": True})
+            assert self.until_pong(ws) == []
+            hidden = only_presence().hide_activity
+
+        broadcasts = [f for f in frames if f["type"] == "chat_message"]
+        acks = [f for f in frames if f["type"] == "chat_ack"]
+        assert len(broadcasts) == websocket_router.MESSAGE_BURST
+        assert [a["accepted"] for a in acks] == [True] * 5 + [False] * 15
+        assert len(chat.get_history()) == 5
+        assert hidden is True
+
+    @pytest.mark.usefixtures("no_refill")
+    def test_nickname_over_budget_is_refused_as_rate_limited(
+        self, client: TestClient, valid_token: str
+    ):
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # connection_ack
+            ws.receive_json()  # chat_history
+            for n in range(6):
+                ws.send_json({"type": "set_nickname", "nickname": f"Nick{n}"})
+            frames = self.until_pong(ws)
+            nickname = only_presence().nickname
+
+        assert frames == [{"type": "error", "code": "rate_limited"}]
+        assert nickname == "Nick4"
+
+    def test_budget_refills_one_a_second(self, monkeypatch: pytest.MonkeyPatch):
+        now = [100.0]
+        monkeypatch.setattr(websocket_router.time, "monotonic", lambda: now[0])
+        budget = websocket_router._MessageBudget("conn")
+
+        assert all(budget.take() for _ in range(5))
+        assert budget.take() is False
+        now[0] += 1.0
+        assert budget.take() is True
+        assert budget.take() is False
+        now[0] += 60.0
+        assert sum(budget.take() for _ in range(10)) == 5
+
+    def test_one_warning_per_window_with_a_count(self, monkeypatch: pytest.MonkeyPatch):
+        now = [100.0]
+        monkeypatch.setattr(websocket_router.time, "monotonic", lambda: now[0])
+        log = MagicMock()
+        monkeypatch.setattr(websocket_router, "log", log)
+        budget = websocket_router._MessageBudget("conn")
+        for _ in range(5):
+            budget.take()
+
+        for _ in range(20):
+            budget.take()
+        assert log.warning.call_count == 1
+
+        now[0] += websocket_router.RATE_LIMIT_WARNING_SECONDS
+        budget.take()  # refilled
+        for _ in range(10):
+            budget.take()
+        assert log.warning.call_count == 2
+        # The second warning counts everything refused since the first: the
+        # 19 after it, and the refusal that starts the new window
+        assert log.warning.call_args.args[-1] == 19 + 1
+
+
+class TestChannelUpdateCoalescing:
+    """A connection's channel updates apply at most about once a second; the last one wins."""
+
+    @pytest.fixture
+    def applied(self, monkeypatch: pytest.MonkeyPatch) -> list[str | None]:
+        """The channel of every update presence actually applied."""
+        channels: list[str | None] = []
+        original = presence.update_user_channel
+
+        def record(connection_id, channel_name, *args, **kwargs):
+            channels.append(channel_name)
+            return original(connection_id, channel_name, *args, **kwargs)
+
+        monkeypatch.setattr(presence, "update_user_channel", record)
+        return channels
+
+    def test_a_flood_applies_a_handful_and_ends_on_the_last(
+        self, client: TestClient, valid_token: str, applied: list[str | None]
+    ):
+        import time
+
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # connection_ack
+            for n in range(100):
+                channel = "A" if n % 2 else "B"
+                ws.send_json({"type": "channel_update", "channel": channel, "channelId": channel})
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json()["type"] == "pong"
+            time.sleep(websocket_router.CHANNEL_UPDATE_INTERVAL_SECONDS + 0.3)
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json()["type"] == "pong"
+            final = only_presence().current_channel
+
+        assert 1 < len(applied) <= 3
+        assert applied[0] == "B"
+        assert applied[-1] == "A"
+        assert final == "A"
+
+    def test_a_pending_update_is_dropped_when_the_socket_ends(
+        self, client: TestClient, valid_token: str, applied: list[str | None]
+    ):
+        import time
+
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # connection_ack
+            ws.send_json({"type": "channel_update", "channel": "A"})
+            ws.send_json({"type": "channel_update", "channel": "B"})
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json()["type"] == "pong"
+        time.sleep(websocket_router.CHANNEL_UPDATE_INTERVAL_SECONDS + 0.3)
+
+        assert applied == ["A"]
+        assert not presence._active_users
