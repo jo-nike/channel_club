@@ -179,14 +179,14 @@ class TestStartBackoff:
 
     @pytest.fixture(autouse=True)
     def enabled(self, tmp_path, monkeypatch):
-        from app.services.media_limits import process_budget
+        from app.services.media_limits import recorder_budget
 
         monkeypatch.setattr(settings, "highlight_enabled", True)
         monkeypatch.setattr(settings, "highlight_temp_dir", str(tmp_path))
-        process_budget.owners.clear()
+        recorder_budget.owners.clear()
         highlight_service.clear_start_backoff()
         yield
-        process_budget.owners.clear()
+        recorder_budget.owners.clear()
         highlight_service.clear_start_backoff()
 
     @pytest.fixture

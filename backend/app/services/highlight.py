@@ -26,8 +26,9 @@ from loguru import logger
 
 from app.config import settings
 from app.models.channel import validate_channel_id
+from app.services import channel_state
 from app.services.media_export import encode_file, media_duration, owned_thread
-from app.services.media_limits import MediaCapacityError, export_budget, process_budget
+from app.services.media_limits import MediaCapacityError, export_budget, recorder_budget
 from app.services.media_source import resolve_media_channel
 
 log = logger.bind(service="highlight")
@@ -45,6 +46,12 @@ RECORDER_RW_TIMEOUT_MICROSECONDS = 30_000_000
 # After a failed recorder start, further starts for that channel wait: 30s, doubling to 5 minutes.
 START_BACKOFF_BASE_SECONDS = 30
 START_BACKOFF_MAX_SECONDS = 300
+
+# Recorders are shared by everyone on a channel, so none is charged to the viewer who polled first.
+RECORDER_OWNER = "recorder"
+# With the recorder budget full, a start may evict the recorder unpolled longest if it has gone
+# unpolled at least this long.
+RECORDER_EVICT_UNPOLLED_SECONDS = 15
 
 
 def remove_recording_directory(directory: Path) -> None:
@@ -715,6 +722,7 @@ class HighlightService:
         Args:
             channel_id: Unique channel identifier.
             stream_url: URL of the stream to record.
+            owner: Ignored; recorders are charged to RECORDER_OWNER, not to a viewer.
 
         Returns:
             True if recorder is running (started or already running). False if
@@ -730,11 +738,9 @@ class HighlightService:
         if self._in_start_backoff(channel_id):
             return False
         # Reserve before any awaited work: overload never queues behind startup.
-        try:
-            process_budget.acquire(owner)
-        except MediaCapacityError:
+        if not await self._reserve_recorder_slot(channel_id):
             # Recording is optional; normal status polling and channel changes
-            # must continue while cast/recorder jobs occupy the available slots.
+            # must continue while recorders occupy the available slots.
             log.debug("Highlight recording deferred for {}: capacity full", channel_id)
             return False
         retained = False
@@ -747,7 +753,7 @@ class HighlightService:
                     if existing.is_running:
                         return True
                     await existing.stop()
-                    process_budget.release(self._owners.pop(channel_id, "system"))
+                    recorder_budget.release(self._owners.pop(channel_id, RECORDER_OWNER))
                     del self._recorders[channel_id]
                 # A concurrent poll may have failed this channel while we waited for the lock.
                 if self._in_start_backoff(channel_id):
@@ -756,7 +762,7 @@ class HighlightService:
                 if await recorder.start():
                     self._start_failures.pop(channel_id, None)
                     self._recorders[channel_id] = recorder
-                    self._owners[channel_id] = owner
+                    self._owners[channel_id] = RECORDER_OWNER
                     retained = True
                     return True
                 self._record_start_failure(channel_id)
@@ -765,7 +771,38 @@ class HighlightService:
             if not retained:
                 if recorder is not None:
                     await recorder.stop()
-                process_budget.release(owner)
+                recorder_budget.release(RECORDER_OWNER)
+
+    async def _reserve_recorder_slot(self, channel_id: str) -> bool:
+        """Take a recorder slot, evicting the recorder unpolled longest when the budget is full.
+
+        Only a recorder unpolled for RECORDER_EVICT_UNPOLLED_SECONDS qualifies, and never the
+        channel being started or the Live channel, which everyone is about to watch.
+        """
+        try:
+            recorder_budget.acquire(RECORDER_OWNER)
+            return True
+        except MediaCapacityError:
+            pass
+        live = channel_state.get_current_channel()
+        cutoff = time.time() - RECORDER_EVICT_UNPOLLED_SECONDS
+        candidates = [
+            (recorder.last_activity, other)
+            for other, recorder in self._recorders.items()
+            if other != channel_id
+            and (live is None or other != live.id)
+            and recorder.last_activity <= cutoff
+        ]
+        if not candidates:
+            return False
+        _, evicted = min(candidates)
+        log.info("Stopping recorder for channel {} to record channel {}", evicted, channel_id)
+        await self.stop_recording(evicted)
+        try:
+            recorder_budget.acquire(RECORDER_OWNER)
+            return True
+        except MediaCapacityError:
+            return False
 
     async def stop_recording(self, channel_id: str) -> None:
         """Stop recording a channel.
@@ -777,7 +814,7 @@ class HighlightService:
             if channel_id in self._recorders:
                 await self._recorders[channel_id].stop()
                 del self._recorders[channel_id]
-                process_budget.release(self._owners.pop(channel_id, "system"))
+                recorder_budget.release(self._owners.pop(channel_id, RECORDER_OWNER))
 
     async def stop_all(self) -> None:
         """Stop all recorders (for shutdown), concurrently so slow exits overlap."""
@@ -789,7 +826,7 @@ class HighlightService:
             try:
                 await recorder.stop()
             finally:
-                process_budget.release(self._owners.pop(channel_id, "system"))
+                recorder_budget.release(self._owners.pop(channel_id, RECORDER_OWNER))
 
         await asyncio.gather(*(stop(channel_id, recorder) for channel_id, recorder in recorders))
         await self.captures.clear()

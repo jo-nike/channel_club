@@ -42,6 +42,18 @@ class MediaBudget:
         finally:
             self.release(owner)
 
+    def reset(self) -> None:
+        self.owners.clear()
 
+
+# Cast sessions; per user, so one viewer cannot take every FFmpeg slot.
 process_budget = MediaBudget("process")
+# Shared highlight recorders, charged to no viewer: optional recording never blocks a cast.
+recorder_budget = MediaBudget("recorder")
 export_budget = MediaBudget("export")
+
+
+def reset_media_budgets() -> None:
+    """Forget every held slot (tests start from empty budgets)."""
+    for budget in (process_budget, recorder_budget, export_budget):
+        budget.reset()

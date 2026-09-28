@@ -8,8 +8,8 @@ from fastapi import HTTPException
 
 from app.config import settings
 from app.services.cast import CastService, CastSession
-from app.services.highlight import HighlightService
-from app.services.media_limits import export_budget, process_budget
+from app.services.highlight import RECORDER_OWNER, HighlightService
+from app.services.media_limits import export_budget, process_budget, recorder_budget
 
 
 @pytest.fixture(autouse=True)
@@ -20,6 +20,8 @@ def budgets(monkeypatch):
     monkeypatch.setattr(settings, "highlight_enabled", True)
     monkeypatch.setattr(settings, "media_process_limit", 3)
     monkeypatch.setattr(settings, "media_process_per_user", 2)
+    monkeypatch.setattr(settings, "media_recorder_limit", 2)
+    monkeypatch.setattr(settings, "media_recorder_per_user", 2)
     monkeypatch.setattr(settings, "media_export_limit", 2)
     monkeypatch.setattr(settings, "media_export_per_user", 1)
     yield
@@ -95,41 +97,137 @@ async def test_dead_recorder_reclaimed_with_budget():
     recorder = AsyncMock()
     recorder.is_running = False
     service._recorders["dead"] = recorder
-    service._owners["dead"] = "alice"
-    process_budget.acquire("alice")
+    service._owners["dead"] = RECORDER_OWNER
+    recorder_budget.acquire(RECORDER_OWNER)
     await service._cleanup_idle_recorders()
     recorder.stop.assert_awaited_once()
     assert not service._recorders
-    assert not process_budget.owners
+    assert not recorder_budget.owners
 
 
-async def test_optional_highlights_defer_at_capacity_and_recover():
+def fake_source(channel_id: str):
     from types import SimpleNamespace
 
     from app.models.channel import Channel
+
+    channel = Channel(id=channel_id, name="New", streamUrl="https://source/ts", guideId="1")
+    return SimpleNamespace(channel=channel)
+
+
+async def test_optional_highlights_defer_at_capacity_and_recover():
     from app.services.highlight import ChannelRecorder
 
     service = HighlightService()
-    channel = Channel(id="new", name="New", streamUrl="https://source/ts", guideId="1")
     for _ in range(2):
-        process_budget.acquire("alice")
+        recorder_budget.acquire(RECORDER_OWNER)
     with (
         patch(
             "app.services.highlight.resolve_media_channel",
-            AsyncMock(return_value=SimpleNamespace(channel=channel)),
+            AsyncMock(return_value=fake_source("new")),
         ) as resolve,
         patch.object(ChannelRecorder, "start", AsyncMock(return_value=True)) as start,
         patch.object(ChannelRecorder, "stop", AsyncMock()),
     ):
         assert await service.start_recording("new", "", owner="alice") is False
-        assert process_budget.owners["alice"] == 2
+        assert recorder_budget.owners[RECORDER_OWNER] == 2
         resolve.assert_not_called()
         start.assert_not_called()
-        process_budget.release("alice")
+        recorder_budget.release(RECORDER_OWNER)
         assert await service.start_recording("new", "", owner="alice") is True
-        assert process_budget.owners["alice"] == 2
+        assert recorder_budget.owners[RECORDER_OWNER] == 2
+        assert not process_budget.owners
         await service.stop_all()
-        assert process_budget.owners["alice"] == 1
+        assert recorder_budget.owners[RECORDER_OWNER] == 1
+
+
+async def test_recorders_a_viewer_polled_never_block_their_cast():
+    from app.services.highlight import ChannelRecorder
+
+    service = HighlightService()
+    with (
+        patch(
+            "app.services.highlight.resolve_media_channel",
+            AsyncMock(side_effect=lambda channel_id: fake_source(channel_id)),
+        ),
+        patch.object(ChannelRecorder, "start", AsyncMock(return_value=True)),
+        patch.object(ChannelRecorder, "stop", AsyncMock()),
+        patch.object(CastSession, "start", AsyncMock(return_value="/fixture")),
+        patch.object(CastSession, "stop", AsyncMock()),
+    ):
+        for channel_id in ("one", "two"):
+            assert await service.start_recording(channel_id, "", owner="alice") is True
+        cast = CastService()
+        assert await cast.create_session("one", "http://fixture", "mpegts", "alice") is not None
+        assert await cast.create_session("two", "http://fixture", "mpegts", "alice") is not None
+        assert process_budget.owners == {"alice": 2}
+        await cast.stop_all()
+        await service.stop_all()
+    assert not process_budget.owners and not recorder_budget.owners
+
+
+def recorder_polled(seconds_ago: float) -> AsyncMock:
+    import time
+
+    recorder = AsyncMock()
+    recorder.is_running = True
+    recorder.last_activity = time.time() - seconds_ago
+    return recorder
+
+
+def full_of(service: HighlightService, polled: dict[str, float]) -> dict[str, AsyncMock]:
+    recorders = {
+        channel_id: recorder_polled(seconds_ago) for channel_id, seconds_ago in polled.items()
+    }
+    for channel_id, recorder in recorders.items():
+        service._recorders[channel_id] = recorder
+        service._owners[channel_id] = RECORDER_OWNER
+        recorder_budget.acquire(RECORDER_OWNER)
+    return recorders
+
+
+async def test_full_recorder_budget_evicts_the_recorder_unpolled_longest():
+    from app.services.highlight import ChannelRecorder
+
+    service = HighlightService()
+    oldest = full_of(service, {"recent": 20, "oldest": 40})["oldest"]
+    with (
+        patch(
+            "app.services.highlight.resolve_media_channel",
+            AsyncMock(return_value=fake_source("new")),
+        ),
+        patch.object(ChannelRecorder, "start", AsyncMock(return_value=True)),
+        patch.object(ChannelRecorder, "stop", AsyncMock()),
+    ):
+        assert await service.start_recording("new", "") is True
+    oldest.stop.assert_awaited_once()
+    assert sorted(service._recorders) == ["new", "recent"]
+    assert recorder_budget.owners[RECORDER_OWNER] == 2
+
+
+@pytest.mark.parametrize("live", [False, True])
+async def test_recently_polled_and_live_recorders_are_never_evicted(live):
+    from app.models.channel import Channel
+    from app.services import channel_state
+    from app.services.highlight import ChannelRecorder
+
+    service = HighlightService()
+    # Without a Live channel both are polled too recently; with one, the Live recorder is stale.
+    recorders = full_of(service, {"recent": 5, "live": 30 if live else 5})
+    if live:
+        channel_state._current_channel = Channel(
+            id="live", name="Live", streamUrl="https://source/ts", guideId="1"
+        )
+    with (
+        patch("app.services.highlight.resolve_media_channel", AsyncMock()) as resolve,
+        patch.object(ChannelRecorder, "start", AsyncMock(return_value=True)) as start,
+    ):
+        assert await service.start_recording("new", "") is False
+    resolve.assert_not_called()
+    start.assert_not_called()
+    assert sorted(service._recorders) == ["live", "recent"]
+    for recorder in recorders.values():
+        recorder.stop.assert_not_awaited()
+    assert recorder_budget.owners[RECORDER_OWNER] == 2
 
 
 async def test_status_poll_at_capacity_returns_unavailable_without_error():
@@ -140,7 +238,7 @@ async def test_status_poll_at_capacity_returns_unavailable_without_error():
 
     service = HighlightService()
     for _ in range(2):
-        process_budget.acquire("alice")
+        recorder_budget.acquire(RECORDER_OWNER)
     token = create_access_token({"sub": "alice", "role": "viewer"})
     with (
         patch("app.routers.highlight.highlight_service", service),
@@ -153,7 +251,7 @@ async def test_status_poll_at_capacity_returns_unavailable_without_error():
     assert response.json()["enabled"] is True
     assert response.json()["recording"] is False
     assert response.json()["bufferSeconds"] == 0
-    assert process_budget.owners["alice"] == 2
+    assert recorder_budget.owners[RECORDER_OWNER] == 2
     resolve.assert_not_called()
 
 
@@ -165,7 +263,7 @@ async def test_channel_selection_broadcasts_even_when_highlights_unavailable(fai
     service = HighlightService()
     channel = Channel(id="new", name="New", streamUrl="https://source/ts", guideId="1")
     for _ in range(2):
-        process_budget.acquire("alice")
+        recorder_budget.acquire(RECORDER_OWNER)
     channel_state.clear_current_channel()
     try:
         with (

@@ -57,6 +57,7 @@ def reset_module_state(monkeypatch):
     highlight_service.clear_start_backoff()
     monkeypatch.setattr(app_settings, "_user_channel_selection", False)
     monkeypatch.setattr(app_settings, "_presence_visible", False)
+    __import__("app.services.media_limits").services.media_limits.reset_media_budgets()
 
 
 @pytest.fixture(autouse=True)
