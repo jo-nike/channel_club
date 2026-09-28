@@ -49,6 +49,9 @@ class TestPlexTvFailures:
             httpx.Response(200, text="<html>maintenance</html>"),
             httpx.Response(200, json=[]),
             httpx.Response(200, json={"id": None, "username": "u"}),
+            httpx.Response(200, json={"id": "", "username": "u"}),
+            httpx.Response(200, json={"id": {"a": 1}, "username": "u"}),
+            httpx.Response(200, json={"id": True, "username": "u"}),
             httpx.Response(200, json={"id": 1}),
         ],
     )

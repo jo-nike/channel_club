@@ -90,7 +90,9 @@ async def validate_plex_token(auth_token: str) -> PlexUser:
         raise PlexUnavailableError(f"Invalid response from Plex API: {e}") from e
 
     try:
-        if data["id"] is None:
+        user_id = data["id"]
+        # A non-empty string or number; "" or an object is as unusable as no id
+        if isinstance(user_id, bool) or not isinstance(user_id, str | int) or user_id == "":
             raise KeyError("id")
         user = PlexUser(
             id=str(data["id"]),
