@@ -107,6 +107,16 @@ describe('gifApi service', () => {
     })
   })
 
+  it("uses the default message for a 422's list of validation errors", async () => {
+    vi.mocked(fetchWithAuth).mockResolvedValueOnce({
+      ok: false,
+      status: 422,
+      json: () => Promise.resolve({ detail: [{ loc: ['query', 'q'], msg: 'too long' }] }),
+    } as Response)
+
+    await expect(searchGifs('x')).rejects.toThrow('Failed to search GIFs')
+  })
+
   describe('searchGifs', () => {
     it('searches for GIFs with query', async () => {
       const mockResponse = {

@@ -14,6 +14,8 @@ export interface GifPickerProps {
 
 const DEBOUNCE_MS = 300
 const PAGE_SIZE = 25
+// Giphy's longest search query; the server refuses longer ones
+const MAX_QUERY_LENGTH = 50
 
 export function GifPicker({ onSelect, onClose }: GifPickerProps) {
   const [query, setQuery] = useState('')
@@ -24,7 +26,8 @@ export function GifPicker({ onSelect, onClose }: GifPickerProps) {
   const [offset, setOffset] = useState(0)
   const [hasMore, setHasMore] = useState(true)
 
-  const debouncedQuery = useDebounce(query, DEBOUNCE_MS)
+  // Searched without its outer spaces; a blank query searches nothing
+  const debouncedQuery = useDebounce(query, DEBOUNCE_MS).trim()
   const observerRef = useRef<IntersectionObserver | null>(null)
   const loadMoreRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -169,6 +172,7 @@ export function GifPicker({ onSelect, onClose }: GifPickerProps) {
             placeholder="Search GIFs..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            maxLength={MAX_QUERY_LENGTH}
             className="pl-9"
           />
         </div>

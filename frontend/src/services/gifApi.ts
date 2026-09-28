@@ -54,12 +54,17 @@ export async function fetchTrending(limit: number = 25): Promise<GifResponse> {
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Failed to fetch trending GIFs' }))
     logger.error('GIF', `Failed to fetch trending GIFs: ${response.status}`, { detail: error.detail })
-    throw new Error(error.detail || 'Failed to fetch trending GIFs')
+    throw new Error(errorMessage(error.detail, 'Failed to fetch trending GIFs'))
   }
 
   const data: GifResponse = await response.json()
   logger.debug('GIF', `Fetched ${data.gifs.length} trending GIFs`)
   return data
+}
+
+/** The server's message, or the fallback: a 422's detail is a list of validation errors. */
+function errorMessage(detail: unknown, fallback: string): string {
+  return typeof detail === 'string' && detail ? detail : fallback
 }
 
 /**
@@ -83,7 +88,7 @@ export async function searchGifs(
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Failed to search GIFs' }))
     logger.error('GIF', `Failed to search GIFs: ${response.status}`, { detail: error.detail })
-    throw new Error(error.detail || 'Failed to search GIFs')
+    throw new Error(errorMessage(error.detail, 'Failed to search GIFs'))
   }
 
   const data: GifResponse = await response.json()
