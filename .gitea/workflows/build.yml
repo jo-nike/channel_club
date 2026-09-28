@@ -27,8 +27,6 @@ on:
     paths-ignore:
       - "docs/**"
       - "**/*.md"
-      - "_bmad/**"
-      - "_bmad-output/**"
       - ".claude/**"
 
 env:

@@ -37,18 +37,16 @@ uv run --project backend --env-file .env uvicorn app.main:app --app-dir backend 
 ```
 
 ```bash
-cd frontend && npm run dev
+cd frontend && VITE_CHAT_ENABLED=true VITE_GIF_ENABLED=true npm run dev
 ```
 
 ## Settings and optional features
 
 | File | Purpose |
 | --- | --- |
-| `backend/.env` | Legacy local configuration; `run.sh` uses it only when root `.env` is absent |
-| `frontend/.env` | Optional Vite build configuration, based on `frontend/.env.example` |
 | Root `.env` | Shared `run.sh` and Docker Compose configuration, based on root `.env.example` |
 
-The default frontend API path is `/api` in development and production. Set `VITE_API_URL` only when intentionally using a separate API origin. WebSockets use the browser origin. Chromecast must reach the media server itself; `VITE_CAST_BASE_URL` overrides its API origin, and local casting may require a backend bound to a receiver-reachable interface. Browser proxy tests do not establish physical receiver reachability.
+The frontend's `VITE_*` flags are baked in at build time: `run.sh` exports them (API path `/api`, chat and GIFs on, log level `debug` in dev and `info` for `--prod`) and CI sets the same values in `.gitea/workflows/build.yml`. Export one before `./run.sh` to override it. The default frontend API path is `/api` in development and production. Set `VITE_API_URL` only when intentionally using a separate API origin. WebSockets use the browser origin. Chromecast must reach the media server itself; `VITE_CAST_BASE_URL` overrides its API origin, and local casting may require a backend bound to a receiver-reachable interface. Browser proxy tests do not establish physical receiver reachability.
 
 Administrators control the shared live broadcast and settings; viewer channel selection is configurable. Highlights and Cast are optional server features with bounded subprocess/export budgets. Recording buffers and temporary exports use the configured temporary storage roots; retain enough disk space for enabled channels and upload/export limits. Captures are held server-side for up to 15 minutes (one per user) and streamed to the editor by byte range; exported trims and formats are cut from that held capture, never from the live buffer.
 
