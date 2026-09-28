@@ -380,3 +380,34 @@ class TestCaptureAfterRecorderStop:
         with patch.object(service.captures, "create", AsyncMock(return_value="made")) as create:
             assert await service.create_capture("channel-1", owner="viewer") == ("made", None)
         assert create.await_args is not None and create.await_args.args[0] is new
+
+
+class TestPreviewTokens:
+    """Preview tokens are reusable and live exactly as long as their capture."""
+
+    @pytest.mark.asyncio
+    async def test_delete_and_clear_drop_preview_tokens(self, tmp_path) -> None:
+        from dataclasses import replace
+
+        from app.services.highlight import Capture, CaptureStore
+
+        store = CaptureStore()
+        for capture_id in ("synthetic-capture-000a", "synthetic-capture-000b"):
+            path = tmp_path / capture_id / "snapshot.mp4"
+            path.parent.mkdir()
+            path.write_bytes(b"capture")
+            now = time.time()
+            item = Capture(capture_id, "viewer", "channel-1", path, 7, 1.0, now, now, now)
+            store.captures[capture_id] = item
+        kept = store.issue_preview_token("synthetic-capture-000b", "viewer")
+        removed = store.issue_preview_token("synthetic-capture-000a", "viewer")
+        assert kept and removed and kept != removed
+        await store.delete("synthetic-capture-000a", "viewer")
+        assert list(store.preview_tokens) == [kept]
+        # A grant whose capture the store no longer holds is dropped too.
+        store.preview_tokens["orphan-token-0000000"] = replace(
+            store.preview_tokens[kept], capture_id="synthetic-capture-gone"
+        )
+        await store.clear()
+        assert store.preview_tokens == {}
+        assert store.redeem_preview_token(kept) is None

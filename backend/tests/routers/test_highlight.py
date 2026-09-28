@@ -184,6 +184,7 @@ class TestCreateCapture:
             mock_settings.highlight_enabled = True
             with patch("app.routers.highlight.highlight_service") as mock_service:
                 mock_service.create_capture = AsyncMock(return_value=(capture, None))
+                mock_service.issue_preview_token.return_value = "preview-token-0001"
                 response = client.post("/api/highlight/channel-1/capture", headers=auth_header)
         assert response.status_code == 200
         data = response.json()
@@ -194,9 +195,11 @@ class TestCreateCapture:
             "expiresAt": pytest.approx(capture.created_at + CAPTURE_TTL_SECONDS),
             "pressedAt": pytest.approx(capture.pressed_at),
             "endsAt": pytest.approx(capture.ends_at),
+            "previewUrl": "/api/highlight/preview/preview-token-0001",
         }
         assert data["endsAt"] - data["pressedAt"] == pytest.approx(2)
         mock_service.create_capture.assert_awaited_once_with("channel-1", owner="testuser")
+        mock_service.issue_preview_token.assert_called_once_with(CAPTURE_ID, "testuser")
 
 
 class TestCaptureMedia:
