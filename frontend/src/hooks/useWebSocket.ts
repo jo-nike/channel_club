@@ -289,10 +289,11 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       logger.info('WebSocket', isReconnect ? 'Reconnecting...' : 'Connecting...')
       setStatus(isReconnect ? 'reconnecting' : 'connecting')
 
-      // Construct WebSocket URL with view and session parameters
+      // Construct WebSocket URL with view and session parameters. The token
+      // goes in the first message instead: proxies log URLs.
       const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
       const sessionId = getSessionId()
-      const wsUrl = `${wsProtocol}//${window.location.host}/api/ws?token=${token}&view=${view}&session_id=${sessionId}`
+      const wsUrl = `${wsProtocol}//${window.location.host}/api/ws?view=${view}&session_id=${sessionId}`
 
       const ws = new WebSocket(wsUrl)
       wsRef.current = ws
@@ -300,6 +301,9 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       ws.onopen = () => {
         // Ignore a socket that has already been superseded by a newer one
         if (wsRef.current !== ws) return
+
+        // The server reads nothing else until this arrives
+        ws.send(JSON.stringify({ type: 'auth', token }))
 
         logger.info('WebSocket', 'Connected successfully')
         setStatus('connected')

@@ -143,7 +143,23 @@ describe('useWebSocket', () => {
 
       expect(MockWebSocket.instances).toHaveLength(1)
       expect(MockWebSocket.instances[0].url).toContain('/api/ws')
-      expect(MockWebSocket.instances[0].url).toContain('token=test-jwt-token')
+    })
+
+    test('keeps the token out of the URL and sends it as the first message', () => {
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      // Proxies log URLs, so the token must never be in one
+      expect(ws.url).not.toContain('token')
+      expect(ws.url).not.toContain('test-jwt-token')
+      expect(ws.send).not.toHaveBeenCalled()
+
+      act(() => {
+        ws.simulateOpen()
+      })
+
+      expect(ws.send).toHaveBeenCalledTimes(1)
+      expect(JSON.parse(ws.send.mock.calls[0][0])).toEqual({ type: 'auth', token: 'test-jwt-token' })
     })
 
     test('does not connect when no token exists', () => {
@@ -308,7 +324,8 @@ describe('useWebSocket', () => {
         ws.simulateOpen()
       })
 
-      expect(ws.send).not.toHaveBeenCalled()
+      // Only the auth message so far
+      expect(ws.send).toHaveBeenCalledTimes(1)
 
       // Advance 30 seconds
       act(() => {
@@ -571,11 +588,11 @@ describe('useWebSocket', () => {
         useAuthStore.setState({ token: 'refreshed-jwt-token' })
       })
       expect(MockWebSocket.instances).toHaveLength(7)
-      expect(MockWebSocket.instances[6].url).toContain('token=refreshed-jwt-token')
 
       act(() => {
         MockWebSocket.instances[6].simulateOpen()
       })
+      expect(JSON.parse(MockWebSocket.instances[6].send.mock.calls[0][0])).toEqual({ type: 'auth', token: 'refreshed-jwt-token' })
       act(() => {
         vi.advanceTimersByTime(120000)
       })
@@ -822,11 +839,11 @@ describe('useWebSocket', () => {
       expect(MockWebSocket.instances[0].url).toContain('view=ersatztv')
     })
 
-    test('constructs correct URL with token and view parameters', () => {
+    test('constructs correct URL with view parameters and no token', () => {
       renderHook(() => useWebSocket({ view: 'ersatztv' }))
 
       const url = MockWebSocket.instances[0].url
-      expect(url).toContain('token=test-jwt-token')
+      expect(url).not.toContain('token=')
       expect(url).toContain('view=ersatztv')
       expect(url).toContain('/api/ws')
     })
