@@ -1,9 +1,11 @@
 """Optional shared Zipline uploads: feature gating, bounded ingestion, exact bytes."""
 
 import asyncio
+import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -11,6 +13,7 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 from fastapi import FastAPI
+from loguru import logger
 from starlette.requests import Request
 
 from app.config import settings
@@ -160,6 +163,51 @@ async def test_upstream_failures_are_sanitized_and_not_retried(
     assert response.status_code == expected
     assert "synthetic-secret" not in response.text
     assert len(seen) == 1
+
+
+def zipline_records(output: StringIO) -> list[dict]:
+    records = [json.loads(line)["record"] for line in output.getvalue().splitlines()]
+    return [r for r in records if r["extra"].get("service") == "zipline"]
+
+
+@pytest.mark.parametrize(
+    "status,body,level,category",
+    [
+        (401, {"error": "bad token synthetic-secret"}, "WARNING", "credentials"),
+        (200, {"files": [{"url": "https://cdn.test/c.mp4", "name": "c.mp4"}]}, "INFO", None),
+    ],
+)
+async def test_each_upload_logs_its_outcome_once_without_secrets(
+    client, configured, status, body, level, category
+):
+    def handler(request):
+        return httpx.Response(status, json=body)
+
+    real_client = httpx.AsyncClient
+    output = StringIO()
+    handler_id = logger.add(output, format="{message}", serialize=True, level="DEBUG")
+    try:
+        with (
+            patch(
+                "app.services.zipline.httpx.AsyncClient",
+                side_effect=lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw),
+            ),
+            patch("app.routers.highlight.media_duration", new_callable=AsyncMock, return_value=2),
+        ):
+            await client.post(
+                "/api/highlight/upload", content=b"preview", headers={"Content-Type": "video/mp4"}
+            )
+    finally:
+        logger.remove(handler_id)
+    records = zipline_records(output)
+    assert [r["level"]["name"] for r in records] == [level]
+    extra = records[0]["extra"]
+    if category:
+        assert (extra["category"], extra["upstream_status"]) == (category, 401)
+    else:
+        assert extra["size"] == len(b"preview") and extra["duration_seconds"] >= 0
+    assert "synthetic-secret" not in output.getvalue()
+    assert "bad token" not in output.getvalue()
 
 
 async def test_timeout_warns_about_unknown_completion(client, configured):
