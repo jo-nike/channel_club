@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconn
 from jose import JWTError
 from loguru import logger
 from pydantic import ValidationError
+from starlette.websockets import WebSocketState
 
 from app.config import settings
 from app.models.channel import Channel
@@ -147,6 +148,19 @@ async def verify_websocket_token(token: str) -> dict | None:
         return None
 
 
+def _is_disconnect_race(websocket: WebSocket, error: Exception) -> bool:
+    """Whether an error is Starlette refusing a send or receive on a closed socket.
+
+    Args:
+        websocket: The connection the error came from.
+        error: The exception that ended the connection.
+    """
+    return isinstance(error, RuntimeError) and WebSocketState.DISCONNECTED in (
+        websocket.client_state,
+        websocket.application_state,
+    )
+
+
 @router.websocket("/api/ws")
 async def websocket_endpoint(
     websocket: WebSocket,
@@ -250,7 +264,10 @@ async def websocket_endpoint(
     except WebSocketDisconnect:
         log.info("WebSocket disconnected: client {}", client_id)
     except Exception as e:
-        log.error("WebSocket error for client {}: {}", client_id, e)
+        if _is_disconnect_race(websocket, e):
+            log.debug("WebSocket closed mid-operation for client {}: {}", client_id, e)
+        else:
+            log.exception("WebSocket error for client {}", client_id)
     finally:
         # Always clean up on disconnect
         # Pass websocket to avoid race condition on view switch

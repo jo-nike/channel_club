@@ -2,6 +2,8 @@
 
 import hashlib
 import hmac
+import json
+import sys
 from collections.abc import Iterator
 from datetime import UTC
 from io import StringIO
@@ -13,7 +15,8 @@ from fastapi.testclient import TestClient
 from loguru import logger
 from starlette.websockets import WebSocketDisconnect
 
-from app.config import settings
+from app.config import Settings, settings
+from app.logging_config import configure_logging
 from app.main import app
 from app.models.channel import Channel
 from app.routers import websocket as websocket_router
@@ -614,6 +617,58 @@ class TestWebSocketLogging:
             assert "websocket" in log_output
         finally:
             logger.remove(handler_id)
+
+    def test_handler_error_logs_traceback_with_credentials_redacted(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """A bug in a message handler is logged with its traceback, token redacted (SEC-03)."""
+        secret = "SYNTHETIC_HANDLER_ERROR_TOKEN"
+
+        async def broken(*_args: object) -> None:
+            raise ValueError(f"lookup failed for /api/stream?token={secret}")
+
+        monkeypatch.setattr(websocket_router, "handle_client_message", broken)
+        output = StringIO()
+        config = Settings(_env_file=None, log_format="json", log_level="DEBUG")
+        with patch("app.logging_config.settings", config), patch.object(sys, "stderr", output):
+            configure_logging()
+            with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+                ws.receive_json()  # Consume connection_ack
+                ws.send_json({"type": "ping"})
+
+        records = [json.loads(line)["record"] for line in output.getvalue().splitlines()]
+        errors = [r for r in records if r["message"].startswith("WebSocket error")]
+        assert len(errors) == 1
+        assert errors[0]["level"]["name"] == "ERROR"
+        assert errors[0]["exception"]["type"] == "ValueError"
+        assert "[REDACTED]" in errors[0]["exception"]["value"]
+        assert secret not in output.getvalue()
+
+    def test_send_after_close_logs_debug_without_traceback(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Starlette refusing a send on a closed socket is a disconnect race, not an error."""
+
+        async def closes_then_sends(websocket, *_args: object) -> None:
+            await websocket.close()
+            await websocket.send_json({"type": "pong"})
+
+        monkeypatch.setattr(websocket_router, "handle_client_message", closes_then_sends)
+        output = StringIO()
+        handler_id = logger.add(output, format="{level} | {message} | {exception}", level="DEBUG")
+        try:
+            with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+                ws.receive_json()  # Consume connection_ack
+                ws.send_json({"type": "ping"})
+                with pytest.raises(WebSocketDisconnect):
+                    ws.receive_json()
+        finally:
+            logger.remove(handler_id)
+
+        log_output = output.getvalue()
+        assert "DEBUG | WebSocket closed mid-operation" in log_output
+        assert "ERROR" not in log_output
+        assert "Traceback" not in log_output
 
 
 class TestPresenceTracking:
