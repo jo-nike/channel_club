@@ -584,6 +584,17 @@ describe('useChatStore', () => {
       expect(useChatStore.getState().nicknameRejection).toEqual({ nickname: 'Ally', reason: 'taken' })
     })
 
+    it('matches a refusal named as sent, with the spaces setNickname trimmed', () => {
+      useChatStore.getState().setIdentity({ username: 'alice' })
+      useChatStore.getState().setNickname('Ally')
+      useChatStore.getState().setNickname('  Bob  ')
+
+      useChatStore.getState().rejectNickname('  Bob  ')
+
+      expect(useChatStore.getState().nickname).toBe('Ally')
+      expect(useChatStore.getState().nicknameRejection).toEqual({ nickname: 'Bob', reason: 'taken' })
+    })
+
     it('ignores the refusal of a name that is no longer in use', () => {
       useChatStore.getState().setIdentity({ username: 'alice' })
       useChatStore.getState().setNickname('Bob')

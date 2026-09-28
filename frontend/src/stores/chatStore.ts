@@ -314,7 +314,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ me: null, nickname: null, revertNickname: null, nicknameRejection: null, lastReadAt: null, readMarker: null })
   },
 
-  rejectNickname: (refused, reason = 'taken') => {
+  rejectNickname: (requested, reason = 'taken') => {
+    // The server names the request as sent; setNickname kept it trimmed and cut
+    const refused = requested.trim().slice(0, MAX_NICKNAME_LENGTH)
     const state = get()
     // Already moved on to another name: the server kept that one, nothing to undo
     if (state.nickname !== refused) {

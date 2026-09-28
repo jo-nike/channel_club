@@ -636,10 +636,9 @@ async def handle_client_message(
     if budget is not None and msg_type in _BUDGETED_TYPES and not budget.take():
         # Refused, never closed: the client sees a failed send it can retry
         if msg_type == "set_nickname":
-            # Named, like nickname_taken, so the client can put back the name in use
-            refused = _normalize_nickname(validated.get("nickname", ""))
+            # Named as sent, like nickname_taken, so the client can put back the name in use
             await websocket.send_json(
-                {"type": "error", "code": "rate_limited", "nickname": refused}
+                {"type": "error", "code": "rate_limited", "nickname": validated.get("nickname", "")}
             )
         else:
             await _ack_chat(websocket, validated.get("clientMessageId"), None)
@@ -655,12 +654,14 @@ async def handle_client_message(
             channel_updates.submit(validated)
     elif msg_type == "set_nickname":
         # Handle nickname setting for chat display name
-        nickname = _normalize_nickname(validated.get("nickname", ""))
+        requested = validated.get("nickname", "")
+        nickname = _normalize_nickname(requested)
         if nickname and _is_another_members_name(nickname, username):
-            # Refused: the previous name (or the sign-in name) stays in use
+            # Refused: the previous name (or the sign-in name) stays in use. Named as
+            # sent, not normalized, so the client recognises its own request.
             log.debug("Nickname refused for client {}: another member's name", client_id)
             await websocket.send_json(
-                {"type": "error", "code": "nickname_taken", "nickname": nickname}
+                {"type": "error", "code": "nickname_taken", "nickname": requested}
             )
         elif nickname:
             _nickname_map[client_id] = (websocket, nickname)

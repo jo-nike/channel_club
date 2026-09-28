@@ -2085,10 +2085,11 @@ class TestNicknameTaken:
 
                 ws2.send_json({"type": "set_nickname", "nickname": "Ace"})
                 ws2.send_json({"type": "set_nickname", "nickname": "  TestUser  "})
+                # Named as sent, so the client recognises its own request
                 assert ws2.receive_json() == {
                     "type": "error",
                     "code": "nickname_taken",
-                    "nickname": "TestUser",
+                    "nickname": "  TestUser  ",
                 }
 
                 ws2.send_json({"type": "chat_message", "content": "Still me"})
@@ -2171,6 +2172,8 @@ class TestNicknameTaken:
 
         assert refusal["type"] == "error"
         assert refusal["code"] == "nickname_taken"
+        # The look-alike as sent, not its normalized form, so the client matches it
+        assert refusal["nickname"] == nickname
         assert kept is None
 
     def test_nickname_is_stored_normalized(
