@@ -63,6 +63,7 @@ def reset_module_state(monkeypatch):
     __import__("app.services.cached_fetch", fromlist=["_"]).reset_all_caches()
     __import__("app.routers.epg", fromlist=["_"]).clear_unavailable_warning()
     __import__("app.services.ersatztv", fromlist=["_"]).reset_state()
+    __import__("app.services.media_limits").services.media_limits.reset_media_budgets()
 
 
 @pytest.fixture(autouse=True)

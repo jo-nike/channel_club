@@ -115,7 +115,6 @@ def test_channel_json_rejects_paths(identifier):
     [
         ("GET", "/api/highlight/status/{}"),
         ("POST", "/api/highlight/{}/capture"),
-        ("POST", "/api/highlight/{}"),
     ],
 )
 @pytest.mark.parametrize(

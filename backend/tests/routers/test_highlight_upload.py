@@ -1,23 +1,33 @@
 """Optional shared Zipline uploads: feature gating, bounded ingestion, exact bytes."""
 
+import asyncio
+import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from io import StringIO
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
 from fastapi import FastAPI
+from loguru import logger
+from starlette.requests import Request
 
 from app.config import settings
 from app.models.auth import TokenPayload
+from app.routers import highlight as highlight_router
 from app.routers.auth_deps import get_current_user
-from app.routers.highlight import router
-from app.services.media_limits import export_budget
+from app.routers.highlight import ingest_preview, router
+from app.services.media_limits import export_budget, upload_budget
 
 
 @pytest.fixture
-async def client(monkeypatch):
+async def client(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "highlight_enabled", True)
+    monkeypatch.setattr(settings, "highlight_temp_dir", str(tmp_path))
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_current_user] = lambda: TokenPayload(
@@ -27,7 +37,7 @@ async def client(monkeypatch):
         transport=httpx.ASGITransport(app), base_url="http://test"
     ) as client:
         yield client
-    assert not export_budget.owners
+    assert not export_budget.owners and not upload_budget.owners
 
 
 @pytest.mark.parametrize(
@@ -54,9 +64,14 @@ async def test_flag_controls_capability_and_upload_before_ingestion(
         response = await client.post("/api/highlight/upload", content=b"ignored")
         assert response.status_code == (415 if available else 503)
         ingest.assert_not_called()
+
     # The ordinary export path remains independent of Zipline configuration.
+    async def encode(_source, output, *_args):
+        output.write_bytes(b"mp4")
+        return output
+
     with (
-        patch("app.routers.highlight.encode_file", new_callable=AsyncMock, return_value=b"mp4"),
+        patch("app.routers.highlight.encode_file", encode),
         patch(
             "app.routers.highlight.highlight_service.get_capture",
             return_value=SimpleNamespace(path="snapshot.mp4"),
@@ -94,7 +109,9 @@ async def test_viewer_upload_forwards_exact_prepared_bytes(client, configured):
             "app.services.zipline.httpx.AsyncClient",
             side_effect=lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw),
         ),
-        patch("app.routers.highlight.media_duration", new_callable=AsyncMock, return_value=2.4),
+        patch(
+            "app.routers.highlight.media_duration", new_callable=AsyncMock, return_value=2.4
+        ) as probe,
     ):
         response = await client.post(
             "/api/highlight/upload",
@@ -103,6 +120,11 @@ async def test_viewer_upload_forwards_exact_prepared_bytes(client, configured):
         )
     assert response.json() == {"url": "https://cdn.test/c.mp4", "name": "c.mp4"}
     assert len(seen) == 1
+    # The clip was held in a workspace the startup sweep covers, and removed afterwards.
+    assert probe.await_args is not None
+    source = probe.await_args.args[0]
+    assert source.parent.parent == Path(settings.highlight_temp_dir) / "work"
+    assert not source.parent.exists()
 
 
 @pytest.mark.parametrize(
@@ -143,6 +165,51 @@ async def test_upstream_failures_are_sanitized_and_not_retried(
     assert len(seen) == 1
 
 
+def zipline_records(output: StringIO) -> list[dict]:
+    records = [json.loads(line)["record"] for line in output.getvalue().splitlines()]
+    return [r for r in records if r["extra"].get("service") == "zipline"]
+
+
+@pytest.mark.parametrize(
+    "status,body,level,category",
+    [
+        (401, {"error": "bad token synthetic-secret"}, "WARNING", "credentials"),
+        (200, {"files": [{"url": "https://cdn.test/c.mp4", "name": "c.mp4"}]}, "INFO", None),
+    ],
+)
+async def test_each_upload_logs_its_outcome_once_without_secrets(
+    client, configured, status, body, level, category
+):
+    def handler(request):
+        return httpx.Response(status, json=body)
+
+    real_client = httpx.AsyncClient
+    output = StringIO()
+    handler_id = logger.add(output, format="{message}", serialize=True, level="DEBUG")
+    try:
+        with (
+            patch(
+                "app.services.zipline.httpx.AsyncClient",
+                side_effect=lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw),
+            ),
+            patch("app.routers.highlight.media_duration", new_callable=AsyncMock, return_value=2),
+        ):
+            await client.post(
+                "/api/highlight/upload", content=b"preview", headers={"Content-Type": "video/mp4"}
+            )
+    finally:
+        logger.remove(handler_id)
+    records = zipline_records(output)
+    assert [r["level"]["name"] for r in records] == [level]
+    extra = records[0]["extra"]
+    if category:
+        assert (extra["category"], extra["upstream_status"]) == (category, 401)
+    else:
+        assert extra["size"] == len(b"preview") and extra["duration_seconds"] >= 0
+    assert "synthetic-secret" not in output.getvalue()
+    assert "bad token" not in output.getvalue()
+
+
 async def test_timeout_warns_about_unknown_completion(client, configured):
     def handler(request):
         raise httpx.ReadTimeout("synthetic-secret")
@@ -179,6 +246,24 @@ async def test_limits_reject_before_probe_or_upstream(client, configured, monkey
         upload.assert_not_called()
 
 
+async def test_an_upload_in_flight_leaves_the_export_slots_free(client, configured):
+    async def upload(*_args):
+        assert upload_budget.owners == {"viewer": 1}
+        # The same viewer can still capture or export while Zipline receives the clip.
+        with export_budget.slot("viewer"):
+            pass
+        return {"url": "https://cdn.test/c.mp4", "name": "c.mp4"}
+
+    with (
+        patch("app.routers.highlight.upload_clip", upload),
+        patch("app.routers.highlight.media_duration", new_callable=AsyncMock, return_value=2),
+    ):
+        response = await client.post(
+            "/api/highlight/upload", content=b"preview", headers={"Content-Type": "video/mp4"}
+        )
+    assert response.status_code == 200
+
+
 async def test_upload_requires_authentication(configured):
     app = FastAPI()
     app.include_router(router)
@@ -189,3 +274,142 @@ async def test_upload_requires_authentication(configured):
             "/api/highlight/upload", content=b"preview", headers={"Content-Type": "video/mp4"}
         )
     assert response.status_code == 401
+
+
+def paced(chunks: int, pause: float, stall_after: int | None = None, stall: float = 0):
+    """A body sent in small chunks with a pause before each, like a slow phone uplink."""
+
+    async def body():
+        for index in range(chunks):
+            await asyncio.sleep(stall if index == stall_after else pause)
+            yield b"x" * 1024
+
+    return body()
+
+
+async def test_a_slow_upload_is_timed_per_chunk_not_for_the_whole_body(
+    client, configured, monkeypatch
+):
+    monkeypatch.setattr(highlight_router, "UPLOAD_IDLE_SECONDS", 0.3)
+    upload = AsyncMock(return_value={"url": "https://cdn.test/c.mp4", "name": "c.mp4"})
+    with (
+        patch("app.routers.highlight.upload_clip", upload),
+        patch("app.routers.highlight.media_duration", new_callable=AsyncMock, return_value=2),
+    ):
+        # Ten chunks 0.1 s apart take a second in all, well past the idle limit.
+        response = await client.post(
+            "/api/highlight/upload",
+            content=paced(10, 0.1),
+            headers={"Content-Type": "video/mp4"},
+        )
+        assert response.status_code == 200
+        stalled = await client.post(
+            "/api/highlight/upload",
+            content=paced(3, 0.01, stall_after=1, stall=0.6),
+            headers={"Content-Type": "video/mp4"},
+        )
+    assert stalled.status_code == 408
+    upload.assert_awaited_once()
+
+
+async def test_ingest_writes_chunks_without_a_worker_thread(tmp_path):
+    """A saturated default executor must not stall or time out the body read (N-02)."""
+    loop = asyncio.get_running_loop()
+    executor = ThreadPoolExecutor(max_workers=1)
+    loop.set_default_executor(executor)
+    gate = threading.Event()
+    loop.run_in_executor(None, gate.wait)
+    messages = [
+        {"type": "http.request", "body": b"x" * 65536, "more_body": True} for _ in range(64)
+    ] + [{"type": "http.request", "body": b"", "more_body": False}]
+
+    async def receive():
+        return messages.pop(0)
+
+    request = Request({"type": "http", "method": "POST", "headers": []}, receive)
+    try:
+        await asyncio.wait_for(ingest_preview(request, tmp_path / "clip.mp4"), 2)
+    finally:
+        gate.set()
+        executor.shutdown(wait=True)
+    assert (tmp_path / "clip.mp4").stat().st_size == 64 * 65536
+
+
+async def raw_upload(messages: list[dict], leave_after: float = 0) -> list[dict]:
+    """Drive the ASGI app by hand: `messages` arrive, then the browser disconnects."""
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_current_user] = lambda: TokenPayload(
+        sub="viewer", role="viewer", exp=datetime(2099, 1, 1, tzinfo=UTC)
+    )
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/api/highlight/upload",
+        "raw_path": b"/api/highlight/upload",
+        "query_string": b"format=mp4",
+        "headers": [(b"content-type", b"video/mp4"), (b"host", b"test")],
+        "client": ("127.0.0.1", 1),
+        "server": ("test", 80),
+    }
+    sent: list[dict] = []
+    loop = asyncio.get_running_loop()
+    leaves_at: list[float] = []
+
+    async def receive():
+        if messages:
+            return messages.pop(0)
+        if not leaves_at:
+            leaves_at.append(loop.time() + leave_after)
+        # Like uvicorn: until the browser leaves this waits; afterwards it answers at once.
+        if loop.time() < leaves_at[0]:
+            await asyncio.sleep(leaves_at[0] - loop.time())
+        return {"type": "http.disconnect"}
+
+    async def send(message):
+        sent.append(message)
+
+    # Any exception escaping here is what uvicorn logs as a traceback.
+    await asyncio.wait_for(app(scope, receive, send), 5)
+    return sent
+
+
+async def test_a_cancel_mid_body_answers_499_without_a_traceback(configured, tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "highlight_temp_dir", str(tmp_path))
+    monkeypatch.setattr(settings, "highlight_enabled", True)
+    with patch("app.routers.highlight.upload_clip", new_callable=AsyncMock) as upload:
+        sent = await raw_upload([{"type": "http.request", "body": b"part", "more_body": True}])
+    assert sent[0]["status"] == 499
+    upload.assert_not_called()
+    assert not upload_budget.owners
+    assert not list((tmp_path / "work").iterdir())
+
+
+async def test_a_cancel_during_the_zipline_post_stops_it(configured, tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "highlight_temp_dir", str(tmp_path))
+    monkeypatch.setattr(settings, "highlight_enabled", True)
+    monkeypatch.setattr(highlight_router, "DISCONNECT_POLL_SECONDS", 0.01)
+    posting = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def slow_upload(*_args):
+        posting.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    with (
+        patch("app.routers.highlight.upload_clip", slow_upload),
+        patch("app.routers.highlight.media_duration", new_callable=AsyncMock, return_value=2),
+    ):
+        sent = await raw_upload(
+            [{"type": "http.request", "body": b"clip", "more_body": False}], leave_after=0.1
+        )
+    assert posting.is_set() and cancelled.is_set()
+    assert sent[0]["status"] == 499
+    assert not upload_budget.owners

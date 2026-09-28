@@ -6,10 +6,12 @@ import subprocess
 import sys
 import time
 from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
@@ -22,6 +24,11 @@ from app.services.highlight import Capture, highlight_service
 from app.services.media_limits import export_budget
 
 CAPTURE_ID = "synthetic-capture-0001"
+
+
+@pytest.fixture(autouse=True)
+def recording_root(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "highlight_temp_dir", str(tmp_path / "highlights"))
 
 
 @pytest.fixture
@@ -171,20 +178,19 @@ def encoder(monkeypatch):
     """Stand in for FFmpeg with a harmless child that runs until it is killed."""
     monkeypatch.setattr(settings, "highlight_enabled", True)
     monkeypatch.setattr(highlight_router, "DISCONNECT_POLL_SECONDS", 0.01)
-    real_popen = subprocess.Popen
-    children: list[subprocess.Popen] = []
+    real_exec = asyncio.create_subprocess_exec
+    children: list[asyncio.subprocess.Process] = []
 
-    def launch(_command, **kwargs):
-        child = real_popen([sys.executable, "-c", "import time; time.sleep(30)"], **kwargs)
+    async def launch(*_command, **kwargs):
+        child = await real_exec(sys.executable, "-c", "import time; time.sleep(30)", **kwargs)
         children.append(child)
         return child
 
-    with patch("subprocess.Popen", launch):
+    with patch("asyncio.create_subprocess_exec", launch):
         yield children
     for child in children:
-        if child.poll() is None:
+        if child.returncode is None:
             child.kill()
-            child.wait()
 
 
 async def test_export_stops_the_encoder_when_the_browser_cancels(tmp_path, register, encoder):
@@ -207,28 +213,35 @@ async def test_export_stops_the_encoder_when_the_browser_cancels(tmp_path, regis
             break
         await asyncio.sleep(0.01)
     await asyncio.sleep(0.05)
-    assert encoder[0].poll() is None and export_budget.owners["viewer"] == 1
+    assert encoder[0].returncode is None and export_budget.owners["viewer"] == 1
 
     leave.set()
     with pytest.raises(HTTPException) as closed:
         await asyncio.wait_for(export, 5)
     assert closed.value.status_code == 499
-    assert encoder[0].poll() is not None
+    assert encoder[0].returncode is not None
     assert not export_budget.owners
 
 
-async def test_export_returns_the_encode_while_the_browser_waits(tmp_path, register, monkeypatch):
+async def test_export_streams_the_encoded_file_and_frees_the_slot_before_sending(
+    tmp_path, register, monkeypatch
+):
     monkeypatch.setattr(settings, "highlight_enabled", True)
     monkeypatch.setattr(highlight_router, "DISCONNECT_POLL_SECONDS", 0.01)
     snapshot = tmp_path / "snapshot.mp4"
     snapshot.write_bytes(b"mp4")
     capture = register(snapshot)
 
-    async def slow_encode(*_args: object) -> bytes:
+    async def slow_encode(_source: Path, output: Path, *_args: object) -> Path:
         await asyncio.sleep(0.05)
-        return b"encoded clip"
+        output.write_bytes(b"encoded clip")
+        return output
 
-    with patch("app.routers.highlight.encode_file", slow_encode):
+    with (
+        patch("app.routers.highlight.encode_file", slow_encode),
+        # The encoded file is streamed from disk, never read into memory.
+        patch.object(Path, "read_bytes", side_effect=AssertionError("read into memory")),
+    ):
         response = await export_preview(
             BrowserRequest(asyncio.Event()),
             capture=capture,
@@ -237,5 +250,83 @@ async def test_export_returns_the_encode_while_the_browser_waits(tmp_path, regis
             end_time=2,
             user=viewer(),
         )
-    assert response.body == b"encoded clip"
+    assert isinstance(response, FileResponse)
+    output = Path(response.path)
+    assert output.read_bytes() == b"encoded clip"
+    assert output.parent.parent == Path(settings.highlight_temp_dir) / "work"
+    # The export slot was released when the encode finished, before the response is sent.
+    assert not export_budget.owners
+    assert response.background is not None
+    await response.background()
+    assert not output.parent.exists()
+
+
+async def test_a_failed_export_removes_its_workspace(tmp_path, register, monkeypatch):
+    monkeypatch.setattr(settings, "highlight_enabled", True)
+    snapshot = tmp_path / "snapshot.mp4"
+    snapshot.write_bytes(b"mp4")
+    capture = register(snapshot)
+    outputs: list[Path] = []
+
+    async def failing_encode(_source: Path, output: Path, *_args: object) -> Path:
+        outputs.append(output)
+        output.write_bytes(b"partial")
+        raise ValueError("Failed to encode highlight")
+
+    with (
+        patch("app.routers.highlight.encode_file", failing_encode),
+        pytest.raises(HTTPException) as failed,
+    ):
+        await export_preview(
+            BrowserRequest(asyncio.Event()),
+            capture=capture,
+            format="mp4",
+            start_time=None,
+            end_time=None,
+            user=viewer(),
+        )
+    assert failed.value.status_code == 400
+    assert not outputs[0].parent.exists()
+    assert not export_budget.owners
+
+
+@pytest.mark.parametrize("route", ["capture", "export"])
+async def test_a_viewer_who_leaves_while_queued_never_takes_a_slot(
+    tmp_path, register, monkeypatch, route
+):
+    from unittest.mock import AsyncMock
+
+    from app.routers.highlight import create_capture
+
+    monkeypatch.setattr(settings, "highlight_enabled", True)
+    monkeypatch.setattr(highlight_router, "DISCONNECT_POLL_SECONDS", 0.01)
+    snapshot = tmp_path / "snapshot.mp4"
+    snapshot.write_bytes(b"mp4")
+    capture = register(snapshot)
+    recorder = AsyncMock()
+    recorder.is_running = True
+    monkeypatch.setitem(highlight_service._recorders, "channel-1", recorder)
+    export_budget.acquire("alice")
+    export_budget.acquire("bob")
+    leave = asyncio.Event()
+    if route == "capture":
+        work = create_capture(BrowserRequest(leave), channel_id="channel-1", user=viewer())
+    else:
+        work = export_preview(
+            BrowserRequest(leave),
+            capture=capture,
+            format="mp4",
+            start_time=None,
+            end_time=None,
+            user=viewer(),
+        )
+    queued = asyncio.create_task(work)
+    await asyncio.sleep(0.05)
+    assert not queued.done()
+    leave.set()
+    with pytest.raises(HTTPException) as closed:
+        await asyncio.wait_for(queued, 2)
+    assert closed.value.status_code == 499
+    export_budget.release("alice")
+    export_budget.release("bob")
     assert not export_budget.owners

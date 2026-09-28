@@ -155,8 +155,14 @@ class Settings(BaseSettings):
     # Shared per-worker admission limits (deploy one media worker).
     media_process_limit: int = 8
     media_process_per_user: int = 2
+    # Highlight recorders share one system owner, so the per-user limit equals the global one.
+    media_recorder_limit: int = 4
+    media_recorder_per_user: int = 4
     media_export_limit: int = 2
     media_export_per_user: int = 1
+    # Zipline uploads are network-bound, so they have their own slots instead of export's.
+    media_upload_limit: int = 2
+    media_upload_per_user: int = 1
     media_export_max_bytes: int = 256 * 1024 * 1024
     # Every other request body; /api/highlight/upload enforces media_export_max_bytes.
     request_body_max_bytes: int = 64 * 1024

@@ -19,18 +19,29 @@ import subprocess
 import tempfile
 import time
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from loguru import logger
 
 from app.config import settings
+from app.logging_config import redact_credentials
 from app.models.channel import validate_channel_id
-from app.services.media_export import encode_file, media_duration, owned_thread
-from app.services.media_limits import MediaCapacityError, export_budget, process_budget
+from app.services import channel_state
+from app.services.media_export import encode_file, media_duration, owned_thread, workspace
+from app.services.media_limits import MediaCapacityError, export_budget, recorder_budget
 from app.services.media_source import resolve_media_channel
 
 log = logger.bind(service="highlight")
+
+
+def monotonic() -> float:
+    """The clock for ages and deadlines, which a host clock step must not move.
+
+    Wall time stays where it is compared with file mtimes or shown to viewers.
+    """
+    return time.monotonic()
+
 
 # A capture waits for the segment being written at the press to close, so the press is inside it.
 # The wait is one segment plus slack, capped so a long configured segment cannot stall the editor.
@@ -42,9 +53,19 @@ TAIL_POLL_SECONDS = 0.25
 # stalled upstream ends the process instead of leaving it "running" with no new segments.
 RECORDER_RW_TIMEOUT_MICROSECONDS = 30_000_000
 
+# FFmpeg's stderr file in the segment directory, and how much of its end a failed start logs.
+STDERR_LOG_NAME = "ffmpeg.log"
+STDERR_TAIL_BYTES = 500
+
 # After a failed recorder start, further starts for that channel wait: 30s, doubling to 5 minutes.
 START_BACKOFF_BASE_SECONDS = 30
 START_BACKOFF_MAX_SECONDS = 300
+
+# Recorders are shared by everyone on a channel, so none is charged to the viewer who polled first.
+RECORDER_OWNER = "recorder"
+# With the recorder budget full, a start may evict the recorder unpolled longest if it has gone
+# unpolled at least this long.
+RECORDER_EVICT_UNPOLLED_SECONDS = 15
 
 
 def remove_recording_directory(directory: Path) -> None:
@@ -66,12 +87,15 @@ class ChannelRecorder:
         self.process: subprocess.Popen | None = None
         self.segment_dir: Path | None = None
         self.started_at: float = 0
-        self.last_activity: float = 0  # Last time this channel was polled
+        self.last_activity: float = 0  # Last time this channel was polled (monotonic)
+        # The newest segment mtime the stall watchdog saw, and when (monotonic) it changed
+        self._newest_output: float = 0
+        self._output_seen_at: float = 0
         self._lock = asyncio.Lock()
 
     def touch(self) -> None:
         """Update last activity timestamp (called on status poll)."""
-        self.last_activity = time.time()
+        self.last_activity = monotonic()
 
     @property
     def is_running(self) -> bool:
@@ -148,19 +172,26 @@ class ChannelRecorder:
 
             started = False
             try:
-                self.process = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    start_new_session=True,  # Safe from worker threads; no undrained pipes
-                )
+                # FFmpeg's reason for failing goes to a file, never an undrained pipe.
+                with (self.segment_dir / STDERR_LOG_NAME).open("wb") as stderr:
+                    self.process = subprocess.Popen(
+                        cmd,
+                        stdout=subprocess.DEVNULL,
+                        stderr=stderr,
+                        start_new_session=True,  # Safe from worker threads
+                    )
                 self.started_at = time.time()
-                self.last_activity = time.time()
+                self.last_activity = monotonic()
+                self._output_seen_at = self.last_activity
 
                 # Give FFmpeg a moment to start and check it's running
                 await asyncio.sleep(0.5)
                 if not self.is_running:
                     stderr = f"exit status {self.process.returncode}"
+                    # Read before the finally below removes the segment directory.
+                    tail = self._stderr_tail()
+                    if tail:
+                        stderr = f"{stderr}: {tail}"
                     log.error("FFmpeg failed to start for channel {}: {}", self.channel_id, stderr)
                     return False
 
@@ -181,6 +212,18 @@ class ChannelRecorder:
             finally:
                 if not started:
                     await self._stop_locked()
+
+    def _stderr_tail(self) -> str:
+        """The end of FFmpeg's stderr, redacted: its error lines echo the input URL."""
+        if not self.segment_dir:
+            return ""
+        try:
+            with (self.segment_dir / STDERR_LOG_NAME).open("rb") as file:
+                file.seek(max(file.seek(0, os.SEEK_END) - STDERR_TAIL_BYTES, 0))
+                tail = file.read()
+        except OSError:
+            return ""
+        return str(redact_credentials(tail.decode("utf-8", "replace").strip()))
 
     async def stop(self) -> None:
         """Stop FFmpeg recording and cleanup."""
@@ -249,6 +292,25 @@ class ChannelRecorder:
             )
         except OSError:
             return False
+
+    def seconds_since_output(self) -> float:
+        """How long since a new segment appeared, or since start before the first one.
+
+        Segment mtimes are wall time, so they only tell whether output changed; the
+        interval is timed on the monotonic clock, which a host clock step cannot move.
+        """
+        newest = 0.0
+        if self.segment_dir:
+            with suppress(OSError):
+                newest = max(
+                    (path.stat().st_mtime for path in self.segment_dir.glob("seg_*.ts")),
+                    default=0.0,
+                )
+        now = monotonic()
+        if newest != self._newest_output:
+            self._newest_output = newest
+            self._output_seen_at = now
+        return now - self._output_seen_at
 
     def get_buffer_seconds(self) -> float:
         """Get how many seconds of content are actually in the buffer.
@@ -379,42 +441,13 @@ class ChannelRecorder:
 
         Returns the wall-clock time the capture ends (its newest segment's mtime).
         """
-        with tempfile.TemporaryDirectory(prefix="highlight-capture-") as directory:
+        async with workspace("highlight-capture-") as directory:
             async with self._lock:
                 if not self.is_running or not self.segment_dir:
                     raise ValueError("Recorder not running")
-                concat, ends_at = await owned_thread(self._snapshot, Path(directory))
+                concat, ends_at = await owned_thread(self._snapshot, directory)
             await encode_file(concat, output, "mp4", None, None, concat=True)
         return ends_at
-
-    async def save_highlight(
-        self,
-        format: str = "mp4",
-        start_time: float | None = None,
-        end_time: float | None = None,
-    ) -> tuple[bytes | None, str | None]:
-        """Export private copied inputs; producer stop/wrap cannot change them."""
-        with tempfile.TemporaryDirectory(prefix="highlight-export-") as directory:
-            workspace = Path(directory)
-            try:
-                async with self._lock:
-                    if not self.is_running or not self.segment_dir:
-                        return None, "Recorder not running"
-                    concat, _ = await owned_thread(self._snapshot, workspace)
-                video = await encode_file(
-                    concat,
-                    workspace / f"highlight.{format}",
-                    format,
-                    start_time,
-                    end_time,
-                    concat=True,
-                )
-                return video, None
-            except TimeoutError:
-                return None, "Highlight creation timed out"
-            except (OSError, ValueError) as exc:
-                log.warning("Highlight export failed: {}", exc)
-                return None, str(exc)
 
 
 # Idle timeout for recordings - stop if no status polls for this duration.
@@ -422,11 +455,24 @@ class ChannelRecorder:
 # edge cases like browser tab closure or network disconnects.
 RECORDER_IDLE_TIMEOUT = 120
 
+# A polled recorder that has written no segment for 3 segment lengths, and at least this
+# long (warm-up included), is stalled and gets stopped.
+RECORDER_STALL_MIN_SECONDS = 30
+
 # Captures outlive the editor session by a margin; closing the editor deletes them early.
 CAPTURE_TTL_SECONDS = 15 * 60
 
 # A download link only has to last until the browser follows it.
 DOWNLOAD_TOKEN_TTL_SECONDS = 60
+
+# One Plex account on a phone and a TV clips independently; the oldest capture goes past this.
+MAX_CAPTURES_PER_OWNER = 3
+
+# The recorder was stopped (idle sweep, eviction, shutdown) while a capture waited on it.
+RECORDER_GONE_ERROR = "Live TV changed while clipping; press Clip again"
+
+# Shown for any filesystem failure (a full disk, say) instead of its path-bearing text.
+CLIP_SAVE_ERROR = "Could not save the clip on the server"
 
 
 @dataclass(frozen=True)
@@ -444,19 +490,29 @@ class Capture:
     # the editor places the press at duration - (ends_at - pressed_at).
     pressed_at: float
     ends_at: float
+    # created_at is shown to the viewer; the TTL is judged on the monotonic clock.
+    created_mono: float = field(default_factory=lambda: monotonic())
 
     @property
     def expires_at(self) -> float:
         return self.created_at + CAPTURE_TTL_SECONDS
 
+    def expired(self, now: float) -> bool:
+        return self.created_mono + CAPTURE_TTL_SECONDS <= now
+
 
 @dataclass(frozen=True)
 class DownloadToken:
-    """A single-use grant to download one owner's capture without their session token."""
+    """A single-use grant to download one owner's capture without their session token.
+
+    After the first download it still serves Range requests until it expires, so the
+    browser can resume an interrupted download.
+    """
 
     capture_id: str
     owner: str
-    expires_at: float
+    expires_at: float  # monotonic
+    redeemed: bool = False
 
 
 class CaptureStore:
@@ -482,11 +538,21 @@ class CaptureStore:
         except BaseException:
             await asyncio.to_thread(remove_recording_directory, directory)
             raise
-        # One capture per owner bounds disk use to one export-sized file each.
-        for previous in [item for item in self.captures.values() if item.owner == owner]:
-            await self._remove(previous)
+        # A few captures per owner bound disk use to a few export-sized files each.
+        previous = [item for item in self.captures.values() if item.owner == owner]
+        for oldest in previous[: max(len(previous) - MAX_CAPTURES_PER_OWNER + 1, 0)]:
+            await self._remove(oldest)
         capture = Capture(
-            capture_id, owner, channel_id, path, size, duration, time.time(), pressed_at, ends_at
+            capture_id,
+            owner,
+            channel_id,
+            path,
+            size,
+            duration,
+            time.time(),
+            pressed_at,
+            ends_at,
+            monotonic(),
         )
         self.captures[capture_id] = capture
         log.bind(
@@ -506,7 +572,7 @@ class CaptureStore:
     def get(self, capture_id: str, owner: str) -> Capture | None:
         """Foreign or expired captures are indistinguishable from unknown ones."""
         capture = self.captures.get(capture_id)
-        if capture is None or capture.owner != owner or capture.expires_at <= time.time():
+        if capture is None or capture.owner != owner or capture.expired(monotonic()):
             return None
         return capture
 
@@ -517,18 +583,26 @@ class CaptureStore:
         """
         if self.get(capture_id, owner) is None:
             return None
-        self._drop_expired_tokens(time.time())
+        self._drop_expired_tokens(monotonic())
         token = secrets.token_urlsafe(24)
         self.download_tokens[token] = DownloadToken(
-            capture_id, owner, time.time() + DOWNLOAD_TOKEN_TTL_SECONDS
+            capture_id, owner, monotonic() + DOWNLOAD_TOKEN_TTL_SECONDS
         )
         return token
 
-    def redeem_download_token(self, token: str) -> Capture | None:
-        """Spend the token: a second request, an expired token or a gone capture finds nothing."""
-        grant = self.download_tokens.pop(token, None)
-        if grant is None or grant.expires_at <= time.time():
+    def redeem_download_token(self, token: str, range_request: bool = False) -> Capture | None:
+        """Spend the token on the first download; later, only Range requests find the capture.
+
+        A resumed download is served until the token expires; a plain replay, an expired
+        token or a gone capture finds nothing.
+        """
+        grant = self.download_tokens.get(token)
+        if grant is None or grant.expires_at <= monotonic():
+            self.download_tokens.pop(token, None)
             return None
+        if grant.redeemed and not range_request:
+            return None
+        self.download_tokens[token] = replace(grant, redeemed=True)
         return self.get(grant.capture_id, grant.owner)
 
     async def delete(self, capture_id: str, owner: str) -> None:
@@ -537,10 +611,10 @@ class CaptureStore:
             await self._remove(capture)
 
     async def sweep(self, now: float | None = None) -> None:
-        now = time.time() if now is None else now
+        now = monotonic() if now is None else now
         self._drop_expired_tokens(now)
         for capture in list(self.captures.values()):
-            if capture.expires_at <= now:
+            if capture.expired(now):
                 await self._remove(capture)
 
     def _drop_expired_tokens(self, now: float) -> None:
@@ -618,14 +692,18 @@ class HighlightService:
 
     async def _cleanup_idle_recorders(self) -> None:
         """Stop recorders that haven't been polled recently."""
-        now = time.time()
+        now = monotonic()
         idle_channels: list[str] = []
+
+        # A running FFmpeg whose upstream went quiet writes nothing; past warm-up, restart it.
+        stall_limit = max(3 * settings.highlight_segment_seconds, RECORDER_STALL_MIN_SECONDS)
 
         # Find idle recorders (without holding lock during iteration)
         for channel_id, recorder in list(self._recorders.items()):
             if not recorder.is_running:
                 idle_channels.append(channel_id)
-            elif recorder.last_activity > 0:
+                continue
+            if recorder.last_activity > 0:
                 idle_time = now - recorder.last_activity
                 if idle_time > RECORDER_IDLE_TIMEOUT:
                     idle_channels.append(channel_id)
@@ -634,6 +712,20 @@ class HighlightService:
                         channel_id,
                         idle_time,
                     )
+                    continue
+            silent = await asyncio.to_thread(recorder.seconds_since_output)
+            if silent > stall_limit:
+                idle_channels.append(channel_id)
+                log.bind(
+                    event="highlight.recorder_stalled",
+                    channel_id=channel_id,
+                    silent_seconds=round(silent, 1),
+                ).warning(
+                    "Recorder for channel {} wrote nothing for {:.0f}s; stopping it so the "
+                    "next poll restarts it",
+                    channel_id,
+                    silent,
+                )
 
         # Stop idle recorders
         for channel_id in idle_channels:
@@ -715,6 +807,7 @@ class HighlightService:
         Args:
             channel_id: Unique channel identifier.
             stream_url: URL of the stream to record.
+            owner: Ignored; recorders are charged to RECORDER_OWNER, not to a viewer.
 
         Returns:
             True if recorder is running (started or already running). False if
@@ -730,11 +823,9 @@ class HighlightService:
         if self._in_start_backoff(channel_id):
             return False
         # Reserve before any awaited work: overload never queues behind startup.
-        try:
-            process_budget.acquire(owner)
-        except MediaCapacityError:
+        if not await self._reserve_recorder_slot(channel_id):
             # Recording is optional; normal status polling and channel changes
-            # must continue while cast/recorder jobs occupy the available slots.
+            # must continue while recorders occupy the available slots.
             log.debug("Highlight recording deferred for {}: capacity full", channel_id)
             return False
         retained = False
@@ -747,7 +838,7 @@ class HighlightService:
                     if existing.is_running:
                         return True
                     await existing.stop()
-                    process_budget.release(self._owners.pop(channel_id, "system"))
+                    recorder_budget.release(self._owners.pop(channel_id, RECORDER_OWNER))
                     del self._recorders[channel_id]
                 # A concurrent poll may have failed this channel while we waited for the lock.
                 if self._in_start_backoff(channel_id):
@@ -756,7 +847,7 @@ class HighlightService:
                 if await recorder.start():
                     self._start_failures.pop(channel_id, None)
                     self._recorders[channel_id] = recorder
-                    self._owners[channel_id] = owner
+                    self._owners[channel_id] = RECORDER_OWNER
                     retained = True
                     return True
                 self._record_start_failure(channel_id)
@@ -765,7 +856,38 @@ class HighlightService:
             if not retained:
                 if recorder is not None:
                     await recorder.stop()
-                process_budget.release(owner)
+                recorder_budget.release(RECORDER_OWNER)
+
+    async def _reserve_recorder_slot(self, channel_id: str) -> bool:
+        """Take a recorder slot, evicting the recorder unpolled longest when the budget is full.
+
+        Only a recorder unpolled for RECORDER_EVICT_UNPOLLED_SECONDS qualifies, and never the
+        channel being started or the Live channel, which everyone is about to watch.
+        """
+        try:
+            recorder_budget.acquire(RECORDER_OWNER)
+            return True
+        except MediaCapacityError:
+            pass
+        live = channel_state.get_current_channel()
+        cutoff = monotonic() - RECORDER_EVICT_UNPOLLED_SECONDS
+        candidates = [
+            (recorder.last_activity, other)
+            for other, recorder in self._recorders.items()
+            if other != channel_id
+            and (live is None or other != live.id)
+            and recorder.last_activity <= cutoff
+        ]
+        if not candidates:
+            return False
+        _, evicted = min(candidates)
+        log.info("Stopping recorder for channel {} to record channel {}", evicted, channel_id)
+        await self.stop_recording(evicted)
+        try:
+            recorder_budget.acquire(RECORDER_OWNER)
+            return True
+        except MediaCapacityError:
+            return False
 
     async def stop_recording(self, channel_id: str) -> None:
         """Stop recording a channel.
@@ -777,7 +899,7 @@ class HighlightService:
             if channel_id in self._recorders:
                 await self._recorders[channel_id].stop()
                 del self._recorders[channel_id]
-                process_budget.release(self._owners.pop(channel_id, "system"))
+                recorder_budget.release(self._owners.pop(channel_id, RECORDER_OWNER))
 
     async def stop_all(self) -> None:
         """Stop all recorders (for shutdown), concurrently so slow exits overlap."""
@@ -789,7 +911,7 @@ class HighlightService:
             try:
                 await recorder.stop()
             finally:
-                process_budget.release(self._owners.pop(channel_id, "system"))
+                recorder_budget.release(self._owners.pop(channel_id, RECORDER_OWNER))
 
         await asyncio.gather(*(stop(channel_id, recorder) for channel_id, recorder in recorders))
         await self.captures.clear()
@@ -819,40 +941,6 @@ class HighlightService:
             "maxBufferSeconds": settings.highlight_buffer_seconds,
         }
 
-    async def save_highlight(
-        self,
-        channel_id: str,
-        format: str = "mp4",
-        start_time: float | None = None,
-        end_time: float | None = None,
-        owner: str = "system",
-    ) -> tuple[bytes | None, str | None]:
-        """Save highlight for a channel.
-
-        Args:
-            channel_id: Channel to save highlight for.
-            format: Output format - "mp4" or "webm"
-            start_time: Optional start time in seconds for trimming
-            end_time: Optional end time in seconds for trimming
-
-        Returns:
-            Tuple of (video_bytes, error_message).
-        """
-        if not settings.highlight_enabled:
-            return None, "Highlight feature is disabled"
-
-        if channel_id not in self._recorders:
-            return None, "No recording active for this channel"
-
-        if format not in ("mp4", "webm"):
-            return None, f"Invalid format: {format}. Use 'mp4' or 'webm'"
-
-        recorder = self._recorders[channel_id]
-        with export_budget.slot(owner):
-            return await recorder.save_highlight(
-                format=format, start_time=start_time, end_time=end_time
-            )
-
     async def create_capture(
         self, channel_id: str, owner: str
     ) -> tuple[Capture | None, str | None]:
@@ -865,12 +953,23 @@ class HighlightService:
         recorder = self._recorders[channel_id]
         # Waited outside the export slot: only two exist server-wide, and waiting encodes nothing.
         await recorder.wait_for_current_segment()
-        with export_budget.slot(owner):
+        # Everyone who clipped the same moment finishes the wait together, so queue briefly.
+        async with export_budget.waiting_slot(owner):
+            # Look the recorder up again: it may have been stopped, or replaced, while we waited.
+            recorder = self._recorders.get(channel_id)
+            if recorder is None or not recorder.is_running:
+                return None, RECORDER_GONE_ERROR
             try:
                 return await self.captures.create(recorder, owner, channel_id, pressed_at), None
             except TimeoutError:
                 return None, "Highlight creation timed out"
-            except (OSError, ValueError) as exc:
+            except OSError as exc:
+                # The text names server paths; the errno (ENOSPC above all) is what matters.
+                log.bind(
+                    event="highlight.capture_failed", channel_id=channel_id, errno=exc.errno
+                ).warning("Highlight capture failed: {}", exc)
+                return None, CLIP_SAVE_ERROR
+            except ValueError as exc:
                 log.warning("Highlight capture failed: {}", exc)
                 return None, str(exc)
 
@@ -883,8 +982,8 @@ class HighlightService:
     def issue_download_token(self, capture_id: str, owner: str) -> str | None:
         return self.captures.issue_download_token(capture_id, owner)
 
-    def redeem_download_token(self, token: str) -> Capture | None:
-        return self.captures.redeem_download_token(token)
+    def redeem_download_token(self, token: str, range_request: bool = False) -> Capture | None:
+        return self.captures.redeem_download_token(token, range_request)
 
 
 # Global service instance
