@@ -412,6 +412,9 @@ MAX_CAPTURES_PER_OWNER = 3
 # The recorder was stopped (idle sweep, eviction, shutdown) while a capture waited on it.
 RECORDER_GONE_ERROR = "Live TV changed while clipping; press Clip again"
 
+# Shown for any filesystem failure (a full disk, say) instead of its path-bearing text.
+CLIP_SAVE_ERROR = "Could not save the clip on the server"
+
 
 @dataclass(frozen=True)
 class Capture:
@@ -869,7 +872,13 @@ class HighlightService:
                 return await self.captures.create(recorder, owner, channel_id, pressed_at), None
             except TimeoutError:
                 return None, "Highlight creation timed out"
-            except (OSError, ValueError) as exc:
+            except OSError as exc:
+                # The text names server paths; the errno (ENOSPC above all) is what matters.
+                log.bind(
+                    event="highlight.capture_failed", channel_id=channel_id, errno=exc.errno
+                ).warning("Highlight capture failed: {}", exc)
+                return None, CLIP_SAVE_ERROR
+            except ValueError as exc:
                 log.warning("Highlight capture failed: {}", exc)
                 return None, str(exc)
 

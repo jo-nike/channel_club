@@ -25,7 +25,12 @@ from app.config import settings
 from app.models.auth import TokenPayload
 from app.models.channel import ChannelId
 from app.routers.auth_deps import get_current_user, get_current_user_or_token
-from app.services.highlight import RECORDER_GONE_ERROR, Capture, highlight_service
+from app.services.highlight import (
+    CLIP_SAVE_ERROR,
+    RECORDER_GONE_ERROR,
+    Capture,
+    highlight_service,
+)
 from app.services.media_export import (
     encode_file,
     media_duration,
@@ -334,8 +339,11 @@ async def export_preview(
         raise HTTPException(408, "Clip conversion timed out") from None
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
-    except OSError:
-        raise HTTPException(400, "Unable to convert capture") from None
+    except OSError as exc:
+        log.bind(
+            event="highlight.capture_failed", channel_id=source.channel_id, errno=exc.errno
+        ).warning("Clip export failed: {}", exc)
+        raise HTTPException(400, CLIP_SAVE_ERROR) from None
     finally:
         if not kept:
             await remove_workspace(directory)
