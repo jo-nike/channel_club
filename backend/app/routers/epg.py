@@ -1,5 +1,7 @@
 """EPG router for Channel Club API."""
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from loguru import logger
 
@@ -8,10 +10,33 @@ from app.models.channel import Channel
 from app.models.epg import EPGProgrammesResponse, EPGResponse, NowPlayingBulkResponse
 from app.routers.auth_deps import get_current_user
 from app.services.dispatcharr import DispatchrrUnavailableError, get_grouped_channels
-from app.services.epg_service import EPGServiceError, get_epg_service
+from app.services.epg_service import EPGService, EPGServiceError, get_epg_service
 
 router = APIRouter(tags=["epg"])
 log = logger.bind(router="epg")
+
+# The retry deadline of the last 'unavailable' warning, so each backoff window
+# warns once instead of once per request
+_warned_retry_at: datetime | None = None
+
+
+def clear_unavailable_warning() -> None:
+    """Forget the last 'unavailable' warning (tests)."""
+    global _warned_retry_at
+    _warned_retry_at = None
+
+
+def _log_unavailable(epg_service: EPGService, message: str, *args: object) -> None:
+    """Log a guide 503 at DEBUG, plus one WARNING with the cause per backoff window."""
+    global _warned_retry_at
+    log.debug(message, *args)
+    health = epg_service.get_health()
+    if health.next_retry_at is not None and health.next_retry_at == _warned_retry_at:
+        return
+    _warned_retry_at = health.next_retry_at
+    log.warning(
+        "EPG service unavailable: {} (next retry at {})", health.error, health.next_retry_at
+    )
 
 
 @router.get("/epg/now-playing/all", response_model=NowPlayingBulkResponse)
@@ -52,7 +77,7 @@ async def get_now_playing_all(
         log.debug("EPG bulk response with {} channels on air", len(now_playing))
         return NowPlayingBulkResponse(now_playing=now_playing)
     except EPGServiceError:
-        log.warning("EPG service unavailable for bulk now-playing")
+        _log_unavailable(epg_service, "EPG service unavailable for bulk now-playing")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="EPG service unavailable",
@@ -93,7 +118,7 @@ async def get_now_playing(
         log.debug("EPG response data returned for channel: {}", channel_id)
         return result
     except EPGServiceError:
-        log.warning("EPG service unavailable for channel: {}", channel_id)
+        _log_unavailable(epg_service, "EPG service unavailable for channel: {}", channel_id)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="EPG service unavailable",
@@ -136,7 +161,9 @@ async def get_programmes(
         log.debug("EPG programmes returned {} for channel: {}", len(result.programmes), channel_id)
         return result
     except EPGServiceError:
-        log.warning("EPG service unavailable for programmes of channel: {}", channel_id)
+        _log_unavailable(
+            epg_service, "EPG service unavailable for programmes of channel: {}", channel_id
+        )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="EPG service unavailable",
