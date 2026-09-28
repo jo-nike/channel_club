@@ -362,12 +362,14 @@ def update_last_activity(connection_id: str) -> None:
         user.last_activity_mono = _monotonic()
 
 
-# Default timeout for stale user cleanup (60 seconds)
-# Must be longer than client ping interval (30s) to avoid false positives
-STALE_USER_TIMEOUT_SECONDS = 60
+# Default timeout for stale user cleanup. The client pings every 30s, but Chrome
+# runs a hidden, silent tab's timers about once a minute, so its pings can land
+# 60s apart; a stale sweep closes the socket, so a tighter limit would cycle those
+# tabs through reconnects and new sessions.
+STALE_USER_TIMEOUT_SECONDS = 90
 
-# How often the background task sweeps for stale users. With the 60s timeout a
-# tab that vanished without closing its socket is gone within about 90s.
+# How often the background task sweeps for stale users. With the 90s timeout a
+# tab that vanished without closing its socket is gone within about 120s.
 CLEANUP_INTERVAL_SECONDS = 30
 
 # How long closing a stale connection's socket may take

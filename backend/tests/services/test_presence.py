@@ -349,6 +349,17 @@ class TestStaleClock:
         assert presence.cleanup_stale_users() == 0
         assert "here" in presence._active_users
 
+    def test_a_throttled_background_tab_pinging_once_a_minute_is_not_stale(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Chrome runs a hidden tab's 30 s ping about once a minute; that is not silence."""
+        presence.track_user(connection_id="hidden", username="friend", view="live")
+        later = presence._monotonic() + 65
+        monkeypatch.setattr(presence, "_monotonic", lambda: later)
+
+        assert presence.cleanup_stale_users() == 0
+        assert "hidden" in presence._active_users
+
     def test_monotonic_silence_past_the_timeout_is_stale(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
