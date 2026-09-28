@@ -1,0 +1,1241 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": "channel-club",
+    "title": "Channel Club - Viewing",
+    "tags": [
+      "channel-club",
+      "iptv",
+      "loki"
+    ],
+    "timezone": "browser",
+    "schemaVersion": 39,
+    "version": 1,
+    "refresh": "1m",
+    "time": {
+      "from": "now-7d",
+      "to": "now"
+    },
+    "editable": true,
+    "graphTooltip": 1,
+    "panels": [
+      {
+        "id": 1,
+        "type": "row",
+        "title": "Viewers",
+        "gridPos": {
+          "h": 1,
+          "w": 24,
+          "x": 0,
+          "y": 0
+        },
+        "collapsed": false
+      },
+      {
+        "id": 2,
+        "type": "stat",
+        "title": "Unique viewers",
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 0,
+          "y": 1
+        },
+        "datasource": {
+          "type": "loki",
+          "uid": "P8E80F9AEF21F6940"
+        },
+        "targets": [
+          {
+            "datasource": {
+              "type": "loki",
+              "uid": "P8E80F9AEF21F6940"
+            },
+            "expr": "count(sum by (record_extra_user) (count_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_event=\"session.start\" [$__range])))",
+            "legendFormat": "",
+            "refId": "A",
+            "editorMode": "code",
+            "queryType": "instant",
+            "instant": true,
+            "range": false
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": {
+              "mode": "fixed",
+              "fixedColor": "blue"
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "textMode": "value",
+          "justifyMode": "center"
+        }
+      },
+      {
+        "id": 3,
+        "type": "stat",
+        "title": "Sessions",
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 4,
+          "y": 1
+        },
+        "datasource": {
+          "type": "loki",
+          "uid": "P8E80F9AEF21F6940"
+        },
+        "targets": [
+          {
+            "datasource": {
+              "type": "loki",
+              "uid": "P8E80F9AEF21F6940"
+            },
+            "expr": "sum(count_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_event=\"session.start\" [$__range]))",
+            "legendFormat": "",
+            "refId": "A",
+            "editorMode": "code",
+            "queryType": "instant",
+            "instant": true,
+            "range": false
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": {
+              "mode": "fixed",
+              "fixedColor": "blue"
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "textMode": "value",
+          "justifyMode": "center"
+        }
+      },
+      {
+        "id": 4,
+        "type": "stat",
+        "title": "Watch time",
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 8,
+          "y": 1
+        },
+        "datasource": {
+          "type": "loki",
+          "uid": "P8E80F9AEF21F6940"
+        },
+        "targets": [
+          {
+            "datasource": {
+              "type": "loki",
+              "uid": "P8E80F9AEF21F6940"
+            },
+            "expr": "sum(sum_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_event=\"watch.stop\" | unwrap record_extra_duration_s [$__range]))",
+            "legendFormat": "",
+            "refId": "A",
+            "editorMode": "code",
+            "queryType": "instant",
+            "instant": true,
+            "range": false
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "color": {
+              "mode": "fixed",
+              "fixedColor": "blue"
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "textMode": "value",
+          "justifyMode": "center"
+        }
+      },
+      {
+        "id": 5,
+        "type": "stat",
+        "title": "Channel switches",
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 12,
+          "y": 1
+        },
+        "datasource": {
+          "type": "loki",
+          "uid": "P8E80F9AEF21F6940"
+        },
+        "targets": [
+          {
+            "datasource": {
+              "type": "loki",
+              "uid": "P8E80F9AEF21F6940"
+            },
+            "expr": "sum(count_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_event=\"watch.start\" [$__range]))",
+            "legendFormat": "",
+            "refId": "A",
+            "editorMode": "code",
+            "queryType": "instant",
+            "instant": true,
+            "range": false
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": {
+              "mode": "fixed",
+              "fixedColor": "blue"
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "textMode": "value",
+          "justifyMode": "center"
+        }
+      },
+      {
+        "id": 6,
+        "type": "stat",
+        "title": "Channels watched",
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 16,
+          "y": 1
+        },
+        "datasource": {
+          "type": "loki",
+          "uid": "P8E80F9AEF21F6940"
+        },
+        "targets": [
+          {
+            "datasource": {
+              "type": "loki",
+              "uid": "P8E80F9AEF21F6940"
+            },
+            "expr": "count(sum by (record_extra_channel) (count_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_event=\"watch.start\" [$__range])))",
+            "legendFormat": "",
+            "refId": "A",
+            "editorMode": "code",
+            "queryType": "instant",
+            "instant": true,
+            "range": false
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": {
+              "mode": "fixed",
+              "fixedColor": "blue"
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "textMode": "value",
+          "justifyMode": "center"
+        }
+      },
+      {
+        "id": 7,
+        "type": "stat",
+        "title": "Live channel changes",
+        "gridPos": {
+          "h": 4,
+          "w": 4,
+          "x": 20,
+          "y": 1
+        },
+        "datasource": {
+          "type": "loki",
+          "uid": "P8E80F9AEF21F6940"
+        },
+        "targets": [
+          {
+            "datasource": {
+              "type": "loki",
+              "uid": "P8E80F9AEF21F6940"
+            },
+            "expr": "sum(count_over_time({container=\"channel-club\"} | json | record_extra_event=\"channel.change\" [$__range]))",
+            "legendFormat": "",
+            "refId": "A",
+            "editorMode": "code",
+            "queryType": "instant",
+            "instant": true,
+            "range": false
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": {
+              "mode": "fixed",
+              "fixedColor": "blue"
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "textMode": "value",
+          "justifyMode": "center"
+        }
+      },
+      {
+        "id": 8,
+        "type": "table",
+        "title": "Watch history",
+        "gridPos": {
+          "h": 12,
+          "w": 14,
+          "x": 0,
+          "y": 5
+        },
+        "datasource": {
+          "type": "loki",
+          "uid": "P8E80F9AEF21F6940"
+        },
+        "targets": [
+          {
+            "datasource": {
+              "type": "loki",
+              "uid": "P8E80F9AEF21F6940"
+            },
+            "expr": "{container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_event=\"watch.stop\" | label_format user=record_extra_user, view=record_extra_view, channel=record_extra_channel, programme=record_extra_programme, duration_s=record_extra_duration_s, reason=record_extra_reason | line_format \"\"",
+            "legendFormat": "",
+            "refId": "A",
+            "editorMode": "code"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "filterable": true
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "duration_s"
+              },
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "s"
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "sortBy": [
+            {
+              "displayName": "Time",
+              "desc": true
+            }
+          ],
+          "cellHeight": "sm"
+        },
+        "transformations": [
+          {
+            "id": "extractFields",
+            "options": {
+              "source": "labels",
+              "format": "auto",
+              "replace": false,
+              "keepTime": true
+            }
+          },
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {},
+              "includeByName": {
+                "Time": true,
+                "user": true,
+                "view": true,
+                "channel": true,
+                "programme": true,
+                "duration_s": true,
+                "reason": true
+              },
+              "indexByName": {
+                "Time": 0,
+                "user": 1,
+                "view": 2,
+                "channel": 3,
+                "programme": 4,
+                "duration_s": 5,
+                "reason": 6
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "type": "bargauge",
+        "title": "Watch time by user",
+        "gridPos": {
+          "h": 12,
+          "w": 10,
+          "x": 14,
+          "y": 5
+        },
+        "datasource": {
+          "type": "loki",
+          "uid": "P8E80F9AEF21F6940"
+        },
+        "targets": [
+          {
+            "datasource": {
+              "type": "loki",
+              "uid": "P8E80F9AEF21F6940"
+            },
+            "expr": "sum by (record_extra_user) (sum_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_event=\"watch.stop\" | unwrap record_extra_duration_s [$__range]))",
+            "legendFormat": "{{record_extra_user}}",
+            "refId": "A",
+            "editorMode": "code",
+            "queryType": "instant",
+            "instant": true,
+            "range": false
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "min": 0,
+            "color": {
+              "mode": "continuous-BlPu"
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "orientation": "horizontal",
+          "displayMode": "gradient",
+          "showUnfilled": true,
+          "valueMode": "color",
+          "namePlacement": "left",
+          "sizing": "auto",
+          "minVizHeight": 16,
+          "maxVizHeight": 32
+        },
+        "transformations": [
+          {
+            "id": "sortBy",
+            "options": {
+              "sort": [
+                {
+                  "field": "Value",
+                  "desc": true
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "type": "timeseries",
+        "title": "Sessions started per hour",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 17
+        },
+        "datasource": {
+          "type": "loki",
+          "uid": "P8E80F9AEF21F6940"
+        },
+        "targets": [
+          {
+            "datasource": {
+              "type": "loki",
+              "uid": "P8E80F9AEF21F6940"
+            },
+            "expr": "sum by (record_extra_user) (count_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_event=\"session.start\" [1h]))",
+            "legendFormat": "{{record_extra_user}}",
+            "refId": "A",
+            "editorMode": "code"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "drawStyle": "bars",
+              "lineInterpolation": "smooth",
+              "lineWidth": 1,
+              "fillOpacity": 80,
+              "showPoints": "never",
+              "spanNulls": false,
+              "stacking": {
+                "mode": "normal"
+              },
+              "axisBorderShow": false
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "legend": {
+            "displayMode": "list",
+            "placement": "bottom",
+            "calcs": [
+              "sum"
+            ]
+          },
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc"
+          }
+        }
+      },
+      {
+        "id": 11,
+        "type": "table",
+        "title": "Shared live channel changes",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 17
+        },
+        "datasource": {
+          "type": "loki",
+          "uid": "P8E80F9AEF21F6940"
+        },
+        "targets": [
+          {
+            "datasource": {
+              "type": "loki",
+              "uid": "P8E80F9AEF21F6940"
+            },
+            "expr": "{container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_event=\"channel.change\" | label_format user=record_extra_user, channel=record_extra_channel | line_format \"\"",
+            "legendFormat": "",
+            "refId": "A",
+            "editorMode": "code"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "filterable": true
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "showHeader": true,
+          "sortBy": [
+            {
+              "displayName": "Time",
+              "desc": true
+            }
+          ],
+          "cellHeight": "sm"
+        },
+        "transformations": [
+          {
+            "id": "extractFields",
+            "options": {
+              "source": "labels",
+              "format": "auto",
+              "replace": false,
+              "keepTime": true
+            }
+          },
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {},
+              "includeByName": {
+                "Time": true,
+                "user": true,
+                "channel": true
+              },
+              "indexByName": {
+                "Time": 0,
+                "user": 1,
+                "channel": 2
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": 12,
+        "type": "row",
+        "title": "Channels",
+        "gridPos": {
+          "h": 1,
+          "w": 24,
+          "x": 0,
+          "y": 25
+        },
+        "collapsed": false
+      },
+      {
+        "id": 13,
+        "type": "bargauge",
+        "title": "Watch time by channel (top 25)",
+        "gridPos": {
+          "h": 14,
+          "w": 12,
+          "x": 0,
+          "y": 26
+        },
+        "datasource": {
+          "type": "loki",
+          "uid": "P8E80F9AEF21F6940"
+        },
+        "targets": [
+          {
+            "datasource": {
+              "type": "loki",
+              "uid": "P8E80F9AEF21F6940"
+            },
+            "expr": "topk(25, sum by (record_extra_channel, record_extra_view) (sum_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_event=\"watch.stop\" | unwrap record_extra_duration_s [$__range])))",
+            "legendFormat": "{{record_extra_channel}} ({{record_extra_view}})",
+            "refId": "A",
+            "editorMode": "code",
+            "queryType": "instant",
+            "instant": true,
+            "range": false
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "min": 0,
+            "color": {
+              "mode": "continuous-BlPu"
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "orientation": "horizontal",
+          "displayMode": "gradient",
+          "showUnfilled": true,
+          "valueMode": "color",
+          "namePlacement": "left",
+          "sizing": "auto",
+          "minVizHeight": 16,
+          "maxVizHeight": 32
+        },
+        "transformations": [
+          {
+            "id": "sortBy",
+            "options": {
+              "sort": [
+                {
+                  "field": "Value",
+                  "desc": true
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": 14,
+        "type": "timeseries",
+        "title": "Channel starts over time",
+        "gridPos": {
+          "h": 14,
+          "w": 12,
+          "x": 12,
+          "y": 26
+        },
+        "datasource": {
+          "type": "loki",
+          "uid": "P8E80F9AEF21F6940"
+        },
+        "targets": [
+          {
+            "datasource": {
+              "type": "loki",
+              "uid": "P8E80F9AEF21F6940"
+            },
+            "expr": "sum by (record_extra_channel) (count_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_event=\"watch.start\" [$__auto]))",
+            "legendFormat": "{{record_extra_channel}}",
+            "refId": "A",
+            "editorMode": "code"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "drawStyle": "bars",
+              "lineInterpolation": "smooth",
+              "lineWidth": 1,
+              "fillOpacity": 80,
+              "showPoints": "never",
+              "spanNulls": false,
+              "stacking": {
+                "mode": "normal"
+              },
+              "axisBorderShow": false
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "legend": {
+            "displayMode": "list",
+            "placement": "bottom",
+            "calcs": [
+              "sum"
+            ]
+          },
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc"
+          }
+        }
+      },
+      {
+        "id": 15,
+        "type": "table",
+        "title": "Catalogue usage (unused channels sort first)",
+        "description": "Every channel in the Dispatcharr lineup and ErsatzTV XMLTV, joined by name to watch events in the selected range. 'never watched' means no watch.stop event in range.",
+        "gridPos": {
+          "h": 16,
+          "w": 24,
+          "x": 0,
+          "y": 40
+        },
+        "datasource": {
+          "type": "datasource",
+          "uid": "-- Mixed --"
+        },
+        "targets": [
+          {
+            "datasource": {
+              "type": "yesoreyeram-infinity-datasource",
+              "uid": "infinity"
+            },
+            "refId": "A",
+            "type": "json",
+            "source": "url",
+            "url": "https://streams.example.com/hdhr/lineup.json",
+            "format": "table",
+            "parser": "backend",
+            "root_selector": "",
+            "columns": [
+              {
+                "selector": "GuideName",
+                "text": "channel",
+                "type": "string"
+              },
+              {
+                "selector": "GuideNumber",
+                "text": "number",
+                "type": "string"
+              }
+            ],
+            "url_options": {
+              "method": "GET",
+              "data": ""
+            },
+            "filters": [],
+            "global_query_id": ""
+          },
+          {
+            "datasource": {
+              "type": "yesoreyeram-infinity-datasource",
+              "uid": "infinity"
+            },
+            "refId": "B",
+            "type": "xml",
+            "source": "url",
+            "url": "http://192.168.50.108:8409/iptv/xmltv.xml",
+            "format": "table",
+            "parser": "backend",
+            "root_selector": "tv.channel",
+            "columns": [
+              {
+                "selector": "display-name.2",
+                "text": "channel",
+                "type": "string"
+              },
+              {
+                "selector": "-id",
+                "text": "channel_id",
+                "type": "string"
+              }
+            ],
+            "url_options": {
+              "method": "GET",
+              "data": ""
+            },
+            "filters": [],
+            "global_query_id": ""
+          },
+          {
+            "datasource": {
+              "type": "loki",
+              "uid": "P8E80F9AEF21F6940"
+            },
+            "expr": "sum by (record_extra_channel) (sum_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_event=\"watch.stop\" | unwrap record_extra_duration_s [$__range]))",
+            "legendFormat": "",
+            "refId": "C",
+            "editorMode": "code",
+            "queryType": "instant",
+            "instant": true,
+            "range": false
+          },
+          {
+            "datasource": {
+              "type": "loki",
+              "uid": "P8E80F9AEF21F6940"
+            },
+            "expr": "sum by (record_extra_channel) (count_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_event=\"watch.start\" [$__range]))",
+            "legendFormat": "",
+            "refId": "D",
+            "editorMode": "code",
+            "queryType": "instant",
+            "instant": true,
+            "range": false
+          }
+        ],
+        "transformations": [
+          {
+            "id": "merge",
+            "options": {}
+          },
+          {
+            "id": "joinByField",
+            "options": {
+              "byField": "channel",
+              "mode": "outer"
+            }
+          },
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {
+                "Time": true,
+                "Time 1": true,
+                "Time 2": true,
+                "Time 3": true,
+                "Time 4": true
+              },
+              "renameByName": {
+                "Value #C": "watch time",
+                "Value #D": "starts",
+                "number": "live #"
+              },
+              "indexByName": {
+                "channel": 0,
+                "live #": 1,
+                "channel_id": 2,
+                "watch time": 3,
+                "starts": 4
+              }
+            }
+          },
+          {
+            "id": "sortBy",
+            "options": {
+              "sort": [
+                {
+                  "field": "watch time",
+                  "desc": false
+                }
+              ]
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "filterable": true,
+              "align": "auto"
+            },
+            "mappings": [
+              {
+                "type": "special",
+                "options": {
+                  "match": "null",
+                  "result": {
+                    "text": "never watched",
+                    "color": "red"
+                  }
+                }
+              }
+            ]
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "watch time"
+              },
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "s"
+                },
+                {
+                  "id": "custom.cellOptions",
+                  "value": {
+                    "type": "color-text"
+                  }
+                },
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "thresholds"
+                  }
+                },
+                {
+                  "id": "thresholds",
+                  "value": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "color": "green",
+                        "value": null
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "cellHeight": "sm",
+          "footer": {
+            "show": true,
+            "reducer": [
+              "count"
+            ],
+            "fields": [
+              "channel"
+            ]
+          }
+        }
+      },
+      {
+        "id": 16,
+        "type": "stat",
+        "title": "Channels in catalogue",
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 0,
+          "y": 56
+        },
+        "datasource": {
+          "type": "yesoreyeram-infinity-datasource",
+          "uid": "infinity"
+        },
+        "targets": [
+          {
+            "datasource": {
+              "type": "yesoreyeram-infinity-datasource",
+              "uid": "infinity"
+            },
+            "refId": "A",
+            "type": "json",
+            "source": "url",
+            "url": "https://streams.example.com/hdhr/lineup.json",
+            "format": "table",
+            "parser": "backend",
+            "root_selector": "",
+            "columns": [
+              {
+                "selector": "GuideName",
+                "text": "channel",
+                "type": "string"
+              },
+              {
+                "selector": "GuideNumber",
+                "text": "number",
+                "type": "string"
+              }
+            ],
+            "url_options": {
+              "method": "GET",
+              "data": ""
+            },
+            "filters": [],
+            "global_query_id": ""
+          },
+          {
+            "datasource": {
+              "type": "yesoreyeram-infinity-datasource",
+              "uid": "infinity"
+            },
+            "refId": "B",
+            "type": "xml",
+            "source": "url",
+            "url": "http://192.168.50.108:8409/iptv/xmltv.xml",
+            "format": "table",
+            "parser": "backend",
+            "root_selector": "tv.channel",
+            "columns": [
+              {
+                "selector": "display-name.2",
+                "text": "channel",
+                "type": "string"
+              },
+              {
+                "selector": "-id",
+                "text": "channel_id",
+                "type": "string"
+              }
+            ],
+            "url_options": {
+              "method": "GET",
+              "data": ""
+            },
+            "filters": [],
+            "global_query_id": ""
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": {
+              "mode": "fixed",
+              "fixedColor": "blue"
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "colorMode": "value",
+          "graphMode": "none",
+          "textMode": "value",
+          "justifyMode": "center"
+        },
+        "transformations": [
+          {
+            "id": "merge",
+            "options": {}
+          },
+          {
+            "id": "reduce",
+            "options": {
+              "reducers": [
+                "count"
+              ],
+              "mode": "reduceFields",
+              "includeTimeField": false
+            }
+          },
+          {
+            "id": "filterFieldsByName",
+            "options": {
+              "include": {
+                "names": [
+                  "channel"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "templating": {
+      "list": [
+        {
+          "name": "user",
+          "label": "User",
+          "type": "query",
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "query": {
+            "label": "record_extra_user",
+            "stream": "{container=\"channel-club\"} | json | record_extra_event=\"session.start\"",
+            "type": 1,
+            "refId": "LokiVariableQueryEditor-VariableQuery"
+          },
+          "definition": "label_values(record_extra_user)",
+          "includeAll": true,
+          "multi": true,
+          "allValue": ".*",
+          "current": {
+            "selected": true,
+            "text": [
+              "All"
+            ],
+            "value": [
+              "$__all"
+            ]
+          },
+          "refresh": 2,
+          "sort": 1
+        },
+        {
+          "name": "view",
+          "label": "View",
+          "type": "custom",
+          "query": "live,ersatztv",
+          "options": [
+            {
+              "text": "All",
+              "value": "$__all",
+              "selected": true
+            },
+            {
+              "text": "live",
+              "value": "live",
+              "selected": false
+            },
+            {
+              "text": "ersatztv",
+              "value": "ersatztv",
+              "selected": false
+            }
+          ],
+          "includeAll": true,
+          "multi": true,
+          "allValue": ".*",
+          "current": {
+            "selected": true,
+            "text": [
+              "All"
+            ],
+            "value": [
+              "$__all"
+            ]
+          }
+        }
+      ]
+    },
+    "annotations": {
+      "list": [
+        {
+          "builtIn": 1,
+          "datasource": {
+            "type": "grafana",
+            "uid": "-- Grafana --"
+          },
+          "enable": true,
+          "hide": true,
+          "iconColor": "rgba(0, 211, 255, 1)",
+          "name": "Annotations & Alerts",
+          "type": "dashboard"
+        }
+      ]
+    },
+    "links": [
+      {
+        "title": "Channel Club",
+        "type": "link",
+        "url": "https://tv.example.com",
+        "targetBlank": true
+      }
+    ]
+  },
+  "overwrite": true,
+  "message": "Channel Club viewing dashboard"
+}
