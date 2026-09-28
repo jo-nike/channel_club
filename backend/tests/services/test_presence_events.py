@@ -388,6 +388,18 @@ def test_a_pre_r2_client_without_on_live_still_logs_switch(events) -> None:
     assert [r["reason"] for r in recs[1:]] == ["switch", "switch"]
 
 
+def test_remove_user_passes_its_reason_to_session_and_watch_stop(events) -> None:
+    presence.track_user("s1", "jon", "live")
+    presence.update_user_channel("s1", "RDS", None, "live", "uuid-rds")
+    presence.remove_user("s1", reason="server_restart")
+
+    recs = events()
+    assert [(r["event"], r["reason"]) for r in recs[-2:]] == [
+        ("watch.stop", "server_restart"),
+        ("session.stop", "server_restart"),
+    ]
+
+
 def test_watch_progress_and_stop_deltas_add_up_to_the_watch(
     events, clock, monkeypatch: pytest.MonkeyPatch
 ) -> None:

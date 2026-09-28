@@ -464,6 +464,7 @@ async def websocket_endpoint(
     presence_broadcast.schedule_broadcast()
     budget = _MessageBudget(client_id)
     channel_updates = _ChannelUpdates(client_id)
+    close_code: int | None = None
 
     try:
         async with asyncio.timeout(max(0, payload["exp"] - time.time())) as deadline:
@@ -539,8 +540,9 @@ async def websocket_endpoint(
         # Remove from broadcasts before awaiting transport shutdown.
         channel_state.disconnect(websocket)
         await asyncio.wait_for(websocket.close(code=4001, reason="Token expired"), timeout=1)
-    except WebSocketDisconnect:
+    except WebSocketDisconnect as e:
         log.info("WebSocket disconnected: client {}", client_id)
+        close_code = e.code
     except Exception as e:
         if _is_disconnect_race(websocket, e):
             log.debug("WebSocket closed mid-operation for client {}: {}", client_id, e)
@@ -550,8 +552,15 @@ async def websocket_endpoint(
         # A folded channel update must not land after the connection is gone
         channel_updates.cancel()
         # Always clean up on disconnect
-        # Pass websocket to avoid race condition on view switch
-        presence.remove_user(client_id, websocket)
+        # Pass websocket to avoid race condition on view switch. On shutdown
+        # uvicorn (0.52, all three protocols/websockets implementations) hands
+        # every open socket websocket.disconnect with 1012, so that is a server
+        # restart. 1001 is not: browsers send it when a tab closes.
+        presence.remove_user(
+            client_id,
+            websocket,
+            reason="server_restart" if close_code == 1012 else "disconnect",
+        )
         channel_state.disconnect(websocket)
         # Clean up nickname (same websocket-identity guard as presence)
         _clear_nickname(client_id, websocket)

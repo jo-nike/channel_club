@@ -1031,6 +1031,32 @@ def _event_extras(output: StringIO, event: str) -> list[dict]:
     return [e for e in extras if e["event"] == event]
 
 
+class TestCloseReasons:
+    """A server restart's 1012 close is logged apart from people leaving."""
+
+    @pytest.mark.parametrize(("code", "reason"), [(1012, "server_restart"), (1001, "disconnect")])
+    def test_close_code_sets_the_session_and_watch_stop_reason(
+        self, client: TestClient, valid_token: str, presence_events: StringIO, code, reason
+    ):
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # Consume connection_ack
+            ws.send_json(
+                {
+                    "type": "channel_update",
+                    "channel": "RDS",
+                    "channelId": "uuid-rds",
+                    "view": "live",
+                }
+            )
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json()["type"] == "pong"
+            ws.close(code=code)
+
+        (session_stop,) = _event_extras(presence_events, "session.stop")
+        (watch_stop,) = _event_extras(presence_events, "watch.stop")
+        assert session_stop["reason"] == watch_stop["reason"] == reason
+
+
 class TestCanonicalChannelNames:
     """Watch events name a channel as the cached catalogue does, never fetching it."""
 
@@ -2679,7 +2705,7 @@ async def test_sec07_failed_broadcast_closes_and_cleans_endpoint(monkeypatch, va
     with pytest.raises(asyncio.CancelledError):
         await task
     ws.close.assert_awaited_once_with(code=1011, reason="Broadcast failed; reconnect")
-    cleanup.assert_called_once_with(client_id, ws)
+    cleanup.assert_called_once_with(client_id, ws, reason="disconnect")
     assert not presence._active_users
     assert not websocket_router._nickname_map
     await channel_state.broadcast(ServerPong(type="pong"))

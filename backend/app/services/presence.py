@@ -361,13 +361,17 @@ def track_user(
     return user_presence
 
 
-def remove_user(connection_id: str, websocket: WebSocket | None = None) -> None:
+def remove_user(
+    connection_id: str, websocket: WebSocket | None = None, reason: str = "disconnect"
+) -> None:
     """Remove user from tracking on disconnect.
 
     Args:
         connection_id: The connection ID to remove.
         websocket: The WebSocket that is disconnecting. If provided, only removes
             if it matches the stored WebSocket (prevents race conditions on view switch).
+        reason: What session.stop and any watch.stop carry: 'disconnect', or
+            'server_restart' for a socket closed by a server shutdown.
     """
     if connection_id in _active_users:
         user = _active_users[connection_id]
@@ -380,7 +384,7 @@ def remove_user(connection_id: str, websocket: WebSocket | None = None) -> None:
             )
             return
         _active_users.pop(connection_id)
-        _close_session(user, "disconnect")
+        _close_session(user, reason)
 
 
 def update_user_channel(
