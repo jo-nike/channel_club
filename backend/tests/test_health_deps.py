@@ -1,5 +1,6 @@
 """GET /api/health/deps: coarse upstream readiness from local state only (H-03)."""
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -41,7 +42,7 @@ async def test_failing_refreshes_report_failing_without_contacting_upstream(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _route_upstreams(monkeypatch, lambda request: httpx.Response(403))
-    assert await get_epg_service().refresh_cache() is False
+    assert (await get_epg_service().ensure_fresh()).error == "HTTP 403"
     with pytest.raises(DispatchrrUnavailableError):
         await get_grouped_channels()
     _no_upstream_calls(monkeypatch)
@@ -77,6 +78,7 @@ async def test_expired_guide_with_failing_refreshes_reports_stale(
     guide._cache_expires = datetime.now(UTC) - timedelta(seconds=1)
     guide._last_success_at = datetime.now(UTC) - timedelta(hours=2)
     guide._last_error = "HTTP 403"
+    guide._retry_at = datetime.now(UTC) + timedelta(seconds=30)
     _no_upstream_calls(monkeypatch)
 
     response = await _get_deps()
@@ -85,6 +87,57 @@ async def test_expired_guide_with_failing_refreshes_reports_stale(
     assert body["epg"] == "stale"
     assert "HTTP 403" not in response.text
     assert set(body) == {"epg", "epgLastSuccess", "dispatcharr"}
+
+
+class _SlowGuide:
+    """A guide upstream that answers after a delay and counts requests."""
+
+    def __init__(self) -> None:
+        self.requests = 0
+        self.release = asyncio.Event()
+
+    async def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.requests += 1
+        await self.release.wait()
+        return httpx.Response(503)
+
+
+async def test_an_expired_guide_starts_one_refresh_without_waiting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """On an idle app, deps polls are what notice a failing guide refresh."""
+    upstream = _SlowGuide()
+    _route_upstreams(monkeypatch, upstream)
+    guide = get_epg_service()
+    guide._cache = {"synthetic": []}
+    guide._cache_expires = datetime.now(UTC) - timedelta(seconds=1)
+
+    responses = await asyncio.wait_for(asyncio.gather(*(_get_deps() for _ in range(10))), 1.0)
+
+    assert {response.json()["epg"] for response in responses} == {"stale"}
+    assert upstream.requests == 1
+    upstream.release.set()
+    assert guide._refresh_task is not None
+    await guide._refresh_task
+    assert guide.get_health().error == "HTTP 503"
+
+
+@pytest.mark.parametrize("state", ["fresh", "backing off"])
+async def test_a_fresh_or_backing_off_guide_starts_no_refresh(
+    monkeypatch: pytest.MonkeyPatch, state: str
+) -> None:
+    guide = get_epg_service()
+    guide._cache = {"synthetic": []}
+    if state == "fresh":
+        guide._cache_expires = datetime.now(UTC) + timedelta(hours=1)
+    else:
+        guide._cache_expires = datetime.now(UTC) - timedelta(seconds=1)
+        guide._retry_at = datetime.now(UTC) + timedelta(seconds=30)
+    _no_upstream_calls(monkeypatch)
+
+    await asyncio.gather(*(_get_deps() for _ in range(10)))
+
+    assert guide._refresh_task is None
 
 
 def test_health_stays_static() -> None:

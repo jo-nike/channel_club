@@ -294,11 +294,14 @@ async def health_check() -> dict[str, str]:
 async def health_deps() -> dict[str, str | None]:
     """Coarse upstream readiness for the uptime monitor, from local state only.
 
-    Public, so it carries no URLs, error text or counts, and it never contacts
-    an upstream. The Docker healthcheck stays on /api/health: an upstream outage
+    Public, so it carries no URLs, error text or counts, and it never waits on
+    an upstream. When the guide is due and not backing off it starts one
+    background refresh (at most one per TTL or backoff window), so on an idle
+    app 'stale' means the refresh is failing, not that nobody asked for the
+    guide. The Docker healthcheck stays on /api/health: an upstream outage
     must not get this container restarted.
     """
-    guide = get_epg_service().get_health()
+    guide = await get_epg_service().check_health()
     if not guide.online:
         epg = "failing"
     elif guide.stale:
