@@ -20,7 +20,9 @@ class EPGChannel(BaseModel):
     original_logo_url: str | None = Field(
         default=None, alias="originalLogoUrl", description="Original logo URL for backend fetching"
     )
-    number: int | None = Field(default=None, description="Channel number for ordering")
+    number: int | float | None = Field(
+        default=None, description="Channel number for ordering (2.1 for a sub-channel)"
+    )
     group: str | None = Field(default=None, description="Channel group/category")
 
     model_config = {"populate_by_name": True}
