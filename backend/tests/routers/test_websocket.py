@@ -19,6 +19,7 @@ from app.logging_config import configure_logging
 from app.main import app
 from app.models.channel import Channel, GroupedChannelsResponse
 from app.models.ersatztv import EPGChannel
+from app.models.websocket import ServerChannelUpdate, ServerPong
 from app.routers import websocket as websocket_router
 from app.services import app_settings, channel_state, chat, presence, presence_broadcast
 from app.services.auth import create_access_token
@@ -1099,6 +1100,31 @@ class TestPresenceKeys:
 
 class TestChatMessages:
     """Tests for chat message functionality."""
+
+    def test_invalid_send_names_its_client_message_id(self, client: TestClient, valid_token: str):
+        """The refused send's id comes back, so the client settles it as not sent at once."""
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # connection_ack
+            ws.send_json({"type": "chat_message", "content": "x" * 4097, "clientMessageId": "c1"})
+
+            assert ws.receive_json() == {
+                "type": "error",
+                "code": "invalid_message",
+                "clientMessageId": "c1",
+            }
+
+    @pytest.mark.parametrize("client_message_id", ["x" * 65, 7, "", None])
+    def test_invalid_send_echoes_no_id_it_could_not_have_sent(
+        self, client: TestClient, valid_token: str, client_message_id: object
+    ):
+        """An oversize, empty or non-string id is never echoed."""
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # connection_ack
+            ws.send_json(
+                {"type": "chat_message", "content": 5, "clientMessageId": client_message_id}
+            )
+
+            assert ws.receive_json() == {"type": "error", "code": "invalid_message"}
 
     def test_chat_message_broadcast_when_enabled(
         self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
@@ -2514,14 +2540,16 @@ async def test_sec07_failed_broadcast_closes_and_cleans_endpoint(monkeypatch, va
     healthy.application_state = WebSocketState.CONNECTED
     healthy.send_text = AsyncMock()
     await channel_state.connect(healthy)
-    await channel_state.broadcast({"type": "channel_update", "channel": None})
+    await channel_state.broadcast(
+        ServerChannelUpdate(type="channel_update", channel=None, changedBy=None)
+    )
     with pytest.raises(asyncio.CancelledError):
         await task
     ws.close.assert_awaited_once_with(code=1011, reason="Broadcast failed; reconnect")
     cleanup.assert_called_once_with(client_id, ws)
     assert not presence._active_users
     assert not websocket_router._nickname_map
-    await channel_state.broadcast({"type": "resynchronized"})
+    await channel_state.broadcast(ServerPong(type="pong"))
     assert healthy.send_text.await_count == 2
     assert ws.send_text.await_count == 1
     channel_state.disconnect(healthy)

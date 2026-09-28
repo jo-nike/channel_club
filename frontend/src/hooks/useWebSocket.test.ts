@@ -20,6 +20,7 @@ import type { PresenceEntry, UnifiedChannel } from '@/types'
 // Mock useChatEnabled hook
 vi.mock('./useChatEnabled', () => ({
   useChatEnabled: vi.fn(() => true),
+  isChatEnabled: vi.fn(() => true),
 }))
 
 // A 4001 close refreshes the session; each test says how that goes
@@ -135,7 +136,7 @@ describe('useWebSocket', () => {
       nicknameRejection: null,
     })
     usePresenceStore.setState({ entries: [] })
-    useSettingsStore.setState({ userChannelSelection: false, presenceVisible: false })
+    useSettingsStore.setState({ userChannelSelection: false, presenceVisible: false, serverFeatures: null })
     vi.mocked(toast).mockClear()
     // By default the refresh finds the sign-in over, like the server's 401
     vi.mocked(refreshAuth).mockReset().mockImplementation(async () => {
@@ -265,6 +266,31 @@ describe('useWebSocket', () => {
       })
 
       expect(noticeServerBuild).toHaveBeenCalledWith('server-build')
+    })
+
+    test('stores the features the server has on', () => {
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({ type: 'connection_ack', currentChannel: null, features: { chat: false, gif: true } })
+      })
+
+      expect(useSettingsStore.getState().serverFeatures).toEqual({ chat: false, gif: true })
+    })
+
+    test('leaves the features unknown when an older server sends none', () => {
+      useSettingsStore.setState({ serverFeatures: { chat: false, gif: false } })
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({ type: 'connection_ack', currentChannel: null })
+      })
+
+      expect(useSettingsStore.getState().serverFeatures).toBeNull()
     })
 
     test('sets currentChannel to null on connection_ack with no channel', () => {
@@ -1599,6 +1625,29 @@ describe('useWebSocket', () => {
       })
 
       expect(ws.send).not.toHaveBeenCalled()
+    })
+
+    test('resolves not-sent at once when the server could not read the send', async () => {
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+      act(() => ws.simulateOpen())
+
+      const sending = result.current.sendChatMessage('too long', 'invalid-id-1')
+      act(() => ws.simulateMessage({ type: 'error', code: 'invalid_message', clientMessageId: 'invalid-id-1' }))
+
+      // Settled by the error itself, not by the 10 s timer
+      await expect(Promise.race([sending, Promise.resolve('still pending')])).resolves.toBe('not-sent')
+    })
+
+    test('an invalid_message naming another send leaves this one pending', async () => {
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+      act(() => ws.simulateOpen())
+
+      const sending = result.current.sendChatMessage('hello', 'invalid-id-2')
+      act(() => ws.simulateMessage({ type: 'error', code: 'invalid_message', clientMessageId: 'someone-else' }))
+
+      await expect(Promise.race([sending, Promise.resolve('still pending')])).resolves.toBe('still pending')
     })
   })
 

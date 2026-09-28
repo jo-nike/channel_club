@@ -1,0 +1,681 @@
+{
+  "$defs": {
+    "AppSettings": {
+      "description": "Runtime settings an admin can toggle for all users.",
+      "properties": {
+        "userChannelSelection": {
+          "title": "Userchannelselection",
+          "type": "boolean"
+        },
+        "presenceVisible": {
+          "title": "Presencevisible",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "userChannelSelection",
+        "presenceVisible"
+      ],
+      "title": "AppSettings",
+      "type": "object"
+    },
+    "Channel": {
+      "description": "Transformed channel for our API with camelCase JSON serialization.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "streamUrl": {
+          "title": "Streamurl",
+          "type": "string"
+        },
+        "guideId": {
+          "title": "Guideid",
+          "type": "string"
+        },
+        "logoUrl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Logourl"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "streamUrl",
+        "guideId"
+      ],
+      "title": "Channel",
+      "type": "object"
+    },
+    "ChatLine": {
+      "description": "A chat message as clients show it (chat.ChatMessage.to_dict).",
+      "properties": {
+        "messageId": {
+          "title": "Messageid",
+          "type": "string"
+        },
+        "username": {
+          "title": "Username",
+          "type": "string"
+        },
+        "userId": {
+          "title": "Userid",
+          "type": "string"
+        },
+        "content": {
+          "title": "Content",
+          "type": "string"
+        },
+        "timestamp": {
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "user",
+            "system",
+            "share",
+            "suggestion"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "channelId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Channelid"
+        },
+        "channelName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Channelname"
+        },
+        "programme": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Programme"
+        },
+        "view": {
+          "anyOf": [
+            {
+              "enum": [
+                "live",
+                "ersatztv"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "View"
+        }
+      },
+      "required": [
+        "messageId",
+        "username",
+        "userId",
+        "content",
+        "timestamp",
+        "kind",
+        "channelId",
+        "channelName",
+        "programme",
+        "view"
+      ],
+      "title": "ChatLine",
+      "type": "object"
+    },
+    "Features": {
+      "description": "Which optional features the server has on, so clients show only those.",
+      "properties": {
+        "chat": {
+          "title": "Chat",
+          "type": "boolean"
+        },
+        "gif": {
+          "title": "Gif",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "chat",
+        "gif"
+      ],
+      "title": "Features",
+      "type": "object"
+    },
+    "PresenceEntry": {
+      "description": "One person in the presence snapshot (camelCase, as sent to clients).",
+      "properties": {
+        "userId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Userid"
+        },
+        "displayName": {
+          "title": "Displayname",
+          "type": "string"
+        },
+        "channelId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Channelid"
+        },
+        "channelName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Channelname"
+        },
+        "programme": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Programme"
+        },
+        "view": {
+          "anyOf": [
+            {
+              "enum": [
+                "live",
+                "ersatztv"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "View"
+        },
+        "since": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Since"
+        }
+      },
+      "required": [
+        "userId",
+        "displayName",
+        "channelId",
+        "channelName",
+        "programme",
+        "view",
+        "since"
+      ],
+      "title": "PresenceEntry",
+      "type": "object"
+    },
+    "ServerChannelUpdate": {
+      "properties": {
+        "type": {
+          "const": "channel_update",
+          "title": "Type",
+          "type": "string"
+        },
+        "channel": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Channel"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "changedBy": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Changedby"
+        }
+      },
+      "required": [
+        "type",
+        "channel",
+        "changedBy"
+      ],
+      "title": "ServerChannelUpdate",
+      "type": "object"
+    },
+    "ServerChatAck": {
+      "properties": {
+        "type": {
+          "const": "chat_ack",
+          "title": "Type",
+          "type": "string"
+        },
+        "clientMessageId": {
+          "title": "Clientmessageid",
+          "type": "string"
+        },
+        "accepted": {
+          "title": "Accepted",
+          "type": "boolean"
+        },
+        "messageId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Messageid"
+        }
+      },
+      "required": [
+        "type",
+        "clientMessageId",
+        "accepted"
+      ],
+      "title": "ServerChatAck",
+      "type": "object"
+    },
+    "ServerChatHistory": {
+      "properties": {
+        "type": {
+          "const": "chat_history",
+          "title": "Type",
+          "type": "string"
+        },
+        "messages": {
+          "items": {
+            "$ref": "#/$defs/ChatLine"
+          },
+          "title": "Messages",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "messages"
+      ],
+      "title": "ServerChatHistory",
+      "type": "object"
+    },
+    "ServerChatMessage": {
+      "properties": {
+        "messageId": {
+          "title": "Messageid",
+          "type": "string"
+        },
+        "username": {
+          "title": "Username",
+          "type": "string"
+        },
+        "userId": {
+          "title": "Userid",
+          "type": "string"
+        },
+        "content": {
+          "title": "Content",
+          "type": "string"
+        },
+        "timestamp": {
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "user",
+            "system",
+            "share",
+            "suggestion"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "channelId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Channelid"
+        },
+        "channelName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Channelname"
+        },
+        "programme": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Programme"
+        },
+        "view": {
+          "anyOf": [
+            {
+              "enum": [
+                "live",
+                "ersatztv"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "View"
+        },
+        "type": {
+          "const": "chat_message",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "messageId",
+        "username",
+        "userId",
+        "content",
+        "timestamp",
+        "kind",
+        "channelId",
+        "channelName",
+        "programme",
+        "view",
+        "type"
+      ],
+      "title": "ServerChatMessage",
+      "type": "object"
+    },
+    "ServerConnectionAck": {
+      "properties": {
+        "type": {
+          "const": "connection_ack",
+          "title": "Type",
+          "type": "string"
+        },
+        "currentChannel": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Channel"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "settings": {
+          "$ref": "#/$defs/AppSettings"
+        },
+        "you": {
+          "$ref": "#/$defs/You"
+        },
+        "presence": {
+          "items": {
+            "$ref": "#/$defs/PresenceEntry"
+          },
+          "title": "Presence",
+          "type": "array"
+        },
+        "buildId": {
+          "title": "Buildid",
+          "type": "string"
+        },
+        "features": {
+          "$ref": "#/$defs/Features"
+        }
+      },
+      "required": [
+        "type",
+        "currentChannel",
+        "settings",
+        "you",
+        "presence",
+        "buildId",
+        "features"
+      ],
+      "title": "ServerConnectionAck",
+      "type": "object"
+    },
+    "ServerError": {
+      "properties": {
+        "type": {
+          "const": "error",
+          "title": "Type",
+          "type": "string"
+        },
+        "code": {
+          "enum": [
+            "invalid_message",
+            "rate_limited",
+            "nickname_taken"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "nickname": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Nickname"
+        },
+        "clientMessageId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Clientmessageid"
+        }
+      },
+      "required": [
+        "type",
+        "code"
+      ],
+      "title": "ServerError",
+      "type": "object"
+    },
+    "ServerPong": {
+      "properties": {
+        "type": {
+          "const": "pong",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "ServerPong",
+      "type": "object"
+    },
+    "ServerPresenceUpdate": {
+      "properties": {
+        "type": {
+          "const": "presence_update",
+          "title": "Type",
+          "type": "string"
+        },
+        "presence": {
+          "items": {
+            "$ref": "#/$defs/PresenceEntry"
+          },
+          "title": "Presence",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "presence"
+      ],
+      "title": "ServerPresenceUpdate",
+      "type": "object"
+    },
+    "ServerSettingsUpdate": {
+      "properties": {
+        "type": {
+          "const": "settings_update",
+          "title": "Type",
+          "type": "string"
+        },
+        "settings": {
+          "$ref": "#/$defs/AppSettings"
+        }
+      },
+      "required": [
+        "type",
+        "settings"
+      ],
+      "title": "ServerSettingsUpdate",
+      "type": "object"
+    },
+    "You": {
+      "description": "Who the connection is signed in as.",
+      "properties": {
+        "username": {
+          "title": "Username",
+          "type": "string"
+        },
+        "userId": {
+          "title": "Userid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "username",
+        "userId"
+      ],
+      "title": "You",
+      "type": "object"
+    }
+  },
+  "discriminator": {
+    "mapping": {
+      "channel_update": "#/$defs/ServerChannelUpdate",
+      "chat_ack": "#/$defs/ServerChatAck",
+      "chat_history": "#/$defs/ServerChatHistory",
+      "chat_message": "#/$defs/ServerChatMessage",
+      "connection_ack": "#/$defs/ServerConnectionAck",
+      "error": "#/$defs/ServerError",
+      "pong": "#/$defs/ServerPong",
+      "presence_update": "#/$defs/ServerPresenceUpdate",
+      "settings_update": "#/$defs/ServerSettingsUpdate"
+    },
+    "propertyName": "type"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/ServerConnectionAck"
+    },
+    {
+      "$ref": "#/$defs/ServerChatHistory"
+    },
+    {
+      "$ref": "#/$defs/ServerChatMessage"
+    },
+    {
+      "$ref": "#/$defs/ServerChatAck"
+    },
+    {
+      "$ref": "#/$defs/ServerChannelUpdate"
+    },
+    {
+      "$ref": "#/$defs/ServerSettingsUpdate"
+    },
+    {
+      "$ref": "#/$defs/ServerPresenceUpdate"
+    },
+    {
+      "$ref": "#/$defs/ServerPong"
+    },
+    {
+      "$ref": "#/$defs/ServerError"
+    }
+  ]
+}

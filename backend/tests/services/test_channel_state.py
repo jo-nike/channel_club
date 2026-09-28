@@ -9,6 +9,7 @@ from loguru import logger
 
 from app.config import settings
 from app.models.channel import Channel
+from app.models.websocket import ServerMessage, ServerPong, server_payload
 from app.services import channel_state, chat
 from app.services.highlight import HighlightService
 
@@ -142,7 +143,7 @@ class TestChannelUpdateAttribution:
 
         mock_broadcast.assert_awaited_once()
         assert mock_broadcast.await_args is not None
-        message = mock_broadcast.await_args.args[0]
+        message = server_payload(mock_broadcast.await_args.args[0])
         assert message["type"] == "channel_update"
         assert message["channel"]["id"] == "uuid-1"
         assert message["changedBy"] == "alice"
@@ -161,7 +162,7 @@ class TestChannelUpdateAttribution:
             await channel_state.set_current_channel(channel)
 
         assert mock_broadcast.await_args is not None
-        message = mock_broadcast.await_args.args[0]
+        message = server_payload(mock_broadcast.await_args.args[0])
         assert "changedBy" in message
         assert message["changedBy"] is None
 
@@ -171,14 +172,18 @@ class TestChannelUpdateAttribution:
         with patch.object(channel_state, "broadcast", new_callable=AsyncMock) as mock_broadcast:
             await channel_state.clear_current_channel_async(user="alice")
 
-        mock_broadcast.assert_awaited_once_with(
-            {"type": "channel_update", "channel": None, "changedBy": "alice"}
-        )
+        mock_broadcast.assert_awaited_once()
+        assert mock_broadcast.await_args is not None
+        assert server_payload(mock_broadcast.await_args.args[0]) == {
+            "type": "channel_update",
+            "channel": None,
+            "changedBy": "alice",
+        }
 
 
 def _sent_messages(mock_broadcast: AsyncMock) -> list[dict]:
     """The messages a patched broadcast was awaited with, in order."""
-    return [call.args[0] for call in mock_broadcast.await_args_list]
+    return [server_payload(call.args[0]) for call in mock_broadcast.await_args_list]
 
 
 class TestLiveChangeSystemLines:
@@ -435,8 +440,8 @@ class TestSerialisedLiveChanges:
         service = AsyncMock(spec=HighlightService)
         sent: list[dict] = []
 
-        async def capture(message: dict) -> None:
-            sent.append(message)
+        async def capture(message: ServerMessage) -> None:
+            sent.append(server_payload(message))
 
         with (
             patch.object(settings, "highlight_enabled", True),
@@ -554,12 +559,13 @@ class TestSerialisedLiveChanges:
     ) -> None:
         _service, sent = highlight
 
-        async def slow_for_a(message: dict) -> None:
+        async def slow_for_a(message: ServerMessage) -> None:
             # A slow socket holds up the first change's broadcast
-            channel = message.get("channel")
+            payload = server_payload(message)
+            channel = payload.get("channel")
             if channel and channel["id"] == "A":
                 await asyncio.sleep(0.05)
-            sent.append(message)
+            sent.append(payload)
 
         with patch("app.services.channel_state.broadcast", side_effect=slow_for_a):
             later = (
@@ -617,7 +623,7 @@ class TestFailedPeerClose:
 
         loop = asyncio.get_running_loop()
         started = loop.time()
-        await channel_state.broadcast({"type": "hello"})
+        await channel_state.broadcast(ServerPong(type="pong"))
         elapsed = loop.time() - started
 
         # One send timeout, not a send timeout plus a close timeout
@@ -638,7 +644,7 @@ class TestFailedPeerClose:
         peer, closing = self.hanging_peer()
         owner = asyncio.create_task(asyncio.Event().wait())
         await channel_state.connect(peer, owner=owner)
-        await channel_state.broadcast({"type": "hello"})
+        await channel_state.broadcast(ServerPong(type="pong"))
         await closing.wait()
         assert len(channel_state._failed_closes) == 1
 
@@ -660,7 +666,7 @@ class TestFailedPeerClose:
         output = StringIO()
         handler_id = logger.add(output, format="{level} | {message}", level="INFO")
         try:
-            await channel_state.broadcast({"type": "hello"})
+            await channel_state.broadcast(ServerPong(type="pong"))
             await asyncio.gather(*channel_state._failed_closes)
         finally:
             logger.remove(handler_id)

@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from app.models.websocket import server_payload
 from app.services import app_settings, presence, presence_broadcast
 
 # Captured at import, before conftest swaps it for a no-op in every test
@@ -272,7 +273,7 @@ class TestScheduleBroadcast:
         await settle()
 
         broadcasts.assert_awaited_once()
-        message = broadcasts.await_args_list[0].args[0]
+        message = server_payload(broadcasts.await_args_list[0].args[0])
         assert message["type"] == "presence_update"
         assert [e["programme"] for e in message["presence"]] == ["Three"]
 
@@ -291,10 +292,9 @@ class TestScheduleBroadcast:
         await settle()
 
         assert broadcasts.await_count == 2
-        assert broadcasts.await_args_list[0].args[0]["presence"] == []
-        assert [e["displayName"] for e in broadcasts.await_args_list[1].args[0]["presence"]] == [
-            "jon"
-        ]
+        first, second = (server_payload(call.args[0]) for call in broadcasts.await_args_list)
+        assert first["presence"] == []
+        assert [e["displayName"] for e in second["presence"]] == ["jon"]
 
     async def test_broadcast_respects_privacy(self, broadcasts: AsyncMock) -> None:
         """While visibility is off (the default) the broadcast carries names only."""
@@ -303,7 +303,7 @@ class TestScheduleBroadcast:
 
         await settle()
 
-        assert broadcasts.await_args_list[0].args[0]["presence"] == [
+        assert server_payload(broadcasts.await_args_list[0].args[0])["presence"] == [
             {"userId": "u_1", "displayName": "jon", **NAME_ONLY}
         ]
 
