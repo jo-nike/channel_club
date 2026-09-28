@@ -578,3 +578,98 @@ def test_sec02_viewer_can_login_with_admin_disabled(client_local_enabled):
         )
     assert response.status_code == 200
     assert response.json()["role"] == "viewer"
+
+
+class TestInputBounds:
+    """Over-length sign-in fields are rejected before the handler runs."""
+
+    @pytest.mark.parametrize("field", ["username", "password"])
+    def test_login_rejects_over_length_field(self, client, field):
+        """A username or password over 256 characters gets 422 and never reaches login()."""
+        body = {"username": "admin", "password": "admin", field: "x" * 257}
+        output = StringIO()
+        handler_id = logger.add(output, format="{message}", level="DEBUG")
+        try:
+            response = client.post("/api/auth/token", json=body)
+        finally:
+            logger.remove(handler_id)
+
+        assert response.status_code == 422
+        assert "Login attempt" not in output.getvalue()
+
+    def test_login_accepts_max_length_fields(self, client):
+        """256-character credentials still reach the credential check."""
+        response = client.post(
+            "/api/auth/token",
+            json={"username": "x" * 256, "password": "y" * 256},
+        )
+        assert response.status_code == 401
+
+    def test_failed_login_logs_truncated_username(self, client):
+        """A failed login logs only the first 64 characters of the username."""
+        username = "a" * 64 + "b" * 136
+        output = StringIO()
+        handler_id = logger.add(output, format="{level} | {message}", level="DEBUG")
+        try:
+            response = client.post(
+                "/api/auth/token",
+                json={"username": username, "password": "wrong"},
+            )
+        finally:
+            logger.remove(handler_id)
+
+        assert response.status_code == 401
+        log_output = output.getvalue()
+        assert f"WARNING | Failed login attempt for user: {'a' * 64}\n" in log_output
+        assert f"DEBUG | Login attempt for user: {'a' * 64}\n" in log_output
+        assert "a" * 64 + "b" not in log_output
+
+    def test_successful_login_logs_truncated_username(self, client):
+        """The success line also logs at most 64 characters of the username."""
+        username = "c" * 200
+        output = StringIO()
+        handler_id = logger.add(output, format="{message}", level="INFO")
+        try:
+            with (
+                patch("app.routers.auth.settings.admin_username", username),
+                patch("app.routers.auth.settings.admin_password", "pw"),
+            ):
+                response = client.post(
+                    "/api/auth/token", json={"username": username, "password": "pw"}
+                )
+        finally:
+            logger.remove(handler_id)
+
+        assert response.status_code == 200
+        log_output = output.getvalue()
+        assert f"User {'c' * 64} logged in successfully with role admin" in log_output
+        assert "c" * 65 not in log_output
+
+    def test_plex_auth_rejects_over_length_token(self, client_plex_enabled):
+        """A Plex token over 512 characters gets 422 and is never sent to plex.tv."""
+        validate = AsyncMock()
+        check_access = AsyncMock()
+        with (
+            patch("app.routers.auth.validate_plex_token", validate),
+            patch("app.routers.auth.check_server_access", check_access),
+        ):
+            response = client_plex_enabled.post(
+                "/api/auth/plex",
+                json={"authToken": "t" * 513},
+            )
+
+        assert response.status_code == 422
+        validate.assert_not_called()
+        check_access.assert_not_called()
+
+    def test_plex_auth_accepts_max_length_token(self, client_plex_enabled):
+        """A 512-character Plex token still reaches validation."""
+        validate = AsyncMock(side_effect=InvalidPlexTokenError("Invalid token"))
+        with patch("app.routers.auth.validate_plex_token", validate):
+            response = client_plex_enabled.post(
+                "/api/auth/plex",
+                json={"authToken": "t" * 512},
+            )
+
+        assert response.status_code == 401
+        validate.assert_awaited_once_with("t" * 512)

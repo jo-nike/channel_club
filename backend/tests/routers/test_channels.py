@@ -308,6 +308,45 @@ class TestSetCurrentChannel:
         ):
             yield
 
+    @pytest.mark.parametrize(
+        ("field", "limit"), [("name", 256), ("streamUrl", 2048), ("guideId", 256)]
+    )
+    def test_rejects_over_length_field(
+        self, client: TestClient, admin_auth_header: dict[str, str], field: str, limit: int
+    ) -> None:
+        """An over-length name, streamUrl or guideId gets 422 and never reaches the handler."""
+        channel_data = {
+            "id": "uuid-456",
+            "name": "Sportsnet",
+            "streamUrl": "https://streams.example.com/stream/uuid-456",
+            "guideId": "2",
+            field: "x" * (limit + 1),
+        }
+        resolve = AsyncMock()
+        with patch("app.routers.channels.resolve_media_channel", resolve):
+            response = client.put(
+                "/api/channels/current", json=channel_data, headers=admin_auth_header
+            )
+
+        assert response.status_code == 422
+        resolve.assert_not_called()
+        assert channel_state.get_current_channel() is None
+
+    def test_accepts_max_length_fields(
+        self, client: TestClient, admin_auth_header: dict[str, str]
+    ) -> None:
+        """Fields at their limits still set the channel."""
+        channel_data = {
+            "id": "uuid-456",
+            "name": "n" * 256,
+            "streamUrl": "u" * 2048,
+            "guideId": "g" * 256,
+        }
+        response = client.put("/api/channels/current", json=channel_data, headers=admin_auth_header)
+
+        assert response.status_code == 200
+        assert response.json()["id"] == "uuid-456"
+
     def test_requires_authentication(self, client: TestClient) -> None:
         """Unauthenticated request returns 401."""
         channel_data = {

@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 class PlexAuthRequest(BaseModel):
     """Request body for Plex authentication."""
 
-    auth_token: str = Field(alias="authToken")
+    auth_token: str = Field(alias="authToken", max_length=512)
 
     model_config = {"populate_by_name": True}
 

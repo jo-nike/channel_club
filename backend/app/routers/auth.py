@@ -45,7 +45,9 @@ async def login(request: LoginRequest) -> TokenResponse:
         HTTPException: 404 if local auth is disabled.
         HTTPException: 401 if credentials are invalid.
     """
-    log.debug("Login attempt for user: {}", request.username)
+    # Log at most 64 characters of the username: anyone can post one.
+    log_username = request.username[:64]
+    log.debug("Login attempt for user: {}", log_username)
 
     # Check if local auth is enabled
     if not settings.local_auth_enabled:
@@ -66,13 +68,13 @@ async def login(request: LoginRequest) -> TokenResponse:
     ):
         role = "viewer"
     else:
-        log.warning("Failed login attempt for user: {}", request.username)
+        log.warning("Failed login attempt for user: {}", log_username)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
         )
 
-    log.info("User {} logged in successfully with role {}", request.username, role)
+    log.info("User {} logged in successfully with role {}", log_username, role)
     token = create_access_token({"sub": request.username, "role": role})
     return TokenResponse(access_token=token, role=role)
 

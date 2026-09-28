@@ -48,9 +48,9 @@ class SetChannelRequest(BaseModel):
     """Request body for PUT /api/channels/current."""
 
     id: ChannelId
-    name: str
-    stream_url: str = Field(alias="streamUrl")
-    guide_id: str = Field(alias="guideId")
+    name: str = Field(max_length=256)
+    stream_url: str = Field(alias="streamUrl", max_length=2048)
+    guide_id: str = Field(alias="guideId", max_length=256)
 
     model_config = {"populate_by_name": True}
 
