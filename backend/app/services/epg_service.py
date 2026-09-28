@@ -54,7 +54,10 @@ class EPGService:
         # normalised XMLTV display-name -> channel_id, replaced together with _cache
         self._channel_names: dict[str, str] = {}
         self._cache_expires: datetime | None = None
-        self._cache_ttl = timedelta(hours=24)
+        # A backstop: a renumbering in the catalogue expires the guide sooner
+        self._cache_ttl = timedelta(hours=4)
+        # The catalogue's guide ids at its last build, to notice a renumbering
+        self._guide_ids: frozenset[str] | None = None
         # A single in-flight lock prevents thundering herd on expiry
         self._refresh_lock = asyncio.Lock()
         # The background refresh behind stale reads; a strong reference, since the
@@ -79,6 +82,21 @@ class EPGService:
         else:
             log.debug("Cache miss: expired")
         return is_valid
+
+    def note_guide_ids(self, guide_ids: Iterable[str]) -> None:
+        """Expire the guide when the channel catalogue's guide ids change.
+
+        XMLTV is keyed by channel number, so after a renumbering the cached
+        programmes would sit under the wrong channels until the next refresh.
+        """
+        ids = frozenset(guide_ids)
+        previous, self._guide_ids = self._guide_ids, ids
+        if previous is None or previous == ids:
+            return
+        now = datetime.now(UTC)
+        if self._cache_expires is not None and self._cache_expires > now:
+            log.info("Channel guide ids changed; expiring the EPG cache")
+            self._cache_expires = now
 
     def _retry_delay(self) -> timedelta:
         """Wait before the next refresh after the current run of failures.

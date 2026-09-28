@@ -19,6 +19,7 @@ from app.models.channel import (
     GroupedChannelsResponse,
 )
 from app.services.cached_fetch import CachedFetch
+from app.services.epg_service import get_epg_service
 from app.services.logo_proxy import fetch_logo
 from app.services.tls import SSL_CONTEXT
 
@@ -301,6 +302,11 @@ async def _build_grouped_channels() -> GroupedChannelsResponse:
         len(channels),
         len(result_groups),
         len(ungrouped),
+    )
+
+    # A renumbering changes the guide ids, which leaves the cached guide stale
+    get_epg_service().note_guide_ids(
+        [*(c.guide_id for g in result_groups for c in g.channels), *(c.guide_id for c in ungrouped)]
     )
 
     return GroupedChannelsResponse(groups=result_groups, ungrouped=ungrouped)

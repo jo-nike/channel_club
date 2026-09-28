@@ -1,6 +1,7 @@
 """Tests for Dispatcharr service."""
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -26,6 +27,7 @@ from app.services.dispatcharr import (
     get_lineup,
     invalidate_grouped_channels_cache,
 )
+from app.services.epg_service import get_epg_service
 
 
 class TestDispatcharrAuthHeaders:
@@ -334,6 +336,21 @@ class TestBuildGroupedChannels:
         )
 
         assert self._guide_ids(response) == {"TSN 5": "28", "CBC": "7", "TVA": "5.1"}
+
+    @pytest.mark.asyncio
+    async def test_renumbering_expires_the_guide(self) -> None:
+        """A rebuild whose guide ids changed expires the cached XMLTV guide (D-03)."""
+        guide = get_epg_service()
+        guide._cache = {"28": []}
+        guide._cache_expires = datetime.now(UTC) + timedelta(hours=1)
+        channel = {"id": 101, "name": "TSN 5", "channel_group_id": 1, "uuid": "uuid-28"}
+
+        await self._build([{**channel, "channel_number": 28}])
+        await self._build([{**channel, "channel_number": 28}])
+        assert guide._is_cache_valid() is True
+
+        await self._build([{**channel, "channel_number": 29}])
+        assert guide._is_cache_valid() is False
 
     @pytest.mark.asyncio
     async def test_guide_id_falls_back_to_database_id_without_a_number(self) -> None:

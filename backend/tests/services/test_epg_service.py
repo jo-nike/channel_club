@@ -189,8 +189,8 @@ class TestRefreshCache:
         assert service._cache_expires is not None
 
     @pytest.mark.asyncio
-    async def test_refresh_cache_sets_24h_expiry(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Cache expiry is set to 24 hours from now."""
+    async def test_refresh_cache_sets_4h_expiry(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Cache expiry is set to 4 hours from now."""
         service = EPGService("http://test:9191")
 
         _patch_upstream(
@@ -201,8 +201,8 @@ class TestRefreshCache:
         await service.refresh_cache()
         after = datetime.now(UTC)
 
-        expected_min = before + timedelta(hours=24)
-        expected_max = after + timedelta(hours=24)
+        expected_min = before + timedelta(hours=4)
+        expected_max = after + timedelta(hours=4)
         assert service._cache_expires is not None
         assert expected_min <= service._cache_expires <= expected_max
 
@@ -1331,3 +1331,32 @@ class TestSingletonLifecycle:
         assert task.cancelled()
         assert service._cache == {}
         assert service._refresh_task is None
+
+
+class TestGuideIdDrift:
+    """A change in the catalogue's guide ids expires the guide (D-03)."""
+
+    @staticmethod
+    def _fresh() -> EPGService:
+        service = EPGService("http://dispatcharr.synthetic:9191")
+        service._cache = {"7": _on_air("Show", datetime.now(UTC))}
+        service._cache_expires = datetime.now(UTC) + timedelta(hours=1)
+        return service
+
+    def test_first_and_unchanged_builds_keep_the_guide(self) -> None:
+        service = self._fresh()
+
+        service.note_guide_ids(["7", "28"])
+        service.note_guide_ids(["28", "7"])
+
+        assert service._is_cache_valid() is True
+
+    def test_changed_guide_ids_expire_the_guide(self) -> None:
+        service = self._fresh()
+
+        service.note_guide_ids(["7", "28"])
+        service.note_guide_ids(["7", "29"])
+
+        assert service._is_cache_valid() is False
+        # The expired guide is still served while it refreshes
+        assert service.get_health().online is True
