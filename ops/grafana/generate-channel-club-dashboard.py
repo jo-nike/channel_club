@@ -337,8 +337,16 @@ dashboard = {
 }
 
 OUTPUT_PATH = Path(__file__).parent / "dashboards" / "channel-club.json"
-with open(OUTPUT_PATH, "w") as f:
-    json.dump(dashboard, f, indent=2)
 
-print(f"Dashboard generated: {len(panels)} panels")
-print(f"Written to {OUTPUT_PATH}")
+
+def main(path: Path = OUTPUT_PATH) -> None:
+    with open(path, "w") as f:
+        json.dump(dashboard, f, indent=2)
+
+    print(f"Dashboard generated: {len(panels)} panels")
+    print(f"Written to {path}")
+
+
+# Importable without writing: the backend contract test reads `dashboard`.
+if __name__ == "__main__":
+    main()

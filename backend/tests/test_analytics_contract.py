@@ -5,11 +5,13 @@ production sink. Loki's `| json` flattens them to record_extra_<field>, which is
 what every dashboard query filters and aggregates on.
 """
 
+import importlib.util
 import json
 import logging
 import sys
 from collections.abc import Callable, Iterator
 from io import StringIO
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -17,6 +19,8 @@ from loguru import logger
 
 from app.config import Settings
 from app.logging_config import configure_logging
+
+GENERATOR = Path(__file__).parents[2] / "ops" / "grafana" / "generate-channel-club-dashboard.py"
 
 STDLIB_LOGGERS = ["", "uvicorn", "uvicorn.error", "uvicorn.access", "fastapi", "httpx", "httpcore"]
 
@@ -83,3 +87,21 @@ def test_pretty_format_writes_each_event_once(production_logging, log_level) -> 
     logger.bind(event="watch.start").info("started watching")
 
     assert output.getvalue().count("started watching") == 1
+
+
+def _load_generator():
+    """Import the dashboard generator; importing it writes nothing."""
+    spec = importlib.util.spec_from_file_location("channel_club_dashboard", GENERATOR)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_committed_dashboard_matches_the_generator(tmp_path) -> None:
+    output = tmp_path / "channel-club.json"
+    _load_generator().main(output)
+
+    assert (
+        output.read_bytes() == (GENERATOR.parent / "dashboards" / "channel-club.json").read_bytes()
+    )
