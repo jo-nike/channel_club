@@ -158,15 +158,15 @@ async def verify_websocket_token(token: str) -> dict | None:
         return None
 
 
-async def _receive_auth_token(websocket: WebSocket) -> str | None:
-    """Wait for the first frame and take the token from its auth message.
+async def _receive_auth(websocket: WebSocket) -> AuthMessage | None:
+    """Wait for the first frame and parse it as the auth message.
 
     Args:
         websocket: The accepted, not yet authenticated WebSocket.
 
     Returns:
-        The token, or None when the first frame is late, oversize or not an
-        auth message.
+        The auth message (token and hide preference), or None when the first
+        frame is late, oversize or not an auth message.
 
     Raises:
         WebSocketDisconnect: If the client leaves before sending anything.
@@ -182,7 +182,7 @@ async def _receive_auth_token(websocket: WebSocket) -> str | None:
     if data is None or len(data.encode("utf-8")) > MAX_MESSAGE_BYTES:
         return None
     try:
-        return AuthMessage.model_validate_json(data).token
+        return AuthMessage.model_validate_json(data)
     except ValidationError:
         return None
 
@@ -253,14 +253,18 @@ async def websocket_endpoint(
     # instead of the 4001 auth-failure code it acts on.
     await websocket.accept()
 
+    # A ?token= socket (an older bundle) is visible until its set_presence_prefs
+    hide_activity = False
     if token is None:
         # The token comes in the first frame, so it never appears in a URL
         # (and so in no proxy access log). Nothing is tracked until it checks out.
         try:
-            token = await _receive_auth_token(websocket)
+            auth = await _receive_auth(websocket)
         except WebSocketDisconnect:
             log.debug("WebSocket closed before auth: client {}", client_id)
             return
+        if auth is not None:
+            token, hide_activity = auth.token, auth.hideActivity
 
     payload = await verify_websocket_token(token) if token else None
     if not payload or time.time() >= payload["exp"]:
@@ -284,6 +288,7 @@ async def websocket_endpoint(
         view=view_type,
         websocket=websocket,
         user_id=user_id,
+        hide_activity=hide_activity,
     )
     presence_broadcast.schedule_broadcast()
 

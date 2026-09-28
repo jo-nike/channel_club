@@ -209,15 +209,6 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           if (Array.isArray(message.presence)) {
             setPresence(message.presence)
           }
-          // The server shares each new connection's channel unless told otherwise.
-          // Read from the store so a change doesn't recreate the socket handlers
-          if (useUIStore.getState().hideMyActivity) {
-            const socket = wsRef.current
-            if (socket?.readyState === WebSocket.OPEN) {
-              socket.send(JSON.stringify({ type: 'set_presence_prefs', hideActivity: true }))
-              logger.debug('WebSocket', 'Sent presence prefs after connection_ack: hidden')
-            }
-          }
           break
 
         case 'presence_update':
@@ -356,10 +347,13 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         if (wsRef.current !== ws) return
 
         // The server reads nothing else until this arrives. A refresh since
-        // connect() is already in the store.
+        // connect() is already in the store. The hide preference comes with it,
+        // so the server never shows this connection's channel before knowing it.
+        // Read from the store so a change doesn't recreate the socket handlers
         const authToken = useAuthStore.getState().token ?? token
         socketTokenRef.current = authToken
-        ws.send(JSON.stringify({ type: 'auth', token: authToken }))
+        const hideActivity = useUIStore.getState().hideMyActivity
+        ws.send(JSON.stringify({ type: 'auth', token: authToken, hideActivity }))
 
         logger.info('WebSocket', 'Connected successfully')
         if (!restartingRef.current) setStatus('connected')
@@ -510,7 +504,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     }
   }, [reconnect])
 
-  // Tell the server when the person changes it; each new socket gets it after its connection_ack
+  // Tell the server when the person changes it; each new socket gets it in its auth message
   useEffect(() => {
     const socket = wsRef.current
     if (socket?.readyState === WebSocket.OPEN) {

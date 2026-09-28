@@ -121,6 +121,7 @@ def track_user(
     view: View,
     websocket: WebSocket | None = None,
     user_id: str | None = None,
+    hide_activity: bool = False,
 ) -> UserPresence:
     """Track a new user connection.
 
@@ -130,6 +131,7 @@ def track_user(
         view: The view type ("live" or "ersatztv").
         websocket: The connection's WebSocket, closed if a stale sweep removes it.
         user_id: The account's opaque chat id, used to group a person's connections.
+        hide_activity: Whether the person hides what they watch, known at connect.
 
     Returns:
         The created UserPresence object.
@@ -140,6 +142,7 @@ def track_user(
         view=view,
         websocket=websocket,
         user_id=user_id,
+        hide_activity=hide_activity,
     )
     _active_users[connection_id] = user_presence
     _emit(

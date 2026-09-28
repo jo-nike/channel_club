@@ -868,6 +868,24 @@ class TestPresenceTracking:
 
             assert only_presence().hide_activity is False
 
+    def test_hide_preference_in_the_auth_message_covers_the_first_channel(
+        self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """A hider's channel_update sent right after auth is never shown to others."""
+        monkeypatch.setattr(settings, "chat_enabled", False)
+        monkeypatch.setattr(app_settings, "_presence_visible", True)
+        with client.websocket_connect("/api/ws?session_id=0badcafe") as ws:
+            ws.send_json({"type": "auth", "token": valid_token, "hideActivity": True})
+            ws.send_json({"type": "channel_update", "channel": "RDS", "view": "live"})
+            assert ws.receive_json()["type"] == "connection_ack"
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json()["type"] == "pong"
+
+            user = only_presence()
+            assert user.current_channel == "RDS"  # The admin list still has it
+            assert presence_broadcast.shown_channel(user.connection_id) is None
+            assert [entry["channelName"] for entry in presence_broadcast.build_snapshot()] == [None]
+
     @pytest.mark.parametrize(
         "message",
         [
