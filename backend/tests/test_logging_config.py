@@ -344,3 +344,104 @@ def test_sec03_exception_logs_do_not_expose_credentials_or_locals(log_format):
     assert secret not in output.getvalue()
     assert "[REDACTED]" in output.getvalue()
     assert "Stream failure" in output.getvalue()
+
+
+@pytest.fixture
+def json_logging():
+    """Configure JSON logging into a buffer, then restore stdlib logger state."""
+    import logging.config
+
+    import uvicorn.config
+
+    names = ["", "uvicorn", "uvicorn.error", "uvicorn.access", "fastapi", "httpx", "httpcore"]
+    saved = {
+        name: (lg.handlers[:], lg.level, lg.propagate, lg.filters[:])
+        for name in names
+        for lg in [logging.getLogger(name)]
+    }
+    output = StringIO()
+    config = Settings(_env_file=None, log_format="json", log_level="INFO")
+    with patch("app.logging_config.settings", config), patch.object(sys, "stderr", output):
+        # As in production: uvicorn applies its own config before the app configures logging
+        logging.config.dictConfig(uvicorn.config.LOGGING_CONFIG)
+        configure_logging()
+        yield output
+    logger.remove()
+    for name, (handlers, level, propagate, filters) in saved.items():
+        lg = logging.getLogger(name)
+        lg.handlers, lg.propagate, lg.filters = handlers, propagate, filters
+        lg.setLevel(level)
+
+
+def _records(output: StringIO) -> list[dict]:
+    return [json.loads(line)["record"] for line in output.getvalue().splitlines()]
+
+
+def _log_from_helper(message: str) -> None:
+    logging.getLogger("test.source").warning(message)
+
+
+def test_h04_uvicorn_error_line_is_written_once(json_logging) -> None:
+    logging.getLogger("uvicorn.error").info("Application startup complete.")
+
+    records = _records(json_logging)
+    assert [r["message"] for r in records] == ["Application startup complete."]
+    assert records[0]["extra"]["logger_name"] == "uvicorn.error"
+
+
+def test_h04_intercepted_record_names_its_real_source(json_logging) -> None:
+    _log_from_helper("from the helper")
+
+    (record,) = _records(json_logging)
+    assert record["function"] == "_log_from_helper"
+    assert record["file"]["name"] == "test_logging_config.py"
+    assert record["extra"]["logger_name"] == "test.source"
+
+
+def test_h04_configure_logging_twice_writes_each_line_once(json_logging) -> None:
+    config = Settings(_env_file=None, log_format="json", log_level="INFO")
+    with patch("app.logging_config.settings", config), patch.object(sys, "stderr", json_logging):
+        configure_logging()
+    logging.getLogger("uvicorn.error").info("stdlib line")
+    logger.info("loguru line")
+
+    assert [r["message"] for r in _records(json_logging)] == ["stdlib line", "loguru line"]
+
+
+def test_h05_httpx_info_is_dropped_and_warnings_kept(json_logging) -> None:
+    logging.getLogger("httpx").info("HTTP Request: GET http://upstream/ok")
+    logging.getLogger("httpcore.connection").debug("connect_tcp.started")
+    logging.getLogger("httpx").warning("upstream trouble")
+
+    assert [r["message"] for r in _records(json_logging)] == ["upstream trouble"]
+
+
+def test_h05_root_logger_does_not_build_debug_records_at_info(json_logging) -> None:
+    assert not logging.getLogger("some.library").isEnabledFor(logging.DEBUG)
+
+
+def test_h05_access_log_drops_polled_and_streamed_paths(json_logging) -> None:
+    access = logging.getLogger("uvicorn.access")
+    for path in [
+        "/api/health",
+        "/api/admin/status",
+        "/api/ersatztv/segments/abc.ts?token=x",
+        "/api/ersatztv/stream/C1?token=x",
+        "/api/highlight/status/C1",
+        "/api/channels",
+        "/api/healthcheck-lookalike",
+    ]:
+        access.info('%s - "%s %s HTTP/%s" %d', "127.0.0.1", "GET", path, "1.1", 200)
+
+    messages = [r["message"] for r in _records(json_logging)]
+    assert len(messages) == 2
+    assert "/api/channels" in messages[0]
+    assert "/api/healthcheck-lookalike" in messages[1]
+
+
+def test_h05_presence_event_keeps_its_extra_fields(json_logging) -> None:
+    logger.bind(event="watch.stop", duration_s=12.5).info("stopped")
+
+    (record,) = _records(json_logging)
+    assert record["extra"]["event"] == "watch.stop"
+    assert record["extra"]["duration_s"] == 12.5

@@ -21,7 +21,7 @@ async def lifespan(app):
     configure_logging()
     yield
 app = FastAPI(lifespan=lifespan)
-@app.get('/api/ersatztv/stream/test')
+@app.get('/api/probe/test')
 async def stream():
     return PlainTextResponse('#EXTM3U\\n')
 @app.websocket('/api/ws')
@@ -53,7 +53,7 @@ def test_sec03_real_protocol_logs(tmp_path, log_format):
                 for _ in range(100):
                     try:
                         response = client.get(
-                            f"http://127.0.0.1:{port}/api/ersatztv/stream/test?token={secret}"
+                            f"http://127.0.0.1:{port}/api/probe/test?token={secret}"
                         )
                         break
                     except httpx.TransportError:
@@ -70,5 +70,5 @@ def test_sec03_real_protocol_logs(tmp_path, log_format):
         logs = output.read()
     assert secret not in logs
     assert "[REDACTED]" in logs
-    assert "/api/ersatztv/stream/test" in logs
+    assert "/api/probe/test" in logs
     assert "view=live" in logs
