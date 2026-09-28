@@ -15,8 +15,8 @@ from app.main import app
 from app.models.channel import Channel, ChannelGroupWithChannels, GroupedChannelsResponse
 from app.services import app_settings, channel_state
 from app.services.auth import create_access_token
-from app.services.dispatcharr import DispatchrrUnavailableError, invalidate_grouped_channels_cache
-from app.services.logo_proxy import LOGO_CACHE
+from app.services.dispatcharr import DispatchrrUnavailableError
+from app.services.logo_proxy import LOGO_CACHE, reset_logo_cache
 
 
 @pytest.fixture
@@ -1035,13 +1035,13 @@ class TestGetChannelLogo:
                 )
             ],
         )
-        invalidate_grouped_channels_cache()
+        reset_logo_cache()
         with patch(
             "app.services.dispatcharr.get_grouped_channels",
             new=AsyncMock(return_value=catalogue),
         ):
             yield
-        invalidate_grouped_channels_cache()
+        reset_logo_cache()
 
     @staticmethod
     def _upstream(
@@ -1189,10 +1189,6 @@ class TestGetChannelLogo:
         assert first.headers["cache-control"] == second.headers["cache-control"]
         assert "max-age=" in first.headers["cache-control"]
         assert len(requests) == 1
-
-        invalidate_grouped_channels_cache()
-        assert client.get("/api/channels/logos/17").status_code == 404
-        assert len(requests) == 2
 
     def test_success_is_cacheable_by_browsers(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch

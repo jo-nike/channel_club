@@ -12,10 +12,8 @@ from loguru import logger
 
 from app.config import settings
 from app.models.ersatztv import EPGChannel, Programme
-from app.services.ersatztv.m3u_parser import clear_cache as clear_m3u_cache
 from app.services.ersatztv.m3u_parser import parse_m3u_playlist
 from app.services.ersatztv.refresh import run_feed_lookup, shutdown_feed_executor
-from app.services.ersatztv.xmltv_parser import clear_cache as clear_xmltv_cache
 from app.services.ersatztv.xmltv_parser import guide
 from app.services.logo_proxy import reset_logo_cache
 
@@ -153,13 +151,6 @@ async def get_upcoming_programmes(
     if limit:
         upcoming = upcoming[:limit]
     return [_for_channel(programme, identity, channel_id) for programme in upcoming]
-
-
-def refresh_all() -> None:
-    """Force refresh both M3U and XMLTV caches."""
-    clear_m3u_cache()
-    clear_xmltv_cache()
-    log.info("ErsatzTV EPG caches cleared, data will refresh on next request")
 
 
 def reset_state() -> None:

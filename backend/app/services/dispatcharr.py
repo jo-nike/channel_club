@@ -38,16 +38,6 @@ _CATALOGUE_TIMEOUT = httpx.Timeout(10, connect=3)
 _LOGO_KEY_PREFIX = "dispatcharr:"
 
 
-def invalidate_grouped_channels_cache() -> None:
-    """Invalidate the grouped channels cache (e.g., on admin refresh).
-
-    Also drops cached logos, so a logo changed in Dispatcharr shows after a refresh.
-    """
-    _grouped_cache.invalidate()
-    LOGO_CACHE.clear(_LOGO_KEY_PREFIX)
-    log.debug("Grouped channels cache invalidated")
-
-
 class DispatchrrUnavailableError(Exception):
     """Raised when Dispatcharr API is unreachable or returns an error."""
 
@@ -318,7 +308,7 @@ async def get_channel_logo(logo_id: int) -> tuple[bytes, str]:
     Raises:
         ChannelLogoNotFoundError: If no channel in the catalogue uses this logo.
         LogoNotFoundError: If Dispatcharr answers 404 for it (remembered for
-            one catalogue TTL, or until invalidate_grouped_channels_cache).
+            for one catalogue TTL).
         DispatchrrUnavailableError: If Dispatcharr can't serve it as a raster image.
     """
 

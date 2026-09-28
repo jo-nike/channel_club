@@ -488,23 +488,6 @@ class TestLookupsMatchTheScan:
             assert everything == _scan_upcoming(feed, "ch1", now, 3, None), now
 
 
-class TestRefreshAll:
-    """Tests for refresh_all function."""
-
-    @patch("app.services.ersatztv.epg_service.clear_xmltv_cache")
-    @patch("app.services.ersatztv.epg_service.clear_m3u_cache")
-    def test_refresh_all_clears_both_caches(
-        self, mock_clear_m3u: MagicMock, mock_clear_xmltv: MagicMock
-    ):
-        """refresh_all clears both M3U and XMLTV caches."""
-        from app.services.ersatztv.epg_service import refresh_all
-
-        refresh_all()
-
-        mock_clear_m3u.assert_called_once()
-        mock_clear_xmltv.assert_called_once()
-
-
 @pytest.fixture(autouse=True)
 def synthetic_optional_catalog():
     with patch("app.services.ersatztv.epg_service.parse_m3u_playlist", return_value=[]):

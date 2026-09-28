@@ -6,7 +6,6 @@ from app.services.ersatztv.epg_service import (
     get_current_programme,
     get_programmes_by_channel,
     get_upcoming_programmes,
-    refresh_all,
     reset_state,
 )
 from app.services.ersatztv.hls_rewriter import (
@@ -29,7 +28,6 @@ __all__ = [
     "get_current_programme",
     "get_programmes_by_channel",
     "get_upcoming_programmes",
-    "refresh_all",
     "reset_state",
     "get_guide_health",
     # HLS proxy service
