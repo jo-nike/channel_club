@@ -903,6 +903,61 @@ class TestListGroupedChannels:
         assert len(data["ungrouped"]) == 2
 
 
+class TestMalformedDispatcharrPayload:
+    """A login page or schema drift from Dispatcharr is a 503, not a 500 (C-08)."""
+
+    HTML = httpx.Response(200, headers={"content-type": "text/html"}, text="<html>Login</html>")
+    NO_UUID = httpx.Response(200, json=[{"id": 1, "name": "TSN", "channel_group_id": None}])
+    PAGINATED = httpx.Response(200, json={"count": 0, "results": []})
+
+    @pytest.fixture(autouse=True)
+    def dispatcharr_settings(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(settings, "dispatcharr_url", "http://dispatcharr.test")
+        monkeypatch.setattr(settings, "dispatcharr_api_key", "test-key")
+
+    @staticmethod
+    def _upstream(monkeypatch: pytest.MonkeyPatch, channels: httpx.Response) -> None:
+        """Groups are fine; the channels and lineup calls answer `channels`."""
+        real_client = httpx.AsyncClient
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/api/channels/groups/":
+                return httpx.Response(200, json=[])
+            return httpx.Response(
+                channels.status_code, headers=channels.headers, content=channels.content
+            )
+
+        def client_factory(**kwargs: Any) -> httpx.AsyncClient:
+            return real_client(transport=httpx.MockTransport(handle), **kwargs)
+
+        monkeypatch.setattr("app.services.dispatcharr.httpx.AsyncClient", client_factory)
+
+    @pytest.mark.parametrize("payload", [HTML, NO_UUID, PAGINATED], ids=["html", "no-uuid", "dict"])
+    @pytest.mark.parametrize(
+        ("route", "detail"),
+        [
+            ("/api/channels/grouped", "Channel service unavailable"),
+            ("/api/channels", "Channel service unavailable"),
+            ("/api/channels/logos/17", "Logo unavailable"),
+        ],
+    )
+    def test_answers_503(
+        self,
+        client: TestClient,
+        auth_header: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
+        payload: httpx.Response,
+        route: str,
+        detail: str,
+    ) -> None:
+        self._upstream(monkeypatch, payload)
+
+        response = client.get(route, headers=auth_header)
+
+        assert response.status_code == 503
+        assert response.json() == {"detail": detail}
+
+
 PNG_LOGO = b"\x89PNG\r\n\x1a\n" + b"synthetic-image-data"
 DISPATCHARR = "http://dispatcharr.test:9191"
 

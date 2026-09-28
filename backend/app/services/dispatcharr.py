@@ -3,9 +3,11 @@
 import asyncio
 import time
 from collections import OrderedDict
+from typing import Any
 
 import httpx
 from loguru import logger
+from pydantic import ValidationError
 
 from app.config import settings
 from app.models.channel import (
@@ -90,6 +92,14 @@ def extract_uuid(url: str) -> str:
     return url.split("/")[-1]
 
 
+def _json_list(response: httpx.Response) -> list[Any]:
+    """The response's JSON array (an HTML login page or a paginated dict is not one)."""
+    payload = response.json()
+    if not isinstance(payload, list):
+        raise TypeError(f"expected a JSON list, got {type(payload).__name__}")
+    return payload
+
+
 async def get_lineup() -> list[Channel]:
     """Fetch and transform channel lineup from Dispatcharr.
 
@@ -107,7 +117,7 @@ async def get_lineup() -> list[Channel]:
             response = await client.get(url)
             response.raise_for_status()
 
-            raw_channels = [DispatchrrChannel(**c) for c in response.json()]
+            raw_channels = [DispatchrrChannel(**c) for c in _json_list(response)]
 
             channels = [
                 Channel(
@@ -124,6 +134,9 @@ async def get_lineup() -> list[Channel]:
     except httpx.HTTPError as e:
         log.error("Failed to fetch channels: {}", str(e))
         raise DispatchrrUnavailableError(f"Failed to fetch channels: {e}") from e
+    except (ValueError, TypeError, ValidationError) as e:
+        log.error("Unexpected channel lineup payload: {}", str(e))
+        raise DispatchrrUnavailableError(f"Unexpected channel lineup payload: {e}") from e
 
 
 def dispatcharr_auth_headers() -> dict[str, str]:
@@ -161,12 +174,15 @@ async def get_channel_groups() -> list[DispatchrrChannelGroup]:
         async with httpx.AsyncClient(timeout=_CATALOGUE_TIMEOUT, verify=SSL_CONTEXT) as client:
             response = await client.get(url, headers=headers)
             response.raise_for_status()
-            groups = [DispatchrrChannelGroup(**g) for g in response.json()]
+            groups = [DispatchrrChannelGroup(**g) for g in _json_list(response)]
             log.info("Fetched {} channel groups", len(groups))
             return groups
     except httpx.HTTPError as e:
         log.error("Failed to fetch channel groups: {}", str(e))
         raise DispatchrrUnavailableError(f"Failed to fetch channel groups: {e}") from e
+    except (ValueError, TypeError, ValidationError) as e:
+        log.error("Unexpected channel groups payload: {}", str(e))
+        raise DispatchrrUnavailableError(f"Unexpected channel groups payload: {e}") from e
 
 
 async def get_channels_with_groups() -> list[DispatchrrFullChannel]:
@@ -186,12 +202,15 @@ async def get_channels_with_groups() -> list[DispatchrrFullChannel]:
         async with httpx.AsyncClient(timeout=_CATALOGUE_TIMEOUT, verify=SSL_CONTEXT) as client:
             response = await client.get(url, headers=headers)
             response.raise_for_status()
-            channels = [DispatchrrFullChannel(**c) for c in response.json()]
+            channels = [DispatchrrFullChannel(**c) for c in _json_list(response)]
             log.info("Fetched {} channels with group data", len(channels))
             return channels
     except httpx.HTTPError as e:
         log.error("Failed to fetch channels with groups: {}", str(e))
         raise DispatchrrUnavailableError(f"Failed to fetch channels: {e}") from e
+    except (ValueError, TypeError, ValidationError) as e:
+        log.error("Unexpected channels payload: {}", str(e))
+        raise DispatchrrUnavailableError(f"Unexpected channels payload: {e}") from e
 
 
 async def get_grouped_channels() -> GroupedChannelsResponse:
