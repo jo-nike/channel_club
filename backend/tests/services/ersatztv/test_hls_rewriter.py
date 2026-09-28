@@ -4,15 +4,18 @@ Story: 7.5 - HLS Proxy Service
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
+from urllib.parse import urlsplit
 
 import httpx
 import pytest
 
+from app.config import settings
 from app.services.ersatztv.hls_rewriter import (
     HLSManifestRewriter,
     decode_url,
     get_segment,
     get_stream_manifest,
+    is_ersatztv_url,
     rewrite_manifest,
 )
 
@@ -367,3 +370,33 @@ class TestGetSegment:
         """get_segment raises error for invalid base64."""
         with pytest.raises(ValueError):
             await get_segment("not-valid-base64!!!")
+
+
+def _allowlist_cases() -> list[tuple[str, bool]]:
+    """URLs around the configured ErsatzTV origin, built from settings."""
+    base = urlsplit(settings.ersatztv_base_url)
+    assert base.hostname
+    default_port = {"http": 80, "https": 443}[base.scheme]
+    port = base.port or default_port
+    host = base.hostname
+    other_scheme = "https" if base.scheme == "http" else "http"
+    path = "/iptv/session/8/live000010.ts"
+    return [
+        (f"{base.scheme}://{host}:{port}{path}", True),
+        (f"{base.scheme}://{host}:{port + 1}{path}", False),
+        # Implicit port: accepted only when the configured port is the default
+        (f"{base.scheme}://{host}{path}", port == default_port),
+        (f"{other_scheme}://{host}:{port}{path}", False),
+        (f"ftp://{host}:{port}{path}", False),
+        (f"{base.scheme}://user@{host}:{port}{path}", False),
+        (f"{base.scheme}://user:pass@{host}:{port}{path}", False),
+        (f"{base.scheme}://{host}:{port}@evil.example.com{path}", False),
+    ]
+
+
+class TestIsErsatztvUrl:
+    """The allowlist compares exact scheme, host and port, and rejects userinfo."""
+
+    @pytest.mark.parametrize(("url", "allowed"), _allowlist_cases())
+    def test_allowlist(self, url: str, allowed: bool) -> None:
+        assert is_ersatztv_url(url) is allowed

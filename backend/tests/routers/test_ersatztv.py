@@ -631,6 +631,39 @@ class TestGetSegment:
         assert response.status_code == 400
         assert response.json()["detail"] == "Invalid segment URL"
 
+    def test_rejects_same_host_other_port_without_upstream_request(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        """Another service on the ErsatzTV machine is never contacted."""
+        from urllib.parse import urlsplit
+
+        from app.config import settings
+        from app.services.ersatztv.hls_rewriter import HLSManifestRewriter
+
+        base = urlsplit(settings.ersatztv_base_url)
+        port = (base.port or {"http": 80, "https": 443}[base.scheme]) + 1
+        url = f"{base.scheme}://{base.hostname}:{port}/iptv/session/8/live000010.ts"
+        requests: list[httpx.Request] = []
+
+        def upstream(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return httpx.Response(200, content=b"secret", headers={"content-type": "text/html"})
+
+        real_client = httpx.AsyncClient
+        with patch(
+            "app.routers.ersatztv.httpx.AsyncClient",
+            side_effect=lambda **kwargs: real_client(
+                transport=httpx.MockTransport(upstream), **kwargs
+            ),
+        ):
+            response = client.get(
+                f"/api/ersatztv/segments/{HLSManifestRewriter()._encode_url(url)}",
+                headers=auth_header,
+            )
+
+        assert response.status_code == 400
+        assert requests == []
+
     def test_accepts_token_query_param(self, client: TestClient) -> None:
         """Segment endpoint accepts token via query parameter for HLS playback."""
         token = create_access_token({"sub": "testuser", "role": "viewer"})
