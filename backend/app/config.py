@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     stream_base_url: str = "https://streams.domain.com"
     jwt_secret: str = DEFAULT_JWT_SECRET
 
+    # FastAPI's /docs, /redoc and /openapi.json publish the API map; off in production.
+    docs_enabled: bool = False
+    # Browser origins allowed cross-origin, e.g. ["http://localhost:5173"]. Empty
+    # (no CORS middleware) in production and in dev, where Vite proxies /api.
+    cors_origins: list[str] = []
+
     # Logging Configuration
     log_level: str = "INFO"  # DEBUG, INFO, WARNING, ERROR
     log_format: str = "pretty"  # json or pretty
@@ -152,6 +158,8 @@ class Settings(BaseSettings):
     media_export_limit: int = 2
     media_export_per_user: int = 1
     media_export_max_bytes: int = 256 * 1024 * 1024
+    # Every other request body; /api/highlight/upload enforces media_export_max_bytes.
+    request_body_max_bytes: int = 64 * 1024
 
     # Chromecast Feature (requires FFmpeg in container)
     # Enables casting streams to Chromecast devices via HLS transcoding

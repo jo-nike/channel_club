@@ -224,3 +224,48 @@ def test_sec01_empty_environment_secret(monkeypatch):
     assert config.jwt_secret == ""
     with patch("app.main.settings", config), pytest.raises(RuntimeError, match="JWT_SECRET"):
         validate_auth_configuration()
+
+
+PREFLIGHT = {"Origin": "http://localhost:5173", "Access-Control-Request-Method": "PUT"}
+
+
+@pytest.fixture
+def reloaded_main(monkeypatch):
+    """Rebuild app.main under patched settings; restore the default app afterwards."""
+    import importlib
+
+    import app.main as main
+
+    def rebuild(**overrides):
+        for name, value in overrides.items():
+            monkeypatch.setattr(settings, name, value)
+        return importlib.reload(main).app
+
+    yield rebuild
+    monkeypatch.undo()
+    importlib.reload(main)
+
+
+@pytest.mark.parametrize("path", ["/docs", "/redoc", "/openapi.json"])
+def test_api_docs_are_off_by_default(client, path):
+    assert client.get(path).status_code == 404
+
+
+def test_no_cors_middleware_by_default(client):
+    response = client.options("/api/settings", headers=PREFLIGHT)
+    assert "access-control-allow-origin" not in response.headers
+
+
+@pytest.mark.parametrize("path", ["/docs", "/redoc", "/openapi.json"])
+def test_api_docs_served_when_enabled(reloaded_main, path):
+    assert TestClient(reloaded_main(docs_enabled=True)).get(path).status_code == 200
+
+
+def test_cors_origins_setting_allows_listed_origin_only(reloaded_main):
+    client = TestClient(reloaded_main(cors_origins=["http://localhost:5173"]))
+    allowed = client.options("/api/settings", headers=PREFLIGHT)
+    assert allowed.headers["access-control-allow-origin"] == "http://localhost:5173"
+    other = client.options(
+        "/api/settings", headers={**PREFLIGHT, "Origin": "http://192.168.50.167:5173"}
+    )
+    assert "access-control-allow-origin" not in other.headers
