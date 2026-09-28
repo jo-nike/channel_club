@@ -2078,7 +2078,23 @@ class TestNicknameTaken:
                 assert msg["username"] == "admin"
 
     @pytest.mark.parametrize(
-        "nickname", ["Live TV", "live tv", "\uff21ce", "jo\u200bn", "\u200eJON\u200f"]
+        "nickname",
+        [
+            "Live TV",
+            "live tv",
+            "\uff21ce",
+            "jo\u200bn",
+            "\u200eJON\u200f",
+            "Live  TV",
+            "Live\u00a0\u3000TV",
+            "jo\u034fn",
+            "jon\ufe0f",
+            "jon\U000e0100",
+            "jon\u3164",
+            "jo\u115fn",
+            "jon\uffa0",
+            "jon\u2800",
+        ],
     )
     def test_system_name_nicknames_and_invisible_variants_are_refused(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch, nickname: str
@@ -2126,6 +2142,37 @@ class TestNicknameTaken:
 
         assert msg["username"] == "CoolCat"
         assert stored == "CoolCat"
+
+    @pytest.mark.parametrize(
+        ("nickname", "expected"),
+        [
+            ("Live TV" + " " * 24 + "x", "Live TV x"),
+            ("jon" + " " * 27 + "x", "jon x"),
+            ("A" * 29 + " yz", "A" * 29),
+        ],
+    )
+    def test_nickname_spaces_are_collapsed_and_trimmed_after_the_cut(
+        self,
+        client: TestClient,
+        valid_token: str,
+        monkeypatch: pytest.MonkeyPatch,
+        nickname: str,
+        expected: str,
+    ):
+        """Space runs can't hide a suffix, and the length cut leaves no trailing space."""
+        monkeypatch.setattr(settings, "chat_enabled", True)
+
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # connection_ack
+            ws.receive_json()  # chat_history
+
+            ws.send_json({"type": "set_nickname", "nickname": nickname})
+            ws.send_json({"type": "chat_message", "content": "Hi"})
+            msg = ws.receive_json()
+            stored = only_presence().nickname
+
+        assert msg["username"] == expected
+        assert stored == expected
 
     def test_own_nickname_on_another_connection_is_allowed(
         self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch

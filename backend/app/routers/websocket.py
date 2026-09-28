@@ -150,15 +150,52 @@ def _normalize_nickname(nickname: str) -> str:
     """A requested nickname as it is compared, stored and shown.
 
     NFKC folds compatibility look-alikes (fullwidth letters, ligatures), and
-    format and control characters (zero-width spaces, bidi marks) are dropped,
-    so 'jo\u200bn' can't pass for 'jon'. Then trimmed and cut to length.
+    format and control characters (zero-width spaces, bidi marks) and other
+    characters that render as nothing (variation selectors, Hangul fillers,
+    the braille blank) are dropped, so 'jo\u200bn' can't pass for 'jon'. Runs
+    of whitespace become one space, as HTML shows them. Then cut to length and
+    trimmed, so the cut can't leave trailing spaces behind.
 
     Args:
         nickname: The nickname as the client sent it.
     """
     folded = unicodedata.normalize("NFKC", nickname)
-    visible = "".join(ch for ch in folded if unicodedata.category(ch) not in ("Cf", "Cc"))
-    return visible.strip()[:MAX_NICKNAME_LENGTH]
+    visible = "".join(
+        ch
+        for ch in folded
+        if unicodedata.category(ch) not in ("Cf", "Cc") and not _renders_as_nothing(ch)
+    )
+    return " ".join(visible.split())[:MAX_NICKNAME_LENGTH].strip()
+
+
+# Unicode's Default_Ignorable_Code_Point ranges (RFC 8266 drops these from
+# nicknames too) plus U+2800 BRAILLE PATTERN BLANK, which draws as a space.
+_INVISIBLE_RANGES = (
+    (0x00AD, 0x00AD),
+    (0x034F, 0x034F),
+    (0x061C, 0x061C),
+    (0x115F, 0x1160),
+    (0x17B4, 0x17B5),
+    (0x180B, 0x180F),
+    (0x200B, 0x200F),
+    (0x202A, 0x202E),
+    (0x2060, 0x206F),
+    (0x2800, 0x2800),
+    (0x3164, 0x3164),
+    (0xFE00, 0xFE0F),
+    (0xFEFF, 0xFEFF),
+    (0xFFA0, 0xFFA0),
+    (0xFFF0, 0xFFF8),
+    (0x1BCA0, 0x1BCA3),
+    (0x1D173, 0x1D17A),
+    (0xE0000, 0xE0FFF),
+)
+
+
+def _renders_as_nothing(ch: str) -> bool:
+    """Whether a character is default-ignorable or otherwise draws as blank."""
+    code = ord(ch)
+    return any(low <= code <= high for low, high in _INVISIBLE_RANGES)
 
 
 def _is_another_members_name(nickname: str, username: str) -> bool:
