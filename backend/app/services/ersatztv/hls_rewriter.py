@@ -240,11 +240,17 @@ class HLSManifestRewriter:
             suffix = "?" + urlencode({"token": token}) if token else ""
             return f"{self.proxy_base_url}/{encoded}{suffix}"
 
+        # RFC 8216 4.3.4.2: the URI line after EXT-X-STREAM-INF is a Media
+        # Playlist whatever its extension. Only that one line; a later bare URI
+        # falls back to the .m3u8 heuristic.
+        variant_next = False
         for line in lines:
             stripped = line.strip()
             if not stripped:
                 rewritten.append(line)
             elif stripped.startswith("#"):
+                if stripped.split(":", 1)[0] == "#EXT-X-STREAM-INF":
+                    variant_next = True
                 # URI is a quoted HLS attribute (commas may appear inside it).
                 # Some playlist attributes use extensionless provider URLs.
                 playlist = stripped.split(":", 1)[0] in {
@@ -262,7 +268,8 @@ class HLSManifestRewriter:
                     )
                 )
             else:
-                rewritten.append(proxy_uri(stripped))
+                rewritten.append(proxy_uri(stripped, True if variant_next else None))
+                variant_next = False
 
         return "\n".join(rewritten)
 
