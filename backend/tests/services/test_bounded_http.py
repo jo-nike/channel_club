@@ -128,6 +128,30 @@ async def test_manifest_video_mime_rejected_before_read():
     assert stream.closed and stream.read == 0
 
 
+@pytest.mark.parametrize(
+    ("body", "valid"),
+    [
+        (b"Service starting", False),
+        (b"#EXTM3U\n#EXTINF:4,\nlive000010.ts\n", True),
+        (b"\xef\xbb\xbf#EXTM3U\n#EXTINF:4,\nlive000010.ts\n", True),
+        (b"", True),
+    ],
+)
+@pytest.mark.asyncio
+async def test_manifest_requires_extm3u_header(body, valid):
+    def upstream(req):
+        return httpx.Response(200, headers={"Content-Type": "text/plain"}, content=body)
+
+    url = "http://source/iptv/session/8/hls.m3u8"
+    with patch("app.services.ersatztv.hls_rewriter.settings.ersatztv_base_url", "http://source"):
+        async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
+            if valid:
+                assert (await fetch_ersatztv(client, url)).content == body
+            else:
+                with pytest.raises(ValueError, match="Invalid HLS manifest header"):
+                    await fetch_ersatztv(client, url)
+
+
 def test_feed_cap_closes_without_materializing_full_body(monkeypatch):
     class Feed(httpx.SyncByteStream):
         closed = False
