@@ -18,8 +18,10 @@ from app.config import settings
 from app.models.auth import TokenPayload
 from app.models.channel import ChannelId
 from app.routers.auth_deps import get_current_user
+from app.services import channel_state
 from app.services.cast import cast_service
 from app.services.media_source import resolve_media_channel
+from app.services.stream_sessions import StreamSessionLimitError
 
 router = APIRouter(prefix="/api/cast", tags=["cast"])
 log = logger.bind(router="cast")
@@ -36,6 +38,9 @@ class CreateSessionRequest(BaseModel):
 
     channel_id: ChannelId
     stream_type: Literal["hls", "mpegts"]
+    # Cast of the Live slot: move with Live and stop with it (honoured only
+    # when channel_id is Live now)
+    follows_live: bool = False
 
 
 class CastSessionResponse(BaseModel):
@@ -66,7 +71,8 @@ async def create_cast_session(
 ) -> CastSessionResponse:
     """Create a new cast session.
 
-    For HLS streams: Returns the source URL directly (no transcoding needed).
+    For HLS streams (ErsatzTV): returns an ErsatzTV stream session's playlist
+    path, with no transcoding and no cast session.
     For MPEG-TS streams: Starts FFmpeg transcoding and returns HLS URL.
     """
     log.info(
@@ -84,12 +90,23 @@ async def create_cast_session(
 
     source = await resolve_media_channel(request.channel_id)
 
-    result = await cast_service.create_session(
-        channel_id=request.channel_id,
-        stream_url=source.channel.stream_url,
-        stream_type=source.stream_type,
-        owner=user.sub,
-    )
+    follows_live = request.follows_live
+    if follows_live:
+        live = channel_state.get_current_channel()
+        if live is None or live.id != request.channel_id:
+            log.debug("Cast of {} is not a cast of Live; not following Live", request.channel_id)
+            follows_live = False
+
+    try:
+        result = await cast_service.create_session(
+            channel_id=request.channel_id,
+            stream_url=source.channel.stream_url,
+            stream_type=source.stream_type,
+            owner=user.account_key,
+            follows_live=follows_live,
+        )
+    except StreamSessionLimitError:
+        raise HTTPException(status_code=429, detail="Too many open streams") from None
 
     if not result:
         raise HTTPException(
@@ -123,11 +140,11 @@ async def stop_cast_session(
         user.sub,
     )
 
-    stopped = await cast_service.stop_session(session_id)
+    stopped = await cast_service.stop_session(session_id, owner=user.account_key)
 
     if not stopped:
-        # Session not found - might have already been cleaned up
-        log.debug("Cast session {} not found (may have already been cleaned up)", session_id)
+        # Not found (maybe already cleaned up) or not this account's
+        log.debug("Cast session {} not stopped (unknown or not the caller's)", session_id)
 
     return {"stopped": stopped}
 
@@ -135,7 +152,12 @@ async def stop_cast_session(
 @router.get("/hls/{session_id}/{filename}")
 async def get_hls_file(
     session_id: str = Path(..., description="Cast session ID"),
-    filename: str = Path(..., description="HLS file (playlist.m3u8 or seg_XXX.ts)"),
+    filename: str = Path(
+        ...,
+        description="HLS file (playlist.m3u8 or seg_XXX.ts)",
+        # FFmpeg writes seg_%03d.ts, and a long cast passes seg_999.ts
+        pattern=r"^(playlist\.m3u8|seg_\d{3,9}\.ts)$",
+    ),
 ) -> Response:
     """Serve HLS playlist or segment files.
 
@@ -150,7 +172,7 @@ async def get_hls_file(
     if not file_path:
         raise HTTPException(
             status_code=404,
-            detail=f"File not found: {filename}",
+            detail="File not found",
         )
 
     # Determine media type
