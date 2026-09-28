@@ -17,7 +17,12 @@ from loguru import logger
 from app.services import channel_state, presence
 from app.services.cast import cast_service
 from app.services.highlight import highlight_service
-from app.services.media_limits import export_budget, process_budget, recorder_budget
+from app.services.media_limits import (
+    export_budget,
+    process_budget,
+    recorder_budget,
+    upload_budget,
+)
 
 log = logger.bind(service="gauges")
 
@@ -73,6 +78,7 @@ def collect_gauges() -> dict[str, int]:
         "budget_process": sum(process_budget.owners.values()),
         "budget_export": sum(export_budget.owners.values()),
         "budget_recorder": sum(recorder_budget.owners.values()),
+        "budget_upload": sum(upload_budget.owners.values()),
     }
     open_fds = _open_fds()
     if open_fds is not None:

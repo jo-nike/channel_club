@@ -28,6 +28,7 @@ GAUGE_KEYS = {
     "budget_process",
     "budget_export",
     "budget_recorder",
+    "budget_upload",
 }
 
 
@@ -87,6 +88,7 @@ def test_one_tick_logs_one_json_line_with_the_counts() -> None:
         "budget_process": 3,
         "budget_export": 1,
         "budget_recorder": 2,
+        "budget_upload": 1,
     }
     if Path("/proc/self/fd").exists():
         assert isinstance(extra["open_fds"], int) and extra["open_fds"] > 0
