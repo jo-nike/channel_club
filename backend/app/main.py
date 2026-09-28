@@ -28,6 +28,7 @@ from app.services.dispatcharr import (
     DispatchrrUnavailableError,
     get_grouped_channels,
 )
+from app.services.epg_service import get_epg_service
 from app.services.highlight import highlight_service
 from app.spa import mount_spa
 
@@ -89,7 +90,6 @@ def validate_auth_configuration() -> None:
 async def lifespan(app: FastAPI):
     """Application lifespan handler for startup/shutdown events."""
     # Startup
-    configure_logging()
     logger.info(
         "Channel Club API starting",
         version=APP_VERSION,
@@ -132,21 +132,31 @@ async def lifespan(app: FastAPI):
     # stale viewers disappear even when no admin is polling Active Users.
     presence.start_cleanup_task()
 
-    # Warm the channel groups cache in the background so the first admin
-    # modal open doesn't block on a cold Dispatcharr fetch.
-    async def _warm_channels_cache() -> None:
-        try:
-            await get_grouped_channels()
+    # Warm the channel groups and guide caches in the background so the first
+    # admin modal open or channel list doesn't block on a cold Dispatcharr fetch.
+    # A failed guide download here starts the EPG backoff before anyone waits.
+    async def _warm_caches() -> None:
+        channels, guide = await asyncio.gather(
+            get_grouped_channels(),
+            get_epg_service().check_health(),
+            return_exceptions=True,
+        )
+        if isinstance(channels, DispatchrrUnavailableError):
+            logger.warning("Channel cache warmup skipped: {}", str(channels))
+        elif isinstance(channels, BaseException):
+            logger.warning("Channel cache warmup failed: {}", str(channels))
+        else:
             logger.info("Channel groups cache warmed")
-        except DispatchrrUnavailableError as e:
-            logger.warning("Channel cache warmup skipped: {}", str(e))
-        except Exception as e:  # noqa: BLE001
-            logger.warning("Channel cache warmup failed: {}", str(e))
+        # A failed refresh has already logged its reason in refresh_cache
+        if isinstance(guide, BaseException):
+            logger.warning("Guide cache warmup failed: {}", str(guide))
+        elif guide.online:
+            logger.info("Guide cache warmed")
 
     # The event loop only holds a weak reference to a running task, so keep a
     # strong one for the app's lifetime — otherwise the warmup can be collected
     # mid-fetch and the cache silently stays cold.
-    app.state.warmup_task = asyncio.create_task(_warm_channels_cache())
+    app.state.warmup_task = asyncio.create_task(_warm_caches())
 
     yield
     # Shutdown
@@ -164,6 +174,10 @@ async def lifespan(app: FastAPI):
     # Stop all cast sessions
     await cast_service.stop_all()
 
+
+# Configure at import, before uvicorn logs 'Started server process', so every
+# line from startup on goes through the JSON sink. configure_logging is idempotent.
+configure_logging()
 
 app = FastAPI(
     title=f"{APP_NAME} API",
