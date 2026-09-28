@@ -3,8 +3,11 @@
 import asyncio
 import math
 import os
+import shutil
 import signal
-from contextlib import suppress
+import tempfile
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from app.config import settings
@@ -23,6 +26,29 @@ async def owned_thread(function, *args):
     except asyncio.CancelledError:
         await task
         raise
+
+
+def new_workspace(prefix: str) -> Path:
+    """A private request directory under the recording root, so the startup sweep removes
+    whatever a killed process leaves behind."""
+    root = Path(settings.highlight_temp_dir) / "work"
+    root.mkdir(parents=True, exist_ok=True)
+    return Path(tempfile.mkdtemp(prefix=prefix, dir=root))
+
+
+async def remove_workspace(directory: Path) -> None:
+    """Recursive delete is filesystem-bound; it runs in a thread and survives cancellation."""
+    await owned_thread(shutil.rmtree, directory, True)
+
+
+@asynccontextmanager
+async def workspace(prefix: str) -> AsyncIterator[Path]:
+    """A request workspace removed off the loop on exit, error or cancellation."""
+    directory = new_workspace(prefix)
+    try:
+        yield directory
+    finally:
+        await remove_workspace(directory)
 
 
 async def reap(process: asyncio.subprocess.Process) -> None:

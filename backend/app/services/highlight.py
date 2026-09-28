@@ -27,7 +27,7 @@ from loguru import logger
 from app.config import settings
 from app.models.channel import validate_channel_id
 from app.services import channel_state
-from app.services.media_export import encode_file, media_duration, owned_thread
+from app.services.media_export import encode_file, media_duration, owned_thread, workspace
 from app.services.media_limits import MediaCapacityError, export_budget, recorder_budget
 from app.services.media_source import resolve_media_channel
 
@@ -386,11 +386,11 @@ class ChannelRecorder:
 
         Returns the wall-clock time the capture ends (its newest segment's mtime).
         """
-        with tempfile.TemporaryDirectory(prefix="highlight-capture-") as directory:
+        async with workspace("highlight-capture-") as directory:
             async with self._lock:
                 if not self.is_running or not self.segment_dir:
                     raise ValueError("Recorder not running")
-                concat, ends_at = await owned_thread(self._snapshot, Path(directory))
+                concat, ends_at = await owned_thread(self._snapshot, directory)
             await encode_file(concat, output, "mp4", None, None, concat=True)
         return ends_at
 

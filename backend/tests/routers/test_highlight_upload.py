@@ -1,6 +1,7 @@
 """Optional shared Zipline uploads: feature gating, bounded ingestion, exact bytes."""
 
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -16,8 +17,9 @@ from app.services.media_limits import export_budget, upload_budget
 
 
 @pytest.fixture
-async def client(monkeypatch):
+async def client(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "highlight_enabled", True)
+    monkeypatch.setattr(settings, "highlight_temp_dir", str(tmp_path))
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_current_user] = lambda: TokenPayload(
@@ -94,7 +96,9 @@ async def test_viewer_upload_forwards_exact_prepared_bytes(client, configured):
             "app.services.zipline.httpx.AsyncClient",
             side_effect=lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw),
         ),
-        patch("app.routers.highlight.media_duration", new_callable=AsyncMock, return_value=2.4),
+        patch(
+            "app.routers.highlight.media_duration", new_callable=AsyncMock, return_value=2.4
+        ) as probe,
     ):
         response = await client.post(
             "/api/highlight/upload",
@@ -103,6 +107,11 @@ async def test_viewer_upload_forwards_exact_prepared_bytes(client, configured):
         )
     assert response.json() == {"url": "https://cdn.test/c.mp4", "name": "c.mp4"}
     assert len(seen) == 1
+    # The clip was held in a workspace the startup sweep covers, and removed afterwards.
+    assert probe.await_args is not None
+    source = probe.await_args.args[0]
+    assert source.parent.parent == Path(settings.highlight_temp_dir) / "work"
+    assert not source.parent.exists()
 
 
 @pytest.mark.parametrize(

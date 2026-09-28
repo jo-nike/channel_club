@@ -24,6 +24,11 @@ from app.services.media_limits import export_budget
 CAPTURE_ID = "synthetic-capture-0001"
 
 
+@pytest.fixture(autouse=True)
+def recording_root(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "highlight_temp_dir", str(tmp_path / "highlights"))
+
+
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setattr(settings, "highlight_enabled", True)

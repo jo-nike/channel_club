@@ -194,7 +194,8 @@ class CastSession:
         # Cleanup output directory
         if self.output_dir and self.output_dir.exists():
             try:
-                shutil.rmtree(self.output_dir)
+                # Recursive delete is filesystem-bound - keep it off the loop
+                await asyncio.to_thread(shutil.rmtree, self.output_dir)
                 log.debug("Cleaned up HLS directory for session {}", self.session_id)
             except Exception as e:
                 log.warning("Failed to cleanup HLS files for session {}: {}", self.session_id, e)

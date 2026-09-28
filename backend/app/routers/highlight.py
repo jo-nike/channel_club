@@ -7,7 +7,6 @@ Provides endpoints for:
 """
 
 import asyncio
-import tempfile
 from collections.abc import Awaitable
 from contextlib import suppress
 from datetime import datetime
@@ -24,7 +23,7 @@ from app.models.auth import TokenPayload
 from app.models.channel import ChannelId
 from app.routers.auth_deps import get_current_user, get_current_user_or_token
 from app.services.highlight import RECORDER_GONE_ERROR, Capture, highlight_service
-from app.services.media_export import encode_file, media_duration, owned_thread
+from app.services.media_export import encode_file, media_duration, owned_thread, workspace
 from app.services.media_limits import export_budget, upload_budget
 from app.services.zipline import upload_clip
 
@@ -122,20 +121,18 @@ async def upload_highlight(
     content_type = f"video/{format}"
     if request.headers.get("content-type", "").split(";")[0] != content_type:
         raise HTTPException(415, f"Expected {content_type}")
-    with (
-        upload_budget.slot(user.sub),
-        tempfile.TemporaryDirectory(prefix="highlight-upload-") as directory,
-    ):
-        source = FilePath(directory) / f"clip.{format}"
-        try:
-            await ingest_preview(request, source)
-            await media_duration(source)
-            filename = f"highlight-{datetime.now().strftime('%Y-%m-%dT%H-%M-%S')}.{format}"
-            return await upload_clip(source, filename, content_type)
-        except TimeoutError:
-            raise HTTPException(408, "Clip upload to the viewer timed out") from None
-        except (OSError, ValueError):
-            raise HTTPException(400, "Unable to read clip") from None
+    with upload_budget.slot(user.sub):
+        async with workspace("highlight-upload-") as directory:
+            source = directory / f"clip.{format}"
+            try:
+                await ingest_preview(request, source)
+                await media_duration(source)
+                filename = f"highlight-{datetime.now().strftime('%Y-%m-%dT%H-%M-%S')}.{format}"
+                return await upload_clip(source, filename, content_type)
+            except TimeoutError:
+                raise HTTPException(408, "Clip upload to the viewer timed out") from None
+            except (OSError, ValueError):
+                raise HTTPException(400, "Unable to read clip") from None
 
 
 @router.get("/status/{channel_id}", response_model=HighlightStatusResponse)
@@ -286,14 +283,14 @@ async def export_preview(
     source = highlight_service.get_capture(capture, user.sub)
     if source is None:
         raise HTTPException(404, "Capture not found")
-    with tempfile.TemporaryDirectory(prefix="highlight-preview-") as directory:
+    async with workspace("highlight-preview-") as directory:
 
         async def encode() -> bytes:
             # Waits for a slot inside the disconnect watch, so a viewer who left never takes one.
             async with export_budget.waiting_slot(user.sub):
                 return await encode_file(
                     source.path,
-                    FilePath(directory) / f"export.{format}",
+                    directory / f"export.{format}",
                     format,
                     start_time,
                     end_time,
