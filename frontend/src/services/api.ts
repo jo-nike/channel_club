@@ -421,46 +421,6 @@ export interface TrimOptions {
   endTime?: number
 }
 
-export async function saveHighlight(
-  channelId: string,
-  format: HighlightFormat = 'mp4',
-  trimOptions?: TrimOptions,
-  signal?: AbortSignal
-): Promise<Blob> {
-  logger.debug('API', `Saving highlight for channel: ${channelId} (format: ${format}, trim: ${JSON.stringify(trimOptions)})`)
-
-  const token = getAuthToken()
-  const headers: Record<string, string> = {}
-
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`
-  }
-
-  // Build URL with query params
-  const params = new URLSearchParams({ format })
-  if (trimOptions?.startTime !== undefined && trimOptions.startTime > 0) {
-    params.append('start_time', trimOptions.startTime.toString())
-  }
-  if (trimOptions?.endTime !== undefined) {
-    params.append('end_time', trimOptions.endTime.toString())
-  }
-
-  const response = await fetch(`${API_URL}/highlight/${channelId}?${params}`, {
-    method: 'POST',
-    headers,
-    signal,
-  })
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Failed to save highlight' }))
-    logger.error('API', `Failed to save highlight: ${response.status}`, { detail: error.detail })
-    throw new Error(error.detail || 'Failed to save highlight')
-  }
-
-  logger.info('API', `Highlight saved for channel: ${channelId} (format: ${format})`)
-  return response.blob()
-}
-
 export interface HighlightCapture {
   id: string
   duration: number
@@ -549,10 +509,6 @@ export async function uploadHighlight(clip: Blob, format: HighlightFormat, signa
     throw new Error(error.detail || 'Upload failed. Check Zipline before retrying.')
   }
   return response.json()
-}
-
-export async function saveHighlightWebM(channelId: string): Promise<Blob> {
-  return saveHighlight(channelId, 'webm')
 }
 
 // Chromecast API

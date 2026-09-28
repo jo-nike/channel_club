@@ -20,7 +20,7 @@ from app.services.highlight import ChannelRecorder, HighlightService
 from app.services.media_export import encode_file
 
 
-async def test_simultaneous_exports_snapshot_before_ring_wrap_and_stop(tmp_path, monkeypatch):
+async def test_simultaneous_captures_snapshot_before_ring_wrap_and_stop(tmp_path, monkeypatch):
     root = tmp_path / "recordings"
     root.mkdir()
     monkeypatch.setattr(settings, "highlight_temp_dir", str(root))
@@ -42,32 +42,35 @@ async def test_simultaneous_exports_snapshot_before_ring_wrap_and_stop(tmp_path,
         if len(workspaces) == 2:
             ready.set()
         await release.wait()
-        return (
+        output.write_bytes(
             b"".join(path.read_bytes() for path in sorted(source.parent.glob("input_*.ts")))
-            + f"{format}:{start}:{end}".encode()
         )
+        return output
 
+    outputs = [tmp_path / "first.mp4", tmp_path / "second.mp4"]
     with (
         patch("os.killpg"),
         patch("os.waitpid", return_value=(123, 4991)),
         patch("os.getpgid"),
         patch("app.services.highlight.encode_file", encoder),
     ):
-        first = asyncio.create_task(recorder.save_highlight("mp4", 1, 3))
-        second = asyncio.create_task(recorder.save_highlight("webm", 2, 4))
+        first = asyncio.create_task(recorder.capture(outputs[0]))
+        second = asyncio.create_task(recorder.capture(outputs[1]))
         await ready.wait()
         assert workspaces[0] != workspaces[1]
         assert recorder.segment_dir is not None
         (recorder.segment_dir / "seg_000.ts").write_bytes(b"wrapped-new-frames")
         await recorder.stop()
         release.set()
-        assert await first == (b"frame-zeroframe-onemp4:1:3", None)
-        assert await second == (b"frame-zeroframe-onewebm:2:4", None)
+        await first
+        await second
+    assert [output.read_bytes() for output in outputs] == [b"frame-zeroframe-one"] * 2
     assert all(not workspace.exists() for workspace in workspaces)
 
 
 @pytest.mark.parametrize("failure", ["timeout", "cancel"])
-async def test_export_failure_cleans_private_workspace(tmp_path, monkeypatch, failure):
+async def test_capture_failure_cleans_private_workspace(tmp_path, monkeypatch, failure):
+    monkeypatch.setattr(settings, "highlight_temp_dir", str(tmp_path))
     recorder = ChannelRecorder("safe", "http://fixture")
     recorder.process = MagicMock()
     recorder.process.poll.return_value = None
@@ -89,14 +92,15 @@ async def test_export_failure_cleans_private_workspace(tmp_path, monkeypatch, fa
         patch.object(recorder, "_snapshot", snapshot),
         patch("app.services.highlight.encode_file", encode),
     ):
-        task = asyncio.create_task(recorder.save_highlight())
+        task = asyncio.create_task(recorder.capture(tmp_path / "snapshot.mp4"))
         await started.wait()
         if failure == "cancel":
             task.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await task
         else:
-            assert await task == (None, "Highlight creation timed out")
+            with pytest.raises(TimeoutError):
+                await task
     assert not workspaces[0].exists()
 
 

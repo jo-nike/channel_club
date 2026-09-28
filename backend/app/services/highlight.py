@@ -394,35 +394,6 @@ class ChannelRecorder:
             await encode_file(concat, output, "mp4", None, None, concat=True)
         return ends_at
 
-    async def save_highlight(
-        self,
-        format: str = "mp4",
-        start_time: float | None = None,
-        end_time: float | None = None,
-    ) -> tuple[bytes | None, str | None]:
-        """Export private copied inputs; producer stop/wrap cannot change them."""
-        with tempfile.TemporaryDirectory(prefix="highlight-export-") as directory:
-            workspace = Path(directory)
-            try:
-                async with self._lock:
-                    if not self.is_running or not self.segment_dir:
-                        return None, "Recorder not running"
-                    concat, _ = await owned_thread(self._snapshot, workspace)
-                video = await encode_file(
-                    concat,
-                    workspace / f"highlight.{format}",
-                    format,
-                    start_time,
-                    end_time,
-                    concat=True,
-                )
-                return video, None
-            except TimeoutError:
-                return None, "Highlight creation timed out"
-            except (OSError, ValueError) as exc:
-                log.warning("Highlight export failed: {}", exc)
-                return None, str(exc)
-
 
 # Idle timeout for recordings - stop if no status polls for this duration.
 # With always-on polling from the frontend, this is a safety net for
@@ -875,40 +846,6 @@ class HighlightService:
             "bufferSeconds": recorder.get_buffer_seconds(),
             "maxBufferSeconds": settings.highlight_buffer_seconds,
         }
-
-    async def save_highlight(
-        self,
-        channel_id: str,
-        format: str = "mp4",
-        start_time: float | None = None,
-        end_time: float | None = None,
-        owner: str = "system",
-    ) -> tuple[bytes | None, str | None]:
-        """Save highlight for a channel.
-
-        Args:
-            channel_id: Channel to save highlight for.
-            format: Output format - "mp4" or "webm"
-            start_time: Optional start time in seconds for trimming
-            end_time: Optional end time in seconds for trimming
-
-        Returns:
-            Tuple of (video_bytes, error_message).
-        """
-        if not settings.highlight_enabled:
-            return None, "Highlight feature is disabled"
-
-        if channel_id not in self._recorders:
-            return None, "No recording active for this channel"
-
-        if format not in ("mp4", "webm"):
-            return None, f"Invalid format: {format}. Use 'mp4' or 'webm'"
-
-        recorder = self._recorders[channel_id]
-        with export_budget.slot(owner):
-            return await recorder.save_highlight(
-                format=format, start_time=start_time, end_time=end_time
-            )
 
     async def create_capture(
         self, channel_id: str, owner: str

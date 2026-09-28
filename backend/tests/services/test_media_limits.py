@@ -71,24 +71,28 @@ async def test_cast_limits_before_start_and_failed_cancelled_slots_release():
         assert not process_budget.owners
 
 
-async def test_export_overload_never_enters_recorder_and_cancel_releases():
+async def test_capture_overload_never_enters_recorder_and_cancel_releases():
     service = HighlightService()
     entered = asyncio.Event()
 
-    async def save(**_kwargs):
+    async def create(*_args):
         entered.set()
         await asyncio.Event().wait()
 
     recorder = AsyncMock()
-    recorder.save_highlight.side_effect = save
+    recorder.is_running = True
     service._recorders["same"] = recorder
-    job = asyncio.create_task(service.save_highlight("same", owner="alice"))
-    await entered.wait()
-    with pytest.raises(HTTPException):
-        await service.save_highlight("same", owner="alice")
-    assert recorder.save_highlight.await_count == 1
-    job.cancel()
-    await asyncio.gather(job, return_exceptions=True)
+    with patch.object(service.captures, "create", AsyncMock(side_effect=create)) as creating:
+        job = asyncio.create_task(service.create_capture("same", owner="alice"))
+        await entered.wait()
+        # Alice's second press queues for her one slot instead of entering the recorder.
+        queued = asyncio.create_task(service.create_capture("same", owner="alice"))
+        await asyncio.sleep(0.05)
+        assert not queued.done()
+        assert creating.await_count == 1
+        job.cancel()
+        queued.cancel()
+        await asyncio.gather(job, queued, return_exceptions=True)
     assert not export_budget.owners
 
 

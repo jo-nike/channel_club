@@ -74,12 +74,6 @@ async def encode_file(
             for value in (start_time, end_time)
         ):
             raise ValueError("Trim times must be finite and nonnegative")
-        if concat:
-            # Segment manifests have no reliable container duration. Normalize the
-            # immutable snapshot first, then trim against that same MP4 timeline.
-            normalized = output.with_name("snapshot.mp4")
-            await encode_file(source, normalized, "mp4", None, None, concat=True)
-            return await encode_file(normalized, output, format, start_time, end_time)
         duration = await media_duration(source)
         start = start_time or 0
         end = duration if end_time is None else end_time

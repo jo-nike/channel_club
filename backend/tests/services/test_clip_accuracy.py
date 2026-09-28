@@ -128,17 +128,6 @@ async def test_invalid_ranges_fail_before_encoding(preview, tmp_path, start, end
     assert not (tmp_path / "bad.mp4").exists()
 
 
-async def test_trimmed_segment_manifest_uses_normalized_duration(preview, tmp_path):
-    segment = tmp_path / "input.ts"
-    run("ffmpeg", "-v", "error", "-i", str(preview), "-c", "copy", str(segment))
-    manifest = tmp_path / "concat.txt"
-    manifest.write_text("file 'input.ts'\n")
-    output = tmp_path / "clip.mp4"
-    await encode_file(manifest, output, "mp4", 1.32, 3.72, concat=True)
-    data = json.loads(run("ffprobe", "-v", "error", "-show_format", "-of", "json", str(output)))
-    assert abs(float(data["format"]["duration"]) - 2.4) < 0.1
-
-
 async def test_capture_waits_for_completed_segment(tmp_path):
     from unittest.mock import MagicMock
 
