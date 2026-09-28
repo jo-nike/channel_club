@@ -306,9 +306,9 @@ def test_importing_the_app_routes_uvicorn_startup_lines_to_json(tmp_path: Path) 
     )
 
     lines = [line for line in result.stderr.splitlines() if "startup probe line" in line]
-    # How many copies appear is lane logs-tests' fix; here every copy must be JSON
-    assert lines
-    assert all(json.loads(line)["record"]["message"] == "startup probe line" for line in lines)
+    # One JSON line: uvicorn.error hands its records to the root handler only
+    assert len(lines) == 1
+    assert json.loads(lines[0])["record"]["message"] == "startup probe line"
 
 
 def _guide_xmltv() -> str:
