@@ -10,7 +10,6 @@ from loguru import logger
 
 from app.config import settings
 from app.models.status import (
-    DispatcharrClient,
     DispatcharrStream,
     DispatchrrStatus,
     EPGHealthStatus,
@@ -262,17 +261,6 @@ def _parse_dispatcharr_proxy_status(
     streams: list[DispatcharrStream] = []
 
     for ch in channels:
-        # Parse clients
-        clients = [
-            DispatcharrClient(
-                client_id=c.get("client_id", ""),
-                user_agent=c.get("user_agent"),
-                ip_address=c.get("ip_address"),
-                connected_since=c.get("connected_since", 0),
-            )
-            for c in _object_list(ch.get("clients", []))
-        ]
-
         stream = DispatcharrStream(
             channel_id=ch.get("channel_id", ""),
             stream_name=ch.get("stream_name", "Unknown"),
@@ -284,7 +272,6 @@ def _parse_dispatcharr_proxy_status(
             video_codec=ch.get("video_codec"),
             resolution=ch.get("resolution"),
             source_fps=ch.get("source_fps"),
-            clients=clients,
         )
         streams.append(stream)
 
