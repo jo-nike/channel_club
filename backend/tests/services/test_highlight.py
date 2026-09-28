@@ -277,6 +277,8 @@ class TestStartBackoff:
             ):
                 await highlight_service.start_recording("failing", "")
                 await channel_state.set_current_channel(channel)
+                assert channel_state._reconcile_task is not None
+                await channel_state._reconcile_task
                 assert spawn.call_count == 2
 
                 await channel_state.clear_current_channel_async()

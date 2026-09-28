@@ -22,7 +22,7 @@ from app.routers.highlight import router as highlight_router
 from app.routers.nhl import router as nhl_router
 from app.routers.settings import router as settings_router
 from app.routers.websocket import router as websocket_router
-from app.services import plex, presence, presence_broadcast
+from app.services import channel_state, plex, presence, presence_broadcast
 from app.services.cast import cast_service
 from app.services.dispatcharr import (
     DispatchrrUnavailableError,
@@ -191,6 +191,7 @@ async def lifespan(app: FastAPI):
         plex.stop_server_owner_lookup(),
         _stop_highlights(),
         cast_service.stop_all(),
+        channel_state.stop_reconcile_task(),
     ]
     try:
         async with asyncio.timeout(SHUTDOWN_DEADLINE_SECONDS):
