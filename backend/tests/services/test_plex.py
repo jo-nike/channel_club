@@ -402,6 +402,44 @@ class TestServerOwnerLookup:
         assert task is not None
         await task
 
+    async def test_stop_cancels_a_lookup_still_running(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.services import plex
+
+        async def never_answers(request: httpx.Request) -> httpx.Response:
+            await asyncio.Event().wait()
+            raise AssertionError("unreachable")
+
+        self._install_plex_tv(monkeypatch, never_answers)
+        plex.start_server_owner_lookup()
+        task = plex._owner_id_lookup
+        assert task is not None
+
+        # Wait without cancelling anything, so only stop's own cancel can end the lookup
+        stopper = asyncio.create_task(plex.stop_server_owner_lookup())
+        done, _ = await asyncio.wait({stopper}, timeout=1)
+
+        assert stopper in done
+        assert task.cancelled()
+        assert plex._owner_id_lookup is None
+
+    def test_app_lifespan_stops_the_lookup(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from fastapi.testclient import TestClient
+
+        from app.main import app
+        from app.services import plex
+
+        monkeypatch.setattr(plex.settings, "plex_auth_enabled", False)
+
+        with (
+            patch("app.main.get_grouped_channels", new=AsyncMock(return_value=[])),
+            patch("app.services.plex.stop_server_owner_lookup", new=AsyncMock()) as stop,
+        ):
+            with TestClient(app):
+                stop.assert_not_awaited()
+            stop.assert_awaited_once_with()
+
     def test_app_lifespan_starts_the_lookup(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from fastapi.testclient import TestClient
 

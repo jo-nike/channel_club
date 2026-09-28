@@ -169,6 +169,7 @@ async def lifespan(app: FastAPI):
     app.state.warmup_task.cancel()
     with suppress(asyncio.CancelledError):
         await app.state.warmup_task
+    await plex.stop_server_owner_lookup()
     presence.stop_cleanup_task()
     presence_broadcast.cancel_pending()
     # Stop idle cleanup task and all highlight recorders

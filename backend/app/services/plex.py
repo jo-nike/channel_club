@@ -1,6 +1,7 @@
 """Plex authentication service for validating Plex tokens and server access."""
 
 import asyncio
+from contextlib import suppress
 
 import httpx
 from loguru import logger
@@ -173,6 +174,16 @@ def start_server_owner_lookup() -> None:
     """
     if settings.plex_auth_enabled and settings.plex_server_token:
         _start_owner_id_lookup(settings.plex_server_token)
+
+
+async def stop_server_owner_lookup() -> None:
+    """Cancel the owner lookup if it is still running, so shutdown leaves no pending task."""
+    task = _owner_id_lookup
+    if task is None:
+        return
+    task.cancel()
+    with suppress(asyncio.CancelledError):
+        await task
 
 
 def clear_server_owner_id_cache() -> None:
