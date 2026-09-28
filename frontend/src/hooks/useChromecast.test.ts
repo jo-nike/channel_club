@@ -179,6 +179,21 @@ describe('FE-08 operation ownership (mock SDK/API)', () => {
 
 })
 
+describe('casting an ErsatzTV channel', () => {
+  it('loads the absolute stream session URL on the receiver, with no token', async () => {
+    localStorage.setItem('token', 'fixture-token')
+    const { result } = renderHook(useChromecast)
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    await act(() => result.current.startCasting('7', 'hls', '/api/ersatztv/s/abcdefghijklmnopqrstuvwxyz012345/stream.m3u8'))
+    expect(api.createCastSession).not.toHaveBeenCalled()
+    const url: string = session.loadMedia.mock.calls[0][0].media.url
+    expect(url).toBe('https://fixture/api/ersatztv/s/abcdefghijklmnopqrstuvwxyz012345/stream.m3u8')
+    expect(url).not.toMatch(/token/)
+    await act(() => result.current.stopCasting())
+    localStorage.removeItem('token')
+  })
+})
+
 describe('cast failures in plain words', () => {
   const lastError = () => useCastStore.getState().lastError?.message ?? null
   const ready = async () => {

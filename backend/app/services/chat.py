@@ -16,6 +16,7 @@ from uuid import uuid4
 from loguru import logger
 
 from app.config import settings
+from app.models.auth import account_key
 from app.services.presence import View
 
 # Module-level logger with service context
@@ -126,7 +127,7 @@ def user_id_for(username: str, plex_id: str | None) -> str:
     Returns:
         'u_' followed by 16 hex characters.
     """
-    account = f"plex:{plex_id}" if plex_id else f"local:{username}"
+    account = account_key(username, plex_id)
     digest = hmac.new(settings.jwt_secret.encode(), account.encode(), hashlib.sha256)
     return "u_" + digest.hexdigest()[:16]
 

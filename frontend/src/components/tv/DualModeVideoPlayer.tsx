@@ -53,7 +53,7 @@ import { useChannelStore } from '@/stores/channelStore'
 import { useClipStore } from '@/stores/clipStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useUIStore } from '@/stores/uiStore'
-import { getErsatzTVStreamUrl } from '@/services/ersatztvApi'
+import { createErsatzTVStreamSession } from '@/services/ersatztvApi'
 import type { ChannelZap } from '@/hooks/useChannelZap'
 import type { UnifiedChannel } from '@/types'
 
@@ -288,12 +288,11 @@ export function DualModeVideoPlayer({
       />
     )
   } else {
-    // ErsatzTV channel - use HLS Vidstack player with proxied stream URL
+    // ErsatzTV channel - use HLS Vidstack player on a proxied stream session
     engine = (
       <HLSVideoPlayerWrapper
         key={`hls-${channel.id}-${reloadKey}`}
         channelId={channel.id}
-        streamUrl={getErsatzTVStreamUrl(channel.id)}
         title={channel.name}
         isMobile={isMobile}
       />
@@ -754,14 +753,12 @@ function LiveVideoPlayer({
 
 interface HLSVideoPlayerWrapperProps {
   channelId: string
-  streamUrl: string
   title?: string
   isMobile: boolean
 }
 
 function HLSVideoPlayerWrapper({
   channelId,
-  streamUrl,
   title,
   isMobile,
 }: HLSVideoPlayerWrapperProps) {
@@ -783,6 +780,27 @@ function HLSVideoPlayerWrapper({
   const isSavedMuteNotice = useSavedMuteNotice(hasStarted, muted)
 
   const { status, attempt, maxRetries, retryKey, fail, succeed, retryNow } = useStreamRecovery()
+
+  // Every attempt plays a fresh stream session, so one that has expired (a
+  // 404 on a playlist reload) recovers through the retries. A session is
+  // never released here: the Chromecast may be playing the same URL, and
+  // idle expiry reclaims it.
+  const [session, setSession] = useState<{ key: number; url: string } | null>(null)
+  const streamUrl = session?.key === retryKey ? session.url : null
+  useEffect(() => {
+    let isCurrent = true
+    createErsatzTVStreamSession(channelId).then(
+      (url) => {
+        if (isCurrent) setSession({ key: retryKey, url })
+      },
+      () => {
+        if (isCurrent) fail()
+      }
+    )
+    return () => {
+      isCurrent = false
+    }
+  }, [channelId, retryKey, fail])
 
   // Autoplay fallbacks, recorded against the MediaPlayer mount (retryKey) they
   // happened on, so a retry remount starts clean. They mute the element only:
@@ -906,39 +924,42 @@ function HLSVideoPlayerWrapper({
 
   return (
     <div className="relative h-full w-full bg-black flex items-center justify-center">
-      <MediaPlayer
-        key={retryKey}
-        ref={playerRef}
-        src={streamUrl}
-        title={title}
-        // Not while casting: a channel change then stays paused under the card
-        autoPlay={!isCasting}
-        playsInline
-        volume={volume}
-        muted={muted || isPreviewHeld || isCasting}
-        // useVideoKeyboardShortcuts is the only keyboard map: Vidstack's own
-        // keys seek, and change volume without saving it
-        keyDisabled
-        className="h-full w-full max-h-full max-w-full [&_video]:object-contain"
-        onWaiting={handleWaiting}
-        onPlaying={onPlaying}
-        onAutoPlayFail={onAutoPlayFail}
-        onPlay={onPlay}
-        onVolumeChange={onVolumeChange}
-        onError={fail}
-        onProviderChange={setBundledHls}
-      >
-        <MediaProvider />
-        <HLSControlsWrapper
-          isMobile={isMobile}
-          channelId={channelId}
-          streamUrl={streamUrl}
-          channelName={title}
-        />
-      </MediaPlayer>
+      {streamUrl && (
+        <MediaPlayer
+          key={retryKey}
+          ref={playerRef}
+          src={streamUrl}
+          title={title}
+          // Not while casting: a channel change then stays paused under the card
+          autoPlay={!isCasting}
+          playsInline
+          volume={volume}
+          muted={muted || isPreviewHeld || isCasting}
+          // useVideoKeyboardShortcuts is the only keyboard map: Vidstack's own
+          // keys seek, and change volume without saving it
+          keyDisabled
+          className="h-full w-full max-h-full max-w-full [&_video]:object-contain"
+          onWaiting={handleWaiting}
+          onPlaying={onPlaying}
+          onAutoPlayFail={onAutoPlayFail}
+          onPlay={onPlay}
+          onVolumeChange={onVolumeChange}
+          onError={fail}
+          onProviderChange={setBundledHls}
+        >
+          <MediaProvider />
+          <HLSControlsWrapper
+            isMobile={isMobile}
+            channelId={channelId}
+            streamUrl={streamUrl}
+            channelName={title}
+          />
+        </MediaPlayer>
+      )}
 
-      {/* Buffering overlay; the status card speaks for the stream once it has failed */}
-      {isBuffering && (status === 'loading' || status === 'ready') && <ProjectorBeamLoader />}
+      {/* Buffering overlay (and the session being opened); the status card
+          speaks for the stream once it has failed */}
+      {(isBuffering || !streamUrl) && (status === 'loading' || status === 'ready') && <ProjectorBeamLoader />}
 
       {/* The notices and the status card are about the local picture: not
           over the casting card, which paints under them */}

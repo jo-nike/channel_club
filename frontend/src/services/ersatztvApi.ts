@@ -1,4 +1,4 @@
-import { fetchWithAuth, getAuthToken } from '@/services/api'
+import { fetchWithAuth } from '@/services/api'
 import { logger } from '@/lib/logger'
 import type {
   ErsatzTVChannel,
@@ -7,7 +7,7 @@ import type {
   ErsatzTVProgrammesResponse,
 } from '@/types'
 
-import { API_URL } from './apiBase'
+import { API_URL, apiAssetUrl } from './apiBase'
 
 export async function fetchErsatzTVChannels(): Promise<ErsatzTVChannel[]> {
   logger.debug('API', 'Fetching ErsatzTV channels')
@@ -69,10 +69,33 @@ export async function fetchErsatzTVCurrentProgramme(
   return response.json()
 }
 
-export function getErsatzTVStreamUrl(channelId: string): string {
-  const token = getAuthToken()
-  // Return proxied stream URL with auth
-  return `${API_URL}/ersatztv/stream/${channelId}?token=${token}`
+/**
+ * Open a stream session for a channel and return its playlist URL. The URL
+ * carries no session token: the session id in its path is the capability, so
+ * nothing secret reaches proxy logs or a Chromecast.
+ */
+export async function createErsatzTVStreamSession(channelId: string): Promise<string> {
+  logger.debug('API', `Opening ErsatzTV stream session for channel: ${channelId}`)
+
+  const response = await fetchWithAuth('/ersatztv/session', {
+    method: 'POST',
+    body: JSON.stringify({ channelId }),
+  })
+
+  if (!response.ok) {
+    logger.error('API', `Failed to open ErsatzTV stream session: ${response.status}`, {
+      channelId,
+    })
+    if (response.status === 503) {
+      throw new Error('ErsatzTV service unavailable')
+    }
+    throw new Error('Failed to open stream')
+  }
+
+  const { url } = (await response.json()) as { url: string }
+  const resolved = apiAssetUrl(url)
+  if (!resolved) throw new Error('Failed to open stream')
+  return resolved
 }
 
 export function getErsatzTVLogoUrl(channelId: string): string {

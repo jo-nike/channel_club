@@ -63,6 +63,7 @@ vi.mock('mpegts.js', () => ({
 type MediaPlayerProps = {
   children?: ReactNode
   ref?: Ref<unknown>
+  src?: string
   volume?: number
   muted?: boolean
   autoPlay?: boolean
@@ -167,6 +168,32 @@ vi.mock('@/services/api', async (importOriginal) => ({
   fetchLiveProgrammes: () => new Promise(() => {}),
   // The shell holds the Cast SDK, which starts with this check; never answered here
   getCastFeatureEnabled: castFeature,
+}))
+// ErsatzTV stream sessions, a new one per call as the backend's would be. By
+// default one opens synchronously (a thenable that answers inside then()), so
+// the player mounts within the render that asked for it, as it did before
+// sessions; the session tests make it wait or fail with a real Promise.
+const streamSessions = vi.hoisted(() => {
+  let count = 0
+  const sessionUrl = (channelId: string) => {
+    count += 1
+    return `/api/ersatztv/s/session-${count}-for-channel-${channelId}/stream.m3u8`
+  }
+  const opened = (url: string) =>
+    ({ then: (onOpened: (url: string) => void) => onOpened(url) }) as unknown as Promise<string>
+  const create = vi.fn<(channelId: string) => Promise<string>>()
+  return {
+    create,
+    sessionUrl,
+    reset: () => {
+      count = 0
+      create.mockReset().mockImplementation((channelId) => opened(sessionUrl(channelId)))
+    },
+  }
+})
+vi.mock('@/services/ersatztvApi', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/services/ersatztvApi')>()),
+  createErsatzTVStreamSession: streamSessions.create,
 }))
 // The cast button renders in both control bars, so it reports the shell it
 // sits in and what it would cast
@@ -321,6 +348,7 @@ beforeEach(() => {
   nhlScores.games = []
   mpegtsHarness.players.length = 0
   mpegtsHarness.createPlayer.mockClear()
+  streamSessions.reset()
   vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
 })
 
@@ -608,7 +636,7 @@ describe('DualModeVideoPlayer ErsatzTV controls (PlayerChrome)', () => {
     expect(castProps.current).toMatchObject({
       channelId: '7',
       streamType: 'hls',
-      streamUrl: expect.stringMatching(/\/ersatztv\/stream\/7\?token=fixture-token$/),
+      streamUrl: '/api/ersatztv/s/session-1-for-channel-7/stream.m3u8',
       channelName: 'Channel 7',
     })
   })
@@ -642,6 +670,72 @@ describe('DualModeVideoPlayer ErsatzTV controls (PlayerChrome)', () => {
     const bars = screen.getAllByRole('toolbar', { name: 'Video controls' })
     expect(bars).toHaveLength(1)
     expect(bars[0].closest('[data-media-player]')).not.toBeNull()
+  })
+})
+
+describe('DualModeVideoPlayer ErsatzTV stream sessions', () => {
+  it('opens a session before mounting MediaPlayer, and plays and casts its URL', async () => {
+    let open: (url: string) => void = () => {}
+    streamSessions.create.mockImplementationOnce(() => new Promise((resolve) => { open = resolve }))
+    renderPlayer(hlsChannel('7', 7))
+
+    expect(streamSessions.create).toHaveBeenCalledExactlyOnceWith('7')
+    expect(vidstack.mediaPlayer).not.toHaveBeenCalled()
+    expect(loader()).toBeInTheDocument()
+
+    await act(async () => open('/api/ersatztv/s/fixture-session/stream.m3u8'))
+
+    expect(vidstack.mounted).toHaveBeenCalledTimes(1)
+    expect(lastPlayerProps().src).toBe('/api/ersatztv/s/fixture-session/stream.m3u8')
+    expect(castProps.current).toMatchObject({ streamUrl: '/api/ersatztv/s/fixture-session/stream.m3u8' })
+  })
+
+  it('puts no token in what it plays or casts', () => {
+    localStorage.setItem('token', 'fixture-token')
+    renderPlayer(hlsChannel('7', 7))
+
+    expect(lastPlayerProps().src).not.toMatch(/token|fixture-token/)
+    expect(castProps.current?.streamUrl).not.toMatch(/token|fixture-token/)
+    expect(JSON.stringify(streamSessions.create.mock.calls)).not.toContain('fixture-token')
+  })
+
+  it('a retry plays a new session', async () => {
+    renderPlayer(hlsChannel('7', 7))
+    expect(lastPlayerProps().src).toBe('/api/ersatztv/s/session-1-for-channel-7/stream.m3u8')
+    vidstack.mounted.mockClear()
+
+    // An expired session: its playlist reload answers 404
+    act(() => lastPlayerProps().onError?.())
+
+    await waitFor(() => expect(vidstack.mounted).toHaveBeenCalledTimes(1), { timeout: 2000 })
+    expect(streamSessions.create).toHaveBeenCalledTimes(2)
+    expect(lastPlayerProps().src).toBe('/api/ersatztv/s/session-2-for-channel-7/stream.m3u8')
+  })
+
+  it('a session that cannot be opened reaches the Stream stopped card after the retries, and Retry opens one', async () => {
+    vi.useFakeTimers()
+    try {
+      streamSessions.create.mockRejectedValue(new Error('ErsatzTV service unavailable'))
+      renderPlayer(hlsChannel('7', 7))
+
+      for (let i = 0; i < 10 && !screen.queryByText('Stream stopped'); i++) {
+        await act(() => vi.advanceTimersByTimeAsync(8000))
+      }
+
+      expect(screen.getByText('Stream stopped')).toBeInTheDocument()
+      // The first attempt and its five reconnects
+      expect(streamSessions.create).toHaveBeenCalledTimes(6)
+      expect(vidstack.mediaPlayer).not.toHaveBeenCalled()
+
+      streamSessions.create.mockResolvedValue('/api/ersatztv/s/fixture-session/stream.m3u8')
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+      await act(() => vi.advanceTimersByTimeAsync(0))
+
+      expect(screen.queryByText('Stream stopped')).not.toBeInTheDocument()
+      expect(lastPlayerProps().src).toBe('/api/ersatztv/s/fixture-session/stream.m3u8')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

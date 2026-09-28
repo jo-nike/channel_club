@@ -6,7 +6,6 @@ This prevents exposing internal ErsatzTV URLs to clients.
 Story: 7.5 - HLS Proxy Service
 """
 
-import asyncio
 import base64
 import re
 from urllib.parse import quote, unquote, urlencode, urljoin, urlsplit
@@ -16,8 +15,7 @@ from loguru import logger
 
 from app.config import settings
 from app.services.bounded_http import MANIFEST_BYTES, decoded_response, read_bounded
-from app.services.ersatztv.epg_service import get_channel_by_id
-from app.services.tls import SSL_CONTEXT
+from app.services.stream_sessions import manifest_path
 
 # Module-level logger with service context
 log = logger.bind(service="ersatztv")
@@ -214,6 +212,7 @@ class HLSManifestRewriter:
         base_url: str,
         token: str | None = None,
         channel_id: str | None = None,
+        session_id: str | None = None,
     ) -> str:
         """Rewrite HLS manifest to proxy all segment and variant URLs.
 
@@ -222,6 +221,8 @@ class HLSManifestRewriter:
             base_url: Base URL for resolving relative paths
             token: Optional JWT token to include in rewritten URLs for auth
             channel_id: Channel ID to include in nested playlist URLs
+            session_id: Stream session to route every URL through instead
+                (token and channel_id are then ignored)
 
         Returns:
             Rewritten manifest with proxied URLs
@@ -232,9 +233,15 @@ class HLSManifestRewriter:
         def proxy_uri(uri: str, playlist: bool | None = None) -> str:
             absolute = urljoin(base_url, uri)
             encoded = self._encode_url(absolute)
-            if playlist is True or (
+            is_playlist = playlist is True or (
                 playlist is None and urlsplit(absolute).path.lower().endswith(".m3u8")
-            ):
+            )
+            if session_id:
+                # The session id is the capability: no credential in any URL
+                if is_playlist:
+                    return f"{manifest_path(session_id)}?{urlencode({'url': encoded})}"
+                return f"/api/ersatztv/s/{session_id}/segments/{encoded}"
+            if is_playlist:
                 query = {"url": encoded}
                 if token:
                     query["token"] = token
@@ -243,11 +250,17 @@ class HLSManifestRewriter:
             suffix = "?" + urlencode({"token": token}) if token else ""
             return f"{self.proxy_base_url}/{encoded}{suffix}"
 
+        # RFC 8216 4.3.4.2: the URI line after EXT-X-STREAM-INF is a Media
+        # Playlist whatever its extension. Only that one line; a later bare URI
+        # falls back to the .m3u8 heuristic.
+        variant_next = False
         for line in lines:
             stripped = line.strip()
             if not stripped:
                 rewritten.append(line)
             elif stripped.startswith("#"):
+                if stripped.split(":", 1)[0] == "#EXT-X-STREAM-INF":
+                    variant_next = True
                 # URI is a quoted HLS attribute (commas may appear inside it).
                 # Some playlist attributes use extensionless provider URLs.
                 playlist = stripped.split(":", 1)[0] in {
@@ -265,7 +278,8 @@ class HLSManifestRewriter:
                     )
                 )
             else:
-                rewritten.append(proxy_uri(stripped))
+                rewritten.append(proxy_uri(stripped, True if variant_next else None))
+                variant_next = False
 
         return "\n".join(rewritten)
 
@@ -316,6 +330,7 @@ def rewrite_manifest(
     base_url: str,
     token: str | None = None,
     channel_id: str | None = None,
+    session_id: str | None = None,
 ) -> str:
     """Convenience function to rewrite manifest.
 
@@ -324,11 +339,14 @@ def rewrite_manifest(
         base_url: Base URL for resolving relative paths
         token: Optional JWT token to include in rewritten URLs for auth
         channel_id: Channel ID to include in nested playlist URLs
+        session_id: Stream session to route every URL through instead
 
     Returns:
         Rewritten manifest with proxied URLs
     """
-    return _rewriter.rewrite_manifest(content, base_url, token=token, channel_id=channel_id)
+    return _rewriter.rewrite_manifest(
+        content, base_url, token=token, channel_id=channel_id, session_id=session_id
+    )
 
 
 def decode_url(encoded_url: str) -> str:
@@ -341,85 +359,3 @@ def decode_url(encoded_url: str) -> str:
         Original URL
     """
     return HLSManifestRewriter.decode_url(encoded_url)
-
-
-async def get_stream_manifest(channel_id: str) -> str:
-    """Fetch and rewrite HLS manifest for a channel.
-
-    Args:
-        channel_id: Channel identifier
-
-    Returns:
-        Rewritten manifest content with proxied URLs
-
-    Raises:
-        ValueError: If channel not found or URL invalid
-    """
-    channel = await asyncio.to_thread(get_channel_by_id, channel_id)
-    if channel is None:
-        raise ValueError(f"Channel not found: {channel_id}")
-
-    stream_url = channel.stream_url
-
-    # Validate URL is from ErsatzTV
-    if not is_ersatztv_url(stream_url):
-        raise ValueError(f"Stream URL is not from ErsatzTV: {stream_url}")
-
-    # Fetch manifest with retry for cold stream startup
-    async with httpx.AsyncClient(follow_redirects=False, timeout=15, verify=SSL_CONTEXT) as client:
-        last_error: Exception | None = None
-        response: httpx.Response | None = None
-
-        for attempt in range(5):
-            try:
-                response = await fetch_ersatztv(client, stream_url)
-                response.raise_for_status()
-                if response.text.strip():  # Got valid content
-                    break
-            except (httpx.HTTPStatusError, httpx.ConnectError) as e:
-                last_error = e
-                if attempt < 4:
-                    delay = 0.5 * (2**attempt)  # 0.5s, 1s, 2s, 4s
-                    log.debug(
-                        "Stream manifest retry {}/{} for {}, waiting {}s",
-                        attempt + 1,
-                        5,
-                        channel_id,
-                        delay,
-                    )
-                    await asyncio.sleep(delay)
-        else:
-            log.warning("Stream manifest unavailable after 5 retries for {}", channel_id)
-            raise ValueError(f"Stream unavailable after retries: {last_error}") from last_error
-
-    # Rewrite manifest with final URL as base (after any redirects)
-    final_url = str(response.url)
-    return rewrite_manifest(response.text, final_url)
-
-
-async def get_segment(encoded_url: str) -> tuple[bytes, str]:
-    """Fetch a segment from ErsatzTV.
-
-    Args:
-        encoded_url: Base64-encoded segment URL
-
-    Returns:
-        Tuple of (segment content, content-type)
-
-    Raises:
-        ValueError: If URL invalid or not from ErsatzTV
-    """
-    # Decode the URL
-    segment_url = decode_url(encoded_url)
-
-    # Validate URL is from ErsatzTV
-    if not is_ersatztv_url(segment_url):
-        raise ValueError(f"Segment URL is not from ErsatzTV: {segment_url}")
-
-    async with httpx.AsyncClient(follow_redirects=False, timeout=15, verify=SSL_CONTEXT) as client:
-        response = await fetch_ersatztv(client, segment_url, stream=True)
-        response.raise_for_status()
-        content = await read_bounded(response, 64 * 1024 * 1024)
-        content_type = response.headers.get("content-type", "video/mp2t")
-
-    return content, content_type

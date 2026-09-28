@@ -3,14 +3,13 @@ import {
   fetchErsatzTVChannels,
   fetchErsatzTVProgrammes,
   fetchErsatzTVCurrentProgramme,
-  getErsatzTVStreamUrl,
+  createErsatzTVStreamSession,
   getErsatzTVLogoUrl,
 } from './ersatztvApi'
 import { fetchWithAuth } from '@/services/api'
 
-// Mock fetchWithAuth; the token reader stays real
-vi.mock('@/services/api', async (importOriginal) => ({
-  getAuthToken: (await importOriginal<typeof import('@/services/api')>()).getAuthToken,
+// Mock fetchWithAuth
+vi.mock('@/services/api', () => ({
   fetchWithAuth: vi.fn(),
 }))
 
@@ -156,18 +155,46 @@ describe('ersatztvApi', () => {
     })
   })
 
-  describe('getErsatzTVStreamUrl', () => {
-    it('returns proxied URL with token', () => {
+  describe('createErsatzTVStreamSession', () => {
+    const sessionPath = '/api/ersatztv/s/abcdefghijklmnopqrstuvwxyz012345/stream.m3u8'
+
+    it('opens a session and returns its playlist URL, with no token', async () => {
       localStorage.setItem('token', 'test-token')
-      const url = getErsatzTVStreamUrl('channel-1')
-      expect(url).toContain('/ersatztv/stream/channel-1')
-      expect(url).toContain('token=test-token')
+      vi.mocked(fetchWithAuth).mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ sessionId: 'abcdefghijklmnopqrstuvwxyz012345', url: sessionPath }),
+      } as Response)
+
+      const url = await createErsatzTVStreamSession('channel-1')
+      expect(url).toBe(sessionPath)
+      expect(url).not.toContain('token')
+      expect(fetchWithAuth).toHaveBeenCalledExactlyOnceWith('/ersatztv/session', {
+        method: 'POST',
+        body: JSON.stringify({ channelId: 'channel-1' }),
+      })
     })
 
-    it('handles null token', () => {
-      const url = getErsatzTVStreamUrl('channel-1')
-      expect(url).toContain('/ersatztv/stream/channel-1')
-      expect(url).toContain('token=null')
+    it('throws when the returned URL is not an API path', async () => {
+      vi.mocked(fetchWithAuth).mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ sessionId: 'x', url: 'https://elsewhere/stream.m3u8' }),
+      } as Response)
+
+      await expect(createErsatzTVStreamSession('channel-1')).rejects.toThrow('Failed to open stream')
+    })
+
+    it('throws on 503 service unavailable', async () => {
+      vi.mocked(fetchWithAuth).mockResolvedValue({ ok: false, status: 503 } as Response)
+
+      await expect(createErsatzTVStreamSession('channel-1')).rejects.toThrow(
+        'ErsatzTV service unavailable'
+      )
+    })
+
+    it('throws generic error on other failures', async () => {
+      vi.mocked(fetchWithAuth).mockResolvedValue({ ok: false, status: 429 } as Response)
+
+      await expect(createErsatzTVStreamSession('channel-1')).rejects.toThrow('Failed to open stream')
     })
   })
 

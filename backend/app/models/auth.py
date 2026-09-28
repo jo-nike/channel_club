@@ -22,6 +22,11 @@ class TokenResponse(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+def account_key(sub: str, plex_id: str | None) -> str:
+    """The stable key for a signed-in account: its Plex id, else its username."""
+    return f"plex:{plex_id}" if plex_id else f"local:{sub}"
+
+
 class TokenPayload(BaseModel):
     """JWT token payload structure."""
 
@@ -34,6 +39,11 @@ class TokenPayload(BaseModel):
     # When the person originally signed in. Refreshes keep it, so it caps how
     # long a session can be renewed. None on tokens issued before it existed.
     auth_time: datetime | None = None
+
+    @property
+    def account_key(self) -> str:
+        """The stable key for this account (see account_key)."""
+        return account_key(self.sub, self.plex_id)
 
 
 class AuthConfigResponse(BaseModel):
