@@ -647,25 +647,116 @@
       },
       {
         "id": 12,
+        "type": "table",
+        "title": "Programmes watched",
+        "gridPos": {
+          "h": 10,
+          "w": 24,
+          "x": 0,
+          "y": 25
+        },
+        "datasource": {
+          "type": "loki",
+          "uid": "P8E80F9AEF21F6940"
+        },
+        "targets": [
+          {
+            "datasource": {
+              "type": "loki",
+              "uid": "P8E80F9AEF21F6940"
+            },
+            "expr": "{container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_event=\"programme.stop\" | label_format user=record_extra_user, view=record_extra_view, channel=record_extra_channel, programme=record_extra_programme, duration_s=record_extra_duration_s | line_format \"\"",
+            "legendFormat": "",
+            "refId": "A",
+            "editorMode": "code"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "filterable": true
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "duration_s"
+              },
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "s"
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "sortBy": [
+            {
+              "displayName": "Time",
+              "desc": true
+            }
+          ],
+          "cellHeight": "sm"
+        },
+        "transformations": [
+          {
+            "id": "extractFields",
+            "options": {
+              "source": "labels",
+              "format": "auto",
+              "replace": false,
+              "keepTime": true
+            }
+          },
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {},
+              "includeByName": {
+                "Time": true,
+                "user": true,
+                "view": true,
+                "channel": true,
+                "programme": true,
+                "duration_s": true
+              },
+              "indexByName": {
+                "Time": 0,
+                "user": 1,
+                "view": 2,
+                "channel": 3,
+                "programme": 4,
+                "duration_s": 5
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": 13,
         "type": "row",
         "title": "Channels",
         "gridPos": {
           "h": 1,
           "w": 24,
           "x": 0,
-          "y": 25
+          "y": 35
         },
         "collapsed": false
       },
       {
-        "id": 13,
+        "id": 14,
         "type": "bargauge",
         "title": "Watch time by channel (top 25)",
         "gridPos": {
           "h": 14,
           "w": 12,
           "x": 0,
-          "y": 26
+          "y": 36
         },
         "datasource": {
           "type": "loki",
@@ -728,14 +819,14 @@
         ]
       },
       {
-        "id": 14,
+        "id": 15,
         "type": "timeseries",
         "title": "Channel starts over time",
         "gridPos": {
           "h": 14,
           "w": 12,
           "x": 12,
-          "y": 26
+          "y": 36
         },
         "datasource": {
           "type": "loki",
@@ -789,7 +880,7 @@
         }
       },
       {
-        "id": 15,
+        "id": 16,
         "type": "table",
         "title": "Catalogue usage (unused channels sort first)",
         "description": "Every channel in the Dispatcharr lineup and ErsatzTV XMLTV, joined by name to watch events in the selected range. 'never watched' means no watch.stop event in range.",
@@ -797,7 +888,7 @@
           "h": 16,
           "w": 24,
           "x": 0,
-          "y": 40
+          "y": 50
         },
         "datasource": {
           "type": "datasource",
@@ -1014,14 +1105,14 @@
         }
       },
       {
-        "id": 16,
+        "id": 17,
         "type": "stat",
         "title": "Channels in catalogue",
         "gridPos": {
           "h": 4,
           "w": 6,
           "x": 0,
-          "y": 56
+          "y": 66
         },
         "datasource": {
           "type": "yesoreyeram-infinity-datasource",

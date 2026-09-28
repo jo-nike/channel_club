@@ -177,7 +177,13 @@ def client() -> Iterator[TestClient]:
 
 def test_every_event_the_dashboard_reads_carries_its_fields(production_logging, client) -> None:
     required = _required_fields(_load_generator().dashboard, {})
-    assert {"session.start", "watch.start", "watch.stop", "channel.change"} <= required.keys()
+    assert {
+        "session.start",
+        "watch.start",
+        "watch.stop",
+        "programme.stop",
+        "channel.change",
+    } <= required.keys()
     output = production_logging(log_format="json", log_level="WARNING")
     token = create_access_token({"sub": "jon", "role": "admin"})
 

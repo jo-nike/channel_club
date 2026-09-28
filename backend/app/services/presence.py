@@ -4,9 +4,10 @@ This service maintains in-memory tracking of all connected users,
 their view type (live/ersatztv), and current channel.
 The state resets on server restart (acceptable for this use case).
 
-Every session and channel change is also emitted as a structured INFO log
-event (``session.start``, ``session.stop``, ``watch.start``, ``watch.stop``)
-with bound fields, so viewing history can be queried from the log store
+Every session, channel and programme change is also emitted as a structured
+INFO log event (``session.start``, ``session.stop``, ``watch.start``,
+``watch.stop``, ``programme.change``, ``programme.stop``) with bound fields,
+so viewing history can be queried from the log store
 (Loki: ``| json | record_extra_event="watch.stop"``) without a database.
 """
 
@@ -48,8 +49,8 @@ class UserPresence:
     current_channel: str | None = None
     current_channel_id: str | None = None
     current_programme: str | None = None
-    programme_seen: bool = False  # A title was known at some point in the current watch
     channel_since: datetime | None = None
+    programme_since: datetime | None = None  # Start of the current titled programme segment
     connected_since: datetime = field(default_factory=lambda: _now())
     last_activity: datetime = field(default_factory=lambda: _now())
     last_activity_mono: float = field(default_factory=lambda: _monotonic())  # For staleness
@@ -72,13 +73,38 @@ def _seconds_since(start: datetime | None, end: datetime | None = None) -> float
     return max(0.0, round(((end or _now()) - start).total_seconds(), 1))
 
 
+def _close_programme(user: UserPresence, end: datetime | None = None) -> None:
+    """Emit programme.stop for the titled segment that just ended, if one is open.
+
+    ``end`` is when the segment ended, if not now.
+    """
+    if user.current_programme is None or user.programme_since is None:
+        return
+    duration = _seconds_since(user.programme_since, end)
+    _emit(
+        "programme.stop",
+        f"User {user.username} stopped watching {user.current_programme} "
+        f"on {user.current_channel} after {duration}s",
+        user=user.username,
+        session=user.connection_id,
+        view=user.view,
+        channel=user.current_channel,
+        channel_id=user.current_channel_id,
+        programme=user.current_programme,
+        duration_s=duration,
+    )
+    user.programme_since = None
+
+
 def _close_watch(user: UserPresence, reason: str, end: datetime | None = None) -> None:
     """Emit watch.stop for the user's current channel, if any, and clear it.
 
-    ``end`` is when the watch ended, if not now (a stale sweep passes the last ping).
+    An open programme segment is closed first with programme.stop. ``end`` is
+    when the watch ended, if not now (a stale sweep passes the last message).
     """
     if user.current_channel is None and user.current_channel_id is None:
         return
+    _close_programme(user, end)
     duration = _seconds_since(user.channel_since, end)
     _emit(
         "watch.stop",
@@ -96,7 +122,6 @@ def _close_watch(user: UserPresence, reason: str, end: datetime | None = None) -
     user.current_channel = None
     user.current_channel_id = None
     user.current_programme = None
-    user.programme_seen = False
     user.channel_since = None
 
 
@@ -187,9 +212,9 @@ def update_user_channel(
     """Update user's current channel, programme, and optionally view type.
 
     Emits ``watch.stop`` / ``watch.start`` only when the channel itself changes.
-    The first title to arrive during a watch that started without one (the guide
-    loads after the switch) emits ``programme.change``. Later programme title
-    rollovers on the same channel update state silently.
+    On the same channel, a title change ends the titled segment that was open
+    (``programme.stop`` with its duration), and each new non-null title emits
+    ``programme.change``. Null titles start nothing.
 
     Args:
         connection_id: The connection ID to update.
@@ -205,6 +230,13 @@ def update_user_channel(
     channel_changed = channel_name != user.current_channel or channel_id != user.current_channel_id
     if channel_changed:
         _close_watch(user, "switch" if channel_name is not None else "cleared")
+    title_changed = (
+        not channel_changed
+        and user.current_channel is not None
+        and programme_title != user.current_programme
+    )
+    if title_changed:
+        _close_programme(user)
 
     # Update view type if provided (unified view switching between live/ersatztv)
     if view is not None and view in ("live", "ersatztv") and user.view != view:
@@ -216,16 +248,10 @@ def update_user_channel(
         )
         user.view = view
 
-    first_title = (
-        not channel_changed
-        and user.current_channel is not None
-        and not user.programme_seen
-        and programme_title is not None
-    )
     user.current_programme = programme_title
 
-    if first_title:
-        user.programme_seen = True
+    if title_changed and programme_title is not None:
+        user.programme_since = _now()
         _emit(
             "programme.change",
             f"User {user.username} watching {user.current_channel}: {programme_title}",
@@ -240,8 +266,8 @@ def update_user_channel(
     if channel_changed and channel_name is not None:
         user.current_channel = channel_name
         user.current_channel_id = channel_id
-        user.programme_seen = programme_title is not None
         user.channel_since = _now()
+        user.programme_since = user.channel_since if programme_title is not None else None
         _emit(
             "watch.start",
             f"User {user.username} now watching: {channel_name} - {programme_title} "

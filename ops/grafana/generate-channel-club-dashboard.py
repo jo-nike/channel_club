@@ -246,6 +246,14 @@ panels.append(timeseries(
 panels.append(event_table("Shared live channel changes", "channel.change", ["user", "channel"], 12, y, w=12, h=8, base=USER_BASE))
 y += 8
 
+# One row per titled programme segment: a title change or the watch ending closes it
+panels.append(event_table(
+    "Programmes watched", "programme.stop",
+    ["user", "view", "channel", "programme", "duration_s"],
+    0, y, w=24, h=10, unit_overrides={"duration_s": "s"},
+))
+y += 10
+
 # ── Row: Channels ────────────────────────────────────────────
 panels.append(row("Channels", y)); y += 1
 
