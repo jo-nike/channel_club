@@ -1,12 +1,15 @@
 import { useState, useEffect, useRef, useCallback, useMemo, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import mpegts from 'mpegts.js'
+import Hls from 'hls.js'
 import { Loader2 } from 'lucide-react'
 import {
   MediaPlayer,
   MediaProvider,
+  isHLSProvider,
   type MediaAutoPlayFailEventDetail,
   type MediaPlayerInstance,
+  type MediaProviderAdapter,
   type MediaVolumeChange,
 } from '@vidstack/react'
 import '@vidstack/react/player/styles/default/theme.css'
@@ -385,6 +388,12 @@ const LIVE_SYNC_CONFIG: mpegts.Config = {
   liveSyncMaxLatency: 5,
   liveSyncTargetLatency: 3,
   liveSyncPlaybackRate: 1.1,
+}
+
+// Vidstack's HLS provider otherwise injects hls.js from cdn.jsdelivr.net at
+// runtime, with a floating version and no integrity check; hand it ours
+function setBundledHls(provider: MediaProviderAdapter | null) {
+  if (isHLSProvider(provider)) provider.library = Hls
 }
 
 // Browsers refuse unmuted playback that no user gesture started, but always
@@ -917,6 +926,7 @@ function HLSVideoPlayerWrapper({
         onPlay={onPlay}
         onVolumeChange={onVolumeChange}
         onError={fail}
+        onProviderChange={setBundledHls}
       >
         <MediaProvider />
         <HLSControlsWrapper

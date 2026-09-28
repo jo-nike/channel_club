@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { ReactNode, Ref } from 'react'
+import Hls from 'hls.js'
 import { render, renderHook, screen, fireEvent, act, waitFor, within } from '@/test/utils'
 import { DualModeVideoPlayer } from './DualModeVideoPlayer'
 import { ARRIVAL_SHOWN_KEY } from './ArrivalCard'
@@ -67,6 +68,7 @@ type MediaPlayerProps = {
   autoPlay?: boolean
   keyDisabled?: boolean
   onError?: () => void
+  onProviderChange?: (provider: unknown) => void
   onPlaying?: () => void
   onPlay?: () => void
   onAutoPlayFail?: (detail: { muted: boolean; error: Error }) => void
@@ -109,9 +111,11 @@ const vidstack = vi.hoisted(() => {
   return harness
 })
 
-vi.mock('@vidstack/react', async () => {
+vi.mock('@vidstack/react', async (importOriginal) => {
   const { useEffect, useImperativeHandle } = await import('react')
+  const { isHLSProvider } = await importOriginal<typeof import('@vidstack/react')>()
   return {
+    isHLSProvider,
     MediaPlayer: ({ children, ref, ...props }: MediaPlayerProps) => {
       vidstack.mediaPlayer(props)
       useImperativeHandle(ref, () => vidstack.player)
@@ -617,6 +621,20 @@ describe('DualModeVideoPlayer ErsatzTV controls (PlayerChrome)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Capture clip' }))
 
     expect(useClipStore.getState().session).toEqual({ channelId: '7', channelName: 'Channel 7' })
+  })
+
+  it('hands the bundled hls.js to the HLS provider, never the CDN default', () => {
+    renderPlayer(hlsChannel('1', 1))
+
+    // Vidstack's HLS provider type tag, with its jsdelivr default library
+    const hlsProvider = { $$PROVIDER_TYPE: 'HLS', library: 'https://cdn.jsdelivr.net/npm/hls.js@^1.5.0/dist/hls.min.js' }
+    act(() => lastPlayerProps().onProviderChange?.(hlsProvider))
+    expect(hlsProvider.library).toBe(Hls)
+
+    // Other providers are left alone
+    const videoProvider = { $$PROVIDER_TYPE: 'VIDEO', library: 'untouched' }
+    act(() => lastPlayerProps().onProviderChange?.(videoProvider))
+    expect(videoProvider.library).toBe('untouched')
   })
 
   it('renders one control bar, inside MediaPlayer', () => {

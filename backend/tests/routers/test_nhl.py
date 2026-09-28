@@ -1,21 +1,35 @@
 """Tests for NHL router endpoints."""
 
+from collections.abc import Iterator
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.models.auth import TokenPayload
 from app.models.nhl import NHLBroadcast, NHLGame, NHLScoresResponse, NHLTeam
+from app.routers.auth_deps import get_current_user
 from app.routers.nhl import router
 from app.services.nhl import NHLApiError, NHLConnectionError
 
 
+@pytest.fixture(autouse=True)
+def fixed_today() -> Iterator[None]:
+    """Pin the router's idea of today so the date window is deterministic."""
+    with patch("app.routers.nhl.get_effective_date", return_value="2026-01-15"):
+        yield
+
+
 @pytest.fixture
 def app() -> FastAPI:
-    """Create test FastAPI app with NHL router."""
+    """Create test FastAPI app with NHL router and a signed-in viewer."""
     app = FastAPI()
     app.include_router(router)
+    app.dependency_overrides[get_current_user] = lambda: TokenPayload(
+        sub="viewer", role="viewer", exp=datetime(2099, 1, 1, tzinfo=UTC)
+    )
     return app
 
 
@@ -27,6 +41,17 @@ def client(app: FastAPI) -> TestClient:
 
 class TestGetScoresEndpoint:
     """Tests for GET /api/nhl/scores endpoint."""
+
+    def test_anonymous_request_is_rejected(self) -> None:
+        """Without a bearer token the endpoint refuses and never calls the service."""
+        app = FastAPI()
+        app.include_router(router)
+
+        with patch("app.routers.nhl.get_nhl_scores", new_callable=AsyncMock) as mock_get:
+            response = TestClient(app).get("/api/nhl/scores")
+
+        assert response.status_code == 401
+        mock_get.assert_not_called()
 
     def test_get_scores_success(self, client: TestClient) -> None:
         """Returns 200 with scores on success."""
@@ -161,19 +186,20 @@ class TestGetScoresEndpoint:
         assert response.status_code == 503
         data = response.json()
         assert "detail" in data
-        assert data["detail"]["message"] == "NHL API unavailable"
+        assert data["detail"] == {"message": "NHL API unavailable"}
 
     def test_get_scores_connection_error_returns_503(self, client: TestClient) -> None:
         """Returns 503 when connection to NHL API fails."""
         with patch("app.routers.nhl.get_nhl_scores", new_callable=AsyncMock) as mock_get:
-            mock_get.side_effect = NHLConnectionError("Connection timed out")
+            mock_get.side_effect = NHLConnectionError("[Errno 111] Connection refused")
 
             response = client.get("/api/nhl/scores")
 
         assert response.status_code == 503
         data = response.json()
         assert "detail" in data
-        assert data["detail"]["message"] == "NHL API unavailable"
+        assert data["detail"] == {"message": "NHL API unavailable"}
+        assert "Errno" not in response.text
 
     def test_get_scores_final_game_with_overtime(self, client: TestClient) -> None:
         """Returns correct outcome type for OT games."""
@@ -233,6 +259,28 @@ class TestDateValidation:
         assert response.status_code == 400
         data = response.json()
         assert data["detail"]["message"] == "Invalid date"
+
+    @pytest.mark.parametrize("date", ["2025-12-15", "2026-02-15", "0001-01-01", "9999-12-31"])
+    def test_date_outside_window_returns_400(self, client: TestClient, date: str) -> None:
+        """Dates more than 30 days from today are rejected before any upstream call."""
+        with patch("app.routers.nhl.get_nhl_scores", new_callable=AsyncMock) as mock_get:
+            response = client.get(f"/api/nhl/scores?date={date}")
+
+        assert response.status_code == 400
+        assert response.json()["detail"]["message"] == "Date out of range"
+        mock_get.assert_not_called()
+
+    @pytest.mark.parametrize("date", ["2025-12-16", "2026-02-14"])
+    def test_date_at_window_edge_is_accepted(self, client: TestClient, date: str) -> None:
+        """Dates exactly 30 days either side of today are accepted."""
+        mock_response = NHLScoresResponse(games=[], date=date, live_game_count=0)
+
+        with patch("app.routers.nhl.get_nhl_scores", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = mock_response
+            response = client.get(f"/api/nhl/scores?date={date}")
+
+        assert response.status_code == 200
+        mock_get.assert_called_once_with(date)
 
     def test_path_traversal_attempt_returns_400(self, client: TestClient) -> None:
         """Returns 400 for path traversal attempts."""

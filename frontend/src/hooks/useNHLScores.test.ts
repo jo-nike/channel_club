@@ -76,7 +76,32 @@ describe('useNHLScores', () => {
 
     expect(result.current.data).toEqual(mockData)
     expect(result.current.error).toBeNull()
-    expect(global.fetch).toHaveBeenCalledWith('/api/nhl/scores')
+    expect(global.fetch).toHaveBeenCalledWith('/api/nhl/scores', expect.anything())
+  })
+
+  it('should send the signed-in token with the request', async () => {
+    localStorage.setItem('token', 'test-token')
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ games: [], date: '2026-01-15', liveGameCount: 0 }),
+    })
+
+    try {
+      const { result } = renderHook(() => useNHLScores(true))
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false)
+      })
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        '/api/nhl/scores',
+        expect.objectContaining({
+          headers: expect.objectContaining({ Authorization: 'Bearer test-token' }),
+        })
+      )
+    } finally {
+      localStorage.removeItem('token')
+    }
   })
 
   it('should handle fetch errors', async () => {

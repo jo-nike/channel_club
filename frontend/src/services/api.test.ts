@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { login, fetchWithAuth, getAuthConfig, loginWithPlex, createCaptureDownloadUrl } from './api'
+import { login, fetchWithAuth, getAuthConfig, loginWithPlex, createCaptureDownloadUrl, getCastHlsUrl } from './api'
 import { useAuthStore } from '@/stores/authStore'
 
 describe('api service', () => {
@@ -544,6 +544,17 @@ describe('api service', () => {
       } as Response)
 
       await expect(createCaptureDownloadUrl('capture-1')).rejects.toThrow('This capture is no longer available')
+    })
+  })
+
+  describe('getCastHlsUrl', () => {
+    it('builds the playlist URL without the session token', () => {
+      vi.mocked(localStorage.getItem).mockReturnValue('test-jwt-token')
+
+      const url = getCastHlsUrl('session-1')
+
+      expect(url).toMatch(/\/cast\/hls\/session-1\/playlist\.m3u8$/)
+      expect(url).not.toContain('token')
     })
   })
 })
