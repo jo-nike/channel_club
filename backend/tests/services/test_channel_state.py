@@ -1,7 +1,7 @@
 """Tests for channel state service."""
 
 import asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -583,3 +583,65 @@ class TestSerialisedLiveChanges:
         assert self._last_live(sent) == "A"
         task = channel_state._reconcile_task
         assert task is not None and task.exception() is None
+
+
+class TestFailedPeerClose:
+    """A peer a broadcast can't reach is dropped at once and closed in the background."""
+
+    @staticmethod
+    def hanging_peer() -> tuple[MagicMock, asyncio.Event]:
+        """A socket whose send and close never finish, and an event set once it is closing."""
+        closing = asyncio.Event()
+
+        async def hang(*args, **kwargs) -> None:
+            await asyncio.Event().wait()
+
+        async def close_hangs(*args, **kwargs) -> None:
+            closing.set()
+            await asyncio.Event().wait()
+
+        peer = MagicMock()
+        peer.send_text = AsyncMock(side_effect=hang)
+        peer.close = AsyncMock(side_effect=close_hangs)
+        return peer, closing
+
+    async def test_broadcast_returns_without_waiting_for_the_close(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(channel_state, "BROADCAST_SEND_TIMEOUT_SECONDS", 0.2)
+        peer, closing = self.hanging_peer()
+        owner = asyncio.create_task(asyncio.Event().wait())
+        await channel_state.connect(peer, owner=owner)
+
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        await channel_state.broadcast({"type": "hello"})
+        elapsed = loop.time() - started
+
+        # One send timeout, not a send timeout plus a close timeout
+        assert elapsed < 0.35
+        assert channel_state.get_connection_count() == 0
+        assert not owner.done()
+        await asyncio.wait_for(closing.wait(), timeout=1)
+        # The endpoint is still cancelled once the close gives up
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(owner, timeout=1)
+        await asyncio.sleep(0)
+        assert not channel_state._failed_closes
+
+    async def test_stop_failed_closes_cancels_a_close_in_flight(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(channel_state, "BROADCAST_SEND_TIMEOUT_SECONDS", 0.05)
+        peer, closing = self.hanging_peer()
+        owner = asyncio.create_task(asyncio.Event().wait())
+        await channel_state.connect(peer, owner=owner)
+        await channel_state.broadcast({"type": "hello"})
+        await closing.wait()
+        assert len(channel_state._failed_closes) == 1
+
+        await channel_state.stop_failed_closes()
+
+        assert not channel_state._failed_closes
+        with pytest.raises(asyncio.CancelledError):
+            await owner

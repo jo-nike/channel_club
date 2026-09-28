@@ -522,13 +522,14 @@ async def handle_client_message(
             if client_message_id:
                 # Recorded before the broadcast awaits, so a retry can't slip in between
                 chat.remember_send(username, client_message_id, chat_msg.message_id)
+            # The ack confirms the stored message, so a stalled peer can't hold it up
+            await _ack_chat(websocket, client_message_id, chat_msg.message_id)
             # Broadcast to all connected clients
             broadcast_message = {
                 "type": "chat_message",
                 **chat_msg.to_dict(),
             }
             await channel_state.broadcast(broadcast_message)
-            await _ack_chat(websocket, client_message_id, chat_msg.message_id)
             log.debug("Chat message broadcast from {}: {}", username, chat_msg.message_id[:8])
         else:
             log.debug("Chat {} from {} rejected (empty/invalid/private)", msg_type, username)

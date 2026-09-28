@@ -1430,8 +1430,9 @@ class TestShareMessage:
 
                 ws1.send_json({"type": "share", "clientMessageId": "s-1"})
                 card = ws2.receive_json()
-                own = ws1.receive_json()
+                # The ack comes first: it confirms the stored message, before the broadcast
                 ack = ws1.receive_json()
+                own = ws1.receive_json()
 
         assert card["type"] == "chat_message"
         assert card["kind"] == "share"
@@ -1616,8 +1617,9 @@ class TestSuggestMessage:
 
                 ws1.send_json({"type": "suggest", "channelId": "42", "clientMessageId": "g-1"})
                 card = ws2.receive_json()
-                own = ws1.receive_json()
+                # The ack comes first: it confirms the stored message, before the broadcast
                 ack = ws1.receive_json()
+                own = ws1.receive_json()
 
         assert catalogue == ["42"]
         assert card["type"] == "chat_message"
@@ -2278,3 +2280,42 @@ async def test_sec07_failed_broadcast_closes_and_cleans_endpoint(monkeypatch, va
     assert healthy.send_text.await_count == 2
     assert ws.send_text.await_count == 1
     channel_state.disconnect(healthy)
+
+
+async def test_chat_ack_is_not_held_up_by_a_stalled_peer(monkeypatch):
+    """The sender's ack confirms the stored message; a peer that won't read can't delay it."""
+    import asyncio
+
+    monkeypatch.setattr(settings, "chat_enabled", True)
+    monkeypatch.setattr(channel_state, "BROADCAST_SEND_TIMEOUT_SECONDS", 0.5)
+
+    async def hang(*args, **kwargs):
+        await asyncio.Event().wait()
+
+    peer = MagicMock()
+    peer.send_text = AsyncMock(side_effect=hang)
+    peer.close = AsyncMock(side_effect=hang)
+    await channel_state.connect(peer)
+    loop = asyncio.get_running_loop()
+    acked: asyncio.Future[float] = loop.create_future()
+
+    async def sender_send_json(message):
+        if message.get("type") == "chat_ack" and not acked.done():
+            acked.set_result(loop.time())
+
+    sender = MagicMock()
+    sender.send_json = AsyncMock(side_effect=sender_send_json)
+    started = loop.time()
+    handling = asyncio.create_task(
+        websocket_router.handle_client_message(
+            sender,
+            {"type": "chat_message", "content": "hi", "clientMessageId": "c-1"},
+            "sender-conn",
+            "testuser",
+            "u_0123456789abcdef",
+        )
+    )
+
+    assert await asyncio.wait_for(acked, timeout=2) - started < 0.1
+    await handling
+    await channel_state.stop_failed_closes()

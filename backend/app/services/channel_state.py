@@ -32,6 +32,9 @@ BROADCAST_SEND_TIMEOUT_SECONDS = 5.0
 _current_channel: Channel | None = None
 _active_connections: set[WebSocket] = set()
 _connection_owners: dict[WebSocket, asyncio.Task] = {}
+# Closes of connections a broadcast failed to reach, held so they aren't
+# garbage-collected mid-close (see stop_failed_closes)
+_failed_closes: set[asyncio.Task] = set()
 
 # Live changes are serialised; recorder work runs in one background task that
 # always targets the latest Live channel (reset with reset_live_change_state)
@@ -266,31 +269,49 @@ async def broadcast(message: dict) -> None:
         return_exceptions=True,
     )
 
-    async def close_failed(ws: WebSocket) -> None:
+    for result in results:
+        if not isinstance(result, tuple) or result[1]:
+            continue
+        ws = result[0]
         if ws not in _active_connections:
-            return  # Another overlapping broadcast already owns cleanup.
+            continue  # Another overlapping broadcast already owns cleanup.
         owner = _connection_owners.get(ws)
+        # Out of later broadcasts at once; the close runs in the background,
+        # so a peer that won't close can't hold up whoever awaits broadcast()
         disconnect(ws)
-        try:
-            await asyncio.wait_for(
-                ws.close(code=1011, reason="Broadcast failed; reconnect"),
-                timeout=BROADCAST_SEND_TIMEOUT_SECONDS,
-            )
-        except Exception:
-            log.debug("Failed connection transport could not close")
-        finally:
-            # Closing an ASGI socket need not unblock receive immediately.
-            # Cancel its owning endpoint so presence/nickname cleanup always runs.
-            if owner is not None and not owner.done():
-                owner.cancel()
+        task = asyncio.create_task(_close_failed(ws, owner))
+        _failed_closes.add(task)
+        task.add_done_callback(_failed_closes.discard)
 
-    await asyncio.gather(
-        *(
-            close_failed(result[0])
-            for result in results
-            if isinstance(result, tuple) and not result[1]
+
+async def _close_failed(ws: WebSocket, owner: asyncio.Task | None) -> None:
+    """Close a connection a broadcast could not reach, then end its endpoint.
+
+    Args:
+        ws: The failed connection, already removed from tracking.
+        owner: The endpoint task serving it, if known.
+    """
+    try:
+        await asyncio.wait_for(
+            ws.close(code=1011, reason="Broadcast failed; reconnect"),
+            timeout=BROADCAST_SEND_TIMEOUT_SECONDS,
         )
-    )
+    except Exception:
+        log.debug("Failed connection transport could not close")
+    finally:
+        # Closing an ASGI socket need not unblock receive immediately.
+        # Cancel its owning endpoint so presence/nickname cleanup always runs.
+        if owner is not None and not owner.done():
+            owner.cancel()
+
+
+async def stop_failed_closes() -> None:
+    """Cancel the failed-connection closes still in flight (app shutdown)."""
+    tasks = list(_failed_closes)
+    _failed_closes.clear()
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
 
 
 def get_connection_count() -> int:

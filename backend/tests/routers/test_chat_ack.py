@@ -34,8 +34,9 @@ def test_chat_ack_identifies_the_stored_message(monkeypatch: pytest.MonkeyPatch)
                 "clientMessageId": "request-001",
             }
         )
-        message = socket.receive_json()
+        # The ack comes first: it confirms the stored message, before the broadcast
         ack = socket.receive_json()
+        message = socket.receive_json()
         assert message["type"] == "chat_message"
         assert ack == {
             "type": "chat_ack",
@@ -90,9 +91,9 @@ def test_repeated_client_message_id_is_acknowledged_without_reposting(
     with ws_connect(client, token) as socket:
         _skip_greeting(socket)
         _send_chat(socket, "Only once", "retry-001")
+        assert socket.receive_json()["accepted"] is True
         original = socket.receive_json()
         assert original["type"] == "chat_message"
-        assert socket.receive_json()["accepted"] is True
 
         _send_chat(socket, "Only once", "retry-001")
         # No second broadcast: the very next frame is the repeated acknowledgement
@@ -132,9 +133,10 @@ def test_the_same_client_message_id_from_another_user_is_posted(
         with ws_connect(client, token) as socket:
             _skip_greeting(socket)
             _send_chat(socket, f"Hello from {sub}", "shared-id")
+            ack = socket.receive_json()
             message = socket.receive_json()
             assert message["type"] == "chat_message"
-            assert socket.receive_json()["messageId"] == message["messageId"]
+            assert ack["messageId"] == message["messageId"]
             ids.append(message["messageId"])
     assert len(set(ids)) == 2
     assert len(chat.get_history()) == 2
@@ -158,6 +160,7 @@ def test_recent_sends_are_bounded_oldest_first(monkeypatch: pytest.MonkeyPatch):
         ]
         # The evicted id is no longer recognised, so it posts again
         _send_chat(socket, "bound-1", "bound-1")
+        assert socket.receive_json()["accepted"] is True
         assert socket.receive_json()["type"] == "chat_message"
     chat.clear_history()
 
@@ -173,9 +176,10 @@ def test_clearing_history_forgets_recent_sends(monkeypatch: pytest.MonkeyPatch):
     with ws_connect(client, token) as socket:
         _skip_greeting(socket)
         _send_chat(socket, "Before the clear", "resend-001")
+        ack = socket.receive_json()
         original = socket.receive_json()
         assert original["type"] == "chat_message"
-        assert socket.receive_json()["messageId"] == original["messageId"]
+        assert ack["messageId"] == original["messageId"]
 
         response = client.delete(
             "/api/admin/chat-history", headers={"Authorization": f"Bearer {admin_token}"}
@@ -184,10 +188,11 @@ def test_clearing_history_forgets_recent_sends(monkeypatch: pytest.MonkeyPatch):
         assert socket.receive_json() == {"type": "chat_history", "messages": []}
 
         _send_chat(socket, "Before the clear", "resend-001")
+        ack = socket.receive_json()
         reposted = socket.receive_json()
         assert reposted["type"] == "chat_message"
         assert reposted["messageId"] != original["messageId"]
-        assert socket.receive_json() == {
+        assert ack == {
             "type": "chat_ack",
             "clientMessageId": "resend-001",
             "accepted": True,
