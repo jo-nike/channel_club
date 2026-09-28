@@ -1,6 +1,5 @@
 """Authoritative media input resolution shared by all process entry points."""
 
-import asyncio
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
@@ -9,6 +8,7 @@ from fastapi import HTTPException
 from app.models.channel import Channel, validate_channel_id
 from app.services.dispatcharr import get_grouped_channels
 from app.services.ersatztv import get_channel_by_id
+from app.services.ersatztv.refresh import run_feed_lookup
 
 
 @dataclass(frozen=True)
@@ -46,7 +46,7 @@ async def resolve_media_channel(channel_id: str) -> MediaChannel:
 
     # Never refresh ErsatzTV at all when Dispatcharr already knows this ID.
     try:
-        ersatz = await asyncio.to_thread(get_channel_by_id, channel_id)
+        ersatz = await run_feed_lookup(get_channel_by_id, channel_id)
     except Exception:
         unavailable = True
         ersatz = None

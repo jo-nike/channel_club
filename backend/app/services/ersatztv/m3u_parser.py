@@ -7,7 +7,7 @@ Story: 7.2 - M3U Parser Service
 """
 
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from loguru import logger
 
@@ -37,52 +37,41 @@ def _is_cache_expired() -> bool:
     return age.total_seconds() > CACHE_TTL_SECONDS
 
 
-@serialized_refresh
+@serialized_refresh(
+    name="ErsatzTV channels (M3U)",
+    unavailable="Failed to load channels from ErsatzTV",
+    cache=_cache,
+    key="channels",
+    is_expired=_is_cache_expired,
+)
 def parse_m3u_playlist() -> list[EPGChannel]:
     """
     Parse ErsatzTV M3U playlist and return list of channels.
 
     Fetches M3U from configured URL, parses EXTINF metadata,
-    and returns EPGChannel objects. Results are cached for 1 hour.
+    and returns EPGChannel objects. Results are cached for 1 hour; the
+    serialized_refresh wrapper serves the cache and stale data (see refresh.py).
 
     Returns:
         List of EPGChannel objects parsed from M3U playlist
 
     Raises:
-        Exception: If fetch fails and no cached data available
+        FeedUnavailableError: If fetch fails and no cached data available
     """
-    # Check cache
-    if _cache.get("retry_at") and datetime.now() < _cache["retry_at"]:
-        if _cache["last_successful_fetch"] is not None:
-            return _cache["channels"]
-        raise RuntimeError("Feed temporarily unavailable")
-    if not _is_cache_expired():
-        log.debug("Cache hit for M3U data")
-        return _cache["channels"]
-
     log.debug("Cache miss for M3U data, fetching from {}", settings.ersatztv_m3u_url)
 
-    try:
-        response = fetch_feed(settings.ersatztv_m3u_url)
-        response.raise_for_status()
+    response = fetch_feed(settings.ersatztv_m3u_url)
+    response.raise_for_status()
 
-        channels = _parse_m3u_content(response.text)
+    channels = _parse_m3u_content(response.text)
 
-        # Update cache
-        _cache["channels"] = channels
-        _cache["timestamp"] = datetime.now()
-        _cache["last_successful_fetch"] = datetime.now()
+    # Update cache
+    _cache["channels"] = channels
+    _cache["timestamp"] = datetime.now()
+    _cache["last_successful_fetch"] = datetime.now()
 
-        log.info("Refreshed M3U cache: {} channels parsed", len(channels))
-        return channels
-
-    except Exception as e:
-        _cache["retry_at"] = datetime.now() + timedelta(seconds=5)
-        log.error("Failed to fetch M3U: {}", e)
-        if _cache["last_successful_fetch"] is not None:
-            log.warning("Returning stale M3U cached data after fetch failure")
-            return _cache["channels"]
-        raise Exception("Failed to load channels from ErsatzTV") from e
+    log.info("Refreshed M3U cache: {} channels parsed", len(channels))
+    return channels
 
 
 def _parse_m3u_content(content: str) -> list[EPGChannel]:
@@ -171,7 +160,6 @@ def _extract_attr(line: str, attr_name: str) -> str | None:
 
 def clear_cache() -> None:
     """Clear M3U cache, forcing re-fetch on next request."""
-    parse_m3u_playlist.__dict__["reset_failure"]()
-    _cache["retry_at"] = None
+    parse_m3u_playlist.reset_failure()
     _cache["timestamp"] = None
     log.info("M3U cache cleared")

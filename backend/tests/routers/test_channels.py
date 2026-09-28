@@ -16,6 +16,7 @@ from app.models.channel import Channel, ChannelGroupWithChannels, GroupedChannel
 from app.services import app_settings, channel_state
 from app.services.auth import create_access_token
 from app.services.dispatcharr import DispatchrrUnavailableError, invalidate_grouped_channels_cache
+from app.services.logo_proxy import LOGO_CACHE
 
 
 @pytest.fixture
@@ -1104,6 +1105,17 @@ class TestGetChannelLogo:
         assert response.json() == {"detail": "No logo available"}
         assert requests == []
 
+    def test_unknown_logo_ids_leave_no_cache_locks(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The open route can't grow the shared cache's lock map with made-up ids."""
+        self._upstream(monkeypatch, lambda req: pytest.fail("upstream requested"))
+
+        for logo_id in range(18, 68):
+            assert client.get(f"/api/channels/logos/{logo_id}").status_code == 404
+
+        assert LOGO_CACHE._locks == {}  # pyright: ignore[reportPrivateUsage]
+
     @pytest.mark.parametrize("logo_id", ["0", "-1", "abc", "17.5", "..%2F..%2Fadmin"])
     def test_rejects_anything_but_a_positive_integer_id(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch, logo_id: str
@@ -1163,3 +1175,30 @@ class TestGetChannelLogo:
         response = client.get("/api/channels/logos/17")
 
         assert response.status_code == 503
+
+    def test_upstream_404_is_a_remembered_404_with_cache_control(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """H-07: a logo Dispatcharr doesn't have is not a 503 refetched every minute."""
+        requests = self._upstream(monkeypatch, lambda req: httpx.Response(404))
+
+        first = client.get("/api/channels/logos/17")
+        second = client.get("/api/channels/logos/17")
+
+        assert first.status_code == second.status_code == 404
+        assert first.headers["cache-control"] == second.headers["cache-control"]
+        assert "max-age=" in first.headers["cache-control"]
+        assert len(requests) == 1
+
+        invalidate_grouped_channels_cache()
+        assert client.get("/api/channels/logos/17").status_code == 404
+        assert len(requests) == 2
+
+    def test_success_is_cacheable_by_browsers(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._upstream(monkeypatch, self._png)
+
+        response = client.get("/api/channels/logos/17")
+
+        assert response.headers["cache-control"] == "public, max-age=3600"
