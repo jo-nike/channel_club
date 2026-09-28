@@ -32,6 +32,7 @@ from app.services.dispatcharr import (
     get_grouped_channels,
 )
 from app.services.epg_service import get_epg_service
+from app.services.ersatztv.refresh import stop_feed_executor
 from app.services.highlight import highlight_service
 from app.spa import mount_spa
 
@@ -196,6 +197,7 @@ async def lifespan(app: FastAPI):
         cast_service.stop_all(),
         channel_state.stop_reconcile_task(),
         aclose_all_caches(),
+        stop_feed_executor(),
     ]
     try:
         async with asyncio.timeout(SHUTDOWN_DEADLINE_SECONDS):

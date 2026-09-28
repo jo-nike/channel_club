@@ -33,6 +33,7 @@ from app.services.ersatztv.hls_rewriter import (
     rewrite_manifest,
     segment_media_type,
 )
+from app.services.ersatztv.refresh import run_feed_lookup
 from app.services.logo_proxy import fetch_logo
 from app.services.tls import SSL_CONTEXT
 
@@ -52,7 +53,7 @@ async def list_channels(user=Depends(get_current_user)) -> EPGChannelResponse:
     """Get all ErsatzTV channels."""
     log.debug("GET /channels request")
     try:
-        channels = await asyncio.to_thread(get_channels)
+        channels = await run_feed_lookup(get_channels)
         log.debug("Returning {} channels", len(channels))
         return EPGChannelResponse(channels=channels)
     except Exception as e:
@@ -69,7 +70,7 @@ async def list_programmes(
     """Get programmes for channel within time window."""
     log.debug("GET /programmes request for channel: {}", channel_id)
     try:
-        programmes = await asyncio.to_thread(get_programmes_by_channel, channel_id, hours=hours)
+        programmes = await run_feed_lookup(get_programmes_by_channel, channel_id, hours=hours)
         log.debug("Returning {} programmes for channel {}", len(programmes), channel_id)
         return ProgrammeListResponse(channel_id=channel_id, programmes=programmes)
     except Exception as e:
@@ -85,7 +86,7 @@ async def get_current(
     """Get current and next programme for channel."""
     log.debug("GET /current request for channel: {}", channel_id)
     try:
-        current, next_up = await asyncio.to_thread(get_current_programme, channel_id)
+        current, next_up = await run_feed_lookup(get_current_programme, channel_id)
         return CurrentProgrammeResponse(
             channel_id=channel_id,
             current=current,
@@ -109,7 +110,7 @@ async def head_stream(
         if url:
             manifest_url = decode_url(url)
         else:
-            channel = await asyncio.to_thread(get_channel_by_id, channel_id)
+            channel = await run_feed_lookup(get_channel_by_id, channel_id)
             if not channel:
                 raise HTTPException(status_code=404, detail="Channel not found")
             manifest_url = channel.stream_url
@@ -153,7 +154,7 @@ async def get_stream(
             manifest_url = decode_url(url)
         else:
             # Initial request - get channel stream URL
-            channel = await asyncio.to_thread(get_channel_by_id, channel_id)
+            channel = await run_feed_lookup(get_channel_by_id, channel_id)
             if not channel:
                 raise HTTPException(status_code=404, detail="Channel not found")
             manifest_url = channel.stream_url
@@ -366,7 +367,7 @@ async def get_logo(
     """Proxy channel logo from ErsatzTV."""
     log.debug("GET /logos request for channel: {}", channel_id)
     try:
-        channel = await asyncio.to_thread(get_channel_by_id, channel_id)
+        channel = await run_feed_lookup(get_channel_by_id, channel_id)
         if not channel:
             raise HTTPException(status_code=404, detail="Channel not found")
 

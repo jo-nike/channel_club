@@ -14,6 +14,7 @@ from app.config import settings
 from app.models.ersatztv import EPGChannel, Programme
 from app.services.ersatztv.m3u_parser import clear_cache as clear_m3u_cache
 from app.services.ersatztv.m3u_parser import parse_m3u_playlist
+from app.services.ersatztv.refresh import shutdown_feed_executor
 from app.services.ersatztv.xmltv_parser import clear_cache as clear_xmltv_cache
 from app.services.ersatztv.xmltv_parser import parse_xmltv
 
@@ -199,6 +200,7 @@ def refresh_all() -> None:
 
 
 def reset_state() -> None:
-    """Empty both feed caches and forget their failures (tests)."""
+    """Empty both feed caches, forget their failures and drop the feeds executor (tests)."""
     parse_m3u_playlist.reset()
     parse_xmltv.reset()
+    shutdown_feed_executor()

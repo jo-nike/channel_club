@@ -6,9 +6,11 @@ once; only a cold cache waits, so concurrent cold callers share one attempt.
 Failed refreshes back off 30 s, doubling to 5 min (EPGService._retry_delay).
 """
 
+import asyncio
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
-from functools import update_wrapper
+from functools import partial, update_wrapper
 from threading import Lock
 from time import monotonic
 from xml.etree.ElementTree import ParseError
@@ -20,6 +22,33 @@ log = logger.bind(service="ersatztv")
 
 RETRY_BASE_SECONDS = 30
 RETRY_MAX_SECONDS = 300
+
+# Feed lookups run on their own small pool, so a slow ErsatzTV refresh parks
+# these threads and never the default executor that other to_thread work uses.
+FEED_WORKERS = 4
+_executor: ThreadPoolExecutor | None = None
+
+
+async def run_feed_lookup[R](function: Callable[..., R], *args: object, **kwargs: object) -> R:
+    """Run a synchronous feed lookup on the dedicated feeds executor."""
+    global _executor
+    if _executor is None:
+        _executor = ThreadPoolExecutor(max_workers=FEED_WORKERS, thread_name_prefix="feeds")
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_executor, partial(function, *args, **kwargs))
+
+
+def shutdown_feed_executor() -> None:
+    """Drop queued lookups without waiting on running ones; the next lookup starts a new pool."""
+    global _executor
+    executor, _executor = _executor, None
+    if executor is not None:
+        executor.shutdown(wait=False, cancel_futures=True)
+
+
+async def stop_feed_executor() -> None:
+    """The lifespan teardown entry for the feeds executor."""
+    shutdown_feed_executor()
 
 
 class FeedUnavailableError(Exception):
