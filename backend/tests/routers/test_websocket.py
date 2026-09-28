@@ -23,6 +23,7 @@ from app.routers import websocket as websocket_router
 from app.services import app_settings, channel_state, chat, presence, presence_broadcast
 from app.services.auth import create_access_token
 from app.services.media_source import MediaChannel
+from tests.ws_helpers import ws_connect
 
 # Captured at import, before conftest swaps it for a no-op in every test
 REAL_SCHEDULE_BROADCAST = presence_broadcast.schedule_broadcast
@@ -77,7 +78,7 @@ class TestWebSocketConnection:
 
     def test_websocket_valid_token_accepts_connection(self, client: TestClient, valid_token: str):
         """Valid token accepts connection and sends ack."""
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             data = ws.receive_json()
             assert data["type"] == "connection_ack"
             assert "currentChannel" in data
@@ -87,19 +88,63 @@ class TestWebSocketConnection:
         # The endpoint accepts before validating so the custom 4001 code reaches
         # the client (a pre-handshake close would surface as a generic 1006).
         with (
-            client.websocket_connect("/api/ws?token=invalid_token") as ws,
+            ws_connect(client, "invalid_token") as ws,
             pytest.raises(WebSocketDisconnect) as exc_info,
         ):
             ws.receive_json()
         assert exc_info.value.code == 4001
 
-    def test_websocket_missing_token_rejects_connection(self, client: TestClient):
-        """Missing token rejects connection."""
-        with (
-            pytest.raises((Exception,)),  # noqa: B017
-            client.websocket_connect("/api/ws"),
-        ):
-            pass
+    def test_socket_that_never_authenticates_is_closed_after_the_deadline(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ):
+        """No auth frame: closed with 4001 at the deadline, never tracked or greeted."""
+        monkeypatch.setattr(websocket_router, "AUTH_TIMEOUT_SECONDS", 0.1)
+        with client.websocket_connect("/api/ws?session_id=silent") as ws:
+            assert "silent" not in presence._active_users
+            assert channel_state.get_connection_count() == 0
+            with pytest.raises(WebSocketDisconnect) as exc_info:
+                ws.receive_json()
+            assert exc_info.value.code == 4001
+        assert "silent" not in presence._active_users
+        assert channel_state.get_connection_count() == 0
+
+    @pytest.mark.parametrize(
+        "first_frame",
+        [
+            '{"type": "ping"}',
+            "not json",
+            '{"type": "auth"}',
+            '{"type": "auth", "token": 42}',
+            '{"type": "auth", "token": "' + "x" * 17000 + '"}',
+            b'{"type": "auth", "token": "x"}',
+        ],
+        ids=["other-type", "malformed", "no-token", "non-string", "oversize", "binary"],
+    )
+    def test_wrong_first_frame_is_closed_with_4001(
+        self, client: TestClient, valid_token: str, first_frame: str | bytes
+    ):
+        """Anything but an auth message first: 4001 and nothing sent before it."""
+        with client.websocket_connect("/api/ws?session_id=wrong") as ws:
+            if isinstance(first_frame, bytes):
+                ws.send_bytes(first_frame)
+            else:
+                ws.send_text(first_frame)
+            with pytest.raises(WebSocketDisconnect) as exc_info:
+                ws.receive_json()
+            assert exc_info.value.code == 4001
+        assert "wrong" not in presence._active_users
+
+    def test_nothing_is_tracked_until_the_auth_frame_arrives(
+        self, client: TestClient, valid_token: str
+    ):
+        """Presence and the broadcast list stay empty until the socket authenticates."""
+        with client.websocket_connect("/api/ws?session_id=pending") as ws:
+            assert "pending" not in presence._active_users
+            assert channel_state.get_connection_count() == 0
+            ws.send_json({"type": "auth", "token": valid_token})
+            assert ws.receive_json()["type"] == "connection_ack"
+            assert "pending" in presence._active_users
+            assert channel_state.get_connection_count() == 1
 
     def test_websocket_expired_token_rejects_connection(self, client: TestClient):
         """Expired token rejects connection."""
@@ -118,6 +163,40 @@ class TestWebSocketConnection:
         expired_token = jwt.encode(expired_payload, settings.jwt_secret, algorithm="HS256")
 
         with (
+            ws_connect(client, expired_token) as ws,
+            pytest.raises(WebSocketDisconnect) as exc_info,
+        ):
+            ws.receive_json()
+        assert exc_info.value.code == 4001
+
+
+class TestLegacyQueryToken:
+    """?token= stays accepted until R3, for tabs still running the old bundle."""
+
+    def test_valid_query_token_is_acknowledged(self, client: TestClient, valid_token: str):
+        with client.websocket_connect(f"/api/ws?token={valid_token}&session_id=legacy") as ws:
+            assert ws.receive_json()["type"] == "connection_ack"
+            assert "legacy" in presence._active_users
+
+    def test_invalid_query_token_is_closed_with_4001(self, client: TestClient):
+        with (
+            client.websocket_connect("/api/ws?token=invalid_token") as ws,
+            pytest.raises(WebSocketDisconnect) as exc_info,
+        ):
+            ws.receive_json()
+        assert exc_info.value.code == 4001
+
+    def test_expired_query_token_is_closed_with_4001(self, client: TestClient):
+        from datetime import datetime, timedelta
+
+        from jose import jwt
+
+        expired_token = jwt.encode(
+            {"sub": "testuser", "role": "viewer", "exp": datetime.now(UTC) - timedelta(hours=1)},
+            settings.jwt_secret,
+            algorithm="HS256",
+        )
+        with (
             client.websocket_connect(f"/api/ws?token={expired_token}") as ws,
             pytest.raises(WebSocketDisconnect) as exc_info,
         ):
@@ -130,7 +209,7 @@ class TestConnectionAck:
 
     def test_connection_ack_with_no_current_channel(self, client: TestClient, valid_token: str):
         """Connection ack includes null currentChannel when none set."""
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             data = ws.receive_json()
             assert data["type"] == "connection_ack"
             assert data["currentChannel"] is None
@@ -145,7 +224,7 @@ class TestConnectionAck:
         # Set channel directly without broadcast (sync version for tests)
         channel_state._current_channel = test_channel
 
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             data = ws.receive_json()
             assert data["type"] == "connection_ack"
             assert data["currentChannel"] is not None
@@ -156,7 +235,7 @@ class TestConnectionAck:
 
     def test_connection_ack_names_the_signed_in_user(self, client: TestClient, valid_token: str):
         """Connection ack tells the socket which username it is signed in as."""
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             data = ws.receive_json()
             assert data["type"] == "connection_ack"
             assert data["you"] == {
@@ -167,7 +246,7 @@ class TestConnectionAck:
     def test_connection_ack_gives_plex_sign_ins_a_plex_derived_id(self, client: TestClient):
         """A Plex token's id comes from its account id, and the raw id isn't sent."""
         token = create_access_token({"sub": "plexuser", "role": "viewer", "plex_id": "12345"})
-        with client.websocket_connect(f"/api/ws?token={token}") as ws:
+        with ws_connect(client, token) as ws:
             data = ws.receive_json()
             assert data["you"] == {
                 "username": "plexuser",
@@ -180,7 +259,7 @@ class TestConnectionAck:
     ):
         """The ack names the server's build, so an old bundle can notice a deploy."""
         monkeypatch.setattr(settings, "app_build_id", "build-4f2a")
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             data = ws.receive_json()
             assert data["type"] == "connection_ack"
             assert data["buildId"] == "build-4f2a"
@@ -193,13 +272,13 @@ class TestPresenceInAck:
         self, client: TestClient, valid_token: str, admin_token: str
     ):
         """Others are listed by name; channels stay private while visibility is off."""
-        with client.websocket_connect(f"/api/ws?token={admin_token}") as ws1:
+        with ws_connect(client, admin_token) as ws1:
             ws1.receive_json()  # connection_ack
             ws1.send_json({"type": "channel_update", "channel": "News", "channelId": "n1"})
             ws1.send_json({"type": "ping"})
             ws1.receive_json()  # pong
 
-            with client.websocket_connect(f"/api/ws?token={valid_token}") as ws2:
+            with ws_connect(client, valid_token) as ws2:
                 ack = ws2.receive_json()
 
         assert ack["type"] == "connection_ack"
@@ -224,7 +303,7 @@ class TestPresenceInAck:
         monkeypatch: pytest.MonkeyPatch,
     ):
         monkeypatch.setattr(app_settings, "_presence_visible", True)
-        with client.websocket_connect(f"/api/ws?token={admin_token}") as ws1:
+        with ws_connect(client, admin_token) as ws1:
             ws1.receive_json()  # connection_ack
             ws1.send_json(
                 {"type": "channel_update", "channel": "News", "channelId": "n1", "programme": "AM"}
@@ -232,7 +311,7 @@ class TestPresenceInAck:
             ws1.send_json({"type": "ping"})
             ws1.receive_json()  # pong
 
-            with client.websocket_connect(f"/api/ws?token={valid_token}") as ws2:
+            with ws_connect(client, valid_token) as ws2:
                 ack = ws2.receive_json()
 
         [entry] = ack["presence"]
@@ -243,7 +322,7 @@ class TestPresenceInAck:
         assert entry["since"] is not None
 
     def test_ack_presence_empty_when_nobody_watches(self, client: TestClient, valid_token: str):
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             assert ws.receive_json()["presence"] == []
 
 
@@ -266,7 +345,7 @@ class TestPresenceBroadcastTriggers:
     def test_connect_and_disconnect_schedule_broadcasts(
         self, client: TestClient, valid_token: str, schedule: MagicMock
     ):
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # connection_ack
             assert schedule.call_count == 1
 
@@ -276,7 +355,7 @@ class TestPresenceBroadcastTriggers:
         self, client: TestClient, valid_token: str, schedule: MagicMock
     ):
         """Programme rollovers on the same channel are broadcast too."""
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # connection_ack
             ws.send_json({"type": "channel_update", "channel": "News", "programme": "AM"})
             ws.send_json({"type": "channel_update", "channel": "News", "programme": "PM"})
@@ -287,7 +366,7 @@ class TestPresenceBroadcastTriggers:
     def test_nickname_and_prefs_schedule_broadcasts(
         self, client: TestClient, valid_token: str, schedule: MagicMock
     ):
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # connection_ack
             ws.send_json({"type": "set_nickname", "nickname": "Jonny"})
             ws.send_json({"type": "set_nickname", "nickname": ""})
@@ -299,9 +378,9 @@ class TestPresenceBroadcastTriggers:
     def test_refused_or_invalid_messages_do_not_broadcast(
         self, client: TestClient, valid_token: str, admin_token: str, schedule: MagicMock
     ):
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws1:
+        with ws_connect(client, valid_token) as ws1:
             ws1.receive_json()  # connection_ack
-            with client.websocket_connect(f"/api/ws?token={admin_token}") as ws2:
+            with ws_connect(client, admin_token) as ws2:
                 ws2.receive_json()  # connection_ack
                 schedule.reset_mock()
                 ws2.send_json({"type": "set_nickname", "nickname": "testuser"})
@@ -337,9 +416,9 @@ class TestPresenceUpdateBroadcast:
                     return message["presence"]
             raise AssertionError("no presence_update with entries")
 
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws1:
+        with ws_connect(client, valid_token) as ws1:
             ws1.receive_json()  # connection_ack
-            with client.websocket_connect(f"/api/ws?token={admin_token}") as ws2:
+            with ws_connect(client, admin_token) as ws2:
                 ws2.receive_json()  # connection_ack
                 ws2.send_json({"type": "channel_update", "channel": "Sports", "channelId": "s1"})
 
@@ -356,7 +435,7 @@ class TestPingPong:
     ):
         """Ping message receives pong response."""
         monkeypatch.setattr(settings, "chat_enabled", False)
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # Consume connection_ack
             ws.send_json({"type": "ping"})
             data = ws.receive_json()
@@ -367,7 +446,7 @@ class TestPingPong:
     ):
         """Unknown message types are handled without error."""
         monkeypatch.setattr(settings, "chat_enabled", False)
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # Consume connection_ack
             ws.send_json({"type": "unknown_type"})
             # Should not crash - send ping to verify connection still works
@@ -383,7 +462,7 @@ class TestConnectionTracking:
         """Connection is tracked in active connections."""
         assert channel_state.get_connection_count() == 0
 
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # Consume connection_ack
             # Connection should be tracked
             assert channel_state.get_connection_count() == 1
@@ -393,11 +472,11 @@ class TestConnectionTracking:
 
     def test_multiple_connections_tracked(self, client: TestClient, valid_token: str):
         """Multiple connections are tracked separately."""
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws1:
+        with ws_connect(client, valid_token) as ws1:
             ws1.receive_json()
             assert channel_state.get_connection_count() == 1
 
-            with client.websocket_connect(f"/api/ws?token={valid_token}") as ws2:
+            with ws_connect(client, valid_token) as ws2:
                 ws2.receive_json()
                 assert channel_state.get_connection_count() == 2
 
@@ -450,7 +529,7 @@ class TestChannelBroadcast:
         """Broadcast channel_update when admin sets channel via API."""
         monkeypatch.setattr(settings, "chat_enabled", False)
 
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # Consume connection_ack
 
             # Admin sets channel via API
@@ -485,7 +564,7 @@ class TestChannelBroadcast:
         """Clearing the channel broadcasts a null channel naming the admin."""
         monkeypatch.setattr(settings, "chat_enabled", False)
 
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # Consume connection_ack
 
             response = client.delete(
@@ -507,10 +586,10 @@ class TestChannelBroadcast:
         """All connected clients receive broadcast."""
         monkeypatch.setattr(settings, "chat_enabled", False)
 
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws1:
+        with ws_connect(client, valid_token) as ws1:
             ws1.receive_json()  # Consume ack
 
-            with client.websocket_connect(f"/api/ws?token={valid_token}") as ws2:
+            with ws_connect(client, valid_token) as ws2:
                 ws2.receive_json()  # Consume ack
 
                 # Admin sets channel
@@ -545,7 +624,7 @@ class TestWebSocketLogging:
         handler_id = logger.add(output, format="{level} | {message}", level="INFO")
 
         try:
-            with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            with ws_connect(client, valid_token) as ws:
                 ws.receive_json()  # Consume connection_ack
 
             log_output = output.getvalue()
@@ -560,7 +639,7 @@ class TestWebSocketLogging:
         handler_id = logger.add(output, format="{level} | {message}", level="INFO")
 
         try:
-            with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            with ws_connect(client, valid_token) as ws:
                 ws.receive_json()  # Consume connection_ack
             # Connection closed
 
@@ -576,7 +655,7 @@ class TestWebSocketLogging:
 
         try:
             with (
-                client.websocket_connect("/api/ws?token=invalid_token") as ws,
+                ws_connect(client, "invalid_token") as ws,
                 pytest.raises(WebSocketDisconnect),
             ):
                 ws.receive_json()
@@ -592,7 +671,7 @@ class TestWebSocketLogging:
         handler_id = logger.add(output, format="{level} | {message}", level="DEBUG")
 
         try:
-            with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            with ws_connect(client, valid_token) as ws:
                 ws.receive_json()  # Consume connection_ack
                 ws.send_json({"type": "ping"})
                 ws.receive_json()  # Consume pong
@@ -609,7 +688,7 @@ class TestWebSocketLogging:
         handler_id = logger.add(output, format="{extra} | {message}", level="INFO")
 
         try:
-            with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            with ws_connect(client, valid_token) as ws:
                 ws.receive_json()  # Consume connection_ack
 
             log_output = output.getvalue()
@@ -632,7 +711,7 @@ class TestWebSocketLogging:
         config = Settings(_env_file=None, log_format="json", log_level="DEBUG")
         with patch("app.logging_config.settings", config), patch.object(sys, "stderr", output):
             configure_logging()
-            with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            with ws_connect(client, valid_token) as ws:
                 ws.receive_json()  # Consume connection_ack
                 ws.send_json({"type": "ping"})
 
@@ -657,7 +736,7 @@ class TestWebSocketLogging:
         output = StringIO()
         handler_id = logger.add(output, format="{level} | {message} | {exception}", level="DEBUG")
         try:
-            with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+            with ws_connect(client, valid_token) as ws:
                 ws.receive_json()  # Consume connection_ack
                 ws.send_json({"type": "ping"})
                 with pytest.raises(WebSocketDisconnect):
@@ -678,7 +757,7 @@ class TestPresenceTracking:
         """User should be tracked in presence service on connect."""
         assert len(presence._active_users) == 0
 
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # Consume connection_ack
             assert len(presence._active_users) == 1
 
@@ -689,7 +768,7 @@ class TestPresenceTracking:
 
     def test_user_removed_on_disconnect(self, client: TestClient, valid_token: str):
         """User should be removed from presence on disconnect."""
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # Consume connection_ack
             assert len(presence._active_users) == 1
 
@@ -698,7 +777,7 @@ class TestPresenceTracking:
 
     def test_view_parameter_parsed_from_query(self, client: TestClient, valid_token: str):
         """View parameter should be parsed from query string."""
-        with client.websocket_connect(f"/api/ws?token={valid_token}&view=ersatztv") as ws:
+        with ws_connect(client, valid_token, view="ersatztv") as ws:
             ws.receive_json()  # Consume connection_ack
 
             users = list(presence._active_users.values())
@@ -706,7 +785,7 @@ class TestPresenceTracking:
 
     def test_default_view_is_live(self, client: TestClient, valid_token: str):
         """Default view should be 'live' when not specified."""
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # Consume connection_ack
 
             users = list(presence._active_users.values())
@@ -714,7 +793,7 @@ class TestPresenceTracking:
 
     def test_connection_tracked_with_its_user_id(self, client: TestClient, valid_token: str):
         """Presence records the opaque id, so a person's tabs can be grouped."""
-        with client.websocket_connect(f"/api/ws?token={valid_token}&session_id=s1") as ws:
+        with ws_connect(client, valid_token, session_id="s1") as ws:
             ws.receive_json()  # Consume connection_ack
 
             assert presence._active_users["s1"].user_id == expected_user_id("local:testuser")
@@ -724,7 +803,7 @@ class TestPresenceTracking:
     ):
         """An accepted nickname is shown in presence; clearing it restores the username."""
         monkeypatch.setattr(settings, "chat_enabled", False)
-        with client.websocket_connect(f"/api/ws?token={valid_token}&session_id=s1") as ws:
+        with ws_connect(client, valid_token, session_id="s1") as ws:
             ws.receive_json()  # Consume connection_ack
             ws.send_json({"type": "set_nickname", "nickname": "  Jonny  "})
             ws.send_json({"type": "ping"})
@@ -747,9 +826,9 @@ class TestPresenceTracking:
     ):
         """Another member's sign-in name never reaches presence either."""
         monkeypatch.setattr(settings, "chat_enabled", False)
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws1:
+        with ws_connect(client, valid_token) as ws1:
             ws1.receive_json()  # connection_ack
-            with client.websocket_connect(f"/api/ws?token={admin_token}&session_id=a1") as ws2:
+            with ws_connect(client, admin_token, session_id="a1") as ws2:
                 ws2.receive_json()  # connection_ack
                 ws2.send_json({"type": "set_nickname", "nickname": "testuser"})
                 assert ws2.receive_json()["code"] == "nickname_taken"
@@ -761,7 +840,7 @@ class TestPresenceTracking:
     ):
         """set_presence_prefs records "Hide what I'm watching" for the connection."""
         monkeypatch.setattr(settings, "chat_enabled", False)
-        with client.websocket_connect(f"/api/ws?token={valid_token}&session_id=s1") as ws:
+        with ws_connect(client, valid_token, session_id="s1") as ws:
             ws.receive_json()  # Consume connection_ack
             ws.send_json({"type": "set_presence_prefs", "hideActivity": True})
             ws.send_json({"type": "ping"})
@@ -793,7 +872,7 @@ class TestPresenceTracking:
     ):
         """A malformed prefs message gets invalid_message and changes nothing."""
         monkeypatch.setattr(settings, "chat_enabled", False)
-        with client.websocket_connect(f"/api/ws?token={valid_token}&session_id=s1") as ws:
+        with ws_connect(client, valid_token, session_id="s1") as ws:
             ws.receive_json()  # Consume connection_ack
             ws.send_json(message)
 
@@ -802,11 +881,11 @@ class TestPresenceTracking:
 
     def test_multiple_users_tracked(self, client: TestClient, valid_token: str, admin_token: str):
         """Multiple users should be tracked separately."""
-        with client.websocket_connect(f"/api/ws?token={valid_token}&view=live") as ws1:
+        with ws_connect(client, valid_token, view="live") as ws1:
             ws1.receive_json()
             assert len(presence._active_users) == 1
 
-            with client.websocket_connect(f"/api/ws?token={admin_token}&view=ersatztv") as ws2:
+            with ws_connect(client, admin_token, view="ersatztv") as ws2:
                 ws2.receive_json()
                 assert len(presence._active_users) == 2
 
@@ -832,11 +911,11 @@ class TestChatMessages:
         """Chat messages are broadcast when chat is enabled."""
         monkeypatch.setattr(settings, "chat_enabled", True)
 
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws1:
+        with ws_connect(client, valid_token) as ws1:
             ws1.receive_json()  # connection_ack
             ws1.receive_json()  # chat_history (empty)
 
-            with client.websocket_connect(f"/api/ws?token={valid_token}") as ws2:
+            with ws_connect(client, valid_token) as ws2:
                 ws2.receive_json()  # connection_ack
                 ws2.receive_json()  # chat_history
 
@@ -864,7 +943,7 @@ class TestChatMessages:
         monkeypatch.setattr(settings, "chat_enabled", True)
         token = create_access_token({"sub": "plexuser", "role": "viewer", "plex_id": "12345"})
 
-        with client.websocket_connect(f"/api/ws?token={token}") as ws:
+        with ws_connect(client, token) as ws:
             ws.receive_json()  # connection_ack
             ws.receive_json()  # chat_history
 
@@ -880,7 +959,7 @@ class TestChatMessages:
         monkeypatch.setattr(settings, "chat_enabled", True)
         chat.add_message("someone", "Earlier", user_id="u_0123456789abcdef")
 
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # connection_ack
             history = ws.receive_json()
 
@@ -893,7 +972,7 @@ class TestChatMessages:
         """Chat messages are ignored when chat is disabled."""
         monkeypatch.setattr(settings, "chat_enabled", False)
 
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # connection_ack
 
             # Send chat message
@@ -914,7 +993,7 @@ class TestChatMessages:
         chat.add_message("user1", "First message")
         chat.add_message("user2", "Second message")
 
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ack = ws.receive_json()
             assert ack["type"] == "connection_ack"
 
@@ -932,7 +1011,7 @@ class TestChatMessages:
 
         chat.add_message("user1", "Message")
 
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ack = ws.receive_json()
             assert ack["type"] == "connection_ack"
 
@@ -947,7 +1026,7 @@ class TestChatMessages:
         """Chat messages are trimmed but not HTML escaped (React handles XSS)."""
         monkeypatch.setattr(settings, "chat_enabled", True)
 
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # connection_ack
             ws.receive_json()  # chat_history
 
@@ -964,7 +1043,7 @@ class TestChatMessages:
         """Empty chat messages are rejected."""
         monkeypatch.setattr(settings, "chat_enabled", True)
 
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # connection_ack
             ws.receive_json()  # chat_history
 
@@ -986,7 +1065,7 @@ class TestChatMessages:
         for i in range(60):
             chat.add_message("user", f"Message {i}")
 
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # connection_ack
             history = ws.receive_json()
 
@@ -1033,7 +1112,7 @@ class TestChatChannelStamp:
 
     def test_no_channel_while_presence_is_off(self, client: TestClient, valid_token: str):
         """The default: messages say nothing about what the sender watches."""
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # connection_ack
             ws.receive_json()  # chat_history
             self.watch(ws)
@@ -1046,11 +1125,11 @@ class TestChatChannelStamp:
     def test_stamped_with_the_senders_channel_when_visible(
         self, client: TestClient, valid_token: str, admin_token: str
     ):
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws1:
+        with ws_connect(client, valid_token) as ws1:
             ws1.receive_json()  # connection_ack
             ws1.receive_json()  # chat_history
             self.watch(ws1)
-            with client.websocket_connect(f"/api/ws?token={admin_token}") as ws2:
+            with ws_connect(client, admin_token) as ws2:
                 ws2.receive_json()  # connection_ack
                 ws2.receive_json()  # chat_history
 
@@ -1064,7 +1143,7 @@ class TestChatChannelStamp:
 
     @pytest.mark.usefixtures("visible")
     def test_no_channel_for_a_sender_who_hides(self, client: TestClient, valid_token: str):
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # connection_ack
             ws.receive_json()  # chat_history
             ws.send_json({"type": "set_presence_prefs", "hideActivity": True})
@@ -1079,15 +1158,13 @@ class TestChatChannelStamp:
         self, client: TestClient, valid_token: str
     ):
         """Hiding on the phone also covers what the laptop sends."""
-        with client.websocket_connect(f"/api/ws?token={valid_token}&session_id=phone") as phone:
+        with ws_connect(client, valid_token, session_id="phone") as phone:
             phone.receive_json()  # connection_ack
             phone.receive_json()  # chat_history
             phone.send_json({"type": "set_presence_prefs", "hideActivity": True})
             phone.send_json({"type": "ping"})
             assert phone.receive_json()["type"] == "pong"
-            with client.websocket_connect(
-                f"/api/ws?token={valid_token}&session_id=laptop"
-            ) as laptop:
+            with ws_connect(client, valid_token, session_id="laptop") as laptop:
                 laptop.receive_json()  # connection_ack
                 laptop.receive_json()  # chat_history
                 self.watch(laptop)
@@ -1098,7 +1175,7 @@ class TestChatChannelStamp:
 
     @pytest.mark.usefixtures("visible")
     def test_no_channel_before_the_sender_reports_one(self, client: TestClient, valid_token: str):
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # connection_ack
             ws.receive_json()  # chat_history
 
@@ -1108,7 +1185,7 @@ class TestChatChannelStamp:
 
     def test_client_sent_channel_fields_are_ignored(self, client: TestClient, valid_token: str):
         """Only the server's presence stamps a channel; a client can't claim one."""
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # connection_ack
             ws.receive_json()  # chat_history
             ws.send_json(
@@ -1128,13 +1205,13 @@ class TestChatChannelStamp:
 
     @pytest.mark.usefixtures("visible")
     def test_history_keeps_stamps_while_visible(self, client: TestClient, valid_token: str):
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # connection_ack
             ws.receive_json()  # chat_history
             self.watch(ws)
             self.say(ws)
 
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # connection_ack
             [message] = ws.receive_json()["messages"]
 
@@ -1145,14 +1222,14 @@ class TestChatChannelStamp:
     ):
         """Turning presence off also covers what was stamped while it was on."""
         monkeypatch.setattr(app_settings, "_presence_visible", True)
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # connection_ack
             ws.receive_json()  # chat_history
             self.watch(ws)
             assert self.say(ws)["channelName"] == "Cartoons"
 
         monkeypatch.setattr(app_settings, "_presence_visible", False)
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # connection_ack
             [message] = ws.receive_json()["messages"]
 
@@ -1163,7 +1240,7 @@ class TestChatChannelStamp:
     def test_history_drops_stamps_of_a_sender_who_now_hides(
         self, client: TestClient, valid_token: str, admin_token: str
     ):
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as sender:
+        with ws_connect(client, valid_token) as sender:
             sender.receive_json()  # connection_ack
             sender.receive_json()  # chat_history
             self.watch(sender)
@@ -1172,7 +1249,7 @@ class TestChatChannelStamp:
             sender.send_json({"type": "ping"})
             assert sender.receive_json()["type"] == "pong"
 
-            with client.websocket_connect(f"/api/ws?token={admin_token}") as reader:
+            with ws_connect(client, admin_token) as reader:
                 reader.receive_json()  # connection_ack
                 [message] = reader.receive_json()["messages"]
 
@@ -1219,10 +1296,10 @@ class TestShareMessage:
     def test_share_is_broadcast_as_a_card_with_the_servers_channel(
         self, client: TestClient, valid_token: str, admin_token: str
     ):
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws1:
+        with ws_connect(client, valid_token) as ws1:
             self.open_chat(ws1)
             self.watch(ws1)
-            with client.websocket_connect(f"/api/ws?token={admin_token}") as ws2:
+            with ws_connect(client, admin_token) as ws2:
                 self.open_chat(ws2)
 
                 ws1.send_json({"type": "share", "clientMessageId": "s-1"})
@@ -1253,7 +1330,7 @@ class TestShareMessage:
     @pytest.mark.usefixtures("visible")
     def test_client_sent_channel_names_are_ignored(self, client: TestClient, valid_token: str):
         """The card names the channel presence has, whatever the client claims."""
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             self.open_chat(ws)
             self.watch(ws)
 
@@ -1274,7 +1351,7 @@ class TestShareMessage:
         assert card["content"] == "Watching TSN 5 · CFL Football"
 
     def test_refused_while_presence_is_off(self, client: TestClient, valid_token: str):
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             self.open_chat(ws)
             self.watch(ws)
 
@@ -1287,7 +1364,7 @@ class TestShareMessage:
 
     @pytest.mark.usefixtures("visible")
     def test_refused_for_a_sender_who_hides(self, client: TestClient, valid_token: str):
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             self.open_chat(ws)
             ws.send_json({"type": "set_presence_prefs", "hideActivity": True})
             self.watch(ws)
@@ -1302,7 +1379,7 @@ class TestShareMessage:
     def test_refused_before_the_sender_reports_a_channel(
         self, client: TestClient, valid_token: str
     ):
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             self.open_chat(ws)
 
             ws.send_json({"type": "share", "clientMessageId": "s-1"})
@@ -1315,7 +1392,7 @@ class TestShareMessage:
         self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
     ):
         monkeypatch.setattr(settings, "chat_enabled", False)
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # connection_ack
             self.watch(ws)
 
@@ -1328,7 +1405,7 @@ class TestShareMessage:
     def test_retried_share_is_acknowledged_without_reposting(
         self, client: TestClient, valid_token: str
     ):
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             self.open_chat(ws)
             self.watch(ws)
             ws.send_json({"type": "share", "clientMessageId": "s-1"})
@@ -1343,7 +1420,7 @@ class TestShareMessage:
         assert len(chat.get_history()) == 1
 
     def test_invalid_share_is_rejected(self, client: TestClient, valid_token: str):
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             self.open_chat(ws)
 
             ws.send_json({"type": "share", "clientMessageId": 7})
@@ -1355,14 +1432,14 @@ class TestShareMessage:
         self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
     ):
         """A share is the sender's own post, so it keeps its channel."""
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             self.open_chat(ws)
             self.watch(ws)
             ws.send_json({"type": "share"})
             ws.receive_json()  # the card
 
         monkeypatch.setattr(app_settings, "_presence_visible", False)
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # connection_ack
             [card] = ws.receive_json()["messages"]
 
@@ -1406,9 +1483,9 @@ class TestSuggestMessage:
     def test_suggestion_is_broadcast_with_the_catalogues_channel(
         self, client: TestClient, valid_token: str, admin_token: str, catalogue: list[str]
     ):
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws1:
+        with ws_connect(client, valid_token) as ws1:
             self.open_chat(ws1)
-            with client.websocket_connect(f"/api/ws?token={admin_token}") as ws2:
+            with ws_connect(client, admin_token) as ws2:
                 self.open_chat(ws2)
 
                 ws1.send_json({"type": "suggest", "channelId": "42", "clientMessageId": "g-1"})
@@ -1438,7 +1515,7 @@ class TestSuggestMessage:
 
     def test_client_sent_names_are_ignored(self, client: TestClient, valid_token: str):
         """The card names the channel the catalogue has, whatever the client claims."""
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             self.open_chat(ws)
 
             ws.send_json(
@@ -1455,7 +1532,7 @@ class TestSuggestMessage:
         assert card["content"] == "Suggests putting TSN 5 on live TV"
 
     def test_refused_for_a_channel_not_in_the_catalogue(self, client: TestClient, valid_token: str):
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             self.open_chat(ws)
 
             ws.send_json({"type": "suggest", "channelId": "666", "clientMessageId": "g-1"})
@@ -1473,7 +1550,7 @@ class TestSuggestMessage:
         catalogue: list[str],
     ):
         monkeypatch.setattr(settings, "chat_enabled", False)
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # connection_ack
 
             ws.send_json({"type": "suggest", "channelId": "42", "clientMessageId": "g-1"})
@@ -1486,7 +1563,7 @@ class TestSuggestMessage:
     def test_retried_suggestion_is_acknowledged_without_reposting(
         self, client: TestClient, valid_token: str
     ):
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             self.open_chat(ws)
             ws.send_json({"type": "suggest", "channelId": "42", "clientMessageId": "g-1"})
             card = ws.receive_json()
@@ -1511,7 +1588,7 @@ class TestSuggestMessage:
     def test_invalid_suggestion_is_rejected(
         self, client: TestClient, valid_token: str, message: dict[str, object], catalogue: list[str]
     ):
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             self.open_chat(ws)
 
             ws.send_json(message)
@@ -1523,12 +1600,12 @@ class TestSuggestMessage:
         self, client: TestClient, valid_token: str
     ):
         """Presence privacy is about where people are, not the channel they suggest."""
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             self.open_chat(ws)
             ws.send_json({"type": "suggest", "channelId": "42"})
             ws.receive_json()  # the card
 
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # connection_ack
             [card] = ws.receive_json()["messages"]
 
@@ -1546,7 +1623,7 @@ class TestChatNickname:
         """Setting nickname changes the display name for chat messages."""
         monkeypatch.setattr(settings, "chat_enabled", True)
 
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # connection_ack
             ws.receive_json()  # chat_history
 
@@ -1567,7 +1644,7 @@ class TestChatNickname:
         """Messages sent before and after a rename carry the same userId."""
         monkeypatch.setattr(settings, "chat_enabled", True)
 
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # connection_ack
             ws.receive_json()  # chat_history
 
@@ -1587,7 +1664,7 @@ class TestChatNickname:
         """Nickname is trimmed of whitespace."""
         monkeypatch.setattr(settings, "chat_enabled", True)
 
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # connection_ack
             ws.receive_json()  # chat_history
 
@@ -1603,7 +1680,7 @@ class TestChatNickname:
         """Nickname is truncated to 30 characters."""
         monkeypatch.setattr(settings, "chat_enabled", True)
 
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # connection_ack
             ws.receive_json()  # chat_history
 
@@ -1620,7 +1697,7 @@ class TestChatNickname:
         """Empty nickname falls back to authenticated username."""
         monkeypatch.setattr(settings, "chat_enabled", True)
 
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # connection_ack
             ws.receive_json()  # chat_history
 
@@ -1639,7 +1716,7 @@ class TestChatNickname:
         """Nickname persists for subsequent messages."""
         monkeypatch.setattr(settings, "chat_enabled", True)
 
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # connection_ack
             ws.receive_json()  # chat_history
 
@@ -1664,11 +1741,11 @@ class TestChatNickname:
         """Each user can have their own nickname."""
         monkeypatch.setattr(settings, "chat_enabled", True)
 
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws1:
+        with ws_connect(client, valid_token) as ws1:
             ws1.receive_json()  # connection_ack
             ws1.receive_json()  # chat_history
 
-            with client.websocket_connect(f"/api/ws?token={admin_token}") as ws2:
+            with ws_connect(client, admin_token) as ws2:
                 ws2.receive_json()  # connection_ack
                 ws2.receive_json()  # chat_history
 
@@ -1702,11 +1779,11 @@ class TestNicknameTaken:
         """Taking a connected member's sign-in name (any case) is refused; the old name stays."""
         monkeypatch.setattr(settings, "chat_enabled", True)
 
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws1:
+        with ws_connect(client, valid_token) as ws1:
             ws1.receive_json()  # connection_ack
             ws1.receive_json()  # chat_history
 
-            with client.websocket_connect(f"/api/ws?token={admin_token}") as ws2:
+            with ws_connect(client, admin_token) as ws2:
                 ws2.receive_json()  # connection_ack
                 ws2.receive_json()  # chat_history
 
@@ -1735,11 +1812,11 @@ class TestNicknameTaken:
         """With no earlier nickname, a refused one leaves the sign-in name in use."""
         monkeypatch.setattr(settings, "chat_enabled", True)
 
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws1:
+        with ws_connect(client, valid_token) as ws1:
             ws1.receive_json()  # connection_ack
             ws1.receive_json()  # chat_history
 
-            with client.websocket_connect(f"/api/ws?token={admin_token}") as ws2:
+            with ws_connect(client, admin_token) as ws2:
                 ws2.receive_json()  # connection_ack
                 ws2.receive_json()  # chat_history
 
@@ -1758,7 +1835,7 @@ class TestNicknameTaken:
         """Members may use their own sign-in name in any case."""
         monkeypatch.setattr(settings, "chat_enabled", True)
 
-        with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+        with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # connection_ack
             ws.receive_json()  # chat_history
 
@@ -1775,7 +1852,7 @@ class TestNicknameTaken:
         """Only connected members' names are known, so an offline member's name is free."""
         monkeypatch.setattr(settings, "chat_enabled", True)
 
-        with client.websocket_connect(f"/api/ws?token={admin_token}") as ws:
+        with ws_connect(client, admin_token) as ws:
             ws.receive_json()  # connection_ack
             ws.receive_json()  # chat_history
 
@@ -1806,7 +1883,7 @@ class TestNicknameTaken:
     ],
 )
 def test_sec05_invalid_messages_cannot_poison_presence(client, valid_token, admin_token, message):
-    with client.websocket_connect(f"/api/ws?token={valid_token}&session_id=validated") as ws:
+    with ws_connect(client, valid_token, session_id="validated") as ws:
         assert ws.receive_json()["type"] == "connection_ack"
         ws.send_json(message)
         assert ws.receive_json() == {"type": "error", "code": "invalid_message"}
@@ -1826,7 +1903,7 @@ def test_sec05_invalid_messages_cannot_poison_presence(client, valid_token, admi
 
 
 def test_sec05_oversize_message_closes_before_mutation(client, valid_token):
-    with client.websocket_connect(f"/api/ws?token={valid_token}") as ws:
+    with ws_connect(client, valid_token) as ws:
         ws.receive_json()
         ws.send_json({"type": "chat_message", "content": "x" * 17000})
         with pytest.raises(WebSocketDisconnect) as error:
@@ -1858,7 +1935,7 @@ def test_sec06_socket_expires_and_cleans_all_state(client, monkeypatch, active):
         settings.jwt_secret,
         algorithm="HS256",
     )
-    with client.websocket_connect(f"/api/ws?token={token}&session_id=expiring") as ws:
+    with ws_connect(client, token, session_id="expiring") as ws:
         assert ws.receive_json()["type"] == "connection_ack"
         assert ws.receive_json()["type"] == "chat_history"
         ws.send_json({"type": "set_nickname", "nickname": "Temporary"})

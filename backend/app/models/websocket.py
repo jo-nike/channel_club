@@ -62,6 +62,13 @@ class SuggestMessage(ClientMessage):
     clientMessageId: ClientMessageId | None = None
 
 
+class AuthMessage(ClientMessage):
+    """The first frame on a new socket: the session token, kept out of the URL."""
+
+    type: Literal["auth"]
+    token: InputText
+
+
 client_message_adapter = TypeAdapter(
     Annotated[
         PingMessage

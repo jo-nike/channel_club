@@ -13,7 +13,7 @@ from starlette.websockets import WebSocketState
 
 from app.config import settings
 from app.models.channel import Channel
-from app.models.websocket import MAX_MESSAGE_BYTES, client_message_adapter
+from app.models.websocket import MAX_MESSAGE_BYTES, AuthMessage, client_message_adapter
 from app.services import app_settings, channel_state, chat, presence, presence_broadcast
 from app.services.auth import verify_token
 from app.services.media_source import resolve_media_channel
@@ -26,6 +26,8 @@ log = logger.bind(router="websocket")
 # connection's cleanup cannot clobber a nickname set by a newer one.
 _nickname_map: dict[str, tuple[WebSocket, str]] = {}
 MAX_NICKNAME_LENGTH = 30
+# How long a new socket may take to send its auth message
+AUTH_TIMEOUT_SECONDS = 5
 
 
 def _clear_nickname(client_id: str, websocket: WebSocket) -> None:
@@ -148,6 +150,35 @@ async def verify_websocket_token(token: str) -> dict | None:
         return None
 
 
+async def _receive_auth_token(websocket: WebSocket) -> str | None:
+    """Wait for the first frame and take the token from its auth message.
+
+    Args:
+        websocket: The accepted, not yet authenticated WebSocket.
+
+    Returns:
+        The token, or None when the first frame is late, oversize or not an
+        auth message.
+
+    Raises:
+        WebSocketDisconnect: If the client leaves before sending anything.
+    """
+    try:
+        async with asyncio.timeout(AUTH_TIMEOUT_SECONDS):
+            message = await websocket.receive()
+    except TimeoutError:
+        return None
+    if message["type"] == "websocket.disconnect":
+        raise WebSocketDisconnect(message.get("code", 1000))
+    data = message.get("text")
+    if data is None or len(data.encode("utf-8")) > MAX_MESSAGE_BYTES:
+        return None
+    try:
+        return AuthMessage.model_validate_json(data).token
+    except ValidationError:
+        return None
+
+
 def _is_disconnect_race(websocket: WebSocket, error: Exception) -> bool:
     """Whether an error is Starlette refusing a send or receive on a closed socket.
 
@@ -164,7 +195,7 @@ def _is_disconnect_race(websocket: WebSocket, error: Exception) -> bool:
 @router.websocket("/api/ws")
 async def websocket_endpoint(
     websocket: WebSocket,
-    token: str = Query(...),
+    token: str | None = Query(default=None),
     view: str = Query(default="live"),
     session_id: str = Query(default=""),
 ) -> None:
@@ -172,7 +203,9 @@ async def websocket_endpoint(
 
     Args:
         websocket: The WebSocket connection.
-        token: JWT token passed as query parameter.
+        token: Legacy JWT query parameter, still accepted from bundles that
+            predate first-message auth. Without it, the first frame must be
+            {"type": "auth", "token": ...}.
         view: View type ("live" or "ersatztv"), defaults to "live".
         session_id: Client session ID for presence tracking (prevents duplicates on view switch).
     """
@@ -185,7 +218,16 @@ async def websocket_endpoint(
     # instead of the 4001 auth-failure code it acts on.
     await websocket.accept()
 
-    payload = await verify_websocket_token(token)
+    if token is None:
+        # The token comes in the first frame, so it never appears in a URL
+        # (and so in no proxy access log). Nothing is tracked until it checks out.
+        try:
+            token = await _receive_auth_token(websocket)
+        except WebSocketDisconnect:
+            log.debug("WebSocket closed before auth: client {}", client_id)
+            return
+
+    payload = await verify_websocket_token(token) if token else None
     if not payload or time.time() >= payload["exp"]:
         log.warning("WebSocket auth failed for client {}", client_id)
         await websocket.close(code=4001, reason="Invalid token")
