@@ -17,6 +17,12 @@ from loguru import logger
 
 from app.config import settings
 from app.models.channel import Channel
+from app.models.websocket import (
+    ServerChannelUpdate,
+    ServerChatMessage,
+    ServerMessage,
+    server_payload,
+)
 from app.services import chat, state_store
 
 if TYPE_CHECKING:
@@ -265,7 +271,7 @@ async def clear_current_channel_async(user: str | None = None) -> None:
         await state_store.save({"liveChannelId": None, "liveSetBy": None})
 
         # Broadcast to all connected clients, naming who stopped live TV
-        await broadcast({"type": "channel_update", "channel": None, "changedBy": user})
+        await broadcast(ServerChannelUpdate(type="channel_update", channel=None, changedBy=user))
         if user:
             await _broadcast_system_line(f"{user} stopped live TV")
 
@@ -307,11 +313,7 @@ async def broadcast_channel_update(channel: Channel, changed_by: str | None = No
         changed_by: Username of whoever changed the channel, so clients can
             say who put it on. None for system changes.
     """
-    message = {
-        "type": "channel_update",
-        "channel": channel.model_dump(by_alias=True),
-        "changedBy": changed_by,
-    }
+    message = ServerChannelUpdate(type="channel_update", channel=channel, changedBy=changed_by)
     log.debug("Broadcasting channel update to {} clients", len(_active_connections))
     await broadcast(message)
 
@@ -328,19 +330,29 @@ async def _broadcast_system_line(content: str) -> None:
     if not settings.chat_enabled:
         return
     line = chat.system_message(content)
-    await broadcast({"type": "chat_message", **line.to_dict()})
+    await broadcast(ServerChatMessage(type="chat_message", **line.to_dict()))
 
 
-async def broadcast(message: dict) -> None:
+async def send_message(websocket: WebSocket, message: ServerMessage) -> None:
+    """Send one server message to one client.
+
+    Args:
+        websocket: The client's WebSocket.
+        message: The message to send as JSON.
+    """
+    await websocket.send_json(server_payload(message))
+
+
+async def broadcast(message: ServerMessage) -> None:
     """Send message to all connected clients.
 
     Args:
-        message: The message dict to send as JSON.
+        message: The message to send as JSON.
     """
     if not _active_connections:
         return
 
-    message_text = json.dumps(message)
+    message_text = json.dumps(server_payload(message))
 
     async def send_safe(ws: WebSocket) -> tuple[WebSocket, bool]:
         try:

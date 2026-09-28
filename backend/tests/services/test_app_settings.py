@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from app.models.websocket import server_payload
 from app.services import app_settings
 
 
@@ -71,12 +72,12 @@ class TestSetUserChannelSelection:
         with patch.object(app_settings.channel_state, "broadcast", new=mock_broadcast):
             await app_settings.set_user_channel_selection(True, user="admin")
 
-        mock_broadcast.assert_awaited_once_with(
-            {
-                "type": "settings_update",
-                "settings": {"userChannelSelection": True, "presenceVisible": False},
-            }
-        )
+        mock_broadcast.assert_awaited_once()
+        assert mock_broadcast.await_args is not None
+        assert server_payload(mock_broadcast.await_args.args[0]) == {
+            "type": "settings_update",
+            "settings": {"userChannelSelection": True, "presenceVisible": False},
+        }
 
 
 class TestPresenceVisible:
@@ -112,9 +113,9 @@ class TestPresenceVisible:
         with patch.object(app_settings.channel_state, "broadcast", new=mock_broadcast):
             await app_settings.set_presence_visible(True, user="admin")
 
-        mock_broadcast.assert_awaited_once_with(
-            {
-                "type": "settings_update",
-                "settings": {"userChannelSelection": False, "presenceVisible": True},
-            }
-        )
+        mock_broadcast.assert_awaited_once()
+        assert mock_broadcast.await_args is not None
+        assert server_payload(mock_broadcast.await_args.args[0]) == {
+            "type": "settings_update",
+            "settings": {"userChannelSelection": False, "presenceVisible": True},
+        }

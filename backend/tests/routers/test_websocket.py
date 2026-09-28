@@ -19,6 +19,7 @@ from app.logging_config import configure_logging
 from app.main import app
 from app.models.channel import Channel, GroupedChannelsResponse
 from app.models.ersatztv import EPGChannel
+from app.models.websocket import ServerChannelUpdate, ServerPong
 from app.routers import websocket as websocket_router
 from app.services import app_settings, channel_state, chat, presence, presence_broadcast
 from app.services.auth import create_access_token
@@ -2514,14 +2515,16 @@ async def test_sec07_failed_broadcast_closes_and_cleans_endpoint(monkeypatch, va
     healthy.application_state = WebSocketState.CONNECTED
     healthy.send_text = AsyncMock()
     await channel_state.connect(healthy)
-    await channel_state.broadcast({"type": "channel_update", "channel": None})
+    await channel_state.broadcast(
+        ServerChannelUpdate(type="channel_update", channel=None, changedBy=None)
+    )
     with pytest.raises(asyncio.CancelledError):
         await task
     ws.close.assert_awaited_once_with(code=1011, reason="Broadcast failed; reconnect")
     cleanup.assert_called_once_with(client_id, ws)
     assert not presence._active_users
     assert not websocket_router._nickname_map
-    await channel_state.broadcast({"type": "resynchronized"})
+    await channel_state.broadcast(ServerPong(type="pong"))
     assert healthy.send_text.await_count == 2
     assert ws.send_text.await_count == 1
     channel_state.disconnect(healthy)

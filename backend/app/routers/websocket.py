@@ -18,7 +18,15 @@ from app.models.channel import Channel
 from app.models.websocket import (
     MAX_MESSAGE_BYTES,
     AuthMessage,
+    ChatLine,
     ReauthMessage,
+    ServerChatAck,
+    ServerChatHistory,
+    ServerChatMessage,
+    ServerConnectionAck,
+    ServerError,
+    ServerPong,
+    You,
     client_message_adapter,
 )
 from app.services import app_settings, channel_state, chat, presence, presence_broadcast
@@ -305,14 +313,13 @@ async def _ack_chat(
     """
     if not client_message_id:
         return
-    ack: dict[str, object] = {
-        "type": "chat_ack",
-        "clientMessageId": client_message_id,
-        "accepted": message_id is not None,
-    }
-    if message_id is not None:
-        ack["messageId"] = message_id
-    await websocket.send_json(ack)
+    ack = ServerChatAck(
+        type="chat_ack",
+        clientMessageId=client_message_id,
+        accepted=message_id is not None,
+        messageId=message_id,
+    )
+    await channel_state.send_message(websocket, ack)
 
 
 async def verify_websocket_token(token: str) -> dict | None:
@@ -476,20 +483,20 @@ async def websocket_endpoint(
         async with asyncio.timeout(max(0, payload["exp"] - time.time())) as deadline:
             # Send connection acknowledgment with current channel and settings
             current = channel_state.get_current_channel()
-            ack_message = {
-                "type": "connection_ack",
-                "currentChannel": current.model_dump(by_alias=True) if current else None,
-                "settings": app_settings.get_app_settings().model_dump(by_alias=True),
+            ack_message = ServerConnectionAck(
+                type="connection_ack",
+                currentChannel=current,
+                settings=app_settings.get_app_settings(),
                 # Tell the client who it is signed in as, so chat can default
                 # to the sign-in name (Plex logins don't store a username), and
                 # the id its own messages carry whatever name they show.
-                "you": {"username": payload["sub"], "userId": user_id},
+                you=You(username=payload["sub"], userId=user_id),
                 # Who else is here (and, if the admin allows it, what they watch)
-                "presence": presence_broadcast.build_snapshot(),
+                presence=presence_broadcast.build_snapshot(),
                 # Lets a client running an older bundle notice a deploy
-                "buildId": settings.app_build_id,
-            }
-            await websocket.send_json(ack_message)
+                buildId=settings.app_build_id,
+            )
+            await channel_state.send_message(websocket, ack_message)
 
             # Send chat history if chat is enabled
             if settings.chat_enabled:
@@ -498,14 +505,18 @@ async def websocket_endpoint(
                 # presence is off, and none for a sender who now hides theirs
                 channels_visible = app_settings.presence_visible_enabled()
                 hidden = presence_broadcast.hidden_people()
-                history_message = {
-                    "type": "chat_history",
-                    "messages": [
-                        msg.to_dict(show_channel=channels_visible and msg.user_id not in hidden)
+                history_message = ServerChatHistory(
+                    type="chat_history",
+                    messages=[
+                        ChatLine(
+                            **msg.to_dict(
+                                show_channel=channels_visible and msg.user_id not in hidden
+                            )
+                        )
                         for msg in history
                     ],
-                }
-                await websocket.send_json(history_message)
+                )
+                await channel_state.send_message(websocket, history_message)
 
             # Listen for client messages
             username = payload["sub"]
@@ -629,7 +640,9 @@ async def handle_client_message(
     try:
         validated = client_message_adapter.validate_python(message).model_dump()
     except ValidationError:
-        await websocket.send_json({"type": "error", "code": "invalid_message"})
+        await channel_state.send_message(
+            websocket, ServerError(type="error", code="invalid_message")
+        )
         return
 
     msg_type = validated.get("type")
@@ -647,8 +660,11 @@ async def handle_client_message(
         # Refused, never closed: the client sees a failed send it can retry
         if msg_type == "set_nickname":
             # Named as sent, like nickname_taken, so the client can put back the name in use
-            await websocket.send_json(
-                {"type": "error", "code": "rate_limited", "nickname": validated.get("nickname", "")}
+            await channel_state.send_message(
+                websocket,
+                ServerError(
+                    type="error", code="rate_limited", nickname=validated.get("nickname", "")
+                ),
             )
         else:
             await _ack_chat(websocket, validated.get("clientMessageId"), None)
@@ -656,7 +672,7 @@ async def handle_client_message(
 
     if msg_type == "ping":
         log.debug("Ping from client {}, sending pong", client_id)
-        await websocket.send_json({"type": "pong"})
+        await channel_state.send_message(websocket, ServerPong(type="pong"))
     elif msg_type == "channel_update":
         if channel_updates is None:
             _apply_channel_update(client_id, validated)
@@ -670,8 +686,8 @@ async def handle_client_message(
             # Refused: the previous name (or the sign-in name) stays in use. Named as
             # sent, not normalized, so the client recognises its own request.
             log.debug("Nickname refused for client {}: another member's name", client_id)
-            await websocket.send_json(
-                {"type": "error", "code": "nickname_taken", "nickname": requested}
+            await channel_state.send_message(
+                websocket, ServerError(type="error", code="nickname_taken", nickname=requested)
             )
         elif nickname:
             _nickname_map[client_id] = (websocket, nickname)
@@ -748,10 +764,7 @@ async def handle_client_message(
             # The ack confirms the stored message, so a stalled peer can't hold it up
             await _ack_chat(websocket, client_message_id, chat_msg.message_id)
             # Broadcast to all connected clients
-            broadcast_message = {
-                "type": "chat_message",
-                **chat_msg.to_dict(),
-            }
+            broadcast_message = ServerChatMessage(type="chat_message", **chat_msg.to_dict())
             await channel_state.broadcast(broadcast_message)
             log.debug("Chat message broadcast from {}: {}", username, chat_msg.message_id[:8])
         else:

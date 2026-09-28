@@ -16,22 +16,10 @@ second carrying the snapshot as it is when sent.
 """
 
 import asyncio
-from typing import TypedDict
 
+from app.models.websocket import PresenceEntry, ServerPresenceUpdate
 from app.services import app_settings, channel_state, presence
-from app.services.presence import UserPresence, View
-
-
-class PresenceEntry(TypedDict):
-    """One person in the presence snapshot (camelCase, as sent to clients)."""
-
-    userId: str | None
-    displayName: str
-    channelId: str | None
-    channelName: str | None
-    programme: str | None
-    view: View | None
-    since: str | None
+from app.services.presence import UserPresence
 
 
 def _started(user: UserPresence) -> float:
@@ -160,7 +148,9 @@ async def _broadcast_after_debounce() -> None:
     await asyncio.sleep(BROADCAST_DEBOUNCE_SECONDS)
     # Let changes made while this broadcast is being sent schedule a new one
     _pending = None
-    await channel_state.broadcast({"type": "presence_update", "presence": build_snapshot()})
+    await channel_state.broadcast(
+        ServerPresenceUpdate(type="presence_update", presence=build_snapshot())
+    )
 
 
 def cancel_pending() -> None:

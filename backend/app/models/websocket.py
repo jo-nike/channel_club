@@ -1,13 +1,21 @@
-"""Validated client messages. Invalid messages receive an invalid_message error.
+"""Validated client messages, and the typed messages the server sends back.
 
-Unknown message types remain ignored for forward compatibility. String input is
-bounded before presence/chat mutations; chat and nickname display truncation is
-retained within the 16 KiB wire-message budget.
+Invalid client messages receive an invalid_message error. Unknown message types
+remain ignored for forward compatibility. String input is bounded before
+presence/chat mutations; chat and nickname display truncation is retained
+within the 16 KiB wire-message budget.
+
+Server messages are the models in ServerMessage, and server_payload() is the
+only way one becomes JSON (tests/test_ws_contract.py pins every payload, and
+frontend/src/types/ws.ts mirrors them).
 """
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+
+from app.models.admin import AppSettings
+from app.models.channel import Channel
 
 MAX_MESSAGE_BYTES = 16 * 1024
 PresenceText = Annotated[str, Field(strict=True, max_length=512)]
@@ -94,3 +102,119 @@ client_message_adapter = TypeAdapter(
         Field(discriminator="type"),
     ]
 )
+
+
+# Server-to-client messages. Field names are the camelCase keys on the wire.
+View = Literal["live", "ersatztv"]
+
+
+def _is_none(value: object) -> bool:
+    """exclude_if for optional keys left out of the payload, rather than sent as null."""
+    return value is None
+
+
+class PresenceEntry(TypedDict):
+    """One person in the presence snapshot (camelCase, as sent to clients)."""
+
+    userId: str | None
+    displayName: str
+    channelId: str | None
+    channelName: str | None
+    programme: str | None
+    view: View | None
+    since: str | None
+
+
+class ChatLine(BaseModel):
+    """A chat message as clients show it (chat.ChatMessage.to_dict)."""
+
+    messageId: str
+    username: str
+    userId: str
+    content: str
+    timestamp: str
+    kind: Literal["user", "system", "share", "suggestion"]
+    channelId: str | None
+    channelName: str | None
+    programme: str | None
+    view: View | None
+
+
+class You(BaseModel):
+    """Who the connection is signed in as."""
+
+    username: str
+    userId: str
+
+
+class ServerConnectionAck(BaseModel):
+    type: Literal["connection_ack"]
+    currentChannel: Channel | None
+    settings: AppSettings
+    you: You
+    presence: list[PresenceEntry]
+    buildId: str
+
+
+class ServerChatHistory(BaseModel):
+    type: Literal["chat_history"]
+    messages: list[ChatLine]
+
+
+class ServerChatMessage(ChatLine):
+    type: Literal["chat_message"]
+
+
+class ServerChatAck(BaseModel):
+    type: Literal["chat_ack"]
+    clientMessageId: str
+    accepted: bool
+    # Only on an accepted send
+    messageId: str | None = Field(default=None, exclude_if=_is_none)
+
+
+class ServerChannelUpdate(BaseModel):
+    type: Literal["channel_update"]
+    channel: Channel | None
+    changedBy: str | None
+
+
+class ServerSettingsUpdate(BaseModel):
+    type: Literal["settings_update"]
+    settings: AppSettings
+
+
+class ServerPresenceUpdate(BaseModel):
+    type: Literal["presence_update"]
+    presence: list[PresenceEntry]
+
+
+class ServerPong(BaseModel):
+    type: Literal["pong"]
+
+
+class ServerError(BaseModel):
+    type: Literal["error"]
+    code: Literal["invalid_message", "rate_limited", "nickname_taken"]
+    # The nickname as sent, on rate_limited and nickname_taken for set_nickname
+    nickname: str | None = Field(default=None, exclude_if=_is_none)
+
+
+ServerMessage = Annotated[
+    ServerConnectionAck
+    | ServerChatHistory
+    | ServerChatMessage
+    | ServerChatAck
+    | ServerChannelUpdate
+    | ServerSettingsUpdate
+    | ServerPresenceUpdate
+    | ServerPong
+    | ServerError,
+    Field(discriminator="type"),
+]
+server_message_adapter: TypeAdapter[ServerMessage] = TypeAdapter(ServerMessage)
+
+
+def server_payload(message: ServerMessage) -> dict[str, Any]:
+    """The JSON object a server message is sent as: nested models by alias, as clients read them."""
+    return message.model_dump(mode="json", by_alias=True)

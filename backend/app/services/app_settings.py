@@ -8,6 +8,7 @@ existing WebSocket so connected clients react without a refresh.
 from loguru import logger
 
 from app.models.admin import AppSettings
+from app.models.websocket import ServerSettingsUpdate
 from app.services import channel_state, state_store
 
 # Module-level logger with service context
@@ -111,8 +112,6 @@ async def set_presence_visible(enabled: bool, user: str | None = None) -> AppSet
 
 async def broadcast_settings_update() -> None:
     """Broadcast the current settings to all connected clients."""
-    message = {
-        "type": "settings_update",
-        "settings": get_app_settings().model_dump(by_alias=True),
-    }
-    await channel_state.broadcast(message)
+    await channel_state.broadcast(
+        ServerSettingsUpdate(type="settings_update", settings=get_app_settings())
+    )
