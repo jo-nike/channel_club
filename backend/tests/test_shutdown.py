@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import re
 import subprocess
 import threading
 import time
@@ -18,6 +19,8 @@ from app.config import settings
 from app.services import highlight
 from app.services.cast import CastService
 from app.services.highlight import ChannelRecorder, HighlightService
+
+ROOT = Path(__file__).parents[2]
 
 
 class SlowRecorder(ChannelRecorder):
@@ -161,3 +164,16 @@ async def test_cancelled_idle_stop_still_signals_ffmpeg_before_removing_its_dire
         if process.poll() is None:
             process.kill()
             process.wait()
+
+
+def test_container_stop_grace_covers_uvicorn_and_the_teardown_deadline() -> None:
+    text = (ROOT / "Dockerfile").read_text().replace("\\\n", " ")
+    match = re.search(r'"--timeout-graceful-shutdown", "(\d+)"', text)
+    assert match, "Dockerfile CMD lacks --timeout-graceful-shutdown"
+    budget = int(match.group(1)) + main.SHUTDOWN_DEADLINE_SECONDS
+    for compose in ("stack/docker-compose.yaml", "docker-compose.yml"):
+        service = (ROOT / compose).read_text()
+        grace = re.search(r"^    stop_grace_period: (\d+)s$", service, re.MULTILINE)
+        assert grace, f"{compose} lacks stop_grace_period"
+        assert int(grace.group(1)) > budget
+        assert re.search(r"^    init: true$", service, re.MULTILINE), compose

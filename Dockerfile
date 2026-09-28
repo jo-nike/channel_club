@@ -92,4 +92,5 @@ EXPOSE 8080
 # so oversize frames are refused (1009) before uvicorn buffers them; without
 # permessage-deflate a small frame cannot inflate into a large one.
 CMD ["/app/.venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", \
-     "--ws-max-size", "32768", "--ws-per-message-deflate", "false"]
+     "--ws-max-size", "32768", "--ws-per-message-deflate", "false", \
+     "--timeout-graceful-shutdown", "8"]

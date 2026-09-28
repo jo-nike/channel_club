@@ -35,6 +35,9 @@ services:
     extra_hosts:
       - "streams.example.com:10.8.0.2"
     restart: unless-stopped
+    # uvicorn's graceful timeout plus the teardown deadline (8 s each) fit in this.
+    stop_grace_period: 20s
+    init: true
     logging: *bounded-logging
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
