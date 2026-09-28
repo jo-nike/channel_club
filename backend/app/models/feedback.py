@@ -8,16 +8,20 @@ FeedbackKind = Literal["bug", "suggestion", "other"]
 
 MAX_MESSAGE_LENGTH = 2000
 MAX_CONTACT_LENGTH = 200
+# Loose input bound for each context field; the router truncates to display caps
+MAX_CONTEXT_FIELD_LENGTH = 2000
 
 
 class FeedbackContext(BaseModel):
     """Client diagnostics attached to a report. Every field is bounded."""
 
-    user_agent: str = Field("", alias="userAgent", max_length=300)
-    viewport: str = Field("", max_length=32)  # "1920x1080"
-    path: str = Field("", max_length=200)  # pathname only, never the query string
-    session_id: str = Field("", alias="sessionId", max_length=16)
-    app_version: str = Field("", alias="appVersion", max_length=32)  # frontend build
+    user_agent: str = Field("", alias="userAgent", max_length=MAX_CONTEXT_FIELD_LENGTH)
+    viewport: str = Field("", max_length=MAX_CONTEXT_FIELD_LENGTH)  # "1920x1080"
+    # pathname only, never the query string
+    path: str = Field("", max_length=MAX_CONTEXT_FIELD_LENGTH)
+    session_id: str = Field("", alias="sessionId", max_length=MAX_CONTEXT_FIELD_LENGTH)
+    # frontend build
+    app_version: str = Field("", alias="appVersion", max_length=MAX_CONTEXT_FIELD_LENGTH)
 
     model_config = {"populate_by_name": True, "extra": "forbid"}
 
