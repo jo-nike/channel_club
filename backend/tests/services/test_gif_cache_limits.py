@@ -20,7 +20,10 @@ async def test_limit_participates_in_trending_cache_key(monkeypatch, limits):
             200,
             json={
                 "data": [
-                    {"id": str(i), "images": {"original": {"url": f"https://image.test/{i}"}}}
+                    {
+                        "id": str(i),
+                        "images": {"original": {"url": f"https://media.giphy.com/{i}.gif"}},
+                    }
                     for i in range(count)
                 ],
                 "pagination": {"count": count, "offset": 0, "total_count": 100},

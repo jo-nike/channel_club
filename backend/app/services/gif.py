@@ -8,6 +8,7 @@ This service provides:
 """
 
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urlsplit
 
 import httpx
 from loguru import logger
@@ -22,11 +23,60 @@ GIPHY_BASE_URL = "https://api.giphy.com/v1/gifs"
 # Cache duration for trending GIFs
 TRENDING_CACHE_MINUTES = 5
 
+# Retry-After sent to the client when Giphy rate-limits without one
+DEFAULT_RETRY_AFTER_SECONDS = 30
+
+# Most of a Giphy error body that reaches the log
+LOGGED_BODY_CHARS = 200
+
 
 class GifServiceError(Exception):
-    """Raised when GIF service encounters an error."""
+    """Raised when GIF service encounters an error.
 
-    pass
+    status_code is the HTTP status the router returns; retry_after, when set,
+    is sent as the Retry-After header.
+    """
+
+    def __init__(
+        self, message: str, status_code: int = 503, retry_after: str | None = None
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.retry_after = retry_after
+
+
+def _status_error(response: httpx.Response) -> GifServiceError:
+    """Map a Giphy error status to the error the client sees.
+
+    429 stays 429, a rejected key and other 4xx are 502, and Giphy 5xx stays
+    503. The client gets a fixed message; the log gets a truncated body.
+    """
+    status = response.status_code
+    body = response.text[:LOGGED_BODY_CHARS]
+    if status == 429:
+        log.warning("Giphy API rate limited: {}", body)
+        retry_after = response.headers.get("Retry-After") or str(DEFAULT_RETRY_AFTER_SECONDS)
+        return GifServiceError("GIF service is busy; try again later", 429, retry_after)
+    if status in (401, 403):
+        log.warning("GIF service misconfigured: Giphy returned {} {}", status, body)
+        return GifServiceError("GIF service misconfigured", 502)
+    if 400 <= status < 500:
+        log.error("Giphy API rejected the request: {} {}", status, body)
+        return GifServiceError("GIF service rejected the request", 502)
+    log.error("Giphy API error: {} {}", status, body)
+    return GifServiceError("GIF service unavailable")
+
+
+def _is_giphy_url(url: object) -> bool:
+    """True for an https URL on giphy.com or one of its subdomains."""
+    if not isinstance(url, str):
+        return False
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname or ""
+    except ValueError:
+        return False
+    return parts.scheme == "https" and (host == "giphy.com" or host.endswith(".giphy.com"))
 
 
 class GifService:
@@ -79,18 +129,16 @@ class GifService:
                     },
                 )
                 response.raise_for_status()
-                data = response.json()
         except httpx.TimeoutException:
             log.error("Giphy API request timed out")
             raise GifServiceError("GIF service timed out") from None
         except httpx.HTTPStatusError as e:
-            log.error("Giphy API error: {} {}", e.response.status_code, e.response.text)
-            raise GifServiceError(f"GIF service error: {e.response.status_code}") from None
+            raise _status_error(e.response) from None
         except httpx.RequestError as e:
             log.error("Giphy API request failed: {}", str(e))
             raise GifServiceError("GIF service unavailable") from None
 
-        result = self._normalize_response(data)
+        result = self._parse_response(response)
 
         # Cache the result
         self._trending_limit = limit
@@ -132,25 +180,27 @@ class GifService:
                     },
                 )
                 response.raise_for_status()
-                data = response.json()
         except httpx.TimeoutException:
             log.error("Giphy API search timed out for query: {}", query)
             raise GifServiceError("GIF service timed out") from None
         except httpx.HTTPStatusError as e:
-            log.error(
-                "Giphy API search error: {} {}",
-                e.response.status_code,
-                e.response.text,
-            )
-            raise GifServiceError(f"GIF service error: {e.response.status_code}") from None
+            raise _status_error(e.response) from None
         except httpx.RequestError as e:
             log.error("Giphy API search request failed: {}", str(e))
             raise GifServiceError("GIF service unavailable") from None
 
-        result = self._normalize_response(data)
+        result = self._parse_response(response)
         log.debug("Search returned {} GIFs", len(result.get("gifs", [])))
 
         return result
+
+    def _parse_response(self, response: httpx.Response) -> dict:
+        """Decode and normalize a Giphy reply, mapping malformed data to GifServiceError."""
+        try:
+            return self._normalize_response(response.json())
+        except (ValueError, TypeError, KeyError, AttributeError):
+            log.error("Giphy API returned an invalid response")
+            raise GifServiceError("GIF service returned an invalid response") from None
 
     def _normalize_response(self, data: dict) -> dict:
         """Normalize Giphy API response to consistent format.
@@ -161,33 +211,43 @@ class GifService:
         Returns:
             Normalized response with gifs list and pagination.
         """
+        items = data.get("data", [])
+        if not isinstance(items, list):
+            raise ValueError("Giphy response data is not a list")
+
         gifs = []
-        for item in data.get("data", []):
+        for item in items:
             images = item.get("images", {})
 
             # Get the original GIF URL
             original = images.get("original", {})
             original_url = original.get("url", "")
+            if not _is_giphy_url(original_url):
+                continue
 
             # Get a smaller preview for the grid
             preview = images.get("fixed_width_small", {}) or images.get("fixed_width", {})
             preview_url = preview.get("url", original_url)
+            if not _is_giphy_url(preview_url):
+                preview_url = original_url
 
-            # Extract dimensions
-            width = int(original.get("width", 0) or 0)
-            height = int(original.get("height", 0) or 0)
+            # Extract dimensions; skip an item whose dimensions are not numeric
+            try:
+                width = int(original.get("width", 0) or 0)
+                height = int(original.get("height", 0) or 0)
+            except (ValueError, TypeError):
+                continue
 
-            if original_url:  # Only include if we have a valid URL
-                gifs.append(
-                    {
-                        "id": item.get("id", ""),
-                        "url": original_url,
-                        "previewUrl": preview_url,
-                        "width": width,
-                        "height": height,
-                        "title": item.get("title", ""),
-                    }
-                )
+            gifs.append(
+                {
+                    "id": item.get("id", ""),
+                    "url": original_url,
+                    "previewUrl": preview_url,
+                    "width": width,
+                    "height": height,
+                    "title": item.get("title", ""),
+                }
+            )
 
         pagination = data.get("pagination", {})
 

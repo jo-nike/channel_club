@@ -1,13 +1,20 @@
 """Tests for GIF router."""
 
+from collections.abc import Iterator
+from io import StringIO
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
+from loguru import logger
 
+from app.config import settings
 from app.main import app
 from app.services.auth import create_access_token
-from app.services.gif import GifServiceError
+from app.services.gif import GifServiceError, gif_service
+
+_RealAsyncClient = httpx.AsyncClient
 
 
 @pytest.fixture
@@ -21,6 +28,22 @@ def auth_header() -> dict[str, str]:
     """Create valid auth header with JWT token."""
     token = create_access_token({"sub": "testuser", "role": "viewer"})
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+def giphy_reply(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[httpx.Response]]:
+    """Route the real GIF service to a MockTransport that returns the queued reply."""
+    monkeypatch.setattr(settings, "giphy_api_key", "test-key")
+    replies: list[httpx.Response] = []
+
+    def make_client(*, timeout: float, verify: object) -> httpx.AsyncClient:
+        transport = httpx.MockTransport(lambda request: replies[0])
+        return _RealAsyncClient(transport=transport, timeout=timeout)
+
+    gif_service.clear_cache()
+    with patch("app.services.gif.httpx.AsyncClient", side_effect=make_client):
+        yield replies
+    gif_service.clear_cache()
 
 
 class TestGetFeatureStatus:
@@ -134,6 +157,21 @@ class TestGetTrending:
         response = client.get("/api/gif/trending?limit=100", headers=auth_header)
         assert response.status_code == 422  # Validation error
 
+    def test_giphy_rate_limit_is_429(
+        self,
+        client: TestClient,
+        auth_header: dict[str, str],
+        giphy_reply: list[httpx.Response],
+    ) -> None:
+        """Trending shares the Giphy status mapping with search."""
+        giphy_reply.append(httpx.Response(429, text="slow down"))
+
+        response = client.get("/api/gif/trending", headers=auth_header)
+
+        assert response.status_code == 429
+        assert response.headers["Retry-After"] == "30"
+        assert response.json()["detail"] == "GIF service is busy; try again later"
+
 
 class TestSearchGifs:
     """Tests for GET /api/gif/search endpoint."""
@@ -208,6 +246,83 @@ class TestSearchGifs:
         """Validates query parameter minimum length."""
         response = client.get("/api/gif/search?q=", headers=auth_header)
         assert response.status_code == 422  # Validation error
+
+    def test_rejects_query_over_50_characters(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        response = client.get(f"/api/gif/search?q={'a' * 51}", headers=auth_header)
+        assert response.status_code == 422
+
+    def test_rejects_whitespace_query(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        response = client.get("/api/gif/search", params={"q": "   "}, headers=auth_header)
+        assert response.status_code == 422
+
+    def test_strips_query(self, client: TestClient, auth_header: dict[str, str]) -> None:
+        mock_result = {"gifs": [], "pagination": {"totalCount": 0, "count": 0, "offset": 0}}
+
+        with patch("app.routers.gif.gif_service") as mock_service:
+            mock_service.search = AsyncMock(return_value=mock_result)
+
+            response = client.get(
+                "/api/gif/search", params={"q": "  dogs  ", "offset": 4999}, headers=auth_header
+            )
+
+        assert response.status_code == 200
+        mock_service.search.assert_called_once_with("dogs", 4999, 25)
+
+    def test_rejects_offset_over_4999(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        response = client.get("/api/gif/search?q=test&offset=5000", headers=auth_header)
+        assert response.status_code == 422
+
+    def test_giphy_rate_limit_is_429_with_retry_after(
+        self,
+        client: TestClient,
+        auth_header: dict[str, str],
+        giphy_reply: list[httpx.Response],
+    ) -> None:
+        giphy_reply.append(httpx.Response(429, text="slow down", headers={"Retry-After": "7"}))
+
+        response = client.get("/api/gif/search?q=cats", headers=auth_header)
+
+        assert response.status_code == 429
+        assert response.headers["Retry-After"] == "7"
+        assert "slow down" not in response.text
+
+    def test_giphy_rate_limit_logs_no_error(
+        self,
+        client: TestClient,
+        auth_header: dict[str, str],
+        giphy_reply: list[httpx.Response],
+    ) -> None:
+        giphy_reply.append(httpx.Response(429, text="slow down"))
+        output = StringIO()
+        handler_id = logger.add(output, format="{level}", level="WARNING")
+        try:
+            response = client.get("/api/gif/search?q=cats", headers=auth_header)
+        finally:
+            logger.remove(handler_id)
+
+        assert response.status_code == 429
+        assert "WARNING" in output.getvalue()
+        assert "ERROR" not in output.getvalue()
+
+    def test_giphy_forbidden_is_502(
+        self,
+        client: TestClient,
+        auth_header: dict[str, str],
+        giphy_reply: list[httpx.Response],
+    ) -> None:
+        giphy_reply.append(httpx.Response(403, text="invalid api key"))
+
+        response = client.get("/api/gif/search?q=cats", headers=auth_header)
+
+        assert response.status_code == 502
+        assert response.json()["detail"] == "GIF service misconfigured"
+        assert "Retry-After" not in response.headers
 
     def test_validates_offset_non_negative(
         self, client: TestClient, auth_header: dict[str, str]

@@ -6,9 +6,11 @@ Provides endpoints for:
 - Searching for GIFs
 """
 
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, StringConstraints
 
 from app.config import settings
 from app.models.auth import TokenPayload
@@ -43,6 +45,17 @@ class GifResponse(BaseModel):
 
     gifs: list[GifItem]
     pagination: GifPagination
+
+
+def _http_error(e: GifServiceError) -> HTTPException:
+    """Turn a GifServiceError into the HTTP error its status code names."""
+    headers = {"Retry-After": e.retry_after} if e.retry_after else None
+    return HTTPException(status_code=e.status_code, detail=str(e), headers=headers)
+
+
+def _log_level(e: GifServiceError) -> str:
+    """A Giphy rate limit is expected under load, not an outage."""
+    return "WARNING" if e.status_code == 429 else "ERROR"
 
 
 class GifFeatureResponse(BaseModel):
@@ -84,17 +97,19 @@ async def get_trending(
             pagination=GifPagination(**result["pagination"]),
         )
     except GifServiceError as e:
-        log.error("Trending GIFs fetch failed: {}", str(e))
-        raise HTTPException(
-            status_code=503,
-            detail=str(e),
-        ) from None
+        log.log(_log_level(e), "Trending GIFs fetch failed: {}", str(e))
+        raise _http_error(e) from None
 
 
 @router.get("/search", response_model=GifResponse)
 async def search_gifs(
-    q: str = Query(..., min_length=1, description="Search query"),
-    offset: int = Query(default=0, ge=0, description="Result offset for pagination"),
+    # Giphy caps q at 50 characters and offset at 4999
+    q: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=50),
+        Query(description="Search query"),
+    ],
+    offset: int = Query(default=0, ge=0, le=4999, description="Result offset for pagination"),
     limit: int = Query(default=25, ge=1, le=50, description="Number of GIFs to return"),
     user: TokenPayload = Depends(get_current_user),
 ) -> GifResponse:
@@ -112,8 +127,5 @@ async def search_gifs(
             pagination=GifPagination(**result["pagination"]),
         )
     except GifServiceError as e:
-        log.error("GIF search failed for query '{}': {}", q, str(e))
-        raise HTTPException(
-            status_code=503,
-            detail=str(e),
-        ) from None
+        log.log(_log_level(e), "GIF search failed for query '{}': {}", q, str(e))
+        raise _http_error(e) from None
