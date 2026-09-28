@@ -19,7 +19,7 @@ import subprocess
 import tempfile
 import time
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from loguru import logger
@@ -462,11 +462,16 @@ class Capture:
 
 @dataclass(frozen=True)
 class DownloadToken:
-    """A single-use grant to download one owner's capture without their session token."""
+    """A single-use grant to download one owner's capture without their session token.
+
+    After the first download it still serves Range requests until it expires, so the
+    browser can resume an interrupted download.
+    """
 
     capture_id: str
     owner: str
     expires_at: float
+    redeemed: bool = False
 
 
 class CaptureStore:
@@ -535,11 +540,19 @@ class CaptureStore:
         )
         return token
 
-    def redeem_download_token(self, token: str) -> Capture | None:
-        """Spend the token: a second request, an expired token or a gone capture finds nothing."""
-        grant = self.download_tokens.pop(token, None)
+    def redeem_download_token(self, token: str, range_request: bool = False) -> Capture | None:
+        """Spend the token on the first download; later, only Range requests find the capture.
+
+        A resumed download is served until the token expires; a plain replay, an expired
+        token or a gone capture finds nothing.
+        """
+        grant = self.download_tokens.get(token)
         if grant is None or grant.expires_at <= time.time():
+            self.download_tokens.pop(token, None)
             return None
+        if grant.redeemed and not range_request:
+            return None
+        self.download_tokens[token] = replace(grant, redeemed=True)
         return self.get(grant.capture_id, grant.owner)
 
     async def delete(self, capture_id: str, owner: str) -> None:
@@ -925,8 +938,8 @@ class HighlightService:
     def issue_download_token(self, capture_id: str, owner: str) -> str | None:
         return self.captures.issue_download_token(capture_id, owner)
 
-    def redeem_download_token(self, token: str) -> Capture | None:
-        return self.captures.redeem_download_token(token)
+    def redeem_download_token(self, token: str, range_request: bool = False) -> Capture | None:
+        return self.captures.redeem_download_token(token, range_request)
 
 
 # Global service instance

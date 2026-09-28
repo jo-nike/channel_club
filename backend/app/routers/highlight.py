@@ -219,10 +219,16 @@ async def create_download_link(
 
 @router.get("/download/{token}")
 async def download_capture(
+    request: Request,
     token: str = Path(..., pattern=r"^[A-Za-z0-9_-]{16,64}$", description="Download token"),
 ) -> FileResponse:
-    """Serve a capture once to whoever holds its download token, as an attachment."""
-    capture = highlight_service.redeem_download_token(token)
+    """Serve a capture once to whoever holds its download token, as an attachment.
+
+    Range requests may follow until the token expires, so an interrupted download resumes.
+    """
+    capture = highlight_service.redeem_download_token(
+        token, range_request="range" in request.headers
+    )
     if capture is None:
         raise HTTPException(404, "Download link expired or already used")
     return capture_file(capture, download=True)

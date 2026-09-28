@@ -393,9 +393,31 @@ class TestCaptureDownloadLink:
         )
         assert response.headers["content-disposition"].endswith('.mp4"')
 
+        # A plain replay finds nothing; only a resumed (Range) download is served again.
         assert client.get(url).status_code == 404
         # The capture itself is untouched: the editor keeps previewing it.
         assert CAPTURE_ID in highlight_service.captures.captures
+
+    def test_an_interrupted_download_resumes_with_a_range_request(
+        self,
+        client: TestClient,
+        auth_header: dict[str, str],
+        capture: Capture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        url = self.link(client, auth_header)
+        assert client.get(url).status_code == 200
+        resumed = client.get(url, headers={"Range": "bytes=16-"})
+        assert resumed.status_code == 206
+        assert resumed.content == capture.path.read_bytes()[16:]
+        assert client.get(url, headers={"Range": "bytes=30-"}).status_code == 206
+        # A plain replay of the link is still refused, and so is a resume after expiry.
+        assert client.get(url).status_code == 404
+        issued = time.time()
+        monkeypatch.setattr(
+            "app.services.highlight.time.time", lambda: issued + DOWNLOAD_TOKEN_TTL_SECONDS + 1
+        )
+        assert client.get(url, headers={"Range": "bytes=16-"}).status_code == 404
 
     def test_each_link_is_separate(
         self, client: TestClient, auth_header: dict[str, str], capture: Capture
