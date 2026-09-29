@@ -186,7 +186,8 @@ export function PlexSignInPanel({
         />
       </div>
       {!isTVMode && (
-        <Button type="button" variant="ghost" className={SMALL_BUTTON} onClick={showCode} disabled={disabled || signIn.waiting}>
+        // Its own width under the Plex button, in Who can join's card too, which stretches what it holds
+        <Button type="button" variant="ghost" className={cn(SMALL_BUTTON, 'self-start')} onClick={showCode} disabled={disabled || signIn.waiting}>
           Sign in with a code
         </Button>
       )}
