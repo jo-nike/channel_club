@@ -5,6 +5,7 @@ from typing import Any
 from unittest.mock import patch
 
 import httpx
+import httpx2
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -60,7 +61,7 @@ def _good_resources() -> httpx.Response:
     return httpx.Response(200, json=[{"clientIdentifier": "my-server-abc"}])
 
 
-def _sign_in(client: TestClient) -> httpx.Response:
+def _sign_in(client: TestClient) -> httpx2.Response:
     return client.post("/api/auth/plex", json={"authToken": "synthetic-user-token"})
 
 

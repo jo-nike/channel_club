@@ -7,6 +7,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from loguru import logger
+from pydantic import SecretStr
 
 from app.models.plex import PlexUser
 from app.routers.auth import router
@@ -20,9 +21,9 @@ def client_local_enabled():
         mock_settings.local_auth_enabled = True
         mock_settings.plex_auth_enabled = False
         mock_settings.admin_username = "admin"
-        mock_settings.admin_password = "admin"
+        mock_settings.admin_password = SecretStr("admin")
         mock_settings.viewer_username = "viewer"
-        mock_settings.viewer_password = "viewer"
+        mock_settings.viewer_password = SecretStr("viewer")
 
         app = FastAPI()
         app.include_router(router, prefix="/api/auth")
@@ -73,9 +74,9 @@ def client():
         mock_settings.local_auth_enabled = True
         mock_settings.plex_auth_enabled = False
         mock_settings.admin_username = "admin"
-        mock_settings.admin_password = "admin"
+        mock_settings.admin_password = SecretStr("admin")
         mock_settings.viewer_username = "viewer"
-        mock_settings.viewer_password = "viewer"
+        mock_settings.viewer_password = SecretStr("viewer")
 
         app = FastAPI()
         app.include_router(router, prefix="/api/auth")
@@ -169,7 +170,9 @@ class TestStartupValidation:
 
         try:
             with patch("app.main.settings") as mock_settings:
-                mock_settings.jwt_secret = "synthetic-test-signing-key-with-32-characters"
+                mock_settings.jwt_secret = SecretStr(
+                    "synthetic-test-signing-key-with-32-characters"
+                )
                 mock_settings.local_auth_enabled = False
                 mock_settings.plex_auth_enabled = False
 
@@ -189,7 +192,9 @@ class TestStartupValidation:
 
         try:
             with patch("app.main.settings") as mock_settings:
-                mock_settings.jwt_secret = "synthetic-test-signing-key-with-32-characters"
+                mock_settings.jwt_secret = SecretStr(
+                    "synthetic-test-signing-key-with-32-characters"
+                )
                 mock_settings.local_auth_enabled = True
                 mock_settings.plex_auth_enabled = False
 
@@ -209,7 +214,9 @@ class TestStartupValidation:
 
         try:
             with patch("app.main.settings") as mock_settings:
-                mock_settings.jwt_secret = "synthetic-test-signing-key-with-32-characters"
+                mock_settings.jwt_secret = SecretStr(
+                    "synthetic-test-signing-key-with-32-characters"
+                )
                 mock_settings.local_auth_enabled = False
                 mock_settings.plex_auth_enabled = True
 
@@ -373,7 +380,7 @@ class TestPlexAuthEndpoint:
 
     def test_plex_auth_jwt_contains_correct_claims(self, client_plex_enabled):
         """Plex auth JWT contains username, role, and plex_id claims."""
-        from jose import jwt
+        import jwt
 
         mock_user = PlexUser(id="12345", username="plexuser", email="test@test.com")
         with (
@@ -558,7 +565,7 @@ class TestAuthLogging:
             logger.remove(handler_id)
 
 
-@pytest.mark.parametrize("configured", [None, ""])
+@pytest.mark.parametrize("configured", [None, SecretStr("")])
 @pytest.mark.parametrize("username", ["admin", "viewer"])
 def test_sec02_blank_accounts_never_authenticate(client_local_enabled, configured, username):
     with (
@@ -572,7 +579,7 @@ def test_sec02_blank_accounts_never_authenticate(client_local_enabled, configure
 
 
 def test_sec02_viewer_can_login_with_admin_disabled(client_local_enabled):
-    with patch("app.routers.auth.settings.admin_password", ""):
+    with patch("app.routers.auth.settings.admin_password", SecretStr("")):
         response = client_local_enabled.post(
             "/api/auth/token", json={"username": "viewer", "password": "viewer"}
         )
@@ -632,7 +639,7 @@ class TestInputBounds:
         try:
             with (
                 patch("app.routers.auth.settings.admin_username", username),
-                patch("app.routers.auth.settings.admin_password", "pw"),
+                patch("app.routers.auth.settings.admin_password", SecretStr("pw")),
             ):
                 response = client.post(
                     "/api/auth/token", json={"username": username, "password": "pw"}

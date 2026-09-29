@@ -60,14 +60,15 @@ def validate_auth_configuration() -> None:
     # every protected request regardless of the login flags, so a forged
     # default-secret token authenticates even with local/Plex auth turned off.
     # Refuse to start on any known-public secret, full stop.
-    if settings.jwt_secret in KNOWN_PUBLIC_JWT_SECRETS:
+    jwt_secret = settings.jwt_secret.get_secret_value()
+    if jwt_secret in KNOWN_PUBLIC_JWT_SECRETS:
         raise RuntimeError(
             "JWT_SECRET is a known-public placeholder value. It is published in "
             "the source or .env.example, so anyone can forge an admin token. Set "
             "JWT_SECRET to a strong random value (e.g. `openssl rand -hex 32`)."
         )
 
-    if len(settings.jwt_secret.strip()) < 32:
+    if len(jwt_secret.strip()) < 32:
         raise RuntimeError(
             "JWT_SECRET must contain at least 32 non-padding characters. "
             "Generate a random secret with `openssl rand -hex 32`."
@@ -93,7 +94,8 @@ def validate_auth_configuration() -> None:
 
     # Local auth with no passwords configured rejects every login attempt.
     # Non-fatal, but silent 401s are a miserable thing to debug.
-    if settings.local_auth_enabled and not (settings.admin_password or settings.viewer_password):
+    passwords = (settings.admin_password, settings.viewer_password)
+    if settings.local_auth_enabled and not any(p and p.get_secret_value() for p in passwords):
         logger.warning(
             "LOCAL_AUTH_ENABLED is true but neither ADMIN_PASSWORD nor "
             "VIEWER_PASSWORD is set — every local login will be rejected"

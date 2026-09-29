@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from pydantic import SecretStr
 
 from app.models.plex import PlexUser
 from app.services.plex import (
@@ -312,7 +313,7 @@ class TestGetServerOwnerId:
         }
 
         with patch("app.services.plex.settings") as mock_settings:
-            mock_settings.plex_server_token = "server-token-123"
+            mock_settings.plex_server_token = SecretStr("server-token-123")
 
             with patch("app.services.plex.httpx.AsyncClient") as mock_client:
                 mock_client.return_value.__aenter__.return_value.get = AsyncMock(
@@ -334,7 +335,7 @@ class TestGetServerOwnerId:
         mock_response.status_code = 401
 
         with patch("app.services.plex.settings") as mock_settings:
-            mock_settings.plex_server_token = "invalid-token"
+            mock_settings.plex_server_token = SecretStr("invalid-token")
 
             with patch("app.services.plex.httpx.AsyncClient") as mock_client:
                 mock_client.return_value.__aenter__.return_value.get = AsyncMock(
@@ -361,7 +362,7 @@ class TestGetServerOwnerId:
         }
 
         with patch("app.services.plex.settings") as mock_settings:
-            mock_settings.plex_server_token = "server-token-123"
+            mock_settings.plex_server_token = SecretStr("server-token-123")
 
             with patch("app.services.plex.httpx.AsyncClient") as mock_client:
                 mock_get = AsyncMock(return_value=mock_response)

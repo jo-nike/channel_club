@@ -38,7 +38,9 @@ REAL_SCHEDULE_BROADCAST = presence_broadcast.schedule_broadcast
 
 def expected_user_id(account: str) -> str:
     """The chat id the server should derive for an account key ('plex:<id>' or 'local:<sub>')."""
-    digest = hmac.new(settings.jwt_secret.encode(), account.encode(), hashlib.sha256)
+    digest = hmac.new(
+        settings.jwt_secret.get_secret_value().encode(), account.encode(), hashlib.sha256
+    )
     return "u_" + digest.hexdigest()[:16]
 
 
@@ -191,7 +193,7 @@ class TestWebSocketConnection:
         # Create an expired token manually
         from datetime import datetime, timedelta
 
-        from jose import jwt
+        import jwt
 
         from app.config import settings
 
@@ -200,10 +202,37 @@ class TestWebSocketConnection:
             "role": "viewer",
             "exp": datetime.now(UTC) - timedelta(hours=1),
         }
-        expired_token = jwt.encode(expired_payload, settings.jwt_secret, algorithm="HS256")
+        expired_token = jwt.encode(
+            expired_payload, settings.jwt_secret.get_secret_value(), algorithm="HS256"
+        )
 
         with (
             ws_connect(client, expired_token) as ws,
+            pytest.raises(WebSocketDisconnect) as exc_info,
+        ):
+            ws.receive_json()
+        assert exc_info.value.code == 4001
+
+    @pytest.mark.parametrize(
+        "claims",
+        [
+            pytest.param({"sub": "testuser"}, id="no-role"),
+            pytest.param({"sub": "testuser", "role": "viewer", "typ": "media"}, id="typ-media"),
+        ],
+    )
+    def test_signed_token_with_bad_claims_closes_with_4001(self, client: TestClient, claims):
+        """A signed token that is not a valid session closes 4001, not an error."""
+        from datetime import datetime, timedelta
+
+        import jwt
+
+        from app.config import settings
+
+        claims = {**claims, "exp": datetime.now(UTC) + timedelta(hours=1)}
+        token = jwt.encode(claims, settings.jwt_secret.get_secret_value(), algorithm="HS256")
+
+        with (
+            ws_connect(client, token) as ws,
             pytest.raises(WebSocketDisconnect) as exc_info,
         ):
             ws.receive_json()
@@ -229,11 +258,11 @@ class TestLegacyQueryToken:
     def test_expired_query_token_is_closed_with_4001(self, client: TestClient):
         from datetime import datetime, timedelta
 
-        from jose import jwt
+        import jwt
 
         expired_token = jwt.encode(
             {"sub": "testuser", "role": "viewer", "exp": datetime.now(UTC) - timedelta(hours=1)},
-            settings.jwt_secret,
+            settings.jwt_secret.get_secret_value(),
             algorithm="HS256",
         )
         with (
@@ -2545,7 +2574,7 @@ def test_sec05_oversize_message_closes_before_mutation(client, valid_token):
 def test_sec06_socket_expires_and_cleans_all_state(client, monkeypatch, active):
     import time
 
-    from jose import jwt
+    import jwt
 
     monkeypatch.setattr(settings, "chat_enabled", True)
     # Use a fractional deadline in the verified payload for fast deterministic
@@ -2561,7 +2590,7 @@ def test_sec06_socket_expires_and_cleans_all_state(client, monkeypatch, active):
     monkeypatch.setattr(websocket_router, "verify_websocket_token", short_lived)
     token = jwt.encode(
         {"sub": "expiring", "role": "viewer", "exp": time.time() + 5},
-        settings.jwt_secret,
+        settings.jwt_secret.get_secret_value(),
         algorithm="HS256",
     )
     with ws_connect(client, token, session_id="expiring") as ws:

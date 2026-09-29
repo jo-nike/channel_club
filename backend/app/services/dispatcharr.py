@@ -104,9 +104,10 @@ def dispatcharr_auth_headers() -> dict[str, str]:
     Raises:
         DispatchrrUnavailableError: If no API key is configured.
     """
-    if not settings.dispatcharr_api_key:
+    api_key = settings.dispatcharr_api_key
+    if not (api_key and api_key.get_secret_value()):
         raise DispatchrrUnavailableError("Dispatcharr API key not configured (DISPATCHARR_API_KEY)")
-    return {"Authorization": f"ApiKey {settings.dispatcharr_api_key}"}
+    return {"Authorization": f"ApiKey {api_key.get_secret_value()}"}
 
 
 async def get_channel_groups() -> list[DispatchrrChannelGroup]:

@@ -2,9 +2,9 @@
 
 import time
 
+import jwt
 import pytest
 from fastapi.testclient import TestClient
-from jose import jwt
 from starlette.websockets import WebSocketDisconnect
 
 from app.config import settings
@@ -19,7 +19,7 @@ def test_signed_jwt_deadline_closes_idle_socket_and_rejects_reuse(monkeypatch):
     expiry = int(time.time()) + 1
     token = jwt.encode(
         {"sub": "synthetic-expiry", "role": "viewer", "exp": expiry},
-        settings.jwt_secret,
+        settings.jwt_secret.get_secret_value(),
         algorithm="HS256",
     )
     before = len(chat.get_history())
@@ -37,8 +37,8 @@ def test_signed_jwt_deadline_closes_idle_socket_and_rejects_reuse(monkeypatch):
     assert not websocket._nickname_map
     assert not channel_state._active_connections
     assert len(chat.get_history()) == before
-    # jose's integer timestamp compatibility permits the equality second;
-    # the endpoint's deadline still closes immediately, before an ack/message.
+    # Whether or not decode still accepts the expiry second, the endpoint's
+    # deadline closes immediately, before an ack/message.
     with ws_connect(client, token) as expired:
         with pytest.raises(WebSocketDisconnect) as closed:
             expired.receive_json()

@@ -392,7 +392,9 @@ class TestUserIdFor:
 
     @staticmethod
     def _expected(account: str) -> str:
-        digest = hmac.new(settings.jwt_secret.encode(), account.encode(), hashlib.sha256)
+        digest = hmac.new(
+            settings.jwt_secret.get_secret_value().encode(), account.encode(), hashlib.sha256
+        )
         return "u_" + digest.hexdigest()[:16]
 
     def test_plex_account_is_keyed_on_the_plex_id(self) -> None:

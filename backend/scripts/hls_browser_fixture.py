@@ -12,6 +12,7 @@ from pathlib import Path
 # This script deliberately bypasses dotenv and uses only a synthetic signing key.
 from unittest.mock import patch
 
+from pydantic import SecretStr
 from pydantic_settings import DotEnvSettingsSource
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -30,7 +31,7 @@ from app.services.auth import create_access_token
 workspace = Path(sys.argv[1])
 bundle = Path(sys.argv[2])
 logger.remove()
-settings.jwt_secret = "local-browser-fixture-signing-key-only-32-bytes"
+settings.jwt_secret = SecretStr("local-browser-fixture-signing-key-only-32-bytes")
 
 
 def ffmpeg(*args):

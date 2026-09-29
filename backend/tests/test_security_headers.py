@@ -1,7 +1,7 @@
 """R-01: security headers on every response, Report-Only CSP for the SPA document."""
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -19,7 +19,7 @@ from app.spa import mount_spa
 SEGMENT_CSP = "default-src 'none'; sandbox"
 
 
-def assert_baseline(headers: httpx.Headers) -> None:
+def assert_baseline(headers: Mapping[str, str]) -> None:
     assert headers["x-content-type-options"] == "nosniff"
     assert headers["x-frame-options"] == "DENY"
     assert headers["referrer-policy"] == "strict-origin-when-cross-origin"

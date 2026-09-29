@@ -7,8 +7,8 @@ import time
 import unicodedata
 from uuid import uuid4
 
+import jwt
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
-from jose import JWTError
 from loguru import logger
 from pydantic import ValidationError
 from starlette.websockets import WebSocketState
@@ -325,7 +325,7 @@ async def verify_websocket_token(token: str) -> dict | None:
             "exp": payload.exp.timestamp(),
             "plex_id": payload.plex_id,
         }
-    except JWTError:
+    except jwt.PyJWTError:
         return None
 
 
@@ -483,7 +483,10 @@ async def websocket_endpoint(
                 # Lets a client running an older bundle notice a deploy
                 buildId=settings.app_build_id,
                 # The server's switches are the ones in force; the client hides what is off
-                features=Features(chat=settings.chat_enabled, gif=bool(settings.giphy_api_key)),
+                features=Features(
+                    chat=settings.chat_enabled,
+                    gif=bool(settings.giphy_api_key and settings.giphy_api_key.get_secret_value()),
+                ),
             )
             await channel_state.send_message(websocket, ack_message)
 

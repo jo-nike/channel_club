@@ -176,7 +176,8 @@ async def get_server_owner_id() -> str | None:
         admin role for the lifetime of the process after one transient error.
         Concurrent cache misses share one plex.tv call.
     """
-    if not settings.plex_server_token:
+    server_token = settings.plex_server_token
+    if not (server_token and server_token.get_secret_value()):
         log.debug("No Plex server token configured")
         return None
 
@@ -188,7 +189,7 @@ async def get_server_owner_id() -> str | None:
 
     # Shielded so a caller that is cancelled (a dropped request) does not cancel
     # the lookup the other callers are waiting on.
-    return await asyncio.shield(_start_owner_id_lookup(settings.plex_server_token))
+    return await asyncio.shield(_start_owner_id_lookup(server_token.get_secret_value()))
 
 
 def start_server_owner_lookup() -> None:
@@ -197,8 +198,9 @@ def start_server_owner_lookup() -> None:
     The cache is empty after every deploy, and require_admin needs the owner id
     to tell the owner apart from a demoted admin. Never blocks or raises.
     """
-    if settings.plex_auth_enabled and settings.plex_server_token:
-        _start_owner_id_lookup(settings.plex_server_token)
+    server_token = settings.plex_server_token
+    if settings.plex_auth_enabled and server_token and server_token.get_secret_value():
+        _start_owner_id_lookup(server_token.get_secret_value())
 
 
 async def stop_server_owner_lookup() -> None:

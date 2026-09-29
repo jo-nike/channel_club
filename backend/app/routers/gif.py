@@ -74,7 +74,8 @@ async def get_feature_status(
     the GIF button based on the server-side feature flag.
     """
     log.debug("GET /gif/feature request")
-    enabled = settings.giphy_api_key is not None and len(settings.giphy_api_key) > 0
+    key = settings.giphy_api_key
+    enabled = key is not None and len(key.get_secret_value()) > 0
     return GifFeatureResponse(enabled=enabled)
 
 

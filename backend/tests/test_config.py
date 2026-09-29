@@ -2,6 +2,9 @@
 
 from unittest.mock import patch
 
+import pytest
+from pydantic import ValidationError
+
 from app.config import Settings
 
 
@@ -113,5 +116,74 @@ def test_shared_dotenv_ignores_frontend_keys():
     ):
         config = Settings()
     assert config.local_auth_enabled is True
-    assert config.jwt_secret == "synthetic-local-signing-key-at-least-32-characters"
+    assert (
+        config.jwt_secret.get_secret_value() == "synthetic-local-signing-key-at-least-32-characters"
+    )
     assert "vite_api_url" not in config.model_dump()
+
+
+SECRETS = {
+    "jwt_secret": "synthetic-jwt-secret-value-0001",
+    "admin_password": "synthetic-admin-password-0002",
+    "viewer_password": "synthetic-viewer-password-0003",
+    "dispatcharr_api_key": "synthetic-dispatcharr-key-0004",
+    "zipline_token": "synthetic-zipline-token-0005",
+    "ntfy_token": "synthetic-ntfy-token-0006",
+    "plex_server_token": "synthetic-plex-token-0007",
+    "giphy_api_key": "synthetic-giphy-key-0008",
+}
+
+
+def test_secrets_never_appear_in_repr_or_str():
+    config = Settings(_env_file=None, **SECRETS)
+    shown = repr(config) + str(config) + str(config.model_dump())
+    for value in SECRETS.values():
+        assert value not in shown
+    assert config.zipline_token.get_secret_value() == SECRETS["zipline_token"]
+
+
+def test_assigned_secret_is_wrapped():
+    config = Settings(_env_file=None)
+    config.giphy_api_key = "synthetic-assigned-key"  # pyright: ignore[reportAttributeAccessIssue]
+    assert config.giphy_api_key is not None
+    assert config.giphy_api_key.get_secret_value() == "synthetic-assigned-key"
+    assert "synthetic-assigned-key" not in repr(config)
+
+
+@pytest.mark.parametrize(
+    "name,raw,expected",
+    [
+        ("LOG_FORMAT", "JSON", "json"),
+        ("LOG_FORMAT", " pretty ", "pretty"),
+        ("LOG_LEVEL", "debug", "DEBUG"),
+        ("LOG_LEVEL", " info ", "INFO"),
+        ("LOG_LEVEL", "Warning", "WARNING"),
+    ],
+)
+def test_log_settings_are_normalised(monkeypatch, name, raw, expected):
+    monkeypatch.setenv(name, raw)
+    assert getattr(Settings(_env_file=None), name.lower()) == expected
+
+
+@pytest.mark.parametrize(
+    "name,raw", [("LOG_FORMAT", "structured"), ("LOG_FORMAT", "json2"), ("LOG_LEVEL", "verbose")]
+)
+def test_unknown_log_settings_fail_at_startup(monkeypatch, name, raw):
+    monkeypatch.setenv(name, raw)
+    with pytest.raises(ValidationError, match=name.lower()):
+        Settings(_env_file=None)
+
+
+ZIPLINE = {"highlight_enabled": True, "zipline_enabled": True, "zipline_url": "https://z.example"}
+NTFY = {"ntfy_enabled": True, "ntfy_url": "https://ntfy.example", "ntfy_topic": "synthetic"}
+
+
+@pytest.mark.parametrize("token,available", [("", False), ("   ", False), ("synthetic", True)])
+def test_zipline_available_reads_the_token_value(token, available):
+    assert Settings(_env_file=None, zipline_token=token, **ZIPLINE).zipline_available is available
+
+
+@pytest.mark.parametrize("token", ["", "synthetic"])
+def test_ntfy_available_does_not_need_a_token(token):
+    assert Settings(_env_file=None, ntfy_token=token, **NTFY).ntfy_available is True
+    assert Settings(_env_file=None, ntfy_token=token).ntfy_available is False
