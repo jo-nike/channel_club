@@ -85,10 +85,6 @@ if [[ -n "$REF" ]]; then
     git worktree prune
     git worktree add --quiet --detach "$APP_DIR" "$COMMIT"
   fi
-  # The worktree has no frontend/.env of its own; share this checkout's, if there is one.
-  if [[ -f "$ROOT_DIR/frontend/.env" && ! -e "$APP_DIR/frontend/.env" ]]; then
-    ln -s "$ROOT_DIR/frontend/.env" "$APP_DIR/frontend/.env"
-  fi
   echo "Running $REF ($(git -C "$APP_DIR" log --oneline -1)) from $APP_DIR"
 fi
 
