@@ -15,6 +15,7 @@ from pydantic import ValidationError
 
 from app.config import settings
 from app.models.plex import PlexMember, PlexServer, PlexUser
+from app.models.setup import MACHINE_ID_PATTERN
 from app.services.bounded_http import read_bounded
 from app.services.tls import SSL_CONTEXT
 
@@ -57,8 +58,6 @@ PLEX_TIMEOUT = httpx.Timeout(5.0, connect=3.0)
 # The server and member lists are read with a bound, so a misbehaving answer
 # can't grow memory. /api/users is a few hundred bytes of XML per person.
 PLEX_LIST_BYTES = 4 * 1024 * 1024
-# Plex machine identifiers are hex; anything else is not an id worth storing
-MACHINE_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,128}")
 
 
 async def validate_plex_token(auth_token: str) -> PlexUser:
@@ -430,11 +429,11 @@ def _reaches(user: SharedUser, machine_id: str) -> bool:
     return user.home or machine_id in user.machine_ids
 
 
-async def list_owned_servers(auth_token: str) -> list[PlexServer]:
+async def list_owned_servers(auth_token: str, count_members: bool = True) -> list[PlexServer]:
     """The Plex Media Servers this account owns, for the setup wizard's picker.
 
-    Each carries the number of people it is shared with, or None when the user
-    list couldn't be read (the picker still works without it).
+    With count_members, each carries the number of people it is shared with,
+    or None when the user list couldn't be read (the picker works without it).
 
     Raises:
         InvalidPlexTokenError: plex.tv answered 401.
@@ -461,7 +460,7 @@ async def list_owned_servers(auth_token: str) -> list[PlexServer]:
             or not isinstance(provides, str)
             or "server" not in provides.split(",")
             or not isinstance(machine_id, str)
-            or not MACHINE_ID_PATTERN.fullmatch(machine_id)
+            or not re.fullmatch(MACHINE_ID_PATTERN, machine_id)
             or not isinstance(name, str)
         ):
             continue
@@ -473,7 +472,7 @@ async def list_owned_servers(auth_token: str) -> list[PlexServer]:
                 last_seen_at=_timestamp(resource.get("lastSeenAt")),
             )
         )
-    if not servers:
+    if not servers or not count_members:
         return servers
 
     try:

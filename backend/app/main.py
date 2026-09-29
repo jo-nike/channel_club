@@ -24,6 +24,7 @@ from app.routers.gif import router as gif_router
 from app.routers.highlight import router as highlight_router
 from app.routers.nhl import router as nhl_router
 from app.routers.settings import router as settings_router
+from app.routers.setup import router as setup_router
 from app.routers.websocket import router as websocket_router
 from app.services import (
     app_settings,
@@ -304,6 +305,7 @@ app.include_router(epg_router, prefix="/api")
 app.include_router(ersatztv_router)
 app.include_router(admin_router, prefix="/api/admin")
 app.include_router(settings_router, prefix="/api")
+app.include_router(setup_router, prefix="/api/setup")
 app.include_router(cast_router)
 app.include_router(gif_router)
 app.include_router(feedback_router)

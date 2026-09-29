@@ -112,6 +112,11 @@ def setup_state() -> SetupState:
     return "complete"
 
 
+def plex_server_name() -> str | None:
+    """The name of the Plex server picked in the app, for display."""
+    return _document.plex_server_name if _document is not None else None
+
+
 def validate_values(changes: Mapping[str, object]) -> dict[str, object]:
     """Coerce and check each value as assigning it to the settings would.
 

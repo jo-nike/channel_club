@@ -24,6 +24,15 @@ router = APIRouter(tags=["auth"])
 log = logger.bind(router="auth")
 
 
+def _refuse_until_set_up(role: str) -> None:
+    """While the admin is still in the setup wizard, only admins sign in."""
+    if role != "admin" and settings_store.setup_state() == "claimed":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Channel Club is still being set up",
+        )
+
+
 @router.get("/config", response_model=AuthConfigResponse)
 async def get_auth_config() -> AuthConfigResponse:
     """Return available authentication methods."""
@@ -64,6 +73,7 @@ async def login(request: LoginRequest) -> TokenResponse:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
         )
+    _refuse_until_set_up(role)
 
     log.info("User {} logged in successfully with role {}", log_username, role)
     token = create_access_token({"sub": request.username, "role": role})
@@ -118,6 +128,7 @@ async def login_with_plex(request: PlexAuthRequest) -> TokenResponse:
 
     # Determine role based on configuration and ownership
     role = await determine_role(plex_user)
+    _refuse_until_set_up(role)
 
     log.info("Plex user {} logged in successfully with role {}", plex_user.username, role)
     token = create_access_token({"sub": plex_user.username, "role": role, "plex_id": plex_user.id})
@@ -207,6 +218,7 @@ async def refresh(current_user: TokenPayload = Depends(get_current_user)) -> Tok
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
         )
+    _refuse_until_set_up(role)
 
     claims: dict[str, object] = {
         "sub": current_user.sub,

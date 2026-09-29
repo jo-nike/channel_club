@@ -705,6 +705,32 @@
         "title": "EPGResponse",
         "type": "object"
       },
+      "EnvLock": {
+        "description": "A variable the server's environment sets.",
+        "properties": {
+          "env": {
+            "title": "Env",
+            "type": "string"
+          },
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field"
+          }
+        },
+        "required": [
+          "env",
+          "field"
+        ],
+        "title": "EnvLock",
+        "type": "object"
+      },
       "ErsatzTVSession": {
         "description": "Represents an active ErsatzTV transcoding session.",
         "properties": {
@@ -1451,6 +1477,49 @@
         "title": "NowPlayingBulkResponse",
         "type": "object"
       },
+      "PasswordClaim": {
+        "additionalProperties": false,
+        "description": "Claim the club with a local admin account.",
+        "properties": {
+          "method": {
+            "const": "password",
+            "title": "Method",
+            "type": "string"
+          },
+          "password": {
+            "maxLength": 256,
+            "minLength": 12,
+            "title": "Password",
+            "type": "string"
+          },
+          "username": {
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f](?:[^\\x00-\\x1f\\x7f]{0,62}[^\\s\\x00-\\x1f\\x7f])?$",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "method",
+          "username",
+          "password"
+        ],
+        "title": "PasswordClaim",
+        "type": "object"
+      },
+      "PlexAccount": {
+        "description": "The plex.tv account a token belongs to, as the wizard shows it.",
+        "properties": {
+          "username": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username"
+        ],
+        "title": "PlexAccount",
+        "type": "object"
+      },
       "PlexAuthRequest": {
         "description": "Request body for Plex authentication.",
         "properties": {
@@ -1465,6 +1534,103 @@
           "authToken"
         ],
         "title": "PlexAuthRequest",
+        "type": "object"
+      },
+      "PlexClaim": {
+        "additionalProperties": false,
+        "description": "Claim the club with a Plex account and one of its own servers.",
+        "properties": {
+          "authToken": {
+            "maxLength": 512,
+            "pattern": "^[\\x21-\\x7e]+$",
+            "title": "Authtoken",
+            "type": "string"
+          },
+          "machineId": {
+            "pattern": "^[A-Za-z0-9_-]{1,128}$",
+            "title": "Machineid",
+            "type": "string"
+          },
+          "method": {
+            "const": "plex",
+            "title": "Method",
+            "type": "string"
+          }
+        },
+        "required": [
+          "method",
+          "authToken",
+          "machineId"
+        ],
+        "title": "PlexClaim",
+        "type": "object"
+      },
+      "PlexServer": {
+        "description": "A Plex Media Server the signed-in account owns, as the setup picker shows it.\n\nDeliberately narrow: plex.tv's resource also carries the server's access\ntoken and its addresses, and neither may reach a browser.",
+        "properties": {
+          "lastSeenAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lastseenat"
+          },
+          "machineId": {
+            "title": "Machineid",
+            "type": "string"
+          },
+          "memberCount": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Membercount"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "online": {
+            "title": "Online",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "machineId",
+          "name",
+          "online"
+        ],
+        "title": "PlexServer",
+        "type": "object"
+      },
+      "PlexServersResponse": {
+        "description": "Response for POST /api/setup/plex/servers.",
+        "properties": {
+          "account": {
+            "$ref": "#/components/schemas/PlexAccount"
+          },
+          "servers": {
+            "items": {
+              "$ref": "#/components/schemas/PlexServer"
+            },
+            "title": "Servers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "account",
+          "servers"
+        ],
+        "title": "PlexServersResponse",
         "type": "object"
       },
       "Program": {
@@ -1733,6 +1899,116 @@
           "guideId"
         ],
         "title": "SetChannelRequest",
+        "type": "object"
+      },
+      "SetupCompleteResponse": {
+        "description": "Response for POST /api/setup/complete: facts for the On air screen.",
+        "properties": {
+          "dispatcharrChannels": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dispatcharrchannels"
+          },
+          "ersatztvChannels": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ersatztvchannels"
+          },
+          "features": {
+            "$ref": "#/components/schemas/SetupFeatures"
+          },
+          "plexServerName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plexservername"
+          }
+        },
+        "required": [
+          "dispatcharrChannels",
+          "ersatztvChannels",
+          "plexServerName",
+          "features"
+        ],
+        "title": "SetupCompleteResponse",
+        "type": "object"
+      },
+      "SetupFeatures": {
+        "description": "Which extras are on when setup finishes.",
+        "properties": {
+          "cast": {
+            "title": "Cast",
+            "type": "boolean"
+          },
+          "chat": {
+            "title": "Chat",
+            "type": "boolean"
+          },
+          "clips": {
+            "title": "Clips",
+            "type": "boolean"
+          },
+          "feedback": {
+            "title": "Feedback",
+            "type": "boolean"
+          },
+          "gifs": {
+            "title": "Gifs",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "chat",
+          "gifs",
+          "clips",
+          "cast",
+          "feedback"
+        ],
+        "title": "SetupFeatures",
+        "type": "object"
+      },
+      "SetupStatusResponse": {
+        "description": "Response for GET /api/setup/status. Public, so names only.",
+        "properties": {
+          "envLocked": {
+            "items": {
+              "$ref": "#/components/schemas/EnvLock"
+            },
+            "title": "Envlocked",
+            "type": "array"
+          },
+          "setupState": {
+            "enum": [
+              "unclaimed",
+              "claimed",
+              "complete"
+            ],
+            "title": "Setupstate",
+            "type": "string"
+          }
+        },
+        "required": [
+          "setupState",
+          "envLocked"
+        ],
+        "title": "SetupStatusResponse",
         "type": "object"
       },
       "StreamSessionRequest": {
@@ -4294,6 +4570,159 @@
         "summary": "Update Settings",
         "tags": [
           "settings"
+        ]
+      }
+    },
+    "/api/setup/account": {
+      "post": {
+        "description": "Create the first admin account and sign them in: the first visitor wins.\n\nEverything slow (plex.tv, the password hash) runs before the store's lock;\nunder it the state is checked again, the file written and the values\napplied, so of two racing claims exactly one succeeds.\n\nRaises:\n    HTTPException: 409 once claimed or when sign-in is set in the\n        environment; 400/503 for plex.tv; 403 for a server the Plex\n        account doesn't own; 500 when the settings can't be saved.",
+        "operationId": "claim_api_setup_account_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "discriminator": {
+                  "mapping": {
+                    "password": "#/components/schemas/PasswordClaim",
+                    "plex": "#/components/schemas/PlexClaim"
+                  },
+                  "propertyName": "method"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/PasswordClaim"
+                  },
+                  {
+                    "$ref": "#/components/schemas/PlexClaim"
+                  }
+                ],
+                "title": "Request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Claim",
+        "tags": [
+          "setup"
+        ]
+      }
+    },
+    "/api/setup/complete": {
+      "post": {
+        "description": "Finish setup: members can sign in from now on. Safe to repeat.\n\nReturns:\n    Facts for the On air screen.\n\nRaises:\n    HTTPException: 409 when setup isn't this app's to finish (sign-in is set\n        in the environment); 500 when the settings can't be saved.",
+        "operationId": "complete_api_setup_complete_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupCompleteResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Complete",
+        "tags": [
+          "setup"
+        ]
+      }
+    },
+    "/api/setup/plex/servers": {
+      "post": {
+        "description": "The Plex servers the signed-in Plex account owns, for the picker.\n\nOnly owned servers, and only what the picker shows. While setup is\nunclaimed the plex.tv calls are rate limited for everyone together.",
+        "operationId": "get_plex_servers_api_setup_plex_servers_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlexAuthRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlexServersResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Plex Servers",
+        "tags": [
+          "setup"
+        ]
+      }
+    },
+    "/api/setup/status": {
+      "get": {
+        "description": "Whether setup is open, and which variables the environment sets.\n\nPublic. The variables are names only, and only while setup is unclaimed:\nthe admin sees the rest in the Admin panel.",
+        "operationId": "get_setup_status_api_setup_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Setup Status",
+        "tags": [
+          "setup"
         ]
       }
     }
