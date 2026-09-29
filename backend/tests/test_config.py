@@ -1,10 +1,15 @@
 """Tests for application configuration."""
 
+import os
+import subprocess
+import sys
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
 
+from app import config as config_module
 from app.config import Settings
 
 
@@ -118,6 +123,8 @@ SECRETS = {
     "ntfy_token": "synthetic-ntfy-token-0006",
     "plex_server_token": "synthetic-plex-token-0007",
     "giphy_api_key": "synthetic-giphy-key-0008",
+    "admin_password_hash": "synthetic-admin-hash-0009",
+    "viewer_password_hash": "synthetic-viewer-hash-0010",
 }
 
 
@@ -174,3 +181,96 @@ def test_zipline_available_reads_the_token_value(token, available):
 def test_ntfy_available_does_not_need_a_token(token):
     assert Settings(_env_file=None, ntfy_token=token, **NTFY).ntfy_available is True  # pyright: ignore[reportCallIssue]
     assert Settings(_env_file=None, ntfy_token=token).ntfy_available is False  # pyright: ignore[reportCallIssue]
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "",
+        "ftp://z.example",
+        "https://",
+        "https://user:pass@z.example",
+        "https://z.example/?a=1",
+        "https://z.example/#top",
+        "https://z.example:0",
+        "https://z.example:99999",
+    ],
+)
+def test_upload_and_push_urls_must_be_plain_http(url):
+    """No credentials, query or fragment can ride along with the saved URL."""
+    assert config_module.plain_http_url(url) is False
+    zipline = {**ZIPLINE, "zipline_url": url, "zipline_token": "t"}
+    assert Settings(_env_file=None, **zipline).zipline_available is False  # pyright: ignore[reportCallIssue]
+    assert Settings(_env_file=None, **{**NTFY, "ntfy_url": url}).ntfy_available is False  # pyright: ignore[reportCallIssue]
+
+
+def test_plex_admin_users_follows_reassignment():
+    """A plain property: the list changes as soon as the string does."""
+    config = Settings(_env_file=None, plex_admin_users_str="alice, bob,")  # pyright: ignore[reportCallIssue]
+    assert config.plex_admin_users == ["alice", "bob"]
+
+    config.plex_admin_users_str = "carol"
+
+    assert config.plex_admin_users == ["carol"]
+
+
+def test_env_fields_lists_what_the_environment_set_even_when_empty(tmp_path: Path) -> None:
+    """An empty variable still counts as set, so it still locks its group."""
+    probe = "from app.config import ENV_FIELDS\nprint(','.join(sorted(ENV_FIELDS)))\n"
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "PYTHONPATH": str(Path(__file__).parents[1]),
+        "DISPATCHARR_URL": "",
+        "LOG_LEVEL": "debug",
+    }
+    # Run from an empty directory, so no dotenv file is read
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+    )
+
+    assert result.stdout.strip() == "dispatcharr_url,log_level"
+
+
+# Settings only the environment can set: how the container runs, build identity,
+# the signing key, and the plaintext passwords and usernames the UI never writes.
+ENV_ONLY = {
+    "app_build_id",
+    "app_revision",
+    "state_file",
+    "jwt_secret",
+    "admin_password",
+    "viewer_password",
+    "plex_admin_users_str",
+    "log_format",
+    "docs_enabled",
+    "cors_origins",
+    "highlight_temp_dir",
+    "cast_temp_dir",
+}
+
+
+def test_every_setting_is_either_saved_from_the_ui_or_env_only():
+    """A new setting has to be placed: in the UI's list or in ENV_ONLY."""
+    ui = set(config_module.UI_FIELDS)
+    assert ui.isdisjoint(ENV_ONLY)
+    assert ui | ENV_ONLY == set(Settings.model_fields)
+
+
+def test_every_ui_field_is_in_exactly_one_group():
+    grouped = [field for fields in config_module.FIELD_GROUPS.values() for field in fields]
+    assert len(grouped) == len(set(grouped))
+    assert set(grouped) <= set(Settings.model_fields)
+    assert set(config_module.UI_FIELDS) <= set(grouped)
+    # Each Advanced knob is a group of its own
+    for field in config_module.ADVANCED_FIELDS:
+        assert config_module.FIELD_GROUPS[field] == (field,)
+
+
+def test_env_name_is_the_upper_case_field_name():
+    assert config_module.env_name("plex_admin_users_str") == "PLEX_ADMIN_USERS_STR"

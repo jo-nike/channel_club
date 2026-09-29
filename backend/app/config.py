@@ -1,6 +1,5 @@
 import re
-from functools import cached_property
-from typing import Literal
+from typing import Literal, get_args
 from urllib.parse import urlsplit
 
 from pydantic import SecretStr, ValidationInfo, field_validator
@@ -27,6 +26,25 @@ KNOWN_PUBLIC_JWT_SECRETS = frozenset(
 # ntfy topic names: letters, digits, underscore, hyphen; 1-64 characters. Anything
 # else would let a topic value change the publish path.
 NTFY_TOPIC_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
+def plain_http_url(value: str) -> bool:
+    """True for an http(s) URL with a host and nothing that could carry
+    credentials or change the request: no userinfo, query or fragment, no port 0."""
+    try:
+        url = urlsplit(value)
+        return bool(
+            url.scheme in ("http", "https")
+            and url.hostname
+            and url.port != 0
+            and not url.username
+            and not url.password
+            and not url.query
+            and not url.fragment
+        )
+    except ValueError:
+        return False
+
 
 # Variables that are no longer read, with what replaced them. Startup warns about
 # any still set, so a removed setting is not silently ignored.
@@ -90,8 +108,12 @@ class Settings(BaseSettings):
     plex_server_machine_id: str | None = None  # Server machine identifier
     plex_default_role: str = "viewer"  # Default role for Plex users
     plex_admin_users_str: str = ""  # Comma-separated usernames who get admin role
+    # Plex account ids that get the admin role; set from the UI, which picks
+    # admins from the server's members. Unlike a username, an id survives a rename.
+    plex_admin_ids: list[str] = []
 
-    @cached_property
+    # A plain property, not a cached one: the string can be reassigned at runtime.
+    @property
     def plex_admin_users(self) -> list[str]:
         """Parse comma-separated admin usernames into a list."""
         if not self.plex_admin_users_str:
@@ -105,6 +127,10 @@ class Settings(BaseSettings):
     admin_password: SecretStr | None = None
     viewer_username: str = "viewer"
     viewer_password: SecretStr | None = None
+    # scrypt hashes of passwords set in the UI (services/passwords.py). A
+    # plaintext password from the environment is used instead when set.
+    admin_password_hash: SecretStr | None = None
+    viewer_password_hash: SecretStr | None = None
 
     # Chat Feature
     # Enable real-time chat between connected users
@@ -125,22 +151,12 @@ class Settings(BaseSettings):
 
     @property
     def zipline_available(self) -> bool:
-        try:
-            url = urlsplit(self.zipline_url)
-            return bool(
-                self.highlight_enabled
-                and self.zipline_enabled
-                and self.zipline_token.get_secret_value().strip()
-                and url.scheme in ("http", "https")
-                and url.hostname
-                and url.port != 0
-                and not url.username
-                and not url.password
-                and not url.query
-                and not url.fragment
-            )
-        except ValueError:
-            return False
+        return bool(
+            self.highlight_enabled
+            and self.zipline_enabled
+            and self.zipline_token.get_secret_value().strip()
+            and plain_http_url(self.zipline_url)
+        )
 
     # Chromecast Feature (requires FFmpeg in container)
     # Enables casting streams to Chromecast devices via HLS transcoding
@@ -156,21 +172,11 @@ class Settings(BaseSettings):
 
     @property
     def ntfy_available(self) -> bool:
-        try:
-            url = urlsplit(self.ntfy_url)
-            return bool(
-                self.ntfy_enabled
-                and NTFY_TOPIC_PATTERN.fullmatch(self.ntfy_topic)
-                and url.scheme in ("http", "https")
-                and url.hostname
-                and url.port != 0
-                and not url.username
-                and not url.password
-                and not url.query
-                and not url.fragment
-            )
-        except ValueError:
-            return False
+        return bool(
+            self.ntfy_enabled
+            and NTFY_TOPIC_PATTERN.fullmatch(self.ntfy_topic)
+            and plain_http_url(self.ntfy_url)
+        )
 
     # Logging Configuration
     log_level: Literal["TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"] = "INFO"
@@ -229,3 +235,101 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# The fields the environment (or the dotenv file) set at startup. They win over
+# values saved from the UI and lock their whole group. Taken now, because every
+# later assignment adds to model_fields_set too.
+ENV_FIELDS: frozenset[str] = frozenset(settings.model_fields_set)
+
+# The Advanced knobs the UI can save: tuned defaults, each locked and saved on its own.
+AdvancedField = Literal[
+    "media_process_limit",
+    "media_process_per_user",
+    "cast_hls_segment_time",
+    "cast_hls_list_size",
+    "cast_session_timeout",
+    "highlight_buffer_seconds",
+    "highlight_segment_seconds",
+    "media_recorder_limit",
+    "media_export_max_bytes",
+    "media_export_limit",
+    "media_export_per_user",
+    "media_upload_limit",
+    "media_upload_per_user",
+    "feedback_cooldown_seconds",
+    "feedback_hourly_limit",
+    "request_body_max_bytes",
+    "log_level",
+    "ersatztv_logo_origins",
+]
+ADVANCED_FIELDS: tuple[AdvancedField, ...] = get_args(AdvancedField)
+
+# Settings the UI can save to /data/settings.json. A Literal, so type checking
+# catches a name the UI can't set before it reaches setattr on the singleton.
+UiField = Literal[
+    # Sources
+    "dispatcharr_url",
+    "dispatcharr_api_key",
+    "ersatztv_base_url",
+    # Who can join
+    "local_auth_enabled",
+    "admin_username",
+    "admin_password_hash",
+    "viewer_username",
+    "viewer_password_hash",
+    "plex_auth_enabled",
+    "plex_server_token",
+    "plex_server_machine_id",
+    "plex_default_role",
+    "plex_admin_ids",
+    # Extras
+    "chat_enabled",
+    "giphy_api_key",
+    "highlight_enabled",
+    "zipline_enabled",
+    "zipline_url",
+    "zipline_token",
+    "cast_enabled",
+    "ntfy_enabled",
+    "ntfy_url",
+    "ntfy_topic",
+    "ntfy_token",
+    AdvancedField,
+]
+UI_FIELDS: tuple[UiField, ...] = get_args(UiField)
+
+# Fields that lock and save as a unit. An environment variable for any one of
+# them locks the whole group, so a secret from the environment is never sent to
+# a URL edited in the UI, and auth is never set up half in each place. The auth
+# group also lists the env-only plaintext passwords and admin usernames.
+FIELD_GROUPS: dict[str, tuple[str, ...]] = {
+    "dispatcharr": ("dispatcharr_url", "dispatcharr_api_key"),
+    "ersatztv": ("ersatztv_base_url",),
+    "auth": (
+        "local_auth_enabled",
+        "admin_username",
+        "admin_password",
+        "admin_password_hash",
+        "viewer_username",
+        "viewer_password",
+        "viewer_password_hash",
+        "plex_auth_enabled",
+        "plex_server_token",
+        "plex_server_machine_id",
+        "plex_default_role",
+        "plex_admin_users_str",
+        "plex_admin_ids",
+    ),
+    "chat": ("chat_enabled",),
+    "giphy": ("giphy_api_key",),
+    "clips": ("highlight_enabled",),
+    "zipline": ("zipline_enabled", "zipline_url", "zipline_token"),
+    "cast": ("cast_enabled",),
+    "feedback": ("ntfy_enabled", "ntfy_url", "ntfy_topic", "ntfy_token"),
+    **{field: (field,) for field in ADVANCED_FIELDS},
+}
+
+
+def env_name(field: str) -> str:
+    """The environment variable that sets a field."""
+    return field.upper()

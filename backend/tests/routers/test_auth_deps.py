@@ -177,7 +177,7 @@ def test_sec04_demoted_admin_obeys_viewer_channel_policy(monkeypatch, viewer_sel
     from app.routers import auth_deps
 
     monkeypatch.setattr(auth_deps.settings, "admin_username", "current-admin")
-    monkeypatch.setattr(auth_deps.settings, "plex_admin_users", [])
+    monkeypatch.setattr(auth_deps.settings, "plex_admin_users_str", "")
     monkeypatch.setattr(auth_deps.settings, "plex_auth_enabled", False)
     monkeypatch.setattr(
         auth_deps.app_settings, "user_channel_selection_enabled", lambda: viewer_selection
@@ -216,7 +216,7 @@ async def test_sec04_current_admin_grants_control(monkeypatch, grant):
         auth_deps.settings, "admin_username", "user" if grant == "local" else "other"
     )
     monkeypatch.setattr(
-        auth_deps.settings, "plex_admin_users", ["user"] if grant == "plex-list" else []
+        auth_deps.settings, "plex_admin_users_str", "user" if grant == "plex-list" else ""
     )
     monkeypatch.setattr(auth_deps.settings, "plex_auth_enabled", grant.startswith("plex"))
     monkeypatch.setattr(
@@ -242,7 +242,7 @@ def plex_owner_config(monkeypatch):
     from app.routers import auth_deps
 
     monkeypatch.setattr(auth_deps.settings, "admin_username", "local-admin")
-    monkeypatch.setattr(auth_deps.settings, "plex_admin_users", ["listed-friend"])
+    monkeypatch.setattr(auth_deps.settings, "plex_admin_users_str", "listed-friend")
     monkeypatch.setattr(auth_deps.settings, "plex_auth_enabled", True)
     monkeypatch.setattr(auth_deps.settings, "plex_server_token", "synthetic-server-token")
     monkeypatch.setattr(auth_deps.settings, "plex_default_role", "viewer")

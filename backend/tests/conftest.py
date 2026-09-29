@@ -19,6 +19,7 @@ for node in ast.walk(ast.parse(config_source.read_text())):
                 os.environ.pop(field_node.target.id.upper(), None)
 
 with patch.object(DotEnvSettingsSource, "_read_env_files", return_value={}):
+    from app import config
     from app.config import OBSOLETE_ENV_KEYS, Settings, settings
 
     for key in OBSOLETE_ENV_KEYS:
@@ -35,6 +36,9 @@ with patch.object(DotEnvSettingsSource, "_read_env_files", return_value={}):
     )
     for field in Settings.model_fields:
         setattr(settings, field, getattr(isolated, field))
+    # Tests run as if these few came from the environment: the signing key is
+    # never generated, and the two source groups are locked unless a test unlocks them
+    config.ENV_FIELDS = frozenset(isolated.model_fields_set)
 
 
 @pytest.fixture(autouse=True)
