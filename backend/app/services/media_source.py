@@ -49,7 +49,7 @@ def _in_grouped(grouped: GroupedChannelsResponse, channel_id: str) -> Channel | 
 
 
 def _from_ersatztv(ersatz: EPGChannel) -> Channel:
-    return Channel(id=ersatz.id, name=ersatz.name, streamUrl=ersatz.stream_url, guideId=ersatz.id)
+    return Channel(id=ersatz.id, name=ersatz.name, stream_url=ersatz.stream_url, guide_id=ersatz.id)
 
 
 async def find_catalogue_channel(channel_id: str, *, ersatztv: bool = True) -> CatalogueMatch:

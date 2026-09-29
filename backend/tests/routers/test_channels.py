@@ -140,8 +140,8 @@ class TestSetCurrentChannel:
         trusted = Channel(
             id="picker-only",
             name="CA-FR: ICI TELE QUEBEC",
-            streamUrl="https://streams.example.com/proxy/ts/stream/picker-only",
-            guideId="194",
+            stream_url="https://streams.example.com/proxy/ts/stream/picker-only",
+            guide_id="194",
         )
         with patch(
             "app.services.media_source.get_grouped_channels",
@@ -168,24 +168,26 @@ class TestSetCurrentChannel:
             Channel(
                 id="uuid-123",
                 name="TSN",
-                streamUrl="https://streams.example.com/stream/uuid-123",
-                guideId="1",
+                stream_url="https://streams.example.com/stream/uuid-123",
+                guide_id="1",
             ),
             Channel(
                 id="uuid-456",
                 name="Sportsnet",
-                streamUrl="https://streams.example.com/stream/uuid-456",
-                guideId="2",
+                stream_url="https://streams.example.com/stream/uuid-456",
+                guide_id="2",
             ),
             Channel(
                 id="uuid-789",
                 name="CBC",
-                streamUrl="https://streams.example.com/stream/uuid-789",
-                guideId="3",
+                stream_url="https://streams.example.com/stream/uuid-789",
+                guide_id="3",
             ),
-            Channel(id="uuid-1", name="TSN", streamUrl="https://example.com/1", guideId="1"),
-            Channel(id="uuid-2", name="Sportsnet", streamUrl="https://example.com/2", guideId="2"),
-            Channel(id="uuid", name="TSN", streamUrl="https://example.com/stream", guideId="1"),
+            Channel(id="uuid-1", name="TSN", stream_url="https://example.com/1", guide_id="1"),
+            Channel(
+                id="uuid-2", name="Sportsnet", stream_url="https://example.com/2", guide_id="2"
+            ),
+            Channel(id="uuid", name="TSN", stream_url="https://example.com/stream", guide_id="1"),
         ]
         with (
             patch("app.services.media_source.get_channel_by_id", return_value=None),
@@ -549,8 +551,8 @@ class TestChannelsLogging:
             trusted = Channel(
                 id="uuid-123",
                 name="TestChannel",
-                streamUrl="https://example.com/stream",
-                guideId="1",
+                stream_url="https://example.com/stream",
+                guide_id="1",
             )
             with patch(
                 "app.services.media_source.get_grouped_channels",

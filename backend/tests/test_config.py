@@ -27,20 +27,21 @@ class TestAuthSettings:
         """Local auth should be disabled by default when no env vars set."""
         with patch.dict("os.environ", {}, clear=True):
             # Create settings without .env file
-            settings = Settings(_env_file=None)
+            # _env_file is a pydantic-settings init option that pyright doesn't see on Settings
+            settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
             assert settings.local_auth_enabled is False
 
     def test_plex_auth_disabled_by_default(self) -> None:
         """Plex auth should be disabled by default when no env vars set."""
         with patch.dict("os.environ", {}, clear=True):
             # Create settings without .env file
-            settings = Settings(_env_file=None)
+            settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
             assert settings.plex_auth_enabled is False
 
     def test_settings_has_plex_server_token(self) -> None:
         """Settings should have plex_server_token attribute."""
         with patch.dict("os.environ", {}, clear=True):
-            settings = Settings(_env_file=None)
+            settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
             assert hasattr(settings, "plex_server_token")
             # Should be None by default
             assert settings.plex_server_token is None
@@ -48,7 +49,7 @@ class TestAuthSettings:
     def test_settings_has_plex_server_machine_id(self) -> None:
         """Settings should have plex_server_machine_id attribute."""
         with patch.dict("os.environ", {}, clear=True):
-            settings = Settings(_env_file=None)
+            settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
             assert hasattr(settings, "plex_server_machine_id")
             # Should be None by default
             assert settings.plex_server_machine_id is None
@@ -62,7 +63,7 @@ class TestAuthSettings:
     def test_settings_has_plex_admin_users(self) -> None:
         """Settings should have plex_admin_users attribute as empty list by default."""
         with patch.dict("os.environ", {}, clear=True):
-            settings = Settings(_env_file=None)
+            settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
             assert hasattr(settings, "plex_admin_users")
             assert isinstance(settings.plex_admin_users, list)
             # Default should be empty list
@@ -135,7 +136,7 @@ SECRETS = {
 
 
 def test_secrets_never_appear_in_repr_or_str():
-    config = Settings(_env_file=None, **SECRETS)
+    config = Settings(_env_file=None, **SECRETS)  # pyright: ignore[reportCallIssue]
     shown = repr(config) + str(config) + str(config.model_dump())
     for value in SECRETS.values():
         assert value not in shown
@@ -143,7 +144,7 @@ def test_secrets_never_appear_in_repr_or_str():
 
 
 def test_assigned_secret_is_wrapped():
-    config = Settings(_env_file=None)
+    config = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
     config.giphy_api_key = "synthetic-assigned-key"  # pyright: ignore[reportAttributeAccessIssue]
     assert config.giphy_api_key is not None
     assert config.giphy_api_key.get_secret_value() == "synthetic-assigned-key"
@@ -162,7 +163,7 @@ def test_assigned_secret_is_wrapped():
 )
 def test_log_settings_are_normalised(monkeypatch, name, raw, expected):
     monkeypatch.setenv(name, raw)
-    assert getattr(Settings(_env_file=None), name.lower()) == expected
+    assert getattr(Settings(_env_file=None), name.lower()) == expected  # pyright: ignore[reportCallIssue]
 
 
 @pytest.mark.parametrize(
@@ -171,7 +172,7 @@ def test_log_settings_are_normalised(monkeypatch, name, raw, expected):
 def test_unknown_log_settings_fail_at_startup(monkeypatch, name, raw):
     monkeypatch.setenv(name, raw)
     with pytest.raises(ValidationError, match=name.lower()):
-        Settings(_env_file=None)
+        Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
 
 
 ZIPLINE = {"highlight_enabled": True, "zipline_enabled": True, "zipline_url": "https://z.example"}
@@ -180,10 +181,10 @@ NTFY = {"ntfy_enabled": True, "ntfy_url": "https://ntfy.example", "ntfy_topic": 
 
 @pytest.mark.parametrize("token,available", [("", False), ("   ", False), ("synthetic", True)])
 def test_zipline_available_reads_the_token_value(token, available):
-    assert Settings(_env_file=None, zipline_token=token, **ZIPLINE).zipline_available is available
+    assert Settings(_env_file=None, zipline_token=token, **ZIPLINE).zipline_available is available  # pyright: ignore[reportCallIssue]
 
 
 @pytest.mark.parametrize("token", ["", "synthetic"])
 def test_ntfy_available_does_not_need_a_token(token):
-    assert Settings(_env_file=None, ntfy_token=token, **NTFY).ntfy_available is True
-    assert Settings(_env_file=None, ntfy_token=token).ntfy_available is False
+    assert Settings(_env_file=None, ntfy_token=token, **NTFY).ntfy_available is True  # pyright: ignore[reportCallIssue]
+    assert Settings(_env_file=None, ntfy_token=token).ntfy_available is False  # pyright: ignore[reportCallIssue]

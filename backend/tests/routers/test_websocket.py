@@ -82,9 +82,9 @@ def client() -> Iterator[TestClient]:
 def cached_catalogue(monkeypatch: pytest.MonkeyPatch) -> None:
     """The catalogues chat names channels from: TSN 5 (42) live, Cartoons (etv-2) on ErsatzTV."""
     grouped = GroupedChannelsResponse(
-        ungrouped=[Channel(id="42", name="TSN 5", streamUrl="http://streams/42", guideId="tsn5")]
+        ungrouped=[Channel(id="42", name="TSN 5", stream_url="http://streams/42", guide_id="tsn5")]
     )
-    cartoons = EPGChannel(id="etv-2", name="Cartoons", streamUrl="http://etv/2.m3u8")
+    cartoons = EPGChannel(id="etv-2", name="Cartoons", stream_url="http://etv/2.m3u8")
     monkeypatch.setattr(media_source, "get_grouped_channels", AsyncMock(return_value=grouped))
     monkeypatch.setattr(
         media_source,
@@ -782,7 +782,8 @@ class TestWebSocketLogging:
 
         monkeypatch.setattr(websocket_router, "handle_client_message", broken)
         output = StringIO()
-        config = Settings(_env_file=None, log_format="json", log_level="DEBUG")
+        # _env_file is a pydantic-settings init option that pyright doesn't see on Settings
+        config = Settings(_env_file=None, log_format="json", log_level="DEBUG")  # pyright: ignore[reportCallIssue]
         with patch("app.logging_config.settings", config), patch.object(sys, "stderr", output):
             configure_logging()
             with ws_connect(client, valid_token) as ws:
@@ -1094,9 +1095,11 @@ class TestCanonicalChannelNames:
     @pytest.fixture
     def warm_catalogues(self, monkeypatch: pytest.MonkeyPatch) -> None:
         grouped = GroupedChannelsResponse(
-            ungrouped=[Channel(id="42", name="TSN 5", streamUrl="http://streams/42", guideId="t5")]
+            ungrouped=[
+                Channel(id="42", name="TSN 5", stream_url="http://streams/42", guide_id="t5")
+            ]
         )
-        cartoons = EPGChannel(id="etv-2", name="Cartoons", streamUrl="http://etv/2.m3u8")
+        cartoons = EPGChannel(id="etv-2", name="Cartoons", stream_url="http://etv/2.m3u8")
         monkeypatch.setattr(media_source, "peek_grouped_channels", lambda: grouped)
         monkeypatch.setattr(media_source, "peek_ersatztv_channels", lambda: [cartoons])
 
@@ -1177,7 +1180,9 @@ class TestCanonicalChannelNames:
         uncoalesced: None,
     ):
         grouped = GroupedChannelsResponse(
-            ungrouped=[Channel(id="42", name="TSN 5", streamUrl="http://streams/42", guideId="t5")]
+            ungrouped=[
+                Channel(id="42", name="TSN 5", stream_url="http://streams/42", guide_id="t5")
+            ]
         )
         with ws_connect(client, valid_token) as ws:
             ws.receive_json()  # Consume connection_ack

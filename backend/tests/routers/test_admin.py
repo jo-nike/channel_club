@@ -228,7 +228,7 @@ class TestGetActiveUsers:
     ) -> None:
         """A personal pick of the live channel, or another channel, is not on Live."""
         live = Channel(
-            id="uuid-rds", name="RDS", streamUrl="https://streams.example/rds", guideId="1"
+            id="uuid-rds", name="RDS", stream_url="https://streams.example/rds", guide_id="1"
         )
         monkeypatch.setattr(channel_state, "_current_channel", live)
         presence.track_user(connection_id="conn1", username="follower", view="live")
@@ -261,7 +261,7 @@ class TestGetActiveUsers:
     ) -> None:
         """A pre-R2 bundle sends no onLive: being on the live channel's id counts."""
         live = Channel(
-            id="uuid-rds", name="RDS", streamUrl="https://streams.example/rds", guideId="1"
+            id="uuid-rds", name="RDS", stream_url="https://streams.example/rds", guide_id="1"
         )
         monkeypatch.setattr(channel_state, "_current_channel", live)
         presence.track_user(connection_id="conn1", username="old-on-live", view="live")
