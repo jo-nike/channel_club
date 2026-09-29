@@ -2,15 +2,15 @@
 
 from pydantic import BaseModel, Field
 
+from app.models.base import CamelModel
 
-class PlexAuthRequest(BaseModel):
+
+class PlexAuthRequest(CamelModel):
     """Request body for Plex authentication."""
 
     # Printable ASCII only: it becomes the X-Plex-Token header, where anything else
     # fails in httpx as a 500 (non-ASCII) or a misleading 'Plex is not responding' (CR/LF)
-    auth_token: str = Field(alias="authToken", max_length=512, pattern=r"^[\x21-\x7e]+$")
-
-    model_config = {"populate_by_name": True}
+    auth_token: str = Field(max_length=512, pattern=r"^[\x21-\x7e]+$")
 
 
 class PlexUser(BaseModel):
