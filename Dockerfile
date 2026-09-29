@@ -53,10 +53,11 @@ ARG APT_REFRESH=0
 WORKDIR /app
 
 # Install curl for healthcheck, ffmpeg for highlight capture, and uv for Python package management
+# The uv version moves together with UV_VERSION in .gitea/workflows/build.yml
 RUN apt-get update && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends curl ffmpeg \
     && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir uv
+    && pip install --no-cache-dir uv==0.10.11
 
 # Copy backend dependency files first for better layer caching
 COPY backend/pyproject.toml backend/uv.lock ./
