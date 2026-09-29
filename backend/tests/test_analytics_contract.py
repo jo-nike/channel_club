@@ -328,6 +328,25 @@ def test_every_event_the_dashboard_reads_carries_its_fields(
     assert [line.get("record_extra_channel") for line in changes] == ["RDS", None]
 
 
+def test_catalogue_usage_joins_watch_events_on_the_channel_id() -> None:
+    # A catalogue rename or a client's own name for a channel can't split its history
+    title = "Catalogue usage (unused channels sort first)"
+    (panel,) = [
+        p for p in _load_generator().dashboard["dashboard"]["panels"] if p["title"] == title
+    ]
+    catalogues = [t for t in panel["targets"] if "columns" in t]
+    assert len(catalogues) == 2
+    for target in catalogues:
+        assert "channel_id" in [column["text"] for column in target["columns"]], target["refId"]
+    exprs = _exprs(panel)
+    assert len(exprs) == 2
+    for expr in exprs:
+        assert expr.startswith("label_replace(sum by (record_extra_channel_id) ("), expr
+        assert '"channel_id", "$1", "record_extra_channel_id"' in expr, expr
+    joins = [t for t in panel["transformations"] if t["id"] == "joinByField"]
+    assert [join["options"]["byField"] for join in joins] == ["channel_id"]
+
+
 def test_live_channel_table_labels_a_stop() -> None:
     (expr,) = _panel_exprs("Shared live channel changes")
     assert 'channel=`{{ or .record_extra_channel "stopped" }}`' in expr

@@ -86,15 +86,22 @@ def infinity(ref: str, kind: str, url: str, root: str, columns: list[dict]) -> d
     }
 
 
+# The lineup carries no id field, but each entry's stream URL ends in the channel's
+# UUID, which is the app's channel id: a JSONata root (Infinity's backend parser)
+# takes its last path segment.
+DISPATCHARR_ROOT = '$.{"channel": GuideName, "number": GuideNumber, "channel_id": $split(URL, "/")[-1]}'
+
+
 def dispatcharr_catalogue(ref: str = "A") -> dict:
     return infinity(
         ref,
         "json",
         DISPATCHARR_LINEUP_URL,
-        "",
+        DISPATCHARR_ROOT,
         [
-            {"selector": "GuideName", "text": "channel", "type": "string"},
-            {"selector": "GuideNumber", "text": "number", "type": "string"},
+            {"selector": "channel", "text": "channel", "type": "string"},
+            {"selector": "number", "text": "number", "type": "string"},
+            {"selector": "channel_id", "text": "channel_id", "type": "string"},
         ],
     )
 
@@ -295,14 +302,20 @@ slot_time_expr = f'sum by (record_extra_on_live) (sum_over_time({WATCH_TIME} [$_
 panels.append(bargauge("Watch time: Live slot vs own pick", [loki(slot_time_expr, legend="Live slot: {{record_extra_on_live}}", instant=True)], 0, y, w=24, h=5))
 y += 5
 
-# Catalogue usage: Infinity catalogue (A+B) outer-joined with Loki watch time (C) and starts (D).
-catalogue_watch = f'sum by (record_extra_channel) (sum_over_time({WATCH_TIME} [$__range]))'
-catalogue_starts = f'sum by (record_extra_channel) (count_over_time({WATCH_BASE} | record_extra_event="watch.start" [$__range]))'
+# Catalogue usage: Infinity catalogue (A+B) outer-joined with Loki watch time (C) and starts (D)
+# on the channel id, so a renamed channel keeps its history. The ErsatzTV '-id' is the
+# app's channel id (the tvg-id); label_replace names the Loki side's id to match.
+def by_channel_id(expr: str) -> str:
+    return f'label_replace({expr}, "channel_id", "$1", "record_extra_channel_id", "(.+)")'
+
+
+catalogue_watch = by_channel_id(f'sum by (record_extra_channel_id) (sum_over_time({WATCH_TIME} [$__range]))')
+catalogue_starts = by_channel_id(f'sum by (record_extra_channel_id) (count_over_time({WATCH_BASE} | record_extra_event="watch.start" [$__range]))')
 panels.append({
     "id": pid(),
     "type": "table",
     "title": "Catalogue usage (unused channels sort first)",
-    "description": "Every channel in the Dispatcharr lineup and ErsatzTV XMLTV, joined by name to watch events in the selected range. 'never watched' means no watch time (watch.progress or watch.stop) in range.",
+    "description": "Every channel in the Dispatcharr lineup and ErsatzTV XMLTV, joined by channel id to watch events in the selected range. 'never watched' means no watch time (watch.progress or watch.stop) in range.",
     "gridPos": grid(0, y, 24, 16),
     "datasource": {"type": "datasource", "uid": "-- Mixed --"},
     "targets": [
@@ -314,9 +327,9 @@ panels.append({
     "transformations": [
         # Loki instant vectors come back as one frame per series: turn them into channel rows.
         {"id": "merge", "options": {}},
-        {"id": "joinByField", "options": {"byField": "channel", "mode": "outer"}},
+        {"id": "joinByField", "options": {"byField": "channel_id", "mode": "outer"}},
         {"id": "organize", "options": {
-            "excludeByName": {"Time": True, "Time 1": True, "Time 2": True, "Time 3": True, "Time 4": True},
+            "excludeByName": {"Time": True, "Time 1": True, "Time 2": True, "Time 3": True, "Time 4": True, "record_extra_channel_id": True},
             "renameByName": {"Value #C": "watch time", "Value #D": "starts", "number": "live #"},
             "indexByName": {"channel": 0, "live #": 1, "channel_id": 2, "watch time": 3, "starts": 4},
         }},
