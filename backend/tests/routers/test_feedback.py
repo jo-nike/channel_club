@@ -221,6 +221,16 @@ class TestSubmit:
         assert "wait" in second.json()["detail"]
         assert len(calls) == 1
 
+    def test_a_plex_account_named_like_a_local_one_has_its_own_quota(self, client, configured):
+        local = create_access_token({"sub": "admin", "role": "admin"})
+        plex = create_access_token({"sub": "admin", "role": "viewer", "plex_id": "7"})
+        with ntfy(lambda request: httpx.Response(200)):
+            for token in (local, plex):
+                response = client.post(
+                    "/api/feedback", json=REPORT, headers={"Authorization": f"Bearer {token}"}
+                )
+                assert response.status_code == 200
+
     @pytest.mark.parametrize(
         "status,expected",
         [(401, 502), (403, 502), (400, 502), (413, 502), (429, 429), (500, 502)],

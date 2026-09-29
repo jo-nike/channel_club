@@ -70,7 +70,7 @@ def test_a_full_disk_during_export_names_no_server_path(client, tmp_path):
     snapshot.write_bytes(b"mp4")
     now = time.time()
     capture = Capture(
-        "synthetic-capture-0001", "viewer", "channel-1", snapshot, 3, 2, now, now, now
+        "synthetic-capture-0001", "local:viewer", "channel-1", snapshot, 3, 2, now, now, now
     )
     highlight_service.captures.captures[capture.id] = capture
     output = StringIO()

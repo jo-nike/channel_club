@@ -49,7 +49,7 @@ def register():
     """Place a capture in the store for a test and drop it afterwards."""
     registered = []
 
-    def add(path, owner="viewer", capture_id=CAPTURE_ID):
+    def add(path, owner="local:viewer", capture_id=CAPTURE_ID):
         now = time.time()
         capture = Capture(
             capture_id, owner, "channel-1", path, path.stat().st_size, 2, now, now, now
@@ -213,7 +213,7 @@ async def test_export_stops_the_encoder_when_the_browser_cancels(tmp_path, regis
             break
         await asyncio.sleep(0.01)
     await asyncio.sleep(0.05)
-    assert encoder[0].returncode is None and export_budget.owners["viewer"] == 1
+    assert encoder[0].returncode is None and export_budget.owners["local:viewer"] == 1
 
     leave.set()
     with pytest.raises(HTTPException) as closed:

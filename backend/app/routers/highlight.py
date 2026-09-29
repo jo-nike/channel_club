@@ -146,7 +146,7 @@ async def upload_highlight(
     content_type = f"video/{format}"
     if request.headers.get("content-type", "").split(";")[0] != content_type:
         raise HTTPException(415, f"Expected {content_type}")
-    with upload_budget.slot(user.sub):
+    with upload_budget.slot(user.account_key):
         async with workspace("highlight-upload-") as directory:
             source = directory / f"clip.{format}"
 
@@ -185,7 +185,7 @@ async def get_highlight_status(
     # Auto-start recording if enabled but not already recording
     status = highlight_service.get_status(channel_id)
     if status["enabled"] and not status["recording"]:
-        started = await highlight_service.start_recording(channel_id, "", owner=user.sub)
+        started = await highlight_service.start_recording(channel_id, "", owner=user.account_key)
         if started:
             status = highlight_service.get_status(channel_id)
 
@@ -207,9 +207,11 @@ async def create_capture(
     """Snapshot the recent buffer server-side; the editor streams it by range."""
     if not settings.highlight_enabled:
         raise HTTPException(503, "Highlight feature is disabled")
+    # Captures and slots belong to the account, so everyone signed in to one shared local
+    # login (viewer) shares its captures, up to MAX_CAPTURES_PER_OWNER, and its slots.
     # A viewer who leaves while waiting for a slot gives up their place in the queue.
     capture, error = await unless_disconnected(
-        request, highlight_service.create_capture(channel_id, owner=user.sub)
+        request, highlight_service.create_capture(channel_id, owner=user.account_key)
     )
     if error or capture is None:
         log.warning("Highlight capture failed for channel {}: {}", channel_id, error)
@@ -217,7 +219,7 @@ async def create_capture(
         raise HTTPException(
             409 if error == RECORDER_GONE_ERROR else 400, error or "Failed to create highlight"
         )
-    preview_token = highlight_service.issue_preview_token(capture.id, user.sub)
+    preview_token = highlight_service.issue_preview_token(capture.id, user.account_key)
     if preview_token is None:
         raise HTTPException(404, "Capture not found")
     return CaptureResponse(
@@ -238,7 +240,7 @@ async def get_capture(
     user: TokenPayload = Depends(get_current_user_or_token),
 ) -> FileResponse:
     """Serve the owner's capture with range support so media elements can seek early."""
-    capture = highlight_service.get_capture(capture_id, user.sub)
+    capture = highlight_service.get_capture(capture_id, user.account_key)
     if capture is None:
         raise HTTPException(404, "Capture not found")
     return capture_file(capture, download)
@@ -261,7 +263,7 @@ async def create_download_link(
     user: TokenPayload = Depends(get_current_user),
 ) -> DownloadLinkResponse:
     """Let the browser save the capture directly without putting the JWT in the URL."""
-    token = highlight_service.issue_download_token(capture_id, user.sub)
+    token = highlight_service.issue_download_token(capture_id, user.account_key)
     if token is None:
         raise HTTPException(404, "Capture not found")
     return DownloadLinkResponse(url=f"/api/highlight/download/{token}")
@@ -290,7 +292,7 @@ async def delete_capture(
     user: TokenPayload = Depends(get_current_user),
 ) -> Response:
     """Free the capture as soon as the editor closes; unknown ids are already gone."""
-    await highlight_service.delete_capture(capture_id, user.sub)
+    await highlight_service.delete_capture(capture_id, user.account_key)
     return Response(status_code=204)
 
 
@@ -330,7 +332,7 @@ async def export_preview(
         raise HTTPException(503, "Highlight feature is disabled")
     if start_time is not None and end_time is not None and start_time >= end_time:
         raise HTTPException(400, "start_time must be less than end_time")
-    source = highlight_service.get_capture(capture, user.sub)
+    source = highlight_service.get_capture(capture, user.account_key)
     if source is None:
         raise HTTPException(404, "Capture not found")
     # The file outlives the handler: it is streamed from disk, then its workspace removed.
@@ -339,7 +341,7 @@ async def export_preview(
     async def encode() -> FilePath:
         # Waits for a slot inside the disconnect watch, so a viewer who left never takes one.
         # The slot is released when the encode finishes, before the response is sent.
-        async with export_budget.waiting_slot(user.sub):
+        async with export_budget.waiting_slot(user.account_key):
             return await encode_file(
                 source.path,
                 directory / f"export.{format}",
