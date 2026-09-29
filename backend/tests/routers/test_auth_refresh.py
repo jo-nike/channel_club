@@ -149,3 +149,17 @@ def test_plex_viewer_refreshes_while_the_owner_lookup_fails(monkeypatch: pytest.
     response = refresh(token)
     assert response.status_code == 200
     assert response.json()["role"] == "viewer"
+
+
+def test_plex_admin_picked_by_id_refreshes_while_the_owner_lookup_fails(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """An admin known by account id needs no owner lookup, so no 503."""
+    monkeypatch.setattr(settings, "plex_auth_enabled", True)
+    monkeypatch.setattr(settings, "plex_server_token", "synthetic-server-token")
+    monkeypatch.setattr(settings, "plex_admin_ids", ["4244"])
+    monkeypatch.setattr(plex, "get_server_owner_id", AsyncMock(return_value=None))
+    token = create_access_token({"sub": "synthetic-picked", "role": "admin", "plex_id": "4244"})
+    response = refresh(token)
+    assert response.status_code == 200
+    assert response.json()["role"] == "admin"

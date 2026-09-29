@@ -7,6 +7,7 @@ import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
+from app.config import settings
 from app.services import plex
 from app.services.auth import create_access_token
 
@@ -336,3 +337,20 @@ def test_a02_owner_lookup_failure_trusts_only_plex_tokens(monkeypatch, respond):
     assert _admin_status({"sub": "some-plex-user", "plex_id": "999"}) == 200
     assert _admin_status({"sub": "former-local-admin"}) == 403
     assert plex._server_owner_id_cache == {}
+
+
+@pytest.mark.usefixtures("plex_owner_config")
+def test_admins_picked_by_plex_id_need_no_owner_lookup(monkeypatch):
+    """The UI stores admins by Plex account id, which survives a rename."""
+
+    def unexpected(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("the owner lookup should not run")
+
+    _install_plex_tv(monkeypatch, unexpected)
+    monkeypatch.setattr(settings, "plex_admin_ids", ["777"])
+
+    assert _admin_status({"sub": "renamed-friend", "plex_id": "777"}) == 200
+    # A local token can't borrow the id, and the grant ends with Plex sign-in
+    assert _admin_status({"sub": "777"}) == 403
+    monkeypatch.setattr(settings, "plex_auth_enabled", False)
+    assert _admin_status({"sub": "renamed-friend", "plex_id": "777"}) == 403

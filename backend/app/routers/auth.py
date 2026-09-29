@@ -166,6 +166,9 @@ async def _current_role(user: TokenPayload) -> str | None:
         return None
     if not settings.plex_auth_enabled:
         return None
+    if user.plex_id in settings.plex_admin_ids:
+        # Picked as an admin by account id: no owner lookup needed
+        return "admin"
     if (
         user.role == "admin"
         and settings.plex_server_token
