@@ -38,8 +38,8 @@ http://example.com/stream2.m3u8
 """
 
 SAMPLE_M3U_CHANNEL_ID = """#EXTM3U
-#EXTINF:-1 channel-id="C1.145.ersatztv.org" tvg-name="Comedy Classics" tvg-chno="1" tvg-logo="http://192.168.50.108:8409/artwork/logo.png" group-title="Comedy",Comedy Classics
-http://192.168.50.108:8409/iptv/channel/1.m3u8
+#EXTINF:-1 channel-id="C1.145.ersatztv.org" tvg-name="Comedy Classics" tvg-chno="1" tvg-logo="http://ersatztv.test:8409/artwork/logo.png" group-title="Comedy",Comedy Classics
+http://ersatztv.test:8409/iptv/channel/1.m3u8
 """
 
 SAMPLE_M3U_NO_TVG_NAME = """#EXTM3U

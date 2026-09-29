@@ -225,7 +225,7 @@ async def _build_grouped_channels() -> GroupedChannelsResponse:
         channel = Channel(
             id=ch.uuid,
             name=ch.name,
-            stream_url=f"{settings.stream_base_url}/proxy/ts/stream/{ch.uuid}",
+            stream_url=f"{settings.dispatcharr_url}/proxy/ts/stream/{ch.uuid}",
             # Dispatcharr's XMLTV (default tvg_id_source) and HDHR Guide_ID key a
             # channel by its number, falling back to the database id without one
             guide_id=format_channel_number(ch.channel_number) or str(ch.id),

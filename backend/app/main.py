@@ -1,4 +1,5 @@
 import asyncio
+import os
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
@@ -6,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
-from app.config import KNOWN_PUBLIC_JWT_SECRETS, settings
+from app.config import KNOWN_PUBLIC_JWT_SECRETS, OBSOLETE_ENV_KEYS, settings
 from app.logging_config import configure_logging
 from app.metadata import APP_NAME, APP_VERSION
 from app.middleware.body_limit import BodySizeLimitMiddleware
@@ -137,6 +138,12 @@ async def lifespan(app: FastAPI):
             "Feedback push unavailable: configure NTFY_URL (http/https base URL) "
             "and NTFY_TOPIC (letters, digits, '_' or '-')"
         )
+    for key, source in (("DISPATCHARR_URL", "Dispatcharr"), ("ERSATZTV_BASE_URL", "ErsatzTV")):
+        if not getattr(settings, key.lower()):
+            logger.warning("{} is not set, so {} channels are unavailable", key, source)
+    for key, replacement in OBSOLETE_ENV_KEYS.items():
+        if key in os.environ:
+            logger.warning("{} is no longer read: {}", key, replacement)
     if not settings.chat_enabled:
         logger.warning("Chat is off: CHAT_ENABLED is false, so clients hide chat")
     if settings.highlight_enabled:
@@ -271,7 +278,7 @@ app.add_middleware(
     exempt_paths=frozenset({"/api/highlight/upload"}),
 )
 # Added last so it wraps everything, the body cap's 413 included.
-app.add_middleware(SecurityHeadersMiddleware, stream_base_url=settings.stream_base_url)
+app.add_middleware(SecurityHeadersMiddleware, stream_base_url=settings.dispatcharr_url)
 
 # Register API routers FIRST (they take precedence over static files)
 app.include_router(auth_router, prefix="/api/auth")

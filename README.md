@@ -17,7 +17,7 @@ cd ..
 cp .env.example .env
 ```
 
-Edit the root `.env`: generate a signing key with `openssl rand -hex 32`, replace `JWT_SECRET`, and set a unique `ADMIN_PASSWORD` with `LOCAL_AUTH_ENABLED=true`. Blank local passwords disable that account. Set your Dispatcharr URL/API key; configure ErsatzTV/Plex only if used. Never commit credentials.
+Edit the root `.env`: generate a signing key with `openssl rand -hex 32`, replace `JWT_SECRET`, and set a unique `ADMIN_PASSWORD` with `LOCAL_AUTH_ENABLED=true`. Blank local passwords disable that account. Set `DISPATCHARR_URL` and `DISPATCHARR_API_KEY`; the server and browsers both reach Dispatcharr at that URL (browsers play streams from it). Set `ERSATZTV_BASE_URL` and Plex only if used. Neither source URL has a default, and startup names any that is unset. Never commit credentials.
 
 ```bash
 cd frontend
@@ -37,7 +37,7 @@ uv run --project backend --env-file .env uvicorn app.main:app --app-dir backend 
 ```
 
 ```bash
-cd frontend && VITE_CHAT_ENABLED=true VITE_GIF_ENABLED=true npm run dev
+cd frontend && npm run dev
 ```
 
 ## Settings and optional features
@@ -46,7 +46,9 @@ cd frontend && VITE_CHAT_ENABLED=true VITE_GIF_ENABLED=true npm run dev
 | --- | --- |
 | Root `.env` | Shared `run.sh` and Docker Compose configuration, based on root `.env.example` |
 
-The frontend's `VITE_*` flags are baked in at build time: `run.sh` exports them (API path `/api`, chat and GIFs on, log level `debug` in dev and `info` for `--prod`) and CI sets the same values in `.gitea/workflows/build.yml`. Export one before `./run.sh` to override it. The default frontend API path is `/api` in development and production. Set `VITE_API_URL` only when intentionally using a separate API origin. WebSockets use the browser origin. Chromecast must reach the media server itself; `VITE_CAST_BASE_URL` overrides its API origin, and local casting may require a backend bound to a receiver-reachable interface. Browser proxy tests do not establish physical receiver reachability.
+The frontend build takes no configuration, so one image serves any deploy. It calls `/api` and opens its WebSocket on the page's origin, and the server says at connect time whether chat (`CHAT_ENABLED`) and GIFs (`GIPHY_API_KEY` set) are on. The browser console logs at debug level in development and info in production builds. Chromecast must reach the media server itself; the receiver's API URL is built from the page's origin, and local casting may require a backend bound to a receiver-reachable interface. Browser proxy tests do not establish physical receiver reachability.
+
+`.env.example` lists what a deploy sets. The Advanced block at the end of `backend/app/config.py` (media admission limits, HLS and highlight timings, temporary directories, feedback rate limits, body caps) has tuned defaults and stays out of it; each can still be overridden by its upper-case name. Startup warns about variables that are no longer read (`OBSOLETE_ENV_KEYS` in the same file), such as `STREAM_BASE_URL`, which `DISPATCHARR_URL` replaced.
 
 Administrators control the shared live broadcast and settings; viewer channel selection is configurable. Highlights and Cast are optional server features with bounded subprocess/export budgets. Recording buffers and temporary exports use the configured temporary storage roots; retain enough disk space for enabled channels and upload/export limits. Captures are held server-side for up to 15 minutes (one per user) and streamed to the editor by byte range; exported trims and formats are cut from that held capture, never from the live buffer.
 
@@ -66,7 +68,7 @@ The browser scripts require Chrome (`CHROME_BIN` overrides its executable) and u
 
 ## Docker
 
-Configure root `.env` with strong credentials and your upstream URLs, then run `docker compose up --build`. The container is named `channel-club`; the internal Compose service remains `iptv-viewer` for deployment compatibility. Production serves the frontend and API from one origin. See the environment examples for feature switches and media resource limits.
+Configure root `.env` with strong credentials and your upstream URLs, then run `docker compose up --build`. The container is named `channel-club`; the internal Compose service remains `iptv-viewer` for deployment compatibility. Production serves the frontend and API from one origin. See `.env.example` for feature switches; media resource limits are Advanced settings in `backend/app/config.py`.
 
 ### Clip capture and optional Zipline uploads
 

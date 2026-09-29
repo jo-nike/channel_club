@@ -20,11 +20,11 @@ describe('logger', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    vi.unstubAllEnvs()
   })
 
   describe('log levels output correctly', () => {
     it('should call console.debug for debug level', async () => {
-      vi.stubEnv('VITE_LOG_LEVEL', 'debug')
       const { logger } = await import('./logger')
 
       logger.debug('TestContext', 'test message')
@@ -33,7 +33,6 @@ describe('logger', () => {
     })
 
     it('should call console.info for info level', async () => {
-      vi.stubEnv('VITE_LOG_LEVEL', 'debug')
       const { logger } = await import('./logger')
 
       logger.info('TestContext', 'test message')
@@ -42,7 +41,6 @@ describe('logger', () => {
     })
 
     it('should call console.warn for warn level', async () => {
-      vi.stubEnv('VITE_LOG_LEVEL', 'debug')
       const { logger } = await import('./logger')
 
       logger.warn('TestContext', 'test message')
@@ -51,7 +49,6 @@ describe('logger', () => {
     })
 
     it('should call console.error for error level', async () => {
-      vi.stubEnv('VITE_LOG_LEVEL', 'debug')
       const { logger } = await import('./logger')
 
       logger.error('TestContext', 'test message')
@@ -62,7 +59,6 @@ describe('logger', () => {
 
   describe('format includes required fields', () => {
     it('should include timestamp, level, and context in output', async () => {
-      vi.stubEnv('VITE_LOG_LEVEL', 'debug')
       const { logger } = await import('./logger')
 
       logger.info('Auth', 'User logged in')
@@ -77,7 +73,6 @@ describe('logger', () => {
     })
 
     it('should include additional data arguments', async () => {
-      vi.stubEnv('VITE_LOG_LEVEL', 'debug')
       const { logger } = await import('./logger')
       const extraData = { userId: 123 }
 
@@ -90,43 +85,8 @@ describe('logger', () => {
   })
 
   describe('level filtering works', () => {
-    it('should suppress debug when level is info', async () => {
-      vi.stubEnv('VITE_LOG_LEVEL', 'info')
-      const { logger } = await import('./logger')
-
-      logger.debug('TestContext', 'should be suppressed')
-
-      expect(consoleSpy.debug).not.toHaveBeenCalled()
-    })
-
-    it('should suppress debug and info when level is warn', async () => {
-      vi.stubEnv('VITE_LOG_LEVEL', 'warn')
-      const { logger } = await import('./logger')
-
-      logger.debug('TestContext', 'should be suppressed')
-      logger.info('TestContext', 'should be suppressed')
-
-      expect(consoleSpy.debug).not.toHaveBeenCalled()
-      expect(consoleSpy.info).not.toHaveBeenCalled()
-    })
-
-    it('should only allow error when level is error', async () => {
-      vi.stubEnv('VITE_LOG_LEVEL', 'error')
-      const { logger } = await import('./logger')
-
-      logger.debug('TestContext', 'should be suppressed')
-      logger.info('TestContext', 'should be suppressed')
-      logger.warn('TestContext', 'should be suppressed')
-      logger.error('TestContext', 'should be shown')
-
-      expect(consoleSpy.debug).not.toHaveBeenCalled()
-      expect(consoleSpy.info).not.toHaveBeenCalled()
-      expect(consoleSpy.warn).not.toHaveBeenCalled()
-      expect(consoleSpy.error).toHaveBeenCalled()
-    })
-
-    it('should allow all levels when level is debug', async () => {
-      vi.stubEnv('VITE_LOG_LEVEL', 'debug')
+    it('should allow all levels in development', async () => {
+      vi.stubEnv('DEV', true)
       const { logger } = await import('./logger')
 
       logger.debug('TestContext', 'debug message')
@@ -139,32 +99,16 @@ describe('logger', () => {
       expect(consoleSpy.warn).toHaveBeenCalled()
       expect(consoleSpy.error).toHaveBeenCalled()
     })
-  })
 
-  describe('default level behavior', () => {
-    it('should default to debug in development mode', async () => {
-      vi.stubEnv('DEV', true)
-      vi.unstubAllEnvs()
-      vi.stubEnv('DEV', 'true')
-      // Don't set VITE_LOG_LEVEL to test default
+    it('should suppress only debug in a production build', async () => {
+      vi.stubEnv('DEV', false)
       const { logger } = await import('./logger')
 
-      logger.debug('TestContext', 'should be shown in dev')
+      logger.debug('TestContext', 'should be suppressed')
+      logger.info('TestContext', 'info message')
 
-      // In dev mode (Vitest runs in dev), debug should be shown
-      expect(consoleSpy.debug).toHaveBeenCalled()
-    })
-  })
-
-  describe('performance - suppressed logs do not format strings', () => {
-    it('should not call console method when log is suppressed', async () => {
-      vi.stubEnv('VITE_LOG_LEVEL', 'error')
-      const { logger } = await import('./logger')
-
-      logger.debug('TestContext', 'message')
-
-      // The console.debug should not be called because the log is suppressed
       expect(consoleSpy.debug).not.toHaveBeenCalled()
+      expect(consoleSpy.info).toHaveBeenCalled()
     })
   })
 })
@@ -173,7 +117,6 @@ it.each(['debug', 'info', 'warn', 'error'] as const)(
   'SEC-03 redacts HLS/Cast diagnostics at %s level without mutating callers',
   async (level) => {
     vi.resetModules()
-    vi.stubEnv('VITE_LOG_LEVEL', 'debug')
     const spy = vi.spyOn(console, level).mockImplementation(() => {})
     const { logger } = await import('./logger')
     const secret = 'SYNTHETIC_REUSABLE_BEARER_SECRET'

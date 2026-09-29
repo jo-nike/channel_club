@@ -7,9 +7,6 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { GifPicker } from './GifPicker'
 
-// Check if GIF feature is enabled via env var (build-time)
-const GIF_FEATURE_ENABLED = import.meta.env.VITE_GIF_ENABLED === 'true'
-
 export interface GifButtonProps {
   onSelect: (gifUrl: string) => boolean | void | Promise<boolean | void>
   disabled?: boolean
@@ -23,8 +20,8 @@ export function GifButton({ onSelect, disabled, container }: GifButtonProps) {
   const serverEnabled = useSettingsStore((s) => s.serverFeatures?.gif)
   const isMobile = useLayoutMode() === 'phone'
 
-  // Shown only once the server says GIFs are on, and never when the build turns them off
-  if (!GIF_FEATURE_ENABLED || serverEnabled !== true) {
+  // Shown only once the server says GIFs are on
+  if (serverEnabled !== true) {
     return null
   }
 

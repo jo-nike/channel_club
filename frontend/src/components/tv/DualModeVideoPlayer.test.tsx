@@ -226,7 +226,7 @@ vi.mock('@/hooks/useNHLScores', () => ({
 const volumeSupport = vi.hoisted(() => ({ canSet: true }))
 vi.mock('@/hooks/useCanSetVolume', () => ({ useCanSetVolume: () => volumeSupport.canSet }))
 
-// VITE_CHAT_ENABLED: off unless a test turns it on
+// Chat: off unless a test turns it on
 const chatFeature = vi.hoisted(() => ({ enabled: false }))
 vi.mock('@/hooks/useChatEnabled', () => ({ useChatEnabled: () => chatFeature.enabled }))
 

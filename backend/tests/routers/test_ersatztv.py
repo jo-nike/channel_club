@@ -55,9 +55,9 @@ def mock_channel() -> EPGChannel:
     return EPGChannel(
         id="comedy-classics",
         name="Comedy Classics",
-        stream_url="http://192.168.50.108:8409/iptv/channel/1.m3u8",
+        stream_url="http://ersatztv.test:8409/iptv/channel/1.m3u8",
         logo_url="/api/ersatztv/logos/comedy-classics",
-        original_logo_url="http://192.168.50.108:8409/logos/comedy.png",
+        original_logo_url="http://ersatztv.test:8409/logos/comedy.png",
         number=1,
         group="Movies",
     )
@@ -144,7 +144,7 @@ class TestListChannels:
         self, client: TestClient, auth_header: dict[str, str], monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """C-12: no LAN URL reaches a browser; streamUrl is the tokenless proxy path."""
-        base = "http://192.168.50.108:8409"
+        base = "http://ersatztv.test:8409"
         monkeypatch.setattr(settings, "ersatztv_base_url", base)
         channels = [
             EPGChannel(
@@ -659,7 +659,7 @@ class TestHeadSegment:
 
         with patch(
             "app.routers.ersatztv.decode_url",
-            return_value="http://192.168.50.108:8409/iptv/session/8/live000010.ts",
+            return_value="http://ersatztv.test:8409/iptv/session/8/live000010.ts",
         ):
             response = client.head(f"/api/ersatztv/segments/{encoded_url}", headers=auth_header)
 
@@ -686,7 +686,7 @@ class TestHeadSegment:
 
         with patch(
             "app.routers.ersatztv.decode_url",
-            return_value="http://192.168.50.108:8409/iptv/session/8/live000010.ts",
+            return_value="http://ersatztv.test:8409/iptv/session/8/live000010.ts",
         ):
             response = client.head(f"/api/ersatztv/segments/{encoded_url}?token={token}")
 
@@ -704,13 +704,13 @@ class TestGetSegment:
     def test_returns_segment_content(self, client: TestClient, auth_header: dict[str, str]) -> None:
         """Returns segment content from ErsatzTV."""
         segment_content = b"segment binary data"
-        # Encode: http://192.168.50.108:8409/segment.ts
+        # Encode: http://ersatztv.test:8409/segment.ts
         encoded_url = "aHR0cDovLzE5Mi4xNjguNTAuMTA4Ojg0MDkvc2VnbWVudC50cw"
 
         with (
             patch(
                 "app.routers.ersatztv.decode_url",
-                return_value="http://192.168.50.108:8409/iptv/session/8/live000010.ts",
+                return_value="http://ersatztv.test:8409/iptv/session/8/live000010.ts",
             ),
             patch("app.routers.ersatztv.ersatztv_client") as client_getter,
         ):
@@ -847,7 +847,7 @@ class TestGetSegment:
         with (
             patch(
                 "app.routers.ersatztv.decode_url",
-                return_value="http://192.168.50.108:8409/iptv/session/8/live000010.ts",
+                return_value="http://ersatztv.test:8409/iptv/session/8/live000010.ts",
             ),
             patch("app.routers.ersatztv.ersatztv_client") as client_getter,
         ):
@@ -876,13 +876,13 @@ class TestGetSegment:
         self, client: TestClient, auth_header: dict[str, str]
     ) -> None:
         """An off-host redirect hop is never fetched and the request fails."""
-        # Encodes http://192.168.50.108:8409/iptv/session/8/live000010.ts
+        # Encodes http://ersatztv.test:8409/iptv/session/8/live000010.ts
         encoded_url = "aHR0cDovLzE5Mi4xNjguNTAuMTA4Ojg0MDkvc2VnbWVudC50cw"
 
         with (
             patch(
                 "app.routers.ersatztv.decode_url",
-                return_value="http://192.168.50.108:8409/iptv/session/8/live000010.ts",
+                return_value="http://ersatztv.test:8409/iptv/session/8/live000010.ts",
             ),
             patch("app.routers.ersatztv.ersatztv_client") as client_getter,
         ):
@@ -891,7 +891,7 @@ class TestGetSegment:
             redirect_response.is_redirect = True
             redirect_response.headers = {"location": "http://169.254.169.254/latest/meta-data/"}
             redirect_response.url = httpx.URL(
-                "http://192.168.50.108:8409/iptv/session/8/live000010.ts"
+                "http://ersatztv.test:8409/iptv/session/8/live000010.ts"
             )
             redirect_response.aclose = AsyncMock()
 
@@ -921,13 +921,13 @@ class TestGetSegment:
         self, client: TestClient, auth_header: dict[str, str]
     ) -> None:
         """A Content-Length above the cap fails with 502 before streaming starts."""
-        # Encodes http://192.168.50.108:8409/iptv/session/8/live000010.ts
+        # Encodes http://ersatztv.test:8409/iptv/session/8/live000010.ts
         encoded_url = "aHR0cDovLzE5Mi4xNjguNTAuMTA4Ojg0MDkvc2VnbWVudC50cw"
 
         with (
             patch(
                 "app.routers.ersatztv.decode_url",
-                return_value="http://192.168.50.108:8409/iptv/session/8/live000010.ts",
+                return_value="http://ersatztv.test:8409/iptv/session/8/live000010.ts",
             ),
             patch("app.routers.ersatztv.ersatztv_client") as client_getter,
         ):
@@ -1021,7 +1021,7 @@ class TestGetLogo:
         channel_no_logo = EPGChannel(
             id="no-logo",
             name="No Logo Channel",
-            stream_url="http://192.168.50.108:8409/stream.m3u8",
+            stream_url="http://ersatztv.test:8409/stream.m3u8",
             logo_url=None,
             original_logo_url=None,
         )
@@ -1053,7 +1053,7 @@ class TestGetLogo:
     ) -> None:
         png = b"\x89PNG\r\n\x1a\nsynthetic-image-data"
         moved = mock_channel.model_copy(
-            update={"original_logo_url": "http://192.168.50.108:8409/logos/comedy-2.png"}
+            update={"original_logo_url": "http://ersatztv.test:8409/logos/comedy-2.png"}
         )
         with _upstream(200, png, "image/png") as requests:
             for channel in (mock_channel, moved):
@@ -1095,7 +1095,7 @@ class TestGetLogo:
         assert [r.status_code for r in responses] == [503] * 3
         lines = [line for line in output.getvalue().splitlines() if "Logo " in line]
         assert lines == [
-            "WARNING | Logo ersatztv:comedy-classics:http://192.168.50.108:8409/logos/comedy.png"
+            "WARNING | Logo ersatztv:comedy-classics:http://ersatztv.test:8409/logos/comedy.png"
             " unavailable: All connection attempts failed"
         ]
 

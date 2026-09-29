@@ -12,13 +12,8 @@ const LEVELS: Record<LogLevel, number> = {
   error: 3,
 }
 
-const getConfiguredLevel = (): LogLevel => {
-  const level = import.meta.env.VITE_LOG_LEVEL as LogLevel | undefined
-  if (level && level in LEVELS) return level
-  return import.meta.env.DEV ? 'debug' : 'warn'
-}
-
-const configuredLevel = getConfiguredLevel()
+// Everything in development; production builds leave debug out.
+const configuredLevel: LogLevel = import.meta.env.DEV ? 'debug' : 'info'
 
 const shouldLog = (level: LogLevel): boolean => {
   return LEVELS[level] >= LEVELS[configuredLevel]

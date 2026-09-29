@@ -46,13 +46,13 @@ class TestGetChannels:
     @patch("app.services.ersatztv.epg_service.parse_m3u_playlist")
     def test_get_channels_rewrites_logo_urls(self, mock_parse: MagicMock, mock_settings: MagicMock):
         """get_channels rewrites ErsatzTV logo URLs to proxy endpoint."""
-        mock_settings.ersatztv_base_url = "http://192.168.50.108:8409"
+        mock_settings.ersatztv_base_url = "http://ersatztv.test:8409"
         mock_parse.return_value = [
             EPGChannel(
                 id="ch1",
                 name="Channel 1",
                 stream_url="http://test.m3u8",
-                logo_url="http://192.168.50.108:8409/logos/ch1.png",
+                logo_url="http://ersatztv.test:8409/logos/ch1.png",
             ),
         ]
 
@@ -60,7 +60,7 @@ class TestGetChannels:
 
         result = get_channels()
         assert result[0].logo_url == "/api/ersatztv/logos/ch1"
-        assert result[0].original_logo_url == "http://192.168.50.108:8409/logos/ch1.png"
+        assert result[0].original_logo_url == "http://ersatztv.test:8409/logos/ch1.png"
 
     @patch("app.services.ersatztv.epg_service.settings")
     @patch("app.services.ersatztv.epg_service.parse_m3u_playlist")
@@ -68,7 +68,7 @@ class TestGetChannels:
         self, mock_parse: MagicMock, mock_settings: MagicMock
     ):
         """get_channels does not rewrite non-ErsatzTV logo URLs."""
-        mock_settings.ersatztv_base_url = "http://192.168.50.108:8409"
+        mock_settings.ersatztv_base_url = "http://ersatztv.test:8409"
         mock_parse.return_value = [
             EPGChannel(
                 id="ch1",

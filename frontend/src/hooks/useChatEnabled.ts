@@ -2,12 +2,11 @@ import { useSettingsStore } from '@/stores/settingsStore'
 import type { ServerFeatures } from '@/types/ws'
 
 /**
- * Chat shows when the build allows it (VITE_CHAT_ENABLED, a kill switch) and
- * the server hasn't said it is off. Before the first connection_ack, or with a
- * server that doesn't say, the build flag alone decides.
+ * Chat shows once the server's connection_ack says it is on (CHAT_ENABLED);
+ * until then it stays hidden, like the GIF button.
  */
 function chatEnabledWith(features: ServerFeatures | null): boolean {
-  return import.meta.env.VITE_CHAT_ENABLED === 'true' && features?.chat !== false
+  return features?.chat === true
 }
 
 /** Whether chat is on, re-rendering when the server's answer changes. */

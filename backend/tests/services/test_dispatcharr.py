@@ -75,17 +75,17 @@ class TestExtractUuid:
 
     def test_extract_uuid_from_standard_url(self) -> None:
         """Extract UUID from standard Dispatcharr URL."""
-        url = "http://10.8.0.2:9191/proxy/ts/stream/abc-123-def-456"
+        url = "http://dispatcharr.test:9191/proxy/ts/stream/abc-123-def-456"
         assert extract_uuid(url) == "abc-123-def-456"
 
     def test_extract_uuid_from_url_with_long_uuid(self) -> None:
         """Extract UUID from URL with full UUID format."""
-        url = "http://10.8.0.2:9191/proxy/ts/stream/550e8400-e29b-41d4-a716-446655440000"
+        url = "http://dispatcharr.test:9191/proxy/ts/stream/550e8400-e29b-41d4-a716-446655440000"
         assert extract_uuid(url) == "550e8400-e29b-41d4-a716-446655440000"
 
     def test_extract_uuid_preserves_entire_path_segment(self) -> None:
         """UUID extraction gets the last path segment regardless of format."""
-        url = "http://10.8.0.2:9191/proxy/ts/stream/my-stream-id"
+        url = "http://dispatcharr.test:9191/proxy/ts/stream/my-stream-id"
         assert extract_uuid(url) == "my-stream-id"
 
 
@@ -158,6 +158,18 @@ class TestBuildGroupedChannels:
         )
 
         assert self._guide_ids(response) == {"TSN 5": "28", "CBC": "7", "TVA": "5.1"}
+
+    @pytest.mark.asyncio
+    async def test_stream_url_is_on_the_dispatcharr_url(self, monkeypatch) -> None:
+        """Browsers play the stream from DISPATCHARR_URL, the one Dispatcharr address."""
+        monkeypatch.setattr(dispatcharr.settings, "dispatcharr_url", "https://streams.example.com")
+        response = await self._build(
+            [{"id": 101, "name": "TSN", "channel_group_id": None, "uuid": "uuid-1"}]
+        )
+
+        assert response.ungrouped[0].stream_url == (
+            "https://streams.example.com/proxy/ts/stream/uuid-1"
+        )
 
     @pytest.mark.asyncio
     async def test_renumbering_expires_the_guide(self) -> None:

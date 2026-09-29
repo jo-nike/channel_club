@@ -21,7 +21,6 @@ def budgets(monkeypatch):
     monkeypatch.setattr(settings, "media_process_limit", 3)
     monkeypatch.setattr(settings, "media_process_per_user", 2)
     monkeypatch.setattr(settings, "media_recorder_limit", 2)
-    monkeypatch.setattr(settings, "media_recorder_per_user", 2)
     monkeypatch.setattr(settings, "media_export_limit", 2)
     monkeypatch.setattr(settings, "media_export_per_user", 1)
     yield
