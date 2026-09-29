@@ -14,10 +14,15 @@ interface SettingsState {
   // Members may see what everyone is watching; off (names only) until an admin turns it on
   presenceVisible: boolean
   setPresenceVisible: (visible: boolean) => void
-  // Which of chat and GIFs the server has on (connection_ack); null until the
-  // first ack, or from a server that doesn't say
+  // Which of chat and GIFs the server has on (connection_ack, features_update);
+  // null until the first ack, or from a server that doesn't say
   serverFeatures: ServerFeatures | null
   setServerFeatures: (features: ServerFeatures | null) => void
+  // Counts the times the server's optional features may have changed: a
+  // features_update, or a reconnect that could have missed one. The hooks that
+  // fetch a feature's switch (clips, casting, feedback) fetch it again.
+  featuresRevision: number
+  noteFeaturesChanged: () => void
 }
 
 export const useSettingsStore = create<SettingsState>((set) => ({
@@ -36,4 +41,6 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     logger.debug('Store', 'Server features', serverFeatures)
     set({ serverFeatures })
   },
+  featuresRevision: 0,
+  noteFeaturesChanged: () => set((state) => ({ featuresRevision: state.featuresRevision + 1 })),
 }))

@@ -8,7 +8,8 @@ import {
   getCastBaseUrl,
 } from '@/services/api'
 import { logger } from '@/lib/logger'
-import { useCastStore, type CastState } from '@/stores/castStore'
+import { INITIAL_CAST_STATE, useCastStore, type CastState } from '@/stores/castStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 
 /**
  * Chromecast state, as the cast store holds it
@@ -68,9 +69,16 @@ async function releaseSession(id: string | null) {
 // The SDK is initialised once for every mounted consumer: the first one to
 // mount starts it, the last one to unmount detaches its listeners. Each start
 // gets a new token, so an initialisation still waiting on the feature check or
-// the SDK script gives up once its consumers have gone.
+// the SDK script gives up once its consumers have gone. While any consumer is
+// mounted, the page follows the server's cast switch (recheckCast).
 let consumers = 0
 let initToken = 0
+// The server's cast switch as last checked; null before the first answer
+let castFeatureOn: boolean | null = null
+// Each recheck after a features change counts; only the latest one acts
+let featureCheck = 0
+// Stops following the settings store's features changes
+let stopFollowing: (() => void) | null = null
 let listeningContext: cast.framework.CastContext | null = null
 let remotePlayer: cast.framework.RemotePlayer | null = null
 let remoteController: cast.framework.RemotePlayerController | null = null
@@ -85,11 +93,56 @@ const reportError = (message: string) => useCastStore.getState().reportError(mes
 /** Start using the Cast SDK; returns the release. */
 function acquireCast(): () => void {
   consumers += 1
-  if (consumers === 1) initializeCast(++initToken)
+  if (consumers === 1) {
+    initializeCast(++initToken)
+    // An admin can switch casting on or off while the page is open
+    stopFollowing = useSettingsStore.subscribe((state, previous) => {
+      if (state.featuresRevision !== previous.featuresRevision) void recheckCast()
+    })
+  }
   return () => {
     consumers -= 1
-    if (consumers === 0) teardownCast()
+    if (consumers === 0) {
+      stopFollowing?.()
+      stopFollowing = null
+      teardownCast()
+    }
   }
+}
+
+/**
+ * The server's features may have changed (features_update, or a reconnect):
+ * follow its cast switch when that changed. Switched on, the SDK is set up as
+ * on load; switched off, the server has stopped every cast, so this page ends
+ * its own session and hides casting.
+ */
+async function recheckCast() {
+  const check = ++featureCheck
+  let enabled: boolean
+  try {
+    enabled = await getCastFeatureEnabled()
+  } catch (err) {
+    // Casting stays as it is; the next change or a reload checks again
+    logger.error('Cast', 'Failed to check cast feature', { error: err })
+    return
+  }
+  if (check !== featureCheck || consumers === 0 || enabled === castFeatureOn) return
+  logger.info('Cast', `Server cast feature switched ${enabled ? 'on' : 'off'}`)
+  if (enabled) initializeCast(++initToken)
+  else switchCastOff()
+}
+
+/** Casting was switched off on the server, which stopped every cast: end this page's too. */
+function switchCastOff() {
+  const context = listeningContext
+  teardownCast()
+  castFeatureOn = false
+  castGeneration += 1
+  castStopped = true
+  void releaseSession(currentSessionId)
+  // Stops the receiver app too, so no session is left that the hidden button could end
+  context?.endCurrentSession(true)
+  setCastState({ ...INITIAL_CAST_STATE, isLoading: false })
 }
 
 function teardownCast() {
@@ -156,6 +209,7 @@ async function initializeCast(token: number) {
   }
 
   logger.info('Cast', `Server cast feature enabled: ${featureEnabled}`)
+  if (isCurrent()) castFeatureOn = featureEnabled
 
   if (!featureEnabled) {
     logger.debug('Cast', 'Cast feature disabled on server')

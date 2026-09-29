@@ -72,6 +72,14 @@ export interface SettingsUpdateMessage {
   settings: AppSettings
 }
 
+// An optional feature switched on or off: chat and GIFs come as in
+// connection_ack; clips, casting and feedback are read again from their
+// /feature endpoints
+export interface FeaturesUpdateMessage {
+  type: 'features_update'
+  features: ServerFeatures
+}
+
 export interface PresenceUpdateMessage {
   type: 'presence_update'
   presence: PresenceEntry[]
@@ -97,6 +105,7 @@ export type ServerMessage =
   | ChatAckMessage
   | ChannelUpdateMessage
   | SettingsUpdateMessage
+  | FeaturesUpdateMessage
   | PresenceUpdateMessage
   | PongMessage
   | ErrorMessage

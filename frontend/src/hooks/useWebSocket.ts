@@ -99,6 +99,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   const setUserChannelSelection = useSettingsStore((s) => s.setUserChannelSelection)
   const setPresenceVisible = useSettingsStore((s) => s.setPresenceVisible)
   const setServerFeatures = useSettingsStore((s) => s.setServerFeatures)
+  const noteFeaturesChanged = useSettingsStore((s) => s.noteFeaturesChanged)
   const setPresence = usePresenceStore((s) => s.setEntries)
   const clearPresence = usePresenceStore((s) => s.clear)
 
@@ -123,6 +124,8 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   const refreshedSinceAckRef = useRef(false)
   // The server announced a restart (1012); reconnects show that until the next connection_ack
   const restartingRef = useRef(false)
+  // A connection_ack arrived before: the next one is a reconnect's
+  const ackedRef = useRef(false)
   const notificationsEnabledRef = useRef(notificationsEnabled)
 
   // Keep notificationsEnabledRef in sync with state to avoid stale closure
@@ -170,6 +173,10 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           // Which of chat and GIFs the server has on; an older server doesn't say.
           // Read by isChatEnabled() at use, so the chat_history right behind this sees it
           setServerFeatures(message.features ?? null)
+          // A reconnect may have missed a features_update, so clips, casting and
+          // feedback are checked again (on the first connection they just were)
+          if (ackedRef.current) noteFeaturesChanged()
+          ackedRef.current = true
           if (typeof message.you?.username === 'string') {
             // Loads this user's own nickname, replacing whoever chatted here before
             setChatIdentity(message.you)
@@ -199,6 +206,12 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
             setUserChannelSelection(message.settings.userChannelSelection)
             setPresenceVisible(message.settings.presenceVisible ?? false)
           }
+          break
+
+        case 'features_update':
+          logger.debug('WebSocket', 'Received features_update', message)
+          setServerFeatures(message.features)
+          noteFeaturesChanged()
           break
 
         case 'channel_update': {
@@ -265,7 +278,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         }
       }
     },
-    [setCurrentChannel, setLastChange, addChatMessage, setChatMessages, setChatIdentity, rejectChatNickname, setUserChannelSelection, setPresenceVisible, setServerFeatures, setPresence]
+    [setCurrentChannel, setLastChange, addChatMessage, setChatMessages, setChatIdentity, rejectChatNickname, setUserChannelSelection, setPresenceVisible, setServerFeatures, noteFeaturesChanged, setPresence]
   )
 
   const scheduleReconnect = useCallback(() => {

@@ -1,13 +1,16 @@
 import { useState, useEffect } from 'react'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { getHighlightFeatureEnabled } from '@/services/api'
 
 /**
  * Hook to check if the highlight capture feature is enabled on the server.
- * Fetches the feature flag once on mount.
+ * Fetches the feature flag on mount, and again whenever the server's features
+ * may have changed (features_update, or a reconnect).
  */
 export function useHighlightFeature() {
   const [isEnabled, setIsEnabled] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const revision = useSettingsStore((s) => s.featuresRevision)
 
   useEffect(() => {
     let mounted = true
@@ -35,7 +38,7 @@ export function useHighlightFeature() {
     return () => {
       mounted = false
     }
-  }, [])
+  }, [revision])
 
   return { isEnabled, isLoading }
 }
