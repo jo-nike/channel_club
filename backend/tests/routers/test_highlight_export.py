@@ -294,7 +294,7 @@ async def test_a_failed_export_removes_its_workspace(tmp_path, register, monkeyp
 async def test_a_viewer_who_leaves_while_queued_never_takes_a_slot(
     tmp_path, register, monkeypatch, route
 ):
-    from unittest.mock import AsyncMock
+    from unittest.mock import AsyncMock, MagicMock
 
     from app.routers.highlight import create_capture
 
@@ -305,6 +305,7 @@ async def test_a_viewer_who_leaves_while_queued_never_takes_a_slot(
     capture = register(snapshot)
     recorder = AsyncMock()
     recorder.is_running = True
+    recorder._newest_listed_segment_stamp = MagicMock(return_value=None)
     monkeypatch.setitem(highlight_service._recorders, "channel-1", recorder)
     export_budget.acquire("alice")
     export_budget.acquire("bob")
