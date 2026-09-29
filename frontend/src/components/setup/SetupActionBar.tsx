@@ -6,6 +6,8 @@ import type { Busy } from './wizardReducer'
 const BUSY_LABEL: Partial<Record<NonNullable<Busy>, string>> = {
   claim: 'Creating your account…',
   save: 'Saving…',
+  // Linking the Plex server picked is the first part of saving Who can join
+  link: 'Saving…',
   complete: 'Opening…',
 }
 

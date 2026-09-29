@@ -209,11 +209,17 @@ describe('the server settings', () => {
     expect(state.errors).toEqual({})
   })
 
-  it('take a newly linked Plex server and clear the link error', () => {
-    const linking = run(loaded(), { type: 'failed', errors: { plexLink: 'Sign in with Plex.' } }, { type: 'busy', busy: 'link' })
+  it('take a newly linked Plex server, clear the link error and forget the Plex sign-in', () => {
+    const linking = run(
+      loaded(),
+      { type: 'plexSignedIn', token: 'tok-1', account: { username: 'jon' }, servers: SERVERS },
+      { type: 'failed', errors: { plexLink: 'Sign in with Plex.' } },
+      { type: 'busy', busy: 'link' }
+    )
     const linked = run(linking, { type: 'linked', view: configView({ plexServerMachineId: 'home' }) })
     expect(linked).toMatchObject({ busy: null, errors: {} })
     expect(linked.settings?.view.values.plexServerMachineId).toBe('home')
+    expect(linked.plex).toEqual({ token: null, account: null, servers: [], machineId: null })
   })
 })
 

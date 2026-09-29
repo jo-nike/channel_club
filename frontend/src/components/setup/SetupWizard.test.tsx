@@ -15,6 +15,7 @@ vi.mock('@/services/setupApi', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/services/setupApi')>()),
   claimSetup: vi.fn(),
   getAdminConfig: vi.fn(),
+  getPlexMembers: vi.fn(),
   listPlexServers: vi.fn(),
 }))
 
@@ -249,11 +250,19 @@ describe('SetupWizard: a password account', () => {
 })
 
 describe('SetupWizard: a Plex account', () => {
-  it('claims the club with the server picked', async () => {
+  it('claims the club with the server picked, as its admin', async () => {
     vi.mocked(setupApi.claimSetup).mockResolvedValue(session({ sub: 'jon', role: 'admin', plex_id: '101' }))
+    // Linked at the claim; a source too, so Channels has nothing to ask
     vi.mocked(setupApi.getAdminConfig).mockResolvedValue(
-      configView({ plexAuthEnabled: true, plexServerMachineId: 'cabin' }, { plexServerName: 'Cabin NAS' })
+      configView(
+        { plexAuthEnabled: true, plexServerMachineId: 'cabin', plexAdminIds: ['101'], dispatcharrUrl: 'https://tv.example.com', dispatcharrApiKey: { set: true } },
+        { plexServerName: 'Cabin NAS' }
+      )
     )
+    vi.mocked(setupApi.getPlexMembers).mockResolvedValue([
+      { plexId: '101', username: 'jon', managed: false, owner: true, admin: true },
+      { plexId: '202', username: 'sam', managed: false, owner: false, admin: false },
+    ])
     renderWizard()
     await openAccount()
     expect(screen.getByRole('radio', { name: /Plex account/ })).toBeChecked()
@@ -274,6 +283,11 @@ describe('SetupWizard: a Plex account', () => {
     await waitFor(() =>
       expect(within(rail()).getByRole('button', { name: 'Your account, done' })).toHaveAccessibleDescription('Plex · Cabin NAS')
     )
+
+    // Among the server's members, the admin is marked as the one at the screen
+    fireEvent.click(continueButton())
+    expect(await screen.findByRole('heading', { level: 1, name: 'Who can join?' })).toBeInTheDocument()
+    expect(await screen.findByText('You · server owner')).toBeInTheDocument()
   })
 
   it('stays signed out when the sign-in is cancelled while the servers load', async () => {
@@ -468,7 +482,7 @@ describe('SetupWizard: a claimed club', () => {
 
     await act(async () => loads.at(-1)?.(configView()))
 
-    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.queryByText("Loading the server's settings…")).not.toBeInTheDocument()
     fireEvent.click(within(rail()).getByRole('button', { name: 'Channels, done' }))
     expect(await screen.findByRole('heading', { level: 1, name: 'Where do your channels come from?' })).toHaveFocus()
     expect(JSON.parse(localStorage.getItem('channel-club:setup-progress')!)).toEqual({ step: 'sources', reached: 4 })
@@ -492,7 +506,7 @@ describe('SetupWizard: a claimed club', () => {
 
     await act(async () => retry.settle(configView()))
 
-    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.queryByText("Loading the server's settings…")).not.toBeInTheDocument()
   })
 
   it.each([

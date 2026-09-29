@@ -271,7 +271,14 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
       return { ...state, settings: afterSave(state.settings, action.patch, action.view), busy: null }
     case 'linked':
       if (!state.settings) return state
-      return { ...state, settings: { ...state.settings, view: action.view }, busy: null, errors: without(state.errors, 'plexLink') }
+      // The Plex sign-in has done its job: the server keeps its own token now
+      return {
+        ...state,
+        settings: { ...state.settings, view: action.view },
+        plex: EMPTY_PLEX,
+        busy: null,
+        errors: without(state.errors, 'plexLink'),
+      }
     case 'members':
       return { ...state, members: action.members }
     case 'testStarted':

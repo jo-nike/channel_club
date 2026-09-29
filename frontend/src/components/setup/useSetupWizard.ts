@@ -1,14 +1,33 @@
-import { useEffect, useEffectEvent, useReducer, useState } from 'react'
+import { useEffect, useEffectEvent, useReducer, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { decodeTokenPayload, getTokenSubject } from '@/lib/jwt'
 import { scrollBehavior } from '@/lib/motion'
 import { hasPendingPlexPin } from '@/services/plexAuth'
-import { claimSetup, getAdminConfig, listPlexServers, SetupApiError } from '@/services/setupApi'
+import {
+  claimSetup,
+  getAdminConfig,
+  getPlexMembers,
+  linkPlexServer,
+  listPlexServers,
+  SetupApiError,
+  testConnection,
+  updateAdminConfig,
+} from '@/services/setupApi'
 import { useAuthStore } from '@/stores/authStore'
-import type { EnvLock, PlexServersResponse, SetupAccountRequest } from '@/types/setup'
-import { newPasswordError, usernameError } from '@/components/server-settings/model/validation'
+import type { ConfigView, ConfigWarning, EnvLock, PlexServersResponse, SetupAccountRequest, TestKind } from '@/types/setup'
+import {
+  fieldValue,
+  sectionPatch,
+  type DraftValueOf,
+  type SettingsState,
+  type SourceKind,
+} from '@/components/server-settings/model/configDraft'
+import { SECTION_FIELDS, type EditableField, type SectionId } from '@/components/server-settings/model/fields'
+import { testFingerprint, testInputError, testValues } from '@/components/server-settings/model/testResults'
+import { firstError, newPasswordError, usernameError, validateSection } from '@/components/server-settings/model/validation'
+import { errorTargetId } from '@/components/server-settings/sections/types'
 import { clearProgress, clearStash, loadProgress, loadStash, saveProgress, stashForRedirect } from './progressStorage'
 import { stepIndex, STEPS, type StepId } from './steps'
 import {
@@ -22,6 +41,9 @@ import {
   type WizardErrorKey,
   type WizardState,
 } from './wizardReducer'
+
+/** Every setting's control in the wizard is `setup-${field}`. */
+export const ID_PREFIX = 'setup'
 
 /** The claim form's controls that an error moves focus to. */
 export const ACCOUNT_CONTROL = {
@@ -42,6 +64,29 @@ const PLEX_CALL_COPY: Partial<Record<string, string>> = {
   busy: 'Setup is busy talking to Plex. Try again in a moment.',
 }
 
+const NOT_OWNER = "That Plex server isn't one of yours. Pick one you own."
+
+/** Saving's refusals of the whole step. */
+const SAVE_COPY: Partial<Record<string, string>> = {
+  locked: "Part of this is now set by the server's environment. Reload the page to see what changed.",
+  self_lockout: "That would switch off the sign-in you're using, so it wasn't saved.",
+  no_storage: 'This server has nowhere to keep settings. Give it a /data volume, restart it, then try again.',
+  write_failed: "The server couldn't save the settings. Check that its data folder can be written to, then try again.",
+}
+
+/** Saving's refusals of one setting, as the form's own checks word them. */
+const FIELD_COPY: Partial<Record<string, string>> = {
+  secret_required: 'Enter it again for the new address.',
+  username_taken: 'Use a different name from the admin login.',
+  segment_too_long: 'Keep segments no longer than the seconds kept for clipping.',
+}
+
+/** Something saved that won't work yet. */
+const WARNING_COPY: Partial<Record<string, string>> = {
+  zipline_unavailable: 'Saved. Zipline uploads start once clips are on and Zipline has an address and a token.',
+  feedback_unavailable: 'Saved. Feedback sends nothing until it has an ntfy address and topic.',
+}
+
 /** Why listing the Plex servers failed, for the form. */
 export function plexErrorMessage(err: unknown): string {
   if (err instanceof SetupApiError) return (err.code !== undefined ? PLEX_CALL_COPY[err.code] : undefined) ?? err.message
@@ -51,6 +96,47 @@ export function plexErrorMessage(err: unknown): string {
 export interface Failure {
   errors?: Partial<Record<WizardErrorKey, string>>
   formError?: FormError
+}
+
+/** What a failed save shows: each refused setting's error on it, or a problem with the step. */
+export function saveFailure(err: unknown, section: SectionId): Failure {
+  if (!(err instanceof SetupApiError)) {
+    return { formError: { message: err instanceof Error ? err.message : "Couldn't save the settings." } }
+  }
+  const refusal = err.code !== undefined ? SAVE_COPY[err.code] : undefined
+  if (refusal) return { formError: { message: refusal } }
+
+  const fields: readonly string[] = SECTION_FIELDS[section]
+  const errors: Partial<Record<WizardErrorKey, string>> = {}
+  for (const [field, message] of Object.entries(err.fieldErrors)) {
+    if (message === undefined) continue
+    if (err.code === 'plex_not_linked') errors.plexLink = 'Sign in with Plex to choose the server, or switch Plex members off.'
+    else if (fields.includes(field)) errors[field as EditableField] = (err.code !== undefined ? FIELD_COPY[err.code] : undefined) ?? message
+  }
+  return Object.keys(errors).length > 0 ? { errors } : { formError: { message: err.message } }
+}
+
+/** What a failed Plex server link shows. */
+export function linkFailure(err: unknown): Failure {
+  if (!(err instanceof SetupApiError)) {
+    return { formError: { message: err instanceof Error ? err.message : "Couldn't link that Plex server." } }
+  }
+  switch (err.code) {
+    case 'plex_token':
+      return { errors: { plexLink: plexErrorMessage(err) } }
+    case 'not_owner':
+      return { errors: { plexLink: NOT_OWNER } }
+    case 'plex_unavailable':
+    case 'busy':
+      return { formError: { message: plexErrorMessage(err) } }
+  }
+  return { formError: { message: (err.code !== undefined ? SAVE_COPY[err.code] : undefined) ?? err.message } }
+}
+
+/** Why a test couldn't run, under its button. */
+function testErrorMessage(err: unknown): string {
+  if (err instanceof SetupApiError && err.code === 'busy') return 'Wait a few seconds before testing again.'
+  return err instanceof Error ? err.message : "Couldn't run the test."
 }
 
 /** What the password form would get wrong, in the order it shows the fields. */
@@ -80,7 +166,7 @@ export function claimFailure(err: unknown, account: AccountDraft): Failure {
     case 'busy':
       return { formError: { message: plexErrorMessage(err) } }
     case 'not_owner':
-      return { errors: { plex: "That Plex server isn't one of yours. Pick one you own." } }
+      return { errors: { plex: NOT_OWNER } }
     case 'write_failed':
       return { formError: { message: "The server couldn't save your account. Check that its data folder can be written to, then try again." } }
   }
@@ -115,14 +201,24 @@ function openingState(props: WizardProps): WizardState {
 const SESSION_ENDED = 'Sign in again to finish setting up.'
 const NOT_AN_ADMIN = 'Only an admin can set up Channel Club.'
 
+type SettingsStepId = Extract<StepId, SectionId>
+
+/** Whether Continue has a Plex server to link first: Plex members on, none linked, one picked. */
+function linkPending(settings: SettingsState, plex: WizardState['plex']): boolean {
+  return fieldValue(settings, 'plexAuthEnabled') && !settings.view.values.plexServerMachineId && plex.token !== null && plex.machineId !== null
+}
+
 /**
  * The setup wizard's state and what it does: moving between steps, claiming
- * the club, and loading the server's settings once it is claimed.
+ * the club, loading the server's settings once it is claimed, testing
+ * connections and saving each step.
  */
 export function useSetupWizard(props: WizardProps) {
   const [state, dispatch] = useReducer(wizardReducer, props, openingState)
   const [configError, setConfigError] = useState<string | null>(null)
   const [configAttempt, setConfigAttempt] = useState(0)
+  // The test running for each kind; a new one of a kind stops the last
+  const testsRunning = useRef<Partial<Record<TestKind, AbortController>>>({})
   const setAuth = useAuthStore((s) => s.setAuth)
   const navigate = useNavigate()
 
@@ -140,9 +236,14 @@ export function useSetupWizard(props: WizardProps) {
     toast.error(message)
   }
 
-  /** Handle a 401 or 403 from an admin call: this session can't finish setup. */
+  /**
+   * Handle a 401, or a 403 refusing the admin, from an admin call: this
+   * session can't finish setup. A 403 with a code refuses what was asked
+   * (a Plex server that isn't yours), not who asked.
+   */
   const sessionEnded = (err: unknown): boolean => {
-    if (!(err instanceof SetupApiError) || (err.status !== 401 && err.status !== 403)) return false
+    if (!(err instanceof SetupApiError)) return false
+    if (err.status !== 401 && (err.status !== 403 || err.code !== undefined)) return false
     void leave(err.status === 401 ? SESSION_ENDED : NOT_AN_ADMIN)
     return true
   }
@@ -162,6 +263,31 @@ export function useSetupWizard(props: WizardProps) {
       })
     return () => controller.abort()
   }, [needsConfig, configAttempt])
+
+  const onMembersFailed = useEffectEvent((err: unknown) => {
+    if (!sessionEnded(err)) dispatch({ type: 'members', members: 'failed' })
+  })
+
+  // The linked server's members, to tick admins among
+  const linkedServer = state.settings?.view.values.plexServerMachineId ?? null
+  useEffect(() => {
+    if (!linkedServer) return
+    const controller = new AbortController()
+    getPlexMembers(controller.signal)
+      .then((members) => dispatch({ type: 'members', members }))
+      .catch((err: unknown) => {
+        if (!controller.signal.aborted) onMembersFailed(err)
+      })
+    return () => controller.abort()
+  }, [linkedServer])
+
+  // Tests still running when the wizard closes have nobody to tell
+  useEffect(() => {
+    const running = testsRunning.current
+    return () => {
+      for (const controller of Object.values(running)) controller.abort()
+    }
+  }, [])
 
   /**
    * Show what's wrong. Focus moves to `focusId` once its error shows, so the
@@ -218,13 +344,105 @@ export function useSetupWizard(props: WizardProps) {
     }
   }
 
+  const showWarnings = (warnings: readonly ConfigWarning[]) => {
+    for (const warning of warnings) toast.warning(WARNING_COPY[warning.code] ?? warning.message)
+  }
+
+  /** Check a section, then save what changed; true once it is saved or had nothing to save. */
+  const saveSection = async (settings: SettingsState, section: SectionId): Promise<boolean> => {
+    const errors = validateSection(settings, section)
+    const first = firstError(section, errors)
+    if (first) {
+      fail({ errors }, errorTargetId(ID_PREFIX, first))
+      return false
+    }
+    const patch = sectionPatch(settings, section)
+    if (!patch) return true
+    dispatch({ type: 'busy', busy: 'save' })
+    try {
+      const update = await updateAdminConfig(patch)
+      dispatch({ type: 'saved', patch, view: update.config })
+      showWarnings(update.warnings)
+      return true
+    } catch (err) {
+      if (!sessionEnded(err)) {
+        const failure = saveFailure(err, section)
+        const field = failure.errors ? firstError(section, failure.errors) : null
+        fail(failure, field ? errorTargetId(ID_PREFIX, field) : undefined)
+      }
+      return false
+    }
+  }
+
+  /** Link the Plex server picked; the settings with it linked, or null when that failed. */
+  const linkServer = async (): Promise<ConfigView | null> => {
+    const { token, machineId } = state.plex
+    if (!token || !machineId) return null
+    dispatch({ type: 'busy', busy: 'link' })
+    try {
+      const update = await linkPlexServer({ authToken: token, machineId })
+      dispatch({ type: 'linked', view: update.config })
+      showWarnings(update.warnings)
+      return update.config
+    } catch (err) {
+      if (!sessionEnded(err)) {
+        if (err instanceof SetupApiError && err.code === 'plex_token') dispatch({ type: 'plexSignedOut' })
+        fail(linkFailure(err), errorTargetId(ID_PREFIX, 'plexLink'))
+      }
+      return null
+    }
+  }
+
+  /** Save a step's settings, linking a Plex server picked on Who can join first. */
+  const saveStep = async (step: SettingsStepId): Promise<boolean> => {
+    let settings = state.settings
+    if (!settings) return false
+    if (step === 'access' && linkPending(settings, state.plex)) {
+      const view = await linkServer()
+      if (!view) return false
+      settings = { ...settings, view }
+    }
+    return saveSection(settings, step)
+  }
+
   /** Continue: each step checks and keeps what it needs before the next opens. */
   const submit = async () => {
     if (state.busy) return
-    if (state.step === 'welcome' || (state.step === 'account' && state.setupState === 'claimed')) {
+    const { step } = state
+    if (step === 'welcome' || (step === 'account' && state.setupState === 'claimed')) {
       dispatch({ type: 'advance' })
-    } else if (state.step === 'account') {
+    } else if (step === 'account') {
       await claim()
+    } else if (step !== 'review' && (await saveStep(step))) {
+      dispatch({ type: 'advance' })
+    }
+  }
+
+  /** Test a connection with the values shown: first the inputs it needs, then the server's verdict. */
+  const runTest = async (kind: TestKind) => {
+    const settings = state.settings
+    if (!settings) return
+    const missing = testInputError(settings, kind)
+    if (missing) return fail({ errors: { [missing.field]: missing.message } }, errorTargetId(ID_PREFIX, missing.field))
+
+    const fingerprint = testFingerprint(settings, kind)
+    testsRunning.current[kind]?.abort()
+    const controller = new AbortController()
+    testsRunning.current[kind] = controller
+    dispatch({ type: 'testStarted', kind, fingerprint })
+    try {
+      const result = await testConnection(kind, testValues(settings, kind), controller.signal)
+      dispatch({ type: 'testFinished', kind, fingerprint, result })
+    } catch (err) {
+      // A test stopped for a newer one reports for inputs no longer shown, which the reducer drops
+      if (sessionEnded(err)) return
+      // A saved secret isn't sent to a new address: it goes on its field
+      const secret = err instanceof SetupApiError && err.code === 'secret_required' ? Object.keys(err.fieldErrors)[0] : undefined
+      if (secret) {
+        dispatch({ type: 'testFinished', kind, fingerprint })
+        return fail({ errors: { [secret]: FIELD_COPY.secret_required } }, errorTargetId(ID_PREFIX, secret as EditableField))
+      }
+      dispatch({ type: 'testFinished', kind, fingerprint, error: testErrorMessage(err) })
     }
   }
 
@@ -268,6 +486,10 @@ export function useSetupWizard(props: WizardProps) {
     },
     setMethod: (method: AccountMethod) => dispatch({ type: 'setMethod', method }),
     setAccount: (field: AccountField, value: string) => dispatch({ type: 'setAccount', field, value }),
+    setField: <K extends EditableField>(field: K, value: DraftValueOf<K>) =>
+      dispatch({ type: 'setField', field, value: value as DraftValueOf<EditableField> }),
+    setSource: (kind: SourceKind, on: boolean) => dispatch({ type: 'setSource', kind, on }),
+    runTest,
     plexSignIn,
     plexSignedOut: () => dispatch({ type: 'plexSignedOut' }),
     pickServer: (machineId: string) => dispatch({ type: 'pickServer', machineId }),

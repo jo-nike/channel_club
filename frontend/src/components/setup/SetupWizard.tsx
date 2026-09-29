@@ -4,8 +4,11 @@ import { SetupActionBar } from './SetupActionBar'
 import { SetupProgressHeader } from './SetupProgressHeader'
 import { SetupRail } from './SetupRail'
 import { HEADING_ID } from './StepHeader'
+import { AccessStep } from './steps/AccessStep'
 import { AccountStep } from './steps/AccountStep'
+import { ExtrasStep } from './steps/ExtrasStep'
 import { SettingsStep } from './steps/SettingsStep'
+import { SourcesStep } from './steps/SourcesStep'
 import { WelcomeStep } from './steps/WelcomeStep'
 import { useSetupWizard, type SetupWizardApi, type WizardProps } from './useSetupWizard'
 
@@ -16,6 +19,12 @@ function StepContent({ wizard, headingRef }: { wizard: SetupWizardApi; headingRe
       return <WelcomeStep envLocked={state.envLocked} headingRef={headingRef} />
     case 'account':
       return <AccountStep wizard={wizard} headingRef={headingRef} />
+    case 'sources':
+      return <SourcesStep wizard={wizard} headingRef={headingRef} />
+    case 'access':
+      return <AccessStep wizard={wizard} headingRef={headingRef} />
+    case 'extras':
+      return <ExtrasStep wizard={wizard} headingRef={headingRef} />
     default:
       return <SettingsStep step={state.step} wizard={wizard} headingRef={headingRef} />
   }
