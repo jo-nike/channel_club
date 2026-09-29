@@ -413,6 +413,63 @@ class TestPreviewTokens:
         assert store.redeem_preview_token(kept) is None
 
 
+class TestCaptureExpiry:
+    """A capture past its TTL is gone at read time, even before the sweep removes it."""
+
+    @pytest.fixture
+    def clock(self, monkeypatch) -> list[float]:
+        now = [1000.0]
+        monkeypatch.setattr("app.services.highlight.monotonic", lambda: now[0])
+        return now
+
+    @staticmethod
+    def held(tmp_path, clock: list[float]):
+        from app.services.highlight import Capture, CaptureStore
+
+        store = CaptureStore()
+        path = tmp_path / "synthetic-capture-0001" / "snapshot.mp4"
+        path.parent.mkdir()
+        path.write_bytes(b"capture")
+        now = time.time()
+        capture = Capture(
+            "synthetic-capture-0001", "viewer", "channel-1", path, 7, 1.0, now, now, now, clock[0]
+        )
+        store.captures[capture.id] = capture
+        return store, capture
+
+    def test_an_unswept_expired_capture_is_not_returned(self, tmp_path, clock) -> None:
+        from app.services.highlight import CAPTURE_TTL_SECONDS
+
+        store, capture = self.held(tmp_path, clock)
+        clock[0] += CAPTURE_TTL_SECONDS - 1
+        assert store.get(capture.id, "viewer") is capture
+        clock[0] += 1
+        assert capture.id in store.captures
+        assert store.get(capture.id, "viewer") is None
+
+    def test_a_live_download_token_cannot_redeem_an_expired_capture(self, tmp_path, clock) -> None:
+        from app.services.highlight import CAPTURE_TTL_SECONDS, DOWNLOAD_TOKEN_TTL_SECONDS
+
+        store, capture = self.held(tmp_path, clock)
+        clock[0] += CAPTURE_TTL_SECONDS - 5
+        token = store.issue_download_token(capture.id, "viewer")
+        assert token is not None
+        clock[0] += 10
+        assert store.download_tokens[token].expires_at > clock[0]
+        assert DOWNLOAD_TOKEN_TTL_SECONDS > 10
+        assert store.redeem_download_token(token) is None
+
+    def test_a_preview_grant_cannot_serve_an_expired_capture(self, tmp_path, clock) -> None:
+        from app.services.highlight import CAPTURE_TTL_SECONDS
+
+        store, capture = self.held(tmp_path, clock)
+        token = store.issue_preview_token(capture.id, "viewer")
+        assert token is not None and store.redeem_preview_token(token) is capture
+        clock[0] += CAPTURE_TTL_SECONDS
+        assert token in store.preview_tokens
+        assert store.redeem_preview_token(token) is None
+
+
 class TestStartupCleanup:
     """Startup removes what a previous run left under the recording root."""
 
