@@ -3,7 +3,6 @@
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 
-import httpx
 from defusedxml import DefusedXmlException, ElementTree
 from loguru import logger
 
@@ -12,7 +11,7 @@ from app.models.channel import Channel
 from app.models.epg import EPGProgrammesResponse, EPGResponse, Program
 from app.services.bounded_http import FEED_BYTES, read_bounded
 from app.services.cached_fetch import register_closable
-from app.services.tls import SSL_CONTEXT
+from app.services.http_clients import dispatcharr_client
 from app.services.xmltv_cache import (
     GuideIndex,
     XmltvCache,
@@ -151,10 +150,7 @@ class EPGService(XmltvCache[Program]):
         """Download Dispatcharr's XMLTV feed."""
         url = f"{self.dispatcharr_url}/output/epg"
         log.debug("Fetching EPG data from {}", url)
-        async with (
-            httpx.AsyncClient(timeout=30.0, verify=SSL_CONTEXT) as client,
-            client.stream("GET", url) as response,
-        ):
+        async with dispatcharr_client().stream("GET", url, timeout=30.0) as response:
             response.raise_for_status()
             # A byte budget and a body deadline, so a huge or slow-drip feed
             # can neither exhaust memory nor hold the refresh lock

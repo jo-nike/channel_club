@@ -22,13 +22,13 @@ class FailedSegment(httpx.AsyncByteStream):
 
 
 @pytest.mark.asyncio
-async def test_partial_upstream_raises_and_closes_both_resources():
+async def test_partial_upstream_raises_and_closes_the_response_not_the_client():
     stream = FailedSegment()
     url = "http://192.168.50.108:8409/iptv/session/8/partial.ts"
     response = httpx.Response(200, stream=stream, request=httpx.Request("GET", url))
     client = AsyncMock()
     with (
-        patch("app.routers.ersatztv.httpx.AsyncClient", return_value=client),
+        patch("app.routers.ersatztv.ersatztv_client", return_value=client),
         patch("app.routers.ersatztv.fetch_ersatztv", return_value=response),
     ):
         downstream = await get_segment(HLSManifestRewriter()._encode_url(url), user=object())
@@ -38,7 +38,8 @@ async def test_partial_upstream_raises_and_closes_both_resources():
                 chunks.append(chunk)
     assert chunks == [b"partial-media"]
     assert stream.closed
-    client.aclose.assert_awaited_once()
+    # The shared client stays open for the next segment
+    client.aclose.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -52,7 +53,7 @@ async def test_asgi_client_observes_failure_instead_of_success():
     downstream = httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test")
     try:
         with (
-            patch("app.routers.ersatztv.httpx.AsyncClient", return_value=upstream),
+            patch("app.routers.ersatztv.ersatztv_client", return_value=upstream),
             patch("app.routers.ersatztv.fetch_ersatztv", return_value=response),
             pytest.raises(httpx.ReadError),
         ):

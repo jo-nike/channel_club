@@ -17,7 +17,9 @@ from app.services import epg_service, xmltv_cache
 from app.services.epg_service import EPGService, EPGServiceError
 from app.services.ersatztv import xmltv_parser
 from app.services.ersatztv.refresh import FeedUnavailableError
+from app.services.http_clients import DISPATCHARR, ERSATZTV
 from app.services.xmltv_cache import XmltvCache
+from tests.http_helpers import mock_upstream
 
 
 def _xmltv(title: str) -> str:
@@ -51,13 +53,9 @@ class _Upstream:
 @pytest.fixture
 def upstream(monkeypatch: pytest.MonkeyPatch) -> _Upstream:
     upstream = _Upstream()
-    factory = httpx.AsyncClient
-
-    def client(**kwargs: Any) -> httpx.AsyncClient:
-        return factory(transport=httpx.MockTransport(upstream), **kwargs)
-
-    # Both guides open their client through the httpx module
-    monkeypatch.setattr(httpx, "AsyncClient", client)
+    # Each guide fetches through its upstream's shared client
+    mock_upstream(DISPATCHARR, upstream)
+    mock_upstream(ERSATZTV, upstream)
     return upstream
 
 

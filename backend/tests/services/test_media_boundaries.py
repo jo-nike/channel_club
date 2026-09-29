@@ -75,21 +75,19 @@ async def test_ersatz_id_resolves_fast_without_hdhr_while_dispatcharr_times_out(
 
     from app.models.channel import Channel
     from app.services import dispatcharr
+    from app.services.http_clients import DISPATCHARR
     from app.services.media_source import resolve_media_channel
+    from tests.http_helpers import mock_upstream
 
     monkeypatch.setattr(settings, "dispatcharr_url", "http://dispatcharr.test")
     monkeypatch.setattr(settings, "dispatcharr_api_key", "test-key")
     paths: list[str] = []
-    real_client = httpx.AsyncClient
 
     def timeout(request: httpx.Request) -> httpx.Response:
         paths.append(request.url.path)
         raise httpx.ConnectTimeout("timed out", request=request)
 
-    monkeypatch.setattr(
-        "app.services.dispatcharr.httpx.AsyncClient",
-        lambda **kwargs: real_client(transport=httpx.MockTransport(timeout), **kwargs),
-    )
+    mock_upstream(DISPATCHARR, timeout)
     channel = Channel(
         id="ersatz", name="healthy", streamUrl="http://catalog.invalid/hls", guideId="1"
     )

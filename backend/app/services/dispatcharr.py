@@ -17,8 +17,8 @@ from app.models.channel import (
 )
 from app.services.cached_fetch import CachedFetch
 from app.services.epg_service import get_epg_service
+from app.services.http_clients import dispatcharr_client
 from app.services.logo_proxy import LOGO_CACHE, LogoUnavailableError, fetch_logo
-from app.services.tls import SSL_CONTEXT
 
 # Module-level logger with service context
 log = logger.bind(service="dispatcharr")
@@ -124,12 +124,11 @@ async def get_channel_groups() -> list[DispatchrrChannelGroup]:
     log.debug("Fetching channel groups from {}", url)
 
     try:
-        async with httpx.AsyncClient(timeout=_CATALOGUE_TIMEOUT, verify=SSL_CONTEXT) as client:
-            response = await client.get(url, headers=headers)
-            response.raise_for_status()
-            groups = [DispatchrrChannelGroup(**g) for g in _json_list(response)]
-            log.info("Fetched {} channel groups", len(groups))
-            return groups
+        response = await dispatcharr_client().get(url, headers=headers, timeout=_CATALOGUE_TIMEOUT)
+        response.raise_for_status()
+        groups = [DispatchrrChannelGroup(**g) for g in _json_list(response)]
+        log.info("Fetched {} channel groups", len(groups))
+        return groups
     except httpx.HTTPError as e:
         log.error("Failed to fetch channel groups: {}", str(e))
         raise DispatchrrUnavailableError(f"Failed to fetch channel groups: {e}") from e
@@ -152,12 +151,11 @@ async def get_channels_with_groups() -> list[DispatchrrFullChannel]:
     log.debug("Fetching full channel data from {}", url)
 
     try:
-        async with httpx.AsyncClient(timeout=_CATALOGUE_TIMEOUT, verify=SSL_CONTEXT) as client:
-            response = await client.get(url, headers=headers)
-            response.raise_for_status()
-            channels = [DispatchrrFullChannel(**c) for c in _json_list(response)]
-            log.info("Fetched {} channels with group data", len(channels))
-            return channels
+        response = await dispatcharr_client().get(url, headers=headers, timeout=_CATALOGUE_TIMEOUT)
+        response.raise_for_status()
+        channels = [DispatchrrFullChannel(**c) for c in _json_list(response)]
+        log.info("Fetched {} channels with group data", len(channels))
+        return channels
     except httpx.HTTPError as e:
         log.error("Failed to fetch channels with groups: {}", str(e))
         raise DispatchrrUnavailableError(f"Failed to fetch channels: {e}") from e
@@ -300,15 +298,13 @@ async def get_channel_logo(logo_id: int) -> tuple[bytes, str]:
 
     async def fetch() -> tuple[bytes, str]:
         url = f"{settings.dispatcharr_url}/api/channels/logos/{logo_id}/cache/"
-        async with httpx.AsyncClient(
-            follow_redirects=False, timeout=10.0, verify=SSL_CONTEXT
-        ) as client:
-            return await fetch_logo(
-                client,
-                url,
-                trusted_origins=[settings.dispatcharr_url],
-                headers=dispatcharr_auth_headers(),
-            )
+        # The shared client's 10 s default timeout applies
+        return await fetch_logo(
+            dispatcharr_client(),
+            url,
+            trusted_origins=[settings.dispatcharr_url],
+            headers=dispatcharr_auth_headers(),
+        )
 
     try:
         return await LOGO_CACHE.get(key, fetch, not_found_ttl=_GROUPED_CACHE_TTL_SECONDS)

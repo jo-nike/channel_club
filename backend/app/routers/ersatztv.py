@@ -17,6 +17,7 @@ from fastapi.responses import StreamingResponse
 from loguru import logger
 from pydantic import BaseModel, Field
 from starlette.requests import ClientDisconnect
+from starlette.types import Receive, Scope, Send
 
 from app.models.auth import TokenPayload
 from app.models.channel import ChannelId
@@ -43,6 +44,7 @@ from app.services.ersatztv.hls_rewriter import (
     segment_media_type,
 )
 from app.services.ersatztv.refresh import FeedUnavailableError, run_feed_lookup
+from app.services.http_clients import ersatztv_client
 from app.services.logo_proxy import (
     LOGO_CACHE,
     LOGO_CACHE_CONTROL,
@@ -52,7 +54,6 @@ from app.services.logo_proxy import (
     fetch_logo,
 )
 from app.services.stream_sessions import StreamSession, StreamSessionLimitError
-from app.services.tls import SSL_CONTEXT
 
 router = APIRouter(prefix="/api/ersatztv", tags=["ersatztv"])
 log = logger.bind(router="ersatztv")
@@ -162,6 +163,25 @@ STREAM_HEADERS = {
 }
 
 
+class _SegmentResponse(StreamingResponse):
+    """A proxied segment that closes its upstream response however it ends.
+
+    The body generator's finally only runs once iteration starts; a client that
+    leaves before the headers go out would otherwise keep the connection
+    checked out of the shared ErsatzTV pool for good.
+    """
+
+    def __init__(self, upstream: httpx.Response, content: AsyncIterator[bytes], media_type: str):
+        super().__init__(content, media_type=media_type, headers=STREAM_HEADERS)
+        self.upstream = upstream
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            await self.upstream.aclose()
+
+
 async def _manifest_url(channel_id: str, url: str | None) -> str:
     """The upstream playlist to fetch: a nested playlist's URL or the channel's."""
     if url:
@@ -221,20 +241,18 @@ async def _get_stream(
 
         # Fetch manifest with retry for cold stream startup
         # ErsatzTV needs time to initialize transcoding on first access.
-        # follow_redirects is disabled so fetch_ersatztv can re-validate every
-        # hop against the allowlist; an off-host redirect or a non-HLS reply
-        # raises UpstreamProtocolError, answered 502 rather than retried.
-        async with (
-            asyncio.timeout(STREAM_STARTUP_SECONDS),
-            httpx.AsyncClient(follow_redirects=False, timeout=10, verify=SSL_CONTEXT) as client,
-        ):
+        # The shared client doesn't follow redirects, so fetch_ersatztv can
+        # re-validate every hop against the allowlist; an off-host redirect or a
+        # non-HLS reply raises UpstreamProtocolError, answered 502 rather than retried.
+        client = ersatztv_client()
+        async with asyncio.timeout(STREAM_STARTUP_SECONDS):
             last_error: Exception | None = None
             response: httpx.Response | None = None
 
             for attempt in range(STREAM_STARTUP_ATTEMPTS):
                 attempts = attempt + 1
                 try:
-                    response = await fetch_ersatztv(client, manifest_url, stream=False)
+                    response = await fetch_ersatztv(client, manifest_url, stream=False, timeout=10)
                     response.raise_for_status()
                     if response.text.strip():  # Got valid content
                         break
@@ -331,18 +349,14 @@ async def _get_segment(encoded_url: str) -> StreamingResponse:
 
         # Stream the body through instead of buffering it - a segment must never
         # be materialised in memory, whatever size the upstream claims to send.
-        # follow_redirects is disabled so fetch_ersatztv can re-validate every
-        # redirect hop against the allowlist.
-        client = httpx.AsyncClient(follow_redirects=False, timeout=30, verify=SSL_CONTEXT)
+        # The shared client doesn't follow redirects, so fetch_ersatztv can
+        # re-validate every redirect hop against the allowlist. Only the
+        # response is ever closed here, never the shared client.
+        response = await fetch_ersatztv(ersatztv_client(), segment_url, stream=True, timeout=30)
         try:
-            response = await fetch_ersatztv(client, segment_url, stream=True)
-            try:
-                response.raise_for_status()
-            except BaseException:
-                await response.aclose()
-                raise
+            response.raise_for_status()
         except BaseException:
-            await client.aclose()
+            await response.aclose()
             raise
 
         # Serve only media types: anything else (an HTML error page, say) goes
@@ -364,7 +378,6 @@ async def _get_segment(encoded_url: str) -> StreamingResponse:
                     MAX_SEGMENT_BYTES,
                 )
                 await response.aclose()
-                await client.aclose()
                 raise HTTPException(status_code=502, detail="Segment too large")
 
         async def stream_segment() -> AsyncIterator[bytes]:
@@ -386,13 +399,8 @@ async def _get_segment(encoded_url: str) -> StreamingResponse:
                 raise
             finally:
                 await response.aclose()
-                await client.aclose()
 
-        return StreamingResponse(
-            stream_segment(),
-            media_type=content_type,
-            headers=STREAM_HEADERS,
-        )
+        return _SegmentResponse(response, stream_segment(), content_type)
 
     except HTTPException:
         raise
@@ -584,10 +592,8 @@ async def get_logo(
             raise HTTPException(status_code=404, detail="No logo available")
 
         async def fetch() -> tuple[bytes, str]:
-            async with httpx.AsyncClient(
-                follow_redirects=False, timeout=10, verify=SSL_CONTEXT
-            ) as client:
-                return await fetch_logo(client, logo_url)
+            # The shared client's 10 s default timeout applies
+            return await fetch_logo(ersatztv_client(), logo_url)
 
         # Keyed by the upstream URL too, so a channel's changed logo misses
         body, content_type = await LOGO_CACHE.get(

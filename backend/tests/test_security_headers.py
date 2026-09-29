@@ -101,7 +101,7 @@ async def test_segment_proxy_keeps_its_own_csp_and_still_streams_chunk_by_chunk(
     app.dependency_overrides[get_current_user_or_token] = lambda: object()
     try:
         with (
-            patch("app.routers.ersatztv.httpx.AsyncClient", return_value=AsyncMock()),
+            patch("app.routers.ersatztv.ersatztv_client", return_value=AsyncMock()),
             patch("app.routers.ersatztv.fetch_ersatztv", return_value=upstream),
         ):
             await app(scope, receive, send)

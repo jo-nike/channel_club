@@ -9,7 +9,6 @@ Story: 7.3 - XMLTV Parser Service
 import contextlib
 from datetime import UTC, datetime, timedelta
 
-import httpx
 from defusedxml import ElementTree
 from loguru import logger
 
@@ -19,7 +18,7 @@ from app.models.status import EPGHealthStatus
 from app.services.bounded_http import FEED_BYTES, read_bounded
 from app.services.cached_fetch import register_closable
 from app.services.ersatztv.refresh import FeedUnavailableError
-from app.services.tls import SSL_CONTEXT
+from app.services.http_clients import ersatztv_client
 from app.services.xmltv_cache import (
     GuideIndex,
     XmltvCache,
@@ -43,12 +42,9 @@ def _parse_xmltv_datetime(dt_str: str) -> datetime:
 async def _fetch_xmltv() -> bytes:
     """Download ErsatzTV's XMLTV feed within the feed byte budget."""
     log.debug("Fetching XMLTV data from {}", settings.ersatztv_xmltv_url)
-    async with (
-        httpx.AsyncClient(
-            timeout=FETCH_TIMEOUT_SECONDS, follow_redirects=False, verify=SSL_CONTEXT
-        ) as client,
-        client.stream("GET", settings.ersatztv_xmltv_url) as response,
-    ):
+    async with ersatztv_client().stream(
+        "GET", settings.ersatztv_xmltv_url, timeout=FETCH_TIMEOUT_SECONDS
+    ) as response:
         response.raise_for_status()
         return await read_bounded(response, FEED_BYTES)
 

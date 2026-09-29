@@ -122,6 +122,7 @@ async def fetch_ersatztv(
     url: str,
     *,
     stream: bool = False,
+    timeout: float,
     max_redirects: int = 5,
 ) -> httpx.Response:
     """GET ``url``, following redirects only while every hop stays on ErsatzTV.
@@ -138,6 +139,7 @@ async def fetch_ersatztv(
         url: Absolute URL to fetch; validated against the ErsatzTV allowlist
         stream: If True, fetch a segment and return with the response body
             still open (the caller owns closing it); if False, fetch a manifest
+        timeout: httpx timeout for each hop (the client is shared, so it is per call)
         max_redirects: Maximum number of on-host redirect hops to follow
 
     Returns:
@@ -154,7 +156,7 @@ async def fetch_ersatztv(
             if hop:
                 raise UpstreamProtocolError("Redirect target is not from ErsatzTV")
             raise ValueError(f"URL is not from ErsatzTV: {url}")
-        response = await client.send(client.build_request("GET", url), stream=True)
+        response = await client.send(client.build_request("GET", url, timeout=timeout), stream=True)
         if response.is_redirect and "location" in response.headers:
             location = str(response.url.join(response.headers["location"]))
             await response.aclose()

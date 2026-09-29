@@ -2,7 +2,6 @@
 
 from collections.abc import Callable, Iterator
 from io import StringIO
-from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -13,10 +12,11 @@ from loguru import logger
 from app.config import settings
 from app.main import app
 from app.models.channel import Channel, ChannelGroupWithChannels, GroupedChannelsResponse
-from app.services import app_settings, channel_state
+from app.services import app_settings, channel_state, http_clients
 from app.services.auth import create_access_token
 from app.services.dispatcharr import DispatchrrUnavailableError
 from app.services.logo_proxy import LOGO_CACHE, reset_logo_cache
+from tests.http_helpers import mock_upstream
 
 
 @pytest.fixture
@@ -830,7 +830,6 @@ class TestMalformedDispatcharrPayload:
     @staticmethod
     def _upstream(monkeypatch: pytest.MonkeyPatch, channels: httpx.Response) -> None:
         """Groups are fine; the channels call answers `channels`."""
-        real_client = httpx.AsyncClient
 
         def handle(request: httpx.Request) -> httpx.Response:
             if request.url.path == "/api/channels/groups/":
@@ -839,10 +838,7 @@ class TestMalformedDispatcharrPayload:
                 channels.status_code, headers=channels.headers, content=channels.content
             )
 
-        def client_factory(**kwargs: Any) -> httpx.AsyncClient:
-            return real_client(transport=httpx.MockTransport(handle), **kwargs)
-
-        monkeypatch.setattr("app.services.dispatcharr.httpx.AsyncClient", client_factory)
+        mock_upstream(http_clients.DISPATCHARR, handle)
 
     @pytest.mark.parametrize("payload", [HTML, NO_UUID, PAGINATED], ids=["html", "no-uuid", "dict"])
     @pytest.mark.parametrize(
@@ -921,16 +917,12 @@ class TestGetChannelLogo:
     ) -> list[httpx.Request]:
         """Route the service's httpx client to `handler`; returns the requests it saw."""
         requests: list[httpx.Request] = []
-        real_client = httpx.AsyncClient
 
         def record(request: httpx.Request) -> httpx.Response:
             requests.append(request)
             return handler(request)
 
-        def client_factory(**kwargs: Any) -> httpx.AsyncClient:
-            return real_client(transport=httpx.MockTransport(record), **kwargs)
-
-        monkeypatch.setattr("app.services.dispatcharr.httpx.AsyncClient", client_factory)
+        mock_upstream(http_clients.DISPATCHARR, record)
         return requests
 
     @staticmethod
