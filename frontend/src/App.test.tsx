@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { act, render, screen, waitFor } from '@/test/utils'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { toast } from 'sonner'
+import * as api from '@/services/api'
 import { App } from './App'
 import { TVView } from '@/components/tv/TVView'
 import { useAuthStore } from '@/stores/authStore'
@@ -326,6 +327,77 @@ describe('App', () => {
 
       // Viewer should NOT see the admin button
       expect(screen.queryByRole('button', { name: /open admin panel/i })).not.toBeInTheDocument()
+    })
+  })
+
+  describe('resuming setup', () => {
+    /** App at /, with a stand-in for the wizard to be sent to */
+    function renderApp() {
+      const router = createMemoryRouter(
+        [
+          { path: '/', element: <App />, children: [{ index: true, element: <TVView /> }] },
+          { path: '/setup', element: <p>Setup wizard</p> },
+        ],
+        { initialEntries: ['/'] }
+      )
+      render(<RouterProvider router={router} />)
+      return router
+    }
+
+    function signIn(role: 'admin' | 'viewer') {
+      const payload = { exp: Math.floor(Date.now() / 1000) + 3600 }
+      useAuthStore.setState({
+        token: `header.${btoa(JSON.stringify(payload))}.signature`,
+        role,
+        isAuthenticated: true,
+        isInitializing: false,
+      })
+    }
+
+    it.each(['claimed', 'unclaimed'] as const)('sends an admin back to the wizard while the club is %s', async (setupState) => {
+      signIn('admin')
+      vi.mocked(api.getAuthConfig).mockResolvedValueOnce({ localAuthEnabled: true, plexAuthEnabled: false, setupState })
+
+      const router = renderApp()
+
+      // The app shows while it checks
+      expect(screen.getByRole('button', { name: 'Account menu' })).toBeInTheDocument()
+      expect(await screen.findByText('Setup wizard')).toBeInTheDocument()
+      expect(router.state.location.pathname).toBe('/setup')
+    })
+
+    it.each([
+      ['complete', { setupState: 'complete' as const }],
+      ['not reported, as by a server from before setup', {}],
+    ])('keeps an admin in the app when setup is %s', async (_state, reported) => {
+      signIn('admin')
+      vi.mocked(api.getAuthConfig).mockResolvedValueOnce({ localAuthEnabled: true, plexAuthEnabled: false, ...reported })
+
+      const router = renderApp()
+
+      await waitFor(() => expect(api.getAuthConfig).toHaveBeenCalledOnce())
+      await act(() => new Promise((done) => setTimeout(done)))
+      expect(router.state.location.pathname).toBe('/')
+      expect(screen.getByRole('button', { name: 'Account menu' })).toBeInTheDocument()
+    })
+
+    it('keeps an admin in the app when the check fails', async () => {
+      signIn('admin')
+      vi.mocked(api.getAuthConfig).mockRejectedValueOnce(new Error('Failed to fetch'))
+
+      const router = renderApp()
+
+      await waitFor(() => expect(api.getAuthConfig).toHaveBeenCalledOnce())
+      await act(() => new Promise((done) => setTimeout(done)))
+      expect(router.state.location.pathname).toBe('/')
+    })
+
+    it("doesn't check for a viewer", () => {
+      signIn('viewer')
+
+      renderApp()
+
+      expect(api.getAuthConfig).not.toHaveBeenCalled()
     })
   })
 })

@@ -1,5 +1,6 @@
 import { APP_TAGLINE } from '@/lib/appInfo'
 import { useState, useEffect, useEffectEvent, useRef } from 'react'
+import { Navigate } from 'react-router-dom'
 import { AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -131,7 +132,12 @@ export function LoginForm() {
     return <AppLoadingScreen />
   }
 
-  // No auth methods configured
+  // Nobody has set up the club yet: the first visitor does it in the browser
+  if (authConfig?.setupState === 'unclaimed') {
+    return <Navigate to="/setup" replace />
+  }
+
+  // Sign-in is off, and setup can't turn it on: the environment says so, or there is nowhere to save
   const noAuthConfigured = authConfig && !authConfig.localAuthEnabled && !authConfig.plexAuthEnabled
   if (noAuthConfigured) {
     return (
@@ -145,10 +151,13 @@ export function LoginForm() {
             role="alert"
             className="p-4 text-xl text-foreground bg-destructive/10 border border-destructive rounded-md"
           >
-            No authentication methods configured
+            Sign-in is switched off on this server
           </div>
           <p className="mt-4 text-muted-foreground">
-            Please contact the administrator to enable authentication.
+            If you run it, turn on <code className="font-mono text-sm">LOCAL_AUTH_ENABLED</code> or{' '}
+            <code className="font-mono text-sm">PLEX_AUTH_ENABLED</code> in its environment. To set it up here in
+            the browser instead, remove the sign-in variables, give it a data folder with{' '}
+            <code className="font-mono text-sm">STATE_FILE</code>, then restart it.
           </p>
         </div>
       </div>

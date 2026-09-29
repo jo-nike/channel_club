@@ -1,4 +1,5 @@
-import { Outlet } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Navigate, Outlet } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { useTheme } from '@/hooks/useTheme'
 import { useProgrammeReminders } from '@/hooks/useProgrammeReminders'
@@ -7,6 +8,8 @@ import { AppLoadingScreen } from '@/components/AppLoadingScreen'
 import { OfflineFallback } from '@/components/OfflineFallback'
 import { InstallPrompt } from '@/components/InstallPrompt'
 import { Toaster } from '@/components/ui/sonner'
+import { logger } from '@/lib/logger'
+import { getAuthConfig } from '@/services/api'
 
 /** Programme reminders go off while someone is signed in, whichever view is open. */
 function ReminderRunner() {
@@ -14,8 +17,27 @@ function ReminderRunner() {
   return null
 }
 
+/**
+ * An admin whose club isn't set up yet goes back to the wizard. The app
+ * shows meanwhile: the check doesn't hold it up. A server that doesn't say
+ * counts as set up.
+ */
+function ResumeSetupRedirect() {
+  const [unfinished, setUnfinished] = useState(false)
+
+  useEffect(() => {
+    getAuthConfig()
+      .then((config) => {
+        if (config.setupState === 'claimed' || config.setupState === 'unclaimed') setUnfinished(true)
+      })
+      .catch((err) => logger.warn('Auth', 'Could not check whether setup is finished', err))
+  }, [])
+
+  return unfinished ? <Navigate to="/setup" replace /> : null
+}
+
 export function App() {
-  const { isAuthenticated, isInitializing } = useAuth()
+  const { isAuthenticated, isInitializing, isAdmin } = useAuth()
 
   // Apply the stored theme here, before the early returns, so the loading
   // and sign-in screens are themed too (not only the main view)
@@ -49,6 +71,7 @@ export function App() {
     <>
       <OfflineFallback />
       <Outlet />
+      {isAdmin && <ResumeSetupRedirect />}
       <InstallPrompt />
       <ReminderRunner />
       <Toaster theme={toastTheme} />
