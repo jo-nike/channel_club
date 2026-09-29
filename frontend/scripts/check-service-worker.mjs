@@ -108,5 +108,7 @@ try {
   chrome.kill('SIGTERM')
   await new Promise(r => chrome.once('exit', r))
   server.closeAllConnections(); server.close()
-  await rm(profile, { recursive: true, force: true })
+  // Chrome's network service can still write into the profile after the main
+  // process exits, so an rmdir may meet a new file: retry instead of failing
+  await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }
