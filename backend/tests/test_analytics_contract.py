@@ -11,6 +11,7 @@ import logging
 import re
 import sys
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from io import StringIO
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -24,8 +25,9 @@ from app.logging_config import configure_logging
 from app.main import app
 from app.models.channel import Channel
 from app.routers import websocket as websocket_router
-from app.services import channel_state
+from app.services import channel_state, presence
 from app.services.auth import create_access_token
+from tests.ws_helpers import ws_connect
 
 GENERATOR = Path(__file__).parents[2] / "ops" / "grafana" / "generate-channel-club-dashboard.py"
 
@@ -179,11 +181,6 @@ def _emitted(output: StringIO) -> list[dict[str, object]]:
     return [line for line in lines if "record_extra_event" in line]
 
 
-def _ws_url(token: str, session_id: str, view: str = "live") -> str:
-    """Query-token WebSocket URL; lane ws-auth's shared helper replaces this in W3."""
-    return f"/api/ws?token={token}&view={view}&session_id={session_id}"
-
-
 def _settle(ws) -> None:
     """Round-trip a ping so every message sent before it has been handled."""
     ws.send_json({"type": "ping"})
@@ -191,8 +188,19 @@ def _settle(ws) -> None:
         pass
 
 
-@pytest.fixture
-def client() -> Iterator[TestClient]:
+def _update(channel: str, channel_id: str, programme: str, on_live: bool) -> dict:
+    return {
+        "type": "channel_update",
+        "channel": channel,
+        "channelId": channel_id,
+        "programme": programme,
+        "view": "live",
+        "onLive": on_live,
+    }
+
+
+@contextmanager
+def _app_client() -> Iterator[TestClient]:
     with (
         patch("app.main.get_grouped_channels", new=AsyncMock(return_value=[])),
         TestClient(app) as client,
@@ -200,8 +208,14 @@ def client() -> Iterator[TestClient]:
         yield client
 
 
+@pytest.fixture
+def client() -> Iterator[TestClient]:
+    with _app_client() as client:
+        yield client
+
+
 def test_every_event_the_dashboard_reads_carries_its_fields(
-    production_logging, client, monkeypatch: pytest.MonkeyPatch
+    production_logging, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     required = _required_fields(_load_generator().dashboard, {})
     assert {
@@ -212,37 +226,28 @@ def test_every_event_the_dashboard_reads_carries_its_fields(
         "channel.change",
     } <= required.keys()
     output = production_logging(log_format="json", log_level="WARNING")
-    # Apply both channel updates at once instead of holding the second for a second
+    # Apply the channel updates at once instead of holding each for a second
     monkeypatch.setattr(websocket_router, "CHANNEL_UPDATE_INTERVAL_SECONDS", 0)
+    # Every open watch is due its watch.progress at once
+    monkeypatch.setattr(presence, "WATCH_PROGRESS_SECONDS", 0)
     token = create_access_token({"sub": "jon", "role": "admin"})
 
-    with client.websocket_connect(_ws_url(token, "s1")) as ws:
-        ws.receive_json()  # connection_ack
-        ws.send_json(
-            {
-                "type": "channel_update",
-                "channel": "RDS",
-                "channelId": "uuid-rds",
-                "programme": "Hockey",
-                "view": "live",
-                "onLive": True,
-            }
+    # Started after the logging, so its server.start is captured
+    with _app_client() as client:
+        with ws_connect(client, token, view="live", session_id="s1") as ws:
+            ws.receive_json()  # connection_ack
+            ws.send_json(_update("RDS", "uuid-rds", "Hockey", on_live=True))
+            # The Live slot moves to TVA and the viewer follows it
+            ws.send_json(_update("TVA", "uuid-tva", "News", on_live=True))
+            _settle(ws)
+            client.portal.call(presence.record_watch_progress)
+            ws.send_json(_update("CBC", "uuid-cbc", "Movie", on_live=False))
+            _settle(ws)
+            ws.close(code=1012)  # What uvicorn sends every socket on shutdown
+        channel = Channel(
+            id="uuid-rds", name="RDS", streamUrl="https://streams.example/rds", guideId="1"
         )
-        ws.send_json(
-            {
-                "type": "channel_update",
-                "channel": "TVA",
-                "channelId": "uuid-tva",
-                "programme": "News",
-                "view": "live",
-                "onLive": False,
-            }
-        )
-        _settle(ws)
-    channel = Channel(
-        id="uuid-rds", name="RDS", streamUrl="https://streams.example/rds", guideId="1"
-    )
-    client.portal.call(channel_state.set_current_channel, channel, "jon")
+        client.portal.call(channel_state.set_current_channel, channel, "jon")
 
     lines = _emitted(output)
     for event, fields in sorted(required.items()):
@@ -251,19 +256,14 @@ def test_every_event_the_dashboard_reads_carries_its_fields(
         for line in emitted:
             missing = {f for f in fields if f"record_extra_{f}" not in line}
             assert not missing, f"{event} lacks {sorted(missing)} that the dashboard reads"
-    # The switch to TVA stopped the RDS watch and started one off the Live slot
-    assert any(
-        line["record_extra_event"] == "watch.stop"
-        and line["record_extra_channel"] == "RDS"
-        and line["record_extra_reason"] == "switch"
+    stops = [
+        (line["record_extra_channel"], line["record_extra_reason"])
         for line in lines
-    )
-    assert any(
-        line["record_extra_event"] == "watch.start"
-        and line["record_extra_channel"] == "TVA"
-        and line["record_extra_on_live"] is False
-        for line in lines
-    )
+        if line["record_extra_event"] == "watch.stop"
+    ]
+    assert stops == [("RDS", "live_follow"), ("TVA", "switch"), ("CBC", "server_restart")]
+    assert any(line["record_extra_event"] == "watch.progress" for line in lines)
+    assert any(line["record_extra_event"] == "server.start" for line in lines)
 
 
 def test_reconnect_stops_each_watch_once(production_logging, client) -> None:
@@ -271,12 +271,12 @@ def test_reconnect_stops_each_watch_once(production_logging, client) -> None:
     token = create_access_token({"sub": "jon", "role": "viewer"})
     update = {"type": "channel_update", "channel": "RDS", "channelId": "uuid-rds", "view": "live"}
 
-    with client.websocket_connect(_ws_url(token, "s1")) as old:
+    with ws_connect(client, token, view="live", session_id="s1") as old:
         old.receive_json()
         old.send_json(update)
         _settle(old)
         # The reloaded tab's socket registers before the old one's close arrives
-        with client.websocket_connect(_ws_url(token, "s1")) as new:
+        with ws_connect(client, token, view="live", session_id="s1") as new:
             new.receive_json()
             new.send_json(update)
             _settle(new)
