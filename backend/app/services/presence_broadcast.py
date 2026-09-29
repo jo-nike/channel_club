@@ -22,11 +22,6 @@ from app.services import app_settings, channel_state, presence
 from app.services.presence import UserPresence
 
 
-def _started(user: UserPresence) -> float:
-    """When a connection started its current channel (or connected, if unknown)."""
-    return (user.channel_since or user.connected_since).timestamp()
-
-
 def _entry(user: UserPresence, show_channel: bool) -> PresenceEntry:
     name = user.nickname or user.username
     if not show_channel:
@@ -64,17 +59,10 @@ def build_snapshot() -> list[PresenceEntry]:
         One entry per person, from the connection with the latest channel start.
     """
     visible = app_settings.presence_visible_enabled()
-    latest: dict[str, UserPresence] = {}
-    hidden: set[str] = set()
-    for user in presence.get_active_users().values():
-        key = user.user_id or user.username
-        if user.hide_activity:
-            hidden.add(key)
-        if user.current_channel is None:
-            continue
-        kept = latest.get(key)
-        if kept is None or _started(user) > _started(kept):
-            latest[key] = user
+    users = presence.get_active_users().values()
+    hidden = {presence.person_key(user) for user in users if user.hide_activity}
+    # The watch events follow the same connection
+    latest = presence.primary_connections(users)
 
     entries = [_entry(user, visible and key not in hidden) for key, user in latest.items()]
     entries.sort(key=lambda e: (e["displayName"].casefold(), e["userId"] or ""))

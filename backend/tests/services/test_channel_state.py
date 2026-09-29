@@ -1,6 +1,7 @@
 """Tests for channel state service."""
 
 import asyncio
+import json
 from io import StringIO
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -179,6 +180,22 @@ class TestChannelUpdateAttribution:
             "channel": None,
             "changedBy": "alice",
         }
+
+    @pytest.mark.asyncio
+    async def test_clear_logs_a_channel_change_with_no_channel(self) -> None:
+        """Stopping Live is a channel.change event, like a set."""
+        output = StringIO()
+        handler_id = logger.add(output, format="{message}", serialize=True, level="INFO")
+        try:
+            with patch.object(channel_state, "broadcast", new_callable=AsyncMock):
+                await channel_state.clear_current_channel_async(user="alice")
+        finally:
+            logger.remove(handler_id)
+
+        extras = [json.loads(line)["record"]["extra"] for line in output.getvalue().splitlines()]
+        (change,) = [e for e in extras if e.get("event") == "channel.change"]
+        assert change["user"] == "alice"
+        assert change["channel"] is None and change["channel_id"] is None
 
 
 def _sent_messages(mock_broadcast: AsyncMock) -> list[dict]:

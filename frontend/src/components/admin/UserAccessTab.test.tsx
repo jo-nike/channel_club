@@ -24,6 +24,15 @@ describe('UserAccessTab', () => {
   const presenceSwitch = () =>
     screen.getByRole('switch', { name: 'Show what everyone is watching' })
 
+  it("says viewing is recorded for the host's stats whichever way presence is set", async () => {
+    render(<UserAccessTab />)
+    await settled()
+
+    expect(
+      screen.getByText(/Viewing is recorded for the host's stats whichever way it is set\./),
+    ).toBeInTheDocument()
+  })
+
   it('renders the live channel selection setting as a switch', async () => {
     render(<UserAccessTab />)
 

@@ -307,14 +307,14 @@ describe('AccountMenu live-change pop-up checkbox', () => {
 })
 
 describe("AccountMenu 'Hide what I'm watching'", () => {
-  it("is off by default, and says you won't see others' channels either and admins still see yours", () => {
+  it("is off by default, and says you won't see others' channels either, admins still see yours and viewing is still recorded", () => {
     renderMenu()
     openMenu()
 
     const toggle = screen.getByRole('menuitemcheckbox', { name: "Hide what I'm watching" })
     expect(toggle).toHaveAttribute('aria-checked', 'false')
     expect(toggle).toHaveAccessibleDescription(
-      "Others see only your name, and you won't see their channels. Admins still see yours.",
+      "Others see only your name, and you won't see their channels. Admins still see yours, and viewing is recorded for the host's stats.",
     )
   })
 

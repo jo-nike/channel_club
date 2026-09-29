@@ -33,7 +33,7 @@ from app.models.websocket import (
 )
 from app.services import app_settings, channel_state, chat, presence, presence_broadcast
 from app.services.auth import verify_token
-from app.services.media_source import find_catalogue_channel
+from app.services.media_source import find_catalogue_channel, peek_catalogue_channel
 
 router = APIRouter()
 log = logger.bind(router="websocket")
@@ -464,6 +464,7 @@ async def websocket_endpoint(
     presence_broadcast.schedule_broadcast()
     budget = _MessageBudget(client_id)
     channel_updates = _ChannelUpdates(client_id)
+    close_code: int | None = None
 
     try:
         async with asyncio.timeout(max(0, payload["exp"] - time.time())) as deadline:
@@ -539,8 +540,9 @@ async def websocket_endpoint(
         # Remove from broadcasts before awaiting transport shutdown.
         channel_state.disconnect(websocket)
         await asyncio.wait_for(websocket.close(code=4001, reason="Token expired"), timeout=1)
-    except WebSocketDisconnect:
+    except WebSocketDisconnect as e:
         log.info("WebSocket disconnected: client {}", client_id)
+        close_code = e.code
     except Exception as e:
         if _is_disconnect_race(websocket, e):
             log.debug("WebSocket closed mid-operation for client {}: {}", client_id, e)
@@ -550,8 +552,15 @@ async def websocket_endpoint(
         # A folded channel update must not land after the connection is gone
         channel_updates.cancel()
         # Always clean up on disconnect
-        # Pass websocket to avoid race condition on view switch
-        presence.remove_user(client_id, websocket)
+        # Pass websocket to avoid race condition on view switch. On shutdown
+        # uvicorn (0.52, all three protocols/websockets implementations) hands
+        # every open socket websocket.disconnect with 1012, so that is a server
+        # restart. 1001 is not: browsers send it when a tab closes.
+        presence.remove_user(
+            client_id,
+            websocket,
+            reason="server_restart" if close_code == 1012 else "disconnect",
+        )
         channel_state.disconnect(websocket)
         # Clean up nickname (same websocket-identity guard as presence)
         _clear_nickname(client_id, websocket)
@@ -568,13 +577,29 @@ def _apply_channel_update(client_id: str, validated: dict) -> None:
     channel = validated.get("channel")
     programme = validated.get("programme")
     view = validated.get("view")
+    channel_id = validated.get("channelId")
+    # Log the catalogue's name for the id, not the client's. Cached catalogues
+    # only: this runs on every programme rollover, so it must never fetch.
+    channel_known: bool | None = None  # None: a catalogue that could hold it hasn't loaded
+    claimed_channel: str | None = None
+    if channel is not None and channel_id is not None:
+        match = peek_catalogue_channel(channel_id)
+        if match.channel is not None:
+            channel_known = True
+            if match.channel.name != channel:
+                claimed_channel = channel
+            channel = match.channel.name
+        elif match.complete:
+            channel_known = False
     presence.update_user_channel(
         client_id,
         channel,
         programme,
         view,
-        channel_id=validated.get("channelId"),
+        channel_id=channel_id,
         on_live=validated.get("onLive"),
+        channel_known=channel_known,
+        claimed_channel=claimed_channel,
     )
     # Every update, including a programme rollover on the same channel
     presence_broadcast.schedule_broadcast()
