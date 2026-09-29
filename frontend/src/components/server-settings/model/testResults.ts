@@ -116,6 +116,26 @@ export function currentTest(record: TestRecord | undefined, state: SettingsState
   return record !== undefined && record.fingerprint === testFingerprint(state, kind) ? record : undefined
 }
 
+/**
+ * The tests once a save turns what was typed into what is saved. A finished
+ * test of the inputs as they were goes on showing: a saved secret has a new
+ * fingerprint, but it is the key that was tested. One still running reports
+ * for the inputs as typed, so it stays hidden.
+ */
+export function testsAfterSave(
+  tests: Partial<Record<TestKind, TestRecord>>,
+  before: SettingsState,
+  after: SettingsState
+): Partial<Record<TestKind, TestRecord>> {
+  const kept = { ...tests }
+  for (const [kind, record] of Object.entries(tests) as [TestKind, TestRecord][]) {
+    if (!record.running && record.fingerprint === testFingerprint(before, kind)) {
+      kept[kind] = { ...record, fingerprint: testFingerprint(after, kind) }
+    }
+  }
+  return kept
+}
+
 export type TestStatus = 'untested' | 'running' | 'passed' | 'failed'
 
 export function testStatus(record: TestRecord | undefined, state: SettingsState, kind: TestKind): TestStatus {

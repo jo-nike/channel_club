@@ -25,7 +25,7 @@ import {
   type SourceKind,
 } from '@/components/server-settings/model/configDraft'
 import { ADVANCED_GROUPS, type EditableField } from '@/components/server-settings/model/fields'
-import type { TestRecord } from '@/components/server-settings/model/testResults'
+import { testsAfterSave, type TestRecord } from '@/components/server-settings/model/testResults'
 import type { ErrorKey } from '@/components/server-settings/model/validation'
 import { FIRST_CLAIMED_STEP, STEPS, stepIndex, type StepId } from './steps'
 
@@ -266,9 +266,11 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
       return { ...state, errors: action.errors ?? {}, formError: action.formError ?? null, busy: null }
     case 'busy':
       return { ...state, busy: action.busy, formError: action.busy ? null : state.formError }
-    case 'saved':
+    case 'saved': {
       if (!state.settings) return state
-      return { ...state, settings: afterSave(state.settings, action.patch, action.view), busy: null }
+      const settings = afterSave(state.settings, action.patch, action.view)
+      return { ...state, settings, tests: testsAfterSave(state.tests, state.settings, settings), busy: null }
+    }
     case 'linked':
       if (!state.settings) return state
       // The Plex sign-in has done its job: the server keeps its own token now

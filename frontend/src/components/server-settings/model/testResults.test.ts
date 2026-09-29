@@ -1,12 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import { settingsState } from '@/test/settingsFixtures'
-import { setField } from './configDraft'
+import { configView, settingsState } from '@/test/settingsFixtures'
+import type { TestKind } from '@/types/setup'
+import { afterSave, setField, type SettingsState } from './configDraft'
 import {
   currentTest,
   describeResult,
   hostOf,
   testFingerprint,
   testInputError,
+  testsAfterSave,
   testStatus,
   testValues,
   type TestRecord,
@@ -65,6 +67,39 @@ describe('currentTest and testStatus', () => {
     expect(testStatus(record({ result: { ok: true } }), state, 'ersatztv')).toBe('passed')
     expect(testStatus(record({ result: { ok: false, reason: 'timeout' } }), state, 'ersatztv')).toBe('failed')
     expect(testStatus(record({ error: "Couldn't reach Channel Club's server." }), state, 'ersatztv')).toBe('failed')
+  })
+})
+
+describe('testsAfterSave', () => {
+  const values = { dispatcharrUrl: 'http://tv.lan', ersatztvBaseUrl: 'http://etv.lan' }
+  const typed = settingsState(values, { values: { dispatcharrApiKey: KEY } })
+  // The server keeps the key, and the draft forgets it
+  const saved = afterSave(typed, { dispatcharrApiKey: KEY }, configView({ ...values, dispatcharrApiKey: { set: true } }))
+  const finished = (state: SettingsState, kind: TestKind): TestRecord => ({
+    fingerprint: testFingerprint(state, kind),
+    running: false,
+    result: { ok: true },
+  })
+
+  it('goes on showing a test of the key that was saved', () => {
+    const tests = testsAfterSave({ dispatcharr: finished(typed, 'dispatcharr') }, typed, saved)
+
+    expect(testStatus(tests.dispatcharr, saved, 'dispatcharr')).toBe('passed')
+  })
+
+  it('leaves hidden a test of another key, and one still running', () => {
+    const otherKey = settingsState(values, { values: { dispatcharrApiKey: OTHER } })
+    const stale = testsAfterSave({ dispatcharr: finished(otherKey, 'dispatcharr') }, typed, saved)
+    const running = testsAfterSave({ dispatcharr: { fingerprint: testFingerprint(typed, 'dispatcharr'), running: true } }, typed, saved)
+
+    expect(testStatus(stale.dispatcharr, saved, 'dispatcharr')).toBe('untested')
+    expect(testStatus(running.dispatcharr, saved, 'dispatcharr')).toBe('untested')
+  })
+
+  it('keeps a test of inputs the save left alone', () => {
+    const ersatztv = finished(typed, 'ersatztv')
+
+    expect(testsAfterSave({ ersatztv }, typed, saved)).toEqual({ ersatztv })
   })
 })
 

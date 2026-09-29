@@ -19,6 +19,7 @@ vi.mock('@/services/setupApi', async (importOriginal) => ({
   getPlexMembers: vi.fn(),
   linkPlexServer: vi.fn(),
   listPlexServers: vi.fn(),
+  testConnection: vi.fn(),
   updateAdminConfig: vi.fn(),
 }))
 
@@ -45,6 +46,8 @@ const READY: Partial<ConfigValues> = {
   dispatcharrUrl: 'https://tv.example.com',
   dispatcharrApiKey: { set: true },
 }
+// A stand-in for an API key (spaced, so no scanner takes it for a real one)
+const KEY = 'api key one'
 const FACTS: SetupFacts = {
   dispatcharrChannels: 37,
   ersatztvChannels: null,
@@ -96,6 +99,22 @@ describe('SetupWizard: Review', () => {
     fireEvent.click(within(summary).getByRole('button', { name: 'Edit Who can join' }))
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Who can join?' })).toHaveFocus()
+  })
+
+  it('reports how a source tested with the key its step then saved', async () => {
+    vi.mocked(setupApi.testConnection).mockResolvedValue({ ok: true, counts: { channels: 37, groups: 4 } })
+    vi.mocked(setupApi.updateAdminConfig).mockResolvedValue({ config: configView(READY), warnings: [] })
+    openAt('sources', { view: configView({ ...READY, dispatcharrApiKey: { set: false } }) })
+
+    fireEvent.change(await screen.findByLabelText('API key'), { target: { value: KEY } })
+    fireEvent.click(screen.getByRole('button', { name: 'Test connection' }))
+    await screen.findByText('This server reached Dispatcharr')
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByRole('heading', { level: 1, name: 'Who can join?' })
+    fireEvent.click(within(rail()).getByRole('button', { name: 'Review' }))
+
+    const summary = (await screen.findByText('Username and password, as sam')).closest('dl') as HTMLElement
+    expect(within(summary).getByText('Dispatcharr · 37 channels')).toBeInTheDocument()
   })
 
   it("names a Plex admin's server", async () => {
