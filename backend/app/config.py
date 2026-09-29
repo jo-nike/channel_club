@@ -34,6 +34,8 @@ OBSOLETE_ENV_KEYS = {
     "STREAM_BASE_URL": "merged into DISPATCHARR_URL",
     "VITE_STREAM_BASE_URL": "stream URLs come from the server's DISPATCHARR_URL",
     "VITE_WS_URL": "the socket is always on the page's origin",
+    "ERSATZTV_M3U_URL": "derived from ERSATZTV_BASE_URL",
+    "ERSATZTV_XMLTV_URL": "derived from ERSATZTV_BASE_URL",
 }
 
 
@@ -97,9 +99,16 @@ class Settings(BaseSettings):
     dispatcharr_api_key: SecretStr | None = None
 
     # ErsatzTV Configuration
-    ersatztv_m3u_url: str = "http://192.168.50.108:8409/iptv/channels.m3u"
-    ersatztv_xmltv_url: str = "http://192.168.50.108:8409/iptv/xmltv.xml"
     ersatztv_base_url: str = "http://192.168.50.108:8409"
+
+    # ErsatzTV serves its feeds at fixed paths under the base URL.
+    @property
+    def ersatztv_m3u_url(self) -> str:
+        return f"{self.ersatztv_base_url.rstrip('/')}/iptv/channels.m3u"
+
+    @property
+    def ersatztv_xmltv_url(self) -> str:
+        return f"{self.ersatztv_base_url.rstrip('/')}/iptv/xmltv.xml"
 
     # Additional trusted logo origins, e.g. ["https://images.example.com"].
     ersatztv_logo_origins: list[str] = []
