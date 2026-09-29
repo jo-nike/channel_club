@@ -432,6 +432,7 @@ def test_h05_access_log_drops_polled_and_streamed_paths(json_logging) -> None:
         "/api/ersatztv/s/sid123/stream.m3u8",
         "/api/ersatztv/s/sid123/segments/abc.ts",
         "/api/highlight/status/C1",
+        "/api/highlight/preview/grant123",
         "/api/channels",
         "/api/healthcheck-lookalike",
     ]:

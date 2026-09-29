@@ -89,6 +89,8 @@ _QUIET_ACCESS_PREFIXES = (
     "/api/ersatztv/stream/",
     "/api/ersatztv/s/",
     "/api/highlight/status/",
+    # The clip editor's range requests; the path is a capability, like /s/ above
+    "/api/highlight/preview/",
 )
 
 
