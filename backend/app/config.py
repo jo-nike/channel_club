@@ -28,8 +28,6 @@ NTFY_TOPIC_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
 class Settings(BaseSettings):
-    port: int = 8001
-
     # Build identity stays distinct from the semantic version in pyproject.toml.
     app_build_id: str = "dev"
     app_revision: str = "dev"

@@ -411,3 +411,26 @@ class TestPreviewTokens:
         await store.clear()
         assert store.preview_tokens == {}
         assert store.redeem_preview_token(kept) is None
+
+
+class TestStartupCleanup:
+    """Startup removes what a previous run left under the recording root."""
+
+    def test_stale_recorder_and_capture_directories_are_removed(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(settings, "highlight_temp_dir", str(tmp_path))
+        recorder_dir = tmp_path / "recorder-stale"
+        recorder_dir.mkdir()
+        (recorder_dir / "seg_000.ts").write_bytes(b"segment")
+        capture_dir = tmp_path / "captures" / "synthetic-capture-0001"
+        capture_dir.mkdir(parents=True)
+        (capture_dir / "snapshot.mp4").write_bytes(b"capture")
+
+        # No process scan: the image has no pgrep and a restart starts a fresh PID namespace.
+        with patch("app.services.highlight.subprocess.run") as run:
+            HighlightService().cleanup_stale_segments()
+
+        run.assert_not_called()
+        assert not recorder_dir.exists()
+        assert not (tmp_path / "captures").exists()
