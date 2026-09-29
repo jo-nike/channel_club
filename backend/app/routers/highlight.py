@@ -147,27 +147,34 @@ async def upload_highlight(
     if request.headers.get("content-type", "").split(";")[0] != content_type:
         raise HTTPException(415, f"Expected {content_type}")
     with upload_budget.slot(user.account_key):
-        async with workspace("highlight-upload-") as directory:
-            source = directory / f"clip.{format}"
+        try:
+            async with workspace("highlight-upload-") as directory:
+                source = directory / f"clip.{format}"
 
-            async def publish() -> dict[str, str]:
-                await media_duration(source)
-                filename = f"highlight-{datetime.now().strftime('%Y-%m-%dT%H-%M-%S')}.{format}"
-                return await upload_clip(source, filename, content_type)
+                async def publish() -> dict[str, str]:
+                    await media_duration(source)
+                    filename = f"highlight-{datetime.now().strftime('%Y-%m-%dT%H-%M-%S')}.{format}"
+                    return await upload_clip(source, filename, content_type)
 
-            try:
-                # Reading the body notices a cancel itself (ClientDisconnect); polling for one
-                # meanwhile would take body chunks off the same receive channel.
-                await ingest_preview(request, source)
-                # A cancel during the Zipline POST stops it instead of publishing the clip.
-                return await unless_disconnected(request, publish())
-            except ClientDisconnect:
-                log.info("Client left during a clip upload")
-                raise HTTPException(499, "Client closed the request") from None
-            except TimeoutError:
-                raise HTTPException(408, "Clip upload to the viewer timed out") from None
-            except (OSError, ValueError):
-                raise HTTPException(400, "Unable to read clip") from None
+                try:
+                    # Reading the body notices a cancel itself (ClientDisconnect); polling for one
+                    # meanwhile would take body chunks off the same receive channel.
+                    await ingest_preview(request, source)
+                    # A cancel during the Zipline POST stops it instead of publishing the clip.
+                    return await unless_disconnected(request, publish())
+                except ClientDisconnect:
+                    log.info("Client left during a clip upload")
+                    raise HTTPException(499, "Client closed the request") from None
+                except TimeoutError:
+                    raise HTTPException(408, "Clip upload to the viewer timed out") from None
+                except (OSError, ValueError):
+                    raise HTTPException(400, "Unable to read clip") from None
+        except OSError as exc:
+            # Only creating the workspace gets here; failures inside are "Unable to read clip".
+            log.bind(event="highlight.capture_failed", errno=exc.errno).warning(
+                "Clip upload workspace failed: {}", exc
+            )
+            raise HTTPException(400, CLIP_SAVE_ERROR) from None
 
 
 @router.get("/status/{channel_id}", response_model=HighlightStatusResponse)
@@ -335,10 +342,8 @@ async def export_preview(
     source = highlight_service.get_capture(capture, user.account_key)
     if source is None:
         raise HTTPException(404, "Capture not found")
-    # The file outlives the handler: it is streamed from disk, then its workspace removed.
-    directory = new_workspace("highlight-preview-")
 
-    async def encode() -> FilePath:
+    async def encode(directory: FilePath) -> FilePath:
         # Waits for a slot inside the disconnect watch, so a viewer who left never takes one.
         # The slot is released when the encode finishes, before the response is sent.
         async with export_budget.waiting_slot(user.account_key):
@@ -351,8 +356,11 @@ async def export_preview(
             )
 
     kept = False
+    directory: FilePath | None = None
     try:
-        video = await unless_disconnected(request, encode())
+        # The file outlives the handler: it is streamed from disk, then its workspace removed.
+        directory = new_workspace("highlight-preview-")
+        video = await unless_disconnected(request, encode(directory))
         kept = True
     except TimeoutError:
         raise HTTPException(408, "Clip conversion timed out") from None
@@ -364,7 +372,7 @@ async def export_preview(
         ).warning("Clip export failed: {}", exc)
         raise HTTPException(400, CLIP_SAVE_ERROR) from None
     finally:
-        if not kept:
+        if not kept and directory is not None:
             await remove_workspace(directory)
     return FileResponse(
         video,
