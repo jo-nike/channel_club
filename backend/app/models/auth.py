@@ -4,6 +4,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from app.models.base import CamelModel
+
 
 class LoginRequest(BaseModel):
     """Request model for login endpoint."""
@@ -12,14 +14,12 @@ class LoginRequest(BaseModel):
     password: str = Field(max_length=256)
 
 
-class TokenResponse(BaseModel):
+class TokenResponse(CamelModel):
     """Response model for successful authentication."""
 
-    access_token: str = Field(alias="accessToken")
-    token_type: str = Field(default="bearer", alias="tokenType")
+    access_token: str
+    token_type: str = "bearer"
     role: str
-
-    model_config = {"populate_by_name": True}
 
 
 def account_key(sub: str, plex_id: str | None) -> str:
@@ -46,10 +46,8 @@ class TokenPayload(BaseModel):
         return account_key(self.sub, self.plex_id)
 
 
-class AuthConfigResponse(BaseModel):
+class AuthConfigResponse(CamelModel):
     """Response for GET /api/auth/config."""
 
-    local_auth_enabled: bool = Field(alias="localAuthEnabled")
-    plex_auth_enabled: bool = Field(alias="plexAuthEnabled")
-
-    model_config = {"populate_by_name": True}
+    local_auth_enabled: bool
+    plex_auth_enabled: bool
