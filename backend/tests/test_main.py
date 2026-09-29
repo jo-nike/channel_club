@@ -81,18 +81,34 @@ class TestValidateAuthConfiguration:
             mock_settings.viewer_password = None
             validate_auth_configuration()
 
-    def test_warns_but_starts_when_local_auth_has_no_passwords(self) -> None:
-        """Unset passwords reject every login; warn rather than fail."""
+    @pytest.mark.parametrize(
+        ("admin_hash", "warned"), [(None, True), (SecretStr("a saved hash"), False)]
+    )
+    def test_warns_but_starts_when_local_auth_has_no_passwords(
+        self, admin_hash: SecretStr | None, warned: bool
+    ) -> None:
+        """Unset passwords reject every login; warn rather than fail. A saved one counts."""
         from app.main import validate_auth_configuration
 
-        with patch("app.main.settings") as mock_settings:
-            mock_settings.jwt_secret = SecretStr("synthetic-test-signing-key-with-32-characters")
-            mock_settings.plex_auth_enabled = False
-            mock_settings.plex_server_machine_id = None
-            mock_settings.local_auth_enabled = True
-            mock_settings.admin_password = None
-            mock_settings.viewer_password = None
-            validate_auth_configuration()
+        output = StringIO()
+        sink = logger.add(output, format="{level} | {message}", level="WARNING")
+        try:
+            with patch("app.main.settings") as mock_settings:
+                mock_settings.jwt_secret = SecretStr(
+                    "synthetic-test-signing-key-with-32-characters"
+                )
+                mock_settings.plex_auth_enabled = False
+                mock_settings.plex_server_machine_id = None
+                mock_settings.local_auth_enabled = True
+                mock_settings.admin_password = None
+                mock_settings.viewer_password = None
+                mock_settings.admin_password_hash = admin_hash
+                mock_settings.viewer_password_hash = None
+                validate_auth_configuration()
+        finally:
+            logger.remove(sink)
+
+        assert ("every local login will be rejected" in output.getvalue()) is warned
 
     @pytest.mark.parametrize(
         ("state", "warned"), [("unclaimed", False), ("claimed", True), ("complete", True)]

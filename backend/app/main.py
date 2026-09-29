@@ -49,6 +49,7 @@ from app.services.epg_service import get_epg_service
 from app.services.ersatztv.refresh import stop_feed_executor
 from app.services.highlight import highlight_service
 from app.services.http_clients import aclose_http_clients
+from app.services.passwords import local_accounts
 from app.spa import mount_spa
 
 
@@ -100,12 +101,12 @@ def validate_auth_configuration() -> None:
         )
 
     # Local auth with no passwords configured rejects every login attempt.
-    # Non-fatal, but silent 401s are a miserable thing to debug.
-    passwords = (settings.admin_password, settings.viewer_password)
-    if settings.local_auth_enabled and not any(p and p.get_secret_value() for p in passwords):
+    # Non-fatal, but silent 401s are a miserable thing to debug. A password
+    # saved from the app (a hash) counts as much as one in the environment.
+    if settings.local_auth_enabled and not any(a.usable for a in local_accounts(settings)):
         logger.warning(
-            "LOCAL_AUTH_ENABLED is true but neither ADMIN_PASSWORD nor "
-            "VIEWER_PASSWORD is set — every local login will be rejected"
+            "Local sign-in is on but neither login has a password (ADMIN_PASSWORD, "
+            "VIEWER_PASSWORD or one saved in the app), so every local login will be rejected"
         )
 
 
