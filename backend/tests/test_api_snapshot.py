@@ -357,6 +357,8 @@ def test_rest_bodies(client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_pa
     volatile: set[str] = set()
     viewer = _headers()
 
+    # The sample shows a server with no sign-in method on
+    monkeypatch.setattr(settings, "local_auth_enabled", False)
     bodies["GET /api/auth/config"] = _body(client.get("/api/auth/config"))
     monkeypatch.setattr(app_settings, "_user_channel_selection", True)
     bodies["GET /api/settings"] = _body(client.get("/api/settings", headers=viewer))

@@ -9,6 +9,7 @@ from app.config import settings
 from app.models.auth import TokenPayload
 from app.services import app_settings, plex
 from app.services.auth import verify_token
+from app.services.passwords import local_accounts
 
 log = logger.bind(router="auth_deps")
 security = HTTPBearer()
@@ -88,7 +89,8 @@ async def _admin_in_current_config(user: TokenPayload) -> bool:
     current admin source is treated as a stale claim.
 
     Sources that mint role="admin" (routers.auth.login + services.plex.determine_role):
-      - the local admin username (ADMIN_USERNAME), for a local token (no plex_id)
+      - the local admin username (ADMIN_USERNAME), for a local token (no plex_id),
+        while local sign-in is on and the admin account has a password
       - the Plex admin username list (PLEX_ADMIN_USERS_STR)
       - the Plex account ids picked as admins in the UI (plex_admin_ids)
       - PLEX_DEFAULT_ROLE == "admin" (every authenticated Plex user is admin)
@@ -97,8 +99,10 @@ async def _admin_in_current_config(user: TokenPayload) -> bool:
 
     Only the owner check can cost a network call, and only on a cold cache.
     """
-    if user.sub == settings.admin_username and user.plex_id is None:
-        return True
+    if user.plex_id is None and settings.local_auth_enabled:
+        admin = local_accounts(settings)[0]
+        if admin.usable and user.sub == admin.username:
+            return True
     if user.sub in settings.plex_admin_users:
         return True
     if not settings.plex_auth_enabled:

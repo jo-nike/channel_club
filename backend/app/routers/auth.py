@@ -11,6 +11,7 @@ from app.models.plex import PlexAuthRequest, PlexUser
 from app.routers.auth_deps import get_current_user
 from app.services import plex, settings_store
 from app.services.auth import JWT_EXPIRATION_DAYS, SESSION_MAX_AGE_DAYS, create_access_token
+from app.services.passwords import check_local_login, local_accounts
 from app.services.plex import (
     InvalidPlexTokenError,
     PlexUnavailableError,
@@ -56,26 +57,8 @@ async def login(request: LoginRequest) -> TokenResponse:
     if not settings.local_auth_enabled:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
 
-    admin_password = settings.admin_password.get_secret_value() if settings.admin_password else ""
-    viewer_password = (
-        settings.viewer_password.get_secret_value() if settings.viewer_password else ""
-    )
-
-    # Check admin credentials
-    if (
-        admin_password
-        and request.username == settings.admin_username
-        and request.password == admin_password
-    ):
-        role = "admin"
-    # Check viewer credentials
-    elif (
-        viewer_password
-        and request.username == settings.viewer_username
-        and request.password == viewer_password
-    ):
-        role = "viewer"
-    else:
+    role = await check_local_login(local_accounts(settings), request.username, request.password)
+    if role is None:
         log.warning("Failed login attempt for user: {}", log_username)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -157,12 +140,14 @@ async def _current_role(user: TokenPayload) -> str | None:
     if user.plex_id is None:
         if not settings.local_auth_enabled:
             return None
-        admin_password = settings.admin_password and settings.admin_password.get_secret_value()
-        viewer_password = settings.viewer_password and settings.viewer_password.get_secret_value()
-        if admin_password and user.sub == settings.admin_username:
-            return "admin"
-        if viewer_password and user.sub == settings.viewer_username:
-            return "viewer"
+        # The first account with this username that still has a password, never
+        # above the token's own role: a viewer whose name now matches the
+        # admin's must not refresh into admin.
+        for account in local_accounts(settings):
+            if account.role == "admin" and user.role != "admin":
+                continue
+            if account.usable and account.username == user.sub:
+                return account.role
         return None
     if not settings.plex_auth_enabled:
         return None

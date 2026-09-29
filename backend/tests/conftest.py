@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from pydantic import SecretStr
 from pydantic_settings import DotEnvSettingsSource
 
 # Prevent dotenv reads even during application module import. Parent environment
@@ -39,6 +40,10 @@ with patch.object(DotEnvSettingsSource, "_read_env_files", return_value={}):
     # Tests run as if these few came from the environment: the signing key is
     # never generated, and the two source groups are locked unless a test unlocks them
     config.ENV_FIELDS = frozenset(isolated.model_fields_set)
+    # The admin tokens tests mint ({"sub": "admin"}) are local ones, which only
+    # count while local sign-in is on and the admin account has a password
+    settings.local_auth_enabled = True
+    settings.admin_password = SecretStr("synthetic-test-admin-password")
 
 
 @pytest.fixture(autouse=True)
@@ -85,6 +90,7 @@ def reset_module_state(monkeypatch):
     __import__("app.services.gauges", fromlist=["_"]).reset_gauges_task()
     __import__("app.services.state_store", fromlist=["_"]).reset_state_store()
     __import__("app.services.settings_store", fromlist=["_"]).reset_settings_store()
+    __import__("app.services.passwords", fromlist=["_"]).reset_password_slots()
     __import__("app.services.stream_sessions", fromlist=["_"]).clear()
     __import__("app.services.http_clients", fromlist=["_"]).reset_http_clients()
 

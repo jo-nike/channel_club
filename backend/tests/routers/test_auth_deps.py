@@ -354,3 +354,18 @@ def test_admins_picked_by_plex_id_need_no_owner_lookup(monkeypatch):
     assert _admin_status({"sub": "777"}) == 403
     monkeypatch.setattr(settings, "plex_auth_enabled", False)
     assert _admin_status({"sub": "renamed-friend", "plex_id": "777"}) == 403
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"local_auth_enabled": False},
+        {"admin_password": None, "admin_password_hash": None},
+    ],
+)
+def test_a_local_admin_token_stops_counting_without_local_sign_in(monkeypatch, change):
+    """Turning local sign-in off, or removing the admin's password, ends its admin rights."""
+    assert _admin_status({"sub": settings.admin_username}) == 200
+    for name, value in change.items():
+        monkeypatch.setattr(settings, name, value)
+    assert _admin_status({"sub": settings.admin_username}) == 403

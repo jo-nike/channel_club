@@ -31,6 +31,9 @@ def client():
     """Create test client for main app with local auth enabled."""
     # Patch settings to enable local auth for integration tests
     with patch("app.routers.auth.settings") as mock_settings:
+        mock_settings.admin_password_hash = None
+        mock_settings.viewer_password_hash = None
+        mock_settings.plex_admin_ids = []
         mock_settings.local_auth_enabled = True
         mock_settings.plex_auth_enabled = False
         mock_settings.admin_username = "admin"
