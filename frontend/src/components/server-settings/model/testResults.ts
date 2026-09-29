@@ -126,7 +126,7 @@ export function testStatus(record: TestRecord | undefined, state: SettingsState,
 }
 
 /** One line of a test's outcome. */
-export interface CheckRow {
+export interface TestCheck {
   tone: 'ok' | 'bad'
   title: string
   detail: string
@@ -145,7 +145,7 @@ export function hostOf(text: string): string {
   }
 }
 
-function passed(kind: TestKind, result: ConnectionTestResult, topic: string): CheckRow {
+function passed(kind: TestKind, result: ConnectionTestResult, topic: string): TestCheck {
   const counts = result.counts ?? {}
   switch (kind) {
     case 'dispatcharr': {
@@ -186,7 +186,7 @@ function passed(kind: TestKind, result: ConnectionTestResult, topic: string): Ch
 /** What a failure says, by reason, with the kinds that need their own words. */
 const FAILED: Record<
   TestFailureReason,
-  (host: string, kind: TestKind) => Omit<CheckRow, 'tone'>
+  (host: string, kind: TestKind) => Omit<TestCheck, 'tone'>
 > = {
   unreachable: (host, kind) => ({
     title: `Couldn't connect to ${host}`,
@@ -242,7 +242,7 @@ export function describeResult(
   kind: TestKind,
   result: ConnectionTestResult,
   { address, topic }: { address: string; topic: string }
-): CheckRow {
+): TestCheck {
   if (result.ok) return passed(kind, result, topic)
   const host = kind === 'giphy' ? 'GIPHY' : hostOf(address)
   const reason = result.reason ?? 'http'
