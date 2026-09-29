@@ -94,6 +94,31 @@ class TestValidateAuthConfiguration:
             mock_settings.viewer_password = None
             validate_auth_configuration()
 
+    @pytest.mark.parametrize(
+        ("state", "warned"), [("unclaimed", False), ("claimed", True), ("complete", True)]
+    )
+    def test_warns_of_no_sign_in_unless_setup_is_open(self, state: str, warned: bool) -> None:
+        """Open setup has its own warning, which says what to do."""
+        from app.main import validate_auth_configuration
+
+        output = StringIO()
+        sink = logger.add(output, format="{level} | {message}", level="WARNING")
+        try:
+            with (
+                patch("app.main.settings") as mock_settings,
+                patch("app.main.settings_store.setup_state", return_value=state),
+            ):
+                mock_settings.jwt_secret = SecretStr(
+                    "synthetic-test-signing-key-with-32-characters"
+                )
+                mock_settings.plex_auth_enabled = False
+                mock_settings.local_auth_enabled = False
+                validate_auth_configuration()
+        finally:
+            logger.remove(sink)
+
+        assert ("No authentication methods enabled" in output.getvalue()) is warned
+
     def test_refuses_to_start_on_default_jwt_secret(self) -> None:
         """The source-public dev secret lets anyone forge an admin token."""
         from app.main import validate_auth_configuration

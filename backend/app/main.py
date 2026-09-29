@@ -91,7 +91,9 @@ def validate_auth_configuration() -> None:
             "Set PLEX_SERVER_MACHINE_ID or disable Plex auth."
         )
 
-    if not settings.local_auth_enabled and not settings.plex_auth_enabled:
+    # While setup is open its own warning says what to do (settings_store.start)
+    no_sign_in = not settings.local_auth_enabled and not settings.plex_auth_enabled
+    if no_sign_in and settings_store.setup_state() != "unclaimed":
         logger.warning(
             "No authentication methods enabled! "
             "Set LOCAL_AUTH_ENABLED=true or PLEX_AUTH_ENABLED=true"
