@@ -49,17 +49,17 @@ def test_verify_token_keeps_plex_id():
 
 def test_verify_token_invalid():
     """Test verify_token raises exception for invalid token."""
-    from jose import JWTError
+    import jwt
 
     from app.services.auth import verify_token
 
-    with pytest.raises(JWTError):
+    with pytest.raises(jwt.InvalidTokenError):
         verify_token("invalid.token.here")
 
 
 def test_verify_token_expired():
     """Test verify_token raises exception for expired token."""
-    from jose import JWTError, jwt
+    import jwt
 
     from app.config import settings
     from app.services.auth import verify_token
@@ -72,7 +72,7 @@ def test_verify_token_expired():
         algorithm="HS256",
     )
 
-    with pytest.raises(JWTError):
+    with pytest.raises(jwt.InvalidTokenError):
         verify_token(expired_token)
 
 
@@ -92,3 +92,72 @@ def test_token_expiration_is_7_days():
 
     assert payload.exp >= expected_min
     assert payload.exp <= expected_max
+
+
+def _signed(claims: dict, key: str | None = None, algorithm: str = "HS256") -> str:
+    import jwt
+
+    from app.config import settings
+
+    claims = {"exp": datetime.now(UTC) + timedelta(hours=1), **claims}
+    return jwt.encode(claims, settings.jwt_secret if key is None else key, algorithm=algorithm)
+
+
+@pytest.mark.parametrize(
+    "claims,key,algorithm",
+    [
+        pytest.param({"sub": "admin"}, None, "HS256", id="no-role"),
+        pytest.param({"role": "admin"}, None, "HS256", id="no-sub"),
+        pytest.param({"sub": "admin", "role": "admin"}, "", "none", id="alg-none"),
+        pytest.param(
+            {"sub": "admin", "role": "admin"},
+            None,
+            "HS512",
+            id="hs512",
+            marks=pytest.mark.filterwarnings("ignore:The HMAC key"),
+        ),
+        pytest.param({"sub": "admin", "role": "admin"}, "another-key-" * 4, "HS256", id="key"),
+        pytest.param({"sub": "admin", "role": "admin", "typ": "media"}, None, "HS256", id="typ"),
+    ],
+)
+def test_verify_token_rejects_as_invalid_token(claims, key, algorithm):
+    """Every bad token raises InvalidTokenError, never a ValidationError."""
+    import jwt
+
+    from app.services.auth import verify_token
+
+    with pytest.raises(jwt.InvalidTokenError):
+        verify_token(_signed(claims, key, algorithm))
+
+
+def test_verify_token_rejects_token_without_exp():
+    """exp is required."""
+    import jwt
+
+    from app.config import settings
+    from app.services.auth import verify_token
+
+    token = jwt.encode({"sub": "admin", "role": "admin"}, settings.jwt_secret, algorithm="HS256")
+    with pytest.raises(jwt.InvalidTokenError):
+        verify_token(token)
+
+
+def test_verify_token_accepts_r2_token_without_typ():
+    """Tokens issued before typ existed stay valid until they expire."""
+    from app.services.auth import verify_token
+
+    token = _signed({"sub": "viewer", "role": "viewer", "auth_time": 1_700_000_000})
+    assert verify_token(token).sub == "viewer"
+
+
+def test_create_access_token_carries_session_typ_and_auth_time():
+    """New tokens are session-typed, and a caller cannot change that."""
+    import jwt
+
+    from app.config import settings
+    from app.services.auth import create_access_token
+
+    token = create_access_token({"sub": "admin", "role": "admin", "typ": "media"})
+    payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
+    assert payload["typ"] == "session"
+    assert isinstance(payload["auth_time"], int)

@@ -1,8 +1,8 @@
 """Auth dependency functions for protected routes."""
 
+import jwt
 from fastapi import Depends, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError
 from loguru import logger
 
 from app.config import settings
@@ -32,7 +32,7 @@ async def get_current_user(
     token = credentials.credentials
     try:
         return verify_token(token)
-    except JWTError:
+    except jwt.PyJWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
@@ -62,14 +62,14 @@ async def get_current_user_or_token(
     if credentials is not None:
         try:
             return verify_token(credentials.credentials)
-        except JWTError:
+        except jwt.PyJWTError:
             pass  # Fall through to try query param
 
     # Try query param
     if token is not None:
         try:
             return verify_token(token)
-        except JWTError:
+        except jwt.PyJWTError:
             pass
 
     # Neither worked

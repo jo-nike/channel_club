@@ -373,7 +373,7 @@ class TestPlexAuthEndpoint:
 
     def test_plex_auth_jwt_contains_correct_claims(self, client_plex_enabled):
         """Plex auth JWT contains username, role, and plex_id claims."""
-        from jose import jwt
+        import jwt
 
         mock_user = PlexUser(id="12345", username="plexuser", email="test@test.com")
         with (

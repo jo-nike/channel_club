@@ -2,8 +2,9 @@
 
 from datetime import UTC, datetime, timedelta
 
-from jose import jwt
+import jwt
 from loguru import logger
+from pydantic import ValidationError
 
 from app.config import settings
 from app.models.auth import TokenPayload
@@ -31,7 +32,7 @@ def create_access_token(data: dict) -> str:
     now = datetime.now(UTC)
     to_encode = data.copy()
     to_encode.setdefault("auth_time", int(now.timestamp()))
-    to_encode.update({"exp": now + timedelta(days=JWT_EXPIRATION_DAYS)})
+    to_encode.update({"exp": now + timedelta(days=JWT_EXPIRATION_DAYS), "typ": "session"})
     # Log token creation without exposing sensitive data
     log.debug("Creating access token for user with role '{}'", data.get("role", "unknown"))
     return jwt.encode(to_encode, settings.jwt_secret, algorithm=JWT_ALGORITHM)
@@ -47,11 +48,23 @@ def verify_token(token: str) -> TokenPayload:
         TokenPayload with decoded claims.
 
     Raises:
-        JWTError: If token is invalid or expired.
+        jwt.InvalidTokenError: If the token is invalid, expired, not a
+            session token, or its claims do not fit TokenPayload.
     """
     # Log only first 8 characters of token for debugging (never full token!)
     log.debug("Verifying token: {}...", token[:8] if token else "empty")
-    payload = jwt.decode(token, settings.jwt_secret, algorithms=[JWT_ALGORITHM])
-    token_payload = TokenPayload(**payload)
+    payload = jwt.decode(
+        token,
+        settings.jwt_secret,
+        algorithms=[JWT_ALGORITHM],
+        options={"require": ["exp", "sub"]},
+    )
+    # R2 tokens carry no typ and stay valid until they expire (7 days after R3)
+    if payload.get("typ", "session") != "session":
+        raise jwt.InvalidTokenError("Not a session token")
+    try:
+        token_payload = TokenPayload(**payload)
+    except ValidationError as e:
+        raise jwt.InvalidTokenError("Token claims are invalid") from e
     log.debug("Token verified for user with role '{}'", token_payload.role)
     return token_payload
