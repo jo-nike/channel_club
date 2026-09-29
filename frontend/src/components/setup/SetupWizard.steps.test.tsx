@@ -271,7 +271,8 @@ describe('SetupWizard: Who can join', () => {
 
     fireEvent.click(continueButton())
 
-    expect(screen.getByText('Sign in with Plex to choose the server, or switch Plex members off.')).toBeInTheDocument()
+    // Focus goes to the button, and the alert says why
+    expect(screen.getByRole('alert')).toHaveTextContent('Sign in with Plex to choose the server, or switch Plex members off.')
     expect(screen.getByRole('button', { name: 'Sign in with Plex' })).toHaveFocus()
 
     await signInToPlex()

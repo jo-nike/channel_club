@@ -160,10 +160,13 @@ export function AccessSection({
         ) : (
           <>
             {plexConnect}
+            {/* An alert, so it's read out: focus goes to the sign-in button above */}
             {errors.plexLink && (
-              <FieldMessage id={`${idPrefix}-plexLink-err`} tone="error">
-                {errors.plexLink}
-              </FieldMessage>
+              <div role="alert">
+                <FieldMessage id={`${idPrefix}-plexLink-err`} tone="error">
+                  {errors.plexLink}
+                </FieldMessage>
+              </div>
             )}
           </>
         )}

@@ -128,7 +128,7 @@ describe('AccessSection', () => {
       fireEvent.click(screen.getByRole('switch', { name: 'Plex members' }))
 
       expect(screen.getByRole('button', { name: 'Sign in with Plex' })).toHaveAttribute('id', 't-plex-link')
-      expect(screen.getByText('Sign in with Plex to choose the server, or switch Plex members off.')).toBeInTheDocument()
+      expect(screen.getByRole('alert')).toHaveTextContent('Sign in with Plex to choose the server, or switch Plex members off.')
       expect(screen.queryByRole('radio', { name: 'Viewer' })).not.toBeInTheDocument()
     })
   })
