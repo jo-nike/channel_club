@@ -7,6 +7,7 @@ import { scrollBehavior } from '@/lib/motion'
 import { hasPendingPlexPin } from '@/services/plexAuth'
 import {
   claimSetup,
+  completeSetup,
   getAdminConfig,
   getPlexMembers,
   linkPlexServer,
@@ -65,6 +66,7 @@ const PLEX_CALL_COPY: Partial<Record<string, string>> = {
 }
 
 const NOT_OWNER = "That Plex server isn't one of yours. Pick one you own."
+const ENV_MANAGED = "Sign-in is set in this server's environment, so there's nothing to set up."
 
 /** Saving's refusals of the whole step. */
 const SAVE_COPY: Partial<Record<string, string>> = {
@@ -133,6 +135,12 @@ export function linkFailure(err: unknown): Failure {
   return { formError: { message: (err.code !== undefined ? SAVE_COPY[err.code] : undefined) ?? err.message } }
 }
 
+/** What a failed finish shows. */
+export function completeFailure(err: unknown): Failure {
+  if (err instanceof SetupApiError && err.code === 'env_managed') return { formError: { message: ENV_MANAGED, signIn: true } }
+  return { formError: { message: err instanceof Error ? err.message : "Couldn't finish setting up." } }
+}
+
 /** Why a test couldn't run, under its button. */
 function testErrorMessage(err: unknown): string {
   if (err instanceof SetupApiError && err.code === 'busy') return 'Wait a few seconds before testing again.'
@@ -159,7 +167,7 @@ export function claimFailure(err: unknown, account: AccountDraft): Failure {
     case 'already_claimed':
       return { formError: { message: 'Someone else set up this club first.', signIn: true } }
     case 'env_managed':
-      return { formError: { message: "Sign-in is set in this server's environment, so there's nothing to set up.", signIn: true } }
+      return { formError: { message: ENV_MANAGED, signIn: true } }
     case 'plex_token':
       return { errors: { plex: plexErrorMessage(err) } }
     case 'plex_unavailable':
@@ -201,7 +209,13 @@ function openingState(props: WizardProps): WizardState {
 const SESSION_ENDED = 'Sign in again to finish setting up.'
 const NOT_AN_ADMIN = 'Only an admin can set up Channel Club.'
 
-type SettingsStepId = Extract<StepId, SectionId>
+/** What Open Channel Club saves, in order, with the step each is edited on. */
+const SAVE_ORDER = [
+  ['sources', 'sources'],
+  ['access', 'access'],
+  ['extras', 'extras'],
+  ['advanced', 'review'],
+] as const satisfies readonly (readonly [SectionId, StepId])[]
 
 /** Whether Continue has a Plex server to link first: Plex members on, none linked, one picked. */
 function linkPending(settings: SettingsState, plex: WizardState['plex']): boolean {
@@ -290,11 +304,16 @@ export function useSetupWizard(props: WizardProps) {
   }, [])
 
   /**
-   * Show what's wrong. Focus moves to `focusId` once its error shows, so the
-   * error is read with it; a problem with the whole step is scrolled into view.
+   * Show what's wrong, on `step` when that isn't the one open (Review sends
+   * a problem to where it's fixed). Focus moves to `focusId` once its error
+   * shows, so the error is read with it; a problem with the whole step is
+   * scrolled into view.
    */
-  const fail = (failure: Failure, focusId?: string) => {
-    flushSync(() => dispatch({ type: 'failed', ...failure }))
+  const fail = (failure: Failure, focusId?: string, step?: StepId) => {
+    flushSync(() => {
+      if (step && step !== state.step) dispatch({ type: 'goTo', step })
+      dispatch({ type: 'failed', ...failure })
+    })
     if (focusId) document.getElementById(focusId)?.focus()
     else if (failure.formError) {
       document.getElementById(FORM_ERROR_ID)?.scrollIntoView({ block: 'nearest', behavior: scrollBehavior() })
@@ -348,12 +367,15 @@ export function useSetupWizard(props: WizardProps) {
     for (const warning of warnings) toast.warning(WARNING_COPY[warning.code] ?? warning.message)
   }
 
-  /** Check a section, then save what changed; true once it is saved or had nothing to save. */
-  const saveSection = async (settings: SettingsState, section: SectionId): Promise<boolean> => {
+  /**
+   * Check a section, then save what changed; true once saved, or with
+   * nothing to save. A failure shows on `step`, where the section is edited.
+   */
+  const saveSection = async (settings: SettingsState, section: SectionId, step: StepId): Promise<boolean> => {
     const errors = validateSection(settings, section)
     const first = firstError(section, errors)
     if (first) {
-      fail({ errors }, errorTargetId(ID_PREFIX, first))
+      fail({ errors }, errorTargetId(ID_PREFIX, first), step)
       return false
     }
     const patch = sectionPatch(settings, section)
@@ -368,7 +390,7 @@ export function useSetupWizard(props: WizardProps) {
       if (!sessionEnded(err)) {
         const failure = saveFailure(err, section)
         const field = failure.errors ? firstError(section, failure.errors) : null
-        fail(failure, field ? errorTargetId(ID_PREFIX, field) : undefined)
+        fail(failure, field ? errorTargetId(ID_PREFIX, field) : undefined, step)
       }
       return false
     }
@@ -387,22 +409,40 @@ export function useSetupWizard(props: WizardProps) {
     } catch (err) {
       if (!sessionEnded(err)) {
         if (err instanceof SetupApiError && err.code === 'plex_token') dispatch({ type: 'plexSignedOut' })
-        fail(linkFailure(err), errorTargetId(ID_PREFIX, 'plexLink'))
+        fail(linkFailure(err), errorTargetId(ID_PREFIX, 'plexLink'), 'access')
       }
       return null
     }
   }
 
-  /** Save a step's settings, linking a Plex server picked on Who can join first. */
-  const saveStep = async (step: SettingsStepId): Promise<boolean> => {
-    let settings = state.settings
-    if (!settings) return false
-    if (step === 'access' && linkPending(settings, state.plex)) {
+  /** Save a section, linking a Plex server picked on Who can join first. */
+  const saveSettings = async (settings: SettingsState, section: SectionId, step: StepId): Promise<boolean> => {
+    if (section === 'access' && linkPending(settings, state.plex)) {
       const view = await linkServer()
       if (!view) return false
       settings = { ...settings, view }
     }
-    return saveSection(settings, step)
+    return saveSection(settings, section, step)
+  }
+
+  /**
+   * Open Channel Club: save what's still unsaved, in step order, then
+   * finish setup. No section's checks read another's settings, so each
+   * checks the settings as Review had them.
+   */
+  const openClub = async () => {
+    const settings = state.settings
+    if (!settings) return
+    for (const [section, step] of SAVE_ORDER) {
+      if (!(await saveSettings(settings, section, step))) return
+    }
+    dispatch({ type: 'busy', busy: 'complete' })
+    try {
+      const facts = await completeSetup()
+      dispatch({ type: 'completed', facts })
+    } catch (err) {
+      if (!sessionEnded(err)) fail(completeFailure(err))
+    }
   }
 
   /** Continue: each step checks and keeps what it needs before the next opens. */
@@ -413,7 +453,9 @@ export function useSetupWizard(props: WizardProps) {
       dispatch({ type: 'advance' })
     } else if (step === 'account') {
       await claim()
-    } else if (step !== 'review' && (await saveStep(step))) {
+    } else if (step === 'review') {
+      await openClub()
+    } else if (state.settings && (await saveSettings(state.settings, step, step))) {
       dispatch({ type: 'advance' })
     }
   }
@@ -489,6 +531,7 @@ export function useSetupWizard(props: WizardProps) {
     setField: <K extends EditableField>(field: K, value: DraftValueOf<K>) =>
       dispatch({ type: 'setField', field, value: value as DraftValueOf<EditableField> }),
     setSource: (kind: SourceKind, on: boolean) => dispatch({ type: 'setSource', kind, on }),
+    resetAdvanced: () => dispatch({ type: 'resetAdvanced' }),
     runTest,
     plexSignIn,
     plexSignedOut: () => dispatch({ type: 'plexSignedOut' }),

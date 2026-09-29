@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { configView } from '@/test/settingsFixtures'
-import type { ConfigValues } from '@/types/setup'
+import type { ConfigValues, SetupFacts } from '@/types/setup'
 import { EMPTY_DRAFT, type Draft } from '@/components/server-settings/model/configDraft'
-import { pickedServerName, stepSummary } from './summaries'
+import { testFingerprint } from '@/components/server-settings/model/testResults'
+import { onAirFacts, pickedServerName, reviewRows, stepSummary } from './summaries'
 import { initialWizardState, wizardReducer, type WizardAdmin, type WizardState } from './wizardReducer'
 
 const SERVERS = [
@@ -88,5 +89,109 @@ describe('stepSummary', () => {
       'Chat, clips, Chromecast, feedback'
     )
     expect(stepSummary(afterClaim({ castEnabled: true }), 'extras')).toBe('Chromecast')
+  })
+})
+
+describe('reviewRows', () => {
+  const lines = (state: WizardState, step: string) =>
+    reviewRows(state, state.settings!).find((row) => row.step === step)?.lines.map((line) => (line.warn ? `! ${line.text}` : line.text))
+
+  it("names the admin's sign-in", () => {
+    expect(lines(afterClaim(), 'account')).toEqual(['Username and password, as sam'])
+    const plexAdmin: WizardAdmin = { signIn: 'plex', username: 'jon', plexId: '101' }
+    expect(lines(afterClaim({}, { admin: plexAdmin, plexServerName: 'Home Server' }), 'account')).toEqual([
+      'Plex, signed in as jon',
+      'Server: Home Server',
+    ])
+  })
+
+  it("says how each source's last test went, for the address shown", () => {
+    const state = afterClaim({ dispatcharrUrl: 'https://tv.example.com', dispatcharrApiKey: { set: true }, ersatztvBaseUrl: 'http://etv.lan' })
+    expect(lines(state, 'sources')).toEqual(['Dispatcharr · not tested', 'ErsatzTV · not tested'])
+
+    const tested = [
+      { type: 'testStarted', kind: 'dispatcharr', fingerprint: testFingerprint(state.settings!, 'dispatcharr') },
+      { type: 'testFinished', kind: 'dispatcharr', fingerprint: testFingerprint(state.settings!, 'dispatcharr'), result: { ok: true, counts: { channels: 37 } } },
+      { type: 'testStarted', kind: 'ersatztv', fingerprint: testFingerprint(state.settings!, 'ersatztv') },
+      { type: 'testFinished', kind: 'ersatztv', fingerprint: testFingerprint(state.settings!, 'ersatztv'), result: { ok: false, reason: 'timeout' } },
+    ] as const
+    expect(lines(tested.reduce(wizardReducer, state), 'sources')).toEqual(['Dispatcharr · 37 channels', '! ErsatzTV · last test failed'])
+    expect(lines(afterClaim({}, { draft: { values: {}, sources: { dispatcharr: false } } }), 'sources')).toEqual(['! No source yet'])
+  })
+
+  it('says who can join and how', () => {
+    const plexAdmin: WizardAdmin = { signIn: 'plex', username: 'jon', plexId: '101' }
+    const linked = afterClaim(
+      // The owner is an admin whether listed or not
+      { plexAuthEnabled: true, plexServerMachineId: 'home', plexAdminIds: ['202'], plexDefaultRole: 'admin', userChannelSelection: true },
+      { admin: plexAdmin, plexServerName: 'Home Server' }
+    )
+    const withMembers = wizardReducer(linked, {
+      type: 'members',
+      members: [
+        { plexId: '101', username: 'jon', managed: false, owner: true, admin: true },
+        { plexId: '202', username: 'sam', managed: false, owner: false, admin: true },
+        { plexId: '303', username: 'kim', managed: false, owner: false, admin: false },
+      ],
+    })
+    expect(lines(withMembers, 'access')).toEqual([
+      'Plex members of Home Server join as admins',
+      'Admins: jon, sam',
+      'Anyone can change the live channel',
+      'Others see only who is online',
+    ])
+    expect(lines(afterClaim({ localAuthEnabled: true, adminPassword: { set: true }, presenceVisible: true }), 'access')).toEqual([
+      'Admin login: admin',
+      'No guest login',
+      'Only admins change the live channel',
+      'Everyone sees what others watch',
+    ])
+    expect(
+      lines(afterClaim({ localAuthEnabled: true }, { draft: { ...EMPTY_DRAFT, values: { viewerUsername: 'lounge', viewerPassword: 'guest pass 1' } } }), 'access')
+    ).toEqual(['No password admin login', 'Guest login: lounge', 'Only admins change the live channel', 'Others see only who is online'])
+  })
+
+  it('lists the extras on', () => {
+    expect(lines(afterClaim(), 'extras')).toEqual(['None'])
+    expect(
+      lines(
+        afterClaim({
+          chatEnabled: true,
+          giphyApiKey: { set: true },
+          highlightEnabled: true,
+          ziplineEnabled: true,
+          castEnabled: true,
+          ntfyEnabled: true,
+          ntfyTopic: 'club-news',
+        }),
+        'extras'
+      )
+    ).toEqual(['Chat, with GIFs', 'Clips, shared through Zipline', 'Chromecast', 'Feedback to the ntfy topic club-news'])
+    expect(lines(afterClaim({ chatEnabled: true, highlightEnabled: true }), 'extras')).toEqual(['Chat', 'Clips'])
+  })
+})
+
+describe('onAirFacts', () => {
+  const facts = (overrides: Partial<SetupFacts> = {}, features: Partial<SetupFacts['features']> = {}): SetupFacts => ({
+    dispatcharrChannels: null,
+    ersatztvChannels: null,
+    plexServerName: null,
+    ...overrides,
+    features: { chat: false, gifs: false, clips: false, cast: false, feedback: false, ...features },
+  })
+
+  it('counts the channels from every source that answered', () => {
+    expect(onAirFacts(facts({ dispatcharrChannels: 37, ersatztvChannels: 12 }))).toEqual(['49 channels'])
+    expect(onAirFacts(facts({ ersatztvChannels: 1 }))).toEqual(['1 channel'])
+    expect(onAirFacts(facts())).toEqual([])
+  })
+
+  it('names who can join and the extras that are on', () => {
+    expect(onAirFacts(facts({ dispatcharrChannels: 0, plexServerName: 'Home Server' }, { chat: true, clips: true, cast: true, feedback: true }))).toEqual([
+      '0 channels',
+      'Members of Home Server can join',
+      'Chat on',
+      'Clips on',
+    ])
   })
 })

@@ -1,5 +1,6 @@
 import { useEffect, useRef, type Ref } from 'react'
 import { scrollBehavior } from '@/lib/motion'
+import { cn } from '@/lib/utils'
 import { SetupActionBar } from './SetupActionBar'
 import { SetupProgressHeader } from './SetupProgressHeader'
 import { SetupRail } from './SetupRail'
@@ -7,13 +8,15 @@ import { HEADING_ID } from './StepHeader'
 import { AccessStep } from './steps/AccessStep'
 import { AccountStep } from './steps/AccountStep'
 import { ExtrasStep } from './steps/ExtrasStep'
-import { SettingsStep } from './steps/SettingsStep'
+import { OnAirStep } from './steps/OnAirStep'
+import { ReviewStep } from './steps/ReviewStep'
 import { SourcesStep } from './steps/SourcesStep'
 import { WelcomeStep } from './steps/WelcomeStep'
 import { useSetupWizard, type SetupWizardApi, type WizardProps } from './useSetupWizard'
 
 function StepContent({ wizard, headingRef }: { wizard: SetupWizardApi; headingRef: Ref<HTMLHeadingElement> }) {
   const { state } = wizard
+  if (state.done) return <OnAirStep facts={state.facts} headingRef={headingRef} />
   switch (state.step) {
     case 'welcome':
       return <WelcomeStep envLocked={state.envLocked} headingRef={headingRef} />
@@ -25,8 +28,8 @@ function StepContent({ wizard, headingRef }: { wizard: SetupWizardApi; headingRe
       return <AccessStep wizard={wizard} headingRef={headingRef} />
     case 'extras':
       return <ExtrasStep wizard={wizard} headingRef={headingRef} />
-    default:
-      return <SettingsStep step={state.step} wizard={wizard} headingRef={headingRef} />
+    case 'review':
+      return <ReviewStep wizard={wizard} headingRef={headingRef} />
   }
 }
 
@@ -71,7 +74,11 @@ export function SetupWizard(props: WizardProps) {
             <section
               key={shown}
               aria-labelledby={HEADING_ID}
-              className="flex max-w-[680px] animate-in flex-col gap-6 duration-300 fill-mode-both fade-in slide-in-from-bottom-2"
+              className={cn(
+                'flex max-w-[680px] animate-in flex-col gap-6 duration-300 fill-mode-both fade-in slide-in-from-bottom-2',
+                // On air centres itself in the whole column
+                state.done && 'max-w-none'
+              )}
             >
               <StepContent wizard={wizard} headingRef={headingRef} />
             </section>
