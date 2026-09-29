@@ -3,8 +3,16 @@ import { App } from '@/App'
 import { TVView } from '@/components/tv/TVView'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
 import { AppErrorScreen } from '@/components/AppErrorScreen'
+import { AppLoadingScreen } from '@/components/AppLoadingScreen'
 
 export const routes: RouteObject[] = [
+  {
+    // First-run setup, needed once per install: loaded only when opened
+    path: '/setup',
+    lazy: () => import('@/components/setup/SetupRoute').then((module) => ({ Component: module.SetupRoute })),
+    errorElement: <AppErrorScreen />,
+    hydrateFallbackElement: <AppLoadingScreen />,
+  },
   {
     path: '/',
     element: <App />,

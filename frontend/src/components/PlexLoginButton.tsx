@@ -11,12 +11,15 @@ interface PlexLoginButtonProps {
   disabled?: boolean
   /** Room-sized for a TV; otherwise desktop-sized. */
   tv?: boolean
+  /** For moving focus to the button */
+  id?: string
 }
 
-export function PlexLoginButton({ onClick, isLoading, onCancel, disabled = false, tv = false }: PlexLoginButtonProps) {
+export function PlexLoginButton({ onClick, isLoading, onCancel, disabled = false, tv = false, id }: PlexLoginButtonProps) {
   return (
     <>
       <Button
+        id={id}
         type="button"
         onClick={onClick}
         disabled={isLoading || disabled}
