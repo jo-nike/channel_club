@@ -232,6 +232,19 @@ async def test_aclose_closes_every_client_and_the_next_call_builds_a_new_one() -
     await aclose_http_clients()
 
 
+@pytest.mark.parametrize("get_client", [ersatztv_client, dispatcharr_client])
+def test_an_upstream_cookie_is_never_kept(get_client: Any) -> None:
+    # The per-call clients started empty every time; a shared one must not hand
+    # one request's Set-Cookie to every later request
+    client = get_client()
+    request = httpx.Request("GET", f"{UPSTREAM}/iptv/channels.m3u")
+    response = httpx.Response(200, headers={"set-cookie": "session=abc; Path=/"}, request=request)
+
+    client.cookies.extract_cookies(response)
+
+    assert len(client.cookies) == 0
+
+
 def test_lifespan_shutdown_closes_the_clients() -> None:
     ersatztv = mock_upstream(ERSATZTV, lambda request: httpx.Response(503))
     dispatcharr = mock_upstream(DISPATCHARR, lambda request: httpx.Response(503))

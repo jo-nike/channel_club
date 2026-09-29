@@ -7,9 +7,13 @@ teardown (aclose_http_clients).
 
 Timeouts stay per call: each site passes the timeout it has always used. The
 client default of 10 s is what the logo fetches (fetch_logo) run under.
+
+Neither client keeps cookies, so a Set-Cookie from one request is never sent
+on every later one, just as with the per-call clients before.
 """
 
 import asyncio
+import http.cookiejar
 
 import httpx
 
@@ -21,6 +25,11 @@ DISPATCHARR = "dispatcharr"
 _DEFAULT_TIMEOUT = 10.0
 
 _clients: dict[str, httpx.AsyncClient] = {}
+
+
+def _no_cookies() -> http.cookiejar.CookieJar:
+    """A cookie jar whose policy accepts no domain, so it never stores a cookie."""
+    return http.cookiejar.CookieJar(policy=http.cookiejar.DefaultCookiePolicy(allowed_domains=[]))
 
 
 def ersatztv_client() -> httpx.AsyncClient:
@@ -36,6 +45,7 @@ def ersatztv_client() -> httpx.AsyncClient:
             timeout=_DEFAULT_TIMEOUT,
             limits=httpx.Limits(max_connections=50, max_keepalive_connections=20),
             verify=SSL_CONTEXT,
+            cookies=_no_cookies(),
         )
     return client
 
@@ -45,7 +55,10 @@ def dispatcharr_client() -> httpx.AsyncClient:
     client = _clients.get(DISPATCHARR)
     if client is None:
         client = _clients[DISPATCHARR] = httpx.AsyncClient(
-            follow_redirects=False, timeout=_DEFAULT_TIMEOUT, verify=SSL_CONTEXT
+            follow_redirects=False,
+            timeout=_DEFAULT_TIMEOUT,
+            verify=SSL_CONTEXT,
+            cookies=_no_cookies(),
         )
     return client
 
