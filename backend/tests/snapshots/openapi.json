@@ -136,11 +136,21 @@
           "plexAuthEnabled": {
             "title": "Plexauthenabled",
             "type": "boolean"
+          },
+          "setupState": {
+            "enum": [
+              "unclaimed",
+              "claimed",
+              "complete"
+            ],
+            "title": "Setupstate",
+            "type": "string"
           }
         },
         "required": [
           "localAuthEnabled",
-          "plexAuthEnabled"
+          "plexAuthEnabled",
+          "setupState"
         ],
         "title": "AuthConfigResponse",
         "type": "object"

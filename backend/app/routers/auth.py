@@ -9,7 +9,7 @@ from app.config import settings
 from app.models.auth import AuthConfigResponse, LoginRequest, TokenPayload, TokenResponse
 from app.models.plex import PlexAuthRequest, PlexUser
 from app.routers.auth_deps import get_current_user
-from app.services import plex
+from app.services import plex, settings_store
 from app.services.auth import JWT_EXPIRATION_DAYS, SESSION_MAX_AGE_DAYS, create_access_token
 from app.services.plex import (
     InvalidPlexTokenError,
@@ -30,6 +30,7 @@ async def get_auth_config() -> AuthConfigResponse:
     return AuthConfigResponse(
         local_auth_enabled=settings.local_auth_enabled,
         plex_auth_enabled=settings.plex_auth_enabled,
+        setup_state=settings_store.setup_state(),
     )
 
 

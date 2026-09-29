@@ -156,6 +156,23 @@ class TestAuthConfigEndpoint:
             data = response.json()
             assert data["localAuthEnabled"] is True
             assert data["plexAuthEnabled"] is True
+            # No state file in tests, so there is nothing to set up
+            assert data["setupState"] == "complete"
+
+    def test_auth_config_reports_an_open_setup(self, tmp_path, monkeypatch):
+        """A fresh data directory and no auth in the environment: setup is open."""
+        from app import config
+        from app.services import settings_store
+
+        monkeypatch.setattr(config, "ENV_FIELDS", frozenset({"jwt_secret"}))
+        monkeypatch.setattr(settings_store.settings, "state_file", str(tmp_path / "state.json"))
+        settings_store.start()
+        app = FastAPI()
+        app.include_router(router, prefix="/api/auth")
+
+        response = TestClient(app).get("/api/auth/config")
+
+        assert response.json()["setupState"] == "unclaimed"
 
 
 class TestStartupValidation:

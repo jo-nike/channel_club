@@ -19,7 +19,7 @@ from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from loguru import logger
 from pydantic import Field, SecretStr, ValidationError
@@ -28,6 +28,7 @@ from app import config
 from app.config import FIELD_GROUPS, UI_FIELDS, env_name, settings
 from app.logging_config import configure_logging
 from app.models.base import CamelModel
+from app.models.setup import SetupState
 from app.services.state_store import write_json_atomic
 
 # Module-level logger with service context
@@ -35,8 +36,6 @@ log = logger.bind(service="settings_store")
 
 SETTINGS_VERSION = 1
 SETTINGS_FILE_NAME = "settings.json"
-
-SetupState = Literal["unclaimed", "claimed", "complete"]
 
 # Each field's group, for the environment's locks
 GROUP_OF = {field: group for group, fields in FIELD_GROUPS.items() for field in fields}

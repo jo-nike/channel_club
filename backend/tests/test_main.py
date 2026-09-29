@@ -383,6 +383,84 @@ def test_importing_the_app_routes_uvicorn_startup_lines_to_json(tmp_path: Path) 
     assert json.loads(lines[0])["record"]["message"] == "startup probe line"
 
 
+# A production-like environment: a state file and a signing key from the environment
+PRODUCTION_ENV = {"STATE_FILE": "state.json", "JWT_SECRET": "5e7c" * 16}
+
+
+@pytest.mark.parametrize(
+    ("auth", "state"),
+    [
+        ({"LOCAL_AUTH_ENABLED": "true", "ADMIN_PASSWORD": "synthetic-password"}, "complete"),
+        ({"PLEX_AUTH_ENABLED": "true", "PLEX_SERVER_MACHINE_ID": "synthetic-id"}, "complete"),
+        (
+            {
+                "LOCAL_AUTH_ENABLED": "true",
+                "PLEX_AUTH_ENABLED": "true",
+                "PLEX_SERVER_MACHINE_ID": "synthetic-id",
+            },
+            "complete",
+        ),
+        ({"LOCAL_AUTH_ENABLED": "false", "PLEX_AUTH_ENABLED": "false"}, "complete"),
+        # The control: nothing about auth in the environment opens setup
+        ({}, "unclaimed"),
+    ],
+)
+def test_auth_from_the_environment_never_opens_setup(
+    tmp_path: Path, auth: dict[str, str], state: str
+) -> None:
+    """Production sets auth in the environment, so it must never see the wizard,
+    even with both methods explicitly off, and nothing is written beside its state."""
+    probe = (
+        "import asyncio\n"
+        "from app.main import preflight\n"
+        "from app.routers.auth import get_auth_config\n"
+        "preflight()\n"
+        "print(asyncio.run(get_auth_config()).setup_state)\n"
+    )
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "PYTHONPATH": str(Path(__file__).parents[1]),
+        **PRODUCTION_ENV,
+        **auth,
+    }
+    # Run from an empty directory, so no dotenv file is read and state.json lands here
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+    )
+
+    assert result.stdout.strip() == state
+    assert not (tmp_path / "settings.json").exists()
+
+
+def test_no_state_file_means_setup_is_complete(tmp_path: Path) -> None:
+    """Without a state file there is nowhere to save setup, so it never opens."""
+    probe = "from app.main import preflight\nfrom app.services import settings_store\n"
+    probe += "preflight()\nprint(settings_store.setup_state())\n"
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "PYTHONPATH": str(Path(__file__).parents[1]),
+        "JWT_SECRET": PRODUCTION_ENV["JWT_SECRET"],
+    }
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+    )
+
+    assert result.stdout.strip() == "complete"
+    assert list(tmp_path.iterdir()) == []
+
+
 def _guide_xmltv() -> str:
     """A one-channel XMLTV feed with a programme on air now."""
     start = (datetime.now(UTC) - timedelta(minutes=10)).strftime("%Y%m%d%H%M%S +0000")
