@@ -36,6 +36,7 @@ OBSOLETE_ENV_KEYS = {
     "VITE_WS_URL": "the socket is always on the page's origin",
     "ERSATZTV_M3U_URL": "derived from ERSATZTV_BASE_URL",
     "ERSATZTV_XMLTV_URL": "derived from ERSATZTV_BASE_URL",
+    "MEDIA_RECORDER_PER_USER": "recorders share one owner, so MEDIA_RECORDER_LIMIT applies",
 }
 
 
@@ -187,9 +188,8 @@ class Settings(BaseSettings):
     # Shared per-worker admission limits (deploy one media worker).
     media_process_limit: int = 8
     media_process_per_user: int = 2
-    # Highlight recorders share one system owner, so the per-user limit equals the global one.
+    # Highlight recorders share one system owner, so they have no per-user limit.
     media_recorder_limit: int = 4
-    media_recorder_per_user: int = 4
     media_export_limit: int = 2
     media_export_per_user: int = 1
     # Zipline uploads are network-bound, so they have their own slots instead of export's.

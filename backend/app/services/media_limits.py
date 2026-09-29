@@ -30,7 +30,8 @@ class MediaBudget:
 
     def acquire(self, owner: str) -> None:
         global_limit = getattr(settings, f"media_{self.kind}_limit")
-        user_limit = getattr(settings, f"media_{self.kind}_per_user")
+        # Recorders have one shared owner, so only the global limit applies to them.
+        user_limit = getattr(settings, f"media_{self.kind}_per_user", global_limit)
         if sum(self.owners.values()) >= global_limit or self.owners[owner] >= user_limit:
             raise MediaCapacityError()
         self.owners[owner] += 1
