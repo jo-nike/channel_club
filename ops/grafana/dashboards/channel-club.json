@@ -157,7 +157,7 @@
               "type": "loki",
               "uid": "P8E80F9AEF21F6940"
             },
-            "expr": "sum(sum_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_channel_id!=\"live-channel-0\" | record_extra_event=\"watch.stop\" | unwrap record_extra_duration_s [$__range]))",
+            "expr": "sum(sum_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_channel_id!=\"live-channel-0\" | record_extra_event=~\"watch.progress|watch.stop\" | label_format watch_s=`{{ or .record_extra_delta_s .record_extra_duration_s }}` | unwrap watch_s [$__range]))",
             "legendFormat": "",
             "refId": "A",
             "editorMode": "code",
@@ -462,7 +462,7 @@
               "type": "loki",
               "uid": "P8E80F9AEF21F6940"
             },
-            "expr": "sum by (record_extra_user) (sum_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_channel_id!=\"live-channel-0\" | record_extra_event=\"watch.stop\" | unwrap record_extra_duration_s [$__range]))",
+            "expr": "sum by (record_extra_user) (sum_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_channel_id!=\"live-channel-0\" | record_extra_event=~\"watch.progress|watch.stop\" | label_format watch_s=`{{ or .record_extra_delta_s .record_extra_duration_s }}` | unwrap watch_s [$__range]))",
             "legendFormat": "{{record_extra_user}}",
             "refId": "A",
             "editorMode": "code",
@@ -768,7 +768,7 @@
               "type": "loki",
               "uid": "P8E80F9AEF21F6940"
             },
-            "expr": "topk(25, sum by (record_extra_channel, record_extra_view) (sum_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_channel_id!=\"live-channel-0\" | record_extra_event=\"watch.stop\" | unwrap record_extra_duration_s [$__range])))",
+            "expr": "topk(25, sum by (record_extra_channel, record_extra_view) (sum_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_channel_id!=\"live-channel-0\" | record_extra_event=~\"watch.progress|watch.stop\" | label_format watch_s=`{{ or .record_extra_delta_s .record_extra_duration_s }}` | unwrap watch_s [$__range])))",
             "legendFormat": "{{record_extra_channel}} ({{record_extra_view}})",
             "refId": "A",
             "editorMode": "code",
@@ -899,7 +899,7 @@
               "type": "loki",
               "uid": "P8E80F9AEF21F6940"
             },
-            "expr": "sum by (record_extra_on_live) (sum_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_channel_id!=\"live-channel-0\" | record_extra_event=\"watch.stop\" | unwrap record_extra_duration_s [$__range]))",
+            "expr": "sum by (record_extra_on_live) (sum_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_channel_id!=\"live-channel-0\" | record_extra_event=~\"watch.progress|watch.stop\" | label_format watch_s=`{{ or .record_extra_delta_s .record_extra_duration_s }}` | unwrap watch_s [$__range]))",
             "legendFormat": "Live slot: {{record_extra_on_live}}",
             "refId": "A",
             "editorMode": "code",
@@ -953,7 +953,7 @@
         "id": 17,
         "type": "table",
         "title": "Catalogue usage (unused channels sort first)",
-        "description": "Every channel in the Dispatcharr lineup and ErsatzTV XMLTV, joined by name to watch events in the selected range. 'never watched' means no watch.stop event in range.",
+        "description": "Every channel in the Dispatcharr lineup and ErsatzTV XMLTV, joined by name to watch events in the selected range. 'never watched' means no watch time (watch.progress or watch.stop) in range.",
         "gridPos": {
           "h": 16,
           "w": 24,
@@ -1032,7 +1032,7 @@
               "type": "loki",
               "uid": "P8E80F9AEF21F6940"
             },
-            "expr": "sum by (record_extra_channel) (sum_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_channel_id!=\"live-channel-0\" | record_extra_event=\"watch.stop\" | unwrap record_extra_duration_s [$__range]))",
+            "expr": "sum by (record_extra_channel) (sum_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_channel_id!=\"live-channel-0\" | record_extra_event=~\"watch.progress|watch.stop\" | label_format watch_s=`{{ or .record_extra_delta_s .record_extra_duration_s }}` | unwrap watch_s [$__range]))",
             "legendFormat": "",
             "refId": "C",
             "editorMode": "code",

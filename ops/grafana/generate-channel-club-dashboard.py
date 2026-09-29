@@ -32,6 +32,15 @@ BASE = '{container="channel-club"} | json | record_extra_user=~"$user" | record_
 # Watch events leave out the phantom 'Live' watches pre-R2 bundles logged on the
 # empty Live slot, under its synthetic id.
 WATCH_BASE = BASE + ' | record_extra_channel_id!="live-channel-0"'
+# Watch time accrues as it happens: watch.progress (every 5 minutes) and watch.stop
+# carry delta_s, the seconds since the watch's last accounting. watch.stop lines
+# from before R3 have no delta_s, so their whole duration_s counts instead.
+WATCH_TIME = (
+    WATCH_BASE
+    + ' | record_extra_event=~"watch.progress|watch.stop"'
+    + " | label_format watch_s=`{{ or .record_extra_delta_s .record_extra_duration_s }}`"
+    + " | unwrap watch_s"
+)
 USER_BASE = '{container="channel-club"} | json | record_extra_user=~"$user"'
 
 _pid = [0]
@@ -225,11 +234,11 @@ y = 0
 # ── Row: Viewers ─────────────────────────────────────────────
 panels.append(row("Viewers", y)); y += 1
 
-watch_time_expr = f'sum by (record_extra_user) (sum_over_time({WATCH_BASE} | record_extra_event="watch.stop" | unwrap record_extra_duration_s [$__range]))'
+watch_time_expr = f'sum by (record_extra_user) (sum_over_time({WATCH_TIME} [$__range]))'
 
 panels.append(stat("Unique viewers", [loki(f'count(sum by (record_extra_user) (count_over_time({USER_BASE} | record_extra_event="session.start" [$__range])))', instant=True)], 0, y))
 panels.append(stat("Sessions", [loki(f'sum(count_over_time({USER_BASE} | record_extra_event="session.start" [$__range]))', instant=True)], 4, y))
-panels.append(stat("Watch time", [loki(f'sum(sum_over_time({WATCH_BASE} | record_extra_event="watch.stop" | unwrap record_extra_duration_s [$__range]))', instant=True)], 8, y, unit="s"))
+panels.append(stat("Watch time", [loki(f'sum(sum_over_time({WATCH_TIME} [$__range]))', instant=True)], 8, y, unit="s"))
 panels.append(stat("Channel switches", [loki(f'sum(count_over_time({WATCH_BASE} | record_extra_event="watch.start" [$__range]))', instant=True)], 12, y))
 panels.append(stat("Channels watched", [loki(f'count(sum by (record_extra_channel) (count_over_time({WATCH_BASE} | record_extra_event="watch.start" [$__range])))', instant=True)], 16, y))
 panels.append(stat("Live channel changes", [loki(f'sum(count_over_time({{container="channel-club"}} | json | record_extra_event="channel.change" [$__range]))', instant=True)], 20, y))
@@ -262,7 +271,7 @@ y += 10
 # ── Row: Channels ────────────────────────────────────────────
 panels.append(row("Channels", y)); y += 1
 
-channel_time_expr = f'sum by (record_extra_channel, record_extra_view) (sum_over_time({WATCH_BASE} | record_extra_event="watch.stop" | unwrap record_extra_duration_s [$__range]))'
+channel_time_expr = f'sum by (record_extra_channel, record_extra_view) (sum_over_time({WATCH_TIME} [$__range]))'
 panels.append(bargauge("Watch time by channel (top 25)", [loki(f"topk(25, {channel_time_expr})", legend="{{record_extra_channel}} ({{record_extra_view}})", instant=True)], 0, y, w=12, h=14))
 panels.append(timeseries(
     "Channel starts over time",
@@ -272,18 +281,18 @@ panels.append(timeseries(
 y += 14
 
 # Following the shared Live slot (true) or a channel of one's own (false); no value before R2
-slot_time_expr = f'sum by (record_extra_on_live) (sum_over_time({WATCH_BASE} | record_extra_event="watch.stop" | unwrap record_extra_duration_s [$__range]))'
+slot_time_expr = f'sum by (record_extra_on_live) (sum_over_time({WATCH_TIME} [$__range]))'
 panels.append(bargauge("Watch time: Live slot vs own pick", [loki(slot_time_expr, legend="Live slot: {{record_extra_on_live}}", instant=True)], 0, y, w=24, h=5))
 y += 5
 
 # Catalogue usage: Infinity catalogue (A+B) outer-joined with Loki watch time (C) and starts (D).
-catalogue_watch = f'sum by (record_extra_channel) (sum_over_time({WATCH_BASE} | record_extra_event="watch.stop" | unwrap record_extra_duration_s [$__range]))'
+catalogue_watch = f'sum by (record_extra_channel) (sum_over_time({WATCH_TIME} [$__range]))'
 catalogue_starts = f'sum by (record_extra_channel) (count_over_time({WATCH_BASE} | record_extra_event="watch.start" [$__range]))'
 panels.append({
     "id": pid(),
     "type": "table",
     "title": "Catalogue usage (unused channels sort first)",
-    "description": "Every channel in the Dispatcharr lineup and ErsatzTV XMLTV, joined by name to watch events in the selected range. 'never watched' means no watch.stop event in range.",
+    "description": "Every channel in the Dispatcharr lineup and ErsatzTV XMLTV, joined by name to watch events in the selected range. 'never watched' means no watch time (watch.progress or watch.stop) in range.",
     "gridPos": grid(0, y, 24, 16),
     "datasource": {"type": "datasource", "uid": "-- Mixed --"},
     "targets": [

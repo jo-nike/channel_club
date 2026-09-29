@@ -125,8 +125,25 @@ def _exprs(node) -> list[str]:
     return []
 
 
+# An event filter: one event, or a regex alternation of them ("a|b")
+_EVENT_FILTER = re.compile(r'record_extra_event=~?"([^"]+)"')
+_FIELD = re.compile(r"record_extra_(\w+)")
+# A Go template `or` in label_format: the first of its arguments that is set
+_TEMPLATE_OR = re.compile(r"\{\{\s*or\s+([^}]*)\}\}")
+
+
+def _filtered_events(text: str) -> list[str]:
+    return [event for found in _EVENT_FILTER.findall(text) for event in found.split("|")]
+
+
+def _queries_of(prefix: str) -> list[str]:
+    """The dashboard's Loki queries that filter on an event starting with prefix."""
+    exprs = _exprs(_load_generator().dashboard)
+    return [e for e in exprs if any(ev.startswith(prefix) for ev in _filtered_events(e))]
+
+
 def test_watch_queries_leave_out_the_pre_r2_empty_live_slot() -> None:
-    watch = [e for e in _exprs(_load_generator().dashboard) if 'event="watch.' in e]
+    watch = _queries_of("watch.")
     assert watch
     for expr in watch:
         assert 'record_extra_channel_id!="live-channel-0"' in expr, expr
@@ -134,27 +151,43 @@ def test_watch_queries_leave_out_the_pre_r2_empty_live_slot() -> None:
 
 def test_no_session_query_filters_on_view() -> None:
     # Session events carry no view: every client connects as the unified TV view
-    session = [e for e in _exprs(_load_generator().dashboard) if 'event="session.' in e]
+    session = _queries_of("session.")
     assert session
     for expr in session:
         assert "record_extra_view" not in expr, expr
 
 
-_EVENT_FILTER = re.compile(r'record_extra_event="([^"]+)"')
-_FIELD = re.compile(r"record_extra_(\w+)")
+def test_watch_time_accrues_from_progress_and_stop_deltas() -> None:
+    # Every summed duration is watch time, read from delta_s as it accrues, with
+    # a pre-R3 watch.stop's whole duration_s where it has no delta_s
+    sums = [e for e in _exprs(_load_generator().dashboard) if "unwrap" in e]
+    assert len(sums) == 5
+    for expr in sums:
+        assert 'record_extra_event=~"watch.progress|watch.stop"' in expr, expr
+        assert "{{ or .record_extra_delta_s .record_extra_duration_s }}" in expr, expr
+        assert "unwrap watch_s" in expr, expr
 
 
-def _required_fields(node, required: dict[str, set[str]]) -> dict[str, set[str]]:
+def _required_fields(
+    node, required: dict[str, set[tuple[str, ...]]]
+) -> dict[str, set[tuple[str, ...]]]:
     """Map each event a Loki query filters on to the record_extra fields it reads.
 
     A query's text is its dict's string values together (expr with its legend,
     a variable's stream with its label), so an event_table's label_format
-    columns and a bargauge's legend count as fields of that event.
+    columns and a bargauge's legend count as fields of that event. Each entry
+    is a group of which an event must carry one: a single field, or the
+    fields of a template `or`, which needs none when it ends in a literal.
     """
     if isinstance(node, dict):
         text = " ".join(value for value in node.values() if isinstance(value, str))
-        for event in _EVENT_FILTER.findall(text):
-            required.setdefault(event, set()).update(set(_FIELD.findall(text)) - {"event"})
+        plain = _TEMPLATE_OR.sub("", text)
+        fields = {(field,) for field in _FIELD.findall(plain) if field != "event"}
+        for args in _TEMPLATE_OR.findall(text):
+            if '"' not in args:
+                fields.add(tuple(_FIELD.findall(args)))
+        for event in _filtered_events(plain):
+            required.setdefault(event, set()).update(fields)
         for value in node.values():
             _required_fields(value, required)
     elif isinstance(node, list):
@@ -224,6 +257,7 @@ def test_every_event_the_dashboard_reads_carries_its_fields(
         "watch.stop",
         "programme.stop",
         "channel.change",
+        "watch.progress",
     } <= required.keys()
     output = production_logging(log_format="json", log_level="WARNING")
     # Apply the channel updates at once instead of holding each for a second
@@ -254,7 +288,11 @@ def test_every_event_the_dashboard_reads_carries_its_fields(
         emitted = [line for line in lines if line["record_extra_event"] == event]
         assert emitted, f"{event} was never emitted"
         for line in emitted:
-            missing = {f for f in fields if f"record_extra_{f}" not in line}
+            missing = {
+                " or ".join(group)
+                for group in fields
+                if not any(f"record_extra_{f}" in line for f in group)
+            }
             assert not missing, f"{event} lacks {sorted(missing)} that the dashboard reads"
     stops = [
         (line["record_extra_channel"], line["record_extra_reason"])
