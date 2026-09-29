@@ -976,7 +976,7 @@
             "url": "https://streams.example.com/hdhr/lineup.json",
             "format": "table",
             "parser": "backend",
-            "root_selector": "$.{\"channel\": GuideName, \"number\": GuideNumber, \"channel_id\": $split(URL, \"/\")[-1]}",
+            "root_selector": "$map($, function($v) { {\"channel\": $v.GuideName, \"number\": $v.GuideNumber, \"channel_id\": $substringAfter($v.URL, \"/stream/\")} })",
             "columns": [
               {
                 "selector": "channel",
@@ -1206,7 +1206,7 @@
             "url": "https://streams.example.com/hdhr/lineup.json",
             "format": "table",
             "parser": "backend",
-            "root_selector": "$.{\"channel\": GuideName, \"number\": GuideNumber, \"channel_id\": $split(URL, \"/\")[-1]}",
+            "root_selector": "$map($, function($v) { {\"channel\": $v.GuideName, \"number\": $v.GuideNumber, \"channel_id\": $substringAfter($v.URL, \"/stream/\")} })",
             "columns": [
               {
                 "selector": "channel",
