@@ -1,22 +1,8 @@
 # Stage 1: Build frontend
 FROM node:22-slim AS frontend-build
 
-# Build args for Vite env vars (must be present at build time)
-ARG VITE_API_URL=/api
-ARG VITE_WS_URL
-ARG VITE_STREAM_BASE_URL
-ARG VITE_CHAT_ENABLED=false
-ARG VITE_GIF_ENABLED=false
-ARG VITE_LOG_LEVEL=info
-
-# Set as env vars so Vite can access them during build
-ENV VITE_API_URL=$VITE_API_URL
-ENV VITE_WS_URL=$VITE_WS_URL
-ENV VITE_STREAM_BASE_URL=$VITE_STREAM_BASE_URL
-ENV VITE_CHAT_ENABLED=$VITE_CHAT_ENABLED
-ENV VITE_GIF_ENABLED=$VITE_GIF_ENABLED
-ENV VITE_LOG_LEVEL=$VITE_LOG_LEVEL
-
+# The bundle takes no configuration: the server sends its feature switches at
+# runtime, so one image serves any deploy. Only the build id is baked in.
 WORKDIR /app/frontend
 
 # Copy package files first for better layer caching
