@@ -5,6 +5,7 @@ import { HighlightModal } from './HighlightModal'
 import * as api from '@/services/api'
 import { useAudioStore } from '@/stores/audioStore'
 import { useChatStore, type ChatSender } from '@/stores/chatStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 
 vi.mock('@/services/api', () => ({
   createHighlightCapture: vi.fn(), fetchHighlightCapture: vi.fn(), createCaptureDownloadUrl: vi.fn(), deleteHighlightCapture: vi.fn(),
@@ -856,12 +857,12 @@ describe('Post to chat', () => {
   let unregister: () => void = () => {}
 
   beforeEach(() => {
-    vi.stubEnv('VITE_CHAT_ENABLED', 'true')
+    useSettingsStore.setState({ serverFeatures: { chat: true, gif: false } })
     vi.mocked(api.getHighlightFeatures).mockResolvedValue({ enabled: true, ziplineEnabled: true })
   })
   afterEach(() => {
     unregister()
-    vi.unstubAllEnvs()
+    useSettingsStore.setState({ serverFeatures: null })
   })
 
   /** Stands in for the chat socket TVView registers, answering each send in turn */
@@ -973,7 +974,7 @@ describe('Post to chat', () => {
   })
 
   it('is absent without chat, leaving Download as the primary action', async () => {
-    vi.stubEnv('VITE_CHAT_ENABLED', 'false')
+    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false } })
     render(<HighlightModal {...props} />)
     await ready()
     expect(await screen.findByRole('button', { name: 'Get share link' })).toBeInTheDocument()
@@ -1048,7 +1049,7 @@ describe('Clip editor opened on a capture already taken (Clip that\'s Edit)', ()
 
 // jsdom has no layout, so these guard the classes that size and place the editor's parts.
 describe('Clip editor layout', () => {
-  afterEach(() => vi.unstubAllEnvs())
+  afterEach(() => useSettingsStore.setState({ serverFeatures: null }))
 
   it('puts the timeline under the preview and the controls beside them on a desktop screen', async () => {
     render(<HighlightModal {...props} />)
@@ -1077,7 +1078,7 @@ describe('Clip editor layout', () => {
   })
 
   it('gives touch screens 44px targets', async () => {
-    vi.stubEnv('VITE_CHAT_ENABLED', 'true')
+    useSettingsStore.setState({ serverFeatures: { chat: true, gif: false } })
     vi.mocked(api.getHighlightFeatures).mockResolvedValue({ enabled: true, ziplineEnabled: true })
     render(<HighlightModal {...props} />)
     await ready()
@@ -1095,7 +1096,7 @@ describe('Clip editor layout', () => {
   })
 
   it('compacts the header and footer on phones without taking their words from screen readers', async () => {
-    vi.stubEnv('VITE_CHAT_ENABLED', 'true')
+    useSettingsStore.setState({ serverFeatures: { chat: true, gif: false } })
     vi.mocked(api.getHighlightFeatures).mockResolvedValue({ enabled: true, ziplineEnabled: true })
     render(<HighlightModal {...props} />)
     await ready()

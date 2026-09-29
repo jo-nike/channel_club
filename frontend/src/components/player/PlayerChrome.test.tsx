@@ -43,7 +43,7 @@ vi.mock('@/hooks/useCanSetVolume', () => ({ useCanSetVolume: () => volumeSupport
 const tv = vi.hoisted(() => ({ mode: false }))
 vi.mock('@/hooks/useTVMode', () => ({ useTVMode: () => tv.mode }))
 
-// VITE_CHAT_ENABLED: off unless a test turns it on
+// Chat: off unless a test turns it on
 const chatFeature = vi.hoisted(() => ({ enabled: false }))
 vi.mock('@/hooks/useChatEnabled', () => ({ useChatEnabled: () => chatFeature.enabled }))
 
