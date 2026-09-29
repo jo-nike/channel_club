@@ -14,20 +14,10 @@ import { API_URL, apiAssetUrl } from './apiBase'
 
 /**
  * Get absolute API URL for Chromecast.
- * Chromecast needs absolute URLs since it can't use browser's origin.
- * Uses VITE_CAST_BASE_URL if set, otherwise constructs from window.location.
+ * Chromecast needs absolute URLs since it can't use browser's origin, so this
+ * constructs one from window.location.
  */
 export function getCastBaseUrl(): string {
-  // Explicit cast URL takes priority
-  if (import.meta.env.VITE_CAST_BASE_URL) {
-    return import.meta.env.VITE_CAST_BASE_URL
-  }
-
-  // If API_URL is already absolute, use it
-  if (API_URL.startsWith('http://') || API_URL.startsWith('https://')) {
-    return API_URL
-  }
-
   // Construct absolute URL from current location
   const hostname = window.location.hostname
   const protocol = window.location.protocol
