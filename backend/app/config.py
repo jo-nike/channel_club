@@ -41,33 +41,40 @@ OBSOLETE_ENV_KEYS = {
 
 
 class Settings(BaseSettings):
+    # Sections run from what every deploy sets to what almost none does. The
+    # Advanced block at the end has tuned defaults and stays out of .env.example.
+
+    # Set by the image
     # Build identity stays distinct from the semantic version in pyproject.toml.
     app_build_id: str = "dev"
     app_revision: str = "dev"
+    # JSON file that keeps admin settings and the Live channel across restarts.
+    # Empty disables it (nothing is read or written); the image sets /data/state.json.
+    state_file: str = ""
 
+    # Sources
     # Dispatcharr's base URL, for the server's API calls and for the stream URLs
     # browsers play, so it must be reachable from both.
     dispatcharr_url: str = "http://10.8.0.2:9191"
+    # Dispatcharr Authentication (optional - for channel and stats endpoints).
+    # Personal API key from the Dispatcharr profile page (0.20.0+). Sent as
+    # "Authorization: ApiKey <key>"; does not expire.
+    dispatcharr_api_key: SecretStr | None = None
+
+    # ErsatzTV Configuration
+    ersatztv_base_url: str = "http://192.168.50.108:8409"
+
+    # ErsatzTV serves its feeds at fixed paths under the base URL.
+    @property
+    def ersatztv_m3u_url(self) -> str:
+        return f"{self.ersatztv_base_url.rstrip('/')}/iptv/channels.m3u"
+
+    @property
+    def ersatztv_xmltv_url(self) -> str:
+        return f"{self.ersatztv_base_url.rstrip('/')}/iptv/xmltv.xml"
+
+    # Authentication
     jwt_secret: SecretStr = SecretStr(DEFAULT_JWT_SECRET)
-
-    # FastAPI's /docs, /redoc and /openapi.json publish the API map; off in production.
-    docs_enabled: bool = False
-    # Browser origins allowed cross-origin, e.g. ["http://localhost:5173"]. Empty
-    # (no CORS middleware) in production and in dev, where Vite proxies /api.
-    cors_origins: list[str] = []
-
-    # Logging Configuration
-    log_level: Literal["TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"] = "INFO"
-    log_format: Literal["json", "pretty"] = "pretty"
-
-    @field_validator("log_level", "log_format", mode="before")
-    @classmethod
-    def _normalise_log_setting(cls, value: object, info: ValidationInfo) -> object:
-        """Accept any case and surrounding spaces; anything else fails at startup."""
-        if not isinstance(value, str):
-            return value
-        value = value.strip()
-        return value.upper() if info.field_name == "log_level" else value.lower()
 
     # Authentication Feature Flags
     local_auth_enabled: bool = False  # Enable username/password auth
@@ -94,25 +101,13 @@ class Settings(BaseSettings):
     viewer_username: str = "viewer"
     viewer_password: SecretStr | None = None
 
-    # Dispatcharr Authentication (optional - for channel and stats endpoints).
-    # Personal API key from the Dispatcharr profile page (0.20.0+). Sent as
-    # "Authorization: ApiKey <key>"; does not expire.
-    dispatcharr_api_key: SecretStr | None = None
+    # Chat Feature
+    # Enable real-time chat between connected users
+    chat_enabled: bool = False
 
-    # ErsatzTV Configuration
-    ersatztv_base_url: str = "http://192.168.50.108:8409"
-
-    # ErsatzTV serves its feeds at fixed paths under the base URL.
-    @property
-    def ersatztv_m3u_url(self) -> str:
-        return f"{self.ersatztv_base_url.rstrip('/')}/iptv/channels.m3u"
-
-    @property
-    def ersatztv_xmltv_url(self) -> str:
-        return f"{self.ersatztv_base_url.rstrip('/')}/iptv/xmltv.xml"
-
-    # Additional trusted logo origins, e.g. ["https://images.example.com"].
-    ersatztv_logo_origins: list[str] = []
+    # GIF Feature (requires chat to be enabled)
+    # Enable GIF picker in chat using Giphy API
+    giphy_api_key: SecretStr | None = None  # Giphy API key (get from developers.giphy.com)
 
     # Highlight Capture Feature (server-side FFmpeg recording)
     # Disabled by default - requires FFmpeg in container
@@ -142,6 +137,10 @@ class Settings(BaseSettings):
         except ValueError:
             return False
 
+    # Chromecast Feature (requires FFmpeg in container)
+    # Enables casting streams to Chromecast devices via HLS transcoding
+    cast_enabled: bool = False
+
     # Optional feedback push to an ntfy topic. Destination and token are
     # server-owned; never a VITE_ variable.
     ntfy_enabled: bool = False
@@ -149,8 +148,6 @@ class Settings(BaseSettings):
     ntfy_topic: str = ""  # Dedicated topic, e.g. channel-club-feedback
     # Optional access token for protected topics (sent as Bearer)
     ntfy_token: SecretStr = SecretStr("")
-    feedback_cooldown_seconds: int = 30  # Minimum gap between submissions per user
-    feedback_hourly_limit: int = 10  # Maximum submissions per user per hour
 
     @property
     def ntfy_available(self) -> bool:
@@ -170,20 +167,42 @@ class Settings(BaseSettings):
         except ValueError:
             return False
 
-    # JSON file that keeps admin settings and the Live channel across restarts.
-    # Empty disables it (nothing is read or written); the image sets /data/state.json.
-    state_file: str = ""
+    # Logging Configuration
+    log_level: Literal["TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    log_format: Literal["json", "pretty"] = "pretty"
 
-    # Chat Feature
-    # Enable real-time chat between connected users
-    chat_enabled: bool = False
+    @field_validator("log_level", "log_format", mode="before")
+    @classmethod
+    def _normalise_log_setting(cls, value: object, info: ValidationInfo) -> object:
+        """Accept any case and surrounding spaces; anything else fails at startup."""
+        if not isinstance(value, str):
+            return value
+        value = value.strip()
+        return value.upper() if info.field_name == "log_level" else value.lower()
 
-    # GIF Feature (requires chat to be enabled)
-    # Enable GIF picker in chat using Giphy API
-    giphy_api_key: SecretStr | None = None  # Giphy API key (get from developers.giphy.com)
+    # Advanced: tuned defaults, still overridable from the environment.
+
+    # FastAPI's /docs, /redoc and /openapi.json publish the API map; off in production.
+    docs_enabled: bool = False
+    # Browser origins allowed cross-origin, e.g. ["http://localhost:5173"]. Empty
+    # (no CORS middleware) in production and in dev, where Vite proxies /api.
+    cors_origins: list[str] = []
+
+    # Additional trusted logo origins, e.g. ["https://images.example.com"].
+    ersatztv_logo_origins: list[str] = []
+
+    feedback_cooldown_seconds: int = 30  # Minimum gap between submissions per user
+    feedback_hourly_limit: int = 10  # Maximum submissions per user per hour
+
     highlight_buffer_seconds: int = 60  # How many seconds to keep in ring buffer
     highlight_segment_seconds: int = 10  # FFmpeg segment duration
     highlight_temp_dir: str = "/tmp/highlights"  # Temp storage for segments
+
+    cast_hls_segment_time: int = 4  # Seconds per HLS segment
+    # Number of segments in playlist (buffer = segment_time * list_size)
+    cast_hls_list_size: int = 5
+    cast_temp_dir: str = "/tmp/cast_hls"  # Temp storage for HLS segments
+    cast_session_timeout: int = 300  # Seconds without activity before cleanup
 
     # Shared per-worker admission limits (deploy one media worker).
     media_process_limit: int = 8
@@ -198,15 +217,6 @@ class Settings(BaseSettings):
     media_export_max_bytes: int = 256 * 1024 * 1024
     # Every other request body; /api/highlight/upload enforces media_export_max_bytes.
     request_body_max_bytes: int = 64 * 1024
-
-    # Chromecast Feature (requires FFmpeg in container)
-    # Enables casting streams to Chromecast devices via HLS transcoding
-    cast_enabled: bool = False
-    cast_hls_segment_time: int = 4  # Seconds per HLS segment
-    # Number of segments in playlist (buffer = segment_time * list_size)
-    cast_hls_list_size: int = 5
-    cast_temp_dir: str = "/tmp/cast_hls"  # Temp storage for HLS segments
-    cast_session_timeout: int = 300  # Seconds without activity before cleanup
 
     # The shared root dotenv also contains frontend/Compose settings.
     # validate_assignment: a later assignment is coerced and checked like the env value.
