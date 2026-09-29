@@ -862,58 +862,11 @@ class HighlightService:
             log.info("Stopping idle recorder for channel {} (no viewers)", channel_id)
             await self.stop_recording(channel_id)
 
-    def cleanup_orphan_processes(self) -> None:
-        """Kill any orphan FFmpeg processes from previous runs.
-
-        When uvicorn reloads, FFmpeg processes may survive because they run in
-        their own process groups. This method finds and kills them on startup.
-        """
-        highlight_dir = settings.highlight_temp_dir
-        killed = 0
-
-        try:
-            # Find FFmpeg processes that reference our highlight directory
-            result = subprocess.run(
-                ["pgrep", "-f", f"ffmpeg.*{highlight_dir}"],
-                capture_output=True,
-                text=True,
-            )
-
-            if result.returncode == 0 and result.stdout.strip():
-                pids = result.stdout.strip().split("\n")
-                for pid_str in pids:
-                    try:
-                        pid = int(pid_str.strip())
-                        # Kill the process group to ensure children are also killed
-                        try:
-                            os.killpg(os.getpgid(pid), 15)  # SIGTERM
-                            killed += 1
-                            log.debug("Killed orphan FFmpeg process {}", pid)
-                        except ProcessLookupError:
-                            pass  # Process already dead
-                        except PermissionError:
-                            log.warning("No permission to kill process {}", pid)
-                    except ValueError:
-                        continue
-
-                if killed:
-                    log.info("Killed {} orphan FFmpeg processes", killed)
-
-        except FileNotFoundError:
-            # pgrep not available - skip this cleanup
-            log.debug("pgrep not available, skipping orphan process cleanup")
-        except Exception as e:
-            log.warning("Failed to cleanup orphan processes: {}", e)
-
     def cleanup_stale_segments(self) -> None:
         """Remove any stale segment directories from previous runs.
 
         Called at startup to clean up orphaned files from crashes or unclean shutdowns.
-        Also kills any orphan FFmpeg processes that may have survived a reload.
         """
-        # First kill any orphan FFmpeg processes
-        self.cleanup_orphan_processes()
-
         temp_dir = Path(settings.highlight_temp_dir)
         if not temp_dir.exists():
             return

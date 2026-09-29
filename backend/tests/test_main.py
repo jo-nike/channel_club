@@ -416,3 +416,35 @@ class TestStartupGuideWarmup:
 
         assert response.status_code == 200
         assert fetches == ["/output/epg"]
+
+
+def test_lifespan_runs_the_highlight_and_cast_cleanups(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With both features on, startup sweeps stale directories and starts both idle
+    cleanup tasks; shutdown stops them."""
+    from app.services.cast import cast_service
+    from app.services.highlight import highlight_service
+
+    highlight_dir = tmp_path / "highlights"
+    cast_dir = tmp_path / "cast"
+    stale_recording = highlight_dir / "recorder-stale"
+    stale_session = cast_dir / "session-stale"
+    stale_recording.mkdir(parents=True)
+    stale_session.mkdir(parents=True)
+    monkeypatch.setattr(settings, "highlight_enabled", True)
+    monkeypatch.setattr(settings, "cast_enabled", True)
+    monkeypatch.setattr(settings, "highlight_temp_dir", str(highlight_dir))
+    monkeypatch.setattr(settings, "cast_temp_dir", str(cast_dir))
+    TestStartupGuideWarmup._install_upstream(monkeypatch, lambda request: httpx.Response(503))
+
+    with TestClient(app) as client:
+        TestStartupGuideWarmup._wait_for_warmup(client)
+        tasks = [highlight_service._cleanup_task, cast_service._cleanup_task]
+        assert all(task is not None and not task.done() for task in tasks)
+        assert not stale_recording.exists() and not stale_session.exists()
+
+    assert all(task is not None and task.done() for task in tasks)
+    # Stopped by the shutdown teardown, not merely cancelled with the test's event loop
+    assert highlight_service._cleanup_task is None
+    assert cast_service._cleanup_task is None

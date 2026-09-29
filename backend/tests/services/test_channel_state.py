@@ -600,10 +600,17 @@ class TestSerialisedLiveChanges:
     async def test_recorder_failure_is_logged_and_does_not_escape(self, highlight) -> None:
         service, sent = highlight
         service.start_recording.side_effect = RuntimeError("ffmpeg missing")
+        warnings: list[str] = []
+        handler_id = logger.add(warnings.append, format="{message}", level="WARNING")
+        try:
+            result = await channel_state.set_current_channel(_live("A"))
+            await _drain_reconcile()
+        finally:
+            logger.remove(handler_id)
 
-        result = await channel_state.set_current_channel(_live("A"))
-        await _drain_reconcile()
-
+        assert [line.rstrip("\n") for line in warnings] == [
+            "Highlight setup failed for A: ffmpeg missing"
+        ]
         assert result.id == "A"
         assert self._last_live(sent) == "A"
         task = channel_state._reconcile_task

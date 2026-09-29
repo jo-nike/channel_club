@@ -104,12 +104,14 @@ def reset_channel_state():
     """Reset channel state before each test."""
     channel_state.clear_current_channel()
     channel_state._active_connections.clear()
+    channel_state._connection_owners.clear()
     presence._active_users.clear()
     chat.clear_history()
     websocket_router._nickname_map.clear()
     yield
     channel_state.clear_current_channel()
     channel_state._active_connections.clear()
+    channel_state._connection_owners.clear()
     presence._active_users.clear()
     chat.clear_history()
     websocket_router._nickname_map.clear()
@@ -2126,6 +2128,17 @@ class TestSuggestMessage:
 
 class TestChatNickname:
     """Tests for chat nickname functionality."""
+
+    def test_old_socket_cleanup_keeps_the_reconnected_sockets_nickname(self):
+        """Only the socket that owns a nickname clears it: a reconnect may set it first."""
+        old_ws, new_ws = MagicMock(), MagicMock()
+        websocket_router._nickname_map["client-1"] = (new_ws, "Jonny")
+
+        websocket_router._clear_nickname("client-1", old_ws)
+        assert websocket_router._nickname_map["client-1"] == (new_ws, "Jonny")
+
+        websocket_router._clear_nickname("client-1", new_ws)
+        assert "client-1" not in websocket_router._nickname_map
 
     def test_set_nickname_changes_display_name(
         self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch

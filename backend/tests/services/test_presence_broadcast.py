@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.models.websocket import server_payload
+from app.models.websocket import ServerMessage, server_payload
 from app.services import app_settings, presence, presence_broadcast
 
 # Captured at import, before conftest swaps it for a no-op in every test
@@ -295,6 +295,39 @@ class TestScheduleBroadcast:
         first, second = (server_payload(call.args[0]) for call in broadcasts.await_args_list)
         assert first["presence"] == []
         assert [e["displayName"] for e in second["presence"]] == ["jon"]
+
+    async def test_a_change_during_a_slow_send_gets_its_own_broadcast(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A change landing while a presence_update is still going out is not dropped."""
+        started = asyncio.Event()
+        release = asyncio.Event()
+        sent: list[dict] = []
+
+        async def sender(message: ServerMessage) -> None:
+            sent.append(server_payload(message))
+            if len(sent) == 1:
+                started.set()
+                await release.wait()
+
+        monkeypatch.setattr(presence_broadcast, "schedule_broadcast", REAL_SCHEDULE)
+        monkeypatch.setattr(presence_broadcast, "BROADCAST_DEBOUNCE_SECONDS", 0)
+        monkeypatch.setattr(presence_broadcast.channel_state, "broadcast", sender)
+        monkeypatch.setattr(presence_broadcast, "_pending", None)
+        try:
+            presence_broadcast.schedule_broadcast()
+            await asyncio.wait_for(started.wait(), 1)
+            watch("c1", "jon", "u_1", "News")
+            presence_broadcast.schedule_broadcast()
+            release.set()
+            await asyncio.wait_for(asyncio.gather(*presence_broadcast._tasks), 1)
+        finally:
+            presence_broadcast.cancel_pending()
+            await asyncio.gather(*presence_broadcast._tasks, return_exceptions=True)
+
+        assert len(sent) == 2
+        assert sent[0]["presence"] == []
+        assert [e["displayName"] for e in sent[1]["presence"]] == ["jon"]
 
     async def test_broadcast_respects_privacy(self, broadcasts: AsyncMock) -> None:
         """While visibility is off (the default) the broadcast carries names only."""

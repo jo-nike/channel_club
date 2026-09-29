@@ -246,7 +246,7 @@ class TestCaptureMedia:
         assert response.content == b"0123456789abcdef"
         assert response.headers["content-range"] == "bytes 0-15/36"
 
-    def test_other_users_and_expired_captures_are_not_found(
+    def test_other_users_captures_and_invalid_ids_are_not_found(
         self, client: TestClient, capture: Capture
     ) -> None:
         other = {
