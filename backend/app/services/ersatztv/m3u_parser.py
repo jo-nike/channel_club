@@ -45,6 +45,7 @@ def _is_cache_expired() -> bool:
     cache=_cache,
     key="channels",
     is_expired=_is_cache_expired,
+    configured=lambda: bool(settings.ersatztv_base_url),
 )
 def parse_m3u_playlist() -> list[EPGChannel]:
     """

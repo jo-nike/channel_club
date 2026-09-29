@@ -134,6 +134,7 @@ guide: XmltvCache[Programme] = XmltvCache(
     unavailable=lambda: FeedUnavailableError(
         f"Failed to load EPG from ErsatzTV ({guide.get_health().error})"
     ),
+    configured=lambda: bool(settings.ersatztv_base_url),
     log=log,
 )
 # Shut down and reset (tests) with the upstream caches

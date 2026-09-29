@@ -32,6 +32,9 @@ RETRY_MAX_SECONDS = 300
 
 UNKNOWN_TITLE = "Unknown"
 
+# The health report's reason while the source has no address
+NOT_SET_UP = "not set up"
+
 
 def parse_xmltv_datetime(dt_str: str) -> datetime:
     """Parse XMLTV datetime format (YYYYMMDDHHmmss +ZZZZ).
@@ -118,6 +121,7 @@ class XmltvCache[P]:
         start: Callable[[P], datetime],
         end: Callable[[P], datetime],
         unavailable: Callable[[], Exception],
+        configured: Callable[[], bool],
         log: "Logger" = logger,
     ) -> None:
         self.name = name
@@ -127,6 +131,8 @@ class XmltvCache[P]:
         self._start = start
         self._end = end
         self._unavailable = unavailable
+        # Whether the source has an address; with none there is nothing to fetch
+        self._configured = configured
         self._log = log
         # Bumped by reset(): a refresh that started before it stores nothing
         self._generation = 0
@@ -246,12 +252,20 @@ class XmltvCache[P]:
         )
         return True
 
+    def is_configured(self) -> bool:
+        """Whether the source has an address to fetch the guide from."""
+        return self._configured()
+
     async def _refresh_if_due(self) -> None:
         """Run one refresh unless the cache is fresh or the failure backoff says wait.
 
         Serialised behind a lock, so concurrent callers share one XMLTV download
-        and parse. The outcome updates the backoff whoever the caller is.
+        and parse. The outcome updates the backoff whoever the caller is. A
+        source with no address isn't fetched: that's no failure, so it neither
+        logs nor backs off.
         """
+        if not self.is_configured():
+            return
         async with self._refresh_lock:
             # Re-check after acquiring the lock (another caller may have refreshed)
             if self._is_cache_valid():
@@ -315,7 +329,7 @@ class XmltvCache[P]:
             name=self.name,
             online=has_data,
             last_checked=now,
-            error=self._last_error,
+            error=self._last_error if self.is_configured() else NOT_SET_UP,
             stale=has_data and expired,
             channel_count=len(self._cache),
             programme_count=sum(len(programs) for programs in self._cache.values()),

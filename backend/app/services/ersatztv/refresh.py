@@ -55,6 +55,10 @@ class FeedUnavailableError(Exception):
     """A feed has no cached data and cannot be fetched now."""
 
 
+class FeedNotSetUpError(FeedUnavailableError):
+    """A feed's source has no address, so there is nothing to fetch."""
+
+
 class SerializedRefresh[T]:
     """Wraps a feed's fetch-and-store function; the module owns the cache dict.
 
@@ -71,6 +75,7 @@ class SerializedRefresh[T]:
         cache: dict,
         key: str,
         is_expired: Callable[[], bool],
+        configured: Callable[[], bool],
     ) -> None:
         update_wrapper(self, function)
         self._function = function
@@ -79,6 +84,8 @@ class SerializedRefresh[T]:
         self._cache = cache
         self._key = key
         self._is_expired = is_expired
+        # Whether the source has an address; with none there is nothing to fetch
+        self._configured = configured
         self._lock = Lock()
         self.consecutive_failures = 0
         self.retry_at = 0.0
@@ -100,6 +107,9 @@ class SerializedRefresh[T]:
         return error
 
     def __call__(self) -> list[T]:
+        if not self._configured():
+            # No address: nothing to try, so no failure to log or back off from
+            raise FeedNotSetUpError(f"{self._unavailable_message} (not set up)")
         # Reading the cache without the lock is safe: the list is replaced whole
         if self._has_data():
             if not self._is_expired() or self._backing_off():
@@ -181,7 +191,13 @@ class SerializedRefresh[T]:
 
 
 def serialized_refresh[T](
-    *, name: str, unavailable: str, cache: dict, key: str, is_expired: Callable[[], bool]
+    *,
+    name: str,
+    unavailable: str,
+    cache: dict,
+    key: str,
+    is_expired: Callable[[], bool],
+    configured: Callable[[], bool],
 ) -> Callable[[Callable[[], list[T]]], SerializedRefresh[T]]:
     """Decorate a feed's fetch-and-store function with the shared read policy."""
 
@@ -193,6 +209,7 @@ def serialized_refresh[T](
             cache=cache,
             key=key,
             is_expired=is_expired,
+            configured=configured,
         )
 
     return decorate

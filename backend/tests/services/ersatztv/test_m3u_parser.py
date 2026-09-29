@@ -4,11 +4,14 @@ Story: 7.2 - M3U Parser Service
 """
 
 from datetime import datetime, timedelta
+from io import StringIO
 from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
+from loguru import logger
 
+from app.config import settings
 from app.models.ersatztv import EPGChannel
 from app.services.ersatztv.m3u_parser import (
     CACHE_TTL_SECONDS,
@@ -18,7 +21,7 @@ from app.services.ersatztv.m3u_parser import (
     clear_cache,
     parse_m3u_playlist,
 )
-from app.services.ersatztv.refresh import FeedUnavailableError
+from app.services.ersatztv.refresh import FeedNotSetUpError, FeedUnavailableError
 
 # fmt: off
 # ruff: noqa: E501
@@ -286,6 +289,48 @@ class TestGracefulFallback:
             parse_m3u_playlist()
 
         assert parse_m3u_playlist.last_error == "feed too large"
+
+
+class TestNoAddress:
+    """With no ErsatzTV address there is nothing to fetch, so nothing fails."""
+
+    def setup_method(self):
+        """Reset cache before each test."""
+        clear_cache()
+
+    @patch("app.services.ersatztv.m3u_parser.fetch_feed")
+    def test_is_not_fetched_logged_or_backed_off(
+        self, mock_get: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setattr(settings, "ersatztv_base_url", "")
+        output = StringIO()
+        sink = logger.add(output, level="DEBUG", format="{level}|{message}")
+        try:
+            for _ in range(3):
+                with pytest.raises(FeedNotSetUpError, match="not set up"):
+                    parse_m3u_playlist()
+        finally:
+            logger.remove(sink)
+
+        mock_get.assert_not_called()
+        assert "Failed to refresh" not in output.getvalue()
+        assert parse_m3u_playlist.consecutive_failures == 0
+
+    @patch("app.services.ersatztv.m3u_parser.fetch_feed")
+    def test_is_fetched_at_once_when_given_an_address(
+        self, mock_get: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setattr(settings, "ersatztv_base_url", "")
+        with pytest.raises(FeedNotSetUpError):
+            parse_m3u_playlist()
+
+        monkeypatch.setattr(settings, "ersatztv_base_url", "http://ersatztv.test:8409")
+        mock_response = MagicMock()
+        mock_response.text = SAMPLE_M3U
+        mock_get.return_value = mock_response
+
+        assert len(parse_m3u_playlist()) == 2
+        mock_get.assert_called_once_with("http://ersatztv.test:8409/iptv/channels.m3u")
 
 
 class TestIntegration:

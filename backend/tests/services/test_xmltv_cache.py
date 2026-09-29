@@ -13,6 +13,7 @@ import httpx
 import pytest
 from loguru import logger
 
+from app.config import settings
 from app.services import epg_service, xmltv_cache
 from app.services.epg_service import EPGService, EPGServiceError
 from app.services.ersatztv import xmltv_parser
@@ -276,3 +277,59 @@ async def test_ttl_is_measured_in_aware_time(
 
 def test_the_ersatztv_guide_keeps_five_minutes() -> None:
     assert xmltv_parser.guide._cache_ttl == timedelta(minutes=5)
+
+
+type Unset = tuple[XmltvCache[Any], type[Exception], Callable[[], None]]
+
+
+@pytest.fixture(params=["dispatcharr", "ersatztv"])
+def unset(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> Unset:
+    """A guide cache following the settings, its source with no address, and a way to set one."""
+    if request.param == "dispatcharr":
+        monkeypatch.setattr(settings, "dispatcharr_url", "")
+        return (
+            EPGService(),
+            EPGServiceError,
+            lambda: monkeypatch.setattr(settings, "dispatcharr_url", "http://dispatcharr.test"),
+        )
+    monkeypatch.setattr(settings, "ersatztv_base_url", "")
+    return (
+        xmltv_parser.guide,
+        FeedUnavailableError,
+        lambda: monkeypatch.setattr(settings, "ersatztv_base_url", "http://ersatztv.test"),
+    )
+
+
+async def test_a_source_with_no_address_is_not_fetched(unset: Unset, upstream: _Upstream) -> None:
+    """Nothing to fetch is no failure: nothing is tried, logged or backed off from."""
+    cache, unavailable, _ = unset
+    output = StringIO()
+    sink = logger.add(output, level="DEBUG", format="{level}|{message}")
+    try:
+        await cache.ensure_fresh()
+        await cache.check_health()
+        await _settle(cache)
+        for _ in range(3):
+            with pytest.raises(unavailable):
+                await cache.programmes("ch1")
+    finally:
+        logger.remove(sink)
+
+    health = cache.get_health()
+    assert health.last_attempt_at is None
+    assert health.next_retry_at is None
+    assert health.error == "not set up"
+    assert "Failed to refresh" not in output.getvalue()
+
+
+async def test_a_source_given_an_address_is_fetched_at_once(
+    unset: Unset, upstream: _Upstream
+) -> None:
+    cache, unavailable, give_address = unset
+    with pytest.raises(unavailable):
+        await cache.programmes("ch1")
+
+    give_address()
+
+    assert _titles(await cache.programmes("ch1")) == ["Show"]
+    assert cache.get_health().error is None

@@ -27,9 +27,14 @@ def clear_unavailable_warning() -> None:
 
 
 def _log_unavailable(epg_service: EPGService, message: str, *args: object) -> None:
-    """Log a guide 503 at DEBUG, plus one WARNING with the cause per backoff window."""
+    """Log a guide 503 at DEBUG, plus one WARNING with the cause per backoff window.
+
+    With no Dispatcharr address there is no cause to warn about: nothing was fetched.
+    """
     global _warned_retry_at
     log.debug(message, *args)
+    if not epg_service.is_configured():
+        return
     health = epg_service.get_health()
     if health.next_retry_at is not None and health.next_retry_at == _warned_retry_at:
         return

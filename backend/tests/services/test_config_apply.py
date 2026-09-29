@@ -115,6 +115,7 @@ class TestGenerationGuards:
             start=lambda programme: datetime.now(),
             end=lambda programme: datetime.now(),
             unavailable=lambda: RuntimeError("unavailable"),
+            configured=lambda: True,
         )
         stale = asyncio.create_task(guide.ensure_fresh())
         await asyncio.sleep(0)

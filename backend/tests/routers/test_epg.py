@@ -123,6 +123,7 @@ class TestGetNowPlaying:
             mock_service = AsyncMock()
             mock_service.get_now_playing.side_effect = EPGServiceError("EPG service unavailable")
             mock_service.get_health = MagicMock()
+            mock_service.is_configured = MagicMock(return_value=True)
             mock_get_service.return_value = mock_service
 
             response = client.get(
@@ -375,6 +376,7 @@ class TestGetNowPlayingAll:
             mock_service = AsyncMock()
             mock_service.get_now_playing_bulk.side_effect = EPGServiceError("unavailable")
             mock_service.get_health = MagicMock()
+            mock_service.is_configured = MagicMock(return_value=True)
             mock_get_service.return_value = mock_service
 
             response = client.get("/api/epg/now-playing/all", headers=auth_header)
@@ -556,6 +558,7 @@ class TestGetProgrammes:
             mock_service = AsyncMock()
             mock_service.get_programmes.side_effect = EPGServiceError("EPG service unavailable")
             mock_service.get_health = MagicMock()
+            mock_service.is_configured = MagicMock(return_value=True)
             mock_get_service.return_value = mock_service
 
             response = client.get("/api/epg/programmes?channel_id=28", headers=auth_header)
@@ -632,3 +635,18 @@ class TestUnavailableWarning:
 
         warnings = [line for line in output.getvalue().splitlines() if "EPG" in line]
         assert len(warnings) == 2
+
+    def test_no_dispatcharr_address_is_nothing_to_warn_about(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        output = StringIO()
+        handler_id = logger.add(output, format="{level} | {message}", level="WARNING")
+        try:
+            with patch("app.routers.epg.get_epg_service", return_value=EPGService("")):
+                for _ in range(2):
+                    response = client.get("/api/epg/now-playing?channel_id=28", headers=auth_header)
+                    assert response.status_code == 503
+        finally:
+            logger.remove(handler_id)
+
+        assert output.getvalue() == ""

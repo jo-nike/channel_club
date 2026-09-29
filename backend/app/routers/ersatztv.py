@@ -43,7 +43,11 @@ from app.services.ersatztv.hls_rewriter import (
     rewrite_manifest,
     segment_media_type,
 )
-from app.services.ersatztv.refresh import FeedUnavailableError, run_feed_lookup
+from app.services.ersatztv.refresh import (
+    FeedNotSetUpError,
+    FeedUnavailableError,
+    run_feed_lookup,
+)
 from app.services.http_clients import ersatztv_client
 from app.services.logo_proxy import (
     LOGO_CACHE,
@@ -104,6 +108,9 @@ async def list_channels(user=Depends(get_current_user)) -> EPGChannelResponse:
         channels = await run_feed_lookup(get_channels)
         log.debug("Returning {} channels", len(channels))
         return EPGChannelResponse(channels=[PublicEPGChannel.from_channel(c) for c in channels])
+    except FeedNotSetUpError:
+        # The app asks on every load; a club without ErsatzTV is nothing to report
+        raise HTTPException(status_code=503, detail="ErsatzTV service unavailable") from None
     except UPSTREAM_ERRORS as e:
         log.error("Failed to get channels: {}", e)
         raise HTTPException(status_code=503, detail="ErsatzTV service unavailable") from None

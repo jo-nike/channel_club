@@ -99,6 +99,23 @@ class TestListChannels:
         assert response.status_code == 503
         assert response.json()["detail"] == "ErsatzTV service unavailable"
 
+    def test_answers_503_quietly_when_ersatztv_is_not_set_up(
+        self, client: TestClient, auth_header: dict[str, str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The app asks on every load: a club without ErsatzTV logs nothing for it."""
+        monkeypatch.setattr(settings, "ersatztv_base_url", "")
+        output = StringIO()
+        handler_id = logger.add(output, format="{level} | {message}", level="WARNING")
+        try:
+            for _ in range(2):
+                response = client.get("/api/ersatztv/channels", headers=auth_header)
+                assert response.status_code == 503
+                assert response.json()["detail"] == "ErsatzTV service unavailable"
+        finally:
+            logger.remove(handler_id)
+
+        assert output.getvalue() == ""
+
     def test_returns_channels(
         self, client: TestClient, auth_header: dict[str, str], mock_channel: EPGChannel
     ) -> None:

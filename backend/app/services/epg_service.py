@@ -56,6 +56,7 @@ class EPGService(XmltvCache[Program]):
             start=lambda program: program.start_time,
             end=lambda program: program.end_time,
             unavailable=lambda: EPGServiceError("EPG service unavailable"),
+            configured=lambda: bool(self.dispatcharr_url),
             log=log,
         )
 
