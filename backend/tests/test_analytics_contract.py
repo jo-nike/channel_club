@@ -289,21 +289,23 @@ def test_every_event_the_dashboard_reads_carries_its_fields(
 
     # Started after the logging, so its server.start is captured
     with _app_client() as client:
+        portal = client.portal
+        assert portal is not None  # Set while the client is open
         with ws_connect(client, token, view="live", session_id="s1") as ws:
             ws.receive_json()  # connection_ack
             ws.send_json(_update("RDS", "uuid-rds", "Hockey", on_live=True))
             # The Live slot moves to TVA and the viewer follows it
             ws.send_json(_update("TVA", "uuid-tva", "News", on_live=True))
             _settle(ws)
-            client.portal.call(presence.record_watch_progress)
+            portal.call(presence.record_watch_progress)
             ws.send_json(_update("CBC", "uuid-cbc", "Movie", on_live=False))
             _settle(ws)
             ws.close(code=1012)  # What uvicorn sends every socket on shutdown
         channel = Channel(
             id="uuid-rds", name="RDS", streamUrl="https://streams.example/rds", guideId="1"
         )
-        client.portal.call(channel_state.set_current_channel, channel, "jon")
-        client.portal.call(channel_state.clear_current_channel_async, "jon")  # Stop Live
+        portal.call(channel_state.set_current_channel, channel, "jon")
+        portal.call(channel_state.clear_current_channel_async, "jon")  # Stop Live
 
     lines = _emitted(output)
     for event, fields in sorted(required.items()):
