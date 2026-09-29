@@ -1621,7 +1621,7 @@
         "type": "object"
       },
       "PublicEPGChannel": {
-        "description": "An ErsatzTV channel as browsers see it, with no internal ErsatzTV URL.\n\nstreamUrl is our tokenless proxy path (the frontend keys player resets on\nit and plays through getErsatzTVStreamUrl); originalLogoUrl is left out.",
+        "description": "An ErsatzTV channel as browsers see it, with no internal ErsatzTV URL.\n\nstreamUrl is the legacy proxy path with no token in it, kept only as a\nstable per-channel key: the frontend keys player resets on it and plays\nthrough a stream session (POST /api/ersatztv/session). The route itself\ngoes in R4, and the key then needs another value. originalLogoUrl is left out.",
         "properties": {
           "group": {
             "anyOf": [

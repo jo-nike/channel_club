@@ -277,7 +277,7 @@ async def get_channel_logo(logo_id: int) -> tuple[bytes, str]:
     Raises:
         ChannelLogoNotFoundError: If no channel in the catalogue uses this logo.
         LogoNotFoundError: If Dispatcharr answers 404 for it (remembered for
-            for one catalogue TTL).
+            one catalogue TTL).
         DispatchrrUnavailableError: If Dispatcharr can't serve it as a raster image.
     """
 
