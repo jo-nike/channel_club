@@ -22,6 +22,13 @@ PresenceText = Annotated[str, Field(strict=True, max_length=512)]
 InputText = Annotated[str, Field(strict=True, max_length=4096)]
 ClientMessageId = Annotated[str, Field(strict=True, min_length=1, max_length=64)]
 
+# Defined once here: the services build the server messages below from them.
+View = Literal["live", "ersatztv"]
+# 'user' is a member's message, 'system' a line the server posts about a shared
+# event (someone changing Live), 'share' a now-playing card, 'suggestion' a
+# member asking for a channel on live TV
+MessageKind = Literal["user", "system", "share", "suggestion"]
+
 
 class ClientMessage(BaseModel):
     model_config = ConfigDict(strict=True)
@@ -36,7 +43,7 @@ class ChannelUpdateMessage(ClientMessage):
     channel: PresenceText | None = None
     channelId: PresenceText | None = None
     programme: PresenceText | None = None
-    view: Literal["live", "ersatztv"] | None = None
+    view: View | None = None
     onLive: bool | None = None  # Following the shared Live slot; pre-R2 bundles omit it
 
 
@@ -105,7 +112,6 @@ client_message_adapter = TypeAdapter(
 
 
 # Server-to-client messages. Field names are the camelCase keys on the wire.
-View = Literal["live", "ersatztv"]
 
 
 def _is_none(value: object) -> bool:
@@ -133,7 +139,7 @@ class ChatLine(BaseModel):
     userId: str
     content: str
     timestamp: str
-    kind: Literal["user", "system", "share", "suggestion"]
+    kind: MessageKind
     channelId: str | None
     channelName: str | None
     programme: str | None

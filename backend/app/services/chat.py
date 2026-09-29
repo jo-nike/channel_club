@@ -10,14 +10,13 @@ import hmac
 from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Literal
 from uuid import uuid4
 
 from loguru import logger
 
 from app.config import settings
 from app.models.auth import account_key
-from app.services.presence import View
+from app.models.websocket import MessageKind, View
 
 # Module-level logger with service context
 log = logger.bind(service="chat")
@@ -33,11 +32,6 @@ MAX_MESSAGE_AGE = timedelta(hours=24)
 
 # Sender name on system lines, so clients that predate `kind` still show them
 SYSTEM_USERNAME = "Live TV"
-
-# 'user' is a member's message, 'system' a line the server posts about a shared
-# event (someone changing Live), 'share' a now-playing card, 'suggestion' a
-# member asking for a channel on live TV
-MessageKind = Literal["user", "system", "share", "suggestion"]
 
 
 @dataclass(frozen=True)

@@ -20,15 +20,14 @@ import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Literal
 
 from fastapi import WebSocket
 from loguru import logger
 
+from app.models.websocket import View
+
 # Module-level logger with service context
 log = logger.bind(service="presence")
-
-View = Literal["live", "ersatztv"]
 
 
 def _now() -> datetime:
