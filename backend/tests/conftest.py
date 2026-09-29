@@ -84,8 +84,20 @@ def reset_module_state(monkeypatch):
     __import__("app.services.media_limits").services.media_limits.reset_media_budgets()
     __import__("app.services.gauges", fromlist=["_"]).reset_gauges_task()
     __import__("app.services.state_store", fromlist=["_"]).reset_state_store()
+    __import__("app.services.settings_store", fromlist=["_"]).reset_settings_store()
     __import__("app.services.stream_sessions", fromlist=["_"]).clear()
     __import__("app.services.http_clients", fromlist=["_"]).reset_http_clients()
+
+
+@pytest.fixture(autouse=True)
+def restore_settings():
+    """Put back any setting a test changed without monkeypatch, such as saved
+    settings that a startup applied to the singleton."""
+    saved = {field: getattr(settings, field) for field in Settings.model_fields}
+    yield
+    for field, value in saved.items():
+        if getattr(settings, field) is not value:
+            setattr(settings, field, value)
 
 
 @pytest.fixture(autouse=True)

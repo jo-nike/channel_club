@@ -102,10 +102,10 @@ uv run --project "$APP_DIR/backend" --env-file "$ENV_FILE" python - "$APP_DIR/ba
 import sys
 
 sys.path.insert(0, sys.argv[1])
-from app.main import validate_auth_configuration
+from app.main import preflight
 
 try:
-    validate_auth_configuration()
+    preflight()
 except RuntimeError as error:
     print(f"Cannot start: {error}", file=sys.stderr)
     sys.exit(1)

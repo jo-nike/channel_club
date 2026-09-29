@@ -32,6 +32,7 @@ from app.services import (
     plex,
     presence,
     presence_broadcast,
+    settings_store,
     state_store,
 )
 from app.services.cached_fetch import aclose_all_caches
@@ -104,6 +105,19 @@ def validate_auth_configuration() -> None:
         )
 
 
+def preflight() -> None:
+    """The startup checks, without serving: run.sh calls this before launching.
+
+    Loads the saved settings (generating and saving the signing key when the
+    environment has none), then validates auth, as the lifespan does.
+
+    Raises:
+        RuntimeError: As settings_store.start() and validate_auth_configuration().
+    """
+    settings_store.start()
+    validate_auth_configuration()
+
+
 # Shutdown teardown's budget, after uvicorn's own graceful timeout (Dockerfile)
 # and inside the compose stop_grace_period.
 SHUTDOWN_DEADLINE_SECONDS = 8
@@ -112,6 +126,9 @@ SHUTDOWN_DEADLINE_SECONDS = 8
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler for startup/shutdown events."""
+    # Settings saved from the app first: they can change the signing key, the
+    # log level, auth and the features everything below reads.
+    settings_store.start()
     # Startup: a structured event, so the dashboard can mark deploys
     logger.info(
         "Channel Club API starting",
