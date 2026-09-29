@@ -2,6 +2,8 @@
 
 import asyncio
 import json
+import os
+import stat
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -118,6 +120,60 @@ class TestLoadAndSave:
 
         assert len(warnings(records)) == 1
         assert state_store.current()["presenceVisible"] is True
+
+
+class TestWriteJsonAtomic:
+    """The shared writer: all or nothing, private to the app's user, and durable."""
+
+    def test_written_file_is_readable_only_by_its_owner(self, tmp_path: Path) -> None:
+        path = tmp_path / "doc.json"
+
+        state_store.write_json_atomic(path, {"a": 1})
+
+        assert json.loads(path.read_text()) == {"a": 1}
+        assert path.stat().st_mode & 0o777 == 0o600
+
+    def test_a_failed_write_raises_and_leaves_the_old_file(self, tmp_path: Path) -> None:
+        path = tmp_path / "doc.json"
+        state_store.write_json_atomic(path, {"a": 1})
+
+        with pytest.raises(TypeError):
+            state_store.write_json_atomic(path, {"a": object()})
+
+        assert json.loads(path.read_text()) == {"a": 1}
+        assert [p.name for p in tmp_path.iterdir()] == ["doc.json"]
+
+    def test_a_failed_rename_raises_and_leaves_the_old_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        path = tmp_path / "doc.json"
+        state_store.write_json_atomic(path, {"a": 1})
+
+        def fail(source: str, target: Path) -> None:
+            raise OSError("disk full")
+
+        monkeypatch.setattr(state_store.os, "replace", fail)
+        with pytest.raises(OSError, match="disk full"):
+            state_store.write_json_atomic(path, {"a": 2})
+
+        assert json.loads(path.read_text()) == {"a": 1}
+        assert [p.name for p in tmp_path.iterdir()] == ["doc.json"]
+
+    def test_the_directory_is_synced_after_the_rename(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        synced: list[str] = []
+        real_fsync = state_store.os.fsync
+
+        def fsync(fd: int) -> None:
+            is_dir = stat.S_ISDIR(os.fstat(fd).st_mode)
+            synced.append("dir" if is_dir else "file")
+            real_fsync(fd)
+
+        monkeypatch.setattr(state_store.os, "fsync", fsync)
+        state_store.write_json_atomic(tmp_path / "doc.json", {"a": 1})
+
+        assert synced == ["file", "dir"]
 
 
 class TestSettersPersist:

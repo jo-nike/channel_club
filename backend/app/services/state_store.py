@@ -85,7 +85,18 @@ def current() -> dict[str, Any]:
     return dict(_document)
 
 
-def _write(path: Path, document: dict[str, Any]) -> None:
+def write_json_atomic(path: Path, document: dict[str, Any]) -> None:
+    """Replace path with document as JSON, all or nothing.
+
+    Writes a temp file in the same directory, fsyncs it, renames it over path,
+    then fsyncs the directory so the rename itself survives a power cut. The
+    temp file is created with mode 0600 and the rename keeps it, so only the
+    app's user can read what it wrote.
+
+    Raises:
+        OSError: If any step fails. The old file, if any, is left as it was.
+        TypeError: If document is not JSON-serialisable (nothing is replaced).
+    """
     with tempfile.NamedTemporaryFile(
         "w", dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False
     ) as tmp:
@@ -102,6 +113,11 @@ def _write(path: Path, document: dict[str, Any]) -> None:
     except BaseException:
         os.unlink(tmp.name)
         raise
+    directory = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
 
 
 async def save(changes: dict[str, Any]) -> None:
@@ -118,7 +134,7 @@ async def save(changes: dict[str, Any]) -> None:
         if not settings.state_file:
             return
         try:
-            await asyncio.to_thread(_write, Path(settings.state_file), dict(_document))
+            await asyncio.to_thread(write_json_atomic, Path(settings.state_file), dict(_document))
         except OSError as exc:
             log.warning("State file {} not saved: {}", settings.state_file, exc)
 
