@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { ArrowLeft, ArrowRight, LoaderCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { StepId } from './steps'
@@ -25,6 +26,12 @@ interface SetupActionBarProps {
 export function SetupActionBar({ step, busy, onBack }: SetupActionBarProps) {
   const label = step === 'welcome' ? 'Start setup' : step === 'review' ? 'Open Channel Club' : 'Continue'
   const busyLabel = busy ? BUSY_LABEL[busy] : undefined
+
+  // Keeps a control that takes focus clear of the bar (index.css)
+  useEffect(() => {
+    document.documentElement.classList.add('setup-action-bar')
+    return () => document.documentElement.classList.remove('setup-action-bar')
+  }, [])
 
   return (
     <div className="sticky bottom-0 z-[5] border-t bg-background/85 px-[18px] pt-3.5 pb-[calc(14px+env(safe-area-inset-bottom,0px))] backdrop-blur-md min-[760px]:px-[clamp(24px,6cqi,72px)]">

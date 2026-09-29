@@ -586,6 +586,17 @@
 }
 
 /* ==========================================================================
+   SETUP WIZARD: ACTION BAR
+   ========================================================================== */
+
+/* SetupActionBar sets html.setup-action-bar while it sticks to the bottom of
+   the window. A control that takes focus then scrolls clear of the bar, not
+   under it (WCAG 2.4.12, technique C43): the bar is 73px plus the safe area. */
+.setup-action-bar {
+  scroll-padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+}
+
+/* ==========================================================================
    SETUP WIZARD: ON AIR
    ========================================================================== */
 

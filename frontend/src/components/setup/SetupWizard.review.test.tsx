@@ -292,6 +292,8 @@ describe('SetupWizard: On air', () => {
     expect(within(rail()).getByRole('button', { name: 'Review, done' })).toBeDisabled()
     expect(within(rail()).getByRole('button', { name: 'Channels, done' })).toBeDisabled()
     expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument()
+    // No action bar, so nothing to keep focus clear of
+    expect(document.documentElement).not.toHaveClass('setup-action-bar')
     expect(localStorage.getItem(PROGRESS_KEY)).toBeNull()
   })
 

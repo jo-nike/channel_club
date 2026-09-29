@@ -145,6 +145,14 @@ describe('SetupWizard: Welcome', () => {
     renderWizard()
     expect(screen.getByRole('heading', { level: 1, name: 'Welcome to Channel Club' })).toBeInTheDocument()
   })
+
+  it('keeps focused controls clear of the action bar while it shows', () => {
+    renderWizard({}, { strict: true })
+    expect(document.documentElement).toHaveClass('setup-action-bar')
+
+    cleanup()
+    expect(document.documentElement).not.toHaveClass('setup-action-bar')
+  })
 })
 
 describe('SetupWizard: a password account', () => {
