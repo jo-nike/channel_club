@@ -15,11 +15,11 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from loguru import logger
-from pydantic import BaseModel, Field
 from starlette.requests import ClientDisconnect
 from starlette.types import Receive, Scope, Send
 
 from app.models.auth import TokenPayload
+from app.models.base import CamelModel
 from app.models.channel import ChannelId
 from app.models.ersatztv import (
     CurrentProgrammeResponse,
@@ -467,21 +467,17 @@ async def get_segment(
     return await _get_segment(encoded_url)
 
 
-class StreamSessionRequest(BaseModel):
+class StreamSessionRequest(CamelModel):
     """Request to open a stream session for a channel."""
 
-    channel_id: ChannelId = Field(alias="channelId")
-
-    model_config = {"populate_by_name": True}
+    channel_id: ChannelId
 
 
-class StreamSessionResponse(BaseModel):
+class StreamSessionResponse(CamelModel):
     """A stream session: play `url`, which carries no credential."""
 
-    session_id: str = Field(alias="sessionId")
+    session_id: str
     url: str
-
-    model_config = {"populate_by_name": True}
 
 
 _SESSION_ID = re.compile(r"[A-Za-z0-9_-]{32}")
