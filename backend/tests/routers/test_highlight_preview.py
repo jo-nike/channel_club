@@ -46,7 +46,9 @@ def register(tmp_path: Path, capture_id: str, content: bytes = CAPTURE_BYTES) ->
     path = directory / "snapshot.mp4"
     path.write_bytes(content)
     now = time.time()
-    item = Capture(capture_id, "testuser", "channel-1", path, len(content), 12.5, now, now, now)
+    item = Capture(
+        capture_id, "local:testuser", "channel-1", path, len(content), 12.5, now, now, now
+    )
     highlight_service.captures.captures[capture_id] = item
     return item
 
@@ -92,7 +94,7 @@ def test_a_repeat_issue_returns_the_same_token(
     url = preview_url(client, auth_header, capture)
     assert preview_url(client, auth_header, capture) == url
     token = url.removeprefix("/api/highlight/preview/")
-    assert highlight_service.issue_preview_token(capture.id, "testuser") == token
+    assert highlight_service.issue_preview_token(capture.id, "local:testuser") == token
     assert highlight_service.issue_preview_token(capture.id, "other") is None
     assert len(highlight_service.captures.preview_tokens) == 1
 
@@ -150,12 +152,14 @@ async def test_the_preview_ends_when_the_owner_clips_past_the_limit(
 
     recorder = WritingRecorder("synthetic", "http://fixture")
     with patch("app.services.highlight.media_duration", AsyncMock(return_value=5.0)):
-        oldest = await highlight_service.captures.create(recorder, "testuser", "channel-1", 0.0)
+        oldest = await highlight_service.captures.create(
+            recorder, "local:testuser", "channel-1", 0.0
+        )
         url = preview_url(client, auth_header, oldest)
         assert client.get(url).status_code == 200
         for _ in range(MAX_CAPTURES_PER_OWNER):
-            await highlight_service.captures.create(recorder, "testuser", "channel-1", 0.0)
-    assert highlight_service.get_capture(oldest.id, "testuser") is None
+            await highlight_service.captures.create(recorder, "local:testuser", "channel-1", 0.0)
+    assert highlight_service.get_capture(oldest.id, "local:testuser") is None
     assert client.get(url).status_code == 404
 
 

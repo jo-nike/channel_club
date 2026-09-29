@@ -59,6 +59,7 @@ def reset_module_state(monkeypatch):
     channel_state.clear_current_channel()
     plex.clear_server_owner_id_cache()
     highlight_service.clear_start_backoff()
+    highlight_service.captures.in_flight.clear()
     csp_report.clear_csp_report_state()
     monkeypatch.setattr(app_settings, "_user_channel_selection", False)
     monkeypatch.setattr(app_settings, "_presence_visible", False)

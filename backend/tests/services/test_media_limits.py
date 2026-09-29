@@ -1,7 +1,7 @@
 """Admission is tested with controlled jobs, never a resource stress workload."""
 
 import asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -81,6 +81,8 @@ async def test_capture_overload_never_enters_recorder_and_cancel_releases():
 
     recorder = AsyncMock()
     recorder.is_running = True
+    # No closed segment to key on, so every press makes its own snapshot.
+    recorder._newest_listed_segment_stamp = MagicMock(return_value=None)
     service._recorders["same"] = recorder
     with patch.object(service.captures, "create", AsyncMock(side_effect=create)) as creating:
         job = asyncio.create_task(service.create_capture("same", owner="alice"))
@@ -318,11 +320,13 @@ async def test_everyone_who_clips_the_same_moment_gets_a_capture():
     service = HighlightService()
     recorder = AsyncMock()
     recorder.is_running = True
+    # No closed segment to key on, so every press makes its own snapshot.
+    recorder._newest_listed_segment_stamp = MagicMock(return_value=None)
     service._recorders["same"] = recorder
     running = 0
     peak = 0
 
-    async def create(_recorder, owner, _channel_id, _pressed_at):
+    async def create(_recorder, owner, _channel_id, _pressed_at, _key):
         nonlocal running, peak
         running += 1
         peak = max(peak, running)

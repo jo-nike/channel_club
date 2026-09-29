@@ -50,7 +50,7 @@ async def submit_feedback(
         app_version=feedback.sanitize_text(request.context.app_version, 32, multiline=False),
     )
 
-    feedback.reserve(user.sub)
+    feedback.reserve(user.account_key)
     try:
         await feedback.publish(
             feedback.build_message(
@@ -64,7 +64,7 @@ async def submit_feedback(
         )
     except HTTPException as exc:
         if exc.status_code >= 500 or exc.status_code == 429:
-            feedback.release(user.sub)
+            feedback.release(user.account_key)
         raise
 
     log.info("Feedback ({}) delivered for user '{}'", request.kind, user.sub)

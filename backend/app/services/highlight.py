@@ -364,6 +364,18 @@ class ChannelRecorder:
             return None
         return entries[-1] if entries else None
 
+    def _newest_listed_segment_stamp(self) -> tuple[str, int] | None:
+        """The newest closed segment and its st_mtime_ns: ring names repeat, the pair does not."""
+        directory = self.segment_dir
+        listed = self._newest_listed_segment()
+        if directory is None or listed is None:
+            return None
+        name = Path(listed).name
+        try:
+            return name, (directory / name).stat().st_mtime_ns
+        except OSError:
+            return None
+
     async def wait_for_current_segment(self) -> bool:
         """Wait, bounded, until the segment being written now is closed and listed.
 
@@ -488,6 +500,13 @@ RECORDER_GONE_ERROR = "Live TV changed while clipping; press Clip again"
 # Shown for any filesystem failure (a full disk, say) instead of its path-bearing text.
 CLIP_SAVE_ERROR = "Could not save the clip on the server"
 
+# (channel id, newest closed segment, its st_mtime_ns): presses that share it share a snapshot.
+type SnapshotKey = tuple[str, str, int]
+
+
+class LeaderGone(Exception):
+    """The request making a shared snapshot left before it finished; a waiting one leads."""
+
 
 @dataclass(frozen=True)
 class Capture:
@@ -506,6 +525,8 @@ class Capture:
     ends_at: float
     # created_at is shown to the viewer; the TTL is judged on the monotonic clock.
     created_mono: float = field(default_factory=lambda: monotonic())
+    # Captures with the same key hard-link one snapshot.mp4; the link count is its refcount.
+    snapshot_key: SnapshotKey | None = None
 
     @property
     def expires_at(self) -> float:
@@ -544,15 +565,27 @@ class CaptureStore:
         self.captures: dict[str, Capture] = {}
         self.download_tokens: dict[str, DownloadToken] = {}
         self.preview_tokens: dict[str, PreviewGrant] = {}
+        # Snapshots being made: later presses of the same moment wait for the leader's result.
+        self.in_flight: dict[SnapshotKey, asyncio.Future[Capture | str]] = {}
 
-    async def create(
-        self, recorder: ChannelRecorder, owner: str, channel_id: str, pressed_at: float
-    ) -> Capture:
+    @staticmethod
+    def _new_directory() -> tuple[str, Path]:
         root = Path(settings.highlight_temp_dir) / "captures"
         root.mkdir(parents=True, exist_ok=True)
         capture_id = secrets.token_urlsafe(16)
         directory = root / capture_id
         directory.mkdir(mode=0o700)
+        return capture_id, directory
+
+    async def create(
+        self,
+        recorder: ChannelRecorder,
+        owner: str,
+        channel_id: str,
+        pressed_at: float,
+        snapshot_key: SnapshotKey | None = None,
+    ) -> Capture:
+        capture_id, directory = self._new_directory()
         path = directory / "snapshot.mp4"
         try:
             ends_at = await recorder.capture(path)
@@ -561,10 +594,7 @@ class CaptureStore:
         except BaseException:
             await asyncio.to_thread(remove_recording_directory, directory)
             raise
-        # A few captures per owner bound disk use to a few export-sized files each.
-        previous = [item for item in self.captures.values() if item.owner == owner]
-        for oldest in previous[: max(len(previous) - MAX_CAPTURES_PER_OWNER + 1, 0)]:
-            await self._remove(oldest)
+        await self._make_room(owner)
         capture = Capture(
             capture_id,
             owner,
@@ -576,21 +606,65 @@ class CaptureStore:
             pressed_at,
             ends_at,
             monotonic(),
+            snapshot_key,
         )
-        self.captures[capture_id] = capture
+        self._add(capture, shared=False)
+        return capture
+
+    async def share(self, source: Capture, owner: str, pressed_at: float) -> Capture:
+        """The owner's own capture of the source's snapshot: a hard link, no second remux.
+
+        Raises OSError when the link cannot be made (the source was removed meanwhile).
+        """
+        capture_id, directory = self._new_directory()
+        path = directory / "snapshot.mp4"
+        try:
+            await asyncio.to_thread(os.link, source.path, path)
+        except BaseException:
+            await asyncio.to_thread(remove_recording_directory, directory)
+            raise
+        await self._make_room(owner)
+        capture = replace(
+            source,
+            id=capture_id,
+            owner=owner,
+            path=path,
+            created_at=time.time(),
+            pressed_at=pressed_at,
+            created_mono=monotonic(),
+        )
+        self._add(capture, shared=True)
+        return capture
+
+    def find(self, snapshot_key: SnapshotKey) -> Capture | None:
+        """A live capture of this snapshot, if anyone still holds one."""
+        now = monotonic()
+        for capture in self.captures.values():
+            if capture.snapshot_key == snapshot_key and not capture.expired(now):
+                return capture
+        return None
+
+    async def _make_room(self, owner: str) -> None:
+        # A few captures per owner bound disk use to a few export-sized files each.
+        previous = [item for item in self.captures.values() if item.owner == owner]
+        for oldest in previous[: max(len(previous) - MAX_CAPTURES_PER_OWNER + 1, 0)]:
+            await self._remove(oldest)
+
+    def _add(self, capture: Capture, shared: bool) -> None:
+        self.captures[capture.id] = capture
         log.bind(
             event="highlight.capture_ready",
-            channel_id=channel_id,
-            ends_after_press_seconds=round(ends_at - pressed_at, 2),
+            channel_id=capture.channel_id,
+            ends_after_press_seconds=round(capture.ends_at - capture.pressed_at, 2),
+            shared=shared,
         ).info(
             "Capture {} ready for {} ({:.1f}s, {:.1f} KB), ends {:+.1f}s after the press",
-            capture_id,
-            owner,
-            duration,
-            size / 1024,
-            ends_at - pressed_at,
+            capture.id,
+            capture.owner,
+            capture.duration,
+            capture.size / 1024,
+            capture.ends_at - capture.pressed_at,
         )
-        return capture
 
     def get(self, capture_id: str, owner: str) -> Capture | None:
         """Foreign or expired captures are indistinguishable from unknown ones."""
@@ -670,6 +744,8 @@ class CaptureStore:
         for capture in list(self.captures.values()):
             await self._remove(capture)
         self.preview_tokens.clear()
+        # A leader still running keeps its own future, so whoever waits on it is still answered.
+        self.in_flight.clear()
 
     async def _remove(self, capture: Capture) -> None:
         self.captures.pop(capture.id, None)
@@ -1007,6 +1083,55 @@ class HighlightService:
         recorder = self._recorders[channel_id]
         # Waited outside the export slot: only two exist server-wide, and waiting encodes nothing.
         await recorder.wait_for_current_segment()
+        # Everyone who clipped the same moment finishes the wait on the same closed segment,
+        # so their snapshots would be identical: one is made and the others link to it.
+        stamp = await asyncio.to_thread(recorder._newest_listed_segment_stamp)
+        if stamp is None:
+            return await self._snapshot_capture(channel_id, owner, pressed_at, None)
+        key: SnapshotKey = (channel_id, *stamp)
+        while True:
+            source = self.captures.find(key)
+            if source is None:
+                pending = self.captures.in_flight.get(key)
+                if pending is None:
+                    return await self._lead_capture(channel_id, owner, pressed_at, key)
+                try:
+                    # Shielded: a follower that leaves ends only its own wait, not the snapshot.
+                    outcome = await asyncio.shield(pending)
+                except LeaderGone:
+                    continue
+                if isinstance(outcome, str):
+                    return None, outcome
+                source = outcome
+            try:
+                return await self.captures.share(source, owner, pressed_at), None
+            except OSError as exc:
+                log.info("Could not link capture {} ({}); making a new one", source.id, exc.errno)
+                return await self._snapshot_capture(channel_id, owner, pressed_at, key)
+
+    async def _lead_capture(
+        self, channel_id: str, owner: str, pressed_at: float, key: SnapshotKey
+    ) -> tuple[Capture | None, str | None]:
+        """Make the snapshot everyone pressing this moment shares, and hand them the result."""
+        future: asyncio.Future[Capture | str] = asyncio.get_running_loop().create_future()
+        self.captures.in_flight[key] = future
+        try:
+            capture, error = await self._snapshot_capture(channel_id, owner, pressed_at, key)
+            future.set_result(capture if capture is not None else error or CLIP_SAVE_ERROR)
+            return capture, error
+        finally:
+            if not future.done():
+                # Cancelled (the client left) or failed: a follower starts over and leads.
+                # Never cancel the future itself; followers would take that as their own cancel.
+                future.set_exception(LeaderGone())
+                # Retrieved here, so a future nobody waited on logs no "never retrieved" error.
+                future.exception()
+            if self.captures.in_flight.get(key) is future:
+                del self.captures.in_flight[key]
+
+    async def _snapshot_capture(
+        self, channel_id: str, owner: str, pressed_at: float, key: SnapshotKey | None
+    ) -> tuple[Capture | None, str | None]:
         # Everyone who clipped the same moment finishes the wait together, so queue briefly.
         async with export_budget.waiting_slot(owner):
             # Look the recorder up again: it may have been stopped, or replaced, while we waited.
@@ -1014,7 +1139,9 @@ class HighlightService:
             if recorder is None or not recorder.is_running:
                 return None, RECORDER_GONE_ERROR
             try:
-                return await self.captures.create(recorder, owner, channel_id, pressed_at), None
+                return await self.captures.create(
+                    recorder, owner, channel_id, pressed_at, key
+                ), None
             except TimeoutError:
                 return None, "Highlight creation timed out"
             except OSError as exc:

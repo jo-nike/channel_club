@@ -248,9 +248,9 @@ async def test_limits_reject_before_probe_or_upstream(client, configured, monkey
 
 async def test_an_upload_in_flight_leaves_the_export_slots_free(client, configured):
     async def upload(*_args):
-        assert upload_budget.owners == {"viewer": 1}
+        assert upload_budget.owners == {"local:viewer": 1}
         # The same viewer can still capture or export while Zipline receives the clip.
-        with export_budget.slot("viewer"):
+        with export_budget.slot("local:viewer"):
             pass
         return {"url": "https://cdn.test/c.mp4", "name": "c.mp4"}
 

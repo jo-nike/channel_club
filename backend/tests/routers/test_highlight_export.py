@@ -49,7 +49,7 @@ def register():
     """Place a capture in the store for a test and drop it afterwards."""
     registered = []
 
-    def add(path, owner="viewer", capture_id=CAPTURE_ID):
+    def add(path, owner="local:viewer", capture_id=CAPTURE_ID):
         now = time.time()
         capture = Capture(
             capture_id, owner, "channel-1", path, path.stat().st_size, 2, now, now, now
@@ -213,7 +213,7 @@ async def test_export_stops_the_encoder_when_the_browser_cancels(tmp_path, regis
             break
         await asyncio.sleep(0.01)
     await asyncio.sleep(0.05)
-    assert encoder[0].returncode is None and export_budget.owners["viewer"] == 1
+    assert encoder[0].returncode is None and export_budget.owners["local:viewer"] == 1
 
     leave.set()
     with pytest.raises(HTTPException) as closed:
@@ -294,7 +294,7 @@ async def test_a_failed_export_removes_its_workspace(tmp_path, register, monkeyp
 async def test_a_viewer_who_leaves_while_queued_never_takes_a_slot(
     tmp_path, register, monkeypatch, route
 ):
-    from unittest.mock import AsyncMock
+    from unittest.mock import AsyncMock, MagicMock
 
     from app.routers.highlight import create_capture
 
@@ -305,6 +305,7 @@ async def test_a_viewer_who_leaves_while_queued_never_takes_a_slot(
     capture = register(snapshot)
     recorder = AsyncMock()
     recorder.is_running = True
+    recorder._newest_listed_segment_stamp = MagicMock(return_value=None)
     monkeypatch.setitem(highlight_service._recorders, "channel-1", recorder)
     export_budget.acquire("alice")
     export_budget.acquire("bob")

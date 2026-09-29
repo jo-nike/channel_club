@@ -134,7 +134,15 @@ def capture(tmp_path):
     now = time.time()
     # Pressed 2s before the capture's last frame, so the press sits 10.5s into it.
     item = Capture(
-        CAPTURE_ID, "testuser", "channel-1", path, path.stat().st_size, 12.5, now, now - 2, now
+        CAPTURE_ID,
+        "local:testuser",
+        "channel-1",
+        path,
+        path.stat().st_size,
+        12.5,
+        now,
+        now - 2,
+        now,
     )
     highlight_service.captures.captures[CAPTURE_ID] = item
     yield item
@@ -198,8 +206,8 @@ class TestCreateCapture:
             "previewUrl": "/api/highlight/preview/preview-token-0001",
         }
         assert data["endsAt"] - data["pressedAt"] == pytest.approx(2)
-        mock_service.create_capture.assert_awaited_once_with("channel-1", owner="testuser")
-        mock_service.issue_preview_token.assert_called_once_with(CAPTURE_ID, "testuser")
+        mock_service.create_capture.assert_awaited_once_with("channel-1", owner="local:testuser")
+        mock_service.issue_preview_token.assert_called_once_with(CAPTURE_ID, "local:testuser")
 
 
 class TestCaptureMedia:
