@@ -7,7 +7,7 @@ import subprocess
 from collections.abc import Iterator
 from contextlib import suppress
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -251,6 +251,8 @@ class TestLiveChanges:
     ) -> None:
         monkeypatch.setattr(settings, "highlight_enabled", True)
         recorder = AsyncMock()
+        # clear_start_backoff is sync: an AsyncMock one leaves an un-awaited coroutine
+        recorder.clear_start_backoff = MagicMock()
         with (
             patch.object(cast_on, "follow_live", AsyncMock(side_effect=RuntimeError("boom"))),
             patch("app.services.highlight.highlight_service", recorder),
