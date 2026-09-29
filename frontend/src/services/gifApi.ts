@@ -21,28 +21,6 @@ export interface GifResponse {
   pagination: GifPagination
 }
 
-export interface GifFeatureResponse {
-  enabled: boolean
-}
-
-/**
- * Check if GIF feature is enabled on the server.
- */
-export async function getGifFeatureEnabled(): Promise<boolean> {
-  logger.debug('GIF', 'Checking GIF feature status')
-
-  const response = await fetchWithAuth('/gif/feature')
-
-  if (!response.ok) {
-    logger.error('GIF', `Failed to check GIF feature: ${response.status}`)
-    return false
-  }
-
-  const data: GifFeatureResponse = await response.json()
-  logger.debug('GIF', `GIF feature enabled: ${data.enabled}`)
-  return data.enabled
-}
-
 /**
  * Fetch trending GIFs.
  */

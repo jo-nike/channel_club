@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest'
 import { act, fireEvent, render, screen } from '@/test/utils'
 import { useSettingsStore } from '@/stores/settingsStore'
-import { getGifFeatureEnabled } from '@/services/gifApi'
 
 const layout = vi.hoisted(() => {
   // GifButton reads the build-time flag when it loads
@@ -9,7 +8,6 @@ const layout = vi.hoisted(() => {
   return { mode: 'desktop' as 'phone' | 'tablet' | 'desktop' }
 })
 vi.mock('@/hooks/useLayoutMode', () => ({ useLayoutMode: () => layout.mode }))
-vi.mock('@/services/gifApi', () => ({ getGifFeatureEnabled: vi.fn().mockResolvedValue(true) }))
 vi.mock('./GifPicker', () => ({ GifPicker: () => <div data-testid="gif-picker" /> }))
 
 import { GifButton } from './GifButton'
@@ -33,7 +31,6 @@ describe('GifButton', () => {
     act(() => useSettingsStore.getState().setServerFeatures({ chat: true, gif: true }))
 
     expect(screen.getByRole('button', { name: 'Send GIF' })).toBeInTheDocument()
-    expect(getGifFeatureEnabled).not.toHaveBeenCalled()
     expect(fetchSpy).not.toHaveBeenCalled()
     fetchSpy.mockRestore()
   })
