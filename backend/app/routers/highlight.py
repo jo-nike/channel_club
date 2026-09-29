@@ -381,5 +381,6 @@ async def export_preview(
             "Content-Disposition": f'attachment; filename="highlight.{format}"',
             "Cache-Control": "no-store",
         },
-        background=BackgroundTask(shutil.rmtree, directory, True),
+        # pyright matches rmtree's first overload (the deprecated onerror one) to the ParamSpec
+        background=BackgroundTask(shutil.rmtree, directory, True),  # pyright: ignore[reportCallIssue]
     )

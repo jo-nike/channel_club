@@ -33,7 +33,7 @@ from tests.ws_helpers import ws_connect
 
 MESSAGE_ID = "00000000-0000-4000-8000-000000000001"
 SENT_AT = datetime(2026, 9, 28, 12, 0, tzinfo=UTC)
-TSN = Channel(id="42", name="TSN 5", streamUrl="http://streams/42", guideId="tsn5")
+TSN = Channel(id="42", name="TSN 5", stream_url="http://streams/42", guide_id="tsn5")
 TSN_WIRE = {
     "id": "42",
     "name": "TSN 5",

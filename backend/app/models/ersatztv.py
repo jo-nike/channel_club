@@ -4,35 +4,31 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from app.models.base import CamelModel
 
-class EPGChannel(BaseModel):
+
+class EPGChannel(CamelModel):
     """ErsatzTV channel from M3U playlist."""
 
     id: str = Field(..., description="Unique channel identifier (tvg-id)")
-    xmltv_id: str | None = Field(
-        default=None, alias="xmltvId", description="Original XMLTV identity"
-    )
+    xmltv_id: str | None = Field(default=None, description="Original XMLTV identity")
     name: str = Field(..., description="Channel display name")
-    stream_url: str = Field(alias="streamUrl", description="HLS stream URL")
-    logo_url: str | None = Field(
-        default=None, alias="logoUrl", description="Channel logo URL (proxied)"
-    )
+    stream_url: str = Field(description="HLS stream URL")
+    logo_url: str | None = Field(default=None, description="Channel logo URL (proxied)")
     original_logo_url: str | None = Field(
-        default=None, alias="originalLogoUrl", description="Original logo URL for backend fetching"
+        default=None, description="Original logo URL for backend fetching"
     )
     number: int | float | None = Field(
         default=None, description="Channel number for ordering (2.1 for a sub-channel)"
     )
     group: str | None = Field(default=None, description="Channel group/category")
 
-    model_config = {"populate_by_name": True}
 
-
-class Programme(BaseModel):
+class Programme(CamelModel):
     """ErsatzTV programme from XMLTV data."""
 
     id: str = Field(..., description="Unique programme identifier")
-    channel_id: str = Field(alias="channelId", description="References EPGChannel.id")
+    channel_id: str = Field(description="References EPGChannel.id")
     title: str = Field(..., description="Programme title")
     description: str | None = Field(default=None, description="Programme description")
     start: datetime = Field(..., description="Start time (UTC)")
@@ -42,10 +38,8 @@ class Programme(BaseModel):
     episode: int | None = Field(default=None, description="Episode number")
     year: str | None = Field(default=None, description="Release year")
 
-    model_config = {"populate_by_name": True}
 
-
-class PublicEPGChannel(BaseModel):
+class PublicEPGChannel(CamelModel):
     """An ErsatzTV channel as browsers see it, with no internal ErsatzTV URL.
 
     streamUrl is our tokenless proxy path (the frontend keys player resets on
@@ -53,14 +47,12 @@ class PublicEPGChannel(BaseModel):
     """
 
     id: str
-    xmltv_id: str | None = Field(default=None, alias="xmltvId")
+    xmltv_id: str | None = None
     name: str
-    stream_url: str = Field(alias="streamUrl")
-    logo_url: str | None = Field(default=None, alias="logoUrl")
+    stream_url: str
+    logo_url: str | None = None
     number: int | float | None = None
     group: str | None = None
-
-    model_config = {"populate_by_name": True}
 
     @classmethod
     def from_channel(cls, channel: EPGChannel) -> "PublicEPGChannel":
@@ -81,20 +73,16 @@ class EPGChannelResponse(BaseModel):
     channels: list[PublicEPGChannel]
 
 
-class CurrentProgrammeResponse(BaseModel):
+class CurrentProgrammeResponse(CamelModel):
     """Response for GET /api/ersatztv/current/{channel_id}."""
 
-    channel_id: str = Field(alias="channelId")
+    channel_id: str
     current: Programme | None = None
-    next_up: Programme | None = Field(default=None, alias="nextUp")
-
-    model_config = {"populate_by_name": True}
+    next_up: Programme | None = None
 
 
-class ProgrammeListResponse(BaseModel):
+class ProgrammeListResponse(CamelModel):
     """Response for GET /api/ersatztv/programmes/{channel_id}."""
 
-    channel_id: str = Field(alias="channelId")
+    channel_id: str
     programmes: list[Programme]
-
-    model_config = {"populate_by_name": True}

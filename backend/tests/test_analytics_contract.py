@@ -45,7 +45,8 @@ def production_logging() -> Iterator[Callable[..., StringIO]]:
 
     def configure(log_format: str = "json", log_level: str = "INFO") -> StringIO:
         output = StringIO()
-        config = Settings(_env_file=None, log_format=log_format, log_level=log_level)
+        # _env_file is a pydantic-settings init option that pyright doesn't see on Settings
+        config = Settings(_env_file=None, log_format=log_format, log_level=log_level)  # pyright: ignore[reportCallIssue]
         with patch("app.logging_config.settings", config), patch.object(sys, "stderr", output):
             configure_logging()
         return output
@@ -302,7 +303,7 @@ def test_every_event_the_dashboard_reads_carries_its_fields(
             _settle(ws)
             ws.close(code=1012)  # What uvicorn sends every socket on shutdown
         channel = Channel(
-            id="uuid-rds", name="RDS", streamUrl="https://streams.example/rds", guideId="1"
+            id="uuid-rds", name="RDS", stream_url="https://streams.example/rds", guide_id="1"
         )
         portal.call(channel_state.set_current_channel, channel, "jon")
         portal.call(channel_state.clear_current_channel_async, "jon")  # Stop Live

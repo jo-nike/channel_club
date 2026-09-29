@@ -51,6 +51,3 @@ faulthandler_timeout = 55
 [tool.basedpyright]
 pythonVersion = "3.13"
 typeCheckingMode = "standard"
-# Pydantic's populate_by_name=True allows snake_case OR camelCase in constructors,
-# but type checkers don't understand this pattern yet. Disable until supported.
-reportCallIssue = "none"

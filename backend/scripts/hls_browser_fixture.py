@@ -158,7 +158,7 @@ def channel(identifier):
     return EPGChannel(
         id=identifier,
         name="Synthetic fixture",
-        streamUrl=f"{settings.ersatztv_base_url}/{filename}",
+        stream_url=f"{settings.ersatztv_base_url}/{filename}",
     )
 
 

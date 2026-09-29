@@ -1,0 +1,334 @@
+{
+  "GET /api/auth/config": {
+    "localAuthEnabled": false,
+    "plexAuthEnabled": false
+  },
+  "GET /api/settings": {
+    "userChannelSelection": true,
+    "presenceVisible": false
+  },
+  "GET /api/admin/status": {
+    "ersatztv": {
+      "name": "ErsatzTV",
+      "online": true,
+      "degraded": false,
+      "lastChecked": "2026-09-28T12:00:00Z",
+      "error": null,
+      "activeSessions": 1,
+      "sessions": [
+        {
+          "channelNumber": 3,
+          "channelName": "Cartoons",
+          "state": "running",
+          "bufferSeconds": 4.5,
+          "streamingMode": "hls",
+          "resolution": "1920x1080",
+          "videoCodec": "h264",
+          "videoBitrate": 5000,
+          "audioCodec": "aac",
+          "audioBitrate": 128
+        }
+      ]
+    },
+    "dispatcharr": {
+      "name": "Dispatcharr",
+      "online": true,
+      "degraded": true,
+      "lastChecked": "2026-09-28T12:00:00Z",
+      "error": "stats unavailable",
+      "activeStreams": 1,
+      "totalViewers": 2,
+      "streams": [
+        {
+          "channelId": "42",
+          "streamName": "TSN 5",
+          "state": "active",
+          "clientCount": 2,
+          "uptime": 60.5,
+          "totalBytes": 1024,
+          "avgBitrate": "4 Mbps",
+          "videoCodec": "h264",
+          "resolution": "1280x720",
+          "sourceFps": 59.94
+        }
+      ]
+    },
+    "epg": {
+      "name": "EPG",
+      "online": true,
+      "degraded": false,
+      "lastChecked": "2026-09-28T12:00:00Z",
+      "error": null,
+      "stale": false,
+      "channelCount": 10,
+      "programmeCount": 200,
+      "lastAttemptAt": "2026-09-28T12:00:00Z",
+      "lastSuccessAt": "2026-09-28T12:00:00Z",
+      "nextRetryAt": null
+    },
+    "ersatztvGuide": {
+      "name": "ErsatzTV guide",
+      "online": false,
+      "degraded": false,
+      "lastChecked": "2026-09-28T12:00:00Z",
+      "error": "HTTP 403",
+      "stale": true,
+      "channelCount": 0,
+      "programmeCount": 0,
+      "lastAttemptAt": null,
+      "lastSuccessAt": null,
+      "nextRetryAt": "2026-09-28T13:00:00Z"
+    }
+  },
+  "GET /api/admin/active-users": {
+    "liveUsers": [
+      {
+        "username": "alice",
+        "channel": "TSN 5",
+        "channelId": "42",
+        "onLive": true,
+        "programme": "Hockey",
+        "connectedSince": "2026-09-28T12:00:00Z"
+      }
+    ],
+    "ersatztvUsers": [
+      {
+        "username": "bob",
+        "channel": null,
+        "channelId": null,
+        "onLive": false,
+        "programme": null,
+        "connectedSince": "2026-09-28T12:00:00Z"
+      }
+    ],
+    "totals": {
+      "liveCount": 1,
+      "ersatztvCount": 1
+    }
+  },
+  "GET /api/channels/current": {
+    "currentChannel": {
+      "id": "42",
+      "name": "TSN 5",
+      "streamUrl": "http://streams/42",
+      "guideId": "tsn5",
+      "logoUrl": "/logo/42"
+    }
+  },
+  "GET /api/channels/grouped": {
+    "groups": [
+      {
+        "id": 1,
+        "name": "Sports",
+        "channelCount": 1,
+        "channels": [
+          {
+            "id": "42",
+            "name": "TSN 5",
+            "streamUrl": "http://streams/42",
+            "guideId": "tsn5",
+            "logoUrl": "/logo/42"
+          }
+        ]
+      }
+    ],
+    "ungrouped": [
+      {
+        "id": "9",
+        "name": "Nine",
+        "streamUrl": "http://streams/9",
+        "guideId": "nine",
+        "logoUrl": null
+      }
+    ]
+  },
+  "GET /api/epg/now-playing": {
+    "channelId": "42",
+    "currentProgram": {
+      "title": "Hockey",
+      "startTime": "2026-09-28T12:00:00Z",
+      "endTime": "2026-09-28T13:00:00Z",
+      "description": "Hockey tonight"
+    },
+    "nextProgram": {
+      "title": "News",
+      "startTime": "2026-09-28T13:00:00Z",
+      "endTime": "2026-09-28T13:00:00Z",
+      "description": "News tonight"
+    }
+  },
+  "GET /api/epg/now-playing/all": {
+    "nowPlaying": {
+      "42": {
+        "title": "Hockey",
+        "startTime": "2026-09-28T12:00:00Z",
+        "endTime": "2026-09-28T13:00:00Z",
+        "description": "Hockey tonight"
+      }
+    }
+  },
+  "GET /api/epg/programmes": {
+    "channelId": "42",
+    "programmes": [
+      {
+        "title": "Hockey",
+        "startTime": "2026-09-28T12:00:00Z",
+        "endTime": "2026-09-28T13:00:00Z",
+        "description": "Hockey tonight"
+      }
+    ]
+  },
+  "GET /api/ersatztv/channels": {
+    "channels": [
+      {
+        "id": "3",
+        "xmltvId": "3.etv",
+        "name": "Cartoons",
+        "streamUrl": "/api/ersatztv/stream/3",
+        "logoUrl": "/api/ersatztv/logos/3",
+        "number": 3,
+        "group": "Kids"
+      }
+    ]
+  },
+  "GET /api/ersatztv/current/3": {
+    "channelId": "3",
+    "current": {
+      "id": "3-Now",
+      "channelId": "3",
+      "title": "Now",
+      "description": "A cartoon",
+      "start": "2026-09-28T12:00:00Z",
+      "stop": "2026-09-28T13:00:00Z",
+      "category": [
+        "Animation"
+      ],
+      "season": 1,
+      "episode": 2,
+      "year": "1999"
+    },
+    "nextUp": {
+      "id": "3-Next",
+      "channelId": "3",
+      "title": "Next",
+      "description": "A cartoon",
+      "start": "2026-09-28T13:00:00Z",
+      "stop": "2026-09-28T13:00:00Z",
+      "category": [
+        "Animation"
+      ],
+      "season": 1,
+      "episode": 2,
+      "year": "1999"
+    }
+  },
+  "GET /api/ersatztv/programmes/3": {
+    "channelId": "3",
+    "programmes": [
+      {
+        "id": "3-Now",
+        "channelId": "3",
+        "title": "Now",
+        "description": "A cartoon",
+        "start": "2026-09-28T12:00:00Z",
+        "stop": "2026-09-28T13:00:00Z",
+        "category": [
+          "Animation"
+        ],
+        "season": 1,
+        "episode": 2,
+        "year": "1999"
+      }
+    ]
+  },
+  "POST /api/ersatztv/session": {
+    "sessionId": "<volatile>",
+    "url": "/api/ersatztv/s/<volatile>/stream.m3u8"
+  },
+  "GET /api/nhl/scores": {
+    "games": [
+      {
+        "id": 2025020001,
+        "status": "live",
+        "homeTeam": {
+          "name": "Maple Leafs",
+          "abbreviation": "TOR",
+          "score": 2,
+          "logo": "https://logo/TOR.svg",
+          "logoDark": "https://logo/TOR_dark.svg"
+        },
+        "awayTeam": {
+          "name": "Canadiens",
+          "abbreviation": "MTL",
+          "score": 1,
+          "logo": "https://logo/MTL.svg",
+          "logoDark": "https://logo/MTL_dark.svg"
+        },
+        "startTime": "2026-09-28T23:00:00Z",
+        "gameCenterLink": "https://nhl/gamecenter/1",
+        "period": "2nd",
+        "timeRemaining": "10:00",
+        "isIntermission": false,
+        "outcomeType": null,
+        "situation": {
+          "awayStrength": 4,
+          "homeStrength": 5,
+          "timeRemaining": "1:30",
+          "awayDescription": null,
+          "homeDescription": [
+            "PP"
+          ]
+        },
+        "broadcasts": [
+          {
+            "network": "SN",
+            "market": "N",
+            "countryCode": "CA"
+          }
+        ]
+      },
+      {
+        "id": 2025020002,
+        "status": "final",
+        "homeTeam": {
+          "name": "Oilers",
+          "abbreviation": "EDM",
+          "score": 3,
+          "logo": "https://logo/EDM.svg",
+          "logoDark": "https://logo/EDM_dark.svg"
+        },
+        "awayTeam": {
+          "name": "Flames",
+          "abbreviation": "CGY",
+          "score": 2,
+          "logo": "https://logo/CGY.svg",
+          "logoDark": "https://logo/CGY_dark.svg"
+        },
+        "startTime": "2026-09-28T01:00:00Z",
+        "gameCenterLink": "https://nhl/gamecenter/2",
+        "period": null,
+        "timeRemaining": null,
+        "isIntermission": null,
+        "outcomeType": "OT",
+        "situation": null,
+        "broadcasts": []
+      }
+    ],
+    "date": "2026-09-28",
+    "liveGameCount": 1
+  },
+  "POST /api/cast/session": {
+    "session_id": "<volatile>",
+    "hls_url": "/api/ersatztv/s/<volatile>/stream.m3u8",
+    "needs_transcoding": false
+  },
+  "POST /api/highlight/42/capture": {
+    "id": "capture-0001",
+    "duration": 12.5,
+    "bytes": 10,
+    "expiresAt": 1900.0,
+    "pressedAt": 998.0,
+    "endsAt": 1000.0,
+    "previewUrl": "/api/highlight/preview/preview-token-0001"
+  }
+}

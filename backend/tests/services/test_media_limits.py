@@ -116,7 +116,7 @@ def fake_source(channel_id: str):
 
     from app.models.channel import Channel
 
-    channel = Channel(id=channel_id, name="New", streamUrl="https://source/ts", guideId="1")
+    channel = Channel(id=channel_id, name="New", stream_url="https://source/ts", guide_id="1")
     return SimpleNamespace(channel=channel)
 
 
@@ -221,7 +221,7 @@ async def test_recently_polled_and_live_recorders_are_never_evicted(live):
     recorders = full_of(service, {"recent": 5, "live": 30 if live else 5})
     if live:
         channel_state._current_channel = Channel(
-            id="live", name="Live", streamUrl="https://source/ts", guideId="1"
+            id="live", name="Live", stream_url="https://source/ts", guide_id="1"
         )
     with (
         patch("app.services.highlight.resolve_media_channel", AsyncMock()) as resolve,
@@ -267,7 +267,7 @@ async def test_channel_selection_broadcasts_even_when_highlights_unavailable(fai
     from app.services import channel_state
 
     service = HighlightService()
-    channel = Channel(id="new", name="New", streamUrl="https://source/ts", guideId="1")
+    channel = Channel(id="new", name="New", stream_url="https://source/ts", guide_id="1")
     for _ in range(2):
         recorder_budget.acquire(RECORDER_OWNER)
     channel_state.clear_current_channel()

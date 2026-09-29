@@ -15,8 +15,8 @@ from app.services.http_clients import DISPATCHARR, ERSATZTV
 from app.services.media_source import CatalogueMatch, peek_catalogue_channel
 from tests.http_helpers import mock_upstream
 
-TSN = Channel(id="42", name="TSN 5", streamUrl="http://streams/42", guideId="tsn5")
-CARTOONS = EPGChannel(id="etv-2", name="Cartoons", streamUrl="http://etv/2.m3u8")
+TSN = Channel(id="42", name="TSN 5", stream_url="http://streams/42", guide_id="tsn5")
+CARTOONS = EPGChannel(id="etv-2", name="Cartoons", stream_url="http://etv/2.m3u8")
 
 
 def _grouped(fresh: bool = True) -> None:
@@ -68,7 +68,7 @@ def test_peek_finds_an_ersatztv_channel_as_resolve_builds_it() -> None:
     match = peek_catalogue_channel("etv-2")
 
     assert match == CatalogueMatch(
-        Channel(id="etv-2", name="Cartoons", streamUrl="http://etv/2.m3u8", guideId="etv-2"),
+        Channel(id="etv-2", name="Cartoons", stream_url="http://etv/2.m3u8", guide_id="etv-2"),
         complete=True,
         ersatztv=True,
     )

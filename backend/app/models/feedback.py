@@ -2,7 +2,9 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.models.base import CamelModel
 
 FeedbackKind = Literal["bug", "suggestion", "other"]
 
@@ -12,18 +14,18 @@ MAX_CONTACT_LENGTH = 200
 MAX_CONTEXT_FIELD_LENGTH = 2000
 
 
-class FeedbackContext(BaseModel):
+class FeedbackContext(CamelModel):
     """Client diagnostics attached to a report. Every field is bounded."""
 
-    user_agent: str = Field("", alias="userAgent", max_length=MAX_CONTEXT_FIELD_LENGTH)
-    viewport: str = Field("", max_length=MAX_CONTEXT_FIELD_LENGTH)  # "1920x1080"
+    user_agent: str = Field(default="", max_length=MAX_CONTEXT_FIELD_LENGTH)
+    viewport: str = Field(default="", max_length=MAX_CONTEXT_FIELD_LENGTH)  # "1920x1080"
     # pathname only, never the query string
-    path: str = Field("", max_length=MAX_CONTEXT_FIELD_LENGTH)
-    session_id: str = Field("", alias="sessionId", max_length=MAX_CONTEXT_FIELD_LENGTH)
+    path: str = Field(default="", max_length=MAX_CONTEXT_FIELD_LENGTH)
+    session_id: str = Field(default="", max_length=MAX_CONTEXT_FIELD_LENGTH)
     # frontend build
-    app_version: str = Field("", alias="appVersion", max_length=MAX_CONTEXT_FIELD_LENGTH)
+    app_version: str = Field(default="", max_length=MAX_CONTEXT_FIELD_LENGTH)
 
-    model_config = {"populate_by_name": True, "extra": "forbid"}
+    model_config = ConfigDict(extra="forbid")
 
 
 class FeedbackRequest(BaseModel):

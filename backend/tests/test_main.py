@@ -256,7 +256,8 @@ def test_sec01_empty_environment_secret(monkeypatch):
     from app.main import validate_auth_configuration
 
     monkeypatch.setenv("JWT_SECRET", "")
-    config = Settings(_env_file=None)
+    # _env_file is a pydantic-settings init option that pyright doesn't see on Settings
+    config = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
     assert config.jwt_secret.get_secret_value() == ""
     with patch("app.main.settings", config), pytest.raises(RuntimeError, match="JWT_SECRET"):
         validate_auth_configuration()

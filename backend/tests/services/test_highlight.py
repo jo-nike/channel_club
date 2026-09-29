@@ -177,7 +177,7 @@ class TestStartBackoff:
 
         from app.models.channel import Channel
 
-        channel = Channel(id="failing", name="F", streamUrl="https://source/ts", guideId="1")
+        channel = Channel(id="failing", name="F", stream_url="https://source/ts", guide_id="1")
         with patch(
             "app.services.highlight.resolve_media_channel",
             AsyncMock(return_value=SimpleNamespace(channel=channel)),
@@ -249,7 +249,7 @@ class TestStartBackoff:
         from app.models.channel import Channel
         from app.services import channel_state
 
-        channel = Channel(id="failing", name="F", streamUrl="https://source/ts", guideId="1")
+        channel = Channel(id="failing", name="F", stream_url="https://source/ts", guide_id="1")
         channel_state.clear_current_channel()
         try:
             with (
