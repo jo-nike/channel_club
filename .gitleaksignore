@@ -27,3 +27,11 @@ fcaaef1e222d9226928e65c0ed41d86499a806ac:backend/tests/test_main.py:generic-api-
 fcaaef1e222d9226928e65c0ed41d86499a806ac:backend/tests/test_main.py:generic-api-key:70
 fcaaef1e222d9226928e65c0ed41d86499a806ac:backend/tests/test_main.py:generic-api-key:83
 fcaaef1e222d9226928e65c0ed41d86499a806ac:backend/tests/test_main.py:generic-api-key:93
+
+# 2026-09-29 — False positive. Commit 64c3d1ae (G-16) added a test that builds
+# Settings from eight synthetic secrets ("synthetic-giphy-key-0008" and the
+# like) and asserts none of them appears in repr, str or model_dump now that
+# they are SecretStr. The generic-api-key rule matches the giphy_api_key entry
+# because of its name and length. It is a test fixture, not a credential, and
+# nothing needs rotating.
+64c3d1ae495ac2abc46e3bab127e0ae2a59c5f18:backend/tests/test_config.py:generic-api-key:133
