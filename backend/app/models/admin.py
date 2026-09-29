@@ -2,56 +2,50 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import ConfigDict
+
+from app.models.base import CamelModel
 
 
-class ActiveUser(BaseModel):
+class ActiveUser(CamelModel):
     """Represents an active user in the presence system."""
 
     username: str
     channel: str | None = None
-    channel_id: str | None = Field(None, alias="channelId")
+    channel_id: str | None = None
     # Following the shared Live slot, not a personal pick of whatever channel
-    on_live: bool = Field(False, alias="onLive")
+    on_live: bool = False
     programme: str | None = None
-    connected_since: datetime = Field(alias="connectedSince")
-
-    model_config = {"populate_by_name": True}
+    connected_since: datetime
 
 
-class ActiveUsersTotals(BaseModel):
+class ActiveUsersTotals(CamelModel):
     """Aggregate totals for active users."""
 
-    live_count: int = Field(alias="liveCount")
-    ersatztv_count: int = Field(alias="ersatztvCount")
-
-    model_config = {"populate_by_name": True}
+    live_count: int
+    ersatztv_count: int
 
 
-class ActiveUsersResponse(BaseModel):
+class ActiveUsersResponse(CamelModel):
     """Response model for GET /api/admin/active-users endpoint."""
 
-    live_users: list[ActiveUser] = Field(alias="liveUsers")
-    ersatztv_users: list[ActiveUser] = Field(alias="ersatztvUsers")
+    live_users: list[ActiveUser]
+    ersatztv_users: list[ActiveUser]
     totals: ActiveUsersTotals
 
-    model_config = {"populate_by_name": True}
 
-
-class AppSettings(BaseModel):
+class AppSettings(CamelModel):
     """Runtime settings an admin can toggle for all users."""
 
-    user_channel_selection: bool = Field(alias="userChannelSelection")
+    user_channel_selection: bool
     # Whether members see which channel everyone else is watching (off: names only)
-    presence_visible: bool = Field(alias="presenceVisible")
-
-    model_config = {"populate_by_name": True}
+    presence_visible: bool
 
 
-class UpdateAppSettingsRequest(BaseModel):
+class UpdateAppSettingsRequest(CamelModel):
     """Request body for PUT /api/settings. Omitted fields are left unchanged."""
 
-    user_channel_selection: bool | None = Field(None, alias="userChannelSelection")
-    presence_visible: bool | None = Field(None, alias="presenceVisible")
+    user_channel_selection: bool | None = None
+    presence_visible: bool | None = None
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(extra="forbid")

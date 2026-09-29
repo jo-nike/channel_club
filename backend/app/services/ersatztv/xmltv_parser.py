@@ -1,13 +1,13 @@
 """ErsatzTV XMLTV EPG parser
 
-Parses XMLTV EPG data to extract programme schedules.
-Implements 5-minute TTL caching with timezone-aware UTC conversion.
+Parses XMLTV EPG data to extract programme schedules, cached for 5 minutes in
+the shared XMLTV cache (app.services.xmltv_cache) with UTC programme times.
 
 Story: 7.3 - XMLTV Parser Service
 """
 
 import contextlib
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from defusedxml import ElementTree
 from loguru import logger
@@ -15,112 +15,41 @@ from loguru import logger
 from app.config import settings
 from app.models.ersatztv import Programme
 from app.models.status import EPGHealthStatus
-from app.services.bounded_http import fetch_feed
-from app.services.ersatztv.refresh import serialized_refresh
+from app.services.bounded_http import FEED_BYTES, read_bounded
+from app.services.cached_fetch import register_closable
+from app.services.ersatztv.refresh import FeedUnavailableError
+from app.services.http_clients import ersatztv_client
+from app.services.xmltv_cache import (
+    GuideIndex,
+    XmltvCache,
+    parse_xmltv_datetime,
+    programme_title,
+)
 
 # Module-level logger with service context
 log = logger.bind(service="ersatztv")
 
-# Module-level cache
-_cache: dict = {
-    "programmes": [],
-    "timestamp": None,
-    "last_successful_fetch": None,
-}
-CACHE_TTL_SECONDS = 300  # 5 minutes
+CACHE_TTL = timedelta(minutes=5)
+# The per-read timeout fetch_feed used; read_bounded adds the body deadline
+FETCH_TIMEOUT_SECONDS = 2
 
 
 def _parse_xmltv_datetime(dt_str: str) -> datetime:
-    """
-    Parse XMLTV datetime format to UTC timezone-aware datetime.
-
-    Format: YYYYMMDDHHmmss +ZZZZ (e.g., "20260103180000 +0000")
-
-    Args:
-        dt_str: XMLTV datetime string
-
-    Returns:
-        Timezone-aware datetime in UTC
-
-    Raises:
-        ValueError: If datetime format is invalid
-    """
-    parts = dt_str.strip().split()
-    if len(parts) != 2:
-        raise ValueError(f"Invalid XMLTV datetime: {dt_str}")
-
-    dt_part, tz_part = parts
-
-    # Parse datetime components
-    if len(dt_part) < 14:
-        raise ValueError(f"Invalid XMLTV datetime: {dt_str}")
-
-    year = int(dt_part[0:4])
-    month = int(dt_part[4:6])
-    day = int(dt_part[6:8])
-    hour = int(dt_part[8:10])
-    minute = int(dt_part[10:12])
-    second = int(dt_part[12:14])
-
-    # Parse timezone offset
-    if len(tz_part) != 5 or tz_part[0] not in ("+", "-"):
-        raise ValueError(f"Invalid timezone: {tz_part}")
-
-    tz_sign = 1 if tz_part[0] == "+" else -1
-    tz_hours = int(tz_part[1:3])
-    tz_minutes = int(tz_part[3:5])
-    tz_offset = timezone(timedelta(seconds=tz_sign * (tz_hours * 3600 + tz_minutes * 60)))
-
-    # Create local datetime and convert to UTC
-    dt_local = datetime(year, month, day, hour, minute, second, tzinfo=tz_offset)
-    return dt_local.astimezone(UTC)
+    """Parse an XMLTV datetime (the shared parser) and convert it to UTC."""
+    return parse_xmltv_datetime(dt_str).astimezone(UTC)
 
 
-def _is_cache_expired() -> bool:
-    """Check if cache is expired (> 5 minutes old)."""
-    if _cache["timestamp"] is None:
-        return True
-    age = datetime.now() - _cache["timestamp"]
-    return age.total_seconds() > CACHE_TTL_SECONDS
+async def _fetch_xmltv() -> bytes:
+    """Download ErsatzTV's XMLTV feed within the feed byte budget."""
+    log.debug("Fetching XMLTV data from {}", settings.ersatztv_xmltv_url)
+    async with ersatztv_client().stream(
+        "GET", settings.ersatztv_xmltv_url, timeout=FETCH_TIMEOUT_SECONDS
+    ) as response:
+        response.raise_for_status()
+        return await read_bounded(response, FEED_BYTES)
 
 
-@serialized_refresh(
-    name="ErsatzTV guide (XMLTV)",
-    unavailable="Failed to load EPG from ErsatzTV",
-    cache=_cache,
-    key="programmes",
-    is_expired=_is_cache_expired,
-)
-def parse_xmltv() -> list[Programme]:
-    """
-    Parse ErsatzTV XMLTV and return list of programmes.
-
-    Fetches XMLTV from configured URL, parses programme data,
-    and returns Programme objects. Results are cached for 5 minutes; the
-    serialized_refresh wrapper serves the cache and stale data (see refresh.py).
-
-    Returns:
-        List of Programme objects parsed from XMLTV
-
-    Raises:
-        FeedUnavailableError: If fetch fails and no cached data available
-    """
-    log.debug("Cache miss for XMLTV data, fetching from {}", settings.ersatztv_xmltv_url)
-
-    response = fetch_feed(settings.ersatztv_xmltv_url)
-    response.raise_for_status()
-
-    programmes = _parse_xmltv_content(response.text)
-
-    _cache["programmes"] = programmes
-    _cache["timestamp"] = datetime.now()
-    _cache["last_successful_fetch"] = datetime.now()
-
-    log.info("Refreshed XMLTV cache: {} programmes parsed", len(programmes))
-    return programmes
-
-
-def _parse_xmltv_content(content: str) -> list[Programme]:
+def _parse_xmltv_content(content: str | bytes) -> list[Programme]:
     """Parse XMLTV content and extract programmes."""
     root = ElementTree.fromstring(content)
     programmes = []
@@ -137,10 +66,7 @@ def _parse_xmltv_content(content: str) -> list[Programme]:
             start = _parse_xmltv_datetime(start_str)
             stop = _parse_xmltv_datetime(stop_str)
 
-            title_elem = elem.find("title")
-            if title_elem is None or not title_elem.text:
-                continue
-            title = title_elem.text
+            title = programme_title(elem)
 
             desc_elem = elem.find("desc")
             description = desc_elem.text if desc_elem is not None else None
@@ -183,17 +109,42 @@ def _parse_xmltv_content(content: str) -> list[Programme]:
             )
             programmes.append(programme)
 
-        except (ValueError, AttributeError) as e:
+        except (ValueError, IndexError, AttributeError) as e:
             log.warning("Skipping programme due to parse error: {}", e)
             continue
 
     return programmes
 
 
+def _index_xmltv(body: bytes) -> GuideIndex[Programme]:
+    """Group the feed's programmes by channel id (the cache sorts each channel)."""
+    by_channel: dict[str, list[Programme]] = {}
+    for programme in _parse_xmltv_content(body):
+        by_channel.setdefault(programme.channel_id, []).append(programme)
+    return GuideIndex(by_channel)
+
+
+guide: XmltvCache[Programme] = XmltvCache(
+    name="ErsatzTV guide (XMLTV)",
+    fetch=_fetch_xmltv,
+    parse=_index_xmltv,
+    ttl=CACHE_TTL,
+    start=lambda programme: programme.start,
+    end=lambda programme: programme.stop,
+    unavailable=lambda: FeedUnavailableError(
+        f"Failed to load EPG from ErsatzTV ({guide.get_health().error})"
+    ),
+    log=log,
+)
+# Shut down and reset (tests) with the upstream caches
+register_closable(guide)
+
+
 def clear_cache() -> None:
-    """Clear XMLTV cache, forcing re-fetch on next request."""
-    parse_xmltv.reset_failure()
-    _cache["timestamp"] = None
+    """Expire the XMLTV cache and forget its backoff; the next read refreshes it."""
+    guide._cache_expires = None
+    guide._retry_at = None
+    guide._consecutive_failures = 0
     log.info("XMLTV cache cleared")
 
 
@@ -203,17 +154,4 @@ def get_health() -> EPGHealthStatus:
     Reads local state only; it never contacts ErsatzTV. ``online`` means
     programmes are cached, ``stale`` that they are past their TTL.
     """
-    programmes: list[Programme] = _cache["programmes"]
-    has_data = _cache["last_successful_fetch"] is not None
-    return EPGHealthStatus(
-        name=parse_xmltv.name,
-        online=has_data,
-        last_checked=datetime.now(UTC),
-        error=parse_xmltv.last_error,
-        stale=has_data and _is_cache_expired(),
-        channel_count=len({programme.channel_id for programme in programmes}),
-        programme_count=len(programmes),
-        last_attempt_at=parse_xmltv.last_attempt_at,
-        last_success_at=parse_xmltv.last_success_at,
-        next_retry_at=parse_xmltv.next_retry_at,
-    )
+    return guide.get_health()

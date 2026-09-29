@@ -11,6 +11,7 @@ import logging
 import re
 import sys
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from io import StringIO
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -24,8 +25,9 @@ from app.logging_config import configure_logging
 from app.main import app
 from app.models.channel import Channel
 from app.routers import websocket as websocket_router
-from app.services import channel_state
+from app.services import channel_state, presence
 from app.services.auth import create_access_token
+from tests.ws_helpers import ws_connect
 
 GENERATOR = Path(__file__).parents[2] / "ops" / "grafana" / "generate-channel-club-dashboard.py"
 
@@ -43,7 +45,8 @@ def production_logging() -> Iterator[Callable[..., StringIO]]:
 
     def configure(log_format: str = "json", log_level: str = "INFO") -> StringIO:
         output = StringIO()
-        config = Settings(_env_file=None, log_format=log_format, log_level=log_level)
+        # _env_file is a pydantic-settings init option that pyright doesn't see on Settings
+        config = Settings(_env_file=None, log_format=log_format, log_level=log_level)  # pyright: ignore[reportCallIssue]
         with patch("app.logging_config.settings", config), patch.object(sys, "stderr", output):
             configure_logging()
         return output
@@ -123,28 +126,89 @@ def _exprs(node) -> list[str]:
     return []
 
 
+# An event filter: one event, or a regex alternation of them ("a|b")
+_EVENT_FILTER = re.compile(r'record_extra_event=~?"([^"]+)"')
+_FIELD = re.compile(r"record_extra_(\w+)")
+# A Go template `or` in label_format: the first of its arguments that is set
+_TEMPLATE_OR = re.compile(r"\{\{\s*or\s+([^}]*)\}\}")
+
+
+def _filtered_events(text: str) -> list[str]:
+    return [event for found in _EVENT_FILTER.findall(text) for event in found.split("|")]
+
+
+def _queries_of(prefix: str) -> list[str]:
+    """The dashboard's Loki queries that filter on an event starting with prefix."""
+    exprs = _exprs(_load_generator().dashboard)
+    return [e for e in exprs if any(ev.startswith(prefix) for ev in _filtered_events(e))]
+
+
 def test_watch_queries_leave_out_the_pre_r2_empty_live_slot() -> None:
-    watch = [e for e in _exprs(_load_generator().dashboard) if 'event="watch.' in e]
+    watch = _queries_of("watch.")
     assert watch
     for expr in watch:
         assert 'record_extra_channel_id!="live-channel-0"' in expr, expr
 
 
-_EVENT_FILTER = re.compile(r'record_extra_event="([^"]+)"')
-_FIELD = re.compile(r"record_extra_(\w+)")
+def test_no_session_query_filters_on_view() -> None:
+    # Session events carry no view: every client connects as the unified TV view
+    session = _queries_of("session.")
+    assert session
+    for expr in session:
+        assert "record_extra_view" not in expr, expr
 
 
-def _required_fields(node, required: dict[str, set[str]]) -> dict[str, set[str]]:
+def test_watch_time_accrues_from_progress_and_stop_deltas() -> None:
+    # Every summed duration is watch time, read from delta_s as it accrues, with
+    # a pre-R3 watch.stop's whole duration_s where it has no delta_s
+    sums = [e for e in _exprs(_load_generator().dashboard) if "unwrap" in e]
+    assert len(sums) == 5
+    for expr in sums:
+        assert 'record_extra_event=~"watch.progress|watch.stop"' in expr, expr
+        assert "{{ or .record_extra_delta_s .record_extra_duration_s }}" in expr, expr
+        assert "unwrap watch_s" in expr, expr
+
+
+def _panel_exprs(title: str) -> list[str]:
+    (panel,) = [
+        p for p in _load_generator().dashboard["dashboard"]["panels"] if p["title"] == title
+    ]
+    return _exprs(panel)
+
+
+def test_channel_switches_count_personal_switches_only() -> None:
+    # Not first starts, reconnects or everyone following the Live slot
+    (expr,) = _panel_exprs("Channel switches")
+    assert 'record_extra_event="watch.start" | record_extra_reason="switch"' in expr
+
+
+def test_sessions_count_a_deploy_split_session_once() -> None:
+    (expr,) = _panel_exprs("Sessions")
+    assert 'record_extra_event="session.stop" | record_extra_reason!="server_restart"' in expr
+    (hourly,) = _panel_exprs("Connections per hour")
+    assert 'record_extra_event="session.start"' in hourly
+
+
+def _required_fields(
+    node, required: dict[str, set[tuple[str, ...]]]
+) -> dict[str, set[tuple[str, ...]]]:
     """Map each event a Loki query filters on to the record_extra fields it reads.
 
     A query's text is its dict's string values together (expr with its legend,
     a variable's stream with its label), so an event_table's label_format
-    columns and a bargauge's legend count as fields of that event.
+    columns and a bargauge's legend count as fields of that event. Each entry
+    is a group of which an event must carry one: a single field, or the
+    fields of a template `or`, which needs none when it ends in a literal.
     """
     if isinstance(node, dict):
         text = " ".join(value for value in node.values() if isinstance(value, str))
-        for event in _EVENT_FILTER.findall(text):
-            required.setdefault(event, set()).update(set(_FIELD.findall(text)) - {"event"})
+        plain = _TEMPLATE_OR.sub("", text)
+        fields = {(field,) for field in _FIELD.findall(plain) if field != "event"}
+        for args in _TEMPLATE_OR.findall(text):
+            if '"' not in args:
+                fields.add(tuple(_FIELD.findall(args)))
+        for event in _filtered_events(plain):
+            required.setdefault(event, set()).update(fields)
         for value in node.values():
             _required_fields(value, required)
     elif isinstance(node, list):
@@ -171,11 +235,6 @@ def _emitted(output: StringIO) -> list[dict[str, object]]:
     return [line for line in lines if "record_extra_event" in line]
 
 
-def _ws_url(token: str, session_id: str, view: str = "live") -> str:
-    """Query-token WebSocket URL; lane ws-auth's shared helper replaces this in W3."""
-    return f"/api/ws?token={token}&view={view}&session_id={session_id}"
-
-
 def _settle(ws) -> None:
     """Round-trip a ping so every message sent before it has been handled."""
     ws.send_json({"type": "ping"})
@@ -183,8 +242,19 @@ def _settle(ws) -> None:
         pass
 
 
-@pytest.fixture
-def client() -> Iterator[TestClient]:
+def _update(channel: str, channel_id: str, programme: str, on_live: bool) -> dict:
+    return {
+        "type": "channel_update",
+        "channel": channel,
+        "channelId": channel_id,
+        "programme": programme,
+        "view": "live",
+        "onLive": on_live,
+    }
+
+
+@contextmanager
+def _app_client() -> Iterator[TestClient]:
     with (
         patch("app.main.get_grouped_channels", new=AsyncMock(return_value=[])),
         TestClient(app) as client,
@@ -192,8 +262,14 @@ def client() -> Iterator[TestClient]:
         yield client
 
 
+@pytest.fixture
+def client() -> Iterator[TestClient]:
+    with _app_client() as client:
+        yield client
+
+
 def test_every_event_the_dashboard_reads_carries_its_fields(
-    production_logging, client, monkeypatch: pytest.MonkeyPatch
+    production_logging, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     required = _required_fields(_load_generator().dashboard, {})
     assert {
@@ -202,60 +278,87 @@ def test_every_event_the_dashboard_reads_carries_its_fields(
         "watch.stop",
         "programme.stop",
         "channel.change",
+        "watch.progress",
+        "server.start",
     } <= required.keys()
     output = production_logging(log_format="json", log_level="WARNING")
-    # Apply both channel updates at once instead of holding the second for a second
+    # Apply the channel updates at once instead of holding each for a second
     monkeypatch.setattr(websocket_router, "CHANNEL_UPDATE_INTERVAL_SECONDS", 0)
+    # Every open watch is due its watch.progress at once
+    monkeypatch.setattr(presence, "WATCH_PROGRESS_SECONDS", 0)
     token = create_access_token({"sub": "jon", "role": "admin"})
 
-    with client.websocket_connect(_ws_url(token, "s1")) as ws:
-        ws.receive_json()  # connection_ack
-        ws.send_json(
-            {
-                "type": "channel_update",
-                "channel": "RDS",
-                "channelId": "uuid-rds",
-                "programme": "Hockey",
-                "view": "live",
-                "onLive": True,
-            }
+    # Started after the logging, so its server.start is captured
+    with _app_client() as client:
+        portal = client.portal
+        assert portal is not None  # Set while the client is open
+        with ws_connect(client, token, view="live", session_id="s1") as ws:
+            ws.receive_json()  # connection_ack
+            ws.send_json(_update("RDS", "uuid-rds", "Hockey", on_live=True))
+            # The Live slot moves to TVA and the viewer follows it
+            ws.send_json(_update("TVA", "uuid-tva", "News", on_live=True))
+            _settle(ws)
+            portal.call(presence.record_watch_progress)
+            ws.send_json(_update("CBC", "uuid-cbc", "Movie", on_live=False))
+            _settle(ws)
+            ws.close(code=1012)  # What uvicorn sends every socket on shutdown
+        channel = Channel(
+            id="uuid-rds", name="RDS", stream_url="https://streams.example/rds", guide_id="1"
         )
-        ws.send_json(
-            {
-                "type": "channel_update",
-                "channel": "TVA",
-                "channelId": "uuid-tva",
-                "programme": "News",
-                "view": "live",
-                "onLive": False,
-            }
-        )
-        _settle(ws)
-    channel = Channel(
-        id="uuid-rds", name="RDS", streamUrl="https://streams.example/rds", guideId="1"
-    )
-    client.portal.call(channel_state.set_current_channel, channel, "jon")
+        portal.call(channel_state.set_current_channel, channel, "jon")
+        portal.call(channel_state.clear_current_channel_async, "jon")  # Stop Live
 
     lines = _emitted(output)
     for event, fields in sorted(required.items()):
         emitted = [line for line in lines if line["record_extra_event"] == event]
         assert emitted, f"{event} was never emitted"
         for line in emitted:
-            missing = {f for f in fields if f"record_extra_{f}" not in line}
+            missing = {
+                " or ".join(group)
+                for group in fields
+                if not any(f"record_extra_{f}" in line for f in group)
+            }
             assert not missing, f"{event} lacks {sorted(missing)} that the dashboard reads"
-    # The switch to TVA stopped the RDS watch and started one off the Live slot
-    assert any(
-        line["record_extra_event"] == "watch.stop"
-        and line["record_extra_channel"] == "RDS"
-        and line["record_extra_reason"] == "switch"
+    stops = [
+        (line["record_extra_channel"], line["record_extra_reason"])
         for line in lines
-    )
-    assert any(
-        line["record_extra_event"] == "watch.start"
-        and line["record_extra_channel"] == "TVA"
-        and line["record_extra_on_live"] is False
-        for line in lines
-    )
+        if line["record_extra_event"] == "watch.stop"
+    ]
+    assert stops == [("RDS", "live_follow"), ("TVA", "switch"), ("CBC", "server_restart")]
+    assert any(line["record_extra_event"] == "watch.progress" for line in lines)
+    assert any(line["record_extra_event"] == "server.start" for line in lines)
+    changes = [line for line in lines if line["record_extra_event"] == "channel.change"]
+    assert [line.get("record_extra_channel") for line in changes] == ["RDS", None]
+
+
+def test_catalogue_usage_joins_watch_events_on_the_channel_id() -> None:
+    # A catalogue rename or a client's own name for a channel can't split its history
+    title = "Catalogue usage (unused channels sort first)"
+    (panel,) = [
+        p for p in _load_generator().dashboard["dashboard"]["panels"] if p["title"] == title
+    ]
+    catalogues = [t for t in panel["targets"] if "columns" in t]
+    assert len(catalogues) == 2
+    for target in catalogues:
+        assert "channel_id" in [column["text"] for column in target["columns"]], target["refId"]
+    exprs = _exprs(panel)
+    assert len(exprs) == 2
+    for expr in exprs:
+        assert expr.startswith("label_replace(sum by (record_extra_channel_id) ("), expr
+        assert '"channel_id", "$1", "record_extra_channel_id"' in expr, expr
+    joins = [t for t in panel["transformations"] if t["id"] == "joinByField"]
+    assert [join["options"]["byField"] for join in joins] == ["channel_id"]
+
+
+def test_live_channel_table_labels_a_stop() -> None:
+    (expr,) = _panel_exprs("Shared live channel changes")
+    assert 'channel=`{{ or .record_extra_channel "stopped" }}`' in expr
+
+
+def test_deploys_are_annotated_from_server_start() -> None:
+    annotations = _load_generator().dashboard["dashboard"]["annotations"]["list"]
+    (deploys,) = [a for a in annotations if a["name"] == "Deploys"]
+    assert 'record_extra_event="server.start"' in deploys["expr"]
 
 
 def test_reconnect_stops_each_watch_once(production_logging, client) -> None:
@@ -263,12 +366,12 @@ def test_reconnect_stops_each_watch_once(production_logging, client) -> None:
     token = create_access_token({"sub": "jon", "role": "viewer"})
     update = {"type": "channel_update", "channel": "RDS", "channelId": "uuid-rds", "view": "live"}
 
-    with client.websocket_connect(_ws_url(token, "s1")) as old:
+    with ws_connect(client, token, view="live", session_id="s1") as old:
         old.receive_json()
         old.send_json(update)
         _settle(old)
         # The reloaded tab's socket registers before the old one's close arrives
-        with client.websocket_connect(_ws_url(token, "s1")) as new:
+        with ws_connect(client, token, view="live", session_id="s1") as new:
             new.receive_json()
             new.send_json(update)
             _settle(new)

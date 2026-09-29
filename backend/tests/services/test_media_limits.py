@@ -1,7 +1,7 @@
 """Admission is tested with controlled jobs, never a resource stress workload."""
 
 import asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -81,6 +81,8 @@ async def test_capture_overload_never_enters_recorder_and_cancel_releases():
 
     recorder = AsyncMock()
     recorder.is_running = True
+    # No closed segment to key on, so every press makes its own snapshot.
+    recorder._newest_listed_segment_stamp = MagicMock(return_value=None)
     service._recorders["same"] = recorder
     with patch.object(service.captures, "create", AsyncMock(side_effect=create)) as creating:
         job = asyncio.create_task(service.create_capture("same", owner="alice"))
@@ -114,7 +116,7 @@ def fake_source(channel_id: str):
 
     from app.models.channel import Channel
 
-    channel = Channel(id=channel_id, name="New", streamUrl="https://source/ts", guideId="1")
+    channel = Channel(id=channel_id, name="New", stream_url="https://source/ts", guide_id="1")
     return SimpleNamespace(channel=channel)
 
 
@@ -219,7 +221,7 @@ async def test_recently_polled_and_live_recorders_are_never_evicted(live):
     recorders = full_of(service, {"recent": 5, "live": 30 if live else 5})
     if live:
         channel_state._current_channel = Channel(
-            id="live", name="Live", streamUrl="https://source/ts", guideId="1"
+            id="live", name="Live", stream_url="https://source/ts", guide_id="1"
         )
     with (
         patch("app.services.highlight.resolve_media_channel", AsyncMock()) as resolve,
@@ -265,7 +267,7 @@ async def test_channel_selection_broadcasts_even_when_highlights_unavailable(fai
     from app.services import channel_state
 
     service = HighlightService()
-    channel = Channel(id="new", name="New", streamUrl="https://source/ts", guideId="1")
+    channel = Channel(id="new", name="New", stream_url="https://source/ts", guide_id="1")
     for _ in range(2):
         recorder_budget.acquire(RECORDER_OWNER)
     channel_state.clear_current_channel()
@@ -318,11 +320,13 @@ async def test_everyone_who_clips_the_same_moment_gets_a_capture():
     service = HighlightService()
     recorder = AsyncMock()
     recorder.is_running = True
+    # No closed segment to key on, so every press makes its own snapshot.
+    recorder._newest_listed_segment_stamp = MagicMock(return_value=None)
     service._recorders["same"] = recorder
     running = 0
     peak = 0
 
-    async def create(_recorder, owner, _channel_id, _pressed_at):
+    async def create(_recorder, owner, _channel_id, _pressed_at, _key):
         nonlocal running, peak
         running += 1
         peak = max(peak, running)

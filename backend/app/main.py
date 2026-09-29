@@ -39,10 +39,12 @@ from app.services.dispatcharr import (
     DispatchrrUnavailableError,
     catalogue_failing,
     get_grouped_channels,
+    refresh_catalogue_if_due,
 )
 from app.services.epg_service import get_epg_service
 from app.services.ersatztv.refresh import stop_feed_executor
 from app.services.highlight import highlight_service
+from app.services.http_clients import aclose_http_clients
 from app.spa import mount_spa
 
 
@@ -59,14 +61,15 @@ def validate_auth_configuration() -> None:
     # every protected request regardless of the login flags, so a forged
     # default-secret token authenticates even with local/Plex auth turned off.
     # Refuse to start on any known-public secret, full stop.
-    if settings.jwt_secret in KNOWN_PUBLIC_JWT_SECRETS:
+    jwt_secret = settings.jwt_secret.get_secret_value()
+    if jwt_secret in KNOWN_PUBLIC_JWT_SECRETS:
         raise RuntimeError(
             "JWT_SECRET is a known-public placeholder value. It is published in "
             "the source or .env.example, so anyone can forge an admin token. Set "
             "JWT_SECRET to a strong random value (e.g. `openssl rand -hex 32`)."
         )
 
-    if len(settings.jwt_secret.strip()) < 32:
+    if len(jwt_secret.strip()) < 32:
         raise RuntimeError(
             "JWT_SECRET must contain at least 32 non-padding characters. "
             "Generate a random secret with `openssl rand -hex 32`."
@@ -92,7 +95,8 @@ def validate_auth_configuration() -> None:
 
     # Local auth with no passwords configured rejects every login attempt.
     # Non-fatal, but silent 401s are a miserable thing to debug.
-    if settings.local_auth_enabled and not (settings.admin_password or settings.viewer_password):
+    passwords = (settings.admin_password, settings.viewer_password)
+    if settings.local_auth_enabled and not any(p and p.get_secret_value() for p in passwords):
         logger.warning(
             "LOCAL_AUTH_ENABLED is true but neither ADMIN_PASSWORD nor "
             "VIEWER_PASSWORD is set — every local login will be rejected"
@@ -107,10 +111,12 @@ SHUTDOWN_DEADLINE_SECONDS = 8
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler for startup/shutdown events."""
-    # Startup
+    # Startup: a structured event, so the dashboard can mark deploys
     logger.info(
         "Channel Club API starting",
+        event="server.start",
         version=APP_VERSION,
+        build_id=settings.app_build_id,
         log_level=settings.log_level,
         log_format=settings.log_format,
     )
@@ -131,6 +137,8 @@ async def lifespan(app: FastAPI):
             "Feedback push unavailable: configure NTFY_URL (http/https base URL) "
             "and NTFY_TOPIC (letters, digits, '_' or '-')"
         )
+    if not settings.chat_enabled:
+        logger.warning("Chat is off: CHAT_ENABLED is false, so clients hide chat")
     if settings.highlight_enabled:
         logger.info(
             "Highlight capture enabled (buffer: {}s, segments: {}s)",
@@ -221,6 +229,7 @@ async def lifespan(app: FastAPI):
         aclose_all_caches(),
         stop_feed_executor(),
         gauges.stop_gauges_task(),
+        aclose_http_clients(),
     ]
     try:
         async with asyncio.timeout(SHUTDOWN_DEADLINE_SECONDS):
@@ -294,11 +303,15 @@ async def health_check() -> dict[str, str]:
 async def health_deps() -> dict[str, str | None]:
     """Coarse upstream readiness for the uptime monitor, from local state only.
 
-    Public, so it carries no URLs, error text or counts, and it never contacts
-    an upstream. The Docker healthcheck stays on /api/health: an upstream outage
-    must not get this container restarted.
+    Public, so it carries no URLs, error text or counts, and it never waits on
+    an upstream. When the guide or the Dispatcharr catalogue is due and not
+    backing off it starts one background refresh of it (at most one per TTL or
+    backoff window), so on an idle app 'stale' and 'failing' mean the refresh
+    is failing, not that nobody asked. The Docker healthcheck stays on
+    /api/health: an upstream outage must not get this container restarted.
     """
-    guide = get_epg_service().get_health()
+    guide = await get_epg_service().check_health()
+    refresh_catalogue_if_due()
     if not guide.online:
         epg = "failing"
     elif guide.stale:

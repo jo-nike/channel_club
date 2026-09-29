@@ -23,7 +23,8 @@ with patch.object(DotEnvSettingsSource, "_read_env_files", return_value={}):
 
     for field in Settings.model_fields:
         os.environ.pop(field.upper(), None)
-    isolated = Settings(_env_file=None, jwt_secret="test-only-signing-key-with-at-least-32-bytes")
+    # _env_file is a pydantic-settings init option that pyright doesn't see on Settings
+    isolated = Settings(_env_file=None, jwt_secret="test-only-signing-key-with-at-least-32-bytes")  # pyright: ignore[reportCallIssue]
     for field in Settings.model_fields:
         setattr(settings, field, getattr(isolated, field))
 
@@ -53,11 +54,14 @@ def reset_module_state(monkeypatch):
     nhl.clear_nhl_cache()
     chat.clear_history()
     presence._active_users.clear()
+    presence.reset_watches()
     presence._stale_closes.clear()
+    channel_state._connection_owners.clear()
     channel_state._failed_closes.clear()
     channel_state.clear_current_channel()
     plex.clear_server_owner_id_cache()
     highlight_service.clear_start_backoff()
+    highlight_service.captures.in_flight.clear()
     csp_report.clear_csp_report_state()
     monkeypatch.setattr(app_settings, "_user_channel_selection", False)
     monkeypatch.setattr(app_settings, "_presence_visible", False)
@@ -68,6 +72,8 @@ def reset_module_state(monkeypatch):
     __import__("app.services.media_limits").services.media_limits.reset_media_budgets()
     __import__("app.services.gauges", fromlist=["_"]).reset_gauges_task()
     __import__("app.services.state_store", fromlist=["_"]).reset_state_store()
+    __import__("app.services.stream_sessions", fromlist=["_"]).clear()
+    __import__("app.services.http_clients", fromlist=["_"]).reset_http_clients()
 
 
 @pytest.fixture(autouse=True)

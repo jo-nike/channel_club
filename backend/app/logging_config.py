@@ -87,7 +87,10 @@ _QUIET_ACCESS_PATHS = ("/api/health", "/api/health/deps", "/api/admin/status")
 _QUIET_ACCESS_PREFIXES = (
     "/api/ersatztv/segments/",
     "/api/ersatztv/stream/",
+    "/api/ersatztv/s/",
     "/api/highlight/status/",
+    # The clip editor's range requests; the path is a capability, like /s/ above
+    "/api/highlight/preview/",
 )
 
 
@@ -124,12 +127,12 @@ def configure_logging() -> None:
     logger.remove()
     logger.configure(patcher=_redact_record)
 
-    log_level = settings.log_level.upper()
+    log_level = settings.log_level
 
     # Analytics events (records with an "event" extra) get their own sink at
     # INFO, so raising LOG_LEVEL to cut noise never drops them. The main sink
     # skips them, so each event line is written once.
-    if settings.log_format.lower() == "json":
+    if settings.log_format == "json":
         # JSON format for structured logging
         for level, sink_filter in ((log_level, _is_not_event), ("INFO", _is_event)):
             logger.add(

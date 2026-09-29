@@ -255,40 +255,42 @@ describe('ChatMessage', () => {
   })
 
   describe('Media URL rendering', () => {
+    const GIF = 'https://media.giphy.com/media/abc/giphy.gif'
+
     it('renders GIF URLs as embedded images', () => {
-      const content = 'Check this out: https://example.com/funny.gif'
+      const content = `Check this out: ${GIF}`
       render(<ChatMessage message={createMessage({ content })} now={NOW} />)
       const img = screen.getByRole('img')
-      expect(img).toHaveAttribute('src', 'https://example.com/funny.gif')
+      expect(img).toHaveAttribute('src', GIF)
     })
 
     it('renders video URLs as embedded videos', () => {
-      const content = 'Watch: https://example.com/clip.mp4'
+      const content = 'Watch: https://i.giphy.com/media/abc/giphy.mp4'
       render(<ChatMessage message={createMessage({ content })} now={NOW} />)
       const video = document.querySelector('video')
       expect(video).toBeInTheDocument()
-      expect(video).toHaveAttribute('src', 'https://example.com/clip.mp4')
+      expect(video).toHaveAttribute('src', 'https://i.giphy.com/media/abc/giphy.mp4')
     })
 
     it('renders mixed text and media correctly', () => {
-      const content = 'Before https://example.com/test.gif after'
+      const content = `Before ${GIF} after`
       render(<ChatMessage message={createMessage({ content })} now={NOW} />)
       // Should show the text parts
       expect(screen.getByText('Before')).toBeInTheDocument()
       expect(screen.getByText('after')).toBeInTheDocument()
       // Should show the image
       const img = screen.getByRole('img')
-      expect(img).toHaveAttribute('src', 'https://example.com/test.gif')
+      expect(img).toHaveAttribute('src', GIF)
     })
 
     it('renders multiple media URLs in order', () => {
       const content =
-        'First: https://a.com/1.gif second: https://b.com/2.png'
+        'First: https://media.giphy.com/1.gif second: https://media0.giphy.com/2.webp'
       render(<ChatMessage message={createMessage({ content })} now={NOW} />)
       const images = screen.getAllByRole('img')
       expect(images).toHaveLength(2)
-      expect(images[0]).toHaveAttribute('src', 'https://a.com/1.gif')
-      expect(images[1]).toHaveAttribute('src', 'https://b.com/2.png')
+      expect(images[0]).toHaveAttribute('src', 'https://media.giphy.com/1.gif')
+      expect(images[1]).toHaveAttribute('src', 'https://media0.giphy.com/2.webp')
     })
 
     it('does not alter messages without media URLs', () => {
@@ -299,12 +301,34 @@ describe('ChatMessage', () => {
       expect(document.querySelector('video')).not.toBeInTheDocument()
     })
 
-    it('converts Imgur gifv to mp4', () => {
-      const content = 'https://i.imgur.com/abc123.gifv'
+    it('offers media from another host as a link, never loading it', () => {
+      const url = 'https://media.tenor.com/abc123/video.mp4'
+      render(<ChatMessage message={createMessage({ content: `lol ${url}` })} now={NOW} />)
+      const link = screen.getByRole('link', { name: url })
+      expect(link).toHaveAttribute('href', url)
+      expect(link).toHaveAttribute('target', '_blank')
+      expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+      expect(screen.queryByRole('img')).not.toBeInTheDocument()
+      expect(document.querySelector('video')).not.toBeInTheDocument()
+    })
+
+    it('leaves an http address on the local network as plain text', () => {
+      const content = 'http://192.168.1.1/apply.cgi?reboot=1&x=.png'
       render(<ChatMessage message={createMessage({ content })} now={NOW} />)
-      const video = document.querySelector('video')
-      expect(video).toBeInTheDocument()
-      expect(video).toHaveAttribute('src', 'https://i.imgur.com/abc123.mp4')
+      expect(screen.getByText(content)).toBeInTheDocument()
+      expect(screen.queryByRole('link')).not.toBeInTheDocument()
+      expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    })
+
+    it('embeds three GIFs and links the rest', () => {
+      const urls = [1, 2, 3, 4, 5].map((n) => `https://media.giphy.com/media/${n}/giphy.gif`)
+      render(<ChatMessage message={createMessage({ content: urls.join(' ') })} now={NOW} />)
+      expect(screen.getAllByRole('img').map((img) => img.getAttribute('src'))).toEqual(
+        urls.slice(0, 3)
+      )
+      expect(screen.getAllByRole('link').map((a) => a.getAttribute('href'))).toEqual(
+        urls.slice(3)
+      )
     })
   })
 

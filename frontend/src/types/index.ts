@@ -76,7 +76,7 @@ export interface AppSettings {
 export interface ErsatzTVChannel {
   id: string
   name: string
-  streamUrl: string // Original stream URL (not used directly)
+  streamUrl: string // Legacy proxy path, a per-channel key only (playback opens a stream session)
   logoUrl: string // Proxied logo URL
   number: number
   group: string

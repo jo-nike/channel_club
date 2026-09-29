@@ -2,10 +2,12 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from app.models.base import CamelModel
 
 
-class ServiceStatus(BaseModel):
+class ServiceStatus(CamelModel):
     """Base model for service status.
 
     ``degraded`` means the service answers but part of the check failed (a
@@ -15,70 +17,52 @@ class ServiceStatus(BaseModel):
     name: str
     online: bool
     degraded: bool = False
-    last_checked: datetime = Field(alias="lastChecked")
+    last_checked: datetime
     error: str | None = None
 
-    model_config = {"populate_by_name": True}
 
-
-class ErsatzTVSession(BaseModel):
+class ErsatzTVSession(CamelModel):
     """Represents an active ErsatzTV transcoding session."""
 
-    channel_number: int = Field(alias="channelNumber")
-    channel_name: str | None = Field(default=None, alias="channelName")
+    channel_number: int
+    channel_name: str | None = None
     state: str | None = None
-    buffer_seconds: float | None = Field(default=None, alias="bufferSeconds")
-    streaming_mode: str | None = Field(default=None, alias="streamingMode")
+    buffer_seconds: float | None = None
+    streaming_mode: str | None = None
     resolution: str | None = None
-    video_codec: str | None = Field(default=None, alias="videoCodec")
-    video_bitrate: int | None = Field(default=None, alias="videoBitrate")
-    audio_codec: str | None = Field(default=None, alias="audioCodec")
-    audio_bitrate: int | None = Field(default=None, alias="audioBitrate")
-
-    model_config = {"populate_by_name": True}
+    video_codec: str | None = None
+    video_bitrate: int | None = None
+    audio_codec: str | None = None
+    audio_bitrate: int | None = None
 
 
 class ErsatzTVStatus(ServiceStatus):
     """Status model for ErsatzTV service."""
 
-    active_sessions: int = Field(default=0, alias="activeSessions")
+    active_sessions: int = 0
     sessions: list[ErsatzTVSession] = Field(default_factory=list)
 
 
-class DispatcharrClient(BaseModel):
-    """Represents a connected client watching a stream."""
-
-    client_id: str = Field(alias="clientId")
-    user_agent: str | None = Field(default=None, alias="userAgent")
-    ip_address: str | None = Field(default=None, alias="ipAddress")
-    connected_since: float = Field(default=0, alias="connectedSince")
-
-    model_config = {"populate_by_name": True}
-
-
-class DispatcharrStream(BaseModel):
+class DispatcharrStream(CamelModel):
     """Represents an active stream in Dispatcharr."""
 
-    channel_id: str = Field(alias="channelId")
-    stream_name: str = Field(alias="streamName")
+    channel_id: str
+    stream_name: str
     state: str = "active"
-    client_count: int = Field(default=0, alias="clientCount")
+    client_count: int = 0
     uptime: float = 0
-    total_bytes: int = Field(default=0, alias="totalBytes")
-    avg_bitrate: str = Field(default="", alias="avgBitrate")
-    video_codec: str | None = Field(default=None, alias="videoCodec")
+    total_bytes: int = 0
+    avg_bitrate: str = ""
+    video_codec: str | None = None
     resolution: str | None = None
-    source_fps: float | None = Field(default=None, alias="sourceFps")
-    clients: list[DispatcharrClient] = Field(default_factory=list)
-
-    model_config = {"populate_by_name": True}
+    source_fps: float | None = None
 
 
 class DispatchrrStatus(ServiceStatus):
     """Status model for Dispatcharr service."""
 
-    active_streams: int = Field(default=0, alias="activeStreams")
-    total_viewers: int = Field(default=0, alias="totalViewers")
+    active_streams: int = 0
+    total_viewers: int = 0
     streams: list[DispatcharrStream] = Field(default_factory=list)
 
 
@@ -91,19 +75,17 @@ class EPGHealthStatus(ServiceStatus):
     """
 
     stale: bool = False
-    channel_count: int = Field(default=0, alias="channelCount")
-    programme_count: int = Field(default=0, alias="programmeCount")
-    last_attempt_at: datetime | None = Field(default=None, alias="lastAttemptAt")
-    last_success_at: datetime | None = Field(default=None, alias="lastSuccessAt")
-    next_retry_at: datetime | None = Field(default=None, alias="nextRetryAt")
+    channel_count: int = 0
+    programme_count: int = 0
+    last_attempt_at: datetime | None = None
+    last_success_at: datetime | None = None
+    next_retry_at: datetime | None = None
 
 
-class SystemStatusResponse(BaseModel):
+class SystemStatusResponse(CamelModel):
     """Response model for GET /api/admin/status endpoint."""
 
     ersatztv: ErsatzTVStatus
     dispatcharr: DispatchrrStatus
     epg: EPGHealthStatus
-    ersatztv_guide: EPGHealthStatus = Field(alias="ersatztvGuide")
-
-    model_config = {"populate_by_name": True}
+    ersatztv_guide: EPGHealthStatus

@@ -11,7 +11,7 @@ class TestPlexAuthRequest:
 
     def test_plex_auth_request_with_camel_case_alias(self) -> None:
         """PlexAuthRequest accepts authToken as camelCase alias."""
-        request = PlexAuthRequest(authToken="test-token")
+        request = PlexAuthRequest.model_validate({"authToken": "test-token"})
         assert request.auth_token == "test-token"
 
     def test_plex_auth_request_with_snake_case(self) -> None:
@@ -29,7 +29,7 @@ class TestPlexAuthRequest:
     def test_plex_auth_request_requires_token(self) -> None:
         """PlexAuthRequest requires auth_token field."""
         with pytest.raises(ValidationError):
-            PlexAuthRequest()
+            PlexAuthRequest()  # pyright: ignore[reportCallIssue]
 
 
 class TestPlexUser:
@@ -61,14 +61,14 @@ class TestPlexUser:
     def test_plex_user_requires_id(self) -> None:
         """PlexUser requires id field."""
         with pytest.raises(ValidationError):
-            PlexUser(username="testuser", email="test@example.com")
+            PlexUser(username="testuser", email="test@example.com")  # pyright: ignore[reportCallIssue]
 
     def test_plex_user_requires_username(self) -> None:
         """PlexUser requires username field."""
         with pytest.raises(ValidationError):
-            PlexUser(id="12345", email="test@example.com")
+            PlexUser(id="12345", email="test@example.com")  # pyright: ignore[reportCallIssue]
 
     def test_plex_user_requires_email(self) -> None:
         """PlexUser requires email field."""
         with pytest.raises(ValidationError):
-            PlexUser(id="12345", username="testuser")
+            PlexUser(id="12345", username="testuser")  # pyright: ignore[reportCallIssue]

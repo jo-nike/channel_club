@@ -1,7 +1,7 @@
 """R-01: security headers on every response, Report-Only CSP for the SPA document."""
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -19,7 +19,7 @@ from app.spa import mount_spa
 SEGMENT_CSP = "default-src 'none'; sandbox"
 
 
-def assert_baseline(headers: httpx.Headers) -> None:
+def assert_baseline(headers: Mapping[str, str]) -> None:
     assert headers["x-content-type-options"] == "nosniff"
     assert headers["x-frame-options"] == "DENY"
     assert headers["referrer-policy"] == "strict-origin-when-cross-origin"
@@ -101,7 +101,7 @@ async def test_segment_proxy_keeps_its_own_csp_and_still_streams_chunk_by_chunk(
     app.dependency_overrides[get_current_user_or_token] = lambda: object()
     try:
         with (
-            patch("app.routers.ersatztv.httpx.AsyncClient", return_value=AsyncMock()),
+            patch("app.routers.ersatztv.ersatztv_client", return_value=AsyncMock()),
             patch("app.routers.ersatztv.fetch_ersatztv", return_value=upstream),
         ):
             await app(scope, receive, send)
@@ -150,3 +150,20 @@ def test_hostile_host_header_adds_no_socket_source(spa_client):
     policy = response.headers["content-security-policy-report-only"]
     assert "evil" not in policy
     assert "connect-src 'self' https://streams.example.com https://plex.tv" in policy
+
+
+@pytest.mark.parametrize("stream_base_url", ["", "streams.example.com"])
+def test_stream_base_url_without_an_origin_is_left_out(tmp_path, stream_base_url):
+    static = tmp_path / "static"
+    static.mkdir()
+    (static / "index.html").write_text("<!doctype html><title>spa</title>")
+    spa = FastAPI()
+    mount_spa(spa, static)
+    spa.add_middleware(SecurityHeadersMiddleware, stream_base_url=stream_base_url)
+    client = TestClient(spa, base_url="https://tv.example.com")
+    policy = client.get("/").headers["content-security-policy-report-only"]
+    assert "://" not in policy.split()
+    assert "  " not in policy
+    directives = dict(d.split(" ", 1) for d in policy.split("; "))
+    assert directives["media-src"] == "'self' blob: https://*.giphy.com"
+    assert directives["connect-src"] == "'self' wss://tv.example.com https://plex.tv"

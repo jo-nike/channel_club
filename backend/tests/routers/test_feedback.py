@@ -122,6 +122,7 @@ class TestSubmit:
             {**REPORT, "message": "x" * 2001},
             {**REPORT, "contact": "x" * 201},
             {**REPORT, "context": {**REPORT["context"], "extra": "nope"}},
+            {**REPORT, "context": {**REPORT["context"], "userAgent": "x" * 2001}},
             {**REPORT, "surprise": True},
             {k: v for k, v in REPORT.items() if k != "message"},
         ],
@@ -171,6 +172,21 @@ class TestSubmit:
         assert "Client: Mozilla/5.0 Test  Viewport: 1440x900" in body
         assert "web 1.0.0" in body
 
+    def test_long_user_agent_is_truncated_not_rejected(self, client, auth_header, configured):
+        seen = []
+
+        def handler(request):
+            seen.append(request)
+            return httpx.Response(200)
+
+        long_ua = "Mozilla/5.0 " + "x" * 289  # 301 characters, past the 300 display cap
+        body = {**REPORT, "context": {**REPORT["context"], "userAgent": long_ua}}
+        with ntfy(handler):
+            response = client.post("/api/feedback", json=body, headers=auth_header)
+        assert response.status_code == 200
+        sent = seen[0].content.decode("utf-8")
+        assert f"Client: {long_ua[:299]}…  Viewport: 1440x900" in sent
+
     def test_context_is_optional(self, client, auth_header, configured):
         seen = []
 
@@ -204,6 +220,16 @@ class TestSubmit:
         assert second.headers["Retry-After"] == "30"
         assert "wait" in second.json()["detail"]
         assert len(calls) == 1
+
+    def test_a_plex_account_named_like_a_local_one_has_its_own_quota(self, client, configured):
+        local = create_access_token({"sub": "admin", "role": "admin"})
+        plex = create_access_token({"sub": "admin", "role": "viewer", "plex_id": "7"})
+        with ntfy(lambda request: httpx.Response(200)):
+            for token in (local, plex):
+                response = client.post(
+                    "/api/feedback", json=REPORT, headers={"Authorization": f"Bearer {token}"}
+                )
+                assert response.status_code == 200
 
     @pytest.mark.parametrize(
         "status,expected",

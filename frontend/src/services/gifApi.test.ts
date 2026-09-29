@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { getGifFeatureEnabled, fetchTrending, searchGifs } from './gifApi'
+import { fetchTrending, searchGifs } from './gifApi'
 
 // Mock the fetchWithAuth function
 vi.mock('./api', () => ({
@@ -11,42 +11,6 @@ import { fetchWithAuth } from './api'
 describe('gifApi service', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-  })
-
-  describe('getGifFeatureEnabled', () => {
-    it('returns true when feature is enabled', async () => {
-      vi.mocked(fetchWithAuth).mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ enabled: true }),
-      } as Response)
-
-      const result = await getGifFeatureEnabled()
-
-      expect(fetchWithAuth).toHaveBeenCalledWith('/gif/feature')
-      expect(result).toBe(true)
-    })
-
-    it('returns false when feature is disabled', async () => {
-      vi.mocked(fetchWithAuth).mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ enabled: false }),
-      } as Response)
-
-      const result = await getGifFeatureEnabled()
-
-      expect(result).toBe(false)
-    })
-
-    it('returns false on request error', async () => {
-      vi.mocked(fetchWithAuth).mockResolvedValueOnce({
-        ok: false,
-        status: 500,
-      } as Response)
-
-      const result = await getGifFeatureEnabled()
-
-      expect(result).toBe(false)
-    })
   })
 
   describe('fetchTrending', () => {

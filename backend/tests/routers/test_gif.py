@@ -8,6 +8,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 from loguru import logger
+from pydantic import SecretStr
 
 from app.config import settings
 from app.main import app
@@ -71,7 +72,7 @@ class TestGetFeatureStatus:
     ) -> None:
         """Returns enabled=false when API key is empty string."""
         with patch("app.routers.gif.settings") as mock_settings:
-            mock_settings.giphy_api_key = ""
+            mock_settings.giphy_api_key = SecretStr("")
 
             response = client.get("/api/gif/feature", headers=auth_header)
 
@@ -83,7 +84,7 @@ class TestGetFeatureStatus:
     ) -> None:
         """Returns enabled=true when API key is configured."""
         with patch("app.routers.gif.settings") as mock_settings:
-            mock_settings.giphy_api_key = "test-api-key"
+            mock_settings.giphy_api_key = SecretStr("test-api-key")
 
             response = client.get("/api/gif/feature", headers=auth_header)
 
@@ -340,3 +341,39 @@ class TestSearchGifs:
         # Too large
         response = client.get("/api/gif/search?q=test&limit=100", headers=auth_header)
         assert response.status_code == 422
+
+
+def _giphy_item(gif_id: object, title: object) -> dict[str, object]:
+    return {
+        "id": gif_id,
+        "title": title,
+        "images": {"original": {"url": "https://media.giphy.com/a.gif", "width": "480"}},
+    }
+
+
+@pytest.mark.parametrize("path", ["/api/gif/trending", "/api/gif/search?q=cats"])
+def test_malformed_giphy_values_never_make_a_500(
+    path: str,
+    client: TestClient,
+    auth_header: dict[str, str],
+    giphy_reply: list[httpx.Response],
+) -> None:
+    """Bad ids are skipped, bad titles blanked and bad pagination defaulted."""
+    body = {
+        "data": [
+            _giphy_item("abc", None),
+            _giphy_item(42, 7),
+            _giphy_item(None, "no id"),
+            _giphy_item(1.5, "float id"),
+            _giphy_item(True, "bool id"),
+        ],
+        "pagination": {"total_count": "lots", "count": None, "offset": True},
+    }
+    giphy_reply.append(httpx.Response(200, json=body))
+
+    response = client.get(path, headers=auth_header)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert [(g["id"], g["title"]) for g in data["gifs"]] == [("abc", ""), ("42", "")]
+    assert data["pagination"] == {"totalCount": 0, "count": 2, "offset": 0}

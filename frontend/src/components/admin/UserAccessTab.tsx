@@ -110,6 +110,7 @@ export function UserAccessTab() {
             group before turning this on. While it is off, people see only who is online.
             Anyone who picks "Hide what I'm watching" is shown by name only. Admins still see
             everything in Active Users. This setting is kept when the server restarts.
+            Viewing is recorded for the host's stats whichever way it is set.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

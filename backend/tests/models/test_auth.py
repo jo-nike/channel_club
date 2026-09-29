@@ -20,10 +20,10 @@ def test_login_request_missing_fields():
     from app.models.auth import LoginRequest
 
     with pytest.raises(ValidationError):
-        LoginRequest(username="admin")
+        LoginRequest(username="admin")  # pyright: ignore[reportCallIssue]
 
     with pytest.raises(ValidationError):
-        LoginRequest(password="secret")
+        LoginRequest(password="secret")  # pyright: ignore[reportCallIssue]
 
 
 def test_token_response_valid():

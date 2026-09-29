@@ -28,6 +28,8 @@ _cache: dict = {
 }
 CACHE_TTL_SECONDS = 3600  # 1 hour
 
+_CHANNEL_NUMBER = re.compile(r"[0-9]+([.][0-9]+)?")
+
 
 def _is_cache_expired() -> bool:
     """Check if cache is expired (> 1 hour old)."""
@@ -125,15 +127,12 @@ def _parse_m3u_content(content: str) -> list[EPGChannel]:
                     suffix += 1
                 seen_ids.add(unique_id)
 
-                # Parse channel number
+                # Parse channel number: digits, with an optional decimal part ("2.1")
                 channel_num = None
                 for num_str in [tvg_chno, channel_number]:
-                    if num_str:
-                        try:
-                            channel_num = int(num_str)
-                            break
-                        except ValueError:
-                            pass
+                    if num_str and _CHANNEL_NUMBER.fullmatch(num_str):
+                        channel_num = float(num_str) if "." in num_str else int(num_str)
+                        break
 
                 channel = EPGChannel(
                     id=unique_id,
@@ -156,6 +155,13 @@ def _extract_attr(line: str, attr_name: str) -> str | None:
     """Extract attribute value from EXTINF line."""
     match = re.search(rf'{attr_name}="([^"]*)"', line)
     return match.group(1) if match else None
+
+
+def peek_channels() -> list[EPGChannel] | None:
+    """The cached channel list as it is, or None if it never loaded; never fetches or waits."""
+    if _cache["last_successful_fetch"] is None:
+        return None
+    return _cache["channels"]
 
 
 def clear_cache() -> None:

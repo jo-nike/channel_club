@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useId, type MouseEvent, type ReactNode } from 'react'
 import { Download, Upload, Play, Pause, RotateCcw, Loader2, Copy, ExternalLink, X, Pencil, MessageSquare, Check } from 'lucide-react'
 import { toast } from 'sonner'
-import { createHighlightCapture, highlightCaptureUrl, fetchHighlightCapture, createCaptureDownloadUrl, deleteHighlightCapture, exportHighlight, uploadHighlight, getHighlightFeatures, type HighlightCapture, type HighlightFormat, type UploadedHighlight } from '@/services/api'
+import { createHighlightCapture, fetchHighlightCapture, createCaptureDownloadUrl, deleteHighlightCapture, exportHighlight, uploadHighlight, getHighlightFeatures, type HighlightCapture, type HighlightFormat, type UploadedHighlight } from '@/services/api'
+import { apiAssetUrl } from '@/services/apiBase'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -173,7 +174,9 @@ function ClipSession({ channelId, channelName = channelId, playingChannel, captu
       if (request.signal.aborted) { if (!adopted) void deleteHighlightCapture(capture.id); return }
       captureId = capture.id
       const pressedAt = keep.current?.pressedAt ?? capture.pressedAt
-      setSource({ id: capture.id, url: highlightCaptureUrl(capture.id), pressedAt, endsAt: capture.endsAt })
+      const url = apiAssetUrl(capture.previewUrl)
+      if (!url) { setCaptureError('This capture is no longer available. Capture again to retry.'); return }
+      setSource({ id: capture.id, url, pressedAt, endsAt: capture.endsAt })
     }).catch(err => {
       if (!request.signal.aborted) setCaptureError(err instanceof Error ? err.message : 'Could not capture clip')
     })

@@ -6,6 +6,7 @@ from loguru import logger
 from app.models.admin import ActiveUser, ActiveUsersResponse, ActiveUsersTotals
 from app.models.auth import TokenPayload
 from app.models.status import SystemStatusResponse
+from app.models.websocket import ServerChatHistory
 from app.routers.auth_deps import require_admin
 from app.services import channel_state, chat, presence, status_service
 
@@ -85,11 +86,14 @@ async def clear_chat_history(
     Returns:
         Confirmation message.
     """
-    log.info("Admin {} clearing chat history", current_user.sub)
+    message_count = chat.get_history_count()
+    log.bind(event="admin.chat_cleared", actor=current_user.sub, message_count=message_count).info(
+        f"Admin {current_user.sub} cleared {message_count} chat messages"
+    )
     chat.clear_history()
 
     # Tell connected clients to replace their history, otherwise they keep
     # showing the deleted messages until they reconnect
-    await channel_state.broadcast({"type": "chat_history", "messages": []})
+    await channel_state.broadcast(ServerChatHistory(type="chat_history", messages=[]))
 
     return {"message": "Chat history cleared"}

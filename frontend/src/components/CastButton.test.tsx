@@ -1,10 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { act, render, screen } from '@/test/utils'
+import { act, fireEvent, render, screen } from '@/test/utils'
 import { toast } from 'sonner'
 import { CastButton } from './CastButton'
 import { INITIAL_CAST_STATE, useCastStore } from '@/stores/castStore'
+import { LIVE_CHANNEL_ID, useTVStore } from '@/stores/tvStore'
+import type { UnifiedChannel } from '@/types'
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
+
+const actions = vi.hoisted(() => ({ startCasting: vi.fn(), requestSession: vi.fn() }))
 
 // The hook's state is the cast store's; the SDK is not needed here
 vi.mock('@/hooks/useChromecast', async () => {
@@ -12,9 +16,9 @@ vi.mock('@/hooks/useChromecast', async () => {
   return {
     useChromecast: () => ({
       ...useCastStore(),
-      startCasting: vi.fn(),
+      startCasting: actions.startCasting,
       stopCasting: vi.fn(),
-      requestSession: vi.fn(),
+      requestSession: actions.requestSession,
       castTestStream: vi.fn(),
     }),
   }
@@ -30,6 +34,9 @@ const setFullscreenElement = (element: Element | null) =>
 
 beforeEach(() => {
   vi.mocked(toast.error).mockClear()
+  actions.startCasting.mockClear()
+  actions.requestSession.mockClear()
+  useTVStore.setState({ selectedChannel: null })
   useCastStore.setState({ ...INITIAL_CAST_STATE, isLoading: false, isAvailable: true })
 })
 
@@ -104,5 +111,38 @@ describe('CastButton failures', () => {
     act(() => useCastStore.setState({ lastError: null }))
 
     expect(toast.error).not.toHaveBeenCalled()
+  })
+})
+
+describe('CastButton on the Live slot', () => {
+  const select = (id: string) => useTVStore.setState({ selectedChannel: { id } as UnifiedChannel })
+
+  it('a cast from the Live slot follows Live', async () => {
+    select(LIVE_CHANNEL_ID)
+    useCastStore.setState({ isConnected: true, deviceName: 'Living Room' })
+    renderButton()
+    await act(async () => fireEvent.click(screen.getByRole('button')))
+
+    expect(actions.startCasting).toHaveBeenCalledExactlyOnceWith('7', 'mpegts', undefined, 'TSN', true)
+  })
+
+  it('the auto-cast after picking a device follows Live too', () => {
+    select(LIVE_CHANNEL_ID)
+    renderButton()
+    fireEvent.click(screen.getByRole('button'))
+
+    expect(actions.requestSession).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ channelId: '7', followsLive: true }))
+  })
+
+  it('a cast from any other channel does not', async () => {
+    select('ersatztv-7')
+    useCastStore.setState({ isConnected: true, deviceName: 'Living Room' })
+    renderButton()
+    await act(async () => fireEvent.click(screen.getByRole('button')))
+    act(() => useCastStore.setState({ isConnected: false }))
+    fireEvent.click(screen.getByRole('button'))
+
+    expect(actions.startCasting).toHaveBeenCalledExactlyOnceWith('7', 'mpegts', undefined, 'TSN', false)
+    expect(actions.requestSession).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ followsLive: false }))
   })
 })

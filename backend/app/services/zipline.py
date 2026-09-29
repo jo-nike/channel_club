@@ -43,7 +43,7 @@ async def upload_clip(source: Path, filename: str, content_type: str) -> dict[st
             with source.open("rb") as file:
                 response = await client.post(
                     settings.zipline_url.rstrip("/") + "/api/upload",
-                    headers={"Authorization": settings.zipline_token},
+                    headers={"Authorization": settings.zipline_token.get_secret_value()},
                     files={"file": (filename, file, content_type)},
                 )
         status = response.status_code

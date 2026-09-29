@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest'
-import { fireEvent, render, screen } from '@/test/utils'
+import { act, fireEvent, render, screen } from '@/test/utils'
+import { useSettingsStore } from '@/stores/settingsStore'
 
 const layout = vi.hoisted(() => {
   // GifButton reads the build-time flag when it loads
@@ -7,7 +8,6 @@ const layout = vi.hoisted(() => {
   return { mode: 'desktop' as 'phone' | 'tablet' | 'desktop' }
 })
 vi.mock('@/hooks/useLayoutMode', () => ({ useLayoutMode: () => layout.mode }))
-vi.mock('@/services/gifApi', () => ({ getGifFeatureEnabled: vi.fn().mockResolvedValue(true) }))
 vi.mock('./GifPicker', () => ({ GifPicker: () => <div data-testid="gif-picker" /> }))
 
 import { GifButton } from './GifButton'
@@ -19,6 +19,26 @@ afterAll(() => {
 describe('GifButton', () => {
   beforeEach(() => {
     layout.mode = 'desktop'
+    useSettingsStore.setState({ serverFeatures: { chat: true, gif: true } })
+  })
+
+  it('stays hidden until connection_ack says GIFs are on, without asking /gif/feature', () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    useSettingsStore.setState({ serverFeatures: null })
+    render(<GifButton onSelect={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: 'Send GIF' })).not.toBeInTheDocument()
+
+    act(() => useSettingsStore.getState().setServerFeatures({ chat: true, gif: true }))
+
+    expect(screen.getByRole('button', { name: 'Send GIF' })).toBeInTheDocument()
+    expect(fetchSpy).not.toHaveBeenCalled()
+    fetchSpy.mockRestore()
+  })
+
+  it('stays hidden when the server says GIFs are off', () => {
+    useSettingsStore.setState({ serverFeatures: { chat: true, gif: false } })
+    render(<GifButton onSelect={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: 'Send GIF' })).not.toBeInTheDocument()
   })
 
   it.each(['desktop', 'phone'] as const)('is a quiet ghost icon on %s, so it never outshines Send', async (mode) => {

@@ -33,11 +33,11 @@ async def test_picker_catalog_resolves_without_hdhr_or_ersatz(ungrouped):
     from app.models.channel import Channel, ChannelGroupWithChannels, GroupedChannelsResponse
     from app.services.media_source import resolve_media_channel
 
-    channel = Channel(id="picker", name="Trusted", streamUrl="https://source/ts", guideId="194")
+    channel = Channel(id="picker", name="Trusted", stream_url="https://source/ts", guide_id="194")
     catalog = GroupedChannelsResponse(
         groups=[]
         if ungrouped
-        else [ChannelGroupWithChannels(id=1, name="Canada", channelCount=1, channels=[channel])],
+        else [ChannelGroupWithChannels(id=1, name="Canada", channel_count=1, channels=[channel])],
         ungrouped=[channel] if ungrouped else [],
     )
     with (
@@ -75,23 +75,21 @@ async def test_ersatz_id_resolves_fast_without_hdhr_while_dispatcharr_times_out(
 
     from app.models.channel import Channel
     from app.services import dispatcharr
+    from app.services.http_clients import DISPATCHARR
     from app.services.media_source import resolve_media_channel
+    from tests.http_helpers import mock_upstream
 
     monkeypatch.setattr(settings, "dispatcharr_url", "http://dispatcharr.test")
     monkeypatch.setattr(settings, "dispatcharr_api_key", "test-key")
     paths: list[str] = []
-    real_client = httpx.AsyncClient
 
     def timeout(request: httpx.Request) -> httpx.Response:
         paths.append(request.url.path)
         raise httpx.ConnectTimeout("timed out", request=request)
 
-    monkeypatch.setattr(
-        "app.services.dispatcharr.httpx.AsyncClient",
-        lambda **kwargs: real_client(transport=httpx.MockTransport(timeout), **kwargs),
-    )
+    mock_upstream(DISPATCHARR, timeout)
     channel = Channel(
-        id="ersatz", name="healthy", streamUrl="http://catalog.invalid/hls", guideId="1"
+        id="ersatz", name="healthy", stream_url="http://catalog.invalid/hls", guide_id="1"
     )
     with (
         patch("app.services.media_source.get_grouped_channels", dispatcharr.get_grouped_channels),
@@ -107,7 +105,7 @@ async def test_ersatz_id_resolves_fast_without_hdhr_while_dispatcharr_times_out(
 @pytest.mark.parametrize("identifier", ["", " ", ".", "..", "/tmp/victim", "a/../b", "a\\b"])
 def test_channel_json_rejects_paths(identifier):
     with pytest.raises(ValueError):
-        SetChannelRequest(id=identifier, name="test", streamUrl="http://unused", guideId="test")
+        SetChannelRequest(id=identifier, name="test", stream_url="http://unused", guide_id="test")
 
 
 @pytest.mark.parametrize(
@@ -207,7 +205,7 @@ async def test_resolved_source_replaces_client_url(provider, monkeypatch):
     from app.services.highlight import HighlightService
 
     channel = Channel(
-        id="valid", name="catalog", streamUrl="http://catalog.invalid/source", guideId="v"
+        id="valid", name="catalog", stream_url="http://catalog.invalid/source", guide_id="v"
     )
     monkeypatch.setattr(settings, "highlight_enabled", True)
     with (
@@ -237,7 +235,7 @@ async def test_dispatcharr_media_does_not_depend_on_ersatz(monkeypatch):
     from app.services.media_source import resolve_media_channel
 
     channel = Channel(
-        id="dispatch", name="healthy", streamUrl="http://catalog.invalid/ts", guideId="1"
+        id="dispatch", name="healthy", stream_url="http://catalog.invalid/ts", guide_id="1"
     )
     with (
         patch(
@@ -279,7 +277,7 @@ async def test_ersatz_works_when_dispatcharr_unavailable():
     from app.services.media_source import resolve_media_channel
 
     channel = Channel(
-        id="ersatz", name="healthy", streamUrl="http://catalog.invalid/hls", guideId="1"
+        id="ersatz", name="healthy", stream_url="http://catalog.invalid/hls", guide_id="1"
     )
     with (
         patch(

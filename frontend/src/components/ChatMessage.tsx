@@ -192,7 +192,8 @@ function formatTimestamp(timestamp: string, now: number): string {
 
 /**
  * Render message content with inline media embeds
- * Parses URLs and renders them as embedded media when applicable
+ * Parses URLs and renders them as embedded media when allowed, or as a
+ * click-to-open link when not
  */
 function renderContent(content: string): ReactNode {
   const mediaMatches = detectMediaUrls(content)
@@ -219,13 +220,25 @@ function renderContent(content: string): ReactNode {
       )
     }
 
-    // Add the media embed
+    // Add the media embed, or a link to media that isn't embedded
     segments.push(
-      <ChatMediaEmbed
-        key={`media-${match.startIndex}`}
-        url={match.url}
-        type={match.type}
-      />
+      match.kind === 'embed' ? (
+        <ChatMediaEmbed
+          key={`media-${match.startIndex}`}
+          url={match.url}
+          type={match.type}
+        />
+      ) : (
+        <a
+          key={`media-${match.startIndex}`}
+          href={match.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-blue-500 underline text-sm hover:text-blue-400"
+        >
+          {match.originalUrl}
+        </a>
+      )
     )
 
     lastIndex = match.endIndex

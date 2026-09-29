@@ -364,6 +364,18 @@ class ChannelRecorder:
             return None
         return entries[-1] if entries else None
 
+    def _newest_listed_segment_stamp(self) -> tuple[str, int] | None:
+        """The newest closed segment and its st_mtime_ns: ring names repeat, the pair does not."""
+        directory = self.segment_dir
+        listed = self._newest_listed_segment()
+        if directory is None or listed is None:
+            return None
+        name = Path(listed).name
+        try:
+            return name, (directory / name).stat().st_mtime_ns
+        except OSError:
+            return None
+
     async def wait_for_current_segment(self) -> bool:
         """Wait, bounded, until the segment being written now is closed and listed.
 
@@ -488,6 +500,13 @@ RECORDER_GONE_ERROR = "Live TV changed while clipping; press Clip again"
 # Shown for any filesystem failure (a full disk, say) instead of its path-bearing text.
 CLIP_SAVE_ERROR = "Could not save the clip on the server"
 
+# (channel id, newest closed segment, its st_mtime_ns): presses that share it share a snapshot.
+type SnapshotKey = tuple[str, str, int]
+
+
+class LeaderGone(Exception):
+    """The request making a shared snapshot left before it finished; a waiting one leads."""
+
 
 @dataclass(frozen=True)
 class Capture:
@@ -506,6 +525,8 @@ class Capture:
     ends_at: float
     # created_at is shown to the viewer; the TTL is judged on the monotonic clock.
     created_mono: float = field(default_factory=lambda: monotonic())
+    # Captures with the same key hard-link one snapshot.mp4; the link count is its refcount.
+    snapshot_key: SnapshotKey | None = None
 
     @property
     def expires_at(self) -> float:
@@ -529,21 +550,42 @@ class DownloadToken:
     redeemed: bool = False
 
 
+@dataclass(frozen=True)
+class PreviewGrant:
+    """A reusable grant to stream one owner's capture: it lives exactly as long as the capture."""
+
+    capture_id: str
+    owner: str
+
+
 class CaptureStore:
     """Server-held snapshots: the browser streams them by range instead of downloading."""
 
     def __init__(self):
         self.captures: dict[str, Capture] = {}
         self.download_tokens: dict[str, DownloadToken] = {}
+        self.preview_tokens: dict[str, PreviewGrant] = {}
+        # Snapshots being made: later presses of the same moment wait for the leader's result.
+        self.in_flight: dict[SnapshotKey, asyncio.Future[Capture | str]] = {}
 
-    async def create(
-        self, recorder: ChannelRecorder, owner: str, channel_id: str, pressed_at: float
-    ) -> Capture:
+    @staticmethod
+    def _new_directory() -> tuple[str, Path]:
         root = Path(settings.highlight_temp_dir) / "captures"
         root.mkdir(parents=True, exist_ok=True)
         capture_id = secrets.token_urlsafe(16)
         directory = root / capture_id
         directory.mkdir(mode=0o700)
+        return capture_id, directory
+
+    async def create(
+        self,
+        recorder: ChannelRecorder,
+        owner: str,
+        channel_id: str,
+        pressed_at: float,
+        snapshot_key: SnapshotKey | None = None,
+    ) -> Capture:
+        capture_id, directory = self._new_directory()
         path = directory / "snapshot.mp4"
         try:
             ends_at = await recorder.capture(path)
@@ -552,10 +594,7 @@ class CaptureStore:
         except BaseException:
             await asyncio.to_thread(remove_recording_directory, directory)
             raise
-        # A few captures per owner bound disk use to a few export-sized files each.
-        previous = [item for item in self.captures.values() if item.owner == owner]
-        for oldest in previous[: max(len(previous) - MAX_CAPTURES_PER_OWNER + 1, 0)]:
-            await self._remove(oldest)
+        await self._make_room(owner)
         capture = Capture(
             capture_id,
             owner,
@@ -567,21 +606,65 @@ class CaptureStore:
             pressed_at,
             ends_at,
             monotonic(),
+            snapshot_key,
         )
-        self.captures[capture_id] = capture
+        self._add(capture, shared=False)
+        return capture
+
+    async def share(self, source: Capture, owner: str, pressed_at: float) -> Capture:
+        """The owner's own capture of the source's snapshot: a hard link, no second remux.
+
+        Raises OSError when the link cannot be made (the source was removed meanwhile).
+        """
+        capture_id, directory = self._new_directory()
+        path = directory / "snapshot.mp4"
+        try:
+            await asyncio.to_thread(os.link, source.path, path)
+        except BaseException:
+            await asyncio.to_thread(remove_recording_directory, directory)
+            raise
+        await self._make_room(owner)
+        capture = replace(
+            source,
+            id=capture_id,
+            owner=owner,
+            path=path,
+            created_at=time.time(),
+            pressed_at=pressed_at,
+            created_mono=monotonic(),
+        )
+        self._add(capture, shared=True)
+        return capture
+
+    def find(self, snapshot_key: SnapshotKey) -> Capture | None:
+        """A live capture of this snapshot, if anyone still holds one."""
+        now = monotonic()
+        for capture in self.captures.values():
+            if capture.snapshot_key == snapshot_key and not capture.expired(now):
+                return capture
+        return None
+
+    async def _make_room(self, owner: str) -> None:
+        # A few captures per owner bound disk use to a few export-sized files each.
+        previous = [item for item in self.captures.values() if item.owner == owner]
+        for oldest in previous[: max(len(previous) - MAX_CAPTURES_PER_OWNER + 1, 0)]:
+            await self._remove(oldest)
+
+    def _add(self, capture: Capture, shared: bool) -> None:
+        self.captures[capture.id] = capture
         log.bind(
             event="highlight.capture_ready",
-            channel_id=channel_id,
-            ends_after_press_seconds=round(ends_at - pressed_at, 2),
+            channel_id=capture.channel_id,
+            ends_after_press_seconds=round(capture.ends_at - capture.pressed_at, 2),
+            shared=shared,
         ).info(
             "Capture {} ready for {} ({:.1f}s, {:.1f} KB), ends {:+.1f}s after the press",
-            capture_id,
-            owner,
-            duration,
-            size / 1024,
-            ends_at - pressed_at,
+            capture.id,
+            capture.owner,
+            capture.duration,
+            capture.size / 1024,
+            capture.ends_at - capture.pressed_at,
         )
-        return capture
 
     def get(self, capture_id: str, owner: str) -> Capture | None:
         """Foreign or expired captures are indistinguishable from unknown ones."""
@@ -619,6 +702,27 @@ class CaptureStore:
         self.download_tokens[token] = replace(grant, redeemed=True)
         return self.get(grant.capture_id, grant.owner)
 
+    def issue_preview_token(self, capture_id: str, owner: str) -> str | None:
+        """A path for the editor's <video>, which cannot send the JWT header on Range requests.
+
+        One token per capture; it keeps the session token out of the URL and proxy logs.
+        """
+        if self.get(capture_id, owner) is None:
+            return None
+        for token, grant in self.preview_tokens.items():
+            if grant.capture_id == capture_id:
+                return token
+        token = secrets.token_urlsafe(24)
+        self.preview_tokens[token] = PreviewGrant(capture_id, owner)
+        return token
+
+    def redeem_preview_token(self, token: str) -> Capture | None:
+        """Any number of requests; the capture's TTL, delete or eviction ends the token."""
+        grant = self.preview_tokens.get(token)
+        if grant is None:
+            return None
+        return self.get(grant.capture_id, grant.owner)
+
     async def delete(self, capture_id: str, owner: str) -> None:
         capture = self.captures.get(capture_id)
         if capture is not None and capture.owner == owner:
@@ -639,12 +743,18 @@ class CaptureStore:
     async def clear(self) -> None:
         for capture in list(self.captures.values()):
             await self._remove(capture)
+        self.preview_tokens.clear()
+        # A leader still running keeps its own future, so whoever waits on it is still answered.
+        self.in_flight.clear()
 
     async def _remove(self, capture: Capture) -> None:
         self.captures.pop(capture.id, None)
         for token, grant in list(self.download_tokens.items()):
             if grant.capture_id == capture.id:
                 del self.download_tokens[token]
+        for token, grant in list(self.preview_tokens.items()):
+            if grant.capture_id == capture.id:
+                del self.preview_tokens[token]
         try:
             await asyncio.to_thread(remove_recording_directory, capture.path.parent)
         except OSError as exc:
@@ -752,58 +862,11 @@ class HighlightService:
             log.info("Stopping idle recorder for channel {} (no viewers)", channel_id)
             await self.stop_recording(channel_id)
 
-    def cleanup_orphan_processes(self) -> None:
-        """Kill any orphan FFmpeg processes from previous runs.
-
-        When uvicorn reloads, FFmpeg processes may survive because they run in
-        their own process groups. This method finds and kills them on startup.
-        """
-        highlight_dir = settings.highlight_temp_dir
-        killed = 0
-
-        try:
-            # Find FFmpeg processes that reference our highlight directory
-            result = subprocess.run(
-                ["pgrep", "-f", f"ffmpeg.*{highlight_dir}"],
-                capture_output=True,
-                text=True,
-            )
-
-            if result.returncode == 0 and result.stdout.strip():
-                pids = result.stdout.strip().split("\n")
-                for pid_str in pids:
-                    try:
-                        pid = int(pid_str.strip())
-                        # Kill the process group to ensure children are also killed
-                        try:
-                            os.killpg(os.getpgid(pid), 15)  # SIGTERM
-                            killed += 1
-                            log.debug("Killed orphan FFmpeg process {}", pid)
-                        except ProcessLookupError:
-                            pass  # Process already dead
-                        except PermissionError:
-                            log.warning("No permission to kill process {}", pid)
-                    except ValueError:
-                        continue
-
-                if killed:
-                    log.info("Killed {} orphan FFmpeg processes", killed)
-
-        except FileNotFoundError:
-            # pgrep not available - skip this cleanup
-            log.debug("pgrep not available, skipping orphan process cleanup")
-        except Exception as e:
-            log.warning("Failed to cleanup orphan processes: {}", e)
-
     def cleanup_stale_segments(self) -> None:
         """Remove any stale segment directories from previous runs.
 
         Called at startup to clean up orphaned files from crashes or unclean shutdowns.
-        Also kills any orphan FFmpeg processes that may have survived a reload.
         """
-        # First kill any orphan FFmpeg processes
-        self.cleanup_orphan_processes()
-
         temp_dir = Path(settings.highlight_temp_dir)
         if not temp_dir.exists():
             return
@@ -973,6 +1036,55 @@ class HighlightService:
         recorder = self._recorders[channel_id]
         # Waited outside the export slot: only two exist server-wide, and waiting encodes nothing.
         await recorder.wait_for_current_segment()
+        # Everyone who clipped the same moment finishes the wait on the same closed segment,
+        # so their snapshots would be identical: one is made and the others link to it.
+        stamp = await asyncio.to_thread(recorder._newest_listed_segment_stamp)
+        if stamp is None:
+            return await self._snapshot_capture(channel_id, owner, pressed_at, None)
+        key: SnapshotKey = (channel_id, *stamp)
+        while True:
+            source = self.captures.find(key)
+            if source is None:
+                pending = self.captures.in_flight.get(key)
+                if pending is None:
+                    return await self._lead_capture(channel_id, owner, pressed_at, key)
+                try:
+                    # Shielded: a follower that leaves ends only its own wait, not the snapshot.
+                    outcome = await asyncio.shield(pending)
+                except LeaderGone:
+                    continue
+                if isinstance(outcome, str):
+                    return None, outcome
+                source = outcome
+            try:
+                return await self.captures.share(source, owner, pressed_at), None
+            except OSError as exc:
+                log.info("Could not link capture {} ({}); making a new one", source.id, exc.errno)
+                return await self._snapshot_capture(channel_id, owner, pressed_at, key)
+
+    async def _lead_capture(
+        self, channel_id: str, owner: str, pressed_at: float, key: SnapshotKey
+    ) -> tuple[Capture | None, str | None]:
+        """Make the snapshot everyone pressing this moment shares, and hand them the result."""
+        future: asyncio.Future[Capture | str] = asyncio.get_running_loop().create_future()
+        self.captures.in_flight[key] = future
+        try:
+            capture, error = await self._snapshot_capture(channel_id, owner, pressed_at, key)
+            future.set_result(capture if capture is not None else error or CLIP_SAVE_ERROR)
+            return capture, error
+        finally:
+            if not future.done():
+                # Cancelled (the client left) or failed: a follower starts over and leads.
+                # Never cancel the future itself; followers would take that as their own cancel.
+                future.set_exception(LeaderGone())
+                # Retrieved here, so a future nobody waited on logs no "never retrieved" error.
+                future.exception()
+            if self.captures.in_flight.get(key) is future:
+                del self.captures.in_flight[key]
+
+    async def _snapshot_capture(
+        self, channel_id: str, owner: str, pressed_at: float, key: SnapshotKey | None
+    ) -> tuple[Capture | None, str | None]:
         # Everyone who clipped the same moment finishes the wait together, so queue briefly.
         async with export_budget.waiting_slot(owner):
             # Look the recorder up again: it may have been stopped, or replaced, while we waited.
@@ -980,7 +1092,9 @@ class HighlightService:
             if recorder is None or not recorder.is_running:
                 return None, RECORDER_GONE_ERROR
             try:
-                return await self.captures.create(recorder, owner, channel_id, pressed_at), None
+                return await self.captures.create(
+                    recorder, owner, channel_id, pressed_at, key
+                ), None
             except TimeoutError:
                 return None, "Highlight creation timed out"
             except OSError as exc:
@@ -1004,6 +1118,12 @@ class HighlightService:
 
     def redeem_download_token(self, token: str, range_request: bool = False) -> Capture | None:
         return self.captures.redeem_download_token(token, range_request)
+
+    def issue_preview_token(self, capture_id: str, owner: str) -> str | None:
+        return self.captures.issue_preview_token(capture_id, owner)
+
+    def redeem_preview_token(self, token: str) -> Capture | None:
+        return self.captures.redeem_preview_token(token)
 
 
 # Global service instance

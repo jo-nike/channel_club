@@ -1,0 +1,4291 @@
+{
+  "components": {
+    "schemas": {
+      "ActiveUser": {
+        "description": "Represents an active user in the presence system.",
+        "properties": {
+          "channel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel"
+          },
+          "channelId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channelid"
+          },
+          "connectedSince": {
+            "format": "date-time",
+            "title": "Connectedsince",
+            "type": "string"
+          },
+          "onLive": {
+            "default": false,
+            "title": "Onlive",
+            "type": "boolean"
+          },
+          "programme": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Programme"
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "connectedSince"
+        ],
+        "title": "ActiveUser",
+        "type": "object"
+      },
+      "ActiveUsersResponse": {
+        "description": "Response model for GET /api/admin/active-users endpoint.",
+        "properties": {
+          "ersatztvUsers": {
+            "items": {
+              "$ref": "#/components/schemas/ActiveUser"
+            },
+            "title": "Ersatztvusers",
+            "type": "array"
+          },
+          "liveUsers": {
+            "items": {
+              "$ref": "#/components/schemas/ActiveUser"
+            },
+            "title": "Liveusers",
+            "type": "array"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/ActiveUsersTotals"
+          }
+        },
+        "required": [
+          "liveUsers",
+          "ersatztvUsers",
+          "totals"
+        ],
+        "title": "ActiveUsersResponse",
+        "type": "object"
+      },
+      "ActiveUsersTotals": {
+        "description": "Aggregate totals for active users.",
+        "properties": {
+          "ersatztvCount": {
+            "title": "Ersatztvcount",
+            "type": "integer"
+          },
+          "liveCount": {
+            "title": "Livecount",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "liveCount",
+          "ersatztvCount"
+        ],
+        "title": "ActiveUsersTotals",
+        "type": "object"
+      },
+      "AppSettings": {
+        "description": "Runtime settings an admin can toggle for all users.",
+        "properties": {
+          "presenceVisible": {
+            "title": "Presencevisible",
+            "type": "boolean"
+          },
+          "userChannelSelection": {
+            "title": "Userchannelselection",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "userChannelSelection",
+          "presenceVisible"
+        ],
+        "title": "AppSettings",
+        "type": "object"
+      },
+      "AuthConfigResponse": {
+        "description": "Response for GET /api/auth/config.",
+        "properties": {
+          "localAuthEnabled": {
+            "title": "Localauthenabled",
+            "type": "boolean"
+          },
+          "plexAuthEnabled": {
+            "title": "Plexauthenabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "localAuthEnabled",
+          "plexAuthEnabled"
+        ],
+        "title": "AuthConfigResponse",
+        "type": "object"
+      },
+      "CaptureResponse": {
+        "description": "A server-held snapshot the editor streams by URL and exports by id.",
+        "properties": {
+          "bytes": {
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "duration": {
+            "title": "Duration",
+            "type": "number"
+          },
+          "endsAt": {
+            "title": "Endsat",
+            "type": "number"
+          },
+          "expiresAt": {
+            "title": "Expiresat",
+            "type": "number"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "pressedAt": {
+            "title": "Pressedat",
+            "type": "number"
+          },
+          "previewUrl": {
+            "title": "Previewurl",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "duration",
+          "bytes",
+          "expiresAt",
+          "pressedAt",
+          "endsAt",
+          "previewUrl"
+        ],
+        "title": "CaptureResponse",
+        "type": "object"
+      },
+      "CastFeatureResponse": {
+        "description": "Response for cast feature status.",
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "CastFeatureResponse",
+        "type": "object"
+      },
+      "CastSessionResponse": {
+        "description": "Response for cast session creation.",
+        "properties": {
+          "hls_url": {
+            "title": "Hls Url",
+            "type": "string"
+          },
+          "needs_transcoding": {
+            "title": "Needs Transcoding",
+            "type": "boolean"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "hls_url",
+          "needs_transcoding"
+        ],
+        "title": "CastSessionResponse",
+        "type": "object"
+      },
+      "Channel": {
+        "description": "Transformed channel for our API with camelCase JSON serialization.",
+        "properties": {
+          "guideId": {
+            "title": "Guideid",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "logoUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logourl"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "streamUrl": {
+            "title": "Streamurl",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "streamUrl",
+          "guideId"
+        ],
+        "title": "Channel",
+        "type": "object"
+      },
+      "ChannelGroupWithChannels": {
+        "description": "Channel group with its channels for our API.",
+        "properties": {
+          "channelCount": {
+            "title": "Channelcount",
+            "type": "integer"
+          },
+          "channels": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/Channel"
+            },
+            "title": "Channels",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "channelCount"
+        ],
+        "title": "ChannelGroupWithChannels",
+        "type": "object"
+      },
+      "CreateSessionRequest": {
+        "description": "Request to create a cast session.",
+        "properties": {
+          "channel_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Channel Id",
+            "type": "string"
+          },
+          "follows_live": {
+            "default": false,
+            "title": "Follows Live",
+            "type": "boolean"
+          },
+          "stream_type": {
+            "enum": [
+              "hls",
+              "mpegts"
+            ],
+            "title": "Stream Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "channel_id",
+          "stream_type"
+        ],
+        "title": "CreateSessionRequest",
+        "type": "object"
+      },
+      "CurrentChannelResponse": {
+        "description": "Response for GET /api/channels/current.",
+        "properties": {
+          "currentChannel": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Channel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "CurrentChannelResponse",
+        "type": "object"
+      },
+      "CurrentProgrammeResponse": {
+        "description": "Response for GET /api/ersatztv/current/{channel_id}.",
+        "properties": {
+          "channelId": {
+            "title": "Channelid",
+            "type": "string"
+          },
+          "current": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Programme"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "nextUp": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Programme"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "channelId"
+        ],
+        "title": "CurrentProgrammeResponse",
+        "type": "object"
+      },
+      "DispatcharrStream": {
+        "description": "Represents an active stream in Dispatcharr.",
+        "properties": {
+          "avgBitrate": {
+            "default": "",
+            "title": "Avgbitrate",
+            "type": "string"
+          },
+          "channelId": {
+            "title": "Channelid",
+            "type": "string"
+          },
+          "clientCount": {
+            "default": 0,
+            "title": "Clientcount",
+            "type": "integer"
+          },
+          "resolution": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution"
+          },
+          "sourceFps": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sourcefps"
+          },
+          "state": {
+            "default": "active",
+            "title": "State",
+            "type": "string"
+          },
+          "streamName": {
+            "title": "Streamname",
+            "type": "string"
+          },
+          "totalBytes": {
+            "default": 0,
+            "title": "Totalbytes",
+            "type": "integer"
+          },
+          "uptime": {
+            "default": 0,
+            "title": "Uptime",
+            "type": "number"
+          },
+          "videoCodec": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Videocodec"
+          }
+        },
+        "required": [
+          "channelId",
+          "streamName"
+        ],
+        "title": "DispatcharrStream",
+        "type": "object"
+      },
+      "DispatchrrStatus": {
+        "description": "Status model for Dispatcharr service.",
+        "properties": {
+          "activeStreams": {
+            "default": 0,
+            "title": "Activestreams",
+            "type": "integer"
+          },
+          "degraded": {
+            "default": false,
+            "title": "Degraded",
+            "type": "boolean"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "lastChecked": {
+            "format": "date-time",
+            "title": "Lastchecked",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "online": {
+            "title": "Online",
+            "type": "boolean"
+          },
+          "streams": {
+            "items": {
+              "$ref": "#/components/schemas/DispatcharrStream"
+            },
+            "title": "Streams",
+            "type": "array"
+          },
+          "totalViewers": {
+            "default": 0,
+            "title": "Totalviewers",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "online",
+          "lastChecked"
+        ],
+        "title": "DispatchrrStatus",
+        "type": "object"
+      },
+      "DownloadLinkResponse": {
+        "description": "A single-use, short-lived download link that carries no session token.",
+        "properties": {
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "DownloadLinkResponse",
+        "type": "object"
+      },
+      "EPGChannelResponse": {
+        "description": "Response for GET /api/ersatztv/channels.",
+        "properties": {
+          "channels": {
+            "items": {
+              "$ref": "#/components/schemas/PublicEPGChannel"
+            },
+            "title": "Channels",
+            "type": "array"
+          }
+        },
+        "required": [
+          "channels"
+        ],
+        "title": "EPGChannelResponse",
+        "type": "object"
+      },
+      "EPGHealthStatus": {
+        "description": "Status model for the guide data (XMLTV) cache.\n\n``online`` means guide data is cached; ``stale`` means it is past its expiry\nbecause refreshes are failing. ``error`` is a short reason from the latest\nrefresh ('HTTP 403', 'timeout', ...) and never contains the upstream URL.",
+        "properties": {
+          "channelCount": {
+            "default": 0,
+            "title": "Channelcount",
+            "type": "integer"
+          },
+          "degraded": {
+            "default": false,
+            "title": "Degraded",
+            "type": "boolean"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "lastAttemptAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lastattemptat"
+          },
+          "lastChecked": {
+            "format": "date-time",
+            "title": "Lastchecked",
+            "type": "string"
+          },
+          "lastSuccessAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lastsuccessat"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "nextRetryAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nextretryat"
+          },
+          "online": {
+            "title": "Online",
+            "type": "boolean"
+          },
+          "programmeCount": {
+            "default": 0,
+            "title": "Programmecount",
+            "type": "integer"
+          },
+          "stale": {
+            "default": false,
+            "title": "Stale",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "online",
+          "lastChecked"
+        ],
+        "title": "EPGHealthStatus",
+        "type": "object"
+      },
+      "EPGProgrammesResponse": {
+        "description": "Response for GET /api/epg/programmes.",
+        "properties": {
+          "channelId": {
+            "title": "Channelid",
+            "type": "string"
+          },
+          "programmes": {
+            "items": {
+              "$ref": "#/components/schemas/Program"
+            },
+            "title": "Programmes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "channelId",
+          "programmes"
+        ],
+        "title": "EPGProgrammesResponse",
+        "type": "object"
+      },
+      "EPGResponse": {
+        "description": "Response model for EPG now-playing endpoint.",
+        "properties": {
+          "channelId": {
+            "title": "Channelid",
+            "type": "string"
+          },
+          "currentProgram": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Program"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "nextProgram": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Program"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "channelId",
+          "currentProgram"
+        ],
+        "title": "EPGResponse",
+        "type": "object"
+      },
+      "ErsatzTVSession": {
+        "description": "Represents an active ErsatzTV transcoding session.",
+        "properties": {
+          "audioBitrate": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audiobitrate"
+          },
+          "audioCodec": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audiocodec"
+          },
+          "bufferSeconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bufferseconds"
+          },
+          "channelName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channelname"
+          },
+          "channelNumber": {
+            "title": "Channelnumber",
+            "type": "integer"
+          },
+          "resolution": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
+          },
+          "streamingMode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Streamingmode"
+          },
+          "videoBitrate": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Videobitrate"
+          },
+          "videoCodec": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Videocodec"
+          }
+        },
+        "required": [
+          "channelNumber"
+        ],
+        "title": "ErsatzTVSession",
+        "type": "object"
+      },
+      "ErsatzTVStatus": {
+        "description": "Status model for ErsatzTV service.",
+        "properties": {
+          "activeSessions": {
+            "default": 0,
+            "title": "Activesessions",
+            "type": "integer"
+          },
+          "degraded": {
+            "default": false,
+            "title": "Degraded",
+            "type": "boolean"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "lastChecked": {
+            "format": "date-time",
+            "title": "Lastchecked",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "online": {
+            "title": "Online",
+            "type": "boolean"
+          },
+          "sessions": {
+            "items": {
+              "$ref": "#/components/schemas/ErsatzTVSession"
+            },
+            "title": "Sessions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "online",
+          "lastChecked"
+        ],
+        "title": "ErsatzTVStatus",
+        "type": "object"
+      },
+      "FeedbackContext": {
+        "additionalProperties": false,
+        "description": "Client diagnostics attached to a report. Every field is bounded.",
+        "properties": {
+          "appVersion": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Appversion",
+            "type": "string"
+          },
+          "path": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Path",
+            "type": "string"
+          },
+          "sessionId": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Sessionid",
+            "type": "string"
+          },
+          "userAgent": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Useragent",
+            "type": "string"
+          },
+          "viewport": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Viewport",
+            "type": "string"
+          }
+        },
+        "title": "FeedbackContext",
+        "type": "object"
+      },
+      "FeedbackFeatureResponse": {
+        "description": "Response for GET /api/feedback/feature.",
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "FeedbackFeatureResponse",
+        "type": "object"
+      },
+      "FeedbackRequest": {
+        "additionalProperties": false,
+        "description": "Request body for POST /api/feedback.",
+        "properties": {
+          "contact": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Contact",
+            "type": "string"
+          },
+          "context": {
+            "$ref": "#/components/schemas/FeedbackContext"
+          },
+          "message": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "bug",
+              "suggestion",
+              "other"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "message"
+        ],
+        "title": "FeedbackRequest",
+        "type": "object"
+      },
+      "FeedbackResponse": {
+        "description": "Response for a delivered report.",
+        "properties": {
+          "ok": {
+            "default": true,
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "title": "FeedbackResponse",
+        "type": "object"
+      },
+      "GifFeatureResponse": {
+        "description": "Response for GIF feature status.",
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "GifFeatureResponse",
+        "type": "object"
+      },
+      "GifItem": {
+        "description": "Individual GIF item.",
+        "properties": {
+          "height": {
+            "title": "Height",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "previewUrl": {
+            "title": "Previewurl",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "url",
+          "previewUrl",
+          "width",
+          "height",
+          "title"
+        ],
+        "title": "GifItem",
+        "type": "object"
+      },
+      "GifPagination": {
+        "description": "Pagination info for GIF responses.",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "totalCount": {
+            "title": "Totalcount",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "totalCount",
+          "count",
+          "offset"
+        ],
+        "title": "GifPagination",
+        "type": "object"
+      },
+      "GifResponse": {
+        "description": "Response containing GIFs and pagination.",
+        "properties": {
+          "gifs": {
+            "items": {
+              "$ref": "#/components/schemas/GifItem"
+            },
+            "title": "Gifs",
+            "type": "array"
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/GifPagination"
+          }
+        },
+        "required": [
+          "gifs",
+          "pagination"
+        ],
+        "title": "GifResponse",
+        "type": "object"
+      },
+      "GroupedChannelsResponse": {
+        "description": "Response for GET /api/channels/grouped.",
+        "properties": {
+          "groups": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ChannelGroupWithChannels"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "ungrouped": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/Channel"
+            },
+            "title": "Ungrouped",
+            "type": "array"
+          }
+        },
+        "title": "GroupedChannelsResponse",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HighlightFeatureResponse": {
+        "description": "Response for feature flag check.",
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "ziplineEnabled": {
+            "default": false,
+            "title": "Ziplineenabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "HighlightFeatureResponse",
+        "type": "object"
+      },
+      "HighlightStatusResponse": {
+        "description": "Response for highlight feature status.",
+        "properties": {
+          "bufferSeconds": {
+            "default": 0,
+            "title": "Bufferseconds",
+            "type": "number"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "maxBufferSeconds": {
+            "default": 60,
+            "title": "Maxbufferseconds",
+            "type": "integer"
+          },
+          "ready": {
+            "default": false,
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "recording": {
+            "title": "Recording",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled",
+          "recording"
+        ],
+        "title": "HighlightStatusResponse",
+        "type": "object"
+      },
+      "LoginRequest": {
+        "description": "Request model for login endpoint.",
+        "properties": {
+          "password": {
+            "maxLength": 256,
+            "title": "Password",
+            "type": "string"
+          },
+          "username": {
+            "maxLength": 256,
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "LoginRequest",
+        "type": "object"
+      },
+      "NHLBroadcast": {
+        "description": "NHL game broadcast (TV network carrying the game).",
+        "properties": {
+          "countryCode": {
+            "title": "Countrycode",
+            "type": "string"
+          },
+          "market": {
+            "title": "Market",
+            "type": "string"
+          },
+          "network": {
+            "title": "Network",
+            "type": "string"
+          }
+        },
+        "required": [
+          "network",
+          "market",
+          "countryCode"
+        ],
+        "title": "NHLBroadcast",
+        "type": "object"
+      },
+      "NHLGame": {
+        "description": "NHL game information with teams, status, and live details.",
+        "properties": {
+          "awayTeam": {
+            "$ref": "#/components/schemas/NHLTeam"
+          },
+          "broadcasts": {
+            "items": {
+              "$ref": "#/components/schemas/NHLBroadcast"
+            },
+            "title": "Broadcasts",
+            "type": "array"
+          },
+          "gameCenterLink": {
+            "title": "Gamecenterlink",
+            "type": "string"
+          },
+          "homeTeam": {
+            "$ref": "#/components/schemas/NHLTeam"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "isIntermission": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Isintermission"
+          },
+          "outcomeType": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcometype"
+          },
+          "period": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period"
+          },
+          "situation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NHLSituation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "startTime": {
+            "title": "Starttime",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "timeRemaining": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeremaining"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "homeTeam",
+          "awayTeam",
+          "startTime",
+          "gameCenterLink"
+        ],
+        "title": "NHLGame",
+        "type": "object"
+      },
+      "NHLScoresResponse": {
+        "description": "Response model for NHL scores endpoint.",
+        "properties": {
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "games": {
+            "items": {
+              "$ref": "#/components/schemas/NHLGame"
+            },
+            "title": "Games",
+            "type": "array"
+          },
+          "liveGameCount": {
+            "title": "Livegamecount",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "games",
+          "date",
+          "liveGameCount"
+        ],
+        "title": "NHLScoresResponse",
+        "type": "object"
+      },
+      "NHLSituation": {
+        "description": "NHL game situation (power play, penalty, etc.).",
+        "properties": {
+          "awayDescription": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Awaydescription"
+          },
+          "awayStrength": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Awaystrength"
+          },
+          "homeDescription": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Homedescription"
+          },
+          "homeStrength": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Homestrength"
+          },
+          "timeRemaining": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeremaining"
+          }
+        },
+        "required": [
+          "awayStrength",
+          "homeStrength"
+        ],
+        "title": "NHLSituation",
+        "type": "object"
+      },
+      "NHLTeam": {
+        "description": "NHL team information with score and logos.",
+        "properties": {
+          "abbreviation": {
+            "title": "Abbreviation",
+            "type": "string"
+          },
+          "logo": {
+            "title": "Logo",
+            "type": "string"
+          },
+          "logoDark": {
+            "title": "Logodark",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "score": {
+            "default": 0,
+            "title": "Score",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "abbreviation",
+          "logo",
+          "logoDark"
+        ],
+        "title": "NHLTeam",
+        "type": "object"
+      },
+      "NowPlayingBulkResponse": {
+        "description": "Response for GET /api/epg/now-playing/all.",
+        "properties": {
+          "nowPlaying": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/Program"
+            },
+            "title": "Nowplaying",
+            "type": "object"
+          }
+        },
+        "required": [
+          "nowPlaying"
+        ],
+        "title": "NowPlayingBulkResponse",
+        "type": "object"
+      },
+      "PlexAuthRequest": {
+        "description": "Request body for Plex authentication.",
+        "properties": {
+          "authToken": {
+            "maxLength": 512,
+            "pattern": "^[\\x21-\\x7e]+$",
+            "title": "Authtoken",
+            "type": "string"
+          }
+        },
+        "required": [
+          "authToken"
+        ],
+        "title": "PlexAuthRequest",
+        "type": "object"
+      },
+      "Program": {
+        "description": "Program information from EPG data.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "endTime": {
+            "format": "date-time",
+            "title": "Endtime",
+            "type": "string"
+          },
+          "startTime": {
+            "format": "date-time",
+            "title": "Starttime",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "startTime",
+          "endTime"
+        ],
+        "title": "Program",
+        "type": "object"
+      },
+      "Programme": {
+        "description": "ErsatzTV programme from XMLTV data.",
+        "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Programme categories",
+            "title": "Category"
+          },
+          "channelId": {
+            "description": "References EPGChannel.id",
+            "title": "Channelid",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Programme description",
+            "title": "Description"
+          },
+          "episode": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Episode number",
+            "title": "Episode"
+          },
+          "id": {
+            "description": "Unique programme identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "season": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Season number",
+            "title": "Season"
+          },
+          "start": {
+            "description": "Start time (UTC)",
+            "format": "date-time",
+            "title": "Start",
+            "type": "string"
+          },
+          "stop": {
+            "description": "End time (UTC)",
+            "format": "date-time",
+            "title": "Stop",
+            "type": "string"
+          },
+          "title": {
+            "description": "Programme title",
+            "title": "Title",
+            "type": "string"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Release year",
+            "title": "Year"
+          }
+        },
+        "required": [
+          "id",
+          "channelId",
+          "title",
+          "start",
+          "stop"
+        ],
+        "title": "Programme",
+        "type": "object"
+      },
+      "ProgrammeListResponse": {
+        "description": "Response for GET /api/ersatztv/programmes/{channel_id}.",
+        "properties": {
+          "channelId": {
+            "title": "Channelid",
+            "type": "string"
+          },
+          "programmes": {
+            "items": {
+              "$ref": "#/components/schemas/Programme"
+            },
+            "title": "Programmes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "channelId",
+          "programmes"
+        ],
+        "title": "ProgrammeListResponse",
+        "type": "object"
+      },
+      "PublicEPGChannel": {
+        "description": "An ErsatzTV channel as browsers see it, with no internal ErsatzTV URL.\n\nstreamUrl is the legacy proxy path with no token in it, kept only as a\nstable per-channel key: the frontend keys player resets on it and plays\nthrough a stream session (POST /api/ersatztv/session). The route itself\ngoes in R4, and the key then needs another value. originalLogoUrl is left out.",
+        "properties": {
+          "group": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "logoUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logourl"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Number"
+          },
+          "streamUrl": {
+            "title": "Streamurl",
+            "type": "string"
+          },
+          "xmltvId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Xmltvid"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "streamUrl"
+        ],
+        "title": "PublicEPGChannel",
+        "type": "object"
+      },
+      "SetChannelRequest": {
+        "description": "Request body for PUT /api/channels/current.",
+        "properties": {
+          "guideId": {
+            "maxLength": 256,
+            "title": "Guideid",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 256,
+            "title": "Name",
+            "type": "string"
+          },
+          "streamUrl": {
+            "maxLength": 2048,
+            "title": "Streamurl",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "streamUrl",
+          "guideId"
+        ],
+        "title": "SetChannelRequest",
+        "type": "object"
+      },
+      "StreamSessionRequest": {
+        "description": "Request to open a stream session for a channel.",
+        "properties": {
+          "channelId": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Channelid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "channelId"
+        ],
+        "title": "StreamSessionRequest",
+        "type": "object"
+      },
+      "StreamSessionResponse": {
+        "description": "A stream session: play `url`, which carries no credential.",
+        "properties": {
+          "sessionId": {
+            "title": "Sessionid",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId",
+          "url"
+        ],
+        "title": "StreamSessionResponse",
+        "type": "object"
+      },
+      "SystemStatusResponse": {
+        "description": "Response model for GET /api/admin/status endpoint.",
+        "properties": {
+          "dispatcharr": {
+            "$ref": "#/components/schemas/DispatchrrStatus"
+          },
+          "epg": {
+            "$ref": "#/components/schemas/EPGHealthStatus"
+          },
+          "ersatztv": {
+            "$ref": "#/components/schemas/ErsatzTVStatus"
+          },
+          "ersatztvGuide": {
+            "$ref": "#/components/schemas/EPGHealthStatus"
+          }
+        },
+        "required": [
+          "ersatztv",
+          "dispatcharr",
+          "epg",
+          "ersatztvGuide"
+        ],
+        "title": "SystemStatusResponse",
+        "type": "object"
+      },
+      "TokenResponse": {
+        "description": "Response model for successful authentication.",
+        "properties": {
+          "accessToken": {
+            "title": "Accesstoken",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "tokenType": {
+            "default": "bearer",
+            "title": "Tokentype",
+            "type": "string"
+          }
+        },
+        "required": [
+          "accessToken",
+          "role"
+        ],
+        "title": "TokenResponse",
+        "type": "object"
+      },
+      "UpdateAppSettingsRequest": {
+        "additionalProperties": false,
+        "description": "Request body for PUT /api/settings. Omitted fields are left unchanged.",
+        "properties": {
+          "presenceVisible": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Presencevisible"
+          },
+          "userChannelSelection": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Userchannelselection"
+          }
+        },
+        "title": "UpdateAppSettingsRequest",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "title": "Channel Club API",
+    "version": "1.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/admin/active-users": {
+      "get": {
+        "description": "Get all active users.\n\nRequires admin role.\n\nReturns:\n    ActiveUsersResponse with live users, ersatztv users, and totals.",
+        "operationId": "get_active_users_api_admin_active_users_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActiveUsersResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Active Users",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/chat-history": {
+      "delete": {
+        "description": "Clear all chat message history.\n\nRequires admin role.\n\nReturns:\n    Confirmation message.",
+        "operationId": "clear_chat_history_api_admin_chat_history_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Clear Chat History Api Admin Chat History Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Clear Chat History",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/status": {
+      "get": {
+        "description": "Get system status for external services.\n\nRequires admin role.\n\nReturns:\n    SystemStatusResponse with ErsatzTV and Dispatcharr status.",
+        "operationId": "get_system_status_api_admin_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get System Status",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/auth/config": {
+      "get": {
+        "description": "Return available authentication methods.",
+        "operationId": "get_auth_config_api_auth_config_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthConfigResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Auth Config",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/plex": {
+      "post": {
+        "description": "Authenticate using Plex token.\n\nArgs:\n    request: Plex authentication request with authToken.\n\nReturns:\n    TokenResponse with JWT access token and role.\n\nRaises:\n    HTTPException: 404 if Plex auth is disabled.\n    HTTPException: 401 if Plex token is invalid.\n    HTTPException: 403 if user lacks access to configured server.\n    HTTPException: 503 if plex.tv is unreachable or misbehaving.",
+        "operationId": "login_with_plex_api_auth_plex_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlexAuthRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Login With Plex",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/refresh": {
+      "post": {
+        "description": "Swap a valid session token for a fresh one with the same sign-in time.\n\nAn expired token cannot refresh, and no token refreshes more than\nSESSION_MAX_AGE_DAYS after the original sign-in. The role is re-derived,\nso a demoted admin comes back as a viewer.\n\nArgs:\n    current_user: The verified token being refreshed.\n\nReturns:\n    TokenResponse with the new access token and role.\n\nRaises:\n    HTTPException: 401 if the session is past its cap or the user no\n        longer has a way to sign in.\n    HTTPException: 503 if plex.tv can't confirm an admin Plex token's role.",
+        "operationId": "refresh_api_auth_refresh_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Refresh",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/token": {
+      "post": {
+        "description": "Authenticate user and return JWT token.\n\nArgs:\n    request: Login credentials (username, password).\n\nReturns:\n    TokenResponse with access token and role.\n\nRaises:\n    HTTPException: 404 if local auth is disabled.\n    HTTPException: 401 if credentials are invalid.",
+        "operationId": "login_api_auth_token_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Login",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/cast/feature": {
+      "get": {
+        "description": "Check if cast feature is enabled.\n\nThis endpoint allows the frontend to conditionally show/hide\nthe cast button based on the server-side feature flag.",
+        "operationId": "get_feature_status_api_cast_feature_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CastFeatureResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Feature Status",
+        "tags": [
+          "cast"
+        ]
+      }
+    },
+    "/api/cast/hls/{session_id}/{filename}": {
+      "get": {
+        "description": "Serve HLS playlist or segment files.\n\nThis endpoint is called by the Chromecast device to fetch the HLS stream.\nNo auth required - the session_id UUID acts as authentication since it's\nhard to guess and sessions are time-limited. This is necessary because\nChromecast fetches segments via relative URLs without query params.",
+        "operationId": "get_hls_file_api_cast_hls__session_id___filename__get",
+        "parameters": [
+          {
+            "description": "Cast session ID",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "description": "Cast session ID",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "HLS file (playlist.m3u8 or seg_XXX.ts)",
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "description": "HLS file (playlist.m3u8 or seg_XXX.ts)",
+              "pattern": "^(playlist\\.m3u8|seg_\\d{3,9}\\.ts)$",
+              "title": "Filename",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Hls File",
+        "tags": [
+          "cast"
+        ]
+      }
+    },
+    "/api/cast/session": {
+      "post": {
+        "description": "Create a new cast session.\n\nFor HLS streams (ErsatzTV): returns an ErsatzTV stream session's playlist\npath, with no transcoding and no cast session.\nFor MPEG-TS streams: Starts FFmpeg transcoding and returns HLS URL.",
+        "operationId": "create_cast_session_api_cast_session_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CastSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Cast Session",
+        "tags": [
+          "cast"
+        ]
+      }
+    },
+    "/api/cast/session/{session_id}": {
+      "delete": {
+        "description": "Stop a cast session and cleanup resources.",
+        "operationId": "stop_cast_session_api_cast_session__session_id__delete",
+        "parameters": [
+          {
+            "description": "Session ID to stop",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "description": "Session ID to stop",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Stop Cast Session Api Cast Session  Session Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Stop Cast Session",
+        "tags": [
+          "cast"
+        ]
+      }
+    },
+    "/api/channels/current": {
+      "delete": {
+        "description": "Clear the current channel selection (admin only).\n\nRequires admin role. Clears the current channel state and broadcasts\nto all WebSocket clients.\n\nArgs:\n    current_user: Authenticated admin user from JWT token.\n\nReturns:\n    Status confirmation dict.",
+        "operationId": "clear_current_channel_api_channels_current_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Clear Current Channel Api Channels Current Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Clear Current Channel",
+        "tags": [
+          "channels"
+        ]
+      },
+      "get": {
+        "description": "Get the currently selected channel.\n\nRequires JWT authentication. Returns the current channel or null if none selected.\n\nArgs:\n    current_user: Authenticated user from JWT token.\n\nReturns:\n    CurrentChannelResponse with current channel or null.",
+        "operationId": "get_current_channel_api_channels_current_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CurrentChannelResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Current Channel",
+        "tags": [
+          "channels"
+        ]
+      },
+      "put": {
+        "description": "Set the current channel.\n\nRequires admin role, unless an admin has enabled the user_channel_selection\nsetting, in which case any authenticated user may change the channel.\nUpdates the current channel state and broadcasts to all WebSocket clients.\n\nArgs:\n    request: Channel data to set.\n    current_user: Authenticated user allowed to change the channel.\n\nReturns:\n    The updated channel.",
+        "operationId": "set_current_channel_api_channels_current_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetChannelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Channel"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Current Channel",
+        "tags": [
+          "channels"
+        ]
+      }
+    },
+    "/api/channels/grouped": {
+      "get": {
+        "description": "Get channels organized by groups from Dispatcharr.\n\nRequires JWT authentication. Returns channels organized into their\nrespective groups, with ungrouped channels in a separate list.\n\nArgs:\n    current_user: Authenticated user from JWT token.\n\nReturns:\n    GroupedChannelsResponse with groups and ungrouped channels.\n\nRaises:\n    HTTPException: 503 if Dispatcharr is unavailable.",
+        "operationId": "list_grouped_channels_api_channels_grouped_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupedChannelsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Grouped Channels",
+        "tags": [
+          "channels"
+        ]
+      }
+    },
+    "/api/channels/logos/{logo_id}": {
+      "get": {
+        "description": "Proxy a Dispatcharr channel logo as a checked raster image.\n\nArgs:\n    logo_id: Dispatcharr's integer logo id, as carried in Channel.logoUrl.\n\nReturns:\n    The logo image.\n\nRaises:\n    HTTPException: 404 if no channel uses this logo or Dispatcharr has none,\n        503 if it can't be served.",
+        "operationId": "get_channel_logo_image_api_channels_logos__logo_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "logo_id",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "Logo Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Channel Logo Image",
+        "tags": [
+          "channels"
+        ]
+      }
+    },
+    "/api/csp-report": {
+      "post": {
+        "description": "Log sampled violations. Always 204, so a browser never retries.",
+        "operationId": "csp_report_api_csp_report_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Csp Report",
+        "tags": [
+          "csp"
+        ]
+      }
+    },
+    "/api/epg/now-playing": {
+      "get": {
+        "description": "Get current and next program for a channel.\n\nRequires JWT authentication. Returns the currently playing program\nand optionally the next program for the specified channel.\n\nArgs:\n    channel_id: UUID of the channel to look up.\n    channel_name: Optional channel name to fall back on.\n    current_user: Authenticated user from JWT token.\n\nReturns:\n    EPGResponse with current and next program info.\n\nRaises:\n    HTTPException: 503 if EPG service is unavailable.",
+        "operationId": "get_now_playing_api_epg_now_playing_get",
+        "parameters": [
+          {
+            "description": "Channel UUID to get EPG data for",
+            "in": "query",
+            "name": "channel_id",
+            "required": true,
+            "schema": {
+              "description": "Channel UUID to get EPG data for",
+              "title": "Channel Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Channel name, matched to an XMLTV display name when the id has no data",
+            "in": "query",
+            "name": "channel_name",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Channel name, matched to an XMLTV display name when the id has no data",
+              "title": "Channel Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EPGResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Now Playing",
+        "tags": [
+          "epg"
+        ]
+      }
+    },
+    "/api/epg/now-playing/all": {
+      "get": {
+        "description": "Get the currently airing program for every channel.\n\nRequires JWT authentication. Lets a channel list show what is on each\nchannel without one request per channel.\n\nThe grouped channel catalogue (the list the channel picker shows) is\nresolved by guide id with the same display-name fallback as the single\nlookup. When the catalogue is unavailable, only XMLTV ids are returned.\n\nArgs:\n    current_user: Authenticated user from JWT token.\n\nReturns:\n    NowPlayingBulkResponse mapping channel id to its current program.\n    Channels with nothing on air are omitted.\n\nRaises:\n    HTTPException: 503 if EPG service is unavailable.",
+        "operationId": "get_now_playing_all_api_epg_now_playing_all_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NowPlayingBulkResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Now Playing All",
+        "tags": [
+          "epg"
+        ]
+      }
+    },
+    "/api/epg/programmes": {
+      "get": {
+        "description": "Get a channel's schedule from the XMLTV guide.\n\nRequires JWT authentication. Returns the programmes that end after\n30 minutes ago and start within the next `hours` hours, in start order.\n\nArgs:\n    channel_id: Guide id of the channel to look up.\n    hours: How many hours ahead of now to include (1-48).\n    channel_name: Optional channel name to fall back on.\n    current_user: Authenticated user from JWT token.\n\nReturns:\n    EPGProgrammesResponse with the channel's programmes in the window.\n\nRaises:\n    HTTPException: 503 if EPG service is unavailable.",
+        "operationId": "get_programmes_api_epg_programmes_get",
+        "parameters": [
+          {
+            "description": "Guide id of the channel to get the schedule for",
+            "in": "query",
+            "name": "channel_id",
+            "required": true,
+            "schema": {
+              "description": "Guide id of the channel to get the schedule for",
+              "title": "Channel Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "How many hours ahead of now to include",
+            "in": "query",
+            "name": "hours",
+            "required": false,
+            "schema": {
+              "default": 12,
+              "description": "How many hours ahead of now to include",
+              "maximum": 48,
+              "minimum": 1,
+              "title": "Hours",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Channel name, matched to an XMLTV display name when the id has no data",
+            "in": "query",
+            "name": "channel_name",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Channel name, matched to an XMLTV display name when the id has no data",
+              "title": "Channel Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EPGProgrammesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Programmes",
+        "tags": [
+          "epg"
+        ]
+      }
+    },
+    "/api/ersatztv/channels": {
+      "get": {
+        "description": "Get all ErsatzTV channels.",
+        "operationId": "list_channels_api_ersatztv_channels_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EPGChannelResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Channels",
+        "tags": [
+          "ersatztv"
+        ]
+      }
+    },
+    "/api/ersatztv/current/{channel_id}": {
+      "get": {
+        "description": "Get current and next programme for channel.",
+        "operationId": "get_current_api_ersatztv_current__channel_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "channel_id",
+            "required": true,
+            "schema": {
+              "title": "Channel Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CurrentProgrammeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Current",
+        "tags": [
+          "ersatztv"
+        ]
+      }
+    },
+    "/api/ersatztv/logos/{channel_id}": {
+      "get": {
+        "description": "Proxy channel logo from ErsatzTV, cached in the shared logo cache.",
+        "operationId": "get_logo_api_ersatztv_logos__channel_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "channel_id",
+            "required": true,
+            "schema": {
+              "title": "Channel Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Logo",
+        "tags": [
+          "ersatztv"
+        ]
+      }
+    },
+    "/api/ersatztv/programmes/{channel_id}": {
+      "get": {
+        "description": "Get programmes for channel within time window.",
+        "operationId": "list_programmes_api_ersatztv_programmes__channel_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "channel_id",
+            "required": true,
+            "schema": {
+              "title": "Channel Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "hours",
+            "required": false,
+            "schema": {
+              "default": 6,
+              "maximum": 168,
+              "minimum": 1,
+              "title": "Hours",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProgrammeListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Programmes",
+        "tags": [
+          "ersatztv"
+        ]
+      }
+    },
+    "/api/ersatztv/s/{session_id}/segments/{encoded_url}": {
+      "get": {
+        "description": "Proxy a session's HLS segment from ErsatzTV.",
+        "operationId": "get_session_segment_api_ersatztv_s__session_id__segments__encoded_url__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "encoded_url",
+            "required": true,
+            "schema": {
+              "title": "Encoded Url",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Session Segment",
+        "tags": [
+          "ersatztv"
+        ]
+      },
+      "head": {
+        "description": "HEAD request for a session's segment - returns headers only.",
+        "operationId": "head_session_segment_api_ersatztv_s__session_id__segments__encoded_url__head",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "encoded_url",
+            "required": true,
+            "schema": {
+              "title": "Encoded Url",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Head Session Segment",
+        "tags": [
+          "ersatztv"
+        ]
+      }
+    },
+    "/api/ersatztv/s/{session_id}/stream.m3u8": {
+      "get": {
+        "description": "Get a session's proxied HLS manifest (a nested playlist when `url` is given).",
+        "operationId": "get_session_stream_api_ersatztv_s__session_id__stream_m3u8_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "url",
+            "required": false,
+            "schema": {
+              "title": "Url",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Session Stream",
+        "tags": [
+          "ersatztv"
+        ]
+      },
+      "head": {
+        "description": "HEAD request for a session's playlist - returns headers only.",
+        "operationId": "head_session_stream_api_ersatztv_s__session_id__stream_m3u8_head",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "url",
+            "required": false,
+            "schema": {
+              "title": "Url",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Head Session Stream",
+        "tags": [
+          "ersatztv"
+        ]
+      }
+    },
+    "/api/ersatztv/segments/{encoded_url}": {
+      "get": {
+        "description": "Proxy HLS segment from ErsatzTV (legacy ?token= route, removed in R4).",
+        "operationId": "get_segment_api_ersatztv_segments__encoded_url__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "encoded_url",
+            "required": true,
+            "schema": {
+              "title": "Encoded Url",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Segment",
+        "tags": [
+          "ersatztv"
+        ]
+      },
+      "head": {
+        "description": "HEAD request for segment - returns headers only.",
+        "operationId": "head_segment_api_ersatztv_segments__encoded_url__head",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "encoded_url",
+            "required": true,
+            "schema": {
+              "title": "Encoded Url",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Head Segment",
+        "tags": [
+          "ersatztv"
+        ]
+      }
+    },
+    "/api/ersatztv/session": {
+      "post": {
+        "description": "Open a stream session for a channel and return the playlist URL to play.",
+        "operationId": "create_stream_session_api_ersatztv_session_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StreamSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StreamSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Stream Session",
+        "tags": [
+          "ersatztv"
+        ]
+      }
+    },
+    "/api/ersatztv/stream/{channel_id}": {
+      "get": {
+        "description": "Get proxied HLS manifest for channel (legacy ?token= route, removed in R4).\n\nIf `url` query param is provided, fetches that URL (for nested playlists).\nOtherwise fetches the channel's stream_url from M3U data.\nToken is passed through to rewritten segment URLs for HLS auth.",
+        "operationId": "get_stream_api_ersatztv_stream__channel_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "channel_id",
+            "required": true,
+            "schema": {
+              "title": "Channel Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "url",
+            "required": false,
+            "schema": {
+              "title": "Url",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Stream",
+        "tags": [
+          "ersatztv"
+        ]
+      },
+      "head": {
+        "description": "HEAD request for stream - returns headers only (for video.js preflight).",
+        "operationId": "head_stream_api_ersatztv_stream__channel_id__head",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "channel_id",
+            "required": true,
+            "schema": {
+              "title": "Channel Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "url",
+            "required": false,
+            "schema": {
+              "title": "Url",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Head Stream",
+        "tags": [
+          "ersatztv"
+        ]
+      }
+    },
+    "/api/feedback": {
+      "post": {
+        "description": "Deliver one report. Disabled requests never contact ntfy.",
+        "operationId": "submit_feedback_api_feedback_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Submit Feedback",
+        "tags": [
+          "feedback"
+        ]
+      }
+    },
+    "/api/feedback/feature": {
+      "get": {
+        "description": "Tell the frontend whether to show the feedback button.",
+        "operationId": "get_feature_status_api_feedback_feature_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackFeatureResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Feature Status",
+        "tags": [
+          "feedback"
+        ]
+      }
+    },
+    "/api/gif/feature": {
+      "get": {
+        "description": "Check if GIF feature is enabled.\n\nThis endpoint allows the frontend to conditionally show/hide\nthe GIF button based on the server-side feature flag.",
+        "operationId": "get_feature_status_api_gif_feature_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GifFeatureResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Feature Status",
+        "tags": [
+          "gif"
+        ]
+      }
+    },
+    "/api/gif/search": {
+      "get": {
+        "description": "Search for GIFs.\n\nReturns GIFs matching the search query from Giphy.\nSupports pagination via offset parameter.",
+        "operationId": "search_gifs_api_gif_search_get",
+        "parameters": [
+          {
+            "description": "Search query",
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "description": "Search query",
+              "maxLength": 50,
+              "minLength": 1,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Result offset for pagination",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "Result offset for pagination",
+              "maximum": 4999,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Number of GIFs to return",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "description": "Number of GIFs to return",
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GifResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Search Gifs",
+        "tags": [
+          "gif"
+        ]
+      }
+    },
+    "/api/gif/trending": {
+      "get": {
+        "description": "Get trending GIFs.\n\nReturns a list of currently trending GIFs from Giphy.\nResults are cached server-side for 5 minutes.",
+        "operationId": "get_trending_api_gif_trending_get",
+        "parameters": [
+          {
+            "description": "Number of GIFs to return",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "description": "Number of GIFs to return",
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GifResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Trending",
+        "tags": [
+          "gif"
+        ]
+      }
+    },
+    "/api/health": {
+      "get": {
+        "operationId": "health_check_api_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Health Check Api Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health Check"
+      }
+    },
+    "/api/health/deps": {
+      "get": {
+        "description": "Coarse upstream readiness for the uptime monitor, from local state only.\n\nPublic, so it carries no URLs, error text or counts, and it never waits on\nan upstream. When the guide or the Dispatcharr catalogue is due and not\nbacking off it starts one background refresh of it (at most one per TTL or\nbackoff window), so on an idle app 'stale' and 'failing' mean the refresh\nis failing, not that nobody asked. The Docker healthcheck stays on\n/api/health: an upstream outage must not get this container restarted.",
+        "operationId": "health_deps_api_health_deps_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "title": "Response Health Deps Api Health Deps Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health Deps"
+      }
+    },
+    "/api/highlight/capture/{capture_id}": {
+      "delete": {
+        "description": "Free the capture as soon as the editor closes; unknown ids are already gone.",
+        "operationId": "delete_capture_api_highlight_capture__capture_id__delete",
+        "parameters": [
+          {
+            "description": "Capture id",
+            "in": "path",
+            "name": "capture_id",
+            "required": true,
+            "schema": {
+              "description": "Capture id",
+              "pattern": "^[A-Za-z0-9_-]{16,64}$",
+              "title": "Capture Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Capture",
+        "tags": [
+          "highlight"
+        ]
+      },
+      "get": {
+        "description": "Serve the owner's capture with range support so media elements can seek early.",
+        "operationId": "get_capture_api_highlight_capture__capture_id__get",
+        "parameters": [
+          {
+            "description": "Capture id",
+            "in": "path",
+            "name": "capture_id",
+            "required": true,
+            "schema": {
+              "description": "Capture id",
+              "pattern": "^[A-Za-z0-9_-]{16,64}$",
+              "title": "Capture Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "download",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Download",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Capture",
+        "tags": [
+          "highlight"
+        ]
+      }
+    },
+    "/api/highlight/capture/{capture_id}/download-token": {
+      "post": {
+        "description": "Let the browser save the capture directly without putting the JWT in the URL.",
+        "operationId": "create_download_link_api_highlight_capture__capture_id__download_token_post",
+        "parameters": [
+          {
+            "description": "Capture id",
+            "in": "path",
+            "name": "capture_id",
+            "required": true,
+            "schema": {
+              "description": "Capture id",
+              "pattern": "^[A-Za-z0-9_-]{16,64}$",
+              "title": "Capture Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DownloadLinkResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Download Link",
+        "tags": [
+          "highlight"
+        ]
+      }
+    },
+    "/api/highlight/download/{token}": {
+      "get": {
+        "description": "Serve a capture once to whoever holds its download token, as an attachment.\n\nRange requests may follow until the token expires, so an interrupted download resumes.",
+        "operationId": "download_capture_api_highlight_download__token__get",
+        "parameters": [
+          {
+            "description": "Download token",
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "description": "Download token",
+              "pattern": "^[A-Za-z0-9_-]{16,64}$",
+              "title": "Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Capture",
+        "tags": [
+          "highlight"
+        ]
+      }
+    },
+    "/api/highlight/export": {
+      "post": {
+        "description": "Transform the exact snapshot the user previewed, without recapturing live TV.",
+        "operationId": "export_preview_api_highlight_export_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "capture",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{16,64}$",
+              "title": "Capture",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "mp4",
+              "enum": [
+                "mp4",
+                "webm"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start_time",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start Time"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_time",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End Time"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Export Preview",
+        "tags": [
+          "highlight"
+        ]
+      }
+    },
+    "/api/highlight/feature": {
+      "get": {
+        "description": "Check if highlight feature is enabled.\n\nThis endpoint allows the frontend to conditionally show/hide\nthe highlight button based on the server-side feature flag.",
+        "operationId": "get_feature_status_api_highlight_feature_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HighlightFeatureResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Feature Status",
+        "tags": [
+          "highlight"
+        ]
+      }
+    },
+    "/api/highlight/preview/{token}": {
+      "get": {
+        "description": "Serve a capture, with range support, to whoever holds its preview token.",
+        "operationId": "preview_capture_api_highlight_preview__token__get",
+        "parameters": [
+          {
+            "description": "Preview token",
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "description": "Preview token",
+              "pattern": "^[A-Za-z0-9_-]{16,64}$",
+              "title": "Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Capture",
+        "tags": [
+          "highlight"
+        ]
+      }
+    },
+    "/api/highlight/status/{channel_id}": {
+      "get": {
+        "description": "Get highlight recording status for a channel.\n\nReturns whether recording is active and buffer fill level.\nAuto-starts recording for ErsatzTV channels if not already recording.",
+        "operationId": "get_highlight_status_api_highlight_status__channel_id__get",
+        "parameters": [
+          {
+            "description": "Channel ID to check status for",
+            "in": "path",
+            "name": "channel_id",
+            "required": true,
+            "schema": {
+              "description": "Channel ID to check status for",
+              "maxLength": 256,
+              "minLength": 1,
+              "title": "Channel Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HighlightStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Highlight Status",
+        "tags": [
+          "highlight"
+        ]
+      }
+    },
+    "/api/highlight/upload": {
+      "post": {
+        "description": "Upload already prepared media; disabled requests never ingest or contact Zipline.",
+        "operationId": "upload_highlight_api_highlight_upload_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "mp4",
+              "enum": [
+                "mp4",
+                "webm"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Upload Highlight Api Highlight Upload Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upload Highlight",
+        "tags": [
+          "highlight"
+        ]
+      }
+    },
+    "/api/highlight/{channel_id}/capture": {
+      "post": {
+        "description": "Snapshot the recent buffer server-side; the editor streams it by range.",
+        "operationId": "create_capture_api_highlight__channel_id__capture_post",
+        "parameters": [
+          {
+            "description": "Channel ID to capture",
+            "in": "path",
+            "name": "channel_id",
+            "required": true,
+            "schema": {
+              "description": "Channel ID to capture",
+              "maxLength": 256,
+              "minLength": 1,
+              "title": "Channel Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaptureResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Capture",
+        "tags": [
+          "highlight"
+        ]
+      }
+    },
+    "/api/nhl/scores": {
+      "get": {
+        "description": "Get NHL scores for a given date.\n\nArgs:\n    date: Optional date in YYYY-MM-DD format. Defaults to today (5am EST boundary).\n\nReturns:\n    NHL scores response with games, date, and live game count.\n\nRaises:\n    HTTPException: 400 if date format is invalid or outside the date window.\n    HTTPException: 503 if NHL API is unavailable.",
+        "operationId": "get_scores_api_nhl_scores_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "date",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NHLScoresResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Scores",
+        "tags": [
+          "nhl"
+        ]
+      }
+    },
+    "/api/settings": {
+      "get": {
+        "description": "Get the current runtime settings.\n\nRequires JWT authentication. Readable by any user, since viewers need to\nknow whether they are allowed to change the live channel.\n\nArgs:\n    current_user: Authenticated user from JWT token.\n\nReturns:\n    AppSettings with the current values.",
+        "operationId": "get_settings_api_settings_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppSettings"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Settings",
+        "tags": [
+          "settings"
+        ]
+      },
+      "put": {
+        "description": "Update runtime settings (admin only).\n\nRequires admin role. Omitted fields are left unchanged. Broadcasts the new\nsettings to all WebSocket clients.\n\nArgs:\n    request: Settings to update.\n    current_user: Authenticated admin user from JWT token.\n\nReturns:\n    The updated settings.",
+        "operationId": "update_settings_api_settings_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAppSettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppSettings"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Settings",
+        "tags": [
+          "settings"
+        ]
+      }
+    }
+  }
+}

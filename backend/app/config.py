@@ -1,7 +1,9 @@
 import re
 from functools import cached_property
+from typing import Literal
 from urllib.parse import urlsplit
 
+from pydantic import SecretStr, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Placeholder signing key for local development. It is public in the source, so
@@ -28,15 +30,13 @@ NTFY_TOPIC_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
 class Settings(BaseSettings):
-    port: int = 8001
-
     # Build identity stays distinct from the semantic version in pyproject.toml.
     app_build_id: str = "dev"
     app_revision: str = "dev"
 
     dispatcharr_url: str = "http://10.8.0.2:9191"
     stream_base_url: str = "https://streams.domain.com"
-    jwt_secret: str = DEFAULT_JWT_SECRET
+    jwt_secret: SecretStr = SecretStr(DEFAULT_JWT_SECRET)
 
     # FastAPI's /docs, /redoc and /openapi.json publish the API map; off in production.
     docs_enabled: bool = False
@@ -45,15 +45,24 @@ class Settings(BaseSettings):
     cors_origins: list[str] = []
 
     # Logging Configuration
-    log_level: str = "INFO"  # DEBUG, INFO, WARNING, ERROR
-    log_format: str = "pretty"  # json or pretty
+    log_level: Literal["TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    log_format: Literal["json", "pretty"] = "pretty"
+
+    @field_validator("log_level", "log_format", mode="before")
+    @classmethod
+    def _normalise_log_setting(cls, value: object, info: ValidationInfo) -> object:
+        """Accept any case and surrounding spaces; anything else fails at startup."""
+        if not isinstance(value, str):
+            return value
+        value = value.strip()
+        return value.upper() if info.field_name == "log_level" else value.lower()
 
     # Authentication Feature Flags
     local_auth_enabled: bool = False  # Enable username/password auth
     plex_auth_enabled: bool = False  # Enable Plex OAuth
 
     # Plex Authentication Settings (only used when plex_auth_enabled=True)
-    plex_server_token: str | None = None  # Admin's Plex server token
+    plex_server_token: SecretStr | None = None  # Admin's Plex server token
     plex_server_machine_id: str | None = None  # Server machine identifier
     plex_default_role: str = "viewer"  # Default role for Plex users
     plex_admin_users_str: str = ""  # Comma-separated usernames who get admin role
@@ -69,14 +78,14 @@ class Settings(BaseSettings):
     # No password defaults: a guessable fallback must never be what protects
     # the app if the flag is turned back on. Unset means every login is rejected.
     admin_username: str = "admin"
-    admin_password: str | None = None
+    admin_password: SecretStr | None = None
     viewer_username: str = "viewer"
-    viewer_password: str | None = None
+    viewer_password: SecretStr | None = None
 
     # Dispatcharr Authentication (optional - for channel and stats endpoints).
     # Personal API key from the Dispatcharr profile page (0.20.0+). Sent as
     # "Authorization: ApiKey <key>"; does not expire.
-    dispatcharr_api_key: str | None = None
+    dispatcharr_api_key: SecretStr | None = None
 
     # ErsatzTV Configuration
     ersatztv_m3u_url: str = "http://192.168.50.108:8409/iptv/channels.m3u"
@@ -93,7 +102,7 @@ class Settings(BaseSettings):
     # Optional shared upload destination. Credentials never leave the backend.
     zipline_enabled: bool = False
     zipline_url: str = ""
-    zipline_token: str = ""
+    zipline_token: SecretStr = SecretStr("")
 
     @property
     def zipline_available(self) -> bool:
@@ -102,7 +111,7 @@ class Settings(BaseSettings):
             return bool(
                 self.highlight_enabled
                 and self.zipline_enabled
-                and self.zipline_token.strip()
+                and self.zipline_token.get_secret_value().strip()
                 and url.scheme in ("http", "https")
                 and url.hostname
                 and url.port != 0
@@ -119,7 +128,8 @@ class Settings(BaseSettings):
     ntfy_enabled: bool = False
     ntfy_url: str = ""  # Instance base URL, e.g. https://ntfy.sh or a self-hosted server
     ntfy_topic: str = ""  # Dedicated topic, e.g. channel-club-feedback
-    ntfy_token: str = ""  # Optional access token for protected topics (sent as Bearer)
+    # Optional access token for protected topics (sent as Bearer)
+    ntfy_token: SecretStr = SecretStr("")
     feedback_cooldown_seconds: int = 30  # Minimum gap between submissions per user
     feedback_hourly_limit: int = 10  # Maximum submissions per user per hour
 
@@ -151,7 +161,7 @@ class Settings(BaseSettings):
 
     # GIF Feature (requires chat to be enabled)
     # Enable GIF picker in chat using Giphy API
-    giphy_api_key: str | None = None  # Giphy API key (get from developers.giphy.com)
+    giphy_api_key: SecretStr | None = None  # Giphy API key (get from developers.giphy.com)
     highlight_buffer_seconds: int = 60  # How many seconds to keep in ring buffer
     highlight_segment_seconds: int = 10  # FFmpeg segment duration
     highlight_temp_dir: str = "/tmp/highlights"  # Temp storage for segments
@@ -181,7 +191,8 @@ class Settings(BaseSettings):
     cast_session_timeout: int = 300  # Seconds without activity before cleanup
 
     # The shared root dotenv also contains frontend/Compose settings.
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # validate_assignment: a later assignment is coerced and checked like the env value.
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", validate_assignment=True)
 
 
 settings = Settings()

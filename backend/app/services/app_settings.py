@@ -8,6 +8,7 @@ existing WebSocket so connected clients react without a refresh.
 from loguru import logger
 
 from app.models.admin import AppSettings
+from app.models.websocket import ServerSettingsUpdate
 from app.services import channel_state, state_store
 
 # Module-level logger with service context
@@ -52,30 +53,6 @@ def user_channel_selection_enabled() -> bool:
     return _user_channel_selection
 
 
-async def set_user_channel_selection(enabled: bool, user: str | None = None) -> AppSettings:
-    """Set whether non-admin users may set the live channel, and broadcast it.
-
-    Args:
-        enabled: True to let any authenticated user change the live channel.
-        user: Optional username of the admin making the change.
-
-    Returns:
-        The updated settings.
-    """
-    global _user_channel_selection
-    _user_channel_selection = enabled
-
-    if user:
-        log.info("User channel selection set to {} by user '{}'", enabled, user)
-    else:
-        log.info("User channel selection set to {}", enabled)
-
-    await state_store.save({"userChannelSelection": enabled})
-    await broadcast_settings_update()
-
-    return get_app_settings()
-
-
 def presence_visible_enabled() -> bool:
     """Check whether members may see which channel everyone else is watching.
 
@@ -85,34 +62,54 @@ def presence_visible_enabled() -> bool:
     return _presence_visible
 
 
-async def set_presence_visible(enabled: bool, user: str | None = None) -> AppSettings:
-    """Set whether members see what everyone is watching, and broadcast it.
+def _log_change(actor: str | None, field: str, old: bool, new: bool) -> None:
+    """Log an admin.settings_changed event when a setting's value actually changes."""
+    if old == new:
+        return
+    log.bind(event="admin.settings_changed", actor=actor, field=field, old=old, new=new).info(
+        f"Setting {field} changed from {old} to {new} by {actor or 'unknown'}"
+    )
+
+
+async def update(
+    user_channel_selection: bool | None = None,
+    presence_visible: bool | None = None,
+    user: str | None = None,
+) -> AppSettings:
+    """Apply the given settings, save them once and broadcast them once.
+
+    Omitted (None) settings are left unchanged; with nothing given, nothing is
+    saved or broadcast.
 
     Args:
-        enabled: True to share each member's channel and programme with everyone.
+        user_channel_selection: True to let any authenticated user change the live channel.
+        presence_visible: True to share each member's channel and programme with everyone.
         user: Optional username of the admin making the change.
 
     Returns:
         The updated settings.
     """
-    global _presence_visible
-    _presence_visible = enabled
+    global _user_channel_selection, _presence_visible
+    changes: dict[str, bool] = {}
+    if user_channel_selection is not None:
+        _log_change(user, "userChannelSelection", _user_channel_selection, user_channel_selection)
+        _user_channel_selection = user_channel_selection
+        changes["userChannelSelection"] = user_channel_selection
+    if presence_visible is not None:
+        _log_change(user, "presenceVisible", _presence_visible, presence_visible)
+        _presence_visible = presence_visible
+        changes["presenceVisible"] = presence_visible
 
-    if user:
-        log.info("Presence visibility set to {} by user '{}'", enabled, user)
-    else:
-        log.info("Presence visibility set to {}", enabled)
-
-    await state_store.save({"presenceVisible": enabled})
-    await broadcast_settings_update()
+    if changes:
+        await state_store.save(changes)
+        # One broadcast after every change, so clients never see a half-applied update
+        await broadcast_settings_update()
 
     return get_app_settings()
 
 
 async def broadcast_settings_update() -> None:
     """Broadcast the current settings to all connected clients."""
-    message = {
-        "type": "settings_update",
-        "settings": get_app_settings().model_dump(by_alias=True),
-    }
-    await channel_state.broadcast(message)
+    await channel_state.broadcast(
+        ServerSettingsUpdate(type="settings_update", settings=get_app_settings())
+    )

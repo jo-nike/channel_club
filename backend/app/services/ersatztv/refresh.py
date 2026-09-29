@@ -3,7 +3,7 @@
 A fresh cache is read without the lock. While one thread refreshes a feed, or
 while a failed refresh backs off, every other reader gets the stale data at
 once; only a cold cache waits, so concurrent cold callers share one attempt.
-Failed refreshes back off 30 s, doubling to 5 min (EPGService._retry_delay).
+Failed refreshes back off 30 s, doubling to 5 min (XmltvCache._retry_delay).
 """
 
 import asyncio
@@ -13,10 +13,10 @@ from datetime import UTC, datetime, timedelta
 from functools import partial, update_wrapper
 from threading import Lock
 from time import monotonic
-from xml.etree.ElementTree import ParseError
 
-import httpx
 from loguru import logger
+
+from app.services.bounded_http import failure_reason
 
 log = logger.bind(service="ersatztv")
 
@@ -53,23 +53,6 @@ async def stop_feed_executor() -> None:
 
 class FeedUnavailableError(Exception):
     """A feed has no cached data and cannot be fetched now."""
-
-
-def failure_reason(exc: BaseException) -> str:
-    """A short reason for health reports; never the upstream URL."""
-    if isinstance(exc, httpx.HTTPStatusError):
-        return f"HTTP {exc.response.status_code}"
-    if isinstance(exc, httpx.ConnectError):
-        return "connection failed"
-    if isinstance(exc, httpx.TimeoutException | TimeoutError):
-        return "timeout"
-    if isinstance(exc, httpx.HTTPError):
-        return "request failed"
-    if isinstance(exc, ParseError):
-        return "invalid feed"
-    if isinstance(exc, ValueError):
-        return "feed too large or slow"
-    return "refresh failed"
 
 
 class SerializedRefresh[T]:

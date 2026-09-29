@@ -64,8 +64,7 @@ def test_startup_sweep_removes_leftover_workspaces(tmp_path, monkeypatch):
     leftover = tmp_path / "work" / "highlight-export-x"
     leftover.mkdir(parents=True)
     (leftover / "export.mp4").write_bytes(b"killed mid-encode")
-    with patch("app.services.highlight.subprocess.run", side_effect=FileNotFoundError):
-        HighlightService().cleanup_stale_segments()
+    HighlightService().cleanup_stale_segments()
     assert not leftover.exists()
 
 

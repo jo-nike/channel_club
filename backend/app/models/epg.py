@@ -2,42 +2,34 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from app.models.base import CamelModel
 
 
-class Program(BaseModel):
+class Program(CamelModel):
     """Program information from EPG data."""
 
     title: str
-    start_time: datetime = Field(alias="startTime")
-    end_time: datetime = Field(alias="endTime")
+    start_time: datetime
+    end_time: datetime
     description: str | None = None
 
-    model_config = {"populate_by_name": True}
 
-
-class NowPlayingBulkResponse(BaseModel):
+class NowPlayingBulkResponse(CamelModel):
     """Response for GET /api/epg/now-playing/all."""
 
-    now_playing: dict[str, Program] = Field(alias="nowPlaying")
-
-    model_config = {"populate_by_name": True}
+    now_playing: dict[str, Program]
 
 
-class EPGResponse(BaseModel):
+class EPGResponse(CamelModel):
     """Response model for EPG now-playing endpoint."""
 
-    channel_id: str = Field(alias="channelId")
-    current_program: Program | None = Field(alias="currentProgram")
-    next_program: Program | None = Field(alias="nextProgram", default=None)
-
-    model_config = {"populate_by_name": True}
+    channel_id: str
+    current_program: Program | None
+    next_program: Program | None = None
 
 
-class EPGProgrammesResponse(BaseModel):
+class EPGProgrammesResponse(CamelModel):
     """Response for GET /api/epg/programmes."""
 
-    channel_id: str = Field(alias="channelId")
+    channel_id: str
     programmes: list[Program]
-
-    model_config = {"populate_by_name": True}

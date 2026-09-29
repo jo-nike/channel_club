@@ -25,11 +25,22 @@ DISPATCHARR_LINEUP_URL = "https://streams.example.com/hdhr/lineup.json"
 ERSATZTV_XMLTV_URL = "http://192.168.50.108:8409/iptv/xmltv.xml"
 
 # Base stream: JSON-parsed channel-club logs, filtered by the dashboard variables.
+# Only watch.* and programme.* carry a view: session.* (every client connects as the
+# unified TV view) and channel.change (the shared live channel) filter on the user
+# alone, through USER_BASE.
 BASE = '{container="channel-club"} | json | record_extra_user=~"$user" | record_extra_view=~"$view"'
-# channel.change (the shared live channel) carries no view, so it filters on the user alone.
 # Watch events leave out the phantom 'Live' watches pre-R2 bundles logged on the
 # empty Live slot, under its synthetic id.
 WATCH_BASE = BASE + ' | record_extra_channel_id!="live-channel-0"'
+# Watch time accrues as it happens: watch.progress (every 5 minutes) and watch.stop
+# carry delta_s, the seconds since the watch's last accounting. watch.stop lines
+# from before R3 have no delta_s, so their whole duration_s counts instead.
+WATCH_TIME = (
+    WATCH_BASE
+    + ' | record_extra_event=~"watch.progress|watch.stop"'
+    + " | label_format watch_s=`{{ or .record_extra_delta_s .record_extra_duration_s }}`"
+    + " | unwrap watch_s"
+)
 USER_BASE = '{container="channel-club"} | json | record_extra_user=~"$user"'
 
 _pid = [0]
@@ -75,15 +86,22 @@ def infinity(ref: str, kind: str, url: str, root: str, columns: list[dict]) -> d
     }
 
 
+# The lineup carries no id field, but each entry's stream URL ends in the channel's
+# UUID, which is the app's channel id: a JSONata root (Infinity's backend parser)
+# takes its last path segment.
+DISPATCHARR_ROOT = '$.{"channel": GuideName, "number": GuideNumber, "channel_id": $split(URL, "/")[-1]}'
+
+
 def dispatcharr_catalogue(ref: str = "A") -> dict:
     return infinity(
         ref,
         "json",
         DISPATCHARR_LINEUP_URL,
-        "",
+        DISPATCHARR_ROOT,
         [
-            {"selector": "GuideName", "text": "channel", "type": "string"},
-            {"selector": "GuideNumber", "text": "number", "type": "string"},
+            {"selector": "channel", "text": "channel", "type": "string"},
+            {"selector": "number", "text": "number", "type": "string"},
+            {"selector": "channel_id", "text": "channel_id", "type": "string"},
         ],
     )
 
@@ -190,9 +208,16 @@ def timeseries(title: str, targets: list, x: int, y: int, w: int = 12, h: int = 
     }
 
 
-def event_table(title: str, event: str, columns: list[str], x: int, y: int, w: int = 12, h: int = 12, unit_overrides: dict | None = None, base: str = BASE) -> dict:
-    """Table of raw Loki events: the extracted log labels become columns."""
-    fields = ", ".join(f"{c}=record_extra_{c}" for c in columns)
+def event_table(title: str, event: str, columns: list[str], x: int, y: int, w: int = 12, h: int = 12, unit_overrides: dict | None = None, base: str = BASE, defaults: dict | None = None) -> dict:
+    """Table of raw Loki events: the extracted log labels become columns.
+
+    ``defaults`` gives a column the text to show when its field is null or unset.
+    """
+    defaults = defaults or {}
+    fields = ", ".join(
+        f'{c}=`{{{{ or .record_extra_{c} "{defaults[c]}" }}}}`' if c in defaults else f"{c}=record_extra_{c}"
+        for c in columns
+    )
     expr = f'{base} | record_extra_event="{event}" | label_format {fields} | line_format ""'
     keep = {"Time": True, **{c: True for c in columns}}
     overrides = []
@@ -223,12 +248,14 @@ y = 0
 # ── Row: Viewers ─────────────────────────────────────────────
 panels.append(row("Viewers", y)); y += 1
 
-watch_time_expr = f'sum by (record_extra_user) (sum_over_time({WATCH_BASE} | record_extra_event="watch.stop" | unwrap record_extra_duration_s [$__range]))'
+watch_time_expr = f'sum by (record_extra_user) (sum_over_time({WATCH_TIME} [$__range]))'
 
-panels.append(stat("Unique viewers", [loki(f'count(sum by (record_extra_user) (count_over_time({BASE} | record_extra_event="session.start" [$__range])))', instant=True)], 0, y))
-panels.append(stat("Sessions", [loki(f'sum(count_over_time({BASE} | record_extra_event="session.start" [$__range]))', instant=True)], 4, y))
-panels.append(stat("Watch time", [loki(f'sum(sum_over_time({WATCH_BASE} | record_extra_event="watch.stop" | unwrap record_extra_duration_s [$__range]))', instant=True)], 8, y, unit="s"))
-panels.append(stat("Channel switches", [loki(f'sum(count_over_time({WATCH_BASE} | record_extra_event="watch.start" [$__range]))', instant=True)], 12, y))
+panels.append(stat("Unique viewers", [loki(f'count(sum by (record_extra_user) (count_over_time({USER_BASE} | record_extra_event="session.start" [$__range])))', instant=True)], 0, y))
+# A session a deploy splits (closed with server_restart, then reconnected) counts once
+panels.append(stat("Sessions", [loki(f'sum(count_over_time({USER_BASE} | record_extra_event="session.stop" | record_extra_reason!="server_restart" [$__range]))', instant=True)], 4, y))
+panels.append(stat("Watch time", [loki(f'sum(sum_over_time({WATCH_TIME} [$__range]))', instant=True)], 8, y, unit="s"))
+# Personal choices only: not a first start, a reconnect or following the Live slot
+panels.append(stat("Channel switches", [loki(f'sum(count_over_time({WATCH_BASE} | record_extra_event="watch.start" | record_extra_reason="switch" [$__range]))', instant=True)], 12, y))
 panels.append(stat("Channels watched", [loki(f'count(sum by (record_extra_channel) (count_over_time({WATCH_BASE} | record_extra_event="watch.start" [$__range])))', instant=True)], 16, y))
 panels.append(stat("Live channel changes", [loki(f'sum(count_over_time({{container="channel-club"}} | json | record_extra_event="channel.change" [$__range]))', instant=True)], 20, y))
 y += 4
@@ -242,11 +269,12 @@ panels.append(bargauge("Watch time by user", [loki(watch_time_expr, legend="{{re
 y += 12
 
 panels.append(timeseries(
-    "Sessions started per hour",
-    [loki(f'sum by (record_extra_user) (count_over_time({BASE} | record_extra_event="session.start" [1h]))', legend="{{record_extra_user}}")],
+    "Connections per hour",
+    [loki(f'sum by (record_extra_user) (count_over_time({USER_BASE} | record_extra_event="session.start" [1h]))', legend="{{record_extra_user}}")],
     0, y, w=12, bars=True, stack=True,
 ))
-panels.append(event_table("Shared live channel changes", "channel.change", ["user", "channel"], 12, y, w=12, h=8, base=USER_BASE))
+# Stopping Live logs a channel.change with no channel
+panels.append(event_table("Shared live channel changes", "channel.change", ["user", "channel"], 12, y, w=12, h=8, base=USER_BASE, defaults={"channel": "stopped"}))
 y += 8
 
 # One row per titled programme segment: a title change or the watch ending closes it
@@ -260,7 +288,7 @@ y += 10
 # ── Row: Channels ────────────────────────────────────────────
 panels.append(row("Channels", y)); y += 1
 
-channel_time_expr = f'sum by (record_extra_channel, record_extra_view) (sum_over_time({WATCH_BASE} | record_extra_event="watch.stop" | unwrap record_extra_duration_s [$__range]))'
+channel_time_expr = f'sum by (record_extra_channel, record_extra_view) (sum_over_time({WATCH_TIME} [$__range]))'
 panels.append(bargauge("Watch time by channel (top 25)", [loki(f"topk(25, {channel_time_expr})", legend="{{record_extra_channel}} ({{record_extra_view}})", instant=True)], 0, y, w=12, h=14))
 panels.append(timeseries(
     "Channel starts over time",
@@ -270,18 +298,24 @@ panels.append(timeseries(
 y += 14
 
 # Following the shared Live slot (true) or a channel of one's own (false); no value before R2
-slot_time_expr = f'sum by (record_extra_on_live) (sum_over_time({WATCH_BASE} | record_extra_event="watch.stop" | unwrap record_extra_duration_s [$__range]))'
+slot_time_expr = f'sum by (record_extra_on_live) (sum_over_time({WATCH_TIME} [$__range]))'
 panels.append(bargauge("Watch time: Live slot vs own pick", [loki(slot_time_expr, legend="Live slot: {{record_extra_on_live}}", instant=True)], 0, y, w=24, h=5))
 y += 5
 
-# Catalogue usage: Infinity catalogue (A+B) outer-joined with Loki watch time (C) and starts (D).
-catalogue_watch = f'sum by (record_extra_channel) (sum_over_time({WATCH_BASE} | record_extra_event="watch.stop" | unwrap record_extra_duration_s [$__range]))'
-catalogue_starts = f'sum by (record_extra_channel) (count_over_time({WATCH_BASE} | record_extra_event="watch.start" [$__range]))'
+# Catalogue usage: Infinity catalogue (A+B) outer-joined with Loki watch time (C) and starts (D)
+# on the channel id, so a renamed channel keeps its history. The ErsatzTV '-id' is the
+# app's channel id (the tvg-id); label_replace names the Loki side's id to match.
+def by_channel_id(expr: str) -> str:
+    return f'label_replace({expr}, "channel_id", "$1", "record_extra_channel_id", "(.+)")'
+
+
+catalogue_watch = by_channel_id(f'sum by (record_extra_channel_id) (sum_over_time({WATCH_TIME} [$__range]))')
+catalogue_starts = by_channel_id(f'sum by (record_extra_channel_id) (count_over_time({WATCH_BASE} | record_extra_event="watch.start" [$__range]))')
 panels.append({
     "id": pid(),
     "type": "table",
     "title": "Catalogue usage (unused channels sort first)",
-    "description": "Every channel in the Dispatcharr lineup and ErsatzTV XMLTV, joined by name to watch events in the selected range. 'never watched' means no watch.stop event in range.",
+    "description": "Every channel in the Dispatcharr lineup and ErsatzTV XMLTV, joined by channel id to watch events in the selected range. 'never watched' means no watch time (watch.progress or watch.stop) in range.",
     "gridPos": grid(0, y, 24, 16),
     "datasource": {"type": "datasource", "uid": "-- Mixed --"},
     "targets": [
@@ -293,9 +327,9 @@ panels.append({
     "transformations": [
         # Loki instant vectors come back as one frame per series: turn them into channel rows.
         {"id": "merge", "options": {}},
-        {"id": "joinByField", "options": {"byField": "channel", "mode": "outer"}},
+        {"id": "joinByField", "options": {"byField": "channel_id", "mode": "outer"}},
         {"id": "organize", "options": {
-            "excludeByName": {"Time": True, "Time 1": True, "Time 2": True, "Time 3": True, "Time 4": True},
+            "excludeByName": {"Time": True, "Time 1": True, "Time 2": True, "Time 3": True, "Time 4": True, "record_extra_channel_id": True},
             "renameByName": {"Value #C": "watch time", "Value #D": "starts", "number": "live #"},
             "indexByName": {"channel": 0, "live #": 1, "channel_id": 2, "watch time": 3, "starts": 4},
         }},
@@ -347,7 +381,14 @@ dashboard = {
                 },
             ]
         },
-        "annotations": {"list": [{"builtIn": 1, "datasource": {"type": "grafana", "uid": "-- Grafana --"}, "enable": True, "hide": True, "iconColor": "rgba(0, 211, 255, 1)", "name": "Annotations & Alerts", "type": "dashboard"}]},
+        "annotations": {"list": [{"builtIn": 1, "datasource": {"type": "grafana", "uid": "-- Grafana --"}, "enable": True, "hide": True, "iconColor": "rgba(0, 211, 255, 1)", "name": "Annotations & Alerts", "type": "dashboard"},
+            # Deploys: each start of the app logs server.start with its version and build
+            {
+                "name": "Deploys", "datasource": LOKI_DS, "enable": True, "hide": False, "iconColor": "orange",
+                "expr": '{container="channel-club"} | json | record_extra_event="server.start"',
+                "titleFormat": "Server start", "textFormat": "{{record_extra_version}} build {{record_extra_build_id}}",
+            },
+        ]},
         "links": [{"title": "Channel Club", "type": "link", "url": "https://tv.example.com", "targetBlank": True}],
     },
     "overwrite": True,

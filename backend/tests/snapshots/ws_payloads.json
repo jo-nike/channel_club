@@ -1,0 +1,143 @@
+{
+  "connection_ack": {
+    "type": "connection_ack",
+    "currentChannel": {
+      "id": "42",
+      "name": "TSN 5",
+      "streamUrl": "http://streams/42",
+      "guideId": "tsn5",
+      "logoUrl": "/logo/42"
+    },
+    "settings": {
+      "userChannelSelection": false,
+      "presenceVisible": false
+    },
+    "you": {
+      "username": "testuser",
+      "userId": "u_df275f8a57c68ed6"
+    },
+    "presence": [],
+    "buildId": "<volatile>",
+    "features": {
+      "chat": true,
+      "gif": false
+    }
+  },
+  "chat_history": {
+    "type": "chat_history",
+    "messages": [
+      {
+        "messageId": "00000000-0000-4000-8000-000000000001",
+        "username": "alice",
+        "userId": "u_alice",
+        "content": "hi",
+        "timestamp": "2026-09-28T12:00:00+00:00",
+        "kind": "user",
+        "channelId": null,
+        "channelName": null,
+        "programme": null,
+        "view": null
+      }
+    ]
+  },
+  "chat_ack_accepted": {
+    "type": "chat_ack",
+    "clientMessageId": "c1",
+    "accepted": true,
+    "messageId": "00000000-0000-4000-8000-000000000001"
+  },
+  "chat_message": {
+    "messageId": "00000000-0000-4000-8000-000000000001",
+    "username": "testuser",
+    "userId": "u_df275f8a57c68ed6",
+    "content": "hello",
+    "timestamp": "2026-09-28T12:00:00+00:00",
+    "kind": "user",
+    "channelId": null,
+    "channelName": null,
+    "programme": null,
+    "view": null,
+    "type": "chat_message"
+  },
+  "pong": {
+    "type": "pong"
+  },
+  "error_invalid_message": {
+    "type": "error",
+    "code": "invalid_message",
+    "clientMessageId": "c2"
+  },
+  "error_nickname_taken": {
+    "type": "error",
+    "code": "nickname_taken",
+    "nickname": "Live TV"
+  },
+  "connection_ack_no_live": {
+    "type": "connection_ack",
+    "currentChannel": null,
+    "settings": {
+      "userChannelSelection": false,
+      "presenceVisible": false
+    },
+    "you": {
+      "username": "testuser",
+      "userId": "u_df275f8a57c68ed6"
+    },
+    "presence": [],
+    "buildId": "<volatile>",
+    "features": {
+      "chat": false,
+      "gif": false
+    }
+  },
+  "chat_ack_refused": {
+    "type": "chat_ack",
+    "clientMessageId": "c3",
+    "accepted": false
+  },
+  "channel_update": [
+    {
+      "type": "channel_update",
+      "channel": {
+        "id": "42",
+        "name": "TSN 5",
+        "streamUrl": "http://streams/42",
+        "guideId": "tsn5",
+        "logoUrl": "/logo/42"
+      },
+      "changedBy": "alice"
+    }
+  ],
+  "channel_update_cleared": [
+    {
+      "type": "channel_update",
+      "channel": null,
+      "changedBy": null
+    }
+  ],
+  "settings_update": [
+    {
+      "type": "settings_update",
+      "settings": {
+        "userChannelSelection": false,
+        "presenceVisible": true
+      }
+    }
+  ],
+  "presence_update": [
+    {
+      "type": "presence_update",
+      "presence": [
+        {
+          "userId": "u_alice",
+          "displayName": "alice",
+          "channelId": "42",
+          "channelName": "TSN 5",
+          "programme": "Hockey",
+          "view": "live",
+          "since": "2026-09-28T12:00:00+00:00"
+        }
+      ]
+    }
+  ]
+}

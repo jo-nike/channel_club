@@ -31,25 +31,26 @@ class TestLoggingConfigSettings:
     def test_log_level_default_is_info(self) -> None:
         """Log level should default to INFO."""
         with patch.dict("os.environ", {}, clear=True):
-            settings = Settings(_env_file=None)
+            # _env_file is a pydantic-settings init option that pyright doesn't see on Settings
+            settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
             assert settings.log_level == "INFO"
 
     def test_log_format_default_is_pretty(self) -> None:
         """Log format should default to pretty."""
         with patch.dict("os.environ", {}, clear=True):
-            settings = Settings(_env_file=None)
+            settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
             assert settings.log_format == "pretty"
 
     def test_log_level_from_env(self) -> None:
         """Log level should be configurable via environment variable."""
         with patch.dict("os.environ", {"LOG_LEVEL": "DEBUG"}, clear=True):
-            settings = Settings(_env_file=None)
+            settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
             assert settings.log_level == "DEBUG"
 
     def test_log_format_from_env(self) -> None:
         """Log format should be configurable via environment variable."""
         with patch.dict("os.environ", {"LOG_FORMAT": "json"}, clear=True):
-            settings = Settings(_env_file=None)
+            settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
             assert settings.log_format == "json"
 
 
@@ -250,7 +251,7 @@ class TestConfigureLogging:
 
         with (
             patch.dict("os.environ", {"LOG_FORMAT": "json", "LOG_LEVEL": "INFO"}, clear=True),
-            patch("app.logging_config.settings", Settings(_env_file=None)),
+            patch("app.logging_config.settings", Settings(_env_file=None)),  # pyright: ignore[reportCallIssue]
         ):
             # Reset loguru
             logger.remove()
@@ -276,7 +277,7 @@ class TestConfigureLogging:
 
         with (
             patch.dict("os.environ", {"LOG_FORMAT": "pretty", "LOG_LEVEL": "INFO"}, clear=True),
-            patch("app.logging_config.settings", Settings(_env_file=None)),
+            patch("app.logging_config.settings", Settings(_env_file=None)),  # pyright: ignore[reportCallIssue]
         ):
             logger.remove()
 
@@ -295,7 +296,7 @@ class TestConfigureLogging:
 def test_sec03_access_and_structured_credentials_are_redacted(log_format):
     output = StringIO()
     secret = "SYNTHETIC_REUSABLE_BEARER_SECRET"
-    config = Settings(_env_file=None, log_format=log_format, log_level="DEBUG")
+    config = Settings(_env_file=None, log_format=log_format, log_level="DEBUG")  # pyright: ignore[reportCallIssue]
     with patch("app.logging_config.settings", config), patch.object(sys, "stderr", output):
         configure_logging()
         for name, template, args in [
@@ -329,7 +330,7 @@ def test_sec03_access_and_structured_credentials_are_redacted(log_format):
 def test_sec03_exception_logs_do_not_expose_credentials_or_locals(log_format):
     output = StringIO()
     secret = "SYNTHETIC_EXCEPTION_CREDENTIAL"
-    config = Settings(_env_file=None, log_format=log_format, log_level="DEBUG")
+    config = Settings(_env_file=None, log_format=log_format, log_level="DEBUG")  # pyright: ignore[reportCallIssue]
     with patch("app.logging_config.settings", config), patch.object(sys, "stderr", output):
         configure_logging()
         try:
@@ -360,7 +361,7 @@ def json_logging():
         for lg in [logging.getLogger(name)]
     }
     output = StringIO()
-    config = Settings(_env_file=None, log_format="json", log_level="INFO")
+    config = Settings(_env_file=None, log_format="json", log_level="INFO")  # pyright: ignore[reportCallIssue]
     with patch("app.logging_config.settings", config), patch.object(sys, "stderr", output):
         # As in production: uvicorn applies its own config before the app configures logging
         logging.config.dictConfig(uvicorn.config.LOGGING_CONFIG)
@@ -399,7 +400,7 @@ def test_h04_intercepted_record_names_its_real_source(json_logging) -> None:
 
 
 def test_h04_configure_logging_twice_writes_each_line_once(json_logging) -> None:
-    config = Settings(_env_file=None, log_format="json", log_level="INFO")
+    config = Settings(_env_file=None, log_format="json", log_level="INFO")  # pyright: ignore[reportCallIssue]
     with patch("app.logging_config.settings", config), patch.object(sys, "stderr", json_logging):
         configure_logging()
     logging.getLogger("uvicorn.error").info("stdlib line")
@@ -428,7 +429,10 @@ def test_h05_access_log_drops_polled_and_streamed_paths(json_logging) -> None:
         "/api/admin/status",
         "/api/ersatztv/segments/abc.ts?token=x",
         "/api/ersatztv/stream/C1?token=x",
+        "/api/ersatztv/s/sid123/stream.m3u8",
+        "/api/ersatztv/s/sid123/segments/abc.ts",
         "/api/highlight/status/C1",
+        "/api/highlight/preview/grant123",
         "/api/channels",
         "/api/healthcheck-lookalike",
     ]:

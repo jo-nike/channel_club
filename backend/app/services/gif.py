@@ -8,6 +8,7 @@ This service provides:
 """
 
 from datetime import UTC, datetime, timedelta
+from typing import TypeGuard
 from urllib.parse import urlsplit
 
 import httpx
@@ -79,6 +80,11 @@ def _is_giphy_url(url: object) -> bool:
     return parts.scheme == "https" and (host == "giphy.com" or host.endswith(".giphy.com"))
 
 
+def _is_plain_int(value: object) -> TypeGuard[int]:
+    """True for an int that isn't a bool (JSON true/false decode to bool, an int subclass)."""
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 class GifService:
     """Service for fetching GIFs from Giphy API."""
 
@@ -89,7 +95,8 @@ class GifService:
 
     def _is_enabled(self) -> bool:
         """Check if GIF feature is enabled."""
-        return settings.giphy_api_key is not None and len(settings.giphy_api_key) > 0
+        key = settings.giphy_api_key
+        return key is not None and len(key.get_secret_value()) > 0
 
     async def get_trending(self, limit: int = 25) -> dict:
         """Get trending GIFs.
@@ -123,7 +130,9 @@ class GifService:
                 response = await client.get(
                     f"{GIPHY_BASE_URL}/trending",
                     params={
-                        "api_key": settings.giphy_api_key,
+                        "api_key": settings.giphy_api_key.get_secret_value()
+                        if settings.giphy_api_key
+                        else "",
                         "limit": min(limit, 50),
                         "rating": "pg-13",
                     },
@@ -172,7 +181,9 @@ class GifService:
                 response = await client.get(
                     f"{GIPHY_BASE_URL}/search",
                     params={
-                        "api_key": settings.giphy_api_key,
+                        "api_key": settings.giphy_api_key.get_secret_value()
+                        if settings.giphy_api_key
+                        else "",
                         "q": query,
                         "limit": min(limit, 50),
                         "offset": offset,
@@ -238,25 +249,40 @@ class GifService:
             except (ValueError, TypeError):
                 continue
 
+            # Hand the router only values its models accept: skip an item without
+            # a usable id, and blank a title that isn't text
+            gif_id = item.get("id")
+            if _is_plain_int(gif_id):
+                gif_id = str(gif_id)
+            elif not isinstance(gif_id, str):
+                continue
+            title = item.get("title")
+
             gifs.append(
                 {
-                    "id": item.get("id", ""),
+                    "id": gif_id,
                     "url": original_url,
                     "previewUrl": preview_url,
                     "width": width,
                     "height": height,
-                    "title": item.get("title", ""),
+                    "title": title if isinstance(title, str) else "",
                 }
             )
 
-        pagination = data.get("pagination", {})
+        pagination = data.get("pagination")
+        if not isinstance(pagination, dict):
+            pagination = {}
+
+        def page_value(key: str, default: int) -> int:
+            value = pagination.get(key)
+            return value if _is_plain_int(value) else default
 
         return {
             "gifs": gifs,
             "pagination": {
-                "totalCount": pagination.get("total_count", 0),
-                "count": pagination.get("count", len(gifs)),
-                "offset": pagination.get("offset", 0),
+                "totalCount": page_value("total_count", 0),
+                "count": page_value("count", len(gifs)),
+                "offset": page_value("offset", 0),
             },
         }
 

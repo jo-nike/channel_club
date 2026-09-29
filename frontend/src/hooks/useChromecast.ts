@@ -21,6 +21,8 @@ interface CastParams {
   streamType: 'hls' | 'mpegts'
   streamUrl?: string
   title?: string
+  /** Cast of the Live slot: the server moves it with Live and stops it with Live */
+  followsLive?: boolean
 }
 
 /**
@@ -32,7 +34,8 @@ export interface UseChromecastReturn extends ChromecastState {
     channelId: string,
     streamType: 'hls' | 'mpegts',
     streamUrl?: string,
-    title?: string
+    title?: string,
+    followsLive?: boolean
   ) => Promise<void>
   /** Stop the current cast session */
   stopCasting: () => Promise<void>
@@ -313,7 +316,8 @@ function handleSessionStateChanged(event: cast.framework.SessionStateEventData) 
         pending.channelId,
         pending.streamType,
         pending.streamUrl,
-        pending.title
+        pending.title,
+        pending.followsLive
       ).catch((err) => {
         logger.error('Cast', 'Auto-cast failed', { error: err })
       })
@@ -422,6 +426,15 @@ function requestSession(params?: CastParams) {
   })
 }
 
+/** The Chromecast fetches from its own network, so an app path needs the cast base URL */
+function absoluteCastUrl(url: string): string {
+  if (!url.startsWith('/')) return url
+  // Remove /api suffix if present since the path already includes /api
+  const absolute = `${getCastBaseUrl().replace(/\/api$/, '')}${url}`
+  logger.debug('Cast', 'Converted relative URL to absolute', { original: url, absolute })
+  return absolute
+}
+
 /**
  * Start casting a stream
  */
@@ -429,7 +442,8 @@ async function startCasting(
   channelId: string,
   streamType: 'hls' | 'mpegts',
   streamUrl?: string,
-  title?: string
+  title?: string,
+  followsLive = false
 ) {
   if (typeof cast === 'undefined' || typeof chrome === 'undefined') {
     throw new Error('Cast SDK not available')
@@ -456,25 +470,13 @@ async function startCasting(
 
     if (streamType === 'hls' && streamUrl) {
       // HLS streams can be cast directly, but need absolute URL
-      // Convert relative URLs to absolute for Chromecast
-      if (streamUrl.startsWith('/')) {
-        const castBase = getCastBaseUrl()
-        // Remove /api suffix if present since streamUrl already includes /api
-        const baseWithoutApi = castBase.replace(/\/api$/, '')
-        hlsUrl = `${baseWithoutApi}${streamUrl}`
-        logger.debug('Cast', 'Converted relative URL to absolute', {
-          original: streamUrl,
-          absolute: hlsUrl,
-        })
-      } else {
-        hlsUrl = streamUrl
-      }
+      hlsUrl = absoluteCastUrl(streamUrl)
       logger.debug('Cast', 'Casting HLS stream directly', { channelId, hlsUrl })
     } else {
       // MPEG-TS streams need backend transcoding
       logger.debug('Cast', 'Creating backend transcoding session', { channelId, streamType })
 
-      const castSession = await createCastSession(channelId, streamType, streamUrl)
+      const castSession = await createCastSession(channelId, streamType, followsLive)
       ownedSessionId = castSession.session_id
       ownedSessions.add(ownedSessionId)
       if (!isCurrent()) { await releaseSession(ownedSessionId); return }
@@ -484,8 +486,8 @@ async function startCasting(
         // Get the full HLS URL with auth token
         hlsUrl = getCastHlsUrl(castSession.session_id)
       } else {
-        // Backend returned the source URL directly (for HLS sources)
-        hlsUrl = castSession.hls_url
+        // Backend returned an ErsatzTV stream session's playlist path
+        hlsUrl = absoluteCastUrl(castSession.hls_url)
       }
     }
 

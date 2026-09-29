@@ -4,6 +4,8 @@ from typing import Annotated
 
 from pydantic import AfterValidator, BaseModel, Field
 
+from app.models.base import CamelModel
+
 
 def validate_channel_id(value: str) -> str:
     """Channel IDs are opaque identifiers, never filesystem paths."""
@@ -20,47 +22,30 @@ def validate_channel_id(value: str) -> str:
 ChannelId = Annotated[str, Field(min_length=1, max_length=256), AfterValidator(validate_channel_id)]
 
 
-class DispatchrrChannel(BaseModel):
-    """Raw channel data from Dispatcharr lineup.json (HDHomeRun format)."""
-
-    guide_number: str = Field(alias="GuideNumber")
-    guide_name: str = Field(alias="GuideName")
-    url: str = Field(alias="URL")
-    guide_id: str = Field(alias="Guide_ID")
-
-    model_config = {"populate_by_name": True}
-
-
-class Channel(BaseModel):
+class Channel(CamelModel):
     """Transformed channel for our API with camelCase JSON serialization."""
 
     id: str
     name: str
-    stream_url: str = Field(alias="streamUrl")
-    guide_id: str = Field(alias="guideId")
+    stream_url: str
+    guide_id: str
     # Our own logo route, never an upstream URL; None when the channel has no logo
-    logo_url: str | None = Field(default=None, alias="logoUrl")
-
-    model_config = {"populate_by_name": True}
+    logo_url: str | None = None
 
 
-class SetChannelRequest(BaseModel):
+class SetChannelRequest(CamelModel):
     """Request body for PUT /api/channels/current."""
 
     id: ChannelId
     name: str = Field(max_length=256)
-    stream_url: str = Field(alias="streamUrl", max_length=2048)
-    guide_id: str = Field(alias="guideId", max_length=256)
-
-    model_config = {"populate_by_name": True}
+    stream_url: str = Field(max_length=2048)
+    guide_id: str = Field(max_length=256)
 
 
-class CurrentChannelResponse(BaseModel):
+class CurrentChannelResponse(CamelModel):
     """Response for GET /api/channels/current."""
 
-    current_channel: Channel | None = Field(None, alias="currentChannel")
-
-    model_config = {"populate_by_name": True}
+    current_channel: Channel | None = None
 
 
 class DispatchrrChannelGroup(BaseModel):
@@ -85,21 +70,17 @@ class DispatchrrFullChannel(BaseModel):
     logo_id: int | None = None
 
 
-class ChannelGroupWithChannels(BaseModel):
+class ChannelGroupWithChannels(CamelModel):
     """Channel group with its channels for our API."""
 
     id: int
     name: str
-    channel_count: int = Field(alias="channelCount")
+    channel_count: int
     channels: list[Channel] = []
 
-    model_config = {"populate_by_name": True}
 
-
-class GroupedChannelsResponse(BaseModel):
+class GroupedChannelsResponse(CamelModel):
     """Response for GET /api/channels/grouped."""
 
     groups: list[ChannelGroupWithChannels] = []
     ungrouped: list[Channel] = []
-
-    model_config = {"populate_by_name": True}

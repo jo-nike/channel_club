@@ -4,9 +4,8 @@
 import argparse
 import json
 import re
-from pathlib import Path
-
 import tomllib
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SEMVER = re.compile(r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)")
@@ -30,13 +29,8 @@ def check(root: Path = ROOT) -> str:
         roots[0]["version"],
     ]
     if any(v != version for v in versions):
-        raise ValueError(
-            "Application versions differ; run python3 scripts/version.py --set X.Y.Z"
-        )
-    if (
-        package["name"] != lock["name"]
-        or package["name"] != lock["packages"][""]["name"]
-    ):
+        raise ValueError("Application versions differ; run python3 scripts/version.py --set X.Y.Z")
+    if package["name"] != lock["name"] or package["name"] != lock["packages"][""]["name"]:
         raise ValueError("Frontend package and lockfile names differ")
     return version
 

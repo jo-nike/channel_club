@@ -19,8 +19,16 @@ from app.logging_config import configure_logging
 from app.main import app
 from app.models.channel import Channel, GroupedChannelsResponse
 from app.models.ersatztv import EPGChannel
+from app.models.websocket import ServerChannelUpdate, ServerPong
 from app.routers import websocket as websocket_router
-from app.services import app_settings, channel_state, chat, presence, presence_broadcast
+from app.services import (
+    app_settings,
+    channel_state,
+    chat,
+    media_source,
+    presence,
+    presence_broadcast,
+)
 from app.services.auth import create_access_token
 from tests.ws_helpers import ws_connect
 
@@ -30,7 +38,9 @@ REAL_SCHEDULE_BROADCAST = presence_broadcast.schedule_broadcast
 
 def expected_user_id(account: str) -> str:
     """The chat id the server should derive for an account key ('plex:<id>' or 'local:<sub>')."""
-    digest = hmac.new(settings.jwt_secret.encode(), account.encode(), hashlib.sha256)
+    digest = hmac.new(
+        settings.jwt_secret.get_secret_value().encode(), account.encode(), hashlib.sha256
+    )
     return "u_" + digest.hexdigest()[:16]
 
 
@@ -72,12 +82,12 @@ def client() -> Iterator[TestClient]:
 def cached_catalogue(monkeypatch: pytest.MonkeyPatch) -> None:
     """The catalogues chat names channels from: TSN 5 (42) live, Cartoons (etv-2) on ErsatzTV."""
     grouped = GroupedChannelsResponse(
-        ungrouped=[Channel(id="42", name="TSN 5", streamUrl="http://streams/42", guideId="tsn5")]
+        ungrouped=[Channel(id="42", name="TSN 5", stream_url="http://streams/42", guide_id="tsn5")]
     )
-    cartoons = EPGChannel(id="etv-2", name="Cartoons", streamUrl="http://etv/2.m3u8")
-    monkeypatch.setattr(websocket_router, "get_grouped_channels", AsyncMock(return_value=grouped))
+    cartoons = EPGChannel(id="etv-2", name="Cartoons", stream_url="http://etv/2.m3u8")
+    monkeypatch.setattr(media_source, "get_grouped_channels", AsyncMock(return_value=grouped))
     monkeypatch.setattr(
-        websocket_router,
+        media_source,
         "get_channel_by_id",
         lambda channel_id: cartoons if channel_id == cartoons.id else None,
     )
@@ -94,12 +104,14 @@ def reset_channel_state():
     """Reset channel state before each test."""
     channel_state.clear_current_channel()
     channel_state._active_connections.clear()
+    channel_state._connection_owners.clear()
     presence._active_users.clear()
     chat.clear_history()
     websocket_router._nickname_map.clear()
     yield
     channel_state.clear_current_channel()
     channel_state._active_connections.clear()
+    channel_state._connection_owners.clear()
     presence._active_users.clear()
     chat.clear_history()
     websocket_router._nickname_map.clear()
@@ -183,7 +195,7 @@ class TestWebSocketConnection:
         # Create an expired token manually
         from datetime import datetime, timedelta
 
-        from jose import jwt
+        import jwt
 
         from app.config import settings
 
@@ -192,10 +204,37 @@ class TestWebSocketConnection:
             "role": "viewer",
             "exp": datetime.now(UTC) - timedelta(hours=1),
         }
-        expired_token = jwt.encode(expired_payload, settings.jwt_secret, algorithm="HS256")
+        expired_token = jwt.encode(
+            expired_payload, settings.jwt_secret.get_secret_value(), algorithm="HS256"
+        )
 
         with (
             ws_connect(client, expired_token) as ws,
+            pytest.raises(WebSocketDisconnect) as exc_info,
+        ):
+            ws.receive_json()
+        assert exc_info.value.code == 4001
+
+    @pytest.mark.parametrize(
+        "claims",
+        [
+            pytest.param({"sub": "testuser"}, id="no-role"),
+            pytest.param({"sub": "testuser", "role": "viewer", "typ": "media"}, id="typ-media"),
+        ],
+    )
+    def test_signed_token_with_bad_claims_closes_with_4001(self, client: TestClient, claims):
+        """A signed token that is not a valid session closes 4001, not an error."""
+        from datetime import datetime, timedelta
+
+        import jwt
+
+        from app.config import settings
+
+        claims = {**claims, "exp": datetime.now(UTC) + timedelta(hours=1)}
+        token = jwt.encode(claims, settings.jwt_secret.get_secret_value(), algorithm="HS256")
+
+        with (
+            ws_connect(client, token) as ws,
             pytest.raises(WebSocketDisconnect) as exc_info,
         ):
             ws.receive_json()
@@ -221,11 +260,11 @@ class TestLegacyQueryToken:
     def test_expired_query_token_is_closed_with_4001(self, client: TestClient):
         from datetime import datetime, timedelta
 
-        from jose import jwt
+        import jwt
 
         expired_token = jwt.encode(
             {"sub": "testuser", "role": "viewer", "exp": datetime.now(UTC) - timedelta(hours=1)},
-            settings.jwt_secret,
+            settings.jwt_secret.get_secret_value(),
             algorithm="HS256",
         )
         with (
@@ -743,7 +782,8 @@ class TestWebSocketLogging:
 
         monkeypatch.setattr(websocket_router, "handle_client_message", broken)
         output = StringIO()
-        config = Settings(_env_file=None, log_format="json", log_level="DEBUG")
+        # _env_file is a pydantic-settings init option that pyright doesn't see on Settings
+        config = Settings(_env_file=None, log_format="json", log_level="DEBUG")  # pyright: ignore[reportCallIssue]
         with patch("app.logging_config.settings", config), patch.object(sys, "stderr", output):
             configure_logging()
             with ws_connect(client, valid_token) as ws:
@@ -1003,6 +1043,164 @@ class TestPresenceTracking:
         assert len(presence._active_users) == 0
 
 
+@pytest.fixture
+def presence_events() -> Iterator[StringIO]:
+    """Serialized presence events, read with _event_extras."""
+    output = StringIO()
+    handler_id = logger.add(
+        output,
+        format="{message}",
+        serialize=True,
+        level="INFO",
+        filter=lambda r: "event" in r["extra"],
+    )
+    yield output
+    logger.remove(handler_id)
+
+
+def _event_extras(output: StringIO, event: str) -> list[dict]:
+    extras = [json.loads(line)["record"]["extra"] for line in output.getvalue().splitlines()]
+    return [e for e in extras if e["event"] == event]
+
+
+class TestCloseReasons:
+    """A server restart's 1012 close is logged apart from people leaving."""
+
+    @pytest.mark.parametrize(("code", "reason"), [(1012, "server_restart"), (1001, "disconnect")])
+    def test_close_code_sets_the_session_and_watch_stop_reason(
+        self, client: TestClient, valid_token: str, presence_events: StringIO, code, reason
+    ):
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # Consume connection_ack
+            ws.send_json(
+                {
+                    "type": "channel_update",
+                    "channel": "RDS",
+                    "channelId": "uuid-rds",
+                    "view": "live",
+                }
+            )
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json()["type"] == "pong"
+            ws.close(code=code)
+
+        (session_stop,) = _event_extras(presence_events, "session.stop")
+        (watch_stop,) = _event_extras(presence_events, "watch.stop")
+        assert session_stop["reason"] == watch_stop["reason"] == reason
+
+
+class TestCanonicalChannelNames:
+    """Watch events name a channel as the cached catalogue does, never fetching it."""
+
+    @pytest.fixture
+    def warm_catalogues(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        grouped = GroupedChannelsResponse(
+            ungrouped=[
+                Channel(id="42", name="TSN 5", stream_url="http://streams/42", guide_id="t5")
+            ]
+        )
+        cartoons = EPGChannel(id="etv-2", name="Cartoons", stream_url="http://etv/2.m3u8")
+        monkeypatch.setattr(media_source, "peek_grouped_channels", lambda: grouped)
+        monkeypatch.setattr(media_source, "peek_ersatztv_channels", lambda: [cartoons])
+
+    @staticmethod
+    def _watch(client: TestClient, token: str, *updates: dict) -> None:
+        with ws_connect(client, token) as ws:
+            ws.receive_json()  # Consume connection_ack
+            for update in updates:
+                ws.send_json({"type": "channel_update", "view": "live", **update})
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json()["type"] == "pong"
+
+    def test_known_id_logs_the_catalogue_name_and_the_claimed_one(
+        self,
+        client: TestClient,
+        valid_token: str,
+        presence_events: StringIO,
+        warm_catalogues: None,
+    ):
+        self._watch(client, valid_token, {"channel": "tsn5 HD", "channelId": "42"})
+
+        (start,) = _event_extras(presence_events, "watch.start")
+        assert start["channel"] == "TSN 5" and start["channel_id"] == "42"
+        assert start["channel_known"] is True and start["claimed_channel"] == "tsn5 HD"
+
+    def test_the_catalogue_name_is_what_presence_shows(
+        self, client: TestClient, valid_token: str, warm_catalogues: None
+    ):
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # Consume connection_ack
+            ws.send_json({"type": "channel_update", "channel": "cartoons!", "channelId": "etv-2"})
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json()["type"] == "pong"
+
+            assert only_presence().current_channel == "Cartoons"
+
+    def test_matching_name_logs_no_claimed_channel(
+        self,
+        client: TestClient,
+        valid_token: str,
+        presence_events: StringIO,
+        warm_catalogues: None,
+    ):
+        self._watch(client, valid_token, {"channel": "TSN 5", "channelId": "42"})
+
+        (start,) = _event_extras(presence_events, "watch.start")
+        assert start["channel_known"] is True and "claimed_channel" not in start
+
+    def test_unknown_id_with_both_catalogues_warm_is_not_known(
+        self,
+        client: TestClient,
+        valid_token: str,
+        presence_events: StringIO,
+        warm_catalogues: None,
+    ):
+        self._watch(client, valid_token, {"channel": "Pirate TV", "channelId": "nope"})
+
+        (start,) = _event_extras(presence_events, "watch.start")
+        assert start["channel"] == "Pirate TV" and start["channel_known"] is False
+
+    def test_a_catalogue_never_loaded_leaves_known_unset(
+        self, client: TestClient, valid_token: str, presence_events: StringIO
+    ):
+        fetch = AsyncMock()
+        with patch.object(media_source, "get_grouped_channels", fetch):
+            self._watch(client, valid_token, {"channel": "Pirate TV", "channelId": "nope"})
+
+        (start,) = _event_extras(presence_events, "watch.start")
+        assert start["channel"] == "Pirate TV" and start["channel_known"] is None
+        fetch.assert_not_awaited()
+
+    def test_a_later_resolution_of_the_same_id_does_not_split_the_watch(
+        self,
+        client: TestClient,
+        valid_token: str,
+        presence_events: StringIO,
+        monkeypatch: pytest.MonkeyPatch,
+        uncoalesced: None,
+    ):
+        grouped = GroupedChannelsResponse(
+            ungrouped=[
+                Channel(id="42", name="TSN 5", stream_url="http://streams/42", guide_id="t5")
+            ]
+        )
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # Consume connection_ack
+            update = {"type": "channel_update", "channel": "tsn5", "channelId": "42"}
+            ws.send_json(update)
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json()["type"] == "pong"
+            # The catalogue loads, and the next rollover resolves the id
+            monkeypatch.setattr(media_source, "peek_grouped_channels", lambda: grouped)
+            ws.send_json({**update, "programme": "SportsCentre"})
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json()["type"] == "pong"
+
+        assert len(_event_extras(presence_events, "watch.start")) == 1
+        (stop,) = _event_extras(presence_events, "watch.stop")
+        assert stop["channel"] == "TSN 5" and stop["claimed_channel"] == "tsn5"
+
+
 class TestPresenceKeys:
     """Presence is keyed per connection by the server, never by the client's session_id."""
 
@@ -1099,6 +1297,31 @@ class TestPresenceKeys:
 
 class TestChatMessages:
     """Tests for chat message functionality."""
+
+    def test_invalid_send_names_its_client_message_id(self, client: TestClient, valid_token: str):
+        """The refused send's id comes back, so the client settles it as not sent at once."""
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # connection_ack
+            ws.send_json({"type": "chat_message", "content": "x" * 4097, "clientMessageId": "c1"})
+
+            assert ws.receive_json() == {
+                "type": "error",
+                "code": "invalid_message",
+                "clientMessageId": "c1",
+            }
+
+    @pytest.mark.parametrize("client_message_id", ["x" * 65, 7, "", None])
+    def test_invalid_send_echoes_no_id_it_could_not_have_sent(
+        self, client: TestClient, valid_token: str, client_message_id: object
+    ):
+        """An oversize, empty or non-string id is never echoed."""
+        with ws_connect(client, valid_token) as ws:
+            ws.receive_json()  # connection_ack
+            ws.send_json(
+                {"type": "chat_message", "content": 5, "clientMessageId": client_message_id}
+            )
+
+            assert ws.receive_json() == {"type": "error", "code": "invalid_message"}
 
     def test_chat_message_broadcast_when_enabled(
         self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
@@ -1721,7 +1944,7 @@ class TestSuggestMessage:
     @pytest.fixture
     def catalogue(self) -> AsyncMock:
         """The cached grouped catalogue (cached_catalogue): only TSN 5 (id 42) is live."""
-        grouped = websocket_router.get_grouped_channels
+        grouped = media_source.get_grouped_channels
         assert isinstance(grouped, AsyncMock)
         return grouped
 
@@ -1805,8 +2028,8 @@ class TestSuggestMessage:
         monkeypatch: pytest.MonkeyPatch,
         catalogue: AsyncMock,
     ):
-        """Only the cached grouped catalogue is consulted: no lineup or ErsatzTV lookup."""
-        from app.services import dispatcharr, media_source
+        """Only the cached grouped catalogue is consulted: no ErsatzTV lookup."""
+        from app.services import media_source
 
         uncached: list[str] = []
 
@@ -1817,11 +2040,9 @@ class TestSuggestMessage:
 
             return called
 
-        monkeypatch.setattr(dispatcharr, "get_lineup", record("get_lineup"))
-        # The switch path's own lookups, in case a suggestion goes through it again
+        # The shared catalogue lookup: the cached catalogue, and no ErsatzTV lookup
         monkeypatch.setattr(media_source, "get_grouped_channels", catalogue)
         monkeypatch.setattr(media_source, "run_feed_lookup", record("ersatztv lookup"))
-        monkeypatch.setattr(websocket_router, "run_feed_lookup", record("run_feed_lookup"))
         with ws_connect(client, valid_token) as ws:
             self.open_chat(ws)
 
@@ -1912,6 +2133,17 @@ class TestSuggestMessage:
 
 class TestChatNickname:
     """Tests for chat nickname functionality."""
+
+    def test_old_socket_cleanup_keeps_the_reconnected_sockets_nickname(self):
+        """Only the socket that owns a nickname clears it: a reconnect may set it first."""
+        old_ws, new_ws = MagicMock(), MagicMock()
+        websocket_router._nickname_map["client-1"] = (new_ws, "Jonny")
+
+        websocket_router._clear_nickname("client-1", old_ws)
+        assert websocket_router._nickname_map["client-1"] == (new_ws, "Jonny")
+
+        websocket_router._clear_nickname("client-1", new_ws)
+        assert "client-1" not in websocket_router._nickname_map
 
     def test_set_nickname_changes_display_name(
         self, client: TestClient, valid_token: str, monkeypatch: pytest.MonkeyPatch
@@ -2360,7 +2592,7 @@ def test_sec05_oversize_message_closes_before_mutation(client, valid_token):
 def test_sec06_socket_expires_and_cleans_all_state(client, monkeypatch, active):
     import time
 
-    from jose import jwt
+    import jwt
 
     monkeypatch.setattr(settings, "chat_enabled", True)
     # Use a fractional deadline in the verified payload for fast deterministic
@@ -2376,7 +2608,7 @@ def test_sec06_socket_expires_and_cleans_all_state(client, monkeypatch, active):
     monkeypatch.setattr(websocket_router, "verify_websocket_token", short_lived)
     token = jwt.encode(
         {"sub": "expiring", "role": "viewer", "exp": time.time() + 5},
-        settings.jwt_secret,
+        settings.jwt_secret.get_secret_value(),
         algorithm="HS256",
     )
     with ws_connect(client, token, session_id="expiring") as ws:
@@ -2514,14 +2746,16 @@ async def test_sec07_failed_broadcast_closes_and_cleans_endpoint(monkeypatch, va
     healthy.application_state = WebSocketState.CONNECTED
     healthy.send_text = AsyncMock()
     await channel_state.connect(healthy)
-    await channel_state.broadcast({"type": "channel_update", "channel": None})
+    await channel_state.broadcast(
+        ServerChannelUpdate(type="channel_update", channel=None, changedBy=None)
+    )
     with pytest.raises(asyncio.CancelledError):
         await task
     ws.close.assert_awaited_once_with(code=1011, reason="Broadcast failed; reconnect")
-    cleanup.assert_called_once_with(client_id, ws)
+    cleanup.assert_called_once_with(client_id, ws, reason="disconnect")
     assert not presence._active_users
     assert not websocket_router._nickname_map
-    await channel_state.broadcast({"type": "resynchronized"})
+    await channel_state.broadcast(ServerPong(type="pong"))
     assert healthy.send_text.await_count == 2
     assert ws.send_text.await_count == 1
     channel_state.disconnect(healthy)
@@ -2580,13 +2814,13 @@ async def test_retry_while_the_first_send_is_pending_posts_once(monkeypatch):
 
     monkeypatch.setattr(settings, "chat_enabled", True)
     release = asyncio.Event()
-    grouped = websocket_router.get_grouped_channels
+    grouped = media_source.get_grouped_channels
 
     async def slow_catalogue():
         await release.wait()
         return await grouped()
 
-    monkeypatch.setattr(websocket_router, "get_grouped_channels", slow_catalogue)
+    monkeypatch.setattr(media_source, "get_grouped_channels", slow_catalogue)
     suggest = {"type": "suggest", "channelId": "42", "clientMessageId": "g-1"}
     first_socket, first_sent = _recording_socket()
     retry_socket, retry_sent = _recording_socket()

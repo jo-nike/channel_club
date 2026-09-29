@@ -3,7 +3,6 @@
 Story: 7.5 - HLS Proxy Service
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.parse import urlsplit
 
 import httpx
@@ -15,8 +14,6 @@ from app.services.ersatztv.hls_rewriter import (
     UpstreamProtocolError,
     decode_url,
     fetch_ersatztv,
-    get_segment,
-    get_stream_manifest,
     is_ersatztv_media_url,
     is_ersatztv_url,
     rewrite_manifest,
@@ -258,124 +255,6 @@ iframes/iframe.m3u8
         assert stream_proxy_count == 3
 
 
-class TestGetStreamManifest:
-    """Tests for get_stream_manifest helper function."""
-
-    @pytest.mark.asyncio
-    async def test_get_stream_manifest_fetches_and_rewrites(self):
-        """get_stream_manifest fetches manifest and rewrites it."""
-        mock_channel = MagicMock()
-        mock_channel.stream_url = "http://192.168.50.108:8409/iptv/channel/1.m3u8"
-
-        mock_response = httpx.Response(
-            200, text=SAMPLE_MANIFEST, request=httpx.Request("GET", mock_channel.stream_url)
-        )
-
-        with (
-            patch(
-                "app.services.ersatztv.hls_rewriter.get_channel_by_id",
-                return_value=mock_channel,
-            ),
-            patch("app.services.ersatztv.hls_rewriter.settings") as mock_settings,
-            patch("app.services.ersatztv.hls_rewriter.httpx.AsyncClient") as mock_client_class,
-        ):
-            mock_settings.ersatztv_base_url = "http://192.168.50.108:8409"
-            mock_client = AsyncMock()
-            mock_client.build_request = MagicMock(return_value=mock_response.request)
-            mock_client.send = AsyncMock(return_value=mock_response)
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=None)
-            mock_client_class.return_value = mock_client
-
-            result = await get_stream_manifest("channel1")
-
-            assert "#EXTM3U" in result
-            assert "/api/ersatztv/segments/" in result
-
-    @pytest.mark.asyncio
-    async def test_get_stream_manifest_channel_not_found(self):
-        """get_stream_manifest raises error if channel not found."""
-        with (
-            patch(
-                "app.services.ersatztv.hls_rewriter.get_channel_by_id",
-                return_value=None,
-            ),
-            pytest.raises(ValueError, match="Channel not found"),
-        ):
-            await get_stream_manifest("nonexistent")
-
-    @pytest.mark.asyncio
-    async def test_get_stream_manifest_validates_url(self):
-        """get_stream_manifest validates URL is from ErsatzTV."""
-        mock_channel = MagicMock()
-        mock_channel.stream_url = "http://malicious.com/stream.m3u8"
-
-        with (
-            patch(
-                "app.services.ersatztv.hls_rewriter.get_channel_by_id",
-                return_value=mock_channel,
-            ),
-            patch("app.services.ersatztv.hls_rewriter.settings") as mock_settings,
-        ):
-            mock_settings.ersatztv_base_url = "http://192.168.50.108:8409"
-            with pytest.raises(ValueError, match="not from ErsatzTV"):
-                await get_stream_manifest("channel1")
-
-
-class TestGetSegment:
-    """Tests for get_segment helper function."""
-
-    @pytest.mark.asyncio
-    async def test_get_segment_fetches_content(self):
-        """get_segment decodes URL and fetches segment."""
-        rewriter = HLSManifestRewriter()
-        original_url = "http://192.168.50.108:8409/iptv/session/1/segment-001.ts"
-        encoded = rewriter._encode_url(original_url)
-
-        mock_response = httpx.Response(
-            200,
-            content=b"fake-segment-data",
-            headers={"content-type": "video/mp2t"},
-            request=httpx.Request("GET", original_url),
-        )
-
-        with (
-            patch("app.services.ersatztv.hls_rewriter.settings") as mock_settings,
-            patch("app.services.ersatztv.hls_rewriter.httpx.AsyncClient") as mock_client_class,
-        ):
-            mock_settings.ersatztv_base_url = "http://192.168.50.108:8409"
-            mock_client = AsyncMock()
-            mock_client.build_request = MagicMock(return_value=mock_response.request)
-            mock_client.send = AsyncMock(return_value=mock_response)
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=None)
-            mock_client_class.return_value = mock_client
-
-            content, content_type = await get_segment(encoded)
-
-            assert content == b"fake-segment-data"
-            assert content_type == "video/mp2t"
-
-    @pytest.mark.asyncio
-    async def test_get_segment_validates_url(self):
-        """get_segment rejects URLs not from ErsatzTV."""
-        rewriter = HLSManifestRewriter()
-        malicious_url = "http://evil.com/segment.ts"
-        encoded = rewriter._encode_url(malicious_url)
-
-        with patch("app.services.ersatztv.hls_rewriter.settings") as mock_settings:
-            mock_settings.ersatztv_base_url = "http://192.168.50.108:8409"
-
-            with pytest.raises(ValueError, match="not from ErsatzTV"):
-                await get_segment(encoded)
-
-    @pytest.mark.asyncio
-    async def test_get_segment_invalid_encoding(self):
-        """get_segment raises error for invalid base64."""
-        with pytest.raises(ValueError):
-            await get_segment("not-valid-base64!!!")
-
-
 def _allowlist_cases() -> list[tuple[str, bool]]:
     """URLs around the configured ErsatzTV origin, built from settings."""
     base = urlsplit(settings.ersatztv_base_url)
@@ -483,7 +362,9 @@ class TestFetchErsatztvPathRule:
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
             with pytest.raises(UpstreamProtocolError, match="not from ErsatzTV"):
-                await fetch_ersatztv(client, f"{base}/iptv/session/8/live000010.ts", stream=True)
+                await fetch_ersatztv(
+                    client, f"{base}/iptv/session/8/live000010.ts", stream=True, timeout=30
+                )
 
         assert requests == ["/iptv/session/8/live000010.ts"]
 
@@ -498,7 +379,7 @@ class TestFetchErsatztvPathRule:
         url = settings.ersatztv_base_url.rstrip("/") + "/iptv/channel/8.m3u8"
         async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
             with pytest.raises(ValueError, match="not from ErsatzTV"):
-                await fetch_ersatztv(client, url, stream=True)
-            assert (await fetch_ersatztv(client, url)).content == b"#EXTM3U\n"
+                await fetch_ersatztv(client, url, stream=True, timeout=30)
+            assert (await fetch_ersatztv(client, url, timeout=10)).content == b"#EXTM3U\n"
 
         assert len(requests) == 1

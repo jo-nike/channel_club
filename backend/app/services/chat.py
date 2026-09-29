@@ -10,13 +10,13 @@ import hmac
 from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Literal
 from uuid import uuid4
 
 from loguru import logger
 
 from app.config import settings
-from app.services.presence import View
+from app.models.auth import account_key
+from app.models.websocket import MessageKind, View
 
 # Module-level logger with service context
 log = logger.bind(service="chat")
@@ -32,11 +32,6 @@ MAX_MESSAGE_AGE = timedelta(hours=24)
 
 # Sender name on system lines, so clients that predate `kind` still show them
 SYSTEM_USERNAME = "Live TV"
-
-# 'user' is a member's message, 'system' a line the server posts about a shared
-# event (someone changing Live), 'share' a now-playing card, 'suggestion' a
-# member asking for a channel on live TV
-MessageKind = Literal["user", "system", "share", "suggestion"]
 
 
 @dataclass(frozen=True)
@@ -126,8 +121,10 @@ def user_id_for(username: str, plex_id: str | None) -> str:
     Returns:
         'u_' followed by 16 hex characters.
     """
-    account = f"plex:{plex_id}" if plex_id else f"local:{username}"
-    digest = hmac.new(settings.jwt_secret.encode(), account.encode(), hashlib.sha256)
+    account = account_key(username, plex_id)
+    digest = hmac.new(
+        settings.jwt_secret.get_secret_value().encode(), account.encode(), hashlib.sha256
+    )
     return "u_" + digest.hexdigest()[:16]
 
 

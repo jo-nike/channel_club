@@ -104,6 +104,14 @@ class LogoUnavailableError(Exception):
     """The logo could not be fetched as a raster image (remembered briefly)."""
 
 
+class _Flight:
+    """The lock one key's fetch runs under, and how many callers hold or await it."""
+
+    def __init__(self) -> None:
+        self.lock = asyncio.Lock()
+        self.callers = 0
+
+
 class LogoCache:
     """Logos served by the unauthenticated logo routes, keyed by a string.
 
@@ -124,7 +132,8 @@ class LogoCache:
         self._failures: dict[str, float] = {}
         self._not_found: dict[str, float] = {}
         self._reported: set[str] = set()
-        self._locks: dict[str, asyncio.Lock] = {}
+        # Only keys with a fetch in flight: an entry goes when its last caller settles
+        self._flights: dict[str, _Flight] = {}
 
     def cached(self, key: str) -> tuple[bytes, str] | None:
         """The cached logo, or None; raises for a remembered failure or 404."""
@@ -170,21 +179,28 @@ class LogoCache:
         cached = self.cached(key)
         if cached is not None:
             return cached
-        async with self._locks.setdefault(key, asyncio.Lock()):
-            # Another request may have fetched (or failed) while this one waited
-            cached = self.cached(key)
-            if cached is not None:
-                return cached
-            try:
-                body, content_type = await fetch()
-            except httpx.HTTPStatusError as e:
-                if e.response.status_code != 404:
+        flight = self._flights.setdefault(key, _Flight())
+        flight.callers += 1
+        try:
+            async with flight.lock:
+                # Another request may have fetched (or failed) while this one waited
+                cached = self.cached(key)
+                if cached is not None:
+                    return cached
+                try:
+                    body, content_type = await fetch()
+                except httpx.HTTPStatusError as e:
+                    if e.response.status_code != 404:
+                        raise self._failed(key, e) from e
+                    self._not_found[key] = time.monotonic() + not_found_ttl
+                    self._report(key, "INFO", "not found upstream")
+                    raise LogoNotFoundError(f"Logo {key} not found") from e
+                except (httpx.HTTPError, ValueError, TimeoutError) as e:
                     raise self._failed(key, e) from e
-                self._not_found[key] = time.monotonic() + not_found_ttl
-                self._report(key, "INFO", "not found upstream")
-                raise LogoNotFoundError(f"Logo {key} not found") from e
-            except (httpx.HTTPError, ValueError, TimeoutError) as e:
-                raise self._failed(key, e) from e
+        finally:
+            flight.callers -= 1
+            if not flight.callers and self._flights.get(key) is flight:
+                del self._flights[key]
         self._failures.pop(key, None)
         self._not_found.pop(key, None)
         self._reported.discard(key)
@@ -211,9 +227,9 @@ class LogoCache:
         self._reported = {key for key in self._reported if not key.startswith(prefix)}
 
     def reset(self) -> None:
-        """Forget everything, including the locks (tests: new event loop)."""
+        """Forget everything, including the fetches in flight (tests: new event loop)."""
         self.clear()
-        self._locks.clear()
+        self._flights.clear()
 
 
 # One cache for the Dispatcharr and ErsatzTV logo routes

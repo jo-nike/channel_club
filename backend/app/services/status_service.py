@@ -10,7 +10,6 @@ from loguru import logger
 
 from app.config import settings
 from app.models.status import (
-    DispatcharrClient,
     DispatcharrStream,
     DispatchrrStatus,
     EPGHealthStatus,
@@ -24,7 +23,7 @@ from app.services.dispatcharr import (
 )
 from app.services.epg_service import EPG_HEALTH_NAME, get_epg_service
 from app.services.ersatztv import get_guide_health
-from app.services.tls import SSL_CONTEXT
+from app.services.http_clients import dispatcharr_client, ersatztv_client
 
 # Module-level logger with service context
 log = logger.bind(service="status")
@@ -52,13 +51,14 @@ def _object_list(value: object) -> list[dict]:
 
 
 async def _fetch_ersatztv_data(
-    client: httpx.AsyncClient, base_url: str
+    client: httpx.AsyncClient, base_url: str, timeout: float
 ) -> tuple[list[dict] | None, list[dict], list[dict], str | None]:
     """Fetch sessions, channels, and profiles from ErsatzTV in parallel.
 
     Args:
         client: httpx client
         base_url: ErsatzTV base URL
+        timeout: httpx timeout for each request
 
     Returns:
         Tuple of (sessions, channels, profiles, sessions_error). Sessions is
@@ -72,9 +72,9 @@ async def _fetch_ersatztv_data(
 
     # Fetch all three endpoints in parallel
     sessions_resp, channels_resp, profiles_resp = await asyncio.gather(
-        client.get(sessions_url),
-        client.get(channels_url),
-        client.get(profiles_url),
+        client.get(sessions_url, timeout=timeout),
+        client.get(channels_url, timeout=timeout),
+        client.get(profiles_url, timeout=timeout),
         return_exceptions=True,
     )
 
@@ -176,46 +176,44 @@ async def get_ersatztv_status() -> ErsatzTVStatus:
     base_url = settings.ersatztv_base_url
 
     try:
-        async with httpx.AsyncClient(timeout=10.0, verify=SSL_CONTEXT) as client:
-            (
-                sessions_data,
-                channels_data,
-                profiles_data,
-                sessions_error,
-            ) = await _fetch_ersatztv_data(client, base_url)
+        client = ersatztv_client()
+        (
+            sessions_data,
+            channels_data,
+            profiles_data,
+            sessions_error,
+        ) = await _fetch_ersatztv_data(client, base_url, timeout=10.0)
 
-            # If we got sessions data (even empty list), we're online
-            if sessions_data is not None:
-                sessions = _build_ersatztv_sessions(
-                    sessions_data, channels_data, profiles_data, now
-                )
+        # If we got sessions data (even empty list), we're online
+        if sessions_data is not None:
+            sessions = _build_ersatztv_sessions(sessions_data, channels_data, profiles_data, now)
 
-                log.info("ErsatzTV online with {} active sessions", len(sessions))
-                return ErsatzTVStatus(
-                    name="ErsatzTV",
-                    online=True,
-                    last_checked=now,
-                    active_sessions=len(sessions),
-                    sessions=sessions,
-                )
-
-            # Sessions endpoint failed - check basic connectivity
-            response = await client.get(base_url)
-            if response.status_code < 500:
-                log.info("ErsatzTV online (no session data available)")
-                return ErsatzTVStatus(
-                    name="ErsatzTV",
-                    online=True,
-                    degraded=True,
-                    last_checked=now,
-                    error=sessions_error,
-                    active_sessions=0,
-                    sessions=[],
-                )
-
-            raise httpx.HTTPStatusError(
-                "Could not connect", request=response.request, response=response
+            log.info("ErsatzTV online with {} active sessions", len(sessions))
+            return ErsatzTVStatus(
+                name="ErsatzTV",
+                online=True,
+                last_checked=now,
+                active_sessions=len(sessions),
+                sessions=sessions,
             )
+
+        # Sessions endpoint failed - check basic connectivity
+        response = await client.get(base_url, timeout=10.0)
+        if response.status_code < 500:
+            log.info("ErsatzTV online (no session data available)")
+            return ErsatzTVStatus(
+                name="ErsatzTV",
+                online=True,
+                degraded=True,
+                last_checked=now,
+                error=sessions_error,
+                active_sessions=0,
+                sessions=[],
+            )
+
+        raise httpx.HTTPStatusError(
+            "Could not connect", request=response.request, response=response
+        )
 
     except httpx.HTTPStatusError as e:
         log.error("ErsatzTV HTTP error: {} {}", e.response.status_code, str(e))
@@ -262,17 +260,6 @@ def _parse_dispatcharr_proxy_status(
     streams: list[DispatcharrStream] = []
 
     for ch in channels:
-        # Parse clients
-        clients = [
-            DispatcharrClient(
-                client_id=c.get("client_id", ""),
-                user_agent=c.get("user_agent"),
-                ip_address=c.get("ip_address"),
-                connected_since=c.get("connected_since", 0),
-            )
-            for c in _object_list(ch.get("clients", []))
-        ]
-
         stream = DispatcharrStream(
             channel_id=ch.get("channel_id", ""),
             stream_name=ch.get("stream_name", "Unknown"),
@@ -284,7 +271,6 @@ def _parse_dispatcharr_proxy_status(
             video_codec=ch.get("video_codec"),
             resolution=ch.get("resolution"),
             source_fps=ch.get("source_fps"),
-            clients=clients,
         )
         streams.append(stream)
 
@@ -313,51 +299,53 @@ async def get_dispatcharr_status() -> DispatchrrStatus:
     proxy_status_url = f"{base_url}/proxy/ts/status"
 
     try:
-        async with httpx.AsyncClient(
-            timeout=10.0, follow_redirects=True, verify=SSL_CONTEXT
-        ) as client:
-            log.debug("Fetching Dispatcharr proxy status from {}", proxy_status_url)
+        client = dispatcharr_client()
+        log.debug("Fetching Dispatcharr proxy status from {}", proxy_status_url)
 
-            try:
-                headers = dispatcharr_auth_headers()
-            except DispatchrrUnavailableError:
-                log.warning("No Dispatcharr API key configured, checking basic connectivity")
-                # Fall back to checking if service is reachable
-                response = await client.get(f"{base_url}/hdhr/lineup.json")
-                if response.status_code < 500:
-                    return DispatchrrStatus(
-                        name="Dispatcharr",
-                        online=True,
-                        degraded=True,
-                        last_checked=now,
-                        active_streams=0,
-                        total_viewers=0,
-                        error="Auth required for stats",
-                    )
-                raise httpx.HTTPStatusError(
-                    "Could not connect", request=response.request, response=response
-                ) from None
-
-            response = await client.get(proxy_status_url, headers=headers)
-            response.raise_for_status()
-
-            # Parse proxy status data
-            data = response.json()
-            active_streams, total_viewers, streams = _parse_dispatcharr_proxy_status(data)
-
-            log.info(
-                "Dispatcharr online with {} active streams, {} viewers",
-                active_streams,
-                total_viewers,
+        try:
+            headers = dispatcharr_auth_headers()
+        except DispatchrrUnavailableError:
+            log.warning("No Dispatcharr API key configured, checking basic connectivity")
+            # Fall back to checking if service is reachable
+            response = await client.get(
+                f"{base_url}/hdhr/lineup.json", follow_redirects=True, timeout=10.0
             )
-            return DispatchrrStatus(
-                name="Dispatcharr",
-                online=True,
-                last_checked=now,
-                active_streams=active_streams,
-                total_viewers=total_viewers,
-                streams=streams,
-            )
+            if response.status_code < 500:
+                return DispatchrrStatus(
+                    name="Dispatcharr",
+                    online=True,
+                    degraded=True,
+                    last_checked=now,
+                    active_streams=0,
+                    total_viewers=0,
+                    error="Auth required for stats",
+                )
+            raise httpx.HTTPStatusError(
+                "Could not connect", request=response.request, response=response
+            ) from None
+
+        response = await client.get(
+            proxy_status_url, headers=headers, follow_redirects=True, timeout=10.0
+        )
+        response.raise_for_status()
+
+        # Parse proxy status data
+        data = response.json()
+        active_streams, total_viewers, streams = _parse_dispatcharr_proxy_status(data)
+
+        log.info(
+            "Dispatcharr online with {} active streams, {} viewers",
+            active_streams,
+            total_viewers,
+        )
+        return DispatchrrStatus(
+            name="Dispatcharr",
+            online=True,
+            last_checked=now,
+            active_streams=active_streams,
+            total_viewers=total_viewers,
+            streams=streams,
+        )
 
     except httpx.HTTPStatusError as e:
         # If proxy status endpoint fails, try basic connectivity
@@ -367,27 +355,26 @@ async def get_dispatcharr_status() -> DispatchrrStatus:
                 e.response.status_code,
             )
             try:
-                async with httpx.AsyncClient(timeout=10.0, verify=SSL_CONTEXT) as client:
-                    # Try the lineup endpoint (doesn't require auth)
-                    lineup_url = f"{base_url}/hdhr/lineup.json"
-                    response = await client.get(lineup_url)
-                    if response.status_code < 500:
-                        # 404 can also mean DISPATCHARR_URL points at the wrong host
-                        reason = (
-                            f"stats endpoint missing (HTTP {e.response.status_code})"
-                            if e.response.status_code == 404
-                            else f"API key rejected (HTTP {e.response.status_code})"
-                        )
-                        log.warning("Dispatcharr reachable but stats failed: {}", reason)
-                        return DispatchrrStatus(
-                            name="Dispatcharr",
-                            online=True,
-                            degraded=True,
-                            last_checked=now,
-                            error=reason,
-                            active_streams=0,
-                            total_viewers=0,
-                        )
+                # Try the lineup endpoint (doesn't require auth)
+                lineup_url = f"{base_url}/hdhr/lineup.json"
+                response = await dispatcharr_client().get(lineup_url, timeout=10.0)
+                if response.status_code < 500:
+                    # 404 can also mean DISPATCHARR_URL points at the wrong host
+                    reason = (
+                        f"stats endpoint missing (HTTP {e.response.status_code})"
+                        if e.response.status_code == 404
+                        else f"API key rejected (HTTP {e.response.status_code})"
+                    )
+                    log.warning("Dispatcharr reachable but stats failed: {}", reason)
+                    return DispatchrrStatus(
+                        name="Dispatcharr",
+                        online=True,
+                        degraded=True,
+                        last_checked=now,
+                        error=reason,
+                        active_streams=0,
+                        total_viewers=0,
+                    )
             except httpx.HTTPError:
                 pass  # Fall through to offline status
 

@@ -15,6 +15,7 @@ from loguru import logger
 from app import main
 from app.config import settings
 from app.models.channel import Channel
+from app.models.websocket import server_payload
 from app.services import app_settings, channel_state, chat, state_store
 from app.services.media_source import MediaChannel
 
@@ -122,8 +123,7 @@ class TestLoadAndSave:
 class TestSettersPersist:
     @pytest.mark.asyncio
     async def test_app_settings_setters_save(self, state_file: Path) -> None:
-        await app_settings.set_user_channel_selection(True, user="admin")
-        await app_settings.set_presence_visible(True, user="admin")
+        await app_settings.update(user_channel_selection=True, presence_visible=True, user="admin")
 
         saved = json.loads(state_file.read_text())
         assert saved["userChannelSelection"] is True
@@ -177,8 +177,9 @@ class TestRestoreLive:
         assert channel_state.get_current_channel() == CHANNEL
         resolve.assert_awaited_once_with("uuid-1")
         # Clients get the ordinary channel_update, with no chat line and no name
-        assert [call.args[0]["type"] for call in broadcast.await_args_list] == ["channel_update"]
-        assert broadcast.await_args_list[0].args[0]["changedBy"] is None
+        sent = [server_payload(call.args[0]) for call in broadcast.await_args_list]
+        assert [message["type"] for message in sent] == ["channel_update"]
+        assert sent[0]["changedBy"] is None
         system_message.assert_not_called()
         assert not [r for r in records if r["extra"].get("event") == "channel.change"]
 

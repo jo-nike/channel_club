@@ -7,8 +7,8 @@ import time
 import unicodedata
 from uuid import uuid4
 
+import jwt
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
-from jose import JWTError
 from loguru import logger
 from pydantic import ValidationError
 from starlette.websockets import WebSocketState
@@ -18,14 +18,22 @@ from app.models.channel import Channel
 from app.models.websocket import (
     MAX_MESSAGE_BYTES,
     AuthMessage,
+    ChatLine,
+    Features,
     ReauthMessage,
+    ServerChatAck,
+    ServerChatHistory,
+    ServerChatMessage,
+    ServerConnectionAck,
+    ServerError,
+    ServerPong,
+    You,
     client_message_adapter,
+    echoed_client_id,
 )
 from app.services import app_settings, channel_state, chat, presence, presence_broadcast
 from app.services.auth import verify_token
-from app.services.dispatcharr import get_grouped_channels
-from app.services.ersatztv import get_channel_by_id
-from app.services.ersatztv.refresh import run_feed_lookup
+from app.services.media_source import find_catalogue_channel, peek_catalogue_channel
 
 router = APIRouter()
 log = logger.bind(router="websocket")
@@ -235,14 +243,8 @@ async def _catalogue_name(channel_id: str) -> str | None:
     Args:
         channel_id: A Dispatcharr stream UUID or an ErsatzTV channel id.
     """
-    live = await _suggested_channel(channel_id)
-    if live is not None:
-        return live.name
-    try:
-        ersatz = await run_feed_lookup(get_channel_by_id, channel_id)
-    except Exception:
-        return None
-    return ersatz.name if ersatz else None
+    channel = (await find_catalogue_channel(channel_id)).channel
+    return channel.name if channel else None
 
 
 async def _channel_stamp(client_id: str) -> chat.ChannelStamp | None:
@@ -276,21 +278,13 @@ async def _suggested_channel(channel_id: str) -> Channel | None:
 
     That is what the Live picker offers, so a suggestion that is posted can be
     put on. Looked up in the cache only: an unknown id never costs a request
-    of its own (no lineup or ErsatzTV lookup). None for an id not in the
-    catalogue, or while the catalogue is unavailable.
+    of its own (no ErsatzTV lookup). None for an id not in the catalogue, or
+    while the catalogue is unavailable.
 
     Args:
         channel_id: The channel id the client suggested.
     """
-    try:
-        grouped = await get_grouped_channels()
-    except Exception:
-        return None
-    for channels in [*(group.channels for group in grouped.groups), grouped.ungrouped]:
-        for channel in channels:
-            if channel.id == channel_id:
-                return channel
-    return None
+    return (await find_catalogue_channel(channel_id, ersatztv=False)).channel
 
 
 async def _ack_chat(
@@ -305,14 +299,13 @@ async def _ack_chat(
     """
     if not client_message_id:
         return
-    ack: dict[str, object] = {
-        "type": "chat_ack",
-        "clientMessageId": client_message_id,
-        "accepted": message_id is not None,
-    }
-    if message_id is not None:
-        ack["messageId"] = message_id
-    await websocket.send_json(ack)
+    ack = ServerChatAck(
+        type="chat_ack",
+        clientMessageId=client_message_id,
+        accepted=message_id is not None,
+        messageId=message_id,
+    )
+    await channel_state.send_message(websocket, ack)
 
 
 async def verify_websocket_token(token: str) -> dict | None:
@@ -332,7 +325,7 @@ async def verify_websocket_token(token: str) -> dict | None:
             "exp": payload.exp.timestamp(),
             "plex_id": payload.plex_id,
         }
-    except JWTError:
+    except jwt.PyJWTError:
         return None
 
 
@@ -471,25 +464,31 @@ async def websocket_endpoint(
     presence_broadcast.schedule_broadcast()
     budget = _MessageBudget(client_id)
     channel_updates = _ChannelUpdates(client_id)
+    close_code: int | None = None
 
     try:
         async with asyncio.timeout(max(0, payload["exp"] - time.time())) as deadline:
             # Send connection acknowledgment with current channel and settings
             current = channel_state.get_current_channel()
-            ack_message = {
-                "type": "connection_ack",
-                "currentChannel": current.model_dump(by_alias=True) if current else None,
-                "settings": app_settings.get_app_settings().model_dump(by_alias=True),
+            ack_message = ServerConnectionAck(
+                type="connection_ack",
+                currentChannel=current,
+                settings=app_settings.get_app_settings(),
                 # Tell the client who it is signed in as, so chat can default
                 # to the sign-in name (Plex logins don't store a username), and
                 # the id its own messages carry whatever name they show.
-                "you": {"username": payload["sub"], "userId": user_id},
+                you=You(username=payload["sub"], userId=user_id),
                 # Who else is here (and, if the admin allows it, what they watch)
-                "presence": presence_broadcast.build_snapshot(),
+                presence=presence_broadcast.build_snapshot(),
                 # Lets a client running an older bundle notice a deploy
-                "buildId": settings.app_build_id,
-            }
-            await websocket.send_json(ack_message)
+                buildId=settings.app_build_id,
+                # The server's switches are the ones in force; the client hides what is off
+                features=Features(
+                    chat=settings.chat_enabled,
+                    gif=bool(settings.giphy_api_key and settings.giphy_api_key.get_secret_value()),
+                ),
+            )
+            await channel_state.send_message(websocket, ack_message)
 
             # Send chat history if chat is enabled
             if settings.chat_enabled:
@@ -498,14 +497,18 @@ async def websocket_endpoint(
                 # presence is off, and none for a sender who now hides theirs
                 channels_visible = app_settings.presence_visible_enabled()
                 hidden = presence_broadcast.hidden_people()
-                history_message = {
-                    "type": "chat_history",
-                    "messages": [
-                        msg.to_dict(show_channel=channels_visible and msg.user_id not in hidden)
+                history_message = ServerChatHistory(
+                    type="chat_history",
+                    messages=[
+                        ChatLine(
+                            **msg.to_dict(
+                                show_channel=channels_visible and msg.user_id not in hidden
+                            )
+                        )
                         for msg in history
                     ],
-                }
-                await websocket.send_json(history_message)
+                )
+                await channel_state.send_message(websocket, history_message)
 
             # Listen for client messages
             username = payload["sub"]
@@ -540,8 +543,9 @@ async def websocket_endpoint(
         # Remove from broadcasts before awaiting transport shutdown.
         channel_state.disconnect(websocket)
         await asyncio.wait_for(websocket.close(code=4001, reason="Token expired"), timeout=1)
-    except WebSocketDisconnect:
+    except WebSocketDisconnect as e:
         log.info("WebSocket disconnected: client {}", client_id)
+        close_code = e.code
     except Exception as e:
         if _is_disconnect_race(websocket, e):
             log.debug("WebSocket closed mid-operation for client {}: {}", client_id, e)
@@ -551,8 +555,15 @@ async def websocket_endpoint(
         # A folded channel update must not land after the connection is gone
         channel_updates.cancel()
         # Always clean up on disconnect
-        # Pass websocket to avoid race condition on view switch
-        presence.remove_user(client_id, websocket)
+        # Pass websocket to avoid race condition on view switch. On shutdown
+        # uvicorn (0.52, all three protocols/websockets implementations) hands
+        # every open socket websocket.disconnect with 1012, so that is a server
+        # restart. 1001 is not: browsers send it when a tab closes.
+        presence.remove_user(
+            client_id,
+            websocket,
+            reason="server_restart" if close_code == 1012 else "disconnect",
+        )
         channel_state.disconnect(websocket)
         # Clean up nickname (same websocket-identity guard as presence)
         _clear_nickname(client_id, websocket)
@@ -569,13 +580,29 @@ def _apply_channel_update(client_id: str, validated: dict) -> None:
     channel = validated.get("channel")
     programme = validated.get("programme")
     view = validated.get("view")
+    channel_id = validated.get("channelId")
+    # Log the catalogue's name for the id, not the client's. Cached catalogues
+    # only: this runs on every programme rollover, so it must never fetch.
+    channel_known: bool | None = None  # None: a catalogue that could hold it hasn't loaded
+    claimed_channel: str | None = None
+    if channel is not None and channel_id is not None:
+        match = peek_catalogue_channel(channel_id)
+        if match.channel is not None:
+            channel_known = True
+            if match.channel.name != channel:
+                claimed_channel = channel
+            channel = match.channel.name
+        elif match.complete:
+            channel_known = False
     presence.update_user_channel(
         client_id,
         channel,
         programme,
         view,
-        channel_id=validated.get("channelId"),
+        channel_id=channel_id,
         on_live=validated.get("onLive"),
+        channel_known=channel_known,
+        claimed_channel=claimed_channel,
     )
     # Every update, including a programme rollover on the same channel
     presence_broadcast.schedule_broadcast()
@@ -629,7 +656,13 @@ async def handle_client_message(
     try:
         validated = client_message_adapter.validate_python(message).model_dump()
     except ValidationError:
-        await websocket.send_json({"type": "error", "code": "invalid_message"})
+        # Names the send it refuses, so the client can settle it as not sent at once
+        await channel_state.send_message(
+            websocket,
+            ServerError(
+                type="error", code="invalid_message", clientMessageId=echoed_client_id(message)
+            ),
+        )
         return
 
     msg_type = validated.get("type")
@@ -647,8 +680,11 @@ async def handle_client_message(
         # Refused, never closed: the client sees a failed send it can retry
         if msg_type == "set_nickname":
             # Named as sent, like nickname_taken, so the client can put back the name in use
-            await websocket.send_json(
-                {"type": "error", "code": "rate_limited", "nickname": validated.get("nickname", "")}
+            await channel_state.send_message(
+                websocket,
+                ServerError(
+                    type="error", code="rate_limited", nickname=validated.get("nickname", "")
+                ),
             )
         else:
             await _ack_chat(websocket, validated.get("clientMessageId"), None)
@@ -656,7 +692,7 @@ async def handle_client_message(
 
     if msg_type == "ping":
         log.debug("Ping from client {}, sending pong", client_id)
-        await websocket.send_json({"type": "pong"})
+        await channel_state.send_message(websocket, ServerPong(type="pong"))
     elif msg_type == "channel_update":
         if channel_updates is None:
             _apply_channel_update(client_id, validated)
@@ -670,8 +706,8 @@ async def handle_client_message(
             # Refused: the previous name (or the sign-in name) stays in use. Named as
             # sent, not normalized, so the client recognises its own request.
             log.debug("Nickname refused for client {}: another member's name", client_id)
-            await websocket.send_json(
-                {"type": "error", "code": "nickname_taken", "nickname": requested}
+            await channel_state.send_message(
+                websocket, ServerError(type="error", code="nickname_taken", nickname=requested)
             )
         elif nickname:
             _nickname_map[client_id] = (websocket, nickname)
@@ -748,10 +784,7 @@ async def handle_client_message(
             # The ack confirms the stored message, so a stalled peer can't hold it up
             await _ack_chat(websocket, client_message_id, chat_msg.message_id)
             # Broadcast to all connected clients
-            broadcast_message = {
-                "type": "chat_message",
-                **chat_msg.to_dict(),
-            }
+            broadcast_message = ServerChatMessage(type="chat_message", **chat_msg.to_dict())
             await channel_state.broadcast(broadcast_message)
             log.debug("Chat message broadcast from {}: {}", username, chat_msg.message_id[:8])
         else:

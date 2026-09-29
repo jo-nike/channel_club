@@ -16,6 +16,7 @@ from app.models.auth import TokenPayload
 from app.routers.auth_deps import get_current_user
 from app.routers.highlight import router
 from app.services.highlight import Capture, highlight_service
+from app.services.media_limits import export_budget, upload_budget
 
 DISK_FULL = OSError(28, "No space left on device", "/tmp/highlight-capture-abc/input_003.ts")
 
@@ -70,7 +71,7 @@ def test_a_full_disk_during_export_names_no_server_path(client, tmp_path):
     snapshot.write_bytes(b"mp4")
     now = time.time()
     capture = Capture(
-        "synthetic-capture-0001", "viewer", "channel-1", snapshot, 3, 2, now, now, now
+        "synthetic-capture-0001", "local:viewer", "channel-1", snapshot, 3, 2, now, now, now
     )
     highlight_service.captures.captures[capture.id] = capture
     output = StringIO()
@@ -98,3 +99,44 @@ def test_authored_capture_errors_keep_their_text(client, monkeypatch):
         response = client.post("/api/highlight/channel-1/capture")
     assert response.status_code == 400
     assert response.json()["detail"] == "No recent segments available"
+
+
+WORKSPACE_FULL = OSError(28, "No space left on device", "/tmp/highlights/work")
+
+
+@pytest.mark.parametrize("route", ["export", "upload"])
+def test_a_full_disk_creating_a_workspace_names_no_server_path(
+    client, tmp_path, monkeypatch, route
+):
+    monkeypatch.setattr(settings, "zipline_enabled", True)
+    monkeypatch.setattr(settings, "zipline_url", "https://zipline.test")
+    monkeypatch.setattr(settings, "zipline_token", "synthetic-secret")
+    snapshot = tmp_path / "snapshot.mp4"
+    snapshot.write_bytes(b"mp4")
+    now = time.time()
+    capture = Capture(
+        "synthetic-capture-0001", "local:viewer", "channel-1", snapshot, 3, 2, now, now, now
+    )
+    monkeypatch.setitem(highlight_service.captures.captures, capture.id, capture)
+    output = StringIO()
+    handler = logger.add(output, format="{message}", serialize=True, level="INFO")
+    try:
+        # The export makes its workspace itself; the upload enters one through workspace().
+        with (
+            patch("app.routers.highlight.new_workspace", side_effect=WORKSPACE_FULL),
+            patch("app.services.media_export.new_workspace", side_effect=WORKSPACE_FULL),
+        ):
+            if route == "export":
+                response = client.post(f"/api/highlight/export?capture={capture.id}")
+            else:
+                response = client.post(
+                    "/api/highlight/upload", content=b"clip", headers={"Content-Type": "video/mp4"}
+                )
+    finally:
+        logger.remove(handler)
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Could not save the clip on the server"
+    assert "/tmp" not in response.text and "Errno" not in response.text
+    records = [json.loads(line)["record"] for line in output.getvalue().splitlines()]
+    assert [e["errno"] for e in failures(records)] == [28]
+    assert not export_budget.owners and not upload_budget.owners

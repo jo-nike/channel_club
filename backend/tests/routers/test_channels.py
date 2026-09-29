@@ -2,7 +2,6 @@
 
 from collections.abc import Callable, Iterator
 from io import StringIO
-from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -13,10 +12,11 @@ from loguru import logger
 from app.config import settings
 from app.main import app
 from app.models.channel import Channel, ChannelGroupWithChannels, GroupedChannelsResponse
-from app.services import app_settings, channel_state
+from app.services import app_settings, channel_state, http_clients
 from app.services.auth import create_access_token
-from app.services.dispatcharr import DispatchrrUnavailableError, invalidate_grouped_channels_cache
-from app.services.logo_proxy import LOGO_CACHE
+from app.services.dispatcharr import DispatchrrUnavailableError
+from app.services.logo_proxy import LOGO_CACHE, reset_logo_cache
+from tests.http_helpers import mock_upstream
 
 
 @pytest.fixture
@@ -47,125 +47,16 @@ def reset_channel_state():
     channel_state.clear_current_channel()
 
 
-class TestListChannels:
-    """Tests for GET /api/channels endpoint."""
+class TestListChannelsRemoved:
+    """GET /api/channels (the HDHR lineup) is gone; nothing called it."""
 
-    def test_get_channels_requires_authentication(self, client: TestClient) -> None:
-        """Unauthenticated request returns 401."""
-        response = client.get("/api/channels")
-
-        assert response.status_code == 401
-
-    def test_get_channels_with_invalid_token(self, client: TestClient) -> None:
-        """Request with invalid token returns 401."""
-        response = client.get(
-            "/api/channels",
-            headers={"Authorization": "Bearer invalid-token"},
-        )
-
-        assert response.status_code == 401
-
-    def test_get_channels_success(self, client: TestClient, auth_header: dict[str, str]) -> None:
-        """Authenticated request returns channel list."""
-        mock_channels = [
-            Channel(
-                id="uuid-1",
-                name="TSN",
-                stream_url="https://streams.example.com/proxy/ts/stream/uuid-1",
-                guide_id="1",
-            ),
-            Channel(
-                id="uuid-2",
-                name="Sportsnet",
-                stream_url="https://streams.example.com/proxy/ts/stream/uuid-2",
-                guide_id="2",
-            ),
-        ]
-
-        with patch("app.routers.channels.get_lineup", new_callable=AsyncMock) as mock_get_lineup:
-            mock_get_lineup.return_value = mock_channels
-
-            response = client.get("/api/channels", headers=auth_header)
-
-        assert response.status_code == 200
-        data = response.json()
-        assert len(data) == 2
-        assert data[0]["id"] == "uuid-1"
-        assert data[0]["name"] == "TSN"
-        assert data[0]["streamUrl"] == "https://streams.example.com/proxy/ts/stream/uuid-1"
-        assert data[0]["guideId"] == "1"
-        assert data[1]["id"] == "uuid-2"
-        assert data[1]["name"] == "Sportsnet"
-        assert data[1]["guideId"] == "2"
-
-    def test_get_channels_empty_list(self, client: TestClient, auth_header: dict[str, str]) -> None:
-        """Empty channel list returns empty array."""
-        with patch("app.routers.channels.get_lineup", new_callable=AsyncMock) as mock_get_lineup:
-            mock_get_lineup.return_value = []
-
-            response = client.get("/api/channels", headers=auth_header)
-
-        assert response.status_code == 200
-        assert response.json() == []
-
-    def test_get_channels_dispatcharr_unavailable(
+    def test_answers_the_api_not_found(
         self, client: TestClient, auth_header: dict[str, str]
     ) -> None:
-        """Dispatcharr unavailable returns 503."""
-        with patch("app.routers.channels.get_lineup", new_callable=AsyncMock) as mock_get_lineup:
-            mock_get_lineup.side_effect = DispatchrrUnavailableError("Connection failed")
+        response = client.get("/api/channels", headers=auth_header)
 
-            response = client.get("/api/channels", headers=auth_header)
-
-        assert response.status_code == 503
-        assert response.json() == {"detail": "Channel service unavailable"}
-
-    def test_get_channels_admin_can_access(
-        self, client: TestClient, admin_auth_header: dict[str, str]
-    ) -> None:
-        """Admin users can also access channels endpoint."""
-        mock_channels = [
-            Channel(
-                id="uuid-1",
-                name="TSN",
-                stream_url="https://streams.example.com/proxy/ts/stream/uuid-1",
-                guide_id="1",
-            ),
-        ]
-
-        with patch("app.routers.channels.get_lineup", new_callable=AsyncMock) as mock_get_lineup:
-            mock_get_lineup.return_value = mock_channels
-
-            response = client.get("/api/channels", headers=admin_auth_header)
-
-        assert response.status_code == 200
-        assert len(response.json()) == 1
-
-    def test_get_channels_response_uses_camel_case(
-        self, client: TestClient, auth_header: dict[str, str]
-    ) -> None:
-        """Response uses camelCase field names."""
-        mock_channels = [
-            Channel(
-                id="uuid-1",
-                name="TSN",
-                stream_url="https://streams.example.com/proxy/ts/stream/uuid-1",
-                guide_id="1",
-            ),
-        ]
-
-        with patch("app.routers.channels.get_lineup", new_callable=AsyncMock) as mock_get_lineup:
-            mock_get_lineup.return_value = mock_channels
-
-            response = client.get("/api/channels", headers=auth_header)
-
-        data = response.json()
-        # Check camelCase is used
-        assert "streamUrl" in data[0]
-        assert "guideId" in data[0]
-        # Check snake_case is NOT used
-        assert "stream_url" not in data[0]
-        assert "guide_id" not in data[0]
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Not Found"}
 
 
 class TestGetCurrentChannel:
@@ -249,8 +140,8 @@ class TestSetCurrentChannel:
         trusted = Channel(
             id="picker-only",
             name="CA-FR: ICI TELE QUEBEC",
-            streamUrl="https://streams.example.com/proxy/ts/stream/picker-only",
-            guideId="194",
+            stream_url="https://streams.example.com/proxy/ts/stream/picker-only",
+            guide_id="194",
         )
         with patch(
             "app.services.media_source.get_grouped_channels",
@@ -277,24 +168,26 @@ class TestSetCurrentChannel:
             Channel(
                 id="uuid-123",
                 name="TSN",
-                streamUrl="https://streams.example.com/stream/uuid-123",
-                guideId="1",
+                stream_url="https://streams.example.com/stream/uuid-123",
+                guide_id="1",
             ),
             Channel(
                 id="uuid-456",
                 name="Sportsnet",
-                streamUrl="https://streams.example.com/stream/uuid-456",
-                guideId="2",
+                stream_url="https://streams.example.com/stream/uuid-456",
+                guide_id="2",
             ),
             Channel(
                 id="uuid-789",
                 name="CBC",
-                streamUrl="https://streams.example.com/stream/uuid-789",
-                guideId="3",
+                stream_url="https://streams.example.com/stream/uuid-789",
+                guide_id="3",
             ),
-            Channel(id="uuid-1", name="TSN", streamUrl="https://example.com/1", guideId="1"),
-            Channel(id="uuid-2", name="Sportsnet", streamUrl="https://example.com/2", guideId="2"),
-            Channel(id="uuid", name="TSN", streamUrl="https://example.com/stream", guideId="1"),
+            Channel(id="uuid-1", name="TSN", stream_url="https://example.com/1", guide_id="1"),
+            Channel(
+                id="uuid-2", name="Sportsnet", stream_url="https://example.com/2", guide_id="2"
+            ),
+            Channel(id="uuid", name="TSN", stream_url="https://example.com/stream", guide_id="1"),
         ]
         with (
             patch("app.services.media_source.get_channel_by_id", return_value=None),
@@ -625,22 +518,6 @@ class TestClearCurrentChannel:
 class TestChannelsLogging:
     """Tests for channels router logging."""
 
-    def test_get_channels_logs_debug(self, client: TestClient, auth_header: dict[str, str]) -> None:
-        """GET /channels logs DEBUG level."""
-        output = StringIO()
-        handler_id = logger.add(output, format="{level} | {message}", level="DEBUG")
-
-        try:
-            with patch("app.routers.channels.get_lineup", new_callable=AsyncMock) as mock:
-                mock.return_value = []
-                client.get("/api/channels", headers=auth_header)
-
-            log_output = output.getvalue()
-            assert "DEBUG" in log_output
-            assert "channels" in log_output.lower()
-        finally:
-            logger.remove(handler_id)
-
     def test_get_current_channel_logs_debug(
         self, client: TestClient, auth_header: dict[str, str]
     ) -> None:
@@ -674,8 +551,8 @@ class TestChannelsLogging:
             trusted = Channel(
                 id="uuid-123",
                 name="TestChannel",
-                streamUrl="https://example.com/stream",
-                guideId="1",
+                stream_url="https://example.com/stream",
+                guide_id="1",
             )
             with patch(
                 "app.services.media_source.get_grouped_channels",
@@ -722,9 +599,7 @@ class TestChannelsLogging:
         handler_id = logger.add(output, format="{extra} | {message}", level="DEBUG")
 
         try:
-            with patch("app.routers.channels.get_lineup", new_callable=AsyncMock) as mock:
-                mock.return_value = []
-                client.get("/api/channels", headers=auth_header)
+            client.get("/api/channels/current", headers=auth_header)
 
             log_output = output.getvalue()
             assert "router" in log_output
@@ -956,8 +831,7 @@ class TestMalformedDispatcharrPayload:
 
     @staticmethod
     def _upstream(monkeypatch: pytest.MonkeyPatch, channels: httpx.Response) -> None:
-        """Groups are fine; the channels and lineup calls answer `channels`."""
-        real_client = httpx.AsyncClient
+        """Groups are fine; the channels call answers `channels`."""
 
         def handle(request: httpx.Request) -> httpx.Response:
             if request.url.path == "/api/channels/groups/":
@@ -966,17 +840,13 @@ class TestMalformedDispatcharrPayload:
                 channels.status_code, headers=channels.headers, content=channels.content
             )
 
-        def client_factory(**kwargs: Any) -> httpx.AsyncClient:
-            return real_client(transport=httpx.MockTransport(handle), **kwargs)
-
-        monkeypatch.setattr("app.services.dispatcharr.httpx.AsyncClient", client_factory)
+        mock_upstream(http_clients.DISPATCHARR, handle)
 
     @pytest.mark.parametrize("payload", [HTML, NO_UUID, PAGINATED], ids=["html", "no-uuid", "dict"])
     @pytest.mark.parametrize(
         ("route", "detail"),
         [
             ("/api/channels/grouped", "Channel service unavailable"),
-            ("/api/channels", "Channel service unavailable"),
             ("/api/channels/logos/17", "Logo unavailable"),
         ],
     )
@@ -1035,13 +905,13 @@ class TestGetChannelLogo:
                 )
             ],
         )
-        invalidate_grouped_channels_cache()
+        reset_logo_cache()
         with patch(
             "app.services.dispatcharr.get_grouped_channels",
             new=AsyncMock(return_value=catalogue),
         ):
             yield
-        invalidate_grouped_channels_cache()
+        reset_logo_cache()
 
     @staticmethod
     def _upstream(
@@ -1049,16 +919,12 @@ class TestGetChannelLogo:
     ) -> list[httpx.Request]:
         """Route the service's httpx client to `handler`; returns the requests it saw."""
         requests: list[httpx.Request] = []
-        real_client = httpx.AsyncClient
 
         def record(request: httpx.Request) -> httpx.Response:
             requests.append(request)
             return handler(request)
 
-        def client_factory(**kwargs: Any) -> httpx.AsyncClient:
-            return real_client(transport=httpx.MockTransport(record), **kwargs)
-
-        monkeypatch.setattr("app.services.dispatcharr.httpx.AsyncClient", client_factory)
+        mock_upstream(http_clients.DISPATCHARR, record)
         return requests
 
     @staticmethod
@@ -1105,16 +971,16 @@ class TestGetChannelLogo:
         assert response.json() == {"detail": "No logo available"}
         assert requests == []
 
-    def test_unknown_logo_ids_leave_no_cache_locks(
+    def test_unknown_logo_ids_leave_no_fetches_in_flight(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The open route can't grow the shared cache's lock map with made-up ids."""
+        """The open route can't grow the shared cache's flight map with made-up ids."""
         self._upstream(monkeypatch, lambda req: pytest.fail("upstream requested"))
 
         for logo_id in range(18, 68):
             assert client.get(f"/api/channels/logos/{logo_id}").status_code == 404
 
-        assert LOGO_CACHE._locks == {}  # pyright: ignore[reportPrivateUsage]
+        assert LOGO_CACHE._flights == {}  # pyright: ignore[reportPrivateUsage]
 
     @pytest.mark.parametrize("logo_id", ["0", "-1", "abc", "17.5", "..%2F..%2Fadmin"])
     def test_rejects_anything_but_a_positive_integer_id(
@@ -1189,10 +1055,6 @@ class TestGetChannelLogo:
         assert first.headers["cache-control"] == second.headers["cache-control"]
         assert "max-age=" in first.headers["cache-control"]
         assert len(requests) == 1
-
-        invalidate_grouped_channels_cache()
-        assert client.get("/api/channels/logos/17").status_code == 404
-        assert len(requests) == 2
 
     def test_success_is_cacheable_by_browsers(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch

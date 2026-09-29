@@ -1,23 +1,29 @@
 """Integration tests for the main FastAPI app."""
 
+import asyncio
 import json
 import os
 import subprocess
 import sys
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from io import StringIO
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from loguru import logger
+from pydantic import SecretStr
 
 from app.config import settings
 from app.main import app
 from app.metadata import APP_VERSION
 from app.services import epg_service
 from app.services.auth import create_access_token
+from app.services.http_clients import DISPATCHARR, ERSATZTV
+from tests.http_helpers import mock_upstream
 
 
 @pytest.fixture
@@ -28,9 +34,9 @@ def client():
         mock_settings.local_auth_enabled = True
         mock_settings.plex_auth_enabled = False
         mock_settings.admin_username = "admin"
-        mock_settings.admin_password = "admin"
+        mock_settings.admin_password = SecretStr("admin")
         mock_settings.viewer_username = "viewer"
-        mock_settings.viewer_password = "viewer"
+        mock_settings.viewer_password = SecretStr("viewer")
         yield TestClient(app)
 
 
@@ -42,7 +48,7 @@ class TestValidateAuthConfiguration:
         from app.main import validate_auth_configuration
 
         with patch("app.main.settings") as mock_settings:
-            mock_settings.jwt_secret = "synthetic-test-signing-key-with-32-characters"
+            mock_settings.jwt_secret = SecretStr("synthetic-test-signing-key-with-32-characters")
             mock_settings.plex_auth_enabled = True
             mock_settings.plex_server_machine_id = None
             with pytest.raises(RuntimeError, match="PLEX_SERVER_MACHINE_ID"):
@@ -53,7 +59,7 @@ class TestValidateAuthConfiguration:
         from app.main import validate_auth_configuration
 
         with patch("app.main.settings") as mock_settings:
-            mock_settings.jwt_secret = "synthetic-test-signing-key-with-32-characters"
+            mock_settings.jwt_secret = SecretStr("synthetic-test-signing-key-with-32-characters")
             mock_settings.plex_auth_enabled = True
             mock_settings.plex_server_machine_id = "abc123"
             mock_settings.local_auth_enabled = False
@@ -64,11 +70,11 @@ class TestValidateAuthConfiguration:
         from app.main import validate_auth_configuration
 
         with patch("app.main.settings") as mock_settings:
-            mock_settings.jwt_secret = "synthetic-test-signing-key-with-32-characters"
+            mock_settings.jwt_secret = SecretStr("synthetic-test-signing-key-with-32-characters")
             mock_settings.plex_auth_enabled = False
             mock_settings.plex_server_machine_id = None
             mock_settings.local_auth_enabled = True
-            mock_settings.admin_password = "set"
+            mock_settings.admin_password = SecretStr("set")
             mock_settings.viewer_password = None
             validate_auth_configuration()
 
@@ -77,7 +83,7 @@ class TestValidateAuthConfiguration:
         from app.main import validate_auth_configuration
 
         with patch("app.main.settings") as mock_settings:
-            mock_settings.jwt_secret = "synthetic-test-signing-key-with-32-characters"
+            mock_settings.jwt_secret = SecretStr("synthetic-test-signing-key-with-32-characters")
             mock_settings.plex_auth_enabled = False
             mock_settings.plex_server_machine_id = None
             mock_settings.local_auth_enabled = True
@@ -90,8 +96,8 @@ class TestValidateAuthConfiguration:
         from app.main import validate_auth_configuration
 
         with patch("app.main.settings") as mock_settings:
-            mock_settings.jwt_secret = "synthetic-test-signing-key-with-32-characters"
-            mock_settings.jwt_secret = "dev-secret-change-in-production"
+            mock_settings.jwt_secret = SecretStr("synthetic-test-signing-key-with-32-characters")
+            mock_settings.jwt_secret = SecretStr("dev-secret-change-in-production")
             with pytest.raises(RuntimeError, match="known-public"):
                 validate_auth_configuration()
 
@@ -100,8 +106,8 @@ class TestValidateAuthConfiguration:
         from app.main import validate_auth_configuration
 
         with patch("app.main.settings") as mock_settings:
-            mock_settings.jwt_secret = "synthetic-test-signing-key-with-32-characters"
-            mock_settings.jwt_secret = "your-secret-key-change-me"
+            mock_settings.jwt_secret = SecretStr("synthetic-test-signing-key-with-32-characters")
+            mock_settings.jwt_secret = SecretStr("your-secret-key-change-me")
             with pytest.raises(RuntimeError, match="known-public"):
                 validate_auth_configuration()
 
@@ -112,8 +118,8 @@ class TestValidateAuthConfiguration:
         from app.main import validate_auth_configuration
 
         with patch("app.main.settings") as mock_settings:
-            mock_settings.jwt_secret = "synthetic-test-signing-key-with-32-characters"
-            mock_settings.jwt_secret = "dev-secret-change-in-production"
+            mock_settings.jwt_secret = SecretStr("synthetic-test-signing-key-with-32-characters")
+            mock_settings.jwt_secret = SecretStr("dev-secret-change-in-production")
             mock_settings.local_auth_enabled = False
             mock_settings.plex_auth_enabled = False
             with pytest.raises(RuntimeError, match="known-public"):
@@ -124,12 +130,12 @@ class TestValidateAuthConfiguration:
         from app.main import validate_auth_configuration
 
         with patch("app.main.settings") as mock_settings:
-            mock_settings.jwt_secret = "synthetic-test-signing-key-with-32-characters"
-            mock_settings.jwt_secret = "9f8c2b1a" * 8  # 64 hex chars, not public
+            mock_settings.jwt_secret = SecretStr("synthetic-test-signing-key-with-32-characters")
+            mock_settings.jwt_secret = SecretStr("9f8c2b1a" * 8)  # 64 hex chars, not public
             mock_settings.plex_auth_enabled = False
             mock_settings.plex_server_machine_id = None
             mock_settings.local_auth_enabled = True
-            mock_settings.admin_password = "set"
+            mock_settings.admin_password = SecretStr("set")
             mock_settings.viewer_password = None
             validate_auth_configuration()
 
@@ -152,6 +158,27 @@ def test_health_check_reports_build_version(client):
         response = client.get("/api/health")
     assert response.json()["version"] == APP_VERSION
     assert response.json()["buildId"] == "1.0.0-build-abc1234-unique"
+
+
+def test_startup_logs_a_server_start_event() -> None:
+    """The first startup line is a server.start event, so the dashboard can mark deploys."""
+    output = StringIO()
+    handler_id = logger.add(output, format="{message}", serialize=True, level="INFO")
+    try:
+        with (
+            patch("app.main.settings.app_build_id", "1.2.0-build-abc1234"),
+            patch("app.main.get_grouped_channels", new=AsyncMock(return_value=[])),
+            TestClient(app),
+        ):
+            pass
+    finally:
+        logger.remove(handler_id)
+
+    extras = [json.loads(line)["record"]["extra"] for line in output.getvalue().splitlines()]
+    (start,) = [e for e in extras if e.get("event") == "server.start"]
+    assert start["version"] == APP_VERSION and start["build_id"] == "1.2.0-build-abc1234"
+    assert start["log_level"] == settings.log_level
+    assert start["log_format"] == settings.log_format
 
 
 def test_auth_token_endpoint_registered(client):
@@ -217,7 +244,7 @@ def test_sec01_rejects_unusable_signing_keys(secret, enabled):
     from app.main import validate_auth_configuration
 
     with patch("app.main.settings") as config:
-        config.jwt_secret = secret
+        config.jwt_secret = SecretStr(secret)
         config.local_auth_enabled = enabled
         config.plex_auth_enabled = enabled
         with pytest.raises(RuntimeError, match="JWT_SECRET"):
@@ -229,8 +256,9 @@ def test_sec01_empty_environment_secret(monkeypatch):
     from app.main import validate_auth_configuration
 
     monkeypatch.setenv("JWT_SECRET", "")
-    config = Settings(_env_file=None)
-    assert config.jwt_secret == ""
+    # _env_file is a pydantic-settings init option that pyright doesn't see on Settings
+    config = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+    assert config.jwt_secret.get_secret_value() == ""
     with patch("app.main.settings", config), pytest.raises(RuntimeError, match="JWT_SECRET"):
         validate_auth_configuration()
 
@@ -331,16 +359,15 @@ class TestStartupGuideWarmup:
     ) -> list[str]:
         fetches: list[str] = []
 
-        def upstream(request: httpx.Request) -> httpx.Response:
+        async def upstream(request: httpx.Request) -> httpx.Response:
             fetches.append(request.url.path)
+            # Slow enough that a refresh left to the background is still running
+            # when the warm-up task finishes, however long startup takes
+            await asyncio.sleep(0.2)
             return respond(request)
 
-        factory = httpx.AsyncClient
-        monkeypatch.setattr(
-            epg_service.httpx,
-            "AsyncClient",
-            lambda **kwargs: factory(transport=httpx.MockTransport(upstream), **kwargs),
-        )
+        mock_upstream(DISPATCHARR, upstream)
+        mock_upstream(ERSATZTV, upstream)
         # A fresh singleton, restored after the test, so no guide state leaks
         monkeypatch.setattr(
             epg_service, "_epg_service", epg_service.EPGService("http://dispatcharr.test")
@@ -348,12 +375,16 @@ class TestStartupGuideWarmup:
         return fetches
 
     @staticmethod
-    def _wait_for_warmup(client: TestClient) -> None:
-        async def wait() -> None:
+    def _wait_for_warmup(client: TestClient) -> bool:
+        """Await the warm-up; whether the guide was online the moment it finished."""
+
+        async def wait() -> bool:
             await app.state.warmup_task
+            # No await in between: a background-only refresh would not have run yet
+            return epg_service.get_epg_service().get_health().online
 
         assert client.portal is not None
-        client.portal.call(wait)
+        return client.portal.call(wait)
 
     def test_boot_fetches_the_guide_once_and_serves_reads_from_it(
         self, monkeypatch: pytest.MonkeyPatch
@@ -364,7 +395,7 @@ class TestStartupGuideWarmup:
         token = create_access_token({"sub": "viewer", "role": "viewer"})
 
         with TestClient(app) as client:
-            self._wait_for_warmup(client)
+            assert self._wait_for_warmup(client)
             assert fetches == ["/output/epg"]
 
             response = client.get(
@@ -384,3 +415,35 @@ class TestStartupGuideWarmup:
 
         assert response.status_code == 200
         assert fetches == ["/output/epg"]
+
+
+def test_lifespan_runs_the_highlight_and_cast_cleanups(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With both features on, startup sweeps stale directories and starts both idle
+    cleanup tasks; shutdown stops them."""
+    from app.services.cast import cast_service
+    from app.services.highlight import highlight_service
+
+    highlight_dir = tmp_path / "highlights"
+    cast_dir = tmp_path / "cast"
+    stale_recording = highlight_dir / "recorder-stale"
+    stale_session = cast_dir / "session-stale"
+    stale_recording.mkdir(parents=True)
+    stale_session.mkdir(parents=True)
+    monkeypatch.setattr(settings, "highlight_enabled", True)
+    monkeypatch.setattr(settings, "cast_enabled", True)
+    monkeypatch.setattr(settings, "highlight_temp_dir", str(highlight_dir))
+    monkeypatch.setattr(settings, "cast_temp_dir", str(cast_dir))
+    TestStartupGuideWarmup._install_upstream(monkeypatch, lambda request: httpx.Response(503))
+
+    with TestClient(app) as client:
+        TestStartupGuideWarmup._wait_for_warmup(client)
+        tasks = [highlight_service._cleanup_task, cast_service._cleanup_task]
+        assert all(task is not None and not task.done() for task in tasks)
+        assert not stale_recording.exists() and not stale_session.exists()
+
+    assert all(task is not None and task.done() for task in tasks)
+    # Stopped by the shutdown teardown, not merely cancelled with the test's event loop
+    assert highlight_service._cleanup_task is None
+    assert cast_service._cleanup_task is None

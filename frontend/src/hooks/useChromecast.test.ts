@@ -179,6 +179,48 @@ describe('FE-08 operation ownership (mock SDK/API)', () => {
 
 })
 
+describe('casting an ErsatzTV channel', () => {
+  it('loads the absolute stream session URL on the receiver, with no token', async () => {
+    localStorage.setItem('token', 'fixture-token')
+    const { result } = renderHook(useChromecast)
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    await act(() => result.current.startCasting('7', 'hls', '/api/ersatztv/s/abcdefghijklmnopqrstuvwxyz012345/stream.m3u8'))
+    expect(api.createCastSession).not.toHaveBeenCalled()
+    const url: string = session.loadMedia.mock.calls[0][0].media.url
+    expect(url).toBe('https://fixture/api/ersatztv/s/abcdefghijklmnopqrstuvwxyz012345/stream.m3u8')
+    expect(url).not.toMatch(/token/)
+    await act(() => result.current.stopCasting())
+    localStorage.removeItem('token')
+  })
+  it('never sends a stream URL for a transcoded cast: the server resolves the source', async () => {
+    vi.mocked(api.createCastSession).mockResolvedValueOnce(backend('a'))
+    const { result } = renderHook(useChromecast)
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    await act(() => result.current.startCasting('7', 'mpegts', 'http://source/7'))
+    expect(api.createCastSession).toHaveBeenCalledExactlyOnceWith('7', 'mpegts', false)
+    await act(() => result.current.stopCasting())
+  })
+  it('the auto-cast after picking a device asks the server to follow Live when the pick did', async () => {
+    vi.mocked(api.createCastSession).mockResolvedValueOnce(backend('live'))
+    context.requestSession.mockResolvedValueOnce(undefined)
+    const { result } = renderHook(useChromecast)
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    act(() => result.current.requestSession({ channelId: '7', streamType: 'mpegts', title: 'Live', followsLive: true }))
+    await act(async () => { listeners.get('session')?.forEach((fn) => fn({ sessionState: 'STARTED' })) })
+    await waitFor(() => expect(api.createCastSession).toHaveBeenCalledExactlyOnceWith('7', 'mpegts', true))
+    await act(() => result.current.stopCasting())
+  })
+  it('makes the server-issued stream session path absolute when casting without a stream URL', async () => {
+    const path = '/api/ersatztv/s/abcdefghijklmnopqrstuvwxyz012345/stream.m3u8'
+    vi.mocked(api.createCastSession).mockResolvedValueOnce({ session_id: 'abcdefghijklmnopqrstuvwxyz012345', needs_transcoding: false, hls_url: path })
+    const { result } = renderHook(useChromecast)
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    await act(() => result.current.startCasting('7', 'hls'))
+    expect(session.loadMedia.mock.calls[0][0].media.url).toBe(`https://fixture${path}`)
+    await act(() => result.current.stopCasting())
+  })
+})
+
 describe('cast failures in plain words', () => {
   const lastError = () => useCastStore.getState().lastError?.message ?? null
   const ready = async () => {

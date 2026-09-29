@@ -17,7 +17,6 @@ from app.services.dispatcharr import (
     DispatchrrUnavailableError,
     get_channel_logo,
     get_grouped_channels,
-    get_lineup,
 )
 from app.services.logo_proxy import (
     LOGO_CACHE_CONTROL,
@@ -28,37 +27,6 @@ from app.services.media_source import resolve_media_channel
 
 router = APIRouter(tags=["channels"])
 log = logger.bind(router="channels")
-
-
-@router.get("/channels", response_model=list[Channel])
-async def list_channels(
-    current_user: TokenPayload = Depends(get_current_user),
-) -> list[Channel]:
-    """Get list of available channels from Dispatcharr.
-
-    Requires JWT authentication. Returns channel list with transformed
-    stream URLs pointing to the public streaming domain.
-
-    Args:
-        current_user: Authenticated user from JWT token.
-
-    Returns:
-        List of Channel objects.
-
-    Raises:
-        HTTPException: 503 if Dispatcharr is unavailable.
-    """
-    log.debug("GET /channels request")
-    try:
-        channels = await get_lineup()
-        log.debug("Returning {} channels", len(channels))
-        return channels
-    except DispatchrrUnavailableError:
-        log.warning("Channel service unavailable")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Channel service unavailable",
-        ) from None
 
 
 @router.get("/channels/grouped", response_model=GroupedChannelsResponse)

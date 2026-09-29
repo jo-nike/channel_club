@@ -1,8 +1,8 @@
 """Auth dependency functions for protected routes."""
 
+import jwt
 from fastapi import Depends, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError
 from loguru import logger
 
 from app.config import settings
@@ -32,7 +32,7 @@ async def get_current_user(
     token = credentials.credentials
     try:
         return verify_token(token)
-    except JWTError:
+    except jwt.PyJWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
@@ -62,14 +62,14 @@ async def get_current_user_or_token(
     if credentials is not None:
         try:
             return verify_token(credentials.credentials)
-        except JWTError:
+        except jwt.PyJWTError:
             pass  # Fall through to try query param
 
     # Try query param
     if token is not None:
         try:
             return verify_token(token)
-        except JWTError:
+        except jwt.PyJWTError:
             pass
 
     # Neither worked
@@ -106,7 +106,8 @@ async def _admin_in_current_config(user: TokenPayload) -> bool:
         return True
     # The owner clause covers Plex sign-ins only: a token without a plex_id
     # cannot be the owner's.
-    if not settings.plex_server_token or user.plex_id is None:
+    server_token = settings.plex_server_token
+    if not (server_token and server_token.get_secret_value()) or user.plex_id is None:
         return False
     owner_id = await plex.get_server_owner_id()
     if owner_id is None:

@@ -11,41 +11,10 @@ import { logger } from '@/lib/logger'
 import { getSessionId } from '@/lib/sessionId'
 import { createClientMessageId } from '@/lib/messageId'
 import { noticeServerBuild } from '@/lib/appUpdate'
-import { useChatEnabled } from './useChatEnabled'
+import { isChatEnabled } from './useChatEnabled'
 import { refreshAuth } from './useAuth'
-import type { AppSettings, Channel, ChatMessage, PresenceEntry } from '@/types'
-
-interface WebSocketMessage {
-  type: string
-  channel?: Channel | null
-  // Username of whoever changed the live channel (channel_update); absent from older servers
-  changedBy?: string | null
-  currentChannel?: Channel | null
-  settings?: AppSettings
-  // Who this socket is signed in as (connection_ack); absent from older servers
-  you?: { username: string; userId?: string }
-  // Who is here (connection_ack and presence_update); absent from older servers
-  presence?: PresenceEntry[]
-  // The server's build (connection_ack); absent from older servers
-  buildId?: string
-  // Chat message fields
-  clientMessageId?: string
-  accepted?: boolean
-  messageId?: string
-  username?: string
-  userId?: string
-  content?: string
-  timestamp?: string
-  kind?: ChatMessage['kind']
-  channelId?: ChatMessage['channelId']
-  channelName?: ChatMessage['channelName']
-  programme?: ChatMessage['programme']
-  view?: ChatMessage['view']
-  messages?: ChatMessage[]
-  // error: what went wrong, and for nickname_taken the refused nickname
-  code?: string
-  nickname?: string
-}
+import type { Channel } from '@/types'
+import type { ServerMessage } from '@/types/ws'
 
 // restarting: the server closed with 1012 (Service Restart, a deploy); lasts until the next connection_ack
 export type WebSocketStatus = 'connecting' | 'connected' | 'reconnecting' | 'restarting' | 'disconnected'
@@ -123,13 +92,13 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   const setLastChange = useChannelStore((s) => s.setLastChange)
   const notificationsEnabled = useUIStore((s) => s.notificationsEnabled)
   const hideMyActivity = useUIStore((s) => s.hideMyActivity)
-  const chatEnabled = useChatEnabled()
   const addChatMessage = useChatStore((s) => s.addMessage)
   const setChatMessages = useChatStore((s) => s.setMessages)
   const setChatIdentity = useChatStore((s) => s.setIdentity)
   const rejectChatNickname = useChatStore((s) => s.rejectNickname)
   const setUserChannelSelection = useSettingsStore((s) => s.setUserChannelSelection)
   const setPresenceVisible = useSettingsStore((s) => s.setPresenceVisible)
+  const setServerFeatures = useSettingsStore((s) => s.setServerFeatures)
   const setPresence = usePresenceStore((s) => s.setEntries)
   const clearPresence = usePresenceStore((s) => s.clear)
 
@@ -179,7 +148,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   }, [])
 
   const handleMessage = useCallback(
-    (message: WebSocketMessage) => {
+    (message: ServerMessage) => {
       switch (message.type) {
         case 'connection_ack':
           logger.debug('WebSocket', 'Received connection_ack', message)
@@ -198,6 +167,9 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
             setUserChannelSelection(message.settings.userChannelSelection)
             setPresenceVisible(message.settings.presenceVisible ?? false)
           }
+          // Which of chat and GIFs the server has on; an older server doesn't say.
+          // Read by isChatEnabled() at use, so the chat_history right behind this sees it
+          setServerFeatures(message.features ?? null)
           if (typeof message.you?.username === 'string') {
             // Loads this user's own nickname, replacing whoever chatted here before
             setChatIdentity(message.you)
@@ -248,7 +220,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           break
 
         case 'chat_message':
-          if (chatEnabled && message.messageId && message.username && message.content && message.timestamp) {
+          if (isChatEnabled() && message.messageId && message.username && message.content && message.timestamp) {
             logger.debug('WebSocket', `Chat message from ${message.username}`)
             addChatMessage({
               messageId: message.messageId,
@@ -266,7 +238,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           break
 
         case 'chat_history':
-          if (chatEnabled && message.messages) {
+          if (isChatEnabled() && message.messages) {
             logger.debug('WebSocket', `Received chat history: ${message.messages.length} messages`)
             setChatMessages(message.messages)
           }
@@ -286,12 +258,14 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           }
           break
 
-        default:
-          // Unknown message type - log but don't crash
-          logger.warn('WebSocket', `Unknown message type: ${message.type}`, message)
+        default: {
+          // Unknown message type (a newer server) - log but don't crash
+          const unknown: { type: string } = message
+          logger.warn('WebSocket', `Unknown message type: ${unknown.type}`, unknown)
+        }
       }
     },
-    [setCurrentChannel, setLastChange, chatEnabled, addChatMessage, setChatMessages, setChatIdentity, rejectChatNickname, setUserChannelSelection, setPresenceVisible, setPresence]
+    [setCurrentChannel, setLastChange, addChatMessage, setChatMessages, setChatIdentity, rejectChatNickname, setUserChannelSelection, setPresenceVisible, setServerFeatures, setPresence]
   )
 
   const scheduleReconnect = useCallback(() => {
@@ -378,14 +352,25 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         if (wsRef.current !== ws) return
 
         try {
-          const message: WebSocketMessage = JSON.parse(event.data)
-          if (message.type === 'chat_ack' && message.clientMessageId) {
+          const message = JSON.parse(event.data) as ServerMessage
+          if (message.type === 'chat_ack') {
             const pending = pendingChat.current.get(message.clientMessageId)
             if (pending) {
               pendingChat.current.delete(message.clientMessageId)
               clearTimeout(pending.timer)
               pending.finish(message.accepted && message.messageId ? 'acknowledged' : 'not-sent')
             }
+          } else if (
+            message.type === 'error'
+            && message.code === 'invalid_message'
+            && message.clientMessageId
+            && pendingChat.current.has(message.clientMessageId)
+          ) {
+            // A send the server could not read: no ack follows, so it is not sent now
+            const pending = pendingChat.current.get(message.clientMessageId)!
+            pendingChat.current.delete(message.clientMessageId)
+            clearTimeout(pending.timer)
+            pending.finish('not-sent')
           } else handleMessage(message)
         } catch (e) {
           // Log but don't crash on invalid JSON
@@ -544,7 +529,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   const sendAcknowledged = useCallback(
     (payload: Record<string, unknown>, clientMessageId: string): Promise<ChatSendResult> => {
       const socket = wsRef.current
-      if (!chatEnabled || socket?.readyState !== WebSocket.OPEN || pendingChat.current.size >= 20) return Promise.resolve('not-sent')
+      if (!isChatEnabled() || socket?.readyState !== WebSocket.OPEN || pendingChat.current.size >= 20) return Promise.resolve('not-sent')
       return new Promise((finish) => {
         const timer = setTimeout(() => {
           pendingChat.current.delete(clientMessageId)
@@ -560,7 +545,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         }
       })
     },
-    [chatEnabled]
+    []
   )
 
   const sendChatMessage = useCallback(

@@ -118,6 +118,47 @@ async def test_failed_background_refresh_keeps_the_stale_value(clock: Clock) -> 
     assert upstream.calls == 2
 
 
+async def test_peek_answers_from_the_cache_only(clock: Clock) -> None:
+    upstream = Upstream()
+    cache = make(upstream)
+    assert cache.peek() is None
+
+    await cache.get()
+    clock.now += 61
+    assert cache.peek() == "v1"  # expired, and still no refresh started
+    await asyncio.sleep(0)
+    assert cache._task is None
+    assert upstream.calls == 1
+
+
+async def test_refresh_if_due_starts_one_refresh_and_never_waits(clock: Clock) -> None:
+    upstream = Upstream()
+    upstream.release.clear()
+    cache = make(upstream)
+
+    for _ in range(10):
+        cache.refresh_if_due()  # missing: returns at once, with one refresh started
+    await asyncio.sleep(0)
+    assert upstream.calls == 1
+    upstream.release.set()
+    assert cache._task is not None
+    await cache._task
+    assert cache.peek() == "v1"
+
+    cache.refresh_if_due()  # fresh
+    assert cache._task.done()
+    assert upstream.calls == 1
+
+    clock.now += 61
+    upstream.error = RuntimeError("down")
+    cache.refresh_if_due()  # expired
+    await cache._task
+    assert upstream.calls == 2
+    cache.refresh_if_due()  # inside the failure memo
+    assert cache._task.done()
+    assert upstream.calls == 2
+
+
 async def test_aclose_cancels_a_running_refresh(clock: Clock) -> None:
     upstream = Upstream()
     cache = make(upstream)

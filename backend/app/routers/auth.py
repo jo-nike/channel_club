@@ -55,18 +55,23 @@ async def login(request: LoginRequest) -> TokenResponse:
     if not settings.local_auth_enabled:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
 
+    admin_password = settings.admin_password.get_secret_value() if settings.admin_password else ""
+    viewer_password = (
+        settings.viewer_password.get_secret_value() if settings.viewer_password else ""
+    )
+
     # Check admin credentials
     if (
-        settings.admin_password
+        admin_password
         and request.username == settings.admin_username
-        and request.password == settings.admin_password
+        and request.password == admin_password
     ):
         role = "admin"
     # Check viewer credentials
     elif (
-        settings.viewer_password
+        viewer_password
         and request.username == settings.viewer_username
-        and request.password == settings.viewer_password
+        and request.password == viewer_password
     ):
         role = "viewer"
     else:
@@ -151,9 +156,11 @@ async def _current_role(user: TokenPayload) -> str | None:
     if user.plex_id is None:
         if not settings.local_auth_enabled:
             return None
-        if settings.admin_password and user.sub == settings.admin_username:
+        admin_password = settings.admin_password and settings.admin_password.get_secret_value()
+        viewer_password = settings.viewer_password and settings.viewer_password.get_secret_value()
+        if admin_password and user.sub == settings.admin_username:
             return "admin"
-        if settings.viewer_password and user.sub == settings.viewer_username:
+        if viewer_password and user.sub == settings.viewer_username:
             return "viewer"
         return None
     if not settings.plex_auth_enabled:
@@ -161,6 +168,7 @@ async def _current_role(user: TokenPayload) -> str | None:
     if (
         user.role == "admin"
         and settings.plex_server_token
+        and settings.plex_server_token.get_secret_value()
         and await plex.get_server_owner_id() is None
     ):
         # This may be the owner, and determine_role would fall back to the default

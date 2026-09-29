@@ -3,7 +3,6 @@
 import asyncio
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime, timedelta, timezone
-from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -12,6 +11,8 @@ import pytest
 from app.models.channel import Channel
 from app.models.epg import Program
 from app.services.epg_service import EPGService, EPGServiceError, normalise_channel_name
+from app.services.http_clients import DISPATCHARR
+from tests.http_helpers import mock_upstream
 
 
 class TestParseXmltvDatetime:
@@ -126,6 +127,24 @@ class TestParseXmltv:
         result, _, _ = service._parse_xmltv(xml_content)
 
         assert result["uuid-abc123"][0].description is None
+
+    def test_parse_keeps_untitled_programmes_as_unknown(self) -> None:
+        """A missing or empty title keeps the programme, titled 'Unknown' (both guides)."""
+        service = EPGService("http://test:9191")
+        xml_content = """<?xml version="1.0" encoding="UTF-8"?>
+        <tv>
+          <programme start="20260103200000 +0000" stop="20260103210000 +0000" channel="ch">
+            <desc>No title element</desc>
+          </programme>
+          <programme start="20260103210000 +0000" stop="20260103220000 +0000" channel="ch">
+            <title></title>
+          </programme>
+        </tv>
+        """
+
+        result, _, _ = service._parse_xmltv(xml_content)
+
+        assert [program.title for program in result["ch"]] == ["Unknown", "Unknown"]
 
     def test_parse_empty_tv_element(self) -> None:
         """Parse empty TV element returns empty dict."""
@@ -539,6 +558,37 @@ class TestChannelNameFallback:
 
         assert result.current_program is not None
         assert result.current_program.title == "By Id"
+
+    @pytest.mark.asyncio
+    async def test_a_shared_display_name_keeps_the_later_channels_id(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Two channels named 'CBC': the second keeps its own programmes, though the name
+        map points 'CBC' at the first."""
+        now = datetime.now(UTC)
+        start = (now - timedelta(minutes=30)).strftime("%Y%m%d%H%M%S")
+        stop = (now + timedelta(minutes=30)).strftime("%Y%m%d%H%M%S")
+        xml_response = f"""<?xml version="1.0" encoding="UTF-8"?>
+        <tv>
+          <channel id="1"><display-name>CBC</display-name></channel>
+          <channel id="2"><display-name>CBC</display-name></channel>
+          <programme start="{start} +0000" stop="{stop} +0000" channel="1">
+            <title>CBC East</title>
+          </programme>
+          <programme start="{start} +0000" stop="{stop} +0000" channel="2">
+            <title>CBC West</title>
+          </programme>
+        </tv>
+        """
+        _patch_upstream(
+            monkeypatch, _Upstream(lambda request: httpx.Response(200, text=xml_response))
+        )
+        service = EPGService("http://dispatcharr.synthetic:9191")
+
+        result = await service.get_now_playing("2", channel_name="CBC")
+
+        assert result.current_program is not None
+        assert result.current_program.title == "CBC West"
 
     @pytest.mark.asyncio
     async def test_name_is_matched_after_normalisation(self) -> None:
@@ -987,12 +1037,7 @@ class _Upstream:
 
 
 def _patch_upstream(monkeypatch: pytest.MonkeyPatch, upstream: _Upstream) -> None:
-    factory = httpx.AsyncClient
-
-    def client(**kwargs: Any) -> httpx.AsyncClient:
-        return factory(transport=httpx.MockTransport(upstream), **kwargs)
-
-    monkeypatch.setattr("app.services.epg_service.httpx.AsyncClient", client)
+    mock_upstream(DISPATCHARR, upstream)
 
 
 class TestHealth:
@@ -1271,12 +1316,7 @@ class _SlowUpstream:
 
 
 def _patch_slow_upstream(monkeypatch: pytest.MonkeyPatch, upstream: _SlowUpstream) -> None:
-    factory = httpx.AsyncClient
-
-    def client(**kwargs: Any) -> httpx.AsyncClient:
-        return factory(transport=httpx.MockTransport(upstream), **kwargs)
-
-    monkeypatch.setattr("app.services.epg_service.httpx.AsyncClient", client)
+    mock_upstream(DISPATCHARR, upstream)
 
 
 def _expired_with(title: str) -> EPGService:

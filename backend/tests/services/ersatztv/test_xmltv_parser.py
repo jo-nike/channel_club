@@ -5,9 +5,12 @@ Tests datetime parsing, programme extraction, caching, and error handling.
 """
 
 from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
+
+from app.services.http_clients import ERSATZTV
+from tests.http_helpers import mock_upstream
 
 # Will import after implementation
 # from app.services.ersatztv.xmltv_parser import (
@@ -110,22 +113,20 @@ class TestParseXmltvDatetime:
         assert result2.hour == 18
         assert result2.day == 3
 
-    def test_parse_invalid_datetime_format_raises(self):
-        """Raises ValueError for invalid datetime format."""
+    def test_missing_offset_means_utc(self):
+        """The shared XMLTV parser reads a timestamp with no offset as +0000."""
         from app.services.ersatztv.xmltv_parser import _parse_xmltv_datetime
 
-        with pytest.raises(ValueError, match="Invalid XMLTV datetime"):
+        result = _parse_xmltv_datetime("20260103180000")
+
+        assert result == datetime(2026, 1, 3, 18, 0, tzinfo=UTC)
+
+    def test_parse_invalid_datetime_raises(self):
+        """Raises ValueError for a timestamp that isn't one."""
+        from app.services.ersatztv.xmltv_parser import _parse_xmltv_datetime
+
+        with pytest.raises(ValueError):
             _parse_xmltv_datetime("invalid")
-
-        with pytest.raises(ValueError, match="Invalid XMLTV datetime"):
-            _parse_xmltv_datetime("20260103180000")  # Missing timezone
-
-    def test_parse_invalid_timezone_raises(self):
-        """Raises ValueError for invalid timezone format."""
-        from app.services.ersatztv.xmltv_parser import _parse_xmltv_datetime
-
-        with pytest.raises(ValueError, match="Invalid timezone"):
-            _parse_xmltv_datetime("20260103180000 0000")  # Missing +/-
 
 
 class TestParseXmltvContent:
@@ -190,7 +191,28 @@ class TestParseXmltvContent:
         assert ist_show.start.minute == 30
 
     def test_skips_programmes_without_required_fields(self):
-        """Skips programmes missing required fields."""
+        """Skips programmes missing a channel, start or stop."""
+        from app.services.ersatztv.xmltv_parser import _parse_xmltv_content
+
+        xmltv_missing_channel = """<?xml version="1.0"?>
+<tv>
+  <programme start="20260103180000 +0000" stop="20260103200000 +0000">
+    <title>No channel</title>
+  </programme>
+  <programme start="20260103180000 +0000" channel="ch1">
+    <title>No stop</title>
+  </programme>
+  <programme start="20260103180000 +0000" stop="20260103200000 +0000" channel="ch2">
+    <title>Valid</title>
+  </programme>
+</tv>
+"""
+        programmes = _parse_xmltv_content(xmltv_missing_channel)
+
+        assert [p.title for p in programmes] == ["Valid"]
+
+    def test_keeps_untitled_programmes_as_unknown(self):
+        """A programme with no title stays in the guide as 'Unknown', as in Dispatcharr's."""
         from app.services.ersatztv.xmltv_parser import _parse_xmltv_content
 
         xmltv_missing_title = """<?xml version="1.0"?>
@@ -198,130 +220,126 @@ class TestParseXmltvContent:
   <programme start="20260103180000 +0000" stop="20260103200000 +0000" channel="ch1">
     <desc>No title here</desc>
   </programme>
-  <programme start="20260103180000 +0000" stop="20260103200000 +0000" channel="ch2">
-    <title>Valid</title>
+  <programme start="20260103200000 +0000" stop="20260103210000 +0000" channel="ch1">
+    <title></title>
   </programme>
 </tv>
 """
         programmes = _parse_xmltv_content(xmltv_missing_title)
 
-        # Should only have the valid programme
-        assert len(programmes) == 1
-        assert programmes[0].title == "Valid"
+        assert [p.title for p in programmes] == ["Unknown", "Unknown"]
+        assert programmes[0].description == "No title here"
+
+
+def _serve(monkeypatch: pytest.MonkeyPatch, handler) -> list[httpx.Request]:
+    """Answer the guide's XMLTV fetches with handler; returns the requests made."""
+    requests: list[httpx.Request] = []
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return handler(request)
+
+    mock_upstream(ERSATZTV, upstream)
+    return requests
+
+
+def _ok(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(200, text=SAMPLE_XMLTV)
 
 
 class TestParseXmltvCache:
     """Tests for XMLTV caching behavior."""
 
-    def test_returns_cached_data_within_ttl(self):
+    async def test_returns_cached_data_within_ttl(self, monkeypatch: pytest.MonkeyPatch):
         """Returns cached data without re-fetching if within 5 minutes."""
+        from app.services.ersatztv.xmltv_parser import guide
+
+        requests = _serve(monkeypatch, _ok)
+
+        result1 = await guide.programmes("comedy-classics")
+        result2 = await guide.programmes("comedy-classics")
+
+        assert len(requests) == 1
+        assert [p.title for p in result1] == ["Airplane!", "The Naked Gun"]
+        assert result2 == result1
+
+    async def test_fetch_is_bounded_and_does_not_follow_redirects(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """The feed fetch keeps fetch_feed's limits: no redirects, 2 s timeouts."""
+        from app.services.ersatztv.xmltv_parser import guide
+
+        requests = _serve(
+            monkeypatch,
+            lambda request: httpx.Response(302, headers={"location": "http://elsewhere/"}),
+        )
+
+        health = await guide.ensure_fresh()
+
+        assert len(requests) == 1
+        assert health.error == "HTTP 302"
+        assert requests[0].extensions["timeout"] == {
+            "connect": 2,
+            "read": 2,
+            "write": 2,
+            "pool": 2,
+        }
+
+    async def test_refetches_after_cache_expires(self, monkeypatch: pytest.MonkeyPatch):
+        """An expired guide is served stale while one background refresh fetches it."""
+        from app.services.ersatztv.xmltv_parser import guide
+
+        requests = _serve(monkeypatch, _ok)
+        await guide.programmes("comedy-classics")
+
+        guide._cache_expires = datetime.now(UTC) - timedelta(seconds=1)
+        await guide.programmes("comedy-classics")
+        assert guide._refresh_task is not None
+        await guide._refresh_task
+
+        assert len(requests) == 2
+
+    async def test_clear_cache_forces_refetch(self, monkeypatch: pytest.MonkeyPatch):
+        """clear_cache() makes the next read refresh the guide."""
         from app.services.ersatztv import xmltv_parser
 
-        # Reset cache
-        xmltv_parser.clear_cache()
-
-        with patch.object(xmltv_parser, "fetch_feed") as mock_get:
-            mock_response = MagicMock()
-            mock_response.text = SAMPLE_XMLTV
-            mock_response.raise_for_status = MagicMock()
-            mock_get.return_value = mock_response
-
-            # First call - should fetch
-            result1 = xmltv_parser.parse_xmltv()
-            assert mock_get.call_count == 1
-
-            # Second call - should use cache
-            result2 = xmltv_parser.parse_xmltv()
-            assert mock_get.call_count == 1  # Still 1, no new fetch
-
-            assert len(result1) == len(result2)
-
-    def test_refetches_after_cache_expires(self):
-        """Refetches data after cache expires (5 minutes)."""
-        from app.services.ersatztv import xmltv_parser
-
-        # Reset cache
-        xmltv_parser.clear_cache()
-
-        with patch.object(xmltv_parser, "fetch_feed") as mock_get:
-            mock_response = MagicMock()
-            mock_response.text = SAMPLE_XMLTV
-            mock_response.raise_for_status = MagicMock()
-            mock_get.return_value = mock_response
-
-            # First call
-            xmltv_parser.parse_xmltv()
-            assert mock_get.call_count == 1
-
-            # Simulate cache expiry by setting timestamp in the past
-            xmltv_parser._cache["timestamp"] = datetime.now() - timedelta(minutes=6)
-
-            # Second call - should refetch
-            xmltv_parser.parse_xmltv()
-            assert mock_get.call_count == 2
-
-    def test_clear_cache_forces_refetch(self):
-        """clear_cache() forces next call to fetch."""
-        from app.services.ersatztv import xmltv_parser
+        requests = _serve(monkeypatch, _ok)
+        await xmltv_parser.guide.programmes("comedy-classics")
 
         xmltv_parser.clear_cache()
+        await xmltv_parser.guide.programmes("comedy-classics")
+        assert xmltv_parser.guide._refresh_task is not None
+        await xmltv_parser.guide._refresh_task
 
-        with patch.object(xmltv_parser, "fetch_feed") as mock_get:
-            mock_response = MagicMock()
-            mock_response.text = SAMPLE_XMLTV
-            mock_response.raise_for_status = MagicMock()
-            mock_get.return_value = mock_response
-
-            xmltv_parser.parse_xmltv()
-            assert mock_get.call_count == 1
-
-            # Clear cache
-            xmltv_parser.clear_cache()
-
-            # Should fetch again
-            xmltv_parser.parse_xmltv()
-            assert mock_get.call_count == 2
+        assert len(requests) == 2
 
 
 class TestParseXmltvErrorHandling:
     """Tests for error handling behavior."""
 
-    def test_returns_stale_cache_on_fetch_failure(self):
+    async def test_returns_stale_cache_on_fetch_failure(self, monkeypatch: pytest.MonkeyPatch):
         """Returns stale cached data when fetch fails."""
-        from app.services.ersatztv import xmltv_parser
+        from app.services.ersatztv.xmltv_parser import guide
 
-        xmltv_parser.clear_cache()
+        responses = iter([httpx.Response(200, text=SAMPLE_XMLTV), httpx.Response(500)])
+        _serve(monkeypatch, lambda request: next(responses))
+        result1 = await guide.programmes("comedy-classics")
 
-        with patch.object(xmltv_parser, "fetch_feed") as mock_get:
-            # First call succeeds
-            mock_response = MagicMock()
-            mock_response.text = SAMPLE_XMLTV
-            mock_response.raise_for_status = MagicMock()
-            mock_get.return_value = mock_response
+        guide._cache_expires = datetime.now(UTC) - timedelta(seconds=1)
+        result2 = await guide.programmes("comedy-classics")
+        assert guide._refresh_task is not None
+        await guide._refresh_task
 
-            result1 = xmltv_parser.parse_xmltv()
-            assert len(result1) == 2
+        assert result2 == result1
+        assert await guide.programmes("comedy-classics") == result1
+        assert guide.get_health().error == "HTTP 500"
 
-            # Expire cache
-            xmltv_parser._cache["timestamp"] = datetime.now() - timedelta(minutes=6)
+    async def test_raises_when_no_cache_and_fetch_fails(self, monkeypatch: pytest.MonkeyPatch):
+        """Raises when fetch fails and no cache available."""
+        from app.services.ersatztv.refresh import FeedUnavailableError
+        from app.services.ersatztv.xmltv_parser import guide
 
-            # Second call fails
-            mock_get.side_effect = Exception("Network error")
+        _serve(monkeypatch, lambda request: httpx.Response(500))
 
-            # Should return stale cache
-            result2 = xmltv_parser.parse_xmltv()
-            assert len(result2) == 2
-
-    def test_raises_when_no_cache_and_fetch_fails(self):
-        """Raises exception when fetch fails and no cache available."""
-        from app.services.ersatztv import xmltv_parser
-
-        xmltv_parser.clear_cache()
-        # Also clear last_successful_fetch
-        xmltv_parser._cache["last_successful_fetch"] = None
-
-        with patch.object(xmltv_parser, "fetch_feed") as mock_get:
-            mock_get.side_effect = Exception("Network error")
-
-            with pytest.raises(Exception, match="Failed to load EPG"):
-                xmltv_parser.parse_xmltv()
+        with pytest.raises(FeedUnavailableError, match="Failed to load EPG"):
+            await guide.programmes("comedy-classics")

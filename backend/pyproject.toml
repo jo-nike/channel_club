@@ -10,7 +10,7 @@ dependencies = [
     "httpx>=0.28.1",
     "loguru>=0.7.0",
     "pydantic-settings>=2.12.0",
-    "python-jose[cryptography]>=3.5.0",
+    "pyjwt>=2.15.1",
     "uvicorn[standard]>=0.40.0",
     "websockets>=15.0.1",
 ]
@@ -22,6 +22,7 @@ dev = [
     "ruff>=0.14.10",
     "basedpyright>=1.29.0",
     "pytest-timeout>=2.4.0",
+    "httpx2>=2.13.1",
 ]
 
 [tool.ruff]
@@ -50,6 +51,3 @@ faulthandler_timeout = 55
 [tool.basedpyright]
 pythonVersion = "3.13"
 typeCheckingMode = "standard"
-# Pydantic's populate_by_name=True allows snake_case OR camelCase in constructors,
-# but type checkers don't understand this pattern yet. Disable until supported.
-reportCallIssue = "none"

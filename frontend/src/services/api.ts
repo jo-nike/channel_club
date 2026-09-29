@@ -182,27 +182,6 @@ export async function healthCheck(signal?: AbortSignal): Promise<ApplicationHeal
   return data as ApplicationHealth
 }
 
-export async function fetchChannels(): Promise<Channel[]> {
-  logger.debug('API', 'Fetching channels')
-
-  const response = await fetchWithAuth('/channels')
-
-  if (!response.ok) {
-    logger.error('API', `Failed to fetch channels: ${response.status}`, {
-      status: response.status,
-      statusText: response.statusText,
-    })
-    if (response.status === 503) {
-      throw new Error('Channel service unavailable')
-    }
-    throw new Error('Failed to fetch channels')
-  }
-
-  const data = await response.json()
-  logger.debug('API', `Fetched ${data.length} channels`)
-  return data
-}
-
 export async function fetchGroupedChannels(): Promise<GroupedChannelsResponse> {
   logger.debug('API', 'Fetching grouped channels')
 
@@ -460,6 +439,8 @@ export interface HighlightCapture {
   pressedAt: number
   /** When the capture's last frame was recorded (Unix seconds); the press is at duration - (endsAt - pressedAt) */
   endsAt: number
+  /** "/api/..." path the editor's <video> streams by range; a capability that carries no session token */
+  previewUrl: string
 }
 
 /** Snapshot the recent buffer server-side; the editor streams it by URL instead of downloading it. */
@@ -472,12 +453,6 @@ export async function createHighlightCapture(channelId: string, signal?: AbortSi
   return response.json()
 }
 
-/** Media elements cannot send headers, so the token travels in the query like HLS streams. */
-export function highlightCaptureUrl(captureId: string): string {
-  const token = getAuthToken()
-  return `${API_URL}/highlight/capture/${captureId}${token ? `?token=${token}` : ''}`
-}
-
 /** The untrimmed MP4 is the capture itself; fetch it only when the user downloads it. */
 export async function fetchHighlightCapture(captureId: string, signal?: AbortSignal): Promise<Blob> {
   const response = await fetchWithAuth(`/highlight/capture/${captureId}`, { signal })
@@ -487,7 +462,7 @@ export async function fetchHighlightCapture(captureId: string, signal?: AbortSig
 
 /**
  * A single-use link, valid for a minute, that the browser's download manager can follow for the
- * untrimmed capture. Unlike highlightCaptureUrl it carries no session token, so none ends up in
+ * untrimmed capture. Like the capture's previewUrl it carries no session token, so none ends up in
  * download history or proxy logs.
  */
 export async function createCaptureDownloadUrl(captureId: string, signal?: AbortSignal): Promise<string> {
@@ -550,7 +525,7 @@ export interface CastFeatureResponse {
 export interface CastSessionRequest {
   channel_id: string
   stream_type: 'hls' | 'mpegts'
-  stream_url?: string
+  follows_live: boolean
 }
 
 export interface CastSessionResponse {
@@ -577,16 +552,15 @@ export async function getCastFeatureEnabled(): Promise<boolean> {
 export async function createCastSession(
   channelId: string,
   streamType: 'hls' | 'mpegts',
-  streamUrl?: string
+  followsLive = false
 ): Promise<CastSessionResponse> {
   logger.debug('API', `Creating cast session for channel: ${channelId} (type: ${streamType})`)
 
+  // The server resolves the channel's source itself
   const body: CastSessionRequest = {
     channel_id: channelId,
     stream_type: streamType,
-  }
-  if (streamUrl) {
-    body.stream_url = streamUrl
+    follows_live: followsLive,
   }
 
   const response = await fetchWithAuth('/cast/session', {

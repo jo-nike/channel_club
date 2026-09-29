@@ -16,27 +16,10 @@ second carrying the snapshot as it is when sent.
 """
 
 import asyncio
-from typing import TypedDict
 
+from app.models.websocket import PresenceEntry, ServerPresenceUpdate
 from app.services import app_settings, channel_state, presence
-from app.services.presence import UserPresence, View
-
-
-class PresenceEntry(TypedDict):
-    """One person in the presence snapshot (camelCase, as sent to clients)."""
-
-    userId: str | None
-    displayName: str
-    channelId: str | None
-    channelName: str | None
-    programme: str | None
-    view: View | None
-    since: str | None
-
-
-def _started(user: UserPresence) -> float:
-    """When a connection started its current channel (or connected, if unknown)."""
-    return (user.channel_since or user.connected_since).timestamp()
+from app.services.presence import UserPresence
 
 
 def _entry(user: UserPresence, show_channel: bool) -> PresenceEntry:
@@ -76,17 +59,10 @@ def build_snapshot() -> list[PresenceEntry]:
         One entry per person, from the connection with the latest channel start.
     """
     visible = app_settings.presence_visible_enabled()
-    latest: dict[str, UserPresence] = {}
-    hidden: set[str] = set()
-    for user in presence.get_active_users().values():
-        key = user.user_id or user.username
-        if user.hide_activity:
-            hidden.add(key)
-        if user.current_channel is None:
-            continue
-        kept = latest.get(key)
-        if kept is None or _started(user) > _started(kept):
-            latest[key] = user
+    users = presence.get_active_users().values()
+    hidden = {presence.person_key(user) for user in users if user.hide_activity}
+    # The watch events follow the same connection
+    latest = presence.primary_connections(users)
 
     entries = [_entry(user, visible and key not in hidden) for key, user in latest.items()]
     entries.sort(key=lambda e: (e["displayName"].casefold(), e["userId"] or ""))
@@ -160,7 +136,9 @@ async def _broadcast_after_debounce() -> None:
     await asyncio.sleep(BROADCAST_DEBOUNCE_SECONDS)
     # Let changes made while this broadcast is being sent schedule a new one
     _pending = None
-    await channel_state.broadcast({"type": "presence_update", "presence": build_snapshot()})
+    await channel_state.broadcast(
+        ServerPresenceUpdate(type="presence_update", presence=build_snapshot())
+    )
 
 
 def cancel_pending() -> None:

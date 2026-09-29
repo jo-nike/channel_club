@@ -9,7 +9,6 @@ in the background on start.
 import asyncio
 import json
 from contextlib import suppress
-from typing import TYPE_CHECKING
 
 from fastapi import HTTPException, WebSocket
 from fastapi.websockets import WebSocketState
@@ -17,10 +16,13 @@ from loguru import logger
 
 from app.config import settings
 from app.models.channel import Channel
+from app.models.websocket import (
+    ServerChannelUpdate,
+    ServerChatMessage,
+    ServerMessage,
+    server_payload,
+)
 from app.services import chat, state_store
-
-if TYPE_CHECKING:
-    from app.services.highlight import HighlightService
 
 # Module-level logger with service context
 log = logger.bind(service="channel")
@@ -45,8 +47,8 @@ _connection_owners: dict[WebSocket, asyncio.Task] = {}
 # garbage-collected mid-close (see stop_failed_closes)
 _failed_closes: set[asyncio.Task] = set()
 
-# Live changes are serialised; recorder work runs in one background task that
-# always targets the latest Live channel (reset with reset_live_change_state)
+# Live changes are serialised; follow-live casts and the recorder are brought
+# to the latest Live channel by one background task (reset with reset_live_change_state)
 _change_lock = asyncio.Lock()
 _reconcile_task: asyncio.Task | None = None
 _reconcile_requested = False
@@ -98,16 +100,17 @@ async def set_current_channel(channel: Channel, user: str | None = None) -> Chan
 
             # A new live pick retries at once rather than waiting out an earlier failure's backoff.
             highlight_service.clear_start_backoff()
-            _schedule_reconcile(highlight_service, user or "system")
+        if settings.highlight_enabled or settings.cast_enabled:
+            _schedule_reconcile(user or "system")
 
     return channel
 
 
-def _schedule_reconcile(service: "HighlightService", owner: str) -> None:
-    """Ask the reconcile task to start recording the current Live channel.
+def _schedule_reconcile(owner: str) -> None:
+    """Ask the reconcile task to bring casts and the recorder to the current Live channel.
 
-    A task that is already running picks the request up when its current start
-    finishes, so a quick A->B->C only ever starts C. The previous channel's
+    A task that is already running picks the request up when its current pass
+    finishes, so a quick A->B->C only ever moves to C. The previous channel's
     recorder is left alone: viewers on it keep their buffer, and the idle sweep
     retires it once nobody polls it.
     """
@@ -115,19 +118,32 @@ def _schedule_reconcile(service: "HighlightService", owner: str) -> None:
     _reconcile_requested = True
     _reconcile_owner = owner
     if _reconcile_task is None or _reconcile_task.done():
-        _reconcile_task = asyncio.create_task(_reconcile_recording(service))
+        _reconcile_task = asyncio.create_task(_reconcile_live())
 
 
-async def _reconcile_recording(service: "HighlightService") -> None:
-    """Start the recorder for whatever channel is Live when this runs."""
+async def _reconcile_live() -> None:
+    """Move follow-live casts, then start the recorder, for whatever is Live when this runs."""
     global _reconcile_requested
     while _reconcile_requested:
         _reconcile_requested = False
         channel = _current_channel
-        if channel is None or not channel.stream_url:
+        if settings.cast_enabled:
+            # The TV is what people watch, so it goes first
+            from app.services.cast import cast_service
+
+            try:
+                await cast_service.follow_live(channel)
+            except Exception as exc:
+                # A cast that can't follow must never fail a Live change or the recorder.
+                log.warning("Cast follow failed for {}: {}", channel.id if channel else None, exc)
+        if not settings.highlight_enabled or channel is None or not channel.stream_url:
             continue
+        from app.services.highlight import highlight_service
+
         try:
-            await service.start_recording(channel.id, channel.stream_url, owner=_reconcile_owner)
+            await highlight_service.start_recording(
+                channel.id, channel.stream_url, owner=_reconcile_owner
+            )
         except Exception as exc:
             # Optional recording must never fail a Live change.
             log.warning("Highlight setup failed for {}: {}", channel.id, exc)
@@ -224,10 +240,8 @@ async def _restore_live_channel(channel_id: str) -> None:
             _current_channel = channel
             log.info("Live channel restored to '{}'", channel.name)
             await broadcast_channel_update(channel)
-            if settings.highlight_enabled:
-                from app.services.highlight import highlight_service
-
-                _schedule_reconcile(highlight_service, "system")
+            if settings.highlight_enabled or settings.cast_enabled:
+                _schedule_reconcile("system")
         return
 
     log.info("Live channel {} not restored: the channel catalogue stayed unavailable", channel_id)
@@ -258,16 +272,19 @@ async def clear_current_channel_async(user: str | None = None) -> None:
 
         _current_channel = None
 
-        if user:
-            log.info("Current channel cleared by user '{}'", user)
-        else:
-            log.info("Current channel cleared")
+        log.bind(event="channel.change", user=user, channel=None, channel_id=None).info(
+            "Current channel cleared by user '{}'", user or "system"
+        )
         await state_store.save({"liveChannelId": None, "liveSetBy": None})
 
         # Broadcast to all connected clients, naming who stopped live TV
-        await broadcast({"type": "channel_update", "channel": None, "changedBy": user})
+        await broadcast(ServerChannelUpdate(type="channel_update", channel=None, changedBy=user))
         if user:
             await _broadcast_system_line(f"{user} stopped live TV")
+
+        if settings.cast_enabled:
+            # Follow-live casts stop with Live
+            _schedule_reconcile(user or "system")
 
 
 async def connect(websocket: WebSocket, owner: asyncio.Task | None = None) -> None:
@@ -307,11 +324,7 @@ async def broadcast_channel_update(channel: Channel, changed_by: str | None = No
         changed_by: Username of whoever changed the channel, so clients can
             say who put it on. None for system changes.
     """
-    message = {
-        "type": "channel_update",
-        "channel": channel.model_dump(by_alias=True),
-        "changedBy": changed_by,
-    }
+    message = ServerChannelUpdate(type="channel_update", channel=channel, changedBy=changed_by)
     log.debug("Broadcasting channel update to {} clients", len(_active_connections))
     await broadcast(message)
 
@@ -328,19 +341,29 @@ async def _broadcast_system_line(content: str) -> None:
     if not settings.chat_enabled:
         return
     line = chat.system_message(content)
-    await broadcast({"type": "chat_message", **line.to_dict()})
+    await broadcast(ServerChatMessage(type="chat_message", **line.to_dict()))
 
 
-async def broadcast(message: dict) -> None:
+async def send_message(websocket: WebSocket, message: ServerMessage) -> None:
+    """Send one server message to one client.
+
+    Args:
+        websocket: The client's WebSocket.
+        message: The message to send as JSON.
+    """
+    await websocket.send_json(server_payload(message))
+
+
+async def broadcast(message: ServerMessage) -> None:
     """Send message to all connected clients.
 
     Args:
-        message: The message dict to send as JSON.
+        message: The message to send as JSON.
     """
     if not _active_connections:
         return
 
-    message_text = json.dumps(message)
+    message_text = json.dumps(server_payload(message))
 
     async def send_safe(ws: WebSocket) -> tuple[WebSocket, bool]:
         try:

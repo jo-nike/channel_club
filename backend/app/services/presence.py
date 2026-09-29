@@ -6,24 +6,28 @@ The state resets on server restart (acceptable for this use case).
 
 Every session, channel and programme change is also emitted as a structured
 INFO log event (``session.start``, ``session.stop``, ``watch.start``,
-``watch.stop``, ``programme.change``, ``programme.stop``) with bound fields,
-so viewing history can be queried from the log store
+``watch.stop``, ``watch.progress``, ``programme.change``, ``programme.stop``)
+with bound fields, so viewing history can be queried from the log store
 (Loki: ``| json | record_extra_event="watch.stop"``) without a database.
+Session events are per connection and carry no view (every client connects
+as the unified TV view, so it never was one); watch and programme events are
+per person, from the connection the presence snapshot shows
+(primary_connections).
 """
 
 import asyncio
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Literal
 
 from fastapi import WebSocket
 from loguru import logger
 
+from app.models.websocket import View
+
 # Module-level logger with service context
 log = logger.bind(service="presence")
-
-View = Literal["live", "ersatztv"]
 
 
 def _now() -> datetime:
@@ -49,9 +53,10 @@ class UserPresence:
     current_channel: str | None = None
     current_channel_id: str | None = None
     on_live: bool | None = None  # Following the shared Live slot; None from pre-R2 clients
+    channel_known: bool | None = None  # Catalogue holds current_channel_id; None: couldn't tell
+    claimed_channel: str | None = None  # The client's name, if it differs from the catalogue's
     current_programme: str | None = None
     channel_since: datetime | None = None
-    programme_since: datetime | None = None  # Start of the current titled programme segment
     connected_since: datetime = field(default_factory=lambda: _now())
     last_activity: datetime = field(default_factory=lambda: _now())
     last_activity_mono: float = field(default_factory=lambda: _monotonic())  # For staleness
@@ -78,70 +83,238 @@ def _seconds_since(start: datetime | None, end: datetime | None = None) -> float
     return max(0.0, round(((end or _now()) - start).total_seconds(), 1))
 
 
-def _close_programme(user: UserPresence, end: datetime | None = None) -> None:
+def person_key(user: UserPresence) -> str:
+    """The person a connection belongs to: the opaque user id, else the username."""
+    return user.user_id or user.username
+
+
+def _identity(
+    channel_id: str | None, channel: str | None, on_live: bool | None
+) -> tuple[str | None, str | None, bool | None]:
+    """What makes a watch the same watch.
+
+    The channel id (the name only without one) and whether it follows the Live
+    slot. A new name for the same id, such as the catalogue's, is a rename.
+    """
+    return (channel_id, channel if channel_id is None else None, on_live)
+
+
+def _started(user: UserPresence) -> float:
+    """When a connection started its current channel (or connected, if unknown)."""
+    return (user.channel_since or user.connected_since).timestamp()
+
+
+def primary_connections(users: Iterable[UserPresence]) -> dict[str, UserPresence]:
+    """Each person's primary connection: the one with the latest channel start.
+
+    Connections without a channel are skipped; on a tie the one found first is
+    kept. The presence snapshot and the watch events both use this, so the UI
+    and the analytics follow the same connection.
+
+    Args:
+        users: The connections to choose from.
+
+    Returns:
+        The primary connection per person (person_key).
+    """
+    latest: dict[str, UserPresence] = {}
+    for user in users:
+        if user.current_channel is None:
+            continue
+        key = person_key(user)
+        kept = latest.get(key)
+        if kept is None or _started(user) > _started(kept):
+            latest[key] = user
+    return latest
+
+
+@dataclass
+class _Watch:
+    """A person's open watch: what their primary connection is watching.
+
+    ``session`` is the connection that was primary when the watch started, so
+    its start and stop pair up however the primary moves afterwards.
+    """
+
+    session: str
+    username: str
+    user_id: str | None
+    view: View
+    channel: str | None
+    channel_id: str | None
+    on_live: bool | None
+    channel_known: bool | None
+    claimed_channel: str | None
+    programme: str | None
+    since: datetime
+    programme_since: datetime | None  # Start of the current titled programme segment
+    accounted: datetime  # Watch time up to here has gone out on watch.progress
+
+
+# Each person's open watch, keyed by person_key
+_watches: dict[str, _Watch] = {}
+
+
+def reset_watches() -> None:
+    """Forget every open watch (tests)."""
+    _watches.clear()
+
+
+def _channel_fields(watch: _Watch) -> dict[str, object]:
+    """The fields every watch and programme event carries."""
+    fields: dict[str, object] = {
+        "user": watch.username,
+        "user_id": watch.user_id,
+        "session": watch.session,
+        "view": watch.view,
+        "channel": watch.channel,
+        "channel_id": watch.channel_id,
+        "channel_known": watch.channel_known,
+    }
+    if watch.claimed_channel is not None:
+        fields["claimed_channel"] = watch.claimed_channel
+    return fields
+
+
+def _close_programme(watch: _Watch, end: datetime | None = None) -> None:
     """Emit programme.stop for the titled segment that just ended, if one is open.
 
     ``end`` is when the segment ended, if not now.
     """
-    if user.current_programme is None or user.programme_since is None:
+    if watch.programme is None or watch.programme_since is None:
         return
-    duration = _seconds_since(user.programme_since, end)
+    duration = _seconds_since(watch.programme_since, end)
     _emit(
         "programme.stop",
-        f"User {user.username} stopped watching {user.current_programme} "
-        f"on {user.current_channel} after {duration}s",
-        user=user.username,
-        session=user.connection_id,
-        view=user.view,
-        channel=user.current_channel,
-        channel_id=user.current_channel_id,
-        programme=user.current_programme,
+        f"User {watch.username} stopped watching {watch.programme} "
+        f"on {watch.channel} after {duration}s",
+        **_channel_fields(watch),
+        programme=watch.programme,
         duration_s=duration,
     )
-    user.programme_since = None
+    watch.programme_since = None
 
 
-def _close_watch(user: UserPresence, reason: str, end: datetime | None = None) -> None:
-    """Emit watch.stop for the user's current channel, if any, and clear it.
+def _stop_watch(person: str, reason: str, end: datetime | None = None) -> None:
+    """Emit watch.stop for a person's open watch and forget it.
 
     An open programme segment is closed first with programme.stop. ``end`` is
     when the watch ended, if not now (a stale sweep passes the last message).
     """
-    if user.current_channel is None and user.current_channel_id is None:
-        return
-    _close_programme(user, end)
-    duration = _seconds_since(user.channel_since, end)
+    watch = _watches.pop(person)
+    _close_programme(watch, end)
+    duration = _seconds_since(watch.since, end)
+    # The rest since the last watch.progress. A stale sweep ends the watch at the
+    # last message, which can be before the last progress tick: delta_s is then 0,
+    # and the progress already logged overcounts by at most one tick plus the
+    # stale timeout.
+    delta = _seconds_since(watch.accounted, end)
     _emit(
         "watch.stop",
-        f"User {user.username} stopped watching {user.current_channel} "
-        f"after {duration}s ({reason})",
-        user=user.username,
+        f"User {watch.username} stopped watching {watch.channel} after {duration}s ({reason})",
+        **_channel_fields(watch),
+        on_live=watch.on_live,
+        programme=watch.programme,
+        duration_s=duration,
+        delta_s=delta,
+        reason=reason,
+    )
+
+
+def _start_watch(person: str, user: UserPresence, reason: str) -> None:
+    """Open a person's watch on what their primary connection is watching."""
+    now = _now()
+    watch = _Watch(
         session=user.connection_id,
+        username=user.username,
+        user_id=user.user_id,
         view=user.view,
         channel=user.current_channel,
         channel_id=user.current_channel_id,
         on_live=user.on_live,
+        channel_known=user.channel_known,
+        claimed_channel=user.claimed_channel,
         programme=user.current_programme,
-        duration_s=duration,
+        since=now,
+        programme_since=now if user.current_programme is not None else None,
+        accounted=now,
+    )
+    _watches[person] = watch
+    _emit(
+        "watch.start",
+        f"User {watch.username} now watching: {watch.channel} - {watch.programme} "
+        f"(view: {watch.view})",
+        **_channel_fields(watch),
+        on_live=watch.on_live,
+        programme=watch.programme,
         reason=reason,
     )
-    user.current_channel = None
-    user.current_channel_id = None
-    user.on_live = None
-    user.current_programme = None
-    user.channel_since = None
+
+
+def _sync_watch(person: str, reason: str, end: datetime | None = None) -> None:
+    """Bring a person's open watch in line with their primary connection.
+
+    On the same channel (see _identity) nothing is emitted, whichever of their
+    connections is primary, apart from a programme title change on the
+    primary. Another channel stops the open watch and starts a new one, with
+    reason 'live_follow' when both follow the Live slot, else 'switch'.
+
+    Args:
+        person: The person's key (person_key).
+        reason: Why the watch ends if the person now watches nothing.
+        end: When the open watch ended, if not now.
+    """
+    primary = primary_connections(
+        user for user in _active_users.values() if person_key(user) == person
+    ).get(person)
+    watch = _watches.get(person)
+    if (
+        watch is not None
+        and primary is not None
+        and _identity(watch.channel_id, watch.channel, watch.on_live)
+        == _identity(primary.current_channel_id, primary.current_channel, primary.on_live)
+    ):
+        watch.view = primary.view
+        watch.channel = primary.current_channel
+        watch.channel_known = primary.channel_known
+        watch.claimed_channel = primary.claimed_channel
+        if primary.current_programme != watch.programme:
+            _close_programme(watch)
+            watch.programme = primary.current_programme
+            if watch.programme is not None:
+                watch.programme_since = _now()
+                _emit(
+                    "programme.change",
+                    f"User {watch.username} watching {watch.channel}: {watch.programme}",
+                    **_channel_fields(watch),
+                    programme=watch.programme,
+                )
+        return
+    if primary is None:
+        if watch is not None:
+            _stop_watch(person, reason, end)
+        return
+    start_reason = "start"
+    if watch is not None:
+        # Everyone on the Live slot moves with it: not a choice of their own
+        start_reason = "live_follow" if watch.on_live and primary.on_live else "switch"
+        _stop_watch(person, start_reason, end)
+    _start_watch(person, primary, start_reason)
 
 
 def _close_session(user: UserPresence, reason: str, end: datetime | None = None) -> None:
-    """Emit watch.stop (if watching) and session.stop for a departing user."""
-    _close_watch(user, reason, end)
+    """Emit session.stop for a departed connection, after any watch change it causes.
+
+    The connection must already be out of the active users.
+    """
+    _sync_watch(person_key(user), reason, end)
     duration = _seconds_since(user.connected_since, end)
     _emit(
         "session.stop",
-        f"User {user.username} disconnected from {user.view} view after {duration}s ({reason})",
+        f"User {user.username} disconnected after {duration}s ({reason})",
         user=user.username,
+        user_id=user.user_id,
         session=user.connection_id,
-        view=user.view,
         duration_s=duration,
         reason=reason,
     )
@@ -179,21 +352,25 @@ def track_user(
     _active_users[connection_id] = user_presence
     _emit(
         "session.start",
-        f"User {username} connected to {view} view (session: {connection_id})",
+        f"User {username} connected (session: {connection_id})",
         user=username,
+        user_id=user_id,
         session=connection_id,
-        view=view,
     )
     return user_presence
 
 
-def remove_user(connection_id: str, websocket: WebSocket | None = None) -> None:
+def remove_user(
+    connection_id: str, websocket: WebSocket | None = None, reason: str = "disconnect"
+) -> None:
     """Remove user from tracking on disconnect.
 
     Args:
         connection_id: The connection ID to remove.
         websocket: The WebSocket that is disconnecting. If provided, only removes
             if it matches the stored WebSocket (prevents race conditions on view switch).
+        reason: What session.stop and any watch.stop carry: 'disconnect', or
+            'server_restart' for a socket closed by a server shutdown.
     """
     if connection_id in _active_users:
         user = _active_users[connection_id]
@@ -206,7 +383,7 @@ def remove_user(connection_id: str, websocket: WebSocket | None = None) -> None:
             )
             return
         _active_users.pop(connection_id)
-        _close_session(user, "disconnect")
+        _close_session(user, reason)
 
 
 def update_user_channel(
@@ -216,13 +393,16 @@ def update_user_channel(
     view: View | None = None,
     channel_id: str | None = None,
     on_live: bool | None = None,
+    channel_known: bool | None = None,
+    claimed_channel: str | None = None,
 ) -> None:
     """Update user's current channel, programme, and optionally view type.
 
-    Emits ``watch.stop`` / ``watch.start`` only when the channel itself changes.
-    On the same channel, a title change ends the titled segment that was open
-    (``programme.stop`` with its duration), and each new non-null title emits
-    ``programme.change``. Null titles start nothing.
+    Watch and programme events are per person, from their primary connection
+    (see _sync_watch): ``watch.stop`` / ``watch.start`` only when the person's
+    channel changes. On the same channel, a title change ends the titled
+    segment that was open (``programme.stop`` with its duration), and each new
+    non-null title emits ``programme.change``. Null titles start nothing.
 
     Args:
         connection_id: The connection ID to update.
@@ -231,6 +411,9 @@ def update_user_channel(
         view: Optional view type to update (for unified TV view switching).
         channel_id: Stable channel identifier (Dispatcharr UUID or ErsatzTV tvg-id).
         on_live: Whether the client follows the shared Live slot, None if it didn't say.
+        channel_known: Whether the catalogue holds channel_id, None if it couldn't tell.
+        claimed_channel: The client's name for the channel, when it differs from
+            the catalogue's name passed as channel_name.
     """
     if connection_id not in _active_users:
         return
@@ -239,23 +422,7 @@ def update_user_channel(
     if channel_id == LEGACY_EMPTY_LIVE_SLOT_ID:
         channel_name = channel_id = programme_title = None
     if channel_name is None:
-        on_live = None
-
-    # Moving between the Live slot and a personal pick of its channel is a new watch
-    channel_changed = (
-        channel_name != user.current_channel
-        or channel_id != user.current_channel_id
-        or on_live != user.on_live
-    )
-    if channel_changed:
-        _close_watch(user, "switch" if channel_name is not None else "cleared")
-    title_changed = (
-        not channel_changed
-        and user.current_channel is not None
-        and programme_title != user.current_programme
-    )
-    if title_changed:
-        _close_programme(user)
+        channel_id = on_live = channel_known = claimed_channel = None
 
     # Update view type if provided (unified view switching between live/ersatztv)
     if view is not None and view in ("live", "ersatztv") and user.view != view:
@@ -267,39 +434,20 @@ def update_user_channel(
         )
         user.view = view
 
-    user.current_programme = programme_title
-
-    if title_changed and programme_title is not None:
-        user.programme_since = _now()
-        _emit(
-            "programme.change",
-            f"User {user.username} watching {user.current_channel}: {programme_title}",
-            user=user.username,
-            session=connection_id,
-            view=user.view,
-            channel=user.current_channel,
-            channel_id=user.current_channel_id,
-            programme=programme_title,
-        )
-
-    if channel_changed and channel_name is not None:
-        user.current_channel = channel_name
-        user.current_channel_id = channel_id
-        user.on_live = on_live
+    # Moving between the Live slot and a personal pick of its channel is a new watch
+    if channel_name is None:
+        user.channel_since = None
+    elif _identity(channel_id, channel_name, on_live) != _identity(
+        user.current_channel_id, user.current_channel, user.on_live
+    ):
         user.channel_since = _now()
-        user.programme_since = user.channel_since if programme_title is not None else None
-        _emit(
-            "watch.start",
-            f"User {user.username} now watching: {channel_name} - {programme_title} "
-            f"(view: {user.view})",
-            user=user.username,
-            session=connection_id,
-            view=user.view,
-            channel=channel_name,
-            channel_id=channel_id,
-            on_live=on_live,
-            programme=programme_title,
-        )
+    user.current_channel = channel_name
+    user.current_channel_id = channel_id
+    user.on_live = on_live
+    user.channel_known = channel_known
+    user.claimed_channel = claimed_channel
+    user.current_programme = programme_title
+    _sync_watch(person_key(user), "cleared")
 
 
 def set_nickname(connection_id: str, nickname: str | None) -> None:
@@ -372,6 +520,10 @@ STALE_USER_TIMEOUT_SECONDS = 90
 # tab that vanished without closing its socket is gone within about 120s.
 CLEANUP_INTERVAL_SECONDS = 30
 
+# How often an open watch's time goes out on watch.progress, so watch time
+# accrues in the interval it happened (checked on every cleanup pass)
+WATCH_PROGRESS_SECONDS = 300
+
 # How long closing a stale connection's socket may take
 STALE_CLOSE_TIMEOUT_SECONDS = 5.0
 
@@ -433,21 +585,42 @@ def cleanup_stale_users(timeout_seconds: int = STALE_USER_TIMEOUT_SECONDS) -> in
         for cid, user in _active_users.items()
         if now - user.last_activity_mono > timeout_seconds
     ]
-    for cid in stale:
-        user = _active_users.pop(cid, None)
-        if user:
-            if user.websocket is not None:
-                task = asyncio.create_task(_close_stale_socket(user.websocket))
-                _stale_closes.add(task)
-                task.add_done_callback(_stale_closes.discard)
-            # The tab went quiet at its last message, not at this sweep
-            _close_session(user, "stale", user.last_activity)
+    # All out first, so a person's watch never moves to another stale connection
+    removed = [user for cid in stale if (user := _active_users.pop(cid, None))]
+    for user in removed:
+        if user.websocket is not None:
+            task = asyncio.create_task(_close_stale_socket(user.websocket))
+            _stale_closes.add(task)
+            task.add_done_callback(_stale_closes.discard)
+        # The tab went quiet at its last message, not at this sweep
+        _close_session(user, "stale", user.last_activity)
     if stale:
         # Import here to avoid a circular dependency (presence_broadcast reads presence)
         from app.services import presence_broadcast
 
         presence_broadcast.schedule_broadcast()
     return len(stale)
+
+
+def record_watch_progress() -> None:
+    """Emit watch.progress for each open watch with WATCH_PROGRESS_SECONDS unlogged.
+
+    delta_s is the time since the watch's last accounting (its start or last
+    progress), which then moves to now; watch.stop carries the rest.
+    """
+    now = _now()
+    for watch in _watches.values():
+        delta = _seconds_since(watch.accounted, now)
+        if delta < WATCH_PROGRESS_SECONDS:
+            continue
+        _emit(
+            "watch.progress",
+            f"User {watch.username} watched {watch.channel} for another {delta}s",
+            **_channel_fields(watch),
+            on_live=watch.on_live,
+            delta_s=delta,
+        )
+        watch.accounted = now
 
 
 def start_cleanup_task() -> None:
@@ -468,13 +641,14 @@ def stop_cleanup_task() -> None:
 
 
 async def _cleanup_loop() -> None:
-    """Background loop that periodically removes stale users."""
+    """Background loop that periodically removes stale users and logs watch progress."""
     while True:
         try:
             await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
             removed = cleanup_stale_users()
             if removed > 0:
                 log.info("Cleaned up {} stale users", removed)
+            record_watch_progress()
         except asyncio.CancelledError:
             break
         except Exception as e:
