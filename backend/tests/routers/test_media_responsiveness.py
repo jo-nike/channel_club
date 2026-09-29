@@ -22,6 +22,8 @@ from app.services.ersatztv.refresh import (
     stop_feed_executor,
 )
 from app.services.ersatztv.xmltv_parser import guide
+from app.services.http_clients import ERSATZTV
+from tests.http_helpers import mock_upstream
 
 
 @pytest.mark.asyncio
@@ -173,11 +175,7 @@ async def test_stale_guide_answers_at_once_while_its_refresh_hangs(monkeypatch):
         await release.wait()
         return httpx.Response(503)
 
-    monkeypatch.setattr(
-        httpx,
-        "AsyncClient",
-        lambda **kwargs: _ASYNC_CLIENT(transport=httpx.MockTransport(hang), **kwargs),
-    )
+    mock_upstream(ERSATZTV, hang)
     lookups = []
     real_lookup = ersatztv_epg.run_feed_lookup
 

@@ -3,7 +3,6 @@
 import asyncio
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime, timedelta, timezone
-from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -12,6 +11,8 @@ import pytest
 from app.models.channel import Channel
 from app.models.epg import Program
 from app.services.epg_service import EPGService, EPGServiceError, normalise_channel_name
+from app.services.http_clients import DISPATCHARR
+from tests.http_helpers import mock_upstream
 
 
 class TestParseXmltvDatetime:
@@ -1036,12 +1037,7 @@ class _Upstream:
 
 
 def _patch_upstream(monkeypatch: pytest.MonkeyPatch, upstream: _Upstream) -> None:
-    factory = httpx.AsyncClient
-
-    def client(**kwargs: Any) -> httpx.AsyncClient:
-        return factory(transport=httpx.MockTransport(upstream), **kwargs)
-
-    monkeypatch.setattr("app.services.epg_service.httpx.AsyncClient", client)
+    mock_upstream(DISPATCHARR, upstream)
 
 
 class TestHealth:
@@ -1320,12 +1316,7 @@ class _SlowUpstream:
 
 
 def _patch_slow_upstream(monkeypatch: pytest.MonkeyPatch, upstream: _SlowUpstream) -> None:
-    factory = httpx.AsyncClient
-
-    def client(**kwargs: Any) -> httpx.AsyncClient:
-        return factory(transport=httpx.MockTransport(upstream), **kwargs)
-
-    monkeypatch.setattr("app.services.epg_service.httpx.AsyncClient", client)
+    mock_upstream(DISPATCHARR, upstream)
 
 
 def _expired_with(title: str) -> EPGService:

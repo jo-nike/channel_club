@@ -362,7 +362,9 @@ class TestFetchErsatztvPathRule:
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
             with pytest.raises(UpstreamProtocolError, match="not from ErsatzTV"):
-                await fetch_ersatztv(client, f"{base}/iptv/session/8/live000010.ts", stream=True)
+                await fetch_ersatztv(
+                    client, f"{base}/iptv/session/8/live000010.ts", stream=True, timeout=30
+                )
 
         assert requests == ["/iptv/session/8/live000010.ts"]
 
@@ -377,7 +379,7 @@ class TestFetchErsatztvPathRule:
         url = settings.ersatztv_base_url.rstrip("/") + "/iptv/channel/8.m3u8"
         async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
             with pytest.raises(ValueError, match="not from ErsatzTV"):
-                await fetch_ersatztv(client, url, stream=True)
-            assert (await fetch_ersatztv(client, url)).content == b"#EXTM3U\n"
+                await fetch_ersatztv(client, url, stream=True, timeout=30)
+            assert (await fetch_ersatztv(client, url, timeout=10)).content == b"#EXTM3U\n"
 
         assert len(requests) == 1

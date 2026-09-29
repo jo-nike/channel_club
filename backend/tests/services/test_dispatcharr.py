@@ -3,7 +3,7 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -24,6 +24,8 @@ from app.services.dispatcharr import (
     get_channel_groups,
 )
 from app.services.epg_service import get_epg_service
+from app.services.http_clients import DISPATCHARR
+from tests.http_helpers import mock_upstream
 
 
 class TestDispatcharrAuthHeaders:
@@ -45,24 +47,19 @@ class TestDispatcharrAuthHeaders:
     @pytest.mark.asyncio
     async def test_channel_groups_sends_api_key(self) -> None:
         """Authenticated calls should carry the API key header."""
-        response = MagicMock()
-        response.json.return_value = []
-        response.raise_for_status = MagicMock()
+        requests: list[httpx.Request] = []
 
-        with patch("app.services.dispatcharr.httpx.AsyncClient") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.get.return_value = response
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_class.return_value = mock_client
+        def upstream(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return httpx.Response(200, json=[])
 
-            with patch("app.services.dispatcharr.settings") as mock_settings:
-                mock_settings.dispatcharr_api_key = SecretStr("secret-key")
-                mock_settings.dispatcharr_url = "http://test:9191"
-                await get_channel_groups()
+        mock_upstream(DISPATCHARR, upstream)
+        with patch("app.services.dispatcharr.settings") as mock_settings:
+            mock_settings.dispatcharr_api_key = SecretStr("secret-key")
+            mock_settings.dispatcharr_url = "http://test:9191"
+            await get_channel_groups()
 
-        _, kwargs = mock_client.get.call_args
-        assert kwargs["headers"] == {"Authorization": "ApiKey secret-key"}
+        assert requests[0].headers["authorization"] == "ApiKey secret-key"
 
     @pytest.mark.asyncio
     async def test_channel_groups_raises_without_api_key(self) -> None:
@@ -267,21 +264,17 @@ class TestGroupedChannelsOutage:
     def _upstream(monkeypatch: pytest.MonkeyPatch, state: dict[str, Any]) -> list[httpx.Request]:
         """Serve GROUPS and state['channels'], or time out at connect while state['down']."""
         requests: list[httpx.Request] = []
-        real_client = httpx.AsyncClient
 
         def handle(request: httpx.Request) -> httpx.Response:
             requests.append(request)
+            state["timeout"] = request.extensions["timeout"]
             if state["down"]:
                 raise httpx.ConnectTimeout("timed out", request=request)
             if request.url.path == "/api/channels/groups/":
                 return httpx.Response(200, json=GROUPS)
             return httpx.Response(200, json=state["channels"])
 
-        def client_factory(**kwargs: Any) -> httpx.AsyncClient:
-            state["timeout"] = kwargs["timeout"]
-            return real_client(transport=httpx.MockTransport(handle), **kwargs)
-
-        monkeypatch.setattr("app.services.dispatcharr.httpx.AsyncClient", client_factory)
+        mock_upstream(DISPATCHARR, handle)
         return requests
 
     @staticmethod
@@ -345,4 +338,4 @@ class TestGroupedChannelsOutage:
 
         await dispatcharr.get_grouped_channels()
 
-        assert state["timeout"] == httpx.Timeout(10, connect=3)
+        assert state["timeout"] == httpx.Timeout(10, connect=3).as_dict()

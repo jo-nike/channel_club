@@ -19,6 +19,8 @@ from app.main import app
 from app.models.ersatztv import EPGChannel, Programme
 from app.services.auth import create_access_token
 from app.services.ersatztv.refresh import FeedUnavailableError
+from app.services.http_clients import ERSATZTV
+from tests.http_helpers import mock_upstream
 
 
 @pytest.fixture
@@ -43,12 +45,8 @@ def _upstream(status: int, body: bytes, content_type: str) -> Iterator[list[http
         requests.append(request)
         return httpx.Response(status, content=body, headers={"content-type": content_type})
 
-    real_client = httpx.AsyncClient
-    with patch(
-        "app.routers.ersatztv.httpx.AsyncClient",
-        side_effect=lambda **kwargs: real_client(transport=httpx.MockTransport(handler), **kwargs),
-    ):
-        yield requests
+    mock_upstream(ERSATZTV, handler)
+    yield requests
 
 
 @pytest.fixture
@@ -406,15 +404,9 @@ class TestGetStream:
                 stream=httpx.ByteStream(body),
             )
 
-        real_client = httpx.AsyncClient
+        mock_upstream(ERSATZTV, upstream)
         with (
             patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel),
-            patch(
-                "app.routers.ersatztv.httpx.AsyncClient",
-                side_effect=lambda **kwargs: real_client(
-                    transport=httpx.MockTransport(upstream), **kwargs
-                ),
-            ),
             patch("app.routers.ersatztv.asyncio.sleep", AsyncMock()) as sleep,
         ):
             response = client.get("/api/ersatztv/stream/comedy-classics", headers=auth_header)
@@ -498,7 +490,7 @@ class TestGetStream:
 
         with (
             patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel),
-            patch("app.routers.ersatztv.httpx.AsyncClient") as mock_client_cls,
+            patch("app.routers.ersatztv.ersatztv_client") as client_getter,
             patch("app.routers.ersatztv.rewrite_manifest", return_value=rewritten),
         ):
             mock_response = httpx.Response(
@@ -510,9 +502,7 @@ class TestGetStream:
             mock_client = AsyncMock()
             mock_client.build_request = MagicMock(return_value=MagicMock())
             mock_client.send = AsyncMock(return_value=mock_response)
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_cls.return_value = mock_client
+            client_getter.return_value = mock_client
 
             response = client.get("/api/ersatztv/stream/comedy-classics", headers=auth_header)
 
@@ -601,7 +591,7 @@ class TestGetStream:
 
         with (
             patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel),
-            patch("app.routers.ersatztv.httpx.AsyncClient") as mock_client_cls,
+            patch("app.routers.ersatztv.ersatztv_client") as client_getter,
             patch("app.routers.ersatztv.rewrite_manifest", return_value=rewritten),
         ):
             mock_response = httpx.Response(
@@ -613,9 +603,7 @@ class TestGetStream:
             mock_client = AsyncMock()
             mock_client.build_request = MagicMock(return_value=MagicMock())
             mock_client.send = AsyncMock(return_value=mock_response)
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_cls.return_value = mock_client
+            client_getter.return_value = mock_client
 
             # Use token as query param instead of header
             response = client.get(f"/api/ersatztv/stream/comedy-classics?token={token}")
@@ -632,7 +620,7 @@ class TestGetStream:
 
         with (
             patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel),
-            patch("app.routers.ersatztv.httpx.AsyncClient") as mock_client_cls,
+            patch("app.routers.ersatztv.ersatztv_client") as client_getter,
             patch("app.routers.ersatztv.rewrite_manifest") as mock_rewrite,
         ):
             mock_rewrite.return_value = "#EXTM3U\n/api/ersatztv/segments/encoded"
@@ -645,9 +633,7 @@ class TestGetStream:
             mock_client = AsyncMock()
             mock_client.build_request = MagicMock(return_value=MagicMock())
             mock_client.send = AsyncMock(return_value=mock_response)
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_cls.return_value = mock_client
+            client_getter.return_value = mock_client
 
             client.get(f"/api/ersatztv/stream/comedy-classics?token={token}")
 
@@ -726,7 +712,7 @@ class TestGetSegment:
                 "app.routers.ersatztv.decode_url",
                 return_value="http://192.168.50.108:8409/iptv/session/8/live000010.ts",
             ),
-            patch("app.routers.ersatztv.httpx.AsyncClient") as mock_client_cls,
+            patch("app.routers.ersatztv.ersatztv_client") as client_getter,
         ):
             mock_response = MagicMock()
             mock_response.is_redirect = False
@@ -741,8 +727,7 @@ class TestGetSegment:
             mock_client = AsyncMock()
             mock_client.build_request = MagicMock(return_value=MagicMock())
             mock_client.send = AsyncMock(return_value=mock_response)
-            mock_client.aclose = AsyncMock()
-            mock_client_cls.return_value = mock_client
+            client_getter.return_value = mock_client
 
             response = client.get(f"/api/ersatztv/segments/{encoded_url}", headers=auth_header)
 
@@ -780,17 +765,11 @@ class TestGetSegment:
             requests.append(request)
             return httpx.Response(200, content=b"secret", headers={"content-type": "text/html"})
 
-        real_client = httpx.AsyncClient
-        with patch(
-            "app.routers.ersatztv.httpx.AsyncClient",
-            side_effect=lambda **kwargs: real_client(
-                transport=httpx.MockTransport(upstream), **kwargs
-            ),
-        ):
-            response = client.get(
-                f"/api/ersatztv/segments/{HLSManifestRewriter()._encode_url(url)}",
-                headers=auth_header,
-            )
+        mock_upstream(ERSATZTV, upstream)
+        response = client.get(
+            f"/api/ersatztv/segments/{HLSManifestRewriter()._encode_url(url)}",
+            headers=auth_header,
+        )
 
         assert response.status_code == 400
         assert requests == []
@@ -870,7 +849,7 @@ class TestGetSegment:
                 "app.routers.ersatztv.decode_url",
                 return_value="http://192.168.50.108:8409/iptv/session/8/live000010.ts",
             ),
-            patch("app.routers.ersatztv.httpx.AsyncClient") as mock_client_cls,
+            patch("app.routers.ersatztv.ersatztv_client") as client_getter,
         ):
             mock_response = MagicMock()
             mock_response.is_redirect = False
@@ -885,8 +864,7 @@ class TestGetSegment:
             mock_client = AsyncMock()
             mock_client.build_request = MagicMock(return_value=MagicMock())
             mock_client.send = AsyncMock(return_value=mock_response)
-            mock_client.aclose = AsyncMock()
-            mock_client_cls.return_value = mock_client
+            client_getter.return_value = mock_client
 
             # Use token as query param instead of header
             response = client.get(f"/api/ersatztv/segments/{encoded_url}?token={token}")
@@ -906,7 +884,7 @@ class TestGetSegment:
                 "app.routers.ersatztv.decode_url",
                 return_value="http://192.168.50.108:8409/iptv/session/8/live000010.ts",
             ),
-            patch("app.routers.ersatztv.httpx.AsyncClient") as mock_client_cls,
+            patch("app.routers.ersatztv.ersatztv_client") as client_getter,
         ):
             # Upstream tries to bounce us to the cloud metadata endpoint.
             redirect_response = MagicMock()
@@ -919,7 +897,7 @@ class TestGetSegment:
 
             requested_urls: list[str] = []
 
-            def build_request(method: str, url: str) -> MagicMock:
+            def build_request(method: str, url: str, **kwargs: object) -> MagicMock:
                 request = MagicMock()
                 request.url = url
                 return request
@@ -931,8 +909,7 @@ class TestGetSegment:
             mock_client = AsyncMock()
             mock_client.build_request = MagicMock(side_effect=build_request)
             mock_client.send = AsyncMock(side_effect=send)
-            mock_client.aclose = AsyncMock()
-            mock_client_cls.return_value = mock_client
+            client_getter.return_value = mock_client
 
             response = client.get(f"/api/ersatztv/segments/{encoded_url}", headers=auth_header)
 
@@ -952,7 +929,7 @@ class TestGetSegment:
                 "app.routers.ersatztv.decode_url",
                 return_value="http://192.168.50.108:8409/iptv/session/8/live000010.ts",
             ),
-            patch("app.routers.ersatztv.httpx.AsyncClient") as mock_client_cls,
+            patch("app.routers.ersatztv.ersatztv_client") as client_getter,
         ):
             mock_response = MagicMock()
             mock_response.is_redirect = False
@@ -965,8 +942,7 @@ class TestGetSegment:
             mock_client = AsyncMock()
             mock_client.build_request = MagicMock(return_value=MagicMock())
             mock_client.send = AsyncMock(return_value=mock_response)
-            mock_client.aclose = AsyncMock()
-            mock_client_cls.return_value = mock_client
+            client_getter.return_value = mock_client
 
             response = client.get(f"/api/ersatztv/segments/{encoded_url}", headers=auth_header)
 
@@ -984,7 +960,7 @@ class TestGetLogo:
 
         with (
             patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel),
-            patch("app.routers.ersatztv.httpx.AsyncClient") as mock_client_cls,
+            patch("app.routers.ersatztv.ersatztv_client") as client_getter,
         ):
             mock_response = httpx.Response(
                 200,
@@ -997,9 +973,7 @@ class TestGetLogo:
                 return_value=httpx.Request("GET", mock_channel.original_logo_url)
             )
             mock_client.send.return_value = mock_response
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_cls.return_value = mock_client
+            client_getter.return_value = mock_client
 
             # No auth header - should still work
             response = client.get("/api/ersatztv/logos/comedy-classics")
@@ -1013,7 +987,7 @@ class TestGetLogo:
 
         with (
             patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel),
-            patch("app.routers.ersatztv.httpx.AsyncClient") as mock_client_cls,
+            patch("app.routers.ersatztv.ersatztv_client") as client_getter,
         ):
             mock_response = httpx.Response(
                 200,
@@ -1026,9 +1000,7 @@ class TestGetLogo:
                 return_value=httpx.Request("GET", mock_channel.original_logo_url)
             )
             mock_client.send.return_value = mock_response
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_cls.return_value = mock_client
+            client_getter.return_value = mock_client
 
             response = client.get("/api/ersatztv/logos/comedy-classics")
 
@@ -1111,19 +1083,11 @@ class TestGetLogo:
         def refused(request: httpx.Request) -> httpx.Response:
             raise httpx.ConnectError("All connection attempts failed", request=request)
 
-        real_client = httpx.AsyncClient
+        mock_upstream(ERSATZTV, refused)
         output = StringIO()
         sink = logger.add(output, format="{level} | {message}", level="DEBUG")
         try:
-            with (
-                patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel),
-                patch(
-                    "app.routers.ersatztv.httpx.AsyncClient",
-                    side_effect=lambda **kw: real_client(
-                        transport=httpx.MockTransport(refused), **kw
-                    ),
-                ),
-            ):
+            with patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel):
                 responses = [client.get("/api/ersatztv/logos/comedy-classics") for _ in range(3)]
         finally:
             logger.remove(sink)
@@ -1186,7 +1150,7 @@ class TestErsatzTVLogging:
         try:
             with (
                 patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel),
-                patch("app.routers.ersatztv.httpx.AsyncClient") as mock_client_cls,
+                patch("app.routers.ersatztv.ersatztv_client") as client_getter,
                 patch("app.routers.ersatztv.rewrite_manifest", return_value="#EXTM3U"),
             ):
                 mock_response = MagicMock()
@@ -1196,9 +1160,7 @@ class TestErsatzTVLogging:
                 mock_client = AsyncMock()
                 mock_client.build_request = MagicMock(return_value=MagicMock())
                 mock_client.send = AsyncMock(return_value=mock_response)
-                mock_client.__aenter__.return_value = mock_client
-                mock_client.__aexit__.return_value = None
-                mock_client_cls.return_value = mock_client
+                client_getter.return_value = mock_client
 
                 client.get("/api/ersatztv/stream/comedy-classics", headers=auth_header)
 

@@ -44,6 +44,7 @@ from app.services.dispatcharr import (
 from app.services.epg_service import get_epg_service
 from app.services.ersatztv.refresh import stop_feed_executor
 from app.services.highlight import highlight_service
+from app.services.http_clients import aclose_http_clients
 from app.spa import mount_spa
 
 
@@ -228,6 +229,7 @@ async def lifespan(app: FastAPI):
         aclose_all_caches(),
         stop_feed_executor(),
         gauges.stop_gauges_task(),
+        aclose_http_clients(),
     ]
     try:
         async with asyncio.timeout(SHUTDOWN_DEADLINE_SECONDS):

@@ -14,12 +14,14 @@ from app.models.status import DispatchrrStatus, EPGHealthStatus, ErsatzTVStatus
 from app.services import status_service
 from app.services.dispatcharr import DispatchrrUnavailableError
 from app.services.epg_service import EPGService
+from app.services.http_clients import DISPATCHARR, ERSATZTV
 from app.services.status_service import (
     get_dispatcharr_status,
     get_epg_status,
     get_ersatztv_status,
     get_system_status,
 )
+from tests.http_helpers import mock_upstream
 
 
 def _epg_health(**overrides: object) -> EPGHealthStatus:
@@ -124,13 +126,11 @@ class TestGetErsatzTVStatus:
                 # sessions is None = fetch failed
                 return_value=(None, [], [], "sessions API connection failed"),
             ),
-            patch("app.services.status_service.httpx.AsyncClient") as mock_client_class,
+            patch("app.services.status_service.ersatztv_client") as client_getter,
         ):
             mock_client = AsyncMock()
             mock_client.get.side_effect = httpx.ConnectError("Connection refused")
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_class.return_value = mock_client
+            client_getter.return_value = mock_client
 
             status = await get_ersatztv_status()
 
@@ -146,13 +146,11 @@ class TestGetErsatzTVStatus:
                 "app.services.status_service._fetch_ersatztv_data",
                 return_value=(None, [], [], "sessions API timeout"),
             ),
-            patch("app.services.status_service.httpx.AsyncClient") as mock_client_class,
+            patch("app.services.status_service.ersatztv_client") as client_getter,
         ):
             mock_client = AsyncMock()
             mock_client.get.side_effect = httpx.TimeoutException("Request timed out")
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_class.return_value = mock_client
+            client_getter.return_value = mock_client
 
             status = await get_ersatztv_status()
 
@@ -242,13 +240,11 @@ class TestGetDispatchrrStatus:
         status_response.json.return_value = proxy_status_response
         status_response.raise_for_status = MagicMock()
 
-        with patch("app.services.status_service.httpx.AsyncClient") as mock_client_class:
+        with patch("app.services.status_service.dispatcharr_client") as client_getter:
             mock_client = AsyncMock()
             # Only one call now: the authenticated proxy status GET
             mock_client.get.return_value = status_response
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_class.return_value = mock_client
+            client_getter.return_value = mock_client
 
             with (
                 patch("app.services.status_service.settings") as mock_settings,
@@ -272,12 +268,10 @@ class TestGetDispatchrrStatus:
     @pytest.mark.asyncio
     async def test_returns_offline_on_connection_error(self) -> None:
         """Should return offline status when connection fails."""
-        with patch("app.services.status_service.httpx.AsyncClient") as mock_client_class:
+        with patch("app.services.status_service.dispatcharr_client") as client_getter:
             mock_client = AsyncMock()
             mock_client.get.side_effect = httpx.ConnectError("Connection refused")
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_class.return_value = mock_client
+            client_getter.return_value = mock_client
 
             status = await get_dispatcharr_status()
 
@@ -292,12 +286,10 @@ class TestGetDispatchrrStatus:
         mock_lineup_response = MagicMock()
         mock_lineup_response.status_code = 200
 
-        with patch("app.services.status_service.httpx.AsyncClient") as mock_client_class:
+        with patch("app.services.status_service.dispatcharr_client") as client_getter:
             mock_client = AsyncMock()
             mock_client.get.return_value = mock_lineup_response
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client_class.return_value = mock_client
+            client_getter.return_value = mock_client
 
             with (
                 patch("app.services.status_service.settings") as mock_settings,
@@ -417,13 +409,9 @@ class TestGetSystemStatus:
 def _install_upstream(
     monkeypatch: pytest.MonkeyPatch, handler: Callable[[httpx.Request], httpx.Response]
 ) -> None:
-    """Route every status_service httpx client through a mock transport."""
-    factory = httpx.AsyncClient
-    monkeypatch.setattr(
-        status_service.httpx,
-        "AsyncClient",
-        lambda **kwargs: factory(transport=httpx.MockTransport(handler), **kwargs),
-    )
+    """Route both status checks' upstream clients through a mock transport."""
+    mock_upstream(ERSATZTV, handler)
+    mock_upstream(DISPATCHARR, handler)
 
 
 def _with_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -697,12 +685,8 @@ async def test_sec08_invalid_ersatztv_preserves_healthy_dispatcharr(monkeypatch,
             return httpx.Response(200, json={"channels": []})
         return httpx.Response(200, json=[])
 
-    factory = httpx.AsyncClient
-    monkeypatch.setattr(
-        status_service.httpx,
-        "AsyncClient",
-        lambda **kwargs: factory(transport=httpx.MockTransport(upstream), **kwargs),
-    )
+    mock_upstream(ERSATZTV, upstream)
+    mock_upstream(DISPATCHARR, upstream)
     monkeypatch.setattr(
         status_service, "dispatcharr_auth_headers", lambda: {"Authorization": "ApiKey synthetic"}
     )
@@ -732,12 +716,8 @@ async def test_sec08_invalid_dispatcharr_preserves_healthy_ersatztv(monkeypatch,
             return httpx.Response(200, json=bad_payload)
         return httpx.Response(200, json=[])
 
-    factory = httpx.AsyncClient
-    monkeypatch.setattr(
-        status_service.httpx,
-        "AsyncClient",
-        lambda **kwargs: factory(transport=httpx.MockTransport(upstream), **kwargs),
-    )
+    mock_upstream(ERSATZTV, upstream)
+    mock_upstream(DISPATCHARR, upstream)
     monkeypatch.setattr(
         status_service, "dispatcharr_auth_headers", lambda: {"Authorization": "ApiKey synthetic"}
     )
@@ -809,12 +789,8 @@ def test_admin_status_leaves_out_dispatcharr_clients(monkeypatch):
     def upstream(request):
         return httpx.Response(200, json=proxy_status)
 
-    factory = httpx.AsyncClient
-    monkeypatch.setattr(
-        status_service.httpx,
-        "AsyncClient",
-        lambda **kwargs: factory(transport=httpx.MockTransport(upstream), **kwargs),
-    )
+    mock_upstream(ERSATZTV, upstream)
+    mock_upstream(DISPATCHARR, upstream)
     monkeypatch.setattr(
         status_service, "dispatcharr_auth_headers", lambda: {"Authorization": "ApiKey synthetic"}
     )

@@ -11,7 +11,9 @@ from app.models.channel import Channel, GroupedChannelsResponse
 from app.models.ersatztv import EPGChannel
 from app.services import dispatcharr, media_source
 from app.services.ersatztv import m3u_parser
+from app.services.http_clients import DISPATCHARR, ERSATZTV
 from app.services.media_source import CatalogueMatch, peek_catalogue_channel
+from tests.http_helpers import mock_upstream
 
 TSN = Channel(id="42", name="TSN 5", streamUrl="http://streams/42", guideId="tsn5")
 CARTOONS = EPGChannel(id="etv-2", name="Cartoons", streamUrl="http://etv/2.m3u8")
@@ -38,12 +40,8 @@ def no_upstream(monkeypatch: pytest.MonkeyPatch) -> None:
     def fail(request: httpx.Request) -> httpx.Response:
         pytest.fail(f"the peek contacted an upstream: {request.url}")
 
-    factory = httpx.AsyncClient
-    monkeypatch.setattr(
-        dispatcharr.httpx,
-        "AsyncClient",
-        lambda **kwargs: factory(transport=httpx.MockTransport(fail), **kwargs),
-    )
+    mock_upstream(DISPATCHARR, fail)
+    mock_upstream(ERSATZTV, fail)
 
     def no_feed(url: str) -> httpx.Response:
         pytest.fail(f"the peek fetched a feed: {url}")

@@ -9,6 +9,9 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 
+from app.services.http_clients import ERSATZTV
+from tests.http_helpers import mock_upstream
+
 # Will import after implementation
 # from app.services.ersatztv.xmltv_parser import (
 #     parse_xmltv,
@@ -230,20 +233,13 @@ class TestParseXmltvContent:
 
 def _serve(monkeypatch: pytest.MonkeyPatch, handler) -> list[httpx.Request]:
     """Answer the guide's XMLTV fetches with handler; returns the requests made."""
-    from app.services.ersatztv import xmltv_parser
-
     requests: list[httpx.Request] = []
-    factory = httpx.AsyncClient
 
     def upstream(request: httpx.Request) -> httpx.Response:
         requests.append(request)
         return handler(request)
 
-    monkeypatch.setattr(
-        xmltv_parser.httpx,
-        "AsyncClient",
-        lambda **kwargs: factory(transport=httpx.MockTransport(upstream), **kwargs),
-    )
+    mock_upstream(ERSATZTV, upstream)
     return requests
 
 

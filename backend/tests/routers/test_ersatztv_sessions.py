@@ -2,6 +2,7 @@
 
 import re
 from collections.abc import Callable, Iterator, MutableMapping
+from contextlib import contextmanager
 from typing import Any
 from unittest.mock import AsyncMock, patch
 from urllib.parse import parse_qs, urlsplit
@@ -17,6 +18,8 @@ from app.services import stream_sessions
 from app.services.auth import create_access_token
 from app.services.ersatztv.hls_rewriter import HLSManifestRewriter, decode_url
 from app.services.ersatztv.refresh import FeedUnavailableError
+from app.services.http_clients import ERSATZTV
+from tests.http_helpers import mock_upstream
 
 UPSTREAM = settings.ersatztv_base_url.rstrip("/")
 JWT_SHAPE = re.compile(r"[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+")
@@ -65,12 +68,10 @@ def clock(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     return now
 
 
-def _patched_upstream(handler: Callable[[httpx.Request], httpx.Response]):
-    real_client = httpx.AsyncClient
-    return patch(
-        "app.routers.ersatztv.httpx.AsyncClient",
-        side_effect=lambda **kwargs: real_client(transport=httpx.MockTransport(handler), **kwargs),
-    )
+@contextmanager
+def _patched_upstream(handler: Callable[[httpx.Request], httpx.Response]) -> Iterator[None]:
+    mock_upstream(ERSATZTV, handler)
+    yield
 
 
 def _ersatztv(requests: list[httpx.Request]) -> Callable[[httpx.Request], httpx.Response]:

@@ -22,6 +22,8 @@ from app.main import app
 from app.metadata import APP_VERSION
 from app.services import epg_service
 from app.services.auth import create_access_token
+from app.services.http_clients import DISPATCHARR, ERSATZTV
+from tests.http_helpers import mock_upstream
 
 
 @pytest.fixture
@@ -363,12 +365,8 @@ class TestStartupGuideWarmup:
             await asyncio.sleep(0.2)
             return respond(request)
 
-        factory = httpx.AsyncClient
-        monkeypatch.setattr(
-            epg_service.httpx,
-            "AsyncClient",
-            lambda **kwargs: factory(transport=httpx.MockTransport(upstream), **kwargs),
-        )
+        mock_upstream(DISPATCHARR, upstream)
+        mock_upstream(ERSATZTV, upstream)
         # A fresh singleton, restored after the test, so no guide state leaks
         monkeypatch.setattr(
             epg_service, "_epg_service", epg_service.EPGService("http://dispatcharr.test")

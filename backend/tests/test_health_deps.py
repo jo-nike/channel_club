@@ -13,16 +13,14 @@ from app.models.channel import GroupedChannelsResponse
 from app.services import dispatcharr
 from app.services.dispatcharr import DispatchrrUnavailableError, get_grouped_channels
 from app.services.epg_service import get_epg_service
+from app.services.http_clients import DISPATCHARR, ERSATZTV
+from tests.http_helpers import mock_upstream
 
 
 def _route_upstreams(monkeypatch: pytest.MonkeyPatch, respond) -> None:
-    """Send every httpx client the services open through a MockTransport."""
-    factory = httpx.AsyncClient
-    monkeypatch.setattr(
-        httpx,
-        "AsyncClient",
-        lambda **kwargs: factory(transport=httpx.MockTransport(respond), **kwargs),
-    )
+    """Send the Dispatcharr and ErsatzTV clients through a MockTransport."""
+    mock_upstream(DISPATCHARR, respond)
+    mock_upstream(ERSATZTV, respond)
 
 
 def _no_upstream_calls(monkeypatch: pytest.MonkeyPatch) -> None:

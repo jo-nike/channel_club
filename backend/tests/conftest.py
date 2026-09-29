@@ -72,6 +72,7 @@ def reset_module_state(monkeypatch):
     __import__("app.services.gauges", fromlist=["_"]).reset_gauges_task()
     __import__("app.services.state_store", fromlist=["_"]).reset_state_store()
     __import__("app.services.stream_sessions", fromlist=["_"]).clear()
+    __import__("app.services.http_clients", fromlist=["_"]).reset_http_clients()
 
 
 @pytest.fixture(autouse=True)
