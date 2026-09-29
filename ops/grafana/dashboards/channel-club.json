@@ -593,7 +593,7 @@
               "type": "loki",
               "uid": "P8E80F9AEF21F6940"
             },
-            "expr": "{container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_event=\"channel.change\" | label_format user=record_extra_user, channel=record_extra_channel | line_format \"\"",
+            "expr": "{container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_event=\"channel.change\" | label_format user=record_extra_user, channel=`{{ or .record_extra_channel \"stopped\" }}` | line_format \"\"",
             "legendFormat": "",
             "refId": "A",
             "editorMode": "code"
@@ -1385,6 +1385,19 @@
           "iconColor": "rgba(0, 211, 255, 1)",
           "name": "Annotations & Alerts",
           "type": "dashboard"
+        },
+        {
+          "name": "Deploys",
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "enable": true,
+          "hide": false,
+          "iconColor": "orange",
+          "expr": "{container=\"channel-club\"} | json | record_extra_event=\"server.start\"",
+          "titleFormat": "Server start",
+          "textFormat": "{{record_extra_version}} build {{record_extra_build_id}}"
         }
       ]
     },

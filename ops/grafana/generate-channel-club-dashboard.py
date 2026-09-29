@@ -201,9 +201,16 @@ def timeseries(title: str, targets: list, x: int, y: int, w: int = 12, h: int = 
     }
 
 
-def event_table(title: str, event: str, columns: list[str], x: int, y: int, w: int = 12, h: int = 12, unit_overrides: dict | None = None, base: str = BASE) -> dict:
-    """Table of raw Loki events: the extracted log labels become columns."""
-    fields = ", ".join(f"{c}=record_extra_{c}" for c in columns)
+def event_table(title: str, event: str, columns: list[str], x: int, y: int, w: int = 12, h: int = 12, unit_overrides: dict | None = None, base: str = BASE, defaults: dict | None = None) -> dict:
+    """Table of raw Loki events: the extracted log labels become columns.
+
+    ``defaults`` gives a column the text to show when its field is null or unset.
+    """
+    defaults = defaults or {}
+    fields = ", ".join(
+        f'{c}=`{{{{ or .record_extra_{c} "{defaults[c]}" }}}}`' if c in defaults else f"{c}=record_extra_{c}"
+        for c in columns
+    )
     expr = f'{base} | record_extra_event="{event}" | label_format {fields} | line_format ""'
     keep = {"Time": True, **{c: True for c in columns}}
     overrides = []
@@ -259,7 +266,8 @@ panels.append(timeseries(
     [loki(f'sum by (record_extra_user) (count_over_time({USER_BASE} | record_extra_event="session.start" [1h]))', legend="{{record_extra_user}}")],
     0, y, w=12, bars=True, stack=True,
 ))
-panels.append(event_table("Shared live channel changes", "channel.change", ["user", "channel"], 12, y, w=12, h=8, base=USER_BASE))
+# Stopping Live logs a channel.change with no channel
+panels.append(event_table("Shared live channel changes", "channel.change", ["user", "channel"], 12, y, w=12, h=8, base=USER_BASE, defaults={"channel": "stopped"}))
 y += 8
 
 # One row per titled programme segment: a title change or the watch ending closes it
@@ -360,7 +368,14 @@ dashboard = {
                 },
             ]
         },
-        "annotations": {"list": [{"builtIn": 1, "datasource": {"type": "grafana", "uid": "-- Grafana --"}, "enable": True, "hide": True, "iconColor": "rgba(0, 211, 255, 1)", "name": "Annotations & Alerts", "type": "dashboard"}]},
+        "annotations": {"list": [{"builtIn": 1, "datasource": {"type": "grafana", "uid": "-- Grafana --"}, "enable": True, "hide": True, "iconColor": "rgba(0, 211, 255, 1)", "name": "Annotations & Alerts", "type": "dashboard"},
+            # Deploys: each start of the app logs server.start with its version and build
+            {
+                "name": "Deploys", "datasource": LOKI_DS, "enable": True, "hide": False, "iconColor": "orange",
+                "expr": '{container="channel-club"} | json | record_extra_event="server.start"',
+                "titleFormat": "Server start", "textFormat": "{{record_extra_version}} build {{record_extra_build_id}}",
+            },
+        ]},
         "links": [{"title": "Channel Club", "type": "link", "url": "https://tv.example.com", "targetBlank": True}],
     },
     "overwrite": True,

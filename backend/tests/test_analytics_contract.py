@@ -278,6 +278,7 @@ def test_every_event_the_dashboard_reads_carries_its_fields(
         "programme.stop",
         "channel.change",
         "watch.progress",
+        "server.start",
     } <= required.keys()
     output = production_logging(log_format="json", log_level="WARNING")
     # Apply the channel updates at once instead of holding each for a second
@@ -302,6 +303,7 @@ def test_every_event_the_dashboard_reads_carries_its_fields(
             id="uuid-rds", name="RDS", streamUrl="https://streams.example/rds", guideId="1"
         )
         client.portal.call(channel_state.set_current_channel, channel, "jon")
+        client.portal.call(channel_state.clear_current_channel_async, "jon")  # Stop Live
 
     lines = _emitted(output)
     for event, fields in sorted(required.items()):
@@ -322,6 +324,19 @@ def test_every_event_the_dashboard_reads_carries_its_fields(
     assert stops == [("RDS", "live_follow"), ("TVA", "switch"), ("CBC", "server_restart")]
     assert any(line["record_extra_event"] == "watch.progress" for line in lines)
     assert any(line["record_extra_event"] == "server.start" for line in lines)
+    changes = [line for line in lines if line["record_extra_event"] == "channel.change"]
+    assert [line.get("record_extra_channel") for line in changes] == ["RDS", None]
+
+
+def test_live_channel_table_labels_a_stop() -> None:
+    (expr,) = _panel_exprs("Shared live channel changes")
+    assert 'channel=`{{ or .record_extra_channel "stopped" }}`' in expr
+
+
+def test_deploys_are_annotated_from_server_start() -> None:
+    annotations = _load_generator().dashboard["dashboard"]["annotations"]["list"]
+    (deploys,) = [a for a in annotations if a["name"] == "Deploys"]
+    assert 'record_extra_event="server.start"' in deploys["expr"]
 
 
 def test_reconnect_stops_each_watch_once(production_logging, client) -> None:
