@@ -13,6 +13,7 @@ from app.metadata import APP_NAME, APP_VERSION
 from app.middleware.body_limit import BodySizeLimitMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.routers.admin import router as admin_router
+from app.routers.admin_config import router as admin_config_router
 from app.routers.auth import router as auth_router
 from app.routers.cast import router as cast_router
 from app.routers.channels import router as channels_router
@@ -304,6 +305,7 @@ app.include_router(channels_router, prefix="/api")
 app.include_router(epg_router, prefix="/api")
 app.include_router(ersatztv_router)
 app.include_router(admin_router, prefix="/api/admin")
+app.include_router(admin_config_router, prefix="/api/admin")
 app.include_router(settings_router, prefix="/api")
 app.include_router(setup_router, prefix="/api/setup")
 app.include_router(cast_router)

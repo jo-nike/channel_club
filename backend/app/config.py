@@ -1,6 +1,6 @@
 import re
 from typing import Literal, get_args
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import SecretStr, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -44,6 +44,18 @@ def plain_http_url(value: str) -> bool:
         )
     except ValueError:
         return False
+
+
+def normalise_http_url(value: str) -> str:
+    """A plain http(s) URL in one spelling: lower-case scheme and host, no default
+    port and no trailing slash, so prefixes and origins compare as meant."""
+    url = urlsplit(value.strip())
+    scheme = url.scheme.lower()
+    host = url.hostname or ""
+    netloc = f"[{host}]" if ":" in host else host
+    if url.port is not None and url.port != (443 if scheme == "https" else 80):
+        netloc = f"{netloc}:{url.port}"
+    return urlunsplit((scheme, netloc, url.path.rstrip("/"), "", ""))
 
 
 # Variables that are no longer read, with what replaced them. Startup warns about
@@ -328,6 +340,17 @@ FIELD_GROUPS: dict[str, tuple[str, ...]] = {
     "feedback": ("ntfy_enabled", "ntfy_url", "ntfy_topic", "ntfy_token"),
     **{field: (field,) for field in ADVANCED_FIELDS},
 }
+
+
+# Set by the image on every install, so never worth listing as locks
+IMAGE_FIELDS = frozenset({"app_build_id", "app_revision", "state_file"})
+
+# Settings whose value is never shown, only whether it is set
+SECRET_FIELDS = frozenset(
+    name
+    for name, info in Settings.model_fields.items()
+    if SecretStr in (info.annotation, *get_args(info.annotation))
+)
 
 
 def env_name(field: str) -> str:

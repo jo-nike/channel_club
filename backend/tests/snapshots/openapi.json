@@ -107,6 +107,62 @@
         "title": "ActiveUsersTotals",
         "type": "object"
       },
+      "AdminConfigResponse": {
+        "description": "Response for GET /api/admin/config.",
+        "properties": {
+          "defaults": {
+            "$ref": "#/components/schemas/ConfigValues"
+          },
+          "environment": {
+            "items": {
+              "$ref": "#/components/schemas/EnvVariable"
+            },
+            "title": "Environment",
+            "type": "array"
+          },
+          "ffmpeg": {
+            "$ref": "#/components/schemas/FfmpegTools"
+          },
+          "locked": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Locked",
+            "type": "object"
+          },
+          "plexServerName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plexservername"
+          },
+          "storage": {
+            "$ref": "#/components/schemas/ConfigStorage"
+          },
+          "values": {
+            "$ref": "#/components/schemas/ConfigValues"
+          }
+        },
+        "required": [
+          "values",
+          "locked",
+          "environment",
+          "defaults",
+          "plexServerName",
+          "ffmpeg",
+          "storage"
+        ],
+        "title": "AdminConfigResponse",
+        "type": "object"
+      },
       "AppSettings": {
         "description": "Runtime settings an admin can toggle for all users.",
         "properties": {
@@ -307,6 +363,859 @@
           "channelCount"
         ],
         "title": "ChannelGroupWithChannels",
+        "type": "object"
+      },
+      "ConfigPatch": {
+        "additionalProperties": false,
+        "description": "Body of PUT /api/admin/config: only the settings to change.\n\nA secret left out keeps its saved value, null removes it, and a string\nreplaces it. The Plex server and its token are linked through\nPOST /api/admin/plex/server instead.",
+        "properties": {
+          "adminPassword": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "minLength": 12,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adminpassword"
+          },
+          "adminUsername": {
+            "anyOf": [
+              {
+                "pattern": "^[^\\s\\x00-\\x1f\\x7f](?:[^\\x00-\\x1f\\x7f]{0,62}[^\\s\\x00-\\x1f\\x7f])?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adminusername"
+          },
+          "castEnabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Castenabled"
+          },
+          "castHlsListSize": {
+            "anyOf": [
+              {
+                "maximum": 30.0,
+                "minimum": 2.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Casthlslistsize"
+          },
+          "castHlsSegmentTime": {
+            "anyOf": [
+              {
+                "maximum": 30.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Casthlssegmenttime"
+          },
+          "castSessionTimeout": {
+            "anyOf": [
+              {
+                "maximum": 86400.0,
+                "minimum": 30.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Castsessiontimeout"
+          },
+          "chatEnabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chatenabled"
+          },
+          "dispatcharrApiKey": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dispatcharrapikey"
+          },
+          "dispatcharrUrl": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dispatcharrurl"
+          },
+          "ersatztvBaseUrl": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ersatztvbaseurl"
+          },
+          "ersatztvLogoOrigins": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxLength": 2048,
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ersatztvlogoorigins"
+          },
+          "feedbackCooldownSeconds": {
+            "anyOf": [
+              {
+                "maximum": 3600.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feedbackcooldownseconds"
+          },
+          "feedbackHourlyLimit": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feedbackhourlylimit"
+          },
+          "giphyApiKey": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Giphyapikey"
+          },
+          "highlightBufferSeconds": {
+            "anyOf": [
+              {
+                "maximum": 600.0,
+                "minimum": 10.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Highlightbufferseconds"
+          },
+          "highlightEnabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Highlightenabled"
+          },
+          "highlightSegmentSeconds": {
+            "anyOf": [
+              {
+                "maximum": 60.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Highlightsegmentseconds"
+          },
+          "localAuthEnabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Localauthenabled"
+          },
+          "logLevel": {
+            "anyOf": [
+              {
+                "enum": [
+                  "TRACE",
+                  "DEBUG",
+                  "INFO",
+                  "SUCCESS",
+                  "WARNING",
+                  "ERROR",
+                  "CRITICAL"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Loglevel"
+          },
+          "mediaExportLimit": {
+            "anyOf": [
+              {
+                "maximum": 16.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mediaexportlimit"
+          },
+          "mediaExportMaxBytes": {
+            "anyOf": [
+              {
+                "maximum": 2147483648.0,
+                "minimum": 1048576.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mediaexportmaxbytes"
+          },
+          "mediaExportPerUser": {
+            "anyOf": [
+              {
+                "maximum": 16.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mediaexportperuser"
+          },
+          "mediaProcessLimit": {
+            "anyOf": [
+              {
+                "maximum": 64.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mediaprocesslimit"
+          },
+          "mediaProcessPerUser": {
+            "anyOf": [
+              {
+                "maximum": 64.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mediaprocessperuser"
+          },
+          "mediaRecorderLimit": {
+            "anyOf": [
+              {
+                "maximum": 32.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mediarecorderlimit"
+          },
+          "mediaUploadLimit": {
+            "anyOf": [
+              {
+                "maximum": 16.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mediauploadlimit"
+          },
+          "mediaUploadPerUser": {
+            "anyOf": [
+              {
+                "maximum": 16.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mediauploadperuser"
+          },
+          "ntfyEnabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ntfyenabled"
+          },
+          "ntfyToken": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ntfytoken"
+          },
+          "ntfyTopic": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ntfytopic"
+          },
+          "ntfyUrl": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ntfyurl"
+          },
+          "plexAdminIds": {
+            "anyOf": [
+              {
+                "items": {
+                  "pattern": "^[A-Za-z0-9_-]{1,64}$",
+                  "type": "string"
+                },
+                "maxItems": 500,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plexadminids"
+          },
+          "plexAuthEnabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plexauthenabled"
+          },
+          "plexDefaultRole": {
+            "anyOf": [
+              {
+                "enum": [
+                  "viewer",
+                  "admin"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plexdefaultrole"
+          },
+          "presenceVisible": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Presencevisible"
+          },
+          "requestBodyMaxBytes": {
+            "anyOf": [
+              {
+                "maximum": 16777216.0,
+                "minimum": 32768.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requestbodymaxbytes"
+          },
+          "userChannelSelection": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Userchannelselection"
+          },
+          "viewerPassword": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "minLength": 12,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Viewerpassword"
+          },
+          "viewerUsername": {
+            "anyOf": [
+              {
+                "pattern": "^[^\\s\\x00-\\x1f\\x7f](?:[^\\x00-\\x1f\\x7f]{0,62}[^\\s\\x00-\\x1f\\x7f])?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Viewerusername"
+          },
+          "ziplineEnabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ziplineenabled"
+          },
+          "ziplineToken": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ziplinetoken"
+          },
+          "ziplineUrl": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ziplineurl"
+          }
+        },
+        "title": "ConfigPatch",
+        "type": "object"
+      },
+      "ConfigStorage": {
+        "description": "Where the settings live, for the \"Handled for you\" list.",
+        "properties": {
+          "settingsFile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Settingsfile"
+          },
+          "signingKey": {
+            "enum": [
+              "environment",
+              "settings"
+            ],
+            "title": "Signingkey",
+            "type": "string"
+          }
+        },
+        "required": [
+          "settingsFile",
+          "signingKey"
+        ],
+        "title": "ConfigStorage",
+        "type": "object"
+      },
+      "ConfigUpdateResponse": {
+        "description": "Response for PUT /api/admin/config and POST /api/admin/plex/server.",
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/AdminConfigResponse"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigWarning"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "config",
+          "warnings"
+        ],
+        "title": "ConfigUpdateResponse",
+        "type": "object"
+      },
+      "ConfigValues": {
+        "description": "Every setting the app can change, as the server runs with it now.\n\nSecrets are only {set}. House rules come from the state file, not settings.",
+        "properties": {
+          "adminPassword": {
+            "$ref": "#/components/schemas/SecretState"
+          },
+          "adminUsername": {
+            "title": "Adminusername",
+            "type": "string"
+          },
+          "castEnabled": {
+            "title": "Castenabled",
+            "type": "boolean"
+          },
+          "castHlsListSize": {
+            "title": "Casthlslistsize",
+            "type": "integer"
+          },
+          "castHlsSegmentTime": {
+            "title": "Casthlssegmenttime",
+            "type": "integer"
+          },
+          "castSessionTimeout": {
+            "title": "Castsessiontimeout",
+            "type": "integer"
+          },
+          "chatEnabled": {
+            "title": "Chatenabled",
+            "type": "boolean"
+          },
+          "dispatcharrApiKey": {
+            "$ref": "#/components/schemas/SecretState"
+          },
+          "dispatcharrUrl": {
+            "title": "Dispatcharrurl",
+            "type": "string"
+          },
+          "ersatztvBaseUrl": {
+            "title": "Ersatztvbaseurl",
+            "type": "string"
+          },
+          "ersatztvLogoOrigins": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Ersatztvlogoorigins",
+            "type": "array"
+          },
+          "feedbackCooldownSeconds": {
+            "title": "Feedbackcooldownseconds",
+            "type": "integer"
+          },
+          "feedbackHourlyLimit": {
+            "title": "Feedbackhourlylimit",
+            "type": "integer"
+          },
+          "giphyApiKey": {
+            "$ref": "#/components/schemas/SecretState"
+          },
+          "highlightBufferSeconds": {
+            "title": "Highlightbufferseconds",
+            "type": "integer"
+          },
+          "highlightEnabled": {
+            "title": "Highlightenabled",
+            "type": "boolean"
+          },
+          "highlightSegmentSeconds": {
+            "title": "Highlightsegmentseconds",
+            "type": "integer"
+          },
+          "localAuthEnabled": {
+            "title": "Localauthenabled",
+            "type": "boolean"
+          },
+          "logLevel": {
+            "title": "Loglevel",
+            "type": "string"
+          },
+          "mediaExportLimit": {
+            "title": "Mediaexportlimit",
+            "type": "integer"
+          },
+          "mediaExportMaxBytes": {
+            "title": "Mediaexportmaxbytes",
+            "type": "integer"
+          },
+          "mediaExportPerUser": {
+            "title": "Mediaexportperuser",
+            "type": "integer"
+          },
+          "mediaProcessLimit": {
+            "title": "Mediaprocesslimit",
+            "type": "integer"
+          },
+          "mediaProcessPerUser": {
+            "title": "Mediaprocessperuser",
+            "type": "integer"
+          },
+          "mediaRecorderLimit": {
+            "title": "Mediarecorderlimit",
+            "type": "integer"
+          },
+          "mediaUploadLimit": {
+            "title": "Mediauploadlimit",
+            "type": "integer"
+          },
+          "mediaUploadPerUser": {
+            "title": "Mediauploadperuser",
+            "type": "integer"
+          },
+          "ntfyEnabled": {
+            "title": "Ntfyenabled",
+            "type": "boolean"
+          },
+          "ntfyToken": {
+            "$ref": "#/components/schemas/SecretState"
+          },
+          "ntfyTopic": {
+            "title": "Ntfytopic",
+            "type": "string"
+          },
+          "ntfyUrl": {
+            "title": "Ntfyurl",
+            "type": "string"
+          },
+          "plexAdminIds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Plexadminids",
+            "type": "array"
+          },
+          "plexAuthEnabled": {
+            "title": "Plexauthenabled",
+            "type": "boolean"
+          },
+          "plexDefaultRole": {
+            "title": "Plexdefaultrole",
+            "type": "string"
+          },
+          "plexServerMachineId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plexservermachineid"
+          },
+          "plexServerToken": {
+            "$ref": "#/components/schemas/SecretState"
+          },
+          "presenceVisible": {
+            "title": "Presencevisible",
+            "type": "boolean"
+          },
+          "requestBodyMaxBytes": {
+            "title": "Requestbodymaxbytes",
+            "type": "integer"
+          },
+          "userChannelSelection": {
+            "title": "Userchannelselection",
+            "type": "boolean"
+          },
+          "viewerPassword": {
+            "$ref": "#/components/schemas/SecretState"
+          },
+          "viewerUsername": {
+            "title": "Viewerusername",
+            "type": "string"
+          },
+          "ziplineEnabled": {
+            "title": "Ziplineenabled",
+            "type": "boolean"
+          },
+          "ziplineToken": {
+            "$ref": "#/components/schemas/SecretState"
+          },
+          "ziplineUrl": {
+            "title": "Ziplineurl",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dispatcharrUrl",
+          "dispatcharrApiKey",
+          "ersatztvBaseUrl",
+          "localAuthEnabled",
+          "adminUsername",
+          "adminPassword",
+          "viewerUsername",
+          "viewerPassword",
+          "plexAuthEnabled",
+          "plexServerToken",
+          "plexServerMachineId",
+          "plexDefaultRole",
+          "plexAdminIds",
+          "userChannelSelection",
+          "presenceVisible",
+          "chatEnabled",
+          "giphyApiKey",
+          "highlightEnabled",
+          "ziplineEnabled",
+          "ziplineUrl",
+          "ziplineToken",
+          "castEnabled",
+          "ntfyEnabled",
+          "ntfyUrl",
+          "ntfyTopic",
+          "ntfyToken",
+          "mediaProcessLimit",
+          "mediaProcessPerUser",
+          "castHlsSegmentTime",
+          "castHlsListSize",
+          "castSessionTimeout",
+          "highlightBufferSeconds",
+          "highlightSegmentSeconds",
+          "mediaRecorderLimit",
+          "mediaExportMaxBytes",
+          "mediaExportLimit",
+          "mediaExportPerUser",
+          "mediaUploadLimit",
+          "mediaUploadPerUser",
+          "feedbackCooldownSeconds",
+          "feedbackHourlyLimit",
+          "requestBodyMaxBytes",
+          "logLevel",
+          "ersatztvLogoOrigins"
+        ],
+        "title": "ConfigValues",
+        "type": "object"
+      },
+      "ConfigWarning": {
+        "description": "Something saved that won't work yet, e.g. Zipline on while clips are off.",
+        "properties": {
+          "code": {
+            "enum": [
+              "zipline_unavailable",
+              "feedback_unavailable"
+            ],
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ConfigWarning",
         "type": "object"
       },
       "CreateSessionRequest": {
@@ -731,6 +1640,49 @@
         "title": "EnvLock",
         "type": "object"
       },
+      "EnvVariable": {
+        "description": "A variable the server's environment sets, for the Admin panel's list.",
+        "properties": {
+          "env": {
+            "title": "Env",
+            "type": "string"
+          },
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field"
+          },
+          "secret": {
+            "title": "Secret",
+            "type": "boolean"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "env",
+          "field",
+          "value",
+          "secret"
+        ],
+        "title": "EnvVariable",
+        "type": "object"
+      },
       "ErsatzTVSession": {
         "description": "Represents an active ErsatzTV transcoding session.",
         "properties": {
@@ -995,6 +1947,25 @@
           }
         },
         "title": "FeedbackResponse",
+        "type": "object"
+      },
+      "FfmpegTools": {
+        "description": "Whether the tools clips and casting need are on the server's path.",
+        "properties": {
+          "ffmpeg": {
+            "title": "Ffmpeg",
+            "type": "boolean"
+          },
+          "ffprobe": {
+            "title": "Ffprobe",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ffmpeg",
+          "ffprobe"
+        ],
+        "title": "FfmpegTools",
         "type": "object"
       },
       "GifFeatureResponse": {
@@ -1565,6 +2536,40 @@
         "title": "PlexClaim",
         "type": "object"
       },
+      "PlexMemberView": {
+        "description": "A member of the linked Plex server, for ticking admins.",
+        "properties": {
+          "admin": {
+            "title": "Admin",
+            "type": "boolean"
+          },
+          "managed": {
+            "title": "Managed",
+            "type": "boolean"
+          },
+          "owner": {
+            "title": "Owner",
+            "type": "boolean"
+          },
+          "plexId": {
+            "title": "Plexid",
+            "type": "string"
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plexId",
+          "username",
+          "managed",
+          "owner",
+          "admin"
+        ],
+        "title": "PlexMemberView",
+        "type": "object"
+      },
       "PlexServer": {
         "description": "A Plex Media Server the signed-in account owns, as the setup picker shows it.\n\nDeliberately narrow: plex.tv's resource also carries the server's access\ntoken and its addresses, and neither may reach a browser.",
         "properties": {
@@ -1612,6 +2617,29 @@
         "title": "PlexServer",
         "type": "object"
       },
+      "PlexServerLink": {
+        "additionalProperties": false,
+        "description": "Body of POST /api/admin/plex/server: link (or re-link) one of your own servers.",
+        "properties": {
+          "authToken": {
+            "maxLength": 512,
+            "pattern": "^[\\x21-\\x7e]+$",
+            "title": "Authtoken",
+            "type": "string"
+          },
+          "machineId": {
+            "pattern": "^[A-Za-z0-9_-]{1,128}$",
+            "title": "Machineid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "authToken",
+          "machineId"
+        ],
+        "title": "PlexServerLink",
+        "type": "object"
+      },
       "PlexServersResponse": {
         "description": "Response for POST /api/setup/plex/servers.",
         "properties": {
@@ -1631,6 +2659,237 @@
           "servers"
         ],
         "title": "PlexServersResponse",
+        "type": "object"
+      },
+      "ProbeCounts": {
+        "description": "What a successful test found.",
+        "properties": {
+          "channels": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channels"
+          },
+          "groups": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Groups"
+          },
+          "guideDays": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Guidedays"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          }
+        },
+        "title": "ProbeCounts",
+        "type": "object"
+      },
+      "ProbeRequest": {
+        "description": "Body of POST /api/admin/config/test.",
+        "properties": {
+          "kind": {
+            "enum": [
+              "dispatcharr",
+              "ersatztv",
+              "giphy",
+              "zipline",
+              "ntfy"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "values": {
+            "$ref": "#/components/schemas/ProbeValues"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "ProbeRequest",
+        "type": "object"
+      },
+      "ProbeResult": {
+        "description": "A connection test's outcome. The app words it; upstream text is never echoed.",
+        "properties": {
+          "counts": {
+            "$ref": "#/components/schemas/ProbeCounts"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "unreachable",
+                  "timeout",
+                  "auth",
+                  "not_found",
+                  "http",
+                  "invalid"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "title": "ProbeResult",
+        "type": "object"
+      },
+      "ProbeValues": {
+        "additionalProperties": false,
+        "description": "The draft values a test uses; anything left out is the saved value.",
+        "properties": {
+          "dispatcharrApiKey": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dispatcharrapikey"
+          },
+          "dispatcharrUrl": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dispatcharrurl"
+          },
+          "ersatztvBaseUrl": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ersatztvbaseurl"
+          },
+          "giphyApiKey": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Giphyapikey"
+          },
+          "ntfyToken": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ntfytoken"
+          },
+          "ntfyTopic": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ntfytopic"
+          },
+          "ntfyUrl": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ntfyurl"
+          },
+          "ziplineToken": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ziplinetoken"
+          },
+          "ziplineUrl": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ziplineurl"
+          }
+        },
+        "title": "ProbeValues",
         "type": "object"
       },
       "Program": {
@@ -1865,6 +3124,20 @@
           "streamUrl"
         ],
         "title": "PublicEPGChannel",
+        "type": "object"
+      },
+      "SecretState": {
+        "description": "A secret as the Admin panel sees it: whether it is set, never its value.",
+        "properties": {
+          "set": {
+            "title": "Set",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "set"
+        ],
+        "title": "SecretState",
         "type": "object"
       },
       "SetChannelRequest": {
@@ -2232,6 +3505,203 @@
           }
         ],
         "summary": "Clear Chat History",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/config": {
+      "get": {
+        "description": "Every setting the app can change, which ones the environment locks, and the defaults.",
+        "operationId": "get_config_api_admin_config_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminConfigResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Config",
+        "tags": [
+          "admin"
+        ]
+      },
+      "put": {
+        "description": "Change some settings; they apply at once, with no restart.\n\nThe whole batch is checked before anything is saved. House rules are saved\nto the state file like PUT /api/settings does.\n\nRaises:\n    HTTPException: 409 for a setting the environment locks, one that would\n        sign the requesting admin out, or no state file to save to; 422 for\n        a value or combination the settings refuse; 500 when the file\n        can't be written.",
+        "operationId": "update_config_api_admin_config_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigUpdateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Config",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/config/test": {
+      "post": {
+        "description": "Test a connection with draft values. Always 200 with a verdict, once checked.\n\nRaises:\n    HTTPException: 429 while the kind is cooling down (ntfy sends a real\n        message); 409/422 as a save would refuse the values.",
+        "operationId": "test_config_api_admin_config_test_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProbeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Test Config",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/plex/members": {
+      "get": {
+        "description": "The linked Plex server's owner and members, marked with who is an admin here.\n\nRaises:\n    HTTPException: 409 with no server linked; 400 when plex.tv refuses the\n        saved token (link the server again); 503 when plex.tv doesn't answer.",
+        "operationId": "get_plex_members_api_admin_plex_members_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PlexMemberView"
+                  },
+                  "title": "Response Get Plex Members Api Admin Plex Members Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Plex Members",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/plex/server": {
+      "post": {
+        "description": "Link one of your own Plex servers, or link it again after its sign-in was revoked.\n\nIts owner (you) is added to the Plex admins by account id.\n\nRaises:\n    HTTPException: 409 when sign-in is set in the environment; 400/503 for\n        plex.tv; 403 for a server the Plex account doesn't own.",
+        "operationId": "link_plex_server_api_admin_plex_server_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlexServerLink"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigUpdateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Link Plex Server",
         "tags": [
           "admin"
         ]

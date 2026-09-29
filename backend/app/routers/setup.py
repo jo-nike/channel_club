@@ -19,7 +19,7 @@ from loguru import logger
 from pydantic.alias_generators import to_camel
 
 from app import config
-from app.config import UI_FIELDS, UiField, env_name, settings
+from app.config import IMAGE_FIELDS, UI_FIELDS, UiField, env_name, settings
 from app.models.auth import TokenPayload, TokenResponse
 from app.models.plex import PlexAuthRequest
 from app.models.setup import (
@@ -49,9 +49,6 @@ from app.services.settings_store import SettingsDocument
 
 router = APIRouter(tags=["setup"])
 log = logger.bind(router="setup")
-
-# Variables the image sets on every install: not worth listing as locks
-IMAGE_FIELDS = frozenset({"app_build_id", "app_revision", "state_file"})
 
 # While setup is open anyone can make this server call plex.tv, so those calls
 # are limited for all visitors together: one at a time and this many a minute.
