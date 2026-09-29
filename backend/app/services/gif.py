@@ -95,7 +95,8 @@ class GifService:
 
     def _is_enabled(self) -> bool:
         """Check if GIF feature is enabled."""
-        return settings.giphy_api_key is not None and len(settings.giphy_api_key) > 0
+        key = settings.giphy_api_key
+        return key is not None and len(key.get_secret_value()) > 0
 
     async def get_trending(self, limit: int = 25) -> dict:
         """Get trending GIFs.
@@ -129,7 +130,9 @@ class GifService:
                 response = await client.get(
                     f"{GIPHY_BASE_URL}/trending",
                     params={
-                        "api_key": settings.giphy_api_key,
+                        "api_key": settings.giphy_api_key.get_secret_value()
+                        if settings.giphy_api_key
+                        else "",
                         "limit": min(limit, 50),
                         "rating": "pg-13",
                     },
@@ -178,7 +181,9 @@ class GifService:
                 response = await client.get(
                     f"{GIPHY_BASE_URL}/search",
                     params={
-                        "api_key": settings.giphy_api_key,
+                        "api_key": settings.giphy_api_key.get_secret_value()
+                        if settings.giphy_api_key
+                        else "",
                         "q": query,
                         "limit": min(limit, 50),
                         "offset": offset,

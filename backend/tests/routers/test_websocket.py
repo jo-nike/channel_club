@@ -38,7 +38,9 @@ REAL_SCHEDULE_BROADCAST = presence_broadcast.schedule_broadcast
 
 def expected_user_id(account: str) -> str:
     """The chat id the server should derive for an account key ('plex:<id>' or 'local:<sub>')."""
-    digest = hmac.new(settings.jwt_secret.encode(), account.encode(), hashlib.sha256)
+    digest = hmac.new(
+        settings.jwt_secret.get_secret_value().encode(), account.encode(), hashlib.sha256
+    )
     return "u_" + digest.hexdigest()[:16]
 
 
@@ -200,7 +202,9 @@ class TestWebSocketConnection:
             "role": "viewer",
             "exp": datetime.now(UTC) - timedelta(hours=1),
         }
-        expired_token = jwt.encode(expired_payload, settings.jwt_secret, algorithm="HS256")
+        expired_token = jwt.encode(
+            expired_payload, settings.jwt_secret.get_secret_value(), algorithm="HS256"
+        )
 
         with (
             ws_connect(client, expired_token) as ws,
@@ -225,7 +229,7 @@ class TestWebSocketConnection:
         from app.config import settings
 
         claims = {**claims, "exp": datetime.now(UTC) + timedelta(hours=1)}
-        token = jwt.encode(claims, settings.jwt_secret, algorithm="HS256")
+        token = jwt.encode(claims, settings.jwt_secret.get_secret_value(), algorithm="HS256")
 
         with (
             ws_connect(client, token) as ws,
@@ -258,7 +262,7 @@ class TestLegacyQueryToken:
 
         expired_token = jwt.encode(
             {"sub": "testuser", "role": "viewer", "exp": datetime.now(UTC) - timedelta(hours=1)},
-            settings.jwt_secret,
+            settings.jwt_secret.get_secret_value(),
             algorithm="HS256",
         )
         with (
@@ -2586,7 +2590,7 @@ def test_sec06_socket_expires_and_cleans_all_state(client, monkeypatch, active):
     monkeypatch.setattr(websocket_router, "verify_websocket_token", short_lived)
     token = jwt.encode(
         {"sub": "expiring", "role": "viewer", "exp": time.time() + 5},
-        settings.jwt_secret,
+        settings.jwt_secret.get_secret_value(),
         algorithm="HS256",
     )
     with ws_connect(client, token, session_id="expiring") as ws:

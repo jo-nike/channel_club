@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from pydantic import SecretStr
 
 from app.models.status import DispatchrrStatus, EPGHealthStatus, ErsatzTVStatus
 from app.services import status_service
@@ -254,7 +255,7 @@ class TestGetDispatchrrStatus:
                 patch("app.services.dispatcharr.settings") as mock_dispatcharr_settings,
             ):
                 mock_settings.dispatcharr_url = "http://test:9191"
-                mock_dispatcharr_settings.dispatcharr_api_key = "test-api-key"
+                mock_dispatcharr_settings.dispatcharr_api_key = SecretStr("test-api-key")
 
                 status = await get_dispatcharr_status()
 

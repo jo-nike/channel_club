@@ -35,7 +35,7 @@ def create_access_token(data: dict) -> str:
     to_encode.update({"exp": now + timedelta(days=JWT_EXPIRATION_DAYS), "typ": "session"})
     # Log token creation without exposing sensitive data
     log.debug("Creating access token for user with role '{}'", data.get("role", "unknown"))
-    return jwt.encode(to_encode, settings.jwt_secret, algorithm=JWT_ALGORITHM)
+    return jwt.encode(to_encode, settings.jwt_secret.get_secret_value(), algorithm=JWT_ALGORITHM)
 
 
 def verify_token(token: str) -> TokenPayload:
@@ -55,7 +55,7 @@ def verify_token(token: str) -> TokenPayload:
     log.debug("Verifying token: {}...", token[:8] if token else "empty")
     payload = jwt.decode(
         token,
-        settings.jwt_secret,
+        settings.jwt_secret.get_secret_value(),
         algorithms=[JWT_ALGORITHM],
         options={"require": ["exp", "sub"]},
     )

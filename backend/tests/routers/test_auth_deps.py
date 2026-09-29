@@ -91,7 +91,7 @@ def test_get_current_user_expired_token(app_with_protected_routes):
     expired_time = datetime.now(UTC) - timedelta(hours=1)
     expired_token = jwt.encode(
         {"sub": "admin", "role": "admin", "exp": expired_time},
-        settings.jwt_secret,
+        settings.jwt_secret.get_secret_value(),
         algorithm="HS256",
     )
 
@@ -110,7 +110,7 @@ def _signed(claims: dict) -> str:
     from app.config import settings
 
     claims = {"exp": datetime.now(UTC) + timedelta(hours=1), **claims}
-    return jwt.encode(claims, settings.jwt_secret, algorithm="HS256")
+    return jwt.encode(claims, settings.jwt_secret.get_secret_value(), algorithm="HS256")
 
 
 @pytest.mark.parametrize(

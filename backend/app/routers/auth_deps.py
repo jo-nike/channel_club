@@ -106,7 +106,8 @@ async def _admin_in_current_config(user: TokenPayload) -> bool:
         return True
     # The owner clause covers Plex sign-ins only: a token without a plex_id
     # cannot be the owner's.
-    if not settings.plex_server_token or user.plex_id is None:
+    server_token = settings.plex_server_token
+    if not (server_token and server_token.get_secret_value()) or user.plex_id is None:
         return False
     owner_id = await plex.get_server_owner_id()
     if owner_id is None:

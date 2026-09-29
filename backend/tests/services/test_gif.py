@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 from loguru import logger
+from pydantic import SecretStr
 
 from app.config import settings
 from app.services.gif import GifService, GifServiceError
@@ -89,13 +90,13 @@ class TestGifServiceEnabled:
     def test_returns_false_when_api_key_is_empty(self, service: GifService) -> None:
         """Returns False when API key is empty string."""
         with patch("app.services.gif.settings") as mock_settings:
-            mock_settings.giphy_api_key = ""
+            mock_settings.giphy_api_key = SecretStr("")
             assert service._is_enabled() is False
 
     def test_returns_true_when_api_key_is_set(self, service: GifService) -> None:
         """Returns True when API key is set."""
         with patch("app.services.gif.settings") as mock_settings:
-            mock_settings.giphy_api_key = "test-api-key"
+            mock_settings.giphy_api_key = SecretStr("test-api-key")
             assert service._is_enabled() is True
 
 
@@ -123,7 +124,7 @@ class TestGetTrending:
         mock_response.raise_for_status = MagicMock()
 
         with patch("app.services.gif.settings") as mock_settings:
-            mock_settings.giphy_api_key = "test-key"
+            mock_settings.giphy_api_key = SecretStr("test-key")
 
             with patch("httpx.AsyncClient") as MockClient:
                 mock_client_instance = AsyncMock()
@@ -147,7 +148,7 @@ class TestGetTrending:
         mock_response.raise_for_status = MagicMock()
 
         with patch("app.services.gif.settings") as mock_settings:
-            mock_settings.giphy_api_key = "test-key"
+            mock_settings.giphy_api_key = SecretStr("test-key")
 
             with patch("httpx.AsyncClient") as MockClient:
                 mock_client_instance = AsyncMock()
@@ -170,7 +171,7 @@ class TestGetTrending:
     async def test_handles_timeout(self, service: GifService) -> None:
         """Raises GifServiceError on timeout."""
         with patch("app.services.gif.settings") as mock_settings:
-            mock_settings.giphy_api_key = "test-key"
+            mock_settings.giphy_api_key = SecretStr("test-key")
 
             with patch("httpx.AsyncClient") as MockClient:
                 mock_client_instance = AsyncMock()
@@ -207,7 +208,7 @@ class TestSearch:
         mock_response.raise_for_status = MagicMock()
 
         with patch("app.services.gif.settings") as mock_settings:
-            mock_settings.giphy_api_key = "test-key"
+            mock_settings.giphy_api_key = SecretStr("test-key")
 
             with patch("httpx.AsyncClient") as MockClient:
                 mock_client_instance = AsyncMock()
@@ -233,7 +234,7 @@ class TestSearch:
         mock_response.raise_for_status = MagicMock()
 
         with patch("app.services.gif.settings") as mock_settings:
-            mock_settings.giphy_api_key = "test-key"
+            mock_settings.giphy_api_key = SecretStr("test-key")
 
             with patch("httpx.AsyncClient") as MockClient:
                 mock_client_instance = AsyncMock()

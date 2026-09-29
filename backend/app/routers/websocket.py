@@ -483,7 +483,10 @@ async def websocket_endpoint(
                 # Lets a client running an older bundle notice a deploy
                 buildId=settings.app_build_id,
                 # The server's switches are the ones in force; the client hides what is off
-                features=Features(chat=settings.chat_enabled, gif=bool(settings.giphy_api_key)),
+                features=Features(
+                    chat=settings.chat_enabled,
+                    gif=bool(settings.giphy_api_key and settings.giphy_api_key.get_secret_value()),
+                ),
             )
             await channel_state.send_message(websocket, ack_message)
 

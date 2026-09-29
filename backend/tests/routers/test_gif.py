@@ -8,6 +8,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 from loguru import logger
+from pydantic import SecretStr
 
 from app.config import settings
 from app.main import app
@@ -71,7 +72,7 @@ class TestGetFeatureStatus:
     ) -> None:
         """Returns enabled=false when API key is empty string."""
         with patch("app.routers.gif.settings") as mock_settings:
-            mock_settings.giphy_api_key = ""
+            mock_settings.giphy_api_key = SecretStr("")
 
             response = client.get("/api/gif/feature", headers=auth_header)
 
@@ -83,7 +84,7 @@ class TestGetFeatureStatus:
     ) -> None:
         """Returns enabled=true when API key is configured."""
         with patch("app.routers.gif.settings") as mock_settings:
-            mock_settings.giphy_api_key = "test-api-key"
+            mock_settings.giphy_api_key = SecretStr("test-api-key")
 
             response = client.get("/api/gif/feature", headers=auth_header)
 

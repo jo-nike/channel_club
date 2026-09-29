@@ -128,7 +128,9 @@ def user_id_for(username: str, plex_id: str | None) -> str:
         'u_' followed by 16 hex characters.
     """
     account = account_key(username, plex_id)
-    digest = hmac.new(settings.jwt_secret.encode(), account.encode(), hashlib.sha256)
+    digest = hmac.new(
+        settings.jwt_secret.get_secret_value().encode(), account.encode(), hashlib.sha256
+    )
     return "u_" + digest.hexdigest()[:16]
 
 

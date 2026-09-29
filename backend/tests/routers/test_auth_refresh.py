@@ -16,7 +16,7 @@ DAY = 24 * 60 * 60
 
 
 def signed(claims: dict) -> str:
-    return jwt.encode(claims, settings.jwt_secret, algorithm="HS256")
+    return jwt.encode(claims, settings.jwt_secret.get_secret_value(), algorithm="HS256")
 
 
 def refresh(token: str):

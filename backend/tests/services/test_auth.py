@@ -68,7 +68,7 @@ def test_verify_token_expired():
     expired_time = datetime.now(UTC) - timedelta(hours=1)
     expired_token = jwt.encode(
         {"sub": "admin", "role": "admin", "exp": expired_time},
-        settings.jwt_secret,
+        settings.jwt_secret.get_secret_value(),
         algorithm="HS256",
     )
 
@@ -100,7 +100,9 @@ def _signed(claims: dict, key: str | None = None, algorithm: str = "HS256") -> s
     from app.config import settings
 
     claims = {"exp": datetime.now(UTC) + timedelta(hours=1), **claims}
-    return jwt.encode(claims, settings.jwt_secret if key is None else key, algorithm=algorithm)
+    return jwt.encode(
+        claims, settings.jwt_secret.get_secret_value() if key is None else key, algorithm=algorithm
+    )
 
 
 @pytest.mark.parametrize(
@@ -137,7 +139,9 @@ def test_verify_token_rejects_token_without_exp():
     from app.config import settings
     from app.services.auth import verify_token
 
-    token = jwt.encode({"sub": "admin", "role": "admin"}, settings.jwt_secret, algorithm="HS256")
+    token = jwt.encode(
+        {"sub": "admin", "role": "admin"}, settings.jwt_secret.get_secret_value(), algorithm="HS256"
+    )
     with pytest.raises(jwt.InvalidTokenError):
         verify_token(token)
 
@@ -158,6 +162,6 @@ def test_create_access_token_carries_session_typ_and_auth_time():
     from app.services.auth import create_access_token
 
     token = create_access_token({"sub": "admin", "role": "admin", "typ": "media"})
-    payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
+    payload = jwt.decode(token, settings.jwt_secret.get_secret_value(), algorithms=["HS256"])
     assert payload["typ"] == "session"
     assert isinstance(payload["auth_time"], int)

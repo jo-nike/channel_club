@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from pydantic import SecretStr
 
 from app.models.channel import (
     DispatchrrChannelGroup,
@@ -31,7 +32,7 @@ class TestDispatcharrAuthHeaders:
     def test_builds_apikey_header(self) -> None:
         """Should send the key using Dispatcharr's ApiKey scheme, not Bearer."""
         with patch("app.services.dispatcharr.settings") as mock_settings:
-            mock_settings.dispatcharr_api_key = "secret-key"
+            mock_settings.dispatcharr_api_key = SecretStr("secret-key")
             assert dispatcharr_auth_headers() == {"Authorization": "ApiKey secret-key"}
 
     def test_raises_when_api_key_missing(self) -> None:
@@ -56,7 +57,7 @@ class TestDispatcharrAuthHeaders:
             mock_client_class.return_value = mock_client
 
             with patch("app.services.dispatcharr.settings") as mock_settings:
-                mock_settings.dispatcharr_api_key = "secret-key"
+                mock_settings.dispatcharr_api_key = SecretStr("secret-key")
                 mock_settings.dispatcharr_url = "http://test:9191"
                 await get_channel_groups()
 

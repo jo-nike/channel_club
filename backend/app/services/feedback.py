@@ -199,7 +199,7 @@ async def publish(message: NtfyMessage, transport: httpx.AsyncBaseTransport | No
         "Priority": message.priority,
         "Content-Type": "text/plain; charset=utf-8",
     }
-    token = settings.ntfy_token.strip()
+    token = settings.ntfy_token.get_secret_value().strip()
     if token:
         headers["Authorization"] = f"Bearer {token}"
     url = settings.ntfy_url.rstrip("/") + "/" + settings.ntfy_topic
