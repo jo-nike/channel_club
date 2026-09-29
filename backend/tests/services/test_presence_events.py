@@ -58,7 +58,9 @@ def test_session_start_and_stop_carry_user_and_duration(events) -> None:
 
     recs = events()
     assert _names(recs) == ["session.start", "session.stop"]
-    assert recs[0]["user"] == "jon" and recs[0]["session"] == "s1" and recs[0]["view"] == "live"
+    assert recs[0]["user"] == "jon" and recs[0]["session"] == "s1"
+    # Every client connects as the unified TV view, so sessions carry no view
+    assert "view" not in recs[0] and "view" not in recs[1]
     assert recs[1]["reason"] == "disconnect"
     assert isinstance(recs[1]["duration_s"], float)
 

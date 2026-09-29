@@ -130,6 +130,14 @@ def test_watch_queries_leave_out_the_pre_r2_empty_live_slot() -> None:
         assert 'record_extra_channel_id!="live-channel-0"' in expr, expr
 
 
+def test_no_session_query_filters_on_view() -> None:
+    # Session events carry no view: every client connects as the unified TV view
+    session = [e for e in _exprs(_load_generator().dashboard) if 'event="session.' in e]
+    assert session
+    for expr in session:
+        assert "record_extra_view" not in expr, expr
+
+
 _EVENT_FILTER = re.compile(r'record_extra_event="([^"]+)"')
 _FIELD = re.compile(r"record_extra_(\w+)")
 

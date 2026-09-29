@@ -9,8 +9,10 @@ INFO log event (``session.start``, ``session.stop``, ``watch.start``,
 ``watch.stop``, ``watch.progress``, ``programme.change``, ``programme.stop``)
 with bound fields, so viewing history can be queried from the log store
 (Loki: ``| json | record_extra_event="watch.stop"``) without a database.
-Session events are per connection; watch and programme events are per person,
-from the connection the presence snapshot shows (primary_connections).
+Session events are per connection and carry no view (every client connects
+as the unified TV view, so it never was one); watch and programme events are
+per person, from the connection the presence snapshot shows
+(primary_connections).
 """
 
 import asyncio
@@ -310,11 +312,10 @@ def _close_session(user: UserPresence, reason: str, end: datetime | None = None)
     duration = _seconds_since(user.connected_since, end)
     _emit(
         "session.stop",
-        f"User {user.username} disconnected from {user.view} view after {duration}s ({reason})",
+        f"User {user.username} disconnected after {duration}s ({reason})",
         user=user.username,
         user_id=user.user_id,
         session=user.connection_id,
-        view=user.view,
         duration_s=duration,
         reason=reason,
     )
@@ -352,11 +353,10 @@ def track_user(
     _active_users[connection_id] = user_presence
     _emit(
         "session.start",
-        f"User {username} connected to {view} view (session: {connection_id})",
+        f"User {username} connected (session: {connection_id})",
         user=username,
         user_id=user_id,
         session=connection_id,
-        view=view,
     )
     return user_presence
 

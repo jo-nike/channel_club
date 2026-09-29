@@ -25,8 +25,10 @@ DISPATCHARR_LINEUP_URL = "https://streams.example.com/hdhr/lineup.json"
 ERSATZTV_XMLTV_URL = "http://192.168.50.108:8409/iptv/xmltv.xml"
 
 # Base stream: JSON-parsed channel-club logs, filtered by the dashboard variables.
+# Only watch.* and programme.* carry a view: session.* (every client connects as the
+# unified TV view) and channel.change (the shared live channel) filter on the user
+# alone, through USER_BASE.
 BASE = '{container="channel-club"} | json | record_extra_user=~"$user" | record_extra_view=~"$view"'
-# channel.change (the shared live channel) carries no view, so it filters on the user alone.
 # Watch events leave out the phantom 'Live' watches pre-R2 bundles logged on the
 # empty Live slot, under its synthetic id.
 WATCH_BASE = BASE + ' | record_extra_channel_id!="live-channel-0"'
@@ -225,8 +227,8 @@ panels.append(row("Viewers", y)); y += 1
 
 watch_time_expr = f'sum by (record_extra_user) (sum_over_time({WATCH_BASE} | record_extra_event="watch.stop" | unwrap record_extra_duration_s [$__range]))'
 
-panels.append(stat("Unique viewers", [loki(f'count(sum by (record_extra_user) (count_over_time({BASE} | record_extra_event="session.start" [$__range])))', instant=True)], 0, y))
-panels.append(stat("Sessions", [loki(f'sum(count_over_time({BASE} | record_extra_event="session.start" [$__range]))', instant=True)], 4, y))
+panels.append(stat("Unique viewers", [loki(f'count(sum by (record_extra_user) (count_over_time({USER_BASE} | record_extra_event="session.start" [$__range])))', instant=True)], 0, y))
+panels.append(stat("Sessions", [loki(f'sum(count_over_time({USER_BASE} | record_extra_event="session.start" [$__range]))', instant=True)], 4, y))
 panels.append(stat("Watch time", [loki(f'sum(sum_over_time({WATCH_BASE} | record_extra_event="watch.stop" | unwrap record_extra_duration_s [$__range]))', instant=True)], 8, y, unit="s"))
 panels.append(stat("Channel switches", [loki(f'sum(count_over_time({WATCH_BASE} | record_extra_event="watch.start" [$__range]))', instant=True)], 12, y))
 panels.append(stat("Channels watched", [loki(f'count(sum by (record_extra_channel) (count_over_time({WATCH_BASE} | record_extra_event="watch.start" [$__range])))', instant=True)], 16, y))
@@ -243,7 +245,7 @@ y += 12
 
 panels.append(timeseries(
     "Sessions started per hour",
-    [loki(f'sum by (record_extra_user) (count_over_time({BASE} | record_extra_event="session.start" [1h]))', legend="{{record_extra_user}}")],
+    [loki(f'sum by (record_extra_user) (count_over_time({USER_BASE} | record_extra_event="session.start" [1h]))', legend="{{record_extra_user}}")],
     0, y, w=12, bars=True, stack=True,
 ))
 panels.append(event_table("Shared live channel changes", "channel.change", ["user", "channel"], 12, y, w=12, h=8, base=USER_BASE))
