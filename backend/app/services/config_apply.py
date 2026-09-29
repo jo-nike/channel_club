@@ -11,7 +11,9 @@ owner lookup and the log level. The order:
 2. Validate the batch, write the file, then assign every value with no await
    in between (settings_store.edit).
 3. Invalidate the caches the old values filled.
-4. Run the async side effects.
+4. Tell every open tab when an optional feature switched on or off
+   (features_update), so it shows only what the server has on.
+5. Run the async side effects.
 """
 
 import asyncio
@@ -21,6 +23,7 @@ from loguru import logger
 
 from app.config import UiField, settings
 from app.logging_config import configure_logging
+from app.models.websocket import Features, ServerFeaturesUpdate
 from app.services import channel_state, dispatcharr, plex, settings_store
 from app.services.cast import cast_service
 from app.services.epg_service import get_epg_service
@@ -35,6 +38,32 @@ log = logger.bind(service="config_apply")
 
 DISPATCHARR_FIELDS = frozenset({"dispatcharr_url", "dispatcharr_api_key"})
 PLEX_OWNER_FIELDS = frozenset({"plex_server_token", "plex_auth_enabled"})
+
+
+def client_features() -> Features:
+    """Chat and GIFs as they are now: what connection_ack and features_update carry."""
+    key = settings.giphy_api_key
+    return Features(chat=settings.chat_enabled, gif=bool(key and key.get_secret_value()))
+
+
+def _feature_switches() -> tuple[bool, ...]:
+    """Which optional features clients can use: chat, GIFs, clips, Zipline, casting, feedback."""
+    features = client_features()
+    return (
+        features.chat,
+        features.gif,
+        settings.highlight_enabled,
+        settings.zipline_available,
+        settings.cast_enabled,
+        settings.ntfy_available,
+    )
+
+
+async def broadcast_features_update() -> None:
+    """Tell every connected client an optional feature switched on or off."""
+    await channel_state.broadcast(
+        ServerFeaturesUpdate(type="features_update", features=client_features())
+    )
 
 
 async def _prepare(values: Mapping[str, object]) -> None:
@@ -116,10 +145,14 @@ async def apply(
     before = {field: getattr(settings, field) for field in validated}
     await _prepare(validated)
     async with settings_store.edit() as draft:
+        # Under the store's lock: no other save lands between this and the check below
+        switches = _feature_switches()
         draft.values.update(validated)
         if edit is not None:
             edit(draft)
     changed = {field for field in validated if getattr(settings, field) != before[field]}
     _invalidate(changed)
+    if _feature_switches() != switches:
+        await broadcast_features_update()
     await _side_effects(changed, before)
     return changed

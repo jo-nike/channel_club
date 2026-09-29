@@ -124,6 +124,15 @@
       }
     }
   ],
+  "features_update": [
+    {
+      "type": "features_update",
+      "features": {
+        "chat": false,
+        "gif": false
+      }
+    }
+  ],
   "presence_update": [
     {
       "type": "presence_update",

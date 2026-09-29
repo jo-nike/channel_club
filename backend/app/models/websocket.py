@@ -198,6 +198,17 @@ class ServerSettingsUpdate(BaseModel):
     settings: AppSettings
 
 
+class ServerFeaturesUpdate(BaseModel):
+    """An optional feature switched on or off: chat, GIFs, clips, casting or feedback.
+
+    Chat and GIFs come as in connection_ack; clients read clips, casting and
+    feedback again from their /feature endpoints.
+    """
+
+    type: Literal["features_update"]
+    features: Features
+
+
 class ServerPresenceUpdate(BaseModel):
     type: Literal["presence_update"]
     presence: list[PresenceEntry]
@@ -223,6 +234,7 @@ ServerMessage = Annotated[
     | ServerChatAck
     | ServerChannelUpdate
     | ServerSettingsUpdate
+    | ServerFeaturesUpdate
     | ServerPresenceUpdate
     | ServerPong
     | ServerError,

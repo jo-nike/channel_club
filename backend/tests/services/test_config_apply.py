@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
 from app import config
 from app.config import settings
@@ -352,6 +353,97 @@ class TestSwitches:
 
         assert settings.log_level == "DEBUG"
         configure.assert_called_once_with()
+
+
+def _features_updates(broadcast: AsyncMock) -> list[dict]:
+    """The features_update messages handed to a stand-in channel_state.broadcast."""
+    sent = [server_payload(call.args[0]) for call in broadcast.await_args_list]
+    return [message for message in sent if message["type"] == "features_update"]
+
+
+class TestFeaturesUpdate:
+    """Open tabs hear when an optional feature switches on or off, and only then."""
+
+    @pytest.fixture
+    def broadcast(self, monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+        broadcast = AsyncMock()
+        monkeypatch.setattr(channel_state, "broadcast", broadcast)
+        # Switching clips or casting on has nothing to sweep here
+        monkeypatch.setattr(highlight_service, "cleanup_stale_segments", lambda: None)
+        monkeypatch.setattr(cast_service, "cleanup_stale_sessions", lambda: None)
+        return broadcast
+
+    @pytest.mark.parametrize(
+        ("change", "features"),
+        [
+            ({"chat_enabled": True}, {"chat": True, "gif": False}),
+            ({"giphy_api_key": "a giphy key"}, {"chat": False, "gif": True}),
+            ({"highlight_enabled": True}, {"chat": False, "gif": False}),
+            ({"cast_enabled": True}, {"chat": False, "gif": False}),
+            (
+                {"ntfy_enabled": True, "ntfy_url": "https://ntfy.test", "ntfy_topic": "reports"},
+                {"chat": False, "gif": False},
+            ),
+        ],
+        ids=["chat", "gifs", "clips", "cast", "feedback"],
+    )
+    async def test_a_feature_switching_tells_every_tab_once(
+        self, broadcast: AsyncMock, change: dict, features: dict
+    ) -> None:
+        await config_apply.apply(change)
+
+        assert _features_updates(broadcast) == [{"type": "features_update", "features": features}]
+
+    async def test_zipline_uploads_starting_tell_every_tab(
+        self, broadcast: AsyncMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(settings, "highlight_enabled", True)
+
+        await config_apply.apply(
+            {"zipline_enabled": True, "zipline_url": "https://zipline.test", "zipline_token": "t 1"}
+        )
+
+        assert len(_features_updates(broadcast)) == 1
+
+    async def test_a_feature_switching_off_tells_every_tab(
+        self, broadcast: AsyncMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(settings, "chat_enabled", True)
+
+        await config_apply.apply({"chat_enabled": False})
+
+        assert _features_updates(broadcast) == [
+            {"type": "features_update", "features": {"chat": False, "gif": False}}
+        ]
+
+    @pytest.mark.parametrize(
+        "change",
+        [
+            {"log_level": "DEBUG"},
+            # Feedback still has no address or topic
+            {"ntfy_enabled": True},
+            # GIFs were on and stay on
+            {"giphy_api_key": "another giphy key"},
+        ],
+        ids=["no feature", "still unavailable", "still on"],
+    )
+    async def test_a_save_that_switches_nothing_tells_nobody(
+        self, broadcast: AsyncMock, monkeypatch: pytest.MonkeyPatch, change: dict
+    ) -> None:
+        monkeypatch.setattr(settings, "giphy_api_key", SecretStr("a giphy key"))
+
+        await config_apply.apply(change)
+
+        assert _features_updates(broadcast) == []
+
+    async def test_a_feature_the_environment_locks_tells_nobody(
+        self, broadcast: AsyncMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(config, "ENV_FIELDS", frozenset({"jwt_secret", "chat_enabled"}))
+
+        await config_apply.apply({"chat_enabled": True})
+
+        assert _features_updates(broadcast) == []
 
 
 class TestReadLive:

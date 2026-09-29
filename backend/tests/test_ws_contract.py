@@ -27,7 +27,14 @@ from app.models.channel import Channel
 from app.models.websocket import server_message_adapter
 from app.routers import admin
 from app.routers import websocket as websocket_router
-from app.services import app_settings, channel_state, chat, presence, presence_broadcast
+from app.services import (
+    app_settings,
+    channel_state,
+    chat,
+    config_apply,
+    presence,
+    presence_broadcast,
+)
 from app.services.auth import create_access_token
 from tests.ws_helpers import ws_connect
 
@@ -285,6 +292,11 @@ class TestBroadcasts:
                 "settings": {"userChannelSelection": False, "presenceVisible": False},
             }
         ]
+
+    @pytest.mark.usefixtures("chat_on")
+    async def test_features_update(self) -> None:
+        sent = await _broadcasts(config_apply.broadcast_features_update)
+        assert sent == [{"type": "features_update", "features": {"chat": True, "gif": False}}]
 
     async def test_presence_update(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(presence_broadcast, "BROADCAST_DEBOUNCE_SECONDS", 0)

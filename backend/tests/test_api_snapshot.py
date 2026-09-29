@@ -40,7 +40,14 @@ from app.models.status import (
 )
 from app.routers import websocket as websocket_router
 from app.routers.auth_deps import require_admin
-from app.services import app_settings, channel_state, chat, presence, presence_broadcast
+from app.services import (
+    app_settings,
+    channel_state,
+    chat,
+    config_apply,
+    presence,
+    presence_broadcast,
+)
 from app.services.auth import create_access_token
 from app.services.highlight import Capture
 from app.services.media_source import MediaChannel
@@ -190,6 +197,7 @@ def test_websocket_payloads(client: TestClient, monkeypatch: pytest.MonkeyPatch)
             channel_state.clear_current_channel_async
         )
         payloads["settings_update"] = await _broadcasts(app_settings.broadcast_settings_update)
+        payloads["features_update"] = await _broadcasts(config_apply.broadcast_features_update)
         payloads["presence_update"] = await _broadcasts(
             presence_broadcast._broadcast_after_debounce
         )
