@@ -9,32 +9,13 @@ import { PlexLoginButton } from '@/components/PlexLoginButton'
 import { QRPlexLogin } from '@/components/QRPlexLogin'
 import { useAuthStore } from '@/stores/authStore'
 import { useTVMode } from '@/hooks/useTVMode'
+import { PLEX_ERROR_COPY, usePlexSignIn } from '@/hooks/usePlexSignIn'
 import { logger } from '@/lib/logger'
 import { cn } from '@/lib/utils'
-import { isIOS, isStandalone } from '@/lib/platform'
 import { login, getAuthConfig, loginWithPlex, type AuthConfig } from '@/services/api'
-import {
-  authenticateWithPlex,
-  authenticateWithPlexRedirect,
-  finishPlexRedirect,
-  hasPendingPlexPin,
-  openPlexAuthWindow,
-  PlexAuthError,
-  takePendingPlexPin,
-  type PlexAuthErrorCode,
-} from '@/services/plexAuth'
+import { PlexAuthError } from '@/services/plexAuth'
 
 type PlexAuthMode = 'select' | 'popup' | 'qr'
-
-/** What the sign-in callout says for each Plex sign-in failure (popup or redirect). */
-const PLEX_ERROR_COPY: Record<PlexAuthErrorCode, string> = {
-  popup_blocked: 'Your browser blocked the Plex window.',
-  timeout: 'Plex sign-in timed out.',
-  rate_limited: 'Too many attempts, wait a minute.',
-  pin_failed: "Couldn't start Plex sign-in.",
-  finish_failed: "Couldn't finish Plex sign-in. Try again.",
-  cancelled: 'Plex sign-in was cancelled.',
-}
 
 export function LoginForm() {
   const [username, setUsername] = useState('')
@@ -43,20 +24,25 @@ export function LoginForm() {
   // with Try again / Sign in with a code)
   const [error, setError] = useState<string | PlexAuthError>('')
   const [isLoading, setIsLoading] = useState(false)
-  // Back from Plex's redirect sign-in: waiting until the PIN is checked
-  const [plexLoading, setPlexLoading] = useState(hasPendingPlexPin)
+  // A code sign-in's token is being exchanged for a session
+  const [qrFinishing, setQrFinishing] = useState(false)
   const [authConfig, setAuthConfig] = useState<AuthConfig | null>(null)
   const [configLoading, setConfigLoading] = useState(true)
   const [plexAuthMode, setPlexAuthMode] = useState<PlexAuthMode>('select')
-  // Aborts the Plex flow in progress (Cancel); null when none is running
-  const plexAbortRef = useRef<AbortController | null>(null)
-  // The redirect PIN being finished. Taken from storage once, so a reload
-  // never retries it; kept here for StrictMode's second effect run.
-  const pendingPinRef = useRef<number | null>(null)
   const setAuth = useAuthStore((state) => state.setAuth)
   const isTVMode = useTVMode()
   // The TV opens on the code screen once; leaving it doesn't bring it back
   const autoStartedRef = useRef(false)
+  const plex = usePlexSignIn({
+    onToken: async (authToken, signal) => {
+      const response = await loginWithPlex(authToken)
+      if (signal.aborted) return
+      setAuth(response.accessToken, response.role)
+    },
+    onError: (err) => setError(err),
+    onStart: () => setError(''),
+  })
+  const plexLoading = plex.waiting || qrFinishing
 
   // A TV with Plex goes straight to the code screen: no D-pad trip to the
   // Plex button first. Set with the config, so the choice screen never flashes.
@@ -93,128 +79,22 @@ export function LoginForm() {
     }
   }
 
-  /**
-   * Show a Plex failure in the callout. Cancel, closing the Plex window or
-   * coming back from Plex without signing in is not an error.
-   */
-  const reportPlexFailure = (err: unknown, controller: AbortController) => {
-    const cancelled = controller.signal.aborted
-      || (err instanceof PlexAuthError && err.code === 'cancelled')
-    if (err instanceof Error && !cancelled) {
-      setError(err instanceof PlexAuthError ? err : err.message)
-    }
-  }
-
-  /** Hand the Plex button back, unless a cancelled flow already has. */
-  const releasePlexFlow = (controller: AbortController) => {
-    if (plexAbortRef.current === controller) {
-      plexAbortRef.current = null
-      setPlexLoading(false)
-    }
-  }
-
-  /** Sign in with the token a Plex flow (popup or redirect return) resolves to. */
-  const completePlexSignIn = async (controller: AbortController, plexToken: Promise<string>) => {
-    try {
-      const authToken = await plexToken
-      const response = await loginWithPlex(authToken)
-      if (controller.signal.aborted) return
-      setAuth(response.accessToken, response.role)
-    } catch (err) {
-      reportPlexFailure(err, controller)
-    } finally {
-      releasePlexFlow(controller)
-    }
-  }
-
-  // Back from Plex's redirect sign-in (iPhone, iPad, installed app): finish it
-  const resumePlexRedirect = useEffectEvent((pinId: number, controller: AbortController) => {
-    plexAbortRef.current = controller
-    void completePlexSignIn(controller, finishPlexRedirect(pinId, controller.signal))
-  })
-
-  useEffect(() => {
-    const pinId = pendingPinRef.current ?? takePendingPlexPin()
-    if (pinId === null) return
-    pendingPinRef.current = pinId
-    const controller = new AbortController()
-    resumePlexRedirect(pinId, controller)
-    return () => controller.abort()
-  }, [])
-
-  // Back from Plex with the Back button: the browser may restore this page
-  // from its back-forward cache, still "Waiting for Plex..." with no check
-  // running. Finish the pending PIN as a normal return would, or let go.
-  const handleRestoredPage = useEffectEvent((event: PageTransitionEvent) => {
-    if (!event.persisted) return
-    plexAbortRef.current?.abort()
-    plexAbortRef.current = null
-    const pinId = takePendingPlexPin()
-    if (pinId === null) {
-      setPlexLoading(false)
-      return
-    }
-    setError('')
-    setPlexLoading(true)
-    resumePlexRedirect(pinId, new AbortController())
-  })
-
-  useEffect(() => {
-    const onPageShow = (event: PageTransitionEvent) => handleRestoredPage(event)
-    window.addEventListener('pageshow', onPageShow)
-    return () => {
-      window.removeEventListener('pageshow', onPageShow)
-      // A check the restored page started has no other owner to stop it
-      plexAbortRef.current?.abort()
-    }
-  }, [])
-
   const handlePlexLogin = async () => {
     // On TV, default to QR mode
     if (isTVMode) {
       setPlexAuthMode('qr')
       return
     }
-    // iPhone, iPad and installed apps: a popup is unreliable there, so the
-    // whole page goes to Plex and the sign-in finishes when it comes back.
-    // Plain Android browsers keep the popup, which works there.
-    if (isIOS() || isStandalone()) {
-      setError('')
-      const controller = new AbortController()
-      plexAbortRef.current = controller
-      setPlexLoading(true)
-      try {
-        await authenticateWithPlexRedirect(controller.signal)
-        // The page is leaving for Plex: stay on "Waiting for Plex..."
-      } catch (err) {
-        reportPlexFailure(err, controller)
-        releasePlexFlow(controller)
-      }
-      return
-    }
-    // On desktop, use popup mode. Open the window before any await so the
-    // browser still counts it as part of the click.
-    const popup = openPlexAuthWindow()
-    setError('')
-    if (!popup) {
-      logger.error('Plex', 'Failed to open Plex authentication popup')
-      setError(new PlexAuthError('popup_blocked', 'Failed to open Plex authentication popup'))
-      return
-    }
-    const controller = new AbortController()
-    plexAbortRef.current = controller
-    setPlexLoading(true)
-    await completePlexSignIn(controller, authenticateWithPlex(popup, controller.signal))
+    // A popup, or on iPhones, iPads and installed apps the whole page goes to Plex
+    await plex.start()
   }
 
   const handlePlexCancel = () => {
-    plexAbortRef.current?.abort()
-    plexAbortRef.current = null
-    setPlexLoading(false)
+    plex.cancel()
   }
 
   const handleQRPlexSuccess = async (authToken: string) => {
-    setPlexLoading(true)
+    setQrFinishing(true)
     setError('')
     try {
       const response = await loginWithPlex(authToken)
@@ -222,7 +102,7 @@ export function LoginForm() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to complete Plex login')
     } finally {
-      setPlexLoading(false)
+      setQrFinishing(false)
       setPlexAuthMode('select')
     }
   }
