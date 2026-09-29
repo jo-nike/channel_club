@@ -6,15 +6,15 @@ import { cn } from '@/lib/utils'
 import { SWITCH_HIT_AREA } from './styles'
 
 interface SettingCardProps {
-  /** Base for the ids: `${id}-title`, `${id}-desc`, `${id}-switch` and `${id}-body` */
+  /** Base for the ids: `${id}-title`, `${id}-desc` and `${id}-body` */
   id: string
   icon: LucideIcon
   title: ReactNode
   /** Beside the title, such as an "FFmpeg ready" chip */
   badge?: ReactNode
   description?: ReactNode
-  /** A switch in the head that shows the body while on */
-  toggle?: { checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean }
+  /** A switch in the head that shows the body while on; its id defaults to `${id}-switch` */
+  toggle?: { checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean; id?: string }
   className?: string
   children?: ReactNode
 }
@@ -52,7 +52,7 @@ export function SettingCard({ id, icon: Icon, title, badge, description, toggle,
         </div>
         {toggle && (
           <Switch
-            id={`${id}-switch`}
+            id={toggle.id ?? `${id}-switch`}
             checked={toggle.checked}
             onCheckedChange={toggle.onChange}
             disabled={toggle.disabled}
