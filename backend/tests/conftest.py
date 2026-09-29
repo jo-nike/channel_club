@@ -27,7 +27,12 @@ with patch.object(DotEnvSettingsSource, "_read_env_files", return_value={}):
     for field in Settings.model_fields:
         os.environ.pop(field.upper(), None)
     # _env_file is a pydantic-settings init option that pyright doesn't see on Settings
-    isolated = Settings(_env_file=None, jwt_secret="test-only-signing-key-with-at-least-32-bytes")  # pyright: ignore[reportCallIssue]
+    isolated = Settings(
+        _env_file=None,  # pyright: ignore[reportCallIssue]
+        jwt_secret="test-only-signing-key-with-at-least-32-bytes",
+        dispatcharr_url="http://dispatcharr.test:9191",
+        ersatztv_base_url="http://ersatztv.test:8409",
+    )
     for field in Settings.model_fields:
         setattr(settings, field, getattr(isolated, field))
 

@@ -24,7 +24,7 @@ class FailedSegment(httpx.AsyncByteStream):
 @pytest.mark.asyncio
 async def test_partial_upstream_raises_and_closes_the_response_not_the_client():
     stream = FailedSegment()
-    url = "http://192.168.50.108:8409/iptv/session/8/partial.ts"
+    url = "http://ersatztv.test:8409/iptv/session/8/partial.ts"
     response = httpx.Response(200, stream=stream, request=httpx.Request("GET", url))
     client = AsyncMock()
     with (
@@ -47,7 +47,7 @@ async def test_asgi_client_observes_failure_instead_of_success():
     from app.routers.auth_deps import get_current_user_or_token
 
     app.dependency_overrides[get_current_user_or_token] = lambda: object()
-    url = "http://192.168.50.108:8409/iptv/session/8/partial.ts"
+    url = "http://ersatztv.test:8409/iptv/session/8/partial.ts"
     response = httpx.Response(200, stream=FailedSegment(), request=httpx.Request("GET", url))
     upstream = AsyncMock()
     downstream = httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test")

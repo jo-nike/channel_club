@@ -59,7 +59,7 @@ class ChunkedSegment(httpx.AsyncByteStream):
 
 @pytest.mark.asyncio
 async def test_segment_proxy_keeps_its_own_csp_and_still_streams_chunk_by_chunk():
-    url = "http://192.168.50.108:8409/iptv/session/8/live000010.ts"
+    url = "http://ersatztv.test:8409/iptv/session/8/live000010.ts"
     events: list[str] = []
     upstream = httpx.Response(
         200,

@@ -138,6 +138,9 @@ async def lifespan(app: FastAPI):
             "Feedback push unavailable: configure NTFY_URL (http/https base URL) "
             "and NTFY_TOPIC (letters, digits, '_' or '-')"
         )
+    for key, source in (("DISPATCHARR_URL", "Dispatcharr"), ("ERSATZTV_BASE_URL", "ErsatzTV")):
+        if not getattr(settings, key.lower()):
+            logger.warning("{} is not set, so {} channels are unavailable", key, source)
     for key, replacement in OBSOLETE_ENV_KEYS.items():
         if key in os.environ:
             logger.warning("{} is no longer read: {}", key, replacement)

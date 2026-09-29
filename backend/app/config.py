@@ -54,15 +54,15 @@ class Settings(BaseSettings):
 
     # Sources
     # Dispatcharr's base URL, for the server's API calls and for the stream URLs
-    # browsers play, so it must be reachable from both.
-    dispatcharr_url: str = "http://10.8.0.2:9191"
+    # browsers play, so it must be reachable from both. Unset, its channels are unavailable.
+    dispatcharr_url: str = ""
     # Dispatcharr Authentication (optional - for channel and stats endpoints).
     # Personal API key from the Dispatcharr profile page (0.20.0+). Sent as
     # "Authorization: ApiKey <key>"; does not expire.
     dispatcharr_api_key: SecretStr | None = None
 
-    # ErsatzTV Configuration
-    ersatztv_base_url: str = "http://192.168.50.108:8409"
+    # ErsatzTV Configuration. Unset, its channels are unavailable.
+    ersatztv_base_url: str = ""
 
     # ErsatzTV serves its feeds at fixed paths under the base URL.
     @property

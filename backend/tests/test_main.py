@@ -200,6 +200,31 @@ def test_startup_warns_about_obsolete_variables(monkeypatch, key) -> None:
     assert len(warnings) == 1 and warnings[0].startswith(f"WARNING | {key} is no longer read: ")
 
 
+@pytest.mark.parametrize(
+    ("field", "warning"),
+    [
+        ("dispatcharr_url", "DISPATCHARR_URL is not set, so Dispatcharr channels are unavailable"),
+        ("ersatztv_base_url", "ERSATZTV_BASE_URL is not set, so ErsatzTV channels are unavailable"),
+    ],
+)
+def test_startup_warns_about_an_unset_source(monkeypatch, field, warning) -> None:
+    """No source URL has a default, so a missing one is named at startup."""
+    monkeypatch.setattr(settings, field, "")
+    output = StringIO()
+    handler_id = logger.add(output, format="{level} | {message}", level="WARNING")
+    try:
+        with (
+            patch("app.main.get_grouped_channels", new=AsyncMock(return_value=[])),
+            TestClient(app),
+        ):
+            pass
+    finally:
+        logger.remove(handler_id)
+
+    unset = [line for line in output.getvalue().splitlines() if "is not set, so" in line]
+    assert unset == [f"WARNING | {warning}"]
+
+
 def test_auth_token_endpoint_registered(client):
     """Test auth router is registered at /api/auth/token."""
     response = client.post(

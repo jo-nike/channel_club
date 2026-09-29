@@ -73,11 +73,11 @@ class TestAuthSettings:
 class TestErsatzTVSettings:
     """Tests for ErsatzTV configuration settings."""
 
-    def test_settings_has_ersatztv_base_url(self) -> None:
-        """Settings should have ersatztv_base_url attribute."""
-        settings = Settings()
-        assert hasattr(settings, "ersatztv_base_url")
-        assert settings.ersatztv_base_url is not None
+    def test_source_urls_have_no_default(self) -> None:
+        """A deploy names its own Dispatcharr and ErsatzTV; nothing points at a guessed host."""
+        settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+        assert settings.dispatcharr_url == ""
+        assert settings.ersatztv_base_url == ""
 
     @pytest.mark.parametrize("base", ["http://ersatztv:8409", "http://ersatztv:8409/"])
     def test_feed_urls_are_derived_from_the_base_url(self, base: str) -> None:

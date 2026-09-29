@@ -165,7 +165,7 @@ class TestUrlEncodingDecoding:
 
     def test_url_encoding_roundtrip(self):
         """URL encoding/decoding preserves URL."""
-        original = "http://192.168.50.108:8409/iptv/segment-12345.ts?token=abc"
+        original = "http://ersatztv.test:8409/iptv/segment-12345.ts?token=abc"
         rewriter = HLSManifestRewriter()
         encoded = rewriter._encode_url(original)
         decoded = HLSManifestRewriter.decode_url(encoded)
