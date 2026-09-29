@@ -117,7 +117,7 @@ def plex_server_name() -> str | None:
     return _document.plex_server_name if _document is not None else None
 
 
-def validate_values(changes: Mapping[str, object]) -> dict[str, object]:
+def validate_values[K: str](changes: Mapping[K, object]) -> dict[str, object]:
     """Coerce and check each value as assigning it to the settings would.
 
     Nothing is assigned to the settings themselves, so a batch either passes

@@ -247,6 +247,24 @@ async def _restore_live_channel(channel_id: str) -> None:
     log.info("Live channel {} not restored: the channel catalogue stayed unavailable", channel_id)
 
 
+async def reresolve_live() -> None:
+    """Resolve Live again after its source's address changed, as the restore at boot does.
+
+    Live's stream URL names the old address, so Live is cleared in memory (the
+    saved id stays) and clients are told; the background restore then puts the
+    channel back from the new catalogue, or leaves Live empty if it has none.
+    """
+    global _current_channel
+    async with _change_lock:
+        channel = _current_channel
+        if channel is None:
+            return
+        _current_channel = None
+        log.info("Live channel '{}' is being resolved again: its source moved", channel.name)
+        await broadcast(ServerChannelUpdate(type="channel_update", channel=None, changedBy=None))
+    start_restore_task(channel.id)
+
+
 def clear_current_channel() -> None:
     """Clear the current channel selection (synchronous, no broadcast)."""
     global _current_channel

@@ -19,7 +19,8 @@ LOGO_CACHE_CONTROL = "public, max-age=3600"
 LOGO_NOT_FOUND_CACHE_CONTROL = "public, max-age=300"
 
 
-def _origin(url: str) -> tuple[str, str, int] | None:
+def url_origin(url: str) -> tuple[str, str, int] | None:
+    """(scheme, host, port) of an http(s) URL without userinfo, or None."""
     try:
         parsed = urlsplit(url)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
@@ -38,10 +39,10 @@ def _origin(url: str) -> tuple[str, str, int] | None:
 def allowed_logo_url(url: str, trusted_origins: Sequence[str] | None = None) -> bool:
     """Only the ErsatzTV origins by default; a caller with its own fixed origin
     passes it as `trusted_origins`, which replaces (never extends) that list."""
-    origin = _origin(url)
+    origin = url_origin(url)
     if trusted_origins is None:
         trusted_origins = [settings.ersatztv_base_url, *settings.ersatztv_logo_origins]
-    return origin is not None and origin in {_origin(value) for value in trusted_origins}
+    return origin is not None and origin in {url_origin(value) for value in trusted_origins}
 
 
 def raster_type(body: bytes) -> str:
@@ -134,6 +135,8 @@ class LogoCache:
         self._reported: set[str] = set()
         # Only keys with a fetch in flight: an entry goes when its last caller settles
         self._flights: dict[str, _Flight] = {}
+        # Bumped by clear(): a logo fetched from before it is served but not kept
+        self._generation = 0
 
     def cached(self, key: str) -> tuple[bytes, str] | None:
         """The cached logo, or None; raises for a remembered failure or 404."""
@@ -187,6 +190,7 @@ class LogoCache:
                 cached = self.cached(key)
                 if cached is not None:
                     return cached
+                generation = self._generation
                 try:
                     body, content_type = await fetch()
                 except httpx.HTTPStatusError as e:
@@ -201,6 +205,8 @@ class LogoCache:
             flight.callers -= 1
             if not flight.callers and self._flights.get(key) is flight:
                 del self._flights[key]
+        if generation != self._generation:
+            return body, content_type
         self._failures.pop(key, None)
         self._not_found.pop(key, None)
         self._reported.discard(key)
@@ -219,6 +225,7 @@ class LogoCache:
 
     def clear(self, prefix: str = "") -> None:
         """Drop the logos, failures and 404s whose keys start with `prefix`."""
+        self._generation += 1
         for key in [key for key in self._entries if key.startswith(prefix)]:
             self._bytes -= len(self._entries.pop(key)[1])
         for memo in (self._failures, self._not_found):

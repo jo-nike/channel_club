@@ -53,6 +53,8 @@ class CachedFetch[T]:
         self._last_error: str | None = None
         self._lock = asyncio.Lock()
         self._task: asyncio.Task[None] | None = None
+        # Bumped by invalidate(): a fetch that started before it keeps nothing
+        self._generation = 0
         _instances.append(self)
 
     async def get(self) -> T:
@@ -90,7 +92,12 @@ class CachedFetch[T]:
             self._schedule_refresh()
 
     def invalidate(self) -> None:
-        """Drop the value and any remembered failure; the next get() fetches."""
+        """Drop the value and any remembered failure; the next get() fetches.
+
+        A fetch already running finishes, but neither its value nor its failure
+        is kept: it used the settings the invalidation replaced.
+        """
+        self._generation += 1
         self._value = None
         self._has_value = False
         self._fresh_until = 0.0
@@ -117,12 +124,17 @@ class CachedFetch[T]:
 
     async def _refresh(self) -> T:
         # Callers hold self._lock
+        generation = self._generation
         try:
             value = await self._fetch()
         except Exception as e:
-            self._retry_after = monotonic() + self._failure_ttl
-            self._last_error = str(e)
+            if generation == self._generation:
+                self._retry_after = monotonic() + self._failure_ttl
+                self._last_error = str(e)
             raise
+        if generation != self._generation:
+            # Invalidated while fetching: this caller gets it, the cache doesn't
+            return value
         self._value = value
         self._has_value = True
         self._fresh_until = monotonic() + self._ttl

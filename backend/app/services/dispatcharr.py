@@ -52,6 +52,11 @@ _grouped_cache: CachedFetch[GroupedChannelsResponse] = CachedFetch(
 )
 
 
+def invalidate_catalogue() -> None:
+    """Forget the catalogue and its failure memo, e.g. for a new address or key."""
+    _grouped_cache.invalidate()
+
+
 def catalogue_failing() -> bool:
     """Whether the latest catalogue fetch failed; local state only, never fetches."""
     return _grouped_cache._last_error is not None

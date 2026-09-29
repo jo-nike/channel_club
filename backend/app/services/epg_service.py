@@ -42,8 +42,9 @@ class EPGServiceError(Exception):
 class EPGService(XmltvCache[Program]):
     """Service for fetching and caching EPG data from Dispatcharr XMLTV endpoint."""
 
-    def __init__(self, dispatcharr_url: str):
-        self.dispatcharr_url = dispatcharr_url
+    def __init__(self, dispatcharr_url: str | None = None):
+        # None follows settings.dispatcharr_url, which can change while the app runs
+        self._dispatcharr_url = dispatcharr_url
         # The catalogue's guide ids at its last build, to notice a renumbering
         self._guide_ids: frozenset[str] | None = None
         super().__init__(
@@ -72,6 +73,13 @@ class EPGService(XmltvCache[Program]):
         if self._cache_expires is not None and self._cache_expires > now:
             log.info("Channel guide ids changed; expiring the EPG cache")
             self._cache_expires = now
+
+    @property
+    def dispatcharr_url(self) -> str:
+        """The Dispatcharr base URL the guide is fetched from, read on every fetch."""
+        if self._dispatcharr_url is None:
+            return settings.dispatcharr_url
+        return self._dispatcharr_url
 
     # The shared XMLTV timestamp parser (a missing offset means +0000)
     _parse_xmltv_datetime = staticmethod(parse_xmltv_datetime)
@@ -339,11 +347,11 @@ def get_epg_service() -> EPGService:
     """Get or create the EPG service singleton.
 
     Returns:
-        EPGService instance configured with Dispatcharr URL.
+        EPGService instance following the configured Dispatcharr URL.
     """
     global _epg_service
     if _epg_service is None:
-        _epg_service = EPGService(settings.dispatcharr_url)
+        _epg_service = EPGService()
         # Shut down and reset (tests) with the upstream caches
         register_closable(_epg_service)
     return _epg_service

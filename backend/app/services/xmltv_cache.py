@@ -128,6 +128,8 @@ class XmltvCache[P]:
         self._end = end
         self._unavailable = unavailable
         self._log = log
+        # Bumped by reset(): a refresh that started before it stores nothing
+        self._generation = 0
         self._clear()
 
     def _clear(self) -> None:
@@ -190,11 +192,13 @@ class XmltvCache[P]:
         """Fetch and parse the feed into the cache.
 
         Any exception is a failed refresh (a short reason goes to the health
-        report); CancelledError passes through.
+        report); CancelledError passes through. A refresh that a reset()
+        overtook stores and reports nothing: it read the old source.
 
         Returns:
             True if cache was successfully refreshed, False otherwise.
         """
+        generation = self._generation
         self._last_attempt_at = datetime.now(UTC)
         try:
             body = await self._fetch()
@@ -202,6 +206,8 @@ class XmltvCache[P]:
             # feed is CPU-bound and would otherwise block the event loop
             index = await asyncio.to_thread(self._index, body)
         except Exception as e:
+            if generation != self._generation:
+                return False
             self._last_error = failure_reason(e)
             if self._last_error == "refresh failed":
                 self._log.exception("{} refresh failed", self.name)
@@ -220,6 +226,9 @@ class XmltvCache[P]:
             )
             return False
 
+        if generation != self._generation:
+            self._log.debug("Discarded a {} refresh that a reset overtook", self.name)
+            return False
         # Swap the maps with no await between, so no lookup sees a mix
         self._cache = index.programmes
         self._channel_names = index.channel_names
@@ -249,7 +258,12 @@ class XmltvCache[P]:
                 return
             if self._retry_at is not None and datetime.now(UTC) < self._retry_at:
                 return
-            if await self.refresh_cache():
+            generation = self._generation
+            refreshed = await self.refresh_cache()
+            if generation != self._generation:
+                # Reset while it ran: the outcome belongs to the old source's backoff
+                return
+            if refreshed:
                 if self._consecutive_failures:
                     self._log.info(
                         "{} recovered after {} failed refreshes",
@@ -334,7 +348,12 @@ class XmltvCache[P]:
                 await task
 
     def reset(self) -> None:
-        """Forget the guide, the backoff and the refresh task (tests: new event loop)."""
+        """Forget the guide, the backoff and the refresh task.
+
+        For a new source address, and for tests (a new event loop). A refresh
+        still running finishes, but stores nothing.
+        """
+        self._generation += 1
         self._clear()
 
     async def programmes(self, channel_id: str) -> list[P]:

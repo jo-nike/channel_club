@@ -172,8 +172,6 @@ async def lifespan(app: FastAPI):
         )
         # Clean up any stale segments from previous runs
         highlight_service.cleanup_stale_segments()
-        # Start background task to clean up idle recorders
-        highlight_service.start_idle_cleanup_task()
     if settings.cast_enabled:
         logger.info(
             "Chromecast streaming enabled (segment: {}s, buffer: {}s)",
@@ -182,8 +180,10 @@ async def lifespan(app: FastAPI):
         )
         # Clean up any stale sessions from previous runs
         cast_service.cleanup_stale_sessions()
-        # Start background task to clean up idle sessions
-        cast_service.start_idle_cleanup_task()
+    # The idle sweeps run whether or not their feature is on: either can be
+    # switched on from the app, and while it is off they find nothing to do
+    highlight_service.start_idle_cleanup_task()
+    cast_service.start_idle_cleanup_task()
 
     # Sweep presence for tabs that vanished without closing their socket, so
     # stale viewers disappear even when no admin is polling Active Users.
@@ -292,7 +292,7 @@ if settings.cors_origins:
 # Wraps routing and CORS: oversize bodies get 413 before routing.
 app.add_middleware(
     BodySizeLimitMiddleware,
-    max_bytes=settings.request_body_max_bytes,
+    max_bytes=lambda: settings.request_body_max_bytes,
     exempt_paths=frozenset({"/api/highlight/upload"}),
 )
 # Added last so it wraps everything, the body cap's 413 included.

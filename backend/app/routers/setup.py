@@ -19,7 +19,7 @@ from loguru import logger
 from pydantic.alias_generators import to_camel
 
 from app import config
-from app.config import UI_FIELDS, env_name, settings
+from app.config import UI_FIELDS, UiField, env_name, settings
 from app.models.auth import TokenPayload, TokenResponse
 from app.models.plex import PlexAuthRequest
 from app.models.setup import (
@@ -33,7 +33,7 @@ from app.models.setup import (
     SetupStatusResponse,
 )
 from app.routers.auth_deps import get_current_user, require_admin, security_optional
-from app.services import settings_store
+from app.services import config_apply, settings_store
 from app.services.auth import create_access_token
 from app.services.dispatcharr import get_grouped_channels
 from app.services.ersatztv.epg_service import get_channels
@@ -45,6 +45,7 @@ from app.services.plex import (
     list_owned_servers,
     validate_plex_token,
 )
+from app.services.settings_store import SettingsDocument
 
 router = APIRouter(tags=["setup"])
 log = logger.bind(router="setup")
@@ -172,7 +173,7 @@ async def claim(request: SetupAccountRequest) -> TokenResponse:
     """
     _require_unclaimed()
     if isinstance(request, PasswordClaim):
-        values: dict[str, object] = {
+        values: dict[UiField, object] = {
             "local_auth_enabled": True,
             "admin_username": request.username,
             "admin_password_hash": await hash_password(request.password),
@@ -200,14 +201,16 @@ async def claim(request: SetupAccountRequest) -> TokenResponse:
         claims = {"sub": account.username, "role": "admin", "plex_id": account.id}
         server_name = server.name
 
+    def record_claim(draft: SettingsDocument) -> None:
+        # Under the store's lock: the check that makes one of two racing claims lose
+        _require_unclaimed()
+        draft.setup.claimed_at = datetime.now(UTC)
+        draft.setup.claimed_by = str(claims["sub"])
+        if server_name is not None:
+            draft.plex_server_name = server_name
+
     try:
-        async with settings_store.edit() as draft:
-            _require_unclaimed()
-            draft.values.update(values)
-            draft.setup.claimed_at = datetime.now(UTC)
-            draft.setup.claimed_by = str(claims["sub"])
-            if server_name is not None:
-                draft.plex_server_name = server_name
+        await config_apply.apply(values, edit=record_claim)
     except OSError as err:
         log.error("Setup claim not saved: {}", err)
         raise _error(500, "write_failed", "The settings couldn't be saved") from err
