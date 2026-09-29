@@ -102,12 +102,14 @@ def reset_channel_state():
     """Reset channel state before each test."""
     channel_state.clear_current_channel()
     channel_state._active_connections.clear()
+    channel_state._connection_owners.clear()
     presence._active_users.clear()
     chat.clear_history()
     websocket_router._nickname_map.clear()
     yield
     channel_state.clear_current_channel()
     channel_state._active_connections.clear()
+    channel_state._connection_owners.clear()
     presence._active_users.clear()
     chat.clear_history()
     websocket_router._nickname_map.clear()
