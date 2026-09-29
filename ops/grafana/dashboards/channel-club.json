@@ -104,7 +104,7 @@
               "type": "loki",
               "uid": "P8E80F9AEF21F6940"
             },
-            "expr": "sum(count_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_event=\"session.start\" [$__range]))",
+            "expr": "sum(count_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_event=\"session.stop\" | record_extra_reason!=\"server_restart\" [$__range]))",
             "legendFormat": "",
             "refId": "A",
             "editorMode": "code",
@@ -210,7 +210,7 @@
               "type": "loki",
               "uid": "P8E80F9AEF21F6940"
             },
-            "expr": "sum(count_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_channel_id!=\"live-channel-0\" | record_extra_event=\"watch.start\" [$__range]))",
+            "expr": "sum(count_over_time({container=\"channel-club\"} | json | record_extra_user=~\"$user\" | record_extra_view=~\"$view\" | record_extra_channel_id!=\"live-channel-0\" | record_extra_event=\"watch.start\" | record_extra_reason=\"switch\" [$__range]))",
             "legendFormat": "",
             "refId": "A",
             "editorMode": "code",
@@ -515,7 +515,7 @@
       {
         "id": 10,
         "type": "timeseries",
-        "title": "Sessions started per hour",
+        "title": "Connections per hour",
         "gridPos": {
           "h": 8,
           "w": 12,

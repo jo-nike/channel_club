@@ -237,9 +237,11 @@ panels.append(row("Viewers", y)); y += 1
 watch_time_expr = f'sum by (record_extra_user) (sum_over_time({WATCH_TIME} [$__range]))'
 
 panels.append(stat("Unique viewers", [loki(f'count(sum by (record_extra_user) (count_over_time({USER_BASE} | record_extra_event="session.start" [$__range])))', instant=True)], 0, y))
-panels.append(stat("Sessions", [loki(f'sum(count_over_time({USER_BASE} | record_extra_event="session.start" [$__range]))', instant=True)], 4, y))
+# A session a deploy splits (closed with server_restart, then reconnected) counts once
+panels.append(stat("Sessions", [loki(f'sum(count_over_time({USER_BASE} | record_extra_event="session.stop" | record_extra_reason!="server_restart" [$__range]))', instant=True)], 4, y))
 panels.append(stat("Watch time", [loki(f'sum(sum_over_time({WATCH_TIME} [$__range]))', instant=True)], 8, y, unit="s"))
-panels.append(stat("Channel switches", [loki(f'sum(count_over_time({WATCH_BASE} | record_extra_event="watch.start" [$__range]))', instant=True)], 12, y))
+# Personal choices only: not a first start, a reconnect or following the Live slot
+panels.append(stat("Channel switches", [loki(f'sum(count_over_time({WATCH_BASE} | record_extra_event="watch.start" | record_extra_reason="switch" [$__range]))', instant=True)], 12, y))
 panels.append(stat("Channels watched", [loki(f'count(sum by (record_extra_channel) (count_over_time({WATCH_BASE} | record_extra_event="watch.start" [$__range])))', instant=True)], 16, y))
 panels.append(stat("Live channel changes", [loki(f'sum(count_over_time({{container="channel-club"}} | json | record_extra_event="channel.change" [$__range]))', instant=True)], 20, y))
 y += 4
@@ -253,7 +255,7 @@ panels.append(bargauge("Watch time by user", [loki(watch_time_expr, legend="{{re
 y += 12
 
 panels.append(timeseries(
-    "Sessions started per hour",
+    "Connections per hour",
     [loki(f'sum by (record_extra_user) (count_over_time({USER_BASE} | record_extra_event="session.start" [1h]))', legend="{{record_extra_user}}")],
     0, y, w=12, bars=True, stack=True,
 ))

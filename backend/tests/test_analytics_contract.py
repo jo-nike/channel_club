@@ -168,6 +168,26 @@ def test_watch_time_accrues_from_progress_and_stop_deltas() -> None:
         assert "unwrap watch_s" in expr, expr
 
 
+def _panel_exprs(title: str) -> list[str]:
+    (panel,) = [
+        p for p in _load_generator().dashboard["dashboard"]["panels"] if p["title"] == title
+    ]
+    return _exprs(panel)
+
+
+def test_channel_switches_count_personal_switches_only() -> None:
+    # Not first starts, reconnects or everyone following the Live slot
+    (expr,) = _panel_exprs("Channel switches")
+    assert 'record_extra_event="watch.start" | record_extra_reason="switch"' in expr
+
+
+def test_sessions_count_a_deploy_split_session_once() -> None:
+    (expr,) = _panel_exprs("Sessions")
+    assert 'record_extra_event="session.stop" | record_extra_reason!="server_restart"' in expr
+    (hourly,) = _panel_exprs("Connections per hour")
+    assert 'record_extra_event="session.start"' in hourly
+
+
 def _required_fields(
     node, required: dict[str, set[tuple[str, ...]]]
 ) -> dict[str, set[tuple[str, ...]]]:
