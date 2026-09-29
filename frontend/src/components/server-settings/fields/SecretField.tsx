@@ -63,7 +63,7 @@ export function SecretField({
   const shownPlaceholder = removing
     ? 'Removed when you save'
     : entry.saved
-      ? 'Saved. Type a new one to replace it'
+      ? 'Saved · type to replace'
       : placeholder
 
   return (

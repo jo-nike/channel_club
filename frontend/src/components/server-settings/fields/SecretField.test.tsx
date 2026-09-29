@@ -57,7 +57,7 @@ describe('SecretField', () => {
 
     const input = screen.getByLabelText('API key')
     expect(input).toHaveValue('')
-    expect(input).toHaveAttribute('placeholder', 'Saved. Type a new one to replace it')
+    expect(input).toHaveAttribute('placeholder', 'Saved · type to replace')
     expect(screen.getByText('Saved')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Remove API key' }))
