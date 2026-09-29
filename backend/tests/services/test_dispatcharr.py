@@ -160,6 +160,18 @@ class TestBuildGroupedChannels:
         assert self._guide_ids(response) == {"TSN 5": "28", "CBC": "7", "TVA": "5.1"}
 
     @pytest.mark.asyncio
+    async def test_stream_url_is_on_the_dispatcharr_url(self, monkeypatch) -> None:
+        """Browsers play the stream from DISPATCHARR_URL, the one Dispatcharr address."""
+        monkeypatch.setattr(dispatcharr.settings, "dispatcharr_url", "https://streams.example.com")
+        response = await self._build(
+            [{"id": 101, "name": "TSN", "channel_group_id": None, "uuid": "uuid-1"}]
+        )
+
+        assert response.ungrouped[0].stream_url == (
+            "https://streams.example.com/proxy/ts/stream/uuid-1"
+        )
+
+    @pytest.mark.asyncio
     async def test_renumbering_expires_the_guide(self) -> None:
         """A rebuild whose guide ids changed expires the cached XMLTV guide (D-03)."""
         guide = get_epg_service()

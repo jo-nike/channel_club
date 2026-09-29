@@ -181,6 +181,25 @@ def test_startup_logs_a_server_start_event() -> None:
     assert start["log_format"] == settings.log_format
 
 
+@pytest.mark.parametrize("key", ["STREAM_BASE_URL", "VITE_WS_URL"])
+def test_startup_warns_about_obsolete_variables(monkeypatch, key) -> None:
+    """A removed variable left in the environment is named, not silently ignored."""
+    monkeypatch.setenv(key, "anything")
+    output = StringIO()
+    handler_id = logger.add(output, format="{level} | {message}", level="WARNING")
+    try:
+        with (
+            patch("app.main.get_grouped_channels", new=AsyncMock(return_value=[])),
+            TestClient(app),
+        ):
+            pass
+    finally:
+        logger.remove(handler_id)
+
+    warnings = [line for line in output.getvalue().splitlines() if "no longer read" in line]
+    assert len(warnings) == 1 and warnings[0].startswith(f"WARNING | {key} is no longer read: ")
+
+
 def test_auth_token_endpoint_registered(client):
     """Test auth router is registered at /api/auth/token."""
     response = client.post(

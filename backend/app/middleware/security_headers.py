@@ -22,7 +22,7 @@ class SecurityHeadersMiddleware:
     def __init__(self, app: ASGIApp, stream_base_url: str) -> None:
         self.app = app
         stream = urlsplit(stream_base_url)
-        # An empty or scheme-less STREAM_BASE_URL has no origin to allow ('://'
+        # An empty or scheme-less DISPATCHARR_URL has no origin to allow ('://'
         # would be an invalid source), so it is left out.
         stream_origin = (
             f" {stream.scheme}://{stream.netloc}"

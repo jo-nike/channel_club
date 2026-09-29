@@ -28,14 +28,23 @@ KNOWN_PUBLIC_JWT_SECRETS = frozenset(
 # else would let a topic value change the publish path.
 NTFY_TOPIC_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
+# Variables that are no longer read, with what replaced them. Startup warns about
+# any still set, so a removed setting is not silently ignored.
+OBSOLETE_ENV_KEYS = {
+    "STREAM_BASE_URL": "merged into DISPATCHARR_URL",
+    "VITE_STREAM_BASE_URL": "stream URLs come from the server's DISPATCHARR_URL",
+    "VITE_WS_URL": "the socket is always on the page's origin",
+}
+
 
 class Settings(BaseSettings):
     # Build identity stays distinct from the semantic version in pyproject.toml.
     app_build_id: str = "dev"
     app_revision: str = "dev"
 
+    # Dispatcharr's base URL, for the server's API calls and for the stream URLs
+    # browsers play, so it must be reachable from both.
     dispatcharr_url: str = "http://10.8.0.2:9191"
-    stream_base_url: str = "https://streams.domain.com"
     jwt_secret: SecretStr = SecretStr(DEFAULT_JWT_SECRET)
 
     # FastAPI's /docs, /redoc and /openapi.json publish the API map; off in production.

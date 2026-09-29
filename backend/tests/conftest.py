@@ -19,7 +19,10 @@ for node in ast.walk(ast.parse(config_source.read_text())):
                 os.environ.pop(field_node.target.id.upper(), None)
 
 with patch.object(DotEnvSettingsSource, "_read_env_files", return_value={}):
-    from app.config import Settings, settings
+    from app.config import OBSOLETE_ENV_KEYS, Settings, settings
+
+    for key in OBSOLETE_ENV_KEYS:
+        os.environ.pop(key, None)
 
     for field in Settings.model_fields:
         os.environ.pop(field.upper(), None)
