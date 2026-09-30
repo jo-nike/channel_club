@@ -11,7 +11,7 @@ import { SegmentedRadio } from '../fields/SegmentedRadio'
 import { SettingCard } from '../fields/SettingCard'
 import { Subsection } from '../fields/Subsection'
 import { ToggleRow } from '../fields/ToggleRow'
-import { INPUT, LOCKED_INPUT, SCROLL_MARGIN } from '../fields/styles'
+import { INPUT, LOCKED_INPUT, SCROLL_MARGIN, TWO_COLUMNS } from '../fields/styles'
 import type { SectionProps } from './types'
 
 const ROLES = [
@@ -33,6 +33,8 @@ interface AccessSectionProps extends SectionProps {
    * Plex and picking the server. Give its button the id `${idPrefix}-plex-link`.
    */
   plexConnect?: ReactNode
+  /** Shown while a server is linked, above its settings: the Admin panel's Re-link Plex */
+  linkedServer?: ReactNode
   /** Leave out the house rules (the Admin panel's People tab has them) */
   showHouseRules?: boolean
 }
@@ -56,6 +58,7 @@ export function AccessSection({
   selfPlexId,
   members,
   plexConnect,
+  linkedServer,
   showHouseRules = true,
 }: AccessSectionProps) {
   const { view } = state
@@ -115,6 +118,7 @@ export function AccessSection({
         {adminSignIn === 'plex' && <StaysOn>You sign in with Plex, so this stays on.</StaysOn>}
         {linked ? (
           <>
+            {linkedServer}
             <div className="flex flex-col gap-[7px]">
               <span id={`${idPrefix}-role-label`} className="text-sm font-semibold">
                 New members join as
@@ -191,7 +195,7 @@ export function AccessSection({
           </>
         ) : (
           <Subsection title="Admin login" optional help="A fallback for you when plex.tv is down. Without a password there is none.">
-            <div className="grid grid-cols-2 gap-4 max-[760px]:grid-cols-1">
+            <div className={cn('grid gap-4', TWO_COLUMNS)}>
               {username('adminUsername')}
               {password('adminPassword')}
             </div>
@@ -202,7 +206,7 @@ export function AccessSection({
           optional
           help="One shared login for people without Plex, like the living-room TV. Guests join as viewers. Without a password there is no guest login."
         >
-          <div className="grid grid-cols-2 gap-4 max-[760px]:grid-cols-1">
+          <div className={cn('grid gap-4', TWO_COLUMNS)}>
             {username('viewerUsername')}
             {password('viewerPassword')}
           </div>

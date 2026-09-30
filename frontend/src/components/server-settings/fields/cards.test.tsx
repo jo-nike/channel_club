@@ -3,9 +3,11 @@ import { Clapperboard, Tv } from 'lucide-react'
 import { render, screen, fireEvent } from '@/test/utils'
 import { Callout } from './Callout'
 import { Chip } from './Chip'
+import { CardHeadingLevel } from './headingLevel'
 import { NativeSelect } from './NativeSelect'
 import { PasswordRules } from './PasswordRules'
 import { SettingCard } from './SettingCard'
+import { Subsection } from './Subsection'
 import { ToggleRow } from './ToggleRow'
 
 describe('SettingCard', () => {
@@ -63,6 +65,28 @@ describe('SettingCard', () => {
 
     expect(screen.getByText('Rules')).toBeInTheDocument()
     expect(screen.queryByRole('switch')).not.toBeInTheDocument()
+  })
+})
+
+describe('card heading levels', () => {
+  function card() {
+    return (
+      <SettingCard id="card-login" icon={Tv} title="Username and password">
+        <Subsection title="Guest login" />
+      </SettingCard>
+    )
+  }
+
+  it('are h2 and h3 under a wizard step, as its h1 wants', () => {
+    render(card())
+    expect(screen.getByRole('heading', { level: 2, name: 'Username and password' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 3, name: 'Guest login' })).toBeInTheDocument()
+  })
+
+  it('are h3 and h4 under a section heading of their own', () => {
+    render(<CardHeadingLevel value={3}>{card()}</CardHeadingLevel>)
+    expect(screen.getByRole('heading', { level: 3, name: 'Username and password' })).toHaveClass('font-sans', 'font-semibold')
+    expect(screen.getByRole('heading', { level: 4, name: 'Guest login' })).toHaveClass('font-sans', 'font-semibold')
   })
 })
 

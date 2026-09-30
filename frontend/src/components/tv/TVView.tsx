@@ -34,6 +34,7 @@ import { useVisualViewportHeight } from '@/hooks/useVisualViewportHeight'
 import { useUnreadTitleBadge } from '@/hooks/useUnreadTitleBadge'
 import { usePlayerFullscreenElement } from '@/hooks/useFullscreenState'
 import { AdminModal } from '@/components/AdminModal'
+import { serverTabReturn } from '@/components/admin/server/serverStash'
 import { LiveSwitcherSheet } from '@/components/LiveSwitcherSheet'
 import { CouchView } from '@/components/couch/CouchView'
 import { getProgrammeState } from '@/lib/programmes'
@@ -220,8 +221,9 @@ export function TVView() {
   const [selectedProgramme, setSelectedProgramme] = useState<ErsatzTVProgramme | null>(null)
   const [modalChannel, setModalChannel] = useState<ProgrammeDetailsChannel | null>(null)
 
-  // Admin modal state
-  const [adminModalOpen, setAdminModalOpen] = useState(false)
+  // Admin modal state (it shows for admins only); open already when the page
+  // is back from a Plex sign-in its Server tab started, to finish it there
+  const [adminModalOpen, setAdminModalOpen] = useState(() => serverTabReturn() !== null)
   const openAdmin = useCallback(() => setAdminModalOpen(true), [])
   // The account menu's item that opens Admin unmounts with the menu, so the
   // panel returns focus to the menu's button instead

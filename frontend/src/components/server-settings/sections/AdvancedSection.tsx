@@ -9,7 +9,7 @@ import { Field } from '../fields/Field'
 import { LockedNote } from '../fields/LockedNote'
 import { NativeSelect } from '../fields/NativeSelect'
 import { NumberField as NumberInput } from '../fields/NumberField'
-import { LOCKED_INPUT, SCROLL_MARGIN, SMALL_BUTTON } from '../fields/styles'
+import { LOCKED_INPUT, SCROLL_MARGIN, SMALL_BUTTON, TWO_COLUMNS } from '../fields/styles'
 import type { SectionProps } from './types'
 
 function isNumberField(field: AdvancedField): field is NumberField {
@@ -114,7 +114,7 @@ export function AdvancedSection({ state, errors, onField, idPrefix, onReset }: A
           >
             {group.title}
           </h3>
-          <div className="grid grid-cols-2 gap-x-7 gap-y-2.5 max-[760px]:grid-cols-1">{group.fields.map(control)}</div>
+          <div className={cn('grid gap-x-7 gap-y-2.5', TWO_COLUMNS)}>{group.fields.map(control)}</div>
         </section>
       ))}
       <div className="flex flex-wrap items-center justify-between gap-3 pt-1">

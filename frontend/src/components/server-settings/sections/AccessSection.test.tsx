@@ -18,6 +18,7 @@ function Harness({
   errors = {},
   members = MEMBERS,
   plexConnect,
+  linkedServer,
   showHouseRules,
 }: {
   initial: SettingsState
@@ -25,6 +26,7 @@ function Harness({
   errors?: SectionErrors
   members?: readonly PlexMember[] | 'loading' | 'failed'
   plexConnect?: ReactNode
+  linkedServer?: ReactNode
   showHouseRules?: boolean
 }) {
   const [state, setState] = useState(initial)
@@ -38,6 +40,7 @@ function Harness({
       selfPlexId="1"
       members={members}
       plexConnect={plexConnect}
+      linkedServer={linkedServer}
       showHouseRules={showHouseRules}
     />
   )
@@ -131,6 +134,28 @@ describe('AccessSection', () => {
       expect(screen.getByRole('alert')).toHaveTextContent('Sign in with Plex to choose the server, or switch Plex members off.')
       expect(screen.queryByRole('radio', { name: 'Viewer' })).not.toBeInTheDocument()
     })
+  })
+
+  it('shows what it is given for a linked server only while one is linked', () => {
+    const { unmount } = render(<Harness initial={plexAdmin()} adminSignIn="plex" linkedServer={<button type="button">Re-link Plex</button>} />)
+    expect(screen.getByRole('button', { name: 'Re-link Plex' })).toBeInTheDocument()
+    unmount()
+
+    render(
+      <Harness
+        initial={settingsState({ plexAuthEnabled: true, localAuthEnabled: true, adminPassword: { set: true } })}
+        adminSignIn="password"
+        linkedServer={<button type="button">Re-link Plex</button>}
+      />
+    )
+    expect(screen.queryByRole('button', { name: 'Re-link Plex' })).not.toBeInTheDocument()
+  })
+
+  it("puts the logins one under the other in a narrow window, or in a narrow Server tab", () => {
+    render(<Harness initial={passwordAdmin()} adminSignIn="password" />)
+    const guest = screen.getByRole('heading', { name: /Guest login/ }).parentElement!
+    const columns = guest.querySelector('.grid')
+    expect(columns).toHaveClass('grid-cols-2', 'max-[760px]:grid-cols-1', '@max-[34rem]/server:grid-cols-1')
   })
 
   it('shows the house rules unless told not to', () => {

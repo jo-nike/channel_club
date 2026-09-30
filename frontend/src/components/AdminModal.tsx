@@ -13,10 +13,12 @@ import { OnAirCard } from '@/components/admin/OnAirCard'
 import { NHLGamesTab } from '@/components/admin/NHLGamesTab'
 import { PeopleTab } from '@/components/admin/PeopleTab'
 import { StatusTab } from '@/components/admin/StatusTab'
+import { ServerTab } from '@/components/admin/server/ServerTab'
+import { serverTabReturn } from '@/components/admin/server/serverStash'
 import { cn } from '@/lib/utils'
 import { useReturnFocus } from '@/hooks/useReturnFocus'
 
-type TabType = 'channels' | 'people' | 'chat' | 'nhl' | 'status'
+type TabType = 'channels' | 'people' | 'chat' | 'nhl' | 'status' | 'server'
 
 interface AdminModalProps {
   open: boolean
@@ -32,6 +34,7 @@ const tabs: { id: TabType; label: string }[] = [
   { id: 'chat', label: 'Chat' },
   { id: 'nhl', label: 'NHL' },
   { id: 'status', label: 'Status' },
+  { id: 'server', label: 'Server' },
 ]
 
 /**
@@ -60,7 +63,12 @@ function ChannelsTab() {
 }
 
 export function AdminModal({ open, onOpenChange, returnFocusTo }: AdminModalProps) {
-  const [activeTab, setActiveTab] = useState<TabType>('channels')
+  // Back from a Plex sign-in the Server tab started: open on it again
+  const [activeTab, setActiveTab] = useState<TabType>(() => (serverTabReturn() ? 'server' : 'channels'))
+  // The Server tab stays mounted once opened, until the panel closes: its
+  // unsaved changes survive a look at another tab
+  const [serverKept, setServerKept] = useState(false)
+  const keepServer = serverKept || activeTab === 'server'
   // Opened by state (the Host button, the account menu), not a trigger Radix
   // could return focus to
   const returnFocus = useReturnFocus(returnFocusTo)
@@ -77,13 +85,21 @@ export function AdminModal({ open, onOpenChange, returnFocusTo }: AdminModalProp
         return <NHLGamesTab />
       case 'status':
         return <StatusTab />
+      case 'server':
+        return <ServerTab />
       default:
         return null
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) setServerKept(false)
+        onOpenChange(next)
+      }}
+    >
       {/* Fixed height, anchored near the top: the title and tab bar stay put when tabs change */}
       <DialogContent
         className="top-4 sm:top-[5dvh] translate-y-0 h-[min(88dvh,780px)] w-[95vw] sm:w-[85vw] md:w-[75vw] max-w-5xl overflow-hidden flex flex-col"
@@ -99,7 +115,10 @@ export function AdminModal({ open, onOpenChange, returnFocusTo }: AdminModalProp
             passing over a tab doesn't mount it and start its fetches; Enter/Space opens it */}
         <Tabs
           value={activeTab}
-          onValueChange={(value) => setActiveTab(value as TabType)}
+          onValueChange={(value) => {
+            if (keepServer) setServerKept(true)
+            setActiveTab(value as TabType)
+          }}
           activationMode="manual"
           className="min-h-0 flex-1 gap-4"
         >
@@ -133,7 +152,13 @@ export function AdminModal({ open, onOpenChange, returnFocusTo }: AdminModalProp
             <TabsContent
               key={tab.id}
               value={tab.id}
-              className="epg-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-none focus-visible:-outline-offset-2"
+              forceMount={tab.id === 'server' && keepServer ? true : undefined}
+              className={cn(
+                'epg-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-none focus-visible:-outline-offset-2',
+                // Kept mounted, so hidden by hand; its Save rows stick to the bottom,
+                // so a control taking focus scrolls clear of them (WCAG 2.4.12)
+                tab.id === 'server' && 'scroll-pb-22 data-[state=inactive]:hidden'
+              )}
             >
               {renderTabContent(tab.id)}
             </TabsContent>

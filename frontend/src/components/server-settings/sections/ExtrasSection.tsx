@@ -11,7 +11,7 @@ import { Subsection } from '../fields/Subsection'
 import { TestConnection } from '../fields/TestConnection'
 import { ToggleRow } from '../fields/ToggleRow'
 import { UrlField } from '../fields/UrlField'
-import { INPUT, LOCKED_INPUT, SCROLL_MARGIN, SMALL_BUTTON } from '../fields/styles'
+import { INPUT, LOCKED_INPUT, SCROLL_MARGIN, SMALL_BUTTON, TWO_COLUMNS } from '../fields/styles'
 import { testView } from './testChecks'
 import type { SectionProps, TestProps } from './types'
 
@@ -163,7 +163,7 @@ export function ExtrasSection({ state, errors, onField, idPrefix, tests, onTest 
           disabled: lockedBy(view, 'ntfyEnabled') !== null,
         }}
       >
-        <div className="grid grid-cols-2 gap-4 max-[760px]:grid-cols-1">
+        <div className={cn('grid gap-4', TWO_COLUMNS)}>
           <UrlField
             id={`${idPrefix}-ntfyUrl`}
             label="ntfy server"
