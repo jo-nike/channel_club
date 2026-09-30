@@ -82,6 +82,8 @@ PROBE_FIELDS: dict[ProbeKind, tuple[str, ...]] = {
     "zipline": ("zipline_url", "zipline_token"),
     "ntfy": ("ntfy_url", "ntfy_topic", "ntfy_token"),
 }
+# The settings that make a Plex member an admin
+PLEX_ADMIN_FIELDS = frozenset({"plex_admin_ids", "plex_default_role"})
 # ntfy's test sends a real notification, so it can't be repeated at once
 PROBE_COOLDOWN_SECONDS: dict[ProbeKind, float] = {"ntfy": 10.0}
 _last_probe: dict[ProbeKind, float] = {}
@@ -269,11 +271,25 @@ def _refuse_stale_secrets(new_urls: dict[str, str], given_secrets: set[str]) -> 
             raise _field_error(secret, "secret_required", "Enter it again for the new address")
 
 
-def _check_rules(patch: ConfigPatch, given: set[str], admin: TokenPayload) -> None:
+async def _owns_the_server(admin: TokenPayload) -> bool:
+    """Whether a Plex admin owns the linked server, as require_admin decides it.
+
+    An owner plex.tv can't confirm right now counts, as it does there, so a
+    save is never refused for fear of what an outage might mean.
+    """
+    if admin.plex_id is None or not _plain(settings.plex_server_token):
+        return False
+    owner_id = await plex.get_server_owner_id()
+    return owner_id is None or owner_id == admin.plex_id
+
+
+def _check_rules(patch: ConfigPatch, given: set[str], admin: TokenPayload, owner: bool) -> None:
     """The rules that span settings, checked on the values the patch would leave.
 
     Each rule runs only when the patch touches one of its settings, so a
     conflict the environment set up never blocks an unrelated change.
+    `owner`: the requesting admin owns the Plex server (looked up only when
+    the patch touches who is an admin).
     """
 
     def after(field: str) -> Any:
@@ -314,7 +330,8 @@ def _check_rules(patch: ConfigPatch, given: set[str], admin: TokenPayload) -> No
         given & set(SECRET_ADDRESSES),
     )
 
-    # The sign-in the requesting admin is using can't be switched off under them
+    # The sign-in the requesting admin is using can't be switched off under them,
+    # and a Plex admin can't take away what makes them one (require_admin)
     if admin.plex_id is None:
         lockout = (
             ("local_auth_enabled" in given and not patch.local_auth_enabled)
@@ -325,9 +342,17 @@ def _check_rules(patch: ConfigPatch, given: set[str], admin: TokenPayload) -> No
             or ("admin_username" in given and patch.admin_username != admin.sub)
         )
     else:
-        lockout = "plex_auth_enabled" in given and not patch.plex_auth_enabled
+        stays_admin = (
+            owner
+            or admin.sub in settings.plex_admin_users
+            or admin.plex_id in after("plex_admin_ids")
+            or after("plex_default_role") == "admin"
+        )
+        lockout = ("plex_auth_enabled" in given and not patch.plex_auth_enabled) or (
+            bool(given & PLEX_ADMIN_FIELDS) and not stays_admin
+        )
     if lockout:
-        raise _error(409, "self_lockout", "That would sign you out; change it from another admin")
+        raise _error(409, "self_lockout", "That would lock you out; change it from another admin")
 
 
 async def _setting_values(patch: ConfigPatch, given: set[str]) -> dict[UiField, object]:
@@ -363,13 +388,14 @@ async def update_config(
 
     Raises:
         HTTPException: 409 for a setting the environment locks, one that would
-            sign the requesting admin out, or no state file to save to; 422 for
-            a value or combination the settings refuse; 500 when the file
-            can't be written.
+            sign the requesting admin out or take away their admin rights, or
+            no state file to save to; 422 for a value or combination the
+            settings refuse; 500 when the file can't be written.
     """
     given = set(patch.model_fields_set)
     _refuse_locked(given)
-    _check_rules(patch, given, admin)
+    owner = bool(given & PLEX_ADMIN_FIELDS) and await _owns_the_server(admin)
+    _check_rules(patch, given, admin, owner)
     values = await _setting_values(patch, given)
     if values:
         if settings_store.settings_path() is None:

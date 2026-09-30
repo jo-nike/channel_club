@@ -3537,7 +3537,7 @@
         ]
       },
       "put": {
-        "description": "Change some settings; they apply at once, with no restart.\n\nThe whole batch is checked before anything is saved. House rules are saved\nto the state file like PUT /api/settings does.\n\nRaises:\n    HTTPException: 409 for a setting the environment locks, one that would\n        sign the requesting admin out, or no state file to save to; 422 for\n        a value or combination the settings refuse; 500 when the file\n        can't be written.",
+        "description": "Change some settings; they apply at once, with no restart.\n\nThe whole batch is checked before anything is saved. House rules are saved\nto the state file like PUT /api/settings does.\n\nRaises:\n    HTTPException: 409 for a setting the environment locks, one that would\n        sign the requesting admin out or take away their admin rights, or\n        no state file to save to; 422 for a value or combination the\n        settings refuse; 500 when the file can't be written.",
         "operationId": "update_config_api_admin_config_put",
         "requestBody": {
           "content": {
