@@ -24,7 +24,9 @@ import {
   type SettingsState,
   type SourceKind,
 } from '@/components/server-settings/model/configDraft'
+import type { FormError } from '@/components/server-settings/model/failures'
 import { ADVANCED_GROUPS, type EditableField } from '@/components/server-settings/model/fields'
+import { EMPTY_PLEX, plexSignedIn, type PlexSignIn } from '@/components/server-settings/model/plexSignIn'
 import { testsAfterSave, type TestRecord } from '@/components/server-settings/model/testResults'
 import type { ErrorKey } from '@/components/server-settings/model/validation'
 import { FIRST_CLAIMED_STEP, STEPS, stepIndex, type StepId } from './steps'
@@ -39,14 +41,6 @@ export interface AccountDraft {
   confirm: string
 }
 
-/** Plex as the claim form holds it. The token stays in memory: it is never stored. */
-export interface PlexSignIn {
-  token: string | null
-  account: PlexAccount | null
-  servers: readonly PlexServer[]
-  machineId: string | null
-}
-
 /** The admin at the screen, once the club is claimed. */
 export interface WizardAdmin {
   signIn: AccountMethod
@@ -56,12 +50,6 @@ export interface WizardAdmin {
 
 export type AccountField = 'username' | 'password' | 'confirm'
 export type WizardErrorKey = ErrorKey | AccountField | 'plex'
-
-/** A problem with a step as a whole. `signIn`: offer to go to the sign-in page instead. */
-export interface FormError {
-  message: string
-  signIn?: boolean
-}
 
 export type Busy = null | 'claim' | 'save' | 'link' | 'complete'
 
@@ -99,8 +87,6 @@ export interface WizardStart {
   draft?: Draft | null
 }
 
-export const EMPTY_PLEX: PlexSignIn = { token: null, account: null, servers: [], machineId: null }
-
 export function initialWizardState(start: WizardStart): WizardState {
   const claimed = start.setupState === 'claimed'
   // Before the claim nothing past Your account is open; after it, Channels at least
@@ -136,11 +122,6 @@ export function initialWizardState(start: WizardStart): WizardState {
 export function startingDraft(view: ConfigView): Draft {
   const anySource = SOURCE_KINDS.some((kind) => view.values[SOURCE_URL[kind]] !== '' || isLocked(view, SOURCE_URL[kind]))
   return anySource ? EMPTY_DRAFT : { ...EMPTY_DRAFT, sources: { dispatcharr: true } }
-}
-
-/** The first online server, or the first one. */
-function defaultServer(servers: readonly PlexServer[]): string | null {
-  return (servers.find((server) => server.online) ?? servers[0])?.machineId ?? null
 }
 
 const ADVANCED_PLAIN = ADVANCED_GROUPS.flatMap((group): readonly PlainField[] => group.fields)
@@ -196,20 +177,13 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
       }
     case 'setAccount':
       return { ...state, account: { ...state.account, [action.field]: action.value }, errors: without(state.errors, action.field) }
-    case 'plexSignedIn': {
-      const kept = state.plex.machineId !== null && action.servers.some((server) => server.machineId === state.plex.machineId)
+    case 'plexSignedIn':
       return {
         ...state,
-        plex: {
-          token: action.token,
-          account: action.account,
-          servers: action.servers,
-          machineId: kept ? state.plex.machineId : defaultServer(action.servers),
-        },
+        plex: plexSignedIn(state.plex, action.token, action.account, action.servers),
         errors: without(state.errors, 'plex'),
         formError: null,
       }
-    }
     case 'plexSignedOut':
       return { ...state, plex: EMPTY_PLEX }
     case 'pickServer':

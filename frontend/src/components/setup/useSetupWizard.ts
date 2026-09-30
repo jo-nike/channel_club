@@ -25,7 +25,18 @@ import {
   type SettingsState,
   type SourceKind,
 } from '@/components/server-settings/model/configDraft'
-import { SECTION_FIELDS, type EditableField, type SectionId } from '@/components/server-settings/model/fields'
+import type { EditableField, SectionId } from '@/components/server-settings/model/fields'
+import {
+  linkFailure,
+  NOT_OWNER,
+  plexErrorMessage,
+  RETYPE_SECRET,
+  saveFailure,
+  secretToRetype,
+  testErrorMessage,
+  warningText,
+  type FormError,
+} from '@/components/server-settings/model/failures'
 import { testFingerprint, testInputError, testValues } from '@/components/server-settings/model/testResults'
 import { firstError, newPasswordError, usernameError, validateSection } from '@/components/server-settings/model/validation'
 import { errorTargetId } from '@/components/server-settings/sections/types'
@@ -37,7 +48,6 @@ import {
   type AccountDraft,
   type AccountField,
   type AccountMethod,
-  type FormError,
   type WizardAdmin,
   type WizardErrorKey,
   type WizardState,
@@ -58,93 +68,17 @@ export const ACCOUNT_CONTROL = {
 /** The callout for a problem with the step as a whole. */
 export const FORM_ERROR_ID = 'setup-form-error'
 
-/** The server words these codes for logs; the wizard says them its own way. */
-const PLEX_CALL_COPY: Partial<Record<string, string>> = {
-  plex_token: "Plex didn't accept that sign-in. Sign in with Plex again.",
-  plex_unavailable: "Plex isn't responding. Try again in a moment.",
-  busy: 'Setup is busy talking to Plex. Try again in a moment.',
-}
-
-const NOT_OWNER = "That Plex server isn't one of yours. Pick one you own."
 const ENV_MANAGED = "Sign-in is set in this server's environment, so there's nothing to set up."
-
-/** Saving's refusals of the whole step. */
-const SAVE_COPY: Partial<Record<string, string>> = {
-  locked: "Part of this is now set by the server's environment. Reload the page to see what changed.",
-  self_lockout: "That would lock you out, so it wasn't saved. Another admin can change it.",
-  no_storage: 'This server has nowhere to keep settings. Give it a /data volume, restart it, then try again.',
-  write_failed: "The server couldn't save the settings. Check that its data folder can be written to, then try again.",
-}
-
-/** Saving's refusals of one setting, as the form's own checks word them. */
-const FIELD_COPY: Partial<Record<string, string>> = {
-  secret_required: 'Enter it again for the new address.',
-  username_taken: 'Use a different name from the admin login.',
-  segment_too_long: 'Keep segments no longer than the seconds kept for clipping.',
-}
-
-/** Something saved that won't work yet. */
-const WARNING_COPY: Partial<Record<string, string>> = {
-  zipline_unavailable: 'Saved. Zipline uploads start once clips are on and Zipline has an address and a token.',
-  feedback_unavailable: 'Saved. Feedback sends nothing until it has an ntfy address and topic.',
-}
-
-/** Why listing the Plex servers failed, for the form. */
-export function plexErrorMessage(err: unknown): string {
-  if (err instanceof SetupApiError) return (err.code !== undefined ? PLEX_CALL_COPY[err.code] : undefined) ?? err.message
-  return err instanceof Error ? err.message : "Couldn't list your Plex servers."
-}
 
 export interface Failure {
   errors?: Partial<Record<WizardErrorKey, string>>
   formError?: FormError
 }
 
-/** What a failed save shows: each refused setting's error on it, or a problem with the step. */
-export function saveFailure(err: unknown, section: SectionId): Failure {
-  if (!(err instanceof SetupApiError)) {
-    return { formError: { message: err instanceof Error ? err.message : "Couldn't save the settings." } }
-  }
-  const refusal = err.code !== undefined ? SAVE_COPY[err.code] : undefined
-  if (refusal) return { formError: { message: refusal } }
-
-  const fields: readonly string[] = SECTION_FIELDS[section]
-  const errors: Partial<Record<WizardErrorKey, string>> = {}
-  for (const [field, message] of Object.entries(err.fieldErrors)) {
-    if (message === undefined) continue
-    if (err.code === 'plex_not_linked') errors.plexLink = 'Sign in with Plex to choose the server, or switch Plex members off.'
-    else if (fields.includes(field)) errors[field as EditableField] = (err.code !== undefined ? FIELD_COPY[err.code] : undefined) ?? message
-  }
-  return Object.keys(errors).length > 0 ? { errors } : { formError: { message: err.message } }
-}
-
-/** What a failed Plex server link shows. */
-export function linkFailure(err: unknown): Failure {
-  if (!(err instanceof SetupApiError)) {
-    return { formError: { message: err instanceof Error ? err.message : "Couldn't link that Plex server." } }
-  }
-  switch (err.code) {
-    case 'plex_token':
-      return { errors: { plexLink: plexErrorMessage(err) } }
-    case 'not_owner':
-      return { errors: { plexLink: NOT_OWNER } }
-    case 'plex_unavailable':
-    case 'busy':
-      return { formError: { message: plexErrorMessage(err) } }
-  }
-  return { formError: { message: (err.code !== undefined ? SAVE_COPY[err.code] : undefined) ?? err.message } }
-}
-
 /** What a failed finish shows. */
 export function completeFailure(err: unknown): Failure {
   if (err instanceof SetupApiError && err.code === 'env_managed') return { formError: { message: ENV_MANAGED, signIn: true } }
   return { formError: { message: err instanceof Error ? err.message : "Couldn't finish setting up." } }
-}
-
-/** Why a test couldn't run, under its button. */
-function testErrorMessage(err: unknown): string {
-  if (err instanceof SetupApiError && err.code === 'busy') return 'Wait a few seconds before testing again.'
-  return err instanceof Error ? err.message : "Couldn't run the test."
 }
 
 /** What the password form would get wrong, in the order it shows the fields. */
@@ -364,7 +298,7 @@ export function useSetupWizard(props: WizardProps) {
   }
 
   const showWarnings = (warnings: readonly ConfigWarning[]) => {
-    for (const warning of warnings) toast.warning(WARNING_COPY[warning.code] ?? warning.message)
+    for (const warning of warnings) toast.warning(warningText(warning))
   }
 
   /**
@@ -479,10 +413,10 @@ export function useSetupWizard(props: WizardProps) {
       // A test stopped for a newer one reports for inputs no longer shown, which the reducer drops
       if (sessionEnded(err)) return
       // A saved secret isn't sent to a new address: it goes on its field
-      const secret = err instanceof SetupApiError && err.code === 'secret_required' ? Object.keys(err.fieldErrors)[0] : undefined
+      const secret = secretToRetype(err)
       if (secret) {
         dispatch({ type: 'testFinished', kind, fingerprint })
-        return fail({ errors: { [secret]: FIELD_COPY.secret_required } }, errorTargetId(ID_PREFIX, secret as EditableField))
+        return fail({ errors: { [secret]: RETYPE_SECRET } }, errorTargetId(ID_PREFIX, secret))
       }
       dispatch({ type: 'testFinished', kind, fingerprint, error: testErrorMessage(err) })
     }

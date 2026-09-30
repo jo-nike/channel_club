@@ -1,7 +1,7 @@
 import type { Ref } from 'react'
 import { AccessSection } from '@/components/server-settings/sections/AccessSection'
 import { errorTargetId } from '@/components/server-settings/sections/types'
-import { PlexSignInPanel } from '../PlexSignInPanel'
+import { PlexSignInPanel } from '@/components/server-settings/PlexSignInPanel'
 import { ID_PREFIX, type SetupWizardApi } from '../useSetupWizard'
 import { SettingsStep } from './SettingsStep'
 
@@ -34,6 +34,7 @@ export function AccessStep({ wizard, headingRef }: { wizard: SetupWizardApi; hea
               onSignOut={wizard.plexSignedOut}
               onPick={wizard.pickServer}
               onRefresh={wizard.refreshServers}
+              returnPath="/setup"
               onBeforeRedirect={wizard.stashForRedirect}
             />
           }

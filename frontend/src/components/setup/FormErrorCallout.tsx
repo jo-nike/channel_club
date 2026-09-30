@@ -2,8 +2,8 @@ import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Callout } from '@/components/server-settings/fields/Callout'
 import { SCROLL_MARGIN, SMALL_BUTTON } from '@/components/server-settings/fields/styles'
+import type { FormError } from '@/components/server-settings/model/failures'
 import { FORM_ERROR_ID } from './useSetupWizard'
-import type { FormError } from './wizardReducer'
 
 /** What stops the step going on. When someone else has set up the club, it offers the sign-in page instead. */
 export function FormErrorCallout({ error }: { error: FormError | null }) {

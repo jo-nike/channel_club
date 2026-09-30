@@ -10,7 +10,7 @@ import { PasswordRules } from '@/components/server-settings/fields/PasswordRules
 import { INPUT, SCROLL_MARGIN } from '@/components/server-settings/fields/styles'
 import { cn } from '@/lib/utils'
 import { FormErrorCallout } from '../FormErrorCallout'
-import { PlexSignInPanel } from '../PlexSignInPanel'
+import { PlexSignInPanel } from '@/components/server-settings/PlexSignInPanel'
 import { StepHeader } from '../StepHeader'
 import { pickedServerName } from '../summaries'
 import { ACCOUNT_CONTROL, type SetupWizardApi } from '../useSetupWizard'
@@ -96,6 +96,7 @@ export function AccountStep({ wizard, headingRef }: AccountStepProps) {
               onSignOut={wizard.plexSignedOut}
               onPick={wizard.pickServer}
               onRefresh={wizard.refreshServers}
+              returnPath="/setup"
               onBeforeRedirect={wizard.stashForRedirect}
             />
           </div>

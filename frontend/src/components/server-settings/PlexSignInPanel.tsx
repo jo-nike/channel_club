@@ -5,15 +5,15 @@ import { Button } from '@/components/ui/button'
 import { MemberAvatar } from '@/components/MemberAvatar'
 import { PlexLoginButton } from '@/components/PlexLoginButton'
 import { QRPlexLogin } from '@/components/QRPlexLogin'
-import { Callout } from '@/components/server-settings/fields/Callout'
-import { FieldMessage } from '@/components/server-settings/fields/Field'
-import { PlexServerPicker } from '@/components/server-settings/fields/PlexServerPicker'
-import { SMALL_BUTTON } from '@/components/server-settings/fields/styles'
 import { PLEX_ERROR_COPY, usePlexSignIn } from '@/hooks/usePlexSignIn'
 import { useTVMode } from '@/hooks/useTVMode'
 import { cn } from '@/lib/utils'
 import { PlexAuthError } from '@/services/plexAuth'
-import type { PlexSignIn } from './wizardReducer'
+import { Callout } from './fields/Callout'
+import { FieldMessage } from './fields/Field'
+import { PlexServerPicker } from './fields/PlexServerPicker'
+import { SMALL_BUTTON } from './fields/styles'
+import type { PlexSignIn } from './model/plexSignIn'
 
 const HELP = 'text-[13px] leading-[1.45] text-pretty text-muted-foreground'
 
@@ -35,6 +35,8 @@ interface PlexSignInPanelProps {
   onSignOut: () => void
   onPick: (machineId: string) => void
   onRefresh: () => Promise<void>
+  /** Where Plex's redirect sign-in brings the page back to */
+  returnPath: string
   /** The page is about to leave for Plex's redirect sign-in */
   onBeforeRedirect: () => void
 }
@@ -43,7 +45,7 @@ interface PlexSignInPanelProps {
  * Sign in with Plex, then pick one of the servers the account owns. On a TV
  * the button shows a code to sign in with on a phone; elsewhere a Plex
  * window opens, or on iPhones, iPads and installed apps the page goes to
- * Plex and comes back to /setup.
+ * Plex and comes back to `returnPath`.
  */
 export function PlexSignInPanel({
   plex,
@@ -54,6 +56,7 @@ export function PlexSignInPanel({
   onSignOut,
   onPick,
   onRefresh,
+  returnPath,
   onBeforeRedirect,
 }: PlexSignInPanelProps) {
   const isTVMode = useTVMode()
@@ -64,7 +67,7 @@ export function PlexSignInPanel({
   const [codeFinishing, setCodeFinishing] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const signIn = usePlexSignIn({
-    returnPath: '/setup',
+    returnPath,
     onBeforeRedirect,
     onStart: () => setFailure(null),
     onToken,
