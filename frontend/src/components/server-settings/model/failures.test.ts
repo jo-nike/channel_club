@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { SetupApiError } from '@/services/setupApi'
+import type { ConfigWarning } from '@/types/setup'
 import { linkFailure, plexErrorMessage, saveFailure, secretToRetype, testErrorMessage, warningText } from './failures'
 
 describe('saveFailure', () => {
@@ -102,6 +103,7 @@ describe('warningText', () => {
     expect(warningText({ code: 'feedback_unavailable', message: 'Feedback needs an ntfy address and topic' })).toBe(
       'Saved. Feedback sends nothing until it has an ntfy address and topic.'
     )
-    expect(warningText({ code: 'something_new', message: 'A newer server says so' })).toBe('A newer server says so')
+    // A code this app doesn't know yet, from a newer server
+    expect(warningText({ code: 'something_new' as ConfigWarning['code'], message: 'A newer server says so' })).toBe('A newer server says so')
   })
 })
