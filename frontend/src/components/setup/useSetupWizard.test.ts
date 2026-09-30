@@ -82,7 +82,7 @@ describe('saveFailure', () => {
       formError: { message: "Part of this is now set by the server's environment. Reload the page to see what changed." },
     })
     expect(saveFailure(refused(409, 'self_lockout'), 'access')).toEqual({
-      formError: { message: "That would switch off the sign-in you're using, so it wasn't saved." },
+      formError: { message: "That would lock you out, so it wasn't saved. Another admin can change it." },
     })
     expect(saveFailure(refused(409, 'no_storage'), 'extras')).toEqual({
       formError: { message: 'This server has nowhere to keep settings. Give it a /data volume, restart it, then try again.' },

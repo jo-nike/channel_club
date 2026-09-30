@@ -17,7 +17,8 @@ interface PeopleAdminListProps {
 /**
  * A Plex server's members with an Admin tick for each. The owner is always an
  * admin, so has no tick. Ticks keep ids that aren't listed (someone who left
- * the server) as they were.
+ * the server) as they were. The admin at the screen can't untick themselves:
+ * it would end their own admin rights (the server refuses it too).
  */
 export function PeopleAdminList({ members, adminIds, onChange, labelledBy, selfId }: PeopleAdminListProps) {
   const toggle = (plexId: string, admin: boolean) =>
@@ -26,7 +27,15 @@ export function PeopleAdminList({ members, adminIds, onChange, labelledBy, selfI
   return (
     <ul aria-labelledby={labelledBy} className="m-0 flex list-none flex-col overflow-hidden rounded-xl border bg-card p-0">
       {members.map((member) => {
-        const facts = [member.plexId === selfId && 'You', member.owner && 'server owner', member.managed && 'managed user']
+        const ticked = adminIds.includes(member.plexId)
+        const ownTick = member.plexId === selfId && ticked && !member.owner
+        const factsId = `${labelledBy}-${member.plexId}-facts`
+        const facts = [
+          member.plexId === selfId && 'You',
+          ownTick && 'only another admin can untick you',
+          member.owner && 'server owner',
+          member.managed && 'managed user',
+        ]
           .filter((fact): fact is string => Boolean(fact))
           .join(' · ')
         return (
@@ -34,7 +43,11 @@ export function PeopleAdminList({ members, adminIds, onChange, labelledBy, selfI
             <MemberAvatar username={member.username} userId={member.plexId} decorative className="size-8 text-[13px]" />
             <div className="flex min-w-0 flex-1 flex-col">
               <p className="truncate font-semibold">{member.username}</p>
-              {facts && <p className="text-[13px] text-muted-foreground">{facts.charAt(0).toUpperCase() + facts.slice(1)}</p>}
+              {facts && (
+                <p id={factsId} className="text-[13px] text-muted-foreground">
+                  {facts.charAt(0).toUpperCase() + facts.slice(1)}
+                </p>
+              )}
             </div>
             {member.owner ? (
               <Chip tone="primary">
@@ -42,10 +55,12 @@ export function PeopleAdminList({ members, adminIds, onChange, labelledBy, selfI
                 Always admin
               </Chip>
             ) : (
-              <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 px-1.5 text-sm">
+              <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 px-1.5 text-sm has-disabled:cursor-default has-disabled:text-muted-foreground">
                 <input
                   type="checkbox"
-                  checked={adminIds.includes(member.plexId)}
+                  checked={ticked}
+                  disabled={ownTick}
+                  aria-describedby={ownTick ? factsId : undefined}
                   onChange={(event) => toggle(member.plexId, event.target.checked)}
                   className="m-0 size-[18px] accent-primary"
                 />

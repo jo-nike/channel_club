@@ -71,7 +71,7 @@ const ENV_MANAGED = "Sign-in is set in this server's environment, so there's not
 /** Saving's refusals of the whole step. */
 const SAVE_COPY: Partial<Record<string, string>> = {
   locked: "Part of this is now set by the server's environment. Reload the page to see what changed.",
-  self_lockout: "That would switch off the sign-in you're using, so it wasn't saved.",
+  self_lockout: "That would lock you out, so it wasn't saved. Another admin can change it.",
   no_storage: 'This server has nowhere to keep settings. Give it a /data volume, restart it, then try again.',
   write_failed: "The server couldn't save the settings. Check that its data folder can be written to, then try again.",
 }

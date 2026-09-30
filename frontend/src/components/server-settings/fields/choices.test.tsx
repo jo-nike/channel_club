@@ -130,6 +130,23 @@ describe('PeopleAdminList', () => {
     expect(screen.getByRole('checkbox', { name: 'Admin for den-tv' })).toBeChecked()
   })
 
+  it("locks the admin's own tick, saying who can take it off", () => {
+    render(<PeopleAdminList members={members} adminIds={['2', '3']} onChange={vi.fn()} labelledBy="admins-label" selfId="2" />)
+
+    const own = screen.getByRole('checkbox', { name: 'Admin for sam' })
+    expect(own).toBeChecked()
+    expect(own).toBeDisabled()
+    expect(own).toHaveAccessibleDescription('You · only another admin can untick you')
+    expect(screen.getByRole('checkbox', { name: 'Admin for den-tv' })).toBeEnabled()
+  })
+
+  it('lets an admin who is not ticked tick themselves', () => {
+    render(<PeopleAdminList members={members} adminIds={['3']} onChange={vi.fn()} labelledBy="admins-label" selfId="2" />)
+
+    expect(screen.getByRole('checkbox', { name: 'Admin for sam' })).toBeEnabled()
+    expect(screen.getByText('You')).toBeInTheDocument()
+  })
+
   it('adds and removes an id, keeping the others', () => {
     const onChange = vi.fn()
     render(<PeopleAdminList members={members} adminIds={['1', '3', 'gone']} onChange={onChange} labelledBy="x" />)
