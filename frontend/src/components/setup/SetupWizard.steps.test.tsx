@@ -5,7 +5,7 @@ import * as setupApi from '@/services/setupApi'
 import { SetupApiError } from '@/services/setupApi'
 import { useAuthStore } from '@/stores/authStore'
 import { configView } from '@/test/settingsFixtures'
-import { pending, renderWizard } from '@/test/setupWizard'
+import { focusedStepHeading, pending, renderWizard } from '@/test/setupWizard'
 import type { ConfigUpdate, ConfigValues, ConfigView, PlexMember, PlexServersResponse } from '@/types/setup'
 import type { StepId } from './steps'
 import type { WizardAdmin } from './wizardReducer'
@@ -115,7 +115,7 @@ describe('SetupWizard: Channels', () => {
 
     await act(async () => saving.settle(saved(DISPATCHARR_SAVED)))
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Who can join?' })).toHaveFocus()
+    await focusedStepHeading('Who can join?')
     expect(within(rail()).getByRole('button', { name: 'Channels, done' })).toHaveAccessibleDescription('Dispatcharr')
     expect(JSON.parse(localStorage.getItem(PROGRESS_KEY)!)).toEqual({ step: 'access', reached: 3 })
   })
@@ -286,7 +286,7 @@ describe('SetupWizard: Who can join', () => {
 
     await act(async () => linking.settle({ config: linked(), warnings: [] }))
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Add the extras' })).toHaveFocus()
+    await focusedStepHeading('Add the extras')
     expect(setupApi.getPlexMembers).toHaveBeenCalled()
     expect(setupApi.updateAdminConfig).toHaveBeenCalledWith({ plexAuthEnabled: true })
     const [linkedAt] = vi.mocked(setupApi.linkPlexServer).mock.invocationCallOrder
@@ -366,7 +366,7 @@ describe('SetupWizard: Extras', () => {
     fireEvent.click(await screen.findByRole('switch', { name: 'Chat' }))
     fireEvent.click(continueButton())
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Ready to open' })).toHaveFocus()
+    await focusedStepHeading('Ready to open')
     expect(setupApi.updateAdminConfig).toHaveBeenCalledWith({ chatEnabled: true })
     expect(within(rail()).getByRole('button', { name: 'Extras, done' })).toHaveAccessibleDescription('Chat')
   })

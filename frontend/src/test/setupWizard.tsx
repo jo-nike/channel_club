@@ -1,5 +1,6 @@
 import { StrictMode } from 'react'
-import { render } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
+import { expect } from 'vitest'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { Toaster } from '@/components/ui/sonner'
 import { SetupWizard } from '@/components/setup/SetupWizard'
@@ -23,6 +24,17 @@ export function pending<T>() {
     settle = resolve
   })
   return { promise, settle }
+}
+
+/**
+ * A step's heading once it has focus. The wizard focuses it in an effect after
+ * the step renders, and after an answer from the server that can come a moment
+ * after the heading shows, so this waits for the focus too.
+ */
+export async function focusedStepHeading(name: string): Promise<HTMLElement> {
+  const heading = await screen.findByRole('heading', { level: 1, name })
+  await waitFor(() => expect(heading).toHaveFocus())
+  return heading
 }
 
 /**

@@ -5,7 +5,7 @@ import * as setupApi from '@/services/setupApi'
 import { SetupApiError } from '@/services/setupApi'
 import { useAuthStore } from '@/stores/authStore'
 import { configView } from '@/test/settingsFixtures'
-import { pending, renderWizard } from '@/test/setupWizard'
+import { focusedStepHeading, pending, renderWizard } from '@/test/setupWizard'
 import type { ConfigUpdate, ConfigValues, ConfigView, SetupFacts } from '@/types/setup'
 import type { StepId } from './steps'
 import type { WizardAdmin } from './wizardReducer'
@@ -98,7 +98,7 @@ describe('SetupWizard: Review', () => {
 
     fireEvent.click(within(summary).getByRole('button', { name: 'Edit Who can join' }))
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Who can join?' })).toHaveFocus()
+    await focusedStepHeading('Who can join?')
   })
 
   it('reports how a source tested with the key its step then saved', async () => {
@@ -204,7 +204,7 @@ describe('SetupWizard: Open Channel Club', () => {
 
     await act(async () => finishing.settle(FACTS))
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Channel Club is open' })).toHaveFocus()
+    await focusedStepHeading('Channel Club is open')
   })
 
   it('opens the first step with something to fix, focusing it', async () => {

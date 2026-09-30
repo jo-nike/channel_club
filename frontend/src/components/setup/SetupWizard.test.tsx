@@ -7,7 +7,7 @@ import { SetupApiError } from '@/services/setupApi'
 import type { TokenResponse } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
 import { configView } from '@/test/settingsFixtures'
-import { pending, renderWizard, session } from '@/test/setupWizard'
+import { focusedStepHeading, pending, renderWizard, session } from '@/test/setupWizard'
 import type { ConfigView, PlexServersResponse } from '@/types/setup'
 import type { WizardAdmin } from './wizardReducer'
 
@@ -120,7 +120,7 @@ describe('SetupWizard: Welcome', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Welcome to Channel Club' })).toHaveFocus()
+    await focusedStepHeading('Welcome to Channel Club')
   })
 
   it("lists what this server's environment sets", () => {
@@ -207,7 +207,7 @@ describe('SetupWizard: a password account', () => {
 
     await act(async () => claim.settle(answer))
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Where do your channels come from?' })).toHaveFocus()
+    await focusedStepHeading('Where do your channels come from?')
     expect(useAuthStore.getState()).toMatchObject({ token: answer.accessToken, role: 'admin', username: 'sam', isAuthenticated: true })
     expect(within(rail()).getByRole('button', { name: 'Channels' })).toHaveAttribute('aria-current', 'step')
     expect(within(rail()).getByRole('button', { name: 'Your account, done' })).toHaveAccessibleDescription('Password · sam')
@@ -285,7 +285,7 @@ describe('SetupWizard: a Plex account', () => {
     fireEvent.click(screen.getByRole('radio', { name: /Cabin NAS/ }))
     fireEvent.click(continueButton())
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Where do your channels come from?' })).toHaveFocus()
+    await focusedStepHeading('Where do your channels come from?')
     expect(setupApi.claimSetup).toHaveBeenCalledWith({ method: 'plex', authToken: 'tok-1', machineId: 'cabin' })
     expect(useAuthStore.getState()).toMatchObject({ role: 'admin', username: 'jon' })
     await waitFor(() =>
@@ -492,7 +492,7 @@ describe('SetupWizard: a claimed club', () => {
 
     expect(screen.queryByText("Loading the server's settings…")).not.toBeInTheDocument()
     fireEvent.click(within(rail()).getByRole('button', { name: 'Channels, done' }))
-    expect(await screen.findByRole('heading', { level: 1, name: 'Where do your channels come from?' })).toHaveFocus()
+    await focusedStepHeading('Where do your channels come from?')
     expect(JSON.parse(localStorage.getItem('channel-club:setup-progress')!)).toEqual({ step: 'sources', reached: 4 })
   })
 
