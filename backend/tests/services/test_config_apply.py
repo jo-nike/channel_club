@@ -301,35 +301,6 @@ class TestSwitches:
 
         stop_all.assert_awaited_once_with()
 
-    async def test_cast_on_sweeps_old_sessions_before_the_switch_flips(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        seen: list[bool] = []
-        monkeypatch.setattr(
-            cast_service, "cleanup_stale_sessions", lambda: seen.append(settings.cast_enabled)
-        )
-
-        await config_apply.apply({"cast_enabled": True})
-
-        assert seen == [False]
-
-    async def test_cast_off_stops_sessions_but_keeps_the_idle_sweep(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(settings, "cast_enabled", True)
-        session = StoppedSession("s-1", "uuid-1", ON_OLD.stream_url, "mpegts")
-        cast_service._sessions["s-1"] = session
-        cast_service.start_idle_cleanup_task()
-        try:
-            await config_apply.apply({"cast_enabled": False})
-
-            assert session.stopped
-            assert cast_service._sessions == {}
-            assert cast_service._cleanup_task is not None
-            assert not cast_service._cleanup_task.done()
-        finally:
-            await cast_service.stop_idle_cleanup_task()
-
     async def test_a_new_plex_token_looks_the_owner_up_again(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -368,9 +339,8 @@ class TestFeaturesUpdate:
     def broadcast(self, monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
         broadcast = AsyncMock()
         monkeypatch.setattr(channel_state, "broadcast", broadcast)
-        # Switching clips or casting on has nothing to sweep here
+        # Switching clips on has nothing to sweep here
         monkeypatch.setattr(highlight_service, "cleanup_stale_segments", lambda: None)
-        monkeypatch.setattr(cast_service, "cleanup_stale_sessions", lambda: None)
         return broadcast
 
     @pytest.mark.parametrize(
@@ -379,13 +349,12 @@ class TestFeaturesUpdate:
             ({"chat_enabled": True}, {"chat": True, "gif": False}),
             ({"giphy_api_key": "a giphy key"}, {"chat": False, "gif": True}),
             ({"highlight_enabled": True}, {"chat": False, "gif": False}),
-            ({"cast_enabled": True}, {"chat": False, "gif": False}),
             (
                 {"ntfy_enabled": True, "ntfy_url": "https://ntfy.test", "ntfy_topic": "reports"},
                 {"chat": False, "gif": False},
             ),
         ],
-        ids=["chat", "gifs", "clips", "cast", "feedback"],
+        ids=["chat", "gifs", "clips", "feedback"],
     )
     async def test_a_feature_switching_tells_every_tab_once(
         self, broadcast: AsyncMock, change: dict, features: dict

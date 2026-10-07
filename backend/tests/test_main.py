@@ -225,7 +225,7 @@ def test_startup_logs_a_server_start_event() -> None:
     assert start["log_format"] == settings.log_format
 
 
-@pytest.mark.parametrize("key", ["STREAM_BASE_URL", "VITE_WS_URL"])
+@pytest.mark.parametrize("key", ["STREAM_BASE_URL", "VITE_WS_URL", "CAST_ENABLED"])
 def test_startup_warns_about_obsolete_variables(monkeypatch, key) -> None:
     """A removed variable left in the environment is named, not silently ignored."""
     monkeypatch.setenv(key, "anything")
@@ -598,7 +598,6 @@ def test_lifespan_runs_the_highlight_and_cast_cleanups(
     stale_recording.mkdir(parents=True)
     stale_session.mkdir(parents=True)
     monkeypatch.setattr(settings, "highlight_enabled", True)
-    monkeypatch.setattr(settings, "cast_enabled", True)
     monkeypatch.setattr(settings, "highlight_temp_dir", str(highlight_dir))
     monkeypatch.setattr(settings, "cast_temp_dir", str(cast_dir))
     TestStartupGuideWarmup._install_upstream(monkeypatch, lambda request: httpx.Response(503))

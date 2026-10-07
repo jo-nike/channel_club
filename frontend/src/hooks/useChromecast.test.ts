@@ -5,8 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { setReceiverVolume, toggleReceiverMute, useChromecast } from './useChromecast'
 import * as api from '@/services/api'
 import { INITIAL_CAST_STATE, useCastStore } from '@/stores/castStore'
-import { useSettingsStore } from '@/stores/settingsStore'
-vi.mock('@/services/api', () => ({ getCastFeatureEnabled: vi.fn().mockResolvedValue(true), createCastSession: vi.fn(), stopCastSession: vi.fn().mockResolvedValue(undefined), getCastHlsUrl: (id: string) => `https://fixture/${id}`, getCastBaseUrl: () => 'https://fixture/api' }))
+vi.mock('@/services/api', () => ({ createCastSession: vi.fn(), stopCastSession: vi.fn().mockResolvedValue(undefined), getCastHlsUrl: (id: string) => `https://fixture/${id}`, getCastBaseUrl: () => 'https://fixture/api' }))
 const listeners = new Map<string, Set<(event: { sessionState: string }) => void>>()
 const session = { getCastDevice: () => ({ friendlyName: 'Fixture receiver' }), loadMedia: vi.fn().mockResolvedValue(undefined) }
 let sessionState = 'STARTED'
@@ -35,7 +34,6 @@ describe('one SDK initialisation for every consumer', () => {
     const player = renderHook(useChromecast)
     await waitFor(() => expect(button.result.current.isLoading).toBe(false))
 
-    expect(api.getCastFeatureEnabled).toHaveBeenCalledTimes(1)
     expect(context.setOptions).toHaveBeenCalledTimes(1)
     expect(addListener.mock.calls.map(([name]) => name)).toEqual(['cast', 'session'])
     expect(player.result.current).toMatchObject({ isLoading: false, isCasting: true, deviceName: 'Fixture receiver' })
@@ -303,96 +301,5 @@ describe("the receiver's volume", () => {
 
     expect(controllerMute).toHaveBeenCalledTimes(1)
     expect(result.current.receiverMuted).toBe(true)
-  })
-})
-
-describe("following the server's cast switch", () => {
-  const featuresChanged = () => act(() => useSettingsStore.getState().noteFeaturesChanged())
-  // clearAllMocks keeps answers queued with Once; a test that leaves one mustn't feed the next
-  beforeEach(() => {
-    vi.mocked(api.getCastFeatureEnabled).mockReset().mockResolvedValue(true)
-  })
-
-  it('ends the cast and hides casting when the server switches it off', async () => {
-    vi.mocked(api.createCastSession).mockResolvedValueOnce(backend('a'))
-    const { result } = renderHook(useChromecast)
-    await waitFor(() => expect(result.current.isLoading).toBe(false))
-    await act(() => result.current.startCasting('a', 'mpegts'))
-
-    vi.mocked(api.getCastFeatureEnabled).mockResolvedValueOnce(false)
-    featuresChanged()
-
-    await waitFor(() => expect(result.current.isAvailable).toBe(false))
-    expect(result.current).toMatchObject({ isCasting: false, isConnected: false, deviceName: null, isLoading: false })
-    expect(context.endCurrentSession).toHaveBeenCalledWith(true)
-    expect(api.stopCastSession).toHaveBeenCalledExactlyOnceWith('a')
-    expect(listeners.get('session')?.size).toBe(0)
-  })
-
-  it('sets the SDK up when the server switches casting on', async () => {
-    vi.mocked(api.getCastFeatureEnabled).mockResolvedValueOnce(false)
-    const { result } = renderHook(useChromecast)
-    await waitFor(() => expect(result.current.isLoading).toBe(false))
-    expect(result.current.isAvailable).toBe(false)
-
-    featuresChanged()
-
-    await waitFor(() => expect(result.current.isAvailable).toBe(true))
-    expect(context.setOptions).toHaveBeenCalledOnce()
-    expect(listeners.get('session')?.size).toBe(1)
-  })
-
-  it('leaves casting alone when its switch is unchanged, checking once for every consumer', async () => {
-    const button = renderHook(useChromecast)
-    renderHook(useChromecast)
-    await waitFor(() => expect(button.result.current.isLoading).toBe(false))
-
-    featuresChanged()
-    await waitFor(() => expect(api.getCastFeatureEnabled).toHaveBeenCalledTimes(2))
-    await act(async () => {})
-
-    expect(context.setOptions).toHaveBeenCalledOnce()
-    expect(context.endCurrentSession).not.toHaveBeenCalled()
-    expect(button.result.current).toMatchObject({ isAvailable: true, isCasting: true })
-  })
-
-  it('acts on the newest answer only', async () => {
-    const { result } = renderHook(useChromecast)
-    await waitFor(() => expect(result.current.isLoading).toBe(false))
-    const older = deferred<boolean>()
-    vi.mocked(api.getCastFeatureEnabled).mockReturnValueOnce(older.promise).mockResolvedValueOnce(true)
-
-    featuresChanged()
-    featuresChanged()
-    await waitFor(() => expect(api.getCastFeatureEnabled).toHaveBeenCalledTimes(3))
-    await act(async () => older.resolve(false))
-
-    expect(context.endCurrentSession).not.toHaveBeenCalled()
-    expect(result.current.isAvailable).toBe(true)
-  })
-
-  it('changes nothing when the answer comes after the last consumer has gone', async () => {
-    vi.mocked(api.getCastFeatureEnabled).mockResolvedValueOnce(false)
-    const { result, unmount } = renderHook(useChromecast)
-    await waitFor(() => expect(result.current.isLoading).toBe(false))
-    const answer = deferred<boolean>()
-    vi.mocked(api.getCastFeatureEnabled).mockReturnValueOnce(answer.promise)
-
-    featuresChanged()
-    unmount()
-    await act(async () => answer.resolve(true))
-
-    expect(context.setOptions).not.toHaveBeenCalled()
-    expect(listeners.get('session')?.size ?? 0).toBe(0)
-  })
-
-  it('stops following once the last consumer is gone', async () => {
-    const { result, unmount } = renderHook(useChromecast)
-    await waitFor(() => expect(result.current.isLoading).toBe(false))
-    unmount()
-
-    featuresChanged()
-
-    expect(api.getCastFeatureEnabled).toHaveBeenCalledOnce()
   })
 })

@@ -159,15 +159,12 @@ const clipApi = vi.hoisted(() => ({
   deleteHighlightCapture: vi.fn<(id: string) => Promise<void>>(),
   getHighlightFeatures: vi.fn<() => Promise<{ enabled: boolean; ziplineEnabled: boolean }>>(),
 }))
-const castFeature = vi.hoisted(() => vi.fn(() => new Promise<boolean>(() => {})))
 vi.mock('@/services/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/services/api')>()),
   ...clipApi,
   // The TV store looks the live guide up when live TV changes; never answered here
   fetchNowPlaying: () => new Promise(() => {}),
   fetchLiveProgrammes: () => new Promise(() => {}),
-  // The shell holds the Cast SDK, which starts with this check; never answered here
-  getCastFeatureEnabled: castFeature,
 }))
 // ErsatzTV stream sessions, a new one per call as the backend's would be. By
 // default one opens synchronously (a thenable that answers inside then()), so
@@ -3466,17 +3463,26 @@ describe('DualModeVideoPlayer casting', () => {
   })
 
   it('the shell holds the Cast SDK: a channel change, the empty live slot or the reload after a stop never sets it up again', () => {
-    castFeature.mockClear()
-    const { switchTo } = renderPlayer(liveChannel('https://fixture/a'))
-    expect(castFeature).toHaveBeenCalledTimes(1)
+    // An SDK whose setup is counted, and stops there: no receiver in these tests
+    const setUp = vi.fn(() => {
+      throw new Error('no receiver here')
+    })
+    vi.stubGlobal('cast', { framework: { CastContext: { getInstance: setUp } } })
+    vi.stubGlobal('chrome', { cast: {} })
+    try {
+      const { switchTo } = renderPlayer(liveChannel('https://fixture/a'))
+      expect(setUp).toHaveBeenCalledTimes(1)
 
-    startCast()
-    switchTo(liveChannel(''))
-    switchTo(liveChannel('https://fixture/b'))
-    stopCast()
-    switchTo(hlsChannel('1', 1))
+      startCast()
+      switchTo(liveChannel(''))
+      switchTo(liveChannel('https://fixture/b'))
+      stopCast()
+      switchTo(hlsChannel('1', 1))
 
-    expect(castFeature).toHaveBeenCalledTimes(1)
+      expect(setUp).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('ErsatzTV: the notices about the local picture give way to the card', () => {

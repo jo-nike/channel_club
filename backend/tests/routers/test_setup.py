@@ -345,7 +345,6 @@ class TestWhileClaimed:
                 "chat": False,
                 "gifs": False,
                 "clips": False,
-                "cast": False,
                 "feedback": False,
             },
         }

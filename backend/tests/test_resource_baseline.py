@@ -316,7 +316,6 @@ def churn(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(channel_state, "BROADCAST_SEND_TIMEOUT_SECONDS", 0.01)
     monkeypatch.setattr(settings, "chat_enabled", True)
     monkeypatch.setattr(settings, "highlight_enabled", True)
-    monkeypatch.setattr(settings, "cast_enabled", True)
     monkeypatch.setattr(settings, "highlight_temp_dir", str(tmp_path / "highlights"))
     monkeypatch.setattr(settings, "cast_temp_dir", str(tmp_path / "cast"))
     monkeypatch.setattr(highlight, "asyncio", FastAsyncio())

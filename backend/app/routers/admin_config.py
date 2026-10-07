@@ -142,7 +142,6 @@ def _values(source: Settings, house_rules: dict[str, bool]) -> ConfigValues:
         zipline_enabled=source.zipline_enabled,
         zipline_url=source.zipline_url,
         zipline_token=_secret(source.zipline_token),
-        cast_enabled=source.cast_enabled,
         ntfy_enabled=source.ntfy_enabled,
         ntfy_url=source.ntfy_url,
         ntfy_topic=source.ntfy_topic,

@@ -204,9 +204,8 @@ class TestFollowLive:
 
 @pytest.fixture
 def cast_on(monkeypatch: pytest.MonkeyPatch) -> Iterator[CastService]:
-    """Casting on, highlights off, a fresh cast service behind channel_state."""
+    """Highlights off, a fresh cast service behind channel_state."""
     service = CastService()
-    monkeypatch.setattr(settings, "cast_enabled", True)
     monkeypatch.setattr(settings, "highlight_enabled", False)
     monkeypatch.setattr("app.services.cast.cast_service", service)
     yield service

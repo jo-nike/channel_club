@@ -52,7 +52,7 @@ const FACTS: SetupFacts = {
   dispatcharrChannels: 37,
   ersatztvChannels: null,
   plexServerName: null,
-  features: { chat: true, gifs: false, clips: false, cast: false, feedback: false },
+  features: { chat: true, gifs: false, clips: false, feedback: false },
 }
 
 const rail = () => screen.getByRole('navigation', { name: 'Setup steps' })

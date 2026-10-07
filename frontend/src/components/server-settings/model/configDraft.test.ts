@@ -146,7 +146,6 @@ describe('switches', () => {
     expect(isShown(clipsOnly, 'ziplineUrl')).toBe(false)
     expect(isShown(both, 'ziplineUrl')).toBe(true)
     expect(isShown(settingsState({ ziplineEnabled: true }), 'ziplineUrl')).toBe(false)
-    expect(isShown(both, 'castEnabled')).toBe(true)
   })
 })
 
@@ -200,7 +199,7 @@ describe('sectionPatch', () => {
   })
 
   it('sends only the changed settings of its own section', () => {
-    const state = settingsState({}, { values: { chatEnabled: true, castEnabled: false, logLevel: 'DEBUG' } })
+    const state = settingsState({}, { values: { chatEnabled: true, ntfyEnabled: false, logLevel: 'DEBUG' } })
 
     expect(sectionPatch(state, 'extras')).toEqual({ chatEnabled: true })
     expect(sectionPatch(state, 'advanced')).toEqual({ logLevel: 'DEBUG' })

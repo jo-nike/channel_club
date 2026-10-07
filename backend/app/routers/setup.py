@@ -273,7 +273,6 @@ async def complete(admin: TokenPayload = Depends(require_admin)) -> SetupComplet
             chat=settings.chat_enabled,
             gifs=settings.chat_enabled and gifs,
             clips=settings.highlight_enabled,
-            cast=settings.cast_enabled,
             feedback=settings.ntfy_available,
         ),
     )

@@ -49,7 +49,6 @@ class ConfigValues(CamelModel):
     zipline_enabled: bool
     zipline_url: str
     zipline_token: SecretState
-    cast_enabled: bool
     ntfy_enabled: bool
     ntfy_url: str
     ntfy_topic: str
@@ -188,7 +187,6 @@ class ConfigPatch(CamelModel):
     zipline_enabled: bool | None = None
     zipline_url: str | None = Field(default=None, max_length=2048)
     zipline_token: str | None = Field(default=None, min_length=1, max_length=512)
-    cast_enabled: bool | None = None
     ntfy_enabled: bool | None = None
     ntfy_url: str | None = Field(default=None, max_length=2048)
     ntfy_topic: str | None = Field(default=None, max_length=64)

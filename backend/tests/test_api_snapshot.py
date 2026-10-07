@@ -452,7 +452,6 @@ def test_rest_bodies(client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_pa
     with patch("app.routers.nhl.get_nhl_scores", AsyncMock(return_value=_nhl())):
         bodies["GET /api/nhl/scores"] = _body(client.get("/api/nhl/scores", headers=viewer))
 
-    monkeypatch.setattr(settings, "cast_enabled", True)
     etv_source = MediaChannel(TSN, "hls")
     with patch("app.routers.cast.resolve_media_channel", AsyncMock(return_value=etv_source)):
         cast = _body(

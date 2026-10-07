@@ -72,6 +72,7 @@ OBSOLETE_ENV_KEYS = {
     "ERSATZTV_M3U_URL": "derived from ERSATZTV_BASE_URL",
     "ERSATZTV_XMLTV_URL": "derived from ERSATZTV_BASE_URL",
     "MEDIA_RECORDER_PER_USER": "recorders share one owner, so MEDIA_RECORDER_LIMIT applies",
+    "CAST_ENABLED": "casting is always on",
 }
 
 
@@ -169,10 +170,6 @@ class Settings(BaseSettings):
             and self.zipline_token.get_secret_value().strip()
             and plain_http_url(self.zipline_url)
         )
-
-    # Chromecast Feature (requires FFmpeg in container)
-    # Enables casting streams to Chromecast devices via HLS transcoding
-    cast_enabled: bool = False
 
     # Optional feedback push to an ntfy topic. Destination and token are
     # server-owned; never a VITE_ variable.
@@ -301,7 +298,6 @@ UiField = Literal[
     "zipline_enabled",
     "zipline_url",
     "zipline_token",
-    "cast_enabled",
     "ntfy_enabled",
     "ntfy_url",
     "ntfy_topic",
@@ -336,7 +332,6 @@ FIELD_GROUPS: dict[str, tuple[str, ...]] = {
     "giphy": ("giphy_api_key",),
     "clips": ("highlight_enabled",),
     "zipline": ("zipline_enabled", "zipline_url", "zipline_token"),
-    "cast": ("cast_enabled",),
     "feedback": ("ntfy_enabled", "ntfy_url", "ntfy_topic", "ntfy_token"),
     **{field: (field,) for field in ADVANCED_FIELDS},
 }

@@ -72,7 +72,6 @@ export interface SetupFeatures {
   chat: boolean
   gifs: boolean
   clips: boolean
-  cast: boolean
   feedback: boolean
 }
 
@@ -122,7 +121,6 @@ export interface ConfigValues {
   ziplineEnabled: boolean
   ziplineUrl: string
   ziplineToken: SecretState
-  castEnabled: boolean
   ntfyEnabled: boolean
   ntfyUrl: string
   ntfyTopic: string

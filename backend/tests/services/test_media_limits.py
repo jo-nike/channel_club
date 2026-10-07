@@ -16,7 +16,6 @@ from app.services.media_limits import export_budget, process_budget, recorder_bu
 def budgets(monkeypatch):
     process_budget.owners.clear()
     export_budget.owners.clear()
-    monkeypatch.setattr(settings, "cast_enabled", True)
     monkeypatch.setattr(settings, "highlight_enabled", True)
     monkeypatch.setattr(settings, "media_process_limit", 3)
     monkeypatch.setattr(settings, "media_process_per_user", 2)

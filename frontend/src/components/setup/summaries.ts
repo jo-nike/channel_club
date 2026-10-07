@@ -50,7 +50,6 @@ export function stepSummary(state: WizardState, step: StepId): string {
       const on = [
         fieldValue(settings, 'chatEnabled') && 'chat',
         fieldValue(settings, 'highlightEnabled') && 'clips',
-        fieldValue(settings, 'castEnabled') && 'Chromecast',
         fieldValue(settings, 'ntfyEnabled') && 'feedback',
       ]
       return capitalise(on.filter(Boolean).join(', ') || 'none')
@@ -133,7 +132,6 @@ export function reviewRows(state: WizardState, settings: SettingsState): ReviewR
   if (fieldValue(settings, 'highlightEnabled')) {
     extras.push({ text: fieldValue(settings, 'ziplineEnabled') ? 'Clips, shared through Zipline' : 'Clips' })
   }
-  if (fieldValue(settings, 'castEnabled')) extras.push({ text: 'Chromecast' })
   if (fieldValue(settings, 'ntfyEnabled')) extras.push({ text: `Feedback to the ntfy topic ${fieldValue(settings, 'ntfyTopic').trim()}` })
 
   return [

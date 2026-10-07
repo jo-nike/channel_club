@@ -85,10 +85,8 @@ describe('stepSummary', () => {
 
   it('lists the extras switched on', () => {
     expect(stepSummary(afterClaim(), 'extras')).toBe('None')
-    expect(stepSummary(afterClaim({ chatEnabled: true, highlightEnabled: true, castEnabled: true, ntfyEnabled: true }), 'extras')).toBe(
-      'Chat, clips, Chromecast, feedback'
-    )
-    expect(stepSummary(afterClaim({ castEnabled: true }), 'extras')).toBe('Chromecast')
+    expect(stepSummary(afterClaim({ chatEnabled: true, highlightEnabled: true, ntfyEnabled: true }), 'extras')).toBe('Chat, clips, feedback')
+    expect(stepSummary(afterClaim({ ntfyEnabled: true }), 'extras')).toBe('Feedback')
   })
 })
 
@@ -160,13 +158,12 @@ describe('reviewRows', () => {
           giphyApiKey: { set: true },
           highlightEnabled: true,
           ziplineEnabled: true,
-          castEnabled: true,
           ntfyEnabled: true,
           ntfyTopic: 'club-news',
         }),
         'extras'
       )
-    ).toEqual(['Chat, with GIFs', 'Clips, shared through Zipline', 'Chromecast', 'Feedback to the ntfy topic club-news'])
+    ).toEqual(['Chat, with GIFs', 'Clips, shared through Zipline', 'Feedback to the ntfy topic club-news'])
     expect(lines(afterClaim({ chatEnabled: true, highlightEnabled: true }), 'extras')).toEqual(['Chat', 'Clips'])
   })
 })
@@ -177,7 +174,7 @@ describe('onAirFacts', () => {
     ersatztvChannels: null,
     plexServerName: null,
     ...overrides,
-    features: { chat: false, gifs: false, clips: false, cast: false, feedback: false, ...features },
+    features: { chat: false, gifs: false, clips: false, feedback: false, ...features },
   })
 
   it('counts the channels from every source that answered', () => {
@@ -187,7 +184,7 @@ describe('onAirFacts', () => {
   })
 
   it('names who can join and the extras that are on', () => {
-    expect(onAirFacts(facts({ dispatcharrChannels: 0, plexServerName: 'Home Server' }, { chat: true, clips: true, cast: true, feedback: true }))).toEqual([
+    expect(onAirFacts(facts({ dispatcharrChannels: 0, plexServerName: 'Home Server' }, { chat: true, clips: true, feedback: true }))).toEqual([
       '0 channels',
       'Members of Home Server can join',
       'Chat on',

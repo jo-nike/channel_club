@@ -80,7 +80,6 @@ class SetupFeatures(CamelModel):
     chat: bool
     gifs: bool
     clips: bool
-    cast: bool
     feedback: bool
 
 

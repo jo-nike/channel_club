@@ -3,7 +3,7 @@ import { ExtrasSection } from '@/components/server-settings/sections/ExtrasSecti
 import { ID_PREFIX, type SetupWizardApi } from '../useSetupWizard'
 import { SettingsStep } from './SettingsStep'
 
-/** Step 5: chat, clips, Chromecast and feedback. Continue checks and saves them. */
+/** Step 5: chat, clips and feedback. Continue checks and saves them. */
 export function ExtrasStep({ wizard, headingRef }: { wizard: SetupWizardApi; headingRef: Ref<HTMLHeadingElement> }) {
   const { state } = wizard
   return (

@@ -7,7 +7,7 @@ still reading from an old address, features switched on or off, the Plex
 owner lookup and the log level. The order:
 
 1. Prepare features being switched on: their stale-file sweeps finish before
-   the switch flips, so they can't delete what a new recorder or cast writes.
+   the switch flips, so they can't delete what a new recorder writes.
 2. Validate the batch, write the file, then assign every value with no await
    in between (settings_store.edit).
 3. Invalidate the caches the old values filled.
@@ -47,14 +47,13 @@ def client_features() -> Features:
 
 
 def _feature_switches() -> tuple[bool, ...]:
-    """Which optional features clients can use: chat, GIFs, clips, Zipline, casting, feedback."""
+    """Which optional features clients can use: chat, GIFs, clips, Zipline, feedback."""
     features = client_features()
     return (
         features.chat,
         features.gif,
         settings.highlight_enabled,
         settings.zipline_available,
-        settings.cast_enabled,
         settings.ntfy_available,
     )
 
@@ -70,8 +69,6 @@ async def _prepare(values: Mapping[str, object]) -> None:
     """Sweep what a feature left behind before it is switched back on."""
     if values.get("highlight_enabled") is True and not settings.highlight_enabled:
         await asyncio.to_thread(highlight_service.cleanup_stale_segments)
-    if values.get("cast_enabled") is True and not settings.cast_enabled:
-        await asyncio.to_thread(cast_service.cleanup_stale_sessions)
 
 
 def _invalidate(changed: set[str]) -> None:
@@ -118,8 +115,6 @@ async def _side_effects(changed: set[str], before: Mapping[str, object]) -> None
         await _leave_address(str(before["dispatcharr_url"]))
     if "highlight_enabled" in changed and not settings.highlight_enabled:
         await highlight_service.stop_all()
-    if "cast_enabled" in changed and not settings.cast_enabled:
-        await cast_service.stop_sessions()
 
 
 async def apply(

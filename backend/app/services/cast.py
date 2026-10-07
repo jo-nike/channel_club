@@ -427,10 +427,6 @@ class CastService:
         Raises:
             StreamSessionLimitError: an 'hls' cast found every stream session taken.
         """
-        if not settings.cast_enabled:
-            log.warning("Cast feature is disabled")
-            return None
-
         if stream_type == "hls":
             # ErsatzTV already serves HLS: no FFmpeg, so no slot and no cast
             # session. The receiver plays the owner's ErsatzTV stream session,

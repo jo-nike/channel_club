@@ -161,7 +161,7 @@ describe('setup', () => {
     expect(propertyNames('PlexMemberView')).toEqual(['admin', 'managed', 'owner', 'plexId', 'username'])
     expect(propertyNames('EnvVariable')).toEqual(['env', 'field', 'secret', 'value'])
     expect(propertyNames('SetupCompleteResponse')).toEqual(['dispatcharrChannels', 'ersatztvChannels', 'features', 'plexServerName'])
-    expect(propertyNames('SetupFeatures')).toEqual(['cast', 'chat', 'clips', 'feedback', 'gifs'])
+    expect(propertyNames('SetupFeatures')).toEqual(['chat', 'clips', 'feedback', 'gifs'])
     expect(propertyNames('ConfigUpdateResponse')).toEqual(['config', 'warnings'])
     expect(enumOf('ConfigWarning', 'code')).toEqual(['zipline_unavailable', 'feedback_unavailable'])
   })

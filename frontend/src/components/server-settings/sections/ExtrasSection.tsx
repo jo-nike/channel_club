@@ -1,4 +1,4 @@
-import { Cast, Check, Clapperboard, CloudUpload, Dices, Image, Lightbulb, MessageCircle, Send } from 'lucide-react'
+import { Check, Clapperboard, CloudUpload, Dices, Image, Lightbulb, MessageCircle, Send } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
@@ -18,7 +18,7 @@ import type { SectionProps, TestProps } from './types'
 /** The public ntfy server, filled in when feedback is first switched on. */
 const NTFY_SH = 'https://ntfy.sh'
 
-/** The extras: chat and GIFs, clips and Zipline, Chromecast, and feedback through ntfy. */
+/** The extras: chat and GIFs, clips and Zipline, and feedback through ntfy. */
 export function ExtrasSection({ state, errors, onField, idPrefix, tests, onTest }: SectionProps & TestProps) {
   const { view } = state
   const ffmpegReady = view.ffmpeg.ffmpeg && view.ffmpeg.ffprobe
@@ -31,7 +31,6 @@ export function ExtrasSection({ state, errors, onField, idPrefix, tests, onTest 
     <Chip>FFmpeg missing</Chip>
   )
   const clipsOn = fieldValue(state, 'highlightEnabled')
-  const castOn = fieldValue(state, 'castEnabled')
   const topicLock = lockedBy(view, 'ntfyTopic')
 
   // Switching feedback on starts from the public server and a topic nobody could guess
@@ -136,20 +135,6 @@ export function ExtrasSection({ state, errors, onField, idPrefix, tests, onTest 
           </div>
         )}
       </SettingCard>
-
-      <SettingCard
-        id={`${idPrefix}-card-cast`}
-        icon={Cast}
-        title="Chromecast"
-        badge={ffmpegChip}
-        description="Send a channel to a Chromecast. The Chromecast has to reach this server, so casting works best on your home network."
-        toggle={{
-          id: `${idPrefix}-castEnabled`,
-          checked: castOn,
-          onChange: (on) => onField('castEnabled', on),
-          disabled: lockedBy(view, 'castEnabled') !== null || (!ffmpegReady && !castOn),
-        }}
-      />
 
       <SettingCard
         id={`${idPrefix}-card-feedback`}

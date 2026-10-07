@@ -255,20 +255,6 @@
         "title": "CaptureResponse",
         "type": "object"
       },
-      "CastFeatureResponse": {
-        "description": "Response for cast feature status.",
-        "properties": {
-          "enabled": {
-            "title": "Enabled",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "enabled"
-        ],
-        "title": "CastFeatureResponse",
-        "type": "object"
-      },
       "CastSessionResponse": {
         "description": "Response for cast session creation.",
         "properties": {
@@ -393,17 +379,6 @@
               }
             ],
             "title": "Adminusername"
-          },
-          "castEnabled": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Castenabled"
           },
           "castHlsListSize": {
             "anyOf": [
@@ -970,10 +945,6 @@
             "title": "Adminusername",
             "type": "string"
           },
-          "castEnabled": {
-            "title": "Castenabled",
-            "type": "boolean"
-          },
           "castHlsListSize": {
             "title": "Casthlslistsize",
             "type": "integer"
@@ -1168,7 +1139,6 @@
           "ziplineEnabled",
           "ziplineUrl",
           "ziplineToken",
-          "castEnabled",
           "ntfyEnabled",
           "ntfyUrl",
           "ntfyTopic",
@@ -3226,10 +3196,6 @@
       "SetupFeatures": {
         "description": "Which extras are on when setup finishes.",
         "properties": {
-          "cast": {
-            "title": "Cast",
-            "type": "boolean"
-          },
           "chat": {
             "title": "Chat",
             "type": "boolean"
@@ -3251,7 +3217,6 @@
           "chat",
           "gifs",
           "clips",
-          "cast",
           "feedback"
         ],
         "title": "SetupFeatures",
@@ -3864,33 +3829,6 @@
         "summary": "Login",
         "tags": [
           "auth"
-        ]
-      }
-    },
-    "/api/cast/feature": {
-      "get": {
-        "description": "Check if cast feature is enabled.\n\nThis endpoint allows the frontend to conditionally show/hide\nthe cast button based on the server-side feature flag.",
-        "operationId": "get_feature_status_api_cast_feature_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CastFeatureResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Get Feature Status",
-        "tags": [
-          "cast"
         ]
       }
     },

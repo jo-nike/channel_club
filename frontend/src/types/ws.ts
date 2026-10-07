@@ -73,8 +73,8 @@ export interface SettingsUpdateMessage {
 }
 
 // An optional feature switched on or off: chat and GIFs come as in
-// connection_ack; clips, casting and feedback are read again from their
-// /feature endpoints
+// connection_ack; clips and feedback are read again from their /feature
+// endpoints
 export interface FeaturesUpdateMessage {
   type: 'features_update'
   features: ServerFeatures

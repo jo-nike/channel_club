@@ -176,16 +176,15 @@ async def lifespan(app: FastAPI):
         )
         # Clean up any stale segments from previous runs
         highlight_service.cleanup_stale_segments()
-    if settings.cast_enabled:
-        logger.info(
-            "Chromecast streaming enabled (segment: {}s, buffer: {}s)",
-            settings.cast_hls_segment_time,
-            settings.cast_hls_segment_time * settings.cast_hls_list_size,
-        )
-        # Clean up any stale sessions from previous runs
-        cast_service.cleanup_stale_sessions()
-    # The idle sweeps run whether or not their feature is on: either can be
-    # switched on from the app, and while it is off they find nothing to do
+    logger.info(
+        "Chromecast streaming (segment: {}s, buffer: {}s)",
+        settings.cast_hls_segment_time,
+        settings.cast_hls_segment_time * settings.cast_hls_list_size,
+    )
+    # Clean up any stale sessions from previous runs
+    cast_service.cleanup_stale_sessions()
+    # The clips sweep runs whether or not clips are on: they can be switched on
+    # from the app, and while they are off it finds nothing to do
     highlight_service.start_idle_cleanup_task()
     cast_service.start_idle_cleanup_task()
 

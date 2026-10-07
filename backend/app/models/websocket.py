@@ -199,10 +199,10 @@ class ServerSettingsUpdate(BaseModel):
 
 
 class ServerFeaturesUpdate(BaseModel):
-    """An optional feature switched on or off: chat, GIFs, clips, casting or feedback.
+    """An optional feature switched on or off: chat, GIFs, clips or feedback.
 
-    Chat and GIFs come as in connection_ack; clients read clips, casting and
-    feedback again from their /feature endpoints.
+    Chat and GIFs come as in connection_ack; clients read clips and feedback
+    again from their /feature endpoints.
     """
 
     type: Literal["features_update"]

@@ -511,10 +511,6 @@ export async function uploadHighlight(clip: Blob, format: HighlightFormat, signa
 
 // Chromecast API
 
-export interface CastFeatureResponse {
-  enabled: boolean
-}
-
 export interface CastSessionRequest {
   channel_id: string
   stream_type: 'hls' | 'mpegts'
@@ -525,21 +521,6 @@ export interface CastSessionResponse {
   session_id: string
   hls_url: string
   needs_transcoding: boolean
-}
-
-export async function getCastFeatureEnabled(): Promise<boolean> {
-  logger.debug('API', 'Checking cast feature status')
-
-  const response = await fetchWithAuth('/cast/feature')
-
-  if (!response.ok) {
-    logger.error('API', `Failed to check cast feature: ${response.status}`)
-    return false
-  }
-
-  const data: CastFeatureResponse = await response.json()
-  logger.debug('API', `Cast feature enabled: ${data.enabled}`)
-  return data.enabled
 }
 
 export async function createCastSession(

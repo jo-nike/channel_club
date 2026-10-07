@@ -24,25 +24,34 @@ describe('ExtrasSection', () => {
   it('starts with every extra off', () => {
     render(<Harness initial={settingsState()} />)
 
-    for (const name of ['Chat', 'Clips', 'Chromecast', 'Feedback']) {
+    for (const name of ['Chat', 'Clips', 'Feedback']) {
       expect(screen.getByRole('switch', { name })).toHaveAttribute('aria-checked', 'false')
     }
   })
 
-  it('lets clips and casting be switched on when FFmpeg is there', () => {
+  it('lets clips be switched on when FFmpeg is there', () => {
     render(<Harness initial={settingsState()} />)
 
-    expect(screen.getAllByText('FFmpeg ready')).toHaveLength(2)
+    expect(screen.getByText('FFmpeg ready')).toBeInTheDocument()
     expect(screen.getByRole('switch', { name: 'Clips' })).toBeEnabled()
-    expect(screen.getByRole('switch', { name: 'Chromecast' })).toBeEnabled()
   })
 
-  it("won't switch clips or casting on without FFmpeg, but will switch them off", () => {
-    render(<Harness initial={settingsState({ castEnabled: true }, {}, { ffmpeg: { ffmpeg: true, ffprobe: false } })} />)
+  it("won't switch clips on without FFmpeg, but will switch them off", () => {
+    const noFfprobe = { ffmpeg: { ffmpeg: true, ffprobe: false } }
+    const { unmount } = render(<Harness initial={settingsState({}, {}, noFfprobe)} />)
 
-    expect(screen.getAllByText('FFmpeg missing')).toHaveLength(2)
+    expect(screen.getByText('FFmpeg missing')).toBeInTheDocument()
     expect(screen.getByRole('switch', { name: 'Clips' })).toBeDisabled()
-    expect(screen.getByRole('switch', { name: 'Chromecast' })).toBeEnabled()
+    unmount()
+
+    render(<Harness initial={settingsState({ highlightEnabled: true }, {}, noFfprobe)} />)
+    expect(screen.getByRole('switch', { name: 'Clips' })).toBeEnabled()
+  })
+
+  it('has no Chromecast switch: casting is always on', () => {
+    render(<Harness initial={settingsState()} />)
+
+    expect(screen.queryByText('Chromecast')).not.toBeInTheDocument()
   })
 
   it('shows the Zipline settings only while clips and Zipline are both on', () => {
