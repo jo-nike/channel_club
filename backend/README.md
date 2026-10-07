@@ -16,6 +16,6 @@ uv run ruff format --check .
 uv run basedpyright
 ```
 
-Highlights and Cast require FFmpeg when enabled. Temporary recording/export roots, concurrent sessions, encoding limits and idle lifetimes are controlled by backend settings. Keep temporary roots dedicated to this application. Unit tests use synthetic configuration and reject unexpected external network access.
+Casting (always on) and highlights (when enabled) require FFmpeg. Temporary recording/export roots, concurrent sessions, encoding limits and idle lifetimes are controlled by backend settings. Keep temporary roots dedicated to this application. Unit tests use synthetic configuration and reject unexpected external network access.
 
 Application versioning and Docker releases are documented in the [root release guide](../README.md#application-version-and-releases).
