@@ -29,6 +29,15 @@ vi.mock('@/services/plexAuth', async (importOriginal) => ({
   finishPlexRedirect: vi.fn(),
 }))
 
+// A code sign-in, finished by pressing a button
+vi.mock('@/components/QRPlexLogin', () => ({
+  QRPlexLogin: ({ onSuccess }: { onSuccess: (token: string) => void }) => (
+    <button type="button" onClick={() => onSuccess('code-token')}>
+      Finish the code sign-in
+    </button>
+  ),
+}))
+
 const device = vi.hoisted(() => ({ installed: false }))
 vi.mock('@/lib/platform', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/platform')>()),
@@ -292,6 +301,21 @@ describe('ServerTab', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Cancel re-link' }))
       expect(screen.getByRole('button', { name: 'Re-link Plex' })).toBeInTheDocument()
       expect(plexSignal?.aborted).toBe(true)
+    })
+
+    it("stops a code sign-in's server listing when re-linking is cancelled", async () => {
+      signedIn({ sub: 'jon', plex_id: '101' })
+      vi.mocked(setupApi.listPlexServers).mockReturnValue(new Promise(() => {}))
+      await renderTab(configView(LINKED, { plexServerName: 'Home Server' }))
+
+      fireEvent.click(screen.getByRole('button', { name: 'Re-link Plex' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Sign in with a code' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Finish the code sign-in' }))
+      expect(await screen.findByRole('button', { name: 'Waiting for Plex...' })).toBeDisabled()
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel re-link' }))
+
+      expect(screen.getByRole('button', { name: 'Re-link Plex' })).toBeInTheDocument()
+      expect(vi.mocked(setupApi.listPlexServers).mock.calls[0][1]?.aborted).toBe(true)
     })
 
     it('offers no Re-link while the environment sets sign-in', async () => {

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -65,6 +65,8 @@ export function PlexSignInPanel({
   const [codeView, setCodeView] = useState(false)
   // A code sign-in's token is having its servers listed
   const [codeFinishing, setCodeFinishing] = useState(false)
+  // Aborts that listing: Cancel, or the panel closing
+  const codeAbortRef = useRef<AbortController | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const signIn = usePlexSignIn({
     returnPath,
@@ -85,16 +87,33 @@ export function PlexSignInPanel({
     else void signIn.start()
   }
 
+  useEffect(() => () => codeAbortRef.current?.abort(), [])
+
   const finishCode = async (token: string) => {
+    const controller = new AbortController()
+    codeAbortRef.current = controller
     setCodeView(false)
     setCodeFinishing(true)
     try {
-      await onToken(token)
+      await onToken(token, controller.signal)
     } catch (err) {
-      setFailure(err instanceof Error ? err.message : "Couldn't finish Plex sign-in. Try again.")
+      if (!controller.signal.aborted) {
+        setFailure(err instanceof Error ? err.message : "Couldn't finish Plex sign-in. Try again.")
+      }
     } finally {
-      setCodeFinishing(false)
+      if (codeAbortRef.current === controller) {
+        codeAbortRef.current = null
+        setCodeFinishing(false)
+      }
     }
+  }
+
+  // The Plex button's Cancel: stops a popup or redirect sign-in, or a code sign-in's server listing
+  const cancelSignIn = () => {
+    codeAbortRef.current?.abort()
+    codeAbortRef.current = null
+    setCodeFinishing(false)
+    signIn.cancel()
   }
 
   const refresh = async () => {
@@ -183,14 +202,14 @@ export function PlexSignInPanel({
         <PlexLoginButton
           id={buttonId}
           onClick={start}
-          onCancel={signIn.cancel}
+          onCancel={cancelSignIn}
           isLoading={signIn.waiting || codeFinishing}
           disabled={disabled}
         />
       </div>
       {!isTVMode && (
         // Its own width under the Plex button, in Who can join's card too, which stretches what it holds
-        <Button type="button" variant="ghost" className={cn(SMALL_BUTTON, 'self-start')} onClick={showCode} disabled={disabled || signIn.waiting}>
+        <Button type="button" variant="ghost" className={cn(SMALL_BUTTON, 'self-start')} onClick={showCode} disabled={disabled || signIn.waiting || codeFinishing}>
           Sign in with a code
         </Button>
       )}

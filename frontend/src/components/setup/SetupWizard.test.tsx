@@ -382,7 +382,32 @@ describe('SetupWizard: a Plex account', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Finish the code sign-in' }))
 
     expect(await screen.findByText('Signed in to Plex as jon')).toBeInTheDocument()
-    expect(setupApi.listPlexServers).toHaveBeenCalledWith('code-token', undefined)
+    expect(setupApi.listPlexServers).toHaveBeenCalledWith('code-token', expect.any(AbortSignal))
+  })
+
+  it("stops a code sign-in's server listing on Cancel, and offers no second code meanwhile", async () => {
+    // Like fetch: an aborted listing rejects
+    vi.mocked(setupApi.listPlexServers).mockImplementation(
+      (_token, signal) =>
+        new Promise((_resolve, reject) => {
+          signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+        }),
+    )
+    renderWizard()
+    await openAccount()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in with a code' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Finish the code sign-in' }))
+
+    expect(await screen.findByRole('button', { name: 'Waiting for Plex...' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Sign in with a code' })).toBeDisabled()
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Cancel' })))
+
+    expect(vi.mocked(setupApi.listPlexServers).mock.calls[0][1]?.aborted).toBe(true)
+    expect(screen.getByRole('button', { name: 'Sign in with Plex' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Sign in with a code' })).toBeEnabled()
+    // Cancelling is not a failure
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('signs in with a code on a TV', async () => {
