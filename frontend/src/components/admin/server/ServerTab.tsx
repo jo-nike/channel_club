@@ -151,8 +151,9 @@ function PlexRelink({ server }: { server: ServerSettingsApi }) {
             {state.linking ? 'Linking…' : `Link ${picked.name}`}
           </Button>
         )}
+        {/* Not just "Cancel": the Plex button shows its own Cancel while a sign-in runs */}
         <Button type="button" variant="ghost" className={SMALL_BUTTON} disabled={state.linking} onClick={server.closeRelink}>
-          Cancel
+          Cancel re-link
         </Button>
       </div>
     </div>

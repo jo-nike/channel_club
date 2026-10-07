@@ -259,7 +259,7 @@ describe('ServerTab', () => {
       await waitFor(() => expect(setupApi.getPlexMembers).toHaveBeenCalledTimes(2))
     })
 
-    it("says why a server couldn't be linked again, and Cancel lets it go", async () => {
+    it("says why a server couldn't be linked again, and Cancel re-link lets it go", async () => {
       signedIn({ sub: 'jon', plex_id: '101' })
       vi.mocked(setupApi.linkPlexServer).mockRejectedValue(new SetupApiError(403, 'Not yours', { code: 'not_owner' }))
       await renderTab(configView(LINKED, { plexServerName: 'Home Server' }))
@@ -269,9 +269,29 @@ describe('ServerTab', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Link Home Server' }))
 
       expect(await within(section('Who can join')).findByRole('alert')).toHaveTextContent("That Plex server isn't one of yours. Pick one you own.")
-      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel re-link' }))
       expect(screen.getByRole('button', { name: 'Re-link Plex' })).toBeInTheDocument()
       expect(within(section('Who can join')).queryByRole('alert')).not.toBeInTheDocument()
+    })
+
+    it('names its own Cancel apart from the Plex sign-in Cancel, and stops the sign-in when used', async () => {
+      signedIn({ sub: 'jon', plex_id: '101' })
+      vi.mocked(plexAuth.openPlexAuthWindow).mockReturnValue(plexWindow)
+      let plexSignal: AbortSignal | undefined
+      vi.mocked(plexAuth.authenticateWithPlex).mockImplementation((_popup, signal) => {
+        plexSignal = signal
+        return new Promise(() => {})
+      })
+      await renderTab(configView(LINKED, { plexServerName: 'Home Server' }))
+
+      fireEvent.click(screen.getByRole('button', { name: 'Re-link Plex' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Sign in with Plex' }))
+
+      expect(await screen.findByRole('button', { name: 'Waiting for Plex...' })).toBeDisabled()
+      expect(screen.getAllByRole('button', { name: 'Cancel' })).toHaveLength(1)
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel re-link' }))
+      expect(screen.getByRole('button', { name: 'Re-link Plex' })).toBeInTheDocument()
+      expect(plexSignal?.aborted).toBe(true)
     })
 
     it('offers no Re-link while the environment sets sign-in', async () => {
