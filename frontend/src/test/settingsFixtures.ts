@@ -24,6 +24,7 @@ export const DEFAULT_VALUES: ConfigValues = {
   ziplineEnabled: false,
   ziplineUrl: '',
   ziplineToken: { set: false },
+  nhlEnabled: false,
   ntfyEnabled: false,
   ntfyUrl: '',
   ntfyTopic: '',

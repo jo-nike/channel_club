@@ -694,6 +694,17 @@
             ],
             "title": "Mediauploadperuser"
           },
+          "nhlEnabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nhlenabled"
+          },
           "ntfyEnabled": {
             "anyOf": [
               {
@@ -1042,6 +1053,10 @@
             "title": "Mediauploadperuser",
             "type": "integer"
           },
+          "nhlEnabled": {
+            "title": "Nhlenabled",
+            "type": "boolean"
+          },
           "ntfyEnabled": {
             "title": "Ntfyenabled",
             "type": "boolean"
@@ -1139,6 +1154,7 @@
           "ziplineEnabled",
           "ziplineUrl",
           "ziplineToken",
+          "nhlEnabled",
           "ntfyEnabled",
           "ntfyUrl",
           "ntfyTopic",
@@ -3211,12 +3227,17 @@
           "gifs": {
             "title": "Gifs",
             "type": "boolean"
+          },
+          "nhl": {
+            "title": "Nhl",
+            "type": "boolean"
           }
         },
         "required": [
           "chat",
           "gifs",
           "clips",
+          "nhl",
           "feedback"
         ],
         "title": "SetupFeatures",
@@ -5856,7 +5877,7 @@
     },
     "/api/nhl/scores": {
       "get": {
-        "description": "Get NHL scores for a given date.\n\nArgs:\n    date: Optional date in YYYY-MM-DD format. Defaults to today (5am EST boundary).\n\nReturns:\n    NHL scores response with games, date, and live game count.\n\nRaises:\n    HTTPException: 400 if date format is invalid or outside the date window.\n    HTTPException: 503 if NHL API is unavailable.",
+        "description": "Get NHL scores for a given date.\n\nArgs:\n    date: Optional date in YYYY-MM-DD format. Defaults to today (5am EST boundary).\n\nReturns:\n    NHL scores response with games, date, and live game count.\n\nRaises:\n    HTTPException: 400 if date format is invalid or outside the date window.\n    HTTPException: 503 if NHL scores are off on this server, or NHL API is unavailable.",
         "operationId": "get_scores_api_nhl_scores_get",
         "parameters": [
           {

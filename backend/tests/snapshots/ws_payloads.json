@@ -20,7 +20,8 @@
     "buildId": "<volatile>",
     "features": {
       "chat": true,
-      "gif": false
+      "gif": false,
+      "nhl": false
     }
   },
   "chat_history": {
@@ -87,7 +88,8 @@
     "buildId": "<volatile>",
     "features": {
       "chat": false,
-      "gif": false
+      "gif": false,
+      "nhl": false
     }
   },
   "chat_ack_refused": {
@@ -129,7 +131,8 @@
       "type": "features_update",
       "features": {
         "chat": false,
-        "gif": false
+        "gif": false,
+        "nhl": false
       }
     }
   ],

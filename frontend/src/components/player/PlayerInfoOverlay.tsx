@@ -8,6 +8,7 @@ import { useLiveChangeAnnouncement } from '@/hooks/useLiveChangeAnnouncement'
 import { useNowPlaying } from '@/hooks/useNowPlaying'
 import { presenceNames, usePresenceByChannel } from '@/hooks/usePresenceByChannel'
 import { useTVMode } from '@/hooks/useTVMode'
+import { useNhlEnabled, useNhlOverlayVisible } from '@/hooks/useNhlEnabled'
 import { withKey } from '@/lib/keyHints'
 import { cn } from '@/lib/utils'
 import { describeLiveChange, useChannelStore, type LiveChannelChange } from '@/stores/channelStore'
@@ -75,7 +76,7 @@ interface PlayerInfoOverlayProps {
 export function PlayerInfoOverlay({ channel, pending = null, entry = null, missing = null }: PlayerInfoOverlayProps) {
   const { controlsVisible, isTheaterMode, isStrip = false, setInfoRailVisible, behindLive, isLivePaused } = usePlayerShell()
   const isTVMode = useTVMode()
-  const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
+  const isNHLOverlayVisible = useNhlOverlayVisible()
 
   // Each tune shows the rail for 4s: a new channel id, not a reload or a
   // stream retry, which keep the id. (Adjusted while rendering, React's
@@ -159,7 +160,8 @@ function InfoRail({ channel, isVisible, liveChange, behindLive, isPauseHint }: I
   // The live slot's logo is the live channel's, which the slot doesn't carry
   const liveChannel = useChannelStore((s) => s.currentChannel)
   const liveEPGStatus = useTVStore((s) => s.liveEPGStatus)
-  const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
+  const nhlEnabled = useNhlEnabled()
+  const isNHLOverlayVisible = useNhlOverlayVisible()
   const toggleNHLOverlay = useUIStore((s) => s.toggleNHLOverlay)
 
   const isClubChannel = isLive && hasLiveChannel
@@ -225,30 +227,32 @@ function InfoRail({ channel, isVisible, liveChange, behindLive, isPauseHint }: I
             <PresenceStack people={watchingWith} max={RAIL_PRESENCE_MAX} />
           </span>
         )}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              tabIndex={isVisible ? 0 : -1}
-              onClick={toggleNHLOverlay}
-              aria-label={nhlLabel}
-              aria-keyshortcuts="N"
-              aria-pressed={isNHLOverlayVisible}
-              className={cn(
-                'control-button flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-ring-media',
-                isNHLOverlayVisible && 'bg-white/15'
-              )}
-            >
-              {/* The glyph is the word itself, as in the header */}
-              <span aria-hidden="true" className="font-display text-sm font-extrabold leading-none tracking-tight">
-                NHL
-              </span>
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>{withKey(nhlLabel, 'N')}</p>
-          </TooltipContent>
-        </Tooltip>
+        {nhlEnabled && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                tabIndex={isVisible ? 0 : -1}
+                onClick={toggleNHLOverlay}
+                aria-label={nhlLabel}
+                aria-keyshortcuts="N"
+                aria-pressed={isNHLOverlayVisible}
+                className={cn(
+                  'control-button flex min-h-[48px] min-w-[48px] items-center justify-center rounded-lg transition-colors hover:bg-white/10 focus-ring-media',
+                  isNHLOverlayVisible && 'bg-white/15'
+                )}
+              >
+                {/* The glyph is the word itself, as in the header */}
+                <span aria-hidden="true" className="font-display text-sm font-extrabold leading-none tracking-tight">
+                  NHL
+                </span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>{withKey(nhlLabel, 'N')}</p>
+            </TooltipContent>
+          </Tooltip>
+        )}
       </div>
     </div>
   )

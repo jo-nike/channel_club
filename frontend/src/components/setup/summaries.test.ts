@@ -85,7 +85,9 @@ describe('stepSummary', () => {
 
   it('lists the extras switched on', () => {
     expect(stepSummary(afterClaim(), 'extras')).toBe('None')
-    expect(stepSummary(afterClaim({ chatEnabled: true, highlightEnabled: true, ntfyEnabled: true }), 'extras')).toBe('Chat, clips, feedback')
+    expect(stepSummary(afterClaim({ chatEnabled: true, highlightEnabled: true, nhlEnabled: true, ntfyEnabled: true }), 'extras')).toBe(
+      'Chat, clips, NHL scores, feedback'
+    )
     expect(stepSummary(afterClaim({ ntfyEnabled: true }), 'extras')).toBe('Feedback')
   })
 })
@@ -158,12 +160,13 @@ describe('reviewRows', () => {
           giphyApiKey: { set: true },
           highlightEnabled: true,
           ziplineEnabled: true,
+          nhlEnabled: true,
           ntfyEnabled: true,
           ntfyTopic: 'club-news',
         }),
         'extras'
       )
-    ).toEqual(['Chat, with GIFs', 'Clips, shared through Zipline', 'Feedback to the ntfy topic club-news'])
+    ).toEqual(['Chat, with GIFs', 'Clips, shared through Zipline', 'NHL scores', 'Feedback to the ntfy topic club-news'])
     expect(lines(afterClaim({ chatEnabled: true, highlightEnabled: true }), 'extras')).toEqual(['Chat', 'Clips'])
   })
 })
@@ -174,7 +177,7 @@ describe('onAirFacts', () => {
     ersatztvChannels: null,
     plexServerName: null,
     ...overrides,
-    features: { chat: false, gifs: false, clips: false, feedback: false, ...features },
+    features: { chat: false, gifs: false, clips: false, nhl: false, feedback: false, ...features },
   })
 
   it('counts the channels from every source that answered', () => {

@@ -449,6 +449,7 @@ def test_rest_bodies(client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_pa
         volatile.add(session["sessionId"])
         bodies["POST /api/ersatztv/session"] = session
 
+    monkeypatch.setattr(settings, "nhl_enabled", True)
     with patch("app.routers.nhl.get_nhl_scores", AsyncMock(return_value=_nhl())):
         bodies["GET /api/nhl/scores"] = _body(client.get("/api/nhl/scores", headers=viewer))
 

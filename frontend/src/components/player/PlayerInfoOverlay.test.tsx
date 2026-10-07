@@ -94,6 +94,8 @@ const waitOutTuneBanner = () => advance(4000)
 beforeEach(() => {
   localStorage.clear()
   vi.useFakeTimers()
+  // NHL scores on, as the server's switch would have them for these tests
+  useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: true } })
   vi.setSystemTime(NOW)
   useErsatztvStore.setState({
     programmesByChannel: {
@@ -474,6 +476,15 @@ describe('PlayerInfoOverlay: shared live-channel changes', () => {
 })
 
 describe('PlayerInfoOverlay: NHL ticker', () => {
+  it('has no NHL button, and no ticker even if it was open, while the server has NHL scores off', () => {
+    useUIStore.setState({ isNHLOverlayVisible: true })
+    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: false } })
+    renderOverlay(cinema)
+
+    expect(screen.queryByRole('button', { name: 'NHL scores' })).not.toBeInTheDocument()
+    expect(ticker()).not.toBeInTheDocument()
+  })
+
   it('the NHL button opens and closes the ticker, so it is reachable without the header', () => {
     renderOverlay(cinema)
     expect(nhlToggle()).toHaveAttribute('aria-pressed', 'false')

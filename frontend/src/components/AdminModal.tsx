@@ -16,6 +16,7 @@ import { StatusTab } from '@/components/admin/StatusTab'
 import { ServerTab } from '@/components/admin/server/ServerTab'
 import { serverTabReturn } from '@/components/admin/server/serverStash'
 import { cn } from '@/lib/utils'
+import { useNhlEnabled } from '@/hooks/useNhlEnabled'
 import { useReturnFocus } from '@/hooks/useReturnFocus'
 
 type TabType = 'channels' | 'people' | 'chat' | 'nhl' | 'status' | 'server'
@@ -72,6 +73,11 @@ export function AdminModal({ open, onOpenChange, returnFocusTo }: AdminModalProp
   // Opened by state (the Host button, the account menu), not a trigger Radix
   // could return focus to
   const returnFocus = useReturnFocus(returnFocusTo)
+  // The NHL tab only while the server has NHL scores on; if it was open when
+  // they went off, the panel shows Channels
+  const nhlEnabled = useNhlEnabled()
+  const shownTabs = nhlEnabled ? tabs : tabs.filter((tab) => tab.id !== 'nhl')
+  const shownTab = activeTab === 'nhl' && !nhlEnabled ? 'channels' : activeTab
 
   const renderTabContent = (tabId: TabType) => {
     switch (tabId) {
@@ -114,7 +120,7 @@ export function AdminModal({ open, onOpenChange, returnFocusTo }: AdminModalProp
         {/* Manual activation: arrowing (or a TV remote's d-pad) only moves focus, so
             passing over a tab doesn't mount it and start its fetches; Enter/Space opens it */}
         <Tabs
-          value={activeTab}
+          value={shownTab}
           onValueChange={(value) => {
             if (keepServer) setServerKept(true)
             setActiveTab(value as TabType)
@@ -127,7 +133,7 @@ export function AdminModal({ open, onOpenChange, returnFocusTo }: AdminModalProp
             aria-label="Admin sections"
             className="flex h-auto w-full justify-start gap-0 rounded-none bg-transparent p-0 border-b overflow-x-auto scrollbar-hide shrink-0"
           >
-            {tabs.map(tab => (
+            {shownTabs.map(tab => (
               <TabsTrigger
                 key={tab.id}
                 value={tab.id}
@@ -148,7 +154,7 @@ export function AdminModal({ open, onOpenChange, returnFocusTo }: AdminModalProp
           </TabsList>
 
           {/* Tab content panel - scroll container for all tab content */}
-          {tabs.map(tab => (
+          {shownTabs.map(tab => (
             <TabsContent
               key={tab.id}
               value={tab.id}

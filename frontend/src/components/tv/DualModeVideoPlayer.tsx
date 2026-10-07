@@ -19,6 +19,7 @@ import { useVideoKeyboardShortcuts } from '@/hooks/useVideoKeyboardShortcuts'
 import { PLAYER_SHELL_ATTRIBUTE, useFullscreenState } from '@/hooks/useFullscreenState'
 import { useStreamRecovery } from '@/hooks/useStreamRecovery'
 import { useChatEnabled } from '@/hooks/useChatEnabled'
+import { useNhlEnabled } from '@/hooks/useNhlEnabled'
 import { useClipThat } from '@/hooks/useClipThat'
 import { useMobileLandscape } from '@/hooks/useMobileLandscape'
 import { useSwipeZap } from '@/hooks/useSwipeZap'
@@ -235,6 +236,7 @@ export function DualModeVideoPlayer({
   const openComposer = useCallback(() => setComposerRequest((n) => (n ?? 0) + 1), [])
   const closeComposer = useCallback(() => setComposerRequest(null), [])
   const toggleNHLOverlay = useUIStore((s) => s.toggleNHLOverlay)
+  const nhlEnabled = useNhlEnabled()
 
   // In fullscreen the page's search is hidden behind the shell
   const focusSearch = isFullscreen ? undefined : onFocusSearch
@@ -255,7 +257,7 @@ export function DualModeVideoPlayer({
     onChatToggle: chatEnabled && !isTVMode ? (canReply ? openComposer : toggleChat) : undefined,
     // Not on the TV layout either: the strip is desktop-sized and outside the
     // title-safe area there, as clip capture is off on TVs
-    onNHLToggle: isTVMode ? undefined : toggleNHLOverlay,
+    onNHLToggle: isTVMode || !nhlEnabled ? undefined : toggleNHLOverlay,
     onClipThat: clipThat,
     onFocusSearch: focusSearch,
   })

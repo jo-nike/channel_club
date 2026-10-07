@@ -26,6 +26,7 @@ export interface ChatLine {
 export interface ServerFeatures {
   chat: boolean
   gif: boolean
+  nhl: boolean
 }
 
 export interface ConnectionAckMessage {
@@ -72,7 +73,7 @@ export interface SettingsUpdateMessage {
   settings: AppSettings
 }
 
-// An optional feature switched on or off: chat and GIFs come as in
+// An optional feature switched on or off: chat, GIFs and NHL come as in
 // connection_ack; clips and feedback are read again from their /feature
 // endpoints
 export interface FeaturesUpdateMessage {

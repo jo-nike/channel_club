@@ -36,6 +36,7 @@ import { AppearancePicker } from '@/components/theme/AppearancePicker'
 import { useAuth } from '@/hooks/useAuth'
 import { useAppSettings } from '@/hooks/useAppSettings'
 import { useChatEnabled } from '@/hooks/useChatEnabled'
+import { useNhlEnabled, useNhlOverlayVisible } from '@/hooks/useNhlEnabled'
 import { useFeedbackFeature } from '@/hooks/useFeedbackFeature'
 import { useInstallPrompt } from '@/hooks/useInstallPrompt'
 import { readTVModeOverride, setTVModeOverride, useTVMode, type TVModeOverride } from '@/hooks/useTVMode'
@@ -91,7 +92,8 @@ export function AccountMenu({
   const setChatPreviews = useUIStore((s) => s.setChatPreviews)
   // Only where there is chat over the video: not without chat (chatEnabled), nor on the TV layout
   const isTVMode = useTVMode()
-  const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
+  const nhlEnabled = useNhlEnabled()
+  const isNHLOverlayVisible = useNhlOverlayVisible()
   const setNHLOverlayVisible = useUIStore((s) => s.setNHLOverlayVisible)
   const initial = initialOf(username)
   const canChangeLive = isAdmin || userChannelSelection
@@ -154,7 +156,7 @@ export function AccountMenu({
             <RefreshCw />
             Reload stream
           </DropdownMenuItem>
-          {isMobile && (
+          {isMobile && nhlEnabled && (
             <DropdownMenuCheckboxItem checked={isNHLOverlayVisible} onCheckedChange={setNHLOverlayVisible}>
               NHL scores
             </DropdownMenuCheckboxItem>

@@ -149,6 +149,9 @@ class Settings(BaseSettings):
     # Enable real-time chat between connected users
     chat_enabled: bool = False
 
+    # NHL scores over the player, and which channel carries each game
+    nhl_enabled: bool = False
+
     # GIF Feature (requires chat to be enabled)
     # Enable GIF picker in chat using Giphy API
     giphy_api_key: SecretStr | None = None  # Giphy API key (get from developers.giphy.com)
@@ -298,6 +301,7 @@ UiField = Literal[
     "zipline_enabled",
     "zipline_url",
     "zipline_token",
+    "nhl_enabled",
     "ntfy_enabled",
     "ntfy_url",
     "ntfy_topic",
@@ -332,6 +336,7 @@ FIELD_GROUPS: dict[str, tuple[str, ...]] = {
     "giphy": ("giphy_api_key",),
     "clips": ("highlight_enabled",),
     "zipline": ("zipline_enabled", "zipline_url", "zipline_token"),
+    "nhl": ("nhl_enabled",),
     "feedback": ("ntfy_enabled", "ntfy_url", "ntfy_topic", "ntfy_token"),
     **{field: (field,) for field in ADVANCED_FIELDS},
 }

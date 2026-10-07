@@ -24,7 +24,7 @@ describe('ExtrasSection', () => {
   it('starts with every extra off', () => {
     render(<Harness initial={settingsState()} />)
 
-    for (const name of ['Chat', 'Clips', 'Feedback']) {
+    for (const name of ['Chat', 'Clips', 'NHL scores', 'Feedback']) {
       expect(screen.getByRole('switch', { name })).toHaveAttribute('aria-checked', 'false')
     }
   })
@@ -46,6 +46,22 @@ describe('ExtrasSection', () => {
 
     render(<Harness initial={settingsState({ highlightEnabled: true }, {}, noFfprobe)} />)
     expect(screen.getByRole('switch', { name: 'Clips' })).toBeEnabled()
+  })
+
+  it('switches NHL scores on and off', () => {
+    render(<Harness initial={settingsState()} />)
+    const nhl = screen.getByRole('switch', { name: 'NHL scores' })
+
+    fireEvent.click(nhl)
+    expect(nhl).toHaveAttribute('aria-checked', 'true')
+    fireEvent.click(nhl)
+    expect(nhl).toHaveAttribute('aria-checked', 'false')
+  })
+
+  it('locks NHL scores while the environment sets them', () => {
+    render(<Harness initial={settingsState({ nhlEnabled: true }, {}, { locked: { nhlEnabled: ['NHL_ENABLED'] } })} />)
+
+    expect(screen.getByRole('switch', { name: 'NHL scores' })).toBeDisabled()
   })
 
   it('has no Chromecast switch: casting is always on', () => {

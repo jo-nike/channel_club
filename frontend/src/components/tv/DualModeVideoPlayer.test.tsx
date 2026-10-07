@@ -18,6 +18,7 @@ import { usePlayerFullscreenElement } from '@/hooks/useFullscreenState'
 import type { UnifiedChannel } from '@/types'
 import type { NHLGame } from '@/types/nhl'
 import type { PlayerShell } from '@/components/player/PlayerShellContext'
+import { useSettingsStore } from '@/stores/settingsStore'
 
 // ----------------------------------------------------------------------------
 // Harness: both engines are mocked. mpegts.js gets a stub player; Vidstack's
@@ -322,6 +323,8 @@ const startPlaybackButton = () => screen.queryByRole('button', { name: 'Start pl
 
 beforeEach(() => {
   localStorage.clear()
+  // NHL scores on, as the server's switch would have them for these tests
+  useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: true } })
   // The arrival card has had its turn this session, so it stays out of the
   // way (its own suite, and one test below, cover it)
   sessionStorage.clear()
@@ -3265,6 +3268,14 @@ describe('DualModeVideoPlayer panel keys', () => {
     fireEvent.keyDown(window, { key: 'c' })
 
     expect(useChatStore.getState().isOpen).toBe(false)
+  })
+
+  it('N does nothing while the server has NHL scores off', () => {
+    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: false } })
+    renderPlayer(liveChannel(''))
+
+    fireEvent.keyDown(window, { key: 'n' })
+    expect(useUIStore.getState().isNHLOverlayVisible).toBe(false)
   })
 
   it('N shows and hides the NHL scores', () => {

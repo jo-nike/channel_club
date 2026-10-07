@@ -1,6 +1,7 @@
 import { useId } from 'react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useChatEnabled } from '@/hooks/useChatEnabled'
+import { useNhlEnabled } from '@/hooks/useNhlEnabled'
 import { useReturnFocus } from '@/hooks/useReturnFocus'
 
 interface ShortcutSheetProps {
@@ -62,7 +63,7 @@ const channels = (canSearch: boolean, tvMode: boolean): ShortcutGroup => ({
 })
 
 // No chat on the TV layout, so no C there
-const panels = (chatEnabled: boolean, canReply: boolean, tvMode: boolean): ShortcutGroup => ({
+const panels = (chatEnabled: boolean, nhlEnabled: boolean, canReply: boolean, tvMode: boolean): ShortcutGroup => ({
   title: 'Panels',
   shortcuts: [
     ...(chatEnabled && !tvMode
@@ -74,8 +75,8 @@ const panels = (chatEnabled: boolean, canReply: boolean, tvMode: boolean): Short
           { keys: [['Green'], ['W']], action: "Who's here" },
         ]
       : []),
-    // No NHL scores on the TV layout
-    ...(tvMode ? [] : [{ keys: [['N']], action: 'NHL scores' }]),
+    // No NHL scores on the TV layout, nor while the server has them off
+    ...(tvMode || !nhlEnabled ? [] : [{ keys: [['N']], action: 'NHL scores' }]),
     { keys: [['?']], action: 'This list' },
     { keys: [['Esc']], action: 'Close' },
   ],
@@ -97,7 +98,8 @@ export function ShortcutSheet({
 }: ShortcutSheetProps) {
   const id = useId()
   const chatEnabled = useChatEnabled()
-  const groups = [player(canClip, tvMode), channels(canSearch, tvMode), panels(chatEnabled, canReply, tvMode)]
+  const nhlEnabled = useNhlEnabled()
+  const groups = [player(canClip, tvMode), channels(canSearch, tvMode), panels(chatEnabled, nhlEnabled, canReply, tvMode)]
   // A key opens the sheet, not a trigger Radix could return focus to: go back
   // to whatever had focus (a channel button just clicked), or the page
   const returnFocus = useReturnFocus()

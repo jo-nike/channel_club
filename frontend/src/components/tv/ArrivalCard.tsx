@@ -7,6 +7,7 @@ import { usePlayerShell } from '@/components/player/PlayerShellContext'
 import { useLayoutMode } from '@/hooks/useLayoutMode'
 import { usePresenceByChannel } from '@/hooks/usePresenceByChannel'
 import { useTVMode } from '@/hooks/useTVMode'
+import { useNhlOverlayVisible } from '@/hooks/useNhlEnabled'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
 import { useChannelStore } from '@/stores/channelStore'
@@ -128,7 +129,7 @@ export function ArrivalCard({ channel, placement = 'overlay' }: ArrivalCardProps
   const isTVMode = useTVMode()
   const isPhone = useLayoutMode() === 'phone'
   const isInline = placement === 'inline'
-  const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
+  const isNHLOverlayVisible = useNhlOverlayVisible()
   const hasSeenWelcome = useUIStore((s) => s.hasSeenWelcome)
   const setHasSeenWelcome = useUIStore((s) => s.setHasSeenWelcome)
   const username = useAuthStore((s) => s.username)

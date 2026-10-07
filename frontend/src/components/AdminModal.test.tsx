@@ -7,6 +7,7 @@ import { useChannelStore } from '@/stores/channelStore'
 import { useAuthStore } from '@/stores/authStore'
 import * as api from '@/services/api'
 import { PLEX_PENDING_PIN_KEY } from '@/services/plexAuth'
+import { useSettingsStore } from '@/stores/settingsStore'
 
 vi.mock('@/services/api', () => ({
   fetchGroupedChannels: vi.fn(),
@@ -121,6 +122,8 @@ describe('AdminModal', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    // NHL scores on, as the server's switch would have them for these tests
+    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: true } })
     // No Plex sign-in waiting, so no test opens on the Server tab by accident
     sessionStorage.clear()
     useChannelStore.setState({
@@ -142,6 +145,19 @@ describe('AdminModal', () => {
   })
 
   describe('Tab rendering', () => {
+    it('has no NHL tab while the server has NHL scores off, and leaves it for Channels if it was open', () => {
+      render(<AdminModal {...defaultProps} />)
+      const nhlTab = screen.getByRole('tab', { name: /nhl/i })
+      nhlTab.focus()
+      fireEvent.keyDown(nhlTab, { key: 'Enter' })
+      expect(nhlTab).toHaveAttribute('aria-selected', 'true')
+
+      act(() => useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: false } }))
+
+      expect(screen.queryByRole('tab', { name: /nhl/i })).not.toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: /channels/i })).toHaveAttribute('aria-selected', 'true')
+    })
+
     it('renders all six tabs (AC #3 - context-agnostic)', () => {
       render(<AdminModal {...defaultProps} />)
 

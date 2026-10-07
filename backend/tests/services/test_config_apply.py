@@ -346,15 +346,16 @@ class TestFeaturesUpdate:
     @pytest.mark.parametrize(
         ("change", "features"),
         [
-            ({"chat_enabled": True}, {"chat": True, "gif": False}),
-            ({"giphy_api_key": "a giphy key"}, {"chat": False, "gif": True}),
-            ({"highlight_enabled": True}, {"chat": False, "gif": False}),
+            ({"chat_enabled": True}, {"chat": True, "gif": False, "nhl": False}),
+            ({"giphy_api_key": "a giphy key"}, {"chat": False, "gif": True, "nhl": False}),
+            ({"nhl_enabled": True}, {"chat": False, "gif": False, "nhl": True}),
+            ({"highlight_enabled": True}, {"chat": False, "gif": False, "nhl": False}),
             (
                 {"ntfy_enabled": True, "ntfy_url": "https://ntfy.test", "ntfy_topic": "reports"},
-                {"chat": False, "gif": False},
+                {"chat": False, "gif": False, "nhl": False},
             ),
         ],
-        ids=["chat", "gifs", "clips", "feedback"],
+        ids=["chat", "gifs", "nhl", "clips", "feedback"],
     )
     async def test_a_feature_switching_tells_every_tab_once(
         self, broadcast: AsyncMock, change: dict, features: dict
@@ -382,7 +383,7 @@ class TestFeaturesUpdate:
         await config_apply.apply({"chat_enabled": False})
 
         assert _features_updates(broadcast) == [
-            {"type": "features_update", "features": {"chat": False, "gif": False}}
+            {"type": "features_update", "features": {"chat": False, "gif": False, "nhl": False}}
         ]
 
     @pytest.mark.parametrize(

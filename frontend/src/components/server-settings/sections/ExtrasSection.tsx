@@ -1,4 +1,4 @@
-import { Check, Clapperboard, CloudUpload, Dices, Image, Lightbulb, MessageCircle, Send } from 'lucide-react'
+import { Check, Clapperboard, CloudUpload, Dices, Image, Lightbulb, MessageCircle, Send, Trophy } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
@@ -18,7 +18,7 @@ import type { SectionProps, TestProps } from './types'
 /** The public ntfy server, filled in when feedback is first switched on. */
 const NTFY_SH = 'https://ntfy.sh'
 
-/** The extras: chat and GIFs, clips and Zipline, and feedback through ntfy. */
+/** The extras: chat and GIFs, clips and Zipline, NHL scores, and feedback through ntfy. */
 export function ExtrasSection({ state, errors, onField, idPrefix, tests, onTest }: SectionProps & TestProps) {
   const { view } = state
   const ffmpegReady = view.ffmpeg.ffmpeg && view.ffmpeg.ffprobe
@@ -135,6 +135,19 @@ export function ExtrasSection({ state, errors, onField, idPrefix, tests, onTest 
           </div>
         )}
       </SettingCard>
+
+      <SettingCard
+        id={`${idPrefix}-card-nhl`}
+        icon={Trophy}
+        title="NHL scores"
+        description="Live NHL scores over the player, and which channel carries each game, from the NHL's public scoreboard."
+        toggle={{
+          id: `${idPrefix}-nhlEnabled`,
+          checked: fieldValue(state, 'nhlEnabled'),
+          onChange: (on) => onField('nhlEnabled', on),
+          disabled: lockedBy(view, 'nhlEnabled') !== null,
+        }}
+      />
 
       <SettingCard
         id={`${idPrefix}-card-feedback`}

@@ -274,14 +274,14 @@ describe('useWebSocket', () => {
 
       act(() => {
         ws.simulateOpen()
-        ws.simulateMessage({ type: 'connection_ack', currentChannel: null, features: { chat: false, gif: true } })
+        ws.simulateMessage({ type: 'connection_ack', currentChannel: null, features: { chat: false, gif: true, nhl: false } })
       })
 
-      expect(useSettingsStore.getState().serverFeatures).toEqual({ chat: false, gif: true })
+      expect(useSettingsStore.getState().serverFeatures).toEqual({ chat: false, gif: true, nhl: false })
     })
 
     test('leaves the features unknown when an older server sends none', () => {
-      useSettingsStore.setState({ serverFeatures: { chat: false, gif: false } })
+      useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: false } })
       renderHook(() => useWebSocket())
       const ws = MockWebSocket.instances[0]
 
@@ -318,13 +318,13 @@ describe('useWebSocket', () => {
       const ws = MockWebSocket.instances[0]
       act(() => {
         ws.simulateOpen()
-        ws.simulateMessage({ type: 'connection_ack', currentChannel: null, features: { chat: false, gif: false } })
+        ws.simulateMessage({ type: 'connection_ack', currentChannel: null, features: { chat: false, gif: false, nhl: false } })
       })
       const revision = useSettingsStore.getState().featuresRevision
 
-      act(() => ws.simulateMessage({ type: 'features_update', features: { chat: true, gif: true } }))
+      act(() => ws.simulateMessage({ type: 'features_update', features: { chat: true, gif: true, nhl: false } }))
 
-      expect(useSettingsStore.getState().serverFeatures).toEqual({ chat: true, gif: true })
+      expect(useSettingsStore.getState().serverFeatures).toEqual({ chat: true, gif: true, nhl: false })
       expect(useSettingsStore.getState().featuresRevision).toBe(revision + 1)
     })
   })
@@ -457,7 +457,7 @@ describe('useWebSocket', () => {
       const first = MockWebSocket.instances[0]
       act(() => {
         first.simulateOpen()
-        first.simulateMessage({ type: 'connection_ack', currentChannel: null, features: { chat: true, gif: false } })
+        first.simulateMessage({ type: 'connection_ack', currentChannel: null, features: { chat: true, gif: false, nhl: false } })
       })
       // The first connection comes as the page loads them anyway
       expect(useSettingsStore.getState().featuresRevision).toBe(start)
@@ -469,7 +469,7 @@ describe('useWebSocket', () => {
       const second = MockWebSocket.instances[1]
       act(() => {
         second.simulateOpen()
-        second.simulateMessage({ type: 'connection_ack', currentChannel: null, features: { chat: true, gif: false } })
+        second.simulateMessage({ type: 'connection_ack', currentChannel: null, features: { chat: true, gif: false, nhl: false } })
       })
 
       expect(useSettingsStore.getState().featuresRevision).toBe(start + 1)

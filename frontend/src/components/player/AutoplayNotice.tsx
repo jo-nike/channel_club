@@ -1,7 +1,7 @@
 import { Play, VolumeX } from 'lucide-react'
 import { useCanSetVolume } from '@/hooks/useCanSetVolume'
 import { cn } from '@/lib/utils'
-import { useUIStore } from '@/stores/uiStore'
+import { useNhlOverlayVisible } from '@/hooks/useNhlEnabled'
 
 export type AutoplayNoticeMode = 'sound-off' | 'tap-to-play'
 
@@ -31,7 +31,7 @@ interface AutoplayNoticeProps {
 export function AutoplayNotice({ mode, volume, onUnmute, onPlay, belowRail = false }: AutoplayNoticeProps) {
   const canSetVolume = useCanSetVolume()
   // The NHL strip takes the same top band (under the rail, or at the top)
-  const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
+  const isNHLOverlayVisible = useNhlOverlayVisible()
 
   if (mode === 'tap-to-play') {
     return (

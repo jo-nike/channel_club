@@ -167,11 +167,16 @@
         "gif": {
           "title": "Gif",
           "type": "boolean"
+        },
+        "nhl": {
+          "title": "Nhl",
+          "type": "boolean"
         }
       },
       "required": [
         "chat",
-        "gif"
+        "gif",
+        "nhl"
       ],
       "title": "Features",
       "type": "object"
@@ -562,7 +567,7 @@
       "type": "object"
     },
     "ServerFeaturesUpdate": {
-      "description": "An optional feature switched on or off: chat, GIFs, clips or feedback.\n\nChat and GIFs come as in connection_ack; clients read clips and feedback\nagain from their /feature endpoints.",
+      "description": "An optional feature switched on or off: chat, GIFs, NHL, clips or feedback.\n\nChat, GIFs and NHL come as in connection_ack; clients read clips and\nfeedback again from their /feature endpoints.",
       "properties": {
         "type": {
           "const": "features_update",

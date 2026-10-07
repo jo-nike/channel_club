@@ -107,6 +107,7 @@ class TestRead:
         assert defaults["requestBodyMaxBytes"] == 64 * 1024
         assert defaults["userChannelSelection"] is False
         assert defaults["chatEnabled"] is False
+        assert defaults["nhlEnabled"] is False
 
     def test_viewers_are_refused(self, client: TestClient) -> None:
         assert client.get("/api/admin/config", headers=VIEWER).status_code == 403
@@ -134,6 +135,28 @@ class TestUpdate:
             "ntfy_url": "https://ntfy.example",
         }
         assert settings.chat_enabled is True and settings.media_process_limit == 3
+
+    def test_nhl_scores_are_saved_and_applied(
+        self, client: TestClient, settings_file: Path
+    ) -> None:
+        response = client.put("/api/admin/config", headers=ADMIN, json={"nhlEnabled": True})
+
+        assert response.status_code == 200
+        assert response.json()["config"]["values"]["nhlEnabled"] is True
+        assert saved(settings_file)["values"] == {"nhl_enabled": True}
+        assert settings.nhl_enabled is True
+
+    def test_nhl_enabled_from_the_environment_locks_it(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(config, "ENV_FIELDS", frozenset({"jwt_secret", "nhl_enabled"}))
+
+        assert client.get("/api/admin/config", headers=ADMIN).json()["locked"]["nhlEnabled"] == [
+            "NHL_ENABLED"
+        ]
+        response = client.put("/api/admin/config", headers=ADMIN, json={"nhlEnabled": True})
+        assert response.status_code == 409
+        assert response.json()["detail"]["env"] == ["NHL_ENABLED"]
 
     def test_a_password_is_saved_as_a_hash(self, client: TestClient, settings_file: Path) -> None:
         response = client.put(

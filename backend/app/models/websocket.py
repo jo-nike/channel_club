@@ -158,6 +158,7 @@ class Features(BaseModel):
 
     chat: bool
     gif: bool
+    nhl: bool
 
 
 class ServerConnectionAck(BaseModel):
@@ -199,10 +200,10 @@ class ServerSettingsUpdate(BaseModel):
 
 
 class ServerFeaturesUpdate(BaseModel):
-    """An optional feature switched on or off: chat, GIFs, clips or feedback.
+    """An optional feature switched on or off: chat, GIFs, NHL, clips or feedback.
 
-    Chat and GIFs come as in connection_ack; clients read clips and feedback
-    again from their /feature endpoints.
+    Chat, GIFs and NHL come as in connection_ack; clients read clips and
+    feedback again from their /feature endpoints.
     """
 
     type: Literal["features_update"]

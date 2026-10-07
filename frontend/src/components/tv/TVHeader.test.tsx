@@ -7,6 +7,7 @@ import { useChannelStore } from '@/stores/channelStore'
 import { useChatStore } from '@/stores/chatStore'
 import { usePresenceStore } from '@/stores/presenceStore'
 import type { PresenceEntry } from '@/types'
+import { useSettingsStore } from '@/stores/settingsStore'
 
 const auth = vi.hoisted(() => ({ isAdmin: false }))
 const appSettings = vi.hoisted(() => ({ userChannelSelection: false }))
@@ -44,6 +45,8 @@ function renderHeader(overrides: Partial<Parameters<typeof TVHeader>[0]> = {}) {
 
 beforeEach(() => {
   auth.isAdmin = false
+  // NHL scores on, as the server's switch would have them for these tests
+  useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: true } })
   appSettings.userChannelSelection = false
   chatFlag.enabled = true
   accountMenu.props = undefined
@@ -135,6 +138,14 @@ describe('TVHeader', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Chat offline')
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
     expect(props.onReconnect).toHaveBeenCalledTimes(1)
+  })
+
+  it('has no NHL scores toggle while the server has them off', () => {
+    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: false } })
+    renderHeader()
+
+    expect(screen.getByRole('button', { name: 'Guide' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'NHL scores' })).not.toBeInTheDocument()
   })
 
   it('toggles the guide and NHL scores on desktop', () => {

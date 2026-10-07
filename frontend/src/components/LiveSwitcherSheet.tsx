@@ -11,6 +11,7 @@ import { ChannelList } from '@/components/ChannelList'
 import { OnAirCard } from '@/components/admin/OnAirCard'
 import { useChannelCatalogue } from '@/hooks/useChannelCatalogue'
 import { useNHLScores } from '@/hooks/useNHLScores'
+import { useNhlEnabled } from '@/hooks/useNhlEnabled'
 import { useSetLiveChannel } from '@/hooks/useSetLiveChannel'
 import type { ChatSendResult } from '@/hooks/useWebSocket'
 import { useAuthStore } from '@/stores/authStore'
@@ -89,7 +90,8 @@ function SwitcherBody({
   const recentIds = useRecentLiveChannelIds(username)
   const catalogue = useChannelCatalogue()
   const overrides = useNhlMappingStore((s) => s.overrides)
-  const { data: scores } = useNHLScores(true)
+  // Sports on now comes from NHL scores, so not while the server has them off
+  const { data: scores } = useNHLScores(useNhlEnabled())
   const setLiveChannel = useSetLiveChannel({ tuneActor: true })
 
   const games = useMemo(

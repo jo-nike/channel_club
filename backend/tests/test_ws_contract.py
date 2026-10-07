@@ -120,7 +120,7 @@ class TestDirectSends:
                 "you": YOU,
                 "presence": [],
                 "buildId": "dev",
-                "features": {"chat": False, "gif": False},
+                "features": {"chat": False, "gif": False, "nhl": False},
             }
 
     def test_connection_ack_without_live(self, client: TestClient, token: str) -> None:
@@ -235,7 +235,15 @@ class TestFeatures:
             assert ws.receive_json()["features"] == {
                 "chat": chat_enabled,
                 "gif": giphy_api_key == "giphy-key",
+                "nhl": False,
             }
+
+    def test_ack_carries_the_nhl_switch(
+        self, client: TestClient, token: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(settings, "nhl_enabled", True)
+        with ws_connect(client, token) as ws:
+            assert ws.receive_json()["features"]["nhl"] is True
 
     @pytest.mark.parametrize("chat_enabled", [True, False])
     def test_startup_warns_when_chat_is_off(
@@ -296,7 +304,9 @@ class TestBroadcasts:
     @pytest.mark.usefixtures("chat_on")
     async def test_features_update(self) -> None:
         sent = await _broadcasts(config_apply.broadcast_features_update)
-        assert sent == [{"type": "features_update", "features": {"chat": True, "gif": False}}]
+        assert sent == [
+            {"type": "features_update", "features": {"chat": True, "gif": False, "nhl": False}}
+        ]
 
     async def test_presence_update(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(presence_broadcast, "BROADCAST_DEBOUNCE_SECONDS", 0)

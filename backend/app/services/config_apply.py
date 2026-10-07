@@ -41,17 +41,22 @@ PLEX_OWNER_FIELDS = frozenset({"plex_server_token", "plex_auth_enabled"})
 
 
 def client_features() -> Features:
-    """Chat and GIFs as they are now: what connection_ack and features_update carry."""
+    """Chat, GIFs and NHL as they are now: what connection_ack and features_update carry."""
     key = settings.giphy_api_key
-    return Features(chat=settings.chat_enabled, gif=bool(key and key.get_secret_value()))
+    return Features(
+        chat=settings.chat_enabled,
+        gif=bool(key and key.get_secret_value()),
+        nhl=settings.nhl_enabled,
+    )
 
 
 def _feature_switches() -> tuple[bool, ...]:
-    """Which optional features clients can use: chat, GIFs, clips, Zipline, feedback."""
+    """Which optional features clients can use: chat, GIFs, NHL, clips, Zipline, feedback."""
     features = client_features()
     return (
         features.chat,
         features.gif,
+        features.nhl,
         settings.highlight_enabled,
         settings.zipline_available,
         settings.ntfy_available,

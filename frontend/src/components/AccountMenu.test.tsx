@@ -6,6 +6,7 @@ import { AdminModal } from './AdminModal'
 import { useTVMode } from '@/hooks/useTVMode'
 import { activeThemeId, useThemeStore } from '@/stores/themeStore'
 import { useUIStore } from '@/stores/uiStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 
 const auth = vi.hoisted(() => ({
   username: 'jon' as string | null,
@@ -69,6 +70,8 @@ function openMenu() {
 
 beforeEach(() => {
   auth.username = 'jon'
+  // NHL scores on, as the server's switch would have them for these tests
+  useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: true } })
   auth.isAdmin = false
   auth.logout = vi.fn()
   appSettings.userChannelSelection = false
@@ -375,6 +378,13 @@ describe('AccountMenu NHL scores', () => {
     expect(nhl).toHaveAttribute('aria-checked', 'false')
     fireEvent.click(nhl)
     expect(useUIStore.getState().isNHLOverlayVisible).toBe(true)
+  })
+
+  it('has no NHL item on phones while the server has NHL scores off', () => {
+    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: false } })
+    renderMenu({ isMobile: true })
+    openMenu()
+    expect(screen.queryByRole('menuitemcheckbox', { name: 'NHL scores' })).not.toBeInTheDocument()
   })
 
   it('leaves it to the header toggle on desktop', () => {
