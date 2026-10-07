@@ -14,6 +14,7 @@ from app.routers.auth_deps import get_current_user, require_admin, require_chann
 from app.services import channel_state
 from app.services.dispatcharr import (
     ChannelLogoNotFoundError,
+    DispatchrrNotSetUpError,
     DispatchrrUnavailableError,
     get_channel_logo,
     get_grouped_channels,
@@ -57,6 +58,12 @@ async def list_grouped_channels(
             total_channels,
         )
         return grouped
+    except DispatchrrNotSetUpError:
+        # The app asks on every load; a club without Dispatcharr is nothing to report
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Channel service unavailable",
+        ) from None
     except DispatchrrUnavailableError as e:
         log.warning("Channel service unavailable: {}", str(e))
         raise HTTPException(

@@ -13,7 +13,7 @@ from app.main import app
 from app.models.channel import Channel, ChannelGroupWithChannels, GroupedChannelsResponse
 from app.models.epg import EPGProgrammesResponse, EPGResponse, Program
 from app.services.auth import create_access_token
-from app.services.dispatcharr import DispatchrrUnavailableError
+from app.services.dispatcharr import DispatchrrNotSetUpError, DispatchrrUnavailableError
 from app.services.epg_service import EPGService, EPGServiceError
 
 
@@ -427,6 +427,29 @@ class TestGetNowPlayingAll:
         assert response.status_code == 200
         assert response.json()["nowPlaying"]["tsn5.ca"]["title"] == "Test Show"
         mock_service.get_now_playing_bulk.assert_awaited_once_with([])
+
+    def test_no_dispatcharr_address_keys_by_xmltv_id_without_a_warning(
+        self,
+        client: TestClient,
+        auth_header: dict[str, str],
+        grouped_channels: AsyncMock,
+    ) -> None:
+        grouped_channels.side_effect = DispatchrrNotSetUpError("Dispatcharr is not set up")
+        output = StringIO()
+        handler_id = logger.add(output, format="{level} | {message}", level="WARNING")
+        try:
+            with patch("app.routers.epg.get_epg_service") as mock_get_service:
+                mock_service = AsyncMock()
+                mock_service.get_now_playing_bulk.return_value = {}
+                mock_get_service.return_value = mock_service
+
+                response = client.get("/api/epg/now-playing/all", headers=auth_header)
+        finally:
+            logger.remove(handler_id)
+
+        assert response.status_code == 200
+        mock_service.get_now_playing_bulk.assert_awaited_once_with([])
+        assert output.getvalue() == ""
 
 
 class TestGetProgrammes:

@@ -709,6 +709,23 @@ class TestListGroupedChannels:
         assert response.status_code == 503
         assert response.json() == {"detail": "Channel service unavailable"}
 
+    def test_answers_503_quietly_when_dispatcharr_is_not_set_up(
+        self, client: TestClient, auth_header: dict[str, str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The app asks on every load: a club without Dispatcharr logs nothing for it."""
+        monkeypatch.setattr(settings, "dispatcharr_url", "")
+        output = StringIO()
+        handler_id = logger.add(output, format="{level} | {message}", level="WARNING")
+        try:
+            for _ in range(2):
+                response = client.get("/api/channels/grouped", headers=auth_header)
+                assert response.status_code == 503
+                assert response.json() == {"detail": "Channel service unavailable"}
+        finally:
+            logger.remove(handler_id)
+
+        assert output.getvalue() == ""
+
     def test_get_grouped_channels_admin_can_access(
         self, client: TestClient, admin_auth_header: dict[str, str]
     ) -> None:

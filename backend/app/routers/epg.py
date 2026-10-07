@@ -9,7 +9,11 @@ from app.models.auth import TokenPayload
 from app.models.channel import Channel
 from app.models.epg import EPGProgrammesResponse, EPGResponse, NowPlayingBulkResponse
 from app.routers.auth_deps import get_current_user
-from app.services.dispatcharr import DispatchrrUnavailableError, get_grouped_channels
+from app.services.dispatcharr import (
+    DispatchrrNotSetUpError,
+    DispatchrrUnavailableError,
+    get_grouped_channels,
+)
 from app.services.epg_service import EPGService, EPGServiceError, get_epg_service
 
 router = APIRouter(tags=["epg"])
@@ -74,6 +78,8 @@ async def get_now_playing_all(
     try:
         grouped = await get_grouped_channels()
         channels = [ch for group in grouped.groups for ch in group.channels] + grouped.ungrouped
+    except DispatchrrNotSetUpError:
+        pass  # No Dispatcharr channels to key by: nothing to warn about
     except DispatchrrUnavailableError:
         log.warning("Channel catalogue unavailable; bulk now-playing keyed by XMLTV id only")
 

@@ -24,6 +24,7 @@ from app.services.dispatcharr import (
 from app.services.epg_service import EPG_HEALTH_NAME, get_epg_service
 from app.services.ersatztv import get_guide_health
 from app.services.http_clients import dispatcharr_client, ersatztv_client
+from app.services.xmltv_cache import NOT_SET_UP
 
 # Module-level logger with service context
 log = logger.bind(service="status")
@@ -174,6 +175,9 @@ async def get_ersatztv_status() -> ErsatzTVStatus:
     """
     now = datetime.now(UTC)
     base_url = settings.ersatztv_base_url
+    if not base_url:
+        # Nothing to check, and nothing to log on every poll
+        return ErsatzTVStatus(name="ErsatzTV", online=False, last_checked=now, error=NOT_SET_UP)
 
     try:
         client = ersatztv_client()
@@ -296,6 +300,11 @@ async def get_dispatcharr_status() -> DispatchrrStatus:
     """
     now = datetime.now(UTC)
     base_url = settings.dispatcharr_url
+    if not base_url:
+        # Nothing to check, and nothing to log on every poll
+        return DispatchrrStatus(
+            name="Dispatcharr", online=False, last_checked=now, error=NOT_SET_UP
+        )
     proxy_status_url = f"{base_url}/proxy/ts/status"
 
     try:

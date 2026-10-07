@@ -16,6 +16,7 @@ from app.models.channel import (
 )
 from app.services import dispatcharr
 from app.services.dispatcharr import (
+    DispatchrrNotSetUpError,
     DispatchrrUnavailableError,
     _build_grouped_channels,
     dispatcharr_auth_headers,
@@ -256,6 +257,49 @@ class TestBuildGroupedChannels:
 
 GROUPS = [{"id": 1, "name": "Sports", "channel_count": 1}]
 CHANNELS = [{"id": 101, "name": "TSN", "channel_number": 28, "channel_group_id": 1, "uuid": "u-28"}]
+
+
+class TestGroupedChannelsNotSetUp:
+    """With no Dispatcharr address the catalogue fetches nothing and remembers no failure."""
+
+    @pytest.fixture(autouse=True)
+    def no_address(self, monkeypatch: pytest.MonkeyPatch) -> list[httpx.Request]:
+        monkeypatch.setattr(dispatcharr.settings, "dispatcharr_url", "")
+        monkeypatch.setattr(dispatcharr.settings, "dispatcharr_api_key", "test-key")
+        requests: list[httpx.Request] = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return httpx.Response(200, json=[])
+
+        mock_upstream(DISPATCHARR, handle)
+        return requests
+
+    async def test_raises_not_set_up_without_a_request(
+        self, no_address: list[httpx.Request]
+    ) -> None:
+        with pytest.raises(DispatchrrNotSetUpError, match="not set up"):
+            await dispatcharr.get_grouped_channels()
+
+        assert no_address == []
+        assert not dispatcharr.catalogue_failing()
+
+    async def test_background_refresh_does_not_start(self, no_address: list[httpx.Request]) -> None:
+        dispatcharr.refresh_catalogue_if_due()
+
+        assert dispatcharr._grouped_cache._task is None
+        assert no_address == []
+
+    async def test_first_read_after_an_address_is_saved_fetches(
+        self, monkeypatch: pytest.MonkeyPatch, no_address: list[httpx.Request]
+    ) -> None:
+        with pytest.raises(DispatchrrNotSetUpError):
+            await dispatcharr.get_grouped_channels()
+
+        monkeypatch.setattr(dispatcharr.settings, "dispatcharr_url", "http://dispatcharr.test")
+        await dispatcharr.get_grouped_channels()
+
+        assert len(no_address) == 2  # groups and channels, with no backoff in between
 
 
 class TestGroupedChannelsOutage:
