@@ -6,26 +6,30 @@
 #                             Docker image (service worker, manifest and icons)
 #   ./run.sh --local-auth     also allow signing in as a local admin with a random password
 #                             (printed at start); the rest of the auth set in .env stays on
+#   ./run.sh --setup          first run: no .env and a fresh data folder (deleted on exit), so
+#                             /setup opens and the environment locks nothing
 #   ./run.sh --branch REF     run REF (e.g. redesign/integration) from a disposable worktree
 #                             under ~/.cache, leaving this checkout as it is
 #
 # Flags combine, e.g. ./run.sh --branch redesign/integration --prod --local-auth
-# Configuration always comes from this checkout's .env. Stop with Ctrl-C.
+# Except with --setup, configuration comes from this checkout's .env. Stop with Ctrl-C.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_PATH="$ROOT_DIR/$(basename "${BASH_SOURCE[0]}")"
 cd "$ROOT_DIR"
 
-usage() { sed -n '2,13p' "$SCRIPT_PATH" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,15p' "$SCRIPT_PATH" | sed 's/^# \{0,1\}//'; }
 
 MODE=dev
 LOCAL_AUTH=false
+SETUP=false
 REF=""
 while (($#)); do
   case "$1" in
     --prod) MODE=prod ;;
     --local-auth) LOCAL_AUTH=true ;;
+    --setup) SETUP=true ;;
     --branch)
       [[ $# -ge 2 && -n "$2" ]] || { echo "--branch needs a branch or commit" >&2; exit 2; }
       REF="$2"
@@ -37,8 +41,15 @@ while (($#)); do
   shift
 done
 
+if [[ "$SETUP" == true && "$LOCAL_AUTH" == true ]]; then
+  echo "--setup and --local-auth don't combine: auth set in the environment closes setup" >&2
+  exit 2
+fi
+
 # Share the root configuration with Compose.
-if [[ -f "$ROOT_DIR/.env" ]]; then
+if [[ "$SETUP" == true ]]; then
+  ENV_FILE=""
+elif [[ -f "$ROOT_DIR/.env" ]]; then
   ENV_FILE="$ROOT_DIR/.env"
 else
   echo "No .env found. Copy .env.example to .env and configure authentication first." >&2
@@ -96,9 +107,25 @@ if [[ "$LOCAL_AUTH" == true ]]; then
   export ADMIN_PASSWORD JWT_SECRET
 fi
 
-echo "Using configuration: $ENV_FILE"
+# The backend reads .env from its working directory too, so --setup runs it from an empty one.
+RUN_DIR=""
+if [[ "$SETUP" == true ]]; then
+  SETUP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/channel-club-setup.XXXXXX")"
+  # Until cleanup takes over below; the folder can hold Plex tokens and API keys
+  trap 'rm -rf -- "$SETUP_DIR"' EXIT
+  mkdir "$SETUP_DIR/run" "$SETUP_DIR/data"
+  ENV_FILE="$SETUP_DIR/empty.env"
+  touch "$ENV_FILE"
+  RUN_DIR="$SETUP_DIR/run"
+  # Shell variables take precedence over --env-file; settings.json is saved beside this.
+  export STATE_FILE="$SETUP_DIR/data/state.json"
+  echo "Using no configuration: a fresh data folder at $SETUP_DIR/data, deleted on exit"
+else
+  echo "Using configuration: $ENV_FILE"
+fi
 # Validate before spawning a reload supervisor, which otherwise survives failed startup.
-uv run --project "$APP_DIR/backend" --env-file "$ENV_FILE" python - "$APP_DIR/backend" <<'PY'
+(cd "${RUN_DIR:-$ROOT_DIR}" && exec uv run --project "$APP_DIR/backend" --env-file "$ENV_FILE" \
+  python - "$APP_DIR/backend") <<'PY'
 import sys
 
 sys.path.insert(0, sys.argv[1])
@@ -146,6 +173,7 @@ cleanup() {
     if [[ -n "$pid" ]]; then kill -TERM -- "-$pid" 2>/dev/null || true; fi
   done
   wait 2>/dev/null || true
+  if [[ -n "${SETUP_DIR:-}" ]]; then rm -rf -- "$SETUP_DIR"; fi
 }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -153,12 +181,12 @@ trap 'exit 143' TERM
 
 echo "Starting backend on :8001..."
 if [[ "$MODE" == dev ]]; then
-  (cd "$APP_DIR" && exec setsid uv run --project "$APP_DIR/backend" --env-file "$ENV_FILE" \
+  (cd "${RUN_DIR:-$APP_DIR}" && exec setsid uv run --project "$APP_DIR/backend" --env-file "$ENV_FILE" \
     uvicorn app.main:app --app-dir "$APP_DIR/backend" --reload \
     --reload-dir "$APP_DIR/backend" --port 8001) &
 else
   # Listen on all interfaces so phones on the LAN can reach the production build directly.
-  (cd "$APP_DIR" && exec setsid uv run --project "$APP_DIR/backend" --env-file "$ENV_FILE" \
+  (cd "${RUN_DIR:-$APP_DIR}" && exec setsid uv run --project "$APP_DIR/backend" --env-file "$ENV_FILE" \
     uvicorn app.main:app --app-dir "$APP_DIR/backend" --host 0.0.0.0 --port 8001) &
 fi
 BACKEND_PID=$!
@@ -194,6 +222,7 @@ echo "Channel Club is running ($MODE mode)"
 echo "  This machine: http://localhost:$PORT"
 [[ -n "$LAN_IP" ]] && echo "  LAN:          http://$LAN_IP:$PORT"
 [[ "$LOCAL_AUTH" == true ]] && echo "  Sign in:      admin / $ADMIN_PASSWORD"
+[[ "$SETUP" == true ]] && echo "  Set up at:    http://localhost:$PORT/setup"
 if [[ "$MODE" == prod && -n "$LAN_IP" ]]; then
   echo "  To install the app on Android over plain http, Chrome needs the origin marked secure:"
   echo "  open chrome://flags/#unsafely-treat-insecure-origin-as-secure, add http://$LAN_IP:$PORT,"
