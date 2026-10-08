@@ -2,7 +2,7 @@
 
 **Good TV. Better company.**
 
-Version **1.1.0**.
+Version **1.2.0**.
 
 A shared live TV player with Chromecast, and optional ErsatzTV guide, Plex login, chat, highlight export and NHL scores.
 
@@ -168,7 +168,7 @@ of upstream service health. `/api/health` exposes the same backend information.
 root, update all application manifest/lockfile entries together:
 
 ```bash
-python3 scripts/version.py --set 1.1.1
+python3 scripts/version.py --set 1.2.1
 python3 scripts/version.py
 ```
 
@@ -176,19 +176,19 @@ The helper preserves dependency versions. Update the version shown in this READM
 when preparing a release. CI rejects mismatched application metadata.
 
 Every successful `master` push builds and deploys a unique image such as
-`gitea.example.com/jons-org/channel-club:1.1.0-build-abc1234-<build-id>`. Production
+`gitea.example.com/jons-org/channel-club:1.2.0-build-abc1234-<build-id>`. Production
 Compose uses the resulting immutable image digest, not a moving version tag.
 
-To publish version **1.1.0**, push an annotated Git tag at the tested commit whose
-application manifests say `1.1.0`:
+To publish version **1.2.0**, push an annotated Git tag at the tested commit whose
+application manifests say `1.2.0`:
 
 ```bash
-git tag -a v1.1.0 -m "Channel Club 1.1.0"
-git push origin v1.1.0
+git tag -a v1.2.0 -m "Channel Club 1.2.0"
+git push origin v1.2.0
 ```
 
 The tag workflow tests, builds, scans and publishes
-`gitea.example.com/jons-org/channel-club:1.1.0`. It does not trigger another production
+`gitea.example.com/jons-org/channel-club:1.2.0`. It does not trigger another production
 deployment. Later master builds never move this release tag. A retry reuses an
 existing image with matching version/source labels; conflicting tags or registry
 errors fail publication. No `latest` alias is published.
