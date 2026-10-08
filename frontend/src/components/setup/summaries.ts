@@ -38,7 +38,7 @@ export function stepSummary(state: WizardState, step: StepId): string {
       if (!settings) return ''
       const parts: string[] = []
       if (fieldValue(settings, 'plexAuthEnabled') && settings.view.values.plexServerMachineId) {
-        parts.push(fieldValue(settings, 'plexDefaultRole') === 'admin' ? 'Plex, as admins' : 'Plex members')
+        parts.push('Plex members')
       }
       if (fieldValue(settings, 'localAuthEnabled')) {
         parts.push(secretFilled(secretEntry(settings, 'viewerPassword')) ? 'passwords, guest' : 'passwords')
@@ -109,8 +109,7 @@ export function reviewRows(state: WizardState, settings: SettingsState): ReviewR
 
   const access: ReviewLine[] = []
   if (fieldValue(settings, 'plexAuthEnabled') && view.values.plexServerMachineId) {
-    const role = fieldValue(settings, 'plexDefaultRole') === 'admin' ? 'admins' : 'viewers'
-    access.push({ text: `Plex members of ${serverName} join as ${role}` })
+    access.push({ text: `Plex members of ${serverName} join as viewers` })
     if (Array.isArray(state.members)) {
       const ids = fieldValue(settings, 'plexAdminIds')
       const names = state.members.filter((member) => member.owner || ids.includes(member.plexId)).map((member) => member.username)

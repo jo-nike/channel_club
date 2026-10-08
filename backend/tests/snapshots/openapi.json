@@ -780,21 +780,6 @@
             ],
             "title": "Plexauthenabled"
           },
-          "plexDefaultRole": {
-            "anyOf": [
-              {
-                "enum": [
-                  "viewer",
-                  "admin"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Plexdefaultrole"
-          },
           "presenceVisible": {
             "anyOf": [
               {
@@ -1083,10 +1068,6 @@
             "title": "Plexauthenabled",
             "type": "boolean"
           },
-          "plexDefaultRole": {
-            "title": "Plexdefaultrole",
-            "type": "string"
-          },
           "plexServerMachineId": {
             "anyOf": [
               {
@@ -1144,7 +1125,6 @@
           "plexAuthEnabled",
           "plexServerToken",
           "plexServerMachineId",
-          "plexDefaultRole",
           "plexAdminIds",
           "userChannelSelection",
           "presenceVisible",

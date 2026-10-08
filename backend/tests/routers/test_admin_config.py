@@ -223,7 +223,6 @@ class TestUpdate:
             ),
             ({"dispatcharrUrl": "ftp://dispatcharr.example"}, "dispatcharrUrl", "value_error"),
             ({"ntfyTopic": "no spaces"}, "ntfyTopic", "value_error"),
-            ({"plexDefaultRole": "owner"}, "plexDefaultRole", "literal_error"),
             ({"requestBodyMaxBytes": 1024}, "requestBodyMaxBytes", "greater_than_equal"),
         ],
     )
@@ -285,22 +284,18 @@ class TestUpdate:
             assert response.json()["detail"]["code"] == "self_lockout"
 
     @pytest.mark.parametrize(
-        ("admin_ids", "default_role", "patch", "owner_id", "legacy_names", "refused"),
+        ("admin_ids", "patch", "owner_id", "legacy_names", "refused"),
         [
             # Unticking themselves, their one grant
-            (["42"], "viewer", {"plexAdminIds": ["77"]}, "1001", "", True),
-            # Every member an admin no more, when that was their grant
-            ([], "admin", {"plexDefaultRole": "viewer"}, "1001", "", True),
+            (["42"], {"plexAdminIds": ["77"]}, "1001", "", True),
             # Ticked still, whatever else changes
-            (["42"], "viewer", {"plexAdminIds": ["42", "77"]}, "1001", "", False),
-            # Every member an admin now
-            (["42"], "viewer", {"plexAdminIds": [], "plexDefaultRole": "admin"}, "1001", "", False),
+            (["42"], {"plexAdminIds": ["42", "77"]}, "1001", "", False),
             # The owner is an admin ticked or not
-            (["42"], "viewer", {"plexAdminIds": []}, "42", "", False),
+            (["42"], {"plexAdminIds": []}, "42", "", False),
             # plex.tv not answering: the owner can't be ruled out, as for sign-in
-            (["42"], "viewer", {"plexAdminIds": []}, None, "", False),
+            (["42"], {"plexAdminIds": []}, None, "", False),
             # Named in the environment's PLEX_ADMIN_USERS_STR
-            (["42"], "viewer", {"plexAdminIds": []}, "1001", "sam", False),
+            (["42"], {"plexAdminIds": []}, "1001", "sam", False),
         ],
     )
     def test_a_plex_admin_cannot_take_away_their_own_admin_rights(
@@ -308,7 +303,6 @@ class TestUpdate:
         client: TestClient,
         monkeypatch: pytest.MonkeyPatch,
         admin_ids: list[str],
-        default_role: str,
         patch: dict[str, Any],
         owner_id: str | None,
         legacy_names: str,
@@ -317,7 +311,6 @@ class TestUpdate:
         monkeypatch.setattr(settings, "plex_auth_enabled", True)
         monkeypatch.setattr(settings, "plex_server_machine_id", "machine-1")
         monkeypatch.setattr(settings, "plex_server_token", SecretStr("synthetic-owner-token"))
-        monkeypatch.setattr(settings, "plex_default_role", default_role)
         monkeypatch.setattr(settings, "plex_admin_ids", admin_ids)
         monkeypatch.setattr(settings, "plex_admin_users_str", legacy_names)
 
@@ -334,10 +327,7 @@ class TestUpdate:
         if refused:
             assert response.status_code == 409
             assert response.json()["detail"]["code"] == "self_lockout"
-            assert (settings.plex_admin_ids, settings.plex_default_role) == (
-                admin_ids,
-                default_role,
-            )
+            assert settings.plex_admin_ids == admin_ids
         else:
             assert response.status_code == 200, response.text
 

@@ -82,8 +82,8 @@ def validate_auth_configuration() -> None:
 
     # Refuse to start rather than serve an open door. check_server_access()
     # returns True when plex_server_machine_id is unset, so without it ANY
-    # valid Plex account on the internet authenticates and is issued a JWT
-    # with PLEX_DEFAULT_ROLE. Once Plex is the only enabled method, that is a
+    # valid Plex account on the internet authenticates and is issued a JWT.
+    # Once Plex is the only enabled method, that is a
     # silent authentication bypass — far better to fail the deploy loudly.
     if settings.plex_auth_enabled and not settings.plex_server_machine_id:
         raise RuntimeError(

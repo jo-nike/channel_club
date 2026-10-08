@@ -38,7 +38,6 @@ class ConfigValues(CamelModel):
     plex_auth_enabled: bool
     plex_server_token: SecretState
     plex_server_machine_id: str | None
-    plex_default_role: str
     plex_admin_ids: list[str]
     user_channel_selection: bool
     presence_visible: bool
@@ -176,7 +175,6 @@ class ConfigPatch(CamelModel):
         default=None, max_length=256, min_length=MIN_PASSWORD_LENGTH
     )
     plex_auth_enabled: bool | None = None
-    plex_default_role: Literal["viewer", "admin"] | None = None
     plex_admin_ids: list[Annotated[str, Field(pattern=PLEX_ID_PATTERN)]] | None = Field(
         default=None, max_length=500
     )

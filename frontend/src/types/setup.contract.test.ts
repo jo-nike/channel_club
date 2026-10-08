@@ -118,9 +118,8 @@ describe('the ranges the server holds settings to', () => {
     expect(valueSchema('ConfigPatch', 'ersatztvLogoOrigins').maxItems).toBe(MAX_LOGO_ORIGINS)
   })
 
-  it('offers the same log levels and roles', () => {
+  it('offers the same log levels', () => {
     expect(LOG_LEVELS).toEqual(enumOf('ConfigPatch', 'logLevel'))
-    expect(['viewer', 'admin']).toEqual(enumOf('ConfigPatch', 'plexDefaultRole'))
   })
 })
 

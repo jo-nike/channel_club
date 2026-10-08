@@ -14,7 +14,6 @@ export const DEFAULT_VALUES: ConfigValues = {
   plexAuthEnabled: false,
   plexServerToken: { set: false },
   plexServerMachineId: null,
-  plexDefaultRole: 'viewer',
   plexAdminIds: [],
   userChannelSelection: false,
   presenceVisible: false,

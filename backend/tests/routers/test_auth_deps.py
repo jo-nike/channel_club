@@ -208,7 +208,7 @@ def test_sec04_demoted_admin_obeys_viewer_channel_policy(monkeypatch, viewer_sel
     assert response.status_code == (200 if viewer_selection else 403)
 
 
-@pytest.mark.parametrize("grant", ["local", "plex-list", "plex-owner", "plex-default"])
+@pytest.mark.parametrize("grant", ["local", "plex-list", "plex-owner"])
 async def test_sec04_current_admin_grants_control(monkeypatch, grant):
     from app.routers import auth_deps
     from app.services.auth import verify_token
@@ -222,9 +222,6 @@ async def test_sec04_current_admin_grants_control(monkeypatch, grant):
     monkeypatch.setattr(auth_deps.settings, "plex_auth_enabled", grant.startswith("plex"))
     monkeypatch.setattr(
         auth_deps.settings, "plex_server_token", "synthetic" if grant == "plex-owner" else ""
-    )
-    monkeypatch.setattr(
-        auth_deps.settings, "plex_default_role", "admin" if grant == "plex-default" else "viewer"
     )
     monkeypatch.setattr(auth_deps.app_settings, "user_channel_selection_enabled", lambda: False)
     # The owner is recognised by Plex account id, so its token carries one (A-02)
@@ -246,7 +243,6 @@ def plex_owner_config(monkeypatch):
     monkeypatch.setattr(auth_deps.settings, "plex_admin_users_str", "listed-friend")
     monkeypatch.setattr(auth_deps.settings, "plex_auth_enabled", True)
     monkeypatch.setattr(auth_deps.settings, "plex_server_token", "synthetic-server-token")
-    monkeypatch.setattr(auth_deps.settings, "plex_default_role", "viewer")
     monkeypatch.setattr(auth_deps.app_settings, "user_channel_selection_enabled", lambda: False)
 
 

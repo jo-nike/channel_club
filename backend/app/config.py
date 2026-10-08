@@ -73,6 +73,7 @@ OBSOLETE_ENV_KEYS = {
     "ERSATZTV_XMLTV_URL": "derived from ERSATZTV_BASE_URL",
     "MEDIA_RECORDER_PER_USER": "recorders share one owner, so MEDIA_RECORDER_LIMIT applies",
     "CAST_ENABLED": "casting is always on",
+    "PLEX_DEFAULT_ROLE": "Plex members join as viewers; make admins one by one",
 }
 
 
@@ -119,7 +120,6 @@ class Settings(BaseSettings):
     # Plex Authentication Settings (only used when plex_auth_enabled=True)
     plex_server_token: SecretStr | None = None  # Admin's Plex server token
     plex_server_machine_id: str | None = None  # Server machine identifier
-    plex_default_role: str = "viewer"  # Default role for Plex users
     plex_admin_users_str: str = ""  # Comma-separated usernames who get admin role
     # Plex account ids that get the admin role; set from the UI, which picks
     # admins from the server's members. Unlike a username, an id survives a rename.
@@ -292,7 +292,6 @@ UiField = Literal[
     "plex_auth_enabled",
     "plex_server_token",
     "plex_server_machine_id",
-    "plex_default_role",
     "plex_admin_ids",
     # Extras
     "chat_enabled",
@@ -328,7 +327,6 @@ FIELD_GROUPS: dict[str, tuple[str, ...]] = {
         "plex_auth_enabled",
         "plex_server_token",
         "plex_server_machine_id",
-        "plex_default_role",
         "plex_admin_users_str",
         "plex_admin_ids",
     ),

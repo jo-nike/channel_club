@@ -250,13 +250,13 @@ async def determine_role(plex_user: PlexUser) -> str:
     1. Plex account ids in plex_admin_ids get "admin" (no plex.tv call)
     2. Server owner always gets "admin"
     3. Users in plex_admin_users list get "admin"
-    4. Otherwise, use plex_default_role
+    4. Everyone else gets "viewer"
 
     Args:
         plex_user: The authenticated Plex user.
 
     Returns:
-        "admin" if user is server owner or in admin list, otherwise plex_default_role.
+        "admin" if user is server owner or in admin list, otherwise "viewer".
     """
     # Admins picked in the UI are known by account id, which survives a rename
     if plex_user.id in settings.plex_admin_ids:
@@ -271,8 +271,7 @@ async def determine_role(plex_user: PlexUser) -> str:
     if settings.plex_admin_users and plex_user.username in settings.plex_admin_users:
         return "admin"
 
-    # Return default role
-    return settings.plex_default_role
+    return "viewer"
 
 
 async def check_server_access(auth_token: str) -> bool:

@@ -225,7 +225,9 @@ def test_startup_logs_a_server_start_event() -> None:
     assert start["log_format"] == settings.log_format
 
 
-@pytest.mark.parametrize("key", ["STREAM_BASE_URL", "VITE_WS_URL", "CAST_ENABLED"])
+@pytest.mark.parametrize(
+    "key", ["STREAM_BASE_URL", "VITE_WS_URL", "CAST_ENABLED", "PLEX_DEFAULT_ROLE"]
+)
 def test_startup_warns_about_obsolete_variables(monkeypatch, key) -> None:
     """A removed variable left in the environment is named, not silently ignored."""
     monkeypatch.setenv(key, "anything")

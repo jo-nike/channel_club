@@ -25,7 +25,6 @@ export const CONFIG_FIELDS = [
   'plexAuthEnabled',
   'plexServerToken',
   'plexServerMachineId',
-  'plexDefaultRole',
   'plexAdminIds',
   'localAuthEnabled',
   'adminUsername',
@@ -172,7 +171,6 @@ export const SECTION_FIELDS = {
   sources: ['dispatcharrUrl', 'dispatcharrApiKey', 'ersatztvBaseUrl'],
   access: [
     'plexAuthEnabled',
-    'plexDefaultRole',
     'plexAdminIds',
     'localAuthEnabled',
     'adminUsername',

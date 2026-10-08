@@ -59,12 +59,6 @@ class TestAuthSettings:
             # Should be None by default
             assert settings.plex_server_machine_id is None
 
-    def test_settings_has_plex_default_role(self) -> None:
-        """Settings should have plex_default_role attribute with viewer default."""
-        settings = Settings()
-        assert hasattr(settings, "plex_default_role")
-        assert settings.plex_default_role == "viewer"
-
     def test_settings_has_plex_admin_users(self) -> None:
         """Settings should have plex_admin_users attribute as empty list by default."""
         with patch.dict("os.environ", {}, clear=True):

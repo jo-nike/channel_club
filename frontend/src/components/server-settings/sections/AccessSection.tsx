@@ -2,22 +2,16 @@ import type { ReactNode } from 'react'
 import { Eye, House, KeyRound, Lock, Tv, Users } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
-import type { PlexMember, PlexRole } from '@/types/setup'
+import type { PlexMember } from '@/types/setup'
 import { fieldValue, lockedBy, secretEntry } from '../model/configDraft'
 import { Field, FieldMessage } from '../fields/Field'
 import { PeopleAdminList } from '../fields/PeopleAdminList'
 import { SecretField } from '../fields/SecretField'
-import { SegmentedRadio } from '../fields/SegmentedRadio'
 import { SettingCard } from '../fields/SettingCard'
 import { Subsection } from '../fields/Subsection'
 import { ToggleRow } from '../fields/ToggleRow'
 import { INPUT, LOCKED_INPUT, SCROLL_MARGIN, TWO_COLUMNS } from '../fields/styles'
 import type { SectionProps } from './types'
-
-const ROLES = [
-  { value: 'viewer', label: 'Viewer' },
-  { value: 'admin', label: 'Admin' },
-] as const satisfies readonly { value: PlexRole; label: string }[]
 
 const HELP = 'text-[13px] leading-[1.45] text-pretty text-muted-foreground'
 
@@ -66,7 +60,6 @@ export function AccessSection({
   const localOn = fieldValue(state, 'localAuthEnabled')
   const linked = Boolean(view.values.plexServerMachineId)
   const serverName = view.plexServerName ?? 'your Plex server'
-  const role = fieldValue(state, 'plexDefaultRole')
 
   const username = (field: 'adminUsername' | 'viewerUsername') => {
     const lock = lockedBy(view, field)
@@ -120,28 +113,10 @@ export function AccessSection({
           <>
             {linkedServer}
             <div className="flex flex-col gap-[7px]">
-              <span id={`${idPrefix}-role-label`} className="text-sm font-semibold">
-                New members join as
-              </span>
-              <SegmentedRadio
-                name={`${idPrefix}-plexDefaultRole`}
-                value={role}
-                options={ROLES}
-                onChange={(value) => onField('plexDefaultRole', value)}
-                labelledBy={`${idPrefix}-role-label`}
-                disabled={lockedBy(view, 'plexDefaultRole') !== null}
-              />
-              <p className={HELP}>Viewers watch, chat and make clips. Admins also set the live channel for everyone and change settings.</p>
-              {role === 'admin' && (
-                <FieldMessage tone="warning">
-                  Every member of {serverName} will be an admin, including people you share it with later.
-                </FieldMessage>
-              )}
-            </div>
-            <div className="flex flex-col gap-[7px]">
               <span id={`${idPrefix}-admins-label`} className="text-sm font-semibold">
                 Admins
               </span>
+              <p className={HELP}>Members join as viewers: they watch, chat and make clips. Admins also set the live channel for everyone and change settings.</p>
               {members === 'loading' ? (
                 <p className={HELP}>Loading the server's members…</p>
               ) : members === 'failed' ? (

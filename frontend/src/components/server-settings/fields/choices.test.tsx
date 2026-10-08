@@ -5,7 +5,6 @@ import type { PlexMember, PlexServer } from '@/types/setup'
 import { ChoiceCard } from './ChoiceCard'
 import { PeopleAdminList } from './PeopleAdminList'
 import { PlexServerPicker } from './PlexServerPicker'
-import { SegmentedRadio } from './SegmentedRadio'
 
 describe('ChoiceCard', () => {
   it('is a native radio named by its title and description, with the global focus outline', () => {
@@ -23,44 +22,6 @@ describe('ChoiceCard', () => {
 
     fireEvent.click(password)
     expect(onChange).toHaveBeenCalled()
-  })
-})
-
-describe('SegmentedRadio', () => {
-  const options = [
-    { value: 'viewer', label: 'Viewer' },
-    { value: 'admin', label: 'Admin' },
-  ] as const
-
-  it('is a group of native radios under one name, so arrow keys move between them', () => {
-    render(
-      <>
-        <span id="role-label">New members join as</span>
-        <SegmentedRadio name="role" value="viewer" options={options} onChange={vi.fn()} labelledBy="role-label" />
-      </>
-    )
-
-    expect(screen.getByRole('group', { name: 'New members join as' })).toBeInTheDocument()
-    const radios = screen.getAllByRole('radio')
-    expect(radios.map((radio) => radio.getAttribute('name'))).toEqual(['role', 'role'])
-    expect(screen.getByRole('radio', { name: 'Viewer' })).toBeChecked()
-  })
-
-  it('reports the option chosen', () => {
-    const onChange = vi.fn()
-    render(<SegmentedRadio name="role" value="viewer" options={options} onChange={onChange} labelledBy="x" />)
-
-    fireEvent.click(screen.getByRole('radio', { name: 'Admin' }))
-
-    expect(onChange).toHaveBeenCalledWith('admin')
-  })
-
-  it('draws the focus outline on the segment around the invisible radio', () => {
-    render(<SegmentedRadio name="role" value="viewer" options={options} onChange={vi.fn()} labelledBy="x" />)
-
-    const segment = screen.getByRole('radio', { name: 'Admin' }).closest('label')
-    expect(segment).toHaveClass('has-focus-visible:outline-2', 'has-focus-visible:outline-ring')
-    expect(screen.getByRole('radio', { name: 'Admin' })).toHaveClass('opacity-0')
   })
 })
 

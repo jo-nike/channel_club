@@ -83,7 +83,7 @@ PROBE_FIELDS: dict[ProbeKind, tuple[str, ...]] = {
     "ntfy": ("ntfy_url", "ntfy_topic", "ntfy_token"),
 }
 # The settings that make a Plex member an admin
-PLEX_ADMIN_FIELDS = frozenset({"plex_admin_ids", "plex_default_role"})
+PLEX_ADMIN_FIELDS = frozenset({"plex_admin_ids"})
 # ntfy's test sends a real notification, so it can't be repeated at once
 PROBE_COOLDOWN_SECONDS: dict[ProbeKind, float] = {"ntfy": 10.0}
 _last_probe: dict[ProbeKind, float] = {}
@@ -132,7 +132,6 @@ def _values(source: Settings, house_rules: dict[str, bool]) -> ConfigValues:
         plex_auth_enabled=source.plex_auth_enabled,
         plex_server_token=_secret(source.plex_server_token),
         plex_server_machine_id=source.plex_server_machine_id,
-        plex_default_role=source.plex_default_role,
         plex_admin_ids=list(source.plex_admin_ids),
         user_channel_selection=house_rules["userChannelSelection"],
         presence_visible=house_rules["presenceVisible"],
@@ -346,7 +345,6 @@ def _check_rules(patch: ConfigPatch, given: set[str], admin: TokenPayload, owner
             owner
             or admin.sub in settings.plex_admin_users
             or admin.plex_id in after("plex_admin_ids")
-            or after("plex_default_role") == "admin"
         )
         lockout = ("plex_auth_enabled" in given and not patch.plex_auth_enabled) or (
             bool(given & PLEX_ADMIN_FIELDS) and not stays_admin

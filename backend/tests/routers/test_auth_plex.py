@@ -22,7 +22,6 @@ def client(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(plex.settings, "plex_server_machine_id", "my-server-abc")
     monkeypatch.setattr(plex.settings, "plex_server_token", None)
     monkeypatch.setattr(plex.settings, "plex_admin_users_str", "")
-    monkeypatch.setattr(plex.settings, "plex_default_role", "viewer")
     plex.clear_server_owner_id_cache()
     with patch("app.routers.auth.settings") as mock_settings:
         mock_settings.admin_password_hash = None

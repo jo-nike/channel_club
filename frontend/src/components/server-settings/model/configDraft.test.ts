@@ -57,11 +57,6 @@ describe('what a setting shows', () => {
   it('shows a size that is not a whole unit to two places', () => {
     expect(formatNumber('mediaExportMaxBytes', 300_000_000)).toBe('286.1')
   })
-
-  it('reads a role the environment set to something else as viewer', () => {
-    expect(fieldValue(settingsState({ plexDefaultRole: 'Admin?' }), 'plexDefaultRole')).toBe('viewer')
-    expect(fieldValue(settingsState({ plexDefaultRole: 'admin' }), 'plexDefaultRole')).toBe('admin')
-  })
 })
 
 describe('numbers', () => {

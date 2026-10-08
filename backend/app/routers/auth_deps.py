@@ -93,7 +93,6 @@ async def _admin_in_current_config(user: TokenPayload) -> bool:
         while local sign-in is on and the admin account has a password
       - the Plex admin username list (PLEX_ADMIN_USERS_STR)
       - the Plex account ids picked as admins in the UI (plex_admin_ids)
-      - PLEX_DEFAULT_ROLE == "admin" (every authenticated Plex user is admin)
       - the Plex server owner: the token's plex_id must equal the owner id from
         plex.tv (cached, and warmed at boot)
 
@@ -108,8 +107,6 @@ async def _admin_in_current_config(user: TokenPayload) -> bool:
     if not settings.plex_auth_enabled:
         return False
     if user.plex_id is not None and user.plex_id in settings.plex_admin_ids:
-        return True
-    if settings.plex_default_role == "admin":
         return True
     # The owner clause covers Plex sign-ins only: a token without a plex_id
     # cannot be the owner's.

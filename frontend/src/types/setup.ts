@@ -91,8 +91,6 @@ export interface SecretState {
   set: boolean
 }
 
-export type PlexRole = 'viewer' | 'admin'
-
 export type LogLevel = 'TRACE' | 'DEBUG' | 'INFO' | 'SUCCESS' | 'WARNING' | 'ERROR' | 'CRITICAL'
 
 /** Every setting the app can change, as the server runs with it now. Byte sizes are in bytes. */
@@ -111,7 +109,6 @@ export interface ConfigValues {
   plexServerToken: SecretState
   plexServerMachineId: string | null
   /** 'viewer' or 'admin', unless the environment set something else */
-  plexDefaultRole: string
   plexAdminIds: string[]
   userChannelSelection: boolean
   presenceVisible: boolean
@@ -208,9 +205,9 @@ export interface ConfigUpdate {
  * Plex server and its token are linked through POST /api/admin/plex/server.
  */
 export type ConfigPatch = {
-  [K in Exclude<ConfigField, 'plexServerToken' | 'plexServerMachineId' | 'plexDefaultRole'>]?:
+  [K in Exclude<ConfigField, 'plexServerToken' | 'plexServerMachineId'>]?:
     ConfigValues[K] extends SecretState ? string | null : ConfigValues[K]
-} & { plexDefaultRole?: PlexRole }
+}
 
 /** What POST /api/admin/config/test can check (server: ProbeKind). */
 export type TestKind = 'dispatcharr' | 'ersatztv' | 'giphy' | 'zipline' | 'ntfy'

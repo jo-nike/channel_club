@@ -76,8 +76,8 @@ describe('stepSummary', () => {
     expect(stepSummary(afterClaim({ plexAuthEnabled: true }), 'access')).toBe('Admin only')
     expect(stepSummary(afterClaim({ plexAuthEnabled: true, plexServerMachineId: 'home' }), 'access')).toBe('Plex members')
     expect(
-      stepSummary(afterClaim({ plexAuthEnabled: true, plexServerMachineId: 'home', plexDefaultRole: 'admin', localAuthEnabled: true }), 'access')
-    ).toBe('Plex, as admins, passwords')
+      stepSummary(afterClaim({ plexAuthEnabled: true, plexServerMachineId: 'home', localAuthEnabled: true }), 'access')
+    ).toBe('Plex members, passwords')
     expect(stepSummary(afterClaim({ localAuthEnabled: true }, { draft: { ...EMPTY_DRAFT, values: { viewerPassword: 'guest pass 1' } } }), 'access')).toBe(
       'Passwords, guest'
     )
@@ -123,7 +123,7 @@ describe('reviewRows', () => {
     const plexAdmin: WizardAdmin = { signIn: 'plex', username: 'jon', plexId: '101' }
     const linked = afterClaim(
       // The owner is an admin whether listed or not
-      { plexAuthEnabled: true, plexServerMachineId: 'home', plexAdminIds: ['202'], plexDefaultRole: 'admin', userChannelSelection: true },
+      { plexAuthEnabled: true, plexServerMachineId: 'home', plexAdminIds: ['202'], userChannelSelection: true },
       { admin: plexAdmin, plexServerName: 'Home Server' }
     )
     const withMembers = wizardReducer(linked, {
@@ -135,7 +135,7 @@ describe('reviewRows', () => {
       ],
     })
     expect(lines(withMembers, 'access')).toEqual([
-      'Plex members of Home Server join as admins',
+      'Plex members of Home Server join as viewers',
       'Admins: jon, sam',
       'Anyone can change the live channel',
       'Others see only who is online',

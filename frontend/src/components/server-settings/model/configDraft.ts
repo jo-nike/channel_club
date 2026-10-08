@@ -1,4 +1,4 @@
-import type { ConfigField, ConfigPatch, ConfigValues, ConfigView, PlexRole } from '@/types/setup'
+import type { ConfigField, ConfigPatch, ConfigValues, ConfigView } from '@/types/setup'
 import {
   isSecretField,
   NUMBER_SPECS,
@@ -27,9 +27,7 @@ export type DraftValueOf<K extends EditableField> = K extends EditableSecret
   ? string | null
   : K extends NumberField | 'ersatztvLogoOrigins'
     ? string
-    : K extends 'plexDefaultRole'
-      ? PlexRole
-      : ConfigValues[K]
+    : ConfigValues[K]
 
 export type DraftValues = { [K in EditableField]?: DraftValueOf<K> }
 
@@ -67,7 +65,6 @@ const GATES: Partial<Record<EditableField, readonly (SourceKind | BooleanField)[
   dispatcharrUrl: ['dispatcharr'],
   dispatcharrApiKey: ['dispatcharr'],
   ersatztvBaseUrl: ['ersatztv'],
-  plexDefaultRole: ['plexAuthEnabled'],
   plexAdminIds: ['plexAuthEnabled'],
   adminUsername: ['localAuthEnabled'],
   adminPassword: ['localAuthEnabled'],
@@ -133,7 +130,6 @@ export function parseOrigins(text: string): string[] {
 function asDraft<K extends PlainField>(values: ConfigValues, field: K): DraftValueOf<K> {
   const value = values[field]
   if (field === 'ersatztvLogoOrigins') return formatOrigins(value as string[]) as DraftValueOf<K>
-  if (field === 'plexDefaultRole') return (value === 'admin' ? 'admin' : 'viewer') as DraftValueOf<K>
   if (typeof value === 'number') return formatNumber(field as NumberField, value) as DraftValueOf<K>
   return value as DraftValueOf<K>
 }

@@ -57,7 +57,6 @@ def client_plex_enabled():
         mock_settings.plex_admin_ids = []
         mock_settings.local_auth_enabled = False
         mock_settings.plex_auth_enabled = True
-        mock_settings.plex_default_role = "viewer"
 
         app = FastAPI()
         app.include_router(router, prefix="/api/auth")

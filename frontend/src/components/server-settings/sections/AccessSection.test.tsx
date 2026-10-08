@@ -76,13 +76,12 @@ describe('AccessSection', () => {
       expect(screen.getByRole('button', { name: 'Show guest password' })).toBeInTheDocument()
     })
 
-    it('warns when every member would join as an admin', () => {
+    it('offers no role for every member: members join as viewers, admins are ticked one by one', () => {
       render(<Harness initial={plexAdmin()} adminSignIn="plex" />)
 
-      expect(screen.getByRole('radio', { name: 'Viewer' })).toBeChecked()
-      fireEvent.click(screen.getByRole('radio', { name: 'Admin' }))
-
-      expect(screen.getByText('Every member of Home Server will be an admin, including people you share it with later.')).toBeInTheDocument()
+      expect(screen.queryByRole('radio')).not.toBeInTheDocument()
+      expect(screen.queryByText('New members join as')).not.toBeInTheDocument()
+      expect(screen.getByText(/^Members join as viewers/)).toBeInTheDocument()
     })
 
     it("ticks admins from the server's members", () => {

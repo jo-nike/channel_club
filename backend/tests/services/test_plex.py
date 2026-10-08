@@ -603,32 +603,14 @@ class TestDetermineRole:
             patch("app.services.plex.get_server_owner_id", return_value="999"),
             patch("app.services.plex.settings") as mock_settings,
         ):
-            mock_settings.plex_default_role = "viewer"
             mock_settings.plex_admin_users = []
             mock_settings.plex_admin_ids = []
             role = await determine_role(user)
             assert role == "viewer"
 
     @pytest.mark.asyncio
-    async def test_configured_admin_role(self) -> None:
-        """Users get admin role when PLEX_DEFAULT_ROLE=admin."""
-        from app.services.plex import determine_role
-
-        user = PlexUser(id="123", username="testuser", email="test@test.com")
-
-        with (
-            patch("app.services.plex.get_server_owner_id", return_value="999"),
-            patch("app.services.plex.settings") as mock_settings,
-        ):
-            mock_settings.plex_default_role = "admin"
-            mock_settings.plex_admin_users = []
-            mock_settings.plex_admin_ids = []
-            role = await determine_role(user)
-            assert role == "admin"
-
-    @pytest.mark.asyncio
     async def test_server_owner_always_admin(self) -> None:
-        """Server owner gets admin role regardless of default."""
+        """Server owner gets admin role."""
         from app.services.plex import determine_role
 
         owner_id = "123"
@@ -638,11 +620,10 @@ class TestDetermineRole:
             patch("app.services.plex.get_server_owner_id", return_value=owner_id),
             patch("app.services.plex.settings") as mock_settings,
         ):
-            mock_settings.plex_default_role = "viewer"  # Default is viewer
             mock_settings.plex_admin_users = []
             mock_settings.plex_admin_ids = []
             role = await determine_role(user)
-            assert role == "admin"  # But owner gets admin
+            assert role == "admin"
 
     @pytest.mark.asyncio
     async def test_admin_users_list(self) -> None:
@@ -655,25 +636,7 @@ class TestDetermineRole:
             patch("app.services.plex.get_server_owner_id", return_value="999"),
             patch("app.services.plex.settings") as mock_settings,
         ):
-            mock_settings.plex_default_role = "viewer"
             mock_settings.plex_admin_users = ["vipuser", "anotheradmin"]
-            mock_settings.plex_admin_ids = []
-            role = await determine_role(user)
-            assert role == "admin"
-
-    @pytest.mark.asyncio
-    async def test_non_owner_with_admin_default(self) -> None:
-        """Non-owner with admin default still gets admin."""
-        from app.services.plex import determine_role
-
-        user = PlexUser(id="456", username="regularuser", email="user@test.com")
-
-        with (
-            patch("app.services.plex.get_server_owner_id", return_value="999"),
-            patch("app.services.plex.settings") as mock_settings,
-        ):
-            mock_settings.plex_default_role = "admin"
-            mock_settings.plex_admin_users = []
             mock_settings.plex_admin_ids = []
             role = await determine_role(user)
             assert role == "admin"
@@ -690,15 +653,14 @@ class TestDetermineRole:
             patch("app.services.plex.get_server_owner_id", lookup),
             patch("app.services.plex.settings") as mock_settings,
         ):
-            mock_settings.plex_default_role = "viewer"
             mock_settings.plex_admin_users = []
             mock_settings.plex_admin_ids = ["456"]
             assert await determine_role(user) == "admin"
         lookup.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_owner_detection_failure_uses_default(self) -> None:
-        """When owner detection fails, uses default role."""
+    async def test_owner_detection_failure_makes_a_viewer(self) -> None:
+        """When owner detection fails, a member is a viewer."""
         from app.services.plex import determine_role
 
         user = PlexUser(id="123", username="testuser", email="test@test.com")
@@ -707,7 +669,6 @@ class TestDetermineRole:
             patch("app.services.plex.get_server_owner_id", return_value=None),
             patch("app.services.plex.settings") as mock_settings,
         ):
-            mock_settings.plex_default_role = "viewer"
             mock_settings.plex_admin_users = []
             mock_settings.plex_admin_ids = []
             role = await determine_role(user)
