@@ -14,13 +14,13 @@ describe('useChatEnabled', () => {
   })
 
   it('is true when the server says chat is on', () => {
-    useSettingsStore.setState({ serverFeatures: { chat: true, gif: false } })
+    useSettingsStore.setState({ serverFeatures: { chat: true, gif: false, nhl: false, sources: { dispatcharr: true, ersatztv: true } } })
     expect(renderHook(() => useChatEnabled()).result.current).toBe(true)
     expect(isChatEnabled()).toBe(true)
   })
 
   it('is false when the server says chat is off', () => {
-    useSettingsStore.setState({ serverFeatures: { chat: false, gif: true } })
+    useSettingsStore.setState({ serverFeatures: { chat: false, gif: true, nhl: false, sources: { dispatcharr: true, ersatztv: true } } })
     expect(renderHook(() => useChatEnabled()).result.current).toBe(false)
     expect(isChatEnabled()).toBe(false)
   })
@@ -29,11 +29,11 @@ describe('useChatEnabled', () => {
     const { result, rerender } = renderHook(() => useChatEnabled())
     expect(result.current).toBe(false)
 
-    act(() => useSettingsStore.getState().setServerFeatures({ chat: true, gif: false }))
+    act(() => useSettingsStore.getState().setServerFeatures({ chat: true, gif: false, nhl: false, sources: { dispatcharr: true, ersatztv: true } }))
     rerender()
     expect(result.current).toBe(true)
 
-    act(() => useSettingsStore.getState().setServerFeatures({ chat: false, gif: false }))
+    act(() => useSettingsStore.getState().setServerFeatures({ chat: false, gif: false, nhl: false, sources: { dispatcharr: true, ersatztv: true } }))
     rerender()
     expect(result.current).toBe(false)
   })

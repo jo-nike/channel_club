@@ -5,6 +5,8 @@ import { useChannelStore } from './channelStore'
 import { useErsatztvStore } from './ersatztvStore'
 import { useUIStore } from './uiStore'
 import { useChannelPrefsStore } from './channelPrefsStore'
+import { useSettingsStore } from './settingsStore'
+import { currentSources } from '@/hooks/useSources'
 import { fetchLiveProgrammes, fetchNowPlaying } from '@/services/api'
 import type { Channel, UnifiedChannel, ErsatzTVChannel, ErsatzTVProgramme, EPGResponse, Program } from '@/types'
 
@@ -102,17 +104,19 @@ function ersatzTVToUnified(channel: ErsatzTVChannel): UnifiedChannel {
 
 /**
  * Channel 0 (the live slot, present even with nothing on live TV) followed by
- * the ErsatzTV channels. Pure, so a component can memoise the list on the two
+ * the ErsatzTV channels. Without Dispatcharr there is no live slot: Live only
+ * ever carries its channels. Pure, so a component can memoise the list on the
  * store values it's built from.
  */
 export function buildUnifiedChannels(
   liveChannel: Channel | null,
-  ersatzTVChannels: ErsatzTVChannel[]
+  ersatzTVChannels: ErsatzTVChannel[],
+  withLiveSlot: boolean
 ): UnifiedChannel[] {
   const unified: UnifiedChannel[] = []
 
-  // Channel 0 (Live) - always present as a slot, even if no live channel selected
-  unified.push({
+  // Channel 0 (Live) - present as a slot even with nothing on, while Dispatcharr is set up
+  if (withLiveSlot) unified.push({
     id: LIVE_CHANNEL_ID,
     name: liveChannel?.name || 'Live',
     number: 0,
@@ -263,7 +267,11 @@ export const useTVStore = create<TVState>()(
     },
 
     getUnifiedChannels: () =>
-      buildUnifiedChannels(useChannelStore.getState().currentChannel, useErsatztvStore.getState().channels),
+      buildUnifiedChannels(
+        useChannelStore.getState().currentChannel,
+        useErsatztvStore.getState().channels,
+        currentSources().dispatcharr
+      ),
 
     isLiveChannelActive: () => {
       const liveChannel = useChannelStore.getState().currentChannel
@@ -331,4 +339,32 @@ useChannelStore.subscribe((state) => {
 
     logger.debug('TVStore', `Live channel updated: ${currentChannel?.name || 'none'}`)
   }
+})
+
+// A source switched off on the server: a viewer on one of its channels moves
+// to what is left (an ErsatzTV channel, else the live slot), or to nothing.
+// One switched back on gives a viewer with nothing to watch its channels.
+// Neither is a pick of the viewer's, so the remembered channel stays.
+let previousSources = currentSources()
+useSettingsStore.subscribe(() => {
+  const sources = currentSources()
+  if (sources === previousSources) return
+  const before = previousSources
+  previousSources = sources
+  const { selectedChannel, getUnifiedChannels } = useTVStore.getState()
+  if (!selectedChannel) {
+    const switchedOn = (sources.dispatcharr && !before.dispatcharr) || (sources.ersatztv && !before.ersatztv)
+    const first = switchedOn ? getUnifiedChannels()[0] : undefined
+    if (first) useTVStore.setState({ selectedChannel: first })
+    return
+  }
+  const gone =
+    (selectedChannel.type === 'live' && !sources.dispatcharr) ||
+    (selectedChannel.type === 'ersatztv' && !sources.ersatztv)
+  if (!gone) return
+  // The ErsatzTV list empties after this runs, so its channels only count while it's on
+  const channels = getUnifiedChannels().filter((channel) => channel.type === 'live' || sources.ersatztv)
+  const next = channels.find((channel) => channel.type === 'ersatztv') ?? channels[0] ?? null
+  logger.debug('TVStore', `Channel source switched off: moving to ${next?.name ?? 'nothing'}`)
+  useTVStore.setState({ selectedChannel: next })
 })

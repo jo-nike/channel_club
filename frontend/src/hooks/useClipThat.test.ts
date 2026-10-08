@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import * as api from '@/services/api'
 import { useChatStore, type ChatSender } from '@/stores/chatStore'
 import { useClipStore } from '@/stores/clipStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { useClipThat, type ClipThatChannel } from './useClipThat'
 
 vi.mock('@/services/api', () => ({
@@ -126,6 +127,19 @@ describe('useClipThat', () => {
     it('is not offered with no channel playing', async () => {
       const { result } = await clipThatFor(null)
       expect(result.current).toBeUndefined()
+    })
+
+    it('follows the server when its features change, such as Zipline switched on', async () => {
+      vi.mocked(api.getHighlightFeatures).mockResolvedValue({ enabled: true, ziplineEnabled: false })
+      const { result } = await clipThatFor()
+      expect(result.current).toBeUndefined()
+
+      vi.mocked(api.getHighlightFeatures).mockResolvedValue({ enabled: true, ziplineEnabled: true })
+      act(() => useSettingsStore.getState().noteFeaturesChanged())
+      await flush()
+
+      expect(result.current).toBeTypeOf('function')
+      expect(api.getHighlightFeatures).toHaveBeenCalledTimes(2)
     })
   })
 

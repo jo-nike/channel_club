@@ -1,7 +1,10 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { useTVStore, LIVE_CHANNEL_ID, buildUnifiedChannels } from './tvStore'
 import { useChannelStore } from './channelStore'
 import { useChannelPrefsStore } from './channelPrefsStore'
+import { useErsatztvStore } from './ersatztvStore'
+import { useSettingsStore } from './settingsStore'
+import { useUIStore } from './uiStore'
 import { fetchLiveProgrammes, fetchNowPlaying } from '@/services/api'
 import type { Channel, EPGProgrammesResponse, EPGResponse, UnifiedChannel } from '@/types'
 
@@ -423,26 +426,79 @@ describe('tvStore recent channels', () => {
   })
 })
 
+describe('buildUnifiedChannels without Dispatcharr', () => {
+  it('has no live slot: channel 0 is gone, the ErsatzTV channels are all there is', () => {
+    const channels = buildUnifiedChannels(null, [{ id: 'etv1', name: 'Movies', number: 1, streamUrl: '/e1', logoUrl: '', group: '' }], false)
+
+    expect(channels.map((channel) => channel.id)).toEqual(['etv1'])
+  })
+})
+
+describe('tvStore when a source is switched off', () => {
+  const movies = { id: 'etv1', name: 'Movies', number: 1, streamUrl: '/e1', logoUrl: '', group: '' }
+  const sources = (dispatcharr: boolean, ersatztv: boolean) =>
+    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: false, sources: { dispatcharr, ersatztv } } })
+
+  beforeEach(() => {
+    useChannelStore.setState({ currentChannel: { id: 'a', name: 'A', streamUrl: 'http://a', guideId: 'a' } })
+    useErsatztvStore.setState({ channels: [movies] })
+    sources(true, true)
+  })
+
+  afterEach(() => {
+    useSettingsStore.setState({ serverFeatures: null })
+    useErsatztvStore.setState({ channels: [] })
+    useTVStore.setState({ selectedChannel: null, previousChannelId: null, epgLookupGuideId: null, programmesLookupGuideId: null })
+  })
+
+  it("moves a viewer on an ErsatzTV channel to Live, not to the channel that's going", () => {
+    useTVStore.getState().selectChannel(useTVStore.getState().getUnifiedChannels()[1])
+
+    sources(true, false)
+
+    expect(useTVStore.getState().selectedChannel?.id).toBe(LIVE_CHANNEL_ID)
+  })
+
+  it('gives a viewer with nothing to watch the live slot when Dispatcharr comes back, keeping their remembered channel', () => {
+    useUIStore.setState({ lastTVChannelId: 'etv9' })
+    sources(false, false)
+    useTVStore.setState({ selectedChannel: null })
+
+    sources(true, false)
+
+    expect(useTVStore.getState().selectedChannel?.id).toBe(LIVE_CHANNEL_ID)
+    expect(useUIStore.getState().lastTVChannelId).toBe('etv9')
+  })
+
+  it('moves a viewer on Live to the first ErsatzTV channel', () => {
+    useTVStore.getState().selectChannel(useTVStore.getState().getUnifiedChannels()[0])
+
+    sources(false, true)
+
+    expect(useTVStore.getState().selectedChannel?.id).toBe('etv1')
+  })
+})
+
 describe('buildUnifiedChannels logos', () => {
   const movies = { id: 'etv1', name: 'Movies', streamUrl: '', number: 1, group: '' }
 
   it("gives the live slot the live channel's logo", () => {
-    const [liveSlot] = buildUnifiedChannels({ ...tsn, logoUrl: '/api/channels/logos/17' }, [])
+    const [liveSlot] = buildUnifiedChannels({ ...tsn, logoUrl: '/api/channels/logos/17' }, [], true)
 
     expect(liveSlot).toMatchObject({ id: LIVE_CHANNEL_ID, logoUrl: '/api/channels/logos/17' })
   })
 
   it('gives the live slot no logo when the live channel has none, or nothing is on', () => {
-    expect(buildUnifiedChannels({ ...tsn, logoUrl: null }, [])[0].logoUrl).toBeUndefined()
-    expect(buildUnifiedChannels(tsn, [])[0].logoUrl).toBeUndefined()
-    expect(buildUnifiedChannels(null, [])[0].logoUrl).toBeUndefined()
+    expect(buildUnifiedChannels({ ...tsn, logoUrl: null }, [], true)[0].logoUrl).toBeUndefined()
+    expect(buildUnifiedChannels(tsn, [], true)[0].logoUrl).toBeUndefined()
+    expect(buildUnifiedChannels(null, [], true)[0].logoUrl).toBeUndefined()
   })
 
   it("points an ErsatzTV channel's logo at our logo route, and leaves a channel without one without", () => {
     const [, withLogo, withoutLogo] = buildUnifiedChannels(null, [
       { ...movies, logoUrl: 'http://ersatztv.lan/iptv/logos/movies.png' },
       { ...movies, id: 'etv2', logoUrl: '' },
-    ])
+    ], true)
 
     expect(withLogo.logoUrl).toBe('/api/ersatztv/logos/etv1')
     expect(withoutLogo.logoUrl).toBeUndefined()

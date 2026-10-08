@@ -274,14 +274,14 @@ describe('useWebSocket', () => {
 
       act(() => {
         ws.simulateOpen()
-        ws.simulateMessage({ type: 'connection_ack', currentChannel: null, features: { chat: false, gif: true } })
+        ws.simulateMessage({ type: 'connection_ack', currentChannel: null, features: { chat: false, gif: true, nhl: false, sources: { dispatcharr: true, ersatztv: true } } })
       })
 
-      expect(useSettingsStore.getState().serverFeatures).toEqual({ chat: false, gif: true })
+      expect(useSettingsStore.getState().serverFeatures).toEqual({ chat: false, gif: true, nhl: false, sources: { dispatcharr: true, ersatztv: true } })
     })
 
     test('leaves the features unknown when an older server sends none', () => {
-      useSettingsStore.setState({ serverFeatures: { chat: false, gif: false } })
+      useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: false, sources: { dispatcharr: true, ersatztv: true } } })
       renderHook(() => useWebSocket())
       const ws = MockWebSocket.instances[0]
 
@@ -309,6 +309,23 @@ describe('useWebSocket', () => {
       })
 
       expect(useChannelStore.getState().currentChannel).toBeNull()
+    })
+  })
+
+  describe('features_update handling', () => {
+    test('applies chat and GIFs, and has the other features checked again', () => {
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+      act(() => {
+        ws.simulateOpen()
+        ws.simulateMessage({ type: 'connection_ack', currentChannel: null, features: { chat: false, gif: false, nhl: false, sources: { dispatcharr: true, ersatztv: true } } })
+      })
+      const revision = useSettingsStore.getState().featuresRevision
+
+      act(() => ws.simulateMessage({ type: 'features_update', features: { chat: true, gif: true, nhl: false, sources: { dispatcharr: true, ersatztv: true } } }))
+
+      expect(useSettingsStore.getState().serverFeatures).toEqual({ chat: true, gif: true, nhl: false, sources: { dispatcharr: true, ersatztv: true } })
+      expect(useSettingsStore.getState().featuresRevision).toBe(revision + 1)
     })
   })
 
@@ -432,6 +449,30 @@ describe('useWebSocket', () => {
 
     afterEach(() => {
       vi.useRealTimers()
+    })
+
+    test('has the features checked again after a reconnect, which may have missed a change', () => {
+      renderHook(() => useWebSocket())
+      const start = useSettingsStore.getState().featuresRevision
+      const first = MockWebSocket.instances[0]
+      act(() => {
+        first.simulateOpen()
+        first.simulateMessage({ type: 'connection_ack', currentChannel: null, features: { chat: true, gif: false, nhl: false, sources: { dispatcharr: true, ersatztv: true } } })
+      })
+      // The first connection comes as the page loads them anyway
+      expect(useSettingsStore.getState().featuresRevision).toBe(start)
+
+      act(() => first.simulateClose(1006, 'Abnormal closure'))
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
+      const second = MockWebSocket.instances[1]
+      act(() => {
+        second.simulateOpen()
+        second.simulateMessage({ type: 'connection_ack', currentChannel: null, features: { chat: true, gif: false, nhl: false, sources: { dispatcharr: true, ersatztv: true } } })
+      })
+
+      expect(useSettingsStore.getState().featuresRevision).toBe(start + 1)
     })
 
     test('returns reconnecting status when connection drops unexpectedly', () => {

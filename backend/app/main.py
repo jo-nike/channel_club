@@ -13,6 +13,7 @@ from app.metadata import APP_NAME, APP_VERSION
 from app.middleware.body_limit import BodySizeLimitMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.routers.admin import router as admin_router
+from app.routers.admin_config import router as admin_config_router
 from app.routers.auth import router as auth_router
 from app.routers.cast import router as cast_router
 from app.routers.channels import router as channels_router
@@ -24,6 +25,7 @@ from app.routers.gif import router as gif_router
 from app.routers.highlight import router as highlight_router
 from app.routers.nhl import router as nhl_router
 from app.routers.settings import router as settings_router
+from app.routers.setup import router as setup_router
 from app.routers.websocket import router as websocket_router
 from app.services import (
     app_settings,
@@ -32,6 +34,7 @@ from app.services import (
     plex,
     presence,
     presence_broadcast,
+    settings_store,
     state_store,
 )
 from app.services.cached_fetch import aclose_all_caches
@@ -46,6 +49,7 @@ from app.services.epg_service import get_epg_service
 from app.services.ersatztv.refresh import stop_feed_executor
 from app.services.highlight import highlight_service
 from app.services.http_clients import aclose_http_clients
+from app.services.passwords import local_accounts
 from app.spa import mount_spa
 
 
@@ -78,8 +82,8 @@ def validate_auth_configuration() -> None:
 
     # Refuse to start rather than serve an open door. check_server_access()
     # returns True when plex_server_machine_id is unset, so without it ANY
-    # valid Plex account on the internet authenticates and is issued a JWT
-    # with PLEX_DEFAULT_ROLE. Once Plex is the only enabled method, that is a
+    # valid Plex account on the internet authenticates and is issued a JWT.
+    # Once Plex is the only enabled method, that is a
     # silent authentication bypass — far better to fail the deploy loudly.
     if settings.plex_auth_enabled and not settings.plex_server_machine_id:
         raise RuntimeError(
@@ -88,20 +92,35 @@ def validate_auth_configuration() -> None:
             "Set PLEX_SERVER_MACHINE_ID or disable Plex auth."
         )
 
-    if not settings.local_auth_enabled and not settings.plex_auth_enabled:
+    # While setup is open its own warning says what to do (settings_store.start)
+    no_sign_in = not settings.local_auth_enabled and not settings.plex_auth_enabled
+    if no_sign_in and settings_store.setup_state() != "unclaimed":
         logger.warning(
             "No authentication methods enabled! "
             "Set LOCAL_AUTH_ENABLED=true or PLEX_AUTH_ENABLED=true"
         )
 
     # Local auth with no passwords configured rejects every login attempt.
-    # Non-fatal, but silent 401s are a miserable thing to debug.
-    passwords = (settings.admin_password, settings.viewer_password)
-    if settings.local_auth_enabled and not any(p and p.get_secret_value() for p in passwords):
+    # Non-fatal, but silent 401s are a miserable thing to debug. A password
+    # saved from the app (a hash) counts as much as one in the environment.
+    if settings.local_auth_enabled and not any(a.usable for a in local_accounts(settings)):
         logger.warning(
-            "LOCAL_AUTH_ENABLED is true but neither ADMIN_PASSWORD nor "
-            "VIEWER_PASSWORD is set — every local login will be rejected"
+            "Local sign-in is on but neither login has a password (ADMIN_PASSWORD, "
+            "VIEWER_PASSWORD or one saved in the app), so every local login will be rejected"
         )
+
+
+def preflight() -> None:
+    """The startup checks, without serving: run.sh calls this before launching.
+
+    Loads the saved settings (generating and saving the signing key when the
+    environment has none), then validates auth, as the lifespan does.
+
+    Raises:
+        RuntimeError: As settings_store.start() and validate_auth_configuration().
+    """
+    settings_store.start()
+    validate_auth_configuration()
 
 
 # Shutdown teardown's budget, after uvicorn's own graceful timeout (Dockerfile)
@@ -112,6 +131,9 @@ SHUTDOWN_DEADLINE_SECONDS = 8
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler for startup/shutdown events."""
+    # Settings saved from the app first: they can change the signing key, the
+    # log level, auth and the features everything below reads.
+    settings_store.start()
     # Startup: a structured event, so the dashboard can mark deploys
     logger.info(
         "Channel Club API starting",
@@ -154,18 +176,17 @@ async def lifespan(app: FastAPI):
         )
         # Clean up any stale segments from previous runs
         highlight_service.cleanup_stale_segments()
-        # Start background task to clean up idle recorders
-        highlight_service.start_idle_cleanup_task()
-    if settings.cast_enabled:
-        logger.info(
-            "Chromecast streaming enabled (segment: {}s, buffer: {}s)",
-            settings.cast_hls_segment_time,
-            settings.cast_hls_segment_time * settings.cast_hls_list_size,
-        )
-        # Clean up any stale sessions from previous runs
-        cast_service.cleanup_stale_sessions()
-        # Start background task to clean up idle sessions
-        cast_service.start_idle_cleanup_task()
+    logger.info(
+        "Chromecast streaming (segment: {}s, buffer: {}s)",
+        settings.cast_hls_segment_time,
+        settings.cast_hls_segment_time * settings.cast_hls_list_size,
+    )
+    # Clean up any stale sessions from previous runs
+    cast_service.cleanup_stale_sessions()
+    # The clips sweep runs whether or not clips are on: they can be switched on
+    # from the app, and while they are off it finds nothing to do
+    highlight_service.start_idle_cleanup_task()
+    cast_service.start_idle_cleanup_task()
 
     # Sweep presence for tabs that vanished without closing their socket, so
     # stale viewers disappear even when no admin is polling Active Users.
@@ -274,7 +295,7 @@ if settings.cors_origins:
 # Wraps routing and CORS: oversize bodies get 413 before routing.
 app.add_middleware(
     BodySizeLimitMiddleware,
-    max_bytes=settings.request_body_max_bytes,
+    max_bytes=lambda: settings.request_body_max_bytes,
     exempt_paths=frozenset({"/api/highlight/upload"}),
 )
 # Added last so it wraps everything, the body cap's 413 included.
@@ -286,7 +307,9 @@ app.include_router(channels_router, prefix="/api")
 app.include_router(epg_router, prefix="/api")
 app.include_router(ersatztv_router)
 app.include_router(admin_router, prefix="/api/admin")
+app.include_router(admin_config_router, prefix="/api/admin")
 app.include_router(settings_router, prefix="/api")
+app.include_router(setup_router, prefix="/api/setup")
 app.include_router(cast_router)
 app.include_router(gif_router)
 app.include_router(feedback_router)

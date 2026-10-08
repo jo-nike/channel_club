@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.config import settings
 from app.models.auth import TokenPayload
 from app.models.nhl import NHLScoresResponse
 from app.routers.auth_deps import get_current_user
@@ -64,8 +65,10 @@ async def get_scores(
 
     Raises:
         HTTPException: 400 if date format is invalid or outside the date window.
-        HTTPException: 503 if NHL API is unavailable.
+        HTTPException: 503 if NHL scores are off on this server, or NHL API is unavailable.
     """
+    if not settings.nhl_enabled:
+        raise HTTPException(status_code=503, detail={"message": "NHL scores are off"})
     if date:
         _validate_date(date)
 

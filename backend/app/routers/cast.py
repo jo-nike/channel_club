@@ -4,7 +4,6 @@ Provides endpoints for:
 - Creating cast sessions (starts HLS transcoding for MPEG-TS streams)
 - Stopping cast sessions
 - Serving HLS playlist and segment files
-- Checking cast feature status
 """
 
 from typing import Literal
@@ -14,7 +13,6 @@ from fastapi.responses import FileResponse, Response
 from loguru import logger
 from pydantic import BaseModel
 
-from app.config import settings
 from app.models.auth import TokenPayload
 from app.models.channel import ChannelId
 from app.routers.auth_deps import get_current_user
@@ -25,12 +23,6 @@ from app.services.stream_sessions import StreamSessionLimitError
 
 router = APIRouter(prefix="/api/cast", tags=["cast"])
 log = logger.bind(router="cast")
-
-
-class CastFeatureResponse(BaseModel):
-    """Response for cast feature status."""
-
-    enabled: bool
 
 
 class CreateSessionRequest(BaseModel):
@@ -51,19 +43,6 @@ class CastSessionResponse(BaseModel):
     needs_transcoding: bool
 
 
-@router.get("/feature", response_model=CastFeatureResponse)
-async def get_feature_status(
-    user: TokenPayload = Depends(get_current_user),
-) -> CastFeatureResponse:
-    """Check if cast feature is enabled.
-
-    This endpoint allows the frontend to conditionally show/hide
-    the cast button based on the server-side feature flag.
-    """
-    log.debug("GET /cast/feature request")
-    return CastFeatureResponse(enabled=settings.cast_enabled)
-
-
 @router.post("/session", response_model=CastSessionResponse)
 async def create_cast_session(
     request: CreateSessionRequest,
@@ -81,12 +60,6 @@ async def create_cast_session(
         request.channel_id,
         request.stream_type,
     )
-
-    if not settings.cast_enabled:
-        raise HTTPException(
-            status_code=503,
-            detail="Cast feature is disabled",
-        )
 
     source = await resolve_media_channel(request.channel_id)
 

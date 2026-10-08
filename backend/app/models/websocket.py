@@ -153,11 +153,21 @@ class You(BaseModel):
     userId: str
 
 
+class Sources(BaseModel):
+    """Which channel sources have an address. A source without one has no
+    channels, so clients leave out what it would fill (Live needs Dispatcharr)."""
+
+    dispatcharr: bool
+    ersatztv: bool
+
+
 class Features(BaseModel):
     """Which optional features the server has on, so clients show only those."""
 
     chat: bool
     gif: bool
+    nhl: bool
+    sources: Sources
 
 
 class ServerConnectionAck(BaseModel):
@@ -198,6 +208,17 @@ class ServerSettingsUpdate(BaseModel):
     settings: AppSettings
 
 
+class ServerFeaturesUpdate(BaseModel):
+    """An optional feature switched on or off: chat, GIFs, NHL, clips or feedback.
+
+    Chat, GIFs and NHL come as in connection_ack; clients read clips and
+    feedback again from their /feature endpoints.
+    """
+
+    type: Literal["features_update"]
+    features: Features
+
+
 class ServerPresenceUpdate(BaseModel):
     type: Literal["presence_update"]
     presence: list[PresenceEntry]
@@ -223,6 +244,7 @@ ServerMessage = Annotated[
     | ServerChatAck
     | ServerChannelUpdate
     | ServerSettingsUpdate
+    | ServerFeaturesUpdate
     | ServerPresenceUpdate
     | ServerPong
     | ServerError,

@@ -7,6 +7,7 @@ import { useChannelStore } from '@/stores/channelStore'
 import { useChatStore } from '@/stores/chatStore'
 import { usePresenceStore } from '@/stores/presenceStore'
 import type { PresenceEntry } from '@/types'
+import { useSettingsStore } from '@/stores/settingsStore'
 
 const auth = vi.hoisted(() => ({ isAdmin: false }))
 const appSettings = vi.hoisted(() => ({ userChannelSelection: false }))
@@ -44,6 +45,8 @@ function renderHeader(overrides: Partial<Parameters<typeof TVHeader>[0]> = {}) {
 
 beforeEach(() => {
   auth.isAdmin = false
+  // NHL scores on, as the server's switch would have them for these tests
+  useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: true, sources: { dispatcharr: true, ersatztv: true } } })
   appSettings.userChannelSelection = false
   chatFlag.enabled = true
   accountMenu.props = undefined
@@ -135,6 +138,14 @@ describe('TVHeader', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Chat offline')
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
     expect(props.onReconnect).toHaveBeenCalledTimes(1)
+  })
+
+  it('has no NHL scores toggle while the server has them off', () => {
+    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: false, sources: { dispatcharr: true, ersatztv: true } } })
+    renderHeader()
+
+    expect(screen.getByRole('button', { name: 'Guide' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'NHL scores' })).not.toBeInTheDocument()
   })
 
   it('toggles the guide and NHL scores on desktop', () => {
@@ -362,6 +373,24 @@ describe('TVHeader', () => {
       host.focus()
     })
     expect(await screen.findByRole('tooltip')).toHaveTextContent('Open admin panel')
+  })
+
+  it('has no Change live or Suggest without Dispatcharr: there is no live TV; Host stays', () => {
+    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: true, sources: { dispatcharr: false, ersatztv: true } } })
+    chatFlag.enabled = true
+    appSettings.userChannelSelection = true
+    renderHeader()
+    expect(screen.queryByRole('button', { name: 'Change live channel' })).not.toBeInTheDocument()
+    cleanup()
+
+    appSettings.userChannelSelection = false
+    renderHeader()
+    expect(screen.queryByRole('button', { name: 'Suggest a channel' })).not.toBeInTheDocument()
+    cleanup()
+
+    auth.isAdmin = true
+    renderHeader()
+    expect(screen.getByRole('button', { name: 'Open admin panel' })).toBeInTheDocument()
   })
 
   it('gives a viewer Change live only when the admin allows it', () => {

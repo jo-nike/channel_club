@@ -1,4 +1,5 @@
 import { useNowPlaying } from '@/hooks/useNowPlaying'
+import { useSources } from '@/hooks/useSources'
 import { useChannelStore } from '@/stores/channelStore'
 import { useTVStore, describeLiveGuide } from '@/stores/tvStore'
 import { useUIStore } from '@/stores/uiStore'
@@ -23,6 +24,16 @@ export function NowWatching({ isMobile }: { isMobile: boolean }) {
   const liveChannel = useChannelStore((s) => s.currentChannel)
   const isChannelSidebarCollapsed = useUIStore((s) => s.isChannelSidebarCollapsed)
   const { title, timeLeft, isLive, hasLiveChannel } = useNowPlaying(selectedChannel)
+  const sources = useSources()
+
+  // Neither source is set up: nothing is coming, so nothing to wait for (the player says why)
+  if (!selectedChannel && !sources.dispatcharr && !sources.ersatztv) {
+    return (
+      <div className="min-w-0 flex-1" data-testid="now-watching">
+        <p className="truncate text-sm font-medium leading-tight text-muted-foreground">No channels yet</p>
+      </div>
+    )
+  }
 
   if (!selectedChannel) {
     return (

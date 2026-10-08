@@ -11,7 +11,7 @@ import { GifButton } from './GifButton'
 describe('GifButton', () => {
   beforeEach(() => {
     layout.mode = 'desktop'
-    useSettingsStore.setState({ serverFeatures: { chat: true, gif: true } })
+    useSettingsStore.setState({ serverFeatures: { chat: true, gif: true, nhl: false, sources: { dispatcharr: true, ersatztv: true } } })
   })
 
   it('stays hidden until connection_ack says GIFs are on, without asking /gif/feature', () => {
@@ -20,7 +20,7 @@ describe('GifButton', () => {
     render(<GifButton onSelect={vi.fn()} />)
     expect(screen.queryByRole('button', { name: 'Send GIF' })).not.toBeInTheDocument()
 
-    act(() => useSettingsStore.getState().setServerFeatures({ chat: true, gif: true }))
+    act(() => useSettingsStore.getState().setServerFeatures({ chat: true, gif: true, nhl: false, sources: { dispatcharr: true, ersatztv: true } }))
 
     expect(screen.getByRole('button', { name: 'Send GIF' })).toBeInTheDocument()
     expect(fetchSpy).not.toHaveBeenCalled()
@@ -28,7 +28,7 @@ describe('GifButton', () => {
   })
 
   it('stays hidden when the server says GIFs are off', () => {
-    useSettingsStore.setState({ serverFeatures: { chat: true, gif: false } })
+    useSettingsStore.setState({ serverFeatures: { chat: true, gif: false, nhl: false, sources: { dispatcharr: true, ersatztv: true } } })
     render(<GifButton onSelect={vi.fn()} />)
     expect(screen.queryByRole('button', { name: 'Send GIF' })).not.toBeInTheDocument()
   })

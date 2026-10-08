@@ -4,11 +4,30 @@
 
 Version **1.1.0**.
 
-A shared live TV player with optional ErsatzTV guide, Plex login, chat, highlight export and Chromecast controls.
+A shared live TV player with Chromecast, and optional ErsatzTV guide, Plex login, chat, highlight export and NHL scores.
+
+## Quick start
+
+Build the image and run it with a volume for `/data`. No configuration is needed:
+
+```bash
+docker build -t channel-club .
+docker run -d --name channel-club -p 8334:8080 -v channel-club-data:/data channel-club
+```
+
+Open `http://<docker-host>:8334` and the app sends you to `/setup`. The first visitor sets up the club and becomes its admin, so finish setup before you expose the port beyond a trusted network. Until then the log says "Setup is open". The wizard takes about five minutes:
+
+1. **Your account:** sign in with Plex and pick the server you own (its members can then join), or make a username and password.
+2. **Channels:** the Dispatcharr address and API key, the ErsatzTV address, or both, each with a connection test.
+3. **Who can join:** Plex members and their admins, local accounts, and the house rules.
+4. **Extras:** chat, GIFs, clips (with optional Zipline uploads), NHL scores and feedback via ntfy. Chromecast is always on.
+5. **Review**, then open the club.
+
+Everything can be changed later under **Admin Panel › Server**. Saved changes apply at once, without a restart. The wizard and the Server tab save to `/data/settings.json`; see [Settings saved from the app](#settings-saved-from-the-app). `docker compose up --build` works the same way: see [Docker](#docker).
 
 ## Local development
 
-Install Node 22+, npm, Python 3.13 and uv. FFmpeg is required for enabled highlight/Chromecast transcoding features.
+Install Node 22+, npm, Python 3.13 and uv. FFmpeg is required for Chromecast (always on) and for clips when enabled.
 
 ```bash
 cd backend
@@ -17,7 +36,7 @@ cd ..
 cp .env.example .env
 ```
 
-Edit the root `.env`: generate a signing key with `openssl rand -hex 32`, replace `JWT_SECRET`, and set a unique `ADMIN_PASSWORD` with `LOCAL_AUTH_ENABLED=true`. Blank local passwords disable that account. Set `DISPATCHARR_URL` and `DISPATCHARR_API_KEY`; the server and browsers both reach Dispatcharr at that URL (browsers play streams from it). Set `ERSATZTV_BASE_URL` and Plex only if used. Neither source URL has a default, and startup names any that is unset. Never commit credentials.
+Edit the root `.env`, uncommenting what you set: set `JWT_SECRET` to a key from `openssl rand -hex 32` (`run.sh` sets no `STATE_FILE`, so there is nowhere to save a generated one), and a unique `ADMIN_PASSWORD` with `LOCAL_AUTH_ENABLED=true`. Blank local passwords disable that account. Set `DISPATCHARR_URL` and `DISPATCHARR_API_KEY`; the server and browsers both reach Dispatcharr at that URL (browsers play streams from it). Set `ERSATZTV_BASE_URL` and Plex only if used. Neither source URL has a default, and startup names any that is unset. Never commit credentials.
 
 ```bash
 cd frontend
@@ -27,6 +46,8 @@ cd ..
 ```
 
 `run.sh` prints the selected configuration file, validates authentication, waits for backend readiness, and rejects occupied ports instead of silently switching URLs. Stop it with Ctrl+C to shut down both services.
+
+To try the first-run wizard, run `./run.sh --setup`. It ignores `.env` and starts with a fresh data folder that is deleted when you stop it, so `/setup` opens and the environment locks nothing. It doesn't combine with `--local-auth`.
 
 Open `http://localhost:5173`. From another device on the same network, open `http://<development-machine-ip>:5173`. The frontend binds all interfaces; use a trusted development network. The backend listens on port 8001, and Vite proxies browser HTTP and WebSocket `/api` traffic to it. No frontend `.env` is required. ErsatzTV API calls use the same proxy. Browser clients must not use `localhost` to refer to a different machine.
 
@@ -46,11 +67,26 @@ cd frontend && npm run dev
 | --- | --- |
 | Root `.env` | Shared `run.sh` and Docker Compose configuration, based on root `.env.example` |
 
-The frontend build takes no configuration, so one image serves any deploy. It calls `/api` and opens its WebSocket on the page's origin, and the server says at connect time whether chat (`CHAT_ENABLED`) and GIFs (`GIPHY_API_KEY` set) are on. The browser console logs at debug level in development and info in production builds. Chromecast must reach the media server itself; the receiver's API URL is built from the page's origin, and local casting may require a backend bound to a receiver-reachable interface. Browser proxy tests do not establish physical receiver reachability.
+The frontend build takes no configuration, so one image serves any deploy. It calls `/api` and opens its WebSocket on the page's origin, and the server says at connect time whether chat (`CHAT_ENABLED`), GIFs (`GIPHY_API_KEY` set) and NHL scores (`NHL_ENABLED`) are on. The browser console logs at debug level in development and info in production builds. Chromecast must reach the media server itself; the receiver's API URL is built from the page's origin, and local casting may require a backend bound to a receiver-reachable interface. Browser proxy tests do not establish physical receiver reachability.
 
 `.env.example` lists what a deploy sets. The Advanced block at the end of `backend/app/config.py` (media admission limits, HLS and highlight timings, temporary directories, feedback rate limits, body caps) has tuned defaults and stays out of it; each can still be overridden by its upper-case name. Startup warns about variables that are no longer read (`OBSOLETE_ENV_KEYS` in the same file), such as `STREAM_BASE_URL`, which `DISPATCHARR_URL` replaced.
 
-Administrators control the shared live broadcast and settings; viewer channel selection is configurable. Highlights and Cast are optional server features with bounded subprocess/export budgets. Recording buffers and temporary exports use the configured temporary storage roots; retain enough disk space for enabled channels and upload/export limits. Captures are held server-side for up to 15 minutes (one per user) and streamed to the editor by byte range; exported trims and formats are cut from that held capture, never from the live buffer.
+Administrators control the shared live broadcast and settings; viewer channel selection is configurable. Casting is always on and highlights are optional; both have bounded subprocess/export budgets (the Advanced settings). Recording buffers and temporary exports use the configured temporary storage roots; retain enough disk space for enabled channels and upload/export limits. Captures are held server-side for up to 15 minutes (one per user) and streamed to the editor by byte range; exported trims and formats are cut from that held capture, never from the live buffer.
+
+## Settings saved from the app
+
+The setup wizard and **Admin Panel › Server** save to `settings.json`, beside the state file (`STATE_FILE`, `/data/state.json` in the image, so `/data/settings.json`).
+
+**Precedence.** An environment variable wins over `settings.json`, which wins over the defaults in `backend/app/config.py`. A variable locks its whole group, shown as locked in the wizard and the Server tab: Dispatcharr (address and API key), ErsatzTV, sign-in (every local and Plex auth setting), chat, GIFs, clips, Zipline, NHL scores, feedback, and each Advanced setting on its own. A locked group's saved values are kept in the file but not used. Any auth variable in the environment (as the production deploy sets) closes setup, whatever the file says. The log format, temporary folders, API docs and CORS are set only in the environment.
+
+**What the file holds.** Setup progress (who claimed the club and when), the token signing key generated at first start (unless `JWT_SECRET` is set), the linked Plex server's name, and every saved setting. That includes the Plex server token, the Dispatcharr API key, the GIPHY, Zipline and ntfy tokens, and local password hashes. Tokens and keys are stored in plaintext in a file only the app's user can read (mode 0600), and never sent to browsers. Back up `/data` with the same care as the secrets in it, and keep the volume when you update the container. A corrupt file, or one from a newer version, stops startup rather than reopening setup.
+
+**When setup opens again.** Once finished, setup stays closed unless:
+
+- **`settings.json` is deleted.** With the server stopped, delete it to start over: setup reopens to the first visitor, every saved setting is gone, and everyone is signed out because a new signing key is generated. This is the way back in if no admin can sign in. Setting the auth variables in the environment is the other.
+- **Every auth variable is removed** from a club whose sign-in always came from the environment. It never ran the wizard, so setup reopens to the first visitor. Keep the variables, or plan to set the club up straight after the restart.
+
+**One worker only.** Saved settings, the shared Live channel, chat and presence live in the server process. Run a single uvicorn worker, as the image does, and one container per data volume.
 
 ## Verification
 
@@ -68,7 +104,7 @@ The browser scripts require Chrome (`CHROME_BIN` overrides its executable) and u
 
 ## Docker
 
-Configure root `.env` with strong credentials and your upstream URLs, then run `docker compose up --build`. The container is named `channel-club`; the internal Compose service remains `iptv-viewer` for deployment compatibility. Production serves the frontend and API from one origin. See `.env.example` for feature switches; media resource limits are Advanced settings in `backend/app/config.py`.
+Run `docker compose up --build`, then set up the club at `/setup` as in [Quick start](#quick-start). Compose reads root `.env`: leave a setting out to set it in the app, or set it there to manage it from the environment, which locks it in the app (see [Settings saved from the app](#settings-saved-from-the-app)). If you set any auth variable there, setup never opens, so set all of sign-in there too. The container is named `channel-club`; the internal Compose service remains `iptv-viewer` for deployment compatibility. Production serves the frontend and API from one origin. See `.env.example` for feature switches; media resource limits are Advanced settings in `backend/app/config.py`.
 
 ### Clip capture and optional Zipline uploads
 

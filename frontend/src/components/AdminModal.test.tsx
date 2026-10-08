@@ -6,6 +6,8 @@ import { focusOverrides } from '@/test/focus'
 import { useChannelStore } from '@/stores/channelStore'
 import { useAuthStore } from '@/stores/authStore'
 import * as api from '@/services/api'
+import { PLEX_PENDING_PIN_KEY } from '@/services/plexAuth'
+import { useSettingsStore } from '@/stores/settingsStore'
 
 vi.mock('@/services/api', () => ({
   fetchGroupedChannels: vi.fn(),
@@ -15,6 +17,11 @@ vi.mock('@/services/api', () => ({
   clearCurrentChannel: vi.fn(),
   fetchAppSettings: vi.fn(),
   updateAppSettings: vi.fn(),
+}))
+
+// The Server tab has its own tests: here it is a draft to keep or lose
+vi.mock('@/components/admin/server/ServerTab', () => ({
+  ServerTab: () => <input aria-label="Unsaved server setting" />,
 }))
 
 // Mock useActiveUsers for the People tab
@@ -115,6 +122,10 @@ describe('AdminModal', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    // NHL scores on, as the server's switch would have them for these tests
+    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: true, sources: { dispatcharr: true, ersatztv: true } } })
+    // No Plex sign-in waiting, so no test opens on the Server tab by accident
+    sessionStorage.clear()
     useChannelStore.setState({
       channels: [],
       currentChannel: null,
@@ -134,7 +145,28 @@ describe('AdminModal', () => {
   })
 
   describe('Tab rendering', () => {
-    it('renders all five tabs (AC #3 - context-agnostic)', () => {
+    it('has no NHL tab while the server has NHL scores off, and leaves it for Channels if it was open', () => {
+      render(<AdminModal {...defaultProps} />)
+      const nhlTab = screen.getByRole('tab', { name: /nhl/i })
+      nhlTab.focus()
+      fireEvent.keyDown(nhlTab, { key: 'Enter' })
+      expect(nhlTab).toHaveAttribute('aria-selected', 'true')
+
+      act(() => useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: false, sources: { dispatcharr: true, ersatztv: true } } }))
+
+      expect(screen.queryByRole('tab', { name: /nhl/i })).not.toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: /channels/i })).toHaveAttribute('aria-selected', 'true')
+    })
+
+    it('has no Channels tab without Dispatcharr, and opens on People', () => {
+      useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: true, sources: { dispatcharr: false, ersatztv: true } } })
+      render(<AdminModal {...defaultProps} />)
+
+      expect(screen.queryByRole('tab', { name: /channels/i })).not.toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: /people/i })).toHaveAttribute('aria-selected', 'true')
+    })
+
+    it('renders all six tabs (AC #3 - context-agnostic)', () => {
       render(<AdminModal {...defaultProps} />)
 
       expect(screen.getByRole('tab', { name: /channels/i })).toBeInTheDocument()
@@ -142,6 +174,7 @@ describe('AdminModal', () => {
       expect(screen.getByRole('tab', { name: /chat/i })).toBeInTheDocument()
       expect(screen.getByRole('tab', { name: /nhl/i })).toBeInTheDocument()
       expect(screen.getByRole('tab', { name: /status/i })).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: /server/i })).toBeInTheDocument()
       expect(screen.queryByRole('tab', { name: /plugins/i })).not.toBeInTheDocument()
       // Active Users and User Access are merged into People
       expect(screen.queryByRole('tab', { name: /active users/i })).not.toBeInTheDocument()
@@ -153,8 +186,8 @@ describe('AdminModal', () => {
       render(<AdminModal {...defaultProps} />)
 
       const tabs = screen.getAllByRole('tab')
-      expect(tabs).toHaveLength(5)
-      expect(tabs.map(t => t.textContent)).toEqual(['Channels', 'People', 'Chat', 'NHL', 'Status'])
+      expect(tabs).toHaveLength(6)
+      expect(tabs.map(t => t.textContent)).toEqual(['Channels', 'People', 'Chat', 'NHL', 'Status', 'Server'])
     })
   })
 
@@ -176,6 +209,56 @@ describe('AdminModal', () => {
 
       expect(peopleTab).toHaveAttribute('aria-selected', 'true')
       expect(screen.getByRole('tab', { name: /channels/i })).toHaveAttribute('aria-selected', 'false')
+    })
+  })
+
+  describe('Server tab', () => {
+    const openTab = (name: string) => fireEvent.mouseDown(screen.getByRole('tab', { name }))
+
+    it('keeps its unsaved changes while another tab is open, and drops them when the panel closes', () => {
+      function Panel() {
+        const [open, setOpen] = useState(true)
+        return (
+          <>
+            <button type="button" onClick={() => setOpen(true)}>
+              Host
+            </button>
+            <AdminModal open={open} onOpenChange={setOpen} />
+          </>
+        )
+      }
+      render(<Panel />)
+      expect(screen.queryByLabelText('Unsaved server setting')).not.toBeInTheDocument()
+
+      openTab('Server')
+      fireEvent.change(screen.getByLabelText('Unsaved server setting'), { target: { value: 'typed' } })
+      openTab('Status')
+      expect(screen.getByRole('tabpanel', { hidden: true, name: 'Server' })).toHaveClass('data-[state=inactive]:hidden')
+      openTab('Server')
+      expect(screen.getByLabelText('Unsaved server setting')).toHaveValue('typed')
+
+      // Closed from another tab, then opened again: the Server tab waits to be asked for
+      openTab('Status')
+      fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
+      fireEvent.click(screen.getByRole('button', { name: 'Host' }))
+      expect(screen.queryByLabelText('Unsaved server setting')).not.toBeInTheDocument()
+      openTab('Server')
+      expect(screen.getByLabelText('Unsaved server setting')).toHaveValue('')
+    })
+
+    it('scrolls a focused control clear of its sticky Save rows', () => {
+      render(<AdminModal {...defaultProps} />)
+      openTab('Server')
+      expect(screen.getByRole('tabpanel', { name: 'Server' })).toHaveClass('scroll-pb-22')
+    })
+
+    it('opens on the Server tab when the page is back from a Plex sign-in it started', () => {
+      sessionStorage.setItem('channel-club:server-tab-stash', JSON.stringify({ draft: { values: {}, sources: {} }, relinking: true }))
+      sessionStorage.setItem(PLEX_PENDING_PIN_KEY, '42')
+
+      render(<AdminModal {...defaultProps} />)
+
+      expect(screen.getByRole('tab', { name: 'Server' })).toHaveAttribute('aria-selected', 'true')
     })
   })
 
@@ -257,7 +340,7 @@ describe('AdminModal', () => {
       render(<AdminModal {...defaultProps} />)
 
       const tabs = screen.getAllByRole('tab')
-      expect(tabs.length).toBe(5)
+      expect(tabs.length).toBe(6)
 
       // Each tab should have aria-selected attribute
       tabs.forEach(tab => {

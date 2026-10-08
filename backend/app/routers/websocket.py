@@ -19,7 +19,6 @@ from app.models.websocket import (
     MAX_MESSAGE_BYTES,
     AuthMessage,
     ChatLine,
-    Features,
     ReauthMessage,
     ServerChatAck,
     ServerChatHistory,
@@ -31,7 +30,14 @@ from app.models.websocket import (
     client_message_adapter,
     echoed_client_id,
 )
-from app.services import app_settings, channel_state, chat, presence, presence_broadcast
+from app.services import (
+    app_settings,
+    channel_state,
+    chat,
+    config_apply,
+    presence,
+    presence_broadcast,
+)
 from app.services.auth import verify_token
 from app.services.media_source import find_catalogue_channel, peek_catalogue_channel
 
@@ -482,11 +488,9 @@ async def websocket_endpoint(
                 presence=presence_broadcast.build_snapshot(),
                 # Lets a client running an older bundle notice a deploy
                 buildId=settings.app_build_id,
-                # The server's switches are the ones in force; the client hides what is off
-                features=Features(
-                    chat=settings.chat_enabled,
-                    gif=bool(settings.giphy_api_key and settings.giphy_api_key.get_secret_value()),
-                ),
+                # The server's switches are the ones in force; the client hides what is
+                # off. A change while connected comes as features_update (config_apply).
+                features=config_apply.client_features(),
             )
             await channel_state.send_message(websocket, ack_message)
 

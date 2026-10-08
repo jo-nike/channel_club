@@ -90,6 +90,8 @@ const advance = (ms: number) =>
 beforeEach(() => {
   localStorage.clear()
   sessionStorage.clear()
+  // NHL scores on, as the server's switch would have them for these tests
+  useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: true, sources: { dispatcharr: true, ersatztv: true } } })
   vi.useFakeTimers()
   mpegtsSupport.supported = true
   layout.mode = 'desktop'

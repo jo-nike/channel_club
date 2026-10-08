@@ -4,10 +4,12 @@ import asyncio
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
+from io import StringIO
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from loguru import logger
 from pydantic import SecretStr
 
 from app.models.status import DispatchrrStatus, EPGHealthStatus, ErsatzTVStatus
@@ -544,6 +546,62 @@ class _RecordingEPGService(EPGService):
     async def check_health(self) -> EPGHealthStatus:
         self.checks += 1
         return self.health
+
+
+class TestNotSetUp:
+    """A source with no address is reported without a request or a log line."""
+
+    @pytest.fixture
+    def requests(self, monkeypatch: pytest.MonkeyPatch) -> list[httpx.Request]:
+        seen: list[httpx.Request] = []
+
+        def upstream(request: httpx.Request) -> httpx.Response:
+            seen.append(request)
+            return httpx.Response(200, json=[])
+
+        _install_upstream(monkeypatch, upstream)
+        return seen
+
+    async def test_ersatztv_without_an_address_is_not_set_up(
+        self, monkeypatch: pytest.MonkeyPatch, requests: list[httpx.Request]
+    ) -> None:
+        monkeypatch.setattr(status_service.settings, "ersatztv_base_url", "")
+
+        status = await get_ersatztv_status()
+
+        assert status.online is False
+        assert status.degraded is False
+        assert status.error == "not set up"
+        assert requests == []
+
+    async def test_dispatcharr_without_an_address_is_not_set_up(
+        self, monkeypatch: pytest.MonkeyPatch, requests: list[httpx.Request]
+    ) -> None:
+        monkeypatch.setattr(status_service.settings, "dispatcharr_url", "")
+        _with_api_key(monkeypatch)
+
+        status = await get_dispatcharr_status()
+
+        assert status.online is False
+        assert status.degraded is False
+        assert status.error == "not set up"
+        assert requests == []
+
+    async def test_a_poll_with_no_sources_logs_nothing(
+        self, monkeypatch: pytest.MonkeyPatch, requests: list[httpx.Request]
+    ) -> None:
+        monkeypatch.setattr(status_service.settings, "ersatztv_base_url", "")
+        monkeypatch.setattr(status_service.settings, "dispatcharr_url", "")
+        output = StringIO()
+        handler_id = logger.add(output, format="{level} | {message}", level="WARNING")
+        try:
+            status = await get_system_status()
+        finally:
+            logger.remove(handler_id)
+
+        assert status.ersatztv.error == "not set up"
+        assert status.dispatcharr.error == "not set up"
+        assert output.getvalue() == ""
 
 
 class TestGetEPGStatus:

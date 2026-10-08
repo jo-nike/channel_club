@@ -6,6 +6,7 @@ import { AdminModal } from './AdminModal'
 import { useTVMode } from '@/hooks/useTVMode'
 import { activeThemeId, useThemeStore } from '@/stores/themeStore'
 import { useUIStore } from '@/stores/uiStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 
 const auth = vi.hoisted(() => ({
   username: 'jon' as string | null,
@@ -69,6 +70,8 @@ function openMenu() {
 
 beforeEach(() => {
   auth.username = 'jon'
+  // NHL scores on, as the server's switch would have them for these tests
+  useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: true, sources: { dispatcharr: true, ersatztv: true } } })
   auth.isAdmin = false
   auth.logout = vi.fn()
   appSettings.userChannelSelection = false
@@ -125,6 +128,17 @@ describe('AccountMenu live channel and admin items', () => {
     openMenu()
     fireEvent.click(screen.getByRole('menuitem', { name: /Change live channel/ }))
     expect(props.onOpenChannelPicker).toHaveBeenCalledTimes(1)
+  })
+
+  it('has no Change live channel or Suggest a channel without Dispatcharr', () => {
+    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: true, sources: { dispatcharr: false, ersatztv: true } } })
+    auth.isAdmin = true
+    chatFlag.enabled = true
+    renderMenu()
+    openMenu()
+    expect(screen.getByRole('menuitem', { name: 'Admin panel' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /Change live channel/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /Suggest a channel/ })).not.toBeInTheDocument()
   })
 
   it('gives a permitted viewer Change live channel only', () => {
@@ -375,6 +389,13 @@ describe('AccountMenu NHL scores', () => {
     expect(nhl).toHaveAttribute('aria-checked', 'false')
     fireEvent.click(nhl)
     expect(useUIStore.getState().isNHLOverlayVisible).toBe(true)
+  })
+
+  it('has no NHL item on phones while the server has NHL scores off', () => {
+    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: false, sources: { dispatcharr: true, ersatztv: true } } })
+    renderMenu({ isMobile: true })
+    openMenu()
+    expect(screen.queryByRole('menuitemcheckbox', { name: 'NHL scores' })).not.toBeInTheDocument()
   })
 
   it('leaves it to the header toggle on desktop', () => {

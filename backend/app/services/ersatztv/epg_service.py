@@ -15,7 +15,7 @@ from app.models.ersatztv import EPGChannel, Programme
 from app.services.ersatztv.m3u_parser import parse_m3u_playlist
 from app.services.ersatztv.refresh import run_feed_lookup, shutdown_feed_executor
 from app.services.ersatztv.xmltv_parser import guide
-from app.services.logo_proxy import reset_logo_cache
+from app.services.logo_proxy import allowed_logo_url, reset_logo_cache
 
 # Module-level logger with service context
 log = logger.bind(service="ersatztv")
@@ -34,10 +34,11 @@ def get_channels() -> list[EPGChannel]:
     """
     channels = parse_m3u_playlist()
 
-    # Rewrite logo URLs to use proxy
+    # Rewrite logo URLs to use proxy. Origins are compared, not strings, so a
+    # base URL with a trailing slash, a default port or other case still matches.
     ersatztv_base = settings.ersatztv_base_url
     for channel in channels:
-        if channel.logo_url and channel.logo_url.startswith(ersatztv_base):
+        if channel.logo_url and allowed_logo_url(channel.logo_url, [ersatztv_base]):
             # Store original for backend fetching
             channel.original_logo_url = channel.logo_url
             # Rewrite to proxy endpoint

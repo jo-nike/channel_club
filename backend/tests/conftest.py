@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from pydantic import SecretStr
 from pydantic_settings import DotEnvSettingsSource
 
 # Prevent dotenv reads even during application module import. Parent environment
@@ -19,6 +20,7 @@ for node in ast.walk(ast.parse(config_source.read_text())):
                 os.environ.pop(field_node.target.id.upper(), None)
 
 with patch.object(DotEnvSettingsSource, "_read_env_files", return_value={}):
+    from app import config
     from app.config import OBSOLETE_ENV_KEYS, Settings, settings
 
     for key in OBSOLETE_ENV_KEYS:
@@ -35,6 +37,13 @@ with patch.object(DotEnvSettingsSource, "_read_env_files", return_value={}):
     )
     for field in Settings.model_fields:
         setattr(settings, field, getattr(isolated, field))
+    # Tests run as if these few came from the environment: the signing key is
+    # never generated, and the two source groups are locked unless a test unlocks them
+    config.ENV_FIELDS = frozenset(isolated.model_fields_set)
+    # The admin tokens tests mint ({"sub": "admin"}) are local ones, which only
+    # count while local sign-in is on and the admin account has a password
+    settings.local_auth_enabled = True
+    settings.admin_password = SecretStr("synthetic-test-admin-password")
 
 
 @pytest.fixture(autouse=True)
@@ -55,7 +64,7 @@ def reset_module_state(monkeypatch):
     The app keeps its state in module singletons, so a test must not see what
     an earlier one left behind (the NHL cache made one test order-dependent).
     """
-    from app.routers import csp_report
+    from app.routers import admin_config, csp_report, setup
     from app.services import app_settings, channel_state, chat, nhl, plex, presence
     from app.services.highlight import highlight_service
 
@@ -71,6 +80,8 @@ def reset_module_state(monkeypatch):
     highlight_service.clear_start_backoff()
     highlight_service.captures.in_flight.clear()
     csp_report.clear_csp_report_state()
+    setup.reset_setup_limits()
+    admin_config.reset_probe_cooldowns()
     monkeypatch.setattr(app_settings, "_user_channel_selection", False)
     monkeypatch.setattr(app_settings, "_presence_visible", False)
     channel_state.reset_live_change_state()
@@ -80,8 +91,21 @@ def reset_module_state(monkeypatch):
     __import__("app.services.media_limits").services.media_limits.reset_media_budgets()
     __import__("app.services.gauges", fromlist=["_"]).reset_gauges_task()
     __import__("app.services.state_store", fromlist=["_"]).reset_state_store()
+    __import__("app.services.settings_store", fromlist=["_"]).reset_settings_store()
+    __import__("app.services.passwords", fromlist=["_"]).reset_password_slots()
     __import__("app.services.stream_sessions", fromlist=["_"]).clear()
     __import__("app.services.http_clients", fromlist=["_"]).reset_http_clients()
+
+
+@pytest.fixture(autouse=True)
+def restore_settings():
+    """Put back any setting a test changed without monkeypatch, such as saved
+    settings that a startup applied to the singleton."""
+    saved = {field: getattr(settings, field) for field in Settings.model_fields}
+    yield
+    for field, value in saved.items():
+        if getattr(settings, field) is not value:
+            setattr(settings, field, value)
 
 
 @pytest.fixture(autouse=True)

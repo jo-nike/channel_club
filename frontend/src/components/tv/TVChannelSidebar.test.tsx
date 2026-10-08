@@ -984,6 +984,8 @@ describe('TVChannelSidebar loading and error states', () => {
   const realLoadChannels = useErsatztvStore.getState().loadChannels
 
   beforeEach(() => {
+    // A failed load is only an error once the server says ErsatzTV is set up
+    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: false, sources: { dispatcharr: true, ersatztv: true } } })
     useChannelStore.setState({
       currentChannel: { id: 'live', name: 'Club', streamUrl: 'http://x/live', guideId: 'g1' },
     })
@@ -1031,6 +1033,15 @@ describe('TVChannelSidebar loading and error states', () => {
     expect(retry).toHaveAttribute('data-variant', 'outline')
     act(() => retry.click())
     expect(loadChannels).toHaveBeenCalledTimes(1)
+  })
+
+  it('has no error card while the server has not said ErsatzTV is set up', async () => {
+    useSettingsStore.setState({ serverFeatures: null })
+    useErsatztvStore.setState({ channels: [], channelsLoading: false, error: 'HTTP 503' })
+    render(<TVChannelSidebar />)
+    await act(async () => {})
+
+    expect(screen.queryByText("Couldn't load channels 1-36")).not.toBeInTheDocument()
   })
 })
 

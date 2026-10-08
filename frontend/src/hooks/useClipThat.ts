@@ -15,6 +15,7 @@ import { DEFAULT_CLIP_SECONDS, clipMessage, pressRange } from '@/lib/clip'
 import { createClientMessageId } from '@/lib/messageId'
 import { useChatStore } from '@/stores/chatStore'
 import { useClipStore } from '@/stores/clipStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 
 /** Seconds the 'Posting in' toast gives to cancel before anything is uploaded */
 export const CLIP_THAT_COUNTDOWN_SECONDS = 3
@@ -150,6 +151,8 @@ export function useClipThat(channel: ClipThatChannel | null | undefined): (() =>
   const chatEnabled = useChatEnabled()
   const wanted = chatEnabled && !isTVMode
   const [available, setAvailable] = useState(false)
+  // Clips and Zipline are checked again when the server's features may have changed
+  const revision = useSettingsStore((s) => s.featuresRevision)
   useEffect(() => {
     if (!wanted) return
     const request = new AbortController()
@@ -159,7 +162,7 @@ export function useClipThat(channel: ClipThatChannel | null | undefined): (() =>
       })
       .catch(() => {})
     return () => request.abort()
-  }, [wanted])
+  }, [wanted, revision])
 
   const channelId = channel?.id
   const channelName = channel?.name

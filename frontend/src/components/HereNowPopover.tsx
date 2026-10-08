@@ -10,6 +10,7 @@ import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore, buildUnifiedChannels } from '@/stores/tvStore'
 import { cn } from '@/lib/utils'
 import type { PresenceEntry } from '@/types'
+import { useSources } from '@/hooks/useSources'
 
 /**
  * Where the trigger sits:
@@ -44,9 +45,11 @@ function HereNowList({ people, onJoined }: HereNowListProps) {
   const seesChannels = useSeesPresenceChannels()
   const liveChannel = useChannelStore((s) => s.currentChannel)
   const ersatzTVChannels = useErsatztvStore((s) => s.channels)
+  // No live slot without Dispatcharr
+  const withLiveSlot = useSources().dispatcharr
   const selectedChannelId = useTVStore((s) => s.selectedChannel?.id)
   const selectChannel = useTVStore((s) => s.selectChannel)
-  const channels = useMemo(() => buildUnifiedChannels(liveChannel, ersatzTVChannels), [liveChannel, ersatzTVChannels])
+  const channels = useMemo(() => buildUnifiedChannels(liveChannel, ersatzTVChannels, withLiveSlot), [liveChannel, ersatzTVChannels, withLiveSlot])
 
   return (
     <section aria-labelledby={headingId}>

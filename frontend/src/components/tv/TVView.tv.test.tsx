@@ -210,3 +210,25 @@ describe('TV browsers: the couch view', () => {
     expect(adminModal.returnFocusTo?.current).toBe(screen.getByRole('button', { name: 'Account menu' }))
   })
 })
+
+describe("back from a Plex sign-in the Admin panel's Server tab started", () => {
+  beforeEach(() => {
+    sessionStorage.setItem('channel-club:server-tab-stash', JSON.stringify({ draft: { values: {}, sources: {} }, relinking: true }))
+    sessionStorage.setItem('plex-pending-pin', '42')
+  })
+
+  afterEach(() => {
+    sessionStorage.clear()
+  })
+
+  it('opens the admin panel again, to finish the sign-in there', () => {
+    auth.isAdmin = true
+    renderTV()
+    expect(screen.getByRole('dialog', { name: 'Admin panel' })).toBeInTheDocument()
+  })
+
+  it('opens nothing for someone who is no admin', () => {
+    renderTV()
+    expect(screen.queryByRole('dialog', { name: 'Admin panel' })).not.toBeInTheDocument()
+  })
+})

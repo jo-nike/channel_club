@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from '@/test/utils'
 import { AutoplayNotice } from './AutoplayNotice'
 import { focusOverrides } from '@/test/focus'
 import { useUIStore } from '@/stores/uiStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 
 // Script volume detection (false on iOS/iPadOS Safari)
 const volumeSupport = vi.hoisted(() => ({ canSet: true }))
@@ -11,6 +12,8 @@ vi.mock('@/hooks/useCanSetVolume', () => ({ useCanSetVolume: () => volumeSupport
 describe('AutoplayNotice', () => {
   beforeEach(() => {
     volumeSupport.canSet = true
+    // NHL scores on, as the server's switch would have them for these tests
+    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: true, sources: { dispatcharr: true, ersatztv: true } } })
     useUIStore.setState({ isNHLOverlayVisible: false })
   })
 

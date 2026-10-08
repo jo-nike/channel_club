@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from app.config import settings
 from app.main import app
 from app.models.channel import Channel
 from app.services import channel_state, stream_sessions
@@ -47,8 +46,7 @@ def source(stream_type: str) -> MediaChannel:
 
 @pytest.fixture
 def mpegts(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Casting on, channel 7 a Dispatcharr channel, FFmpeg stubbed."""
-    monkeypatch.setattr(settings, "cast_enabled", True)
+    """Channel 7 a Dispatcharr channel, FFmpeg stubbed."""
     with (
         patch("app.routers.cast.resolve_media_channel", AsyncMock(return_value=source("mpegts"))),
         patch.object(CastSession, "start", AsyncMock(return_value="/fixture")),
@@ -172,17 +170,6 @@ class TestHlsFiles:
 class TestCreate:
     """POST /api/cast/session (E-09)."""
 
-    def test_disabled_is_503(self, client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(settings, "cast_enabled", False)
-
-        response = client.post(
-            "/api/cast/session",
-            json={"channel_id": "7", "stream_type": "mpegts"},
-            headers=bearer("alice"),
-        )
-
-        assert response.status_code == 503
-
     @pytest.mark.usefixtures("mpegts")
     def test_a_dispatcharr_channel_is_transcoded(
         self, client: TestClient, service: CastService
@@ -215,7 +202,6 @@ class TestCreate:
     def test_an_ersatztv_channel_gets_a_stream_session_and_no_slot(
         self, client: TestClient, service: CastService, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(settings, "cast_enabled", True)
         spawn = MagicMock()
         with (
             patch("app.routers.cast.resolve_media_channel", AsyncMock(return_value=source("hls"))),
@@ -245,7 +231,6 @@ class TestCreate:
     def test_no_stream_session_left_is_429(
         self, client: TestClient, service: CastService, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(settings, "cast_enabled", True)
         with (
             patch("app.routers.cast.resolve_media_channel", AsyncMock(return_value=source("hls"))),
             patch(

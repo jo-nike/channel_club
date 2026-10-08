@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import time
 import uuid
+from collections.abc import Callable
 from contextlib import suppress
 from pathlib import Path
 
@@ -426,10 +427,6 @@ class CastService:
         Raises:
             StreamSessionLimitError: an 'hls' cast found every stream session taken.
         """
-        if not settings.cast_enabled:
-            log.warning("Cast feature is disabled")
-            return None
-
         if stream_type == "hls":
             # ErsatzTV already serves HLS: no FFmpeg, so no slot and no cast
             # session. The receiver plays the owner's ErsatzTV stream session,
@@ -520,12 +517,19 @@ class CastService:
 
         await asyncio.gather(*(follow(session) for session in following))
 
-    async def stop_all(self) -> None:
-        """Stop all sessions (for shutdown)."""
-        await self.stop_idle_cleanup_task()
+    async def stop_sessions(self, where: Callable[[CastSession], bool] | None = None) -> None:
+        """Stop every session, or those `where` picks, leaving the idle loop running.
+
+        For cast being switched off, or a source address changing under a session.
+        """
         async with self._lock:
-            sessions = list(self._sessions.items())
-            self._sessions.clear()
+            sessions = [
+                (session_id, session)
+                for session_id, session in self._sessions.items()
+                if where is None or where(session)
+            ]
+            for session_id, _ in sessions:
+                del self._sessions[session_id]
 
         async def stop(session_id: str, session: CastSession) -> None:
             try:
@@ -534,6 +538,11 @@ class CastService:
                 process_budget.release(self._owners.pop(session_id, "system"))
 
         await asyncio.gather(*(stop(session_id, session) for session_id, session in sessions))
+
+    async def stop_all(self) -> None:
+        """Stop all sessions and the idle loop (for shutdown)."""
+        await self.stop_idle_cleanup_task()
+        await self.stop_sessions()
         log.info("All cast sessions stopped")
 
     def get_session(self, session_id: str) -> CastSession | None:

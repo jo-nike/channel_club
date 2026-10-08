@@ -25,6 +25,8 @@ const QR_SIZE: Record<QRPlexLoginVariant, number> = { default: 280, tv: 400 }
 /**
  * QR code-based Plex login component for TV-friendly authentication.
  * Displays a QR code that users can scan with their phone to log in.
+ * Its buttons are type="button", so it can sit inside a form (the setup
+ * wizard's) without submitting it.
  */
 export function QRPlexLogin({
   onSuccess,
@@ -82,12 +84,14 @@ export function QRPlexLogin({
         </div>
         <div className="flex gap-4">
           <Button
+            type="button"
             onClick={handleRetry}
             className={cn(actionClass, 'bg-[#E5A00D] hover:bg-[#CC8F0C] text-black')}
           >
             Try Again
           </Button>
           <Button
+            type="button"
             onClick={handleCancel}
             variant="outline"
             className={actionClass}
@@ -112,12 +116,14 @@ export function QRPlexLogin({
         </div>
         <div className="flex gap-4">
           <Button
+            type="button"
             onClick={handleRetry}
             className={cn(actionClass, 'bg-[#E5A00D] hover:bg-[#CC8F0C] text-black')}
           >
             Try Again
           </Button>
           <Button
+            type="button"
             onClick={handleCancel}
             variant="outline"
             className={actionClass}
@@ -188,7 +194,7 @@ export function QRPlexLogin({
 
           {waiting}
 
-          <Button onClick={handleCancel} variant="outline" className={actionClass}>
+          <Button type="button" onClick={handleCancel} variant="outline" className={actionClass}>
             {cancelLabel}
           </Button>
         </div>
@@ -229,6 +235,7 @@ export function QRPlexLogin({
 
       {/* Cancel button */}
       <Button
+        type="button"
         onClick={handleCancel}
         variant="outline"
         className="h-12 text-xl px-8"

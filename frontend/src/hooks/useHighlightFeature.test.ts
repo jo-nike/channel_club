@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderHook, waitFor } from '@/test/utils'
+import { act, renderHook, waitFor } from '@/test/utils'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { useHighlightFeature } from './useHighlightFeature'
 import * as api from '@/services/api'
 
@@ -74,5 +75,31 @@ describe('useHighlightFeature', () => {
 
     // Should still only be called once
     expect(mockGetHighlightFeatureEnabled).toHaveBeenCalledTimes(1)
+  })
+
+  it('checks again when the server features may have changed', async () => {
+    mockGetHighlightFeatureEnabled.mockResolvedValueOnce(false)
+    const { result } = renderHook(() => useHighlightFeature())
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    expect(result.current.isEnabled).toBe(false)
+
+    mockGetHighlightFeatureEnabled.mockResolvedValueOnce(true)
+    act(() => useSettingsStore.getState().noteFeaturesChanged())
+
+    await waitFor(() => expect(result.current.isEnabled).toBe(true))
+    expect(mockGetHighlightFeatureEnabled).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the newest answer when an older one arrives late', async () => {
+    let answerFirst: (enabled: boolean) => void = () => {}
+    mockGetHighlightFeatureEnabled.mockReturnValueOnce(new Promise<boolean>((resolve) => { answerFirst = resolve }))
+    mockGetHighlightFeatureEnabled.mockResolvedValueOnce(true)
+    const { result } = renderHook(() => useHighlightFeature())
+
+    act(() => useSettingsStore.getState().noteFeaturesChanged())
+    await waitFor(() => expect(result.current.isEnabled).toBe(true))
+    await act(async () => answerFirst(false))
+
+    expect(result.current.isEnabled).toBe(true)
   })
 })

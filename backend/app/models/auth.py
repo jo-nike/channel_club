@@ -5,6 +5,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from app.models.base import CamelModel
+from app.models.setup import SetupState
 
 
 class LoginRequest(BaseModel):
@@ -51,3 +52,5 @@ class AuthConfigResponse(CamelModel):
 
     local_auth_enabled: bool
     plex_auth_enabled: bool
+    # Signed-out clients go to /setup while this is unclaimed
+    setup_state: SetupState

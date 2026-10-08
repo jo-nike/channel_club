@@ -7,6 +7,7 @@ import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
+from app.config import settings
 from app.services import plex
 from app.services.auth import create_access_token
 
@@ -177,7 +178,7 @@ def test_sec04_demoted_admin_obeys_viewer_channel_policy(monkeypatch, viewer_sel
     from app.routers import auth_deps
 
     monkeypatch.setattr(auth_deps.settings, "admin_username", "current-admin")
-    monkeypatch.setattr(auth_deps.settings, "plex_admin_users", [])
+    monkeypatch.setattr(auth_deps.settings, "plex_admin_users_str", "")
     monkeypatch.setattr(auth_deps.settings, "plex_auth_enabled", False)
     monkeypatch.setattr(
         auth_deps.app_settings, "user_channel_selection_enabled", lambda: viewer_selection
@@ -207,7 +208,7 @@ def test_sec04_demoted_admin_obeys_viewer_channel_policy(monkeypatch, viewer_sel
     assert response.status_code == (200 if viewer_selection else 403)
 
 
-@pytest.mark.parametrize("grant", ["local", "plex-list", "plex-owner", "plex-default"])
+@pytest.mark.parametrize("grant", ["local", "plex-list", "plex-owner"])
 async def test_sec04_current_admin_grants_control(monkeypatch, grant):
     from app.routers import auth_deps
     from app.services.auth import verify_token
@@ -216,14 +217,11 @@ async def test_sec04_current_admin_grants_control(monkeypatch, grant):
         auth_deps.settings, "admin_username", "user" if grant == "local" else "other"
     )
     monkeypatch.setattr(
-        auth_deps.settings, "plex_admin_users", ["user"] if grant == "plex-list" else []
+        auth_deps.settings, "plex_admin_users_str", "user" if grant == "plex-list" else ""
     )
     monkeypatch.setattr(auth_deps.settings, "plex_auth_enabled", grant.startswith("plex"))
     monkeypatch.setattr(
         auth_deps.settings, "plex_server_token", "synthetic" if grant == "plex-owner" else ""
-    )
-    monkeypatch.setattr(
-        auth_deps.settings, "plex_default_role", "admin" if grant == "plex-default" else "viewer"
     )
     monkeypatch.setattr(auth_deps.app_settings, "user_channel_selection_enabled", lambda: False)
     # The owner is recognised by Plex account id, so its token carries one (A-02)
@@ -242,10 +240,9 @@ def plex_owner_config(monkeypatch):
     from app.routers import auth_deps
 
     monkeypatch.setattr(auth_deps.settings, "admin_username", "local-admin")
-    monkeypatch.setattr(auth_deps.settings, "plex_admin_users", ["listed-friend"])
+    monkeypatch.setattr(auth_deps.settings, "plex_admin_users_str", "listed-friend")
     monkeypatch.setattr(auth_deps.settings, "plex_auth_enabled", True)
     monkeypatch.setattr(auth_deps.settings, "plex_server_token", "synthetic-server-token")
-    monkeypatch.setattr(auth_deps.settings, "plex_default_role", "viewer")
     monkeypatch.setattr(auth_deps.app_settings, "user_channel_selection_enabled", lambda: False)
 
 
@@ -336,3 +333,35 @@ def test_a02_owner_lookup_failure_trusts_only_plex_tokens(monkeypatch, respond):
     assert _admin_status({"sub": "some-plex-user", "plex_id": "999"}) == 200
     assert _admin_status({"sub": "former-local-admin"}) == 403
     assert plex._server_owner_id_cache == {}
+
+
+@pytest.mark.usefixtures("plex_owner_config")
+def test_admins_picked_by_plex_id_need_no_owner_lookup(monkeypatch):
+    """The UI stores admins by Plex account id, which survives a rename."""
+
+    def unexpected(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("the owner lookup should not run")
+
+    _install_plex_tv(monkeypatch, unexpected)
+    monkeypatch.setattr(settings, "plex_admin_ids", ["777"])
+
+    assert _admin_status({"sub": "renamed-friend", "plex_id": "777"}) == 200
+    # A local token can't borrow the id, and the grant ends with Plex sign-in
+    assert _admin_status({"sub": "777"}) == 403
+    monkeypatch.setattr(settings, "plex_auth_enabled", False)
+    assert _admin_status({"sub": "renamed-friend", "plex_id": "777"}) == 403
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"local_auth_enabled": False},
+        {"admin_password": None, "admin_password_hash": None},
+    ],
+)
+def test_a_local_admin_token_stops_counting_without_local_sign_in(monkeypatch, change):
+    """Turning local sign-in off, or removing the admin's password, ends its admin rights."""
+    assert _admin_status({"sub": settings.admin_username}) == 200
+    for name, value in change.items():
+        monkeypatch.setattr(settings, name, value)
+    assert _admin_status({"sub": settings.admin_username}) == 403

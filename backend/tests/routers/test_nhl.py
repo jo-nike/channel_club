@@ -8,6 +8,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.config import settings
 from app.models.auth import TokenPayload
 from app.models.nhl import NHLBroadcast, NHLGame, NHLScoresResponse, NHLTeam
 from app.routers.auth_deps import get_current_user
@@ -20,6 +21,12 @@ def fixed_today() -> Iterator[None]:
     """Pin the router's idea of today so the date window is deterministic."""
     with patch("app.routers.nhl.get_effective_date", return_value="2026-01-15"):
         yield
+
+
+@pytest.fixture(autouse=True)
+def nhl_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    """NHL scores are an extra, off by default; these tests switch them on."""
+    monkeypatch.setattr(settings, "nhl_enabled", True)
 
 
 @pytest.fixture
@@ -51,6 +58,18 @@ class TestGetScoresEndpoint:
             response = TestClient(app).get("/api/nhl/scores")
 
         assert response.status_code == 401
+        mock_get.assert_not_called()
+
+    def test_off_is_503_without_asking_the_nhl(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(settings, "nhl_enabled", False)
+
+        with patch("app.routers.nhl.get_nhl_scores", new_callable=AsyncMock) as mock_get:
+            response = client.get("/api/nhl/scores")
+
+        assert response.status_code == 503
+        assert response.json() == {"detail": {"message": "NHL scores are off"}}
         mock_get.assert_not_called()
 
     def test_get_scores_success(self, client: TestClient) -> None:

@@ -13,6 +13,11 @@ vi.mock('@/services/api', () => ({
   }),
 }))
 
+// The route loads it; its own tests cover it
+vi.mock('@/components/setup/SetupRoute', () => ({
+  SetupRoute: () => <p>Setup wizard</p>,
+}))
+
 // Mock Vidstack web components
 beforeEach(() => {
   if (!customElements.get('media-player')) {
@@ -116,6 +121,15 @@ describe('Router', () => {
     expect(screen.getByRole('button', { name: 'Account menu' })).toBeInTheDocument()
     // Verify we're at the root path after redirect
     expect(router.state.location.pathname).toBe('/')
+  })
+
+  it('loads the setup wizard at /setup instead of sending it home', async () => {
+    const router = await createRouter(['/setup'])
+
+    render(<RouterProvider router={router} />)
+
+    expect(await screen.findByText('Setup wizard')).toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/setup')
   })
 
   it('redirects unknown paths to root when authenticated', async () => {

@@ -40,7 +40,14 @@ from app.models.status import (
 )
 from app.routers import websocket as websocket_router
 from app.routers.auth_deps import require_admin
-from app.services import app_settings, channel_state, chat, presence, presence_broadcast
+from app.services import (
+    app_settings,
+    channel_state,
+    chat,
+    config_apply,
+    presence,
+    presence_broadcast,
+)
 from app.services.auth import create_access_token
 from app.services.highlight import Capture
 from app.services.media_source import MediaChannel
@@ -190,6 +197,7 @@ def test_websocket_payloads(client: TestClient, monkeypatch: pytest.MonkeyPatch)
             channel_state.clear_current_channel_async
         )
         payloads["settings_update"] = await _broadcasts(app_settings.broadcast_settings_update)
+        payloads["features_update"] = await _broadcasts(config_apply.broadcast_features_update)
         payloads["presence_update"] = await _broadcasts(
             presence_broadcast._broadcast_after_debounce
         )
@@ -357,6 +365,8 @@ def test_rest_bodies(client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_pa
     volatile: set[str] = set()
     viewer = _headers()
 
+    # The sample shows a server with no sign-in method on
+    monkeypatch.setattr(settings, "local_auth_enabled", False)
     bodies["GET /api/auth/config"] = _body(client.get("/api/auth/config"))
     monkeypatch.setattr(app_settings, "_user_channel_selection", True)
     bodies["GET /api/settings"] = _body(client.get("/api/settings", headers=viewer))
@@ -439,10 +449,10 @@ def test_rest_bodies(client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_pa
         volatile.add(session["sessionId"])
         bodies["POST /api/ersatztv/session"] = session
 
+    monkeypatch.setattr(settings, "nhl_enabled", True)
     with patch("app.routers.nhl.get_nhl_scores", AsyncMock(return_value=_nhl())):
         bodies["GET /api/nhl/scores"] = _body(client.get("/api/nhl/scores", headers=viewer))
 
-    monkeypatch.setattr(settings, "cast_enabled", True)
     etv_source = MediaChannel(TSN, "hls")
     with patch("app.routers.cast.resolve_media_channel", AsyncMock(return_value=etv_source)):
         cast = _body(

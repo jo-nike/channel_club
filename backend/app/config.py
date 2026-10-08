@@ -1,7 +1,6 @@
 import re
-from functools import cached_property
-from typing import Literal
-from urllib.parse import urlsplit
+from typing import Literal, get_args
+from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import SecretStr, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -28,6 +27,37 @@ KNOWN_PUBLIC_JWT_SECRETS = frozenset(
 # else would let a topic value change the publish path.
 NTFY_TOPIC_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
+
+def plain_http_url(value: str) -> bool:
+    """True for an http(s) URL with a host and nothing that could carry
+    credentials or change the request: no userinfo, query or fragment, no port 0."""
+    try:
+        url = urlsplit(value)
+        return bool(
+            url.scheme in ("http", "https")
+            and url.hostname
+            and url.port != 0
+            and not url.username
+            and not url.password
+            and not url.query
+            and not url.fragment
+        )
+    except ValueError:
+        return False
+
+
+def normalise_http_url(value: str) -> str:
+    """A plain http(s) URL in one spelling: lower-case scheme and host, no default
+    port and no trailing slash, so prefixes and origins compare as meant."""
+    url = urlsplit(value.strip())
+    scheme = url.scheme.lower()
+    host = url.hostname or ""
+    netloc = f"[{host}]" if ":" in host else host
+    if url.port is not None and url.port != (443 if scheme == "https" else 80):
+        netloc = f"{netloc}:{url.port}"
+    return urlunsplit((scheme, netloc, url.path.rstrip("/"), "", ""))
+
+
 # Variables that are no longer read, with what replaced them. Startup warns about
 # any still set, so a removed setting is not silently ignored.
 OBSOLETE_ENV_KEYS = {
@@ -42,6 +72,8 @@ OBSOLETE_ENV_KEYS = {
     "ERSATZTV_M3U_URL": "derived from ERSATZTV_BASE_URL",
     "ERSATZTV_XMLTV_URL": "derived from ERSATZTV_BASE_URL",
     "MEDIA_RECORDER_PER_USER": "recorders share one owner, so MEDIA_RECORDER_LIMIT applies",
+    "CAST_ENABLED": "casting is always on",
+    "PLEX_DEFAULT_ROLE": "Plex members join as viewers; make admins one by one",
 }
 
 
@@ -88,10 +120,13 @@ class Settings(BaseSettings):
     # Plex Authentication Settings (only used when plex_auth_enabled=True)
     plex_server_token: SecretStr | None = None  # Admin's Plex server token
     plex_server_machine_id: str | None = None  # Server machine identifier
-    plex_default_role: str = "viewer"  # Default role for Plex users
     plex_admin_users_str: str = ""  # Comma-separated usernames who get admin role
+    # Plex account ids that get the admin role; set from the UI, which picks
+    # admins from the server's members. Unlike a username, an id survives a rename.
+    plex_admin_ids: list[str] = []
 
-    @cached_property
+    # A plain property, not a cached one: the string can be reassigned at runtime.
+    @property
     def plex_admin_users(self) -> list[str]:
         """Parse comma-separated admin usernames into a list."""
         if not self.plex_admin_users_str:
@@ -105,10 +140,17 @@ class Settings(BaseSettings):
     admin_password: SecretStr | None = None
     viewer_username: str = "viewer"
     viewer_password: SecretStr | None = None
+    # scrypt hashes of passwords set in the UI (services/passwords.py). A
+    # plaintext password from the environment is used instead when set.
+    admin_password_hash: SecretStr | None = None
+    viewer_password_hash: SecretStr | None = None
 
     # Chat Feature
     # Enable real-time chat between connected users
     chat_enabled: bool = False
+
+    # NHL scores over the player, and which channel carries each game
+    nhl_enabled: bool = False
 
     # GIF Feature (requires chat to be enabled)
     # Enable GIF picker in chat using Giphy API
@@ -125,26 +167,12 @@ class Settings(BaseSettings):
 
     @property
     def zipline_available(self) -> bool:
-        try:
-            url = urlsplit(self.zipline_url)
-            return bool(
-                self.highlight_enabled
-                and self.zipline_enabled
-                and self.zipline_token.get_secret_value().strip()
-                and url.scheme in ("http", "https")
-                and url.hostname
-                and url.port != 0
-                and not url.username
-                and not url.password
-                and not url.query
-                and not url.fragment
-            )
-        except ValueError:
-            return False
-
-    # Chromecast Feature (requires FFmpeg in container)
-    # Enables casting streams to Chromecast devices via HLS transcoding
-    cast_enabled: bool = False
+        return bool(
+            self.highlight_enabled
+            and self.zipline_enabled
+            and self.zipline_token.get_secret_value().strip()
+            and plain_http_url(self.zipline_url)
+        )
 
     # Optional feedback push to an ntfy topic. Destination and token are
     # server-owned; never a VITE_ variable.
@@ -156,21 +184,11 @@ class Settings(BaseSettings):
 
     @property
     def ntfy_available(self) -> bool:
-        try:
-            url = urlsplit(self.ntfy_url)
-            return bool(
-                self.ntfy_enabled
-                and NTFY_TOPIC_PATTERN.fullmatch(self.ntfy_topic)
-                and url.scheme in ("http", "https")
-                and url.hostname
-                and url.port != 0
-                and not url.username
-                and not url.password
-                and not url.query
-                and not url.fragment
-            )
-        except ValueError:
-            return False
+        return bool(
+            self.ntfy_enabled
+            and NTFY_TOPIC_PATTERN.fullmatch(self.ntfy_topic)
+            and plain_http_url(self.ntfy_url)
+        )
 
     # Logging Configuration
     log_level: Literal["TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"] = "INFO"
@@ -229,3 +247,110 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# The fields the environment (or the dotenv file) set at startup. They win over
+# values saved from the UI and lock their whole group. Taken now, because every
+# later assignment adds to model_fields_set too.
+ENV_FIELDS: frozenset[str] = frozenset(settings.model_fields_set)
+
+# The Advanced knobs the UI can save: tuned defaults, each locked and saved on its own.
+AdvancedField = Literal[
+    "media_process_limit",
+    "media_process_per_user",
+    "cast_hls_segment_time",
+    "cast_hls_list_size",
+    "cast_session_timeout",
+    "highlight_buffer_seconds",
+    "highlight_segment_seconds",
+    "media_recorder_limit",
+    "media_export_max_bytes",
+    "media_export_limit",
+    "media_export_per_user",
+    "media_upload_limit",
+    "media_upload_per_user",
+    "feedback_cooldown_seconds",
+    "feedback_hourly_limit",
+    "request_body_max_bytes",
+    "log_level",
+    "ersatztv_logo_origins",
+]
+ADVANCED_FIELDS: tuple[AdvancedField, ...] = get_args(AdvancedField)
+
+# Settings the UI can save to /data/settings.json. A Literal, so type checking
+# catches a name the UI can't set before it reaches setattr on the singleton.
+UiField = Literal[
+    # Sources
+    "dispatcharr_url",
+    "dispatcharr_api_key",
+    "ersatztv_base_url",
+    # Who can join
+    "local_auth_enabled",
+    "admin_username",
+    "admin_password_hash",
+    "viewer_username",
+    "viewer_password_hash",
+    "plex_auth_enabled",
+    "plex_server_token",
+    "plex_server_machine_id",
+    "plex_admin_ids",
+    # Extras
+    "chat_enabled",
+    "giphy_api_key",
+    "highlight_enabled",
+    "zipline_enabled",
+    "zipline_url",
+    "zipline_token",
+    "nhl_enabled",
+    "ntfy_enabled",
+    "ntfy_url",
+    "ntfy_topic",
+    "ntfy_token",
+    AdvancedField,
+]
+UI_FIELDS: tuple[UiField, ...] = get_args(UiField)
+
+# Fields that lock and save as a unit. An environment variable for any one of
+# them locks the whole group, so a secret from the environment is never sent to
+# a URL edited in the UI, and auth is never set up half in each place. The auth
+# group also lists the env-only plaintext passwords and admin usernames.
+FIELD_GROUPS: dict[str, tuple[str, ...]] = {
+    "dispatcharr": ("dispatcharr_url", "dispatcharr_api_key"),
+    "ersatztv": ("ersatztv_base_url",),
+    "auth": (
+        "local_auth_enabled",
+        "admin_username",
+        "admin_password",
+        "admin_password_hash",
+        "viewer_username",
+        "viewer_password",
+        "viewer_password_hash",
+        "plex_auth_enabled",
+        "plex_server_token",
+        "plex_server_machine_id",
+        "plex_admin_users_str",
+        "plex_admin_ids",
+    ),
+    "chat": ("chat_enabled",),
+    "giphy": ("giphy_api_key",),
+    "clips": ("highlight_enabled",),
+    "zipline": ("zipline_enabled", "zipline_url", "zipline_token"),
+    "nhl": ("nhl_enabled",),
+    "feedback": ("ntfy_enabled", "ntfy_url", "ntfy_topic", "ntfy_token"),
+    **{field: (field,) for field in ADVANCED_FIELDS},
+}
+
+
+# Set by the image on every install, so never worth listing as locks
+IMAGE_FIELDS = frozenset({"app_build_id", "app_revision", "state_file"})
+
+# Settings whose value is never shown, only whether it is set
+SECRET_FIELDS = frozenset(
+    name
+    for name, info in Settings.model_fields.items()
+    if SecretStr in (info.annotation, *get_args(info.annotation))
+)
+
+
+def env_name(field: str) -> str:
+    """The environment variable that sets a field."""
+    return field.upper()

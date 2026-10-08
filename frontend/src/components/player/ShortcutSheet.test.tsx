@@ -5,6 +5,7 @@ import { useVideoKeyboardShortcuts } from '@/hooks/useVideoKeyboardShortcuts'
 import { NHLScoresOverlay } from '@/components/NHLScoresOverlay'
 import { useUIStore } from '@/stores/uiStore'
 import { ShortcutSheet } from './ShortcutSheet'
+import { useSettingsStore } from '@/stores/settingsStore'
 
 const chat = vi.hoisted(() => ({ enabled: true }))
 vi.mock('@/hooks/useChatEnabled', () => ({ useChatEnabled: () => chat.enabled }))
@@ -56,6 +57,8 @@ const keysFor = (action: string) => {
 describe('ShortcutSheet', () => {
   beforeEach(() => {
     chat.enabled = true
+    // NHL scores on, as the server's switch would have them for these tests
+    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: true, sources: { dispatcharr: true, ersatztv: true } } })
   })
   afterEach(() => {
     vi.restoreAllMocks()
@@ -165,6 +168,14 @@ describe('ShortcutSheet', () => {
 
     expect(keysFor('Write in the chat over the video')).toEqual(['C'])
     expect(screen.queryByText('Open or close chat')).not.toBeInTheDocument()
+  })
+
+  it('leaves out N while the server has NHL scores off', () => {
+    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: false, sources: { dispatcharr: true, ersatztv: true } } })
+    render(<ShortcutSheet open onOpenChange={vi.fn()} container={document.body} />)
+
+    expect(screen.queryByText('NHL scores')).not.toBeInTheDocument()
+    expect(keysFor('Open or close chat')).toEqual(['C'])
   })
 
   it('leaves out C where chat is turned off', () => {

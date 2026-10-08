@@ -26,6 +26,14 @@ export interface ChatLine {
 export interface ServerFeatures {
   chat: boolean
   gif: boolean
+  nhl: boolean
+  // Which channel sources have an address; Live (channel 0) needs Dispatcharr
+  sources: ChannelSources
+}
+
+export interface ChannelSources {
+  dispatcharr: boolean
+  ersatztv: boolean
 }
 
 export interface ConnectionAckMessage {
@@ -72,6 +80,14 @@ export interface SettingsUpdateMessage {
   settings: AppSettings
 }
 
+// An optional feature switched on or off: chat, GIFs and NHL come as in
+// connection_ack; clips and feedback are read again from their /feature
+// endpoints
+export interface FeaturesUpdateMessage {
+  type: 'features_update'
+  features: ServerFeatures
+}
+
 export interface PresenceUpdateMessage {
   type: 'presence_update'
   presence: PresenceEntry[]
@@ -97,6 +113,7 @@ export type ServerMessage =
   | ChatAckMessage
   | ChannelUpdateMessage
   | SettingsUpdateMessage
+  | FeaturesUpdateMessage
   | PresenceUpdateMessage
   | PongMessage
   | ErrorMessage

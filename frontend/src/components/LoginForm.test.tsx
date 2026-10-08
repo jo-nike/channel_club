@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { StrictMode } from 'react'
 import { cleanup, render as renderAtRoot } from '@testing-library/react'
 import { render, screen, fireEvent, waitFor, within, act } from '@/test/utils'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { LoginForm } from './LoginForm'
 import { focusOverrides } from '@/test/focus'
@@ -906,13 +907,15 @@ describe('LoginForm', () => {
       render(<LoginForm />)
 
       await waitFor(() => {
-        expect(screen.getByText('No authentication methods configured')).toBeInTheDocument()
+        expect(screen.getByRole('alert')).toHaveTextContent('Sign-in is switched off on this server')
       })
       // Should not show login form elements
       expect(screen.queryByLabelText(/username/i)).not.toBeInTheDocument()
       expect(screen.queryByText('Sign in with Plex')).not.toBeInTheDocument()
-      // Should show admin contact message
-      expect(screen.getByText(/Please contact the administrator/)).toBeInTheDocument()
+      // Tells whoever runs the server how to turn sign-in on, or set it up here
+      expect(screen.getByText(/If you run it, turn on/)).toHaveTextContent(
+        'If you run it, turn on LOCAL_AUTH_ENABLED or PLEX_AUTH_ENABLED in its environment. To set it up here in the browser instead, remove the sign-in variables, give it a data folder with STATE_FILE, then restart it.'
+      )
     })
 
     it('should show only credential form when local auth only', async () => {
@@ -1337,5 +1340,36 @@ describe('LoginForm', () => {
     for (const el of [username, screen.getByLabelText(/password/i), screen.getByRole('button', { name: /sign in/i })]) {
       expect(focusOverrides(el)).toEqual([])
     }
+  })
+
+  describe('first-run setup', () => {
+    // Only these go through the router: the others render LoginForm alone
+    function renderInRouter() {
+      render(
+        <MemoryRouter initialEntries={['/']}>
+          <Routes>
+            <Route path="/" element={<LoginForm />} />
+            <Route path="/setup" element={<p>Setup wizard</p>} />
+          </Routes>
+        </MemoryRouter>
+      )
+    }
+
+    it('sends the first visitor to set the club up', async () => {
+      vi.mocked(api.getAuthConfig).mockResolvedValueOnce({ localAuthEnabled: false, plexAuthEnabled: false, setupState: 'unclaimed' })
+
+      renderInRouter()
+
+      expect(await screen.findByText('Setup wizard')).toBeInTheDocument()
+    })
+
+    it('asks the admin of a club being set up to sign in', async () => {
+      vi.mocked(api.getAuthConfig).mockResolvedValueOnce({ localAuthEnabled: true, plexAuthEnabled: false, setupState: 'claimed' })
+
+      renderInRouter()
+
+      expect(await screen.findByLabelText(/username/i)).toBeInTheDocument()
+      expect(screen.queryByText('Setup wizard')).not.toBeInTheDocument()
+    })
   })
 })

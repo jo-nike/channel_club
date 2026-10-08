@@ -100,8 +100,8 @@ async def set_current_channel(channel: Channel, user: str | None = None) -> Chan
 
             # A new live pick retries at once rather than waiting out an earlier failure's backoff.
             highlight_service.clear_start_backoff()
-        if settings.highlight_enabled or settings.cast_enabled:
-            _schedule_reconcile(user or "system")
+        # Follow-live casts move, and the recorder starts when clips are on
+        _schedule_reconcile(user or "system")
 
     return channel
 
@@ -127,15 +127,14 @@ async def _reconcile_live() -> None:
     while _reconcile_requested:
         _reconcile_requested = False
         channel = _current_channel
-        if settings.cast_enabled:
-            # The TV is what people watch, so it goes first
-            from app.services.cast import cast_service
+        # The TV is what people watch, so it goes first
+        from app.services.cast import cast_service
 
-            try:
-                await cast_service.follow_live(channel)
-            except Exception as exc:
-                # A cast that can't follow must never fail a Live change or the recorder.
-                log.warning("Cast follow failed for {}: {}", channel.id if channel else None, exc)
+        try:
+            await cast_service.follow_live(channel)
+        except Exception as exc:
+            # A cast that can't follow must never fail a Live change or the recorder.
+            log.warning("Cast follow failed for {}: {}", channel.id if channel else None, exc)
         if not settings.highlight_enabled or channel is None or not channel.stream_url:
             continue
         from app.services.highlight import highlight_service
@@ -240,11 +239,28 @@ async def _restore_live_channel(channel_id: str) -> None:
             _current_channel = channel
             log.info("Live channel restored to '{}'", channel.name)
             await broadcast_channel_update(channel)
-            if settings.highlight_enabled or settings.cast_enabled:
-                _schedule_reconcile("system")
+            _schedule_reconcile("system")
         return
 
     log.info("Live channel {} not restored: the channel catalogue stayed unavailable", channel_id)
+
+
+async def reresolve_live() -> None:
+    """Resolve Live again after its source's address changed, as the restore at boot does.
+
+    Live's stream URL names the old address, so Live is cleared in memory (the
+    saved id stays) and clients are told; the background restore then puts the
+    channel back from the new catalogue, or leaves Live empty if it has none.
+    """
+    global _current_channel
+    async with _change_lock:
+        channel = _current_channel
+        if channel is None:
+            return
+        _current_channel = None
+        log.info("Live channel '{}' is being resolved again: its source moved", channel.name)
+        await broadcast(ServerChannelUpdate(type="channel_update", channel=None, changedBy=None))
+    start_restore_task(channel.id)
 
 
 def clear_current_channel() -> None:
@@ -282,9 +298,8 @@ async def clear_current_channel_async(user: str | None = None) -> None:
         if user:
             await _broadcast_system_line(f"{user} stopped live TV")
 
-        if settings.cast_enabled:
-            # Follow-live casts stop with Live
-            _schedule_reconcile(user or "system")
+        # Follow-live casts stop with Live
+        _schedule_reconcile(user or "system")
 
 
 async def connect(websocket: WebSocket, owner: asyncio.Task | None = None) -> None:

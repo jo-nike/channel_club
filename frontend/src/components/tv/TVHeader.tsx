@@ -3,6 +3,8 @@ import { ShieldCheck, LayoutList, Lightbulb, Tv } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useAppSettings } from '@/hooks/useAppSettings'
 import { useChatEnabled } from '@/hooks/useChatEnabled'
+import { useSources } from '@/hooks/useSources'
+import { useNhlEnabled, useNhlOverlayVisible } from '@/hooks/useNhlEnabled'
 import type { WebSocketStatus } from '@/hooks/useWebSocket'
 import { useUIStore } from '@/stores/uiStore'
 import { ChatToggleButton } from '@/components/ChatToggleButton'
@@ -44,7 +46,11 @@ export function TVHeader({
   const isEPGVisible = useUIStore((s) => s.isEPGVisible)
   const toggleEPG = useUIStore((s) => s.toggleEPG)
   const setGuideFocusRequested = useUIStore((s) => s.setGuideFocusRequested)
-  const isNHLOverlayVisible = useUIStore((s) => s.isNHLOverlayVisible)
+  // Live TV (channel 0) needs Dispatcharr: without it there is nothing to change or suggest
+  const liveOn = useSources().dispatcharr
+  // Only while the server has NHL scores on
+  const nhlEnabled = useNhlEnabled()
+  const isNHLOverlayVisible = useNhlOverlayVisible()
   const toggleNHLOverlay = useUIStore((s) => s.toggleNHLOverlay)
 
   return (
@@ -84,7 +90,7 @@ export function TVHeader({
           />
         )}
         {/* NHL scores toggle - desktop only. The glyph is the word itself. */}
-        {!isMobile && (
+        {!isMobile && nhlEnabled && (
           <HeaderAction
             icon={
               <span
@@ -100,7 +106,8 @@ export function TVHeader({
           />
         )}
         {/* Host tools for admins; the Live TV switcher for non-admins the
-            admin allows; Suggest for everyone else while chat is on */}
+            admin allows; Suggest for everyone else while chat is on. No
+            live TV, no switcher or Suggest. */}
         {isAdmin ? (
           <HeaderAction
             icon={<ShieldCheck />}
@@ -108,7 +115,7 @@ export function TVHeader({
             visibleLabel="Host"
             onClick={onOpenAdmin}
           />
-        ) : userChannelSelection ? (
+        ) : !liveOn ? null : userChannelSelection ? (
           <HeaderAction
             icon={<Tv />}
             label="Change live channel"

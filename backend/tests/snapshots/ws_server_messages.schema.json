@@ -167,11 +167,20 @@
         "gif": {
           "title": "Gif",
           "type": "boolean"
+        },
+        "nhl": {
+          "title": "Nhl",
+          "type": "boolean"
+        },
+        "sources": {
+          "$ref": "#/$defs/Sources"
         }
       },
       "required": [
         "chat",
-        "gif"
+        "gif",
+        "nhl",
+        "sources"
       ],
       "title": "Features",
       "type": "object"
@@ -561,6 +570,25 @@
       "title": "ServerError",
       "type": "object"
     },
+    "ServerFeaturesUpdate": {
+      "description": "An optional feature switched on or off: chat, GIFs, NHL, clips or feedback.\n\nChat, GIFs and NHL come as in connection_ack; clients read clips and\nfeedback again from their /feature endpoints.",
+      "properties": {
+        "type": {
+          "const": "features_update",
+          "title": "Type",
+          "type": "string"
+        },
+        "features": {
+          "$ref": "#/$defs/Features"
+        }
+      },
+      "required": [
+        "type",
+        "features"
+      ],
+      "title": "ServerFeaturesUpdate",
+      "type": "object"
+    },
     "ServerPong": {
       "properties": {
         "type": {
@@ -615,6 +643,25 @@
       "title": "ServerSettingsUpdate",
       "type": "object"
     },
+    "Sources": {
+      "description": "Which channel sources have an address. A source without one has no\nchannels, so clients leave out what it would fill (Live needs Dispatcharr).",
+      "properties": {
+        "dispatcharr": {
+          "title": "Dispatcharr",
+          "type": "boolean"
+        },
+        "ersatztv": {
+          "title": "Ersatztv",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "dispatcharr",
+        "ersatztv"
+      ],
+      "title": "Sources",
+      "type": "object"
+    },
     "You": {
       "description": "Who the connection is signed in as.",
       "properties": {
@@ -643,6 +690,7 @@
       "chat_message": "#/$defs/ServerChatMessage",
       "connection_ack": "#/$defs/ServerConnectionAck",
       "error": "#/$defs/ServerError",
+      "features_update": "#/$defs/ServerFeaturesUpdate",
       "pong": "#/$defs/ServerPong",
       "presence_update": "#/$defs/ServerPresenceUpdate",
       "settings_update": "#/$defs/ServerSettingsUpdate"
@@ -667,6 +715,9 @@
     },
     {
       "$ref": "#/$defs/ServerSettingsUpdate"
+    },
+    {
+      "$ref": "#/$defs/ServerFeaturesUpdate"
     },
     {
       "$ref": "#/$defs/ServerPresenceUpdate"

@@ -27,7 +27,14 @@ from app.models.channel import Channel
 from app.models.websocket import server_message_adapter
 from app.routers import admin
 from app.routers import websocket as websocket_router
-from app.services import app_settings, channel_state, chat, presence, presence_broadcast
+from app.services import (
+    app_settings,
+    channel_state,
+    chat,
+    config_apply,
+    presence,
+    presence_broadcast,
+)
 from app.services.auth import create_access_token
 from tests.ws_helpers import ws_connect
 
@@ -113,7 +120,12 @@ class TestDirectSends:
                 "you": YOU,
                 "presence": [],
                 "buildId": "dev",
-                "features": {"chat": False, "gif": False},
+                "features": {
+                    "chat": False,
+                    "gif": False,
+                    "nhl": False,
+                    "sources": {"dispatcharr": True, "ersatztv": True},
+                },
             }
 
     def test_connection_ack_without_live(self, client: TestClient, token: str) -> None:
@@ -228,7 +240,26 @@ class TestFeatures:
             assert ws.receive_json()["features"] == {
                 "chat": chat_enabled,
                 "gif": giphy_api_key == "giphy-key",
+                "nhl": False,
+                "sources": {"dispatcharr": True, "ersatztv": True},
             }
+
+    def test_ack_says_which_sources_are_set_up(
+        self, client: TestClient, token: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(settings, "dispatcharr_url", "")
+        with ws_connect(client, token) as ws:
+            assert ws.receive_json()["features"]["sources"] == {
+                "dispatcharr": False,
+                "ersatztv": True,
+            }
+
+    def test_ack_carries_the_nhl_switch(
+        self, client: TestClient, token: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(settings, "nhl_enabled", True)
+        with ws_connect(client, token) as ws:
+            assert ws.receive_json()["features"]["nhl"] is True
 
     @pytest.mark.parametrize("chat_enabled", [True, False])
     def test_startup_warns_when_chat_is_off(
@@ -283,6 +314,21 @@ class TestBroadcasts:
             {
                 "type": "settings_update",
                 "settings": {"userChannelSelection": False, "presenceVisible": False},
+            }
+        ]
+
+    @pytest.mark.usefixtures("chat_on")
+    async def test_features_update(self) -> None:
+        sent = await _broadcasts(config_apply.broadcast_features_update)
+        assert sent == [
+            {
+                "type": "features_update",
+                "features": {
+                    "chat": True,
+                    "gif": False,
+                    "nhl": False,
+                    "sources": {"dispatcharr": True, "ersatztv": True},
+                },
             }
         ]
 

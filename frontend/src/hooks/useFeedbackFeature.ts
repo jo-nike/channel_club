@@ -1,13 +1,16 @@
 import { useState, useEffect } from 'react'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { getFeedbackFeatureEnabled } from '@/services/feedbackApi'
 
 /**
  * Hook to check if the feedback feature is configured on the server.
- * Fetches the feature flag once on mount.
+ * Fetches the feature flag on mount, and again whenever the server's features
+ * may have changed (features_update, or a reconnect).
  */
 export function useFeedbackFeature() {
   const [isEnabled, setIsEnabled] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const revision = useSettingsStore((s) => s.featuresRevision)
 
   useEffect(() => {
     let mounted = true
@@ -35,7 +38,7 @@ export function useFeedbackFeature() {
     return () => {
       mounted = false
     }
-  }, [])
+  }, [revision])
 
   return { isEnabled, isLoading }
 }

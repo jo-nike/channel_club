@@ -43,6 +43,10 @@ class DispatchrrUnavailableError(Exception):
     pass
 
 
+class DispatchrrNotSetUpError(DispatchrrUnavailableError):
+    """Raised without any request when Dispatcharr has no address."""
+
+
 # The assembled grouped catalogue, served stale while Dispatcharr is down
 _grouped_cache: CachedFetch[GroupedChannelsResponse] = CachedFetch(
     "grouped channels",
@@ -50,6 +54,11 @@ _grouped_cache: CachedFetch[GroupedChannelsResponse] = CachedFetch(
     ttl=_GROUPED_CACHE_TTL_SECONDS,
     error=DispatchrrUnavailableError,
 )
+
+
+def invalidate_catalogue() -> None:
+    """Forget the catalogue and its failure memo, e.g. for a new address or key."""
+    _grouped_cache.invalidate()
 
 
 def catalogue_failing() -> bool:
@@ -64,7 +73,8 @@ def peek_grouped_channels() -> GroupedChannelsResponse | None:
 
 def refresh_catalogue_if_due() -> None:
     """Start one background catalogue refresh if it is expired or missing; never waits."""
-    _grouped_cache.refresh_if_due()
+    if settings.dispatcharr_url:
+        _grouped_cache.refresh_if_due()
 
 
 class ChannelLogoNotFoundError(Exception):
@@ -177,8 +187,11 @@ async def get_grouped_channels() -> GroupedChannelsResponse:
         GroupedChannelsResponse with groups and ungrouped channels.
 
     Raises:
+        DispatchrrNotSetUpError: If Dispatcharr has no address; nothing is fetched.
         DispatchrrUnavailableError: If Dispatcharr is unreachable and nothing is cached.
     """
+    if not settings.dispatcharr_url:
+        raise DispatchrrNotSetUpError("Dispatcharr is not set up")
     return await _grouped_cache.get()
 
 

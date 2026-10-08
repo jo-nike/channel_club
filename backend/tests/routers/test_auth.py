@@ -18,6 +18,9 @@ from app.services.plex import InvalidPlexTokenError
 def client_local_enabled():
     """Create test client with local auth enabled."""
     with patch("app.routers.auth.settings") as mock_settings:
+        mock_settings.admin_password_hash = None
+        mock_settings.viewer_password_hash = None
+        mock_settings.plex_admin_ids = []
         mock_settings.local_auth_enabled = True
         mock_settings.plex_auth_enabled = False
         mock_settings.admin_username = "admin"
@@ -34,6 +37,9 @@ def client_local_enabled():
 def client_local_disabled():
     """Create test client with local auth disabled."""
     with patch("app.routers.auth.settings") as mock_settings:
+        mock_settings.admin_password_hash = None
+        mock_settings.viewer_password_hash = None
+        mock_settings.plex_admin_ids = []
         mock_settings.local_auth_enabled = False
         mock_settings.plex_auth_enabled = True
 
@@ -46,9 +52,11 @@ def client_local_disabled():
 def client_plex_enabled():
     """Create test client with Plex auth enabled."""
     with patch("app.routers.auth.settings") as mock_settings:
+        mock_settings.admin_password_hash = None
+        mock_settings.viewer_password_hash = None
+        mock_settings.plex_admin_ids = []
         mock_settings.local_auth_enabled = False
         mock_settings.plex_auth_enabled = True
-        mock_settings.plex_default_role = "viewer"
 
         app = FastAPI()
         app.include_router(router, prefix="/api/auth")
@@ -59,6 +67,9 @@ def client_plex_enabled():
 def client_plex_disabled():
     """Create test client with Plex auth disabled."""
     with patch("app.routers.auth.settings") as mock_settings:
+        mock_settings.admin_password_hash = None
+        mock_settings.viewer_password_hash = None
+        mock_settings.plex_admin_ids = []
         mock_settings.local_auth_enabled = True
         mock_settings.plex_auth_enabled = False
 
@@ -71,6 +82,9 @@ def client_plex_disabled():
 def client():
     """Create test client with auth router (local auth enabled by default for legacy tests)."""
     with patch("app.routers.auth.settings") as mock_settings:
+        mock_settings.admin_password_hash = None
+        mock_settings.viewer_password_hash = None
+        mock_settings.plex_admin_ids = []
         mock_settings.local_auth_enabled = True
         mock_settings.plex_auth_enabled = False
         mock_settings.admin_username = "admin"
@@ -112,6 +126,9 @@ class TestAuthConfigEndpoint:
     def test_auth_config_returns_correct_flags_local_only(self):
         """Auth config returns correct flags when only local auth enabled."""
         with patch("app.routers.auth.settings") as mock_settings:
+            mock_settings.admin_password_hash = None
+            mock_settings.viewer_password_hash = None
+            mock_settings.plex_admin_ids = []
             mock_settings.local_auth_enabled = True
             mock_settings.plex_auth_enabled = False
 
@@ -128,6 +145,9 @@ class TestAuthConfigEndpoint:
     def test_auth_config_returns_correct_flags_plex_only(self):
         """Auth config returns correct flags when only plex auth enabled."""
         with patch("app.routers.auth.settings") as mock_settings:
+            mock_settings.admin_password_hash = None
+            mock_settings.viewer_password_hash = None
+            mock_settings.plex_admin_ids = []
             mock_settings.local_auth_enabled = False
             mock_settings.plex_auth_enabled = True
 
@@ -144,6 +164,9 @@ class TestAuthConfigEndpoint:
     def test_auth_config_returns_correct_flags_both_enabled(self):
         """Auth config returns correct flags when both auth methods enabled."""
         with patch("app.routers.auth.settings") as mock_settings:
+            mock_settings.admin_password_hash = None
+            mock_settings.viewer_password_hash = None
+            mock_settings.plex_admin_ids = []
             mock_settings.local_auth_enabled = True
             mock_settings.plex_auth_enabled = True
 
@@ -156,6 +179,23 @@ class TestAuthConfigEndpoint:
             data = response.json()
             assert data["localAuthEnabled"] is True
             assert data["plexAuthEnabled"] is True
+            # No state file in tests, so there is nothing to set up
+            assert data["setupState"] == "complete"
+
+    def test_auth_config_reports_an_open_setup(self, tmp_path, monkeypatch):
+        """A fresh data directory and no auth in the environment: setup is open."""
+        from app import config
+        from app.services import settings_store
+
+        monkeypatch.setattr(config, "ENV_FIELDS", frozenset({"jwt_secret"}))
+        monkeypatch.setattr(settings_store.settings, "state_file", str(tmp_path / "state.json"))
+        settings_store.start()
+        app = FastAPI()
+        app.include_router(router, prefix="/api/auth")
+
+        response = TestClient(app).get("/api/auth/config")
+
+        assert response.json()["setupState"] == "unclaimed"
 
 
 class TestStartupValidation:

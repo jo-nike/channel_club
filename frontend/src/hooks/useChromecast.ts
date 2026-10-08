@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import {
-  getCastFeatureEnabled,
   createCastSession,
   stopCastSession,
   getCastHlsUrl,
@@ -67,8 +66,8 @@ async function releaseSession(id: string | null) {
 
 // The SDK is initialised once for every mounted consumer: the first one to
 // mount starts it, the last one to unmount detaches its listeners. Each start
-// gets a new token, so an initialisation still waiting on the feature check or
-// the SDK script gives up once its consumers have gone.
+// gets a new token, so an initialisation still waiting on the SDK script gives
+// up once its consumers have gone.
 let consumers = 0
 let initToken = 0
 let listeningContext: cast.framework.CastContext | null = null
@@ -144,26 +143,8 @@ function teardownCast() {
 /**
  * Initialize the Cast SDK when it becomes available
  */
-async function initializeCast(token: number) {
+function initializeCast(token: number) {
   const isCurrent = () => token === initToken
-
-  // First check if server has cast feature enabled
-  let featureEnabled = false
-  try {
-    featureEnabled = await getCastFeatureEnabled()
-  } catch (err) {
-    logger.error('Cast', 'Failed to check cast feature', { error: err })
-  }
-
-  logger.info('Cast', `Server cast feature enabled: ${featureEnabled}`)
-
-  if (!featureEnabled) {
-    logger.debug('Cast', 'Cast feature disabled on server')
-    if (isCurrent()) {
-      setCastState({ isAvailable: false, isLoading: false })
-    }
-    return
-  }
 
   // Wait for Cast SDK to load
   const checkCastAvailable = () => {

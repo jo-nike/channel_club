@@ -27,9 +27,13 @@ vi.mock('@/services/api', () => ({
   clearCurrentChannel: vi.fn(),
 }))
 
-const scores = vi.hoisted(() => ({ data: null as NHLScoresResponse | null }))
+const scores = vi.hoisted(() => ({ data: null as NHLScoresResponse | null, polled: [] as boolean[] }))
+// Like the real hook: nothing while it isn't enabled
 vi.mock('@/hooks/useNHLScores', () => ({
-  useNHLScores: () => ({ data: scores.data, isLoading: false, error: null, refetch: vi.fn() }),
+  useNHLScores: (enabled: boolean) => {
+    scores.polled.push(enabled)
+    return { data: enabled ? scores.data : null, isLoading: false, error: null, refetch: vi.fn() }
+  },
 }))
 
 // The watching count's admin-only presence poll
@@ -95,7 +99,12 @@ describe('LiveSwitcherSheet', () => {
     vi.clearAllMocks()
     useChannelStore.setState({ currentChannel: cbc })
     useAuthStore.setState({ token: 'test-token', role: 'viewer', username: 'sam', isAuthenticated: true })
-    useSettingsStore.setState({ userChannelSelection: true, presenceVisible: false })
+    useSettingsStore.setState({
+      userChannelSelection: true,
+      presenceVisible: false,
+      serverFeatures: { chat: false, gif: false, nhl: true, sources: { dispatcharr: true, ersatztv: true } },
+    })
+    scores.polled = []
     useUIStore.setState({ hideMyActivity: false })
     usePresenceStore.setState({ entries: [] })
     useChatStore.setState({ nickname: null, me: { username: 'sam', userId: 'u_sam' } })
@@ -113,6 +122,15 @@ describe('LiveSwitcherSheet', () => {
       game(2, 'LAK', 'ANA', 'live', [broadcast('KCOP-13')]),
       game(3, 'EDM', 'CGY', 'scheduled', [broadcast('SN')]),
     ])
+  })
+
+  it('has no sports on now, and asks for no scores, while the server has NHL scores off', async () => {
+    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: false, sources: { dispatcharr: true, ersatztv: true } } })
+    renderSheet()
+
+    await screen.findByText('Sports')
+    expect(screen.queryByRole('region', { name: 'Sports on now' })).not.toBeInTheDocument()
+    expect(scores.polled).not.toContain(true)
   })
 
   it('shows on air, sports on now, recents, then the full lineup, in that order', async () => {

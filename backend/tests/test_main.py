@@ -31,6 +31,9 @@ def client():
     """Create test client for main app with local auth enabled."""
     # Patch settings to enable local auth for integration tests
     with patch("app.routers.auth.settings") as mock_settings:
+        mock_settings.admin_password_hash = None
+        mock_settings.viewer_password_hash = None
+        mock_settings.plex_admin_ids = []
         mock_settings.local_auth_enabled = True
         mock_settings.plex_auth_enabled = False
         mock_settings.admin_username = "admin"
@@ -78,18 +81,59 @@ class TestValidateAuthConfiguration:
             mock_settings.viewer_password = None
             validate_auth_configuration()
 
-    def test_warns_but_starts_when_local_auth_has_no_passwords(self) -> None:
-        """Unset passwords reject every login; warn rather than fail."""
+    @pytest.mark.parametrize(
+        ("admin_hash", "warned"), [(None, True), (SecretStr("a saved hash"), False)]
+    )
+    def test_warns_but_starts_when_local_auth_has_no_passwords(
+        self, admin_hash: SecretStr | None, warned: bool
+    ) -> None:
+        """Unset passwords reject every login; warn rather than fail. A saved one counts."""
         from app.main import validate_auth_configuration
 
-        with patch("app.main.settings") as mock_settings:
-            mock_settings.jwt_secret = SecretStr("synthetic-test-signing-key-with-32-characters")
-            mock_settings.plex_auth_enabled = False
-            mock_settings.plex_server_machine_id = None
-            mock_settings.local_auth_enabled = True
-            mock_settings.admin_password = None
-            mock_settings.viewer_password = None
-            validate_auth_configuration()
+        output = StringIO()
+        sink = logger.add(output, format="{level} | {message}", level="WARNING")
+        try:
+            with patch("app.main.settings") as mock_settings:
+                mock_settings.jwt_secret = SecretStr(
+                    "synthetic-test-signing-key-with-32-characters"
+                )
+                mock_settings.plex_auth_enabled = False
+                mock_settings.plex_server_machine_id = None
+                mock_settings.local_auth_enabled = True
+                mock_settings.admin_password = None
+                mock_settings.viewer_password = None
+                mock_settings.admin_password_hash = admin_hash
+                mock_settings.viewer_password_hash = None
+                validate_auth_configuration()
+        finally:
+            logger.remove(sink)
+
+        assert ("every local login will be rejected" in output.getvalue()) is warned
+
+    @pytest.mark.parametrize(
+        ("state", "warned"), [("unclaimed", False), ("claimed", True), ("complete", True)]
+    )
+    def test_warns_of_no_sign_in_unless_setup_is_open(self, state: str, warned: bool) -> None:
+        """Open setup has its own warning, which says what to do."""
+        from app.main import validate_auth_configuration
+
+        output = StringIO()
+        sink = logger.add(output, format="{level} | {message}", level="WARNING")
+        try:
+            with (
+                patch("app.main.settings") as mock_settings,
+                patch("app.main.settings_store.setup_state", return_value=state),
+            ):
+                mock_settings.jwt_secret = SecretStr(
+                    "synthetic-test-signing-key-with-32-characters"
+                )
+                mock_settings.plex_auth_enabled = False
+                mock_settings.local_auth_enabled = False
+                validate_auth_configuration()
+        finally:
+            logger.remove(sink)
+
+        assert ("No authentication methods enabled" in output.getvalue()) is warned
 
     def test_refuses_to_start_on_default_jwt_secret(self) -> None:
         """The source-public dev secret lets anyone forge an admin token."""
@@ -181,7 +225,9 @@ def test_startup_logs_a_server_start_event() -> None:
     assert start["log_format"] == settings.log_format
 
 
-@pytest.mark.parametrize("key", ["STREAM_BASE_URL", "VITE_WS_URL"])
+@pytest.mark.parametrize(
+    "key", ["STREAM_BASE_URL", "VITE_WS_URL", "CAST_ENABLED", "PLEX_DEFAULT_ROLE"]
+)
 def test_startup_warns_about_obsolete_variables(monkeypatch, key) -> None:
     """A removed variable left in the environment is named, not silently ignored."""
     monkeypatch.setenv(key, "anything")
@@ -383,6 +429,84 @@ def test_importing_the_app_routes_uvicorn_startup_lines_to_json(tmp_path: Path) 
     assert json.loads(lines[0])["record"]["message"] == "startup probe line"
 
 
+# A production-like environment: a state file and a signing key from the environment
+PRODUCTION_ENV = {"STATE_FILE": "state.json", "JWT_SECRET": "5e7c" * 16}
+
+
+@pytest.mark.parametrize(
+    ("auth", "state"),
+    [
+        ({"LOCAL_AUTH_ENABLED": "true", "ADMIN_PASSWORD": "synthetic-password"}, "complete"),
+        ({"PLEX_AUTH_ENABLED": "true", "PLEX_SERVER_MACHINE_ID": "synthetic-id"}, "complete"),
+        (
+            {
+                "LOCAL_AUTH_ENABLED": "true",
+                "PLEX_AUTH_ENABLED": "true",
+                "PLEX_SERVER_MACHINE_ID": "synthetic-id",
+            },
+            "complete",
+        ),
+        ({"LOCAL_AUTH_ENABLED": "false", "PLEX_AUTH_ENABLED": "false"}, "complete"),
+        # The control: nothing about auth in the environment opens setup
+        ({}, "unclaimed"),
+    ],
+)
+def test_auth_from_the_environment_never_opens_setup(
+    tmp_path: Path, auth: dict[str, str], state: str
+) -> None:
+    """Production sets auth in the environment, so it must never see the wizard,
+    even with both methods explicitly off, and nothing is written beside its state."""
+    probe = (
+        "import asyncio\n"
+        "from app.main import preflight\n"
+        "from app.routers.auth import get_auth_config\n"
+        "preflight()\n"
+        "print(asyncio.run(get_auth_config()).setup_state)\n"
+    )
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "PYTHONPATH": str(Path(__file__).parents[1]),
+        **PRODUCTION_ENV,
+        **auth,
+    }
+    # Run from an empty directory, so no dotenv file is read and state.json lands here
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+    )
+
+    assert result.stdout.strip() == state
+    assert not (tmp_path / "settings.json").exists()
+
+
+def test_no_state_file_means_setup_is_complete(tmp_path: Path) -> None:
+    """Without a state file there is nowhere to save setup, so it never opens."""
+    probe = "from app.main import preflight\nfrom app.services import settings_store\n"
+    probe += "preflight()\nprint(settings_store.setup_state())\n"
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "PYTHONPATH": str(Path(__file__).parents[1]),
+        "JWT_SECRET": PRODUCTION_ENV["JWT_SECRET"],
+    }
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+    )
+
+    assert result.stdout.strip() == "complete"
+    assert list(tmp_path.iterdir()) == []
+
+
 def _guide_xmltv() -> str:
     """A one-channel XMLTV feed with a programme on air now."""
     start = (datetime.now(UTC) - timedelta(minutes=10)).strftime("%Y%m%d%H%M%S +0000")
@@ -476,7 +600,6 @@ def test_lifespan_runs_the_highlight_and_cast_cleanups(
     stale_recording.mkdir(parents=True)
     stale_session.mkdir(parents=True)
     monkeypatch.setattr(settings, "highlight_enabled", True)
-    monkeypatch.setattr(settings, "cast_enabled", True)
     monkeypatch.setattr(settings, "highlight_temp_dir", str(highlight_dir))
     monkeypatch.setattr(settings, "cast_temp_dir", str(cast_dir))
     TestStartupGuideWarmup._install_upstream(monkeypatch, lambda request: httpx.Response(503))

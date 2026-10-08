@@ -34,11 +34,13 @@ import { useVisualViewportHeight } from '@/hooks/useVisualViewportHeight'
 import { useUnreadTitleBadge } from '@/hooks/useUnreadTitleBadge'
 import { usePlayerFullscreenElement } from '@/hooks/useFullscreenState'
 import { AdminModal } from '@/components/AdminModal'
+import { serverTabReturn } from '@/components/admin/server/serverStash'
 import { LiveSwitcherSheet } from '@/components/LiveSwitcherSheet'
 import { CouchView } from '@/components/couch/CouchView'
 import { getProgrammeState } from '@/lib/programmes'
 import { cn } from '@/lib/utils'
 import type { Channel, ErsatzTVProgramme, UnifiedChannel } from '@/types'
+import { useErsatztvKnownOn, useSources } from '@/hooks/useSources'
 
 // Refresh interval for programme data (120 minutes)
 const REFRESH_INTERVAL = 120 * 60 * 1000
@@ -106,6 +108,10 @@ export function TVView() {
   const programmesByChannel = useErsatztvStore((s) => s.programmesByChannel)
   const error = useErsatztvStore((s) => s.error)
   const loadChannels = useErsatztvStore((s) => s.loadChannels)
+  const forgetChannels = useErsatztvStore((s) => s.forgetChannels)
+  const { ersatztv: ersatztvOn } = useSources()
+  // A failed load is only an error once the server says ErsatzTV is set up
+  const ersatztvKnownOn = useErsatztvKnownOn()
   const loadAllProgrammes = useErsatztvStore((s) => s.loadAllProgrammes)
 
   // Live channel from channel store
@@ -220,8 +226,9 @@ export function TVView() {
   const [selectedProgramme, setSelectedProgramme] = useState<ErsatzTVProgramme | null>(null)
   const [modalChannel, setModalChannel] = useState<ProgrammeDetailsChannel | null>(null)
 
-  // Admin modal state
-  const [adminModalOpen, setAdminModalOpen] = useState(false)
+  // Admin modal state (it shows for admins only); open already when the page
+  // is back from a Plex sign-in its Server tab started, to finish it there
+  const [adminModalOpen, setAdminModalOpen] = useState(() => serverTabReturn() !== null)
   const openAdmin = useCallback(() => setAdminModalOpen(true), [])
   // The account menu's item that opens Admin unmounts with the menu, so the
   // panel returns focus to the menu's button instead
@@ -336,16 +343,17 @@ export function TVView() {
     toggleChannelSidebar()
   }, [forcedRail, isChannelSidebarCollapsed, toggleChannelSidebar])
 
-  // Load channels on mount
+  // Load channels on mount, and again when ErsatzTV is set up; drop them when it goes
   useEffect(() => {
-    loadChannels()
-  }, [loadChannels])
+    if (ersatztvOn) loadChannels()
+    else forgetChannels()
+  }, [ersatztvOn, loadChannels, forgetChannels])
 
   // ErsatzTV errors show once, as a toast with Retry. The error stays in the
   // store (no clearError), so the sidebar keeps its inline Retry; the toast
   // goes when the error clears.
   useEffect(() => {
-    if (!error) {
+    if (!error || !ersatztvKnownOn) {
       toast.dismiss(ERSATZ_ERROR_TOAST_ID)
       return
     }
@@ -359,7 +367,7 @@ export function TVView() {
         },
       },
     })
-  }, [error, loadChannels, loadAllProgrammes])
+  }, [error, ersatztvKnownOn, loadChannels, loadAllProgrammes])
 
   // Load all programmes after channels are loaded
   useEffect(() => {

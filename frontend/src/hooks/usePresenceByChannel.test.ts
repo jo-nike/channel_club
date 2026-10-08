@@ -61,14 +61,14 @@ describe('findPresenceChannel', () => {
   const tsn5 = { id: '42', name: 'TSN 5', streamUrl: 'http://stream/5', guideId: 'g5' }
   const channels = buildUnifiedChannels(tsn5, [
     { id: 'etv-8', name: 'Taskmaster', streamUrl: 'http://etv/8', logoUrl: '', number: 8, group: 'TV' },
-  ])
+  ], true)
 
   it('finds the live slot for someone on live TV', () => {
     expect(findPresenceChannel(maya, channels)?.id).toBe(LIVE_CHANNEL_ID)
   })
 
   it('has no live slot to join while live TV is off', () => {
-    expect(findPresenceChannel(maya, buildUnifiedChannels(null, []))).toBeNull()
+    expect(findPresenceChannel(maya, buildUnifiedChannels(null, [], true))).toBeNull()
   })
 
   it('finds an ErsatzTV row by its id, never a live id', () => {
@@ -85,7 +85,7 @@ describe('findMessageChannel', () => {
   const tsn5 = { id: '42', name: 'TSN 5', streamUrl: 'http://stream/5', guideId: 'g5' }
   const channels = buildUnifiedChannels(tsn5, [
     { id: 'etv-8', name: 'Taskmaster', streamUrl: 'http://etv/8', logoUrl: '', number: 8, group: 'TV' },
-  ])
+  ], true)
   const message = (overrides: Partial<ChatMessage>): ChatMessage => ({
     messageId: 'm1', username: 'maya', content: 'hi', timestamp: '2026-09-27T12:00:00Z', ...overrides,
   })

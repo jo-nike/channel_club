@@ -1,6 +1,7 @@
 """Tests for Plex authentication service."""
 
 import asyncio
+import json
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -505,6 +506,33 @@ class TestServerOwnerLookup:
         assert task is not None
         await task
 
+    async def test_a_lookup_overtaken_by_a_clear_caches_nothing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A token or switch change clears the cache; the old lookup can't refill it."""
+        from app.services import plex
+
+        release = asyncio.Event()
+        owners = iter([41, 42])
+
+        async def owner(request: httpx.Request) -> httpx.Response:
+            await release.wait()
+            return httpx.Response(200, json={"id": next(owners)})
+
+        self._install_plex_tv(monkeypatch, owner)
+        plex.start_server_owner_lookup()
+        stale = plex._owner_id_lookup
+        assert stale is not None
+
+        plex.clear_server_owner_id_cache()
+        release.set()
+
+        assert await stale is None
+        assert plex._server_owner_id_cache == {}
+        # The next caller looks the owner up again, under the new settings
+        assert await plex.get_server_owner_id() == "42"
+        assert plex._server_owner_id_cache == {"owner_id": "42"}
+
     async def test_stop_cancels_a_lookup_still_running(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -575,30 +603,14 @@ class TestDetermineRole:
             patch("app.services.plex.get_server_owner_id", return_value="999"),
             patch("app.services.plex.settings") as mock_settings,
         ):
-            mock_settings.plex_default_role = "viewer"
             mock_settings.plex_admin_users = []
+            mock_settings.plex_admin_ids = []
             role = await determine_role(user)
             assert role == "viewer"
 
     @pytest.mark.asyncio
-    async def test_configured_admin_role(self) -> None:
-        """Users get admin role when PLEX_DEFAULT_ROLE=admin."""
-        from app.services.plex import determine_role
-
-        user = PlexUser(id="123", username="testuser", email="test@test.com")
-
-        with (
-            patch("app.services.plex.get_server_owner_id", return_value="999"),
-            patch("app.services.plex.settings") as mock_settings,
-        ):
-            mock_settings.plex_default_role = "admin"
-            mock_settings.plex_admin_users = []
-            role = await determine_role(user)
-            assert role == "admin"
-
-    @pytest.mark.asyncio
     async def test_server_owner_always_admin(self) -> None:
-        """Server owner gets admin role regardless of default."""
+        """Server owner gets admin role."""
         from app.services.plex import determine_role
 
         owner_id = "123"
@@ -608,10 +620,10 @@ class TestDetermineRole:
             patch("app.services.plex.get_server_owner_id", return_value=owner_id),
             patch("app.services.plex.settings") as mock_settings,
         ):
-            mock_settings.plex_default_role = "viewer"  # Default is viewer
             mock_settings.plex_admin_users = []
+            mock_settings.plex_admin_ids = []
             role = await determine_role(user)
-            assert role == "admin"  # But owner gets admin
+            assert role == "admin"
 
     @pytest.mark.asyncio
     async def test_admin_users_list(self) -> None:
@@ -624,30 +636,31 @@ class TestDetermineRole:
             patch("app.services.plex.get_server_owner_id", return_value="999"),
             patch("app.services.plex.settings") as mock_settings,
         ):
-            mock_settings.plex_default_role = "viewer"
             mock_settings.plex_admin_users = ["vipuser", "anotheradmin"]
+            mock_settings.plex_admin_ids = []
             role = await determine_role(user)
             assert role == "admin"
 
     @pytest.mark.asyncio
-    async def test_non_owner_with_admin_default(self) -> None:
-        """Non-owner with admin default still gets admin."""
+    async def test_admin_ids_need_no_owner_lookup(self) -> None:
+        """Admins picked in the UI are known by account id, even after a rename."""
         from app.services.plex import determine_role
 
-        user = PlexUser(id="456", username="regularuser", email="user@test.com")
+        user = PlexUser(id="456", username="renamed", email="")
+        lookup = AsyncMock(return_value="999")
 
         with (
-            patch("app.services.plex.get_server_owner_id", return_value="999"),
+            patch("app.services.plex.get_server_owner_id", lookup),
             patch("app.services.plex.settings") as mock_settings,
         ):
-            mock_settings.plex_default_role = "admin"
             mock_settings.plex_admin_users = []
-            role = await determine_role(user)
-            assert role == "admin"
+            mock_settings.plex_admin_ids = ["456"]
+            assert await determine_role(user) == "admin"
+        lookup.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_owner_detection_failure_uses_default(self) -> None:
-        """When owner detection fails, uses default role."""
+    async def test_owner_detection_failure_makes_a_viewer(self) -> None:
+        """When owner detection fails, a member is a viewer."""
         from app.services.plex import determine_role
 
         user = PlexUser(id="123", username="testuser", email="test@test.com")
@@ -656,7 +669,203 @@ class TestDetermineRole:
             patch("app.services.plex.get_server_owner_id", return_value=None),
             patch("app.services.plex.settings") as mock_settings,
         ):
-            mock_settings.plex_default_role = "viewer"
             mock_settings.plex_admin_users = []
+            mock_settings.plex_admin_ids = []
             role = await determine_role(user)
             assert role == "viewer"
+
+
+OWNED = {
+    "name": "Home Server",
+    "clientIdentifier": "a1b2c3",
+    "provides": "server",
+    "owned": True,
+    "presence": True,
+    "lastSeenAt": "2026-09-29T10:00:00Z",
+    "accessToken": "SYNTHETIC-SERVER-ACCESS-TOKEN",
+    "connections": [{"uri": "https://10-0-0-5.synthetic.plex.direct:32400"}],
+}
+RESOURCES = [
+    OWNED,
+    {**OWNED, "name": "Cabin NAS", "clientIdentifier": "d4e5f6", "presence": False},
+    # A friend's server, a player, and an owned player that also serves
+    {**OWNED, "name": "Friend's", "clientIdentifier": "f00", "owned": False},
+    {**OWNED, "name": "Phone", "clientIdentifier": "c11", "provides": "client,player"},
+    {**OWNED, "name": "Shield", "clientIdentifier": "c22", "provides": "client,player,server"},
+]
+USERS_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<MediaContainer friendlyName="myPlex" size="5">
+  <User id="11" title="sam" username="sam" email="sam@example.com"
+        thumb="https://plex.tv/a.png" home="0" restricted="0">
+    <Server machineIdentifier="a1b2c3" name="Home Server" pending="0"/>
+  </User>
+  <User id="12" title="priya.k" username="priya.k" email="priya@example.com"
+        home="0" restricted="0">
+    <Server machineIdentifier="a1b2c3" name="Home Server" pending="1"/>
+  </User>
+  <User id="13" title="cabin-only" username="cabin-only" home="0" restricted="0">
+    <Server machineIdentifier="d4e5f6" name="Cabin NAS" pending="0"/>
+  </User>
+  <User id="14" title="den-tv" username="" home="1" restricted="1"/>
+  <User id="15" title="" username="" home="0" restricted="0">
+    <Server machineIdentifier="a1b2c3" pending="0"/>
+  </User>
+</MediaContainer>
+"""
+
+
+class TestPlexLists:
+    """The setup wizard's server picker and member list, from plex.tv."""
+
+    @staticmethod
+    def _install_plex_tv(monkeypatch: pytest.MonkeyPatch, routes) -> None:
+        from app.services import plex
+
+        factory = httpx.AsyncClient
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            return routes[request.url.path](request)
+
+        monkeypatch.setattr(
+            plex.httpx,
+            "AsyncClient",
+            lambda **kwargs: factory(transport=httpx.MockTransport(respond), **kwargs),
+        )
+
+    @staticmethod
+    def _plex_tv(users: httpx.Response | None = None) -> dict[str, Any]:
+        return {
+            "/api/v2/resources": lambda request: httpx.Response(200, json=RESOURCES),
+            "/api/users": lambda request: users or httpx.Response(200, text=USERS_XML),
+            "/api/v2/user": lambda request: httpx.Response(
+                200, json={"id": 1, "username": "jon", "email": "jon@example.com"}
+            ),
+        }
+
+    async def test_only_owned_servers_are_listed_with_their_member_counts(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.services import plex
+
+        self._install_plex_tv(monkeypatch, self._plex_tv())
+
+        servers = await plex.list_owned_servers("synthetic-token")
+
+        assert [(s.name, s.machine_id, s.online) for s in servers] == [
+            ("Home Server", "a1b2c3", True),
+            ("Cabin NAS", "d4e5f6", False),
+            ("Shield", "c22", True),
+        ]
+        # sam, plus den-tv from the Plex Home; priya's invitation is still pending
+        assert [s.member_count for s in servers] == [2, 2, 1]
+        assert servers[0].last_seen_at is not None
+
+    async def test_no_token_address_or_email_leaves_the_service(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.services import plex
+
+        self._install_plex_tv(monkeypatch, self._plex_tv())
+
+        servers = await plex.list_owned_servers("synthetic-token")
+        members = await plex.list_server_members("synthetic-token", "a1b2c3")
+
+        shown = json.dumps([m.model_dump(mode="json") for m in [*servers, *members]])
+        for secret in ("SYNTHETIC-SERVER-ACCESS-TOKEN", "plex.direct", "@example.com", "a.png"):
+            assert secret not in shown
+
+    async def test_members_are_the_owner_then_accepted_shares_and_the_home(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.services import plex
+
+        self._install_plex_tv(monkeypatch, self._plex_tv())
+
+        members = await plex.list_server_members("synthetic-token", "a1b2c3")
+
+        assert [(m.plex_id, m.username, m.owner, m.managed) for m in members] == [
+            ("1", "jon", True, False),
+            ("11", "sam", False, False),
+            # A managed user has no username, so its title stands in
+            ("14", "den-tv", False, True),
+        ]
+
+    async def test_the_picker_works_without_the_member_list(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.services import plex
+
+        self._install_plex_tv(monkeypatch, self._plex_tv(users=httpx.Response(503)))
+
+        servers = await plex.list_owned_servers("synthetic-token")
+
+        assert [s.member_count for s in servers] == [None, None, None]
+
+    @pytest.mark.parametrize(
+        "users",
+        [
+            httpx.Response(200, text="<MediaContainer><User id="),
+            httpx.Response(200, json={"users": []}),
+            httpx.Response(200, text="<html>maintenance</html>"),
+            # An entity expansion is refused, not expanded
+            httpx.Response(
+                200,
+                text='<!DOCTYPE m [<!ENTITY a "aaaa">]><MediaContainer>&a;</MediaContainer>',
+            ),
+        ],
+    )
+    async def test_a_malformed_member_list_is_unavailable(
+        self, monkeypatch: pytest.MonkeyPatch, users: httpx.Response
+    ) -> None:
+        from app.services import plex
+
+        self._install_plex_tv(monkeypatch, self._plex_tv(users=users))
+
+        with pytest.raises(PlexUnavailableError):
+            await plex.list_server_members("synthetic-token", "a1b2c3")
+
+    @pytest.mark.parametrize(
+        ("response", "error"),
+        [
+            (httpx.Response(401), InvalidPlexTokenError),
+            (httpx.Response(500), PlexUnavailableError),
+            (httpx.Response(200, text="not json"), PlexUnavailableError),
+            (httpx.Response(200, json={"servers": []}), PlexUnavailableError),
+            (
+                httpx.Response(200, content=b"[" + b" " * (5 * 1024 * 1024) + b"]"),
+                PlexUnavailableError,
+            ),
+        ],
+    )
+    async def test_resource_failures(
+        self, monkeypatch: pytest.MonkeyPatch, response: httpx.Response, error: type[Exception]
+    ) -> None:
+        from app.services import plex
+
+        self._install_plex_tv(monkeypatch, {"/api/v2/resources": lambda request: response})
+
+        with pytest.raises(error):
+            await plex.list_owned_servers("synthetic-token")
+
+    async def test_the_lists_ask_plex_tv_for_the_right_formats(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.services import plex
+
+        seen: dict[str, httpx.Request] = {}
+        routes = self._plex_tv()
+
+        def record(path: str):
+            def respond(request: httpx.Request) -> httpx.Response:
+                seen[path] = request
+                return routes[path](request)
+
+            return respond
+
+        self._install_plex_tv(monkeypatch, {path: record(path) for path in routes})
+
+        await plex.list_owned_servers("synthetic-token")
+
+        assert seen["/api/v2/resources"].headers["accept"] == "application/json"
+        assert seen["/api/users"].headers["accept"] == "application/xml"
+        assert seen["/api/users"].headers["x-plex-token"] == "synthetic-token"

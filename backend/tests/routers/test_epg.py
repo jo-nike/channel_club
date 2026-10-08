@@ -13,7 +13,7 @@ from app.main import app
 from app.models.channel import Channel, ChannelGroupWithChannels, GroupedChannelsResponse
 from app.models.epg import EPGProgrammesResponse, EPGResponse, Program
 from app.services.auth import create_access_token
-from app.services.dispatcharr import DispatchrrUnavailableError
+from app.services.dispatcharr import DispatchrrNotSetUpError, DispatchrrUnavailableError
 from app.services.epg_service import EPGService, EPGServiceError
 
 
@@ -123,6 +123,7 @@ class TestGetNowPlaying:
             mock_service = AsyncMock()
             mock_service.get_now_playing.side_effect = EPGServiceError("EPG service unavailable")
             mock_service.get_health = MagicMock()
+            mock_service.is_configured = MagicMock(return_value=True)
             mock_get_service.return_value = mock_service
 
             response = client.get(
@@ -375,6 +376,7 @@ class TestGetNowPlayingAll:
             mock_service = AsyncMock()
             mock_service.get_now_playing_bulk.side_effect = EPGServiceError("unavailable")
             mock_service.get_health = MagicMock()
+            mock_service.is_configured = MagicMock(return_value=True)
             mock_get_service.return_value = mock_service
 
             response = client.get("/api/epg/now-playing/all", headers=auth_header)
@@ -425,6 +427,29 @@ class TestGetNowPlayingAll:
         assert response.status_code == 200
         assert response.json()["nowPlaying"]["tsn5.ca"]["title"] == "Test Show"
         mock_service.get_now_playing_bulk.assert_awaited_once_with([])
+
+    def test_no_dispatcharr_address_keys_by_xmltv_id_without_a_warning(
+        self,
+        client: TestClient,
+        auth_header: dict[str, str],
+        grouped_channels: AsyncMock,
+    ) -> None:
+        grouped_channels.side_effect = DispatchrrNotSetUpError("Dispatcharr is not set up")
+        output = StringIO()
+        handler_id = logger.add(output, format="{level} | {message}", level="WARNING")
+        try:
+            with patch("app.routers.epg.get_epg_service") as mock_get_service:
+                mock_service = AsyncMock()
+                mock_service.get_now_playing_bulk.return_value = {}
+                mock_get_service.return_value = mock_service
+
+                response = client.get("/api/epg/now-playing/all", headers=auth_header)
+        finally:
+            logger.remove(handler_id)
+
+        assert response.status_code == 200
+        mock_service.get_now_playing_bulk.assert_awaited_once_with([])
+        assert output.getvalue() == ""
 
 
 class TestGetProgrammes:
@@ -556,6 +581,7 @@ class TestGetProgrammes:
             mock_service = AsyncMock()
             mock_service.get_programmes.side_effect = EPGServiceError("EPG service unavailable")
             mock_service.get_health = MagicMock()
+            mock_service.is_configured = MagicMock(return_value=True)
             mock_get_service.return_value = mock_service
 
             response = client.get("/api/epg/programmes?channel_id=28", headers=auth_header)
@@ -632,3 +658,18 @@ class TestUnavailableWarning:
 
         warnings = [line for line in output.getvalue().splitlines() if "EPG" in line]
         assert len(warnings) == 2
+
+    def test_no_dispatcharr_address_is_nothing_to_warn_about(
+        self, client: TestClient, auth_header: dict[str, str]
+    ) -> None:
+        output = StringIO()
+        handler_id = logger.add(output, format="{level} | {message}", level="WARNING")
+        try:
+            with patch("app.routers.epg.get_epg_service", return_value=EPGService("")):
+                for _ in range(2):
+                    response = client.get("/api/epg/now-playing?channel_id=28", headers=auth_header)
+                    assert response.status_code == 503
+        finally:
+            logger.remove(handler_id)
+
+        assert output.getvalue() == ""

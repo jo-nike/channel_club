@@ -5,13 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { setReceiverVolume, toggleReceiverMute, useChromecast } from './useChromecast'
 import * as api from '@/services/api'
 import { INITIAL_CAST_STATE, useCastStore } from '@/stores/castStore'
-vi.mock('@/services/api', () => ({ getCastFeatureEnabled: vi.fn().mockResolvedValue(true), createCastSession: vi.fn(), stopCastSession: vi.fn().mockResolvedValue(undefined), getCastHlsUrl: (id: string) => `https://fixture/${id}`, getCastBaseUrl: () => 'https://fixture/api' }))
+vi.mock('@/services/api', () => ({ createCastSession: vi.fn(), stopCastSession: vi.fn().mockResolvedValue(undefined), getCastHlsUrl: (id: string) => `https://fixture/${id}`, getCastBaseUrl: () => 'https://fixture/api' }))
 const listeners = new Map<string, Set<(event: { sessionState: string }) => void>>()
 const session = { getCastDevice: () => ({ friendlyName: 'Fixture receiver' }), loadMedia: vi.fn().mockResolvedValue(undefined) }
 let sessionState = 'STARTED'
 const context = { setOptions: vi.fn(), getCastState: () => 'CONNECTED', getCurrentSession: () => session, getSessionState: () => sessionState,
   addEventListener: (name: string, fn: (event: { sessionState: string }) => void) => { if (!listeners.has(name)) listeners.set(name, new Set()); listeners.get(name)!.add(fn) },
-  removeEventListener: (name: string, fn: (event: { sessionState: string }) => void) => listeners.get(name)?.delete(fn), requestSession: vi.fn() }
+  removeEventListener: (name: string, fn: (event: { sessionState: string }) => void) => listeners.get(name)?.delete(fn), requestSession: vi.fn(), endCurrentSession: vi.fn() }
 const controllerStop = vi.fn()
 const controllerSetVolume = vi.fn()
 const controllerMute = vi.fn()
@@ -34,7 +34,6 @@ describe('one SDK initialisation for every consumer', () => {
     const player = renderHook(useChromecast)
     await waitFor(() => expect(button.result.current.isLoading).toBe(false))
 
-    expect(api.getCastFeatureEnabled).toHaveBeenCalledTimes(1)
     expect(context.setOptions).toHaveBeenCalledTimes(1)
     expect(addListener.mock.calls.map(([name]) => name)).toEqual(['cast', 'session'])
     expect(player.result.current).toMatchObject({ isLoading: false, isCasting: true, deviceName: 'Fixture receiver' })

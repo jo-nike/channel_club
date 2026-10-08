@@ -1,7 +1,8 @@
 {
   "GET /api/auth/config": {
     "localAuthEnabled": false,
-    "plexAuthEnabled": false
+    "plexAuthEnabled": false,
+    "setupState": "complete"
   },
   "GET /api/settings": {
     "userChannelSelection": true,

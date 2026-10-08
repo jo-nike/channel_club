@@ -13,6 +13,7 @@ from app.models.auth import TokenPayload
 from app.models.channel import GroupedChannelsResponse, SetChannelRequest
 from app.routers.auth_deps import get_current_user
 from app.routers.highlight import router
+from app.services import dispatcharr
 from app.services.highlight import ChannelRecorder, remove_recording_directory
 
 
@@ -288,3 +289,36 @@ async def test_ersatz_works_when_dispatcharr_unavailable():
     ):
         source = await resolve_media_channel("ersatz")
         assert source.stream_type == "hls"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("unset", ["dispatcharr_url", "ersatztv_base_url"])
+async def test_a_source_with_no_address_leaves_an_unknown_id_unknown(monkeypatch, unset):
+    """A source that isn't set up holds no channels: not found, not a retry-later 503."""
+    from fastapi import HTTPException
+
+    from app.services import media_source
+
+    monkeypatch.setattr(settings, unset, "")
+    # The other source answers, without the id
+    if unset == "dispatcharr_url":
+        # The real catalogue, past this file's empty stand-in: it says "not set up"
+        monkeypatch.setattr(media_source, "get_grouped_channels", dispatcharr.get_grouped_channels)
+        monkeypatch.setattr(media_source, "get_channel_by_id", lambda channel_id: None)
+    else:
+        empty = GroupedChannelsResponse(groups=[], ungrouped=[])
+        monkeypatch.setattr(media_source, "get_grouped_channels", AsyncMock(return_value=empty))
+
+    with pytest.raises(HTTPException) as exc:
+        await media_source.resolve_media_channel("unknown")
+    assert exc.value.status_code == 404
+
+
+def test_peek_is_complete_when_the_missing_catalogue_has_no_address(monkeypatch):
+    from app.services import media_source
+
+    monkeypatch.setattr(settings, "dispatcharr_url", "")
+    monkeypatch.setattr(media_source, "peek_grouped_channels", lambda: None)
+    monkeypatch.setattr(media_source, "peek_ersatztv_channels", lambda: [])
+
+    assert media_source.peek_catalogue_channel("unknown").complete is True

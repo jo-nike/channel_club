@@ -9,8 +9,9 @@ from app.config import settings
 from app.models.auth import AuthConfigResponse, LoginRequest, TokenPayload, TokenResponse
 from app.models.plex import PlexAuthRequest, PlexUser
 from app.routers.auth_deps import get_current_user
-from app.services import plex
+from app.services import plex, settings_store
 from app.services.auth import JWT_EXPIRATION_DAYS, SESSION_MAX_AGE_DAYS, create_access_token
+from app.services.passwords import check_local_login, local_accounts
 from app.services.plex import (
     InvalidPlexTokenError,
     PlexUnavailableError,
@@ -23,6 +24,15 @@ router = APIRouter(tags=["auth"])
 log = logger.bind(router="auth")
 
 
+def _refuse_until_set_up(role: str) -> None:
+    """While the admin is still in the setup wizard, only admins sign in."""
+    if role != "admin" and settings_store.setup_state() == "claimed":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Channel Club is still being set up",
+        )
+
+
 @router.get("/config", response_model=AuthConfigResponse)
 async def get_auth_config() -> AuthConfigResponse:
     """Return available authentication methods."""
@@ -30,6 +40,7 @@ async def get_auth_config() -> AuthConfigResponse:
     return AuthConfigResponse(
         local_auth_enabled=settings.local_auth_enabled,
         plex_auth_enabled=settings.plex_auth_enabled,
+        setup_state=settings_store.setup_state(),
     )
 
 
@@ -55,31 +66,14 @@ async def login(request: LoginRequest) -> TokenResponse:
     if not settings.local_auth_enabled:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
 
-    admin_password = settings.admin_password.get_secret_value() if settings.admin_password else ""
-    viewer_password = (
-        settings.viewer_password.get_secret_value() if settings.viewer_password else ""
-    )
-
-    # Check admin credentials
-    if (
-        admin_password
-        and request.username == settings.admin_username
-        and request.password == admin_password
-    ):
-        role = "admin"
-    # Check viewer credentials
-    elif (
-        viewer_password
-        and request.username == settings.viewer_username
-        and request.password == viewer_password
-    ):
-        role = "viewer"
-    else:
+    role = await check_local_login(local_accounts(settings), request.username, request.password)
+    if role is None:
         log.warning("Failed login attempt for user: {}", log_username)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
         )
+    _refuse_until_set_up(role)
 
     log.info("User {} logged in successfully with role {}", log_username, role)
     token = create_access_token({"sub": request.username, "role": role})
@@ -134,6 +128,7 @@ async def login_with_plex(request: PlexAuthRequest) -> TokenResponse:
 
     # Determine role based on configuration and ownership
     role = await determine_role(plex_user)
+    _refuse_until_set_up(role)
 
     log.info("Plex user {} logged in successfully with role {}", plex_user.username, role)
     token = create_access_token({"sub": plex_user.username, "role": role, "plex_id": plex_user.id})
@@ -156,15 +151,20 @@ async def _current_role(user: TokenPayload) -> str | None:
     if user.plex_id is None:
         if not settings.local_auth_enabled:
             return None
-        admin_password = settings.admin_password and settings.admin_password.get_secret_value()
-        viewer_password = settings.viewer_password and settings.viewer_password.get_secret_value()
-        if admin_password and user.sub == settings.admin_username:
-            return "admin"
-        if viewer_password and user.sub == settings.viewer_username:
-            return "viewer"
+        # The first account with this username that still has a password, never
+        # above the token's own role: a viewer whose name now matches the
+        # admin's must not refresh into admin.
+        for account in local_accounts(settings):
+            if account.role == "admin" and user.role != "admin":
+                continue
+            if account.usable and account.username == user.sub:
+                return account.role
         return None
     if not settings.plex_auth_enabled:
         return None
+    if user.plex_id in settings.plex_admin_ids:
+        # Picked as an admin by account id: no owner lookup needed
+        return "admin"
     if (
         user.role == "admin"
         and settings.plex_server_token
@@ -218,6 +218,7 @@ async def refresh(current_user: TokenPayload = Depends(get_current_user)) -> Tok
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
         )
+    _refuse_until_set_up(role)
 
     claims: dict[str, object] = {
         "sub": current_user.sub,

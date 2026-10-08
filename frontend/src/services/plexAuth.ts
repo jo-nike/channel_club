@@ -229,7 +229,8 @@ const REDIRECT_PIN_CHECK_INTERVAL_MS = 1000
 /**
  * Redirect sign-in for iPhones, iPads and installed apps, where a popup is
  * unreliable: creates a PIN, remembers its id for this tab and sends the whole
- * page to Plex, which forwards it back to the app root once the user signs in.
+ * page to Plex, which forwards it back to `returnPath` (the app root unless
+ * given, e.g. '/setup' for the setup wizard) once the user signs in.
  *
  * The id lives in sessionStorage rather than a query parameter so the router
  * never sees it. The returned promise settles once navigation has started.
@@ -238,7 +239,7 @@ const REDIRECT_PIN_CHECK_INTERVAL_MS = 1000
  *         blocked: 'pin_failed', and the page stays), or 'cancelled' if
  *         `signal` aborts first (nothing is stored and the page stays)
  */
-export async function authenticateWithPlexRedirect(signal?: AbortSignal): Promise<void> {
+export async function authenticateWithPlexRedirect(signal?: AbortSignal, returnPath = '/'): Promise<void> {
   logger.debug('Plex', 'Starting Plex redirect flow')
   const pin = await createPlexPin()
 
@@ -253,7 +254,7 @@ export async function authenticateWithPlexRedirect(signal?: AbortSignal): Promis
     // Storage blocked: the return couldn't finish sign-in, so don't leave
     throw new PlexAuthError('pin_failed', 'Cannot remember the Plex PIN: storage is blocked')
   }
-  window.location.assign(getPlexAuthUrl(pin, `${window.location.origin}/`))
+  window.location.assign(getPlexAuthUrl(pin, `${window.location.origin}${returnPath}`))
 }
 
 /** The stored PIN id, or null when there is none or it isn't a PIN id. */

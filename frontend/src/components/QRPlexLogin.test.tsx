@@ -348,6 +348,40 @@ describe('QRPlexLogin', () => {
     )
   })
 
+  describe('inside a form', () => {
+    // The setup wizard shows the code inside its <form>, and Button sets no
+    // type, so a button without one would submit the wizard
+    it.each([
+      ['polling', 'default'],
+      ['polling', 'tv'],
+      ['timeout', 'default'],
+      ['timeout', 'tv'],
+      ['error', 'default'],
+      ['error', 'tv'],
+    ] as const)('gives every button type="button" while %s (%s)', (status, variant) => {
+      vi.mocked(usePlexQRAuthModule.usePlexQRAuth).mockReturnValue({ ...defaultMockReturn, status })
+      render(<QRPlexLogin onSuccess={vi.fn()} onCancel={vi.fn()} variant={variant} />)
+
+      const buttons = screen.getAllByRole('button')
+      expect(buttons.length).toBeGreaterThan(0)
+      for (const button of buttons) expect(button).toHaveAttribute('type', 'button')
+    })
+
+    it.each(['Cancel', 'Try Again'])('does not submit the form around it when %s is pressed', (name) => {
+      vi.mocked(usePlexQRAuthModule.usePlexQRAuth).mockReturnValue({ ...defaultMockReturn, status: 'timeout' })
+      const onSubmit = vi.fn((e: React.FormEvent) => e.preventDefault())
+      render(
+        <form onSubmit={onSubmit}>
+          <QRPlexLogin onSuccess={vi.fn()} onCancel={vi.fn()} />
+        </form>
+      )
+
+      fireEvent.click(screen.getByRole('button', { name }))
+
+      expect(onSubmit).not.toHaveBeenCalled()
+    })
+  })
+
   describe('accessibility', () => {
     it('should have aria-label on QR code', () => {
       render(<QRPlexLogin onSuccess={vi.fn()} onCancel={vi.fn()} />)

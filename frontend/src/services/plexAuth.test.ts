@@ -362,6 +362,15 @@ describe('plexAuth', () => {
       expect(open).not.toHaveBeenCalled()
     })
 
+    it('sends the page back to returnPath when given one (the setup wizard)', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(pinResponse())
+
+      await authenticateWithPlexRedirect(undefined, '/setup')
+
+      expect(sessionStorage.getItem(PLEX_PENDING_PIN_KEY)).toBe('42')
+      expect(assign).toHaveBeenCalledWith(getPlexAuthUrl(PIN, 'https://club.example/setup'))
+    })
+
     it('stores nothing and stays on the page when the PIN cannot be created', async () => {
       vi.mocked(fetch).mockResolvedValueOnce({ ok: false, status: 429 } as Response)
 

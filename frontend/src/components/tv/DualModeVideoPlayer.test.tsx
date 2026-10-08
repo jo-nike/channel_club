@@ -18,6 +18,7 @@ import { usePlayerFullscreenElement } from '@/hooks/useFullscreenState'
 import type { UnifiedChannel } from '@/types'
 import type { NHLGame } from '@/types/nhl'
 import type { PlayerShell } from '@/components/player/PlayerShellContext'
+import { useSettingsStore } from '@/stores/settingsStore'
 
 // ----------------------------------------------------------------------------
 // Harness: both engines are mocked. mpegts.js gets a stub player; Vidstack's
@@ -159,15 +160,12 @@ const clipApi = vi.hoisted(() => ({
   deleteHighlightCapture: vi.fn<(id: string) => Promise<void>>(),
   getHighlightFeatures: vi.fn<() => Promise<{ enabled: boolean; ziplineEnabled: boolean }>>(),
 }))
-const castFeature = vi.hoisted(() => vi.fn(() => new Promise<boolean>(() => {})))
 vi.mock('@/services/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/services/api')>()),
   ...clipApi,
   // The TV store looks the live guide up when live TV changes; never answered here
   fetchNowPlaying: () => new Promise(() => {}),
   fetchLiveProgrammes: () => new Promise(() => {}),
-  // The shell holds the Cast SDK, which starts with this check; never answered here
-  getCastFeatureEnabled: castFeature,
 }))
 // ErsatzTV stream sessions, a new one per call as the backend's would be. By
 // default one opens synchronously (a thenable that answers inside then()), so
@@ -325,6 +323,8 @@ const startPlaybackButton = () => screen.queryByRole('button', { name: 'Start pl
 
 beforeEach(() => {
   localStorage.clear()
+  // NHL scores on, as the server's switch would have them for these tests
+  useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: true, sources: { dispatcharr: true, ersatztv: true } } })
   // The arrival card has had its turn this session, so it stays out of the
   // way (its own suite, and one test below, cover it)
   sessionStorage.clear()
@@ -2812,6 +2812,18 @@ describe('DualModeVideoPlayer arrival card', () => {
 })
 
 describe('DualModeVideoPlayer before a channel is selected', () => {
+  it('says there are no channels yet, and where they come from, while neither source is set up', () => {
+    useSettingsStore.setState({
+      serverFeatures: { chat: false, gif: false, nhl: false, sources: { dispatcharr: false, ersatztv: false } },
+    })
+    render(<DualModeVideoPlayer channel={null} isTheaterMode={false} onTheaterModeToggle={vi.fn()} />)
+
+    const status = screen.getByRole('status')
+    expect(status).toHaveTextContent('No channels yet')
+    expect(status).toHaveTextContent('Dispatcharr or ErsatzTV in the Admin panel, under Server')
+    expect(screen.queryByText('Tuning in...')).not.toBeInTheDocument()
+  })
+
   it("says 'Tuning in...' with a spinner that only moves when motion is allowed", () => {
     render(<DualModeVideoPlayer channel={null} isTheaterMode={false} onTheaterModeToggle={vi.fn()} />)
 
@@ -3270,6 +3282,14 @@ describe('DualModeVideoPlayer panel keys', () => {
     expect(useChatStore.getState().isOpen).toBe(false)
   })
 
+  it('N does nothing while the server has NHL scores off', () => {
+    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: false, sources: { dispatcharr: true, ersatztv: true } } })
+    renderPlayer(liveChannel(''))
+
+    fireEvent.keyDown(window, { key: 'n' })
+    expect(useUIStore.getState().isNHLOverlayVisible).toBe(false)
+  })
+
   it('N shows and hides the NHL scores', () => {
     renderPlayer(liveChannel(''))
 
@@ -3466,17 +3486,26 @@ describe('DualModeVideoPlayer casting', () => {
   })
 
   it('the shell holds the Cast SDK: a channel change, the empty live slot or the reload after a stop never sets it up again', () => {
-    castFeature.mockClear()
-    const { switchTo } = renderPlayer(liveChannel('https://fixture/a'))
-    expect(castFeature).toHaveBeenCalledTimes(1)
+    // An SDK whose setup is counted, and stops there: no receiver in these tests
+    const setUp = vi.fn(() => {
+      throw new Error('no receiver here')
+    })
+    vi.stubGlobal('cast', { framework: { CastContext: { getInstance: setUp } } })
+    vi.stubGlobal('chrome', { cast: {} })
+    try {
+      const { switchTo } = renderPlayer(liveChannel('https://fixture/a'))
+      expect(setUp).toHaveBeenCalledTimes(1)
 
-    startCast()
-    switchTo(liveChannel(''))
-    switchTo(liveChannel('https://fixture/b'))
-    stopCast()
-    switchTo(hlsChannel('1', 1))
+      startCast()
+      switchTo(liveChannel(''))
+      switchTo(liveChannel('https://fixture/b'))
+      stopCast()
+      switchTo(hlsChannel('1', 1))
 
-    expect(castFeature).toHaveBeenCalledTimes(1)
+      expect(setUp).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('ErsatzTV: the notices about the local picture give way to the card', () => {

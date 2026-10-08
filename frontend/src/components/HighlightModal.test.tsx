@@ -857,7 +857,7 @@ describe('Post to chat', () => {
   let unregister: () => void = () => {}
 
   beforeEach(() => {
-    useSettingsStore.setState({ serverFeatures: { chat: true, gif: false } })
+    useSettingsStore.setState({ serverFeatures: { chat: true, gif: false, nhl: false, sources: { dispatcharr: true, ersatztv: true } } })
     vi.mocked(api.getHighlightFeatures).mockResolvedValue({ enabled: true, ziplineEnabled: true })
   })
   afterEach(() => {
@@ -974,7 +974,7 @@ describe('Post to chat', () => {
   })
 
   it('is absent without chat, leaving Download as the primary action', async () => {
-    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false } })
+    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: false, sources: { dispatcharr: true, ersatztv: true } } })
     render(<HighlightModal {...props} />)
     await ready()
     expect(await screen.findByRole('button', { name: 'Get share link' })).toBeInTheDocument()
@@ -1078,7 +1078,7 @@ describe('Clip editor layout', () => {
   })
 
   it('gives touch screens 44px targets', async () => {
-    useSettingsStore.setState({ serverFeatures: { chat: true, gif: false } })
+    useSettingsStore.setState({ serverFeatures: { chat: true, gif: false, nhl: false, sources: { dispatcharr: true, ersatztv: true } } })
     vi.mocked(api.getHighlightFeatures).mockResolvedValue({ enabled: true, ziplineEnabled: true })
     render(<HighlightModal {...props} />)
     await ready()
@@ -1096,7 +1096,7 @@ describe('Clip editor layout', () => {
   })
 
   it('compacts the header and footer on phones without taking their words from screen readers', async () => {
-    useSettingsStore.setState({ serverFeatures: { chat: true, gif: false } })
+    useSettingsStore.setState({ serverFeatures: { chat: true, gif: false, nhl: false, sources: { dispatcharr: true, ersatztv: true } } })
     vi.mocked(api.getHighlightFeatures).mockResolvedValue({ enabled: true, ziplineEnabled: true })
     render(<HighlightModal {...props} />)
     await ready()

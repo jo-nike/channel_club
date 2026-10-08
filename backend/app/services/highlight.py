@@ -18,6 +18,7 @@ import signal
 import subprocess
 import tempfile
 import time
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -87,6 +88,11 @@ class ChannelRecorder:
     def __init__(self, channel_id: str, stream_url: str):
         self.channel_id = channel_id
         self.stream_url = stream_url
+        # FFmpeg's ring is sized from these at start, and the snapshot relies on
+        # that shape, so a recorder keeps them; a changed setting applies to the
+        # next recorder.
+        self.buffer_seconds = settings.highlight_buffer_seconds
+        self.segment_seconds = settings.highlight_segment_seconds
         self.process: subprocess.Popen | None = None
         self.segment_dir: Path | None = None
         self.started_at: float = 0
@@ -150,16 +156,16 @@ class ChannelRecorder:
                 "-f",
                 "segment",
                 "-segment_time",
-                str(settings.highlight_segment_seconds),
+                str(self.segment_seconds),
                 "-segment_list",
                 segment_list,
                 "-segment_list_type",
                 "flat",
                 "-segment_list_size",
-                str((settings.highlight_buffer_seconds // settings.highlight_segment_seconds) + 1),
+                str((self.buffer_seconds // self.segment_seconds) + 1),
                 "-segment_wrap",
                 str(
-                    (settings.highlight_buffer_seconds // settings.highlight_segment_seconds) + 2
+                    (self.buffer_seconds // self.segment_seconds) + 2
                 ),  # Number of segments to keep before wrapping
                 "-reset_timestamps",
                 "1",
@@ -169,7 +175,7 @@ class ChannelRecorder:
             log.info(
                 "Starting FFmpeg recorder for channel {} with {} second buffer",
                 self.channel_id,
-                settings.highlight_buffer_seconds,
+                self.buffer_seconds,
             )
             log.debug("FFmpeg command: {}", " ".join(cmd))
 
@@ -293,7 +299,7 @@ class ChannelRecorder:
                 not path.is_symlink()
                 and path.is_file()
                 and path.stat().st_size > 0
-                and path.stat().st_mtime >= time.time() - settings.highlight_buffer_seconds
+                and path.stat().st_mtime >= time.time() - self.buffer_seconds
             )
         except OSError:
             return False
@@ -347,12 +353,12 @@ class ChannelRecorder:
             # Buffer span = time from oldest segment to now,
             # capped at the configured buffer max
             oldest_mtime = seg_files[0].stat().st_mtime
-            span = time.time() - oldest_mtime + settings.highlight_segment_seconds
-            return min(span, settings.highlight_buffer_seconds)
+            span = time.time() - oldest_mtime + self.segment_seconds
+            return min(span, self.buffer_seconds)
         except OSError:
             # Fallback to wall-clock if file inspection fails
             elapsed = time.time() - self.started_at
-            return min(elapsed, settings.highlight_buffer_seconds)
+            return min(elapsed, self.buffer_seconds)
 
     def _newest_listed_segment(self) -> str | None:
         """The segment muxer lists a segment only once it is closed."""
@@ -384,9 +390,7 @@ class ChannelRecorder:
         """
         # The list is read in a worker thread, like the rest of the recorder's file I/O.
         listed = await asyncio.to_thread(self._newest_listed_segment)
-        limit = min(
-            settings.highlight_segment_seconds + TAIL_WAIT_SLACK_SECONDS, TAIL_WAIT_CAP_SECONDS
-        )
+        limit = min(self.segment_seconds + TAIL_WAIT_SLACK_SECONDS, TAIL_WAIT_CAP_SECONDS)
         deadline = time.monotonic() + limit
         while time.monotonic() < deadline:
             await asyncio.sleep(TAIL_POLL_SECONDS)
@@ -416,7 +420,7 @@ class ChannelRecorder:
             entries = segment_list.read_text().splitlines()
             if not entries:
                 raise ValueError("No segments recorded yet")
-            capacity = settings.highlight_buffer_seconds // settings.highlight_segment_seconds + 2
+            capacity = self.buffer_seconds // self.segment_seconds + 2
             # The next ring index is being written and must never enter a snapshot.
             last = Path(entries[-1]).name
             current = f"seg_{(int(last[4:7]) + 1) % capacity:03d}.ts"
@@ -429,7 +433,7 @@ class ChannelRecorder:
                     if path.is_file() and not path.is_symlink():
                         paths.append(path)
             paths.sort(key=lambda path: path.stat().st_mtime)
-            cutoff = time.time() - settings.highlight_buffer_seconds
+            cutoff = time.time() - self.buffer_seconds
             paths = [path for path in paths if path.stat().st_mtime >= cutoff]
             if not paths:
                 raise ValueError("No recent segments available")
@@ -824,9 +828,6 @@ class HighlightService:
         now = monotonic()
         idle_channels: list[str] = []
 
-        # A running FFmpeg whose upstream went quiet writes nothing; past warm-up, restart it.
-        stall_limit = max(3 * settings.highlight_segment_seconds, RECORDER_STALL_MIN_SECONDS)
-
         # Find idle recorders (without holding lock during iteration)
         for channel_id, recorder in list(self._recorders.items()):
             if not recorder.is_running:
@@ -844,7 +845,8 @@ class HighlightService:
                     continue
             await asyncio.to_thread(recorder.trim_stderr_log)
             silent = await asyncio.to_thread(recorder.seconds_since_output)
-            if silent > stall_limit:
+            # A running FFmpeg whose upstream went quiet writes nothing; past warm-up, restart it.
+            if silent > max(3 * recorder.segment_seconds, RECORDER_STALL_MIN_SECONDS):
                 idle_channels.append(channel_id)
                 log.bind(
                     event="highlight.recorder_stalled",
@@ -984,6 +986,16 @@ class HighlightService:
                 del self._recorders[channel_id]
                 recorder_budget.release(self._owners.pop(channel_id, RECORDER_OWNER))
 
+    async def stop_recorders(self, where: Callable[[ChannelRecorder], bool]) -> None:
+        """Stop the recorders `where` picks, e.g. those reading from an old source address.
+
+        A viewer's next status poll starts a new recorder from the current catalogue.
+        """
+        async with self._lock:
+            picked = [channel_id for channel_id, rec in self._recorders.items() if where(rec)]
+        for channel_id in picked:
+            await self.stop_recording(channel_id)
+
     async def stop_all(self) -> None:
         """Stop all recorders (for shutdown), concurrently so slow exits overlap."""
         async with self._lock:
@@ -1021,7 +1033,7 @@ class HighlightService:
             "recording": recorder.is_running,
             "ready": recorder.has_completed_segment(),
             "bufferSeconds": recorder.get_buffer_seconds(),
-            "maxBufferSeconds": settings.highlight_buffer_seconds,
+            "maxBufferSeconds": recorder.buffer_seconds,
         }
 
     async def create_capture(
