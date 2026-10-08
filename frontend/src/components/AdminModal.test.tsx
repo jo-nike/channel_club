@@ -123,7 +123,7 @@ describe('AdminModal', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     // NHL scores on, as the server's switch would have them for these tests
-    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: true } })
+    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: true, sources: { dispatcharr: true, ersatztv: true } } })
     // No Plex sign-in waiting, so no test opens on the Server tab by accident
     sessionStorage.clear()
     useChannelStore.setState({
@@ -152,10 +152,18 @@ describe('AdminModal', () => {
       fireEvent.keyDown(nhlTab, { key: 'Enter' })
       expect(nhlTab).toHaveAttribute('aria-selected', 'true')
 
-      act(() => useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: false } }))
+      act(() => useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: false, sources: { dispatcharr: true, ersatztv: true } } }))
 
       expect(screen.queryByRole('tab', { name: /nhl/i })).not.toBeInTheDocument()
       expect(screen.getByRole('tab', { name: /channels/i })).toHaveAttribute('aria-selected', 'true')
+    })
+
+    it('has no Channels tab without Dispatcharr, and opens on People', () => {
+      useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: true, sources: { dispatcharr: false, ersatztv: true } } })
+      render(<AdminModal {...defaultProps} />)
+
+      expect(screen.queryByRole('tab', { name: /channels/i })).not.toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: /people/i })).toHaveAttribute('aria-selected', 'true')
     })
 
     it('renders all six tabs (AC #3 - context-agnostic)', () => {

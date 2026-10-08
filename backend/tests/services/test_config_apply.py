@@ -13,7 +13,7 @@ from app import config
 from app.config import settings
 from app.models.channel import Channel, GroupedChannelsResponse
 from app.models.websocket import server_payload
-from app.services import channel_state, config_apply, dispatcharr, plex, settings_store
+from app.services import channel_state, config_apply, dispatcharr, plex, settings_store, state_store
 from app.services.cached_fetch import CachedFetch
 from app.services.cast import CastSession, cast_service
 from app.services.epg_service import get_epg_service
@@ -204,6 +204,34 @@ class TestDispatcharrAddress:
         assert [message["channel"] for message in sent][0] is None
         assert sent[-1]["channel"]["streamUrl"] == moved.stream_url
 
+    async def test_switching_dispatcharr_off_ends_live_for_everyone(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(settings, "dispatcharr_url", OLD_DISPATCHARR)
+        await channel_state.set_current_channel(ON_OLD)
+        broadcast = AsyncMock()
+        monkeypatch.setattr(channel_state, "broadcast", broadcast)
+
+        await config_apply.apply({"dispatcharr_url": ""}, actor="jon")
+
+        assert channel_state.get_current_channel() is None
+        assert state_store.current()["liveChannelId"] is None
+        assert channel_state._restore_task is None or channel_state._restore_task.done()
+        sent = [server_payload(call.args[0]) for call in broadcast.await_args_list]
+        assert {"type": "channel_update", "channel": None, "changedBy": "jon"} in sent
+
+    async def test_switching_dispatcharr_off_with_nothing_live_changes_nothing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(settings, "dispatcharr_url", OLD_DISPATCHARR)
+        broadcast = AsyncMock()
+        monkeypatch.setattr(channel_state, "broadcast", broadcast)
+
+        await config_apply.apply({"dispatcharr_url": ""}, actor="jon")
+
+        sent = [server_payload(call.args[0]) for call in broadcast.await_args_list]
+        assert [message["type"] for message in sent] == ["features_update"]
+
     async def test_recorders_and_casts_on_the_old_address_stop(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -346,16 +374,71 @@ class TestFeaturesUpdate:
     @pytest.mark.parametrize(
         ("change", "features"),
         [
-            ({"chat_enabled": True}, {"chat": True, "gif": False, "nhl": False}),
-            ({"giphy_api_key": "a giphy key"}, {"chat": False, "gif": True, "nhl": False}),
-            ({"nhl_enabled": True}, {"chat": False, "gif": False, "nhl": True}),
-            ({"highlight_enabled": True}, {"chat": False, "gif": False, "nhl": False}),
+            (
+                {"chat_enabled": True},
+                {
+                    "chat": True,
+                    "gif": False,
+                    "nhl": False,
+                    "sources": {"dispatcharr": True, "ersatztv": True},
+                },
+            ),
+            (
+                {"giphy_api_key": "a giphy key"},
+                {
+                    "chat": False,
+                    "gif": True,
+                    "nhl": False,
+                    "sources": {"dispatcharr": True, "ersatztv": True},
+                },
+            ),
+            (
+                {"nhl_enabled": True},
+                {
+                    "chat": False,
+                    "gif": False,
+                    "nhl": True,
+                    "sources": {"dispatcharr": True, "ersatztv": True},
+                },
+            ),
+            (
+                {"highlight_enabled": True},
+                {
+                    "chat": False,
+                    "gif": False,
+                    "nhl": False,
+                    "sources": {"dispatcharr": True, "ersatztv": True},
+                },
+            ),
+            (
+                {"dispatcharr_url": ""},
+                {
+                    "chat": False,
+                    "gif": False,
+                    "nhl": False,
+                    "sources": {"dispatcharr": False, "ersatztv": True},
+                },
+            ),
+            (
+                {"ersatztv_base_url": ""},
+                {
+                    "chat": False,
+                    "gif": False,
+                    "nhl": False,
+                    "sources": {"dispatcharr": True, "ersatztv": False},
+                },
+            ),
             (
                 {"ntfy_enabled": True, "ntfy_url": "https://ntfy.test", "ntfy_topic": "reports"},
-                {"chat": False, "gif": False, "nhl": False},
+                {
+                    "chat": False,
+                    "gif": False,
+                    "nhl": False,
+                    "sources": {"dispatcharr": True, "ersatztv": True},
+                },
             ),
         ],
-        ids=["chat", "gifs", "nhl", "clips", "feedback"],
+        ids=["chat", "gifs", "nhl", "clips", "dispatcharr off", "ersatztv off", "feedback"],
     )
     async def test_a_feature_switching_tells_every_tab_once(
         self, broadcast: AsyncMock, change: dict, features: dict
@@ -383,7 +466,15 @@ class TestFeaturesUpdate:
         await config_apply.apply({"chat_enabled": False})
 
         assert _features_updates(broadcast) == [
-            {"type": "features_update", "features": {"chat": False, "gif": False, "nhl": False}}
+            {
+                "type": "features_update",
+                "features": {
+                    "chat": False,
+                    "gif": False,
+                    "nhl": False,
+                    "sources": {"dispatcharr": True, "ersatztv": True},
+                },
+            }
         ]
 
     @pytest.mark.parametrize(

@@ -6,6 +6,7 @@ import { useChannelStore } from '@/stores/channelStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { buildUnifiedChannels, useTVStore } from '@/stores/tvStore'
 import type { UnifiedChannel } from '@/types'
+import { useSources } from '@/hooks/useSources'
 
 interface StreamStatusCardProps {
   /** The engine's recovery state; 'unsupported' when this browser can't play the stream at all */
@@ -100,11 +101,13 @@ function usePreviousChannel(): UnifiedChannel | null {
   const previousId = useTVStore((s) => s.previousChannelId)
   const liveChannel = useChannelStore((s) => s.currentChannel)
   const ersatzTVChannels = useErsatztvStore((s) => s.channels)
+  // No live slot without Dispatcharr
+  const withLiveSlot = useSources().dispatcharr
 
   return useMemo(() => {
     if (!previousId) return null
-    const channel = buildUnifiedChannels(liveChannel, ersatzTVChannels).find((c) => c.id === previousId)
+    const channel = buildUnifiedChannels(liveChannel, ersatzTVChannels, withLiveSlot).find((c) => c.id === previousId)
     if (!channel || (channel.type === 'live' && !channel.streamUrl)) return null
     return channel
-  }, [previousId, liveChannel, ersatzTVChannels])
+  }, [previousId, liveChannel, ersatzTVChannels, withLiveSlot])
 }

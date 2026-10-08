@@ -20,6 +20,7 @@ import { buildProgrammeIndex, findCurrentAndNext, type IndexedProgramme } from '
 import { favouritesFirst } from '@/lib/channelSearch'
 import { cn, formatClockTime } from '@/lib/utils'
 import type { PresenceEntry, UnifiedChannel } from '@/types'
+import { useErsatztvKnownOn, useSources } from '@/hooks/useSources'
 
 const getChannelId = (channel: UnifiedChannel) => channel.id
 
@@ -52,9 +53,13 @@ export function TVChannelSidebar({
   // Field selectors: the sidebar re-renders for what it shows, not on every
   // update to the stores it reads
   const ersatzTVChannels = useErsatztvStore((s) => s.channels)
+  // No live slot without Dispatcharr
+  const withLiveSlot = useSources().dispatcharr
   const channelsLoading = useErsatztvStore((s) => s.channelsLoading)
   const error = useErsatztvStore((s) => s.error)
   const loadChannels = useErsatztvStore((s) => s.loadChannels)
+  // Only once the server says ErsatzTV is set up: otherwise there is nothing to retry
+  const ersatztvKnownOn = useErsatztvKnownOn()
   const selectedChannel = useTVStore((s) => s.selectedChannel)
   const selectChannel = useTVStore((s) => s.selectChannel)
   const liveEPGStatus = useTVStore((s) => s.liveEPGStatus)
@@ -68,8 +73,8 @@ export function TVChannelSidebar({
   // The unified list, built from the two stores it comes from, so the live
   // slot follows live TV and the search keeps its memo between renders
   const unifiedChannels = useMemo(
-    () => buildUnifiedChannels(liveChannel, ersatzTVChannels),
-    [liveChannel, ersatzTVChannels]
+    () => buildUnifiedChannels(liveChannel, ersatzTVChannels, withLiveSlot),
+    [liveChannel, ersatzTVChannels, withLiveSlot]
   )
   const hasLiveChannel = liveChannel !== null
   const liveProgramme = liveEPGTitle || describeLiveGuide(liveEPGStatus)
@@ -217,7 +222,7 @@ export function TVChannelSidebar({
       {/* The live row above doesn't wait for ErsatzTV */}
       {channelsLoading && ersatzTVChannels.length === 0 && <SidebarSkeleton />}
       {/* The error's details are in the toast TVView shows; this keeps a retry where the channels would be */}
-      {error && (
+      {error && ersatztvKnownOn && (
         <div className="m-3 rounded-lg border bg-background/50 p-4">
           <p className="text-sm text-destructive">Couldn't load channels 1-36</p>
           <Button variant="outline" size="sm" className="mt-3" onClick={() => loadChannels()}>

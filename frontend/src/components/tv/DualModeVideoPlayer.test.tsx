@@ -324,7 +324,7 @@ const startPlaybackButton = () => screen.queryByRole('button', { name: 'Start pl
 beforeEach(() => {
   localStorage.clear()
   // NHL scores on, as the server's switch would have them for these tests
-  useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: true } })
+  useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: true, sources: { dispatcharr: true, ersatztv: true } } })
   // The arrival card has had its turn this session, so it stays out of the
   // way (its own suite, and one test below, cover it)
   sessionStorage.clear()
@@ -2812,6 +2812,18 @@ describe('DualModeVideoPlayer arrival card', () => {
 })
 
 describe('DualModeVideoPlayer before a channel is selected', () => {
+  it('says there are no channels yet, and where they come from, while neither source is set up', () => {
+    useSettingsStore.setState({
+      serverFeatures: { chat: false, gif: false, nhl: false, sources: { dispatcharr: false, ersatztv: false } },
+    })
+    render(<DualModeVideoPlayer channel={null} isTheaterMode={false} onTheaterModeToggle={vi.fn()} />)
+
+    const status = screen.getByRole('status')
+    expect(status).toHaveTextContent('No channels yet')
+    expect(status).toHaveTextContent('Dispatcharr or ErsatzTV in the Admin panel, under Server')
+    expect(screen.queryByText('Tuning in...')).not.toBeInTheDocument()
+  })
+
   it("says 'Tuning in...' with a spinner that only moves when motion is allowed", () => {
     render(<DualModeVideoPlayer channel={null} isTheaterMode={false} onTheaterModeToggle={vi.fn()} />)
 
@@ -3271,7 +3283,7 @@ describe('DualModeVideoPlayer panel keys', () => {
   })
 
   it('N does nothing while the server has NHL scores off', () => {
-    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: false } })
+    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: false, sources: { dispatcharr: true, ersatztv: true } } })
     renderPlayer(liveChannel(''))
 
     fireEvent.keyDown(window, { key: 'n' })

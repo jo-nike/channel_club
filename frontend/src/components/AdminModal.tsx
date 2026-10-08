@@ -17,6 +17,7 @@ import { ServerTab } from '@/components/admin/server/ServerTab'
 import { serverTabReturn } from '@/components/admin/server/serverStash'
 import { cn } from '@/lib/utils'
 import { useNhlEnabled } from '@/hooks/useNhlEnabled'
+import { useSources } from '@/hooks/useSources'
 import { useReturnFocus } from '@/hooks/useReturnFocus'
 
 type TabType = 'channels' | 'people' | 'chat' | 'nhl' | 'status' | 'server'
@@ -73,11 +74,13 @@ export function AdminModal({ open, onOpenChange, returnFocusTo }: AdminModalProp
   // Opened by state (the Host button, the account menu), not a trigger Radix
   // could return focus to
   const returnFocus = useReturnFocus(returnFocusTo)
-  // The NHL tab only while the server has NHL scores on; if it was open when
-  // they went off, the panel shows Channels
+  // Channels (putting a channel on Live) only with Dispatcharr, NHL only while
+  // the server has NHL scores on. A tab that goes while open leaves the panel
+  // on the first one left.
   const nhlEnabled = useNhlEnabled()
-  const shownTabs = nhlEnabled ? tabs : tabs.filter((tab) => tab.id !== 'nhl')
-  const shownTab = activeTab === 'nhl' && !nhlEnabled ? 'channels' : activeTab
+  const liveOn = useSources().dispatcharr
+  const shownTabs = tabs.filter((tab) => (tab.id !== 'nhl' || nhlEnabled) && (tab.id !== 'channels' || liveOn))
+  const shownTab = shownTabs.some((tab) => tab.id === activeTab) ? activeTab : shownTabs[0].id
 
   const renderTabContent = (tabId: TabType) => {
     switch (tabId) {

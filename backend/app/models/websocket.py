@@ -153,12 +153,21 @@ class You(BaseModel):
     userId: str
 
 
+class Sources(BaseModel):
+    """Which channel sources have an address. A source without one has no
+    channels, so clients leave out what it would fill (Live needs Dispatcharr)."""
+
+    dispatcharr: bool
+    ersatztv: bool
+
+
 class Features(BaseModel):
     """Which optional features the server has on, so clients show only those."""
 
     chat: bool
     gif: bool
     nhl: bool
+    sources: Sources
 
 
 class ServerConnectionAck(BaseModel):

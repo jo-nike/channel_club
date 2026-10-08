@@ -120,7 +120,12 @@ class TestDirectSends:
                 "you": YOU,
                 "presence": [],
                 "buildId": "dev",
-                "features": {"chat": False, "gif": False, "nhl": False},
+                "features": {
+                    "chat": False,
+                    "gif": False,
+                    "nhl": False,
+                    "sources": {"dispatcharr": True, "ersatztv": True},
+                },
             }
 
     def test_connection_ack_without_live(self, client: TestClient, token: str) -> None:
@@ -236,6 +241,17 @@ class TestFeatures:
                 "chat": chat_enabled,
                 "gif": giphy_api_key == "giphy-key",
                 "nhl": False,
+                "sources": {"dispatcharr": True, "ersatztv": True},
+            }
+
+    def test_ack_says_which_sources_are_set_up(
+        self, client: TestClient, token: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(settings, "dispatcharr_url", "")
+        with ws_connect(client, token) as ws:
+            assert ws.receive_json()["features"]["sources"] == {
+                "dispatcharr": False,
+                "ersatztv": True,
             }
 
     def test_ack_carries_the_nhl_switch(
@@ -305,7 +321,15 @@ class TestBroadcasts:
     async def test_features_update(self) -> None:
         sent = await _broadcasts(config_apply.broadcast_features_update)
         assert sent == [
-            {"type": "features_update", "features": {"chat": True, "gif": False, "nhl": False}}
+            {
+                "type": "features_update",
+                "features": {
+                    "chat": True,
+                    "gif": False,
+                    "nhl": False,
+                    "sources": {"dispatcharr": True, "ersatztv": True},
+                },
+            }
         ]
 
     async def test_presence_update(self, monkeypatch: pytest.MonkeyPatch) -> None:

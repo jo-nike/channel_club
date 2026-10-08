@@ -39,6 +39,7 @@ import {
 } from '@/lib/programmes'
 import { cn, formatClockTime } from '@/lib/utils'
 import type { UnifiedChannel, ErsatzTVProgramme, EPGResponse, PresenceEntry } from '@/types'
+import { useSources } from '@/hooks/useSources'
 
 // Grid constants
 const SLOT_WIDTH = 150 // pixels per 30 minutes
@@ -110,9 +111,11 @@ export function TVEPGGrid({
   // get their channel, can skip re-rendering
   const liveChannel = useChannelStore((s) => s.currentChannel)
   const ersatzTVChannels = useErsatztvStore((s) => s.channels)
+  // No live slot without Dispatcharr
+  const withLiveSlot = useSources().dispatcharr
   const allChannels = useMemo(
-    () => buildUnifiedChannels(liveChannel, ersatzTVChannels),
-    [liveChannel, ersatzTVChannels]
+    () => buildUnifiedChannels(liveChannel, ersatzTVChannels, withLiveSlot),
+    [liveChannel, ersatzTVChannels, withLiveSlot]
   )
   // With the guide open its channel column is the one channel list, so it
   // takes the sidebar's search and chips (shared in channelPrefsStore), and

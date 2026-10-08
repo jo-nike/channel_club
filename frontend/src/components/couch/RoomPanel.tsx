@@ -10,6 +10,7 @@ import { LivePill } from '@/components/LivePill'
 import { cn } from '@/lib/utils'
 import type { PresenceEntry, UnifiedChannel } from '@/types'
 import { KeyHint } from './CouchGuide'
+import { useSources } from '@/hooks/useSources'
 
 interface RoomPanelProps {
   /**
@@ -78,9 +79,11 @@ function RoomList({ onClose }: RoomPanelProps) {
   const seesChannels = useSeesPresenceChannels()
   const liveChannel = useChannelStore((s) => s.currentChannel)
   const ersatzTVChannels = useErsatztvStore((s) => s.channels)
+  // No live slot without Dispatcharr
+  const withLiveSlot = useSources().dispatcharr
   const selectedChannelId = useTVStore((s) => s.selectedChannel?.id)
   const selectChannel = useTVStore((s) => s.selectChannel)
-  const channels = useMemo(() => buildUnifiedChannels(liveChannel, ersatzTVChannels), [liveChannel, ersatzTVChannels])
+  const channels = useMemo(() => buildUnifiedChannels(liveChannel, ersatzTVChannels, withLiveSlot), [liveChannel, ersatzTVChannels, withLiveSlot])
 
   const rows = useMemo(
     () =>

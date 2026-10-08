@@ -27,6 +27,13 @@ export interface ServerFeatures {
   chat: boolean
   gif: boolean
   nhl: boolean
+  // Which channel sources have an address; Live (channel 0) needs Dispatcharr
+  sources: ChannelSources
+}
+
+export interface ChannelSources {
+  dispatcharr: boolean
+  ersatztv: boolean
 }
 
 export interface ConnectionAckMessage {

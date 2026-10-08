@@ -4,6 +4,7 @@ import asyncio
 import json
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -13,7 +14,16 @@ from pydantic import SecretStr
 from app import config
 from app.config import settings
 from app.main import app
-from app.services import app_settings, config_probes, passwords, plex, settings_store
+from app.models.channel import Channel
+from app.models.websocket import server_payload
+from app.services import (
+    app_settings,
+    channel_state,
+    config_probes,
+    passwords,
+    plex,
+    settings_store,
+)
 from app.services.auth import create_access_token
 
 ADMIN = {"Authorization": f"Bearer {create_access_token({'sub': 'admin', 'role': 'admin'})}"}
@@ -135,6 +145,23 @@ class TestUpdate:
             "ntfy_url": "https://ntfy.example",
         }
         assert settings.chat_enabled is True and settings.media_process_limit == 3
+
+    def test_switching_dispatcharr_off_ends_live_in_the_admins_name(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        live = Channel(
+            id="uuid-1", name="TSN", stream_url=f"{settings.dispatcharr_url}/ts/1", guide_id="7"
+        )
+        monkeypatch.setattr(channel_state, "_current_channel", live)
+        broadcast = AsyncMock()
+        monkeypatch.setattr(channel_state, "broadcast", broadcast)
+
+        response = client.put("/api/admin/config", headers=ADMIN, json={"dispatcharrUrl": ""})
+
+        assert response.status_code == 200
+        assert channel_state.get_current_channel() is None
+        sent = [server_payload(call.args[0]) for call in broadcast.await_args_list]
+        assert {"type": "channel_update", "channel": None, "changedBy": "admin"} in sent
 
     def test_nhl_scores_are_saved_and_applied(
         self, client: TestClient, settings_file: Path

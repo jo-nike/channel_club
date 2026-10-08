@@ -36,6 +36,7 @@ import { AppearancePicker } from '@/components/theme/AppearancePicker'
 import { useAuth } from '@/hooks/useAuth'
 import { useAppSettings } from '@/hooks/useAppSettings'
 import { useChatEnabled } from '@/hooks/useChatEnabled'
+import { useSources } from '@/hooks/useSources'
 import { useNhlEnabled, useNhlOverlayVisible } from '@/hooks/useNhlEnabled'
 import { useFeedbackFeature } from '@/hooks/useFeedbackFeature'
 import { useInstallPrompt } from '@/hooks/useInstallPrompt'
@@ -96,9 +97,11 @@ export function AccountMenu({
   const isNHLOverlayVisible = useNhlOverlayVisible()
   const setNHLOverlayVisible = useUIStore((s) => s.setNHLOverlayVisible)
   const initial = initialOf(username)
-  const canChangeLive = isAdmin || userChannelSelection
+  // Live TV (channel 0) needs Dispatcharr: without it there is nothing to change or suggest
+  const liveOn = useSources().dispatcharr
+  const canChangeLive = liveOn && (isAdmin || userChannelSelection)
   // Everyone else may suggest a channel in chat, while chat is on
-  const canSuggestLive = !canChangeLive && chatEnabled
+  const canSuggestLive = liveOn && !(isAdmin || userChannelSelection) && chatEnabled
   // The menu item that opens a dialog unmounts with the menu, so the dialogs
   // below return focus to this menu's trigger instead
   const ownTriggerRef = useRef<HTMLButtonElement>(null)

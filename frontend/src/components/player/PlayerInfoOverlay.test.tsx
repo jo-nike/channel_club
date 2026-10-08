@@ -95,7 +95,7 @@ beforeEach(() => {
   localStorage.clear()
   vi.useFakeTimers()
   // NHL scores on, as the server's switch would have them for these tests
-  useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: true } })
+  useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: true, sources: { dispatcharr: true, ersatztv: true } } })
   vi.setSystemTime(NOW)
   useErsatztvStore.setState({
     programmesByChannel: {
@@ -478,7 +478,7 @@ describe('PlayerInfoOverlay: shared live-channel changes', () => {
 describe('PlayerInfoOverlay: NHL ticker', () => {
   it('has no NHL button, and no ticker even if it was open, while the server has NHL scores off', () => {
     useUIStore.setState({ isNHLOverlayVisible: true })
-    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: false } })
+    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: false, sources: { dispatcharr: true, ersatztv: true } } })
     renderOverlay(cinema)
 
     expect(screen.queryByRole('button', { name: 'NHL scores' })).not.toBeInTheDocument()

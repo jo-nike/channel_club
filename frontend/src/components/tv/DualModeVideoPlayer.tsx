@@ -20,6 +20,7 @@ import { PLAYER_SHELL_ATTRIBUTE, useFullscreenState } from '@/hooks/useFullscree
 import { useStreamRecovery } from '@/hooks/useStreamRecovery'
 import { useChatEnabled } from '@/hooks/useChatEnabled'
 import { useNhlEnabled } from '@/hooks/useNhlEnabled'
+import { useSources } from '@/hooks/useSources'
 import { useClipThat } from '@/hooks/useClipThat'
 import { useMobileLandscape } from '@/hooks/useMobileLandscape'
 import { useSwipeZap } from '@/hooks/useSwipeZap'
@@ -270,8 +271,13 @@ export function DualModeVideoPlayer({
   const isSwipeZap = isMobileLandscape && zap !== undefined
   useSwipeZap({ containerRef, enabled: isSwipeZap, onStep: zap?.step })
 
+  // Which channel sources are set up: with neither there is nothing to tune to
+  const sources = useSources()
   let engine: ReactNode
-  if (!channel) {
+  if (!channel && !sources.dispatcharr && !sources.ersatztv) {
+    // Neither source is set up, so there is nothing to tune to
+    engine = <NoSourcesPlaceholder />
+  } else if (!channel) {
     // No channel selected
     engine = <NoChannelPlaceholder />
   } else if (channel.type === 'live' && !channel.streamUrl) {
@@ -427,6 +433,19 @@ function useSavedMuteNotice(hasStarted: boolean, isStoreMuted: boolean): boolean
 
 // The live slot always exists, so there is no channel only until the TV
 // store initialises: this is startup, not a prompt to pick one
+function NoSourcesPlaceholder() {
+  return (
+    <div role="status" className="flex h-full w-full items-center justify-center bg-black p-6">
+      <div className="max-w-sm text-center">
+        <p className="text-lg text-muted-foreground">No channels yet</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          They appear once an admin adds Dispatcharr or ErsatzTV in the Admin panel, under Server.
+        </p>
+      </div>
+    </div>
+  )
+}
+
 function NoChannelPlaceholder() {
   return (
     <div role="status" className="flex h-full w-full items-center justify-center gap-3 bg-black">

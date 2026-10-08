@@ -5,12 +5,17 @@ from urllib.parse import urlsplit
 
 from fastapi import HTTPException
 
+from app.config import settings
 from app.models.channel import Channel, GroupedChannelsResponse, validate_channel_id
 from app.models.ersatztv import EPGChannel
-from app.services.dispatcharr import get_grouped_channels, peek_grouped_channels
+from app.services.dispatcharr import (
+    DispatchrrNotSetUpError,
+    get_grouped_channels,
+    peek_grouped_channels,
+)
 from app.services.ersatztv import get_channel_by_id
 from app.services.ersatztv.m3u_parser import peek_channels as peek_ersatztv_channels
-from app.services.ersatztv.refresh import run_feed_lookup
+from app.services.ersatztv.refresh import FeedNotSetUpError, run_feed_lookup
 
 
 @dataclass(frozen=True)
@@ -58,11 +63,14 @@ async def find_catalogue_channel(channel_id: str, *, ersatztv: bool = True) -> C
     Uses the same authenticated catalogue as the picker (served stale during a
     Dispatcharr outage). It holds every HDHR channel too: both key a channel by
     its stream UUID, so there is no separate lineup fetch. Both go through their
-    caches, so an unknown id never costs a request of its own.
+    caches, so an unknown id never costs a request of its own. A source with no
+    address holds no channels, so it never makes the answer incomplete.
     """
     complete = True
     try:
         grouped = await get_grouped_channels()
+    except DispatchrrNotSetUpError:
+        pass
     except Exception:
         complete = False
     else:
@@ -75,6 +83,8 @@ async def find_catalogue_channel(channel_id: str, *, ersatztv: bool = True) -> C
     # Never refresh ErsatzTV at all when Dispatcharr already knows this ID.
     try:
         ersatz = await run_feed_lookup(get_channel_by_id, channel_id)
+    except FeedNotSetUpError:
+        return CatalogueMatch(None, complete=complete)
     except Exception:
         return CatalogueMatch(None, complete=False)
     if ersatz:
@@ -87,7 +97,7 @@ def peek_catalogue_channel(channel_id: str) -> CatalogueMatch:
 
     Never fetches, never schedules a refresh and never waits, so it can run on
     every channel update. The answer is incomplete while a catalogue that
-    could hold the id has never loaded.
+    could hold the id has never loaded (a source with no address holds none).
     """
     grouped = peek_grouped_channels()
     if grouped is not None:
@@ -99,7 +109,11 @@ def peek_catalogue_channel(channel_id: str) -> CatalogueMatch:
         for ersatz in ersatz_channels:
             if ersatz.id == channel_id:
                 return CatalogueMatch(_from_ersatztv(ersatz), complete=True, ersatztv=True)
-    return CatalogueMatch(None, complete=grouped is not None and ersatz_channels is not None)
+    return CatalogueMatch(
+        None,
+        complete=(grouped is not None or not settings.dispatcharr_url)
+        and (ersatz_channels is not None or not settings.ersatztv_base_url),
+    )
 
 
 async def resolve_media_channel(channel_id: str) -> MediaChannel:

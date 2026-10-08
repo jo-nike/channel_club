@@ -20,6 +20,7 @@ import { HereNowPopover } from './HereNowPopover'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { useSources } from '@/hooks/useSources'
 
 /**
  * Where the panel sits, chosen by the view from its layout:
@@ -209,7 +210,9 @@ export function ChatPanel({ onSendMessage, onShare, onSetNickname, status = 'con
   const othersHere = useOthersHere()
   const liveChannel = useChannelStore((s) => s.currentChannel)
   const ersatzTVChannels = useErsatztvStore((s) => s.channels)
-  const channelRows = useMemo(() => buildUnifiedChannels(liveChannel, ersatzTVChannels), [liveChannel, ersatzTVChannels])
+  // No live slot without Dispatcharr
+  const withLiveSlot = useSources().dispatcharr
+  const channelRows = useMemo(() => buildUnifiedChannels(liveChannel, ersatzTVChannels, withLiveSlot), [liveChannel, ersatzTVChannels, withLiveSlot])
   const selectedChannelId = useTVStore((s) => s.selectedChannel?.id)
   const selectChannel = useTVStore((s) => s.selectChannel)
   const messageChannel = (msg: ChatMessageData, isOwn: boolean): MessageChannel | undefined => {

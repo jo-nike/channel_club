@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSources } from '@/hooks/useSources'
 import { useRecentLiveStore } from '@/stores/recentLiveStore'
 import { fetchGroupedChannels } from '@/services/api'
 import type { Channel } from '@/types'
@@ -11,16 +12,22 @@ export interface ChannelCatalogueLoad {
   failed: boolean
 }
 
+// Without Dispatcharr the catalogue is empty, not missing: nothing to load or retry
+const NOT_SET_UP: ChannelCatalogueLoad = { catalogue: new Map(), failed: false }
+
 /**
  * The grouped channel catalogue by channel id, loaded once per mount, telling
  * a failed load apart from one still going. Once loaded, recent channels that
- * are no longer in it are forgotten.
+ * are no longer in it are forgotten. Without Dispatcharr it is empty and
+ * nothing is fetched.
  */
 export function useChannelCatalogueLoad(): ChannelCatalogueLoad {
   const [load, setLoad] = useState<ChannelCatalogueLoad>({ catalogue: null, failed: false })
   const pruneRecents = useRecentLiveStore((s) => s.prune)
+  const dispatcharrOn = useSources().dispatcharr
 
   useEffect(() => {
+    if (!dispatcharrOn) return
     let cancelled = false
     fetchGroupedChannels().then(
       ({ groups, ungrouped }) => {
@@ -37,9 +44,9 @@ export function useChannelCatalogueLoad(): ChannelCatalogueLoad {
     return () => {
       cancelled = true
     }
-  }, [pruneRecents])
+  }, [pruneRecents, dispatcharrOn])
 
-  return load
+  return dispatcharrOn ? load : NOT_SET_UP
 }
 
 /**

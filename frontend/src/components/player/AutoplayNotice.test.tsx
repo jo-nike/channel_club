@@ -13,7 +13,7 @@ describe('AutoplayNotice', () => {
   beforeEach(() => {
     volumeSupport.canSet = true
     // NHL scores on, as the server's switch would have them for these tests
-    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: true } })
+    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: true, sources: { dispatcharr: true, ersatztv: true } } })
     useUIStore.setState({ isNHLOverlayVisible: false })
   })
 

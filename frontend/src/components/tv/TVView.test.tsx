@@ -27,6 +27,7 @@ const modal = vi.hoisted(() => ({ last: null as null | { programme: ErsatzTVProg
 vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn(), fetchLiveProgrammes: vi.fn(async () => ({ channelId: '', programmes: [] })) }))
 import type { ErsatzTVProgramme, UnifiedChannel } from '@/types'
 import type { ChannelZap } from '@/hooks/useChannelZap'
+import { useSettingsStore } from '@/stores/settingsStore'
 
 vi.mock('@/services/ersatztvApi', () => ({ fetchErsatzTVChannels: vi.fn(), fetchErsatzTVCurrentProgramme: vi.fn(), getErsatzTVLogoUrl: vi.fn() }))
 vi.mock('@/hooks/useWebSocket', () => ({ useWebSocket: () => ({ status: socket.status, reconnect: socket.reconnect, sendChannelUpdate: presence, sendChatMessage: sendChat, sendSuggest: socket.sendSuggest, sendSetNickname: vi.fn() }) }))
@@ -102,6 +103,8 @@ beforeEach(() => {
   useErsatztvStore.setState({ channels: [], channelsLoading: false, error: null })
   useUIStore.setState({ lastTVChannelId: null, isTheaterMode: false, isChannelSidebarCollapsed: false })
   useChannelStore.getState().setCurrentChannel({ id: 'a', name: 'A', streamUrl: 'https://fixture/a' })
+  // The server hasn't said which sources are set up
+  useSettingsStore.setState({ serverFeatures: null })
 })
 describe('FE-05 routed live-only view', () => {
   it('preserves the first ErsatzTV default after an asynchronous populated catalogue load', async () => {
@@ -868,6 +871,11 @@ describe('B-08 store subscriptions', () => {
 })
 
 describe('A-06 ErsatzTV errors', () => {
+  // A failed load is only an error once the server says ErsatzTV is set up
+  beforeEach(() => {
+    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: false, sources: { dispatcharr: true, ersatztv: true } } })
+  })
+
   it('shows one toast with a fixed id and Retry instead of a fixed error box, and dismisses it when the error clears', async () => {
     const toastError = vi.spyOn(toast, 'error')
     const toastDismiss = vi.spyOn(toast, 'dismiss')
@@ -1759,5 +1767,68 @@ describe('C-04 live changes in the couch view', () => {
     liveChange('TSN 5', 'jon')
 
     expect(screen.queryByText('jon put on TSN 5')).not.toBeInTheDocument()
+  })
+})
+
+describe('channel sources', () => {
+  const movies = { id: 'etv-1', name: 'Movies', number: 1, streamUrl: '/etv-1', logoUrl: '', group: '' }
+  const sources = (dispatcharr: boolean, ersatztv: boolean) =>
+    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: false, sources: { dispatcharr, ersatztv } } })
+
+  beforeEach(() => {
+    useErsatztvStore.setState({ loadAllProgrammes: vi.fn().mockResolvedValue(undefined) })
+    vi.mocked(api.fetchErsatzTVCurrentProgramme).mockResolvedValue({ channelId: 'etv-1', current: null, nextUp: null })
+  })
+
+  it('asks for no ErsatzTV channels and shows no error while ErsatzTV is not set up', async () => {
+    const toastError = vi.spyOn(toast, 'error')
+    vi.mocked(api.fetchErsatzTVChannels).mockClear()
+    sources(true, false)
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a'))
+    expect(api.fetchErsatzTVChannels).not.toHaveBeenCalled()
+    expect(toastError).not.toHaveBeenCalled()
+    expect(screen.queryByText("Couldn't load channels 1-36")).not.toBeInTheDocument()
+  })
+
+  it('shows no error for a failed ErsatzTV load the server then says is not set up', async () => {
+    const toastError = vi.spyOn(toast, 'error')
+    vi.mocked(api.fetchErsatzTVChannels).mockRejectedValue(new Error('ErsatzTV service unavailable'))
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(useErsatztvStore.getState().error).toBe('ErsatzTV service unavailable'))
+
+    act(() => sources(true, false))
+
+    expect(useErsatztvStore.getState().error).toBeNull()
+    expect(toastError).not.toHaveBeenCalled()
+    expect(screen.queryByText("Couldn't load channels 1-36")).not.toBeInTheDocument()
+  })
+
+  it('has no live slot without Dispatcharr, and opens on the first ErsatzTV channel even if Live was last', async () => {
+    useUIStore.setState({ lastTVChannelId: LIVE_CHANNEL_ID })
+    useChannelStore.getState().setCurrentChannel(null)
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([movies])
+    sources(false, true)
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('/etv-1'))
+    expect(screen.queryByRole('button', { name: /^(0 Live: |Live slot, nothing on$)/ })).not.toBeInTheDocument()
+  })
+
+  it('moves a viewer off a channel whose source is switched off', async () => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([movies])
+    sources(true, true)
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('/etv-1'))
+
+    // ErsatzTV goes: its channels go, and the viewer lands on Live
+    act(() => sources(true, false))
+    expect(useErsatztvStore.getState().channels).toEqual([])
+    expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/a')
+
+    // Dispatcharr goes too: nothing is left to watch
+    act(() => sources(false, false))
+    expect(useTVStore.getState().selectedChannel).toBeNull()
   })
 })

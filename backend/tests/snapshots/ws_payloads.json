@@ -21,7 +21,11 @@
     "features": {
       "chat": true,
       "gif": false,
-      "nhl": false
+      "nhl": false,
+      "sources": {
+        "dispatcharr": true,
+        "ersatztv": true
+      }
     }
   },
   "chat_history": {
@@ -89,7 +93,11 @@
     "features": {
       "chat": false,
       "gif": false,
-      "nhl": false
+      "nhl": false,
+      "sources": {
+        "dispatcharr": true,
+        "ersatztv": true
+      }
     }
   },
   "chat_ack_refused": {
@@ -132,7 +140,11 @@
       "features": {
         "chat": false,
         "gif": false,
-        "nhl": false
+        "nhl": false,
+        "sources": {
+          "dispatcharr": true,
+          "ersatztv": true
+        }
       }
     }
   ],

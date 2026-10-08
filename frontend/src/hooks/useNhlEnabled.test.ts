@@ -18,12 +18,12 @@ describe('useNhlEnabled', () => {
   it('follows the server: on, then off', () => {
     const { result, rerender } = renderHook(() => useNhlEnabled())
 
-    act(() => useSettingsStore.getState().setServerFeatures({ chat: false, gif: false, nhl: true }))
+    act(() => useSettingsStore.getState().setServerFeatures({ chat: false, gif: false, nhl: true, sources: { dispatcharr: true, ersatztv: true } }))
     rerender()
     expect(result.current).toBe(true)
     expect(isNhlEnabled()).toBe(true)
 
-    act(() => useSettingsStore.getState().setServerFeatures({ chat: true, gif: true, nhl: false }))
+    act(() => useSettingsStore.getState().setServerFeatures({ chat: true, gif: true, nhl: false, sources: { dispatcharr: true, ersatztv: true } }))
     rerender()
     expect(result.current).toBe(false)
     expect(isNhlEnabled()).toBe(false)
@@ -32,7 +32,7 @@ describe('useNhlEnabled', () => {
 
 describe('useNhlOverlayVisible', () => {
   beforeEach(() => {
-    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: true } })
+    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: true, sources: { dispatcharr: true, ersatztv: true } } })
     useUIStore.setState({ isNHLOverlayVisible: false })
   })
 
@@ -50,7 +50,7 @@ describe('useNhlOverlayVisible', () => {
     const { result, rerender } = renderHook(() => useNhlOverlayVisible())
     expect(result.current).toBe(true)
 
-    act(() => useSettingsStore.getState().setServerFeatures({ chat: false, gif: false, nhl: false }))
+    act(() => useSettingsStore.getState().setServerFeatures({ chat: false, gif: false, nhl: false, sources: { dispatcharr: true, ersatztv: true } }))
     rerender()
     expect(result.current).toBe(false)
   })

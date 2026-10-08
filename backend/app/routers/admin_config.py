@@ -399,7 +399,7 @@ async def update_config(
         if settings_store.settings_path() is None:
             raise _error(409, "no_storage", "This server has no data folder to save settings in")
         try:
-            await config_apply.apply(values)
+            await config_apply.apply(values, actor=admin.sub)
         except OSError as err:
             log.error("Settings not saved: {}", err)
             raise _error(500, "write_failed", "The settings couldn't be saved") from err

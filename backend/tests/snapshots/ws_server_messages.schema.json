@@ -171,12 +171,16 @@
         "nhl": {
           "title": "Nhl",
           "type": "boolean"
+        },
+        "sources": {
+          "$ref": "#/$defs/Sources"
         }
       },
       "required": [
         "chat",
         "gif",
-        "nhl"
+        "nhl",
+        "sources"
       ],
       "title": "Features",
       "type": "object"
@@ -637,6 +641,25 @@
         "settings"
       ],
       "title": "ServerSettingsUpdate",
+      "type": "object"
+    },
+    "Sources": {
+      "description": "Which channel sources have an address. A source without one has no\nchannels, so clients leave out what it would fill (Live needs Dispatcharr).",
+      "properties": {
+        "dispatcharr": {
+          "title": "Dispatcharr",
+          "type": "boolean"
+        },
+        "ersatztv": {
+          "title": "Ersatztv",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "dispatcharr",
+        "ersatztv"
+      ],
+      "title": "Sources",
       "type": "object"
     },
     "You": {

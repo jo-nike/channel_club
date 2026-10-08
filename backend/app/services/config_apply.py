@@ -23,8 +23,8 @@ from loguru import logger
 
 from app.config import UiField, settings
 from app.logging_config import configure_logging
-from app.models.websocket import Features, ServerFeaturesUpdate
-from app.services import channel_state, dispatcharr, plex, settings_store
+from app.models.websocket import Features, ServerFeaturesUpdate, Sources
+from app.services import channel_state, dispatcharr, plex, settings_store, state_store
 from app.services.cast import cast_service
 from app.services.epg_service import get_epg_service
 from app.services.ersatztv.m3u_parser import parse_m3u_playlist
@@ -41,22 +41,29 @@ PLEX_OWNER_FIELDS = frozenset({"plex_server_token", "plex_auth_enabled"})
 
 
 def client_features() -> Features:
-    """Chat, GIFs and NHL as they are now: what connection_ack and features_update carry."""
+    """Chat, GIFs, NHL and the sources as they are now: what connection_ack and
+    features_update carry."""
     key = settings.giphy_api_key
     return Features(
         chat=settings.chat_enabled,
         gif=bool(key and key.get_secret_value()),
         nhl=settings.nhl_enabled,
+        sources=Sources(
+            dispatcharr=bool(settings.dispatcharr_url),
+            ersatztv=bool(settings.ersatztv_base_url),
+        ),
     )
 
 
 def _feature_switches() -> tuple[bool, ...]:
-    """Which optional features clients can use: chat, GIFs, NHL, clips, Zipline, feedback."""
+    """What clients can use: chat, GIFs, NHL, each source, clips, Zipline, feedback."""
     features = client_features()
     return (
         features.chat,
         features.gif,
         features.nhl,
+        features.sources.dispatcharr,
+        features.sources.ersatztv,
         settings.highlight_enabled,
         settings.zipline_available,
         settings.ntfy_available,
@@ -110,13 +117,23 @@ async def _leave_address(old_url: str) -> None:
     await cast_service.stop_sessions(lambda session: on_old(session.stream_url))
 
 
-async def _side_effects(changed: set[str], before: Mapping[str, object]) -> None:
+async def _end_live(actor: str | None) -> None:
+    """Dispatcharr is switched off: Live ends for everyone, as Stop live does."""
+    if channel_state.get_current_channel() is None and not state_store.current()["liveChannelId"]:
+        return
+    log.info("Dispatcharr switched off: Live ends")
+    await channel_state.clear_current_channel_async(actor)
+
+
+async def _side_effects(changed: set[str], before: Mapping[str, object], actor: str | None) -> None:
     if "ersatztv_base_url" in changed:
         # A feed thread can hold the M3U lock through a slow fetch, so the
         # reset waits for it off the event loop
         await run_feed_lookup(parse_m3u_playlist.reset)
         await _leave_address(str(before["ersatztv_base_url"]))
     if "dispatcharr_url" in changed:
+        if not settings.dispatcharr_url:
+            await _end_live(actor)
         await _leave_address(str(before["dispatcharr_url"]))
     if "highlight_enabled" in changed and not settings.highlight_enabled:
         await highlight_service.stop_all()
@@ -125,6 +142,7 @@ async def _side_effects(changed: set[str], before: Mapping[str, object]) -> None
 async def apply(
     values: Mapping[UiField, object],
     edit: Callable[[SettingsDocument], None] | None = None,
+    actor: str | None = None,
 ) -> set[str]:
     """Save values and make the running app use them.
 
@@ -132,6 +150,8 @@ async def apply(
         values: The settings to change; each is checked as assigning it would.
         edit: Also changes the document under the store's lock, before it is
             written; raising there writes and applies nothing.
+        actor: Who saved, named in the chat line when switching Dispatcharr
+            off ends Live.
 
     Returns:
         The fields whose value changed. A field in a group the environment
@@ -154,5 +174,5 @@ async def apply(
     _invalidate(changed)
     if _feature_switches() != switches:
         await broadcast_features_update()
-    await _side_effects(changed, before)
+    await _side_effects(changed, before, actor)
     return changed

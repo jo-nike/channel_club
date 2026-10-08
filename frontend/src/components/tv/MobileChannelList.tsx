@@ -15,6 +15,7 @@ import { useFilteredChannels } from '@/hooks/useFilteredChannels'
 import { ChannelFilterBar, NoChannelsMatch } from '@/components/tv/ChannelFilterBar'
 import { cn, formatClockTime } from '@/lib/utils'
 import type { ErsatzTVProgramme, UnifiedChannel } from '@/types'
+import { useSources } from '@/hooks/useSources'
 
 const NOTHING_ON: CurrentAndNext = { current: null, next: null }
 
@@ -43,6 +44,8 @@ export function MobileChannelList({
   // Field selectors: the list re-renders for what it shows, not on every
   // update to the stores it reads
   const ersatzTVChannels = useErsatztvStore((s) => s.channels)
+  // No live slot without Dispatcharr
+  const withLiveSlot = useSources().dispatcharr
   const programmesByChannel = useErsatztvStore((s) => s.programmesByChannel)
   const selectedChannel = useTVStore((s) => s.selectedChannel)
   const liveEPGStatus = useTVStore((s) => s.liveEPGStatus)
@@ -59,8 +62,8 @@ export function MobileChannelList({
   // The unified list, built from the two stores it comes from, so the live
   // slot follows live TV
   const unifiedChannels = useMemo(
-    () => buildUnifiedChannels(liveChannel, ersatzTVChannels),
-    [liveChannel, ersatzTVChannels]
+    () => buildUnifiedChannels(liveChannel, ersatzTVChannels, withLiveSlot),
+    [liveChannel, ersatzTVChannels, withLiveSlot]
   )
   // Through the search and chips shared with the sidebar and the guide;
   // row 0, the live slot, always stays

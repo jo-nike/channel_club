@@ -12,6 +12,7 @@ import { ChannelLogo } from '@/components/ChannelLogo'
 import { LivePill } from '@/components/LivePill'
 import { cn, formatClockTime } from '@/lib/utils'
 import type { EPGResponse, UnifiedChannel } from '@/types'
+import { useSources } from '@/hooks/useSources'
 
 interface CouchGuideProps {
   /** Hides the guide: after a channel is picked, on Back or Guide, or when focus leaves it */
@@ -86,6 +87,8 @@ function channelRowGuide(index: ProgrammeIndex, channelId: string, nowMs: number
  */
 export function CouchGuide({ onClose, canPickLive, onOpenRoom }: CouchGuideProps) {
   const ersatzTVChannels = useErsatztvStore((s) => s.channels)
+  // No live slot without Dispatcharr
+  const withLiveSlot = useSources().dispatcharr
   const programmesByChannel = useErsatztvStore((s) => s.programmesByChannel)
   const liveChannel = useChannelStore((s) => s.currentChannel)
   const selectedChannel = useTVStore((s) => s.selectedChannel)
@@ -96,8 +99,8 @@ export function CouchGuide({ onClose, canPickLive, onOpenRoom }: CouchGuideProps
   const programmeIndex = buildProgrammeIndex(programmesByChannel)
 
   const channels = useMemo(
-    () => buildUnifiedChannels(liveChannel, ersatzTVChannels),
-    [liveChannel, ersatzTVChannels]
+    () => buildUnifiedChannels(liveChannel, ersatzTVChannels, withLiveSlot),
+    [liveChannel, ersatzTVChannels, withLiveSlot]
   )
 
   // Opens on the channel playing (read once: the list keeps the tab stop on

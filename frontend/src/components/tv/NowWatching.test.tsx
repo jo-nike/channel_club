@@ -4,6 +4,7 @@ import { NowWatching } from './NowWatching'
 import { useChannelStore } from '@/stores/channelStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { useTVStore } from '@/stores/tvStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { useUIStore } from '@/stores/uiStore'
 import type { UnifiedChannel } from '@/types'
 
@@ -108,6 +109,21 @@ describe('NowWatching', () => {
     expect(screen.getByText('CH 0 · Nothing on yet')).toBeInTheDocument()
     expect(screen.getByTestId('now-watching').querySelector('.bg-live')).toBeNull()
     expect(screen.queryByText(/Club channel/)).not.toBeInTheDocument()
+  })
+
+  it('says there are no channels yet, with no skeleton, while neither source is set up', () => {
+    useTVStore.setState({ selectedChannel: null })
+    useSettingsStore.setState({
+      serverFeatures: { chat: false, gif: false, nhl: false, sources: { dispatcharr: false, ersatztv: false } },
+    })
+    try {
+      render(<NowWatching isMobile={false} />)
+
+      expect(screen.getByText('No channels yet')).toBeInTheDocument()
+      expect(screen.queryByTestId('now-watching-skeleton')).not.toBeInTheDocument()
+    } finally {
+      useSettingsStore.setState({ serverFeatures: null })
+    }
   })
 
   it("shows a 'Tuning in...' skeleton before a channel is picked", () => {

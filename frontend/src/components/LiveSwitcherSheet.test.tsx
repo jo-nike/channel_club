@@ -102,7 +102,7 @@ describe('LiveSwitcherSheet', () => {
     useSettingsStore.setState({
       userChannelSelection: true,
       presenceVisible: false,
-      serverFeatures: { chat: false, gif: false, nhl: true },
+      serverFeatures: { chat: false, gif: false, nhl: true, sources: { dispatcharr: true, ersatztv: true } },
     })
     scores.polled = []
     useUIStore.setState({ hideMyActivity: false })
@@ -125,7 +125,7 @@ describe('LiveSwitcherSheet', () => {
   })
 
   it('has no sports on now, and asks for no scores, while the server has NHL scores off', async () => {
-    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: false } })
+    useSettingsStore.setState({ serverFeatures: { chat: false, gif: false, nhl: false, sources: { dispatcharr: true, ersatztv: true } } })
     renderSheet()
 
     await screen.findByText('Sports')

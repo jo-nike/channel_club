@@ -34,6 +34,8 @@ interface ErsatztvState {
   loadCurrentProgramme: (channelId: string) => Promise<void>
   loadAllProgrammes: (hours?: number, silent?: boolean) => Promise<void>
   clearError: () => void
+  /** ErsatzTV was switched off: its channels, schedules and error go */
+  forgetChannels: () => void
 }
 
 export const useErsatztvStore = create<ErsatztvState>((set, get) => ({
@@ -148,4 +150,15 @@ export const useErsatztvStore = create<ErsatztvState>((set, get) => ({
   },
 
   clearError: () => set({ error: null }),
+
+  forgetChannels: () =>
+    set({
+      channels: [],
+      selectedChannel: null,
+      programmes: [],
+      currentProgramme: null,
+      nextProgramme: null,
+      programmesByChannel: {},
+      error: null,
+    }),
 }))
