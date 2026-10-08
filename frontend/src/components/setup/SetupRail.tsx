@@ -86,7 +86,6 @@ export function SetupRail({ state, onGoTo }: SetupRailProps) {
         <p>
           {APP_NAME} {APP_VERSION}
         </p>
-        <p>Everything here can be changed later in the Admin panel.</p>
       </div>
     </nav>
   )
