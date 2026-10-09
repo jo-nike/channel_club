@@ -8,7 +8,7 @@ import { useChannelZap } from '@/hooks/useChannelZap'
 import { useNowPlaying } from '@/hooks/useNowPlaying'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
-import { useChannelStore } from '@/stores/channelStore'
+import { useChannelStore, loadCurrentChannel } from '@/stores/channelStore'
 import { useTVStore, initializeTVStore, LIVE_CHANNEL_ID } from '@/stores/tvStore'
 import { useUIStore, EPG_HEIGHT_MIN, EPG_HEIGHT_MAX } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
@@ -340,6 +340,12 @@ export function TVView() {
   useEffect(() => {
     loadChannels()
   }, [loadChannels])
+
+  // What's on live TV, without waiting for the socket: it may be slow to
+  // connect, or stuck connecting, and the socket's answer wins if it's newer
+  useEffect(() => {
+    void loadCurrentChannel()
+  }, [])
 
   // ErsatzTV errors show once, as a toast with Retry. The error stays in the
   // store (no clearError), so the sidebar keeps its inline Retry; the toast

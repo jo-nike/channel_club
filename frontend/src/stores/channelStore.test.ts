@@ -1,5 +1,10 @@
-import { describe, it, expect, beforeEach } from 'vitest'
-import { describeLiveChange, useChannelStore } from './channelStore'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describeLiveChange, loadCurrentChannel, useChannelStore } from './channelStore'
+import { fetchCurrentChannel } from '@/services/api'
+
+vi.mock('@/services/api', () => ({
+  fetchCurrentChannel: vi.fn(),
+}))
 
 describe('channelStore', () => {
   beforeEach(() => {
@@ -7,10 +12,13 @@ describe('channelStore', () => {
     useChannelStore.setState({
       channels: [],
       currentChannel: null,
+      liveKnown: false,
+      liveVersion: 0,
       lastChange: null,
       isLoading: false,
       error: null,
     })
+    vi.mocked(fetchCurrentChannel).mockReset()
   })
 
   describe('initial state', () => {
@@ -76,6 +84,58 @@ describe('channelStore', () => {
 
       const state = useChannelStore.getState()
       expect(state.currentChannel).toBeNull()
+    })
+
+    it('marks the live channel as known, even when nothing is on', () => {
+      expect(useChannelStore.getState().liveKnown).toBe(false)
+
+      useChannelStore.getState().setCurrentChannel(null)
+
+      expect(useChannelStore.getState().liveKnown).toBe(true)
+    })
+  })
+
+  describe('loadCurrentChannel', () => {
+    const game = { id: '7', name: 'CA-FR: RDS', streamUrl: 'http://rds.ts' }
+
+    it('takes the live channel from the server when the socket has said nothing', async () => {
+      vi.mocked(fetchCurrentChannel).mockResolvedValue(game)
+
+      await loadCurrentChannel()
+
+      expect(useChannelStore.getState().currentChannel).toEqual(game)
+      expect(useChannelStore.getState().liveKnown).toBe(true)
+    })
+
+    it('knows nothing is on when the server says so', async () => {
+      vi.mocked(fetchCurrentChannel).mockResolvedValue(null)
+
+      await loadCurrentChannel()
+
+      expect(useChannelStore.getState().currentChannel).toBeNull()
+      expect(useChannelStore.getState().liveKnown).toBe(true)
+    })
+
+    it('drops its answer when a socket update arrived while it was in flight', async () => {
+      const newer = { id: '8', name: 'TSN 5', streamUrl: 'http://tsn.ts' }
+      let answer: (channel: typeof game) => void = () => {}
+      vi.mocked(fetchCurrentChannel).mockReturnValue(new Promise((resolve) => { answer = resolve }))
+
+      const loading = loadCurrentChannel()
+      useChannelStore.getState().setCurrentChannel(newer)
+      answer(game)
+      await loading
+
+      expect(useChannelStore.getState().currentChannel).toEqual(newer)
+    })
+
+    it('leaves the state alone when the request fails', async () => {
+      vi.mocked(fetchCurrentChannel).mockRejectedValue(new Error('Failed to fetch current channel'))
+
+      await loadCurrentChannel()
+
+      expect(useChannelStore.getState().currentChannel).toBeNull()
+      expect(useChannelStore.getState().liveKnown).toBe(false)
     })
   })
 
