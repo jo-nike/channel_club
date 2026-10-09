@@ -15,7 +15,7 @@ const tv = vi.hoisted(() => ({ mode: true }))
 const socket = vi.hoisted(() => ({ opened: vi.fn(), sendChannelUpdate: vi.fn() }))
 const player = vi.hoisted(() => ({ onFocusSearch: undefined as undefined | (() => void) }))
 vi.mock('@/hooks/useTVMode', () => ({ useTVMode: () => tv.mode }))
-vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn() }))
+vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn(), fetchCurrentChannel: vi.fn(() => new Promise(() => {})) }))
 vi.mock('@/services/ersatztvApi', () => ({ fetchErsatzTVChannels: vi.fn(), fetchErsatzTVCurrentProgramme: vi.fn(), getErsatzTVLogoUrl: vi.fn() }))
 vi.mock('@/hooks/useWebSocket', async () => {
   const { useEffect } = await import('react')

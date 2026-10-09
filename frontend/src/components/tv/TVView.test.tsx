@@ -9,7 +9,7 @@ import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useChannelPrefsStore } from '@/stores/channelPrefsStore'
 import * as api from '@/services/ersatztvApi'
-import { fetchLiveProgrammes, fetchNowPlaying } from '@/services/api'
+import { fetchCurrentChannel, fetchLiveProgrammes, fetchNowPlaying } from '@/services/api'
 import { toast } from 'sonner'
 import { mockViewport } from '@/test/viewport'
 const presence = vi.hoisted(() => vi.fn())
@@ -24,7 +24,7 @@ const chatFlag = vi.hoisted(() => ({ enabled: false }))
 const playerProps = vi.hoisted(() => ({ onPickLive: undefined as undefined | (() => void), renders: 0, reloadKey: undefined as undefined | number, mounts: 0, zap: undefined as undefined | ChannelZap, onFocusSearch: undefined as undefined | (() => void), isStrip: undefined as undefined | boolean, arrivalHost: undefined as undefined | HTMLElement | null }))
 const guide = vi.hoisted(() => ({ onProgrammeClick: undefined as undefined | ((programme: ErsatzTVProgramme, channel: UnifiedChannel) => void) }))
 const modal = vi.hoisted(() => ({ last: null as null | { programme: ErsatzTVProgramme | null; channel: { id: string; name: string } | null; open: boolean; onWatch: (channel: { id: string; name: string }) => void } }))
-vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn(), fetchLiveProgrammes: vi.fn(async () => ({ channelId: '', programmes: [] })) }))
+vi.mock('@/services/api', () => ({ fetchNowPlaying: vi.fn(), fetchCurrentChannel: vi.fn(() => new Promise(() => {})), fetchLiveProgrammes: vi.fn(async () => ({ channelId: '', programmes: [] })) }))
 import type { ErsatzTVProgramme, UnifiedChannel } from '@/types'
 import type { ChannelZap } from '@/hooks/useChannelZap'
 import { useSettingsStore } from '@/stores/settingsStore'
@@ -129,6 +129,14 @@ describe('FE-05 routed live-only view', () => {
     expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/b')
     act(() => useChannelStore.getState().setCurrentChannel(null))
     expect(screen.getByTestId('player')).toHaveTextContent('No live broadcast')
+  })
+
+  it('shows the live channel the server reports without waiting for the socket', async () => {
+    vi.mocked(api.fetchErsatzTVChannels).mockResolvedValue([])
+    vi.mocked(fetchCurrentChannel).mockClear().mockResolvedValueOnce({ id: 'g', name: 'Game', streamUrl: 'https://fixture/game' })
+    render(<MemoryRouter><TVView /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('player')).toHaveTextContent('https://fixture/game'))
+    expect(fetchCurrentChannel).toHaveBeenCalledTimes(1)
   })
 })
 

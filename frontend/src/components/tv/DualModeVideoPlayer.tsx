@@ -460,6 +460,17 @@ function NoLiveChannelPlaceholder({ onPickLive }: { onPickLive?: () => void }) {
   const stoppedBy = useChannelStore((s) =>
     s.lastChange && s.lastChange.channelName === null ? s.lastChange.by : null
   )
+  // Until the server has said what's on, an empty live slot isn't news
+  const liveKnown = useChannelStore((s) => s.liveKnown)
+
+  if (!liveKnown) {
+    return (
+      <div role="status" className="live-slot-idle flex h-full w-full items-center justify-center gap-3 bg-black">
+        <Loader2 className="h-6 w-6 text-muted-foreground motion-safe:animate-spin" aria-hidden="true" />
+        <p className="text-lg text-muted-foreground">Connecting...</p>
+      </div>
+    )
+  }
 
   return (
     // live-slot-idle: the couch sizes it for the TV (index.css)
