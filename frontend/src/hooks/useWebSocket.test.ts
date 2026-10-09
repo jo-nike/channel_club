@@ -12,7 +12,7 @@ import { useTVStore, LIVE_CHANNEL_ID } from '@/stores/tvStore'
 import { useErsatztvStore } from '@/stores/ersatztvStore'
 import { usePresenceStore } from '@/stores/presenceStore'
 import { useSettingsStore } from '@/stores/settingsStore'
-import { fetchNowPlaying } from '@/services/api'
+import { fetchCurrentChannel, fetchNowPlaying } from '@/services/api'
 import { refreshAuth } from './useAuth'
 import { noticeServerBuild } from '@/lib/appUpdate'
 import type { PresenceEntry, UnifiedChannel } from '@/types'
@@ -44,6 +44,8 @@ vi.mock('@/services/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/services/api')>()),
   fetchNowPlaying: vi.fn(),
   fetchLiveProgrammes: vi.fn(async () => ({ channelId: '', programmes: [] })),
+  // A socket stuck connecting asks for the live channel over HTTP; left pending
+  fetchCurrentChannel: vi.fn(() => new Promise(() => {})),
 }))
 
 // Mock WebSocket - simple version without auto-open
@@ -767,6 +769,65 @@ describe('useWebSocket', () => {
         name: 'ESPN',
         streamUrl: 'http://stream.url/espn',
       })
+    })
+  })
+
+  describe('stuck connecting', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+      vi.mocked(fetchCurrentChannel).mockClear()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    test('gives up on a socket still connecting after 10s, loads the live channel and retries', () => {
+      const { result } = renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        vi.advanceTimersByTime(9999)
+      })
+      expect(ws.close).not.toHaveBeenCalled()
+
+      act(() => {
+        vi.advanceTimersByTime(1)
+      })
+      expect(ws.close).toHaveBeenCalledTimes(1)
+      expect(fetchCurrentChannel).toHaveBeenCalledTimes(1)
+      expect(result.current.status).toBe('reconnecting')
+
+      // The close goes through the usual backoff: the first retry is 1s later
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
+      expect(MockWebSocket.instances).toHaveLength(2)
+    })
+
+    test('leaves a socket that opened in time alone', () => {
+      renderHook(() => useWebSocket())
+      const ws = MockWebSocket.instances[0]
+
+      act(() => {
+        ws.simulateOpen()
+        vi.advanceTimersByTime(10000)
+      })
+
+      expect(ws.close).not.toHaveBeenCalled()
+      expect(fetchCurrentChannel).not.toHaveBeenCalled()
+    })
+
+    test('unmounting cancels the wait', () => {
+      const { unmount } = renderHook(() => useWebSocket())
+
+      unmount()
+      act(() => {
+        vi.advanceTimersByTime(10000)
+      })
+
+      expect(fetchCurrentChannel).not.toHaveBeenCalled()
+      expect(MockWebSocket.instances).toHaveLength(1)
     })
   })
 

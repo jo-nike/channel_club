@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/authStore'
-import { useChannelStore, describeLiveChange } from '@/stores/channelStore'
+import { useChannelStore, describeLiveChange, loadCurrentChannel } from '@/stores/channelStore'
 import { useTVStore } from '@/stores/tvStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
@@ -26,6 +26,10 @@ const MAX_BACKOFF = 10000 // 10 seconds
 // After the fast retries run out, keep trying slowly; jitter spreads clients out after a server restart
 const SLOW_RETRY_INTERVAL = 30000 // 30 seconds
 const SLOW_RETRY_JITTER = 5000 // up to 5 seconds
+// A socket still connecting after this is given up and retried. A browser
+// lets only one socket per host be connecting at a time (RFC 6455 4.1), so
+// one that hangs would otherwise hold up every later one, in every tab
+const CONNECT_TIMEOUT = 10000 // 10 seconds
 
 // One fixed id, so rapid live-channel switches replace the toast instead of stacking
 const LIVE_CHANGE_TOAST_ID = 'live-channel-change'
@@ -110,6 +114,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   const wsRef = useRef<WebSocket | null>(null)
   const pingIntervalRef = useRef<number | null>(null)
   const reconnectTimeoutRef = useRef<number | null>(null)
+  const connectTimeoutRef = useRef<number | null>(null)
   const retryCountRef = useRef(0)
   // Tracked per socket instance - a shared flag would be reset by a new connect()
   // before the previous socket's close event arrives
@@ -144,6 +149,10 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current)
       reconnectTimeoutRef.current = null
+    }
+    if (connectTimeoutRef.current) {
+      clearTimeout(connectTimeoutRef.current)
+      connectTimeoutRef.current = null
     }
   }, [])
 
@@ -323,9 +332,23 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       const ws = new WebSocket(wsUrl)
       wsRef.current = ws
 
+      connectTimeoutRef.current = window.setTimeout(() => {
+        connectTimeoutRef.current = null
+        if (wsRef.current !== ws || ws.readyState !== WebSocket.CONNECTING) return
+        logger.warn('WebSocket', `Still connecting after ${CONNECT_TIMEOUT}ms, retrying`)
+        // The live channel meanwhile comes from the server over HTTP
+        void loadCurrentChannel()
+        // Not an intentional close: onclose retries it like any other drop
+        ws.close()
+      }, CONNECT_TIMEOUT)
+
       ws.onopen = () => {
         // Ignore a socket that has already been superseded by a newer one
         if (wsRef.current !== ws) return
+        if (connectTimeoutRef.current) {
+          clearTimeout(connectTimeoutRef.current)
+          connectTimeoutRef.current = null
+        }
 
         // The server reads nothing else until this arrives. A refresh since
         // connect() is already in the store. The hide preference comes with it,
