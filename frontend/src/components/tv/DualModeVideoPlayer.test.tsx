@@ -331,6 +331,8 @@ beforeEach(() => {
   sessionStorage.setItem(ARRIVAL_SHOWN_KEY, '1')
   useAudioStore.setState({ volume: 1, muted: false, savedMuteNotice: false, previewHolds: 0 })
   useFilterStore.setState({ activeFilters: [] })
+  // The server has said what's on live TV ('Connecting...' has its own tests)
+  useChannelStore.setState({ liveKnown: true })
   vidstack.state = { paused: false, volume: 1, muted: false, fullscreen: false, canPlay: false }
   vidstack.mediaPlayer.mockClear()
   vidstack.mounted.mockClear()
@@ -2865,6 +2867,26 @@ describe('DualModeVideoPlayer empty live slot', () => {
     expect(screen.getByText('Waiting for someone to put something on')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Pick a channel for everyone' })).not.toBeInTheDocument()
     expect(screen.queryByText(/admin/i)).not.toBeInTheDocument()
+  })
+
+  it("says 'Connecting...' until the server has said what's on, with no Pick", () => {
+    useChannelStore.setState({ liveKnown: false })
+    renderEmptySlot(vi.fn())
+
+    const status = screen.getByText('Connecting...').closest('[role="status"]')
+    expect(status).toHaveClass('live-slot-idle')
+    expect(screen.queryByText('No live broadcast')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Pick a channel for everyone' })).not.toBeInTheDocument()
+  })
+
+  it("turns into 'No live broadcast' once the server says nothing is on", () => {
+    useChannelStore.setState({ liveKnown: false })
+    renderEmptySlot()
+
+    act(() => useChannelStore.getState().setCurrentChannel(null))
+
+    expect(screen.getByText('No live broadcast')).toBeInTheDocument()
+    expect(screen.queryByText('Connecting...')).not.toBeInTheDocument()
   })
 
   it('says who stopped live TV', () => {
