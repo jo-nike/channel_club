@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { logger } from '@/lib/logger'
+import { fetchCurrentChannel } from '@/services/api'
 import type { Channel } from '@/types'
 
 /** The most recent change to the live channel (channel 0), as announced by the server. */
@@ -25,6 +26,11 @@ export function describeLiveChange(channelName: string | null, by: string | null
 interface ChannelState {
   channels: Channel[]
   currentChannel: Channel | null
+  // The server has said what's on live TV (over the socket or GET
+  // /channels/current); until then a null currentChannel means unknown
+  liveKnown: boolean
+  // Counts socket updates, so a REST answer that one overtook is dropped (internal)
+  liveVersion: number
   lastChange: LiveChannelChange | null
   isLoading: boolean
   error: string | null
@@ -38,6 +44,8 @@ interface ChannelState {
 export const useChannelStore = create<ChannelState>((set) => ({
   channels: [],
   currentChannel: null,
+  liveKnown: false,
+  liveVersion: 0,
   lastChange: null,
   isLoading: false,
   error: null,
@@ -47,7 +55,7 @@ export const useChannelStore = create<ChannelState>((set) => ({
   },
   setCurrentChannel: (currentChannel) => {
     logger.debug('Store', `Current channel: ${currentChannel?.name || 'null'}`)
-    set({ currentChannel })
+    set((state) => ({ currentChannel, liveKnown: true, liveVersion: state.liveVersion + 1 }))
   },
   setLastChange: (lastChange) => set({ lastChange }),
   setLoading: (isLoading) => set({ isLoading }),
@@ -58,3 +66,21 @@ export const useChannelStore = create<ChannelState>((set) => ({
     set({ error, isLoading: false })
   },
 }))
+
+/**
+ * The live channel from GET /channels/current, for when the socket hasn't
+ * told us (it hasn't connected yet, or is stuck connecting). A socket update
+ * that arrives while this is in flight is newer, so it wins.
+ */
+export async function loadCurrentChannel(): Promise<void> {
+  const version = useChannelStore.getState().liveVersion
+  try {
+    const currentChannel = await fetchCurrentChannel()
+    if (useChannelStore.getState().liveVersion !== version) return
+    logger.debug('Store', `Current channel from the server: ${currentChannel?.name || 'null'}`)
+    useChannelStore.setState({ currentChannel, liveKnown: true })
+  } catch (error) {
+    // The socket may still deliver it
+    logger.warn('Store', 'Could not load the current channel', error)
+  }
+}
