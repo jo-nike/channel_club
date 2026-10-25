@@ -41,8 +41,8 @@ def _document_csp_parts(stream_base_url: str) -> tuple[str, str]:
 class SecurityHeadersMiddleware:
     """Add nosniff, Referrer-Policy, X-Frame-Options and a CSP to every HTTP response.
 
-    /api responses get an enforced deny-all CSP; everything else (the SPA
-    document and static files) gets the document policy as Report-Only. A header
+    /api responses get a deny-all CSP; everything else (the SPA document and
+    static files) gets the document policy, which still reports violations. A header
     a route already set is left alone. Pure ASGI, so streamed bodies (the
     segment proxy) pass through unbuffered.
     """
@@ -78,13 +78,13 @@ class SecurityHeadersMiddleware:
                 headers = MutableHeaders(scope=message)
                 headers.setdefault("X-Content-Type-Options", "nosniff")
                 headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-                # frame-ancestors in a Report-Only policy does not block framing
+                # For browsers that predate frame-ancestors
                 headers.setdefault("X-Frame-Options", "DENY")
                 if is_api:
                     headers.setdefault("Content-Security-Policy", API_CSP)
                 else:
                     policy = self.document_csp(Headers(scope=scope).get("host"))
-                    headers.setdefault("Content-Security-Policy-Report-Only", policy)
+                    headers.setdefault("Content-Security-Policy", policy)
             await send(message)
 
         await self.app(scope, receive, send_with_headers)

@@ -1,4 +1,4 @@
-"""CSP violation reports from the SPA's Report-Only policy, logged for Loki."""
+"""CSP violation reports from the SPA's document policy, logged for Loki."""
 
 import json
 from time import monotonic
