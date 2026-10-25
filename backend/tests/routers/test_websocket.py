@@ -203,6 +203,7 @@ class TestWebSocketConnection:
             "sub": "testuser",
             "role": "viewer",
             "exp": datetime.now(UTC) - timedelta(hours=1),
+            "typ": "session",
         }
         expired_token = jwt.encode(
             expired_payload, settings.jwt_secret.get_secret_value(), algorithm="HS256"
@@ -2589,7 +2590,7 @@ def test_sec06_socket_expires_and_cleans_all_state(client, monkeypatch, active):
 
     monkeypatch.setattr(websocket_router, "verify_websocket_token", short_lived)
     token = jwt.encode(
-        {"sub": "expiring", "role": "viewer", "exp": time.time() + 5},
+        {"sub": "expiring", "role": "viewer", "exp": time.time() + 5, "typ": "session"},
         settings.jwt_secret.get_secret_value(),
         algorithm="HS256",
     )

@@ -59,8 +59,7 @@ def verify_token(token: str) -> TokenPayload:
         algorithms=[JWT_ALGORITHM],
         options={"require": ["exp", "sub"]},
     )
-    # R2 tokens carry no typ and stay valid until they expire (7 days after R3)
-    if payload.get("typ", "session") != "session":
+    if payload.get("typ") != "session":
         raise jwt.InvalidTokenError("Not a session token")
     try:
         token_payload = TokenPayload(**payload)

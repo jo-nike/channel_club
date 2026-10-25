@@ -127,13 +127,13 @@ def test_bad_claims_answer_401(app_with_protected_routes, claims):
     assert header.json() == {"detail": "Invalid or expired token"}
 
 
-def test_r2_token_without_typ_is_accepted(app_with_protected_routes):
-    """Tokens issued before typ existed stay valid until they expire."""
+def test_token_without_typ_is_refused(app_with_protected_routes):
+    """A token issued before typ existed (pre-R3, all expired by 6 Oct) is a 401."""
     client = app_with_protected_routes
     token = _signed({"sub": "admin", "role": "admin"})
 
     header = client.get("/api/protected", headers={"Authorization": f"Bearer {token}"})
-    assert header.status_code == 200
+    assert header.status_code == 401
 
 
 def test_require_admin_with_admin_role(app_with_protected_routes):

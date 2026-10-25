@@ -146,12 +146,15 @@ def test_verify_token_rejects_token_without_exp():
         verify_token(token)
 
 
-def test_verify_token_accepts_r2_token_without_typ():
-    """Tokens issued before typ existed stay valid until they expire."""
+def test_verify_token_refuses_a_token_without_typ():
+    """A token issued before typ existed (pre-R3, all expired by 6 Oct) is refused."""
+    import jwt
+
     from app.services.auth import verify_token
 
     token = _signed({"sub": "viewer", "role": "viewer", "auth_time": 1_700_000_000})
-    assert verify_token(token).sub == "viewer"
+    with pytest.raises(jwt.InvalidTokenError):
+        verify_token(token)
 
 
 def test_create_access_token_carries_session_typ_and_auth_time():
