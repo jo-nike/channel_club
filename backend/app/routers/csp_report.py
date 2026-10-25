@@ -32,7 +32,7 @@ def clear_csp_report_state() -> None:
 
 
 def _strip(value: object) -> str:
-    # The WebSocket URL still carries ?token=, so no query or fragment is logged
+    # A query or fragment can carry a credential, so neither is logged
     if not isinstance(value, str):
         return ""
     return value.split("#", 1)[0].split("?", 1)[0]

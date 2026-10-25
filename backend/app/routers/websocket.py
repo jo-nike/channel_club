@@ -406,17 +406,16 @@ def _is_disconnect_race(websocket: WebSocket, error: Exception) -> bool:
 @router.websocket("/api/ws")
 async def websocket_endpoint(
     websocket: WebSocket,
-    token: str | None = Query(default=None),
     view: str = Query(default="live"),
     session_id: str = Query(default=""),
 ) -> None:
     """WebSocket endpoint for real-time channel updates.
 
+    The first frame must be {"type": "auth", "token": ...}; a token in the URL
+    is ignored.
+
     Args:
         websocket: The WebSocket connection.
-        token: Legacy JWT query parameter, still accepted from bundles that
-            predate first-message auth. Without it, the first frame must be
-            {"type": "auth", "token": ...}.
         view: View type ("live" or "ersatztv"), defaults to "live".
         session_id: The client's tab id, only logged (8 hex characters, else dropped).
     """
@@ -430,20 +429,16 @@ async def websocket_endpoint(
     # instead of the 4001 auth-failure code it acts on.
     await websocket.accept()
 
-    # A ?token= socket (an older bundle) is visible until its set_presence_prefs
-    hide_activity = False
-    if token is None:
-        # The token comes in the first frame, so it never appears in a URL
-        # (and so in no proxy access log). Nothing is tracked until it checks out.
-        try:
-            auth = await _receive_auth(websocket)
-        except WebSocketDisconnect:
-            log.debug("WebSocket closed before auth: client {}", client_id)
-            return
-        if auth is not None:
-            token, hide_activity = auth.token, auth.hideActivity
+    # The token comes in the first frame, so it never appears in a URL
+    # (and so in no proxy access log). Nothing is tracked until it checks out.
+    try:
+        auth = await _receive_auth(websocket)
+    except WebSocketDisconnect:
+        log.debug("WebSocket closed before auth: client {}", client_id)
+        return
+    hide_activity = auth.hideActivity if auth is not None else False
 
-    payload = await verify_websocket_token(token) if token else None
+    payload = await verify_websocket_token(auth.token) if auth is not None else None
     if not payload or time.time() >= payload["exp"]:
         log.warning("WebSocket auth failed for client {}", client_id)
         await websocket.close(code=4001, reason="Invalid token")

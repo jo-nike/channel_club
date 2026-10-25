@@ -241,38 +241,20 @@ class TestWebSocketConnection:
         assert exc_info.value.code == 4001
 
 
-class TestLegacyQueryToken:
-    """?token= stays accepted until R3, for tabs still running the old bundle."""
+class TestQueryTokenIgnored:
+    """A token in the URL (the pre-R2 bundle's ?token=) no longer signs a socket in."""
 
-    def test_valid_query_token_is_acknowledged(self, client: TestClient, valid_token: str):
-        with client.websocket_connect(f"/api/ws?token={valid_token}&session_id=legacy") as ws:
-            assert ws.receive_json()["type"] == "connection_ack"
-            assert len(presence._active_users) == 1
-
-    def test_invalid_query_token_is_closed_with_4001(self, client: TestClient):
+    def test_valid_query_token_without_auth_frame_is_closed_with_4001(
+        self, client: TestClient, valid_token: str
+    ):
         with (
-            client.websocket_connect("/api/ws?token=invalid_token") as ws,
+            client.websocket_connect(f"/api/ws?token={valid_token}&session_id=legacy") as ws,
             pytest.raises(WebSocketDisconnect) as exc_info,
         ):
+            ws.send_json({"type": "ping"})
             ws.receive_json()
         assert exc_info.value.code == 4001
-
-    def test_expired_query_token_is_closed_with_4001(self, client: TestClient):
-        from datetime import datetime, timedelta
-
-        import jwt
-
-        expired_token = jwt.encode(
-            {"sub": "testuser", "role": "viewer", "exp": datetime.now(UTC) - timedelta(hours=1)},
-            settings.jwt_secret.get_secret_value(),
-            algorithm="HS256",
-        )
-        with (
-            client.websocket_connect(f"/api/ws?token={expired_token}") as ws,
-            pytest.raises(WebSocketDisconnect) as exc_info,
-        ):
-            ws.receive_json()
-        assert exc_info.value.code == 4001
+        assert presence._active_users == {}
 
 
 class TestConnectionAck:
@@ -2729,11 +2711,15 @@ async def test_sec07_failed_broadcast_closes_and_cleans_endpoint(monkeypatch, va
         await asyncio.Event().wait()
 
     ws.receive_text = receive
+    ws.receive = AsyncMock(
+        return_value={
+            "type": "websocket.receive",
+            "text": json.dumps({"type": "auth", "token": valid_token}),
+        }
+    )
     cleanup = MagicMock(wraps=presence.remove_user)
     monkeypatch.setattr(presence, "remove_user", cleanup)
-    task = asyncio.create_task(
-        websocket_router.websocket_endpoint(ws, valid_token, "live", "failed")
-    )
+    task = asyncio.create_task(websocket_router.websocket_endpoint(ws, "live", "failed"))
     for _ in range(20):
         await asyncio.sleep(0)
         if channel_state.get_connection_count():
