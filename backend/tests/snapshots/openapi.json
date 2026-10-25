@@ -5117,22 +5117,6 @@
               "title": "Download",
               "type": "boolean"
             }
-          },
-          {
-            "in": "query",
-            "name": "token",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Token"
-            }
           }
         ],
         "responses": {

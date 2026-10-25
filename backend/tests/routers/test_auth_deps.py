@@ -25,7 +25,7 @@ def app_with_protected_routes():
     """Create app with protected routes for testing dependencies."""
     from app.models.auth import TokenPayload
     from app.routers.auth import router as auth_router
-    from app.routers.auth_deps import get_current_user, get_current_user_or_token, require_admin
+    from app.routers.auth_deps import get_current_user, require_admin
 
     app = FastAPI()
     app.include_router(auth_router, prefix="/api/auth")
@@ -33,10 +33,6 @@ def app_with_protected_routes():
     @app.get("/api/protected")
     async def protected_route(user: TokenPayload = Depends(get_current_user)):
         return {"user": user.sub, "role": user.role}
-
-    @app.get("/api/media")
-    async def media_route(user: TokenPayload = Depends(get_current_user_or_token)):
-        return {"user": user.sub}
 
     @app.get("/api/admin-only")
     async def admin_only_route(user: TokenPayload = Depends(require_admin)):
@@ -121,16 +117,14 @@ def _signed(claims: dict) -> str:
         pytest.param({"sub": "admin", "role": "admin", "typ": "media"}, id="typ-media"),
     ],
 )
-def test_bad_claims_answer_401_on_header_and_query_token(app_with_protected_routes, claims):
+def test_bad_claims_answer_401(app_with_protected_routes, claims):
     """A signed token that is not a valid session is a 401, never a 500."""
     client = app_with_protected_routes
     token = _signed(claims)
 
     header = client.get("/api/protected", headers={"Authorization": f"Bearer {token}"})
-    query = client.get("/api/media", params={"token": token})
     assert header.status_code == 401
-    assert query.status_code == 401
-    assert query.json() == {"detail": "Invalid or expired token"}
+    assert header.json() == {"detail": "Invalid or expired token"}
 
 
 def test_r2_token_without_typ_is_accepted(app_with_protected_routes):
@@ -139,9 +133,7 @@ def test_r2_token_without_typ_is_accepted(app_with_protected_routes):
     token = _signed({"sub": "admin", "role": "admin"})
 
     header = client.get("/api/protected", headers={"Authorization": f"Bearer {token}"})
-    query = client.get("/api/media", params={"token": token})
     assert header.status_code == 200
-    assert query.status_code == 200
 
 
 def test_require_admin_with_admin_role(app_with_protected_routes):

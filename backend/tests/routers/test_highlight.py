@@ -218,7 +218,7 @@ class TestCaptureMedia:
         assert client.delete(f"/api/highlight/capture/{CAPTURE_ID}").status_code == 401
         assert CAPTURE_ID in highlight_service.captures.captures
 
-    def test_streams_with_header_or_query_token(
+    def test_streams_with_the_header_and_refuses_a_query_token(
         self, client: TestClient, auth_header: dict[str, str], capture: Capture
     ) -> None:
         response = client.get(f"/api/highlight/capture/{CAPTURE_ID}", headers=auth_header)
@@ -230,7 +230,10 @@ class TestCaptureMedia:
         assert "content-disposition" not in response.headers
 
         token = auth_header["Authorization"].removeprefix("Bearer ")
-        response = client.get(f"/api/highlight/capture/{CAPTURE_ID}?token={token}&download=1")
+        assert client.get(f"/api/highlight/capture/{CAPTURE_ID}?token={token}").status_code == 401
+        response = client.get(
+            f"/api/highlight/capture/{CAPTURE_ID}?download=1", headers=auth_header
+        )
         assert response.status_code == 200
         assert response.headers["content-disposition"].startswith(
             'attachment; filename="highlight-channel-1-'
