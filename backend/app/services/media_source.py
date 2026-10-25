@@ -116,13 +116,18 @@ def peek_catalogue_channel(channel_id: str) -> CatalogueMatch:
     )
 
 
-async def resolve_media_channel(channel_id: str) -> MediaChannel:
-    """Resolve credentials/source from trusted catalogs, never request metadata."""
+async def resolve_media_channel(channel_id: str, *, ersatztv: bool = True) -> MediaChannel:
+    """Resolve credentials/source from trusted catalogs, never request metadata.
+
+    ersatztv=False looks in the Dispatcharr catalogue only, as Live does: an
+    ErsatzTV channel on Live would broadcast its internal URL, and a Live cast
+    would not follow it.
+    """
     try:
         validate_channel_id(channel_id)
     except ValueError:
         raise HTTPException(422, "Invalid channel identifier") from None
-    match = await find_catalogue_channel(channel_id)
+    match = await find_catalogue_channel(channel_id, ersatztv=ersatztv)
     if match.channel is not None:
         return checked_source(match.channel, "hls" if match.ersatztv else "mpegts")
     if not match.complete:

@@ -4022,7 +4022,7 @@
         ]
       },
       "put": {
-        "description": "Set the current channel.\n\nRequires admin role, unless an admin has enabled the user_channel_selection\nsetting, in which case any authenticated user may change the channel.\nUpdates the current channel state and broadcasts to all WebSocket clients.\n\nArgs:\n    request: Channel data to set.\n    current_user: Authenticated user allowed to change the channel.\n\nReturns:\n    The updated channel.",
+        "description": "Set the current channel.\n\nRequires admin role, unless an admin has enabled the user_channel_selection\nsetting, in which case any authenticated user may change the channel.\nLive carries Dispatcharr channels only: another id is a 404.\nUpdates the current channel state and broadcasts to all WebSocket clients.\n\nArgs:\n    request: Channel data to set.\n    current_user: Authenticated user allowed to change the channel.\n\nReturns:\n    The updated channel.",
         "operationId": "set_current_channel_api_channels_current_put",
         "requestBody": {
           "content": {
