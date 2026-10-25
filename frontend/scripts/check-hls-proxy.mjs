@@ -38,7 +38,10 @@ try {
   }
   assert.ok(origin, 'Fixture API started: '+apiError)
   const config = await (await fetch(origin+'/fixture.json')).json()
-  assert.equal((await fetch(origin+'/api/ersatztv/stream/synthetic')).status, 401, 'Real API requires token')
+  const unsigned = await fetch(origin+'/api/ersatztv/session', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({channelId:'synthetic'}),
+  })
+  assert.equal(unsigned.status, 401, 'Opening a stream session requires the Authorization header')
   const profile = join(workspace,'chrome')
   chrome = spawn(process.env.CHROME_BIN || 'google-chrome', [
     '--headless=new','--no-sandbox','--disable-gpu','--autoplay-policy=no-user-gesture-required',
@@ -88,7 +91,9 @@ try {
   const media=requests.filter(url=>new URL(url).pathname.startsWith('/api/ersatztv/'))
   assert.ok(media.length>=8,'Player fetched nested playlists and media')
   assert.ok(requests.every(url=>!url.startsWith(config.upstream+'/')),'Browser never bypasses proxy')
-  assert.ok(media.every(url=>new URL(url).searchParams.get('token')===config.token),'Token propagated to every player request')
+  assert.ok(media.every(url=>!url.includes(config.token) && !new URL(url).searchParams.has('token')),'No credential in any player request')
+  const played=media.filter(url=>new URL(url).pathname!=='/api/ersatztv/session')
+  assert.ok(played.every(url=>/^\/api\/ersatztv\/s\/[A-Za-z0-9_-]{32}\//.test(new URL(url).pathname)),'Every playlist and segment goes through a stream session')
   const upstream=(await(await fetch(origin+'/fixture.json')).json()).requests
   for(const resource of ['video.m3u8?fixture=nested','audio.m3u8?fixture=audio','subtitles.m3u8?fixture=subtitles','init.mp4','caption.vtt','secret.key']){
     assert.ok(upstream.some(url=>url.endsWith('/'+resource)),`Fetched proxied ${resource}: ${JSON.stringify(upstream)}`)
@@ -97,7 +102,7 @@ try {
   assert.ok(upstream.some(url=>url.includes('audio_')&&url.endsWith('.ts')))
   assert.ok(upstream.some(url=>url.includes('encrypted_')&&url.endsWith('.ts')))
   assert.ok(upstream.every(url=>!url.includes('token=')),'Application token never forwarded upstream')
-  console.log('PASS: authenticated nested query playlists, MAP, KEY, audio, subtitles and segments all proxied; no direct upstream browser requests')
+  console.log('PASS: nested query playlists, MAP, KEY, audio, subtitles and segments all proxied through stream sessions; no direct upstream browser requests')
 } finally {
   socket?.close()
   for(const child of [chrome,api])if(child && child.exitCode===null){child.kill('SIGTERM');await new Promise(resolve=>child.once('exit',resolve))}
