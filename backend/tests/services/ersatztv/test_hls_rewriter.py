@@ -44,19 +44,9 @@ video/720p.m3u8
 """
 
 
-class TestHLSManifestRewriter:
-    """Tests for HLSManifestRewriter class."""
-
-    def test_rewriter_creation(self):
-        """HLSManifestRewriter can be instantiated."""
-        rewriter = HLSManifestRewriter()
-        assert rewriter.proxy_base_url == "/api/ersatztv/segments"
-        assert rewriter.stream_proxy_url == "/api/ersatztv/stream"
-
-    def test_rewriter_custom_proxy_url(self):
-        """HLSManifestRewriter accepts custom proxy base URL."""
-        rewriter = HLSManifestRewriter(proxy_base_url="/custom/segments")
-        assert rewriter.proxy_base_url == "/custom/segments"
+SID = "S" * 32
+SEGMENTS = f"/api/ersatztv/s/{SID}/segments/"
+PLAYLIST = f"/api/ersatztv/s/{SID}/stream.m3u8?url="
 
 
 class TestRewriteManifest:
@@ -64,49 +54,42 @@ class TestRewriteManifest:
 
     def test_rewrite_manifest_preserves_tags(self):
         """Rewriter preserves HLS tags."""
-        result = rewrite_manifest(SAMPLE_MANIFEST, "http://example.com/")
+        result = rewrite_manifest(SAMPLE_MANIFEST, "http://example.com/", SID)
         assert "#EXTM3U" in result
         assert "#EXT-X-VERSION:3" in result
         assert "#EXT-X-TARGETDURATION:6" in result
         assert "#EXTINF:6.000," in result
 
     def test_rewrite_manifest_proxies_segments(self):
-        """Rewriter proxies segment URLs."""
-        result = rewrite_manifest(SAMPLE_MANIFEST, "http://example.com/")
-        assert "/api/ersatztv/segments/" in result
+        """Rewriter proxies segment URLs through the session."""
+        result = rewrite_manifest(SAMPLE_MANIFEST, "http://example.com/", SID)
+        assert SEGMENTS in result
         # Original segment names should NOT appear in output
         assert "segment-001.ts\n" not in result
         assert "segment-002.ts\n" not in result
 
     def test_rewrite_manifest_handles_nested_m3u8(self):
-        """Rewriter proxies nested variant playlists."""
-        result = rewrite_manifest(SAMPLE_MASTER, "http://example.com/")
-        # Without channel_id, uses _nested placeholder
-        assert "/api/ersatztv/stream/_nested?url=" in result
+        """Rewriter proxies nested variant playlists through the session."""
+        result = rewrite_manifest(SAMPLE_MASTER, "http://example.com/", SID)
+        assert PLAYLIST in result
         # Original m3u8 reference should NOT appear in output
         assert "video/1080p.m3u8\n" not in result
 
-    def test_rewrite_manifest_handles_nested_m3u8_with_channel_id(self):
-        """Rewriter includes channel_id in nested playlist URLs when provided."""
-        result = rewrite_manifest(SAMPLE_MASTER, "http://example.com/", channel_id="test-channel")
-        assert "/api/ersatztv/stream/test-channel?url=" in result
-
     def test_rewrite_manifest_handles_multiple_variants(self):
         """Rewriter handles multiple variant playlists."""
-        result = rewrite_manifest(SAMPLE_MASTER_MULTIPLE_VARIANTS, "http://example.com/")
+        result = rewrite_manifest(SAMPLE_MASTER_MULTIPLE_VARIANTS, "http://example.com/", SID)
         lines = result.strip().split("\n")
-        stream_urls = [line for line in lines if "/api/ersatztv/stream/_nested?url=" in line]
+        stream_urls = [line for line in lines if PLAYLIST in line]
         assert len(stream_urls) == 2
 
     def test_rewrite_manifest_resolves_relative_urls(self):
         """Rewriter resolves relative URLs to absolute before encoding."""
-        result = rewrite_manifest(SAMPLE_MANIFEST, "http://example.com/channel/")
-        # The encoded URLs should contain the full absolute path
-        for line in result.split("\n"):
-            if line.startswith("/api/ersatztv/segments/"):
-                encoded = line.replace("/api/ersatztv/segments/", "")
-                decoded = decode_url(encoded)
-                assert decoded.startswith("http://example.com/channel/")
+        result = rewrite_manifest(SAMPLE_MANIFEST, "http://example.com/channel/", SID)
+        segments = [line for line in result.split("\n") if line.startswith(SEGMENTS)]
+        assert len(segments) == 2
+        for line in segments:
+            decoded = decode_url(line.removeprefix(SEGMENTS))
+            assert decoded.startswith("http://example.com/channel/")
 
     def test_rewrite_manifest_handles_absolute_urls(self):
         """Rewriter handles already-absolute URLs in manifest."""
@@ -115,14 +98,9 @@ class TestRewriteManifest:
 #EXTINF:6.000,
 http://cdn.example.com/segment-001.ts
 """
-        result = rewrite_manifest(manifest, "http://example.com/")
-        assert "/api/ersatztv/segments/" in result
-        # Verify the encoded URL decodes to the absolute URL
-        for line in result.split("\n"):
-            if line.startswith("/api/ersatztv/segments/"):
-                encoded = line.replace("/api/ersatztv/segments/", "")
-                decoded = decode_url(encoded)
-                assert decoded == "http://cdn.example.com/segment-001.ts"
+        result = rewrite_manifest(manifest, "http://example.com/", SID)
+        (line,) = [line for line in result.split("\n") if line.startswith(SEGMENTS)]
+        assert decode_url(line.removeprefix(SEGMENTS)) == "http://cdn.example.com/segment-001.ts"
 
     def test_rewrite_manifest_preserves_empty_lines(self):
         """Rewriter preserves empty lines in manifest."""
@@ -133,31 +111,14 @@ http://cdn.example.com/segment-001.ts
 #EXTINF:6.000,
 segment-001.ts
 """
-        result = rewrite_manifest(manifest, "http://example.com/")
+        result = rewrite_manifest(manifest, "http://example.com/", SID)
         assert "\n\n" in result
 
-    def test_rewrite_manifest_includes_token_in_segment_urls(self):
-        """Rewriter includes token in segment URLs when provided."""
-        result = rewrite_manifest(SAMPLE_MANIFEST, "http://example.com/", token="my-jwt-token")
-        # Check that segment URLs include the token as query param
-        for line in result.split("\n"):
-            if line.startswith("/api/ersatztv/segments/"):
-                assert "?token=my-jwt-token" in line
-
-    def test_rewrite_manifest_includes_token_in_nested_m3u8_urls(self):
-        """Rewriter includes token in nested m3u8 URLs when provided."""
-        result = rewrite_manifest(SAMPLE_MASTER, "http://example.com/", token="my-jwt-token")
-        # Check that nested m3u8 URLs include the token
-        for line in result.split("\n"):
-            if "/api/ersatztv/stream?url=" in line:
-                assert "&token=my-jwt-token" in line
-
-    def test_rewrite_manifest_no_token_when_not_provided(self):
-        """Rewriter does not add token query params when token is None."""
-        result = rewrite_manifest(SAMPLE_MANIFEST, "http://example.com/")
-        # Check that no token query params are present
-        assert "?token=" not in result
-        assert "&token=" not in result
+    def test_rewrite_manifest_carries_no_token(self):
+        """Rewritten URLs carry no credential: the session id is the capability."""
+        for manifest in (SAMPLE_MANIFEST, SAMPLE_MASTER):
+            result = rewrite_manifest(manifest, "http://example.com/", SID)
+            assert "token=" not in result
 
 
 class TestUrlEncodingDecoding:
@@ -221,22 +182,19 @@ class TestUrlEncodingDecoding:
 class TestNestedPlaylistHandling:
     """Tests for nested playlist handling (AC: #3)."""
 
-    def test_m3u8_urls_use_stream_proxy(self):
-        """M3U8 URLs are rewritten to use stream proxy endpoint."""
-        result = rewrite_manifest(SAMPLE_MASTER, "http://example.com/")
-        for line in result.split("\n"):
-            if "m3u8" in line.lower() or ".m3u8" in line:
-                # This should NOT be a raw m3u8 reference
-                assert line.startswith("/api/ersatztv/stream/_nested?url=")
+    def test_m3u8_urls_use_the_session_playlist_route(self):
+        """M3U8 URLs are rewritten to the session's playlist route."""
+        result = rewrite_manifest(SAMPLE_MASTER, "http://example.com/", SID)
+        lines = [line for line in result.split("\n") if line and not line.startswith("#")]
+        assert lines
+        assert all(line.startswith(PLAYLIST) for line in lines)
 
-    def test_ts_segments_use_segment_proxy(self):
-        """TS segment URLs are rewritten to use segment proxy endpoint."""
-        result = rewrite_manifest(SAMPLE_MANIFEST, "http://example.com/")
-        for line in result.split("\n"):
-            if line.startswith("/api/ersatztv/"):
-                # Segments should use segments endpoint, not stream
-                assert line.startswith("/api/ersatztv/segments/")
-                assert "stream" not in line
+    def test_ts_segments_use_the_session_segment_route(self):
+        """TS segment URLs are rewritten to the session's segment route."""
+        result = rewrite_manifest(SAMPLE_MANIFEST, "http://example.com/", SID)
+        lines = [line for line in result.split("\n") if line and not line.startswith("#")]
+        assert len(lines) == 2
+        assert all(line.startswith(SEGMENTS) for line in lines)
 
     def test_complex_nested_structure(self):
         """Handles complex nested HLS structure."""
@@ -249,10 +207,8 @@ streams/720p/playlist.m3u8
 #EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=100000
 iframes/iframe.m3u8
 """
-        result = rewrite_manifest(complex_manifest, "http://example.com/")
-        # All m3u8 references should use stream proxy (with _nested placeholder)
-        stream_proxy_count = result.count("/api/ersatztv/stream/_nested?url=")
-        assert stream_proxy_count == 3
+        result = rewrite_manifest(complex_manifest, "http://example.com/", SID)
+        assert result.count(PLAYLIST) == 3
 
 
 def _allowlist_cases() -> list[tuple[str, bool]]:

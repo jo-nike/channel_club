@@ -12,7 +12,7 @@ from starlette.types import Message
 
 from app.main import app
 from app.middleware.security_headers import API_CSP, SecurityHeadersMiddleware
-from app.routers.auth_deps import get_current_user_or_token
+from app.services import stream_sessions
 from app.services.ersatztv.hls_rewriter import HLSManifestRewriter
 from app.spa import mount_spa
 
@@ -83,7 +83,8 @@ async def test_segment_proxy_keeps_its_own_csp_and_still_streams_chunk_by_chunk(
         elif message.get("body"):
             events.append("sent")
 
-    path = "/api/ersatztv/segments/" + HLSManifestRewriter()._encode_url(url)
+    sid = stream_sessions.create("acct", "8").id
+    path = f"/api/ersatztv/s/{sid}/segments/" + HLSManifestRewriter()._encode_url(url)
     scope = {
         "type": "http",
         "asgi": {"version": "3.0"},
@@ -98,15 +99,11 @@ async def test_segment_proxy_keeps_its_own_csp_and_still_streams_chunk_by_chunk(
         "client": ("127.0.0.1", 1234),
         "server": ("testserver", 80),
     }
-    app.dependency_overrides[get_current_user_or_token] = lambda: object()
-    try:
-        with (
-            patch("app.routers.ersatztv.ersatztv_client", return_value=AsyncMock()),
-            patch("app.routers.ersatztv.fetch_ersatztv", return_value=upstream),
-        ):
-            await app(scope, receive, send)
-    finally:
-        app.dependency_overrides.pop(get_current_user_or_token, None)
+    with (
+        patch("app.routers.ersatztv.ersatztv_client", return_value=AsyncMock()),
+        patch("app.routers.ersatztv.fetch_ersatztv", return_value=upstream),
+    ):
+        await app(scope, receive, send)
 
     headers = httpx.Headers([(k.decode(), v.decode()) for k, v in start[0]["headers"]])
     assert_baseline(headers)

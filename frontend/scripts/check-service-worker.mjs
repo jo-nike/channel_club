@@ -85,7 +85,7 @@ try {
   assert.equal(await evaluate("caches.has('api-cache')"), false, 'legacy cache deleted on activation')
   const request = (path, account) => evaluate(`fetch(${JSON.stringify(path)}, {headers:{Authorization:${JSON.stringify(account)}}}).then(async r => ({status:r.status, body:await r.text()})).catch(e => ({failed:true,error:String(e)}))`)
   const paths = process.argv.includes('--media')
-    ? ['/api/ersatztv/stream/test', '/api/ersatztv/segments/test.ts', '/api/cast/hls/test/index.m3u8']
+    ? ['/api/ersatztv/s/test/stream.m3u8', '/api/ersatztv/s/test/segments/test.ts', '/api/cast/hls/test/index.m3u8']
     : ['/api/admin/active-users', '/api/admin/status', '/api/auth/config', '/api/private.png']
   for (const path of paths) assert.match((await request(path, 'synthetic-admin')).body, /synthetic-admin/)
   mode = 'offline'

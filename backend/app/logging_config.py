@@ -85,8 +85,6 @@ class InterceptHandler(logging.Handler):
 # full access log, so uvicorn only logs the rest.
 _QUIET_ACCESS_PATHS = ("/api/health", "/api/health/deps", "/api/admin/status")
 _QUIET_ACCESS_PREFIXES = (
-    "/api/ersatztv/segments/",
-    "/api/ersatztv/stream/",
     "/api/ersatztv/s/",
     "/api/highlight/status/",
     # The clip editor's range requests; the path is a capability, like /s/ above

@@ -11,8 +11,7 @@ from starlette.types import Message
 
 from app.config import settings
 from app.main import app
-from app.routers.auth_deps import get_current_user_or_token
-from app.services import http_clients
+from app.services import http_clients, stream_sessions
 from app.services.ersatztv.hls_rewriter import HLSManifestRewriter
 from app.services.http_clients import (
     DISPATCHARR,
@@ -30,7 +29,8 @@ UPSTREAM = settings.ersatztv_base_url.rstrip("/")
 
 def _segment_path(name: str) -> str:
     url = f"{UPSTREAM}/iptv/session/8/{name}"
-    return "/api/ersatztv/segments/" + HLSManifestRewriter()._encode_url(url)
+    sid = stream_sessions.create("acct", "8").id
+    return f"/api/ersatztv/s/{sid}/segments/" + HLSManifestRewriter()._encode_url(url)
 
 
 def _count_constructions(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
@@ -48,14 +48,12 @@ def _count_constructions(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]
 
 @pytest.fixture
 async def downstream() -> AsyncIterator[httpx.AsyncClient]:
-    """An ASGI client for the app, with the stream routes' auth satisfied."""
-    app.dependency_overrides[get_current_user_or_token] = lambda: object()
+    """An ASGI client for the app."""
     client = httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test")
     try:
         yield client
     finally:
         await client.aclose()
-        app.dependency_overrides.pop(get_current_user_or_token, None)
 
 
 async def test_each_upstream_gets_one_lazily_built_client(
@@ -120,7 +118,8 @@ async def test_manifest_poll_keeps_its_10s_timeout(downstream: httpx.AsyncClient
     url = f"{UPSTREAM}/iptv/session/8/hls.m3u8"
     encoded = HLSManifestRewriter()._encode_url(url)
 
-    response = await downstream.get(f"/api/ersatztv/stream/ch8?url={encoded}")
+    path = stream_sessions.manifest_path(stream_sessions.create("acct", "ch8").id)
+    response = await downstream.get(f"{path}?url={encoded}")
 
     assert response.status_code == 200
     assert requests[0].extensions["timeout"] == httpx.Timeout(10).as_dict()
@@ -211,11 +210,7 @@ async def test_client_gone_before_the_body_starts_still_closes_the_response() ->
         "client": ("127.0.0.1", 1234),
         "server": ("testserver", 80),
     }
-    app.dependency_overrides[get_current_user_or_token] = lambda: object()
-    try:
-        await app(scope, receive, send)
-    finally:
-        app.dependency_overrides.pop(get_current_user_or_token, None)
+    await app(scope, receive, send)
 
     assert not any(message.get("body") for message in sent)
     assert segment.closed

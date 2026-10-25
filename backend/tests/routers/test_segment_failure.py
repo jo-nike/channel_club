@@ -6,7 +6,8 @@ import httpx
 import pytest
 
 from app.main import app
-from app.routers.ersatztv import get_segment
+from app.routers.ersatztv import get_session_segment
+from app.services import stream_sessions
 from app.services.ersatztv.hls_rewriter import HLSManifestRewriter
 
 
@@ -31,7 +32,8 @@ async def test_partial_upstream_raises_and_closes_the_response_not_the_client():
         patch("app.routers.ersatztv.ersatztv_client", return_value=client),
         patch("app.routers.ersatztv.fetch_ersatztv", return_value=response),
     ):
-        downstream = await get_segment(HLSManifestRewriter()._encode_url(url), user=object())
+        session = stream_sessions.create("acct", "8")
+        downstream = await get_session_segment(session.id, HLSManifestRewriter()._encode_url(url))
         chunks = []
         with pytest.raises(httpx.ReadError):
             async for chunk in downstream.body_iterator:
@@ -44,9 +46,7 @@ async def test_partial_upstream_raises_and_closes_the_response_not_the_client():
 
 @pytest.mark.asyncio
 async def test_asgi_client_observes_failure_instead_of_success():
-    from app.routers.auth_deps import get_current_user_or_token
-
-    app.dependency_overrides[get_current_user_or_token] = lambda: object()
+    session = stream_sessions.create("acct", "8")
     url = "http://ersatztv.test:8409/iptv/session/8/partial.ts"
     response = httpx.Response(200, stream=FailedSegment(), request=httpx.Request("GET", url))
     upstream = AsyncMock()
@@ -57,7 +57,8 @@ async def test_asgi_client_observes_failure_instead_of_success():
             patch("app.routers.ersatztv.fetch_ersatztv", return_value=response),
             pytest.raises(httpx.ReadError),
         ):
-            await downstream.get("/api/ersatztv/segments/" + HLSManifestRewriter()._encode_url(url))
+            await downstream.get(
+                f"/api/ersatztv/s/{session.id}/segments/" + HLSManifestRewriter()._encode_url(url)
+            )
     finally:
         await downstream.aclose()
-        app.dependency_overrides.pop(get_current_user_or_token, None)

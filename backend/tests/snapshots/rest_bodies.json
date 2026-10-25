@@ -185,7 +185,6 @@
         "id": "3",
         "xmltvId": "3.etv",
         "name": "Cartoons",
-        "streamUrl": "/api/ersatztv/stream/3",
         "logoUrl": "/api/ersatztv/logos/3",
         "number": 3,
         "group": "Kids"

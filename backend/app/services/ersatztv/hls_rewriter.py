@@ -8,7 +8,7 @@ Story: 7.5 - HLS Proxy Service
 
 import base64
 import re
-from urllib.parse import quote, unquote, urlencode, urljoin, urlsplit
+from urllib.parse import unquote, urlencode, urljoin, urlsplit
 
 import httpx
 from loguru import logger
@@ -199,32 +199,13 @@ async def fetch_ersatztv(
 class HLSManifestRewriter:
     """Rewrites HLS manifest files to proxy segment URLs."""
 
-    def __init__(self, proxy_base_url: str = "/api/ersatztv/segments"):
-        """Initialize the HLS manifest rewriter.
-
-        Args:
-            proxy_base_url: Base URL for proxied segment requests
-        """
-        self.proxy_base_url = proxy_base_url
-        self.stream_proxy_url = "/api/ersatztv/stream"
-
-    def rewrite_manifest(
-        self,
-        manifest_content: str,
-        base_url: str,
-        token: str | None = None,
-        channel_id: str | None = None,
-        session_id: str | None = None,
-    ) -> str:
+    def rewrite_manifest(self, manifest_content: str, base_url: str, session_id: str) -> str:
         """Rewrite HLS manifest to proxy all segment and variant URLs.
 
         Args:
             manifest_content: Raw .m3u8 manifest content
             base_url: Base URL for resolving relative paths
-            token: Optional JWT token to include in rewritten URLs for auth
-            channel_id: Channel ID to include in nested playlist URLs
-            session_id: Stream session to route every URL through instead
-                (token and channel_id are then ignored)
+            session_id: Stream session every rewritten URL goes through
 
         Returns:
             Rewritten manifest with proxied URLs
@@ -238,19 +219,10 @@ class HLSManifestRewriter:
             is_playlist = playlist is True or (
                 playlist is None and urlsplit(absolute).path.lower().endswith(".m3u8")
             )
-            if session_id:
-                # The session id is the capability: no credential in any URL
-                if is_playlist:
-                    return f"{manifest_path(session_id)}?{urlencode({'url': encoded})}"
-                return f"/api/ersatztv/s/{session_id}/segments/{encoded}"
+            # The session id is the capability: no credential in any URL
             if is_playlist:
-                query = {"url": encoded}
-                if token:
-                    query["token"] = token
-                cid = quote(channel_id or "_nested", safe="")
-                return f"{self.stream_proxy_url}/{cid}?{urlencode(query)}"
-            suffix = "?" + urlencode({"token": token}) if token else ""
-            return f"{self.proxy_base_url}/{encoded}{suffix}"
+                return f"{manifest_path(session_id)}?{urlencode({'url': encoded})}"
+            return f"/api/ersatztv/s/{session_id}/segments/{encoded}"
 
         # RFC 8216 4.3.4.2: the URI line after EXT-X-STREAM-INF is a Media
         # Playlist whatever its extension. Only that one line; a later bare URI
@@ -327,28 +299,18 @@ class HLSManifestRewriter:
 _rewriter = HLSManifestRewriter()
 
 
-def rewrite_manifest(
-    content: str,
-    base_url: str,
-    token: str | None = None,
-    channel_id: str | None = None,
-    session_id: str | None = None,
-) -> str:
+def rewrite_manifest(content: str, base_url: str, session_id: str) -> str:
     """Convenience function to rewrite manifest.
 
     Args:
         content: Raw manifest content
         base_url: Base URL for resolving relative paths
-        token: Optional JWT token to include in rewritten URLs for auth
-        channel_id: Channel ID to include in nested playlist URLs
-        session_id: Stream session to route every URL through instead
+        session_id: Stream session every rewritten URL goes through
 
     Returns:
         Rewritten manifest with proxied URLs
     """
-    return _rewriter.rewrite_manifest(
-        content, base_url, token=token, channel_id=channel_id, session_id=session_id
-    )
+    return _rewriter.rewrite_manifest(content, base_url, session_id)
 
 
 def decode_url(encoded_url: str) -> str:

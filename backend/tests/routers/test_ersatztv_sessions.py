@@ -341,8 +341,7 @@ class TestClientDisconnectStopsStartupRetries:
     """C-11: a cold-start loop stops once the client has gone."""
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("route", ["legacy", "session"])
-    async def test_disconnect_stops_retrying(self, channel: EPGChannel, route: str) -> None:
+    async def test_disconnect_stops_retrying(self, channel: EPGChannel) -> None:
         calls: list[httpx.Request] = []
 
         def upstream(request: httpx.Request) -> httpx.Response:
@@ -350,12 +349,7 @@ class TestClientDisconnectStopsStartupRetries:
             return httpx.Response(404, text="not yet")  # a cold start
 
         headers = [(b"host", b"test")]
-        if route == "legacy":
-            token = create_access_token({"sub": "viewer", "role": "viewer"})
-            headers.append((b"authorization", f"Bearer {token}".encode()))
-            path = "/api/ersatztv/stream/8"
-        else:
-            path = stream_sessions.manifest_path(stream_sessions.create("local:viewer", "8").id)
+        path = stream_sessions.manifest_path(stream_sessions.create("local:viewer", "8").id)
 
         messages: list[dict[str, Any]] = [
             {"type": "http.request", "body": b"", "more_body": False},

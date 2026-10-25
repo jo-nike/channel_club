@@ -2,7 +2,6 @@
 
 import base64
 import re
-from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 from urllib.parse import urlsplit
 
@@ -10,18 +9,15 @@ import httpx
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.models.auth import TokenPayload
-from app.routers.auth_deps import get_current_user_or_token
 from app.routers.ersatztv import router
+from app.services import stream_sessions
 from app.services.ersatztv.hls_rewriter import decode_url
 
 
 def test_query_only_map_resolves_against_final_manifest_resource():
     app = FastAPI()
     app.include_router(router)
-    app.dependency_overrides[get_current_user_or_token] = lambda: TokenPayload(
-        sub="fixture", role="viewer", exp=datetime(2099, 1, 1, tzinfo=UTC)
-    )
+    session = stream_sessions.create("fixture", "fixture")
     original = "http://upstream.invalid/folder/playlist.m3u8?session=initial"
     encoded = base64.urlsafe_b64encode(original.encode()).decode().rstrip("=")
     upstream = httpx.Response(
@@ -34,9 +30,7 @@ def test_query_only_map_resolves_against_final_manifest_resource():
         patch("app.routers.ersatztv.is_ersatztv_media_url", return_value=True),
         patch("app.routers.ersatztv.fetch_ersatztv", AsyncMock(return_value=upstream)),
     ):
-        response = client.get(
-            "/api/ersatztv/stream/fixture", params={"url": encoded, "token": "fixture"}
-        )
+        response = client.get(stream_sessions.manifest_path(session.id), params={"url": encoded})
     assert response.status_code == 200
     match = re.search(r'URI="([^"]+)"', response.text)
     assert match is not None

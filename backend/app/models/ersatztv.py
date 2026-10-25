@@ -42,16 +42,13 @@ class Programme(CamelModel):
 class PublicEPGChannel(CamelModel):
     """An ErsatzTV channel as browsers see it, with no internal ErsatzTV URL.
 
-    streamUrl is the legacy proxy path with no token in it, kept only as a
-    stable per-channel key: the frontend keys player resets on it and plays
-    through a stream session (POST /api/ersatztv/session). The route itself
-    goes in R4, and the key then needs another value. originalLogoUrl is left out.
+    It carries no stream URL: browsers play through a stream session
+    (POST /api/ersatztv/session). originalLogoUrl is left out.
     """
 
     id: str
     xmltv_id: str | None = None
     name: str
-    stream_url: str
     logo_url: str | None = None
     number: int | float | None = None
     group: str | None = None
@@ -62,7 +59,6 @@ class PublicEPGChannel(CamelModel):
             id=channel.id,
             xmltv_id=channel.xmltv_id,
             name=channel.name,
-            stream_url=f"/api/ersatztv/stream/{channel.id}",
             logo_url=channel.logo_url,
             number=channel.number,
             group=channel.group,

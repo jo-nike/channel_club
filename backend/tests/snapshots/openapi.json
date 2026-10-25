@@ -3022,7 +3022,7 @@
         "type": "object"
       },
       "PublicEPGChannel": {
-        "description": "An ErsatzTV channel as browsers see it, with no internal ErsatzTV URL.\n\nstreamUrl is the legacy proxy path with no token in it, kept only as a\nstable per-channel key: the frontend keys player resets on it and plays\nthrough a stream session (POST /api/ersatztv/session). The route itself\ngoes in R4, and the key then needs another value. originalLogoUrl is left out.",
+        "description": "An ErsatzTV channel as browsers see it, with no internal ErsatzTV URL.\n\nIt carries no stream URL: browsers play through a stream session\n(POST /api/ersatztv/session). originalLogoUrl is left out.",
         "properties": {
           "group": {
             "anyOf": [
@@ -3068,10 +3068,6 @@
             ],
             "title": "Number"
           },
-          "streamUrl": {
-            "title": "Streamurl",
-            "type": "string"
-          },
           "xmltvId": {
             "anyOf": [
               {
@@ -3086,8 +3082,7 @@
         },
         "required": [
           "id",
-          "name",
-          "streamUrl"
+          "name"
         ],
         "title": "PublicEPGChannel",
         "type": "object"
@@ -4721,128 +4716,6 @@
         ]
       }
     },
-    "/api/ersatztv/segments/{encoded_url}": {
-      "get": {
-        "description": "Proxy HLS segment from ErsatzTV (legacy ?token= route, removed in R4).",
-        "operationId": "get_segment_api_ersatztv_segments__encoded_url__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "encoded_url",
-            "required": true,
-            "schema": {
-              "title": "Encoded Url",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "token",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Token"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Get Segment",
-        "tags": [
-          "ersatztv"
-        ]
-      },
-      "head": {
-        "description": "HEAD request for segment - returns headers only.",
-        "operationId": "head_segment_api_ersatztv_segments__encoded_url__head",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "encoded_url",
-            "required": true,
-            "schema": {
-              "title": "Encoded Url",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "token",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Token"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Head Segment",
-        "tags": [
-          "ersatztv"
-        ]
-      }
-    },
     "/api/ersatztv/session": {
       "post": {
         "description": "Open a stream session for a channel and return the playlist URL to play.",
@@ -4885,146 +4758,6 @@
           }
         ],
         "summary": "Create Stream Session",
-        "tags": [
-          "ersatztv"
-        ]
-      }
-    },
-    "/api/ersatztv/stream/{channel_id}": {
-      "get": {
-        "description": "Get proxied HLS manifest for channel (legacy ?token= route, removed in R4).\n\nIf `url` query param is provided, fetches that URL (for nested playlists).\nOtherwise fetches the channel's stream_url from M3U data.\nToken is passed through to rewritten segment URLs for HLS auth.",
-        "operationId": "get_stream_api_ersatztv_stream__channel_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "channel_id",
-            "required": true,
-            "schema": {
-              "title": "Channel Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "url",
-            "required": false,
-            "schema": {
-              "title": "Url",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "token",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Token"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Get Stream",
-        "tags": [
-          "ersatztv"
-        ]
-      },
-      "head": {
-        "description": "HEAD request for stream - returns headers only (for video.js preflight).",
-        "operationId": "head_stream_api_ersatztv_stream__channel_id__head",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "channel_id",
-            "required": true,
-            "schema": {
-              "title": "Channel Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "url",
-            "required": false,
-            "schema": {
-              "title": "Url",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "token",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Token"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Head Stream",
         "tags": [
           "ersatztv"
         ]

@@ -40,7 +40,8 @@ vi.mock('@/components/tv/DualModeVideoPlayer', async () => {
       onDigit: zap?.digit,
       onDigitCommit: zap?.commitDigits,
     })
-    return <div data-testid="player">{channel?.streamUrl || 'No live broadcast'}</div>
+    // An ErsatzTV channel has no URL of its own, so the mock names it by id
+    return <div data-testid="player">{channel?.type === 'ersatztv' ? `/${channel.id}` : channel?.streamUrl || 'No live broadcast'}</div>
   } }
 })
 vi.mock('@/components/tv/TVEPGGrid', () => ({ TVEPGGrid: () => <div data-testid="tv-epg-grid" /> }))

@@ -17,6 +17,7 @@ from loguru import logger
 from app.config import settings
 from app.main import app
 from app.models.ersatztv import EPGChannel, Programme
+from app.services import stream_sessions
 from app.services.auth import create_access_token
 from app.services.ersatztv.refresh import FeedUnavailableError
 from app.services.http_clients import ERSATZTV
@@ -47,6 +48,16 @@ def _upstream(status: int, body: bytes, content_type: str) -> Iterator[list[http
 
     mock_upstream(ERSATZTV, handler)
     yield requests
+
+
+def _stream(channel_id: str = "comedy-classics") -> str:
+    """The playlist path of a new stream session for the channel."""
+    return stream_sessions.manifest_path(stream_sessions.create("testuser", channel_id).id)
+
+
+def _segments(channel_id: str = "8") -> str:
+    """The segment path prefix of a new stream session for the channel."""
+    return f"/api/ersatztv/s/{stream_sessions.create('testuser', channel_id).id}/segments/"
 
 
 @pytest.fixture
@@ -151,16 +162,14 @@ class TestListChannels:
         data = response.json()
         channel = data["channels"][0]
         # Check camelCase is used
-        assert "streamUrl" in channel
         assert "logoUrl" in channel
         # Check snake_case is NOT used
-        assert "stream_url" not in channel
         assert "logo_url" not in channel
 
     def test_sends_no_internal_ersatztv_url(
         self, client: TestClient, auth_header: dict[str, str], monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """C-12: no LAN URL reaches a browser; streamUrl is the tokenless proxy path."""
+        """C-12: no LAN URL reaches a browser, and no stream URL at all (sessions play)."""
         base = "http://ersatztv.test:8409"
         monkeypatch.setattr(settings, "ersatztv_base_url", base)
         channels = [
@@ -179,11 +188,7 @@ class TestListChannels:
         assert response.status_code == 200
         assert base not in response.text
         listed = response.json()["channels"]
-        assert [c["streamUrl"] for c in listed] == [
-            "/api/ersatztv/stream/ch1",
-            "/api/ersatztv/stream/ch2",
-        ]
-        assert all("originalLogoUrl" not in c for c in listed)
+        assert all("streamUrl" not in c and "originalLogoUrl" not in c for c in listed)
         assert [c["logoUrl"] for c in listed] == [
             "/api/ersatztv/logos/ch1",
             "/api/ersatztv/logos/ch2",
@@ -335,19 +340,14 @@ class TestGetCurrentProgramme:
 
 
 class TestHeadStream:
-    """Tests for HEAD /api/ersatztv/stream/{channel_id} endpoint."""
-
-    def test_requires_authentication(self, client: TestClient) -> None:
-        """Unauthenticated HEAD request returns 401."""
-        response = client.head("/api/ersatztv/stream/comedy-classics")
-        assert response.status_code == 401
+    """Tests for HEAD on a stream session's playlist."""
 
     def test_returns_200_with_headers_only(
         self, client: TestClient, auth_header: dict[str, str], mock_channel: EPGChannel
     ) -> None:
         """HEAD request returns 200 with correct headers but no body."""
         with patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel):
-            response = client.head("/api/ersatztv/stream/comedy-classics", headers=auth_header)
+            response = client.head(_stream(), headers=auth_header)
 
         assert response.status_code == 200
         assert response.headers["content-type"] == "application/vnd.apple.mpegurl"
@@ -358,22 +358,13 @@ class TestHeadStream:
     ) -> None:
         """HEAD request returns 404 when channel not found."""
         with patch("app.routers.ersatztv.get_channel_by_id", return_value=None):
-            response = client.head("/api/ersatztv/stream/nonexistent", headers=auth_header)
+            response = client.head(_stream("nonexistent"), headers=auth_header)
 
         assert response.status_code == 404
 
-    def test_accepts_token_query_param(self, client: TestClient, mock_channel: EPGChannel) -> None:
-        """HEAD stream endpoint accepts token via query parameter."""
-        token = create_access_token({"sub": "testuser", "role": "viewer"})
-
-        with patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel):
-            response = client.head(f"/api/ersatztv/stream/comedy-classics?token={token}")
-
-        assert response.status_code == 200
-
 
 class TestGetStream:
-    """Tests for GET /api/ersatztv/stream/{channel_id} endpoint."""
+    """Tests for GET of a stream session's playlist."""
 
     @pytest.mark.parametrize("failure", ["json", "html", "timeout", "exhausted", "late", "empty"])
     def test_cold_start_retries_before_manifest_validation(
@@ -426,7 +417,7 @@ class TestGetStream:
             patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel),
             patch("app.routers.ersatztv.asyncio.sleep", AsyncMock()) as sleep,
         ):
-            response = client.get("/api/ersatztv/stream/comedy-classics", headers=auth_header)
+            response = client.get(_stream(), headers=auth_header)
         assert all(r.is_closed for r in error_responses)
         if failure == "exhausted":
             assert response.status_code == 503
@@ -435,7 +426,7 @@ class TestGetStream:
         else:
             assert response.status_code == 200
             assert response.text.startswith("#EXTM3U")
-            assert "/api/ersatztv/segments/" in response.text
+            assert "/segments/" in response.text
             if failure in {"late", "empty"}:
                 assert len(calls) == 7
                 assert sum(call.args[0] for call in sleep.await_args_list) == 15.5
@@ -461,7 +452,7 @@ class TestGetStream:
             patch("app.routers.ersatztv.STREAM_STARTUP_SECONDS", 0.01),
             patch("app.routers.ersatztv.fetch_ersatztv", AsyncMock(side_effect=stalled)) as fetch,
         ):
-            response = client.get("/api/ersatztv/stream/comedy-classics", headers=auth_header)
+            response = client.get(_stream(), headers=auth_header)
         assert response.status_code == 503
         assert cancelled == [True]
         fetch.assert_awaited_once()
@@ -483,7 +474,7 @@ class TestGetStream:
                 patch("app.routers.ersatztv.STREAM_STARTUP_SECONDS", 0.01),
                 patch("app.routers.ersatztv.fetch_ersatztv", AsyncMock(side_effect=stalled)),
             ):
-                response = client.get("/api/ersatztv/stream/comedy-classics", headers=auth_header)
+                response = client.get(_stream(), headers=auth_header)
         finally:
             logger.remove(sink)
 
@@ -493,17 +484,14 @@ class TestGetStream:
         assert lines[0].startswith("WARNING | Stream error for channel comedy-classics: ")
         assert "manifest fetch attempt 1/8 failed after 0.0s: TimeoutError: no detail" in lines[0]
 
-    def test_requires_authentication(self, client: TestClient) -> None:
-        """Unauthenticated request returns 401."""
-        response = client.get("/api/ersatztv/stream/comedy-classics")
-        assert response.status_code == 401
-
     def test_returns_rewritten_manifest(
         self, client: TestClient, auth_header: dict[str, str], mock_channel: EPGChannel
     ) -> None:
         """Returns rewritten HLS manifest."""
         manifest = "#EXTM3U\nsegment1.ts\nsegment2.ts"
-        rewritten = "#EXTM3U\n/api/ersatztv/segments/encoded1\n/api/ersatztv/segments/encoded2"
+        rewritten = (
+            "#EXTM3U\n/api/ersatztv/s/x/segments/encoded1\n/api/ersatztv/s/x/segments/encoded2"
+        )
 
         with (
             patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel),
@@ -521,7 +509,7 @@ class TestGetStream:
             mock_client.send = AsyncMock(return_value=mock_response)
             client_getter.return_value = mock_client
 
-            response = client.get("/api/ersatztv/stream/comedy-classics", headers=auth_header)
+            response = client.get(_stream(), headers=auth_header)
 
         assert response.status_code == 200
         assert response.headers["content-type"] == "application/vnd.apple.mpegurl"
@@ -531,7 +519,7 @@ class TestGetStream:
     ) -> None:
         """Returns 404 when channel not found."""
         with patch("app.routers.ersatztv.get_channel_by_id", return_value=None):
-            response = client.get("/api/ersatztv/stream/nonexistent", headers=auth_header)
+            response = client.get(_stream("nonexistent"), headers=auth_header)
 
         assert response.status_code == 404
         assert response.json()["detail"] == "Channel not found"
@@ -547,7 +535,7 @@ class TestGetStream:
         )
 
         with patch("app.routers.ersatztv.get_channel_by_id", return_value=bad_channel):
-            response = client.get("/api/ersatztv/stream/bad-channel", headers=auth_header)
+            response = client.get(_stream("bad-channel"), headers=auth_header)
 
         assert response.status_code == 400
         assert response.json()["detail"] == "Invalid stream URL"
@@ -572,8 +560,8 @@ class TestGetStream:
         url = settings.ersatztv_base_url.rstrip("/") + path
         encoded = HLSManifestRewriter()._encode_url(url)
         with _upstream(200, b"#EXTM3U\n", "text/plain") as requests:
-            got = client.get(f"/api/ersatztv/stream/8?url={encoded}", headers=auth_header)
-            head = client.head(f"/api/ersatztv/stream/8?url={encoded}", headers=auth_header)
+            got = client.get(f"{_stream('8')}?url={encoded}", headers=auth_header)
+            head = client.head(f"{_stream('8')}?url={encoded}", headers=auth_header)
 
         assert got.status_code == 400
         assert got.json()["detail"] == "Invalid stream URL"
@@ -591,82 +579,18 @@ class TestGetStream:
         encoded = HLSManifestRewriter()._encode_url(url)
         manifest = b"#EXTM3U\n#EXTINF:4,\nlive000010.ts\n"
         with _upstream(200, manifest, "application/vnd.apple.mpegurl") as requests:
-            response = client.get(f"/api/ersatztv/stream/8?url={encoded}", headers=auth_header)
+            response = client.get(f"{_stream('8')}?url={encoded}", headers=auth_header)
 
         assert response.status_code == 200
         assert len(requests) == 1
-        assert "/api/ersatztv/segments/" in response.text
+        assert "/segments/" in response.text
         assert response.headers["x-content-type-options"] == "nosniff"
         assert response.headers["content-security-policy"] == "default-src 'none'; sandbox"
         assert response.headers["access-control-allow-origin"] == "*"
 
-    def test_accepts_token_query_param(self, client: TestClient, mock_channel: EPGChannel) -> None:
-        """Stream endpoint accepts token via query parameter for HLS playback."""
-        token = create_access_token({"sub": "testuser", "role": "viewer"})
-        manifest = "#EXTM3U\n#EXT-X-VERSION:3\nsegment.ts"
-        rewritten = "#EXTM3U\n#EXT-X-VERSION:3\n/api/ersatztv/segments/encoded"
-
-        with (
-            patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel),
-            patch("app.routers.ersatztv.ersatztv_client") as client_getter,
-            patch("app.routers.ersatztv.rewrite_manifest", return_value=rewritten),
-        ):
-            mock_response = httpx.Response(
-                200,
-                text=manifest,
-                headers={"content-type": "application/vnd.apple.mpegurl"},
-                request=httpx.Request("GET", mock_channel.stream_url),
-            )
-            mock_client = AsyncMock()
-            mock_client.build_request = MagicMock(return_value=MagicMock())
-            mock_client.send = AsyncMock(return_value=mock_response)
-            client_getter.return_value = mock_client
-
-            # Use token as query param instead of header
-            response = client.get(f"/api/ersatztv/stream/comedy-classics?token={token}")
-
-        assert response.status_code == 200
-        assert response.headers["content-type"] == "application/vnd.apple.mpegurl"
-
-    def test_passes_token_to_rewriter(
-        self, client: TestClient, auth_header: dict[str, str], mock_channel: EPGChannel
-    ) -> None:
-        """Token is passed to manifest rewriter for inclusion in segment URLs."""
-        token = create_access_token({"sub": "testuser", "role": "viewer"})
-        manifest = "#EXTM3U\nsegment.ts"
-
-        with (
-            patch("app.routers.ersatztv.get_channel_by_id", return_value=mock_channel),
-            patch("app.routers.ersatztv.ersatztv_client") as client_getter,
-            patch("app.routers.ersatztv.rewrite_manifest") as mock_rewrite,
-        ):
-            mock_rewrite.return_value = "#EXTM3U\n/api/ersatztv/segments/encoded"
-            mock_response = httpx.Response(
-                200,
-                text=manifest,
-                headers={"content-type": "application/vnd.apple.mpegurl"},
-                request=httpx.Request("GET", mock_channel.stream_url),
-            )
-            mock_client = AsyncMock()
-            mock_client.build_request = MagicMock(return_value=MagicMock())
-            mock_client.send = AsyncMock(return_value=mock_response)
-            client_getter.return_value = mock_client
-
-            client.get(f"/api/ersatztv/stream/comedy-classics?token={token}")
-
-        # Verify token was passed to rewriter
-        mock_rewrite.assert_called_once()
-        call_kwargs = mock_rewrite.call_args
-        assert call_kwargs.kwargs.get("token") == token
-
 
 class TestHeadSegment:
-    """Tests for HEAD /api/ersatztv/segments/{encoded_url} endpoint."""
-
-    def test_requires_authentication(self, client: TestClient) -> None:
-        """Unauthenticated HEAD request returns 401."""
-        response = client.head("/api/ersatztv/segments/some-encoded-url")
-        assert response.status_code == 401
+    """Tests for HEAD on a stream session's segment."""
 
     def test_returns_200_with_headers_only(
         self, client: TestClient, auth_header: dict[str, str]
@@ -678,7 +602,7 @@ class TestHeadSegment:
             "app.routers.ersatztv.decode_url",
             return_value="http://ersatztv.test:8409/iptv/session/8/live000010.ts",
         ):
-            response = client.head(f"/api/ersatztv/segments/{encoded_url}", headers=auth_header)
+            response = client.head(_segments() + encoded_url, headers=auth_header)
 
         assert response.status_code == 200
         assert response.headers["content-type"] == "video/mp2t"
@@ -692,31 +616,13 @@ class TestHeadSegment:
             "app.routers.ersatztv.decode_url",
             return_value="http://malicious.com/segment.ts",
         ):
-            response = client.head("/api/ersatztv/segments/malicious-encoded", headers=auth_header)
+            response = client.head(_segments() + "malicious-encoded", headers=auth_header)
 
         assert response.status_code == 400
 
-    def test_accepts_token_query_param(self, client: TestClient) -> None:
-        """HEAD segment endpoint accepts token via query parameter."""
-        token = create_access_token({"sub": "testuser", "role": "viewer"})
-        encoded_url = "aHR0cDovLzE5Mi4xNjguNTAuMTA4Ojg0MDkvc2VnbWVudC50cw"
-
-        with patch(
-            "app.routers.ersatztv.decode_url",
-            return_value="http://ersatztv.test:8409/iptv/session/8/live000010.ts",
-        ):
-            response = client.head(f"/api/ersatztv/segments/{encoded_url}?token={token}")
-
-        assert response.status_code == 200
-
 
 class TestGetSegment:
-    """Tests for GET /api/ersatztv/segments/{encoded_url} endpoint."""
-
-    def test_requires_authentication(self, client: TestClient) -> None:
-        """Unauthenticated request returns 401."""
-        response = client.get("/api/ersatztv/segments/some-encoded-url")
-        assert response.status_code == 401
+    """Tests for GET of a stream session's segment."""
 
     def test_returns_segment_content(self, client: TestClient, auth_header: dict[str, str]) -> None:
         """Returns segment content from ErsatzTV."""
@@ -746,7 +652,7 @@ class TestGetSegment:
             mock_client.send = AsyncMock(return_value=mock_response)
             client_getter.return_value = mock_client
 
-            response = client.get(f"/api/ersatztv/segments/{encoded_url}", headers=auth_header)
+            response = client.get(_segments() + encoded_url, headers=auth_header)
 
         assert response.status_code == 200
         assert response.content == segment_content
@@ -759,7 +665,7 @@ class TestGetSegment:
             "app.routers.ersatztv.decode_url",
             return_value="http://malicious.com/segment.ts",
         ):
-            response = client.get("/api/ersatztv/segments/malicious-encoded", headers=auth_header)
+            response = client.get(_segments() + "malicious-encoded", headers=auth_header)
 
         assert response.status_code == 400
         assert response.json()["detail"] == "Invalid segment URL"
@@ -784,7 +690,7 @@ class TestGetSegment:
 
         mock_upstream(ERSATZTV, upstream)
         response = client.get(
-            f"/api/ersatztv/segments/{HLSManifestRewriter()._encode_url(url)}",
+            _segments() + HLSManifestRewriter()._encode_url(url),
             headers=auth_header,
         )
 
@@ -814,7 +720,7 @@ class TestGetSegment:
         url = settings.ersatztv_base_url.rstrip("/") + path
         with _upstream(200, b"<html>admin</html>", "text/html") as requests:
             response = client.get(
-                f"/api/ersatztv/segments/{HLSManifestRewriter()._encode_url(url)}",
+                _segments() + HLSManifestRewriter()._encode_url(url),
                 headers=auth_header,
             )
 
@@ -844,7 +750,7 @@ class TestGetSegment:
         url = settings.ersatztv_base_url.rstrip("/") + "/iptv/session/8/live000010.ts"
         with _upstream(200, b"segment", upstream_type) as requests:
             response = client.get(
-                f"/api/ersatztv/segments/{HLSManifestRewriter()._encode_url(url)}",
+                _segments() + HLSManifestRewriter()._encode_url(url),
                 headers=auth_header,
             )
 
@@ -854,40 +760,6 @@ class TestGetSegment:
         assert response.headers["x-content-type-options"] == "nosniff"
         assert response.headers["content-security-policy"] == "default-src 'none'; sandbox"
         assert response.headers["access-control-allow-origin"] == "*"
-
-    def test_accepts_token_query_param(self, client: TestClient) -> None:
-        """Segment endpoint accepts token via query parameter for HLS playback."""
-        token = create_access_token({"sub": "testuser", "role": "viewer"})
-        segment_content = b"segment binary data"
-        encoded_url = "aHR0cDovLzE5Mi4xNjguNTAuMTA4Ojg0MDkvc2VnbWVudC50cw"
-
-        with (
-            patch(
-                "app.routers.ersatztv.decode_url",
-                return_value="http://ersatztv.test:8409/iptv/session/8/live000010.ts",
-            ),
-            patch("app.routers.ersatztv.ersatztv_client") as client_getter,
-        ):
-            mock_response = MagicMock()
-            mock_response.is_redirect = False
-            mock_response.headers = {"content-type": "video/mp2t"}
-            mock_response.raise_for_status = MagicMock()
-
-            async def aiter_bytes():
-                yield segment_content
-
-            mock_response.aiter_bytes = aiter_bytes
-            mock_response.aclose = AsyncMock()
-            mock_client = AsyncMock()
-            mock_client.build_request = MagicMock(return_value=MagicMock())
-            mock_client.send = AsyncMock(return_value=mock_response)
-            client_getter.return_value = mock_client
-
-            # Use token as query param instead of header
-            response = client.get(f"/api/ersatztv/segments/{encoded_url}?token={token}")
-
-        assert response.status_code == 200
-        assert response.content == segment_content
 
     def test_rejects_off_host_redirect(
         self, client: TestClient, auth_header: dict[str, str]
@@ -928,7 +800,7 @@ class TestGetSegment:
             mock_client.send = AsyncMock(side_effect=send)
             client_getter.return_value = mock_client
 
-            response = client.get(f"/api/ersatztv/segments/{encoded_url}", headers=auth_header)
+            response = client.get(_segments() + encoded_url, headers=auth_header)
 
         assert response.status_code == 502
         # The metadata host must never have been contacted.
@@ -961,7 +833,7 @@ class TestGetSegment:
             mock_client.send = AsyncMock(return_value=mock_response)
             client_getter.return_value = mock_client
 
-            response = client.get(f"/api/ersatztv/segments/{encoded_url}", headers=auth_header)
+            response = client.get(_segments() + encoded_url, headers=auth_header)
 
         assert response.status_code == 502
         assert response.json()["detail"] == "Segment too large"
@@ -1179,7 +1051,7 @@ class TestErsatzTVLogging:
                 mock_client.send = AsyncMock(return_value=mock_response)
                 client_getter.return_value = mock_client
 
-                client.get("/api/ersatztv/stream/comedy-classics", headers=auth_header)
+                client.get(_stream(), headers=auth_header)
 
             log_output = output.getvalue()
             assert "DEBUG" in log_output
@@ -1217,10 +1089,10 @@ class TestErrorMapping:
         try:
             with _upstream(200, b"", "video/mp2t") as requests:
                 responses = [
-                    client.get(f"/api/ersatztv/stream/8?url={encoded}", headers=auth_header),
-                    client.head(f"/api/ersatztv/stream/8?url={encoded}", headers=auth_header),
-                    client.get(f"/api/ersatztv/segments/{encoded}", headers=auth_header),
-                    client.head(f"/api/ersatztv/segments/{encoded}", headers=auth_header),
+                    client.get(f"{_stream('8')}?url={encoded}", headers=auth_header),
+                    client.head(f"{_stream('8')}?url={encoded}", headers=auth_header),
+                    client.get(_segments() + encoded, headers=auth_header),
+                    client.head(_segments() + encoded, headers=auth_header),
                 ]
         finally:
             logger.remove(sink)
@@ -1252,7 +1124,7 @@ class TestErrorMapping:
         url = settings.ersatztv_base_url.rstrip("/") + "/iptv/session/8/hls.m3u8"
         encoded = HLSManifestRewriter()._encode_url(url)
         with _upstream(200, body, content_type) as requests:
-            response = client.get(f"/api/ersatztv/stream/8?url={encoded}", headers=auth_header)
+            response = client.get(f"{_stream('8')}?url={encoded}", headers=auth_header)
 
         assert response.status_code == 502
         assert response.json()["detail"] == detail
@@ -1270,7 +1142,7 @@ class TestErrorMapping:
             patch("app.services.ersatztv.hls_rewriter.MANIFEST_BYTES", 8),
             _upstream(200, b"#EXTM3U\n#EXTINF:4,\n", "application/vnd.apple.mpegurl"),
         ):
-            response = client.get(f"/api/ersatztv/stream/8?url={encoded}", headers=auth_header)
+            response = client.get(f"{_stream('8')}?url={encoded}", headers=auth_header)
 
         assert response.status_code == 502
         assert response.json()["detail"] == "Upstream body exceeds byte budget"
