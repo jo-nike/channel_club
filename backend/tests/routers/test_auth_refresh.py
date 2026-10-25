@@ -17,7 +17,9 @@ DAY = 24 * 60 * 60
 
 
 def signed(claims: dict) -> str:
-    return jwt.encode(claims, settings.jwt_secret.get_secret_value(), algorithm="HS256")
+    return jwt.encode(
+        {"typ": "session", **claims}, settings.jwt_secret.get_secret_value(), algorithm="HS256"
+    )
 
 
 def refresh(token: str):
@@ -59,7 +61,7 @@ def test_two_day_old_token_refreshes_to_a_later_expiry_and_keeps_auth_time():
     assert renewed.auth_time is not None
     assert renewed.auth_time.timestamp() == now - 2 * DAY
     assert renewed.plex_id is None
-    # The old token has no typ (as R2 issued them); the renewed one is session-typed
+    # The renewed token is session-typed too
     claims = jwt.decode(body["accessToken"], options={"verify_signature": False})
     assert claims["typ"] == "session"
 

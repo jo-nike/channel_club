@@ -218,7 +218,7 @@ async def _restore_live_channel(channel_id: str) -> None:
             await asyncio.sleep(RESTORE_RETRY_SECONDS)
         try:
             async with asyncio.timeout(RESTORE_ATTEMPT_TIMEOUT_SECONDS):
-                resolved = await resolve_media_channel(channel_id)
+                resolved = await resolve_media_channel(channel_id, ersatztv=False)
         except TimeoutError:
             continue
         except HTTPException as exc:

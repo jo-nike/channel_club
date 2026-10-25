@@ -29,7 +29,8 @@ vi.mock('@/components/tv/DualModeVideoPlayer', async () => {
       onDigit: zap?.digit,
       onDigitCommit: zap?.commitDigits,
     })
-    return <div data-testid="player">{props.channel?.streamUrl || 'No live broadcast'}</div>
+    // An ErsatzTV channel has no URL of its own, so the mock names it by id
+    return <div data-testid="player">{props.channel?.type === 'ersatztv' ? `/${props.channel.id}` : props.channel?.streamUrl || 'No live broadcast'}</div>
   } }
 })
 // The real account menu, with the hooks it reads stubbed

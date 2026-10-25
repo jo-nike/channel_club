@@ -24,7 +24,7 @@ from starlette.requests import ClientDisconnect
 from app.config import settings
 from app.models.auth import TokenPayload
 from app.models.channel import ChannelId
-from app.routers.auth_deps import get_current_user, get_current_user_or_token
+from app.routers.auth_deps import get_current_user
 from app.services.highlight import (
     CLIP_SAVE_ERROR,
     RECORDER_GONE_ERROR,
@@ -244,7 +244,7 @@ async def create_capture(
 async def get_capture(
     capture_id: str = CaptureIdPath,
     download: bool = Query(False),
-    user: TokenPayload = Depends(get_current_user_or_token),
+    user: TokenPayload = Depends(get_current_user),
 ) -> FileResponse:
     """Serve the owner's capture with range support so media elements can seek early."""
     capture = highlight_service.get_capture(capture_id, user.account_key)

@@ -20,7 +20,6 @@ from app.services.dispatcharr import (
     DispatchrrUnavailableError,
     _build_grouped_channels,
     dispatcharr_auth_headers,
-    extract_uuid,
     format_channel_number,
     get_channel_groups,
 )
@@ -69,25 +68,6 @@ class TestDispatcharrAuthHeaders:
             mock_settings.dispatcharr_api_key = None
             with pytest.raises(DispatchrrUnavailableError):
                 await get_channel_groups()
-
-
-class TestExtractUuid:
-    """Tests for extract_uuid utility function."""
-
-    def test_extract_uuid_from_standard_url(self) -> None:
-        """Extract UUID from standard Dispatcharr URL."""
-        url = "http://dispatcharr.test:9191/proxy/ts/stream/abc-123-def-456"
-        assert extract_uuid(url) == "abc-123-def-456"
-
-    def test_extract_uuid_from_url_with_long_uuid(self) -> None:
-        """Extract UUID from URL with full UUID format."""
-        url = "http://dispatcharr.test:9191/proxy/ts/stream/550e8400-e29b-41d4-a716-446655440000"
-        assert extract_uuid(url) == "550e8400-e29b-41d4-a716-446655440000"
-
-    def test_extract_uuid_preserves_entire_path_segment(self) -> None:
-        """UUID extraction gets the last path segment regardless of format."""
-        url = "http://dispatcharr.test:9191/proxy/ts/stream/my-stream-id"
-        assert extract_uuid(url) == "my-stream-id"
 
 
 class TestFormatChannelNumber:

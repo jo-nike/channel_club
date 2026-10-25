@@ -87,9 +87,13 @@ def infinity(ref: str, kind: str, url: str, root: str, columns: list[dict]) -> d
 
 
 # The lineup carries no id field, but each entry's stream URL ends in the channel's
-# UUID, which is the app's channel id: a JSONata root (Infinity's backend parser)
-# takes its last path segment.
-DISPATCHARR_ROOT = '$.{"channel": GuideName, "number": GuideNumber, "channel_id": $split(URL, "/")[-1]}'
+# UUID (/proxy/ts/stream/<uuid>), which is the app's channel id. Infinity's backend
+# JSONata reads `$.{...}` as one grouped object (a single row of nulls), so the
+# root maps each entry explicitly.
+DISPATCHARR_ROOT = (
+    '$map($, function($v) { {"channel": $v.GuideName, "number": $v.GuideNumber,'
+    ' "channel_id": $substringAfter($v.URL, "/stream/")} })'
+)
 
 
 def dispatcharr_catalogue(ref: str = "A") -> dict:

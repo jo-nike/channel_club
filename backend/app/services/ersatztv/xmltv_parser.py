@@ -141,14 +141,6 @@ guide: XmltvCache[Programme] = XmltvCache(
 register_closable(guide)
 
 
-def clear_cache() -> None:
-    """Expire the XMLTV cache and forget its backoff; the next read refreshes it."""
-    guide._cache_expires = None
-    guide._retry_at = None
-    guide._consecutive_failures = 0
-    log.info("XMLTV cache cleared")
-
-
 def get_health() -> EPGHealthStatus:
     """Report the ErsatzTV guide cache and the outcome of recent refreshes.
 

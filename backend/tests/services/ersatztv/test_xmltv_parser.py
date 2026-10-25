@@ -15,7 +15,6 @@ from tests.http_helpers import mock_upstream
 # Will import after implementation
 # from app.services.ersatztv.xmltv_parser import (
 #     parse_xmltv,
-#     clear_cache,
 #     _parse_xmltv_datetime,
 #     _parse_xmltv_content,
 # )
@@ -296,20 +295,6 @@ class TestParseXmltvCache:
         await guide.programmes("comedy-classics")
         assert guide._refresh_task is not None
         await guide._refresh_task
-
-        assert len(requests) == 2
-
-    async def test_clear_cache_forces_refetch(self, monkeypatch: pytest.MonkeyPatch):
-        """clear_cache() makes the next read refresh the guide."""
-        from app.services.ersatztv import xmltv_parser
-
-        requests = _serve(monkeypatch, _ok)
-        await xmltv_parser.guide.programmes("comedy-classics")
-
-        xmltv_parser.clear_cache()
-        await xmltv_parser.guide.programmes("comedy-classics")
-        assert xmltv_parser.guide._refresh_task is not None
-        await xmltv_parser.guide._refresh_task
 
         assert len(requests) == 2
 

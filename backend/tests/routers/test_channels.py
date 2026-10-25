@@ -2,7 +2,7 @@
 
 from collections.abc import Callable, Iterator
 from io import StringIO
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -160,6 +160,26 @@ class TestSetCurrentChannel:
         assert response.status_code == 200
         assert response.json() == trusted.model_dump(by_alias=True)
         assert channel_state.get_current_channel() == trusted
+
+    def test_an_ersatztv_channel_cannot_go_on_live(
+        self, client: TestClient, admin_auth_header: dict[str, str]
+    ) -> None:
+        """Live carries Dispatcharr channels only: ErsatzTV is never even asked."""
+        from app.models.ersatztv import EPGChannel
+
+        ersatz = EPGChannel(
+            id="ersatz-1", name="Movies", stream_url="http://ersatztv.test:8409/iptv/channel/1.m3u8"
+        )
+        lookup = MagicMock(return_value=ersatz)
+        with patch("app.services.media_source.get_channel_by_id", lookup):
+            response = client.put(
+                "/api/channels/current",
+                headers=admin_auth_header,
+                json={"id": "ersatz-1", "name": "Movies", "streamUrl": "", "guideId": ""},
+            )
+        assert response.status_code == 404
+        lookup.assert_not_called()
+        assert channel_state.get_current_channel() is None
 
     @pytest.fixture(autouse=True)
     def catalog(self):

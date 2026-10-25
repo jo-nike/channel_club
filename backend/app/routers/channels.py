@@ -144,6 +144,7 @@ async def set_current_channel(
 
     Requires admin role, unless an admin has enabled the user_channel_selection
     setting, in which case any authenticated user may change the channel.
+    Live carries Dispatcharr channels only: another id is a 404.
     Updates the current channel state and broadcasts to all WebSocket clients.
 
     Args:
@@ -154,7 +155,7 @@ async def set_current_channel(
         The updated channel.
     """
     log.debug("User {} changing channel to '{}'", current_user.sub, request.name)
-    channel = (await resolve_media_channel(request.id)).channel
+    channel = (await resolve_media_channel(request.id, ersatztv=False)).channel
     return await channel_state.set_current_channel(channel, user=current_user.sub)
 
 

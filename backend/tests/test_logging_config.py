@@ -308,7 +308,7 @@ def test_sec03_access_and_structured_credentials_are_redacted(log_format):
             (
                 "uvicorn.access",
                 '%s - "%s %s HTTP/%s" %d',
-                ("127.0.0.1", "GET", f"/api/ersatztv/stream/1?token={secret}", "1.1", 200),
+                ("127.0.0.1", "GET", f"/api/channels/1?token={secret}", "1.1", 200),
             ),
         ]:
             record = logging.LogRecord(name, logging.INFO, __file__, 1, template, args, None)
@@ -321,7 +321,7 @@ def test_sec03_access_and_structured_credentials_are_redacted(log_format):
     assert secret not in captured
     assert "[REDACTED]" in captured
     assert "view=live" in captured
-    assert "/api/ersatztv/stream/1" in captured
+    assert "/api/channels/1" in captured
     if log_format == "json":
         assert all(json.loads(line)["record"] for line in captured.splitlines())
 
@@ -427,8 +427,6 @@ def test_h05_access_log_drops_polled_and_streamed_paths(json_logging) -> None:
         "/api/health",
         "/api/health/deps",
         "/api/admin/status",
-        "/api/ersatztv/segments/abc.ts?token=x",
-        "/api/ersatztv/stream/C1?token=x",
         "/api/ersatztv/s/sid123/stream.m3u8",
         "/api/ersatztv/s/sid123/segments/abc.ts",
         "/api/highlight/status/C1",

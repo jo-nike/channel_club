@@ -18,7 +18,6 @@ from app.services.ersatztv.m3u_parser import (
     _cache,
     _is_cache_expired,
     _parse_m3u_content,
-    clear_cache,
     parse_m3u_playlist,
 )
 from app.services.ersatztv.refresh import FeedNotSetUpError, FeedUnavailableError
@@ -148,10 +147,6 @@ http://example.com/d.m3u8
 class TestCacheBehavior:
     """Tests for caching functionality (AC: #2)."""
 
-    def setup_method(self):
-        """Reset cache before each test."""
-        clear_cache()
-
     def test_cache_is_expired_when_empty(self):
         """Cache reports expired when timestamp is None."""
         _cache["timestamp"] = None
@@ -203,22 +198,9 @@ class TestCacheBehavior:
         parse_m3u_playlist()
         assert mock_get.call_count == 2
 
-    def test_clear_cache_resets_timestamp(self):
-        """clear_cache() resets cache timestamp."""
-        _cache["timestamp"] = datetime.now()
-        _cache["channels"] = [MagicMock()]
-
-        clear_cache()
-
-        assert _cache["timestamp"] is None
-
 
 class TestGracefulFallback:
     """Tests for graceful fallback behavior (AC: #3)."""
-
-    def setup_method(self):
-        """Reset cache before each test."""
-        clear_cache()
 
     @patch("app.services.ersatztv.m3u_parser.fetch_feed")
     def test_returns_stale_cache_on_network_error(self, mock_get: MagicMock):
@@ -294,10 +276,6 @@ class TestGracefulFallback:
 class TestNoAddress:
     """With no ErsatzTV address there is nothing to fetch, so nothing fails."""
 
-    def setup_method(self):
-        """Reset cache before each test."""
-        clear_cache()
-
     @patch("app.services.ersatztv.m3u_parser.fetch_feed")
     def test_is_not_fetched_logged_or_backed_off(
         self, mock_get: MagicMock, monkeypatch: pytest.MonkeyPatch
@@ -335,10 +313,6 @@ class TestNoAddress:
 
 class TestIntegration:
     """Integration tests for parse_m3u_playlist."""
-
-    def setup_method(self):
-        """Reset cache before each test."""
-        clear_cache()
 
     @patch("app.services.ersatztv.m3u_parser.fetch_feed")
     def test_full_parsing_workflow(self, mock_get: MagicMock):

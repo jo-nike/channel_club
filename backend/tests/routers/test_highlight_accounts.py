@@ -74,8 +74,6 @@ async def test_a_capture_is_only_its_accounts(client, tmp_path, owner, intruder)
         for account, status in [(intruder, 404), (owner, 200)]:
             path = f"/api/highlight/capture/{capture}"
             assert (await client.get(path, headers=auth(account))).status_code == status
-            # The legacy query-token form resolves the same account.
-            assert (await client.get(f"{path}?token={token(account)}")).status_code == status
             link = await client.post(f"{path}/download-token", headers=auth(account))
             assert link.status_code == status
             export = await client.post(

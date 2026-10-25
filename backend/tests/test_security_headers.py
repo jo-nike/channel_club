@@ -1,4 +1,4 @@
-"""R-01: security headers on every response, Report-Only CSP for the SPA document."""
+"""R-01: security headers on every response, an enforced CSP for the SPA document."""
 
 import asyncio
 from collections.abc import AsyncIterator, Mapping
@@ -12,7 +12,7 @@ from starlette.types import Message
 
 from app.main import app
 from app.middleware.security_headers import API_CSP, SecurityHeadersMiddleware
-from app.routers.auth_deps import get_current_user_or_token
+from app.services import stream_sessions
 from app.services.ersatztv.hls_rewriter import HLSManifestRewriter
 from app.spa import mount_spa
 
@@ -83,7 +83,8 @@ async def test_segment_proxy_keeps_its_own_csp_and_still_streams_chunk_by_chunk(
         elif message.get("body"):
             events.append("sent")
 
-    path = "/api/ersatztv/segments/" + HLSManifestRewriter()._encode_url(url)
+    sid = stream_sessions.create("acct", "8").id
+    path = f"/api/ersatztv/s/{sid}/segments/" + HLSManifestRewriter()._encode_url(url)
     scope = {
         "type": "http",
         "asgi": {"version": "3.0"},
@@ -98,15 +99,11 @@ async def test_segment_proxy_keeps_its_own_csp_and_still_streams_chunk_by_chunk(
         "client": ("127.0.0.1", 1234),
         "server": ("testserver", 80),
     }
-    app.dependency_overrides[get_current_user_or_token] = lambda: object()
-    try:
-        with (
-            patch("app.routers.ersatztv.ersatztv_client", return_value=AsyncMock()),
-            patch("app.routers.ersatztv.fetch_ersatztv", return_value=upstream),
-        ):
-            await app(scope, receive, send)
-    finally:
-        app.dependency_overrides.pop(get_current_user_or_token, None)
+    with (
+        patch("app.routers.ersatztv.ersatztv_client", return_value=AsyncMock()),
+        patch("app.routers.ersatztv.fetch_ersatztv", return_value=upstream),
+    ):
+        await app(scope, receive, send)
 
     headers = httpx.Headers([(k.decode(), v.decode()) for k, v in start[0]["headers"]])
     assert_baseline(headers)
@@ -129,12 +126,12 @@ def spa_client(tmp_path) -> TestClient:
 
 
 @pytest.mark.parametrize("path", ["/", "/watch/channel-7", "/theme-boot.js"])
-def test_spa_gets_the_report_only_document_policy(spa_client, path):
+def test_spa_gets_the_enforced_document_policy(spa_client, path):
     response = spa_client.get(path)
     assert response.status_code == 200
     assert_baseline(response.headers)
-    assert "content-security-policy" not in response.headers
-    policy = response.headers["content-security-policy-report-only"]
+    assert "content-security-policy-report-only" not in response.headers
+    policy = response.headers["content-security-policy"]
     directives = dict(d.split(" ", 1) for d in policy.split("; "))
     assert directives["script-src"] == "'self' https://www.gstatic.com"
     assert directives["connect-src"] == (
@@ -147,7 +144,7 @@ def test_spa_gets_the_report_only_document_policy(spa_client, path):
 
 def test_hostile_host_header_adds_no_socket_source(spa_client):
     response = spa_client.get("/", headers={"Host": "evil.example; script-src *"})
-    policy = response.headers["content-security-policy-report-only"]
+    policy = response.headers["content-security-policy"]
     assert "evil" not in policy
     assert "connect-src 'self' https://streams.example.com https://plex.tv" in policy
 
@@ -161,9 +158,40 @@ def test_stream_base_url_without_an_origin_is_left_out(tmp_path, stream_base_url
     mount_spa(spa, static)
     spa.add_middleware(SecurityHeadersMiddleware, stream_base_url=stream_base_url)
     client = TestClient(spa, base_url="https://tv.example.com")
-    policy = client.get("/").headers["content-security-policy-report-only"]
+    policy = client.get("/").headers["content-security-policy"]
     assert "://" not in policy.split()
     assert "  " not in policy
     directives = dict(d.split(" ", 1) for d in policy.split("; "))
     assert directives["media-src"] == "'self' blob: https://*.giphy.com"
     assert directives["connect-src"] == "'self' wss://tv.example.com https://plex.tv"
+
+
+def test_a_callable_stream_base_url_is_read_per_request(tmp_path):
+    static = tmp_path / "static"
+    static.mkdir()
+    (static / "index.html").write_text("<!doctype html><title>spa</title>")
+    spa = FastAPI()
+    mount_spa(spa, static)
+    current = ["https://first.example.com/x"]
+    spa.add_middleware(SecurityHeadersMiddleware, stream_base_url=lambda: current[0])
+    client = TestClient(spa, base_url="https://tv.example.com")
+
+    def media_src() -> str:
+        policy = client.get("/").headers["content-security-policy"]
+        return dict(d.split(" ", 1) for d in policy.split("; "))["media-src"]
+
+    assert media_src() == "'self' blob: https://first.example.com https://*.giphy.com"
+    current[0] = "http://second.example.com:9191/proxy"
+    assert media_src() == "'self' blob: http://second.example.com:9191 https://*.giphy.com"
+
+
+def test_the_app_follows_a_dispatcharr_address_saved_while_it_runs(monkeypatch):
+    """Setup step 10: an address saved in the app reaches the CSP without a restart."""
+    from app.config import settings
+
+    client = TestClient(app, base_url="https://tv.example.com")
+    monkeypatch.setattr(settings, "dispatcharr_url", "https://dispatcharr.example.com:9191")
+    policy = client.get("/").headers["content-security-policy"]
+    directives = dict(d.split(" ", 1) for d in policy.split("; "))
+    assert "https://dispatcharr.example.com:9191" in directives["media-src"].split()
+    assert "https://dispatcharr.example.com:9191" in directives["connect-src"].split()

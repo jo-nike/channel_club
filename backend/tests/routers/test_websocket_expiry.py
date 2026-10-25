@@ -18,7 +18,7 @@ def test_signed_jwt_deadline_closes_idle_socket_and_rejects_reuse(monkeypatch):
     monkeypatch.setattr(settings, "chat_enabled", False)
     expiry = int(time.time()) + 1
     token = jwt.encode(
-        {"sub": "synthetic-expiry", "role": "viewer", "exp": expiry},
+        {"sub": "synthetic-expiry", "role": "viewer", "exp": expiry, "typ": "session"},
         settings.jwt_secret.get_secret_value(),
         algorithm="HS256",
     )

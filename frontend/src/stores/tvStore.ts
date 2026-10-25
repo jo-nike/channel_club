@@ -93,7 +93,8 @@ function ersatzTVToUnified(channel: ErsatzTVChannel): UnifiedChannel {
     id: channel.id,
     name: channel.name,
     number: channel.number,
-    streamUrl: channel.streamUrl,
+    // ErsatzTV plays through a stream session, so the channel has no URL of its own
+    streamUrl: '',
     type: 'ersatztv',
     // Our logo route, which proxies wherever ErsatzTV's logo is, so every
     // UnifiedChannel.logoUrl is an /api/ path ChannelLogo can load

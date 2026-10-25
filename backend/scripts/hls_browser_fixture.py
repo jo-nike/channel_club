@@ -30,6 +30,9 @@ from app.services.auth import create_access_token
 
 workspace = Path(sys.argv[1])
 bundle = Path(sys.argv[2])
+# The proxy only fetches ErsatzTV's streaming paths, so the media lives under one
+media = workspace / "iptv" / "session" / "fixture"
+media.mkdir(parents=True)
 logger.remove()
 settings.jwt_secret = SecretStr("local-browser-fixture-signing-key-only-32-bytes")
 
@@ -39,7 +42,7 @@ def ffmpeg(*args):
         ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", *args],
         check=True,
         timeout=30,
-        cwd=workspace,
+        cwd=media,
     )
 
 
@@ -89,15 +92,15 @@ ffmpeg(
     "audio_%03d.ts",
     "audio.m3u8",
 )
-(workspace / "subtitles.m3u8").write_text(
+(media / "subtitles.m3u8").write_text(
     "#EXTM3U\n#EXT-X-TARGETDURATION:8\n#EXT-X-VERSION:3\n#EXT-X-MEDIA-SEQUENCE:0\n"
     "#EXTINF:8,\ncaption.vtt\n#EXT-X-ENDLIST\n"
 )
-(workspace / "caption.vtt").write_text(
+(media / "caption.vtt").write_text(
     "WEBVTT\nX-TIMESTAMP-MAP=LOCAL:00:00:00.000,MPEGTS:0\n\n"
     "00:00.000 --> 00:08.000\nControlled synthetic subtitle\n"
 )
-(workspace / "master.m3u8").write_text(
+(media / "master.m3u8").write_text(
     "#EXTM3U\n#EXT-X-VERSION:7\n"
     '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="Tone",DEFAULT=YES,AUTOSELECT=YES,'
     'URI="audio.m3u8?fixture=audio"\n'
@@ -106,8 +109,8 @@ ffmpeg(
     '#EXT-X-STREAM-INF:BANDWIDTH=400000,RESOLUTION=160x90,CODECS="avc1.42c00b,mp4a.40.2",'
     'AUDIO="audio",SUBTITLES="subs"\nvideo.m3u8?fixture=nested\n'
 )
-(workspace / "secret.key").write_bytes(bytes(range(16)))
-(workspace / "keyinfo").write_text("secret.key\n" + str(workspace / "secret.key") + "\n")
+(media / "secret.key").write_bytes(bytes(range(16)))
+(media / "keyinfo").write_text("secret.key\n" + str(media / "secret.key") + "\n")
 ffmpeg(
     "-f",
     "lavfi",
@@ -128,7 +131,7 @@ ffmpeg(
     "-hls_list_size",
     "0",
     "-hls_key_info_file",
-    str(workspace / "keyinfo"),
+    str(media / "keyinfo"),
     "-hls_segment_filename",
     "encrypted_%03d.ts",
     "encrypted.m3u8",
@@ -158,7 +161,7 @@ def channel(identifier):
     return EPGChannel(
         id=identifier,
         name="Synthetic fixture",
-        stream_url=f"{settings.ersatztv_base_url}/{filename}",
+        stream_url=f"{settings.ersatztv_base_url}/iptv/session/fixture/{filename}",
     )
 
 
@@ -192,7 +195,11 @@ window.playFixture=async function(channel,token){
   hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED,()=>{hls.subtitleDisplay=true;hls.subtitleTrack=0});
   hls.on(Hls.Events.ERROR,(_event,data)=>{if(data.fatal)window.errors.push(data.details)});
   hls.on(Hls.Events.MANIFEST_PARSED,()=>{hls.subtitleTrack=0;video.play().catch(e=>window.errors.push(String(e)))});
-  hls.attachMedia(video);hls.loadSource('/api/ersatztv/stream/'+channel+'?token='+encodeURIComponent(token));
+  const response=await fetch('/api/ersatztv/session',{method:'POST',
+    headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},
+    body:JSON.stringify({channelId:channel})});
+  if(!response.ok){window.errors.push('stream session '+response.status);return false}
+  hls.attachMedia(video);hls.loadSource((await response.json()).url);
   return true;
 }
 </script>""")

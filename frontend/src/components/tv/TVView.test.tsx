@@ -51,7 +51,8 @@ vi.mock('@/components/tv/DualModeVideoPlayer', async () => {
     playerProps.renders += 1
     useEffect(() => { playerProps.mounts += 1 }, [])
     if (crash.player) throw new Error('player exploded')
-    return <div data-testid="player">{channel?.streamUrl || 'No live broadcast'}</div>
+    // An ErsatzTV channel has no URL of its own, so the mock names it by id
+    return <div data-testid="player">{channel?.type === 'ersatztv' ? `/${channel.id}` : channel?.streamUrl || 'No live broadcast'}</div>
   } }
 })
 vi.mock('@/components/tv/TVEPGGrid', () => ({ TVEPGGrid: ({ onProgrammeClick }: { onProgrammeClick?: (programme: ErsatzTVProgramme, channel: UnifiedChannel) => void }) => {

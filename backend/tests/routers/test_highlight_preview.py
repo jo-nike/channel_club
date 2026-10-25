@@ -169,11 +169,10 @@ def test_unknown_and_malformed_tokens(client: TestClient, tmp_path: Path) -> Non
     assert client.get("/api/highlight/preview/not!a!token").status_code == 422
 
 
-def test_the_legacy_query_token_preview_still_serves(
+def test_a_query_token_no_longer_serves_a_capture(
     client: TestClient, auth_header: dict[str, str], tmp_path: Path
 ) -> None:
     capture = register(tmp_path, "synthetic-capture-0001")
     token = auth_header["Authorization"].removeprefix("Bearer ")
     response = client.get(f"/api/highlight/capture/{capture.id}?token={token}")
-    assert response.status_code == 200
-    assert response.content == CAPTURE_BYTES
+    assert response.status_code == 401

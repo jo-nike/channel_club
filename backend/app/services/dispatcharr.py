@@ -81,18 +81,6 @@ class ChannelLogoNotFoundError(Exception):
     """Raised when no channel in the catalogue uses the requested logo."""
 
 
-def extract_uuid(url: str) -> str:
-    """Extract stream UUID from Dispatcharr URL.
-
-    Args:
-        url: Dispatcharr stream URL in format http://host/proxy/ts/stream/{uuid}
-
-    Returns:
-        The UUID portion of the URL (last path segment).
-    """
-    return url.split("/")[-1]
-
-
 def _json_list(response: httpx.Response) -> list[Any]:
     """The response's JSON array (an HTML login page or a paginated dict is not one)."""
     payload = response.json()

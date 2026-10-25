@@ -163,10 +163,3 @@ def peek_channels() -> list[EPGChannel] | None:
     if _cache["last_successful_fetch"] is None:
         return None
     return _cache["channels"]
-
-
-def clear_cache() -> None:
-    """Clear M3U cache, forcing re-fetch on next request."""
-    parse_m3u_playlist.reset_failure()
-    _cache["timestamp"] = None
-    log.info("M3U cache cleared")

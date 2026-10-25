@@ -231,7 +231,7 @@ class TestRestoreLive:
             await channel_state._restore_task
 
         assert channel_state.get_current_channel() == CHANNEL
-        resolve.assert_awaited_once_with("uuid-1")
+        resolve.assert_awaited_once_with("uuid-1", ersatztv=False)
         # Clients get the ordinary channel_update, with no chat line and no name
         sent = [server_payload(call.args[0]) for call in broadcast.await_args_list]
         assert [message["type"] for message in sent] == ["channel_update"]
@@ -284,7 +284,7 @@ class TestRestoreLive:
         release = asyncio.Event()
         other = CHANNEL.model_copy(update={"id": "uuid-2", "name": "CBC"})
 
-        async def slow_resolve(channel_id: str) -> MediaChannel:
+        async def slow_resolve(channel_id: str, *, ersatztv: bool = True) -> MediaChannel:
             await release.wait()
             return MediaChannel(CHANNEL, "mpegts")
 
@@ -304,7 +304,7 @@ def test_startup_waits_briefly_so_the_first_clients_see_the_restored_live(
 ) -> None:
     write_state(state_file, liveChannelId="uuid-1")
 
-    async def slow_resolve(channel_id: str) -> MediaChannel:
+    async def slow_resolve(channel_id: str, *, ersatztv: bool = True) -> MediaChannel:
         await asyncio.sleep(0.3)
         return MediaChannel(CHANNEL, "mpegts")
 
@@ -323,7 +323,7 @@ def test_restore_does_not_block_startup_when_the_catalogue_hangs(
     write_state(state_file, userChannelSelection=True, liveChannelId="uuid-1")
     monkeypatch.setattr(channel_state, "RESTORE_STARTUP_WAIT_SECONDS", 0.2)
 
-    async def hang(channel_id: str) -> MediaChannel:
+    async def hang(channel_id: str, *, ersatztv: bool = True) -> MediaChannel:
         await asyncio.Event().wait()
         raise AssertionError("unreachable")
 

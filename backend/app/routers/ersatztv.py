@@ -27,7 +27,7 @@ from app.models.ersatztv import (
     ProgrammeListResponse,
     PublicEPGChannel,
 )
-from app.routers.auth_deps import get_current_user, get_current_user_or_token
+from app.routers.auth_deps import get_current_user
 from app.services import stream_sessions
 from app.services.ersatztv import (
     get_channel_by_id,
@@ -231,15 +231,13 @@ async def _get_stream(
     channel_id: str,
     url: str | None,
     *,
-    token: str | None = None,
-    session_id: str | None = None,
+    session_id: str,
 ) -> StreamingResponse:
     """Fetch, rewrite and serve a playlist.
 
     If `url` is given, fetches that URL (for nested playlists). Otherwise
-    fetches the channel's stream_url from M3U data. With a session, every
-    rewritten URL goes through the session's routes; without one, the token is
-    passed through to rewritten URLs for HLS auth (the legacy routes).
+    fetches the channel's stream_url from M3U data. Every rewritten URL goes
+    through the session's routes.
     """
     started = monotonic()
     attempts = 0
@@ -288,15 +286,10 @@ async def _get_stream(
                     status_code=503, detail="Stream unavailable - cold start timeout"
                 ) from last_error
 
-        # Rewrite every URL through the session's routes, or the legacy
-        # routes with the token. Use final URL after redirects for correct base path
+        # Rewrite every URL through the session's routes. Use the final URL
+        # after redirects for the correct base path
         final_url = str(response.url)
-        if session_id:
-            rewritten = rewrite_manifest(response.text, final_url, session_id=session_id)
-        else:
-            rewritten = rewrite_manifest(
-                response.text, final_url, token=token, channel_id=channel_id
-            )
+        rewritten = rewrite_manifest(response.text, final_url, session_id)
 
         return StreamingResponse(
             iter([rewritten.encode()]),
@@ -420,58 +413,6 @@ async def _get_segment(encoded_url: str) -> StreamingResponse:
     except Exception:
         log.exception("Segment error")
         raise _internal_error() from None
-
-
-@router.head("/stream/{channel_id}")
-async def head_stream(
-    channel_id: str = Path(...),
-    url: str = Query(default=None),
-    token: str = Query(default=None),
-    user=Depends(get_current_user_or_token),
-):
-    """HEAD request for stream - returns headers only (for video.js preflight)."""
-    log.debug("HEAD /stream request for channel: {}", channel_id)
-    return await _head_stream(channel_id, url)
-
-
-@router.get("/stream/{channel_id}")
-async def get_stream(
-    request: Request,
-    channel_id: str = Path(...),
-    url: str = Query(default=None),
-    token: str = Query(default=None),
-    user=Depends(get_current_user_or_token),
-):
-    """Get proxied HLS manifest for channel (legacy ?token= route, removed in R4).
-
-    If `url` query param is provided, fetches that URL (for nested playlists).
-    Otherwise fetches the channel's stream_url from M3U data.
-    Token is passed through to rewritten segment URLs for HLS auth.
-    """
-    log.debug("GET /stream request for channel: {}", channel_id)
-    return await _get_stream(request, channel_id, url, token=token)
-
-
-@router.head("/segments/{encoded_url:path}")
-async def head_segment(
-    encoded_url: str = Path(...),
-    token: str = Query(default=None),
-    user=Depends(get_current_user_or_token),
-):
-    """HEAD request for segment - returns headers only."""
-    log.debug("HEAD /segments request")
-    return await _head_segment(encoded_url)
-
-
-@router.get("/segments/{encoded_url:path}")
-async def get_segment(
-    encoded_url: str = Path(...),
-    token: str = Query(default=None),
-    user=Depends(get_current_user_or_token),
-):
-    """Proxy HLS segment from ErsatzTV (legacy ?token= route, removed in R4)."""
-    log.debug("GET /segments request")
-    return await _get_segment(encoded_url)
 
 
 class StreamSessionRequest(CamelModel):
