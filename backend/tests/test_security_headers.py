@@ -164,3 +164,34 @@ def test_stream_base_url_without_an_origin_is_left_out(tmp_path, stream_base_url
     directives = dict(d.split(" ", 1) for d in policy.split("; "))
     assert directives["media-src"] == "'self' blob: https://*.giphy.com"
     assert directives["connect-src"] == "'self' wss://tv.example.com https://plex.tv"
+
+
+def test_a_callable_stream_base_url_is_read_per_request(tmp_path):
+    static = tmp_path / "static"
+    static.mkdir()
+    (static / "index.html").write_text("<!doctype html><title>spa</title>")
+    spa = FastAPI()
+    mount_spa(spa, static)
+    current = ["https://first.example.com/x"]
+    spa.add_middleware(SecurityHeadersMiddleware, stream_base_url=lambda: current[0])
+    client = TestClient(spa, base_url="https://tv.example.com")
+
+    def media_src() -> str:
+        policy = client.get("/").headers["content-security-policy-report-only"]
+        return dict(d.split(" ", 1) for d in policy.split("; "))["media-src"]
+
+    assert media_src() == "'self' blob: https://first.example.com https://*.giphy.com"
+    current[0] = "http://second.example.com:9191/proxy"
+    assert media_src() == "'self' blob: http://second.example.com:9191 https://*.giphy.com"
+
+
+def test_the_app_follows_a_dispatcharr_address_saved_while_it_runs(monkeypatch):
+    """Setup step 10: an address saved in the app reaches the CSP without a restart."""
+    from app.config import settings
+
+    client = TestClient(app, base_url="https://tv.example.com")
+    monkeypatch.setattr(settings, "dispatcharr_url", "https://dispatcharr.example.com:9191")
+    policy = client.get("/").headers["content-security-policy-report-only"]
+    directives = dict(d.split(" ", 1) for d in policy.split("; "))
+    assert "https://dispatcharr.example.com:9191" in directives["media-src"].split()
+    assert "https://dispatcharr.example.com:9191" in directives["connect-src"].split()

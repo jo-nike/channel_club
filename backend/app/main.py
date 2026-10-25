@@ -299,7 +299,8 @@ app.add_middleware(
     exempt_paths=frozenset({"/api/highlight/upload"}),
 )
 # Added last so it wraps everything, the body cap's 413 included.
-app.add_middleware(SecurityHeadersMiddleware, stream_base_url=settings.dispatcharr_url)
+# Read per request, so a Dispatcharr address saved in the app reaches the CSP at once
+app.add_middleware(SecurityHeadersMiddleware, stream_base_url=lambda: settings.dispatcharr_url)
 
 # Register API routers FIRST (they take precedence over static files)
 app.include_router(auth_router, prefix="/api/auth")

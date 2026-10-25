@@ -1,4 +1,6 @@
 import re
+from collections.abc import Callable
+from functools import lru_cache
 from urllib.parse import urlsplit
 
 from starlette.datastructures import Headers, MutableHeaders
@@ -10,6 +12,32 @@ API_CSP = "default-src 'none'; frame-ancestors 'none'"
 SAFE_HOST = re.compile(r"[A-Za-z0-9.:\[\]-]+")
 
 
+@lru_cache(maxsize=8)
+def _document_csp_parts(stream_base_url: str) -> tuple[str, str]:
+    """The document policy around the socket origin, for one stream base URL."""
+    stream = urlsplit(stream_base_url)
+    # An empty or scheme-less DISPATCHARR_URL has no origin to allow ('://'
+    # would be an invalid source), so it is left out.
+    stream_origin = (
+        f" {stream.scheme}://{stream.netloc}"
+        if stream.scheme in ("http", "https") and stream.netloc
+        else ""
+    )
+    head = (
+        "default-src 'self'; script-src 'self' https://www.gstatic.com; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob: https://*.giphy.com https://assets.nhle.com; "
+        f"media-src 'self' blob:{stream_origin} https://*.giphy.com; "
+        "connect-src 'self'"
+    )
+    tail = (
+        f"{stream_origin} https://plex.tv; worker-src 'self' blob:; object-src 'none'; "
+        "base-uri 'none'; form-action 'self'; frame-ancestors 'none'; "
+        "report-uri /api/csp-report"
+    )
+    return head, tail
+
+
 class SecurityHeadersMiddleware:
     """Add nosniff, Referrer-Policy, X-Frame-Options and a CSP to every HTTP response.
 
@@ -19,34 +47,24 @@ class SecurityHeadersMiddleware:
     segment proxy) pass through unbuffered.
     """
 
-    def __init__(self, app: ASGIApp, stream_base_url: str) -> None:
+    def __init__(self, app: ASGIApp, stream_base_url: str | Callable[[], str]) -> None:
         self.app = app
-        stream = urlsplit(stream_base_url)
-        # An empty or scheme-less DISPATCHARR_URL has no origin to allow ('://'
-        # would be an invalid source), so it is left out.
-        stream_origin = (
-            f" {stream.scheme}://{stream.netloc}"
-            if stream.scheme in ("http", "https") and stream.netloc
-            else ""
-        )
-        # Older Safari does not match wss: with 'self', so the socket's origin is
-        # named per request from its Host header.
-        self.document_csp_head = (
-            "default-src 'self'; script-src 'self' https://www.gstatic.com; "
-            "style-src 'self' 'unsafe-inline'; "
-            "img-src 'self' data: blob: https://*.giphy.com https://assets.nhle.com; "
-            f"media-src 'self' blob:{stream_origin} https://*.giphy.com; "
-            "connect-src 'self'"
-        )
-        self.document_csp_tail = (
-            f"{stream_origin} https://plex.tv; worker-src 'self' blob:; object-src 'none'; "
-            "base-uri 'none'; form-action 'self'; frame-ancestors 'none'; "
-            "report-uri /api/csp-report"
-        )
+        # A callable is read on every document request, so an address saved in
+        # the app applies without a restart
+        self._stream_base_url = stream_base_url
+
+    @property
+    def stream_base_url(self) -> str:
+        if callable(self._stream_base_url):
+            return self._stream_base_url()
+        return self._stream_base_url
 
     def document_csp(self, host: str | None) -> str:
+        # Older Safari does not match wss: with 'self', so the socket's origin is
+        # named per request from its Host header.
+        head, tail = _document_csp_parts(self.stream_base_url)
         socket = f" wss://{host}" if host and SAFE_HOST.fullmatch(host) else ""
-        return self.document_csp_head + socket + self.document_csp_tail
+        return head + socket + tail
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
