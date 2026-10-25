@@ -12,7 +12,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
 from pydantic import BaseModel, StringConstraints
 
-from app.config import settings
 from app.models.auth import TokenPayload
 from app.routers.auth_deps import get_current_user
 from app.services.gif import GifServiceError, gif_service
@@ -56,27 +55,6 @@ def _http_error(e: GifServiceError) -> HTTPException:
 def _log_level(e: GifServiceError) -> str:
     """A Giphy rate limit is expected under load, not an outage."""
     return "WARNING" if e.status_code == 429 else "ERROR"
-
-
-class GifFeatureResponse(BaseModel):
-    """Response for GIF feature status."""
-
-    enabled: bool
-
-
-@router.get("/feature", response_model=GifFeatureResponse)
-async def get_feature_status(
-    user: TokenPayload = Depends(get_current_user),
-) -> GifFeatureResponse:
-    """Check if GIF feature is enabled.
-
-    This endpoint allows the frontend to conditionally show/hide
-    the GIF button based on the server-side feature flag.
-    """
-    log.debug("GET /gif/feature request")
-    key = settings.giphy_api_key
-    enabled = key is not None and len(key.get_secret_value()) > 0
-    return GifFeatureResponse(enabled=enabled)
 
 
 @router.get("/trending", response_model=GifResponse)

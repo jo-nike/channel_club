@@ -8,7 +8,6 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 from loguru import logger
-from pydantic import SecretStr
 
 from app.config import settings
 from app.main import app
@@ -45,51 +44,6 @@ def giphy_reply(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[httpx.Response
     with patch("app.services.gif.httpx.AsyncClient", side_effect=make_client):
         yield replies
     gif_service.clear_cache()
-
-
-class TestGetFeatureStatus:
-    """Tests for GET /api/gif/feature endpoint."""
-
-    def test_requires_authentication(self, client: TestClient) -> None:
-        """Unauthenticated request returns 401."""
-        response = client.get("/api/gif/feature")
-        assert response.status_code == 401
-
-    def test_returns_enabled_false_when_api_key_not_set(
-        self, client: TestClient, auth_header: dict[str, str]
-    ) -> None:
-        """Returns enabled=false when API key is not set."""
-        with patch("app.routers.gif.settings") as mock_settings:
-            mock_settings.giphy_api_key = None
-
-            response = client.get("/api/gif/feature", headers=auth_header)
-
-        assert response.status_code == 200
-        assert response.json() == {"enabled": False}
-
-    def test_returns_enabled_false_when_api_key_empty(
-        self, client: TestClient, auth_header: dict[str, str]
-    ) -> None:
-        """Returns enabled=false when API key is empty string."""
-        with patch("app.routers.gif.settings") as mock_settings:
-            mock_settings.giphy_api_key = SecretStr("")
-
-            response = client.get("/api/gif/feature", headers=auth_header)
-
-        assert response.status_code == 200
-        assert response.json() == {"enabled": False}
-
-    def test_returns_enabled_true_when_api_key_set(
-        self, client: TestClient, auth_header: dict[str, str]
-    ) -> None:
-        """Returns enabled=true when API key is configured."""
-        with patch("app.routers.gif.settings") as mock_settings:
-            mock_settings.giphy_api_key = SecretStr("test-api-key")
-
-            response = client.get("/api/gif/feature", headers=auth_header)
-
-        assert response.status_code == 200
-        assert response.json() == {"enabled": True}
 
 
 class TestGetTrending:

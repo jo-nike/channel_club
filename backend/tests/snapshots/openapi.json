@@ -1934,20 +1934,6 @@
         "title": "FfmpegTools",
         "type": "object"
       },
-      "GifFeatureResponse": {
-        "description": "Response for GIF feature status.",
-        "properties": {
-          "enabled": {
-            "title": "Enabled",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "enabled"
-        ],
-        "title": "GifFeatureResponse",
-        "type": "object"
-      },
       "GifItem": {
         "description": "Individual GIF item.",
         "properties": {
@@ -4834,33 +4820,6 @@
         "summary": "Get Feature Status",
         "tags": [
           "feedback"
-        ]
-      }
-    },
-    "/api/gif/feature": {
-      "get": {
-        "description": "Check if GIF feature is enabled.\n\nThis endpoint allows the frontend to conditionally show/hide\nthe GIF button based on the server-side feature flag.",
-        "operationId": "get_feature_status_api_gif_feature_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GifFeatureResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Get Feature Status",
-        "tags": [
-          "gif"
         ]
       }
     },
