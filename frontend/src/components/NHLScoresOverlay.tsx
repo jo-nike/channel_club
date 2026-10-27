@@ -519,9 +519,11 @@ function GameActions({
     onDone()
   }
 
-  // Each channel showing the game, with what you can do about it
+  // Each channel showing the game, with what you can do about it. These grids
+  // are grid-cols-1, a column that can shrink: an implicit one grows to the
+  // full name, pushing the button out of the popover instead of truncating it
   const channelList = (action: (channel: Channel) => ReactNode) => (
-    <ul aria-label={`Channels showing ${matchup}`} className="grid gap-1.5">
+    <ul aria-label={`Channels showing ${matchup}`} className="grid grid-cols-1 gap-1.5">
       {channels.map((channel) => (
         <li key={channel.id} className="flex items-center justify-between gap-2">
           <span className="min-w-0 truncate text-sm">{channel.name}</span>
@@ -565,7 +567,7 @@ function GameActions({
     body = <p className="text-sm text-muted-foreground">It's on Live now.</p>
   } else if (chatEnabled) {
     body = (
-      <div className="grid gap-2">
+      <div className="grid grid-cols-1 gap-2">
         <p className="text-sm text-muted-foreground">
           Suggest it in chat. Anyone allowed to change live TV can put it on.
         </p>
@@ -590,7 +592,7 @@ function GameActions({
   }
 
   return (
-    <div className="grid gap-2">
+    <div className="grid grid-cols-1 gap-2">
       <p className="font-display text-base font-extrabold tabular-nums">{matchup}</p>
       {body}
     </div>
