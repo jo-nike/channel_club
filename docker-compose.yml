@@ -1,5 +1,5 @@
 services:
-  iptv-viewer:
+  channel-club:
     build:
       context: .
       dockerfile: Dockerfile
