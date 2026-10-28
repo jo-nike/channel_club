@@ -80,7 +80,7 @@ class TestFeature:
             (True, "https://user:pw@ntfy.test", "club", False),
             (True, "https://ntfy.test/?x=1", "club", False),
             (True, "https://ntfy.test", "club-feedback_1", True),
-            (True, "http://192.168.50.79:8090", "club", True),
+            (True, "http://10.0.0.5:8090", "club", True),
         ],
     )
     def test_flag_and_configuration_gate_the_feature(

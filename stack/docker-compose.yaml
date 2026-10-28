@@ -1,15 +1,15 @@
 # Production compose for Channel Club. This file is canonical: CI renders
 # ${IMAGE_REFERENCE:?Immutable image digest required} to the pushed registry digest, scp's the result to
-# plex-stack at /srv/channel-club/docker-compose.yaml,
-# and runs `docker compose up -d` there.
+# DEPLOY_DIR on DEPLOY_HOST (see .gitea/workflows/build.yml), and runs
+# `docker compose up -d` there.
 #
 # Image references only, never a `build:` key — the image is built and scanned
 # in CI before it ever reaches the host. The repo-root docker-compose.yml is
 # the local build-from-source counterpart.
 #
-# .env is NOT deployed from CI. The Infisical agent on plex-stack renders it
-# from the homelab-infra store at /plex/iptv_viewer. A new stack has no .env
-# until those secrets and a host template exist, so CI asserts the file is
+# .env is NOT deployed from CI. The host renders it from its secret store. A
+# new stack has no .env until those secrets and a host template exist, so CI
+# asserts the file is
 # present before deploying rather than starting with empty variables.
 #
 # The CI render is a literal string replace of "${IMAGE_REFERENCE:?Immutable image digest required}", so
@@ -35,7 +35,7 @@ services:
       # The highlight ring buffer, captures, exports and uploads reach a few GB
       # (4 recorders ~320 MB, 3 captures per owner ~75 MB each, 4 export/upload
       # workspaces up to 256 MiB each), so they get a disk-backed volume rather
-      # than RAM that Plex needs. The startup sweep empties it on every boot.
+      # than RAM. The startup sweep empties it on every boot.
       - channel-club-scratch:/tmp/highlights
     # The root filesystem is read-only: only the mounts below and above are
     # writable. Cast HLS output is ~250 MB at 8 sessions and short-lived, so a

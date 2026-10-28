@@ -392,9 +392,7 @@ def test_cors_origins_setting_allows_listed_origin_only(reloaded_main):
     client = TestClient(reloaded_main(cors_origins=["http://localhost:5173"]))
     allowed = client.options("/api/settings", headers=PREFLIGHT)
     assert allowed.headers["access-control-allow-origin"] == "http://localhost:5173"
-    other = client.options(
-        "/api/settings", headers={**PREFLIGHT, "Origin": "http://192.168.50.167:5173"}
-    )
+    other = client.options("/api/settings", headers={**PREFLIGHT, "Origin": "http://10.0.0.5:5173"})
     assert "access-control-allow-origin" not in other.headers
 
 
