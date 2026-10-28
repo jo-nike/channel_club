@@ -12,16 +12,25 @@ import time
 from pathlib import Path
 from urllib.request import urlopen
 
-# --remove-orphans: when a release renames the service, the old container still
-# holds container_name and would block the new one. The same applies in reverse
-# when rolling back across the rename.
-COMPOSE_UP = ["docker", "compose", "up", "-d", "--remove-orphans"]
-
 
 def atomic_write(path: Path, content: str) -> None:
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(content)
     os.replace(temporary, path)
+
+
+def replace_container(directory: Path) -> None:
+    """Swap the running container for the installed Compose file's.
+
+    down runs first, and waits for the stop: when a release renames the service,
+    the old container still holds container_name. Compose v5's up --remove-orphans
+    stops the orphan in parallel with creating the new container, which then fails
+    on the name, while the daemon finishes the stop after the CLI has exited; a
+    rollback in that window verifies a container that is about to die. down
+    --remove-orphans removes either service's container, and keeps named volumes.
+    """
+    subprocess.run(["docker", "compose", "down", "--remove-orphans"], cwd=directory, check=True)
+    subprocess.run(["docker", "compose", "up", "-d"], cwd=directory, check=True)
 
 
 def verify_health(url: str, version: str, build_id: str | None = None) -> None:
@@ -80,7 +89,7 @@ def roll_back(directory: Path, installed: dict | None, health_url: str, started:
         return
     label = installed.get("build_id") or installed["version"]
     try:
-        subprocess.run(COMPOSE_UP, cwd=directory, check=True)
+        replace_container(directory)
         if installed.get("build_id") is None:
             verify_health(health_url, installed["version"])
         else:
@@ -139,7 +148,7 @@ def deploy(
         try:
             subprocess.run(["docker", "compose", "pull"], cwd=directory, check=True)
             started = True
-            subprocess.run(COMPOSE_UP, cwd=directory, check=True)
+            replace_container(directory)
             # Old records use version as their build identifier. New releases must
             # match both semantic version and exact build, even on same-version reruns.
             if build_id is None:

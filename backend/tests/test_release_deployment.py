@@ -40,7 +40,7 @@ def test_ops01_delayed_older_commit_is_refused(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="Stale"):
         release.deploy(host, old_stage, older, "old", "http://controlled/health", IMAGE)
     assert (host / "docker-compose.yaml").read_text() == "new"
-    assert run.call_count == 2
+    assert run.call_count == 3  # pull, down, up for the newer release only
     assert health.call_count == 1
 
 
@@ -270,8 +270,9 @@ def test_failed_pull_restores_compose_without_restarting(tmp_path, monkeypatch):
 
 def test_compose_calls_survive_a_service_rename(tmp_path, monkeypatch):
     """The service key changed (iptv-viewer -> channel-club) while container_name
-    stayed: every up removes the other key's container, in deploys and rollbacks,
-    and nothing names a service that only one side of the rename has."""
+    stayed: every up follows a down --remove-orphans, which removes either key's
+    container before the name is reused, in deploys and rollbacks alike, and
+    nothing names a service that only one side of the rename has."""
     source = "a" * 40
     host, run = failing_host(tmp_path, monkeypatch, {"good"})
     release.deploy(host, stage(tmp_path, "good", [source]), source, "good", "http://h", image("1"))
@@ -282,7 +283,10 @@ def test_compose_calls_survive_a_service_rename(tmp_path, monkeypatch):
     compose = [call.args[0] for call in run.call_args_list if call.args[0][1] == "compose"]
     ups = [args for args in compose if "up" in args]
     assert len(ups) == 3  # good, bad, rollback to good
-    assert all(args == ["docker", "compose", "up", "-d", "--remove-orphans"] for args in ups)
+    assert all(args == ["docker", "compose", "up", "-d"] for args in ups)
+    for index, args in enumerate(compose):
+        if "up" in args:
+            assert compose[index - 1] == ["docker", "compose", "down", "--remove-orphans"]
     assert ["docker", "compose", "pull"] in compose
 
 
