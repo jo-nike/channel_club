@@ -1,6 +1,6 @@
 # Channel Club frontend
 
-React/TypeScript frontend built with Vite. See the [root setup guide](../README.md) for credentials and complete local startup.
+React/TypeScript frontend built with Vite. Run it together with the backend (see [backend/README.md](../backend/README.md)), or start both with `./run.sh` from the repository root.
 
 ```bash
 npm ci
@@ -13,10 +13,6 @@ Open `http://localhost:5173` or the development machine's LAN address. `/api` HT
 npm test
 npm run lint
 npm run build
-node scripts/check-dev-proxy.mjs
-node scripts/check-service-worker.mjs
 ```
 
-Browser checks use Chrome and synthetic fixtures; the dev proxy check requires port 8001 free. Receiver/device/media playback checks require a separate controlled integration environment.
-
-Application versioning and Docker releases are documented in the [root release guide](../README.md#application-version-and-releases).
+Application versioning and Docker releases are documented in the [release guide](../scripts/README.md).
